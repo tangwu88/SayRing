@@ -191,9 +191,25 @@
 - 发现：GitHub API 首次复核仍返回 `PUBLIC`，与已确认的“合作方 SDK 仓库设为 Private”要求不符。
 - 修正：仓库 `saydian88-cmyk/saydianapp` 已改为 `PRIVATE`，修改后再次通过 GitHub API 确认。
 
+### 03:44 源码提交与云端 CI
+
+- 源码提交：`661dd07493d2d7d38636f1b2eb059f2da63d5fc5` (`feat: refine UX and capability-based feature visibility`)，已推送到 `origin/main`。
+- [`mobile-ci` #32767769922](https://github.com/saydian88-cmyk/saydianapp/actions/runs/32767769922)：通过。
+  - `quality`：格式、静态检查、全量覆盖率测试全部通过。
+  - `ios`：macOS 26 / Xcode 26.5 上 `flutter build ios --release --no-codesign` 通过，用时 4 分 9 秒。
+  - `android`：Linux 冷构建 `flutter build apk --debug` 通过，用时 12 分 26 秒。
+
+### 03:44 正式 Android 签名工作流（首次）
+
+- [`Android Online Release` #32767794231](https://github.com/saydian88-cmyk/saydianapp/actions/runs/32767794231)：失败。
+- 失败步骤：`Install Android signing key`，明确提示 `Missing GitHub Secret: ANDROID_KEYSTORE_BASE64`；编译与制品上传步骤因此未执行。
+- 配置复核：仓库 Secret 与 Variable 列表均为空，`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`、`ANDROID_STORE_PASSWORD` 也未配置。
+- 结论：保留本地 Debug 证书签名的内部 QA 包，不伪称已生成正式签名包；需由持有正式密钥的负责人完成 4 项 Secrets 后重跑。
+
 ## 交付时待验边界
 
 - 华为 PPA-LX3 现有安装包与本机密钥签名不同，最新包未在该手机上替换；保留了旧包数据。
 - 由于最新包未能覆盖安装到华为手机，本轮没有把新能力过滤代码与真实手表再做一次端到端连接，更不声称已验证两种手表。
-- Windows 无法本地执行 Xcode/iOS 无签名编译；提交推送后由 `mobile-ci` 的 macOS 任务执行，必须等待远程结果再更新本节。
+- iOS 无签名 Release 已在 macOS CI 通过；但仓库未配置 iOS 证书与 Ad Hoc Profile Secrets，不声称已生成可安装 IPA。
+- Android 正式签名的 4 项 GitHub Secrets 未配置，暂时只能交付本地 QA 包，不可用作正式发布包。
 - 审计截图和 `build/` 仅作本机验收证据，不提交 Git；内部 QA APK 位于已忽略的 `artifacts/`。
