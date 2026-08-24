@@ -71,6 +71,8 @@ import VeepooBleSDK
       )
     case "disconnect":
       adapter.disconnect(result)
+    case "getDeviceDetails":
+      adapter.getDeviceDetails(result)
     case "getCapabilities":
       result(adapter.capabilities())
     case "syncHealthData":
@@ -125,6 +127,7 @@ private protocol WearableAdapter: AnyObject {
     result: @escaping FlutterResult
   )
   func disconnect(_ result: @escaping FlutterResult)
+  func getDeviceDetails(_ result: @escaping FlutterResult)
   func capabilities() -> [String: Any]
   func syncHealthData(cursor: String?, result: @escaping FlutterResult)
   func startMeasurement(_ metric: String, result: @escaping FlutterResult)
@@ -161,6 +164,7 @@ private final class UnconfiguredWearableAdapter: WearableAdapter {
     result: @escaping FlutterResult
   ) { missing(result) }
   func disconnect(_ result: @escaping FlutterResult) { missing(result) }
+  func getDeviceDetails(_ result: @escaping FlutterResult) { missing(result) }
   func capabilities() -> [String: Any] { [:] }
   func syncHealthData(cursor: String?, result: @escaping FlutterResult) { missing(result) }
   func startMeasurement(_ metric: String, result: @escaping FlutterResult) { missing(result) }
@@ -193,6 +197,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
   private weak var events: WearableStreamHandler?
   private var scanned: [String: VPPeripheralModel] = [:]
   private var connected: VPPeripheralModel?
+  private var connectedRouteID: String?
   private var scanResult: FlutterResult?
   private var connectResult: FlutterResult?
   private var awaitingAutomaticReconnect = false
@@ -266,10 +271,10 @@ private final class VeepooWearableAdapter: WearableAdapter {
     emit("state", ["value": "scanning"])
     manager.veepooSDKStartScanDeviceAndReceiveScanningDevice { [weak self] model in
       guard let self,
-            let model,
-            let deviceID = model.deviceAddress,
-            !deviceID.isEmpty else { return }
-      self.scanned[deviceID] = model
+            let model else { return }
+      let routeID = Self.routeIdentifier(model)
+      guard !routeID.isEmpty else { return }
+      self.scanned[routeID] = model
     }
     // Match the Android HBand scan window. Some W9-family firmware advertises
     // less frequently and can be missed by the former eight-second window.
@@ -278,8 +283,8 @@ private final class VeepooWearableAdapter: WearableAdapter {
       self.manager.veepooSDKStopScanDevice()
       self.scanResult = nil
       let payload = self.scanned.values.sorted { $0.rssi.intValue > $1.rssi.intValue }.map { model in
-        let deviceID = model.deviceAddress ?? ""
-        let deviceName = model.deviceName ?? "未知设备"
+        let deviceID = Self.routeIdentifier(model)
+        let deviceName = Self.displayName(model.deviceName)
         return [
           "id": deviceID,
           "name": deviceName,
@@ -304,6 +309,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     connectResult = result
     userProfile = profile
     connected = model
+    connectedRouteID = deviceID
     emit("state", ["value": "connecting"])
     manager.veepooSDKStopScanDevice()
     manager.veepooSDKConnectDevice(model) { [weak self] state in
@@ -327,21 +333,15 @@ private final class VeepooWearableAdapter: WearableAdapter {
     ) { [weak self] status in
       guard let self else { return }
       if status == 1 {
+        let details = self.deviceDetails(device)
+        self.emit("deviceDetails", details)
         if let callback = self.connectResult {
           self.connectResult = nil
           self.emit("state", ["value": "ready"])
           callback(nil)
         } else if self.awaitingAutomaticReconnect {
           self.awaitingAutomaticReconnect = false
-          let deviceID = device.deviceAddress ?? ""
-          let deviceName = device.deviceName ?? "未知设备"
-          self.emit("reconnected", [
-            "id": deviceID,
-            "name": deviceName,
-            "model": deviceName,
-            "firmwareVersion": device.deviceVersion ?? "",
-            "rssi": device.rssi.intValue,
-          ])
+          self.emit("reconnected", details)
         }
       } else {
         self.awaitingAutomaticReconnect = false
@@ -364,8 +364,17 @@ private final class VeepooWearableAdapter: WearableAdapter {
   func disconnect(_ result: @escaping FlutterResult) {
     manager.veepooSDKDisconnectDevice()
     connected = nil
+    connectedRouteID = nil
     emit("disconnected", [:])
     result(nil)
+  }
+
+  func getDeviceDetails(_ result: @escaping FlutterResult) {
+    guard let device = connected else {
+      result(nil)
+      return
+    }
+    result(deviceDetails(device))
   }
 
   func capabilities() -> [String: Any] {
@@ -422,15 +431,27 @@ private final class VeepooWearableAdapter: WearableAdapter {
       result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
       return
     }
-    emit("syncProgress", ["progress": 0.0, "cursor": cursor as Any])
+    emit("syncProgress", [
+      "deviceId": connectedRouteID ?? "",
+      "progress": 0.0,
+      "cursor": cursor as Any,
+    ])
     manager.peripheralManage.veepooSdkStartReadDeviceAllData { [weak self] state, totalDays, currentDay, progress in
       guard let self else { return }
       let total = max(totalDays, 1)
       let fraction = min(1.0, (Double(currentDay) + Double(progress) / 100.0) / Double(total))
-      self.emit("syncProgress", ["progress": fraction, "cursor": cursor as Any])
+      self.emit("syncProgress", [
+        "deviceId": self.connectedRouteID ?? "",
+        "progress": fraction,
+        "cursor": cursor as Any,
+      ])
       if state == .complete {
         let records = self.recordsFromDatabase()
-        self.emit("syncProgress", ["progress": 1.0, "cursor": cursor as Any])
+        self.emit("syncProgress", [
+          "deviceId": self.connectedRouteID ?? "",
+          "progress": 1.0,
+          "cursor": cursor as Any,
+        ])
         result(records)
       } else if state == .invalid {
         result(FlutterError(code: "SYNC_UNSUPPORTED", message: "当前设备不支持健康数据同步", details: nil))
@@ -600,7 +621,10 @@ private final class VeepooWearableAdapter: WearableAdapter {
       guard let self else { return }
       let denominator = max(total, 1)
       let fraction = min(1.0, (Double(current) + Double(progress) / 100.0) / Double(denominator))
-      self.emit("sportSyncProgress", ["progress": fraction])
+      self.emit("sportSyncProgress", [
+        "deviceId": self.connectedRouteID ?? "",
+        "progress": fraction,
+      ])
       if state == .complete {
         let records = (VPDataBaseOperation.veepooSDKGetDeviceRunningData(withDate: nil, andTableID: model.deviceAddress) as? [[String: Any]] ?? [])
           .compactMap(WearablePayloadMapper.sportRecord)
@@ -867,7 +891,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       manager.peripheralManage.veepooSDKSettingCameraType(enabled ? .enter : .exit) { [weak self] type in
         guard let self else { return }
         if type == .photo {
-          self.emit("cameraShutter", ["deviceId": model.deviceAddress ?? ""])
+          self.emit("cameraShutter", ["deviceId": self.connectedRouteID ?? ""])
           return
         }
         self.cameraRemoteActive = type == .enter
@@ -1068,7 +1092,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func record(type: String, values: [String: NSNumber], unit: String, at: Date, samples: [NSNumber] = []) -> [String: Any] {
     let timestamp = Self.isoFormatter.string(from: at)
-    let deviceID = connected?.deviceAddress ?? ""
+    let deviceID = connectedRouteID ?? ""
     var payload: [String: Any] = [
       "id": "\(deviceID):\(type):\(timestamp)",
       "type": type,
@@ -1126,6 +1150,45 @@ private final class VeepooWearableAdapter: WearableAdapter {
     if let value = userProfile[key] as? NSNumber { return value.intValue }
     if let value = userProfile[key] as? String, let parsed = Int(value) { return parsed }
     return fallback
+  }
+
+  private func deviceDetails(_ device: VPPeripheralModel) -> [String: Any] {
+    let deviceName = Self.displayName(device.deviceName)
+    return [
+      "id": connectedRouteID ?? Self.routeIdentifier(device),
+      "name": deviceName,
+      "model": deviceName,
+      "firmwareVersion": device.deviceVersion ?? "",
+      "rssi": device.rssi.intValue,
+    ]
+  }
+
+  /// CoreBluetooth UUID is the only stable iOS connection key. Veepoo's
+  /// `deviceAddress` can be a privacy/BLE address and can change after
+  /// authentication, so it must never be presented as the watch's MAC.
+  private static func routeIdentifier(_ device: VPPeripheralModel) -> String {
+    device.peripheral.identifier.uuidString
+  }
+
+  private static func displayName(_ rawName: String?) -> String {
+    let withoutControls = (rawName ?? "")
+      .components(separatedBy: .controlCharacters)
+      .joined()
+      .replacingOccurrences(of: "\u{FFFD}", with: "")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let cleaned = withoutControls.replacingOccurrences(
+      of: "\\s+",
+      with: " ",
+      options: .regularExpression
+    )
+    let normalized = cleaned.uppercased().replacingOccurrences(
+      of: "[^A-Z0-9]",
+      with: "",
+      options: .regularExpression
+    )
+    if normalized.contains("W9S") { return "SD-Watch-W9S" }
+    if normalized.contains("W9") { return "SD-Watch-W9" }
+    return cleaned.isEmpty ? "未知设备" : cleaned
   }
 
   private func emit(_ type: String, _ payload: [String: Any]) {

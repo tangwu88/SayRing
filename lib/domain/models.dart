@@ -158,7 +158,7 @@ class DeviceInfo {
 
   factory DeviceInfo.fromMap(Map<Object?, Object?> map) => DeviceInfo(
     id: '${map['id'] ?? map['identifier'] ?? ''}',
-    name: '${map['name'] ?? '赛电设备'}',
+    name: _displayName(map['name']),
     model: map['model']?.toString(),
     serialNumber: map['serialNumber']?.toString(),
     hardwareAddress: map['hardwareAddress']?.toString(),
@@ -169,6 +169,20 @@ class DeviceInfo {
     rssi: map['rssi'] is num ? (map['rssi'] as num).toInt() : null,
     lastSyncAt: DateTime.tryParse('${map['lastSyncAt'] ?? ''}'),
   );
+
+  static String _displayName(Object? raw) {
+    final cleaned = '${raw ?? ''}'
+        .replaceAll(RegExp(r'[\u0000-\u001F\u007F\uFFFD]'), '')
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ');
+    final normalized = cleaned.toUpperCase().replaceAll(
+      RegExp(r'[^A-Z0-9]'),
+      '',
+    );
+    if (normalized.contains('W9S')) return 'SD-Watch-W9S';
+    if (normalized.contains('W9')) return 'SD-Watch-W9';
+    return cleaned.isEmpty ? '赛电设备' : cleaned;
+  }
 
   Map<String, Object?> toJson() => {
     'id': id,
@@ -216,7 +230,7 @@ class DeviceInfo {
     if (RegExp(
       r'^[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}$',
     ).hasMatch(identifier)) {
-      return 'iOS 标识 · ${identifier.substring(0, 8)}…${identifier.substring(identifier.length - 8)}';
+      return 'iOS 连接标识 · ${identifier.substring(0, 8)}…${identifier.substring(identifier.length - 8)}';
     }
     return '设备标识 · $identifier';
   }

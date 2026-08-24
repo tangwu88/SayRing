@@ -34,10 +34,21 @@ void main() {
     const compactAddress = DeviceInfo(id: 'veepoo:5c8bbc6f26fc', name: 'ET488');
 
     expect(iOSDevice.macAddress, isNull);
-    expect(iOSDevice.identifierLabel, 'iOS 标识 · 36CE3B81…B1EB2C7D');
+    expect(iOSDevice.identifierLabel, 'iOS 连接标识 · 36CE3B81…B1EB2C7D');
     expect(yucDevice.macAddress, '07:43:00:00:4D:E9');
     expect(yucDevice.identifierLabel, 'MAC · 07:43:00:00:4D:E9');
     expect(compactAddress.macAddress, '5C:8B:BC:6F:26:FC');
+  });
+
+  test('normalizes corrupted W9-family scan names', () {
+    final w9s = DeviceInfo.fromMap({
+      'id': 'UUID-1',
+      'name': '  SD-\u0000WATCH-W9S\uFFFD  ',
+    });
+    final w9 = DeviceInfo.fromMap({'id': 'UUID-2', 'name': 'sd_watch_w9'});
+
+    expect(w9s.name, 'SD-Watch-W9S');
+    expect(w9.name, 'SD-Watch-W9');
   });
 
   test('manual measurement support is independent from synced metrics', () {
