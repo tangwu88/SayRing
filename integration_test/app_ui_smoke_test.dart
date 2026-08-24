@@ -42,9 +42,11 @@ void main() {
     await tester.tap(heartRate);
     await tester.pumpAndSettle();
     expect(find.text('心率分析'), findsOneWidget);
+    expect(find.text('连接支持该指标的手表后测量'), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('health-measure-heartRate')),
-      findsOneWidget,
+      find.byKey(const ValueKey('health-measure-heart_rate')),
+      findsNothing,
+      reason: '未连接支持设备时不应显示可执行的心率测量按钮',
     );
     await tester.tap(find.text('周'));
     await tester.pumpAndSettle();
