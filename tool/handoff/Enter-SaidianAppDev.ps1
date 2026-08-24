@@ -69,7 +69,6 @@ $env:ANDROID_SDK_ROOT = $androidSdk
 $env:PUB_CACHE = $pubCache
 $env:GRADLE_USER_HOME = $gradleUserHome
 $env:ANDROID_USER_HOME = $androidUserHome
-$env:ANDROID_SDK_HOME = $androidUserHome
 $env:FLUTTER_SUPPRESS_ANALYTICS = 'true'
 $env:Path = (@(
     (Join-Path $flutterRoot 'bin'),
