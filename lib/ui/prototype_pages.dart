@@ -24,7 +24,6 @@ import '../services/device_weather_service.dart';
 import '../services/device_watch_face_market_service.dart';
 import 'app_theme.dart';
 import 'brand_assets.dart';
-import 'device_sdk_badge.dart';
 import 'watch_face_market_page.dart';
 
 class RegistrationPage extends StatefulWidget {
@@ -2190,7 +2189,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     DeviceFeature.healthAssessment => _buildHealthAssessmentPanel(busy),
     DeviceFeature.healthMonitoring => _buildHealthMonitoringPanel(),
     _ => FeatureStateCard(
-      message: '此功能暂时无法使用，请稍后再试',
+      message: '请在手表上操作',
       detail: _deviceFeatureDescription(widget.feature),
       icon: _deviceFeatureIcon(widget.feature),
     ),
@@ -2260,7 +2259,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             child: ListTile(
               leading: const Icon(Icons.info_outline_rounded),
               title: const Text('已安装表盘'),
-              subtitle: const Text('当前 Yuc 设备支持读取和切换；在线表盘需使用厂商匹配的专用资源包。'),
+              subtitle: const Text('可读取和切换手表内已有表盘，更多表盘以当前手表支持情况为准。'),
             ),
           ),
           const SizedBox(height: 12),
@@ -3159,7 +3158,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     if (supported.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('当前手表联系人协议不支持 SOS 设置')));
+      ).showSnackBar(const SnackBar(content: Text('当前手表不支持设置 SOS 联系人')));
       return;
     }
     Map<String, Object?>? picked = supported.firstWhere(
@@ -3785,10 +3784,6 @@ class _DeviceFeatureHeader extends StatelessWidget {
                     height: 1.4,
                   ),
                 ),
-                if (device != null) ...[
-                  const SizedBox(height: 8),
-                  DeviceSdkBadge(source: device!.sdkSource, compact: true),
-                ],
               ],
             ),
           ),
@@ -4523,7 +4518,7 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
                   leading: const Icon(Icons.system_update_alt_rounded),
                   title: const Text('检查更新'),
                   subtitle: Text(
-                    _updateService.isConfigured ? '通过安全版本服务检查更新' : '在线更新服务暂未配置',
+                    _updateService.isConfigured ? '检查是否有新版本' : '暂时无法在线检查更新',
                   ),
                   trailing: _checking
                       ? const SizedBox.square(

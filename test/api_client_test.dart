@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -88,6 +89,44 @@ void main() {
 
     expect(result['id'], 9);
     expect(result['to_member_id'], 2);
+  });
+
+  test('avatar upload follows the mini-program multipart contract', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'saydian-avatar-test-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final image = File('${directory.path}${Platform.pathSeparator}avatar.png');
+    await image.writeAsBytes(const [0x89, 0x50, 0x4E, 0x47]);
+
+    final client = MockClient((request) async {
+      expect(request.method, 'POST');
+      expect(request.url.path, '/api/v1/file/images');
+      expect(request.headers['authorization'], 'Bearer test-access-token');
+      expect(request.headers['token'], 'test-access-token');
+      expect(
+        request.headers['content-type'],
+        startsWith('multipart/form-data;'),
+      );
+      final multipartBody = latin1.decode(request.bodyBytes);
+      expect(multipartBody, contains('name="file"'));
+      expect(multipartBody, contains('filename="avatar.png"'));
+      return http.Response(
+        '{"code":200,"data":{"url":"/uploads/avatar.png"}}',
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    });
+    final api = SaydianApiClient(
+      _authenticatedVault(),
+      client: client,
+      baseUri: Uri.parse('https://example.invalid'),
+    );
+
+    expect(
+      await api.uploadImage(image.path),
+      'https://example.invalid/uploads/avatar.png',
+    );
   });
 
   test('add care rejects malformed mobile before making a request', () async {

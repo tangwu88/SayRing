@@ -478,7 +478,7 @@ class _ShopProductPageState extends State<ShopProductPage> {
     final skuId = _asInt(sku?['id']);
     if (sku == null || skuId == null) return;
     if (widget.controller.session == null) {
-      _showMessage('请退出预览模式并登录后购买');
+      _showMessage('请先登录后购买');
       return;
     }
     Navigator.of(context).push(

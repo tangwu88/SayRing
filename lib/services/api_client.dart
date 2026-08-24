@@ -79,6 +79,10 @@ abstract interface class SaydianApi {
   Future<void> deleteAccount();
 }
 
+abstract interface class SaydianFileApi {
+  Future<String> uploadImage(String filePath);
+}
+
 abstract interface class SaydianSmsAuthApi {
   Future<void> sendSmsCode({required String mobile, required String usage});
   Future<Session> registerWithSms({
@@ -154,6 +158,7 @@ abstract interface class SaydianCareApi {
 class SaydianApiClient
     implements
         SaydianApi,
+        SaydianFileApi,
         SaydianSmsAuthApi,
         SaydianArticleApi,
         SaydianShopApi,
@@ -379,6 +384,26 @@ class SaydianApiClient
       if (headPortrait?.isNotEmpty ?? false) 'head_portrait': headPortrait!,
     });
     _decode(response);
+  }
+
+  @override
+  Future<String> uploadImage(String filePath) async {
+    final response = await _withAuthorizationRetry((session) async {
+      final request = http.MultipartRequest('POST', _uri('/api/v1/file/images'))
+        ..headers['Authorization'] = 'Bearer ${session.accessToken}'
+        ..headers['token'] = session.accessToken
+        ..files.add(await http.MultipartFile.fromPath('file', filePath));
+      return _sendMultipart(request);
+    });
+    final data = _data(_decode(response));
+    final rawUrl = '${data['url'] ?? ''}'.trim();
+    if (rawUrl.isEmpty) {
+      throw const ApiException('头像上传失败，请稍后重试');
+    }
+    final uri = Uri.tryParse(rawUrl);
+    return uri != null && uri.hasScheme
+        ? rawUrl
+        : _baseUri.resolve(rawUrl).toString();
   }
 
   @override

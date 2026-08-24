@@ -28,6 +28,7 @@ void main() {
       MemoryHealthStore(),
       _NoopWearable(),
     )..enterPreview();
+    controller.healthRecords = [_historicalHeartRateRecord()];
     await tester.pumpWidget(
       MaterialApp(
         theme: buildSaydianTheme(),
@@ -95,16 +96,18 @@ void main() {
     expect(find.text('徒步'), findsOneWidget);
     expect(find.text('运动记录'), findsOneWidget);
 
-    const homeMetrics = [
+    expect(
+      find.byKey(const ValueKey('health-metric-heartRate')),
+      findsOneWidget,
+    );
+    for (final metric in const [
       'bloodPressure',
-      'heartRate',
       'bloodOxygen',
       'bodyTemperature',
       'ecg',
       'hrv',
-    ];
-    for (final metric in homeMetrics) {
-      expect(find.byKey(ValueKey('health-metric-$metric')), findsOneWidget);
+    ]) {
+      expect(find.byKey(ValueKey('health-metric-$metric')), findsNothing);
     }
     expect(
       tester
@@ -128,7 +131,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('health-metric-heartRate')));
     await tester.pumpAndSettle();
     expect(find.text('心率分析'), findsOneWidget);
-    expect(find.text('连接支持该指标的手表后测量'), findsOneWidget);
+    expect(find.byKey(const Key('health-measure-heart_rate')), findsNothing);
     await tester.pageBack();
     await tester.pumpAndSettle();
 
@@ -158,6 +161,7 @@ void main() {
       MemoryHealthStore(),
       _NoopWearable(),
     )..enterPreview();
+    controller.healthRecords = [_historicalHeartRateRecord()];
     addTearDown(controller.dispose);
 
     await tester.pumpWidget(
@@ -177,6 +181,61 @@ void main() {
     }
   });
 
+  testWidgets(
+    'historical metric remains visible while unsupported actions stay hidden',
+    (tester) async {
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              _NoopWearable(),
+            )
+            ..connectedDevice = const DeviceInfo(
+              id: 'watch-1',
+              name: 'Test Watch',
+            )
+            ..deviceCapabilityState = DeviceCapabilityState.ready
+            ..capabilities = const DeviceCapabilities(
+              metrics: {HealthMetric.heartRate},
+              manualMetrics: {HealthMetric.heartRate},
+            )
+            ..healthRecords = [
+              HealthRecord(
+                id: 'history-glucose',
+                metric: HealthMetric.bloodGlucose,
+                values: const {'value': 5.4},
+                unit: 'mmol/L',
+                measuredAt: DateTime.now().toUtc(),
+                timezone: '+08:00',
+                deviceId: 'previous-watch',
+                firmwareVersion: '1.0',
+                quality: 'device_reported',
+                source: MeasurementSource.wearable,
+                rawVersion: 1,
+              ),
+            ];
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: HealthPage(controller: controller),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('血糖'), findsOneWidget);
+      expect(find.text('血糖校准'), findsNothing);
+      await tester.tap(find.text('血糖'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('health-measure-blood_glucose')),
+        findsNothing,
+      );
+    },
+  );
+
   testWidgets('P40 Pro viewport and enlarged text remain overflow-free', (
     tester,
   ) async {
@@ -189,6 +248,7 @@ void main() {
       MemoryHealthStore(),
       _NoopWearable(),
     )..enterPreview();
+    controller.healthRecords = [_historicalHeartRateRecord()];
     addTearDown(controller.dispose);
 
     await tester.pumpWidget(
@@ -1032,6 +1092,20 @@ void main() {
     expect(find.text('心率详情'), findsOneWidget);
   });
 }
+
+HealthRecord _historicalHeartRateRecord() => HealthRecord(
+  id: 'history-heart-rate',
+  metric: HealthMetric.heartRate,
+  values: const {'value': 75},
+  unit: 'bpm',
+  measuredAt: DateTime.now().toUtc().subtract(const Duration(minutes: 5)),
+  timezone: '+08:00',
+  deviceId: 'previous-watch',
+  firmwareVersion: '1.0',
+  quality: 'device_reported',
+  source: MeasurementSource.wearable,
+  rawVersion: 1,
+);
 
 class _NoopApi implements SaydianApi, SaydianArticleApi {
   @override

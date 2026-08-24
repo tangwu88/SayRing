@@ -68,6 +68,8 @@ class AppController extends ChangeNotifier {
   String cloudSyncStatus = '尚未上传';
   DeviceInfo? connectedDevice;
   DeviceCapabilities? capabilities;
+  DeviceCapabilityState deviceCapabilityState =
+      DeviceCapabilityState.disconnected;
   SportMode? activeSport;
   List<DeviceInfo> scannedDevices = const [];
   List<HealthRecord> healthRecords = const [];
@@ -116,6 +118,30 @@ class AppController extends ChangeNotifier {
     }
     return result;
   }
+
+  Set<DeviceFeature> get visibleDeviceFeatures {
+    final current = capabilities;
+    if (!_hasResolvedDeviceCapabilities || current == null) {
+      return const <DeviceFeature>{};
+    }
+    return current.features.intersection(current.integratedFeatures);
+  }
+
+  bool get _hasResolvedDeviceCapabilities =>
+      deviceCapabilityState == DeviceCapabilityState.ready ||
+      (deviceCapabilityState == DeviceCapabilityState.disconnected &&
+          connectedDevice != null &&
+          capabilities != null);
+
+  bool shouldShowHealthMetric(HealthMetric metric) =>
+      latestByMetric.containsKey(metric) ||
+      (_hasResolvedDeviceCapabilities &&
+          capabilities?.supports(metric) == true);
+
+  bool canMeasureHealthMetric(HealthMetric metric) =>
+      connectedDevice != null &&
+      _hasResolvedDeviceCapabilities &&
+      capabilities?.supportsManualMeasurement(metric) == true;
 
   Future<void> initialize() async {
     _deviceStates = deviceMachine.changes.listen((_) => notifyListeners());
@@ -321,7 +347,7 @@ class AppController extends ChangeNotifier {
 
   Future<bool> deleteAccount() => _guard(() async {
     if (session == null) {
-      throw const ApiException('预览模式没有可注销的账号');
+      throw const ApiException('快速体验账号无需注销');
     }
     await _api.deleteAccount();
     session = null;
@@ -429,22 +455,10 @@ class AppController extends ChangeNotifier {
         ),
       );
       connectedDevice = _mergeDeviceDetails(device);
+      capabilities = null;
+      deviceCapabilityState = DeviceCapabilityState.loading;
       deviceMachine.transition(DeviceConnectionState.authenticating);
-      try {
-        capabilities = await _wearable.getCapabilities();
-      } catch (error) {
-        capabilities = const DeviceCapabilities(
-          metrics: {
-            HealthMetric.steps,
-            HealthMetric.distance,
-            HealthMetric.calories,
-            HealthMetric.sleep,
-          },
-          features: {DeviceFeature.healthMonitoring},
-          integratedFeatures: {DeviceFeature.healthMonitoring},
-        );
-        errorMessage = '手表已连接，部分功能暂时无法显示';
-      }
+      await refreshDeviceCapabilities(announceFailure: false);
       deviceMachine.transition(DeviceConnectionState.syncing);
       syncStatus = '正在同步设备数据';
       deviceMachine.transition(DeviceConnectionState.ready);
@@ -452,6 +466,7 @@ class AppController extends ChangeNotifier {
       // background follow-up and must not keep the add-device page spinning.
       unawaited(_syncInitialDeviceData(device.id));
     } on WearableSdkNotConfigured catch (_) {
+      deviceCapabilityState = DeviceCapabilityState.disconnected;
       sdkStatus = '设备连接服务暂时不可用';
       errorMessage = '此功能暂时无法使用，请稍后再试';
       deviceMachine.transition(DeviceConnectionState.error);
@@ -462,14 +477,51 @@ class AppController extends ChangeNotifier {
           deviceMachine.transition(DeviceConnectionState.disconnected);
         }
       } else {
+        deviceCapabilityState = DeviceCapabilityState.disconnected;
         errorMessage = _wearableErrorMessage(error, fallback: '设备连接失败');
         deviceMachine.transition(DeviceConnectionState.error);
       }
     } catch (_) {
+      deviceCapabilityState = DeviceCapabilityState.disconnected;
       errorMessage = '连接失败，请将手表靠近手机后重试';
       deviceMachine.transition(DeviceConnectionState.error);
     }
     notifyListeners();
+  }
+
+  Future<bool> refreshDeviceCapabilities({bool announceFailure = true}) async {
+    if (connectedDevice == null) {
+      capabilities = null;
+      deviceCapabilityState = DeviceCapabilityState.disconnected;
+      notifyListeners();
+      return false;
+    }
+    final deviceId = connectedDevice!.id;
+    capabilities = null;
+    deviceCapabilityState = DeviceCapabilityState.loading;
+    notifyListeners();
+    try {
+      final reported = await _wearable.getCapabilities();
+      if (_disposed || connectedDevice?.id != deviceId) return false;
+      capabilities = reported;
+      deviceCapabilityState = DeviceCapabilityState.ready;
+      notifyListeners();
+      return true;
+    } on PlatformException catch (error) {
+      if (_disposed || connectedDevice?.id != deviceId) return false;
+      capabilities = null;
+      deviceCapabilityState = DeviceCapabilityState.unavailable;
+      if (announceFailure) {
+        errorMessage = _wearableErrorMessage(error, fallback: '暂时无法读取此手表的功能');
+      }
+    } catch (_) {
+      if (_disposed || connectedDevice?.id != deviceId) return false;
+      capabilities = null;
+      deviceCapabilityState = DeviceCapabilityState.unavailable;
+      if (announceFailure) errorMessage = '暂时无法读取此手表的功能';
+    }
+    notifyListeners();
+    return false;
   }
 
   Future<void> _syncInitialDeviceData(String deviceId) async {
@@ -563,6 +615,7 @@ class AppController extends ChangeNotifier {
       connectedDevice = null;
       _latestDeviceDetails = null;
       capabilities = null;
+      deviceCapabilityState = DeviceCapabilityState.disconnected;
       deviceFeatureData = const {};
       deviceFeatureBusy = const {};
       if (deviceState != DeviceConnectionState.disconnected) {
@@ -590,6 +643,7 @@ class AppController extends ChangeNotifier {
         connectedDevice = null;
         _latestDeviceDetails = null;
         capabilities = null;
+        deviceCapabilityState = DeviceCapabilityState.disconnected;
         deviceFeatureData = const {};
         deviceFeatureBusy = const {};
         if (deviceState != DeviceConnectionState.disconnected) {
@@ -951,7 +1005,7 @@ class AppController extends ChangeNotifier {
       return const FeatureAvailability(FeatureAvailabilityStatus.needsDevice);
     }
     final currentCapabilities = capabilities;
-    if (currentCapabilities == null) {
+    if (!_hasResolvedDeviceCapabilities || currentCapabilities == null) {
       return const FeatureAvailability(
         FeatureAvailabilityStatus.serviceUnavailable,
       );
@@ -1145,7 +1199,7 @@ class AppController extends ChangeNotifier {
   }) => _guard(() async {
     final careApi = _api is SaydianCareApi ? _api as SaydianCareApi : null;
     if (careApi == null) {
-      throw const FeatureNotConfiguredException('远程关爱接口暂未配置');
+      throw const FeatureNotConfiguredException('远程关爱暂时无法使用，请稍后再试');
     }
     await careApi.respondCareInvitation(id: id, accepted: accepted);
     await refreshCareInvitations();
@@ -1158,7 +1212,7 @@ class AppController extends ChangeNotifier {
   }) async {
     final careApi = _api is SaydianCareApi ? _api as SaydianCareApi : null;
     if (careApi == null) {
-      throw const FeatureNotConfiguredException('共享设置接口暂未配置');
+      throw const FeatureNotConfiguredException('共享设置暂时无法使用，请稍后再试');
     }
     return careApi.getCareShareSettings(type: type, memberId: memberId);
   }
@@ -1170,7 +1224,7 @@ class AppController extends ChangeNotifier {
   }) => _guard(() async {
     final careApi = _api is SaydianCareApi ? _api as SaydianCareApi : null;
     if (careApi == null) {
-      throw const FeatureNotConfiguredException('共享设置接口暂未配置');
+      throw const FeatureNotConfiguredException('共享设置暂时无法使用，请稍后再试');
     }
     await careApi.saveCareShareSettings(
       type: type,
@@ -1209,15 +1263,26 @@ class AppController extends ChangeNotifier {
     required String birthday,
     required double height,
     required double weight,
+    String? avatarFilePath,
   }) => _guard(() async {
     if (session == null) throw const ApiException('请先登录后编辑个人资料');
+    var headPortrait = memberProfile['head_portrait']?.toString();
+    final normalizedAvatarPath = avatarFilePath?.trim() ?? '';
+    if (normalizedAvatarPath.isNotEmpty) {
+      if (_api is! SaydianFileApi) {
+        throw const FeatureNotConfiguredException('头像上传暂时无法使用，请稍后再试');
+      }
+      headPortrait = await (_api as SaydianFileApi).uploadImage(
+        normalizedAvatarPath,
+      );
+    }
     await _api.saveMemberProfile(
       nickname: nickname,
       gender: gender,
       birthday: birthday,
       height: height,
       weight: weight,
-      headPortrait: memberProfile['head_portrait']?.toString(),
+      headPortrait: headPortrait,
     );
     await refreshMemberProfile();
   });
@@ -1274,7 +1339,7 @@ class AppController extends ChangeNotifier {
         ? api as SaydianArticleApi
         : null;
     if (articleApi == null) {
-      articleCategoryLoadError = '健康百科分类接口未配置';
+      articleCategoryLoadError = '健康百科分类暂时无法加载';
       errorMessage = articleCategoryLoadError;
       notifyListeners();
       return const [];
@@ -1302,7 +1367,7 @@ class AppController extends ChangeNotifier {
         ? api as SaydianArticleApi
         : null;
     if (articleApi == null) {
-      articleListLoadError = '健康百科文章接口未配置';
+      articleListLoadError = '健康百科文章暂时无法加载';
       errorMessage = articleListLoadError;
       notifyListeners();
       return const [];
@@ -1501,7 +1566,7 @@ class AppController extends ChangeNotifier {
   SaydianShopApi get _requiredShopApi {
     final api = _api;
     if (api is SaydianShopApi) return api as SaydianShopApi;
-    throw const FeatureNotConfiguredException('商城接口未配置');
+    throw const FeatureNotConfiguredException('商城暂时无法使用，请稍后再试');
   }
 
   Future<Map<String, Object?>> loadShopHome() =>
@@ -1779,10 +1844,10 @@ class AppController extends ChangeNotifier {
       'UNSUPPORTED_METRIC' ||
       'MEASUREMENT_NOT_AVAILABLE' ||
       'FEATURE_UNSUPPORTED' => '当前手表不支持此功能',
-      'SDK_NOT_CONFIGURED' ||
       'FEATURE_UNAVAILABLE' ||
       'DEVICE_SETTINGS_NOT_CONFIGURED' ||
-      'SPORT_NOT_CONFIGURED' => '此功能暂时无法使用，请稍后再试',
+      'SPORT_NOT_CONFIGURED' => '请在手表上操作',
+      'SDK_NOT_CONFIGURED' => '此功能暂时无法使用，请稍后再试',
       'CONNECT_FAILED' || 'CONNECTION_DROPPED' => '连接失败，请确认手表未连接其他手机后重试',
       'YUCHENG_SYNC_TIMEOUT' => '数据同步超时，可稍后重试',
       'NETWORK_ERROR' || 'NETWORK_UNAVAILABLE' => '网络不可用，请检查后重试',
@@ -1827,6 +1892,11 @@ class AppController extends ChangeNotifier {
       }
     } else if (event.type == 'reconnected') {
       unawaited(_restoreReconnectedDevice(event.payload));
+    } else if (event.type == 'capabilitiesUpdated') {
+      if (connectedDevice != null) {
+        capabilities = DeviceCapabilities.fromMap(event.payload);
+        deviceCapabilityState = DeviceCapabilityState.ready;
+      }
     } else if (event.type == 'syncProgress') {
       final deviceId = '${event.payload['deviceId'] ?? ''}';
       if (isDeviceSyncing && connectedDevice?.id == deviceId) {
@@ -1899,6 +1969,8 @@ class AppController extends ChangeNotifier {
       _invalidateDeviceSync();
       connectedDevice = null;
       _latestDeviceDetails = null;
+      capabilities = null;
+      deviceCapabilityState = DeviceCapabilityState.disconnected;
       if (deviceState != DeviceConnectionState.disconnected) {
         try {
           deviceMachine.transition(DeviceConnectionState.disconnected);
@@ -1947,8 +2019,10 @@ class AppController extends ChangeNotifier {
     try {
       deviceMachine.transition(DeviceConnectionState.connecting);
       connectedDevice = _mergeDeviceDetails(device);
+      capabilities = null;
+      deviceCapabilityState = DeviceCapabilityState.loading;
       deviceMachine.transition(DeviceConnectionState.authenticating);
-      capabilities = await _wearable.getCapabilities();
+      await refreshDeviceCapabilities(announceFailure: false);
       if (connectedDevice?.id != device.id) return;
       deviceMachine.transition(DeviceConnectionState.syncing);
       syncStatus = '设备已自动重连';
@@ -1957,6 +2031,8 @@ class AppController extends ChangeNotifier {
       unawaited(_syncInitialDeviceData(device.id));
     } on PlatformException catch (error) {
       connectedDevice = null;
+      capabilities = null;
+      deviceCapabilityState = DeviceCapabilityState.disconnected;
       errorMessage = _wearableErrorMessage(error, fallback: '设备重连失败');
       if (deviceState != DeviceConnectionState.error) {
         deviceMachine.transition(DeviceConnectionState.error);
@@ -1964,6 +2040,8 @@ class AppController extends ChangeNotifier {
       notifyListeners();
     } catch (_) {
       connectedDevice = null;
+      capabilities = null;
+      deviceCapabilityState = DeviceCapabilityState.disconnected;
       errorMessage = '设备重连失败，请重新连接';
       if (deviceState != DeviceConnectionState.error) {
         deviceMachine.transition(DeviceConnectionState.error);

@@ -583,6 +583,38 @@ void main() {
     }
   });
 
+  testWidgets('my summary cards open their related pages', (tester) async {
+    final controller = _authenticatedController();
+    addTearDown(controller.dispose);
+    await _pumpPhone(tester, controller);
+
+    await tester.tap(find.text('我的'));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('profile-stat-device')));
+    await tester.pump();
+    expect(controller.selectedTab, 1);
+    expect(find.text('添加智能设备'), findsOneWidget);
+
+    controller.selectTab(2);
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('profile-stat-health-records')));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: find.byType(AppBar), matching: find.text('健康记录')),
+      findsOneWidget,
+    );
+    expect(find.text('健康数据总览'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('profile-stat-care-members')));
+    await tester.pumpAndSettle();
+    expect(find.text('远程关爱'), findsOneWidget);
+    expect(find.text('守护家人健康'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('AI, my-page entries, orders and logout remain navigable', (
     tester,
   ) async {

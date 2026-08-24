@@ -126,7 +126,7 @@ void main() {
     expect((await disconnected).type, 'disconnected');
   });
 
-  test('exposes only implemented W8 manual measurements', () async {
+  test('uses only the capability flags reported by the connected W8', () async {
     final client = _FakeYuchengClient(modelName: 'W8S');
     final bridge = YuchengWearableBridge(
       client: client,
@@ -146,6 +146,33 @@ void main() {
   });
 
   test(
+    'does not invent a generic W8 capability set when reporting fails',
+    () async {
+      final client = _FakeYuchengClient(
+        modelName: 'W8S',
+        capabilityFlags: const {},
+      );
+      final bridge = YuchengWearableBridge(
+        client: client,
+        initialHealthSettleDelay: Duration.zero,
+      );
+      await bridge.scanDevices();
+      await bridge.connect('YC-01', profile: _profile);
+
+      await expectLater(
+        bridge.getCapabilities(),
+        throwsA(
+          isA<PlatformException>().having(
+            (error) => error.code,
+            'code',
+            'CAPABILITIES_UNAVAILABLE',
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
     'maps W8 live measurement payloads to canonical health records',
     () async {
       final client = _FakeYuchengClient(modelName: 'W8S');
@@ -156,14 +183,18 @@ void main() {
       await bridge.scanDevices();
       await bridge.connect('YC-01', profile: _profile);
 
-      final heartFuture = bridge.events.first;
+      final heartFuture = bridge.events.firstWhere(
+        (event) => event.type == 'healthRecord',
+      );
       client.emit({'deviceRealHeartRate': 78});
       final heart = HealthRecord.fromJson((await heartFuture).payload);
       expect(heart.metric, HealthMetric.heartRate);
       expect(heart.values, {'value': 78});
       expect(heart.deviceId, 'YC-01');
 
-      final pressureFuture = bridge.events.first;
+      final pressureFuture = bridge.events.firstWhere(
+        (event) => event.type == 'healthRecord',
+      );
       client.emit({
         'deviceRealBloodPressure': {
           'heartRate': 72,
@@ -175,7 +206,9 @@ void main() {
       expect(pressure.metric, HealthMetric.bloodPressure);
       expect(pressure.values, {'systolic': 118, 'diastolic': 76, 'pulse': 72});
 
-      final oxygenFuture = bridge.events.first;
+      final oxygenFuture = bridge.events.firstWhere(
+        (event) => event.type == 'healthRecord',
+      );
       client.emit({'deviceRealBloodOxygen': 97});
       final oxygen = HealthRecord.fromJson((await oxygenFuture).payload);
       expect(oxygen.metric, HealthMetric.bloodOxygen);
@@ -273,6 +306,16 @@ class _FakeYuchengClient implements YuchengProductClient {
     this.measurementStatus = 0,
     this.healthResult,
     this.watchFaceRows = const [],
+    this.capabilityFlags = const {
+      'isSupportStep': true,
+      'isSupportSleep': true,
+      'isSupportHeartRate': true,
+      'isSupportBloodPressure': true,
+      'isSupportBloodOxygen': true,
+      'isSupportStartHeartRateMeasurement': true,
+      'isSupportStartBloodPressureMeasurement': true,
+      'isSupportStartBloodOxygenMeasurement': true,
+    },
   });
   final String modelName;
   final String scannedName;
@@ -280,6 +323,7 @@ class _FakeYuchengClient implements YuchengProductClient {
   final Future<YuchengOperationResult<List<Map<String, Object?>>>>?
   healthResult;
   final List<Map<String, Object?>> watchFaceRows;
+  final Map<String, Object?> capabilityFlags;
   int disconnectCount = 0;
   int modelCalls = 0;
   int? changedWatchFaceId;
@@ -319,9 +363,7 @@ class _FakeYuchengClient implements YuchengProductClient {
   Future<YuchengOperationResult<String>> firmware() async =>
       const YuchengOperationResult(0, '1.0');
   @override
-  Future<Map<String, Object?>> capabilities() async => {
-    'isSupportHeartRate': true,
-  };
+  Future<Map<String, Object?>> capabilities() async => capabilityFlags;
   @override
   Future<YuchengOperationResult<void>> syncTime() async =>
       const YuchengOperationResult(0, null);

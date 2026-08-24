@@ -31,9 +31,10 @@
         android:required="true" />
 
     <application
-        android:label="Saydian 赛电"
+        android:label="Saydian赛电"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         tools:replace="android:label">
         <activity
             android:name=".MainActivity"

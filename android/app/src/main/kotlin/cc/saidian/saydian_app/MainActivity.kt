@@ -524,6 +524,14 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private var watchFaceScreenHeight = 0
     private var watchDataDays = 3
     private var capabilities = defaultCapabilities()
+    private var legacyFunctionData: FunctionDeviceSupportData? = null
+    private var functionPackage1: DeviceFunctionPackage1? = null
+    private var functionPackage2: DeviceFunctionPackage2? = null
+    private var functionPackage3: DeviceFunctionPackage3? = null
+    private var functionPackage4: DeviceFunctionPackage4? = null
+    private var functionPackage5: DeviceFunctionPackage5? = null
+    private var socialFunctionData: FunctionSocailMsgData? = null
+    private var capabilityUpdateTask: Runnable? = null
     private var activeMetric: String? = null
     private var measurementResultTimeoutTask: Runnable? = null
     private var ecgSampleFrequency = DEFAULT_ECG_SAMPLE_FREQUENCY
@@ -759,6 +767,15 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         watchFaceScreenHeight = 0
         watchDataDays = 3
         capabilities = defaultCapabilities()
+        legacyFunctionData = null
+        functionPackage1 = null
+        functionPackage2 = null
+        functionPackage3 = null
+        functionPackage4 = null
+        functionPackage5 = null
+        socialFunctionData = null
+        capabilityUpdateTask?.let(connectionHandler::removeCallbacks)
+        capabilityUpdateTask = null
         directHrvMeasurementSupported = false
         hrvMiniCheckupSupported = false
         bloodGlucoseMeasurementSupported = false
@@ -956,19 +973,64 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     connectionHandler.post {
                         if (connectionGeneration != generation) return@post
                         watchDataDays = data.getWathcDay().coerceAtLeast(1)
-                        capabilities = capabilitiesFrom(data)
+                        legacyFunctionData = data
+                        scheduleCapabilitiesUpdate(generation)
                     }
                 }
 
-                override fun onDeviceFunctionPackage1Report(data: DeviceFunctionPackage1) = Unit
-                override fun onDeviceFunctionPackage2Report(data: DeviceFunctionPackage2) = Unit
-                override fun onDeviceFunctionPackage3Report(data: DeviceFunctionPackage3) = Unit
-                override fun onDeviceFunctionPackage4Report(data: DeviceFunctionPackage4) = Unit
-                override fun onDeviceFunctionPackage5Report(data: DeviceFunctionPackage5) = Unit
+                override fun onDeviceFunctionPackage1Report(data: DeviceFunctionPackage1) {
+                    connectionHandler.post {
+                        if (connectionGeneration != generation) return@post
+                        functionPackage1 = data
+                        scheduleCapabilitiesUpdate(generation)
+                    }
+                }
+
+                override fun onDeviceFunctionPackage2Report(data: DeviceFunctionPackage2) {
+                    connectionHandler.post {
+                        if (connectionGeneration != generation) return@post
+                        functionPackage2 = data
+                        watchDataDays = data.watchDataDayNumber.coerceAtLeast(1)
+                        scheduleCapabilitiesUpdate(generation)
+                    }
+                }
+
+                override fun onDeviceFunctionPackage3Report(data: DeviceFunctionPackage3) {
+                    connectionHandler.post {
+                        if (connectionGeneration != generation) return@post
+                        functionPackage3 = data
+                        scheduleCapabilitiesUpdate(generation)
+                    }
+                }
+
+                override fun onDeviceFunctionPackage4Report(data: DeviceFunctionPackage4) {
+                    connectionHandler.post {
+                        if (connectionGeneration != generation) return@post
+                        functionPackage4 = data
+                        scheduleCapabilitiesUpdate(generation)
+                    }
+                }
+
+                override fun onDeviceFunctionPackage5Report(data: DeviceFunctionPackage5) {
+                    connectionHandler.post {
+                        if (connectionGeneration != generation) return@post
+                        functionPackage5 = data
+                        scheduleCapabilitiesUpdate(generation)
+                    }
+                }
             },
             object : ISocialMsgDataListener {
-                override fun onSocialMsgSupportDataChange(data: FunctionSocailMsgData) = Unit
-                override fun onSocialMsgSupportDataChange2(data: FunctionSocailMsgData) = Unit
+                override fun onSocialMsgSupportDataChange(data: FunctionSocailMsgData) {
+                    connectionHandler.post {
+                        if (connectionGeneration != generation) return@post
+                        socialFunctionData = data
+                        scheduleCapabilitiesUpdate(generation)
+                    }
+                }
+
+                override fun onSocialMsgSupportDataChange2(data: FunctionSocailMsgData) {
+                    onSocialMsgSupportDataChange(data)
+                }
             },
             object : ICustomSettingDataListener {
                 override fun OnSettingDataChange(data: CustomSettingData) = Unit
@@ -1071,6 +1133,14 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         emit("deviceDetails", deviceDetailsPayload(deviceId, deviceName))
         emit("state", mapOf("value" to "ready"))
         callback.success(Unit)
+        connectionHandler.postDelayed(
+            {
+                if (connectionGeneration == generation && capabilities["resolved"] == true) {
+                    emit("capabilitiesUpdated", capabilities)
+                }
+            },
+            250L,
+        )
         connectionHandler.postDelayed({ refreshBatteryLevel() }, 1_200L)
     }
 
@@ -6391,78 +6461,162 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         eventListener = null
     }
 
-    private fun capabilitiesFrom(data: FunctionDeviceSupportData): Map<String, Any?> {
-        val preferences = VpSpGetUtil.getVpSpVariInstance(appContext)
-        val pendingDeviceName =
-            connectedDeviceName.ifBlank {
-                synchronized(devices) { devices[connectingDeviceId]?.name.orEmpty() }
+    private fun scheduleCapabilitiesUpdate(generation: Int) {
+        capabilityUpdateTask?.let(connectionHandler::removeCallbacks)
+        val task =
+            Runnable {
+                if (connectionGeneration != generation) return@Runnable
+                val updated = capabilitiesFromReports()
+                if (updated["resolved"] != true) return@Runnable
+                capabilities = updated
+                if (connectedDeviceId.isNotBlank()) {
+                    emit("capabilitiesUpdated", updated)
+                }
             }
-        val isKnownW9s =
-            manager.isJLCPUPlatform && pendingDeviceName.contains("W9S", ignoreCase = true)
-        // Some W9S firmware revisions omit older capability bits. HRV uses
-        // the advertised mini-checkup protocol; glucose remains model-scoped
-        // because its command and terminal result were verified on W9S.
-        hrvMiniCheckupSupported = isKnownW9s && preferences.isSupportMiniCheckup
+        capabilityUpdateTask = task
+        connectionHandler.postDelayed(task, 320L)
+    }
+
+    private fun capabilitiesFromReports(): Map<String, Any?> {
+        val legacy = legacyFunctionData
+        val package1 = functionPackage1
+        val package2 = functionPackage2
+        val package3 = functionPackage3
+        val package4 = functionPackage4
+        val package5 = functionPackage5
+        if (legacy == null &&
+            package1 == null &&
+            package2 == null &&
+            package3 == null &&
+            package4 == null &&
+            package5 == null
+        ) {
+            return defaultCapabilities()
+        }
+        val preferences = VpSpGetUtil.getVpSpVariInstance(appContext)
+        val heartRateSupported =
+            package1?.heartRateDetect.haveFunction() || legacy?.heartDetect.haveFunction()
+        val bloodPressureSupported =
+            package1?.bloodPressure.haveFunction() || legacy?.bp.haveFunction()
+        val bloodOxygenSupported =
+            package1?.spo2H.haveFunction() || legacy?.spo2H.haveFunction()
+        val temperatureSupported =
+            package3?.temperatureFunction.haveFunction() ||
+                (package3?.temperatureType ?: 0) > 0 ||
+                legacy?.temperatureFunction.haveFunction() ||
+                (legacy?.temptureType ?: 0) > 0
+        val ecgSupported =
+            package2?.ecgFunction.haveFunction() || legacy?.ecg.haveFunction()
+        val hrvHistorySupported =
+            package2?.hrvFunction.haveFunction() || legacy?.hrvFunction.haveFunction()
+        val bodyComponentSupported =
+            package4?.bodyComponent.haveFunction() || legacy?.bodyComponent.haveFunction()
+        val bloodComponentSupported =
+            package4?.bloodComponent.haveFunction() || legacy?.bloodComponent.haveFunction()
+        hrvMiniCheckupSupported =
+            package4?.miniCheckup.haveFunction() || preferences.isSupportMiniCheckup
         directHrvMeasurementSupported =
-            data.hrvAppDetectFunction.haveFunction() ||
+            package2?.hrvAppDetectFunction.haveFunction() ||
+                legacy?.hrvAppDetectFunction.haveFunction() ||
                 preferences.isSupportHrvAppDetect
         bloodGlucoseMeasurementSupported =
-            data.bloodGlucose.haveFunction() ||
+            package3?.bloodGlucose.haveFunction() ||
+                legacy?.bloodGlucose.haveFunction() ||
                 preferences.isSupportBloodGlucoseDetect ||
-                preferences.isSupportBloodGlucose ||
-                isKnownW9s
+                preferences.isSupportBloodGlucose
         Log.i(
             LOG_TAG,
-            "measurement capabilities device=$pendingDeviceName directHrv=$directHrvMeasurementSupported " +
+            "measurement capabilities directHrv=$directHrvMeasurementSupported " +
                 "miniCheckupHrv=$hrvMiniCheckupSupported " +
-                "bloodGlucose=$bloodGlucoseMeasurementSupported w9sCompat=$isKnownW9s",
+                "bloodGlucose=$bloodGlucoseMeasurementSupported",
         )
         val metrics = mutableListOf("steps", "distance", "calories", "sleep")
-        if (data.heartDetect.haveFunction()) metrics += "heart_rate"
-        if (data.bp.haveFunction()) metrics += "blood_pressure"
-        if (data.spo2H.haveFunction()) metrics += "blood_oxygen"
-        if (bloodGlucoseMeasurementSupported) {
-            metrics += "blood_glucose"
-        }
-        if (data.temperatureFunction.haveFunction() || data.temptureType > 0) metrics += "body_temperature"
-        if (data.ecg.haveFunction()) metrics += "ecg"
-        if (data.hrvFunction.haveFunction() || directHrvMeasurementSupported || hrvMiniCheckupSupported) {
+        if (heartRateSupported) metrics += "heart_rate"
+        if (bloodPressureSupported) metrics += "blood_pressure"
+        if (bloodOxygenSupported) metrics += "blood_oxygen"
+        if (bloodGlucoseMeasurementSupported) metrics += "blood_glucose"
+        if (temperatureSupported) metrics += "body_temperature"
+        if (ecgSupported) metrics += "ecg"
+        if (hrvHistorySupported || directHrvMeasurementSupported || hrvMiniCheckupSupported) {
             metrics += "hrv"
         }
-        if (data.bodyComponent.haveFunction()) metrics += "body_composition"
-        if (data.bloodComponent.haveFunction()) metrics += "blood_composition"
+        if (bodyComponentSupported) metrics += "body_composition"
+        if (bloodComponentSupported) metrics += "blood_composition"
         val manualMetrics = mutableListOf<String>()
-        if (data.heartDetect.haveFunction()) manualMetrics += "heart_rate"
-        if (data.bp.haveFunction()) manualMetrics += "blood_pressure"
-        if (data.spo2H.haveFunction()) manualMetrics += "blood_oxygen"
+        if (heartRateSupported) manualMetrics += "heart_rate"
+        if (bloodPressureSupported) manualMetrics += "blood_pressure"
+        if (bloodOxygenSupported) manualMetrics += "blood_oxygen"
         if (bloodGlucoseMeasurementSupported) manualMetrics += "blood_glucose"
-        if (data.temperatureFunction.haveFunction() || data.temptureType > 0) {
-            manualMetrics += "body_temperature"
-        }
-        if (data.ecg.haveFunction()) manualMetrics += "ecg"
+        if (temperatureSupported) manualMetrics += "body_temperature"
+        if (ecgSupported) manualMetrics += "ecg"
         if (directHrvMeasurementSupported || hrvMiniCheckupSupported) manualMetrics += "hrv"
-        if (data.bodyComponent.haveFunction()) manualMetrics += "body_composition"
-        if (data.bloodComponent.haveFunction()) manualMetrics += "blood_composition"
-        val features = mutableListOf("health_monitoring")
-        if (data.watchUiServerCount > 0 || data.watchUiCoustomCount > 0 || manager.isJLCPUPlatform) {
+        if (bodyComponentSupported) manualMetrics += "body_composition"
+        if (bloodComponentSupported) manualMetrics += "blood_composition"
+        val features = mutableListOf<String>()
+        val supportsHealthMonitoring =
+            package4?.autoMeasure.haveFunction() || legacy?.autoMeasure.haveFunction()
+        if (supportsHealthMonitoring) features += "health_monitoring"
+        val watchFaceServerCount = package3?.watchUiServerCount ?: legacy?.watchUiServerCount ?: 0
+        val watchFaceCustomCount = package3?.watchUiCustomCount ?: legacy?.watchUiCoustomCount ?: 0
+        if (watchFaceServerCount > 0 || watchFaceCustomCount > 0 || manager.isJLCPUPlatform) {
             features += "watch_faces"
         }
-        if (data.watchUiCoustomCount > 0 || manager.isJLCPUPlatform) {
+        if (watchFaceCustomCount > 0 || manager.isJLCPUPlatform) {
             features += "photo_watch_face"
         }
-        if (preferences.isSupportFindDeviceByPhone) features += "find_watch"
-        if (preferences.isSupportCamera) features += "camera"
+        if (package3?.findDeviceByPhoneFunction.haveFunction() ||
+            legacy?.findDeviceByPhone.haveFunction() ||
+            preferences.isSupportFindDeviceByPhone
+        ) {
+            features += "find_watch"
+        }
+        if (package1?.camera.haveFunction() || legacy?.camera.haveFunction() || preferences.isSupportCamera) {
+            features += "camera"
+        }
         if (preferences.isSupportBTFunction) features += "phone_calls"
-        if (preferences.isSupportContactFunction) features += "contacts"
-        if (data.allMsgLength > 0) features += "notifications"
-        if (preferences.isSupportMultiAlarm || preferences.isSupportTextAlarm) features += "alarms"
-        if (preferences.isSupportWeather) features += "weather"
-        if (preferences.isSupportWorldClock) features += "world_clock"
-        if (preferences.isSupportHealthRemind || preferences.isSupportLongseat) features += "health_reminders"
-        if (preferences.isSupportHealthAssessment) features += "health_assessment"
-        if (preferences.isSupportScreenlight ||
-            preferences.isSupportScreenlightTime ||
-            preferences.isSupportNightturnSetting
+        if (package3?.contactFunction.haveFunction() ||
+            (package3?.contactType ?: 0) > 0 ||
+            legacy?.contactFunction.haveFunction() ||
+            preferences.isSupportContactFunction
+        ) {
+            features += "contacts"
+        }
+        if ((package2?.allMsgLength ?: legacy?.allMsgLength ?: 0) > 0 || supportsSocialNotifications()) {
+            features += "notifications"
+        }
+        if (package1?.alarm.haveFunction() ||
+            package1?.textAlarm.haveFunction() ||
+            legacy?.alarm2.haveFunction() ||
+            legacy?.textAlarm.haveFunction() ||
+            preferences.isSupportMultiAlarm ||
+            preferences.isSupportTextAlarm
+        ) {
+            features += "alarms"
+        }
+        if (package2?.weatherFunction.haveFunction() || legacy?.weatherFunction.haveFunction()) {
+            features += "weather"
+        }
+        if (package4?.worldClock.haveFunction() || legacy?.worldClock.haveFunction()) {
+            features += "world_clock"
+        }
+        if (package1?.healthRemind.haveFunction() ||
+            package1?.sedentaryRemind.haveFunction() ||
+            legacy?.healthRemind.haveFunction() ||
+            legacy?.longseat.haveFunction()
+        ) {
+            features += "health_reminders"
+        }
+        if (package3?.bloodGlucoseRiskAssessment.haveFunction() ||
+            package4?.miniCheckup.haveFunction() ||
+            legacy?.healthAssessment.haveFunction()
+        ) {
+            features += "health_assessment"
+        }
+        if (package1?.screenLight.haveFunction() ||
+            package1?.nightTurnSetting.haveFunction() ||
+            package2?.screenLightTime.haveFunction() ||
+            (package5?.screenType ?: legacy?.screenType ?: 0) > 0 ||
+            legacy?.screenLight.haveFunction()
         ) {
             features += "screen_display"
         }
@@ -6487,6 +6641,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     (feature !in setOf("watch_faces", "photo_watch_face") || manager.isJLCPUPlatform)
             }
         return mapOf(
+            "resolved" to true,
             "metrics" to metrics,
             "manualMetrics" to manualMetrics,
             "features" to features.distinct(),
@@ -6495,6 +6650,20 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             "supportsWatchFaces" to features.contains("watch_faces"),
             "supportsOta" to false,
         )
+    }
+
+    private fun supportsSocialNotifications(): Boolean {
+        val data = socialFunctionData ?: return false
+        return data.phone.haveFunction() ||
+            data.msg.haveFunction() ||
+            data.wechat.haveFunction() ||
+            data.qq.haveFunction() ||
+            data.dingding.haveFunction() ||
+            data.wxWork.haveFunction() ||
+            data.whats.haveFunction() ||
+            data.tikTok.haveFunction() ||
+            data.telegram.haveFunction() ||
+            data.other.haveFunction()
     }
 
     companion object {
@@ -6557,10 +6726,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
         private fun defaultCapabilities(): Map<String, Any?> =
             mapOf(
-                "metrics" to listOf("steps", "distance", "calories", "sleep"),
-                "features" to listOf("health_monitoring"),
-                "integratedFeatures" to listOf("health_monitoring"),
-                "supportsBackgroundSync" to true,
+                "resolved" to false,
+                "metrics" to emptyList<String>(),
+                "manualMetrics" to emptyList<String>(),
+                "features" to emptyList<String>(),
+                "integratedFeatures" to emptyList<String>(),
+                "supportsBackgroundSync" to false,
                 "supportsWatchFaces" to false,
                 "supportsOta" to false,
             )

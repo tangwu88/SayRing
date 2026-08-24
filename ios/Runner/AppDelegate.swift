@@ -165,7 +165,7 @@ private final class UnconfiguredWearableAdapter: WearableAdapter {
   ) { missing(result) }
   func disconnect(_ result: @escaping FlutterResult) { missing(result) }
   func getDeviceDetails(_ result: @escaping FlutterResult) { missing(result) }
-  func capabilities() -> [String: Any] { [:] }
+  func capabilities() -> [String: Any] { ["resolved": false] }
   func syncHealthData(cursor: String?, result: @escaping FlutterResult) { missing(result) }
   func startMeasurement(_ metric: String, result: @escaping FlutterResult) { missing(result) }
   func stopMeasurement(_ metric: String, result: @escaping FlutterResult) { missing(result) }
@@ -335,6 +335,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       if status == 1 {
         let details = self.deviceDetails(device)
         self.emit("deviceDetails", details)
+        self.emit("capabilitiesUpdated", self.capabilities())
         if let callback = self.connectResult {
           self.connectResult = nil
           self.emit("state", ["value": "ready"])
@@ -380,10 +381,12 @@ private final class VeepooWearableAdapter: WearableAdapter {
   func capabilities() -> [String: Any] {
     guard let model = connected else {
       return [
-        "metrics": ["steps", "distance", "calories", "sleep"],
-        "features": ["health_monitoring"],
-        "integratedFeatures": ["health_monitoring"],
-        "supportsBackgroundSync": true,
+        "resolved": false,
+        "metrics": [],
+        "manualMetrics": [],
+        "features": [],
+        "integratedFeatures": [],
+        "supportsBackgroundSync": false,
         "supportsWatchFaces": false,
         "supportsOta": false,
       ]
@@ -398,6 +401,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     if model.hrvType > 0 { metrics.append("hrv") }
     if model.bodyCompositionType > 0 { metrics.append("body_composition") }
     if model.bloodAnalysisType > 0 { metrics.append("blood_composition") }
+    let manualMetrics = metrics.filter { !["steps", "distance", "calories", "sleep"].contains($0) }
     var features = ["health_monitoring"]
     if model.dialCount > 0 || model.marketDialCount > 0 { features.append("watch_faces") }
     if model.photoDialCount > 0 { features.append("photo_watch_face") }
@@ -417,7 +421,9 @@ private final class VeepooWearableAdapter: WearableAdapter {
       features.append("health_assessment")
     }
     return [
+      "resolved": true,
       "metrics": metrics,
+      "manualMetrics": manualMetrics,
       "features": features,
       "integratedFeatures": features.filter { ["health_monitoring", "watch_faces", "photo_watch_face", "find_watch", "camera", "phone_calls", "contacts", "notifications", "alarms", "weather", "world_clock", "health_reminders", "health_assessment", "screen_display"].contains($0) },
       "supportsBackgroundSync": true,

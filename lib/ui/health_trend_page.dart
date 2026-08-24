@@ -233,14 +233,6 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
 
   @override
   Widget build(BuildContext context) {
-    final measurementEnabled =
-        widget.controller.connectedDevice != null &&
-        widget.controller.capabilities?.supportsManualMeasurement(
-              widget.metric,
-            ) ==
-            true;
-    final supportsSyncedMetric =
-        widget.controller.capabilities?.supports(widget.metric) == true;
     final range = HealthTrendRange.forPeriod(_period, _anchor);
     final rangeLabel = switch (_period) {
       HealthTrendPeriod.day => DateFormat('yyyy年M月d日').format(range.start),
@@ -292,35 +284,23 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
               ],
             ),
             const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                key: Key('health-measure-${widget.metric.wireName}'),
-                onPressed:
-                    widget.onMeasure != null &&
-                        measurementEnabled &&
-                        !_measuring
-                    ? _measure
-                    : null,
-                icon: _measuring
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.monitor_heart_outlined),
-                label: Text(
-                  widget.onMeasure == null
-                      ? '该指标暂不支持手动测量'
-                      : measurementEnabled
-                      ? (_measuring ? '测量中' : '手动测量')
-                      : widget.controller.connectedDevice != null &&
-                            supportsSyncedMetric
-                      ? '当前手表仅支持同步该数据'
-                      : '连接支持该指标的手表后测量',
+            if (widget.onMeasure != null) ...[
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  key: Key('health-measure-${widget.metric.wireName}'),
+                  onPressed: _measuring ? null : _measure,
+                  icon: _measuring
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.monitor_heart_outlined),
+                  label: Text(_measuring ? '测量中' : '手动测量'),
                 ),
               ),
-            ),
-            const SizedBox(height: 14),
+              const SizedBox(height: 14),
+            ],
             if (_loading)
               const Card(
                 child: Padding(

@@ -132,6 +132,12 @@ class MethodChannelWearableBridge
     final result =
         await _invokeOperation<Map<Object?, Object?>>('getCapabilities') ??
         const <Object?, Object?>{};
+    if (result['resolved'] != true) {
+      throw PlatformException(
+        code: 'CAPABILITIES_UNAVAILABLE',
+        message: '暂时无法读取此手表的功能',
+      );
+    }
     return DeviceCapabilities.fromMap(result);
   });
 

@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/feature_models.dart';
@@ -25,6 +24,7 @@ class YuchengWearableBridge
   String? _deviceId;
   final String _firmware = '';
   DeviceCapabilities? _capabilities;
+  Future<DeviceCapabilities>? _capabilityLoad;
   final Map<String, String> _scannedNames = {};
   bool _needsInitialHealthSettle = false;
   bool _capabilitiesResolved = false;
@@ -78,7 +78,7 @@ class YuchengWearableBridge
     if (!YuchengDeviceClassifier.matches(scannedName)) {
       throw PlatformException(
         code: 'YUCHENG_MODEL_MISMATCH',
-        message: '连接设备不是受支持的 Yuc 型号',
+        message: '此设备暂时无法连接，请选择赛电手表',
       );
     }
     final connected = await _client
@@ -87,7 +87,7 @@ class YuchengWearableBridge
     if (!connected) {
       throw PlatformException(
         code: 'YUCHENG_CONNECT_FAILED',
-        message: '云创 SDK 连接失败',
+        message: '连接失败，请将手表靠近手机后重试',
       );
     }
     // The plugin starts its own model/MCU/feature queries when BLE reaches the
@@ -95,9 +95,10 @@ class YuchengWearableBridge
     // native command queue waiting forever. BLE authentication is therefore
     // the connection boundary; optional metadata is loaded separately.
     _deviceId = deviceId;
-    _capabilities = _safeW8Capabilities;
+    _capabilities = null;
     _capabilitiesResolved = false;
     _needsInitialHealthSettle = true;
+    unawaited(_publishCapabilitiesWhenReady());
   }
 
   @override
@@ -105,6 +106,7 @@ class YuchengWearableBridge
     await _client.disconnect();
     _deviceId = null;
     _capabilities = null;
+    _capabilityLoad = null;
     _capabilitiesResolved = false;
     _needsInitialHealthSettle = false;
     _activeMeasurementMetric = null;
@@ -115,7 +117,7 @@ class YuchengWearableBridge
   Future<DeviceInfo?> getConnectedDeviceDetails() async {
     final deviceId = _deviceId;
     if (deviceId == null) return null;
-    final name = _scannedNames[deviceId] ?? 'Yuc wearable';
+    final name = _scannedNames[deviceId] ?? '赛电手表';
     return DeviceInfo(
       id: deviceId,
       name: name,
@@ -127,46 +129,54 @@ class YuchengWearableBridge
   @override
   Future<DeviceCapabilities> getCapabilities() async {
     _connectedId;
-    if (defaultTargetPlatform == TargetPlatform.iOS && !_capabilitiesResolved) {
+    if (_capabilitiesResolved && _capabilities != null) return _capabilities!;
+    final activeLoad = _capabilityLoad;
+    if (activeLoad != null) return activeLoad;
+    final load = _readCapabilities();
+    _capabilityLoad = load;
+    try {
+      return await load;
+    } finally {
+      if (identical(_capabilityLoad, load)) _capabilityLoad = null;
+    }
+  }
+
+  Future<DeviceCapabilities> _readCapabilities() async {
+    for (var attempt = 0; attempt < 4; attempt += 1) {
+      if (attempt > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
       try {
         final flags = await _client.capabilities().timeout(
           const Duration(seconds: 2),
         );
         final reported = YuchengPayloadMapper.capabilities(flags);
-        if (reported.metrics.isNotEmpty) {
+        if (reported.metrics.isNotEmpty || reported.features.isNotEmpty) {
           _capabilities = reported;
           _capabilitiesResolved = true;
+          return reported;
         }
       } catch (_) {
-        // Keep the conservative W8 fallback when vendor metadata is not ready.
+        // The device may still be completing its feature handshake.
       }
     }
-    return _capabilities ?? _safeW8Capabilities;
+    throw PlatformException(
+      code: 'CAPABILITIES_UNAVAILABLE',
+      message: '暂时无法读取此手表的功能',
+    );
   }
 
-  static const _safeW8Capabilities = DeviceCapabilities(
-    metrics: {
-      HealthMetric.steps,
-      HealthMetric.distance,
-      HealthMetric.calories,
-      HealthMetric.sleep,
-      HealthMetric.heartRate,
-      HealthMetric.bloodPressure,
-      HealthMetric.bloodOxygen,
-    },
-    manualMetrics: {
-      HealthMetric.heartRate,
-      HealthMetric.bloodPressure,
-      HealthMetric.bloodOxygen,
-    },
-    features: {
-      DeviceFeature.findWatch,
-      DeviceFeature.camera,
-      DeviceFeature.healthMonitoring,
-    },
-    integratedFeatures: {DeviceFeature.findWatch, DeviceFeature.camera},
-    supportsBackgroundSync: true,
-  );
+  Future<void> _publishCapabilitiesWhenReady() async {
+    try {
+      final reported = await getCapabilities();
+      if (_deviceId == null || _events.isClosed) return;
+      _events.add(
+        WearableEvent(type: 'capabilitiesUpdated', payload: reported.toJson()),
+      );
+    } catch (_) {
+      // The page keeps a retry action; no guessed capability is published.
+    }
+  }
 
   @override
   Future<List<HealthRecord>> syncHealthData({String? cursor}) async {
@@ -195,7 +205,7 @@ class YuchengWearableBridge
             healthReadTimeout,
             onTimeout: () => throw PlatformException(
               code: 'YUCHENG_SYNC_TIMEOUT',
-              message: '云创 SDK 历史数据读取超时',
+              message: '手表数据读取超时，请稍后重试',
             ),
           );
       if (result.status == 0) {
@@ -276,7 +286,7 @@ class YuchengWearableBridge
 
   @override
   Future<Map<String, bool>> readAutoMeasureSettings() async =>
-      throw _unsupported('云创 SDK 不提供健康监测读取接口');
+      throw _unsupported();
   @override
   Future<void> setAutoMeasureSetting(String type, bool enabled) async {
     _connectedId;
@@ -285,8 +295,7 @@ class YuchengWearableBridge
   }
 
   @override
-  Future<int?> readHeartRateWarning() async =>
-      throw _unsupported('云创 SDK 不提供心率预警读取接口');
+  Future<int?> readHeartRateWarning() async => throw _unsupported();
   @override
   Future<void> setHeartRateWarning(int value) async {
     _connectedId;
@@ -297,7 +306,7 @@ class YuchengWearableBridge
   Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async {
     _connectedId;
     if (feature != DeviceFeature.watchFaces) {
-      throw _unsupported('云创 SDK 不提供该设置的无损读取接口');
+      throw _unsupported();
     }
     final result = await _client.watchFaces();
     _require(result);
@@ -318,7 +327,7 @@ class YuchengWearableBridge
     _connectedId;
     if (feature != DeviceFeature.watchFaces ||
         values['operation'] != 'switch') {
-      throw _unsupported('当前 Yuc 桥接仅支持切换手表中已安装的表盘');
+      throw _unsupported();
     }
     final dialId = int.tryParse('${values['id'] ?? values['index'] ?? ''}');
     if (dialId == null) {
@@ -350,14 +359,13 @@ class YuchengWearableBridge
     if (result.status != 0) {
       throw PlatformException(
         code: 'YUCHENG_OPERATION_FAILED',
-        message: '云创 SDK 操作失败',
+        message: '手表操作失败，请稍后重试',
       );
     }
   }
 
-  static PlatformException _unsupported([
-    String message = '当前 Yuc 设备或云创 SDK 不支持此功能',
-  ]) => PlatformException(code: 'FEATURE_UNSUPPORTED', message: message);
+  static PlatformException _unsupported([String message = '请在手表上操作']) =>
+      PlatformException(code: 'FEATURE_UNSUPPORTED', message: message);
 
   void _handleEvent(Map<String, Object?> event) {
     const nativeEventTypes = <String>{

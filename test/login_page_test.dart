@@ -141,6 +141,44 @@ void main() {
     expect(find.byKey(const Key('password-recovery-submit')), findsOneWidget);
   });
 
+  testWidgets('profile editor exposes avatar change and logout actions', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    )..enterPreview();
+    controller.memberProfile = const {
+      'nickname': '体验用户',
+      'birthday': '1990-01-01',
+      'height': 170,
+      'weight': 60,
+      'gender': 1,
+    };
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: ProfileEditPage(controller: controller),
+      ),
+    );
+
+    expect(find.byKey(const Key('profile-avatar-picker')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('profile-avatar-picker')));
+    await tester.pump();
+    expect(find.text('登录后可更换头像'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('profile-logout')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.byKey(const Key('profile-logout')), findsOneWidget);
+    expect(find.text('退出体验'), findsOneWidget);
+  });
+
   testWidgets('health alarm is visible above every app page until dismissed', (
     tester,
   ) async {

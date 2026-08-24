@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:saydian_app/domain/feature_models.dart';
@@ -12,7 +13,6 @@ import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/pages.dart';
-import 'package:saydian_app/ui/device_sdk_badge.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
 
 void main() {
@@ -37,7 +37,7 @@ void main() {
       const FeatureAvailability(
         FeatureAvailabilityStatus.serviceUnavailable,
       ).message,
-      '此功能暂时无法使用，请稍后再试',
+      '请在手表上操作',
     );
   });
 
@@ -56,34 +56,199 @@ void main() {
     );
   });
 
+  testWidgets('disconnected device page shows only connection guidance', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = _controller();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: DevicePage(controller: controller)),
+      ),
+    );
+
+    expect(find.text('添加智能设备'), findsOneWidget);
+    expect(find.text('连接说明'), findsOneWidget);
+    expect(find.text('表盘中心'), findsNothing);
+    expect(find.text('查找手表'), findsNothing);
+    expect(find.text('联系人'), findsNothing);
+    expect(find.text('健康提醒'), findsNothing);
+    expect(find.text('屏幕显示'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
-    'device page exposes the full settings catalogue with safe state',
+    'device page shows only hardware and app capability intersection',
     (tester) async {
-      await tester.binding.setSurfaceSize(const Size(390, 844));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      final controller = _controller();
+      final controller = _controller()
+        ..connectedDevice = const DeviceInfo(id: 'watch-1', name: 'Test Watch')
+        ..deviceCapabilityState = DeviceCapabilityState.ready
+        ..capabilities = const DeviceCapabilities(
+          metrics: {HealthMetric.heartRate},
+          features: {
+            DeviceFeature.findWatch,
+            DeviceFeature.camera,
+            DeviceFeature.weather,
+          },
+          integratedFeatures: {DeviceFeature.findWatch, DeviceFeature.weather},
+        );
       addTearDown(controller.dispose);
+
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(body: DevicePage(controller: controller)),
         ),
       );
-
-      expect(find.text('添加智能设备'), findsOneWidget);
-      expect(find.text('表盘中心'), findsOneWidget);
-      await tester.ensureVisible(find.text('屏幕显示'));
       await tester.pumpAndSettle();
+
+      expect(controller.deviceCapabilityState, DeviceCapabilityState.ready);
+      expect(
+        controller.visibleDeviceFeatures,
+        contains(DeviceFeature.findWatch),
+      );
+      await tester.drag(find.byType(ListView), const Offset(0, -320));
+      await tester.pumpAndSettle();
+
       expect(find.text('查找手表'), findsOneWidget);
-      expect(find.text('联系人'), findsOneWidget);
-      expect(find.text('健康提醒'), findsOneWidget);
-      expect(find.text('屏幕显示'), findsOneWidget);
-
-      await tester.tap(find.text('屏幕显示'));
-      await tester.pumpAndSettle();
-      expect(find.text('连接手表后使用'), findsWidgets);
+      expect(find.text('天气'), findsOneWidget);
+      expect(find.text('相机遥控'), findsNothing);
+      expect(find.text('表盘与个性化'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'device capability loading and failure never reveal guessed features',
+    (tester) async {
+      final controller = _controller()
+        ..connectedDevice = const DeviceInfo(id: 'watch-1', name: 'Test Watch')
+        ..deviceCapabilityState = DeviceCapabilityState.loading;
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ListenableBuilder(
+            listenable: controller,
+            builder: (_, _) =>
+                Scaffold(body: DevicePage(controller: controller)),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(
+        find.byKey(const Key('device-capabilities-loading')),
+        findsOneWidget,
+      );
+      expect(find.text('查找手表'), findsNothing);
+
+      controller.deviceCapabilityState = DeviceCapabilityState.unavailable;
+      controller.notifyListeners();
+      await tester.pump();
+      expect(
+        find.byKey(const Key('device-capabilities-unavailable')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('device-capabilities-retry')),
+        findsOneWidget,
+      );
+      expect(find.text('查找手表'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'late native capability update refreshes visible device features',
+    (tester) async {
+      final wearable = _EventCoverageWearable();
+      final controller = AppController(
+        MemorySessionVault(),
+        _CoverageApi(),
+        MemoryHealthStore(),
+        wearable,
+      );
+      await controller.initialize();
+      addTearDown(() async {
+        controller.dispose();
+        await wearable.close();
+      });
+      await controller.connectDevice(
+        const DeviceInfo(id: 'watch-1', name: 'Test Watch'),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ListenableBuilder(
+            listenable: controller,
+            builder: (_, _) =>
+                Scaffold(body: DevicePage(controller: controller)),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(
+        find.byKey(const Key('device-capabilities-unavailable')),
+        findsOneWidget,
+      );
+
+      wearable.emit(
+        WearableEvent(
+          type: 'capabilitiesUpdated',
+          payload: const DeviceCapabilities(
+            metrics: {HealthMetric.heartRate},
+            features: {DeviceFeature.findWatch, DeviceFeature.camera},
+            integratedFeatures: {DeviceFeature.findWatch},
+          ).toJson(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(controller.deviceCapabilityState, DeviceCapabilityState.ready);
+      expect(
+        controller.visibleDeviceFeatures,
+        contains(DeviceFeature.findWatch),
+      );
+      await tester.drag(find.byType(ListView), const Offset(0, -320));
+      await tester.pumpAndSettle();
+
+      expect(find.text('查找手表'), findsOneWidget);
+      expect(find.text('相机遥控'), findsNothing);
+      expect(
+        find.byKey(const Key('device-capabilities-unavailable')),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets('app-only device gaps direct the user to the watch', (
+    tester,
+  ) async {
+    final controller = _controller()
+      ..connectedDevice = const DeviceInfo(
+        id: 'watch-only-1',
+        name: 'Test Watch',
+      )
+      ..capabilities = const DeviceCapabilities(
+        metrics: {},
+        features: {DeviceFeature.phoneCalls},
+      );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeviceFeaturePage(
+          controller: controller,
+          feature: DeviceFeature.phoneCalls,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('请在手表上操作'), findsOneWidget);
+    expect(find.text('当前手表不支持此功能'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('connected device feature pages render real controls', (
     tester,
@@ -124,8 +289,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text(entry.value), findsOneWidget, reason: entry.key.name);
-      final badge = tester.widget<DeviceSdkBadge>(find.byType(DeviceSdkBadge));
-      expect(badge.source, WearableSdkSource.veepoo, reason: entry.key.name);
+      expect(find.textContaining('设备服务'), findsNothing);
       if (entry.key == DeviceFeature.watchFaces) {
         expect(
           find.byWidgetPredicate(
@@ -209,7 +373,7 @@ void main() {
     expect(find.text('隐私政策'), findsOneWidget);
     expect(find.text('用户协议'), findsOneWidget);
     expect(find.text('检查更新'), findsOneWidget);
-    expect(find.text('通过安全版本服务检查更新'), findsOneWidget);
+    expect(find.text('检查是否有新版本'), findsOneWidget);
 
     await tester.pumpWidget(const MaterialApp(home: CustomerServicePage()));
     await tester.pumpAndSettle();
@@ -256,6 +420,9 @@ AppController _controller() => AppController(
 )..isBooting = false;
 
 class _CoverageApi extends Fake implements SaydianApi {
+  @override
+  Future<List<Map<String, Object?>>> getArticles() async => const [];
+
   @override
   Future<Map<String, Object?>> getSingleArticle(int id) async => {
     'id': id,
@@ -352,4 +519,33 @@ class _FeatureWearable extends Fake implements WearableBridge {
     DeviceFeature feature, {
     bool enabled = true,
   }) async {}
+}
+
+class _EventCoverageWearable extends Fake implements WearableBridge {
+  final _events = StreamController<WearableEvent>.broadcast();
+
+  @override
+  Stream<WearableEvent> get events => _events.stream;
+
+  void emit(WearableEvent event) => _events.add(event);
+
+  Future<void> close() => _events.close();
+
+  @override
+  Future<void> connect(
+    String deviceId, {
+    required WearableUserProfile profile,
+  }) async {}
+
+  @override
+  Future<DeviceCapabilities> getCapabilities() async => throw PlatformException(
+    code: 'CAPABILITIES_UNAVAILABLE',
+    message: '暂时无法读取此手表的功能',
+  );
+
+  @override
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) async => const [];
+
+  @override
+  Future<List<SportRecord>> readSportRecords() async => const [];
 }

@@ -6,6 +6,8 @@ enum FeatureAvailabilityStatus {
   serviceUnavailable,
 }
 
+enum DeviceCapabilityState { disconnected, loading, ready, unavailable }
+
 class FeatureAvailability {
   const FeatureAvailability(this.status, {this.detail});
 
@@ -21,7 +23,7 @@ class FeatureAvailability {
         FeatureAvailabilityStatus.needsDevice => '连接手表后使用',
         FeatureAvailabilityStatus.needsPermission => '允许相关权限后使用',
         FeatureAvailabilityStatus.unsupportedDevice => '当前手表不支持此功能',
-        FeatureAvailabilityStatus.serviceUnavailable => '此功能暂时无法使用，请稍后再试',
+        FeatureAvailabilityStatus.serviceUnavailable => '请在手表上操作',
       };
 }
 

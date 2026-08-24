@@ -351,7 +351,7 @@ class DeviceCapabilities {
               .map((value) => DeviceFeature.tryFromWire('$value'))
               .whereType<DeviceFeature>()
               .toSet()
-        : <DeviceFeature>{DeviceFeature.healthMonitoring};
+        : <DeviceFeature>{};
     return DeviceCapabilities(
       metrics: metrics,
       manualMetrics: manualMetrics,
@@ -372,6 +372,8 @@ class DeviceCapabilities {
 
   Map<String, Object?> toJson() => {
     'metrics': metrics.map((metric) => metric.wireName).toList(),
+    if (manualMetrics != null)
+      'manualMetrics': manualMetrics!.map((metric) => metric.wireName).toList(),
     'features': features.map((feature) => feature.wireName).toList(),
     'integratedFeatures': integratedFeatures
         .map((feature) => feature.wireName)

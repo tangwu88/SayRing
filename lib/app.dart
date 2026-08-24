@@ -13,7 +13,7 @@ class SaydianApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Saydian 赛电',
+      title: 'Saydian赛电',
       debugShowCheckedModeBanner: false,
       theme: buildSaydianTheme(),
       builder: (context, child) => ListenableBuilder(
