@@ -2217,41 +2217,54 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     final noLocalData = _featureData.isEmpty;
     final faces = _items;
     final progress = (_featureData['progress'] as num?)?.toInt();
+    final onlineMarketSupported =
+        _featureData['onlineMarketSupported'] != false;
     return Column(
       children: [
-        Card(
-          color: SaydianColors.brandRedSoft,
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 18,
-              vertical: 6,
-            ),
-            leading: const Icon(
-              Icons.watch_rounded,
-              color: SaydianColors.brandRed,
-              size: 34,
-            ),
-            title: const Text(
-              '表盘商城',
-              style: TextStyle(fontWeight: FontWeight.w800),
-            ),
-            subtitle: const Text('浏览并下载更多 W9S 在线表盘'),
-            trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: busy
-                ? null
-                : () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => DeviceWatchFaceMarketPage(
-                        controller: widget.controller,
-                        profile: DeviceWatchFaceMarketProfile.fromMap(
-                          _featureData,
+        if (onlineMarketSupported) ...[
+          Card(
+            color: SaydianColors.brandRedSoft,
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 18,
+                vertical: 6,
+              ),
+              leading: const Icon(
+                Icons.watch_rounded,
+                color: SaydianColors.brandRed,
+                size: 34,
+              ),
+              title: const Text(
+                '表盘商城',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: const Text('浏览并下载适配当前手表的在线表盘'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: busy
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => DeviceWatchFaceMarketPage(
+                          controller: widget.controller,
+                          profile: DeviceWatchFaceMarketProfile.fromMap(
+                            _featureData,
+                          ),
                         ),
                       ),
                     ),
-                  ),
+            ),
           ),
-        ),
-        const SizedBox(height: 12),
+          const SizedBox(height: 12),
+        ] else ...[
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.info_outline_rounded),
+              title: const Text('已安装表盘'),
+              subtitle: const Text('当前 Yuc 设备支持读取和切换；在线表盘需使用厂商匹配的专用资源包。'),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         const Align(
           alignment: Alignment.centerLeft,
           child: Text(
@@ -3698,12 +3711,32 @@ class _WatchFaceThumbnail extends StatelessWidget {
     return null;
   }
 
-  Widget get _fallback => const ColoredBox(
-    color: Color(0xFF111827),
-    child: Center(
-      child: Icon(Icons.watch_rounded, color: Colors.white70, size: 30),
-    ),
-  );
+  Widget get _fallback {
+    final label = '${face['id'] ?? fallbackIndex + 1}';
+    return ColoredBox(
+      color: const Color(0xFF111827),
+      child: Center(
+        child: Container(
+          width: 45,
+          height: 50,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: const Color(0xFF273244),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white24),
+          ),
+          child: Text(
+            label.length > 4 ? label.substring(label.length - 4) : label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _DeviceFeatureHeader extends StatelessWidget {

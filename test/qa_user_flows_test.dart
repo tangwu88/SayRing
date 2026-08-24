@@ -377,16 +377,20 @@ void main() {
       await controller.initialize();
       addTearDown(controller.dispose);
       controller.connectedDevice = wearable.scannedDevice;
+      controller.capabilities = const DeviceCapabilities(
+        metrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
+        manualMetrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
+      );
       for (final state in const [
         DeviceConnectionState.scanning,
         DeviceConnectionState.connecting,
         DeviceConnectionState.authenticating,
         DeviceConnectionState.syncing,
         DeviceConnectionState.ready,
-        DeviceConnectionState.measuring,
       ]) {
         controller.deviceMachine.transition(state);
       }
+      expect(await controller.startMeasurement(HealthMetric.heartRate), isTrue);
 
       wearable.emitMeasurement('invalid-heart', 'heart_rate', 1, 'bpm');
       await Future<void>.delayed(Duration.zero);
@@ -403,7 +407,10 @@ void main() {
       );
       expect(controller.deviceState, DeviceConnectionState.ready);
 
-      controller.deviceMachine.transition(DeviceConnectionState.measuring);
+      expect(
+        await controller.startMeasurement(HealthMetric.bloodOxygen),
+        isTrue,
+      );
       wearable.emitMeasurement('invalid-oxygen', 'blood_oxygen', 1, '%');
       await Future<void>.delayed(Duration.zero);
       expect(controller.latestByMetric[HealthMetric.bloodOxygen], isNull);
@@ -449,6 +456,45 @@ void main() {
 
       expect(controller.deviceState, DeviceConnectionState.ready);
       expect(controller.errorMessage, contains('正确佩戴'));
+    },
+  );
+
+  test(
+    'an unrelated live health record does not cancel the active measurement',
+    () async {
+      final wearable = _QaWearable();
+      final controller = _controller(wearable: wearable);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      controller.connectedDevice = wearable.scannedDevice;
+      controller.capabilities = const DeviceCapabilities(
+        metrics: {HealthMetric.heartRate, HealthMetric.hrv},
+        manualMetrics: {HealthMetric.heartRate},
+      );
+      for (final state in const [
+        DeviceConnectionState.scanning,
+        DeviceConnectionState.connecting,
+        DeviceConnectionState.authenticating,
+        DeviceConnectionState.syncing,
+        DeviceConnectionState.ready,
+      ]) {
+        controller.deviceMachine.transition(state);
+      }
+      expect(await controller.startMeasurement(HealthMetric.heartRate), isTrue);
+
+      wearable.emitMeasurement('live-hrv', 'hrv', 52, 'ms');
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.activeMeasurementMetric, HealthMetric.heartRate);
+      expect(controller.deviceState, DeviceConnectionState.measuring);
+      expect(controller.latestByMetric[HealthMetric.hrv]?.values['value'], 52);
+
+      wearable.emitMeasurement('live-heart', 'heart_rate', 76, 'bpm');
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.activeMeasurementMetric, isNull);
+      expect(controller.deviceState, DeviceConnectionState.ready);
     },
   );
 
@@ -1127,6 +1173,12 @@ class _QaWearable extends Fake implements WearableBridge {
     if (syncError case final error?) throw error;
     return syncRecords;
   }
+
+  @override
+  Future<void> startMeasurement(HealthMetric metric) async {}
+
+  @override
+  Future<void> stopMeasurement(HealthMetric metric) async {}
 
   @override
   Future<List<SportRecord>> readSportRecords() async {

@@ -2008,10 +2008,12 @@ class AppController extends ChangeNotifier {
   Future<void> _saveWearableRecord(HealthRecord record) async {
     if (!hasSaneWearableTransportValues(record)) return;
     final shouldStopMeasurement = _activeMeasurementMetric == record.metric;
-    _measurementTimeout?.cancel();
-    _measurementTimeout = null;
-    _activeMeasurementMetric = null;
-    measurementErrorMessage = null;
+    if (shouldStopMeasurement) {
+      _measurementTimeout?.cancel();
+      _measurementTimeout = null;
+      _activeMeasurementMetric = null;
+      measurementErrorMessage = null;
+    }
 
     // Surface a valid device result immediately. Encrypted storage can take a
     // noticeable amount of time on a physical phone and must not leave the
@@ -2026,7 +2028,8 @@ class AppController extends ChangeNotifier {
       healthRecords = healthRecords.take(200).toList(growable: false);
     }
     _evaluateHealthWarning(record);
-    if (deviceState == DeviceConnectionState.measuring) {
+    if (shouldStopMeasurement &&
+        deviceState == DeviceConnectionState.measuring) {
       deviceMachine.transition(DeviceConnectionState.ready);
     }
     if (!_disposed) notifyListeners();

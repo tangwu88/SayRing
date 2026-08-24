@@ -18,6 +18,7 @@ abstract final class YuchengMeasurementType {
   static const bloodPressure = 1;
   static const bloodOxygen = 2;
   static const bodyTemperature = 4;
+  static const bloodGlucose = 5;
 }
 
 abstract final class YuchengSportState {
@@ -65,6 +66,8 @@ abstract interface class YuchengProductClient {
   Future<YuchengOperationResult<void>> setHeartRateAlarm(int value);
   Future<YuchengOperationResult<void>> findDevice();
   Future<YuchengOperationResult<void>> camera(bool enabled);
+  Future<YuchengOperationResult<List<Map<String, Object?>>>> watchFaces();
+  Future<YuchengOperationResult<void>> changeWatchFace(int dialId);
 }
 
 class PluginYuchengProductClient implements YuchengProductClient {
@@ -192,6 +195,19 @@ class PluginYuchengProductClient implements YuchengProductClient {
       'isSupportHeartRate': f.isSupportHeartRate,
       'isSupportBloodPressure': f.isSupportBloodPressure,
       'isSupportBloodOxygen': f.isSupportBloodOxygen,
+      'isSupportTemperature': f.isSupportTemperature,
+      'isSupportBloodGlucose': f.isSupportBloodGlucose,
+      'isSupportHRV': f.isSupportHRV,
+      'isSupportStartHeartRateMeasurement':
+          f.isSupportStartHeartRateMeasurement,
+      'isSupportStartBloodPressureMeasurement':
+          f.isSupportStartBloodPressureMeasurement,
+      'isSupportStartBloodOxygenMeasurement':
+          f.isSupportStartBloodOxygenMeasurement,
+      'isSupportStartBodyTemperatureMeasurement':
+          f.isSupportStartBodyTemperatureMeasurement,
+      'isSupportStartBloodGlucoseMeasurement':
+          f.isSupportStartBloodGlucoseMeasurement,
       'isSupportSport': f.isSupportSport,
       'isSupportFindDevice': f.isSupportFindDevice,
       'isSupportCamera':
@@ -302,6 +318,8 @@ class PluginYuchengProductClient implements YuchengProductClient {
           yc.DeviceAppControlMeasureHealthDataType.bloodOxygen,
         YuchengMeasurementType.bodyTemperature =>
           yc.DeviceAppControlMeasureHealthDataType.bodyTemperature,
+        YuchengMeasurementType.bloodGlucose =>
+          yc.DeviceAppControlMeasureHealthDataType.bloodGlucose,
         _ => yc.DeviceAppControlMeasureHealthDataType.heartRate,
       };
   @override
@@ -338,4 +356,30 @@ class PluginYuchengProductClient implements YuchengProductClient {
   @override
   Future<YuchengOperationResult<void>> camera(bool enabled) async =>
       _r(await _plugin.appControlTakePhoto(enabled));
+
+  @override
+  Future<YuchengOperationResult<List<Map<String, Object?>>>>
+  watchFaces() async {
+    final r = await _plugin.queryWatchFaceInfo();
+    final faces = (r?.data ?? const <yc.DeviceWatchInfo>[])
+        .map(
+          (face) => <String, Object?>{
+            'id': '${face.dialID}',
+            'dialId': face.dialID,
+            'name': face.isCustomDial ? '自定义表盘' : '表盘 ${face.dialID}',
+            'isCurrent': face.isCurrentDial,
+            'canDelete': face.isSupportDelete,
+            'isCustom': face.isCustomDial,
+            'type': 'yuc',
+            'index': face.dialID,
+            'status': face.isSupportDelete ? '已安装表盘' : '内置表盘',
+          },
+        )
+        .toList();
+    return YuchengOperationResult(r?.statusCode ?? 1, faces);
+  }
+
+  @override
+  Future<YuchengOperationResult<void>> changeWatchFace(int dialId) async =>
+      _r(await _plugin.changeWatchFace(dialId));
 }

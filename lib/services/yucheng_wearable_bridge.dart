@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/feature_models.dart';
@@ -26,6 +27,9 @@ class YuchengWearableBridge
   DeviceCapabilities? _capabilities;
   final Map<String, String> _scannedNames = {};
   bool _needsInitialHealthSettle = false;
+  bool _capabilitiesResolved = false;
+  HealthMetric? _activeMeasurementMetric;
+  DateTime? _measurementStartedAt;
 
   @override
   Stream<WearableEvent> get events => _events.stream;
@@ -92,6 +96,7 @@ class YuchengWearableBridge
     // the connection boundary; optional metadata is loaded separately.
     _deviceId = deviceId;
     _capabilities = _safeW8Capabilities;
+    _capabilitiesResolved = false;
     _needsInitialHealthSettle = true;
   }
 
@@ -100,7 +105,10 @@ class YuchengWearableBridge
     await _client.disconnect();
     _deviceId = null;
     _capabilities = null;
+    _capabilitiesResolved = false;
     _needsInitialHealthSettle = false;
+    _activeMeasurementMetric = null;
+    _measurementStartedAt = null;
   }
 
   @override
@@ -119,6 +127,20 @@ class YuchengWearableBridge
   @override
   Future<DeviceCapabilities> getCapabilities() async {
     _connectedId;
+    if (defaultTargetPlatform == TargetPlatform.iOS && !_capabilitiesResolved) {
+      try {
+        final flags = await _client.capabilities().timeout(
+          const Duration(seconds: 2),
+        );
+        final reported = YuchengPayloadMapper.capabilities(flags);
+        if (reported.metrics.isNotEmpty) {
+          _capabilities = reported;
+          _capabilitiesResolved = true;
+        }
+      } catch (_) {
+        // Keep the conservative W8 fallback when vendor metadata is not ready.
+      }
+    }
     return _capabilities ?? _safeW8Capabilities;
   }
 
@@ -132,16 +154,17 @@ class YuchengWearableBridge
       HealthMetric.bloodPressure,
       HealthMetric.bloodOxygen,
     },
+    manualMetrics: {
+      HealthMetric.heartRate,
+      HealthMetric.bloodPressure,
+      HealthMetric.bloodOxygen,
+    },
     features: {
       DeviceFeature.findWatch,
       DeviceFeature.camera,
       DeviceFeature.healthMonitoring,
     },
-    integratedFeatures: {
-      DeviceFeature.findWatch,
-      DeviceFeature.camera,
-      DeviceFeature.healthMonitoring,
-    },
+    integratedFeatures: {DeviceFeature.findWatch, DeviceFeature.camera},
     supportsBackgroundSync: true,
   );
 
@@ -193,13 +216,22 @@ class YuchengWearableBridge
     HealthMetric.bloodPressure: YuchengMeasurementType.bloodPressure,
     HealthMetric.bloodOxygen: YuchengMeasurementType.bloodOxygen,
     HealthMetric.bodyTemperature: YuchengMeasurementType.bodyTemperature,
+    HealthMetric.bloodGlucose: YuchengMeasurementType.bloodGlucose,
   };
   @override
   Future<void> startMeasurement(HealthMetric metric) async {
     _connectedId;
     final type = _measurements[metric];
     if (type == null) throw _unsupported();
-    _require(await _client.measure(enabled: true, type: type));
+    _activeMeasurementMetric = metric;
+    _measurementStartedAt = DateTime.now().toUtc();
+    try {
+      _require(await _client.measure(enabled: true, type: type));
+    } catch (_) {
+      _activeMeasurementMetric = null;
+      _measurementStartedAt = null;
+      rethrow;
+    }
   }
 
   @override
@@ -207,6 +239,10 @@ class YuchengWearableBridge
     _connectedId;
     final type = _measurements[metric];
     if (type == null) throw _unsupported();
+    if (_activeMeasurementMetric == metric) {
+      _activeMeasurementMetric = null;
+      _measurementStartedAt = null;
+    }
     _require(await _client.measure(enabled: false, type: type));
   }
 
@@ -258,13 +294,39 @@ class YuchengWearableBridge
   }
 
   @override
-  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async =>
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async {
+    _connectedId;
+    if (feature != DeviceFeature.watchFaces) {
       throw _unsupported('云创 SDK 不提供该设置的无损读取接口');
+    }
+    final result = await _client.watchFaces();
+    _require(result);
+    return <String, Object?>{
+      'items': result.data ?? const <Map<String, Object?>>[],
+      // The Vep online catalogue uses another binary/profile protocol. Keep
+      // it hidden until a Yuc-compatible catalogue is configured.
+      'onlineMarketSupported': false,
+      'source': 'Yuc',
+    };
+  }
+
   @override
   Future<void> writeDeviceFeature(
     DeviceFeature feature,
     Map<String, Object?> values,
-  ) async => throw _unsupported();
+  ) async {
+    _connectedId;
+    if (feature != DeviceFeature.watchFaces ||
+        values['operation'] != 'switch') {
+      throw _unsupported('当前 Yuc 桥接仅支持切换手表中已安装的表盘');
+    }
+    final dialId = int.tryParse('${values['id'] ?? values['index'] ?? ''}');
+    if (dialId == null) {
+      throw PlatformException(code: 'INVALID_ARGUMENT', message: '表盘标识无效');
+    }
+    _require(await _client.changeWatchFace(dialId));
+  }
+
   @override
   Future<void> triggerDeviceAction(
     DeviceFeature feature, {
@@ -304,6 +366,9 @@ class YuchengWearableBridge
       'deviceRealBloodPressure',
       'deviceRealBloodOxygen',
       'deviceRealTemperature',
+      'deviceRealBloodGlucose',
+      'deviceRealHRV',
+      'deviceHealthDataMeasureStateChange',
       'deviceControlPhotoStateChange',
       'deviceWatchFaceChange',
       'deviceJieLiWatchFaceChange',
@@ -320,6 +385,10 @@ class YuchengWearableBridge
     final payload = rawPayload is Map
         ? rawPayload.map((k, v) => MapEntry('$k', v))
         : <String, Object?>{'value': rawPayload};
+    if (type == 'deviceHealthDataMeasureStateChange') {
+      _handleMeasurementState(payload);
+      return;
+    }
     final mapped = switch (type) {
       'bluetoothStateChange' => WearableEvent(
         type: (payload['state'] ?? payload['value']) == 4
@@ -331,22 +400,28 @@ class YuchengWearableBridge
               : 'connecting',
         },
       ),
-      'deviceRealHeartRate' => WearableEvent(
-        type: 'measurement',
-        payload: {'metric': 'heart_rate', ...payload},
+      'deviceRealHeartRate' => _liveHealthRecord(HealthMetric.heartRate, {
+        'value': _number(payload['value']),
+      }),
+      'deviceRealBloodPressure' =>
+        _liveHealthRecord(HealthMetric.bloodPressure, {
+          'systolic': _number(payload['systolicBloodPressure']),
+          'diastolic': _number(payload['diastolicBloodPressure']),
+          'pulse': _number(payload['heartRate']),
+        }),
+      'deviceRealBloodOxygen' => _liveHealthRecord(HealthMetric.bloodOxygen, {
+        'value': _number(payload['value']),
+      }),
+      'deviceRealTemperature' => _liveHealthRecord(
+        HealthMetric.bodyTemperature,
+        {'value': _number(payload['value'])},
       ),
-      'deviceRealBloodPressure' => WearableEvent(
-        type: 'measurement',
-        payload: {'metric': 'blood_pressure', ...payload},
-      ),
-      'deviceRealBloodOxygen' => WearableEvent(
-        type: 'measurement',
-        payload: {'metric': 'blood_oxygen', ...payload},
-      ),
-      'deviceRealTemperature' => WearableEvent(
-        type: 'measurement',
-        payload: {'metric': 'body_temperature', ...payload},
-      ),
+      'deviceRealBloodGlucose' => _liveHealthRecord(HealthMetric.bloodGlucose, {
+        'value': _number(payload['value']),
+      }),
+      'deviceRealHRV' => _liveHealthRecord(HealthMetric.hrv, {
+        'value': _number(payload['value']),
+      }),
       'deviceControlPhotoStateChange' => WearableEvent(
         type: 'cameraShutter',
         payload: payload,
@@ -357,6 +432,125 @@ class YuchengWearableBridge
       ),
       _ => null,
     };
-    if (mapped != null) _events.add(mapped);
+    if (mapped != null) {
+      _events.add(mapped);
+      final recordMetric = HealthMetric.fromWire('${mapped.payload['type']}');
+      if (mapped.type == 'healthRecord' &&
+          _activeMeasurementMetric == recordMetric) {
+        _activeMeasurementMetric = null;
+        _measurementStartedAt = null;
+      }
+    }
+  }
+
+  WearableEvent? _liveHealthRecord(
+    HealthMetric metric,
+    Map<String, num?> rawValues,
+  ) {
+    final values = <String, num>{
+      for (final entry in rawValues.entries)
+        if (entry.value != null && entry.value!.isFinite && entry.value! > 0)
+          entry.key: entry.value!,
+    };
+    final hasRequiredValues = switch (metric) {
+      HealthMetric.bloodPressure =>
+        values.containsKey('systolic') && values.containsKey('diastolic'),
+      _ => values.containsKey('value'),
+    };
+    if (!hasRequiredValues) return null;
+    final now = DateTime.now();
+    final record = HealthRecord(
+      id: 'yc-live-${metric.wireName}-${now.toUtc().microsecondsSinceEpoch}',
+      metric: metric,
+      values: values,
+      unit: metric.defaultUnit,
+      measuredAt: now.toUtc(),
+      timezone: _timezoneOffset(now.timeZoneOffset),
+      deviceId: _deviceId ?? '',
+      firmwareVersion: _firmware,
+      quality: 'device_reported',
+      source: MeasurementSource.wearable,
+      rawVersion: 1,
+    );
+    return WearableEvent(type: 'healthRecord', payload: record.toJson());
+  }
+
+  void _handleMeasurementState(Map<String, Object?> payload) {
+    final metric = _activeMeasurementMetric;
+    if (metric == null) return;
+    final state = _number(payload['state'])?.toInt();
+    if (state == 0) {
+      unawaited(_finishMeasurementFromHistory(metric));
+      return;
+    }
+    _events.add(
+      WearableEvent(
+        type: 'measurementProgress',
+        payload: {'metric': metric.wireName, 'progress': 0},
+      ),
+    );
+  }
+
+  Future<void> _finishMeasurementFromHistory(HealthMetric metric) async {
+    final startedAt = _measurementStartedAt;
+    final type = switch (metric) {
+      HealthMetric.heartRate => YuchengHealthDataType.heartRate,
+      HealthMetric.bloodPressure => YuchengHealthDataType.bloodPressure,
+      HealthMetric.bloodOxygen ||
+      HealthMetric.bodyTemperature ||
+      HealthMetric.bloodGlucose ||
+      HealthMetric.hrv => YuchengHealthDataType.combined,
+      _ => null,
+    };
+    if (type == null) return;
+    try {
+      final result = await _client.health(type).timeout(healthReadTimeout);
+      if (_activeMeasurementMetric != metric) return;
+      _require(result);
+      final records =
+          YuchengPayloadMapper.healthRecords(
+              deviceId: _connectedId,
+              firmwareVersion: _firmware,
+              rowsByType: {type: result.data ?? const []},
+            ).where((record) => record.metric == metric).toList()
+            ..sort((a, b) => b.measuredAt.compareTo(a.measuredAt));
+      final record = records.firstOrNull;
+      if (record != null &&
+          (startedAt == null ||
+              !record.measuredAt.isBefore(
+                startedAt.subtract(const Duration(minutes: 2)),
+              ))) {
+        _activeMeasurementMetric = null;
+        _measurementStartedAt = null;
+        _events.add(
+          WearableEvent(type: 'healthRecord', payload: record.toJson()),
+        );
+        return;
+      }
+    } catch (_) {
+      if (_activeMeasurementMetric != metric) return;
+    }
+    _activeMeasurementMetric = null;
+    _measurementStartedAt = null;
+    _events.add(
+      const WearableEvent(
+        type: 'error',
+        payload: {
+          'code': 'MEASUREMENT_STOP_FAILED',
+          'message': '未收到有效测量结果，请确认手表已贴合手腕后重试',
+        },
+      ),
+    );
+  }
+
+  static num? _number(Object? value) =>
+      value is num ? value : num.tryParse('$value');
+
+  static String _timezoneOffset(Duration offset) {
+    final sign = offset.isNegative ? '-' : '+';
+    final totalMinutes = offset.inMinutes.abs();
+    final hours = (totalMinutes ~/ 60).toString().padLeft(2, '0');
+    final minutes = (totalMinutes % 60).toString().padLeft(2, '0');
+    return '$sign$hours:$minutes';
   }
 }

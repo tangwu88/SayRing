@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/yucheng_product_client.dart';
 import 'package:saydian_app/services/yucheng_wearable_bridge.dart';
@@ -124,6 +125,136 @@ void main() {
 
     expect((await disconnected).type, 'disconnected');
   });
+
+  test('exposes only implemented W8 manual measurements', () async {
+    final client = _FakeYuchengClient(modelName: 'W8S');
+    final bridge = YuchengWearableBridge(
+      client: client,
+      initialHealthSettleDelay: Duration.zero,
+    );
+    await bridge.scanDevices();
+    await bridge.connect('YC-01', profile: _profile);
+
+    final capabilities = await bridge.getCapabilities();
+
+    expect(capabilities.manualMetrics, {
+      HealthMetric.heartRate,
+      HealthMetric.bloodPressure,
+      HealthMetric.bloodOxygen,
+    });
+    expect(capabilities.supportsManualMeasurement(HealthMetric.sleep), isFalse);
+  });
+
+  test(
+    'maps W8 live measurement payloads to canonical health records',
+    () async {
+      final client = _FakeYuchengClient(modelName: 'W8S');
+      final bridge = YuchengWearableBridge(
+        client: client,
+        initialHealthSettleDelay: Duration.zero,
+      );
+      await bridge.scanDevices();
+      await bridge.connect('YC-01', profile: _profile);
+
+      final heartFuture = bridge.events.first;
+      client.emit({'deviceRealHeartRate': 78});
+      final heart = HealthRecord.fromJson((await heartFuture).payload);
+      expect(heart.metric, HealthMetric.heartRate);
+      expect(heart.values, {'value': 78});
+      expect(heart.deviceId, 'YC-01');
+
+      final pressureFuture = bridge.events.first;
+      client.emit({
+        'deviceRealBloodPressure': {
+          'heartRate': 72,
+          'systolicBloodPressure': 118,
+          'diastolicBloodPressure': 76,
+        },
+      });
+      final pressure = HealthRecord.fromJson((await pressureFuture).payload);
+      expect(pressure.metric, HealthMetric.bloodPressure);
+      expect(pressure.values, {'systolic': 118, 'diastolic': 76, 'pulse': 72});
+
+      final oxygenFuture = bridge.events.first;
+      client.emit({'deviceRealBloodOxygen': 97});
+      final oxygen = HealthRecord.fromJson((await oxygenFuture).payload);
+      expect(oxygen.metric, HealthMetric.bloodOxygen);
+      expect(oxygen.values, {'value': 97});
+    },
+  );
+
+  test('recovers the final W8 blood pressure record after SDK stops', () async {
+    final now = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+    final client = _FakeYuchengClient(
+      modelName: 'W8S',
+      healthResult: Future.value(
+        YuchengOperationResult(0, [
+          {
+            'startTimeStamp': now,
+            'systolicBloodPressure': 121,
+            'diastolicBloodPressure': 79,
+          },
+        ]),
+      ),
+    );
+    final bridge = YuchengWearableBridge(
+      client: client,
+      initialHealthSettleDelay: Duration.zero,
+    );
+    await bridge.scanDevices();
+    await bridge.connect('YC-01', profile: _profile);
+    await bridge.startMeasurement(HealthMetric.bloodPressure);
+    final recordFuture = bridge.events.firstWhere(
+      (event) => event.type == 'healthRecord',
+    );
+
+    client.emit({
+      'deviceHealthDataMeasureStateChange': {
+        'state': 0,
+        'healthDataType': YuchengMeasurementType.bloodPressure,
+      },
+    });
+
+    final record = HealthRecord.fromJson((await recordFuture).payload);
+    expect(record.metric, HealthMetric.bloodPressure);
+    expect(record.values, {'systolic': 121, 'diastolic': 79});
+  });
+
+  test(
+    'reads and switches installed W8 watch faces without online upload',
+    () async {
+      final client = _FakeYuchengClient(
+        modelName: 'W8S',
+        watchFaceRows: const [
+          {
+            'id': '101',
+            'dialId': 101,
+            'name': '表盘 101',
+            'isCurrent': true,
+            'type': 'yuc',
+            'index': 101,
+          },
+        ],
+      );
+      final bridge = YuchengWearableBridge(
+        client: client,
+        initialHealthSettleDelay: Duration.zero,
+      );
+      await bridge.scanDevices();
+      await bridge.connect('YC-01', profile: _profile);
+
+      final data = await bridge.readDeviceFeature(DeviceFeature.watchFaces);
+      expect(data['onlineMarketSupported'], isFalse);
+      expect(data['source'], 'Yuc');
+      expect((data['items'] as List).single, containsPair('id', '101'));
+
+      await bridge.writeDeviceFeature(DeviceFeature.watchFaces, {
+        'operation': 'switch',
+        'id': '101',
+      });
+      expect(client.changedWatchFaceId, 101);
+    },
+  );
 }
 
 const _profile = WearableUserProfile(
@@ -141,14 +272,17 @@ class _FakeYuchengClient implements YuchengProductClient {
     this.scannedName = 'W8 Ultra',
     this.measurementStatus = 0,
     this.healthResult,
+    this.watchFaceRows = const [],
   });
   final String modelName;
   final String scannedName;
   final int measurementStatus;
   final Future<YuchengOperationResult<List<Map<String, Object?>>>>?
   healthResult;
+  final List<Map<String, Object?>> watchFaceRows;
   int disconnectCount = 0;
   int modelCalls = 0;
+  int? changedWatchFaceId;
   final _events = StreamController<Map<String, Object?>>.broadcast();
   @override
   Stream<Map<String, Object?>> get events => _events.stream;
@@ -229,4 +363,12 @@ class _FakeYuchengClient implements YuchengProductClient {
   @override
   Future<YuchengOperationResult<void>> camera(bool enabled) async =>
       const YuchengOperationResult(0, null);
+  @override
+  Future<YuchengOperationResult<List<Map<String, Object?>>>>
+  watchFaces() async => YuchengOperationResult(0, watchFaceRows);
+  @override
+  Future<YuchengOperationResult<void>> changeWatchFace(int dialId) async {
+    changedWatchFaceId = dialId;
+    return const YuchengOperationResult(0, null);
+  }
 }

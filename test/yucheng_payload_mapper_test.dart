@@ -78,13 +78,31 @@ void main() {
     final capabilities = YuchengPayloadMapper.capabilities({
       'isSupportHeartRate': true,
       'isSupportBloodOxygen': true,
+      'isSupportTemperature': true,
+      'isSupportBloodGlucose': true,
+      'isSupportHRV': true,
+      'isSupportStartHeartRateMeasurement': true,
+      'isSupportStartBloodOxygenMeasurement': false,
       'isSupportFindDevice': true,
+      'isSupportWatchFace': true,
       'isSupportOta': true,
       'isSupportAlarm': false,
     });
     expect(capabilities.supports(HealthMetric.heartRate), isTrue);
     expect(capabilities.supports(HealthMetric.bloodOxygen), isTrue);
+    expect(capabilities.supports(HealthMetric.bodyTemperature), isTrue);
+    expect(capabilities.supports(HealthMetric.bloodGlucose), isTrue);
+    expect(capabilities.supports(HealthMetric.hrv), isTrue);
+    expect(
+      capabilities.supportsManualMeasurement(HealthMetric.heartRate),
+      isTrue,
+    );
+    expect(
+      capabilities.supportsManualMeasurement(HealthMetric.bloodOxygen),
+      isFalse,
+    );
     expect(capabilities.supportsFeature(DeviceFeature.findWatch), isTrue);
+    expect(capabilities.supportsFeature(DeviceFeature.watchFaces), isTrue);
     expect(capabilities.supportsFeature(DeviceFeature.alarms), isFalse);
   });
 }

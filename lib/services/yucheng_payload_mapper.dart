@@ -22,6 +22,32 @@ class YuchengPayloadMapper {
     if (f['isSupportBloodOxygen'] == true) {
       metrics.add(HealthMetric.bloodOxygen);
     }
+    if (f['isSupportTemperature'] == true) {
+      metrics.add(HealthMetric.bodyTemperature);
+    }
+    if (f['isSupportBloodGlucose'] == true) {
+      metrics.add(HealthMetric.bloodGlucose);
+    }
+    if (f['isSupportHRV'] == true) metrics.add(HealthMetric.hrv);
+    final manualMetrics = <HealthMetric>{};
+    void addManual(String key, HealthMetric metric) {
+      if (f[key] == true) manualMetrics.add(metric);
+    }
+
+    addManual('isSupportStartHeartRateMeasurement', HealthMetric.heartRate);
+    addManual(
+      'isSupportStartBloodPressureMeasurement',
+      HealthMetric.bloodPressure,
+    );
+    addManual('isSupportStartBloodOxygenMeasurement', HealthMetric.bloodOxygen);
+    addManual(
+      'isSupportStartBodyTemperatureMeasurement',
+      HealthMetric.bodyTemperature,
+    );
+    addManual(
+      'isSupportStartBloodGlucoseMeasurement',
+      HealthMetric.bloodGlucose,
+    );
     final features = <DeviceFeature>{};
     void add(String key, DeviceFeature feature) {
       if (f[key] == true) features.add(feature);
@@ -36,10 +62,16 @@ class YuchengPayloadMapper {
     add('isSupportHealthMonitoring', DeviceFeature.healthMonitoring);
     add('isSupportScreen', DeviceFeature.screenDisplay);
     add('isSupportWatchFace', DeviceFeature.watchFaces);
+    const implementedFeatures = {
+      DeviceFeature.findWatch,
+      DeviceFeature.camera,
+      DeviceFeature.watchFaces,
+    };
     return DeviceCapabilities(
       metrics: metrics,
+      manualMetrics: manualMetrics,
       features: features,
-      integratedFeatures: features,
+      integratedFeatures: features.intersection(implementedFeatures),
       supportsBackgroundSync: true,
       supportsWatchFaces: features.contains(DeviceFeature.watchFaces),
       supportsOta: f['isSupportOta'] == true,
