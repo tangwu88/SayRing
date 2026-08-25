@@ -267,3 +267,38 @@
 - iOS 无签名 Release 已在 macOS CI 通过；但仓库未配置 iOS 证书与 Ad Hoc Profile Secrets，不声称已生成可安装 IPA。
 - Android 正式签名的 4 项 GitHub Secrets 未配置，暂时只能交付本地 QA 包，不可用作正式发布包。
 - 审计截图和 `build/` 仅作本机验收证据，不提交 Git；内部 QA APK 位于已忽略的 `artifacts/`。
+
+### 09:21 同事代码同步与本地成果保护
+
+- 修改前本地：`5c598be7ed97cfcd95dfdf14817577f4dfda0654`，工作树包含 10 个昨日功能/测试文件和 1 个 `design-qa.md` 路径尾部误输入。
+- 保护：先生成 `E:\saydian\checkpoints\20260825-before-colleague-sync\working-tree.patch`，再将 10 个有效文件提交为 `de7cf60`；误输入单独备份但不进入正式提交。
+- 远端：`origin/main` 新增 5 个提交，最新为 `fd2c105`。使用 rebase 将昨日 checkpoint 放到最新远端之上，没有覆盖任一方内容。
+- 冲突：`api_client.dart`、`app_controller.dart`、`pages.dart`。接口保留双认证头、`url/path` 地址兼容和旧上传接口别名；头像页面采用同事新增的“选择后保存时上传”流程，避免选择图片后尚未保存资料就产生孤立上传。
+- 结果：rebase 完成，本地有效提交为 `0722e7a`，待本轮静态检查和全量测试后再推送。
+- 详细昨日回归与未完成项见 [2026-08-24 记录](IMPLEMENTATION-LOG-20260824.md)。
+
+### 09:24 合并后格式检查
+
+- 首次只检查：发现 `api_client.dart`、`app_controller.dart`、`pages.dart` 3 个冲突解决文件存在格式差异，未把该结果记为通过。
+- 修复：仅对上述 3 个文件执行 Dart 格式化；未改变业务逻辑。
+- 复盘：rebase 手工解决冲突后必须先格式化再做分析，避免把机械格式差异带入后续提交。
+
+### 09:25 静态检查环境失败与修复
+
+- 第一次失败：Flutter 遥测尝试写入受限的 `C:\Users\admin\AppData\Roaming\.dart-tool`，抛出 `PathAccessException`，未进入代码分析。
+- 第二次失败：改用项目内 `APPDATA/LOCALAPPDATA` 后，中文工程路径进入 Analysis Server LSP 消息时发生 JSON 截断，抛出 `FormatException`。
+- 修复：后续统一设置项目内可写的 `APPDATA/LOCALAPPDATA`，并从 ASCII 联接目录 `E:\saydian\app_ascii_w9s` 执行 Flutter 命令。
+- 最终结果：`flutter analyze --no-pub` 通过，`No issues found`。
+
+### 09:26 合并后全量自动回归
+
+- 命令环境：ASCII 联接目录、项目内可写的 AppData、固定本地 Flutter 工具链，不下载或升级依赖。
+- 结果：163 项全部通过，0 失败。
+- 覆盖：同事新增的设备能力/导航回归 160 项，以及昨日新增的关爱 JSON、头像上传兼容、百科/商城/心电页面覆盖。
+
+### 09:29 Android Debug 编译
+
+- 结果：通过，`assembleDebug` 用时 120.2 秒，产物为 `build/app/outputs/flutter-apk/app-debug.apk`。
+- 已确认：Flutter 页面、接口合并和 Android Kotlin 设备代码可共同编译。
+- 非阻断警告：`camera_android_camerax` 仍使用 Kotlin Gradle Plugin；属于既有依赖升级提示，本次不扩大范围升级。
+- 边界：本次任务仅同步代码与验证合并，没有安装到手机，也没有改变真机数据或设备连接状态。
