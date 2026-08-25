@@ -377,3 +377,12 @@
   - `ios`：Xcode 26.5 上 `flutter build ios --release --no-codesign` 通过，用时 5 分 3 秒。
   - `android`：Linux 全新环境 `flutter build apk --debug` 通过，用时 11 分 41 秒，证明合作方源码补丁不依赖 Windows 本机缓存或手工修改。
 - 记录策略：本段作为仅文档的收尾提交，并使用 GitHub 支持的 `[skip ci]` 标记，避免“记录一次 CI 又触发一次 CI”的循环；不改变任何 App 源码或已验收结论。
+
+### 11:22 vivo 新手机安装与启动验收
+
+- 安装前同步：本地与 `origin/main` 均为 `db923a3e1520757d313cd104190111b358b1d8cd`，工作树干净；新手机未安装 `cc.saidian.app` 或并存 QA 包，因此没有覆盖、卸载或清除旧数据。
+- 设备：vivo V2509A（Android 16 / API 36，arm64-v8a），USB 调试授权完成，ADB 状态为 `device`。
+- 安装：最终合并代码生成的 Debug APK 流式安装成功，包名 `cc.saidian.app`，版本 `0.1.19 (23)`。
+- 冷启动：真实入口 `cc.saidian.app/cc.saidian.saydian_app.MainActivity` 启动成功，用时约 2.9 秒，进程保持运行并位于前台。
+- 首屏：登录页显示赛电 Logo、账号、密码、找回密码、协议勾选、登录、注册和快速体验入口，无系统弹窗遮挡或布局异常。
+- 稳定性：安装后启动日志无 `FATAL EXCEPTION`、ANR、进程死亡或 Flutter 未处理错误；截图与界面树保存在已忽略的 `build/real-device-qa-20260825-vivo/`，不提交测试图片或手机数据。
