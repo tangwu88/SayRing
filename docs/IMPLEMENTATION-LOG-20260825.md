@@ -368,3 +368,12 @@
 - 合并后全量测试：165 项全部通过，0 失败；测试数从 162 增至 165 是远端同事新增用例，不是测试丢失或重复执行错误。
 - 合并后 Android Debug 与 Release 均重新构建通过，Release APK 为 84.6 MB；确认结论基于最终合并代码，而非同步前旧基线。
 - 上方真机边界继续有效：W8 物理快门按键、历史数据逐项完整性和后台上传闭环仍未冒充已验收。
+
+### 10:19 W8 修复提交与云端冷构建
+
+- 源码提交：`df4cd24da0be161aaa826a895af22841c48506be`（`fix: stabilize W8 discovery and capability handshake`），已推送到 `origin/main`，本地与远端提交号一致。
+- [`mobile-ci` #32800117100](https://github.com/saydian88-cmyk/saydianapp/actions/runs/32800117100)：全部通过。
+  - `quality`：格式、静态检查、覆盖率测试通过，用时 2 分 11 秒。
+  - `ios`：Xcode 26.5 上 `flutter build ios --release --no-codesign` 通过，用时 5 分 3 秒。
+  - `android`：Linux 全新环境 `flutter build apk --debug` 通过，用时 11 分 41 秒，证明合作方源码补丁不依赖 Windows 本机缓存或手工修改。
+- 记录策略：本段作为仅文档的收尾提交，并使用 GitHub 支持的 `[skip ci]` 标记，避免“记录一次 CI 又触发一次 CI”的循环；不改变任何 App 源码或已验收结论。
