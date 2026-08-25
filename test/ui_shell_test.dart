@@ -771,6 +771,55 @@ void main() {
     expect(find.text('健康预警设置已保存'), findsOneWidget);
   });
 
+  testWidgets('device health monitoring hides unsupported model features', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _PartialHealthMonitoringWearable(),
+    )..connectedDevice = const DeviceInfo(id: 'watch-1', name: 'D9');
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: PermissionManagementPage(
+          controller: controller,
+          healthOnly: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('device-health-auto-heartRate')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('device-health-auto-bloodGlucose')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('device-health-heart-warning')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('device-health-auto-bloodPressure')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('device-health-auto-bodyTemperature')),
+      findsNothing,
+    );
+    expect(find.byKey(const ValueKey('device-health-auto-hrv')), findsNothing);
+    expect(find.text('当前设备不支持此功能'), findsNothing);
+  });
+
   testWidgets('not-worn watch error stops progress and offers retry', (
     tester,
   ) async {
@@ -1283,6 +1332,17 @@ class _NoopWearable implements WearableBridge {
 
   @override
   Future<List<HealthRecord>> syncHealthData({String? cursor}) async => const [];
+}
+
+class _PartialHealthMonitoringWearable extends _NoopWearable {
+  @override
+  Future<Map<String, bool>> readAutoMeasureSettings() async => const {
+    'heartRate': false,
+    'bloodGlucose': false,
+  };
+
+  @override
+  Future<int?> readHeartRateWarning() async => 140;
 }
 
 class _TrackingMeasurementWearable extends _NoopWearable {

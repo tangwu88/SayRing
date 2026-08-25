@@ -8121,9 +8121,10 @@ class _PermissionManagementPageState extends State<PermissionManagementPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(_refresh());
     if (widget.healthOnly) {
       unawaited(widget.controller.refreshDeviceSettings());
+    } else {
+      unawaited(_refresh());
     }
   }
 
@@ -8160,107 +8161,7 @@ class _PermissionManagementPageState extends State<PermissionManagementPage> {
         builder: (context, _) => ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            if (widget.healthOnly) ...[
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      '手表健康检测',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: widget.controller.connectedDevice == null
-                        ? null
-                        : widget.controller.refreshDeviceSettings,
-                    tooltip: '从手表刷新',
-                    icon: const Icon(Icons.refresh_rounded),
-                  ),
-                ],
-              ),
-              Text(
-                widget.controller.deviceSettingsStatus,
-                style: const TextStyle(
-                  color: SaydianColors.muted,
-                  fontSize: 12,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Card(
-                child: Column(
-                  children: [
-                    _deviceAutoSwitch(
-                      type: 'heartRate',
-                      title: '心率自动检测',
-                      icon: Icons.favorite_outline_rounded,
-                    ),
-                    const Divider(indent: 56),
-                    ListTile(
-                      leading: const Icon(
-                        Icons.warning_amber_rounded,
-                        color: SaydianColors.orange,
-                      ),
-                      title: const Text('心率过高预警'),
-                      subtitle: Text(
-                        widget.controller.heartRateWarningSupported
-                            ? '达到阈值后由手表提醒'
-                            : '当前设备不支持此功能',
-                      ),
-                      trailing: DropdownButton<int>(
-                        value: widget.controller.heartRateWarning,
-                        items: [
-                          for (var value = 70; value < 190; value += 5)
-                            DropdownMenuItem(
-                              value: value,
-                              child: Text('$value 次/分'),
-                            ),
-                        ],
-                        onChanged:
-                            widget.controller.connectedDevice == null ||
-                                !widget.controller.heartRateWarningSupported
-                            ? null
-                            : (value) {
-                                if (value != null) {
-                                  unawaited(
-                                    widget.controller.setHeartRateWarning(
-                                      value,
-                                    ),
-                                  );
-                                }
-                              },
-                      ),
-                    ),
-                    const Divider(indent: 56),
-                    _deviceAutoSwitch(
-                      type: 'bloodPressure',
-                      title: '血压自动检测',
-                      icon: Icons.speed_rounded,
-                    ),
-                    const Divider(indent: 56),
-                    _deviceAutoSwitch(
-                      type: 'bloodGlucose',
-                      title: '血糖自动检测',
-                      icon: Icons.water_drop_outlined,
-                    ),
-                    const Divider(indent: 56),
-                    _deviceAutoSwitch(
-                      type: 'bodyTemperature',
-                      title: '体温自动检测',
-                      icon: Icons.thermostat_rounded,
-                    ),
-                    const Divider(indent: 56),
-                    _deviceAutoSwitch(
-                      type: 'hrv',
-                      title: 'HRV 自动检测',
-                      icon: Icons.monitor_heart_outlined,
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            if (widget.healthOnly) ..._healthMonitoringContent(),
             if (!widget.healthOnly) ...[
               const SizedBox(height: 20),
               const Text(
@@ -8317,25 +8218,124 @@ class _PermissionManagementPageState extends State<PermissionManagementPage> {
     required IconData icon,
   }) {
     final settings = widget.controller.autoMeasureSettings;
-    final supported = settings.containsKey(type);
     return SwitchListTile(
+      key: ValueKey('device-health-auto-$type'),
       secondary: Icon(icon, color: SaydianColors.pink),
       title: Text(title),
-      subtitle: Text(
-        widget.controller.connectedDevice == null
-            ? '请先连接手表'
-            : supported
-            ? ((settings[type] ?? false) ? '已开启' : '已关闭')
-            : '当前设备不支持此功能',
-      ),
+      subtitle: Text((settings[type] ?? false) ? '已开启' : '已关闭'),
       value: settings[type] ?? false,
-      onChanged: supported
-          ? (value) {
+      onChanged: widget.controller.connectedDevice == null
+          ? null
+          : (value) {
               unawaited(widget.controller.setAutoMeasureSetting(type, value));
-            }
-          : null,
+            },
     );
   }
+
+  List<Widget> _healthMonitoringContent() {
+    final controller = widget.controller;
+    final settings = controller.autoMeasureSettings;
+    const specs = <({String type, String title, IconData icon})>[
+      (
+        type: 'heartRate',
+        title: '心率自动检测',
+        icon: Icons.favorite_outline_rounded,
+      ),
+      (type: 'bloodPressure', title: '血压自动检测', icon: Icons.speed_rounded),
+      (type: 'bloodGlucose', title: '血糖自动检测', icon: Icons.water_drop_outlined),
+      (
+        type: 'bodyTemperature',
+        title: '体温自动检测',
+        icon: Icons.thermostat_rounded,
+      ),
+      (type: 'hrv', title: 'HRV 自动检测', icon: Icons.monitor_heart_outlined),
+    ];
+    final tiles = <Widget>[];
+
+    void addTile(Widget tile) {
+      if (tiles.isNotEmpty) tiles.add(const Divider(indent: 56));
+      tiles.add(tile);
+    }
+
+    for (final spec in specs) {
+      if (!settings.containsKey(spec.type)) continue;
+      addTile(
+        _deviceAutoSwitch(type: spec.type, title: spec.title, icon: spec.icon),
+      );
+      if (spec.type == 'heartRate' && controller.heartRateWarningSupported) {
+        addTile(_heartRateWarningTile());
+      }
+    }
+    if (controller.heartRateWarningSupported &&
+        !settings.containsKey('heartRate')) {
+      addTile(_heartRateWarningTile());
+    }
+
+    return [
+      Row(
+        children: [
+          const Expanded(
+            child: Text(
+              '手表健康检测',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+            ),
+          ),
+          IconButton(
+            onPressed: controller.connectedDevice == null
+                ? null
+                : controller.refreshDeviceSettings,
+            tooltip: '从手表刷新',
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      Text(
+        controller.deviceSettingsStatus,
+        style: const TextStyle(color: SaydianColors.muted, fontSize: 12),
+      ),
+      const SizedBox(height: 8),
+      if (controller.connectedDevice == null)
+        const FeatureStateCard(
+          message: '连接手表后使用',
+          detail: '连接后会显示当前手表可设置的健康检测项目。',
+          icon: Icons.watch_outlined,
+        )
+      else if (tiles.isEmpty)
+        FeatureStateCard(
+          message: controller.deviceSettingsStatus,
+          detail: '没有读取到可设置项目，可重新读取手表设置。',
+          icon: Icons.monitor_heart_outlined,
+          actionLabel: '重新读取',
+          onAction: controller.refreshDeviceSettings,
+        )
+      else
+        Card(child: Column(children: tiles)),
+    ];
+  }
+
+  Widget _heartRateWarningTile() => ListTile(
+    key: const ValueKey('device-health-heart-warning'),
+    leading: const Icon(
+      Icons.warning_amber_rounded,
+      color: SaydianColors.orange,
+    ),
+    title: const Text('心率过高预警'),
+    subtitle: const Text('达到阈值后由手表提醒'),
+    trailing: DropdownButton<int>(
+      value: widget.controller.heartRateWarning,
+      items: [
+        for (var value = 70; value < 190; value += 5)
+          DropdownMenuItem(value: value, child: Text('$value 次/分')),
+      ],
+      onChanged: widget.controller.connectedDevice == null
+          ? null
+          : (value) {
+              if (value != null) {
+                unawaited(widget.controller.setHeartRateWarning(value));
+              }
+            },
+    ),
+  );
 }
 
 class _InfoPage extends StatelessWidget {
