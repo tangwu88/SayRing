@@ -54,7 +54,7 @@ void main() {
     expect(member.toString(), isNot(contains('password_hash')));
   });
 
-  test('add care uses authenticated multipart mobile contract', () async {
+  test('add care uses the mini-program authenticated JSON contract', () async {
     final vault = MemorySessionVault()
       ..session = Session(
         accessToken: 'test-access-token',
@@ -67,12 +67,9 @@ void main() {
       expect(request.method, 'POST');
       expect(request.url.path, '/api/v1/member/care');
       expect(request.headers['authorization'], 'Bearer test-access-token');
-      expect(
-        request.headers['content-type'],
-        startsWith('multipart/form-data;'),
-      );
-      expect(request.body, contains('name="mobile"'));
-      expect(request.body, contains('13800138000'));
+      expect(request.headers['token'], 'test-access-token');
+      expect(request.headers['content-type'], contains('application/json'));
+      expect(jsonDecode(request.body), {'mobile': '13800138000'});
       return http.Response(
         '{"code":200,"message":"成功","data":{"id":9,"member_id":1,"to_member_id":2}}',
         200,
@@ -136,6 +133,92 @@ void main() {
     );
 
     expect(() => api.addCare('abc'), throwsA(isA<ApiException>()));
+  });
+
+  test('AI chat and profile save mirror the mini-program JSON posts', () async {
+    var requestIndex = 0;
+    final client = MockClient((request) async {
+      requestIndex++;
+      expect(request.method, 'POST');
+      expect(request.headers['authorization'], 'Bearer test-access-token');
+      expect(request.headers['token'], 'test-access-token');
+      expect(request.headers['content-type'], contains('application/json'));
+      final body = jsonDecode(request.body);
+      if (requestIndex == 1) {
+        expect(request.url.path, '/api/rf-article/chat/create');
+        expect(body, {'app': 1, 'message': '你好', 'session_id': 'session-1'});
+        return http.Response(
+          '{"code":200,"data":{"message":"您好","session_id":"session-1"}}',
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }
+      expect(request.url.path, '/api/v1/member/member/save');
+      expect(body, {
+        'nickname': '测试用户',
+        'gender': 1,
+        'birthday': '1960-01-02',
+        'height': 168.5,
+        'weight': 62.0,
+        'head_portrait': 'https://app.saidian.cc/avatar.png',
+      });
+      return http.Response('{"code":200,"data":{}}', 200);
+    });
+    final api = SaydianApiClient(
+      _authenticatedVault(),
+      client: client,
+      baseUri: Uri.parse('https://example.invalid'),
+    );
+
+    expect(
+      await api.sendAiMessage(app: 1, message: '你好', sessionId: 'session-1'),
+      containsPair('message', '您好'),
+    );
+    await api.saveMemberProfile(
+      nickname: '测试用户',
+      gender: 1,
+      birthday: '1960-01-02',
+      height: 168.5,
+      weight: 62,
+      headPortrait: 'https://app.saidian.cc/avatar.png',
+    );
+    expect(requestIndex, 2);
+  });
+
+  test('profile avatar upload follows the mini-program file contract', () async {
+    final file = File(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}saidian-avatar-test.jpg',
+    );
+    await file.writeAsBytes(const [0xFF, 0xD8, 0xFF, 0xD9]);
+    addTearDown(() async {
+      if (await file.exists()) await file.delete();
+    });
+    final client = MockClient((request) async {
+      expect(request.method, 'POST');
+      expect(request.url.path, '/api/v1/file/images');
+      expect(request.headers['authorization'], 'Bearer test-access-token');
+      expect(request.headers['token'], 'test-access-token');
+      expect(
+        request.headers['content-type'],
+        startsWith('multipart/form-data;'),
+      );
+      expect(latin1.decode(request.bodyBytes), contains('name="file"'));
+      return http.Response(
+        '{"code":200,"data":{"url":"/attachment/avatar/test.jpg"}}',
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    });
+    final api = SaydianApiClient(
+      _authenticatedVault(),
+      client: client,
+      baseUri: Uri.parse('https://example.invalid'),
+    );
+
+    expect(
+      await api.uploadProfileImage(file.path),
+      'https://example.invalid/attachment/avatar/test.jpg',
+    );
   });
 
   test('business error code is preserved when HTTP status is 200', () async {
@@ -592,10 +675,8 @@ void main() {
     final client = MockClient((request) async {
       expect(request.method, 'POST');
       expect(request.url.path, '/api/v1/member/care/save');
-      expect(request.body, contains('name="id"'));
-      expect(request.body, contains('19'));
-      expect(request.body, contains('name="examine_status"'));
-      expect(request.body, contains('2'));
+      expect(request.headers['content-type'], contains('application/json'));
+      expect(jsonDecode(request.body), {'id': 19, 'examine_status': 2});
       return http.Response('{"code":200,"data":{}}', 200);
     });
     final api = SaydianApiClient(
@@ -633,9 +714,12 @@ void main() {
     final client = MockClient((request) async {
       expect(request.method, 'POST');
       expect(request.url.path, '/api/v1/member/care-setting');
-      expect(request.body, contains('name="type"'));
-      expect(request.body, contains('name="to_member_id"'));
-      expect(request.body, contains('["heart_rate","sleep"]'));
+      expect(request.headers['content-type'], contains('application/json'));
+      expect(jsonDecode(request.body), {
+        'type': 2,
+        'to_member_id': 7,
+        'setting': ['heart_rate', 'sleep'],
+      });
       return http.Response('{"code":200,"data":{}}', 200);
     });
     final api = SaydianApiClient(

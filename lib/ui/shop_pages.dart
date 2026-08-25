@@ -356,16 +356,12 @@ class _ShopProductPageState extends State<ShopProductPage> {
   List<Map<String, Object?>> get _skus => _mapList(_product['sku']);
 
   List<String> get _covers {
-    final raw = _product['covers'];
-    final values = raw is List
-        ? raw
-              .map((value) => '$value')
-              .where((value) => value.isNotEmpty)
-              .toList()
-        : <String>[];
-    final picture = '${_product['picture'] ?? ''}';
-    if (values.isEmpty && picture.isNotEmpty) values.add(picture);
-    return values;
+    final values = _shopImageUrls(_product['covers']);
+    if (values.isEmpty) values.addAll(_shopImageUrls(_product['picture']));
+    if (values.isEmpty) {
+      values.addAll(_shopImageUrls(_selectedSku?['picture']));
+    }
+    return values.toSet().toList(growable: false);
   }
 
   int get _stock => _asInt(_selectedSku?['stock']) ?? 0;
@@ -631,9 +627,8 @@ class _ShopProductPageState extends State<ShopProductPage> {
                               ),
                             ),
                             const SizedBox(height: 12),
-                            Text(
-                              _plainText('${_product['intro'] ?? ''}'),
-                              style: const TextStyle(height: 1.7),
+                            ..._shopDetailContentWidgets(
+                              '${_product['intro'] ?? _product['content'] ?? ''}',
                             ),
                           ],
                         ),
@@ -651,15 +646,18 @@ class _ShopProductPageState extends State<ShopProductPage> {
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
                 child: Row(
                   children: [
-                    IconButton.filledTonal(
-                      tooltip: '返回商城',
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.storefront_outlined),
+                    _ShopBottomAction(
+                      tooltip: '商城首页',
+                      label: '首页',
+                      icon: Icons.home_rounded,
+                      onTap: () => Navigator.pop(context),
                     ),
-                    const SizedBox(width: 8),
-                    IconButton.filledTonal(
+                    const SizedBox(width: 4),
+                    _ShopBottomAction(
                       tooltip: '客服',
-                      onPressed: () => Navigator.of(context).push(
+                      label: '客服',
+                      icon: Icons.support_agent_rounded,
+                      onTap: () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
                           settings: const RouteSettings(
                             name: 'customer-service',
@@ -667,20 +665,33 @@ class _ShopProductPageState extends State<ShopProductPage> {
                           builder: (_) => const CustomerServicePage(),
                         ),
                       ),
-                      icon: const Icon(Icons.chat_bubble_outline_rounded),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 7),
+                          minimumSize: const Size(0, 48),
+                        ),
                         onPressed: () => _showPurchaseSheet(addToCart: true),
-                        child: const Text('加入购物车'),
+                        child: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('加入购物车', maxLines: 1, softWrap: false),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 7),
+                          minimumSize: const Size(0, 48),
+                        ),
                         onPressed: () => _showPurchaseSheet(),
-                        child: const Text('立即购买'),
+                        child: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('立即购买', maxLines: 1, softWrap: false),
+                        ),
                       ),
                     ),
                   ],
@@ -689,6 +700,45 @@ class _ShopProductPageState extends State<ShopProductPage> {
             ),
     );
   }
+}
+
+class _ShopBottomAction extends StatelessWidget {
+  const _ShopBottomAction({
+    required this.tooltip,
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String tooltip;
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: tooltip,
+    child: InkResponse(
+      onTap: onTap,
+      radius: 28,
+      child: SizedBox(
+        width: 48,
+        height: 52,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 23, color: SaydianColors.ink),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 class _ShopPromise extends StatelessWidget {
@@ -1793,6 +1843,115 @@ class _ShopExpressPageState extends State<ShopExpressPage> {
   }
 }
 
+List<String> _shopImageUrls(Object? raw) {
+  final values = <String>[];
+  void collect(Object? value) {
+    if (value == null) return;
+    if (value is Iterable) {
+      for (final item in value) {
+        collect(item);
+      }
+      return;
+    }
+    if (value is Map) {
+      for (final key in const ['url', 'picture', 'src', 'path']) {
+        if (value[key] != null) {
+          collect(value[key]);
+          return;
+        }
+      }
+      return;
+    }
+    final text = '$value'.trim();
+    if (text.isEmpty) return;
+    if ((text.startsWith('[') && text.endsWith(']')) ||
+        (text.startsWith('{') && text.endsWith('}'))) {
+      try {
+        collect(jsonDecode(text));
+        return;
+      } on FormatException {
+        // Continue with the plain URL returned by older shop deployments.
+      }
+    }
+    final normalized = _normalizeShopImageUrl(text);
+    if (normalized.isNotEmpty) values.add(normalized);
+  }
+
+  collect(raw);
+  return values;
+}
+
+String _normalizeShopImageUrl(String value) {
+  final trimmed = value.trim().replaceAll('&amp;', '&');
+  if (trimmed.isEmpty) return '';
+  if (trimmed.startsWith('//')) return 'https:$trimmed';
+  if (trimmed.startsWith('/')) return 'https://app.saidian.cc$trimmed';
+  if (!RegExp(r'^https?://', caseSensitive: false).hasMatch(trimmed)) {
+    return 'https://app.saidian.cc/${trimmed.replaceFirst(RegExp(r'^/+'), '')}';
+  }
+  return trimmed
+      .replaceFirst('http://sd.cc/', 'https://app.saidian.cc/')
+      .replaceFirst('https://sd.cc/', 'https://app.saidian.cc/');
+}
+
+List<Widget> _shopDetailContentWidgets(String raw) {
+  final imagePattern = RegExp(
+    r'''<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>''',
+    caseSensitive: false,
+  );
+  final widgets = <Widget>[];
+  var cursor = 0;
+  for (final match in imagePattern.allMatches(raw)) {
+    final text = _plainText(raw.substring(cursor, match.start));
+    if (text.isNotEmpty) {
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(text, style: const TextStyle(height: 1.7)),
+        ),
+      );
+    }
+    final source = _normalizeShopImageUrl(match.group(1) ?? '');
+    widgets.add(
+      Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.network(
+            source,
+            width: double.infinity,
+            fit: BoxFit.fitWidth,
+            loadingBuilder: (context, child, progress) => progress == null
+                ? child
+                : const SizedBox(
+                    height: 180,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+            errorBuilder: (_, _, _) => const SizedBox(
+              height: 130,
+              child: ColoredBox(
+                color: Color(0xFFF0F2F5),
+                child: Center(child: Text('商品图片暂时无法加载')),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    cursor = match.end;
+  }
+  final tail = _plainText(raw.substring(cursor));
+  if (tail.isNotEmpty) {
+    widgets.add(Text(tail, style: const TextStyle(height: 1.7)));
+  }
+  if (widgets.isEmpty) {
+    widgets.add(
+      const Text('暂无详细介绍', style: TextStyle(color: SaydianColors.muted)),
+    );
+  }
+  return widgets;
+}
+
 class ShopNetworkImage extends StatelessWidget {
   const ShopNetworkImage({required this.url, super.key});
 
@@ -1800,7 +1959,8 @@ class ShopNetworkImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (url.isEmpty) {
+    final normalized = _normalizeShopImageUrl(url);
+    if (normalized.isEmpty) {
       return const ColoredBox(
         color: Color(0xFFF0F2F5),
         child: Center(
@@ -1809,7 +1969,7 @@ class ShopNetworkImage extends StatelessWidget {
       );
     }
     return Image.network(
-      url,
+      normalized,
       fit: BoxFit.cover,
       loadingBuilder: (context, child, progress) => progress == null
           ? child

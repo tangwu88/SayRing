@@ -1287,6 +1287,31 @@ class AppController extends ChangeNotifier {
     await refreshMemberProfile();
   });
 
+  Future<String?> uploadProfileImage(String filePath) async {
+    if (session == null) {
+      errorMessage = '请先登录后上传头像';
+      notifyListeners();
+      return null;
+    }
+    final uploadApi = _api is SaydianProfileUploadApi
+        ? _api as SaydianProfileUploadApi
+        : null;
+    if (uploadApi == null) {
+      errorMessage = '头像上传接口暂未配置';
+      notifyListeners();
+      return null;
+    }
+    try {
+      errorMessage = null;
+      final url = await uploadApi.uploadProfileImage(filePath);
+      return url;
+    } on ApiException catch (error) {
+      errorMessage = _apiErrorMessage(error, fallback: '头像上传失败，请稍后重试');
+      notifyListeners();
+      return null;
+    }
+  }
+
   Future<void> refreshActivityGoals() async {
     if (session == null) return;
     try {

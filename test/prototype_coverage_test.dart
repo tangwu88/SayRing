@@ -268,7 +268,7 @@ void main() {
 
     final cases = <DeviceFeature, String>{
       DeviceFeature.watchFaces: '系统表盘 1',
-      DeviceFeature.photoWatchFace: '选择一张照片制作表盘',
+      DeviceFeature.photoWatchFace: '点击选择照片',
       DeviceFeature.notifications: '还需允许手机通知权限',
       DeviceFeature.alarms: '添加闹钟',
       DeviceFeature.contacts: '添加联系人',

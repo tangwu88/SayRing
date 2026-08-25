@@ -108,6 +108,8 @@ void main() {
 
     expect(find.text('商品详情'), findsWidgets);
     expect(find.text('黑色'), findsOneWidget);
+    expect(find.text('用于 QA 的商品详情'), findsOneWidget);
+    expect(find.text('加入购物车'), findsOneWidget);
     await tester.tap(find.widgetWithText(FilledButton, '立即购买'));
     await tester.pumpAndSettle();
     expect(find.text('请选择规格'), findsOneWidget);
@@ -150,6 +152,22 @@ void main() {
     await tester.pump();
     expect(controller.shopCart.single['quantity'], 2);
     expect(find.byKey(const Key('cart-checkout')), findsOneWidget);
+  });
+
+  testWidgets('my page hides add-device entry while a watch is connected', (
+    tester,
+  ) async {
+    final wearable = _QaWearable();
+    final controller = _authenticatedController(wearable: wearable)
+      ..connectedDevice = wearable.scannedDevice;
+    addTearDown(controller.dispose);
+    await _pumpPhone(tester, controller);
+
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('my-add-device')), findsNothing);
+    expect(find.text('在线'), findsOneWidget);
   });
 
   testWidgets('device scan and connection uses the wearable flow', (

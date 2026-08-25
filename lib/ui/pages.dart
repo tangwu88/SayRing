@@ -5,8 +5,8 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../domain/feature_models.dart';
@@ -2835,6 +2835,8 @@ class ArticleCategoryPage extends StatefulWidget {
 
 class _ArticleCategoryPageState extends State<ArticleCategoryPage> {
   List<Map<String, Object?>> _categories = const [];
+  List<Map<String, Object?>> _articles = const [];
+  int? _selectedCategoryId;
   bool _loading = true;
 
   @override
@@ -2846,24 +2848,31 @@ class _ArticleCategoryPageState extends State<ArticleCategoryPage> {
   Future<void> _load() async {
     if (mounted) setState(() => _loading = true);
     final categories = await widget.controller.loadArticleCategories();
+    final articles = await widget.controller.loadArticlesByCategory(
+      categoryId: _selectedCategoryId,
+    );
     if (!mounted) return;
     setState(() {
       _categories = categories;
+      _articles = articles;
       _loading = false;
     });
   }
 
-  void _open({int? categoryId, required String title}) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        settings: const RouteSettings(name: 'health-encyclopedia-list'),
-        builder: (_) => ArticleListPage(
-          controller: widget.controller,
-          title: title,
-          categoryId: categoryId,
-        ),
-      ),
+  Future<void> _selectCategory(int? categoryId) async {
+    if (_selectedCategoryId == categoryId && !_loading) return;
+    setState(() {
+      _selectedCategoryId = categoryId;
+      _loading = true;
+    });
+    final articles = await widget.controller.loadArticlesByCategory(
+      categoryId: categoryId,
     );
+    if (!mounted) return;
+    setState(() {
+      _articles = articles;
+      _loading = false;
+    });
   }
 
   @override
@@ -2871,46 +2880,98 @@ class _ArticleCategoryPageState extends State<ArticleCategoryPage> {
     final error = widget.controller.articleCategoryLoadError;
     return Scaffold(
       appBar: AppBar(title: const Text('健康百科')),
-      body: KeyedSubtree(
+      body: Column(
         key: const Key('article-category-page'),
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : error != null
-            ? _ArticleLoadFailure(onRetry: _load)
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                children: [
-                  Card(
-                    child: ListTile(
-                      key: const Key('article-category-all'),
-                      onTap: () => _open(title: '健康百科'),
-                      leading: const CircleAvatar(
-                        child: Icon(Icons.menu_book_rounded),
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(bottom: BorderSide(color: Color(0x11000000))),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '健康分类',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 10),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      ChoiceChip(
+                        key: const Key('article-category-all'),
+                        label: const Text('全部'),
+                        selected: _selectedCategoryId == null,
+                        onSelected: (_) => _selectCategory(null),
                       ),
-                      title: const Text('全部'),
-                      subtitle: const Text('查看全部健康百科内容'),
-                      trailing: const Icon(Icons.chevron_right_rounded),
+                      for (final category in _categories) ...[
+                        const SizedBox(width: 8),
+                        ChoiceChip(
+                          label: Text(
+                            '${category['title'] ?? category['name'] ?? '健康知识'}',
+                          ),
+                          selected:
+                              _selectedCategoryId ==
+                              int.tryParse('${category['id'] ?? ''}'),
+                          onSelected: (_) => _selectCategory(
+                            int.tryParse('${category['id'] ?? ''}'),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : error != null ||
+                      widget.controller.articleListLoadError != null
+                ? _ArticleLoadFailure(onRetry: _load)
+                : _articles.isEmpty
+                ? RefreshIndicator(
+                    onRefresh: _load,
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: const [
+                        SizedBox(height: 180),
+                        Center(child: Text('该分类暂无百科内容')),
+                      ],
+                    ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _load,
+                    child: ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                      itemCount: _articles.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final article = _articles[index];
+                        return Card(
+                          margin: EdgeInsets.zero,
+                          child: _ArticleTile(
+                            article: article,
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => ArticleDetailPage(
+                                  controller: widget.controller,
+                                  article: article,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
-                  for (final category in _categories)
-                    Card(
-                      child: ListTile(
-                        onTap: () => _open(
-                          categoryId: int.tryParse('${category['id'] ?? ''}'),
-                          title:
-                              '${category['title'] ?? category['name'] ?? '健康百科'}',
-                        ),
-                        leading: const CircleAvatar(
-                          child: Icon(Icons.health_and_safety_outlined),
-                        ),
-                        title: Text(
-                          '${category['title'] ?? category['name'] ?? '健康百科'}',
-                        ),
-                        trailing: const Icon(Icons.chevron_right_rounded),
-                      ),
-                    ),
-                ],
-              ),
+          ),
+        ],
       ),
     );
   }
@@ -4783,11 +4844,18 @@ class CarePage extends StatelessWidget {
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFFFFEEF1), Color(0xFFF2F1FF)],
+                colors: [Color(0xFFA51125), Color(0xFFD72D42)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(22),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x2EA51125),
+                  blurRadius: 22,
+                  offset: Offset(0, 10),
+                ),
+              ],
             ),
             child: Row(
               children: [
@@ -4795,12 +4863,12 @@ class CarePage extends StatelessWidget {
                   width: 58,
                   height: 58,
                   decoration: const BoxDecoration(
-                    color: SaydianColors.ink,
+                    color: Color(0x33FFFFFF),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
                     Icons.favorite_rounded,
-                    color: SaydianColors.pink,
+                    color: Colors.white,
                     size: 30,
                   ),
                 ),
@@ -4814,6 +4882,7 @@ class CarePage extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 19,
                           fontWeight: FontWeight.w900,
+                          color: Colors.white,
                         ),
                       ),
                       const SizedBox(height: 5),
@@ -4822,7 +4891,7 @@ class CarePage extends StatelessWidget {
                             ? '添加关爱成员后查看授权数据'
                             : '正在关爱 $memberCount 位家人',
                         style: const TextStyle(
-                          color: SaydianColors.muted,
+                          color: Color(0xFFFFDCE1),
                           fontSize: 14,
                         ),
                       ),
@@ -4834,6 +4903,10 @@ class CarePage extends StatelessWidget {
                       controller.session == null || controller.isPreviewMode
                       ? null
                       : () => _showAddCareDialog(context, controller),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: SaydianColors.brandRed,
+                  ),
                   icon: const Icon(Icons.person_add_alt_1_rounded),
                 ),
               ],
@@ -4841,38 +4914,45 @@ class CarePage extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Card(
-            child: ListTile(
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  settings: const RouteSettings(name: 'sharing-management'),
-                  builder: (_) => SharingManagementPage(controller: controller),
+            margin: EdgeInsets.zero,
+            child: Row(
+              children: [
+                Expanded(
+                  child: _CareActionEntry(
+                    icon: Icons.manage_accounts_outlined,
+                    title: '共享管理',
+                    subtitle: '授权与隐私',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        settings: const RouteSettings(
+                          name: 'sharing-management',
+                        ),
+                        builder: (_) =>
+                            SharingManagementPage(controller: controller),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-              leading: const Icon(Icons.manage_accounts_outlined),
-              title: const Text('共享管理'),
-              subtitle: const Text('查看成员和数据授权说明'),
-              trailing: const Icon(Icons.chevron_right_rounded),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Card(
-            child: ListTile(
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  settings: const RouteSettings(name: 'care-invitations'),
-                  builder: (_) => CareInvitationsPage(controller: controller),
+                const SizedBox(height: 76, child: VerticalDivider(width: 1)),
+                Expanded(
+                  child: _CareActionEntry(
+                    icon: Icons.mark_email_unread_outlined,
+                    title: '关爱邀请',
+                    subtitle: controller.careInvitations.isEmpty
+                        ? controller.careStatus == '服务暂不可用'
+                              ? '服务暂不可用'
+                              : '暂无待处理'
+                        : '${controller.careInvitations.length} 条待处理',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        settings: const RouteSettings(name: 'care-invitations'),
+                        builder: (_) =>
+                            CareInvitationsPage(controller: controller),
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-              leading: const Icon(Icons.mark_email_unread_outlined),
-              title: const Text('关爱邀请'),
-              subtitle: Text(
-                controller.careInvitations.isEmpty
-                    ? controller.careStatus == '服务暂不可用'
-                          ? '服务暂不可用'
-                          : '暂无待处理邀请'
-                    : '${controller.careInvitations.length} 条邀请',
-              ),
-              trailing: const Icon(Icons.chevron_right_rounded),
+              ],
             ),
           ),
           const SizedBox(height: 18),
@@ -4891,13 +4971,13 @@ class CarePage extends StatelessWidget {
                       width: 78,
                       height: 78,
                       decoration: BoxDecoration(
-                        color: SaydianColors.pink.withValues(alpha: 0.1),
+                        color: SaydianColors.brandRedSoft,
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
                         Icons.group_outlined,
                         size: 38,
-                        color: SaydianColors.pink,
+                        color: SaydianColors.brandRed,
                       ),
                     ),
                     const SizedBox(height: 14),
@@ -4952,8 +5032,8 @@ class CarePage extends StatelessWidget {
                       vertical: 8,
                     ),
                     leading: const CircleAvatar(
-                      backgroundColor: Color(0xFFFFEDF2),
-                      foregroundColor: SaydianColors.pink,
+                      backgroundColor: SaydianColors.brandRedSoft,
+                      foregroundColor: SaydianColors.brandRed,
                       child: Icon(Icons.person_rounded),
                     ),
                     title: Text(
@@ -4977,6 +5057,64 @@ class CarePage extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CareActionEntry extends StatelessWidget {
+  const _CareActionEntry({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(18),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: SaydianColors.brandRedSoft,
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: Icon(icon, color: SaydianColors.brandRed),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: SaydianColors.muted,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class CareMemberPage extends StatefulWidget {
@@ -5703,18 +5841,20 @@ class SettingsPage extends StatelessWidget {
           ),
           child: Column(
             children: [
-              _MyQuickEntry(
-                key: const Key('my-add-device'),
-                title: '添加设备',
-                subtitle: '搜索并连接附近的赛电手表',
-                icon: Icons.watch_outlined,
-                color: SaydianColors.brandRed,
-                onTap: () => _openPage(
-                  context,
-                  DeviceSearchPage(controller: controller),
+              if (controller.connectedDevice == null) ...[
+                _MyQuickEntry(
+                  key: const Key('my-add-device'),
+                  title: '添加设备',
+                  subtitle: '搜索并连接附近的赛电手表',
+                  icon: Icons.watch_outlined,
+                  color: SaydianColors.brandRed,
+                  onTap: () => _openPage(
+                    context,
+                    DeviceSearchPage(controller: controller),
+                  ),
                 ),
-              ),
-              const Divider(height: 1, indent: 72),
+                const Divider(height: 1, indent: 72),
+              ],
               _MyQuickEntry(
                 key: const Key('my-ai-question'),
                 title: 'AI提问',
@@ -7699,6 +7839,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
   }
 
   Future<void> _save() async {
+    if (_isPickingAvatar) return;
     final height = double.tryParse(_height.text);
     final weight = double.tryParse(_weight.text);
     if (_nickname.text.trim().isEmpty ||
@@ -7827,14 +7968,16 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
           ),
           const SizedBox(height: 18),
           const _InlineNotice(
-            message: '头像和个人资料只会在你点击保存后更新。',
+            message: '头像和个人资料会在点击保存后同步到账号，用于个人中心和远程关爱成员识别。',
             icon: Icons.privacy_tip_outlined,
             color: SaydianColors.blue,
           ),
           const SizedBox(height: 18),
           FilledButton(
-            onPressed: widget.controller.isBusy ? null : _save,
-            child: const Text('保存资料'),
+            onPressed: widget.controller.isBusy || _isPickingAvatar
+                ? null
+                : _save,
+            child: Text(_isPickingAvatar ? '正在读取照片' : '保存资料'),
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(

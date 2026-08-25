@@ -1707,6 +1707,17 @@ class _EcgRiskSection extends StatelessWidget {
         icon: Icons.health_and_safety_outlined,
       );
     }
+    final highestRisk = values
+        .where(
+          (item) => const {
+            'diseaseRisk',
+            'myocarditisRisk',
+            'chdRisk',
+            'angioscleroticRisk',
+          }.contains(item.$1),
+        )
+        .map((item) => record.values[item.$1] ?? 0)
+        .fold<num>(0, math.max);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -1723,8 +1734,11 @@ class _EcgRiskSection extends StatelessWidget {
               style: TextStyle(color: SaydianColors.muted, height: 1.45),
             ),
             const SizedBox(height: 12),
+            _EcgRiskOverview(value: highestRisk),
+            const SizedBox(height: 14),
             for (var index = 0; index < values.length; index++) ...[
               _EcgRiskRow(
+                riskKey: values[index].$1,
                 label: values[index].$2,
                 value: record.values[values[index].$1]!,
               ),
@@ -1738,14 +1752,20 @@ class _EcgRiskSection extends StatelessWidget {
 }
 
 class _EcgRiskRow extends StatelessWidget {
-  const _EcgRiskRow({required this.label, required this.value});
+  const _EcgRiskRow({
+    required this.riskKey,
+    required this.label,
+    required this.value,
+  });
 
+  final String riskKey;
   final String label;
   final num value;
 
   @override
   Widget build(BuildContext context) {
     final normalized = value >= 0 && value <= 100 ? value / 100 : null;
+    final level = _ecgRiskLevel(riskKey, value);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1757,11 +1777,19 @@ class _EcgRiskRow extends StatelessWidget {
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
-            Text(
-              _formatEcgNumber(value),
-              style: const TextStyle(
-                color: SaydianColors.brandRed,
-                fontWeight: FontWeight.w900,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(
+                color: level.color.withValues(alpha: .11),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '${level.label} · ${_formatEcgNumber(value)}',
+                style: TextStyle(
+                  color: level.color,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 12,
+                ),
               ),
             ),
           ],
@@ -1774,9 +1802,107 @@ class _EcgRiskRow extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
           ),
         ],
+        const SizedBox(height: 7),
+        Text(
+          _ecgRiskDescription(riskKey, value),
+          style: const TextStyle(
+            color: SaydianColors.muted,
+            fontSize: 13,
+            height: 1.45,
+          ),
+        ),
       ],
     );
   }
+}
+
+class _EcgRiskOverview extends StatelessWidget {
+  const _EcgRiskOverview({required this.value});
+
+  final num value;
+
+  @override
+  Widget build(BuildContext context) {
+    final level = _ecgRiskLevel('diseaseRisk', value);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: level.color.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: level.color.withValues(alpha: .18)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.health_and_safety_rounded, color: level.color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '本次风险等级：${level.label}',
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value < 30
+                      ? '本次设备算法未提示明显高风险，建议继续保持规律监测。'
+                      : '建议在静息状态复测；如多次提示异常或伴随不适，请及时就医。',
+                  style: const TextStyle(fontSize: 13, height: 1.45),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+({String label, Color color}) _ecgRiskLevel(String key, num value) {
+  if (key == 'pressureIndex' || key == 'fatigueIndex') {
+    if (value < 30) return (label: '较低', color: SaydianColors.green);
+    if (value < 60) return (label: '中等', color: SaydianColors.orange);
+    return (label: '偏高', color: SaydianColors.brandRed);
+  }
+  if (value < 30) return (label: '低风险', color: SaydianColors.green);
+  if (value < 60) return (label: '需关注', color: SaydianColors.orange);
+  return (label: '风险较高', color: SaydianColors.brandRed);
+}
+
+String _ecgRiskDescription(String key, num value) {
+  if (key == 'pressureIndex') {
+    return value < 30
+        ? '压力指标较低，当前状态相对放松。'
+        : value < 60
+        ? '压力指标处于中等范围，建议适当休息并保持规律作息。'
+        : '压力指标偏高，建议静息后复测，并关注近期睡眠与情绪变化。';
+  }
+  if (key == 'fatigueIndex') {
+    return value < 30
+        ? '疲劳指标较低，当前恢复状态较好。'
+        : value < 60
+        ? '存在一定疲劳，建议减少高强度活动并保证休息。'
+        : '疲劳指标偏高，建议充分休息后复测。';
+  }
+  const names = {
+    'diseaseRisk': '综合异常',
+    'myocarditisRisk': '心肌健康',
+    'chdRisk': '冠心病相关',
+    'angioscleroticRisk': '血管硬化相关',
+    'deviceAbnormalFlags': '设备识别异常',
+  };
+  final name = names[key] ?? '该项';
+  if (key == 'deviceAbnormalFlags') {
+    return value <= 0
+        ? '设备未识别到异常标记。'
+        : '设备识别到 ${_formatEcgNumber(value)} 项异常标记，建议在静息状态规范佩戴后复测。';
+  }
+  return value < 30
+      ? '$name风险较低，建议继续观察长期趋势。'
+      : value < 60
+      ? '$name指标需要关注，建议在静息状态规范复测。'
+      : '$name指标偏高；若复测仍高或伴有胸闷、心悸等不适，请及时就医。';
 }
 
 class _EcgFullReportPage extends StatefulWidget {
@@ -2349,38 +2475,95 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     return Column(
       children: [
         Card(
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            children: [
-              AspectRatio(
-                aspectRatio: .82,
-                child: _dialPhoto == null
-                    ? Container(
-                        color: const Color(0xffeef3f8),
-                        alignment: Alignment.center,
-                        child: const Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.add_photo_alternate_outlined, size: 58),
-                            SizedBox(height: 10),
-                            Text('选择一张照片制作表盘'),
-                          ],
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    InkWell(
+                      key: const Key('photo-watch-face-picker'),
+                      onTap: busy ? null : _pickDialPhoto,
+                      borderRadius: BorderRadius.circular(22),
+                      child: Container(
+                        width: 126,
+                        height: 154,
+                        clipBehavior: Clip.antiAlias,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F3F5),
+                          border: Border.all(color: const Color(0xFFD9DDE3)),
+                          borderRadius: BorderRadius.circular(22),
                         ),
-                      )
-                    : Image.file(File(_dialPhoto!.path), fit: BoxFit.cover),
-              ),
-              if (busy) ...[
-                LinearProgressIndicator(
-                  value: progress > 0 ? progress.clamp(0, 100) / 100 : null,
+                        child: _dialPhoto == null
+                            ? const Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.add_photo_alternate_outlined,
+                                    size: 38,
+                                    color: SaydianColors.brandRed,
+                                  ),
+                                  SizedBox(height: 8),
+                                  Text(
+                                    '点击选择照片',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Image.file(
+                                File(_dialPhoto!.path),
+                                fit: BoxFit.cover,
+                              ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '照片表盘',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            '选择一张清晰照片，预览无误后再传送到手表。',
+                            style: TextStyle(
+                              color: SaydianColors.muted,
+                              height: 1.5,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          OutlinedButton.icon(
+                            onPressed: busy ? null : _pickDialPhoto,
+                            icon: const Icon(Icons.photo_library_outlined),
+                            label: Text(_dialPhoto == null ? '选择照片' : '更换照片'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(progress > 0 ? '正在传送到手表 $progress%' : '正在准备照片表盘'),
-                ),
-              ],
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                child: DropdownButtonFormField<int>(
+                if (busy) ...[
+                  const SizedBox(height: 14),
+                  LinearProgressIndicator(
+                    value: progress > 0 ? progress.clamp(0, 100) / 100 : null,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(
+                      progress > 0 ? '正在传送到手表 $progress%' : '正在准备照片表盘',
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
                   initialValue: _dialTimePosition,
                   decoration: const InputDecoration(
                     labelText: '时间显示位置',
@@ -2400,31 +2583,19 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                       : (value) =>
                             setState(() => _dialTimePosition = value ?? 0),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: busy ? null : _pickDialPhoto,
-                        icon: const Icon(Icons.photo_library_outlined),
-                        label: Text(_dialPhoto == null ? '选择照片' : '更换照片'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: busy || _dialPhoto == null
-                            ? null
-                            : _uploadDialPhoto,
-                        child: const Text('设为表盘'),
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: busy || _dialPhoto == null
+                        ? null
+                        : _uploadDialPhoto,
+                    icon: const Icon(Icons.watch_rounded),
+                    label: const Text('传送并设为表盘'),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 10),

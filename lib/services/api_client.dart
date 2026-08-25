@@ -155,6 +155,10 @@ abstract interface class SaydianCareApi {
   });
 }
 
+abstract interface class SaydianProfileUploadApi {
+  Future<String> uploadProfileImage(String filePath);
+}
+
 class SaydianApiClient
     implements
         SaydianApi,
@@ -162,7 +166,8 @@ class SaydianApiClient
         SaydianSmsAuthApi,
         SaydianArticleApi,
         SaydianShopApi,
-        SaydianCareApi {
+        SaydianCareApi,
+        SaydianProfileUploadApi {
   SaydianApiClient(this._vault, {http.Client? client, Uri? baseUri})
     : _client = client ?? http.Client(),
       _baseUri =
@@ -354,7 +359,7 @@ class SaydianApiClient
     if (!RegExp(r'^\d{6,20}$').hasMatch(normalized)) {
       throw const ApiException('请输入正确的手机号');
     }
-    final response = await _authorizedPostFields('/api/v1/member/care', {
+    final response = await _authorizedPostJson('/api/v1/member/care', {
       'mobile': normalized,
     });
     return _data(_decode(response));
@@ -375,12 +380,12 @@ class SaydianApiClient
     required double weight,
     String? headPortrait,
   }) async {
-    final response = await _authorizedPostFields('/api/v1/member/member/save', {
+    final response = await _authorizedPostJson('/api/v1/member/member/save', {
       'nickname': nickname.trim(),
-      'gender': '$gender',
+      'gender': gender,
       'birthday': birthday,
-      'height': '$height',
-      'weight': '$weight',
+      'height': height,
+      'weight': weight,
       if (headPortrait?.isNotEmpty ?? false) 'head_portrait': headPortrait!,
     });
     _decode(response);
@@ -388,23 +393,23 @@ class SaydianApiClient
 
   @override
   Future<String> uploadImage(String filePath) async {
+    if (filePath.trim().isEmpty) throw const ApiException('请选择头像图片');
     final response = await _withAuthorizationRetry((session) async {
       final request = http.MultipartRequest('POST', _uri('/api/v1/file/images'))
-        ..headers['Authorization'] = 'Bearer ${session.accessToken}'
-        ..headers['token'] = session.accessToken
-        ..files.add(await http.MultipartFile.fromPath('file', filePath));
+        ..headers.addAll(_authorizationHeaders(session));
+      request.files.add(await http.MultipartFile.fromPath('file', filePath));
       return _sendMultipart(request);
     });
     final data = _data(_decode(response));
-    final rawUrl = '${data['url'] ?? ''}'.trim();
+    final rawUrl = '${data['url'] ?? data['path'] ?? ''}'.trim();
     if (rawUrl.isEmpty) {
       throw const ApiException('头像上传失败，请稍后重试');
     }
-    final uri = Uri.tryParse(rawUrl);
-    return uri != null && uri.hasScheme
-        ? rawUrl
-        : _baseUri.resolve(rawUrl).toString();
+    return _absoluteMediaUrl(rawUrl);
   }
+
+  @override
+  Future<String> uploadProfileImage(String filePath) => uploadImage(filePath);
 
   @override
   Future<Map<String, Object?>> getActivityGoals() async {
@@ -513,12 +518,11 @@ class SaydianApiClient
     required String message,
     String? sessionId,
   }) async {
-    final response =
-        await _authorizedPostFields('/api/rf-article/chat/create', {
-          'app': '$app',
-          'message': message.trim(),
-          if (sessionId?.isNotEmpty ?? false) 'session_id': sessionId!,
-        });
+    final response = await _authorizedPostJson('/api/rf-article/chat/create', {
+      'app': app,
+      'message': message.trim(),
+      if (sessionId?.isNotEmpty ?? false) 'session_id': sessionId!,
+    });
     return _data(_decode(response));
   }
 
@@ -773,7 +777,7 @@ class SaydianApiClient
     (session) => _performRequest(
       () => _client.get(
         _uri(path, query),
-        headers: {'Authorization': 'Bearer ${session.accessToken}'},
+        headers: _authorizationHeaders(session),
       ),
     ),
   );
@@ -787,7 +791,7 @@ class SaydianApiClient
       () => _client.post(
         _uri(path),
         headers: {
-          'Authorization': 'Bearer ${session.accessToken}',
+          ..._authorizationHeaders(session),
           'Content-Type': 'application/json',
           ...headers,
         },
@@ -801,7 +805,7 @@ class SaydianApiClient
     Map<String, String> fields,
   ) => _withAuthorizationRetry((session) {
     final request = http.MultipartRequest('POST', _uri(path))
-      ..headers['Authorization'] = 'Bearer ${session.accessToken}'
+      ..headers.addAll(_authorizationHeaders(session))
       ..fields.addAll(fields);
     return _sendMultipart(request);
   });
@@ -814,7 +818,7 @@ class SaydianApiClient
       () => _client.put(
         _uri(path),
         headers: {
-          'Authorization': 'Bearer ${session.accessToken}',
+          ..._authorizationHeaders(session),
           'Content-Type': 'application/json',
         },
         body: jsonEncode(body),
@@ -855,6 +859,27 @@ class SaydianApiClient
   Future<http.Response> _sendMultipart(http.MultipartRequest request) async {
     final streamed = await _performRequest(() => _client.send(request));
     return _performRequest(() => http.Response.fromStream(streamed));
+  }
+
+  Map<String, String> _authorizationHeaders(Session session) => {
+    'Authorization': 'Bearer ${session.accessToken}',
+    // The original mini-program sends both headers. Some legacy member and
+    // article modules still read `token` directly instead of the Bearer header.
+    'token': session.accessToken,
+  };
+
+  String _absoluteMediaUrl(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return trimmed;
+    final parsed = Uri.tryParse(trimmed);
+    if (parsed?.hasScheme ?? false) {
+      return trimmed
+          .replaceFirst('http://sd.cc/', 'https://app.saidian.cc/')
+          .replaceFirst('https://sd.cc/', 'https://app.saidian.cc/');
+    }
+    return _baseUri
+        .resolve(trimmed.startsWith('/') ? trimmed : '/$trimmed')
+        .toString();
   }
 
   Future<T> _performRequest<T>(Future<T> Function() request) async {
@@ -966,9 +991,9 @@ class SaydianApiClient
     required int id,
     required bool accepted,
   }) async {
-    final response = await _authorizedPostFields('/api/v1/member/care/save', {
-      'id': '$id',
-      'examine_status': accepted ? '1' : '2',
+    final response = await _authorizedPostJson('/api/v1/member/care/save', {
+      'id': id,
+      'examine_status': accepted ? 1 : 2,
     });
     _decode(response);
   }
@@ -1001,12 +1026,11 @@ class SaydianApiClient
     required int memberId,
     required Set<String> settings,
   }) async {
-    final response =
-        await _authorizedPostFields('/api/v1/member/care-setting', {
-          'type': '$type',
-          'to_member_id': '$memberId',
-          'setting': jsonEncode(settings.toList()..sort()),
-        });
+    final response = await _authorizedPostJson('/api/v1/member/care-setting', {
+      'type': type,
+      'to_member_id': memberId,
+      'setting': settings.toList()..sort(),
+    });
     _decode(response);
   }
 }

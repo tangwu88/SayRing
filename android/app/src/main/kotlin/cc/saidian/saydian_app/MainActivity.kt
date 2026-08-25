@@ -554,6 +554,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private var lastScreenSetting: ScreenSetting? = null
     private var lastSocialMsgSetting: FunctionSocailMsgData? = null
     private val cachedContacts = mutableListOf<Contact>()
+    private var currentSosContactId: Int? = null
     private val cachedHealthReminders = linkedMapOf<HealthRemindType, HealthRemind>()
     private val cachedWorldClocks = mutableListOf<WorldClock>()
     private var weatherCrc = 0
@@ -3486,6 +3487,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 override fun onContactReadSuccess(contacts: List<Contact>) {
                     cachedContacts.clear()
                     cachedContacts.addAll(contacts)
+                    val reportedSosIds = contacts.filter { it.isSettingSOS }.map { it.contactID }
+                    if (currentSosContactId !in reportedSosIds) {
+                        currentSosContactId = reportedSosIds.firstOrNull()
+                    }
                     callback.success(contactListPayload())
                 }
 
@@ -3526,6 +3531,13 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 override fun onContactOptSuccess(opt: EContactOpt, crc: Int) {
                     cachedContacts.removeAll { it.contactID == contact.contactID }
                     if (operation != "delete") cachedContacts.add(contact)
+                    if (operation == "emergency") {
+                        currentSosContactId =
+                            if (contact.isSettingSOS) contact.contactID
+                            else currentSosContactId?.takeUnless { it == contact.contactID }
+                    } else if (operation == "delete" && currentSosContactId == contact.contactID) {
+                        currentSosContactId = null
+                    }
                     callback.success(Unit)
                 }
 
@@ -3557,7 +3569,8 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             "id" to contact.contactID,
             "name" to contact.name,
             "phone" to contact.phoneNumber,
-            "isEmergency" to contact.isSettingSOS,
+            "isEmergency" to
+                (currentSosContactId?.let { it == contact.contactID } ?: contact.isSettingSOS),
             "supportsEmergency" to contact.isSupportSOS,
         )
 
@@ -5947,12 +5960,14 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     if (diagnosis.hrv in 1..250) put("averageHRV", diagnosis.hrv)
                     if (diagnosis.qtTime > 0) put("averageTimeInterval", diagnosis.qtTime)
                     if (diagnosis.respRate > 0) put("respiratoryRate", diagnosis.respRate)
-                    if (diagnosis.diseaseRisk > 0) put("diseaseRisk", diagnosis.diseaseRisk)
-                    if (diagnosis.pressureIndex > 0) put("pressureIndex", diagnosis.pressureIndex)
-                    if (diagnosis.fatigueIndex > 0) put("fatigueIndex", diagnosis.fatigueIndex)
-                    if (diagnosis.myocarditisRisk > 0) put("myocarditisRisk", diagnosis.myocarditisRisk)
-                    if (diagnosis.chdRisk > 0) put("chdRisk", diagnosis.chdRisk)
-                    if (diagnosis.angioscleroticRisk > 0) put("angioscleroticRisk", diagnosis.angioscleroticRisk)
+                    if (diagnosis.diseaseRisk >= 0) put("diseaseRisk", diagnosis.diseaseRisk)
+                    if (diagnosis.pressureIndex >= 0) put("pressureIndex", diagnosis.pressureIndex)
+                    if (diagnosis.fatigueIndex >= 0) put("fatigueIndex", diagnosis.fatigueIndex)
+                    if (diagnosis.myocarditisRisk >= 0) put("myocarditisRisk", diagnosis.myocarditisRisk)
+                    if (diagnosis.chdRisk >= 0) put("chdRisk", diagnosis.chdRisk)
+                    if (diagnosis.angioscleroticRisk >= 0) {
+                        put("angioscleroticRisk", diagnosis.angioscleroticRisk)
+                    }
                     if (diagnosis.qrsTime > 0) put("qrsTime", diagnosis.qrsTime)
                     if (diagnosis.qrsAmp > 0) put("qrsAmplitude", diagnosis.qrsAmp)
                     if (diagnosis.pwvMeanVal > 0) put("pulseWaveVelocity", diagnosis.pwvMeanVal)
