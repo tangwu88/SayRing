@@ -4,6 +4,47 @@ version '1.0'
 def yuchengPluginSource = gradle.ext.yuchengPluginSource
 def yuchengAndroidSource = file(yuchengPluginSource + '/android')
 def yuchengLibs = file(yuchengPluginSource + '/android/libs')
+def yuchengJavaSource = file(yuchengAndroidSource.path + '/src/main/java')
+def patchedYuchengJavaSource = layout.buildDirectory
+        .dir('generated/patched-yucheng/java')
+        .get()
+        .asFile
+
+// The upstream Android plugin returns its result map as that map's own
+// `data` value when the BLE read/write channel is not ready yet. Flutter's
+// StandardMessageCodec cannot encode that cycle and crashes with a
+// StackOverflowError. Prepare a build-local source copy with only that vendor
+// defect corrected, so the fix is reproducible without editing Pub Cache.
+def prepareYuchengPluginSources = tasks.register('prepareYuchengPluginSources', Sync) {
+    def querySource = file(yuchengJavaSource.path +
+            '/com/example/yc_product_plugin/YcProductPluginQuery.java')
+    def brokenLine = 'map.put("data", map);'
+
+    doFirst {
+        if (!querySource.isFile()) {
+            throw new GradleException("Missing Yucheng query source: ${querySource}")
+        }
+        def occurrenceCount = new String(querySource.bytes, 'ISO-8859-1')
+                .count(brokenLine)
+        if (occurrenceCount != 1) {
+            throw new GradleException(
+                    "Expected one Yucheng cyclic-map defect, found ${occurrenceCount}. " +
+                            'Review the upstream plugin before building.')
+        }
+    }
+
+    from(yuchengJavaSource)
+    into(patchedYuchengJavaSource)
+
+    doLast {
+        def patchedQuerySource = file(patchedYuchengJavaSource.path +
+                '/com/example/yc_product_plugin/YcProductPluginQuery.java')
+        def sourceBytes = new String(patchedQuerySource.bytes, 'ISO-8859-1')
+        patchedQuerySource.bytes = sourceBytes
+                .replace(brokenLine, 'map.put("data", new HashMap());')
+                .getBytes('ISO-8859-1')
+    }
+}
 
 repositories {
     maven { url 'https://maven.aliyun.com/repository/public/' }
@@ -43,10 +84,14 @@ android {
     sourceSets {
         main {
             manifest.srcFile file(yuchengAndroidSource.path + '/src/main/AndroidManifest.xml')
-            java.srcDirs = [file(yuchengAndroidSource.path + '/src/main/java')]
+            java.srcDirs = [patchedYuchengJavaSource]
             jniLibs.srcDirs = [yuchengLibs]
         }
     }
+}
+
+tasks.named('preBuild').configure {
+    dependsOn(prepareYuchengPluginSources)
 }
 
 dependencies {

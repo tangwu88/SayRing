@@ -15,10 +15,12 @@ class YuchengWearableBridge
     YuchengProductClient? client,
     this.healthReadTimeout = const Duration(seconds: 8),
     this.initialHealthSettleDelay = const Duration(seconds: 3),
+    this.capabilityRetryDelay = const Duration(milliseconds: 500),
   }) : _client = client ?? PluginYuchengProductClient();
   final YuchengProductClient _client;
   final Duration healthReadTimeout;
   final Duration initialHealthSettleDelay;
+  final Duration capabilityRetryDelay;
   final _events = StreamController<WearableEvent>.broadcast();
   bool _initialized = false;
   String? _deviceId;
@@ -36,7 +38,11 @@ class YuchengWearableBridge
 
   Future<void> _initialize() async {
     if (_initialized) return;
-    await _client.initialize(reconnectEnabled: true, logEnabled: false);
+    // The vendor's automatic reconnect can establish a hidden GATT session
+    // before this bridge knows the device identifier. The bound watch then
+    // disappears from scans while the UI still reports it as disconnected.
+    // Keep connection ownership in the app so native and visible state agree.
+    await _client.initialize(reconnectEnabled: false, logEnabled: false);
     _client.events.listen(_handleEvent);
     _initialized = true;
   }
@@ -142,9 +148,12 @@ class YuchengWearableBridge
   }
 
   Future<DeviceCapabilities> _readCapabilities() async {
-    for (var attempt = 0; attempt < 4; attempt += 1) {
+    // W8/JL reports the BLE connection before its device-info and watch-face
+    // handshake has finished. Keep retrying through that real-device window;
+    // the native failure response is safe after the Android patch below.
+    for (var attempt = 0; attempt < 12; attempt += 1) {
       if (attempt > 0) {
-        await Future<void>.delayed(const Duration(milliseconds: 500));
+        await Future<void>.delayed(capabilityRetryDelay);
       }
       try {
         final flags = await _client.capabilities().timeout(

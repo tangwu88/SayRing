@@ -8,6 +8,18 @@ import 'package:saydian_app/services/yucheng_product_client.dart';
 import 'package:saydian_app/services/yucheng_wearable_bridge.dart';
 
 void main() {
+  test('keeps vendor auto reconnect from hiding a bound W8', () async {
+    final client = _FakeYuchengClient(modelName: 'W8 Ultra');
+    final bridge = YuchengWearableBridge(
+      client: client,
+      initialHealthSettleDelay: Duration.zero,
+    );
+
+    await bridge.scanDevices();
+
+    expect(client.reconnectEnabled, isFalse);
+  });
+
   test(
     'disconnects when connected model is outside Yucheng allowlist',
     () async {
@@ -143,6 +155,25 @@ void main() {
       HealthMetric.bloodOxygen,
     });
     expect(capabilities.supportsManualMeasurement(HealthMetric.sleep), isFalse);
+  });
+
+  test('waits for the W8 feature handshake before giving up', () async {
+    final client = _FakeYuchengClient(
+      modelName: 'W8 Ultra',
+      capabilityFailuresBeforeSuccess: 5,
+    );
+    final bridge = YuchengWearableBridge(
+      client: client,
+      initialHealthSettleDelay: Duration.zero,
+      capabilityRetryDelay: Duration.zero,
+    );
+    await bridge.scanDevices();
+    await bridge.connect('YC-01', profile: _profile);
+
+    final capabilities = await bridge.getCapabilities();
+
+    expect(client.capabilityCalls, 6);
+    expect(capabilities.metrics, contains(HealthMetric.heartRate));
   });
 
   test(
@@ -306,6 +337,7 @@ class _FakeYuchengClient implements YuchengProductClient {
     this.measurementStatus = 0,
     this.healthResult,
     this.watchFaceRows = const [],
+    this.capabilityFailuresBeforeSuccess = 0,
     this.capabilityFlags = const {
       'isSupportStep': true,
       'isSupportSleep': true,
@@ -323,10 +355,13 @@ class _FakeYuchengClient implements YuchengProductClient {
   final Future<YuchengOperationResult<List<Map<String, Object?>>>>?
   healthResult;
   final List<Map<String, Object?>> watchFaceRows;
+  final int capabilityFailuresBeforeSuccess;
   final Map<String, Object?> capabilityFlags;
   int disconnectCount = 0;
   int modelCalls = 0;
   int? changedWatchFaceId;
+  bool? reconnectEnabled;
+  int capabilityCalls = 0;
   final _events = StreamController<Map<String, Object?>>.broadcast();
   @override
   Stream<Map<String, Object?>> get events => _events.stream;
@@ -334,7 +369,10 @@ class _FakeYuchengClient implements YuchengProductClient {
   Future<void> initialize({
     required bool reconnectEnabled,
     required bool logEnabled,
-  }) async {}
+  }) async {
+    this.reconnectEnabled = reconnectEnabled;
+  }
+
   @override
   Future<List<Map<String, Object?>>> scan() async => [
     {
@@ -363,7 +401,13 @@ class _FakeYuchengClient implements YuchengProductClient {
   Future<YuchengOperationResult<String>> firmware() async =>
       const YuchengOperationResult(0, '1.0');
   @override
-  Future<Map<String, Object?>> capabilities() async => capabilityFlags;
+  Future<Map<String, Object?>> capabilities() async {
+    capabilityCalls++;
+    return capabilityCalls <= capabilityFailuresBeforeSuccess
+        ? const {}
+        : capabilityFlags;
+  }
+
   @override
   Future<YuchengOperationResult<void>> syncTime() async =>
       const YuchengOperationResult(0, null);
