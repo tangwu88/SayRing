@@ -386,3 +386,14 @@
 - 冷启动：真实入口 `cc.saidian.app/cc.saidian.saydian_app.MainActivity` 启动成功，用时约 2.9 秒，进程保持运行并位于前台。
 - 首屏：登录页显示赛电 Logo、账号、密码、找回密码、协议勾选、登录、注册和快速体验入口，无系统弹窗遮挡或布局异常。
 - 稳定性：安装后启动日志无 `FATAL EXCEPTION`、ANR、进程死亡或 Flutter 未处理错误；截图与界面树保存在已忽略的 `build/real-device-qa-20260825-vivo/`，不提交测试图片或手机数据。
+
+### 11:27 REDMI 新手机安装与启动验收
+
+- 安装前同步：本地与 `origin/main` 均为 `2a6025d99808e4922dd18f254768d1f008f14070`，工作树干净；新手机未安装 `cc.saidian.app` 或并存 QA 包，没有覆盖或清除旧数据。
+- 设备：REDMI K80（型号 `24117RK2CC`，Android 16 / API 36，arm64-v8a），ADB 状态为 `device`。
+- 首次安装失败：系统返回 `INSTALL_FAILED_USER_RESTRICTED: Install canceled by user`；根因是 REDMI 的“USB 安装”和“USB 调试（安全设置）”尚未获用户允许，不误报为 APK、签名或代码问题。
+- 安全处理：只打开系统开发者设置等待用户手动授权，不绕过手机安全限制；授权后再次流式安装成功。
+- 安装结果：包名 `cc.saidian.app`，版本 `0.1.19 (23)`；冷启动真实入口成功，用时约 3.3 秒，进程保持运行并位于前台。
+- 首屏与稳定性：登录页赛电 Logo、账号、密码和找回密码区域正常显示；手机当时为横屏，页面按当前方向渲染。启动日志无 `FATAL EXCEPTION`、ANR、进程死亡或 Flutter 未处理错误。
+- 清理：安装期间为调用系统安装界面临时复制到手机下载目录的 192,485,821 字节 APK 已删除；安装后的 App 保留，未删除其他手机文件。
+- 本地证据：截图保存在已忽略的 `build/real-device-qa-20260825-redmi/`，不提交测试图片或手机数据。
