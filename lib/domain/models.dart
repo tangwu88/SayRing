@@ -531,6 +531,25 @@ class HealthWarningAlert {
   final String title;
   final String message;
   final DateTime triggeredAt;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'metric': metric.wireName,
+    'title': title,
+    'message': message,
+    'triggeredAt': triggeredAt.toUtc().toIso8601String(),
+  };
+
+  factory HealthWarningAlert.fromJson(Map<String, Object?> json) =>
+      HealthWarningAlert(
+        id: '${json['id'] ?? ''}',
+        metric: HealthMetric.fromWire('${json['metric'] ?? ''}'),
+        title: '${json['title'] ?? ''}',
+        message: '${json['message'] ?? ''}',
+        triggeredAt:
+            DateTime.tryParse('${json['triggeredAt'] ?? ''}')?.toLocal() ??
+            DateTime.fromMillisecondsSinceEpoch(0),
+      );
 }
 
 class SyncBatch {

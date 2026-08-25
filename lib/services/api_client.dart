@@ -185,6 +185,7 @@ class SaydianApiClient
   Future<Session>? _refreshingSession;
 
   static const _requestTimeout = Duration(seconds: 20);
+  static const _aiReplyTimeout = Duration(seconds: 75);
 
   Uri _uri(String path, [Map<String, String>? query]) =>
       _baseUri.resolve(path).replace(queryParameters: query);
@@ -518,11 +519,12 @@ class SaydianApiClient
     required String message,
     String? sessionId,
   }) async {
-    final response = await _authorizedPostJson('/api/rf-article/chat/create', {
-      'app': app,
-      'message': message.trim(),
-      if (sessionId?.isNotEmpty ?? false) 'session_id': sessionId!,
-    });
+    final response =
+        await _authorizedPostJsonWithTimeout('/api/rf-article/chat/create', {
+          'app': app,
+          'message': message.trim(),
+          if (sessionId?.isNotEmpty ?? false) 'session_id': sessionId!,
+        }, _aiReplyTimeout);
     return _data(_decode(response));
   }
 
@@ -800,6 +802,24 @@ class SaydianApiClient
     ),
   );
 
+  Future<http.Response> _authorizedPostJsonWithTimeout(
+    String path,
+    Map<String, Object?> body,
+    Duration timeout,
+  ) => _withAuthorizationRetry(
+    (session) => _performRequest(
+      () => _client.post(
+        _uri(path),
+        headers: {
+          ..._authorizationHeaders(session),
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(body),
+      ),
+      timeout: timeout,
+    ),
+  );
+
   Future<http.Response> _authorizedPostFields(
     String path,
     Map<String, String> fields,
@@ -882,9 +902,12 @@ class SaydianApiClient
         .toString();
   }
 
-  Future<T> _performRequest<T>(Future<T> Function() request) async {
+  Future<T> _performRequest<T>(
+    Future<T> Function() request, {
+    Duration timeout = _requestTimeout,
+  }) async {
     try {
-      return await request().timeout(_requestTimeout);
+      return await request().timeout(timeout);
     } on TimeoutException {
       throw const ApiException('网络连接超时，请检查网络后重试', code: 'NETWORK_TIMEOUT');
     } on http.ClientException {

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/ecg_waveform.dart';
 
@@ -65,6 +67,39 @@ void main() {
     expect(waveform.maximum, lessThan(10000));
     expect(waveform.maximum - waveform.minimum, greaterThan(500));
     expect(waveform.hasVariation, isTrue);
+  });
+
+  test('calibrated contact-settling rails are removed from display', () {
+    final samples = <num>[
+      for (var index = 0; index < 500; index++) index.isEven ? -18.0 : 21.0,
+      for (var index = 0; index < 2500; index++)
+        0.08 * math.sin(index / 11) +
+            (index % 250 >= 40 && index % 250 < 48 ? 1.25 : 0),
+    ];
+
+    final waveform = prepareEcgDisplayWaveform(
+      samples,
+      maximumPoints: 1200,
+      sampleFrequency: 250,
+      removeContactArtifacts: true,
+    );
+
+    expect(waveform.samples, isNotEmpty);
+    expect(waveform.minimum, greaterThan(-1));
+    expect(waveform.maximum, lessThan(2));
+    expect(waveform.hasVariation, isTrue);
+  });
+
+  test('contact artefact-only stream stays blank', () {
+    final waveform = prepareEcgDisplayWaveform(
+      <num>[for (var index = 0; index < 1000; index++) index.isEven ? -20 : 20],
+      maximumPoints: 400,
+      sampleFrequency: 250,
+      removeContactArtifacts: true,
+    );
+
+    expect(waveform.samples, isEmpty);
+    expect(waveform.hasVariation, isFalse);
   });
 
   test('leading and trailing SDK zero padding is removed from display', () {

@@ -77,6 +77,7 @@ class AppController extends ChangeNotifier {
   List<Map<String, Object?>> careMembers = const [];
   List<Map<String, Object?>> careInvitations = const [];
   String careStatus = '等待加载';
+  String careInvitationStatus = '等待加载';
   List<Map<String, Object?>> aiArticles = const [];
   List<Map<String, Object?>> aiMessages = const [];
   String? articleCategoryLoadError;
@@ -155,6 +156,7 @@ class AppController extends ChangeNotifier {
       await _healthStore.initialize();
       storageStatus = '数据已安全保存在本机';
       await _refreshHealthRecordCache();
+      healthWarningAlerts = await _healthStore.healthWarningAlerts();
     } catch (_) {
       storageStatus = '本机数据暂时无法读取';
     }
@@ -1162,7 +1164,9 @@ class AppController extends ChangeNotifier {
       return;
     }
     try {
-      careMembers = await _api.getCareMembers();
+      careMembers = _careMembersWithoutCurrentAccount(
+        await _api.getCareMembers(),
+      );
       careStatus = '已加载';
     } on ApiException catch (error) {
       errorMessage = _apiErrorMessage(error, fallback: '关爱数据暂时无法读取');
@@ -1174,21 +1178,21 @@ class AppController extends ChangeNotifier {
   Future<void> refreshCareInvitations() async {
     if (session == null) {
       careInvitations = const [];
+      careInvitationStatus = '请先登录';
       notifyListeners();
       return;
     }
     final careApi = _api is SaydianCareApi ? _api as SaydianCareApi : null;
     if (careApi == null) {
-      careStatus = '服务暂不可用';
+      careInvitationStatus = '服务暂不可用';
       notifyListeners();
       return;
     }
     try {
       careInvitations = await careApi.getCareInvitations();
-      careStatus = '已加载';
+      careInvitationStatus = careInvitations.isEmpty ? '暂无待处理' : '已加载';
     } on ApiException catch (error) {
-      errorMessage = _apiErrorMessage(error, fallback: '关爱邀请暂时无法读取');
-      careStatus = '服务暂不可用';
+      careInvitationStatus = _apiErrorMessage(error, fallback: '关爱邀请暂时无法读取');
     }
     notifyListeners();
   }
@@ -1240,8 +1244,23 @@ class AppController extends ChangeNotifier {
       throw const ApiException('不能添加当前登录账号作为关爱成员');
     }
     await _api.addCare(normalized);
-    careMembers = await _api.getCareMembers();
+    careMembers = _careMembersWithoutCurrentAccount(
+      await _api.getCareMembers(),
+    );
   });
+
+  List<Map<String, Object?>> _careMembersWithoutCurrentAccount(
+    Iterable<Map<String, Object?>> members,
+  ) {
+    final ownMemberId = session?.memberId.trim() ?? '';
+    return members
+        .where((item) {
+          final nested = item['member'];
+          final memberId = nested is Map ? '${nested['id'] ?? ''}'.trim() : '';
+          return ownMemberId.isEmpty || memberId != ownMemberId;
+        })
+        .toList(growable: false);
+  }
 
   Future<void> refreshMemberProfile() async {
     if (session == null) {
@@ -1434,7 +1453,9 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshNotifications() async {
+  Future<void> refreshNotifications() => refreshNotificationHistory();
+
+  Future<void> refreshNotificationHistory({bool allPages = false}) async {
     await Future<void>.delayed(Duration.zero);
     if (session == null) {
       notifications = const [];
@@ -1445,7 +1466,32 @@ class AppController extends ChangeNotifier {
     notificationStatus = '正在加载';
     notifyListeners();
     try {
-      notifications = await _api.getNotifications();
+      if (!allPages) {
+        notifications = await _api.getNotifications();
+      } else {
+        final merged = <Map<String, Object?>>[];
+        final seen = <String>{};
+        for (var page = 1; page <= 100; page++) {
+          final values = await _api.getNotifications(page: page);
+          if (values.isEmpty) break;
+          var added = 0;
+          for (final value in values) {
+            final identity = [
+              value['id'],
+              value['type'],
+              value['title'],
+              value['created_at'],
+              value['content'],
+            ].join('|');
+            if (seen.add(identity)) {
+              merged.add(value);
+              added++;
+            }
+          }
+          if (added == 0) break;
+        }
+        notifications = merged;
+      }
       notificationStatus = notifications.isEmpty ? '暂无消息' : '已加载';
     } on ApiException catch (error) {
       notificationStatus = _apiErrorMessage(error, fallback: '消息暂时无法加载');
@@ -1488,6 +1534,7 @@ class AppController extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    errorMessage = null;
     try {
       final messages = await _api.getAiMessages(app: app);
       if (messages.isNotEmpty) {
@@ -1496,7 +1543,19 @@ class AppController extends ChangeNotifier {
       } else {
         _aiSessionIds.remove(app);
       }
-      aiMessages = messages.reversed.toList();
+      aiMessages = messages.reversed
+          .map(
+            (message) => <String, Object?>{
+              ...message,
+              'my': switch (message['my']) {
+                final num value => value.toInt(),
+                final String value => int.tryParse(value) ?? 0,
+                true => 1,
+                _ => 0,
+              },
+            },
+          )
+          .toList(growable: false);
     } on ApiException catch (error) {
       errorMessage = _apiErrorMessage(error, fallback: '暂时无法开始对话');
     }
@@ -2206,7 +2265,8 @@ class AppController extends ChangeNotifier {
     healthWarningAlerts = [
       alert,
       ...healthWarningAlerts.where((item) => item.id != alert.id),
-    ].take(50).toList();
+    ];
+    unawaited(_healthStore.saveHealthWarningAlert(alert));
     activeHealthWarningAlert = alert;
   }
 

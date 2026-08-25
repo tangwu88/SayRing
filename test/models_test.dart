@@ -78,4 +78,22 @@ void main() {
     expect(event.payload['name'], 'Saidian Watch');
     expect(event.payload.containsKey('payload'), isFalse);
   });
+
+  test('HealthWarningAlert preserves persisted warning history', () {
+    final alert = HealthWarningAlert(
+      id: 'warning-1',
+      metric: HealthMetric.heartRate,
+      title: '心率预警',
+      message: '心率 121 bpm 超过上限',
+      triggeredAt: DateTime.utc(2026, 8, 25, 8, 30),
+    );
+
+    final decoded = HealthWarningAlert.fromJson(alert.toJson());
+
+    expect(decoded.id, alert.id);
+    expect(decoded.metric, HealthMetric.heartRate);
+    expect(decoded.title, alert.title);
+    expect(decoded.message, alert.message);
+    expect(decoded.triggeredAt.toUtc(), alert.triggeredAt);
+  });
 }

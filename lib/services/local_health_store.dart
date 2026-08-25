@@ -19,6 +19,8 @@ abstract interface class HealthStore {
   Future<List<HealthRecord>> latestForEachMetric();
   Future<void> saveSportRecord(SportRecord record);
   Future<List<SportRecord>> localSportRecords();
+  Future<void> saveHealthWarningAlert(HealthWarningAlert alert);
+  Future<List<HealthWarningAlert>> healthWarningAlerts();
   Future<List<HealthRecord>> pending({int limit = 200});
   Future<void> markSynced(Iterable<String> ids);
   Future<void> markInvalid(Iterable<String> ids);
@@ -50,7 +52,7 @@ class EncryptedHealthStore implements HealthStore {
     _database = await openDatabase(
       file,
       password: password,
-      version: 2,
+      version: 3,
       onConfigure: (database) async {
         await database.execute('PRAGMA foreign_keys = ON');
       },
@@ -89,6 +91,7 @@ class EncryptedHealthStore implements HealthStore {
           CREATE INDEX sport_records_time
           ON sport_records(started_at DESC)
         ''');
+        await _createHealthWarningTable(database);
       },
       onUpgrade: (database, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -108,8 +111,23 @@ class EncryptedHealthStore implements HealthStore {
             ON sport_records(started_at DESC)
           ''');
         }
+        if (oldVersion < 3) await _createHealthWarningTable(database);
       },
     );
+  }
+
+  static Future<void> _createHealthWarningTable(Database database) async {
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS health_warning_alerts (
+        id TEXT PRIMARY KEY,
+        triggered_at TEXT NOT NULL,
+        payload TEXT NOT NULL
+      )
+    ''');
+    await database.execute('''
+      CREATE INDEX IF NOT EXISTS health_warning_alerts_time
+      ON health_warning_alerts(triggered_at DESC)
+    ''');
   }
 
   @override
@@ -201,6 +219,33 @@ class EncryptedHealthStore implements HealthStore {
   }
 
   @override
+  Future<void> saveHealthWarningAlert(HealthWarningAlert alert) =>
+      _db.insert('health_warning_alerts', {
+        'id': alert.id,
+        'triggered_at': alert.triggeredAt.toUtc().toIso8601String(),
+        'payload': jsonEncode(alert.toJson()),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+  @override
+  Future<List<HealthWarningAlert>> healthWarningAlerts() async {
+    final rows = await _db.query(
+      'health_warning_alerts',
+      columns: ['payload'],
+      orderBy: 'triggered_at DESC',
+    );
+    return rows
+        .map((row) => jsonDecode('${row['payload']}'))
+        .whereType<Map>()
+        .map(
+          (value) => HealthWarningAlert.fromJson(
+            value.map((key, value) => MapEntry('$key', value)),
+          ),
+        )
+        .where((alert) => alert.id.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  @override
   Future<List<HealthRecord>> pending({int limit = 200}) async {
     final rows = await _db.query(
       'health_records',
@@ -279,6 +324,7 @@ class MemoryHealthStore implements HealthStore {
   final Set<String> _invalid = {};
   String? _cursor;
   final Map<String, SportRecord> _sportRecords = {};
+  final Map<String, HealthWarningAlert> _healthWarningAlerts = {};
 
   @override
   Future<void> initialize() async {}
@@ -348,6 +394,18 @@ class MemoryHealthStore implements HealthStore {
           a.startedAt ?? DateTime(1970),
         ),
       );
+    return values;
+  }
+
+  @override
+  Future<void> saveHealthWarningAlert(HealthWarningAlert alert) async {
+    _healthWarningAlerts[alert.id] = alert;
+  }
+
+  @override
+  Future<List<HealthWarningAlert>> healthWarningAlerts() async {
+    final values = _healthWarningAlerts.values.toList()
+      ..sort((a, b) => b.triggeredAt.compareTo(a.triggeredAt));
     return values;
   }
 

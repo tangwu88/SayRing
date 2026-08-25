@@ -813,6 +813,44 @@ void main() {
 
     expect(find.text('不能添加当前登录账号'), findsOneWidget);
   });
+
+  test(
+    'notification history loads every page and removes duplicates',
+    () async {
+      final api = _RegressionApi();
+      final controller = _authenticatedController(api: api);
+      addTearDown(controller.dispose);
+
+      await controller.refreshNotificationHistory(allPages: true);
+
+      expect(api.notificationPages, [1, 2, 3]);
+      expect(controller.notifications.map((item) => item['id']), [1, 2, 3]);
+      expect(controller.notificationStatus, '已加载');
+    },
+  );
+
+  test('care refresh hides only the signed-in member relation', () async {
+    final api = _RegressionApi();
+    final controller = _authenticatedController(api: api);
+    addTearDown(controller.dispose);
+
+    await controller.refreshCare();
+
+    expect(controller.careMembers, hasLength(1));
+    expect(controller.careMembers.single['id'], 49);
+    expect(controller.careStatus, '已加载');
+  });
+
+  test('AI history normalizes string sender flags', () async {
+    final api = _RegressionApi();
+    final controller = _authenticatedController(api: api);
+    addTearDown(controller.dispose);
+
+    await controller.refreshAiMessages(app: 1);
+
+    expect(controller.aiMessages.map((item) => item['my']), [0, 1]);
+    expect(controller.errorMessage, isNull);
+  });
 }
 
 AppController _controller({
@@ -1107,6 +1145,47 @@ class _QaApi extends Fake
 
   @override
   Future<void> deleteAccount() async {}
+}
+
+class _RegressionApi extends _QaApi {
+  final List<int> notificationPages = [];
+
+  @override
+  Future<List<Map<String, Object?>>> getNotifications({int page = 1}) async {
+    notificationPages.add(page);
+    return switch (page) {
+      1 => const [
+        {'id': 1, 'title': '预警 1'},
+        {'id': 2, 'title': '预警 2'},
+      ],
+      2 => const [
+        {'id': 2, 'title': '预警 2'},
+        {'id': 3, 'title': '预警 3'},
+      ],
+      _ => const [],
+    };
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> getCareMembers() async => const [
+    {
+      'id': 57,
+      'member': {'id': 100, 'nickname': '当前账号'},
+    },
+    {
+      'id': 49,
+      'member': {'id': 85, 'nickname': '家人'},
+    },
+  ];
+
+  @override
+  Future<List<Map<String, Object?>>> getAiMessages({
+    required int app,
+    int page = 1,
+  }) async => const [
+    {'id': 2, 'message': '用户问题', 'my': '1', 'session_id': 'qa'},
+    {'id': 3, 'message': 'AI 回复', 'my': '0', 'session_id': 'qa'},
+  ];
 }
 
 class _QaWearable extends Fake implements WearableBridge {

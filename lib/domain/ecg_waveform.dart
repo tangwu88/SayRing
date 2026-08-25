@@ -26,6 +26,8 @@ class EcgDisplayWaveform {
 EcgDisplayWaveform prepareEcgDisplayWaveform(
   Iterable<num> source, {
   required int maximumPoints,
+  int? sampleFrequency,
+  bool removeContactArtifacts = false,
 }) {
   final finiteValues = source
       .where((value) => value.isFinite && value.toInt() != 0x7fffffff)
@@ -39,7 +41,13 @@ EcgDisplayWaveform prepareEcgDisplayWaveform(
   while (lastSignal > firstSignal && finiteValues[lastSignal - 1] == 0) {
     lastSignal--;
   }
-  final values = finiteValues.sublist(firstSignal, lastSignal);
+  var values = finiteValues.sublist(firstSignal, lastSignal);
+  if (removeContactArtifacts && values.isNotEmpty) {
+    values = _removeContactArtifacts(
+      values,
+      sampleFrequency: sampleFrequency ?? 250,
+    );
+  }
   if (values.isEmpty) {
     return const EcgDisplayWaveform(
       samples: [],
@@ -94,6 +102,78 @@ EcgDisplayWaveform prepareEcgDisplayWaveform(
     maximum: maximum,
     hasVariation: _hasRepeatedVariation(values),
   );
+}
+
+/// Removes lead-contact settling artefacts from calibrated mV values.
+///
+/// Veepoo starts streaming ADC values before the finger/electrode contact has
+/// fully settled. Those samples can alternate between the converter rails and
+/// look like an ECG even though they are only transport/contact artefacts. The
+/// medical values and stored raw samples remain unchanged; this routine is
+/// exclusively for displaying already calibrated data.
+List<double> _removeContactArtifacts(
+  List<double> values, {
+  required int sampleFrequency,
+}) {
+  if (values.length < 16) return values;
+  final sorted = [...values]..sort();
+  final baseline = _percentile(sorted, 0.5);
+  const maximumDisplayDeviationMv = 3.0;
+  final valid = values
+      .map((value) => (value - baseline).abs() <= maximumDisplayDeviationMv)
+      .toList(growable: false);
+  final window = math.min(
+    values.length,
+    math.max(16, (sampleFrequency.clamp(50, 1000) * 0.4).round()),
+  );
+  final minimumValid = math.max(1, (window * 0.95).ceil());
+
+  int? stableStart;
+  var validCount = 0;
+  for (var index = 0; index < values.length; index++) {
+    if (valid[index]) validCount++;
+    if (index >= window && valid[index - window]) validCount--;
+    if (index >= window - 1 && validCount >= minimumValid) {
+      stableStart = index - window + 1;
+      break;
+    }
+  }
+  if (stableStart == null) return const [];
+
+  int? stableEnd;
+  validCount = 0;
+  for (var index = values.length - 1; index >= stableStart; index--) {
+    if (valid[index]) validCount++;
+    final trailingIndex = index + window;
+    if (trailingIndex < values.length && valid[trailingIndex]) validCount--;
+    if (index + window <= values.length && validCount >= minimumValid) {
+      stableEnd = index + window;
+      break;
+    }
+  }
+  if (stableEnd == null || stableEnd <= stableStart) return const [];
+
+  final cleaned = values.sublist(stableStart, stableEnd);
+  final cleanedValid = valid.sublist(stableStart, stableEnd);
+  var index = 0;
+  while (index < cleaned.length) {
+    if (cleanedValid[index]) {
+      index++;
+      continue;
+    }
+    final runStart = index;
+    while (index < cleaned.length && !cleanedValid[index]) {
+      index++;
+    }
+    final previous = runStart > 0 ? cleaned[runStart - 1] : baseline;
+    final next = index < cleaned.length ? cleaned[index] : previous;
+    final runLength = index - runStart;
+    for (var offset = 0; offset < runLength; offset++) {
+      final fraction = (offset + 1) / (runLength + 1);
+      cleaned[runStart + offset] = previous + (next - previous) * fraction;
+    }
+  }
+  return cleaned;
 }
 
 bool _hasRepeatedVariation(List<double> values) {

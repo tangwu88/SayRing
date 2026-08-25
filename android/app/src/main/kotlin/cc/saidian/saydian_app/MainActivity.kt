@@ -83,6 +83,7 @@ import com.veepoo.protocol.listener.data.IScreenLightTimeListener
 import com.veepoo.protocol.listener.data.ISpo2hDataListener
 import com.veepoo.protocol.listener.data.ISportModelOriginListener
 import com.veepoo.protocol.listener.data.ISportModelStateListener
+import com.veepoo.protocol.listener.data.ISportControlOptListener
 import com.veepoo.protocol.listener.data.ITemptureDetectDataListener
 import com.veepoo.protocol.listener.data.ITextAlarmDataListener
 import com.veepoo.protocol.listener.data.IWeatherStatusDataListener
@@ -127,6 +128,7 @@ import com.veepoo.protocol.model.datas.SportModelGPSWatchOriginHeadData
 import com.veepoo.protocol.model.datas.SportModelOriginHeadData
 import com.veepoo.protocol.model.datas.SportModelOriginItemData
 import com.veepoo.protocol.model.datas.SportModelStateData
+import com.veepoo.protocol.model.datas.SportControlDataInfo
 import com.veepoo.protocol.model.datas.TemptureDetectData
 import com.veepoo.protocol.model.datas.TextAlarmData
 import com.veepoo.protocol.model.datas.TimeData
@@ -146,6 +148,7 @@ import com.veepoo.protocol.model.enums.DetectState
 import com.veepoo.protocol.model.enums.EAutoMeasureType
 import com.veepoo.protocol.model.enums.ECameraStatus
 import com.veepoo.protocol.model.enums.EContactOpt
+import com.veepoo.protocol.model.enums.ECustomStatus
 import com.veepoo.protocol.model.enums.EDeviceStatus
 import com.veepoo.protocol.model.enums.EFunctionStatus
 import com.veepoo.protocol.model.enums.EHealthAlarmType
@@ -159,6 +162,7 @@ import com.veepoo.protocol.model.enums.EPwdStatus
 import com.veepoo.protocol.model.enums.ESex
 import com.veepoo.protocol.model.enums.ESPO2HStatus
 import com.veepoo.protocol.model.enums.ESportType
+import com.veepoo.protocol.model.enums.ESportControlType
 import com.veepoo.protocol.model.enums.EWeatherOprateStatus
 import com.veepoo.protocol.model.enums.EWeatherType
 import com.veepoo.protocol.model.enums.EWatchUIElementPosition
@@ -166,6 +170,7 @@ import com.veepoo.protocol.model.enums.HealthRemindType
 import com.veepoo.protocol.model.enums.HrvDetectState
 import com.veepoo.protocol.model.settings.Alarm2Setting
 import com.veepoo.protocol.model.settings.BpSetting
+import com.veepoo.protocol.model.settings.CustomSetting
 import com.veepoo.protocol.model.settings.CustomSettingData
 import com.veepoo.protocol.model.settings.LongSeatSetting
 import com.veepoo.protocol.model.settings.NightTurnWristSetting
@@ -531,8 +536,11 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private var functionPackage4: DeviceFunctionPackage4? = null
     private var functionPackage5: DeviceFunctionPackage5? = null
     private var socialFunctionData: FunctionSocailMsgData? = null
+    private var lastCustomSettingData: CustomSettingData? = null
     private var capabilityUpdateTask: Runnable? = null
     private var activeMetric: String? = null
+    private var activeControlledSportType: ESportType? = null
+    private var activeSportUsesAppControl = false
     private var measurementResultTimeoutTask: Runnable? = null
     private var ecgSampleFrequency = DEFAULT_ECG_SAMPLE_FREQUENCY
     private var latestEcgHeartRate = 0
@@ -775,6 +783,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         functionPackage4 = null
         functionPackage5 = null
         socialFunctionData = null
+        lastCustomSettingData = null
         capabilityUpdateTask?.let(connectionHandler::removeCallbacks)
         capabilityUpdateTask = null
         directHrvMeasurementSupported = false
@@ -1034,7 +1043,13 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 }
             },
             object : ICustomSettingDataListener {
-                override fun OnSettingDataChange(data: CustomSettingData) = Unit
+                override fun OnSettingDataChange(data: CustomSettingData) {
+                    connectionHandler.post {
+                        if (connectionGeneration != generation) return@post
+                        lastCustomSettingData = data
+                        scheduleCapabilitiesUpdate(generation)
+                    }
+                }
             },
             "0000",
             true,
@@ -4116,15 +4131,73 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 "hiking" -> ESportType.HIKE
                 else -> ESportType.OUTDOOR_RUNNING
             }
+        val preferences = VpSpGetUtil.getVpSpVariInstance(appContext)
+        if (preferences.isSupportAppOpenSport) {
+            val guarded =
+                withOperationTimeout(
+                    callback,
+                    "SPORT_CONTROL_TIMEOUT",
+                    "手表未确认${mode}运动，请保持连接后重试",
+                )
+            Log.i(LOG_TAG, "start sport app-control mode=$mode type=${sportType.name}")
+            manager.setSportControlInfo(
+                writeResponse(guarded, "运动模式暂时无法开启"),
+                ESportControlType.START,
+                sportType,
+                object : ISportControlOptListener {
+                    override fun onSportControlOptFail() {
+                        guarded.error("SPORT_CONTROL_FAILED", "手表未能开启对应运动模式")
+                    }
+
+                    override fun onSportControlOptSuccess() {
+                        activeControlledSportType = sportType
+                        activeSportUsesAppControl = true
+                        emit(
+                            "sportState",
+                            mapOf("value" to "running", "mode" to mode, "type" to sportType.name),
+                        )
+                        guarded.success(Unit)
+                    }
+
+                    override fun onSportControlDataChange(dataInfo: SportControlDataInfo) {
+                        Log.i(
+                            LOG_TAG,
+                            "sport control data requested=${sportType.name} returned=${dataInfo.sportType.name}",
+                        )
+                        emit(
+                            "sportState",
+                            mapOf(
+                                "value" to "running",
+                                "mode" to mode,
+                                "type" to dataInfo.sportType.name,
+                                "durationSeconds" to dataInfo.sportDuration,
+                                "distance" to dataInfo.distance,
+                            ),
+                        )
+                    }
+                },
+            )
+            return
+        }
+        activeSportUsesAppControl = false
+        activeControlledSportType = sportType
+        Log.i(LOG_TAG, "start sport multi-model mode=$mode type=${sportType.name}")
         manager.startMultSportModel(
             writeResponse(callback, "运动模式暂时无法开启"),
             object : ISportModelStateListener {
                 override fun onSportModelStateChange(data: SportModelStateData) {
+                    val returnedMode = data.sportModeType
+                    Log.i(
+                        LOG_TAG,
+                        "sport multi-model requested=${sportType.name} returnedMode=$returnedMode mapped=${sportModeName(returnedMode)}",
+                    )
                     emit(
                         "sportState",
                         mapOf(
                             "value" to "running",
                             "mode" to mode,
+                            "type" to sportType.name,
+                            "deviceModeType" to returnedMode,
                             "deviceStatus" to (data.getDeviceStauts()?.name ?: "unknown"),
                         ),
                     )
@@ -4150,6 +4223,40 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
     fun stopSport(callback: ResultCallback<Unit>) {
         ensureConnected(callback) ?: return
+        val controlledType = activeControlledSportType
+        if (activeSportUsesAppControl && controlledType != null) {
+            val guarded =
+                withOperationTimeout(
+                    callback,
+                    "SPORT_CONTROL_TIMEOUT",
+                    "手表未确认结束运动，请保持连接后重试",
+                )
+            manager.setSportControlInfo(
+                writeResponse(guarded, "运动模式暂时无法结束"),
+                ESportControlType.STOP,
+                controlledType,
+                object : ISportControlOptListener {
+                    override fun onSportControlOptFail() {
+                        guarded.error("SPORT_CONTROL_FAILED", "手表未能结束当前运动")
+                    }
+
+                    override fun onSportControlOptSuccess() {
+                        activeSportUsesAppControl = false
+                        activeControlledSportType = null
+                        emit("sportState", mapOf("value" to "stopped"))
+                        guarded.success(Unit)
+                    }
+
+                    override fun onSportControlDataChange(dataInfo: SportControlDataInfo) {
+                        Log.i(
+                            LOG_TAG,
+                            "sport stop data type=${dataInfo.sportType.name} duration=${dataInfo.sportDuration}",
+                        )
+                    }
+                },
+            )
+            return
+        }
         manager.stopSportModel(
             writeResponse(callback, "运动模式暂时无法结束"),
             object : ISportModelStateListener {
@@ -4241,9 +4348,18 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     fun readAutoMeasureSettings(callback: ResultCallback<Map<String, Boolean>>) {
         ensureConnected(callback) ?: return
         val preferences = VpSpGetUtil.getVpSpVariInstance(appContext)
-        if (!preferences.isSupportAutoMeasure) {
-            autoMeasureSettings.clear()
-            callback.success(emptyMap())
+        val legacyTypes = legacyAutoMeasureTypes(preferences)
+        val supportsAutoMeasure =
+            preferences.isSupportAutoMeasure ||
+                functionPackage4?.autoMeasure.haveFunction() ||
+                legacyFunctionData?.autoMeasure.haveFunction()
+        if (!supportsAutoMeasure) {
+            if (legacyTypes.isEmpty()) {
+                autoMeasureSettings.clear()
+                callback.success(emptyMap())
+            } else {
+                readLegacyAutoMeasureSettings(legacyTypes, callback)
+            }
             return
         }
         val guardedCallback =
@@ -4284,7 +4400,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         ensureConnected(callback) ?: return
         val setting = autoMeasureSettings[type]
         if (setting == null) {
-            callback.error("AUTO_MEASURE_UNSUPPORTED", "当前手表不支持该自动检测功能，请先刷新设置")
+            setLegacyAutoMeasureSetting(type, enabled, callback)
             return
         }
         setting.isSwitchOpen = enabled
@@ -4302,6 +4418,112 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     callback.success(Unit)
                 }
             },
+        )
+    }
+
+    private fun legacyAutoMeasureTypes(preferences: VpSpGetUtil): Set<String> =
+        buildSet {
+            if (preferences.isSupportFivemiuteHeart) add("heartRate")
+            if (preferences.isSupportFivemiuteBp) add("bloodPressure")
+            if (preferences.isSupportBloodGlucoseDetect) add("bloodGlucose")
+            if (preferences.temperatureType > 0) add("bodyTemperature")
+            if (preferences.isSupportAllDayHRV) add("hrv")
+        }
+
+    private fun readLegacyAutoMeasureSettings(
+        supportedTypes: Set<String>,
+        callback: ResultCallback<Map<String, Boolean>>,
+    ) {
+        val guardedCallback =
+            withOperationTimeout(
+                callback,
+                "AUTO_MEASURE_READ_TIMEOUT",
+                "暂时未读取到手表健康监测设置，请稍后重试",
+            )
+        manager.readCustomSetting(
+            writeResponse(guardedCallback, "手表健康监测设置暂时无法读取"),
+            object : ICustomSettingDataListener {
+                override fun OnSettingDataChange(data: CustomSettingData) {
+                    if (data.status != ECustomStatus.READ_SUCCESS &&
+                        data.status != ECustomStatus.SETTING_SUCCESS
+                    ) {
+                        guardedCallback.error("AUTO_MEASURE_READ_FAILED", "手表健康监测设置读取失败")
+                        return
+                    }
+                    lastCustomSettingData = data
+                    autoMeasureSettings.clear()
+                    val values = linkedMapOf<String, Boolean>()
+                    if (supportedTypes.contains("heartRate")) {
+                        values["heartRate"] = data.autoHeartDetect.isOpen
+                    }
+                    if (supportedTypes.contains("bloodPressure")) {
+                        values["bloodPressure"] = data.autoBpDetect.isOpen
+                    }
+                    if (supportedTypes.contains("bloodGlucose")) {
+                        values["bloodGlucose"] = data.bloodGlucoseDetection.isOpen
+                    }
+                    if (supportedTypes.contains("bodyTemperature")) {
+                        values["bodyTemperature"] = data.autoTemperatureDetect.isOpen
+                    }
+                    if (supportedTypes.contains("hrv")) {
+                        values["hrv"] = data.autoHrv.isOpen
+                    }
+                    guardedCallback.success(values)
+                }
+            },
+        )
+    }
+
+    private fun setLegacyAutoMeasureSetting(
+        type: String,
+        enabled: Boolean,
+        callback: ResultCallback<Unit>,
+    ) {
+        val preferences = VpSpGetUtil.getVpSpVariInstance(appContext)
+        if (!legacyAutoMeasureTypes(preferences).contains(type)) {
+            callback.error("AUTO_MEASURE_UNSUPPORTED", "当前手表不支持该自动检测功能")
+            return
+        }
+        val current = lastCustomSettingData
+        if (current == null) {
+            callback.error("READ_REQUIRED", "请先刷新手表健康监测设置后再操作")
+            return
+        }
+        val status =
+            if (enabled) EFunctionStatus.SUPPORT_OPEN else EFunctionStatus.SUPPORT_CLOSE
+        val setting = CustomSetting(current)
+        when (type) {
+            "heartRate" -> setting.isOpenAutoHeartDetect = enabled
+            "bloodPressure" -> setting.isOpenAutoBpDetect = enabled
+            "bloodGlucose" -> setting.setIsOpenBloodGlucoseDetect(status)
+            "bodyTemperature" -> setting.setIsOpenAutoTemperatureDetect(status)
+            "hrv" -> setting.setIsOpenAutoHRV(status)
+            else -> {
+                callback.error("AUTO_MEASURE_UNSUPPORTED", "当前手表不支持该自动检测功能")
+                return
+            }
+        }
+        val guardedCallback =
+            withOperationTimeout(
+                callback,
+                "AUTO_MEASURE_WRITE_TIMEOUT",
+                "手表健康监测设置保存超时，请稍后重试",
+            )
+        manager.changeCustomSetting(
+            writeResponse(guardedCallback, "手表健康监测设置保存失败"),
+            object : ICustomSettingDataListener {
+                override fun OnSettingDataChange(data: CustomSettingData) {
+                    if (data.status != ECustomStatus.SETTING_SUCCESS &&
+                        data.status != ECustomStatus.READ_SUCCESS
+                    ) {
+                        guardedCallback.error("AUTO_MEASURE_WRITE_FAILED", "手表健康监测设置保存失败")
+                        return
+                    }
+                    lastCustomSettingData = data
+                    guardedCallback.success(Unit)
+                }
+            },
+            setting,
         )
     }
 
@@ -6568,8 +6790,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         if (bodyComponentSupported) manualMetrics += "body_composition"
         if (bloodComponentSupported) manualMetrics += "blood_composition"
         val features = mutableListOf<String>()
+        val legacyAutoMeasureTypes = legacyAutoMeasureTypes(preferences)
         val supportsHealthMonitoring =
-            package4?.autoMeasure.haveFunction() || legacy?.autoMeasure.haveFunction()
+            package4?.autoMeasure.haveFunction() ||
+                legacy?.autoMeasure.haveFunction() ||
+                preferences.isSupportAutoMeasure ||
+                legacyAutoMeasureTypes.isNotEmpty()
         if (supportsHealthMonitoring) features += "health_monitoring"
         val watchFaceServerCount = package3?.watchUiServerCount ?: legacy?.watchUiServerCount ?: 0
         val watchFaceCustomCount = package3?.watchUiCustomCount ?: legacy?.watchUiCoustomCount ?: 0

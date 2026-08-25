@@ -9,8 +9,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../domain/feature_models.dart';
 import '../domain/ecg_waveform.dart';
+import '../domain/feature_models.dart';
 import '../domain/health_interpretation.dart';
 import '../domain/models.dart';
 import '../services/app_controller.dart';
@@ -2585,41 +2585,77 @@ class _LiveEcgPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final grid = Paint()
-      ..color = const Color(0x1AD20B27)
+    // Use the vendor reference scale: 25 mm/s horizontally, 10 mm/mV
+    // vertically, 80 small rows and a baseline at three fifths of the chart.
+    // Fixed medical-paper scaling keeps the APP trace comparable with W9S.
+    final smallGrid = size.height / 80;
+    final thinGrid = Paint()
+      ..color = const Color(0x18D20B27)
+      ..strokeWidth = .7;
+    final boldGrid = Paint()
+      ..color = const Color(0x32D20B27)
       ..strokeWidth = 1;
-    for (var x = 0.0; x <= size.width; x += 18) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), grid);
+    for (var index = 0, x = 0.0; x <= size.width; index++, x += smallGrid) {
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(x, size.height),
+        index % 5 == 0 ? boldGrid : thinGrid,
+      );
     }
-    for (var y = 0.0; y <= size.height; y += 18) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
+    for (var index = 0, y = 0.0; y <= size.height; index++, y += smallGrid) {
+      canvas.drawLine(
+        Offset(0, y),
+        Offset(size.width, y),
+        index % 5 == 0 ? boldGrid : thinGrid,
+      );
     }
-    // Show roughly six seconds, matching the slower sweep seen on the watch,
-    // rather than stretching less than one second across the entire chart.
-    final window = (sampleFrequency * 6).clamp(480, 3000);
-    final visible = samples.length > window
-        ? samples.sublist(samples.length - window)
-        : samples;
+    final frequency = sampleFrequency.clamp(50, 1000);
+    final xStep = smallGrid * 25 / frequency;
+    final capacity = math.max(2, (size.width / xStep).ceil() + 1);
+    final finite = samples
+        .where((sample) => sample.isFinite && sample.toInt() != 0x7fffffff)
+        .map((sample) => sample.toDouble())
+        .toList(growable: false);
+    final visible = finite.length > capacity
+        ? finite.sublist(finite.length - capacity)
+        : finite;
     if (visible.length < 2) return;
     final waveform = prepareEcgDisplayWaveform(
       visible,
-      maximumPoints: math.max(2, (size.width * 2).round()),
+      maximumPoints: visible.length,
+      sampleFrequency: frequency,
+      removeContactArtifacts: true,
     );
-    if (!waveform.hasVariation) return;
-    final minimum = waveform.minimum;
-    final maximum = waveform.maximum;
-    final span = maximum - minimum;
+    if (waveform.samples.length < 2) return;
+    final sorted = [...waveform.samples]..sort();
+    final signalBaseline = sorted[sorted.length ~/ 2];
+    // W9S may occasionally report calibrated transport spikes far outside a
+    // physiological single-lead ECG range. Keep the medical-paper scale, but
+    // cap display-only excursions so the line never leaves the chart. Raw
+    // samples remain untouched for the saved report and analysis.
+    const maximumDisplayAmplitudeMv = 2.5;
+    final displaySamples = waveform.samples
+        .map(
+          (sample) => (sample - signalBaseline)
+              .clamp(-maximumDisplayAmplitudeMv, maximumDisplayAmplitudeMv)
+              .toDouble(),
+        )
+        .toList(growable: false);
+    final baseline = size.height / 2;
     final path = Path();
-    for (var index = 0; index < waveform.samples.length; index++) {
-      final x = index / math.max(waveform.samples.length - 1, 1) * size.width;
-      final normalized = (waveform.samples[index] - minimum) / span;
-      final y = size.height - normalized * (size.height - 10) - 5;
-      if (index == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
+    var previousX = size.width - (displaySamples.length - 1) * xStep;
+    var previousY = baseline - displaySamples.first * 10 * smallGrid;
+    path.moveTo(previousX, previousY);
+    for (var index = 1; index < displaySamples.length; index++) {
+      final x = size.width - (displaySamples.length - 1 - index) * xStep;
+      final y = baseline - displaySamples[index] * 10 * smallGrid;
+      final middleX = (previousX + x) / 2;
+      path.cubicTo(middleX, previousY, middleX, y, x, y);
+      previousX = x;
+      previousY = y;
     }
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
     canvas.drawPath(
       path,
       Paint()
@@ -2628,6 +2664,7 @@ class _LiveEcgPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round,
     );
+    canvas.restore();
   }
 
   @override
@@ -3287,26 +3324,54 @@ class AiChatPage extends StatefulWidget {
 
 class _AiChatPageState extends State<AiChatPage> {
   final _input = TextEditingController();
+  final _messages = ScrollController();
 
   @override
   void initState() {
     super.initState();
-    unawaited(widget.controller.refreshAiMessages(app: widget.app));
+    unawaited(_loadMessages());
   }
 
   @override
   void dispose() {
     _input.dispose();
+    _messages.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadMessages() async {
+    await widget.controller.refreshAiMessages(app: widget.app);
+    _scrollToLatest(jump: true);
   }
 
   Future<void> _send() async {
     final message = _input.text;
+    if (message.trim().isEmpty) return;
+    _scrollToLatest();
     final sent = await widget.controller.sendAiMessage(
       app: widget.app,
       message: message,
     );
-    if (sent) _input.clear();
+    if (sent) {
+      _input.clear();
+      _scrollToLatest();
+    }
+  }
+
+  void _scrollToLatest({bool jump = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_messages.hasClients) return;
+      final target = _messages.position.maxScrollExtent;
+      if (jump) {
+        _messages.jumpTo(target);
+      } else {
+        _messages.animateTo(
+          target,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
   }
 
   @override
@@ -3332,12 +3397,16 @@ class _AiChatPageState extends State<AiChatPage> {
                       ),
                     )
                   : ListView.builder(
+                      controller: _messages,
                       padding: const EdgeInsets.all(16),
                       itemCount: widget.controller.aiMessages.length,
                       itemBuilder: (context, index) {
                         final message = widget.controller.aiMessages[index];
                         final mine =
-                            message['my'] == 1 || message['role'] == 'user';
+                            message['my'] == 1 ||
+                            message['my'] == '1' ||
+                            message['my'] == true ||
+                            message['role'] == 'user';
                         final failed = message['send_failed'] == true;
                         final text =
                             '${message['message'] ?? message['content'] ?? ''}';
@@ -4822,13 +4891,29 @@ String? _notificationOrderNumber(Object? value, [int depth = 0]) {
   return null;
 }
 
-class CarePage extends StatelessWidget {
+class CarePage extends StatefulWidget {
   const CarePage({required this.controller, super.key});
 
   final AppController controller;
 
   @override
+  State<CarePage> createState() => _CarePageState();
+}
+
+class _CarePageState extends State<CarePage> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(widget.controller.refreshCare());
+      unawaited(widget.controller.refreshCareInvitations());
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final controller = widget.controller;
     final memberCount = controller.careMembers.length;
     return RefreshIndicator(
       onRefresh: () async {
@@ -4939,9 +5024,7 @@ class CarePage extends StatelessWidget {
                     icon: Icons.mark_email_unread_outlined,
                     title: '关爱邀请',
                     subtitle: controller.careInvitations.isEmpty
-                        ? controller.careStatus == '服务暂不可用'
-                              ? '服务暂不可用'
-                              : '暂无待处理'
+                        ? controller.careInvitationStatus
                         : '${controller.careInvitations.length} 条待处理',
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
@@ -8039,7 +8122,9 @@ class _PermissionManagementPageState extends State<PermissionManagementPage> {
   void initState() {
     super.initState();
     unawaited(_refresh());
-    unawaited(widget.controller.refreshDeviceSettings());
+    if (widget.healthOnly) {
+      unawaited(widget.controller.refreshDeviceSettings());
+    }
   }
 
   Future<void> _refresh() async {
@@ -8075,91 +8160,107 @@ class _PermissionManagementPageState extends State<PermissionManagementPage> {
         builder: (context, _) => ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    '手表健康检测',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-                  ),
-                ),
-                IconButton(
-                  onPressed: widget.controller.connectedDevice == null
-                      ? null
-                      : widget.controller.refreshDeviceSettings,
-                  tooltip: '从手表刷新',
-                  icon: const Icon(Icons.refresh_rounded),
-                ),
-              ],
-            ),
-            Text(
-              widget.controller.deviceSettingsStatus,
-              style: const TextStyle(color: SaydianColors.muted, fontSize: 12),
-            ),
-            const SizedBox(height: 8),
-            Card(
-              child: Column(
+            if (widget.healthOnly) ...[
+              Row(
                 children: [
-                  _deviceAutoSwitch(
-                    type: 'heartRate',
-                    title: '心率自动检测',
-                    icon: Icons.favorite_outline_rounded,
-                  ),
-                  const Divider(indent: 56),
-                  ListTile(
-                    leading: const Icon(
-                      Icons.warning_amber_rounded,
-                      color: SaydianColors.orange,
-                    ),
-                    title: const Text('心率过高预警'),
-                    subtitle: Text(
-                      widget.controller.heartRateWarningSupported
-                          ? '达到阈值后由手表提醒'
-                          : '当前设备不支持此功能',
-                    ),
-                    trailing: DropdownButton<int>(
-                      value: widget.controller.heartRateWarning,
-                      items: [
-                        for (var value = 70; value < 190; value += 5)
-                          DropdownMenuItem(
-                            value: value,
-                            child: Text('$value 次/分'),
-                          ),
-                      ],
-                      onChanged:
-                          widget.controller.connectedDevice == null ||
-                              !widget.controller.heartRateWarningSupported
-                          ? null
-                          : (value) {
-                              if (value != null) {
-                                unawaited(
-                                  widget.controller.setHeartRateWarning(value),
-                                );
-                              }
-                            },
+                  const Expanded(
+                    child: Text(
+                      '手表健康检测',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
-                  const Divider(indent: 56),
-                  _deviceAutoSwitch(
-                    type: 'bloodPressure',
-                    title: '血压自动检测',
-                    icon: Icons.speed_rounded,
-                  ),
-                  const Divider(indent: 56),
-                  _deviceAutoSwitch(
-                    type: 'bloodGlucose',
-                    title: '血糖自动检测',
-                    icon: Icons.water_drop_outlined,
-                  ),
-                  const Divider(indent: 56),
-                  _deviceAutoSwitch(
-                    type: 'bodyTemperature',
-                    title: '体温自动检测',
-                    icon: Icons.thermostat_rounded,
+                  IconButton(
+                    onPressed: widget.controller.connectedDevice == null
+                        ? null
+                        : widget.controller.refreshDeviceSettings,
+                    tooltip: '从手表刷新',
+                    icon: const Icon(Icons.refresh_rounded),
                   ),
                 ],
               ),
-            ),
+              Text(
+                widget.controller.deviceSettingsStatus,
+                style: const TextStyle(
+                  color: SaydianColors.muted,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                child: Column(
+                  children: [
+                    _deviceAutoSwitch(
+                      type: 'heartRate',
+                      title: '心率自动检测',
+                      icon: Icons.favorite_outline_rounded,
+                    ),
+                    const Divider(indent: 56),
+                    ListTile(
+                      leading: const Icon(
+                        Icons.warning_amber_rounded,
+                        color: SaydianColors.orange,
+                      ),
+                      title: const Text('心率过高预警'),
+                      subtitle: Text(
+                        widget.controller.heartRateWarningSupported
+                            ? '达到阈值后由手表提醒'
+                            : '当前设备不支持此功能',
+                      ),
+                      trailing: DropdownButton<int>(
+                        value: widget.controller.heartRateWarning,
+                        items: [
+                          for (var value = 70; value < 190; value += 5)
+                            DropdownMenuItem(
+                              value: value,
+                              child: Text('$value 次/分'),
+                            ),
+                        ],
+                        onChanged:
+                            widget.controller.connectedDevice == null ||
+                                !widget.controller.heartRateWarningSupported
+                            ? null
+                            : (value) {
+                                if (value != null) {
+                                  unawaited(
+                                    widget.controller.setHeartRateWarning(
+                                      value,
+                                    ),
+                                  );
+                                }
+                              },
+                      ),
+                    ),
+                    const Divider(indent: 56),
+                    _deviceAutoSwitch(
+                      type: 'bloodPressure',
+                      title: '血压自动检测',
+                      icon: Icons.speed_rounded,
+                    ),
+                    const Divider(indent: 56),
+                    _deviceAutoSwitch(
+                      type: 'bloodGlucose',
+                      title: '血糖自动检测',
+                      icon: Icons.water_drop_outlined,
+                    ),
+                    const Divider(indent: 56),
+                    _deviceAutoSwitch(
+                      type: 'bodyTemperature',
+                      title: '体温自动检测',
+                      icon: Icons.thermostat_rounded,
+                    ),
+                    const Divider(indent: 56),
+                    _deviceAutoSwitch(
+                      type: 'hrv',
+                      title: 'HRV 自动检测',
+                      icon: Icons.monitor_heart_outlined,
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (!widget.healthOnly) ...[
               const SizedBox(height: 20),
               const Text(

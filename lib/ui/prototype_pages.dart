@@ -483,7 +483,7 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
       text: settings.temperatureUpper.toStringAsFixed(1),
     );
     widget.controller.addListener(_refresh);
-    widget.controller.refreshNotifications();
+    unawaited(widget.controller.refreshNotificationHistory(allPages: true));
   }
 
   @override
@@ -682,7 +682,8 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
                 title: Text(alert.title),
                 subtitle: Text(alert.message),
                 trailing: Text(
-                  TimeOfDay.fromDateTime(alert.triggeredAt).format(context),
+                  DateFormat('yyyy-MM-dd\nHH:mm').format(alert.triggeredAt),
+                  textAlign: TextAlign.right,
                 ),
               ),
             ),
@@ -4002,6 +4003,8 @@ class _EcgWaveformCard extends StatelessWidget {
     final waveform = prepareEcgDisplayWaveform(
       samples,
       maximumPoints: math.max(2, (chartWidth * 2).round()),
+      sampleFrequency: frequency,
+      removeContactArtifacts: true,
     );
     final spots = waveform.samples
         .asMap()

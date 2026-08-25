@@ -227,4 +227,31 @@ void main() {
       );
     },
   );
+
+  test('memory store returns every warning in newest-first order', () async {
+    final store = MemoryHealthStore();
+    await store.initialize();
+    await store.saveHealthWarningAlert(
+      HealthWarningAlert(
+        id: 'older',
+        metric: HealthMetric.bodyTemperature,
+        title: '体温预警',
+        message: '38.1 °C',
+        triggeredAt: DateTime.utc(2026, 8, 24, 8),
+      ),
+    );
+    await store.saveHealthWarningAlert(
+      HealthWarningAlert(
+        id: 'newer',
+        metric: HealthMetric.heartRate,
+        title: '心率预警',
+        message: '121 bpm',
+        triggeredAt: DateTime.utc(2026, 8, 25, 8),
+      ),
+    );
+
+    final alerts = await store.healthWarningAlerts();
+
+    expect(alerts.map((alert) => alert.id), ['newer', 'older']);
+  });
 }
