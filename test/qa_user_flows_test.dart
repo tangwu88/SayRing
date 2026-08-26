@@ -11,6 +11,7 @@ import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
+import 'package:saydian_app/ui/prototype_pages.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -195,6 +196,31 @@ void main() {
 
     expect(find.byKey(const Key('my-add-device')), findsNothing);
     expect(find.text('在线'), findsOneWidget);
+  });
+
+  testWidgets('sharing management authorizes accepted incoming caregiver', (
+    tester,
+  ) async {
+    final controller = _authenticatedController()
+      ..careInvitations = const [
+        {
+          'id': 59,
+          'inviter_id': 82,
+          'to_member_id': 87,
+          'examine_status': 1,
+          'member': <String, Object?>{},
+        },
+      ];
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: SharingManagementPage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('关爱邀请人'), findsOneWidget);
+    expect(find.textContaining('邀请人账号 ID：82'), findsOneWidget);
+    expect(find.text('暂无需要授权的关爱人'), findsNothing);
   });
 
   testWidgets('device scan and connection uses the wearable flow', (

@@ -753,7 +753,7 @@ void main() {
     final client = MockClient((request) async {
       expect(request.url.path, '/api/v1/member/care');
       return http.Response(
-        '{"code":200,"data":{"list":[{"id":59,"member_id":82,"to_member_id":1,"examine_status":0,"member":{"id":1,"nickname":"当前账号","mobile":"13600136000","password_hash":"secret"}}]}}',
+        '{"code":200,"data":{"list":[{"id":59,"member_id":82,"to_member_id":1,"examine_status":0,"member":{"id":1,"nickname":"当前账号","mobile":"13600136000","password_hash":"secret"}},{"id":60,"member_id":1,"to_member_id":90,"examine_status":1,"member":{"id":90,"nickname":"我邀请的人"}}]}}',
         200,
         headers: {'content-type': 'application/json; charset=utf-8'},
       );
@@ -764,7 +764,9 @@ void main() {
       baseUri: Uri.parse('https://example.invalid'),
     );
 
-    final invitation = (await api.getCareInvitations()).single;
+    final invitations = await api.getCareInvitations();
+    expect(invitations, hasLength(1));
+    final invitation = invitations.single;
     expect(invitation['inviter_id'], 82);
     expect(invitation['member'], isEmpty);
     expect(invitation.containsKey('password_hash'), isFalse);

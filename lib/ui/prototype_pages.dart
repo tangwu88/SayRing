@@ -810,6 +810,27 @@ class SharingManagementPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final targets = <Map<String, Object?>>[];
+    final seenMemberIds = <int>{};
+    for (final invitation in controller.careInvitations) {
+      final status = int.tryParse('${invitation['examine_status'] ?? 0}') ?? 0;
+      final inviterId = int.tryParse('${invitation['inviter_id'] ?? 0}') ?? 0;
+      if (status != 1 || inviterId <= 0 || !seenMemberIds.add(inviterId)) {
+        continue;
+      }
+      final rawMember = invitation['member'];
+      final member = rawMember is Map
+          ? rawMember.map(
+              (key, value) => MapEntry<String, Object?>('$key', value),
+            )
+          : const <String, Object?>{};
+      targets.add({
+        'member_id': inviterId,
+        'nickname': '${member['nickname'] ?? ''}'.trim(),
+        'mobile': '${member['mobile'] ?? ''}'.trim(),
+        'head_portrait': '${member['head_portrait'] ?? ''}'.trim(),
+      });
+    }
     return Scaffold(
       appBar: AppBar(title: const Text('共享管理')),
       body: ListView(
@@ -822,20 +843,20 @@ class SharingManagementPage extends StatelessWidget {
             color: SaydianColors.green,
           ),
           const SizedBox(height: 14),
-          if (controller.careMembers.isEmpty)
+          if (targets.isEmpty)
             const FeatureStateCard(
-              message: '暂无共享成员',
-              detail: '可返回远程关爱页面邀请家人。',
+              message: '暂无需要授权的关爱人',
+              detail: '收到并同意家人的关爱邀请后，可在这里选择允许对方查看的健康项目。',
               icon: Icons.group_outlined,
             )
           else
-            for (final member in controller.careMembers)
+            for (final member in targets)
               Card(
                 margin: const EdgeInsets.only(bottom: 10),
                 child: ListTile(
                   onTap: () {
                     final memberId = int.tryParse(
-                      '${member['member_id'] ?? member['to_member_id'] ?? member['id'] ?? 0}',
+                      '${member['member_id'] ?? 0}',
                     );
                     if (memberId == null || memberId == 0) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -853,13 +874,23 @@ class SharingManagementPage extends StatelessWidget {
                       ),
                     );
                   },
-                  leading: const CircleAvatar(
-                    child: Icon(Icons.person_outline),
+                  leading: CircleAvatar(
+                    foregroundImage:
+                        '${member['head_portrait'] ?? ''}'.startsWith('http')
+                        ? NetworkImage('${member['head_portrait']}')
+                        : null,
+                    child: const Icon(Icons.person_outline),
                   ),
                   title: Text(
-                    '${member['nickname'] ?? member['mobile'] ?? '关爱成员'}',
+                    '${member['nickname'] ?? ''}'.trim().isNotEmpty
+                        ? '${member['nickname']}'.trim()
+                        : '关爱邀请人',
                   ),
-                  subtitle: const Text('设置我允许对方查看的健康项目'),
+                  subtitle: Text(
+                    '${member['mobile'] ?? ''}'.trim().isNotEmpty
+                        ? '${member['mobile']} · 设置允许查看的健康项目'
+                        : '邀请人账号 ID：${member['member_id']} · 设置允许查看的健康项目',
+                  ),
                   trailing: const Icon(Icons.chevron_right_rounded),
                 ),
               ),

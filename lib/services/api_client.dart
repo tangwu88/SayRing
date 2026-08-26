@@ -1273,6 +1273,15 @@ class SaydianApiClient
     final session = await _vault.readSession();
     final ownMemberId = int.tryParse(session?.memberId ?? '');
     return _list(_decode(response))
+        .where((invite) {
+          if (ownMemberId == null) return true;
+          final inviterId = _shopInt(invite['member_id']);
+          final recipientId = _shopInt(invite['to_member_id']);
+          // `/member/care` returns both incoming invitations and relations
+          // created by the signed-in account. Only incoming rows belong in
+          // the invitation/share-authorization flow.
+          return recipientId == ownMemberId && inviterId != ownMemberId;
+        })
         .map((invite) {
           final inviterId = _shopInt(invite['member_id']);
           final candidates = <Object?>[
