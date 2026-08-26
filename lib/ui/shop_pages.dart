@@ -765,7 +765,7 @@ class _ShopPromise extends StatelessWidget {
   );
 }
 
-class ShoppingCartPage extends StatelessWidget {
+class ShoppingCartPage extends StatefulWidget {
   const ShoppingCartPage({
     required this.controller,
     this.ordersPageBuilder,
@@ -776,11 +776,37 @@ class ShoppingCartPage extends StatelessWidget {
   final WidgetBuilder? ordersPageBuilder;
 
   @override
+  State<ShoppingCartPage> createState() => _ShoppingCartPageState();
+}
+
+class _ShoppingCartPageState extends State<ShoppingCartPage> {
+  final Set<int> _selectedSkuIds = <int>{};
+  bool _selectionInitialized = false;
+
+  @override
   Widget build(BuildContext context) => ListenableBuilder(
-    listenable: controller,
+    listenable: widget.controller,
     builder: (context, _) {
-      final items = controller.shopCart;
-      final total = items.fold<double>(0, (sum, item) {
+      final items = widget.controller.shopCart;
+      final availableSkuIds = items
+          .map((item) => _asInt(item['sku_id']))
+          .whereType<int>()
+          .toSet();
+      if (!_selectionInitialized) {
+        _selectedSkuIds.addAll(availableSkuIds);
+        _selectionInitialized = true;
+      } else {
+        _selectedSkuIds.removeWhere(
+          (skuId) => !availableSkuIds.contains(skuId),
+        );
+      }
+      final selectedItems = items
+          .where((item) {
+            final skuId = _asInt(item['sku_id']);
+            return skuId != null && _selectedSkuIds.contains(skuId);
+          })
+          .toList(growable: false);
+      final total = selectedItems.fold<double>(0, (sum, item) {
         return sum + _asDouble(item['price']) * (_asInt(item['quantity']) ?? 0);
       });
       return Scaffold(
@@ -829,11 +855,28 @@ class ShoppingCartPage extends StatelessWidget {
                 separatorBuilder: (_, _) => const SizedBox(height: 10),
                 itemBuilder: (_, index) => _CartItemCard(
                   item: items[index],
+                  selected: _selectedSkuIds.contains(
+                    _asInt(items[index]['sku_id']),
+                  ),
+                  onSelected: (selected) {
+                    final skuId = _asInt(items[index]['sku_id']);
+                    if (skuId == null) return;
+                    setState(() {
+                      if (selected) {
+                        _selectedSkuIds.add(skuId);
+                      } else {
+                        _selectedSkuIds.remove(skuId);
+                      }
+                    });
+                  },
                   onQuantityChanged: (quantity) {
                     final skuId = _asInt(items[index]['sku_id']);
                     if (skuId != null) {
                       unawaited(
-                        controller.updateShopCartQuantity(skuId, quantity),
+                        widget.controller.updateShopCartQuantity(
+                          skuId,
+                          quantity,
+                        ),
                       );
                     }
                   },
@@ -846,9 +889,25 @@ class ShoppingCartPage extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(18, 8, 12, 10),
                   child: Row(
                     children: [
+                      Checkbox(
+                        key: const Key('cart-select-all'),
+                        value:
+                            availableSkuIds.isNotEmpty &&
+                            _selectedSkuIds.length == availableSkuIds.length,
+                        onChanged: (selected) {
+                          setState(() {
+                            _selectedSkuIds.clear();
+                            if (selected == true) {
+                              _selectedSkuIds.addAll(availableSkuIds);
+                            }
+                          });
+                        },
+                      ),
+                      const Text('全选'),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          '合计 ¥${_money(total)}',
+                          '已选${selectedItems.length}件  ¥${_money(total)}',
                           style: const TextStyle(
                             color: SaydianColors.brandRed,
                             fontSize: 19,
@@ -858,28 +917,21 @@ class ShoppingCartPage extends StatelessWidget {
                       ),
                       FilledButton(
                         key: const Key('cart-checkout'),
-                        onPressed: () {
-                          if (items.length != 1) {
-                            ScaffoldMessenger.of(context)
-                              ..hideCurrentSnackBar()
-                              ..showSnackBar(
-                                const SnackBar(
-                                  content: Text('当前商城暂不支持多件商品合并结算，请分别结算'),
-                                ),
-                              );
-                            return;
-                          }
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => ShopCheckoutPage(
-                                controller: controller,
-                                items: items,
-                                clearCartAfterCreate: true,
-                                ordersPageBuilder: ordersPageBuilder,
-                              ),
-                            ),
-                          );
-                        },
+                        onPressed: selectedItems.isEmpty
+                            ? null
+                            : () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => ShopCheckoutPage(
+                                      controller: widget.controller,
+                                      items: selectedItems,
+                                      clearCartAfterCreate: true,
+                                      ordersPageBuilder:
+                                          widget.ordersPageBuilder,
+                                    ),
+                                  ),
+                                );
+                              },
                         child: const Text('去结算'),
                       ),
                     ],
@@ -908,14 +960,21 @@ class ShoppingCartPage extends StatelessWidget {
         ],
       ),
     );
-    if (confirmed == true) await controller.clearShopCart();
+    if (confirmed == true) await widget.controller.clearShopCart();
   }
 }
 
 class _CartItemCard extends StatelessWidget {
-  const _CartItemCard({required this.item, required this.onQuantityChanged});
+  const _CartItemCard({
+    required this.item,
+    required this.selected,
+    required this.onSelected,
+    required this.onQuantityChanged,
+  });
 
   final Map<String, Object?> item;
+  final bool selected;
+  final ValueChanged<bool> onSelected;
   final ValueChanged<int> onQuantityChanged;
 
   @override
@@ -928,6 +987,10 @@ class _CartItemCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Checkbox(
+              value: selected,
+              onChanged: (value) => onSelected(value == true),
+            ),
             SizedBox.square(
               dimension: 88,
               child: ClipRRect(
@@ -1111,8 +1174,51 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
       return;
     }
     if (widget.clearCartAfterCreate) {
-      await widget.controller.clearShopCart();
+      final createdSkuIds = order['created_sku_ids'] is List
+          ? (order['created_sku_ids'] as List)
+                .map(_asInt)
+                .whereType<int>()
+                .toList(growable: false)
+          : _orderItems
+                .map((item) => item['sku_id'])
+                .whereType<int>()
+                .toList(growable: false);
+      await widget.controller.removeShopCartItems(createdSkuIds);
       if (!mounted) return;
+    }
+    final orderIds = order['order_ids'] is List
+        ? (order['order_ids'] as List)
+              .map(_asInt)
+              .whereType<int>()
+              .toList(growable: false)
+        : <int>[orderId];
+    if (orderIds.length > 1 || order['partial_failure'] != null) {
+      final partialFailure = '${order['partial_failure'] ?? ''}'.trim();
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(partialFailure.isEmpty ? '订单已提交' : '部分订单已提交'),
+          content: Text(
+            partialFailure.isEmpty
+                ? '已生成 ${orderIds.length} 个订单。商城服务暂不支持合并订单，请在订单中心逐单支付。'
+                : '已生成 ${orderIds.length} 个订单；其余商品提交失败：$partialFailure。已成功的商品已从购物车移除。',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('查看订单'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      final ordersBuilder = widget.ordersPageBuilder;
+      if (ordersBuilder != null) {
+        Navigator.of(
+          context,
+        ).pushReplacement(MaterialPageRoute<void>(builder: ordersBuilder));
+        return;
+      }
     }
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
@@ -1162,6 +1268,20 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                if (_preview['multiple_orders'] == true) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: SaydianColors.brandGoldSoft,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '本次选择 ${_preview['order_count'] ?? widget.items.length} 种商品。提交后将生成对应订单，商品和运费均以商城实时预览为准。',
+                      style: const TextStyle(fontSize: 13, height: 1.45),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(14),

@@ -1090,6 +1090,10 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                 final invite = invitations[index];
                 final member = invite['member'];
                 final memberMap = member is Map ? member : const {};
+                final nickname = '${memberMap['nickname'] ?? ''}'.trim();
+                final mobile = '${memberMap['mobile'] ?? ''}'.trim();
+                final avatar = '${memberMap['head_portrait'] ?? ''}'.trim();
+                final inviterId = '${invite['inviter_id'] ?? ''}'.trim();
                 final status =
                     int.tryParse('${invite['examine_status'] ?? 0}') ?? 0;
                 return Card(
@@ -1098,10 +1102,61 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '${memberMap['nickname'] ?? memberMap['mobile'] ?? invite['mobile'] ?? '赛电用户'}',
-                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 25,
+                              backgroundColor: SaydianColors.brandRedSoft,
+                              foregroundImage:
+                                  avatar.startsWith('http://') ||
+                                      avatar.startsWith('https://')
+                                  ? NetworkImage(avatar)
+                                  : null,
+                              child: const Icon(
+                                Icons.person_rounded,
+                                color: SaydianColors.brandRed,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    nickname.isEmpty ? '赛电用户' : nickname,
+                                    style: const TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    mobile.isNotEmpty
+                                        ? mobile
+                                        : inviterId.isNotEmpty
+                                        ? '邀请人账号 ID：$inviterId'
+                                        : '邀请人手机号暂未返回',
+                                    style: const TextStyle(
+                                      color: SaydianColors.muted,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
+                        if (nickname.isEmpty && mobile.isEmpty) ...[
+                          const SizedBox(height: 8),
+                          const Text(
+                            '服务器暂未返回邀请人的公开头像、昵称和手机号，已避免错误显示为当前账号。',
+                            style: TextStyle(
+                              color: SaydianColors.muted,
+                              fontSize: 12,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 8),
                         if (status == 0)
                           Row(
@@ -2045,6 +2100,7 @@ class DeviceFeaturePage extends StatefulWidget {
 
 class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     with WidgetsBindingObserver {
+  static const _nativeMethods = MethodChannel('cc.saidian/wearable_methods');
   DeviceScreenSettings? _screen;
   Map<String, Object?> _featureData = const {};
   bool _finding = false;
@@ -2185,7 +2241,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       );
       final controller = CameraController(
         selected,
-        ResolutionPreset.medium,
+        ResolutionPreset.high,
         enableAudio: false,
       );
       await controller.initialize();
@@ -2222,14 +2278,28 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     setState(() => _takingPhoto = true);
     try {
       final photo = await camera.takePicture();
+      final bytes = await photo.readAsBytes();
+      final fileName =
+          'saidian-camera-${DateTime.now().millisecondsSinceEpoch}.jpg';
+      await _nativeMethods.invokeMethod<Object?>('saveGalleryImage', {
+        'bytes': bytes,
+        'fileName': fileName,
+        'mimeType': 'image/jpeg',
+      });
       if (mounted) {
         setState(() {
           _lastPhoto = photo;
-          _cameraMessage = '照片已拍摄并保存在本次相机页面';
+          _cameraMessage = '照片已保存到手机相册「图片/赛电」';
         });
       }
-    } on CameraException {
-      if (mounted) setState(() => _cameraMessage = '拍照失败，请稍后重试');
+    } on CameraException catch (error) {
+      if (mounted) {
+        setState(() => _cameraMessage = '拍照失败（${error.code}），请稍后重试');
+      }
+    } on PlatformException catch (error) {
+      if (mounted) {
+        setState(() => _cameraMessage = error.message ?? '照片保存失败，请检查相册权限后重试');
+      }
     } finally {
       if (mounted) setState(() => _takingPhoto = false);
     }
@@ -2647,9 +2717,17 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       child: Column(
         children: [
           if (camera != null && camera.value.isInitialized)
-            AspectRatio(
-              aspectRatio: camera.value.aspectRatio,
-              child: CameraPreview(camera),
+            ColoredBox(
+              color: Colors.black,
+              child: Center(
+                child: AspectRatio(
+                  // Camera preview sizes are reported in the sensor's
+                  // landscape orientation. In this portrait page the inverse
+                  // ratio preserves people and objects without stretching.
+                  aspectRatio: 1 / camera.value.aspectRatio,
+                  child: CameraPreview(camera),
+                ),
+              ),
             )
           else
             Container(

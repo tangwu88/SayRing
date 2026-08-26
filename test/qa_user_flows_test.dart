@@ -138,6 +138,11 @@ void main() {
       sku: const {'id': 11, 'name': '黑色', 'price': 199, 'stock': 5},
       quantity: 1,
     );
+    await controller.addToShopCart(
+      product: const {'id': 2, 'name': 'QA 体温手表', 'picture': '', 'price': 299},
+      sku: const {'id': 22, 'name': '银色', 'price': 299, 'stock': 5},
+      quantity: 1,
+    );
     await _pumpPhone(tester, controller);
 
     await tester.tap(find.text('赛电商城'));
@@ -148,10 +153,32 @@ void main() {
     expect(find.byKey(const Key('shopping-cart-page')), findsOneWidget);
     expect(find.text('QA 智能手表'), findsOneWidget);
     expect(find.text('¥199.00'), findsWidgets);
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.tap(find.byIcon(Icons.add).first);
     await tester.pump();
-    expect(controller.shopCart.single['quantity'], 2);
+    expect(controller.shopCart.first['quantity'], 2);
+    expect(find.textContaining('已选2件'), findsOneWidget);
+    await tester.tap(find.byType(Checkbox).first);
+    await tester.pump();
+    expect(find.textContaining('已选1件'), findsOneWidget);
     expect(find.byKey(const Key('cart-checkout')), findsOneWidget);
+  });
+
+  testWidgets('preview mode shows a prominent login prompt on my page', (
+    tester,
+  ) async {
+    final controller = _controller()..isBooting = false;
+    controller.enterPreview();
+    addTearDown(controller.dispose);
+    await _pumpPhone(tester, controller);
+
+    controller.selectTab(2);
+    await tester.pump();
+    expect(find.byKey(const Key('preview-login-prompt')), findsOneWidget);
+    expect(find.text('立即登录'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('preview-login-prompt')));
+    await tester.pumpAndSettle();
+    expect(controller.isPreviewMode, isFalse);
+    expect(find.widgetWithText(FilledButton, '登录'), findsOneWidget);
   });
 
   testWidgets('my page hides add-device entry while a watch is connected', (

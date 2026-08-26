@@ -158,8 +158,8 @@ void main() {
         'nickname': '测试用户',
         'gender': 1,
         'birthday': '1960-01-02',
-        'height': 168.5,
-        'weight': 62.0,
+        'height': '168.5',
+        'weight': '62',
         'head_portrait': 'https://app.saidian.cc/avatar.png',
       });
       return http.Response('{"code":200,"data":{}}', 200);
@@ -246,16 +246,26 @@ void main() {
   });
 
   test(
-    'missing health batch endpoint is reported as not configured when HTTP is 200',
+    'missing health batch endpoint falls back to the mini-program daily route',
     () async {
+      var requestCount = 0;
       final client = MockClient((request) async {
         expect(request.method, 'POST');
-        expect(request.url.path, '/api/v1/member/health-records/batch');
-        return http.Response(
-          '{"code":404,"message":"页面未找到。","data":{}}',
-          200,
-          headers: {'content-type': 'application/json'},
-        );
+        requestCount++;
+        if (requestCount == 1) {
+          expect(request.url.path, '/api/v1/member/health-records/batch');
+          return http.Response(
+            '{"code":404,"message":"页面未找到。","data":{}}',
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        expect(request.url.path, '/api/v1/member/daily-date');
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final daily =
+            (body['dailyDate'] as List).single as Map<String, dynamic>;
+        expect(daily['pulseReat'], 72);
+        return http.Response('{"code":200,"data":{}}', 200);
       });
       final api = SaydianApiClient(
         _authenticatedVault(),
@@ -276,16 +286,11 @@ void main() {
         rawVersion: 1,
       );
 
-      await expectLater(
-        api.uploadHealthBatch(SyncBatch(cursor: null, records: [record])),
-        throwsA(
-          isA<FeatureNotConfiguredException>().having(
-            (error) => error.message,
-            'message',
-            '批量健康同步接口未配置',
-          ),
-        ),
+      final result = await api.uploadHealthBatch(
+        SyncBatch(cursor: null, records: [record]),
       );
+      expect(result.acceptedIds, {'record-1'});
+      expect(result.rejected, isEmpty);
     },
   );
 
@@ -518,29 +523,47 @@ void main() {
   });
 
   test(
-    'shop checkout rejects unsupported multi-product payloads locally',
+    'shop checkout composes a multi-product preview from server prices',
     () async {
+      var requestCount = 0;
       final api = SaydianApiClient(
         _authenticatedVault(),
-        client: MockClient((_) async => throw StateError('must not request')),
+        client: MockClient((request) async {
+          requestCount++;
+          final item = jsonDecode(request.url.queryParameters['data']!);
+          return http.Response(
+            jsonEncode({
+              'code': 200,
+              'data': {
+                'address': {'id': 8},
+                'account': {'money1': 0},
+                'products': [
+                  {'sku_id': item['sku_id'], 'product_name': '商品$requestCount'},
+                ],
+                'preview': {
+                  'product_money': requestCount * 10,
+                  'shipping_money': 2,
+                },
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
         baseUri: Uri.parse('https://example.invalid'),
       );
 
-      expect(
-        () => api.previewShopOrder(
-          items: const [
-            {'sku_id': 2975, 'num': 1},
-            {'sku_id': 2976, 'num': 1},
-          ],
-        ),
-        throwsA(
-          isA<ApiException>().having(
-            (error) => error.message,
-            'message',
-            contains('不支持多件商品合并结算'),
-          ),
-        ),
+      final preview = await api.previewShopOrder(
+        items: const [
+          {'sku_id': 2975, 'num': 1},
+          {'sku_id': 2976, 'num': 1},
+        ],
       );
+      expect(requestCount, 2);
+      expect(preview['multiple_orders'], isTrue);
+      expect((preview['products'] as List), hasLength(2));
+      expect((preview['preview'] as Map)['product_money'], 30);
+      expect((preview['preview'] as Map)['shipping_money'], 4);
     },
   );
 
@@ -572,6 +595,44 @@ void main() {
     );
     expect(order['id'], 99);
   });
+
+  test(
+    'multi-select checkout creates one backend order per selected SKU',
+    () async {
+      var requestCount = 0;
+      final client = MockClient((request) async {
+        requestCount++;
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final data = jsonDecode(body['data'] as String) as Map<String, dynamic>;
+        expect(body['point'], requestCount == 1 ? 5 : 0);
+        return http.Response(
+          jsonEncode({
+            'code': 200,
+            'data': {'id': 100 + requestCount, 'sku_id': data['sku_id']},
+          }),
+          200,
+        );
+      });
+      final api = SaydianApiClient(
+        _authenticatedVault(),
+        client: client,
+        baseUri: Uri.parse('https://example.invalid'),
+      );
+
+      final result = await api.createShopOrder(
+        items: const [
+          {'sku_id': 2975, 'num': 1},
+          {'sku_id': 2976, 'num': 2},
+        ],
+        addressId: 8,
+        buyerMessage: '',
+        point: 5,
+      );
+      expect(requestCount, 2);
+      expect(result['order_ids'], [101, 102]);
+      expect(result['created_sku_ids'], [2975, 2976]);
+    },
+  );
 
   test(
     'confirm receipt and after-sales use authenticated shop routes',
@@ -686,6 +747,27 @@ void main() {
     );
 
     await api.respondCareInvitation(id: 19, accepted: false);
+  });
+
+  test('care invitations never expose the recipient as the inviter', () async {
+    final client = MockClient((request) async {
+      expect(request.url.path, '/api/v1/member/care');
+      return http.Response(
+        '{"code":200,"data":{"list":[{"id":59,"member_id":82,"to_member_id":1,"examine_status":0,"member":{"id":1,"nickname":"当前账号","mobile":"13600136000","password_hash":"secret"}}]}}',
+        200,
+        headers: {'content-type': 'application/json; charset=utf-8'},
+      );
+    });
+    final api = SaydianApiClient(
+      _authenticatedVault(),
+      client: client,
+      baseUri: Uri.parse('https://example.invalid'),
+    );
+
+    final invitation = (await api.getCareInvitations()).single;
+    expect(invitation['inviter_id'], 82);
+    expect(invitation['member'], isEmpty);
+    expect(invitation.containsKey('password_hash'), isFalse);
   });
 
   test('care share settings decode the server JSON list', () async {

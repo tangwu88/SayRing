@@ -385,12 +385,19 @@ class SaydianApiClient
       'nickname': nickname.trim(),
       'gender': gender,
       'birthday': birthday,
-      'height': height,
-      'weight': weight,
+      // The member API validates these two fields as strings even though the
+      // values are numeric. Keep the public Dart API typed and normalize only
+      // at the transport boundary.
+      'height': _profileNumber(height),
+      'weight': _profileNumber(weight),
       if (headPortrait?.isNotEmpty ?? false) 'head_portrait': headPortrait!,
     });
     _decode(response);
   }
+
+  String _profileNumber(double value) => value == value.roundToDouble()
+      ? value.toInt().toString()
+      : value.toStringAsFixed(1);
 
   @override
   Future<String> uploadImage(String filePath) async {
@@ -577,10 +584,55 @@ class SaydianApiClient
     required List<Map<String, int>> items,
   }) async {
     if (items.isEmpty) throw const ApiException('请选择要结算的商品');
-    if (items.length != 1) {
-      throw const ApiException('当前商城暂不支持多件商品合并结算，请分别结算');
+    if (items.length == 1) return _previewSingleShopOrder(items.single);
+
+    // The deployed shop service only accepts one buy_now item per preview.
+    // Compose the checkout summary from authoritative per-SKU previews so the
+    // cart can still support selecting several products without inventing
+    // prices or shipping costs on the client.
+    final previews = await Future.wait(items.map(_previewSingleShopOrder));
+    final first = previews.first;
+    final products = <Map<String, Object?>>[];
+    var productMoney = 0.0;
+    var shippingMoney = 0.0;
+    for (final preview in previews) {
+      final rawProducts = preview['products'];
+      if (rawProducts is List) {
+        products.addAll(
+          rawProducts.whereType<Map>().map(
+            (item) => item.map(
+              (key, value) => MapEntry<String, Object?>('$key', value),
+            ),
+          ),
+        );
+      }
+      final summary = preview['preview'];
+      if (summary is Map) {
+        productMoney += _shopNumber(summary['product_money']);
+        shippingMoney += _shopNumber(summary['shipping_money']);
+      }
     }
-    final data = jsonEncode(items.single);
+    final firstSummary = first['preview'];
+    return <String, Object?>{
+      ...first,
+      'products': products,
+      'preview': <String, Object?>{
+        if (firstSummary is Map)
+          ...firstSummary.map(
+            (key, value) => MapEntry<String, Object?>('$key', value),
+          ),
+        'product_money': productMoney,
+        'shipping_money': shippingMoney,
+      },
+      'multiple_orders': true,
+      'order_count': items.length,
+    };
+  }
+
+  Future<Map<String, Object?>> _previewSingleShopOrder(
+    Map<String, int> item,
+  ) async {
+    final data = jsonEncode(item);
     final response = await _authorizedGet(
       '/api/inv-shop/v1/order/order/preview',
       {'type': 'buy_now', 'data': data, 'is_channel': '0'},
@@ -596,22 +648,78 @@ class SaydianApiClient
     num point = 0,
   }) async {
     if (items.isEmpty) throw const ApiException('请选择要结算的商品');
-    if (items.length != 1) {
-      throw const ApiException('当前商城暂不支持多件商品合并结算，请分别结算');
+    if (items.length == 1) {
+      return _createSingleShopOrder(
+        item: items.single,
+        addressId: addressId,
+        buyerMessage: buyerMessage,
+        point: point,
+      );
     }
+
+    // The backend has no multi-product order endpoint. Create one server order
+    // per selected SKU and return a single aggregate result to the UI. Points
+    // are applied once to avoid spending the requested amount repeatedly.
+    final orders = <Map<String, Object?>>[];
+    final createdSkuIds = <int>[];
+    ApiException? partialFailure;
+    for (var index = 0; index < items.length; index++) {
+      try {
+        orders.add(
+          await _createSingleShopOrder(
+            item: items[index],
+            addressId: addressId,
+            buyerMessage: buyerMessage,
+            point: index == 0 ? point : 0,
+          ),
+        );
+        final skuId = items[index]['sku_id'];
+        if (skuId != null) createdSkuIds.add(skuId);
+      } on ApiException catch (error) {
+        if (orders.isEmpty) rethrow;
+        partialFailure = error;
+        break;
+      }
+    }
+    final orderIds = orders
+        .map((order) => _shopInt(order['id'] ?? order['order_id']))
+        .whereType<int>()
+        .toList(growable: false);
+    return <String, Object?>{
+      ...orders.first,
+      'orders': orders,
+      'order_ids': orderIds,
+      'created_sku_ids': createdSkuIds,
+      'multiple_orders': true,
+      if (partialFailure != null) 'partial_failure': partialFailure.message,
+    };
+  }
+
+  Future<Map<String, Object?>> _createSingleShopOrder({
+    required Map<String, int> item,
+    required int addressId,
+    required String buyerMessage,
+    required num point,
+  }) async {
     final response =
         await _authorizedPostJson('/api/inv-shop/v1/order/order/create', {
           'merchant_id': 0,
           'is_channel': 0,
           'address_id': addressId,
           'buyer_message': buyerMessage.trim(),
-          'data': jsonEncode(items.single),
+          'data': jsonEncode(item),
           'shipping_type': 1,
           'type': 'buy_now',
           'point': point,
         });
     return _data(_decode(response));
   }
+
+  double _shopNumber(Object? value) =>
+      value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
+
+  int? _shopInt(Object? value) =>
+      value is num ? value.toInt() : int.tryParse('$value');
 
   @override
   Future<void> confirmOrderReceipt(int orderId) async {
@@ -701,22 +809,17 @@ class SaydianApiClient
       },
     );
     if (response.statusCode == 404 || response.statusCode == 405) {
-      throw FeatureNotConfiguredException(
-        '批量健康同步接口未配置',
-        statusCode: response.statusCode,
-      );
+      return _uploadLegacyHealthRecords(batch);
     }
     Map<String, Object?> payload;
     try {
       payload = _decode(response);
     } on ApiException catch (error) {
       // The current backend can return a missing-route business code inside
-      // an HTTP 200 response. Normalize it to the documented optional API.
+      // an HTTP 200 response. Fall back to the same endpoints used by the
+      // original mini program so care-member data is not silently stranded.
       if (error.statusCode == 404 || error.statusCode == 405) {
-        throw FeatureNotConfiguredException(
-          '批量健康同步接口未配置',
-          statusCode: error.statusCode,
-        );
+        return _uploadLegacyHealthRecords(batch);
       }
       rethrow;
     }
@@ -735,6 +838,167 @@ class SaydianApiClient
           : const {},
       nextCursor: data['nextCursor']?.toString(),
     );
+  }
+
+  Future<BatchUploadResult> _uploadLegacyHealthRecords(SyncBatch batch) async {
+    final accepted = <String>{};
+    final rejected = <String, String>{};
+    final activityRecords = batch.records
+        .where(
+          (record) => const {
+            HealthMetric.steps,
+            HealthMetric.distance,
+            HealthMetric.calories,
+          }.contains(record.metric),
+        )
+        .toList(growable: false);
+    if (activityRecords.isNotEmpty) {
+      try {
+        num latest(HealthMetric metric) {
+          final records =
+              activityRecords
+                  .where((record) => record.metric == metric)
+                  .toList()
+                ..sort((a, b) => a.measuredAt.compareTo(b.measuredAt));
+          return records.isEmpty
+              ? 0
+              : records.last.values['value'] ??
+                    records.last.values.values.firstOrNull ??
+                    0;
+        }
+
+        final response = await _authorizedPostJson('/api/v1/member/jrjk', {
+          'steps_num': latest(HealthMetric.steps),
+          'reliang_num': latest(HealthMetric.calories),
+          'juli_num': latest(HealthMetric.distance),
+        });
+        _decode(response);
+        accepted.addAll(activityRecords.map((record) => record.id));
+      } on ApiException catch (error) {
+        for (final record in activityRecords) {
+          rejected[record.id] = error.message;
+        }
+      }
+    }
+
+    for (final record in batch.records) {
+      if (accepted.contains(record.id) || rejected.containsKey(record.id)) {
+        continue;
+      }
+      try {
+        await _uploadLegacyHealthRecord(record);
+        accepted.add(record.id);
+      } on ApiException catch (error) {
+        rejected[record.id] = error.message;
+      } catch (_) {
+        rejected[record.id] = '健康数据同步失败，请稍后重试';
+      }
+    }
+    return BatchUploadResult(
+      acceptedIds: accepted,
+      rejected: rejected,
+      nextCursor: batch.cursor,
+    );
+  }
+
+  Future<void> _uploadLegacyHealthRecord(HealthRecord record) async {
+    http.Response response;
+    switch (record.metric) {
+      case HealthMetric.bodyComposition:
+        final values = record.values;
+        response = await _authorizedPostJson('/api/v1/member/bodycomposition', {
+          'data': <String, Object?>{
+            'BMI': values['bmi'],
+            'bodyFatRate': values['bodyFatRate'],
+            'fatRate': values['fatMass'],
+            'FFM': values['fatFreeMass'],
+            'muscleRate': values['muscleRate'],
+            'muscleMass': values['muscleMass'],
+            'subcutaneousFat': values['subcutaneousFat'],
+            'bodyWater': values['bodyWaterRate'],
+            'waterContent': values['waterMass'],
+            'skeletalMuscleRate': values['skeletalMuscleRate'],
+            'boneMass': values['boneMass'],
+            'proteinProportion': values['proteinRate'],
+            'proteinMass': values['proteinMass'],
+            'basalMetabolicRate': values['basalMetabolicRate'],
+          }..removeWhere((_, value) => value == null),
+        });
+        break;
+      case HealthMetric.bloodComposition:
+        final values = record.values;
+        response = await _authorizedPostJson(
+          '/api/v1/member/bloodcomposition',
+          {
+            'data': <String, Object?>{
+              'uricAcidVal': values['uricAcid'],
+              'cholesterol': values['totalCholesterol'],
+              'triacylglycerol': values['triglycerides'],
+              'highDensity': values['highDensityLipoprotein'],
+              'lowDensity': values['lowDensityLipoprotein'],
+            }..removeWhere((_, value) => value == null),
+          },
+        );
+        break;
+      case HealthMetric.ecg:
+        response = await _authorizedPostJson('/api/v1/member/e-c-g', {
+          'data': <String, Object?>{
+            ...record.values,
+            'date': record.measuredAt.toLocal().toIso8601String(),
+          },
+          'totalArray': record.samples,
+        });
+        break;
+      case HealthMetric.sleep:
+        // Sleep is uploaded from the vendor daily-data reader where its stage
+        // payload is available. A summarized duration cannot be converted
+        // back into that losslessly.
+        throw const ApiException('睡眠分期数据需等待下次设备完整同步');
+      case HealthMetric.steps:
+      case HealthMetric.distance:
+      case HealthMetric.calories:
+        return;
+      case HealthMetric.heartRate:
+      case HealthMetric.bloodOxygen:
+      case HealthMetric.bloodPressure:
+      case HealthMetric.bloodGlucose:
+      case HealthMetric.bodyTemperature:
+      case HealthMetric.hrv:
+        final local = record.measuredAt.toLocal();
+        String two(int value) => value.toString().padLeft(2, '0');
+        final value =
+            record.values['value'] ?? record.values.values.firstOrNull;
+        final daily = <String, Object?>{
+          'date':
+              '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}:00',
+          'h': two(local.hour),
+          'isHourse': local.minute == 0 ? 1 : 0,
+          'hourse': '${two(local.hour)}:${two(local.minute)}',
+          'step': 0,
+          'bloodPressure': record.metric == HealthMetric.bloodPressure
+              ? <String, Object?>{
+                  'highPressure': record.values['systolic'],
+                  'lowPressure': record.values['diastolic'],
+                }
+              : null,
+          'bloodGlucose': record.metric == HealthMetric.bloodGlucose
+              ? value
+              : null,
+          'bloodOxygen': record.metric == HealthMetric.bloodOxygen
+              ? value
+              : null,
+          'bodyTemperature': record.metric == HealthMetric.bodyTemperature
+              ? value
+              : null,
+          'pulseReat': record.metric == HealthMetric.heartRate ? value : null,
+          'HRVData': record.metric == HealthMetric.hrv ? value : null,
+        };
+        response = await _authorizedPostJson('/api/v1/member/daily-date', {
+          'dailyDate': [daily],
+        });
+        break;
+    }
+    _decode(response);
   }
 
   @override
@@ -1006,7 +1270,51 @@ class SaydianApiClient
   @override
   Future<List<Map<String, Object?>>> getCareInvitations() async {
     final response = await _authorizedGet('/api/v1/member/care');
-    return _list(_decode(response));
+    final session = await _vault.readSession();
+    final ownMemberId = int.tryParse(session?.memberId ?? '');
+    return _list(_decode(response))
+        .map((invite) {
+          final inviterId = _shopInt(invite['member_id']);
+          final candidates = <Object?>[
+            invite['inviter'],
+            invite['from_member'],
+            invite['fromMember'],
+            invite['member'],
+          ];
+          Map<String, Object?>? inviter;
+          for (final candidate in candidates) {
+            if (candidate is! Map) continue;
+            final map = candidate.map(
+              (key, value) => MapEntry<String, Object?>('$key', value),
+            );
+            final candidateId = _shopInt(map['id'] ?? map['member_id']);
+            // Some backend builds incorrectly nest the invitation recipient as
+            // `member`. Never present the signed-in user as their own inviter.
+            if (candidateId == null ||
+                candidateId == ownMemberId ||
+                (inviterId != null && candidateId != inviterId)) {
+              continue;
+            }
+            inviter = <String, Object?>{
+              'id': candidateId,
+              'nickname': '${map['nickname'] ?? ''}'.trim(),
+              'mobile': '${map['mobile'] ?? ''}'.trim(),
+              'head_portrait': '${map['head_portrait'] ?? map['avatar'] ?? ''}'
+                  .trim(),
+            };
+            break;
+          }
+          return <String, Object?>{
+            'id': invite['id'],
+            'member_id': invite['member_id'],
+            'to_member_id': invite['to_member_id'],
+            'examine_status': invite['examine_status'],
+            'status': invite['status'],
+            'inviter_id': inviterId,
+            'member': inviter ?? const <String, Object?>{},
+          };
+        })
+        .toList(growable: false);
   }
 
   @override

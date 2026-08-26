@@ -1779,6 +1779,17 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> removeShopCartItems(Iterable<int> skuIds) async {
+    final selected = skuIds.toSet();
+    if (selected.isEmpty) return;
+    shopCart = shopCart
+        .where((item) => !selected.contains(_cartInt(item['sku_id'])))
+        .map((item) => Map<String, Object?>.from(item))
+        .toList(growable: false);
+    await _vault.writeShopCart(shopCart);
+    notifyListeners();
+  }
+
   Future<Map<String, Object?>> loadShopAddress(int id) =>
       _shopMapRequest('收货地址', () => _requiredShopApi.getAddress(id));
 

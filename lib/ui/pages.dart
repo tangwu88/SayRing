@@ -9,7 +9,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../domain/ecg_waveform.dart';
 import '../domain/feature_models.dart';
 import '../domain/health_interpretation.dart';
 import '../domain/models.dart';
@@ -1667,9 +1666,14 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                     widget.metric == HealthMetric.ecg &&
                     widget.controller.measurementSamples.length > 1) ...[
                   const SizedBox(height: 14),
-                  SizedBox(
-                    height: 92,
+                  Container(
+                    height: 160,
                     width: double.infinity,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF08090B),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     child: CustomPaint(
                       painter: _LiveEcgPainter(
                         widget.controller.measurementSamples,
@@ -2098,8 +2102,15 @@ class _SportSessionPageState extends State<SportSessionPage> {
               distanceKm: _routeDistanceKm,
             ),
           ],
-          const SizedBox(height: 22),
-          FilledButton.icon(
+          const SizedBox(height: 24),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        minimum: const EdgeInsets.fromLTRB(20, 8, 20, 14),
+        child: SizedBox(
+          height: 52,
+          child: FilledButton.icon(
+            key: const Key('sport-session-toggle'),
             onPressed: widget.controller.connectedDevice == null
                 ? null
                 : _toggleSport,
@@ -2109,7 +2120,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
             icon: Icon(active ? Icons.stop_rounded : Icons.play_arrow_rounded),
             label: Text(active ? '结束运动' : '开始${widget.mode.label}'),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -2585,15 +2596,20 @@ class _LiveEcgPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Use the vendor reference scale: 25 mm/s horizontally, 10 mm/mV
-    // vertically, 80 small rows and a baseline at three fifths of the chart.
-    // Fixed medical-paper scaling keeps the APP trace comparable with W9S.
-    final smallGrid = size.height / 80;
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()..color = const Color(0xFF08090B),
+    );
+    // Match the watch's black-grid live view while retaining medical-paper
+    // timing (25 mm/s) and voltage (10 mm/mV). This path intentionally uses
+    // the calibrated ADC samples directly: history denoising would deform a
+    // short, still-growing live window.
+    final smallGrid = math.max(3.0, size.height / 32);
     final thinGrid = Paint()
-      ..color = const Color(0x18D20B27)
+      ..color = const Color(0x334B1B22)
       ..strokeWidth = .7;
     final boldGrid = Paint()
-      ..color = const Color(0x32D20B27)
+      ..color = const Color(0x665F202A)
       ..strokeWidth = 1;
     for (var index = 0, x = 0.0; x <= size.width; index++, x += smallGrid) {
       canvas.drawLine(
@@ -2620,47 +2636,36 @@ class _LiveEcgPainter extends CustomPainter {
         ? finite.sublist(finite.length - capacity)
         : finite;
     if (visible.length < 2) return;
-    final waveform = prepareEcgDisplayWaveform(
-      visible,
-      maximumPoints: visible.length,
-      sampleFrequency: frequency,
-      removeContactArtifacts: true,
-    );
-    if (waveform.samples.length < 2) return;
-    final sorted = [...waveform.samples]..sort();
+    final sorted = [...visible]..sort();
     final signalBaseline = sorted[sorted.length ~/ 2];
     // W9S may occasionally report calibrated transport spikes far outside a
     // physiological single-lead ECG range. Keep the medical-paper scale, but
     // cap display-only excursions so the line never leaves the chart. Raw
     // samples remain untouched for the saved report and analysis.
     const maximumDisplayAmplitudeMv = 2.5;
-    final displaySamples = waveform.samples
+    final displaySamples = visible
         .map(
           (sample) => (sample - signalBaseline)
               .clamp(-maximumDisplayAmplitudeMv, maximumDisplayAmplitudeMv)
               .toDouble(),
         )
         .toList(growable: false);
-    final baseline = size.height / 2;
+    final baseline = size.height * .58;
     final path = Path();
-    var previousX = size.width - (displaySamples.length - 1) * xStep;
-    var previousY = baseline - displaySamples.first * 10 * smallGrid;
-    path.moveTo(previousX, previousY);
+    final firstX = size.width - (displaySamples.length - 1) * xStep;
+    path.moveTo(firstX, baseline - displaySamples.first * 10 * smallGrid);
     for (var index = 1; index < displaySamples.length; index++) {
       final x = size.width - (displaySamples.length - 1 - index) * xStep;
       final y = baseline - displaySamples[index] * 10 * smallGrid;
-      final middleX = (previousX + x) / 2;
-      path.cubicTo(middleX, previousY, middleX, y, x, y);
-      previousX = x;
-      previousY = y;
+      path.lineTo(x, y);
     }
     canvas.save();
     canvas.clipRect(Offset.zero & size);
     canvas.drawPath(
       path,
       Paint()
-        ..color = SaydianColors.brandRed
-        ..strokeWidth = 2
+        ..color = const Color(0xFFFF334D)
+        ..strokeWidth = 1.6
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round,
     );
@@ -5730,6 +5735,60 @@ class SettingsPage extends StatelessWidget {
       key: const Key('my-page'),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
+        if (controller.isPreviewMode) ...[
+          Material(
+            key: const Key('preview-login-prompt'),
+            color: SaydianColors.brandRedSoft,
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => unawaited(controller.logout()),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.account_circle_outlined,
+                      color: SaydianColors.brandRed,
+                    ),
+                    SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '当前为体验模式',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            '登录后可保存健康数据、设备和订单信息',
+                            style: TextStyle(
+                              color: SaydianColors.muted,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Text(
+                      '立即登录',
+                      style: TextStyle(
+                        color: SaydianColors.brandRed,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: SaydianColors.brandRed,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         GestureDetector(
           onTap: () =>
               _openPage(context, ProfileEditPage(controller: controller)),

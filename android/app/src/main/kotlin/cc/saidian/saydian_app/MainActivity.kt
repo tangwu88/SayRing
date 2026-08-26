@@ -322,6 +322,15 @@ class MainActivity : FlutterActivity() {
             )
             return
         }
+        if (call.method == "saveGalleryImage") {
+            adapter.saveGalleryImage(
+                call.argument<ByteArray>("bytes"),
+                call.argument<String>("fileName"),
+                call.argument<String>("mimeType"),
+                callback,
+            )
+            return
+        }
         val feature = call.argument<String>("feature").orEmpty()
         adapter.prepareForOperation(call.method, feature) {
             try {
@@ -1286,22 +1295,37 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         bytes: ByteArray?,
         requestedName: String?,
         callback: ResultCallback<Any?>,
+    ) = saveGalleryImage(bytes, requestedName, "image/png", callback)
+
+    fun saveGalleryImage(
+        bytes: ByteArray?,
+        requestedName: String?,
+        requestedMimeType: String?,
+        callback: ResultCallback<Any?>,
     ) {
         if (bytes == null || bytes.isEmpty()) {
-            callback.error("INVALID_REPORT_IMAGE", "报告图片生成失败，请重试")
+            callback.error("INVALID_GALLERY_IMAGE", "照片生成失败，请重试")
             return
         }
+        val mimeType =
+            requestedMimeType
+                ?.takeIf { it == "image/png" || it == "image/jpeg" }
+                ?: "image/png"
+        val extension = if (mimeType == "image/jpeg") ".jpg" else ".png"
         val safeName =
             requestedName
                 ?.replace(Regex("[^0-9A-Za-z._-]"), "_")
-                ?.takeIf { it.endsWith(".png", ignoreCase = true) }
-                ?: "saidian-ecg-report-${System.currentTimeMillis()}.png"
+                ?.takeIf {
+                    it.endsWith(extension, ignoreCase = true) ||
+                        (mimeType == "image/jpeg" && it.endsWith(".jpeg", ignoreCase = true))
+                }
+                ?: "saidian-image-${System.currentTimeMillis()}$extension"
         runCatching {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val values =
                     ContentValues().apply {
                         put(MediaStore.Images.Media.DISPLAY_NAME, safeName)
-                        put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                        put(MediaStore.Images.Media.MIME_TYPE, mimeType)
                         put(
                             MediaStore.Images.Media.RELATIVE_PATH,
                             "${Environment.DIRECTORY_PICTURES}/赛电",
@@ -1331,15 +1355,15 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 MediaScannerConnection.scanFile(
                     appContext,
                     arrayOf(file.absolutePath),
-                    arrayOf("image/png"),
+                    arrayOf(mimeType),
                     null,
                 )
             }
         }.onSuccess {
             callback.success(mapOf("saved" to true, "fileName" to safeName))
         }.onFailure { error ->
-            Log.e("SaidianMain", "ECG report image save failed", error)
-            callback.error("REPORT_IMAGE_SAVE_FAILED", "报告保存失败，请检查相册权限后重试")
+            Log.e("SaidianMain", "Gallery image save failed", error)
+            callback.error("GALLERY_IMAGE_SAVE_FAILED", "照片保存失败，请检查相册权限后重试")
         }
     }
 
@@ -4131,54 +4155,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 "hiking" -> ESportType.HIKE
                 else -> ESportType.OUTDOOR_RUNNING
             }
-        val preferences = VpSpGetUtil.getVpSpVariInstance(appContext)
-        if (preferences.isSupportAppOpenSport) {
-            val guarded =
-                withOperationTimeout(
-                    callback,
-                    "SPORT_CONTROL_TIMEOUT",
-                    "手表未确认${mode}运动，请保持连接后重试",
-                )
-            Log.i(LOG_TAG, "start sport app-control mode=$mode type=${sportType.name}")
-            manager.setSportControlInfo(
-                writeResponse(guarded, "运动模式暂时无法开启"),
-                ESportControlType.START,
-                sportType,
-                object : ISportControlOptListener {
-                    override fun onSportControlOptFail() {
-                        guarded.error("SPORT_CONTROL_FAILED", "手表未能开启对应运动模式")
-                    }
-
-                    override fun onSportControlOptSuccess() {
-                        activeControlledSportType = sportType
-                        activeSportUsesAppControl = true
-                        emit(
-                            "sportState",
-                            mapOf("value" to "running", "mode" to mode, "type" to sportType.name),
-                        )
-                        guarded.success(Unit)
-                    }
-
-                    override fun onSportControlDataChange(dataInfo: SportControlDataInfo) {
-                        Log.i(
-                            LOG_TAG,
-                            "sport control data requested=${sportType.name} returned=${dataInfo.sportType.name}",
-                        )
-                        emit(
-                            "sportState",
-                            mapOf(
-                                "value" to "running",
-                                "mode" to mode,
-                                "type" to dataInfo.sportType.name,
-                                "durationSeconds" to dataInfo.sportDuration,
-                                "distance" to dataInfo.distance,
-                            ),
-                        )
-                    }
-                },
-            )
-            return
-        }
+        // `setSportControlInfo` only controls an already supported app-sport
+        // session on some firmware and W9S interprets that command as jump
+        // rope. The vendor's multi-sport entry API carries ESportType to the
+        // watch UI, which is the required run/walk/ride/hike behaviour.
         activeSportUsesAppControl = false
         activeControlledSportType = sportType
         Log.i(LOG_TAG, "start sport multi-model mode=$mode type=${sportType.name}")
@@ -4454,19 +4434,19 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     autoMeasureSettings.clear()
                     val values = linkedMapOf<String, Boolean>()
                     if (supportedTypes.contains("heartRate")) {
-                        values["heartRate"] = data.autoHeartDetect.isOpen
+                        values["heartRate"] = legacyAutoMeasureValue(data, "heartRate")
                     }
                     if (supportedTypes.contains("bloodPressure")) {
-                        values["bloodPressure"] = data.autoBpDetect.isOpen
+                        values["bloodPressure"] = legacyAutoMeasureValue(data, "bloodPressure")
                     }
                     if (supportedTypes.contains("bloodGlucose")) {
-                        values["bloodGlucose"] = data.bloodGlucoseDetection.isOpen
+                        values["bloodGlucose"] = legacyAutoMeasureValue(data, "bloodGlucose")
                     }
                     if (supportedTypes.contains("bodyTemperature")) {
-                        values["bodyTemperature"] = data.autoTemperatureDetect.isOpen
+                        values["bodyTemperature"] = legacyAutoMeasureValue(data, "bodyTemperature")
                     }
                     if (supportedTypes.contains("hrv")) {
-                        values["hrv"] = data.autoHrv.isOpen
+                        values["hrv"] = legacyAutoMeasureValue(data, "hrv")
                     }
                     guardedCallback.success(values)
                 }
@@ -4509,6 +4489,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 "AUTO_MEASURE_WRITE_TIMEOUT",
                 "手表健康监测设置保存超时，请稍后重试",
             )
+        val verificationStarted = AtomicBoolean(false)
         manager.changeCustomSetting(
             writeResponse(guardedCallback, "手表健康监测设置保存失败"),
             object : ICustomSettingDataListener {
@@ -4520,12 +4501,62 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         return
                     }
                     lastCustomSettingData = data
-                    guardedCallback.success(Unit)
+                    if (!verificationStarted.compareAndSet(false, true)) return
+                    // SETTING_SUCCESS may carry the pre-write snapshot on W9S.
+                    // Re-read from the watch before reporting success so a page
+                    // refresh cannot silently flip the switch back.
+                    connectionHandler.postDelayed(
+                        {
+                            manager.readCustomSetting(
+                                writeResponse(
+                                    guardedCallback,
+                                    "手表健康监测设置保存后校验失败",
+                                ),
+                                object : ICustomSettingDataListener {
+                                    override fun OnSettingDataChange(verified: CustomSettingData) {
+                                        if (verified.status != ECustomStatus.READ_SUCCESS &&
+                                            verified.status != ECustomStatus.SETTING_SUCCESS
+                                        ) {
+                                            guardedCallback.error(
+                                                "AUTO_MEASURE_VERIFY_FAILED",
+                                                "手表健康监测设置保存后校验失败",
+                                            )
+                                            return
+                                        }
+                                        lastCustomSettingData = verified
+                                        val actual = legacyAutoMeasureValue(verified, type)
+                                        if (actual != enabled) {
+                                            guardedCallback.error(
+                                                "AUTO_MEASURE_NOT_PERSISTED",
+                                                "手表未保存该健康监测开关，请保持连接后重试",
+                                            )
+                                            return
+                                        }
+                                        guardedCallback.success(Unit)
+                                    }
+                                },
+                            )
+                        },
+                        500L,
+                    )
                 }
             },
             setting,
         )
     }
+
+    private fun legacyAutoMeasureValue(
+        data: CustomSettingData,
+        type: String,
+    ): Boolean =
+        when (type) {
+            "heartRate" -> data.autoHeartDetect.isOpen
+            "bloodPressure" -> data.autoBpDetect.isOpen
+            "bloodGlucose" -> data.bloodGlucoseDetection.isOpen
+            "bodyTemperature" -> data.autoTemperatureDetect.isOpen
+            "hrv" -> data.autoHrv.isOpen
+            else -> false
+        }
 
     fun readHeartRateWarning(callback: ResultCallback<Int?>) {
         ensureConnected(callback) ?: return
@@ -6075,16 +6106,36 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         "progress" to progress.coerceIn(0, 100),
                     ),
                 )
+                if (progress >= 100) {
+                    if (!completeBloodComponentMeasurement(data)) {
+                        connectionHandler.postDelayed(
+                            {
+                                if (activeMetric == "blood_composition") {
+                                    failMeasurement(
+                                        "blood_composition",
+                                        "BLOOD_COMPONENT_EMPTY_RESULT",
+                                        "血液成分测量完成但未返回有效数据，请保持正确佩戴后重试",
+                                    )
+                                }
+                            },
+                            1_500L,
+                        )
+                    }
+                }
             }
             override fun onDetectStop() = Unit
 
             override fun onDetectComplete(data: BloodComponent) {
-                val values = bloodComponentValues(data)
-                if (values.isNotEmpty() && claimMeasurementResult("blood_composition")) {
-                    emitRecord(record("blood_composition", values, "", Date()))
-                }
+                completeBloodComponentMeasurement(data)
             }
         }
+
+    private fun completeBloodComponentMeasurement(data: BloodComponent): Boolean {
+        val values = bloodComponentValues(data)
+        if (values.isEmpty() || !claimMeasurementResult("blood_composition")) return false
+        emitRecord(record("blood_composition", values, "", Date()))
+        return true
+    }
 
     private val activeEcgSamples = mutableListOf<Number>()
     private val ecgListener =
