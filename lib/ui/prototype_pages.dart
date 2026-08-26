@@ -2712,67 +2712,129 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
 
   Widget _buildCameraPanel() {
     final camera = _camera;
+    final previewHeight = math.min(
+      MediaQuery.sizeOf(context).height * .56,
+      560.0,
+    );
     return Card(
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          if (camera != null && camera.value.isInitialized)
-            ColoredBox(
+          SizedBox(
+            height: previewHeight,
+            child: ColoredBox(
               color: Colors.black,
-              child: Center(
-                child: AspectRatio(
-                  // Camera preview sizes are reported in the sensor's
-                  // landscape orientation. In this portrait page the inverse
-                  // ratio preserves people and objects without stretching.
-                  aspectRatio: 1 / camera.value.aspectRatio,
-                  child: CameraPreview(camera),
-                ),
-              ),
-            )
-          else
-            Container(
-              height: 280,
-              color: Colors.black,
-              alignment: Alignment.center,
-              child: _cameraMessage == null
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Icon(
-                      Icons.no_photography_outlined,
-                      color: Colors.white70,
-                      size: 54,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (camera != null && camera.value.isInitialized)
+                    Center(
+                      child: AspectRatio(
+                        // Camera preview sizes are reported in the sensor's
+                        // landscape orientation. In this portrait page the
+                        // inverse ratio preserves the natural image without
+                        // stretching or cropping.
+                        aspectRatio: 1 / camera.value.aspectRatio,
+                        child: CameraPreview(camera),
+                      ),
+                    )
+                  else
+                    Center(
+                      child: _cameraMessage == null
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : const Icon(
+                              Icons.no_photography_outlined,
+                              color: Colors.white70,
+                              size: 54,
+                            ),
                     ),
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: 16,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: .58),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 7,
+                            ),
+                            child: Text(
+                              _cameraMessage ?? '正在打开相机',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Semantics(
+                          button: true,
+                          label: '拍照并保存到手机',
+                          child: SizedBox(
+                            width: 68,
+                            height: 68,
+                            child: FilledButton(
+                              key: const ValueKey('camera-shutter-button'),
+                              onPressed: camera == null || _takingPhoto
+                                  ? null
+                                  : _takePhoto,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: SaydianColors.brandRed,
+                                disabledBackgroundColor: Colors.white54,
+                                shape: const CircleBorder(
+                                  side: BorderSide(
+                                    color: Colors.white,
+                                    width: 4,
+                                  ),
+                                ),
+                                padding: EdgeInsets.zero,
+                              ),
+                              child: _takingPhoto
+                                  ? const SizedBox.square(
+                                      dimension: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: SaydianColors.brandRed,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.camera_alt_rounded,
+                                      size: 30,
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
+          ),
           Padding(
             padding: const EdgeInsets.all(18),
             child: Column(
               children: [
-                Text(
-                  _cameraMessage ?? '正在打开相机',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: SaydianColors.muted),
-                ),
-                const SizedBox(height: 14),
-                SizedBox(
-                  width: 74,
-                  height: 74,
-                  child: FilledButton(
-                    onPressed: camera == null || _takingPhoto
-                        ? null
-                        : _takePhoto,
-                    style: FilledButton.styleFrom(
-                      shape: const CircleBorder(),
-                      padding: EdgeInsets.zero,
+                const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.watch_rounded, color: SaydianColors.brandRed),
+                    SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        '可点击手机快门，也可按手表拍照键；照片会保存到手机相册。',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: SaydianColors.muted),
+                      ),
                     ),
-                    child: _takingPhoto
-                        ? const SizedBox.square(
-                            dimension: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.camera_alt_rounded, size: 30),
-                  ),
+                  ],
                 ),
                 if (_lastPhoto != null) ...[
                   const SizedBox(height: 16),

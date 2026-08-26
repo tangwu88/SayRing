@@ -4420,6 +4420,8 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 "AUTO_MEASURE_READ_TIMEOUT",
                 "暂时未读取到手表健康监测设置，请稍后重试",
             )
+        val values = linkedMapOf<String, Boolean>()
+        var finalizeTask: Runnable? = null
         manager.readCustomSetting(
             writeResponse(guardedCallback, "手表健康监测设置暂时无法读取"),
             object : ICustomSettingDataListener {
@@ -4431,24 +4433,48 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         return
                     }
                     lastCustomSettingData = data
-                    autoMeasureSettings.clear()
-                    val values = linkedMapOf<String, Boolean>()
-                    if (supportedTypes.contains("heartRate")) {
+                    Log.i(
+                        LOG_TAG,
+                        "Legacy auto-measure support[${data.index}]: " +
+                            "heart=${data.autoHeartDetect}, bp=${data.autoBpDetect}, " +
+                            "glucose=${data.bloodGlucoseDetection}, " +
+                            "temperature=${data.autoTemperatureDetect}, hrv=${data.autoHrv}",
+                    )
+                    if (supportedTypes.contains("heartRate") &&
+                        legacyAutoMeasureStatus(data, "heartRate").haveFunction()
+                    ) {
                         values["heartRate"] = legacyAutoMeasureValue(data, "heartRate")
                     }
-                    if (supportedTypes.contains("bloodPressure")) {
+                    if (supportedTypes.contains("bloodPressure") &&
+                        legacyAutoMeasureStatus(data, "bloodPressure").haveFunction()
+                    ) {
                         values["bloodPressure"] = legacyAutoMeasureValue(data, "bloodPressure")
                     }
-                    if (supportedTypes.contains("bloodGlucose")) {
+                    if (supportedTypes.contains("bloodGlucose") &&
+                        legacyAutoMeasureStatus(data, "bloodGlucose").haveFunction()
+                    ) {
                         values["bloodGlucose"] = legacyAutoMeasureValue(data, "bloodGlucose")
                     }
-                    if (supportedTypes.contains("bodyTemperature")) {
+                    if (supportedTypes.contains("bodyTemperature") &&
+                        legacyAutoMeasureStatus(data, "bodyTemperature").haveFunction()
+                    ) {
                         values["bodyTemperature"] = legacyAutoMeasureValue(data, "bodyTemperature")
                     }
-                    if (supportedTypes.contains("hrv")) {
+                    if (supportedTypes.contains("hrv") &&
+                        legacyAutoMeasureStatus(data, "hrv").haveFunction()
+                    ) {
                         values["hrv"] = legacyAutoMeasureValue(data, "hrv")
                     }
-                    guardedCallback.success(values)
+                    // W9S reports CustomSettingData in multiple packets. The
+                    // temperature/glucose flags arrive shortly after the
+                    // heart-rate packet, so completing on the first callback
+                    // hides valid settings and makes writes appear to revert.
+                    finalizeTask?.let(connectionHandler::removeCallbacks)
+                    finalizeTask = Runnable {
+                        autoMeasureSettings.clear()
+                        guardedCallback.success(values.toMap())
+                    }
+                    connectionHandler.postDelayed(finalizeTask!!, 180L)
                 }
             },
         )
@@ -4471,18 +4497,21 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         }
         val status =
             if (enabled) EFunctionStatus.SUPPORT_OPEN else EFunctionStatus.SUPPORT_CLOSE
-        val setting = CustomSetting(current)
+        // Follow the SDK demo exactly: update the CustomSettingData snapshot
+        // first and only then construct the payload. Some W9S firmware ignores
+        // fields changed on CustomSetting after construction.
         when (type) {
-            "heartRate" -> setting.isOpenAutoHeartDetect = enabled
-            "bloodPressure" -> setting.isOpenAutoBpDetect = enabled
-            "bloodGlucose" -> setting.setIsOpenBloodGlucoseDetect(status)
-            "bodyTemperature" -> setting.setIsOpenAutoTemperatureDetect(status)
-            "hrv" -> setting.setIsOpenAutoHRV(status)
+            "heartRate" -> current.autoHeartDetect = status
+            "bloodPressure" -> current.autoBpDetect = status
+            "bloodGlucose" -> current.bloodGlucoseDetection = status
+            "bodyTemperature" -> current.autoTemperatureDetect = status
+            "hrv" -> current.autoHrv = status
             else -> {
                 callback.error("AUTO_MEASURE_UNSUPPORTED", "当前手表不支持该自动检测功能")
                 return
             }
         }
+        val setting = CustomSetting(current)
         val guardedCallback =
             withOperationTimeout(
                 callback,
@@ -4524,6 +4553,13 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                             return
                                         }
                                         lastCustomSettingData = verified
+                                        val verifiedStatus =
+                                            legacyAutoMeasureStatus(verified, type)
+                                        if (!verifiedStatus.haveFunction()) {
+                                            // The requested flag can be in a
+                                            // later CustomSettingData packet.
+                                            return
+                                        }
                                         val actual = legacyAutoMeasureValue(verified, type)
                                         if (actual != enabled) {
                                             guardedCallback.error(
@@ -4537,7 +4573,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                 },
                             )
                         },
-                        500L,
+                        1_200L,
                     )
                 }
             },
@@ -4556,6 +4592,19 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             "bodyTemperature" -> data.autoTemperatureDetect.isOpen
             "hrv" -> data.autoHrv.isOpen
             else -> false
+        }
+
+    private fun legacyAutoMeasureStatus(
+        data: CustomSettingData,
+        type: String,
+    ): EFunctionStatus =
+        when (type) {
+            "heartRate" -> data.autoHeartDetect
+            "bloodPressure" -> data.autoBpDetect
+            "bloodGlucose" -> data.bloodGlucoseDetection
+            "bodyTemperature" -> data.autoTemperatureDetect
+            "hrv" -> data.autoHrv
+            else -> EFunctionStatus.UNSUPPORT
         }
 
     fun readHeartRateWarning(callback: ResultCallback<Int?>) {
