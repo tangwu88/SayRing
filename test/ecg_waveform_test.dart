@@ -102,6 +102,149 @@ void main() {
     expect(waveform.hasVariation, isFalse);
   });
 
+  test('slow saturated trace with constant tail is not shown as ECG', () {
+    const frequency = 250;
+    final samples = <num>[
+      for (var index = 0; index < frequency * 40; index++)
+        1.8 * math.sin(index / (frequency * 1.5)) +
+            (index % (frequency * 4) == 0 ? 1.2 : 0) +
+            (index.isEven ? 0.08 : -0.08),
+      ...List<num>.filled(frequency * 40, 0.75),
+    ];
+
+    final waveform = prepareEcgDisplayWaveform(
+      samples,
+      maximumPoints: 1200,
+      sampleFrequency: frequency,
+      removeContactArtifacts: true,
+    );
+
+    expect(waveform.hasVariation, isFalse);
+  });
+
+  test('repeated calibrated ECG beats pass signal quality screening', () {
+    const frequency = 250;
+    final samples = List<num>.generate(frequency * 20, (index) {
+      final phase = index % frequency;
+      final baseline = 0.025 * math.sin(index / 9);
+      if (phase >= 48 && phase < 53) {
+        return baseline + (phase - 48) * 0.28;
+      }
+      if (phase >= 53 && phase < 58) {
+        return baseline + (58 - phase) * 0.28;
+      }
+      return baseline;
+    });
+
+    final waveform = prepareEcgDisplayWaveform(
+      samples,
+      maximumPoints: 1200,
+      sampleFrequency: frequency,
+      removeContactArtifacts: true,
+    );
+
+    expect(waveform.samples, isNotEmpty);
+    expect(waveform.hasVariation, isTrue);
+  });
+
+  test('W9S rail saturation with internal zero gaps stays blank', () {
+    const frequency = 500;
+    List<num> saturated(int seconds) => List<num>.generate(
+      frequency * seconds,
+      (index) => 2.95 * math.sin(index / 5),
+    );
+    final samples = <num>[
+      ...saturated(2),
+      ...List<num>.filled(frequency * 26, 0),
+      ...saturated(20),
+      ...List<num>.filled(frequency * 5, 0),
+      ...saturated(20),
+    ];
+
+    final waveform = prepareEcgDisplayWaveform(
+      samples,
+      maximumPoints: 1200,
+      sampleFrequency: frequency,
+      removeContactArtifacts: true,
+    );
+
+    expect(waveform.samples, isEmpty);
+    expect(waveform.hasVariation, isFalse);
+  });
+
+  test('W9S clipped triangle with rail plateaus stays blank', () {
+    const frequency = 500;
+    final samples = List<num>.generate(frequency * 20, (index) {
+      final phase = index % frequency;
+      if (phase < 40) return 2.0;
+      if (phase < 250) return 2.0 - (phase - 40) * 4.0 / 210;
+      if (phase < 290) return -2.0;
+      return -2.0 + (phase - 290) * 4.0 / 210;
+    });
+
+    final waveform = prepareEcgDisplayWaveform(
+      samples,
+      maximumPoints: 1200,
+      sampleFrequency: frequency,
+      removeContactArtifacts: true,
+    );
+
+    expect(waveform.samples, isEmpty);
+    expect(waveform.hasVariation, isFalse);
+  });
+
+  test('long internal signal loss is not presented as continuous ECG', () {
+    const frequency = 250;
+    List<num> validSignal(int seconds) => List<num>.generate(
+      frequency * seconds,
+      (index) =>
+          0.12 * math.sin(index / 9) +
+          ((index % frequency) >= 48 && (index % frequency) < 58
+              ? 1.1 * math.sin(((index % frequency) - 48) * math.pi / 10)
+              : 0),
+    );
+    final samples = <num>[
+      ...validSignal(20),
+      ...List<num>.filled(frequency * 25, 0),
+      ...validSignal(20),
+    ];
+
+    final waveform = prepareEcgDisplayWaveform(
+      samples,
+      maximumPoints: 1200,
+      sampleFrequency: frequency,
+      removeContactArtifacts: true,
+    );
+
+    expect(waveform.hasVariation, isFalse);
+  });
+
+  test('W9S ten-second internal dropout invalidates a 41-second trace', () {
+    const frequency = 500;
+    List<num> validSignal(int seconds) => List<num>.generate(
+      frequency * seconds,
+      (index) =>
+          0.12 * math.sin(index / 9) +
+          ((index % frequency) >= 95 && (index % frequency) < 115
+              ? 1.1 * math.sin(((index % frequency) - 95) * math.pi / 20)
+              : 0),
+    );
+    final samples = <num>[
+      ...validSignal(5),
+      ...List<num>.filled(frequency * 10, 0),
+      ...validSignal(26),
+    ];
+
+    final waveform = prepareEcgDisplayWaveform(
+      samples,
+      maximumPoints: 1200,
+      sampleFrequency: frequency,
+      removeContactArtifacts: true,
+    );
+
+    expect(waveform.hasVariation, isFalse);
+  });
+
   test('leading and trailing SDK zero padding is removed from display', () {
     final samples = <num>[
       ...List<num>.filled(5000, 0),

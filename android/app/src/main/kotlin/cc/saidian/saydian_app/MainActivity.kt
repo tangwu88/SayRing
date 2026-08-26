@@ -6132,20 +6132,18 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     LOG_TAG,
                     "ecg result callback success=${result.isSuccess} heart=${result.aveHeart} hrv=${result.aveHrv} qt=${result.aveQT}",
                 )
-                if (!result.isSuccess) {
-                    deferEcgFailure(activeMetric ?: "ecg")
-                    return
-                }
+                val metric = activeMetric ?: "ecg"
                 val values = buildMap<String, Number> {
                     if (result.aveHeart in 30..210) put("meanHeartRate", result.aveHeart)
                     if (result.aveHrv in 1..250) put("averageHRV", result.aveHrv)
                     if (result.aveQT > 0) put("averageTimeInterval", result.aveQT)
                     if (result.aveResRate > 0) put("respiratoryRate", result.aveResRate)
                     put("sampleFrequency", result.frequency.takeIf { it > 0 } ?: ecgSampleFrequency)
-                    val abnormalCount = result.diseaseResult?.count { it != 0 } ?: 0
-                    if (abnormalCount > 0) put("deviceAbnormalFlags", abnormalCount)
+                    if (result.isSuccess) {
+                        val abnormalCount = result.diseaseResult?.count { it != 0 } ?: 0
+                        if (abnormalCount > 0) put("deviceAbnormalFlags", abnormalCount)
+                    }
                 }
-                val metric = activeMetric ?: "ecg"
                 val resultValues =
                     if (metric == "hrv") {
                         result.aveHrv.takeIf { it in 1..250 }?.let { mapOf("value" to it) }.orEmpty()
@@ -6153,8 +6151,22 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         values
                     }
                 val hasUsablePrimary = metric == "hrv" || resultValues.containsKey("meanHeartRate")
+                if (resultValues.isEmpty() || !hasUsablePrimary) {
+                    if (!result.isSuccess) deferEcgFailure(metric)
+                    return
+                }
+                if (!result.isSuccess) {
+                    Log.w(
+                        LOG_TAG,
+                        "ecg result flagged incomplete but contains usable metrics; preserving trend data metric=$metric",
+                    )
+                }
                 if (resultValues.isNotEmpty() && hasUsablePrimary && claimMeasurementResult(metric)) {
-                    val samples = selectEcgSamples(result.filterSignals?.toList().orEmpty())
+                    val samples =
+                        selectEcgSamples(
+                            result.filterSignals?.toList().orEmpty(),
+                            result.powers,
+                        )
                     emitRecord(
                         record(
                             metric,
@@ -6173,34 +6185,32 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     LOG_TAG,
                     "ecg diagnosis callback success=${diagnosis.isSuccess} heart=${diagnosis.heartRate} hrv=${diagnosis.hrv} qt=${diagnosis.qtTime}",
                 )
-                if (!diagnosis.isSuccess) {
-                    deferEcgFailure(activeMetric ?: "ecg")
-                    return
-                }
+                val metric = activeMetric ?: "ecg"
                 val values = buildMap<String, Number> {
                     if (diagnosis.heartRate in 30..210) put("meanHeartRate", diagnosis.heartRate)
                     if (diagnosis.hrv in 1..250) put("averageHRV", diagnosis.hrv)
                     if (diagnosis.qtTime > 0) put("averageTimeInterval", diagnosis.qtTime)
                     if (diagnosis.respRate > 0) put("respiratoryRate", diagnosis.respRate)
-                    if (diagnosis.diseaseRisk >= 0) put("diseaseRisk", diagnosis.diseaseRisk)
-                    if (diagnosis.pressureIndex >= 0) put("pressureIndex", diagnosis.pressureIndex)
-                    if (diagnosis.fatigueIndex >= 0) put("fatigueIndex", diagnosis.fatigueIndex)
-                    if (diagnosis.myocarditisRisk >= 0) put("myocarditisRisk", diagnosis.myocarditisRisk)
-                    if (diagnosis.chdRisk >= 0) put("chdRisk", diagnosis.chdRisk)
-                    if (diagnosis.angioscleroticRisk >= 0) {
-                        put("angioscleroticRisk", diagnosis.angioscleroticRisk)
+                    if (diagnosis.isSuccess) {
+                        if (diagnosis.diseaseRisk >= 0) put("diseaseRisk", diagnosis.diseaseRisk)
+                        if (diagnosis.pressureIndex >= 0) put("pressureIndex", diagnosis.pressureIndex)
+                        if (diagnosis.fatigueIndex >= 0) put("fatigueIndex", diagnosis.fatigueIndex)
+                        if (diagnosis.myocarditisRisk >= 0) put("myocarditisRisk", diagnosis.myocarditisRisk)
+                        if (diagnosis.chdRisk >= 0) put("chdRisk", diagnosis.chdRisk)
+                        if (diagnosis.angioscleroticRisk >= 0) {
+                            put("angioscleroticRisk", diagnosis.angioscleroticRisk)
+                        }
+                        if (diagnosis.qrsTime > 0) put("qrsTime", diagnosis.qrsTime)
+                        if (diagnosis.qrsAmp > 0) put("qrsAmplitude", diagnosis.qrsAmp)
+                        if (diagnosis.pwvMeanVal > 0) put("pulseWaveVelocity", diagnosis.pwvMeanVal)
+                        if (diagnosis.stMeanAmp != 0) put("stAmplitude", diagnosis.stMeanAmp)
+                        if (diagnosis.diseaseSdnn > 0) put("sdnn", diagnosis.diseaseSdnn)
+                        if (diagnosis.diseaseRmssd > 0) put("rmssd", diagnosis.diseaseRmssd)
+                        val abnormalCount = diagnosis.diseaseResult?.count { it != 0 } ?: 0
+                        if (abnormalCount > 0) put("deviceAbnormalFlags", abnormalCount)
                     }
-                    if (diagnosis.qrsTime > 0) put("qrsTime", diagnosis.qrsTime)
-                    if (diagnosis.qrsAmp > 0) put("qrsAmplitude", diagnosis.qrsAmp)
-                    if (diagnosis.pwvMeanVal > 0) put("pulseWaveVelocity", diagnosis.pwvMeanVal)
-                    if (diagnosis.stMeanAmp != 0) put("stAmplitude", diagnosis.stMeanAmp)
-                    if (diagnosis.diseaseSdnn > 0) put("sdnn", diagnosis.diseaseSdnn)
-                    if (diagnosis.diseaseRmssd > 0) put("rmssd", diagnosis.diseaseRmssd)
-                    val abnormalCount = diagnosis.diseaseResult?.count { it != 0 } ?: 0
-                    if (abnormalCount > 0) put("deviceAbnormalFlags", abnormalCount)
                     put("sampleFrequency", diagnosis.frequency.takeIf { it > 0 } ?: ecgSampleFrequency)
                 }
-                val metric = activeMetric ?: "ecg"
                 val resultValues =
                     if (metric == "hrv") {
                         diagnosis.hrv.takeIf { it in 1..250 }?.let { mapOf("value" to it) }.orEmpty()
@@ -6208,8 +6218,22 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         values
                     }
                 val hasUsablePrimary = metric == "hrv" || resultValues.containsKey("meanHeartRate")
+                if (resultValues.isEmpty() || !hasUsablePrimary) {
+                    if (!diagnosis.isSuccess) deferEcgFailure(metric)
+                    return
+                }
+                if (!diagnosis.isSuccess) {
+                    Log.w(
+                        LOG_TAG,
+                        "ecg diagnosis flagged incomplete but contains usable metrics; preserving trend data metric=$metric",
+                    )
+                }
                 if (resultValues.isNotEmpty() && hasUsablePrimary && claimMeasurementResult(metric)) {
-                    val samples = selectEcgSamples(diagnosis.filterSignals?.toList().orEmpty())
+                    val samples =
+                        selectEcgSamples(
+                            diagnosis.filterSignals?.toList().orEmpty(),
+                            diagnosis.powers,
+                        )
                     emitRecord(
                         record(
                             metric,
@@ -6278,7 +6302,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             }
         }
 
-    private fun selectEcgSamples(filteredSamples: List<Number>): List<Number> {
+    private fun selectEcgSamples(
+        filteredSamples: List<Number>,
+        filteredPowers: IntArray? = null,
+    ): List<Number> {
         val live =
             synchronized(activeEcgSamples) {
                 activeEcgSamples.toList()
@@ -6287,18 +6314,25 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         if (liveCoverage >= ECG_MIN_SAMPLE_CHANGE_RATIO) {
             Log.i(
                 LOG_TAG,
-                "ecg samples filtered=${filteredSamples.size}/skipped live=${live.size}/$liveCoverage selected=${live.size}",
+                "ecg samples live=${live.size}/$liveCoverage selected=live",
             )
             return live
         }
-        val filtered = calibrateEcgSamples(filteredSamples)
+        val filtered = calibrateEcgSamples(filteredSamples, filteredPowers)
         val filteredCoverage = ecgSampleChangeRatio(filtered)
-        val selected = if (filteredCoverage >= ECG_MIN_SAMPLE_CHANGE_RATIO) filtered else emptyList()
+        val minimumFilteredSamples = (ecgSampleFrequency.coerceIn(50, 1000) / 2).coerceAtLeast(16)
+        if (filtered.size >= minimumFilteredSamples && filteredCoverage >= ECG_MIN_SAMPLE_CHANGE_RATIO) {
+            Log.i(
+                LOG_TAG,
+                "ecg samples live=${live.size}/$liveCoverage filtered=${filtered.size}/$filteredCoverage selected=filtered",
+            )
+            return filtered
+        }
         Log.i(
             LOG_TAG,
-            "ecg samples filtered=${filtered.size}/$filteredCoverage live=${live.size}/$liveCoverage selected=${selected.size}",
+            "ecg samples filtered=${filtered.size}/$filteredCoverage live=${live.size}/$liveCoverage selected=none",
         )
-        return selected
+        return emptyList()
     }
 
     private fun calibrateEcgSamples(

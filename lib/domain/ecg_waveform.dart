@@ -42,10 +42,17 @@ EcgDisplayWaveform prepareEcgDisplayWaveform(
     lastSignal--;
   }
   var values = finiteValues.sublist(firstSignal, lastSignal);
+  final effectiveSampleFrequency = (sampleFrequency ?? 250)
+      .clamp(50, 1000)
+      .toInt();
   if (removeContactArtifacts && values.isNotEmpty) {
     values = _removeContactArtifacts(
       values,
-      sampleFrequency: sampleFrequency ?? 250,
+      sampleFrequency: effectiveSampleFrequency,
+    );
+    values = _trimConstantPadding(
+      values,
+      sampleFrequency: effectiveSampleFrequency,
     );
   }
   if (values.isEmpty) {
@@ -100,7 +107,10 @@ EcgDisplayWaveform prepareEcgDisplayWaveform(
     samples: display,
     minimum: minimum,
     maximum: maximum,
-    hasVariation: _hasRepeatedVariation(values),
+    hasVariation: _hasRepeatedVariation(
+      values,
+      sampleFrequency: removeContactArtifacts ? effectiveSampleFrequency : null,
+    ),
   );
 }
 
@@ -118,7 +128,7 @@ List<double> _removeContactArtifacts(
   if (values.length < 16) return values;
   final sorted = [...values]..sort();
   final baseline = _percentile(sorted, 0.5);
-  const maximumDisplayDeviationMv = 3.0;
+  const maximumDisplayDeviationMv = 2.5;
   final valid = values
       .map((value) => (value - baseline).abs() <= maximumDisplayDeviationMv)
       .toList(growable: false);
@@ -155,6 +165,9 @@ List<double> _removeContactArtifacts(
 
   final cleaned = values.sublist(stableStart, stableEnd);
   final cleanedValid = valid.sublist(stableStart, stableEnd);
+  final invalidCount = cleanedValid.where((sample) => !sample).length;
+  if (invalidCount / cleanedValid.length > 0.05) return const [];
+  if (_hasClippedRailPlateau(cleaned, sampleFrequency)) return const [];
   var index = 0;
   while (index < cleaned.length) {
     if (cleanedValid[index]) {
@@ -176,7 +189,73 @@ List<double> _removeContactArtifacts(
   return cleaned;
 }
 
-bool _hasRepeatedVariation(List<double> values) {
+/// Detects converter clipping without treating a normal, flat ECG baseline as
+/// saturation. A clipped W9S stream stays almost unchanged at its numeric
+/// maximum or minimum for tens of milliseconds; a physiological peak normally
+/// changes continuously even when it is visually rounded.
+bool _hasClippedRailPlateau(List<double> values, int sampleFrequency) {
+  if (values.length < 16) return false;
+  final sorted = [...values]..sort();
+  final lowerRail = _percentile(sorted, 0.01);
+  final upperRail = _percentile(sorted, 0.99);
+  final span = upperRail - lowerRail;
+  if (span <= 0) return false;
+
+  final railBand = math.max(1e-6, span * 0.01);
+  final flatTolerance = math.max(1e-7, span * 0.0001);
+  final minimumRun = math.max(
+    6,
+    (sampleFrequency.clamp(50, 1000) * 0.03).round(),
+  );
+  var upperRun = 0;
+  var lowerRun = 0;
+  for (var index = 0; index < values.length; index++) {
+    final value = values[index];
+    final isFlat =
+        index == 0 || (value - values[index - 1]).abs() <= flatTolerance;
+    upperRun = isFlat && value >= upperRail - railBand ? upperRun + 1 : 0;
+    lowerRun = isFlat && value <= lowerRail + railBand ? lowerRun + 1 : 0;
+    if (upperRun >= minimumRun || lowerRun >= minimumRun) return true;
+  }
+  return false;
+}
+
+/// Removes the constant padding that some W9S ECG callbacks append before or
+/// after the measured signal. The retained samples are never synthesized or
+/// rescaled; only a long unchanged edge run is discarded for display.
+List<double> _trimConstantPadding(
+  List<double> values, {
+  required int sampleFrequency,
+}) {
+  if (values.length < 16) return values;
+  final sorted = [...values]..sort();
+  final centralSpan = _percentile(sorted, 0.95) - _percentile(sorted, 0.05);
+  final tolerance = math.max(1e-6, centralSpan.abs() * 0.001);
+  final minimumRun = math.max(16, (sampleFrequency * 0.5).round());
+
+  var leadingRun = 1;
+  while (leadingRun < values.length &&
+      (values[leadingRun] - values[leadingRun - 1]).abs() <= tolerance) {
+    leadingRun++;
+  }
+  var trailingRun = 1;
+  while (trailingRun < values.length &&
+      (values[values.length - trailingRun] -
+                  values[values.length - trailingRun - 1])
+              .abs() <=
+          tolerance) {
+    trailingRun++;
+  }
+
+  final start = leadingRun >= minimumRun ? leadingRun - 1 : 0;
+  final end = trailingRun >= minimumRun
+      ? values.length - trailingRun + 1
+      : values.length;
+  if (end - start < 16) return const [];
+  return values.sublist(start, end);
+}
+
+bool _hasRepeatedVariation(List<double> values, {int? sampleFrequency}) {
   if (values.length < 2) return false;
   if (values.length < 16) {
     return values.reduce(math.max) != values.reduce(math.min);
@@ -200,8 +279,69 @@ bool _hasRepeatedVariation(List<double> values) {
     if (maximum != minimum) varyingWindows++;
   }
   final changeRatio = changedSamples / (values.length - 1);
-  return varyingWindows >= math.max(2, (windows * 0.2).ceil()) &&
+  final hasDistributedChanges =
+      varyingWindows >= math.max(2, (windows * 0.2).ceil()) &&
       changeRatio >= 0.05;
+  if (!hasDistributedChanges || sampleFrequency == null) {
+    return hasDistributedChanges;
+  }
+  if (!_hasContinuousSignal(values, sampleFrequency)) return false;
+  return _significantTurnsPerSecond(values, sampleFrequency) >= 0.8;
+}
+
+bool _hasContinuousSignal(List<double> values, int sampleFrequency) {
+  if (values.length < sampleFrequency) return true;
+  final sorted = [...values]..sort();
+  final centralSpan = _percentile(sorted, 0.95) - _percentile(sorted, 0.05);
+  if (centralSpan <= 0) return false;
+  final minimumRange = math.max(0.01, centralSpan * 0.05);
+  final minimumWindowSamples = math.max(16, sampleFrequency ~/ 2);
+  var windows = 0;
+  var activeWindows = 0;
+  for (var start = 0; start < values.length; start += sampleFrequency) {
+    final end = math.min(values.length, start + sampleFrequency);
+    if (end - start < minimumWindowSamples) continue;
+    var minimum = values[start];
+    var maximum = values[start];
+    for (var index = start + 1; index < end; index++) {
+      minimum = math.min(minimum, values[index]);
+      maximum = math.max(maximum, values[index]);
+    }
+    windows++;
+    if (maximum - minimum >= minimumRange) activeWindows++;
+  }
+  return windows == 0 || activeWindows >= (windows * 0.9).ceil();
+}
+
+double _significantTurnsPerSecond(List<double> values, int sampleFrequency) {
+  if (values.length < 3) return 0;
+  final sorted = [...values]..sort();
+  final centralSpan = _percentile(sorted, 0.95) - _percentile(sorted, 0.05);
+  if (centralSpan <= 0) return 0;
+  final minimumSwing = math.max(0.002, centralSpan * 0.12);
+  var pivot = values.first;
+  var direction = 0;
+  var turns = 0;
+  for (var index = 1; index < values.length; index++) {
+    final value = values[index];
+    if (direction >= 0) {
+      if (value > pivot) {
+        pivot = value;
+      } else if (pivot - value >= minimumSwing) {
+        if (direction > 0) turns++;
+        direction = -1;
+        pivot = value;
+      }
+    } else if (value < pivot) {
+      pivot = value;
+    } else if (value - pivot >= minimumSwing) {
+      turns++;
+      direction = 1;
+      pivot = value;
+    }
+  }
+  final durationSeconds = (values.length - 1) / sampleFrequency;
+  return durationSeconds > 0 ? turns / durationSeconds : 0;
 }
 
 List<double> _orderedMinMaxBuckets(List<double> values, int maximumPoints) {
