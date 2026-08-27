@@ -303,4 +303,31 @@ void main() {
 
     expect(waveform.hasVariation, isFalse);
   });
+
+  test('live ECG trace breaks contact rails instead of clipping them', () {
+    final trace = prepareLiveEcgTrace(<num>[0, 0.1, 8, -8, 0.2, 0.15]);
+
+    expect(trace[0], closeTo(-0.125, 0.0001));
+    expect(trace[1], closeTo(-0.025, 0.0001));
+    expect(trace[2], isNull);
+    expect(trace[3], isNull);
+    expect(trace[4], closeTo(0.075, 0.0001));
+    expect(trace[5], closeTo(0.025, 0.0001));
+  });
+
+  test('usable ECG quality rejects a converter-rail stream', () {
+    const frequency = 250;
+    final invalid = List<num>.generate(
+      frequency * 4,
+      (index) => index.isEven ? -8 : 8,
+    );
+    final valid = List<num>.generate(
+      frequency * 4,
+      (index) =>
+          0.08 * math.sin(index / 8) + (index % frequency == 40 ? 1.1 : 0),
+    );
+
+    expect(hasUsableEcgSignal(invalid, sampleFrequency: frequency), isFalse);
+    expect(hasUsableEcgSignal(valid, sampleFrequency: frequency), isTrue);
+  });
 }

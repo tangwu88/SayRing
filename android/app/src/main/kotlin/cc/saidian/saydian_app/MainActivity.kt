@@ -6261,12 +6261,20 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         "ecg result flagged incomplete but contains usable metrics; preserving trend data metric=$metric",
                     )
                 }
-                if (resultValues.isNotEmpty() && hasUsablePrimary && claimMeasurementResult(metric)) {
-                    val samples =
+                val samples =
+                    if (metric == "ecg") {
                         selectEcgSamples(
                             result.filterSignals?.toList().orEmpty(),
                             result.powers,
                         )
+                    } else {
+                        emptyList()
+                    }
+                if (metric == "ecg" && samples.isEmpty()) {
+                    deferEcgFailure(metric)
+                    return
+                }
+                if (resultValues.isNotEmpty() && hasUsablePrimary && claimMeasurementResult(metric)) {
                     emitRecord(
                         record(
                             metric,
@@ -6328,12 +6336,20 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         "ecg diagnosis flagged incomplete but contains usable metrics; preserving trend data metric=$metric",
                     )
                 }
-                if (resultValues.isNotEmpty() && hasUsablePrimary && claimMeasurementResult(metric)) {
-                    val samples =
+                val samples =
+                    if (metric == "ecg") {
                         selectEcgSamples(
                             diagnosis.filterSignals?.toList().orEmpty(),
                             diagnosis.powers,
                         )
+                    } else {
+                        emptyList()
+                    }
+                if (metric == "ecg" && samples.isEmpty()) {
+                    deferEcgFailure(metric)
+                    return
+                }
+                if (resultValues.isNotEmpty() && hasUsablePrimary && claimMeasurementResult(metric)) {
                     emitRecord(
                         record(
                             metric,
@@ -6411,7 +6427,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 activeEcgSamples.toList()
             }.filter { it.toLong() != Int.MAX_VALUE.toLong() }
         val liveCoverage = ecgSampleChangeRatio(live)
-        if (liveCoverage >= ECG_MIN_SAMPLE_CHANGE_RATIO) {
+        if (isUsableEcgTrace(live)) {
             Log.i(
                 LOG_TAG,
                 "ecg samples live=${live.size}/$liveCoverage selected=live",
@@ -6421,7 +6437,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         val filtered = calibrateEcgSamples(filteredSamples, filteredPowers)
         val filteredCoverage = ecgSampleChangeRatio(filtered)
         val minimumFilteredSamples = (ecgSampleFrequency.coerceIn(50, 1000) / 2).coerceAtLeast(16)
-        if (filtered.size >= minimumFilteredSamples && filteredCoverage >= ECG_MIN_SAMPLE_CHANGE_RATIO) {
+        if (filtered.size >= minimumFilteredSamples && isUsableEcgTrace(filtered)) {
             Log.i(
                 LOG_TAG,
                 "ecg samples live=${live.size}/$liveCoverage filtered=${filtered.size}/$filteredCoverage selected=filtered",
@@ -6433,6 +6449,30 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             "ecg samples filtered=${filtered.size}/$filteredCoverage live=${live.size}/$liveCoverage selected=none",
         )
         return emptyList()
+    }
+
+    private fun isUsableEcgTrace(samples: List<Number>): Boolean {
+        val frequency = ecgSampleFrequency.coerceIn(50, 1000)
+        val minimumSamples = frequency.coerceAtLeast(16)
+        if (samples.size < minimumSamples) return false
+        val values = samples.map { it.toDouble() }.filter { it.isFinite() }
+        if (values.size < minimumSamples) return false
+        val sorted = values.sorted()
+        val middle = sorted.size / 2
+        val baseline =
+            if (sorted.size % 2 == 0) {
+                (sorted[middle - 1] + sorted[middle]) / 2.0
+            } else {
+                sorted[middle]
+            }
+        val valid = values.filter { kotlin.math.abs(it - baseline) <= ECG_MAX_DISPLAY_DEVIATION_MV }
+        val validRatio = valid.size.toDouble() / values.size
+        if (validRatio < ECG_MIN_VALID_SAMPLE_RATIO) return false
+        if (ecgSampleChangeRatio(valid) < ECG_MIN_SAMPLE_CHANGE_RATIO) return false
+        val validSorted = valid.sorted()
+        val lower = validSorted[(validSorted.lastIndex * 0.05).toInt()]
+        val upper = validSorted[(validSorted.lastIndex * 0.95).toInt()]
+        return upper - lower >= ECG_MIN_CENTRAL_SPAN_MV
     }
 
     private fun calibrateEcgSamples(
@@ -6496,12 +6536,14 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             }
                         }
                     val hasUsablePrimary = metric == "hrv" || values.containsKey("meanHeartRate")
+                    val samples =
+                        if (metric == "ecg") selectEcgSamples(emptyList()) else emptyList()
+                    val hasUsableWaveform = metric != "ecg" || samples.isNotEmpty()
                     if (values.isNotEmpty() &&
                         hasUsablePrimary &&
+                        hasUsableWaveform &&
                         claimMeasurementResult(metric)
                     ) {
-                        val samples =
-                            if (metric == "ecg") selectEcgSamples(emptyList()) else emptyList()
                         emitRecord(
                             record(
                                 metric,
@@ -7058,6 +7100,9 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         private const val MEASUREMENT_STOP_CALLBACK_TIMEOUT_MS = 3_000L
         private const val ECG_RESULT_SETTLE_MS = 5_000L
         private const val ECG_MIN_SAMPLE_CHANGE_RATIO = 0.05
+        private const val ECG_MIN_VALID_SAMPLE_RATIO = 0.95
+        private const val ECG_MAX_DISPLAY_DEVIATION_MV = 2.5
+        private const val ECG_MIN_CENTRAL_SPAN_MV = 0.002
         private const val ECG_CALIBRATED_RAW_VERSION = 2
         private const val DEFAULT_ECG_POWER = 20
         private const val ALARM_CACHE_FALLBACK_MS = 1_000L

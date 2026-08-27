@@ -57,6 +57,27 @@ void main() {
         isTrue,
       );
     });
+
+    test('rejects calibrated ECG records without a usable waveform', () {
+      final invalid = _record(
+        HealthMetric.ecg,
+        {'meanHeartRate': 80, 'sampleFrequency': 250},
+        rawVersion: 2,
+        samples: List<num>.generate(1000, (index) => index.isEven ? -8 : 8),
+      );
+      final valid = _record(
+        HealthMetric.ecg,
+        {'meanHeartRate': 80, 'sampleFrequency': 250},
+        rawVersion: 2,
+        samples: List<num>.generate(
+          1000,
+          (index) => 0.08 * (index % 20) / 20 + (index % 250 == 40 ? 1.1 : 0),
+        ),
+      );
+
+      expect(invalid.isSane, isFalse);
+      expect(valid.isSane, isTrue);
+    });
   });
 }
 
@@ -64,6 +85,8 @@ HealthRecord _record(
   HealthMetric metric,
   Map<String, num> values, {
   MeasurementSource source = MeasurementSource.wearable,
+  int rawVersion = 1,
+  List<num> samples = const [],
 }) => HealthRecord(
   id: '${metric.wireName}-${values.values.join('-')}',
   metric: metric,
@@ -75,7 +98,8 @@ HealthRecord _record(
   firmwareVersion: 'test',
   quality: 'device_reported',
   source: source,
-  rawVersion: 1,
+  rawVersion: rawVersion,
+  samples: samples,
 );
 
 extension on HealthRecord {

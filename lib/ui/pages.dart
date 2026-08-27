@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../domain/feature_models.dart';
+import '../domain/ecg_waveform.dart';
 import '../domain/health_interpretation.dart';
 import '../domain/models.dart';
 import '../services/app_controller.dart';
@@ -2636,28 +2637,25 @@ class _LiveEcgPainter extends CustomPainter {
         ? finite.sublist(finite.length - capacity)
         : finite;
     if (visible.length < 2) return;
-    final sorted = [...visible]..sort();
-    final signalBaseline = sorted[sorted.length ~/ 2];
-    // W9S may occasionally report calibrated transport spikes far outside a
-    // physiological single-lead ECG range. Keep the medical-paper scale, but
-    // cap display-only excursions so the line never leaves the chart. Raw
-    // samples remain untouched for the saved report and analysis.
-    const maximumDisplayAmplitudeMv = 2.5;
-    final displaySamples = visible
-        .map(
-          (sample) => (sample - signalBaseline)
-              .clamp(-maximumDisplayAmplitudeMv, maximumDisplayAmplitudeMv)
-              .toDouble(),
-        )
-        .toList(growable: false);
+    final displaySamples = prepareLiveEcgTrace(visible);
     final baseline = size.height * .58;
     final path = Path();
     final firstX = size.width - (displaySamples.length - 1) * xStep;
-    path.moveTo(firstX, baseline - displaySamples.first * 10 * smallGrid);
-    for (var index = 1; index < displaySamples.length; index++) {
-      final x = size.width - (displaySamples.length - 1 - index) * xStep;
-      final y = baseline - displaySamples[index] * 10 * smallGrid;
-      path.lineTo(x, y);
+    var drawing = false;
+    for (var index = 0; index < displaySamples.length; index++) {
+      final sample = displaySamples[index];
+      if (sample == null) {
+        drawing = false;
+        continue;
+      }
+      final x = firstX + index * xStep;
+      final y = baseline - sample * 10 * smallGrid;
+      if (drawing) {
+        path.lineTo(x, y);
+      } else {
+        path.moveTo(x, y);
+        drawing = true;
+      }
     }
     canvas.save();
     canvas.clipRect(Offset.zero & size);

@@ -23,6 +23,46 @@ class EcgDisplayWaveform {
   final bool hasVariation;
 }
 
+/// Centers live calibrated ECG samples without smoothing them and marks
+/// converter/contact excursions as gaps. Breaking the path at an invalid point
+/// is important: clipping it to the chart edge creates a tall vertical line
+/// that looks like a heartbeat even though the device did not report one.
+List<double?> prepareLiveEcgTrace(
+  Iterable<num> source, {
+  double maximumDeviationMv = 2.5,
+}) {
+  final raw = source.toList(growable: false);
+  final finite = raw
+      .where((value) => value.isFinite && value.toInt() != 0x7fffffff)
+      .map((value) => value.toDouble())
+      .toList(growable: false);
+  if (finite.isEmpty) return List<double?>.filled(raw.length, null);
+
+  final sorted = [...finite]..sort();
+  final middle = sorted.length ~/ 2;
+  final baseline = sorted.length.isOdd
+      ? sorted[middle]
+      : (sorted[middle - 1] + sorted[middle]) / 2;
+  return raw
+      .map<double?>((sample) {
+        if (!sample.isFinite || sample.toInt() == 0x7fffffff) return null;
+        final centered = sample.toDouble() - baseline;
+        return centered.abs() <= maximumDeviationMv ? centered : null;
+      })
+      .toList(growable: false);
+}
+
+/// Whether a calibrated wearable ECG contains a continuous, varying signal.
+/// This reuses the report-quality checks so live completion and persisted
+/// history never accept converter rails as a successful ECG trace.
+bool hasUsableEcgSignal(Iterable<num> source, {required int sampleFrequency}) =>
+    prepareEcgDisplayWaveform(
+      source,
+      maximumPoints: 1200,
+      sampleFrequency: sampleFrequency,
+      removeContactArtifacts: true,
+    ).hasVariation;
+
 EcgDisplayWaveform prepareEcgDisplayWaveform(
   Iterable<num> source, {
   required int maximumPoints,
