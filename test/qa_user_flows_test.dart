@@ -711,11 +711,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('如何改善睡眠？'), findsOneWidget);
     expect(api.lastAiMessage, '如何改善睡眠？');
-    expect(find.byKey(const Key('ai-message-input')), findsNothing);
-    expect(find.byKey(const Key('ai-show-composer')), findsOneWidget);
-    await tester.tap(find.byKey(const Key('ai-show-composer')));
-    await tester.pump();
     expect(find.byKey(const Key('ai-message-input')), findsOneWidget);
+    expect(find.byKey(const Key('ai-show-composer')), findsNothing);
     await tester.pageBack();
     await tester.pumpAndSettle();
 

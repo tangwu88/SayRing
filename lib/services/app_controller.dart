@@ -98,6 +98,7 @@ class AppController extends ChangeNotifier {
   String distanceUnit = '公里';
   String temperatureUnit = '摄氏度（℃）';
   Map<String, bool> autoMeasureSettings = const {};
+  Map<String, AutoMeasureIntervalSetting> autoMeasureIntervals = const {};
   Map<DeviceFeature, Map<String, Object?>> deviceFeatureData = const {};
   Set<DeviceFeature> deviceFeatureBusy = const {};
   int cameraShutterSequence = 0;
@@ -196,6 +197,7 @@ class AppController extends ChangeNotifier {
     } catch (_) {
       sdkStatus = '设备连接服务暂时不可用';
     }
+    unawaited(restoreWearableConnection());
     isBooting = false;
     notifyListeners();
     unawaited(refreshAiArticles());
@@ -960,6 +962,7 @@ class AppController extends ChangeNotifier {
     await Future<void>.delayed(Duration.zero);
     if (connectedDevice == null) {
       autoMeasureSettings = const {};
+      autoMeasureIntervals = const {};
       heartRateWarningSupported = false;
       deviceSettingsStatus = '请先连接手表';
       notifyListeners();
@@ -971,6 +974,11 @@ class AppController extends ChangeNotifier {
     try {
       final settings = await _wearable.readAutoMeasureSettings();
       autoMeasureSettings = settings;
+      final bridge = _wearable;
+      autoMeasureIntervals = bridge is WearableAutoMeasureIntervalBridge
+          ? await (bridge as WearableAutoMeasureIntervalBridge)
+                .readAutoMeasureIntervals()
+          : const {};
       final warning = await _wearable.readHeartRateWarning();
       heartRateWarningSupported = warning != null;
       if (warning != null && warning > 0) {
@@ -1002,6 +1010,67 @@ class AppController extends ChangeNotifier {
       errorMessage = _wearableErrorMessage(error, fallback: '写入手表设置失败');
     }
     notifyListeners();
+  }
+
+  Future<void> setAutoMeasureInterval(String type, int minutes) async {
+    if (connectedDevice == null) {
+      errorMessage = '请先连接手表';
+      notifyListeners();
+      return;
+    }
+    final bridge = _wearable;
+    if (bridge is! WearableAutoMeasureIntervalBridge) {
+      errorMessage = '当前手表不支持调整监测间隔';
+      notifyListeners();
+      return;
+    }
+    try {
+      await (bridge as WearableAutoMeasureIntervalBridge)
+          .setAutoMeasureInterval(type, minutes);
+      final current = autoMeasureIntervals[type];
+      if (current != null) {
+        autoMeasureIntervals = {
+          ...autoMeasureIntervals,
+          type: AutoMeasureIntervalSetting(
+            minutes: minutes,
+            stepMinutes: current.stepMinutes,
+            canModify: current.canModify,
+          ),
+        };
+      }
+      deviceSettingsStatus = '监测间隔已写入手表';
+    } on PlatformException catch (error) {
+      errorMessage = _wearableErrorMessage(error, fallback: '监测间隔设置失败');
+    }
+    notifyListeners();
+  }
+
+  Future<void> restoreWearableConnection() async {
+    if (_disposed ||
+        connectedDevice != null ||
+        deviceState != DeviceConnectionState.disconnected) {
+      return;
+    }
+    final bridge = _wearable;
+    if (bridge is! WearableConnectionRecoveryBridge) return;
+    try {
+      final device = await (bridge as WearableConnectionRecoveryBridge)
+          .restoreConnection(
+            profile: WearableUserProfile.fromMember(
+              memberProfile,
+              targetSteps: stepGoal,
+            ),
+          );
+      if (_disposed || device == null || connectedDevice != null) return;
+      await _restoreReconnectedDevice(device.toJson());
+    } on PlatformException catch (error) {
+      if (error.code == 'NO_SAVED_DEVICE') return;
+      sdkStatus = _wearableErrorMessage(error, fallback: '手表自动重连失败');
+      notifyListeners();
+    } catch (_) {
+      sdkStatus = '手表自动重连失败，可在设备页重新连接';
+      notifyListeners();
+    }
   }
 
   Future<void> setHeartRateWarning(int value) async {

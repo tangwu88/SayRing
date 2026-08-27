@@ -5,10 +5,36 @@ import 'ui/app_theme.dart';
 import 'ui/brand_assets.dart';
 import 'ui/pages.dart';
 
-class SaydianApp extends StatelessWidget {
+class SaydianApp extends StatefulWidget {
   const SaydianApp({required this.controller, super.key});
 
   final AppController controller;
+
+  @override
+  State<SaydianApp> createState() => _SaydianAppState();
+}
+
+class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
+  AppController get controller => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      controller.restoreWearableConnection();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

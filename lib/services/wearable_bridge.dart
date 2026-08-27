@@ -47,6 +47,50 @@ abstract interface class WearableWatchFaceProfileBridge {
   Future<Map<String, Object?>> getWatchFaceProfile();
 }
 
+class AutoMeasureIntervalSetting {
+  const AutoMeasureIntervalSetting({
+    required this.minutes,
+    required this.stepMinutes,
+    required this.canModify,
+  });
+
+  final int minutes;
+  final int stepMinutes;
+  final bool canModify;
+
+  factory AutoMeasureIntervalSetting.fromMap(Map<Object?, Object?> value) =>
+      AutoMeasureIntervalSetting(
+        minutes: ((value['minutes'] as num?)?.toInt() ?? 0).clamp(0, 1440),
+        stepMinutes: ((value['stepMinutes'] as num?)?.toInt() ?? 1).clamp(
+          1,
+          1440,
+        ),
+        canModify: value['canModify'] == true,
+      );
+
+  List<int> get choices {
+    final values = <int>{minutes};
+    for (final value in const [5, 10, 15, 20, 30, 60, 120]) {
+      if (value >= stepMinutes && value % stepMinutes == 0) values.add(value);
+    }
+    final ordered = values.where((value) => value > 0).toList()..sort();
+    return ordered;
+  }
+}
+
+/// Optional API exposed by watches whose firmware allows changing the
+/// automatic health-measurement interval.
+abstract interface class WearableAutoMeasureIntervalBridge {
+  Future<Map<String, AutoMeasureIntervalSetting>> readAutoMeasureIntervals();
+  Future<void> setAutoMeasureInterval(String type, int minutes);
+}
+
+/// Optional recovery API. It adopts a live vendor-SDK connection when
+/// possible, or reconnects the last explicitly bound watch without scanning.
+abstract interface class WearableConnectionRecoveryBridge {
+  Future<DeviceInfo?> restoreConnection({required WearableUserProfile profile});
+}
+
 class WearableSdkNotConfigured implements Exception {
   const WearableSdkNotConfigured([this.message = 'Veepoo 合作方 SDK 尚未配置']);
 
@@ -60,7 +104,9 @@ class MethodChannelWearableBridge
     implements
         WearableBridge,
         WearableDeviceDetailsBridge,
-        WearableWatchFaceProfileBridge {
+        WearableWatchFaceProfileBridge,
+        WearableAutoMeasureIntervalBridge,
+        WearableConnectionRecoveryBridge {
   MethodChannelWearableBridge({
     MethodChannel? methods,
     EventChannel? eventChannel,
@@ -110,6 +156,17 @@ class MethodChannelWearableBridge
 
   @override
   Future<void> disconnect() => _invokeOperation<void>('disconnect');
+
+  @override
+  Future<DeviceInfo?> restoreConnection({
+    required WearableUserProfile profile,
+  }) async {
+    final result = await _invokeOperation<Map<Object?, Object?>>(
+      'restoreConnection',
+      {'profile': profile.toMap()},
+    );
+    return result == null || result.isEmpty ? null : DeviceInfo.fromMap(result);
+  }
 
   @override
   Future<DeviceInfo?> getConnectedDeviceDetails() async {
@@ -205,6 +262,31 @@ class MethodChannelWearableBridge
     () => _invokeOperation<void>('setAutoMeasureSetting', {
       'type': type,
       'enabled': enabled,
+    }),
+  );
+
+  @override
+  Future<Map<String, AutoMeasureIntervalSetting>> readAutoMeasureIntervals() =>
+      _queue.run(() async {
+        final result =
+            await _invokeOperation<Map<Object?, Object?>>(
+              'readAutoMeasureIntervals',
+            ) ??
+            const {};
+        return <String, AutoMeasureIntervalSetting>{
+          for (final entry in result.entries)
+            if (entry.value is Map<Object?, Object?>)
+              '${entry.key}': AutoMeasureIntervalSetting.fromMap(
+                entry.value! as Map<Object?, Object?>,
+              ),
+        };
+      });
+
+  @override
+  Future<void> setAutoMeasureInterval(String type, int minutes) => _queue.run(
+    () => _invokeOperation<void>('setAutoMeasureInterval', {
+      'type': type,
+      'minutes': minutes,
     }),
   );
 

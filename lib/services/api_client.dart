@@ -182,6 +182,7 @@ class SaydianApiClient
   final SessionVault _vault;
   final http.Client _client;
   final Uri _baseUri;
+  final Map<int, int> _careMemberIds = <int, int>{};
   Future<Session>? _refreshingSession;
 
   static const _requestTimeout = Duration(seconds: 20);
@@ -315,7 +316,7 @@ class SaydianApiClient
         : data is Map && data['list'] is List
         ? data['list'] as List
         : const [];
-    return rawList
+    final members = rawList
         .whereType<Map>()
         .map((value) {
           final relation = value.map((key, value) => MapEntry('$key', value));
@@ -362,6 +363,18 @@ class SaydianApiClient
           };
         })
         .toList(growable: false);
+    _careMemberIds.clear();
+    for (final relation in members) {
+      final relationId = int.tryParse('${relation['id'] ?? ''}');
+      final member = relation['member'];
+      final memberId = member is Map
+          ? int.tryParse('${member['id'] ?? ''}')
+          : null;
+      if (relationId != null && memberId != null) {
+        _careMemberIds[relationId] = memberId;
+      }
+    }
+    return members;
   }
 
   @override
@@ -1270,11 +1283,78 @@ class SaydianApiClient
     required int id,
     required String day,
   }) async {
-    final response = await _authorizedGet('/api/v1/member/care/preview', {
-      'id': '$id',
-      'day': day,
+    try {
+      final response = await _authorizedGet('/api/v1/member/care/preview', {
+        'id': '$id',
+        'day': day,
+      });
+      return _data(_decode(response));
+    } on ApiException catch (error) {
+      final memberId = _careMemberIds[id];
+      if (error.statusCode != 500 || memberId == null) rethrow;
+      return _getCareMemberDailyFallback(memberId: memberId, day: day);
+    }
+  }
+
+  Future<Map<String, Object?>> _getCareMemberDailyFallback({
+    required int memberId,
+    required String day,
+  }) async {
+    final parsedDay = DateTime.tryParse(day);
+    if (parsedDay == null) return const {};
+    final localDay = DateTime(parsedDay.year, parsedDay.month, parsedDay.day);
+    final response = await _authorizedGet('/api/v1/member/daily-date/preview', {
+      'selectmember': '$memberId',
+      // This endpoint is the same member-detail route used by the mini
+      // program. BloodOxygen currently returns the complete daily rows even
+      // when the aggregate care/preview route fails for recent W9S data.
+      'type': 'BloodOxygen',
+      'date': '${localDay.millisecondsSinceEpoch ~/ 1000}',
     });
-    return _data(_decode(response));
+    final payload = _decode(response);
+    final raw = payload['data'];
+    final rows = raw is List
+        ? raw.whereType<Map>().toList(growable: false)
+        : const <Map>[];
+    if (rows.isEmpty) return const {};
+
+    Object? latest(String key) {
+      for (final row in rows.reversed) {
+        final value = row[key];
+        if (value != null && '$value'.trim().isNotEmpty && '$value' != '0') {
+          return value;
+        }
+      }
+      return null;
+    }
+
+    final daily = <Map<String, Object?>>[];
+    void add(String title, Object? value, String unit) {
+      if (value == null) return;
+      daily.add({'title': title, 'value': value, 'tips': unit});
+    }
+
+    add('心率', latest('pulseReat'), '次/分');
+    final pressure = latest('bloodPressure');
+    if (pressure is Map) {
+      final high = pressure['highPressure'] ?? pressure['high'];
+      final low = pressure['lowPressure'] ?? pressure['low'];
+      if (high != null && low != null) add('血压', '$high/$low', 'mmHg');
+    } else {
+      add('血压', pressure, 'mmHg');
+    }
+    add('血氧', latest('bloodOxygen'), '%');
+    add('体温', latest('bodyTemperature'), '℃');
+    add('血糖', latest('bloodGlucose'), 'mmol/L');
+    add('HRV', latest('HRVData'), 'ms');
+    final steps = latest('step');
+    final today = steps == null
+        ? const <Map<String, Object?>>[]
+        : <Map<String, Object?>>[
+            {'title': '步数', 'num': steps, 'unit': '步'},
+          ];
+    if (daily.isEmpty && today.isEmpty) return const {};
+    return <String, Object?>{'jrjk': today, 'daily': daily, 'fallback': true};
   }
 
   @override

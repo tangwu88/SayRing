@@ -343,6 +343,11 @@ class MainActivity : FlutterActivity() {
                             WearableProfile.from(call.argument<Map<*, *>>("profile")),
                             callback.unit(),
                         )
+                    "restoreConnection" ->
+                        adapter.restoreConnection(
+                            WearableProfile.from(call.argument<Map<*, *>>("profile")),
+                            callback,
+                        )
                     "disconnect" -> adapter.disconnect(callback.unit())
                     "getDeviceDetails" -> callback.success(adapter.getDeviceDetails())
                     "getWatchFaceProfile" -> adapter.getWatchFaceProfile(callback)
@@ -357,10 +362,17 @@ class MainActivity : FlutterActivity() {
                     "stopSport" -> adapter.stopSport(callback.unit())
                     "readSportRecords" -> adapter.readSportRecords(callback)
                     "readAutoMeasureSettings" -> adapter.readAutoMeasureSettings(callback)
+                    "readAutoMeasureIntervals" -> adapter.readAutoMeasureIntervals(callback)
                     "setAutoMeasureSetting" ->
                         adapter.setAutoMeasureSetting(
                             call.argument<String>("type").orEmpty(),
                             call.argument<Boolean>("enabled") == true,
+                            callback.unit(),
+                        )
+                    "setAutoMeasureInterval" ->
+                        adapter.setAutoMeasureInterval(
+                            call.argument<String>("type").orEmpty(),
+                            call.argument<Int>("minutes") ?: 0,
                             callback.unit(),
                         )
                     "readHeartRateWarning" -> adapter.readHeartRateWarning(callback)
@@ -424,7 +436,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        if (::adapter.isInitialized) adapter.close()
+        if (::adapter.isInitialized) adapter.close(preserveConnection = true)
         super.onDestroy()
     }
 
@@ -437,13 +449,16 @@ class MainActivity : FlutterActivity() {
             setOf(
                 "scanDevices",
                 "connect",
+                "restoreConnection",
                 "getDeviceDetails",
                 "getWatchFaceProfile",
                 "startSport",
                 "stopSport",
                 "readSportRecords",
                 "readAutoMeasureSettings",
+                "readAutoMeasureIntervals",
                 "setAutoMeasureSetting",
+                "setAutoMeasureInterval",
                 "readHeartRateWarning",
                 "setHeartRateWarning",
                 "readDeviceFeature",
@@ -554,6 +569,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private var ecgSampleFrequency = DEFAULT_ECG_SAMPLE_FREQUENCY
     private var latestEcgHeartRate = 0
     private var latestEcgHrv = 0
+    private var lastEcgAdcLogAt = 0L
     private var activeHrvUsesEcg = false
     private var activeHrvUsesMiniCheckup = false
     private var directHrvMeasurementSupported = false
@@ -568,6 +584,8 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private var activeBloodPressureUsesMiniCheckup = false
     private var pendingGlucoseCalibration: ResultCallback<Unit>? = null
     private val autoMeasureSettings = mutableMapOf<String, AutoMeasureData>()
+    private val connectionPreferences =
+        appContext.getSharedPreferences(CONNECTION_PREFERENCES, Context.MODE_PRIVATE)
     private var lastScreenSetting: ScreenSetting? = null
     private var lastSocialMsgSetting: FunctionSocailMsgData? = null
     private val cachedContacts = mutableListOf<Contact>()
@@ -763,6 +781,45 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             return
         }
         startSdkConnection(generation, deviceId, advertisedName, profile, callback)
+    }
+
+    fun restoreConnection(
+        profile: WearableProfile,
+        callback: ResultCallback<Any?>,
+    ) {
+        val deviceId = connectionPreferences.getString(LAST_DEVICE_ID, "").orEmpty().trim()
+        val deviceName = connectionPreferences.getString(LAST_DEVICE_NAME, "").orEmpty().trim()
+        if (deviceId.isEmpty()) {
+            callback.success(null)
+            return
+        }
+        val completion =
+            object : ResultCallback<Unit> {
+                override fun success(value: Unit) {
+                    callback.success(deviceDetailsPayload(deviceId, deviceName))
+                }
+
+                override fun error(code: String, message: String) {
+                    callback.error(code, message)
+                }
+            }
+        val generation = beginConnectionAttempt(deviceId, completion)
+        emit("state", mapOf("value" to "connecting"))
+        val currentAddress = VPOperateManager.getCurrentDeviceAddress().orEmpty()
+        val connectedAddress =
+            when {
+                manager.isDeviceConnected(deviceId) -> deviceId
+                currentAddress.isNotBlank() && manager.isDeviceConnected(currentAddress) -> currentAddress
+                else -> ""
+            }
+        if (connectedAddress.equals(deviceId, ignoreCase = true)) {
+            activeTransportConnected = true
+            manager.setDeviceShowConfirm(true)
+            registerConnectStatusListener(deviceId, generation)
+            authenticate(generation, deviceId, deviceName, profile, completion)
+        } else {
+            startSdkConnection(generation, deviceId, deviceName, profile, completion)
+        }
     }
 
     private fun beginConnectionAttempt(
@@ -1155,6 +1212,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         connectingDeviceId = ""
         connectedDeviceId = deviceId
         connectedDeviceName = deviceName
+        connectionPreferences.edit()
+            .putString(LAST_DEVICE_ID, deviceId)
+            .putString(LAST_DEVICE_NAME, deviceName)
+            .apply()
         emit("deviceDetails", deviceDetailsPayload(deviceId, deviceName))
         emit("state", mapOf("value" to "ready"))
         callback.success(Unit)
@@ -1280,6 +1341,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         manager.disconnectWatch { code ->
             connectionHandler.post {
                 if (code == Code.REQUEST_SUCCESS) {
+                    connectionPreferences.edit().clear().apply()
                     connectedDeviceId = ""
                     clearMeasurementSessionState()
                     emit("disconnected", emptyMap())
@@ -4613,6 +4675,75 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         )
     }
 
+    fun readAutoMeasureIntervals(callback: ResultCallback<Map<String, Any?>>) {
+        ensureConnected(callback) ?: return
+        val modernIntervals =
+            autoMeasureSettings.mapValues { (_, item) ->
+                mapOf(
+                    "minutes" to item.measureInterval.coerceAtLeast(0),
+                    "stepMinutes" to item.stepUnit.coerceAtLeast(1),
+                    "canModify" to item.isIntervalModify,
+                )
+            }
+        if (modernIntervals.isNotEmpty()) {
+            callback.success(modernIntervals)
+            return
+        }
+
+        // Older W9S firmware exposes the five-minute automatic-measurement
+        // switches through CustomSettingData instead of AutoMeasureData. The
+        // protocol has no writable interval field for that command, so show
+        // the real fixed cadence rather than hiding the interval completely or
+        // pretending an app-only timer changes the watch behaviour.
+        val preferences = VpSpGetUtil.getVpSpVariInstance(appContext)
+        callback.success(
+            legacyAutoMeasureTypes(preferences).associateWith {
+                mapOf(
+                    "minutes" to 5,
+                    "stepMinutes" to 5,
+                    "canModify" to false,
+                )
+            },
+        )
+    }
+
+    fun setAutoMeasureInterval(
+        type: String,
+        minutes: Int,
+        callback: ResultCallback<Unit>,
+    ) {
+        ensureConnected(callback) ?: return
+        val setting = autoMeasureSettings[type]
+        if (setting == null || !setting.isIntervalModify) {
+            callback.error("AUTO_MEASURE_INTERVAL_UNSUPPORTED", "当前手表不支持调整此项监测间隔")
+            return
+        }
+        val step = setting.stepUnit.coerceAtLeast(1)
+        if (minutes < step || minutes % step != 0) {
+            callback.error(
+                "AUTO_MEASURE_INTERVAL_INVALID",
+                "监测间隔不能小于 $step 分钟，且必须是 $step 的整数倍",
+            )
+            return
+        }
+        setting.measureInterval = minutes
+        manager.setAutoMeasureSettingData(
+            writeResponse(callback, "自动监测间隔保存失败"),
+            setting,
+            object : IAutoMeasureSettingDataListener {
+                override fun onSettingDataChange(items: MutableList<AutoMeasureData>) = Unit
+
+                override fun onSettingDataChangeFail() {
+                    callback.error("AUTO_MEASURE_INTERVAL_WRITE_FAILED", "自动监测间隔写入失败")
+                }
+
+                override fun onSettingDataChangeSuccess() {
+                    callback.success(Unit)
+                }
+            },
+        )
+    }
+
     private fun legacyAutoMeasureValue(
         data: CustomSettingData,
         type: String,
@@ -6397,6 +6528,17 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
             override fun onEcgADCChange(data: IntArray, power: IntArray) {
                 val calibrated = calibrateEcgSamples(data.toList(), power)
+                val now = System.currentTimeMillis()
+                if (now - lastEcgAdcLogAt >= 1_000L) {
+                    lastEcgAdcLogAt = now
+                    val validRaw = data.count { it != Int.MAX_VALUE }
+                    val minimum = calibrated.minOfOrNull { it.toDouble() }
+                    val maximum = calibrated.maxOfOrNull { it.toDouble() }
+                    Log.d(
+                        LOG_TAG,
+                        "ecg adc raw=${data.size} valid=$validRaw power=${power.size} calibrated=${calibrated.size} range=$minimum..$maximum",
+                    )
+                }
                 synchronized(activeEcgSamples) { activeEcgSamples += calibrated }
                 if (calibrated.isNotEmpty()) {
                     emit(
@@ -6987,7 +7129,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         callback.error(code, message)
     }
 
-    fun close() {
+    fun close(preserveConnection: Boolean = false) {
         cancelActiveHealthSync(
             "HEALTH_SYNC_CANCELLED",
             "设备服务已关闭，历史数据同步已取消",
@@ -7002,10 +7144,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         finishScan()
         unregisterConnectStatusListener()
         connectingDeviceId = ""
-        connectedDeviceId = ""
         clearMeasurementSessionState()
         releaseJLWatchFaceSession()
-        manager.disconnectWatch { }
+        if (!preserveConnection) {
+            connectedDeviceId = ""
+            manager.disconnectWatch { }
+        }
         eventListener = null
     }
 
@@ -7230,6 +7374,9 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     }
 
     companion object {
+        private const val CONNECTION_PREFERENCES = "saidian_wearable_connection"
+        private const val LAST_DEVICE_ID = "last_device_id"
+        private const val LAST_DEVICE_NAME = "last_device_name"
         private const val LOG_TAG = "SaidianVeepoo"
         private val FIRMWARE_VERSION_PATTERN = Regex("^[0-9A-Fa-f]{2}(\\.[0-9A-Fa-f]{2}){2}$")
         private const val PERSON_SYNC_TIMEOUT_MS = 8_000L

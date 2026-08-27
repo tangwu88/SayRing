@@ -78,4 +78,68 @@ void main() {
       expect(await bridge.getConnectedDeviceDetails(), isNull);
     },
   );
+
+  test('reads and writes the vendor automatic monitoring interval', () async {
+    MethodCall? written;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(methods, (call) async {
+          if (call.method == 'readAutoMeasureIntervals') {
+            return <Object?, Object?>{
+              'heartRate': <Object?, Object?>{
+                'minutes': 10,
+                'stepMinutes': 5,
+                'canModify': true,
+              },
+              'bodyTemperature': <Object?, Object?>{
+                'minutes': 5,
+                'stepMinutes': 5,
+                'canModify': false,
+              },
+            };
+          }
+          written = call;
+          return null;
+        });
+    final bridge = MethodChannelWearableBridge(methods: methods);
+
+    final settings = await bridge.readAutoMeasureIntervals();
+    expect(settings['heartRate']?.minutes, 10);
+    expect(settings['heartRate']?.choices, containsAll([5, 10, 30, 60]));
+    expect(settings['bodyTemperature']?.minutes, 5);
+    expect(settings['bodyTemperature']?.canModify, isFalse);
+
+    await bridge.setAutoMeasureInterval('heartRate', 30);
+    expect(written?.method, 'setAutoMeasureInterval');
+    expect(written?.arguments, {'type': 'heartRate', 'minutes': 30});
+  });
+
+  test(
+    'restores the last bound watch with the current member profile',
+    () async {
+      MethodCall? restoreCall;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(methods, (call) async {
+            restoreCall = call;
+            return <Object?, Object?>{
+              'id': '38:23:A4:5E:CA:69',
+              'name': 'SD-watch-W9S',
+            };
+          });
+      final bridge = MethodChannelWearableBridge(methods: methods);
+      const profile = WearableUserProfile(
+        gender: 1,
+        heightCm: 175,
+        weightKg: 70,
+        birthYear: 1996,
+        age: 30,
+        targetSteps: 10000,
+      );
+
+      final restored = await bridge.restoreConnection(profile: profile);
+
+      expect(restored?.id, '38:23:A4:5E:CA:69');
+      expect(restoreCall?.method, 'restoreConnection');
+      expect((restoreCall?.arguments as Map)['profile']['targetSteps'], 10000);
+    },
+  );
 }

@@ -79,6 +79,57 @@ void main() {
     },
   );
 
+  test(
+    'care preview falls back to mini-program daily rows when aggregate fails',
+    () async {
+      final requestedPaths = <String>[];
+      final client = MockClient((request) async {
+        requestedPaths.add(request.url.path);
+        if (request.url.path == '/api/v1/member/care/my') {
+          return http.Response(
+            '{"code":200,"data":[{"id":59,"member":{"id":87,"nickname":"家人"}}]}',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (request.url.path == '/api/v1/member/care/preview') {
+          expect(request.url.queryParameters['id'], '59');
+          return http.Response(
+            '{"code":500,"message":"汇总失败"}',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        expect(request.url.path, '/api/v1/member/daily-date/preview');
+        expect(request.url.queryParameters['selectmember'], '87');
+        expect(request.url.queryParameters['type'], 'BloodOxygen');
+        return http.Response(
+          '''{"code":200,"data":[{"pulseReat":78,"bloodOxygen":98,
+          "bodyTemperature":36.5,"HRVData":42,"step":2300}]}''',
+          200,
+        );
+      });
+      final api = SaydianApiClient(
+        _authenticatedVault(),
+        client: client,
+        baseUri: Uri.parse('https://example.invalid'),
+      );
+
+      await api.getCareMembers();
+      final preview = await api.getCareMemberPreview(id: 59, day: '2026-08-27');
+
+      expect(preview['fallback'], isTrue);
+      expect(preview['daily'].toString(), contains('心率'));
+      expect(preview['daily'].toString(), contains('体温'));
+      expect(preview['jrjk'].toString(), contains('2300'));
+      expect(requestedPaths, [
+        '/api/v1/member/care/my',
+        '/api/v1/member/care/preview',
+        '/api/v1/member/daily-date/preview',
+      ]);
+    },
+  );
+
   test('add care uses the mini-program authenticated JSON contract', () async {
     final vault = MemorySessionVault()
       ..session = Session(

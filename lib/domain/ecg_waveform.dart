@@ -83,11 +83,12 @@ List<double?> prepareLiveEcgTrace(
   }
   final anchorSorted = [...anchor]..sort();
   final baseline = _percentile(anchorSorted, 0.5);
-  final deviations =
-      anchor.map((value) => (value - baseline).abs()).toList(growable: false)
-        ..sort();
-  final adaptiveDeviation = math.max(.35, _percentile(deviations, .99) * 1.35);
-  final allowedDeviation = math.min(maximumDeviationMv, adaptiveDeviation);
+  // The native bridge already converts ADC values to millivolts and removes
+  // Integer.MAX_VALUE contact sentinels. Use the medically plausible display
+  // range as the point-wise rail guard. An adaptive range based on the newest
+  // 0.8 seconds could collapse to a few hundredths of a millivolt and hide a
+  // real W9S waveform even while the electrode was being touched.
+  final allowedDeviation = maximumDeviationMv;
   final valid = raw
       .map(
         (sample) =>
@@ -112,30 +113,37 @@ List<double?> prepareLiveEcgTrace(
     }
   }
 
-  final stableWindow = math.min(
-    raw.length,
-    math.max(16, (frequency * .4).round()),
-  );
-  final minimumValid = (stableWindow * .95).ceil();
-  var stableStart = raw.length - stableWindow;
-  var validCount = valid.skip(stableStart).where((sample) => sample).length;
-  if (validCount < minimumValid) {
-    return List<double?>.filled(raw.length, null);
+  // Select the newest continuous contact segment. This accepts a late stable
+  // W9S contact even when the buffer still contains many old rails, while an
+  // alternating converter stream (single-point runs) stays blank.
+  final minimumRun = math.max(8, (frequency * .2).round());
+  var currentStart = -1;
+  var selectedStart = -1;
+  var selectedEnd = -1;
+  for (var index = 0; index < valid.length; index++) {
+    if (valid[index]) {
+      currentStart = currentStart < 0 ? index : currentStart;
+      if (index - currentStart + 1 >= minimumRun) {
+        selectedStart = currentStart;
+        selectedEnd = index;
+      }
+    } else {
+      currentStart = -1;
+    }
   }
-  while (stableStart > 0) {
-    final entering = valid[stableStart - 1];
-    final leaving = valid[stableStart + stableWindow - 1];
-    final nextCount = validCount + (entering ? 1 : 0) - (leaving ? 1 : 0);
-    if (nextCount < minimumValid) break;
-    stableStart--;
-    validCount = nextCount;
+  if (selectedStart < 0) {
+    return List<double?>.filled(raw.length, null);
   }
 
   return raw
       .asMap()
       .entries
       .map<double?>((entry) {
-        if (entry.key < stableStart || !valid[entry.key]) return null;
+        if (entry.key < selectedStart ||
+            entry.key > selectedEnd ||
+            !valid[entry.key]) {
+          return null;
+        }
         return entry.value.toDouble() - baseline;
       })
       .toList(growable: false);

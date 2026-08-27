@@ -89,7 +89,9 @@ class RoutedWearableBridge
     implements
         WearableBridge,
         WearableDeviceDetailsBridge,
-        WearableWatchFaceProfileBridge {
+        WearableWatchFaceProfileBridge,
+        WearableAutoMeasureIntervalBridge,
+        WearableConnectionRecoveryBridge {
   RoutedWearableBridge({
     required WearableBridge veepoo,
     required WearableBridge yucheng,
@@ -226,6 +228,26 @@ class RoutedWearableBridge
   }
 
   @override
+  Future<DeviceInfo?> restoreConnection({
+    required WearableUserProfile profile,
+  }) async {
+    for (final entry in _sources.entries) {
+      final bridge = entry.value;
+      if (bridge is! WearableConnectionRecoveryBridge) continue;
+      try {
+        final details = await (bridge as WearableConnectionRecoveryBridge)
+            .restoreConnection(profile: profile);
+        if (details == null) continue;
+        _activeTransport = entry.key;
+        return RoutedDevice.fromDevice(entry.key, details).display;
+      } on PlatformException catch (error) {
+        if (error.code != 'NO_SAVED_DEVICE') rethrow;
+      }
+    }
+    return null;
+  }
+
+  @override
   Future<DeviceInfo?> getConnectedDeviceDetails() async {
     final transport = _activeTransport;
     if (transport == null) return null;
@@ -280,6 +302,29 @@ class RoutedWearableBridge
   @override
   Future<void> setAutoMeasureSetting(String type, bool enabled) =>
       _activeBridge.setAutoMeasureSetting(type, enabled);
+
+  @override
+  Future<Map<String, AutoMeasureIntervalSetting>> readAutoMeasureIntervals() {
+    final bridge = _activeBridge;
+    if (bridge is! WearableAutoMeasureIntervalBridge) return Future.value({});
+    return (bridge as WearableAutoMeasureIntervalBridge)
+        .readAutoMeasureIntervals();
+  }
+
+  @override
+  Future<void> setAutoMeasureInterval(String type, int minutes) {
+    final bridge = _activeBridge;
+    if (bridge is! WearableAutoMeasureIntervalBridge) {
+      throw PlatformException(
+        code: 'AUTO_MEASURE_INTERVAL_UNSUPPORTED',
+        message: '当前手表不支持调整监测间隔',
+      );
+    }
+    return (bridge as WearableAutoMeasureIntervalBridge).setAutoMeasureInterval(
+      type,
+      minutes,
+    );
+  }
 
   @override
   Future<int?> readHeartRateWarning() => _activeBridge.readHeartRateWarning();

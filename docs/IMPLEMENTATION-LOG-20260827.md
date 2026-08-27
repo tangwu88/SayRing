@@ -80,3 +80,15 @@
 - 自动化：心电及 UI 专项 52 项通过；`flutter analyze --no-pub lib test` 为 `No issues found`；全量 `flutter test --no-pub` 共 197 项全部通过。
 - 构建产物：Debug APK 位于 `build/app/outputs/flutter-apk/app-debug.apk`，大小 218,138,451 字节，SHA-256 为 `F031E5F6D7643ADBB99BAAED04D9B5DEE80C64E163F1B3E187CAA9B9FDD983EF`。因 Google Flutter 存储连接不稳定，本次仅将 Flutter 引擎制品下载地址切换到 `https://storage.flutter-io.cn` 完成构建，没有修改项目仓库配置。
 - Git 状态：修改前本地已有提交 `d7c08238424fef36d3d1a34abd6ccbbe58925ffc`，已知本地领先 `origin/main` 1 个提交；在线 `fetch --prune` 再次遇到 GitHub 连接重置，提交与推送状态以本节后续 Git 操作为准。
+
+## 18:47 AI 键盘、关爱降级、W9S 心电接触、监测间隔与连接恢复
+
+- Git 基线：修改前本地 `main` 为 `f5fbade4232c56d181e038423abc405123837827`。最初在线更新检查遇到 GitHub 连接失败，本轮提交前重新执行 `git fetch --prune origin` 成功，确认 `HEAD` 与 `origin/main` 均为 `f5fbade`，工作树中的既有修改未被拉取或覆盖。
+- AI 健康管家：纠正上一版“发送后隐藏整个输入区”的交互。消息提交后只调用 `unfocus` 收起系统输入法，输入框和发送按钮始终保留。真机发送 `QA_test` 后 `mInputShown=false`，页面仍存在一个 `EditText`，交互要求通过；当前消息请求返回“发送失败，请检查网络后重试”，记录为接口/网络现状，不与键盘修复混淆。
+- 远程关爱：成员聚合概览接口返回业务 500 时，改用与小程序一致的 `/api/v1/member/daily-date/preview` 按成员、日期和健康类型读取原始行，并在客户端生成当天步数与最新健康概览。失效旧会话会明确返回凭据错误；重新登录测试账号后成员列表显示 4 人，打开首位成员详情不再报错并能加载当日健康数据。页面中部分指标的单位文案仍需后续单独修正。
+- 心电实时信号：继续直接使用 HBandSDK `onEcgADCChange` 的校准样本，不合成、不补点。实时显示改为选择最新连续有效接触段，去除建立接触时的轨道和孤立转换器复位；不再因旧的自适应阈值把真实低幅度信号整段清空。原生层增加每秒一次的样本数量、有效数量和范围诊断，不记录或输出原始医疗样本。实现对照官方 HBandSDK Android 示例：<https://github.com/HBandSDK/Android_Ble_SDK>。
+- 健康监测间隔：新版 `AutoMeasureData` 设备读取并展示 `measureInterval`、`stepUnit`、`isIntervalModify`，可修改设备显示合法步长的下拉选项并写回手表。W9S 旧协议只通过 `CustomSettingData` 暴露固定五分钟自动检测开关，没有可写间隔字段，因此页面显示“每 5 分钟（手表固定）”，不使用无法保证后台执行的 App 定时器伪装成手表设置。
+- 连接恢复：显式连接成功后只保存最后设备 ID/名称；App 退到后台或 Activity 销毁时不再主动断开 SDK 蓝牙。恢复前台、进程重启或覆盖安装后，优先接管 SDK 现有连接，否则按已保存 MAC 直接重连并重新认证；只有用户点击“断开连接”才清除恢复信息。路由层恢复后仍锁定到 W9S 的 Veepoo 通道，避免跨 SDK 串线。
+- 自动化与编译：`flutter analyze` 无问题；全量 `flutter test` 共 201 项全部通过；监测间隔与连接恢复定向测试 16 项通过；`:app:compileReleaseKotlin` 和 `:app:assembleRelease` 均成功。仅有已有的 Kotlin/Gradle 弃用警告，无新增编译错误。
+- 构建产物：Release APK 为 `build/app/outputs/apk/release/app-release.apk`，大小 89,486,720 字节，时间 `2026-08-27 18:38:39`，SHA-256 `3D0058659E3B89B0C9418DF2ABA072519F7FF4FB34B5619A9DC0ABEB5159D423`。
+- 真机边界：候选包已验证 AI 键盘、远程关爱和 W9S 扫描连接；最终包覆盖安装时手机进入锁屏/AOD，安装会话等待解锁。最终包中的“固定 5 分钟”展示、后台/进程恢复连接和真实电极接触心电仍需解锁后继续，提交时不得提前标记为真机通过。

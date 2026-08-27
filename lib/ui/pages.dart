@@ -3339,7 +3339,6 @@ class _AiChatPageState extends State<AiChatPage> {
   final _input = TextEditingController();
   final _inputFocus = FocusNode();
   final _messages = ScrollController();
-  bool _composerVisible = true;
 
   @override
   void initState() {
@@ -3364,7 +3363,6 @@ class _AiChatPageState extends State<AiChatPage> {
     final message = _input.text;
     if (message.trim().isEmpty) return;
     FocusManager.instance.primaryFocus?.unfocus();
-    setState(() => _composerVisible = false);
     _scrollToLatest();
     final sent = await widget.controller.sendAiMessage(
       app: widget.app,
@@ -3373,16 +3371,7 @@ class _AiChatPageState extends State<AiChatPage> {
     if (sent) {
       _input.clear();
       _scrollToLatest();
-    } else if (mounted) {
-      setState(() => _composerVisible = true);
     }
-  }
-
-  void _showComposer() {
-    setState(() => _composerVisible = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _inputFocus.requestFocus();
-    });
   }
 
   void _scrollToLatest({bool jump = false}) {
@@ -3525,52 +3514,37 @@ class _AiChatPageState extends State<AiChatPage> {
                       },
                     ),
             ),
-            if (_composerVisible)
-              SafeArea(
-                top: false,
-                child: Container(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    border: Border(top: BorderSide(color: Color(0x11000000))),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          key: const Key('ai-message-input'),
-                          controller: _input,
-                          focusNode: _inputFocus,
-                          minLines: 1,
-                          maxLines: 4,
-                          textInputAction: TextInputAction.send,
-                          onSubmitted: (_) => _send(),
-                          decoration: const InputDecoration(hintText: '请输入消息…'),
-                        ),
-                      ),
-                      const SizedBox(width: 9),
-                      IconButton.filled(
-                        onPressed: widget.controller.isBusy ? null : _send,
-                        icon: const Icon(Icons.send_rounded),
-                      ),
-                    ],
-                  ),
+            SafeArea(
+              top: false,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  border: Border(top: BorderSide(color: Color(0x11000000))),
                 ),
-              )
-            else
-              SafeArea(
-                top: false,
-                minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: FilledButton.tonalIcon(
-                    key: const Key('ai-show-composer'),
-                    onPressed: widget.controller.isBusy ? null : _showComposer,
-                    icon: const Icon(Icons.edit_rounded),
-                    label: Text(widget.controller.isBusy ? '正在回复…' : '继续提问'),
-                  ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        key: const Key('ai-message-input'),
+                        controller: _input,
+                        focusNode: _inputFocus,
+                        minLines: 1,
+                        maxLines: 4,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) => _send(),
+                        decoration: const InputDecoration(hintText: '请输入消息…'),
+                      ),
+                    ),
+                    const SizedBox(width: 9),
+                    IconButton.filled(
+                      onPressed: widget.controller.isBusy ? null : _send,
+                      icon: const Icon(Icons.send_rounded),
+                    ),
+                  ],
                 ),
               ),
+            ),
           ],
         ),
       ),
@@ -8315,17 +8289,71 @@ class _PermissionManagementPageState extends State<PermissionManagementPage> {
     required IconData icon,
   }) {
     final settings = widget.controller.autoMeasureSettings;
-    return SwitchListTile(
-      key: ValueKey('device-health-auto-$type'),
-      secondary: Icon(icon, color: SaydianColors.pink),
-      title: Text(title),
-      subtitle: Text((settings[type] ?? false) ? '已开启' : '已关闭'),
-      value: settings[type] ?? false,
-      onChanged: widget.controller.connectedDevice == null
-          ? null
-          : (value) {
-              unawaited(widget.controller.setAutoMeasureSetting(type, value));
-            },
+    final enabled = settings[type] ?? false;
+    final interval = widget.controller.autoMeasureIntervals[type];
+    return Column(
+      children: [
+        SwitchListTile(
+          key: ValueKey('device-health-auto-$type'),
+          secondary: Icon(icon, color: SaydianColors.pink),
+          title: Text(title),
+          subtitle: Text(enabled ? '已开启' : '已关闭'),
+          value: enabled,
+          onChanged: widget.controller.connectedDevice == null
+              ? null
+              : (value) {
+                  unawaited(
+                    widget.controller.setAutoMeasureSetting(type, value),
+                  );
+                },
+        ),
+        if (interval != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(72, 0, 18, 12),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    '监测间隔',
+                    style: TextStyle(color: SaydianColors.muted),
+                  ),
+                ),
+                if (interval.canModify)
+                  DropdownButton<int>(
+                    key: ValueKey('device-health-interval-$type'),
+                    value: interval.minutes > 0 ? interval.minutes : null,
+                    hint: const Text('请选择'),
+                    items: [
+                      for (final minutes in interval.choices)
+                        DropdownMenuItem(
+                          value: minutes,
+                          child: Text('$minutes 分钟'),
+                        ),
+                    ],
+                    onChanged: !enabled
+                        ? null
+                        : (minutes) {
+                            if (minutes != null) {
+                              unawaited(
+                                widget.controller.setAutoMeasureInterval(
+                                  type,
+                                  minutes,
+                                ),
+                              );
+                            }
+                          },
+                  )
+                else
+                  Text(
+                    interval.minutes > 0
+                        ? '每 ${interval.minutes} 分钟（手表固定）'
+                        : '手表固定',
+                    style: const TextStyle(color: SaydianColors.muted),
+                  ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 

@@ -206,6 +206,26 @@ void main() {
       expect(devices.single.name, 'w8s 4DE9');
     },
   );
+
+  test('restores a W9S and locks later operations to Veepoo', () async {
+    final veepoo = _FakeWearableBridge(
+      scanned: const [],
+      connectedDetails: const DeviceInfo(
+        id: '38:23:A4:5E:CA:69',
+        name: 'SD-watch-W9S',
+      ),
+    );
+    final yucheng = _FakeWearableBridge(scanned: const []);
+    final bridge = RoutedWearableBridge(veepoo: veepoo, yucheng: yucheng);
+
+    final restored = await bridge.restoreConnection(profile: _profile);
+    await bridge.startMeasurement(HealthMetric.heartRate);
+
+    expect(restored?.id, 'veepoo:38:23:A4:5E:CA:69');
+    expect(veepoo.restoreCalls, 1);
+    expect(veepoo.measurementCalls, [HealthMetric.heartRate]);
+    expect(yucheng.measurementCalls, isEmpty);
+  });
 }
 
 const _profile = WearableUserProfile(
@@ -218,7 +238,10 @@ const _profile = WearableUserProfile(
 );
 
 class _FakeWearableBridge extends Fake
-    implements WearableBridge, WearableDeviceDetailsBridge {
+    implements
+        WearableBridge,
+        WearableDeviceDetailsBridge,
+        WearableConnectionRecoveryBridge {
   _FakeWearableBridge({required this.scanned, this.connectedDetails});
 
   final List<DeviceInfo> scanned;
@@ -226,6 +249,7 @@ class _FakeWearableBridge extends Fake
   final _events = StreamController<WearableEvent>.broadcast();
   final List<String> connectCalls = [];
   final List<HealthMetric> measurementCalls = [];
+  int restoreCalls = 0;
 
   @override
   Stream<WearableEvent> get events => _events.stream;
@@ -249,6 +273,14 @@ class _FakeWearableBridge extends Fake
 
   @override
   Future<DeviceInfo?> getConnectedDeviceDetails() async => connectedDetails;
+
+  @override
+  Future<DeviceInfo?> restoreConnection({
+    required WearableUserProfile profile,
+  }) async {
+    restoreCalls += 1;
+    return connectedDetails;
+  }
 
   @override
   Future<void> startMeasurement(HealthMetric metric) async {
