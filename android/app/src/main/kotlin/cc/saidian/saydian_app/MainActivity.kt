@@ -6427,17 +6427,27 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 activeEcgSamples.toList()
             }.filter { it.toLong() != Int.MAX_VALUE.toLong() }
         val liveCoverage = ecgSampleChangeRatio(live)
-        if (isUsableEcgTrace(live)) {
+        val liveRejection = ecgTraceRejectionReason(live)
+        if (liveRejection == null) {
             Log.i(
                 LOG_TAG,
                 "ecg samples live=${live.size}/$liveCoverage selected=live",
             )
             return live
         }
+        val liveTail = longestUsableEcgTail(live)
+        if (liveTail.isNotEmpty()) {
+            Log.i(
+                LOG_TAG,
+                "ecg samples live=${live.size}/$liveCoverage full=$liveRejection selected=live_tail/${liveTail.size}",
+            )
+            return liveTail
+        }
         val filtered = calibrateEcgSamples(filteredSamples, filteredPowers)
         val filteredCoverage = ecgSampleChangeRatio(filtered)
         val minimumFilteredSamples = (ecgSampleFrequency.coerceIn(50, 1000) / 2).coerceAtLeast(16)
-        if (filtered.size >= minimumFilteredSamples && isUsableEcgTrace(filtered)) {
+        val filteredRejection = ecgTraceRejectionReason(filtered)
+        if (filtered.size >= minimumFilteredSamples && filteredRejection == null) {
             Log.i(
                 LOG_TAG,
                 "ecg samples live=${live.size}/$liveCoverage filtered=${filtered.size}/$filteredCoverage selected=filtered",
@@ -6446,17 +6456,33 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         }
         Log.i(
             LOG_TAG,
-            "ecg samples filtered=${filtered.size}/$filteredCoverage live=${live.size}/$liveCoverage selected=none",
+            "ecg samples filtered=${filtered.size}/$filteredCoverage/$filteredRejection live=${live.size}/$liveCoverage/$liveRejection selected=none",
         )
         return emptyList()
     }
 
-    private fun isUsableEcgTrace(samples: List<Number>): Boolean {
+    private fun longestUsableEcgTail(samples: List<Number>): List<Number> {
+        val frequency = ecgSampleFrequency.coerceIn(50, 1000)
+        val minimumTailSamples = frequency * ECG_MIN_USABLE_TAIL_SECONDS
+        if (samples.size < minimumTailSamples) return emptyList()
+        var tailSamples = minOf(samples.size, frequency * ECG_MAX_USABLE_TAIL_SECONDS)
+        while (tailSamples >= minimumTailSamples) {
+            val candidate = samples.subList(samples.size - tailSamples, samples.size)
+            if (ecgTraceRejectionReason(candidate) == null) return candidate.toList()
+            tailSamples -= frequency
+        }
+        return emptyList()
+    }
+
+    private fun isUsableEcgTrace(samples: List<Number>): Boolean =
+        ecgTraceRejectionReason(samples) == null
+
+    private fun ecgTraceRejectionReason(samples: List<Number>): String? {
         val frequency = ecgSampleFrequency.coerceIn(50, 1000)
         val minimumSamples = frequency.coerceAtLeast(16)
-        if (samples.size < minimumSamples) return false
+        if (samples.size < minimumSamples) return "too_short"
         val values = samples.map { it.toDouble() }.filter { it.isFinite() }
-        if (values.size < minimumSamples) return false
+        if (values.size < minimumSamples) return "non_finite"
         val sorted = values.sorted()
         val middle = sorted.size / 2
         val baseline =
@@ -6467,22 +6493,29 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             }
         val valid = values.filter { kotlin.math.abs(it - baseline) <= ECG_MAX_DISPLAY_DEVIATION_MV }
         val validRatio = valid.size.toDouble() / values.size
-        if (validRatio < ECG_MIN_VALID_SAMPLE_RATIO) return false
-        if (ecgSampleChangeRatio(valid) < ECG_MIN_SAMPLE_CHANGE_RATIO) return false
-        if (hasImplausibleEcgJumps(valid)) return false
-        if (hasLongEcgRamp(valid, frequency)) return false
+        if (validRatio < ECG_MIN_VALID_SAMPLE_RATIO) return "contact_rails"
+        if (ecgSampleChangeRatio(valid) < ECG_MIN_SAMPLE_CHANGE_RATIO) return "flat"
+        if (hasRepeatedIsolatedEcgResets(valid)) return "converter_resets"
+        if (hasLongEcgRamp(valid, frequency)) return "long_ramp"
         val validSorted = valid.sorted()
         val lower = validSorted[(validSorted.lastIndex * 0.05).toInt()]
         val upper = validSorted[(validSorted.lastIndex * 0.95).toInt()]
-        return upper - lower >= ECG_MIN_CENTRAL_SPAN_MV
+        return if (upper - lower >= ECG_MIN_CENTRAL_SPAN_MV) null else "low_span"
     }
 
-    private fun hasImplausibleEcgJumps(values: List<Double>): Boolean {
-        var implausibleJumps = 0
-        for (index in 1 until values.size) {
-            if (kotlin.math.abs(values[index] - values[index - 1]) > 2.0) {
-                implausibleJumps += 1
-                if (implausibleJumps >= 2) return true
+    private fun hasRepeatedIsolatedEcgResets(values: List<Double>): Boolean {
+        var isolatedResets = 0
+        for (index in 1 until values.lastIndex) {
+            val previous = values[index - 1]
+            val current = values[index]
+            val next = values[index + 1]
+            if (
+                kotlin.math.abs(current - previous) > 2.0 &&
+                    kotlin.math.abs(next - current) > 2.0 &&
+                    kotlin.math.abs(next - previous) <= 0.3
+            ) {
+                isolatedResets += 1
+                if (isolatedResets >= 2) return true
             }
         }
         return false
@@ -7173,6 +7206,8 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         private const val ECG_MIN_VALID_SAMPLE_RATIO = 0.95
         private const val ECG_MAX_DISPLAY_DEVIATION_MV = 2.5
         private const val ECG_MIN_CENTRAL_SPAN_MV = 0.002
+        private const val ECG_MIN_USABLE_TAIL_SECONDS = 10
+        private const val ECG_MAX_USABLE_TAIL_SECONDS = 30
         private const val ECG_CALIBRATED_RAW_VERSION = 2
         private const val DEFAULT_ECG_POWER = 20
         private const val ALARM_CACHE_FALLBACK_MS = 1_000L

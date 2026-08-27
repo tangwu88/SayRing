@@ -234,6 +234,29 @@ void main() {
     expect(waveform.hasVariation, isFalse);
   });
 
+  test('steep but multi-sample QRS complexes remain usable', () {
+    const frequency = 500;
+    final samples = List<num>.generate(frequency * 12, (index) {
+      final phase = index % frequency;
+      final baseline = 0.04 * math.sin(index / 11);
+      if (phase == 95) return baseline + 2.2;
+      if (phase == 96) return baseline + 1.3;
+      if (phase == 97) return baseline + 0.5;
+      return baseline;
+    });
+
+    final waveform = prepareEcgDisplayWaveform(
+      samples,
+      maximumPoints: 1200,
+      sampleFrequency: frequency,
+      removeContactArtifacts: true,
+    );
+
+    expect(waveform.samples, isNotEmpty);
+    expect(waveform.hasVariation, isTrue);
+    expect(hasUsableEcgSignal(samples, sampleFrequency: frequency), isTrue);
+  });
+
   test('long internal signal loss is not presented as continuous ECG', () {
     const frequency = 250;
     List<num> validSignal(int seconds) => List<num>.generate(

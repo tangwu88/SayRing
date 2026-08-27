@@ -226,21 +226,26 @@ List<double> _removeContactArtifacts(
       cleaned[runStart + offset] = previous + (next - previous) * fraction;
     }
   }
-  if (_hasImplausibleEcgJumps(cleaned)) return const [];
+  if (_hasRepeatedIsolatedEcgResets(cleaned)) return const [];
   if (_hasLongEcgRamp(cleaned, sampleFrequency)) return const [];
   return cleaned;
 }
 
-/// Rejects repeated sample-to-sample jumps that are too large for a calibrated
-/// single-lead ECG. One isolated transport sample may still occur, but two or
-/// more jumps above 2.0 mV indicate a broken/contact-saturated stream.
-bool _hasImplausibleEcgJumps(List<double> values) {
+/// Rejects repeated one-sample converter resets without treating the steep
+/// edge of a real QRS complex as a broken stream. A reset is an isolated value
+/// more than 2 mV from both neighbours while those neighbours share a baseline.
+bool _hasRepeatedIsolatedEcgResets(List<double> values) {
   if (values.length < 3) return false;
-  var implausibleJumps = 0;
-  for (var index = 1; index < values.length; index++) {
-    if ((values[index] - values[index - 1]).abs() > 2.0) {
-      implausibleJumps++;
-      if (implausibleJumps >= 2) return true;
+  var isolatedResets = 0;
+  for (var index = 1; index < values.length - 1; index++) {
+    final previous = values[index - 1];
+    final current = values[index];
+    final next = values[index + 1];
+    if ((current - previous).abs() > 2.0 &&
+        (next - current).abs() > 2.0 &&
+        (next - previous).abs() <= 0.3) {
+      isolatedResets++;
+      if (isolatedResets >= 2) return true;
     }
   }
   return false;
