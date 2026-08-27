@@ -1061,6 +1061,22 @@ void main() {
       await controller.initialize();
       addTearDown(controller.dispose);
       final measuredAt = DateTime.now();
+      await store.upsert([
+        for (var index = 0; index < 4; index++)
+          HealthRecord(
+            id: 'ecg-existing-$index',
+            metric: HealthMetric.ecg,
+            values: {'meanHeartRate': 77 + index},
+            unit: '',
+            measuredAt: measuredAt.subtract(Duration(minutes: 20 - index)),
+            timezone: '+08:00',
+            deviceId: 'W9S',
+            firmwareVersion: '00.20.01',
+            quality: 'device_reported',
+            source: MeasurementSource.wearable,
+            rawVersion: 1,
+          ),
+      ]);
 
       await tester.pumpWidget(
         MaterialApp(
@@ -1098,6 +1114,7 @@ void main() {
       expect(find.text('测量中'), findsNothing);
       expect(find.text('手动测量'), findsOneWidget);
       expect(find.text('82'), findsWidgets);
+      expect(find.text('5 条'), findsWidgets);
 
       store.releaseRanges();
       await tester.pumpAndSettle();

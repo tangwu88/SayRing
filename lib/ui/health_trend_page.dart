@@ -240,8 +240,12 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
               )
               .toList()
             ..sort((a, b) => a.measuredAt.compareTo(b.measuredAt));
+      final merged = <String, HealthRecord>{
+        for (final record in _records) record.id: record,
+        for (final record in cached) record.id: record,
+      }.values.toList()..sort((a, b) => a.measuredAt.compareTo(b.measuredAt));
       setState(() {
-        if (cached.isNotEmpty) _records = cached;
+        if (merged.isNotEmpty) _records = merged;
         _measuring = false;
         _loading = false;
         _error = null;
