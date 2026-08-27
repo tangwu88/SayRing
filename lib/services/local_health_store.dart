@@ -133,17 +133,21 @@ class EncryptedHealthStore implements HealthStore {
   @override
   Future<void> upsert(List<HealthRecord> records) async {
     if (records.isEmpty) return;
-    await _db.transaction((transaction) async {
-      for (final record in records) {
-        await transaction.insert('health_records', {
-          'id': record.id,
-          'metric': record.metric.wireName,
-          'measured_at': record.measuredAt.toUtc().toIso8601String(),
-          'payload': record.encode(),
-          'synced': 0,
-        }, conflictAlgorithm: ConflictAlgorithm.ignore);
-      }
-    });
+    // Device sync may return thousands of samples. Sending every insert over
+    // the platform channel while a transaction is open keeps SQLCipher locked
+    // long enough to block a freshly completed manual measurement. A batch is
+    // still atomic, but crosses the channel only once.
+    final batch = _db.batch();
+    for (final record in records) {
+      batch.insert('health_records', {
+        'id': record.id,
+        'metric': record.metric.wireName,
+        'measured_at': record.measuredAt.toUtc().toIso8601String(),
+        'payload': record.encode(),
+        'synced': 0,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+    await batch.commit(noResult: true);
   }
 
   @override

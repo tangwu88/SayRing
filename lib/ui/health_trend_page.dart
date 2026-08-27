@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
@@ -150,11 +151,13 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _load({bool showLoading = true}) async {
+    if (showLoading) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     final range = HealthTrendRange.forPeriod(_period, _anchor);
     try {
       final values = await Future.wait([
@@ -183,7 +186,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
         _loading = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || !showLoading) return;
       setState(() {
         _error = error;
         _loading = false;
@@ -225,9 +228,30 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
     setState(() => _measuring = true);
     try {
       await onMeasure();
-      await _load();
+      if (!mounted) return;
+      final range = HealthTrendRange.forPeriod(_period, _anchor);
+      final cached =
+          widget.controller.healthRecords
+              .where(
+                (record) =>
+                    record.metric == widget.metric &&
+                    !record.measuredAt.isBefore(range.start) &&
+                    record.measuredAt.isBefore(range.end),
+              )
+              .toList()
+            ..sort((a, b) => a.measuredAt.compareTo(b.measuredAt));
+      setState(() {
+        if (cached.isNotEmpty) _records = cached;
+        _measuring = false;
+        _loading = false;
+        _error = null;
+      });
+      // The controller already exposes a valid result in memory. Refresh the
+      // encrypted store silently so a busy SQLCipher queue cannot leave the
+      // visible measurement button spinning after the result dialog closes.
+      unawaited(_load(showLoading: false));
     } finally {
-      if (mounted) setState(() => _measuring = false);
+      if (mounted && _measuring) setState(() => _measuring = false);
     }
   }
 

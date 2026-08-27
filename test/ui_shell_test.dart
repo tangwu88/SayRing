@@ -1048,6 +1048,62 @@ void main() {
     },
   );
 
+  testWidgets(
+    'health trend stops spinning while the encrypted refresh is queued',
+    (tester) async {
+      final store = _DelayedRangeHealthStore();
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        store,
+        _NoopWearable(),
+      );
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      final measuredAt = DateTime.now();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: HealthTrendPage(
+            controller: controller,
+            metric: HealthMetric.ecg,
+            onMeasure: () async {
+              controller.healthRecords = [
+                HealthRecord(
+                  id: 'ecg-visible-before-disk',
+                  metric: HealthMetric.ecg,
+                  values: const {'meanHeartRate': 82},
+                  unit: '',
+                  measuredAt: measuredAt,
+                  timezone: '+08:00',
+                  deviceId: 'W9S',
+                  firmwareVersion: '00.20.01',
+                  quality: 'device_reported',
+                  source: MeasurementSource.wearable,
+                  rawVersion: 1,
+                ),
+              ];
+              store.blockRanges();
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('手动测量'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('测量中'), findsNothing);
+      expect(find.text('手动测量'), findsOneWidget);
+      expect(find.text('82'), findsWidgets);
+
+      store.releaseRanges();
+      await tester.pumpAndSettle();
+    },
+  );
+
   test(
     'rejected ECG record releases measurement with quality guidance',
     () async {
@@ -1438,6 +1494,24 @@ class _DelayedUpsertHealthStore extends MemoryHealthStore {
     await release.future;
     persistedRecords.addAll(records);
     await super.upsert(records);
+  }
+}
+
+class _DelayedRangeHealthStore extends MemoryHealthStore {
+  Completer<void>? _rangeRelease;
+
+  void blockRanges() => _rangeRelease = Completer<void>();
+
+  void releaseRanges() => _rangeRelease?.complete();
+
+  @override
+  Future<List<HealthRecord>> range({
+    required HealthMetric metric,
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    await _rangeRelease?.future;
+    return super.range(metric: metric, start: start, end: end);
   }
 }
 
