@@ -26,7 +26,11 @@ class HealthSyncService {
     var rejected = 0;
     var quarantined = 0;
     while (true) {
-      final pending = await _store.pending(limit: 200);
+      // ECG records contain a calibrated waveform and can be much larger than
+      // ordinary health rows. Keep cloud batches small so reading an old
+      // offline queue never delays a freshly completed manual measurement for
+      // tens of seconds. Uploads still continue until the queue is empty.
+      final pending = await _store.pending(limit: 10);
       if (pending.isEmpty) {
         return SyncOutcome(
           uploaded: uploaded,

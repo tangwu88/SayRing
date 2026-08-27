@@ -1495,6 +1495,9 @@ class _DelayedUpsertHealthStore extends MemoryHealthStore {
     persistedRecords.addAll(records);
     await super.upsert(records);
   }
+
+  @override
+  Future<void> upsertImmediate(HealthRecord record) => upsert([record]);
 }
 
 class _DelayedRangeHealthStore extends MemoryHealthStore {

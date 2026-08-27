@@ -35,6 +35,7 @@ void main() {
     expect(outcome.uploaded, 1000);
     expect(outcome.rejected, 0);
     expect(api.receivedIds, hasLength(1000));
+    expect(api.maximumBatchSize, lessThanOrEqualTo(10));
     expect(await store.pending(), isEmpty);
   });
 
@@ -105,9 +106,13 @@ HealthRecord _measurement(
 
 class _AcceptingApi extends _BaseFakeApi {
   final Set<String> receivedIds = {};
+  int maximumBatchSize = 0;
 
   @override
   Future<BatchUploadResult> uploadHealthBatch(SyncBatch batch) async {
+    if (batch.records.length > maximumBatchSize) {
+      maximumBatchSize = batch.records.length;
+    }
     final accepted = batch.records.map((record) => record.id).toSet();
     receivedIds.addAll(accepted);
     return BatchUploadResult(

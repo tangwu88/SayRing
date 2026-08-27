@@ -56,12 +56,68 @@ List<double?> prepareLiveEcgTrace(
 /// This reuses the report-quality checks so live completion and persisted
 /// history never accept converter rails as a successful ECG trace.
 bool hasUsableEcgSignal(Iterable<num> source, {required int sampleFrequency}) =>
-    prepareEcgDisplayWaveform(
-      source,
+    selectUsableEcgTail(source, sampleFrequency: sampleFrequency).isNotEmpty;
+
+/// Selects a stable ending segment from a completed ECG measurement.
+///
+/// W9S starts streaming before electrode contact has fully settled. Native
+/// completion therefore accepts a measurement when its last 10--30 seconds
+/// contain a usable trace. Dart must use the same boundary for validation and
+/// report rendering; otherwise a valid native result can be rejected only
+/// because the beginning of the returned buffer still contains contact rails.
+/// No samples are synthesized or rescaled here: this only chooses an existing
+/// continuous suffix, and every candidate still passes the full report-quality
+/// screening in [prepareEcgDisplayWaveform].
+List<num> selectUsableEcgTail(
+  Iterable<num> source, {
+  required int sampleFrequency,
+  int minimumSeconds = 10,
+  int maximumSeconds = 30,
+}) {
+  final values = source.toList(growable: false);
+  final frequency = sampleFrequency.clamp(50, 1000);
+  final minimumSamples = frequency * minimumSeconds;
+  if (values.length < minimumSamples) {
+    final waveform = prepareEcgDisplayWaveform(
+      values,
       maximumPoints: 1200,
-      sampleFrequency: sampleFrequency,
+      sampleFrequency: frequency,
       removeContactArtifacts: true,
-    ).hasVariation;
+    );
+    return waveform.hasVariation ? values : const [];
+  }
+
+  var candidateLength = math.min(values.length, frequency * maximumSeconds);
+  while (candidateLength >= minimumSamples) {
+    final candidate = values.sublist(values.length - candidateLength);
+    final waveform = prepareEcgDisplayWaveform(
+      candidate,
+      maximumPoints: 1200,
+      sampleFrequency: frequency,
+      removeContactArtifacts: true,
+    );
+    // The whole candidate can become usable after its own leading padding is
+    // trimmed. Do not return that padding to history: the beginning of the
+    // chosen suffix must itself contain a real trace.
+    final leadingWindow = candidate.take(frequency * 2).toList(growable: false);
+    final leadingWaveform = prepareEcgDisplayWaveform(
+      leadingWindow,
+      maximumPoints: leadingWindow.length,
+      sampleFrequency: frequency,
+      removeContactArtifacts: true,
+    );
+    final retainedLeadingRatio = leadingWindow.isEmpty
+        ? 0.0
+        : leadingWaveform.samples.length / leadingWindow.length;
+    if (waveform.hasVariation &&
+        leadingWaveform.hasVariation &&
+        retainedLeadingRatio >= 0.95) {
+      return candidate;
+    }
+    candidateLength -= frequency;
+  }
+  return const [];
+}
 
 EcgDisplayWaveform prepareEcgDisplayWaveform(
   Iterable<num> source, {

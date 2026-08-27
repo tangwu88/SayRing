@@ -307,6 +307,36 @@ void main() {
     );
 
     expect(waveform.hasVariation, isFalse);
+    final usableTail = selectUsableEcgTail(samples, sampleFrequency: frequency);
+    expect(usableTail, hasLength(frequency * 26));
+    expect(
+      prepareEcgDisplayWaveform(
+        usableTail,
+        maximumPoints: 1200,
+        sampleFrequency: frequency,
+        removeContactArtifacts: true,
+      ).hasVariation,
+      isTrue,
+    );
+  });
+
+  test('late stable W9S contact is accepted without keeping contact rails', () {
+    const frequency = 500;
+    final samples = <num>[
+      for (var index = 0; index < frequency * 12; index++)
+        index.isEven ? -18.0 : 21.0,
+      for (var index = 0; index < frequency * 18; index++)
+        0.05 * math.sin(index / 11) +
+            ((index % frequency) >= 95 && (index % frequency) < 115
+                ? 1.15 * math.sin(((index % frequency) - 95) * math.pi / 20)
+                : 0),
+    ];
+
+    final usableTail = selectUsableEcgTail(samples, sampleFrequency: frequency);
+
+    expect(usableTail, hasLength(frequency * 18));
+    expect(usableTail.every((sample) => sample.abs() < 3), isTrue);
+    expect(hasUsableEcgSignal(samples, sampleFrequency: frequency), isTrue);
   });
 
   test('leading and trailing SDK zero padding is removed from display', () {

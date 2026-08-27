@@ -4169,10 +4169,15 @@ class _EcgWaveformCard extends StatelessWidget {
       );
     }
     final frequency = sampleFrequency.clamp(50, 1000);
-    final durationSeconds = samples.length / frequency;
+    final usableSamples = selectUsableEcgTail(
+      samples,
+      sampleFrequency: frequency,
+    );
+    final displaySamples = usableSamples.isEmpty ? samples : usableSamples;
+    final durationSeconds = displaySamples.length / frequency;
     final chartWidth = math.max(640.0, durationSeconds * 72.0);
     final waveform = prepareEcgDisplayWaveform(
-      samples,
+      displaySamples,
       maximumPoints: math.max(2, (chartWidth * 2).round()),
       sampleFrequency: frequency,
       removeContactArtifacts: true,
@@ -4203,7 +4208,7 @@ class _EcgWaveformCard extends StatelessWidget {
               )
             else
               Semantics(
-                label: '设备记录的完整心电波形，共${samples.length}个采样点',
+                label: '设备记录的有效心电波形，共${displaySamples.length}个采样点',
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: SizedBox(

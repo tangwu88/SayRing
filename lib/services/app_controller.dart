@@ -2238,11 +2238,15 @@ class AppController extends ChangeNotifier {
     }
 
     try {
-      await _healthStore.upsert([record]);
+      await _healthStore.upsertImmediate(record);
       await _refreshHealthRecordCache();
       if (!_disposed) notifyListeners();
       unawaited(synchronizeCloud());
-    } catch (_) {
+    } catch (error, stackTrace) {
+      debugPrint(
+        'Health record persistence failed for ${record.metric.wireName}: '
+        '$error\n$stackTrace',
+      );
       errorMessage = '测量结果已显示，但暂时无法保存到本机';
       if (!_disposed) notifyListeners();
     }

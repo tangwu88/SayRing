@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
@@ -10,6 +11,7 @@ import 'secure_vault.dart';
 abstract interface class HealthStore {
   Future<void> initialize();
   Future<void> upsert(List<HealthRecord> records);
+  Future<void> upsertImmediate(HealthRecord record);
   Future<List<HealthRecord>> recent({int limit = 200});
   Future<List<HealthRecord>> range({
     required HealthMetric metric,
@@ -34,6 +36,19 @@ class EncryptedHealthStore implements HealthStore {
 
   final SessionVault _vault;
   Database? _database;
+  Future<void> _databaseQueue = Future<void>.value();
+
+  Future<T> _enqueue<T>(Future<T> Function() operation) {
+    final completer = Completer<T>();
+    _databaseQueue = _databaseQueue.catchError((_) {}).then((_) async {
+      try {
+        completer.complete(await operation());
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
 
   Database get _db {
     final database = _database;
@@ -137,27 +152,47 @@ class EncryptedHealthStore implements HealthStore {
     // the platform channel while a transaction is open keeps SQLCipher locked
     // long enough to block a freshly completed manual measurement. A batch is
     // still atomic, but crosses the channel only once.
-    final batch = _db.batch();
-    for (final record in records) {
-      batch.insert('health_records', {
-        'id': record.id,
-        'metric': record.metric.wireName,
-        'measured_at': record.measuredAt.toUtc().toIso8601String(),
-        'payload': record.encode(),
-        'synced': 0,
-      }, conflictAlgorithm: ConflictAlgorithm.ignore);
-    }
-    await batch.commit(noResult: true);
+    await _enqueue(() async {
+      final batch = _db.batch();
+      for (final record in records) {
+        batch.insert('health_records', {
+          'id': record.id,
+          'metric': record.metric.wireName,
+          'measured_at': record.measuredAt.toUtc().toIso8601String(),
+          'payload': record.encode(),
+          'synced': 0,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  @override
+  Future<void> upsertImmediate(HealthRecord record) async {
+    // A completed manual measurement is user-facing and must not sit behind a
+    // large historical/cloud read. Initial device sync has already finished
+    // before measurements are enabled, so this single non-transactional insert
+    // can safely use sqflite's native command queue without joining the slower
+    // background store queue.
+    await _db.insert('health_records', {
+      'id': record.id,
+      'metric': record.metric.wireName,
+      'measured_at': record.measuredAt.toUtc().toIso8601String(),
+      'payload': record.encode(),
+      'synced': 0,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   @override
   Future<List<HealthRecord>> recent({int limit = 200}) async {
-    final rows = await _db.query(
-      'health_records',
-      columns: ['payload'],
-      where: 'synced != -1',
-      orderBy: 'measured_at DESC',
-      limit: limit,
+    final rows = await _enqueue(
+      () => _db.query(
+        'health_records',
+        columns: ['payload'],
+        where: 'synced != -1',
+        orderBy: 'measured_at DESC',
+        limit: limit,
+      ),
     );
     return _decodeRows(rows);
   }
@@ -168,52 +203,59 @@ class EncryptedHealthStore implements HealthStore {
     required DateTime start,
     required DateTime end,
   }) async {
-    final rows = await _db.query(
-      'health_records',
-      columns: ['payload'],
-      where:
-          'metric = ? AND measured_at >= ? AND measured_at < ? AND synced != -1',
-      whereArgs: [
-        metric.wireName,
-        start.toUtc().toIso8601String(),
-        end.toUtc().toIso8601String(),
-      ],
-      orderBy: 'measured_at ASC',
+    final rows = await _enqueue(
+      () => _db.query(
+        'health_records',
+        columns: ['payload'],
+        where:
+            'metric = ? AND measured_at >= ? AND measured_at < ? AND synced != -1',
+        whereArgs: [
+          metric.wireName,
+          start.toUtc().toIso8601String(),
+          end.toUtc().toIso8601String(),
+        ],
+        orderBy: 'measured_at ASC',
+      ),
     );
     return _decodeRows(rows);
   }
 
   @override
   Future<List<HealthRecord>> latestForEachMetric() async {
-    final rows = await _db.rawQuery('''
-      SELECT payload
-      FROM health_records AS current
-      WHERE current.synced != -1 AND measured_at = (
-        SELECT MAX(candidate.measured_at)
-        FROM health_records AS candidate
-        WHERE candidate.metric = current.metric AND candidate.synced != -1
-      )
-      ORDER BY measured_at DESC
-    ''');
+    final rows = await _enqueue(
+      () => _db.rawQuery('''
+        SELECT payload
+        FROM health_records AS current
+        WHERE current.synced != -1 AND measured_at = (
+          SELECT MAX(candidate.measured_at)
+          FROM health_records AS candidate
+          WHERE candidate.metric = current.metric AND candidate.synced != -1
+        )
+        ORDER BY measured_at DESC
+      '''),
+    );
     return _decodeRows(rows);
   }
 
   @override
-  Future<void> saveSportRecord(SportRecord record) =>
-      _db.insert('sport_records', {
-        'id': record.id,
-        'started_at': (record.startedAt ?? DateTime.now())
-            .toUtc()
-            .toIso8601String(),
-        'payload': jsonEncode(record.toMap()),
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> saveSportRecord(SportRecord record) => _enqueue(
+    () => _db.insert('sport_records', {
+      'id': record.id,
+      'started_at': (record.startedAt ?? DateTime.now())
+          .toUtc()
+          .toIso8601String(),
+      'payload': jsonEncode(record.toMap()),
+    }, conflictAlgorithm: ConflictAlgorithm.replace),
+  );
 
   @override
   Future<List<SportRecord>> localSportRecords() async {
-    final rows = await _db.query(
-      'sport_records',
-      columns: ['payload'],
-      orderBy: 'started_at DESC',
+    final rows = await _enqueue(
+      () => _db.query(
+        'sport_records',
+        columns: ['payload'],
+        orderBy: 'started_at DESC',
+      ),
     );
     return rows
         .map((row) => jsonDecode('${row['payload']}'))
@@ -223,19 +265,22 @@ class EncryptedHealthStore implements HealthStore {
   }
 
   @override
-  Future<void> saveHealthWarningAlert(HealthWarningAlert alert) =>
-      _db.insert('health_warning_alerts', {
-        'id': alert.id,
-        'triggered_at': alert.triggeredAt.toUtc().toIso8601String(),
-        'payload': jsonEncode(alert.toJson()),
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> saveHealthWarningAlert(HealthWarningAlert alert) => _enqueue(
+    () => _db.insert('health_warning_alerts', {
+      'id': alert.id,
+      'triggered_at': alert.triggeredAt.toUtc().toIso8601String(),
+      'payload': jsonEncode(alert.toJson()),
+    }, conflictAlgorithm: ConflictAlgorithm.replace),
+  );
 
   @override
   Future<List<HealthWarningAlert>> healthWarningAlerts() async {
-    final rows = await _db.query(
-      'health_warning_alerts',
-      columns: ['payload'],
-      orderBy: 'triggered_at DESC',
+    final rows = await _enqueue(
+      () => _db.query(
+        'health_warning_alerts',
+        columns: ['payload'],
+        orderBy: 'triggered_at DESC',
+      ),
     );
     return rows
         .map((row) => jsonDecode('${row['payload']}'))
@@ -251,12 +296,14 @@ class EncryptedHealthStore implements HealthStore {
 
   @override
   Future<List<HealthRecord>> pending({int limit = 200}) async {
-    final rows = await _db.query(
-      'health_records',
-      columns: ['payload'],
-      where: 'synced = 0',
-      orderBy: 'measured_at ASC',
-      limit: limit,
+    final rows = await _enqueue(
+      () => _db.query(
+        'health_records',
+        columns: ['payload'],
+        where: 'synced = 0',
+        orderBy: 'measured_at ASC',
+        limit: limit,
+      ),
     );
     return _decodeRows(rows);
   }
@@ -276,11 +323,13 @@ class EncryptedHealthStore implements HealthStore {
     final values = ids.toSet().toList();
     if (values.isEmpty) return;
     final placeholders = List.filled(values.length, '?').join(',');
-    await _db.update(
-      'health_records',
-      {'synced': 1},
-      where: 'id IN ($placeholders)',
-      whereArgs: values,
+    await _enqueue(
+      () => _db.update(
+        'health_records',
+        {'synced': 1},
+        where: 'id IN ($placeholders)',
+        whereArgs: values,
+      ),
     );
   }
 
@@ -289,36 +338,44 @@ class EncryptedHealthStore implements HealthStore {
     final values = ids.toSet().toList();
     if (values.isEmpty) return;
     final placeholders = List.filled(values.length, '?').join(',');
-    await _db.update(
-      'health_records',
-      {'synced': -1},
-      where: 'id IN ($placeholders)',
-      whereArgs: values,
+    await _enqueue(
+      () => _db.update(
+        'health_records',
+        {'synced': -1},
+        where: 'id IN ($placeholders)',
+        whereArgs: values,
+      ),
     );
   }
 
   @override
   Future<String?> readCursor() async {
-    final rows = await _db.query(
-      'metadata',
-      columns: ['value'],
-      where: 'key = ?',
-      whereArgs: ['sync_cursor'],
-      limit: 1,
-    );
-    return rows.isEmpty ? null : '${rows.first['value']}';
+    return _enqueue(() async {
+      final rows = await _db.query(
+        'metadata',
+        columns: ['value'],
+        where: 'key = ?',
+        whereArgs: ['sync_cursor'],
+        limit: 1,
+      );
+      return rows.isEmpty ? null : '${rows.first['value']}';
+    });
   }
 
   @override
-  Future<void> writeCursor(String cursor) => _db.insert('metadata', {
-    'key': 'sync_cursor',
-    'value': cursor,
-  }, conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> writeCursor(String cursor) => _enqueue(
+    () => _db.insert('metadata', {
+      'key': 'sync_cursor',
+      'value': cursor,
+    }, conflictAlgorithm: ConflictAlgorithm.replace),
+  );
 
   @override
   Future<void> close() async {
-    await _database?.close();
-    _database = null;
+    await _enqueue(() async {
+      await _database?.close();
+      _database = null;
+    });
   }
 }
 
@@ -339,6 +396,9 @@ class MemoryHealthStore implements HealthStore {
       _records.putIfAbsent(record.id, () => record);
     }
   }
+
+  @override
+  Future<void> upsertImmediate(HealthRecord record) => upsert([record]);
 
   @override
   Future<List<HealthRecord>> recent({int limit = 200}) async {
