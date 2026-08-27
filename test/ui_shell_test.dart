@@ -1049,6 +1049,64 @@ void main() {
   );
 
   test(
+    'rejected ECG record releases measurement with quality guidance',
+    () async {
+      final wearable = _EventMeasurementWearable();
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        wearable,
+      );
+      await controller.initialize();
+      controller.connectedDevice = const DeviceInfo(id: 'watch-1', name: 'W9S');
+      controller.capabilities = const DeviceCapabilities(
+        metrics: {HealthMetric.ecg},
+        manualMetrics: {HealthMetric.ecg},
+      );
+      for (final state in const [
+        DeviceConnectionState.scanning,
+        DeviceConnectionState.connecting,
+        DeviceConnectionState.authenticating,
+        DeviceConnectionState.syncing,
+        DeviceConnectionState.ready,
+      ]) {
+        controller.deviceMachine.transition(state);
+      }
+      addTearDown(() async {
+        controller.dispose();
+        await wearable.close();
+      });
+
+      expect(await controller.startMeasurement(HealthMetric.ecg), isTrue);
+      wearable.emit(
+        WearableEvent(
+          type: 'healthRecord',
+          payload: HealthRecord(
+            id: 'invalid-ecg',
+            metric: HealthMetric.ecg,
+            values: const {'meanHeartRate': 80, 'sampleFrequency': 250},
+            unit: '',
+            measuredAt: DateTime.now().toUtc(),
+            timezone: '+08:00',
+            deviceId: 'watch-1',
+            firmwareVersion: '00.20.01',
+            quality: 'device_reported',
+            source: MeasurementSource.wearable,
+            rawVersion: 2,
+            samples: List<num>.generate(1000, (index) => index.isEven ? -8 : 8),
+          ).toJson(),
+        ),
+      );
+
+      expect(controller.deviceState, DeviceConnectionState.ready);
+      expect(controller.measurementErrorMessage, contains('心电信号质量不足'));
+      expect(controller.measurementProgress, 0);
+      expect(controller.healthRecords, isEmpty);
+    },
+  );
+
+  test(
     'unsupported health settings finish with a clear device state',
     () async {
       final controller = AppController(

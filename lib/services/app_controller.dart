@@ -2004,8 +2004,11 @@ class AppController extends ChangeNotifier {
     } else if (event.type == 'healthRecord') {
       try {
         final record = HealthRecord.fromJson(event.payload);
-        if (!hasSaneWearableTransportValues(record)) return;
-        unawaited(_saveWearableRecord(record));
+        if (!hasSaneWearableTransportValues(record)) {
+          _finishRejectedWearableMeasurement(record);
+        } else {
+          unawaited(_saveWearableRecord(record));
+        }
       } catch (_) {
         errorMessage = '收到无法识别的设备数据';
       }
@@ -2101,6 +2104,24 @@ class AppController extends ChangeNotifier {
       unawaited(refreshSportRecords());
     }
     notifyListeners();
+  }
+
+  void _finishRejectedWearableMeasurement(HealthRecord record) {
+    if (_activeMeasurementMetric != record.metric) return;
+    _measurementTimeout?.cancel();
+    _measurementTimeout = null;
+    _activeMeasurementMetric = null;
+    measurementProgress = 0;
+    measurementSamples = const [];
+    measurementWearConfirmed = false;
+    measurementErrorMessage = switch (record.metric) {
+      HealthMetric.ecg => '心电信号质量不足，请保持正确佩戴并持续接触电极后重试',
+      _ => '${record.metric.label}测量结果无效，请保持正确佩戴后重试',
+    };
+    errorMessage = measurementErrorMessage;
+    if (deviceState == DeviceConnectionState.measuring) {
+      deviceMachine.transition(DeviceConnectionState.ready);
+    }
   }
 
   Future<void> _restoreReconnectedDevice(Map<String, Object?> payload) async {
