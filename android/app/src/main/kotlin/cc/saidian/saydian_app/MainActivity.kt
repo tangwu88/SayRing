@@ -6469,10 +6469,80 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         val validRatio = valid.size.toDouble() / values.size
         if (validRatio < ECG_MIN_VALID_SAMPLE_RATIO) return false
         if (ecgSampleChangeRatio(valid) < ECG_MIN_SAMPLE_CHANGE_RATIO) return false
+        if (hasImplausibleEcgJumps(valid)) return false
+        if (hasLongEcgRamp(valid, frequency)) return false
         val validSorted = valid.sorted()
         val lower = validSorted[(validSorted.lastIndex * 0.05).toInt()]
         val upper = validSorted[(validSorted.lastIndex * 0.95).toInt()]
         return upper - lower >= ECG_MIN_CENTRAL_SPAN_MV
+    }
+
+    private fun hasImplausibleEcgJumps(values: List<Double>): Boolean {
+        var implausibleJumps = 0
+        for (index in 1 until values.size) {
+            if (kotlin.math.abs(values[index] - values[index - 1]) > 2.0) {
+                implausibleJumps += 1
+                if (implausibleJumps >= 2) return true
+            }
+        }
+        return false
+    }
+
+    private fun hasLongEcgRamp(values: List<Double>, sampleFrequency: Int): Boolean {
+        if (values.size < 32) return false
+        val blockSize = (sampleFrequency.coerceIn(50, 1000) / 50).coerceAtLeast(1)
+        val blocks = mutableListOf<Double>()
+        var start = 0
+        while (start < values.size) {
+            val end = (start + blockSize).coerceAtMost(values.size)
+            var total = 0.0
+            for (index in start until end) total += values[index]
+            blocks += total / (end - start)
+            start = end
+        }
+        if (blocks.size < 3) return false
+        val sorted = blocks.sorted()
+        val lower = sorted[(sorted.lastIndex * 0.05).toInt()]
+        val upper = sorted[(sorted.lastIndex * 0.95).toInt()]
+        val centralSpan = upper - lower
+        if (centralSpan <= 0) return false
+        val minimumDelta = maxOf(0.002, centralSpan * 0.002)
+        val maximumRampDelta = maxOf(0.15, centralSpan * 0.15)
+        val minimumSwing = maxOf(0.8, centralSpan * 0.35)
+        val minimumRampBlocks = 18
+        var direction = 0
+        var runBlocks = 0
+        var runStart = blocks.first()
+        for (index in 1 until blocks.size) {
+            val delta = blocks[index] - blocks[index - 1]
+            if (kotlin.math.abs(delta) > maximumRampDelta) {
+                direction = 0
+                runBlocks = 0
+                runStart = blocks[index]
+                continue
+            }
+            val nextDirection = if (kotlin.math.abs(delta) < minimumDelta) 0 else if (delta > 0) 1 else -1
+            if (nextDirection == 0) {
+                direction = 0
+                runBlocks = 0
+                runStart = blocks[index]
+                continue
+            }
+            if (nextDirection != direction) {
+                direction = nextDirection
+                runBlocks = 1
+                runStart = blocks[index - 1]
+            } else {
+                runBlocks += 1
+            }
+            if (
+                runBlocks >= minimumRampBlocks &&
+                    kotlin.math.abs(blocks[index] - runStart) >= minimumSwing
+            ) {
+                return true
+            }
+        }
+        return false
     }
 
     private fun calibrateEcgSamples(

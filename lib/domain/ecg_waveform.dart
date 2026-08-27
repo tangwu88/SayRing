@@ -226,7 +226,82 @@ List<double> _removeContactArtifacts(
       cleaned[runStart + offset] = previous + (next - previous) * fraction;
     }
   }
+  if (_hasImplausibleEcgJumps(cleaned)) return const [];
+  if (_hasLongEcgRamp(cleaned, sampleFrequency)) return const [];
   return cleaned;
+}
+
+/// Rejects repeated sample-to-sample jumps that are too large for a calibrated
+/// single-lead ECG. One isolated transport sample may still occur, but two or
+/// more jumps above 2.0 mV indicate a broken/contact-saturated stream.
+bool _hasImplausibleEcgJumps(List<double> values) {
+  if (values.length < 3) return false;
+  var implausibleJumps = 0;
+  for (var index = 1; index < values.length; index++) {
+    if ((values[index] - values[index - 1]).abs() > 2.0) {
+      implausibleJumps++;
+      if (implausibleJumps >= 2) return true;
+    }
+  }
+  return false;
+}
+
+/// Detects the multi-hundred-millisecond triangular ramps produced by W9S
+/// contact/converter artefacts. Quality analysis uses 20 ms block means only;
+/// the stored and displayed samples are never smoothed or synthesized.
+bool _hasLongEcgRamp(List<double> values, int sampleFrequency) {
+  if (values.length < 32) return false;
+  final frequency = sampleFrequency.clamp(50, 1000);
+  final blockSize = math.max(1, frequency ~/ 50);
+  final blocks = <double>[];
+  for (var start = 0; start < values.length; start += blockSize) {
+    final end = math.min(values.length, start + blockSize);
+    var total = 0.0;
+    for (var index = start; index < end; index++) {
+      total += values[index];
+    }
+    blocks.add(total / (end - start));
+  }
+  if (blocks.length < 3) return false;
+
+  final sorted = [...blocks]..sort();
+  final centralSpan = _percentile(sorted, 0.95) - _percentile(sorted, 0.05);
+  if (centralSpan <= 0) return false;
+  final minimumDelta = math.max(0.002, centralSpan * 0.002);
+  final maximumRampDelta = math.max(0.15, centralSpan * 0.15);
+  final minimumSwing = math.max(0.8, centralSpan * 0.35);
+  const minimumRampBlocks = 18; // 18 x 20 ms = 360 ms.
+  var direction = 0;
+  var runBlocks = 0;
+  var runStart = blocks.first;
+  for (var index = 1; index < blocks.length; index++) {
+    final delta = blocks[index] - blocks[index - 1];
+    if (delta.abs() > maximumRampDelta) {
+      direction = 0;
+      runBlocks = 0;
+      runStart = blocks[index];
+      continue;
+    }
+    final nextDirection = delta.abs() < minimumDelta ? 0 : (delta > 0 ? 1 : -1);
+    if (nextDirection == 0) {
+      direction = 0;
+      runBlocks = 0;
+      runStart = blocks[index];
+      continue;
+    }
+    if (nextDirection != direction) {
+      direction = nextDirection;
+      runBlocks = 1;
+      runStart = blocks[index - 1];
+    } else {
+      runBlocks++;
+    }
+    if (runBlocks >= minimumRampBlocks &&
+        (blocks[index] - runStart).abs() >= minimumSwing) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /// Detects converter clipping without treating a normal, flat ECG baseline as

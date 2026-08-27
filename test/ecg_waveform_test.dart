@@ -193,6 +193,47 @@ void main() {
     expect(waveform.hasVariation, isFalse);
   });
 
+  test('W9S long triangular contact ramps stay blank', () {
+    const frequency = 500;
+    final samples = List<num>.generate(frequency * 20, (index) {
+      final phase = index % (frequency * 3);
+      if (phase < frequency * 3 ~/ 2) {
+        return -2.1 + phase * 4.2 / (frequency * 3 ~/ 2);
+      }
+      return 2.1 - (phase - frequency * 3 ~/ 2) * 4.2 / (frequency * 3 ~/ 2);
+    });
+
+    final waveform = prepareEcgDisplayWaveform(
+      samples,
+      maximumPoints: 1200,
+      sampleFrequency: frequency,
+      removeContactArtifacts: true,
+    );
+
+    expect(waveform.samples, isEmpty);
+    expect(waveform.hasVariation, isFalse);
+    expect(hasUsableEcgSignal(samples, sampleFrequency: frequency), isFalse);
+  });
+
+  test('W9S repeated vertical converter resets stay blank', () {
+    const frequency = 500;
+    final samples = List<num>.generate(frequency * 10, (index) {
+      final phase = index % 400;
+      if (phase == 200) return -2.2;
+      return -0.2 + phase * 0.004;
+    });
+
+    final waveform = prepareEcgDisplayWaveform(
+      samples,
+      maximumPoints: 1200,
+      sampleFrequency: frequency,
+      removeContactArtifacts: true,
+    );
+
+    expect(waveform.samples, isEmpty);
+    expect(waveform.hasVariation, isFalse);
+  });
+
   test('long internal signal loss is not presented as continuous ECG', () {
     const frequency = 250;
     List<num> validSignal(int seconds) => List<num>.generate(

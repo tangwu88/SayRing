@@ -440,7 +440,7 @@ void main() {
   });
 
   test(
-    'measurement sentinels do not complete until a real W9S result arrives',
+    'measurement sentinels finish with guidance before a retry succeeds',
     () async {
       final wearable = _QaWearable();
       final store = MemoryHealthStore();
@@ -466,9 +466,11 @@ void main() {
       wearable.emitMeasurement('invalid-heart', 'heart_rate', 1, 'bpm');
       await Future<void>.delayed(Duration.zero);
       expect(controller.latestByMetric[HealthMetric.heartRate], isNull);
-      expect(controller.deviceState, DeviceConnectionState.measuring);
+      expect(controller.deviceState, DeviceConnectionState.ready);
+      expect(controller.measurementErrorMessage, contains('结果无效'));
       expect(await store.pending(), isEmpty);
 
+      expect(await controller.startMeasurement(HealthMetric.heartRate), isTrue);
       wearable.emitMeasurement('valid-heart', 'heart_rate', 78, 'bpm');
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
@@ -485,8 +487,13 @@ void main() {
       wearable.emitMeasurement('invalid-oxygen', 'blood_oxygen', 1, '%');
       await Future<void>.delayed(Duration.zero);
       expect(controller.latestByMetric[HealthMetric.bloodOxygen], isNull);
-      expect(controller.deviceState, DeviceConnectionState.measuring);
+      expect(controller.deviceState, DeviceConnectionState.ready);
+      expect(controller.measurementErrorMessage, contains('结果无效'));
 
+      expect(
+        await controller.startMeasurement(HealthMetric.bloodOxygen),
+        isTrue,
+      );
       wearable.emitMeasurement('valid-oxygen', 'blood_oxygen', 97, '%');
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
