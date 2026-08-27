@@ -57,3 +57,13 @@
 - 最终回归：`flutter analyze lib test` 无问题，`flutter test --no-pub` 192 项全部通过，Android Debug APK 构建成功。最终包仅比完成真实测量的候选包增加上述趋势页合并修复，测量、SDK 与存储实现未再改动。
 - 最终安装：版本 `0.1.19 (23)`，手机 `lastUpdateTime=2026-08-27 13:57:41`。本地 APK 与手机 `/data/app/.../base.apk` 均为 218,127,098 字节，SHA-256 均为 `39705419e742a4c2a7b08f40c1e5bd6b143a0d002fec8dfeb0de3f9776ef5ed8`；APK v2 签名验证通过，证书 SHA-256 为 `3ae71cff9ad924e28e4e4a5086a8b3dedf4332d9c574b5b564ed08bce2617eae`。
 - 最终包复查：覆盖安装后进入心电详情，仍显示平均 83.2、最大 86、最小 77、记录数 5 条、最新值 86；异常日志为空。
+
+## 15:05 AI 输入区、关爱身份、运动能力与心电实时波形
+
+- Git 基线：修改前工作树干净，本地 `main`、已知 `origin/main` 均为 `d66ae091c809beb19c132a269c8088264bbb9985`；本轮在线 `fetch --prune` 遇到 GitHub 连接重置，因此没有声称重新确认远端最新，也没有拉取或覆盖本地内容。
+- AI 健康管家：消息提交后立即收起键盘和输入区，底部仅保留“正在回复…”/“继续提问”轻量入口；失败时自动恢复输入区，点击“继续提问”可恢复焦点，保持多轮对话能力。
+- 远程关爱：严格沿用小程序 `/api/v1/member/care/my` 的 `item.member.nickname`、`mobile`、`head_portrait` 数据结构；头像相对路径转换为当前 API 域名的绝对地址，成员卡实际展示头像并保留加载失败占位。兼容旧服务曾返回的 `to_member`/`care_member` 别名，但不会把完整会员行或密码字段放入应用状态。
+- 运动一致性：Android 从 Veepoo 功能包读取 `sportModelFunction` 与 `multSportMode`。多运动设备才向 App 上报跑步、步行、骑行、徒步并调用 `startMultSportModel(ESportType)`；单运动 D5 设备只上报跑步并调用与小程序一致的 `startSportModel`；两项都未上报时隐藏入口并提示在手表端开始，杜绝把 App 文案与手表实际模式强行对应。
+- 心电实时波形：不平滑、不缩放、不合成 SDK 样本。实时基线改为锚定最新 0.8 秒，只有末尾连续稳定接触段进入绘图；接触建立前导轨、无效哨兵及孤立转换器复位均作为路径断点。修复附件所示“早期导轨占据中位数，形成贯穿全高竖线”的显示问题，不改变已保存历史数据和最终质量门槛。
+- 自动化与构建：专项 90 项通过；`flutter analyze --no-pub lib test` 无问题；全量 `flutter test --no-pub` 共 196 项全部通过；Android Debug APK 编译成功，APK SHA-256 为 `00c0729b1e037836de19f5f5ec6072f389677cc4b3835c0f5710da901cd69bd8`，证书 SHA-256 仍为 `3ae71cff9ad924e28e4e4a5086a8b3dedf4332d9c574b5b564ed08bce2617eae`。
+- 真机状态：华为 JAD-AL00 已连接，但覆盖安装时手机进入密码锁屏，系统包安装会话等待解锁；安装、W9S 运动能力上报和真实心电接触回归尚未完成，不能提前标记为真机通过。

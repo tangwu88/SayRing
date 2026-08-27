@@ -319,7 +319,13 @@ class SaydianApiClient
         .whereType<Map>()
         .map((value) {
           final relation = value.map((key, value) => MapEntry('$key', value));
-          final rawMember = relation['member'];
+          // The mini-program renders `item.member`. Keep that as the primary
+          // contract, while accepting the two relation aliases returned by
+          // older deployments of the same endpoint.
+          final rawMember =
+              relation['member'] ??
+              relation['to_member'] ??
+              relation['care_member'];
           final member = rawMember is Map
               ? rawMember.map((key, value) => MapEntry('$key', value))
               : const <String, Object?>{};
@@ -336,6 +342,10 @@ class SaydianApiClient
             ])
               if (member.containsKey(key)) key: member[key],
           };
+          final rawAvatar = '${safeMember['head_portrait'] ?? ''}'.trim();
+          if (rawAvatar.isNotEmpty) {
+            safeMember['head_portrait'] = _absoluteMediaUrl(rawAvatar);
+          }
           return <String, Object?>{
             for (final key in const [
               'id',

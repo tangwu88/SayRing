@@ -1803,9 +1803,17 @@ class _SportEntryPanel extends StatelessWidget {
               final enlarged = MediaQuery.textScalerOf(context).scale(1) > 1.25;
               final columns = enlarged ? 2 : 4;
               final width = constraints.maxWidth / columns;
+              final modes = controller.availableSportModes;
+              if (modes.isEmpty) {
+                return const _InlineNotice(
+                  message: '当前手表未开放由 APP 启动的运动模式，请直接在手表上开始运动。',
+                  icon: Icons.watch_rounded,
+                  color: SaydianColors.orange,
+                );
+              }
               return Wrap(
                 children: [
-                  for (final mode in SportMode.values)
+                  for (final mode in modes)
                     SizedBox(
                       width: width,
                       child: _SportEntry(
@@ -2629,15 +2637,14 @@ class _LiveEcgPainter extends CustomPainter {
     final frequency = sampleFrequency.clamp(50, 1000);
     final xStep = smallGrid * 25 / frequency;
     final capacity = math.max(2, (size.width / xStep).ceil() + 1);
-    final finite = samples
-        .where((sample) => sample.isFinite && sample.toInt() != 0x7fffffff)
-        .map((sample) => sample.toDouble())
-        .toList(growable: false);
-    final visible = finite.length > capacity
-        ? finite.sublist(finite.length - capacity)
-        : finite;
+    final visible = samples.length > capacity
+        ? samples.sublist(samples.length - capacity)
+        : samples;
     if (visible.length < 2) return;
-    final displaySamples = prepareLiveEcgTrace(visible);
+    final displaySamples = prepareLiveEcgTrace(
+      visible,
+      sampleFrequency: frequency,
+    );
     final baseline = size.height * .58;
     final path = Path();
     final firstX = size.width - (displaySamples.length - 1) * xStep;
@@ -3327,7 +3334,9 @@ class AiChatPage extends StatefulWidget {
 
 class _AiChatPageState extends State<AiChatPage> {
   final _input = TextEditingController();
+  final _inputFocus = FocusNode();
   final _messages = ScrollController();
+  bool _composerVisible = true;
 
   @override
   void initState() {
@@ -3338,6 +3347,7 @@ class _AiChatPageState extends State<AiChatPage> {
   @override
   void dispose() {
     _input.dispose();
+    _inputFocus.dispose();
     _messages.dispose();
     super.dispose();
   }
@@ -3350,6 +3360,8 @@ class _AiChatPageState extends State<AiChatPage> {
   Future<void> _send() async {
     final message = _input.text;
     if (message.trim().isEmpty) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _composerVisible = false);
     _scrollToLatest();
     final sent = await widget.controller.sendAiMessage(
       app: widget.app,
@@ -3358,7 +3370,16 @@ class _AiChatPageState extends State<AiChatPage> {
     if (sent) {
       _input.clear();
       _scrollToLatest();
+    } else if (mounted) {
+      setState(() => _composerVisible = true);
     }
+  }
+
+  void _showComposer() {
+    setState(() => _composerVisible = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _inputFocus.requestFocus();
+    });
   }
 
   void _scrollToLatest({bool jump = false}) {
@@ -3501,35 +3522,52 @@ class _AiChatPageState extends State<AiChatPage> {
                       },
                     ),
             ),
-            SafeArea(
-              top: false,
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  border: Border(top: BorderSide(color: Color(0x11000000))),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _input,
-                        minLines: 1,
-                        maxLines: 4,
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => _send(),
-                        decoration: const InputDecoration(hintText: '请输入消息…'),
+            if (_composerVisible)
+              SafeArea(
+                top: false,
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border: Border(top: BorderSide(color: Color(0x11000000))),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          key: const Key('ai-message-input'),
+                          controller: _input,
+                          focusNode: _inputFocus,
+                          minLines: 1,
+                          maxLines: 4,
+                          textInputAction: TextInputAction.send,
+                          onSubmitted: (_) => _send(),
+                          decoration: const InputDecoration(hintText: '请输入消息…'),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 9),
-                    IconButton.filled(
-                      onPressed: widget.controller.isBusy ? null : _send,
-                      icon: const Icon(Icons.send_rounded),
-                    ),
-                  ],
+                      const SizedBox(width: 9),
+                      IconButton.filled(
+                        onPressed: widget.controller.isBusy ? null : _send,
+                        icon: const Icon(Icons.send_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              SafeArea(
+                top: false,
+                minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.tonalIcon(
+                    key: const Key('ai-show-composer'),
+                    onPressed: widget.controller.isBusy ? null : _showComposer,
+                    icon: const Icon(Icons.edit_rounded),
+                    label: Text(widget.controller.isBusy ? '正在回复…' : '继续提问'),
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ),
@@ -5117,10 +5155,9 @@ class _CarePageState extends State<CarePage> {
                       horizontal: 15,
                       vertical: 8,
                     ),
-                    leading: const CircleAvatar(
-                      backgroundColor: SaydianColors.brandRedSoft,
-                      foregroundColor: SaydianColors.brandRed,
-                      child: Icon(Icons.person_rounded),
+                    leading: _MemberAvatar(
+                      imageUrl: '${member['head_portrait'] ?? ''}'.trim(),
+                      size: 46,
                     ),
                     title: Text(
                       '${member['nickname'] ?? member['mobile'] ?? '关爱成员'}',

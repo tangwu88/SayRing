@@ -37,7 +37,7 @@ void main() {
       (_) async => http.Response(
         '''{"code":200,"data":[{"id":7,"member_id":1,"to_member_id":2,
         "member":{"id":2,"nickname":"妈妈","mobile":"13800138000",
-        "head_portrait":"https://example.invalid/a.png","password_hash":"secret"}}]}''',
+        "head_portrait":"/a.png","password_hash":"secret"}}]}''',
         200,
         headers: {'content-type': 'application/json; charset=utf-8'},
       ),
@@ -51,8 +51,33 @@ void main() {
     final member = (await api.getCareMembers()).single;
     expect(member['nickname'], '妈妈');
     expect(member['mobile'], '13800138000');
+    expect(member['head_portrait'], 'https://example.invalid/a.png');
     expect(member.toString(), isNot(contains('password_hash')));
   });
+
+  test(
+    'care member identity accepts the legacy to_member relation alias',
+    () async {
+      final client = MockClient(
+        (_) async => http.Response(
+          '''{"code":200,"data":[{"id":8,"to_member":{"id":3,
+        "nickname":"爸爸","mobile":"13900139000","head_portrait":"avatar/b.png"}}]}''',
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      );
+      final api = SaydianApiClient(
+        _authenticatedVault(),
+        client: client,
+        baseUri: Uri.parse('https://example.invalid'),
+      );
+
+      final member = (await api.getCareMembers()).single;
+      expect(member['nickname'], '爸爸');
+      expect(member['mobile'], '13900139000');
+      expect(member['head_portrait'], 'https://example.invalid/avatar/b.png');
+    },
+  );
 
   test('add care uses the mini-program authenticated JSON contract', () async {
     final vault = MemorySessionVault()

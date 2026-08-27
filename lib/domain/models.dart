@@ -57,6 +57,13 @@ enum SportMode {
     (mode) => mode.wireName == value,
     orElse: () => SportMode.running,
   );
+
+  static SportMode? tryFromWire(String value) {
+    for (final mode in values) {
+      if (mode.wireName == value) return mode;
+    }
+    return null;
+  }
 }
 
 class SportRecord {
@@ -309,6 +316,7 @@ class DeviceCapabilities {
   const DeviceCapabilities({
     required this.metrics,
     this.manualMetrics,
+    this.sportModes,
     this.features = const <DeviceFeature>{},
     this.integratedFeatures = const <DeviceFeature>{},
     this.supportsBackgroundSync = false,
@@ -318,6 +326,12 @@ class DeviceCapabilities {
 
   final Set<HealthMetric> metrics;
   final Set<HealthMetric>? manualMetrics;
+
+  /// Sports that the connected watch can enter from the phone.
+  ///
+  /// `null` means an older bridge did not report this capability. An empty
+  /// set is a resolved device that does not expose app-controlled sports.
+  final Set<SportMode>? sportModes;
   final Set<DeviceFeature> features;
   final Set<DeviceFeature> integratedFeatures;
   final bool supportsBackgroundSync;
@@ -334,6 +348,13 @@ class DeviceCapabilities {
     final manualMetrics = rawManualMetrics is List
         ? rawManualMetrics
               .map((value) => HealthMetric.fromWire('$value'))
+              .toSet()
+        : null;
+    final rawSportModes = map['sportModes'];
+    final sportModes = rawSportModes is List
+        ? rawSportModes
+              .map((value) => SportMode.tryFromWire('$value'))
+              .whereType<SportMode>()
               .toSet()
         : null;
     final features = rawFeatures is List
@@ -355,6 +376,7 @@ class DeviceCapabilities {
     return DeviceCapabilities(
       metrics: metrics,
       manualMetrics: manualMetrics,
+      sportModes: sportModes,
       features: features,
       integratedFeatures: integratedFeatures,
       supportsBackgroundSync: map['supportsBackgroundSync'] == true,
@@ -374,6 +396,8 @@ class DeviceCapabilities {
     'metrics': metrics.map((metric) => metric.wireName).toList(),
     if (manualMetrics != null)
       'manualMetrics': manualMetrics!.map((metric) => metric.wireName).toList(),
+    if (sportModes != null)
+      'sportModes': sportModes!.map((mode) => mode.wireName).toList(),
     'features': features.map((feature) => feature.wireName).toList(),
     'integratedFeatures': integratedFeatures
         .map((feature) => feature.wireName)

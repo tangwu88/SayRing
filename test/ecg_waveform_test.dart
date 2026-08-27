@@ -409,6 +409,46 @@ void main() {
     expect(trace[5], closeTo(0.025, 0.0001));
   });
 
+  test(
+    'live W9S trace drops settling rails before the newest stable beats',
+    () {
+      const frequency = 250;
+      final samples = <num>[
+        for (var index = 0; index < frequency * 2; index++)
+          index.isEven ? -8.0 : 8.0,
+        for (var index = 0; index < frequency * 2; index++)
+          0.06 * math.sin(index / 9) +
+              (index % frequency >= 45 && index % frequency < 50 ? 1.1 : 0),
+      ];
+
+      final trace = prepareLiveEcgTrace(samples, sampleFrequency: frequency);
+
+      expect(trace.take(frequency * 2).whereType<double>(), isEmpty);
+      expect(
+        trace.skip(frequency * 2).whereType<double>().length,
+        greaterThan(frequency),
+      );
+      expect(
+        trace
+            .skip(frequency * 2)
+            .whereType<double>()
+            .map((value) => value.abs())
+            .reduce(math.max),
+        lessThan(2),
+      );
+    },
+  );
+
+  test('live alternating converter rails remain blank', () {
+    const frequency = 250;
+    final trace = prepareLiveEcgTrace(
+      List<num>.generate(frequency * 2, (index) => index.isEven ? -2.2 : 2.2),
+      sampleFrequency: frequency,
+    );
+
+    expect(trace.whereType<double>(), isEmpty);
+  });
+
   test('usable ECG quality rejects a converter-rail stream', () {
     const frequency = 250;
     final invalid = List<num>.generate(

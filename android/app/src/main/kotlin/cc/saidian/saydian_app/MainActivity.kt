@@ -4155,21 +4155,28 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 "hiking" -> ESportType.HIKE
                 else -> ESportType.OUTDOOR_RUNNING
             }
-        // `setSportControlInfo` only controls an already supported app-sport
-        // session on some firmware and W9S interprets that command as jump
-        // rope. The vendor's multi-sport entry API carries ESportType to the
-        // watch UI, which is the required run/walk/ride/hike behaviour.
+        val supportsMultiSport = supportsMultiSportMode()
+        val supportsSingleSport = supportsSingleSportMode()
+        if (!supportsMultiSport && (!supportsSingleSport || mode != "running")) {
+            callback.error(
+                "SPORT_MODE_UNSUPPORTED",
+                if (supportsSingleSport) {
+                    "当前手表仅支持由 APP 开启跑步模式"
+                } else {
+                    "当前手表未开放由 APP 开启运动模式"
+                },
+            )
+            return
+        }
         activeSportUsesAppControl = false
         activeControlledSportType = sportType
-        Log.i(LOG_TAG, "start sport multi-model mode=$mode type=${sportType.name}")
-        manager.startMultSportModel(
-            writeResponse(callback, "运动模式暂时无法开启"),
+        val listener =
             object : ISportModelStateListener {
                 override fun onSportModelStateChange(data: SportModelStateData) {
                     val returnedMode = data.sportModeType
                     Log.i(
                         LOG_TAG,
-                        "sport multi-model requested=${sportType.name} returnedMode=$returnedMode mapped=${sportModeName(returnedMode)}",
+                        "sport requested=${sportType.name} multi=$supportsMultiSport returnedMode=$returnedMode mapped=${sportModeName(returnedMode)}",
                     )
                     emit(
                         "sportState",
@@ -4187,10 +4194,35 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 override fun onSportStopped() {
                     emit("sportState", mapOf("value" to "stopped", "mode" to mode))
                 }
-            },
-            sportType,
+            }
+        Log.i(
+            LOG_TAG,
+            "start sport mode=$mode type=${sportType.name} multi=$supportsMultiSport single=$supportsSingleSport",
         )
+        if (supportsMultiSport) {
+            manager.startMultSportModel(
+                writeResponse(callback, "运动模式暂时无法开启"),
+                listener,
+                sportType,
+            )
+        } else {
+            // D5 single-sport devices do not accept an ESportType. This is the
+            // same start command used by the mini-program and represents the
+            // device's sole app-controlled running mode.
+            manager.startSportModel(
+                writeResponse(callback, "跑步模式暂时无法开启"),
+                listener,
+            )
+        }
     }
+
+    private fun supportsMultiSportMode(): Boolean =
+        functionPackage2?.multSportMode.haveFunction() ||
+            legacyFunctionData?.multSportModel.haveFunction()
+
+    private fun supportsSingleSportMode(): Boolean =
+        functionPackage2?.sportModelFunction.haveFunction() ||
+            legacyFunctionData?.sportModel.haveFunction()
 
     private fun isSystemBluetoothEnabled(): Boolean =
         try {
@@ -7068,6 +7100,16 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         if (directHrvMeasurementSupported || hrvMiniCheckupSupported) manualMetrics += "hrv"
         if (bodyComponentSupported) manualMetrics += "body_composition"
         if (bloodComponentSupported) manualMetrics += "blood_composition"
+        val sportModes =
+            when {
+                supportsMultiSportMode() -> listOf("running", "walking", "cycling", "hiking")
+                supportsSingleSportMode() -> listOf("running")
+                else -> emptyList()
+            }
+        Log.i(
+            LOG_TAG,
+            "sport capabilities single=${supportsSingleSportMode()} multi=${supportsMultiSportMode()} modes=$sportModes",
+        )
         val features = mutableListOf<String>()
         val legacyAutoMeasureTypes = legacyAutoMeasureTypes(preferences)
         val supportsHealthMonitoring =
@@ -7164,6 +7206,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             "resolved" to true,
             "metrics" to metrics,
             "manualMetrics" to manualMetrics,
+            "sportModes" to sportModes,
             "features" to features.distinct(),
             "integratedFeatures" to integratedFeatures,
             "supportsBackgroundSync" to true,
@@ -7254,6 +7297,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 "resolved" to false,
                 "metrics" to emptyList<String>(),
                 "manualMetrics" to emptyList<String>(),
+                "sportModes" to emptyList<String>(),
                 "features" to emptyList<String>(),
                 "integratedFeatures" to emptyList<String>(),
                 "supportsBackgroundSync" to false,

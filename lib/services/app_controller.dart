@@ -144,6 +144,16 @@ class AppController extends ChangeNotifier {
       _hasResolvedDeviceCapabilities &&
       capabilities?.supportsManualMeasurement(metric) == true;
 
+  List<SportMode> get availableSportModes {
+    final reported = capabilities?.sportModes;
+    if (connectedDevice == null ||
+        !_hasResolvedDeviceCapabilities ||
+        reported == null) {
+      return SportMode.values;
+    }
+    return SportMode.values.where(reported.contains).toList(growable: false);
+  }
+
   Future<void> initialize() async {
     _deviceStates = deviceMachine.changes.listen((_) => notifyListeners());
     _connectivity = Connectivity().onConnectivityChanged.listen((results) {
@@ -860,6 +870,14 @@ class AppController extends ChangeNotifier {
   Future<bool> startSport(SportMode mode) async {
     if (connectedDevice == null) {
       errorMessage = '请先连接手表后再开始运动';
+      notifyListeners();
+      return false;
+    }
+    final reportedModes = capabilities?.sportModes;
+    if (_hasResolvedDeviceCapabilities &&
+        reportedModes != null &&
+        !reportedModes.contains(mode)) {
+      errorMessage = '当前手表不支持从 APP 开启${mode.label}';
       notifyListeners();
       return false;
     }

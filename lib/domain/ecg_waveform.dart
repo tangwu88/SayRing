@@ -29,6 +29,7 @@ class EcgDisplayWaveform {
 /// that looks like a heartbeat even though the device did not report one.
 List<double?> prepareLiveEcgTrace(
   Iterable<num> source, {
+  int sampleFrequency = 250,
   double maximumDeviationMv = 2.5,
 }) {
   final raw = source.toList(growable: false);
@@ -38,16 +39,95 @@ List<double?> prepareLiveEcgTrace(
       .toList(growable: false);
   if (finite.isEmpty) return List<double?>.filled(raw.length, null);
 
-  final sorted = [...finite]..sort();
-  final middle = sorted.length ~/ 2;
-  final baseline = sorted.length.isOdd
-      ? sorted[middle]
-      : (sorted[middle - 1] + sorted[middle]) / 2;
+  // Keep the compact helper behaviour deterministic for unit-sized previews.
+  // A real SDK callback contains many more than 16 points and follows the
+  // contact-aware branch below.
+  if (raw.length < 16) {
+    final sorted = [...finite]..sort();
+    final baseline = _percentile(sorted, 0.5);
+    return raw
+        .map<double?>((sample) {
+          if (!sample.isFinite || sample.toInt() == 0x7fffffff) return null;
+          final centered = sample.toDouble() - baseline;
+          return centered.abs() <= maximumDeviationMv ? centered : null;
+        })
+        .toList(growable: false);
+  }
+
+  // Contact is established at the end of the live buffer. Deriving the
+  // baseline from the complete window lets the alternating converter rails at
+  // the beginning dominate the median, which produced the full-height lines
+  // seen on W9S. Anchor the baseline to the newest 0.8 seconds instead and
+  // retain only a continuous stable suffix. No missing point is interpolated.
+  final frequency = sampleFrequency.clamp(50, 1000);
+  final anchorLength = math.min(
+    raw.length,
+    math.max(16, (frequency * .8).round()),
+  );
+  final anchor = raw
+      .skip(raw.length - anchorLength)
+      .where((value) => value.isFinite && value.toInt() != 0x7fffffff)
+      .map((value) => value.toDouble())
+      .toList(growable: false);
+  if (anchor.length < math.max(8, anchorLength ~/ 2)) {
+    return List<double?>.filled(raw.length, null);
+  }
+  final anchorSorted = [...anchor]..sort();
+  final baseline = _percentile(anchorSorted, 0.5);
+  final deviations =
+      anchor.map((value) => (value - baseline).abs()).toList(growable: false)
+        ..sort();
+  final adaptiveDeviation = math.max(.35, _percentile(deviations, .99) * 1.35);
+  final allowedDeviation = math.min(maximumDeviationMv, adaptiveDeviation);
+  final valid = raw
+      .map(
+        (sample) =>
+            sample.isFinite &&
+            sample.toInt() != 0x7fffffff &&
+            (sample.toDouble() - baseline).abs() <= allowedDeviation,
+      )
+      .toList(growable: false);
+
+  // An isolated excursion that immediately returns to the same baseline is a
+  // converter reset, not a QRS complex. Mark it as a gap before testing the
+  // stable suffix so alternating rail data cannot qualify as valid contact.
+  for (var index = 1; index < raw.length - 1; index++) {
+    if (!valid[index - 1] || !valid[index] || !valid[index + 1]) continue;
+    final previous = raw[index - 1].toDouble();
+    final current = raw[index].toDouble();
+    final next = raw[index + 1].toDouble();
+    if ((current - previous).abs() > 2.0 &&
+        (next - current).abs() > 2.0 &&
+        (next - previous).abs() <= .3) {
+      valid[index] = false;
+    }
+  }
+
+  final stableWindow = math.min(
+    raw.length,
+    math.max(16, (frequency * .4).round()),
+  );
+  final minimumValid = (stableWindow * .95).ceil();
+  var stableStart = raw.length - stableWindow;
+  var validCount = valid.skip(stableStart).where((sample) => sample).length;
+  if (validCount < minimumValid) {
+    return List<double?>.filled(raw.length, null);
+  }
+  while (stableStart > 0) {
+    final entering = valid[stableStart - 1];
+    final leaving = valid[stableStart + stableWindow - 1];
+    final nextCount = validCount + (entering ? 1 : 0) - (leaving ? 1 : 0);
+    if (nextCount < minimumValid) break;
+    stableStart--;
+    validCount = nextCount;
+  }
+
   return raw
-      .map<double?>((sample) {
-        if (!sample.isFinite || sample.toInt() == 0x7fffffff) return null;
-        final centered = sample.toDouble() - baseline;
-        return centered.abs() <= maximumDeviationMv ? centered : null;
+      .asMap()
+      .entries
+      .map<double?>((entry) {
+        if (entry.key < stableStart || !valid[entry.key]) return null;
+        return entry.value.toDouble() - baseline;
       })
       .toList(growable: false);
 }

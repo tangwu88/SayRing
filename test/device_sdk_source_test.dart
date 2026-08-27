@@ -78,4 +78,17 @@ void main() {
       );
     },
   );
+
+  test('device capabilities expose only app-controlled watch sports', () {
+    final capabilities = DeviceCapabilities.fromMap({
+      'metrics': <String>[],
+      'sportModes': ['running', 'walking', 'unknown'],
+    });
+
+    expect(capabilities.sportModes, {SportMode.running, SportMode.walking});
+    expect(
+      capabilities.toJson()['sportModes'],
+      containsAll(['running', 'walking']),
+    );
+  });
 }
