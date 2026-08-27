@@ -4,6 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/ecg_waveform.dart';
 
 void main() {
+  test('live ECG grid follows HBandSDK 16-by-5 vertical calibration', () {
+    expect(liveEcgVerticalMinorGridCount, 80);
+    expect(liveEcgMinorGridSize(640), 8);
+  });
+
   test('min/max bucket downsampling keeps narrow ECG peaks', () {
     final samples = List<num>.generate(
       5000,

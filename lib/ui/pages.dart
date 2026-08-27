@@ -2613,7 +2613,10 @@ class _LiveEcgPainter extends CustomPainter {
     // timing (25 mm/s) and voltage (10 mm/mV). This path intentionally uses
     // the calibrated ADC samples directly: history denoising would deform a
     // short, still-growing live window.
-    final smallGrid = math.max(3.0, size.height / 32);
+    // Match HBandSDK's EcgHeartRealthView: 16 major vertical squares, each
+    // split into five minor squares. The previous 32-row grid magnified the
+    // same calibrated mV samples by 2.5x and clipped W9S traces to the rails.
+    final smallGrid = liveEcgMinorGridSize(size.height);
     final thinGrid = Paint()
       ..color = const Color(0x334B1B22)
       ..strokeWidth = .7;

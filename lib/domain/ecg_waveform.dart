@@ -1,5 +1,14 @@
 import 'dart:math' as math;
 
+/// HBandSDK's reference live ECG view uses 16 major vertical squares, with
+/// five minor squares per major square. Keeping this ratio is important: the
+/// SDK's calibrated millivolt samples are otherwise visually amplified and
+/// clipped at the top and bottom of the chart.
+const int liveEcgVerticalMinorGridCount = 80;
+
+double liveEcgMinorGridSize(double chartHeight) =>
+    chartHeight / liveEcgVerticalMinorGridCount;
+
 /// ECG samples prepared for display without inventing waveform data.
 ///
 /// The SDK can return a long, high-frequency series containing occasional
