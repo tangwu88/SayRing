@@ -666,7 +666,11 @@ void main() {
     expect(controller.deviceState, DeviceConnectionState.measuring);
     expect(controller.measurementErrorMessage, isNull);
 
-    await tester.pump(const Duration(seconds: 45));
+    await tester.pump(const Duration(seconds: 74));
+    expect(controller.deviceState, DeviceConnectionState.measuring);
+    expect(controller.measurementErrorMessage, isNull);
+
+    await tester.pump(const Duration(seconds: 11));
     expect(controller.deviceState, DeviceConnectionState.ready);
     expect(controller.measurementErrorMessage, contains('长时间未检测到有效结果'));
     expect(wearable.stops, 1);
@@ -980,6 +984,70 @@ void main() {
 
     expect(find.text('未检测到正确接触，请佩戴手表并按手表提示接触电极'), findsOneWidget);
     expect(find.text('测量进度 12%'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(wearable.stops, 1);
+  });
+
+  testWidgets('ECG wear flag keeps measurement open and asks for contact', (
+    tester,
+  ) async {
+    final wearable = _EventMeasurementWearable();
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      wearable,
+    );
+    await controller.initialize();
+    controller.connectedDevice = const DeviceInfo(id: 'watch-1', name: 'W9S');
+    controller.capabilities = const DeviceCapabilities(
+      metrics: {HealthMetric.ecg},
+    );
+    for (final state in const [
+      DeviceConnectionState.scanning,
+      DeviceConnectionState.connecting,
+      DeviceConnectionState.authenticating,
+      DeviceConnectionState.syncing,
+      DeviceConnectionState.ready,
+    ]) {
+      controller.deviceMachine.transition(state);
+    }
+    addTearDown(() async {
+      controller.dispose();
+      await wearable.close();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: HealthHistoryPage(
+          controller: controller,
+          metric: HealthMetric.ecg,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('health-measure-ecg')));
+    await tester.pump();
+    wearable.emit(
+      const WearableEvent(
+        type: 'measurementProgress',
+        payload: {
+          'metric': 'ecg',
+          'progress': 2,
+          'deviceState': 'FREE',
+          'wear': 1,
+        },
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('未检测到电极接触，请正确佩戴手表并将手指持续贴在心电电极上'), findsOneWidget);
+    expect(find.text('测量进度 2%'), findsOneWidget);
+    expect(controller.deviceState, DeviceConnectionState.measuring);
+    expect(controller.measurementErrorMessage, isNull);
 
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();

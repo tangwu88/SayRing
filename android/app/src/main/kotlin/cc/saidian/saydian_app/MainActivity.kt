@@ -659,6 +659,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private var latestEcgHrv = 0
     private var lastEcgAdcLogAt = 0L
     private var lastEcgStateLogAt = 0L
+    private var ecgWearFailureTask: Runnable? = null
     private var activeHrvUsesEcg = false
     private var activeHrvUsesMiniCheckup = false
     private var directHrvMeasurementSupported = false
@@ -5643,6 +5644,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     fun stopMeasurement(metric: String, callback: ResultCallback<Unit>) {
         measurementResultTimeoutTask?.let(connectionHandler::removeCallbacks)
         measurementResultTimeoutTask = null
+        if (metric == "ecg" || activeHrvUsesEcg) clearEcgWearFailure()
         val response = measurementStopWrite(callback, metric)
         when (metric) {
             "heart_rate" -> manager.stopDetectHeart(response)
@@ -5748,7 +5750,11 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private fun measurementResultTimeoutFor(metric: String): Long =
         when (metric) {
             "hrv" -> 180_000L
-            "ecg", "body_composition", "blood_composition" -> 120_000L
+            // W9S type-9 ECG completes at about 114 seconds in a real 500 Hz
+            // session. Leave enough time for the diagnosis callback and final
+            // waveform quality selection after progress reaches 100%.
+            "ecg" -> 150_000L
+            "body_composition", "blood_composition" -> 120_000L
             "blood_pressure" -> 140_000L
             else -> 75_000L
         }
@@ -6529,6 +6535,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private val pendingEcgPowerSamples = mutableListOf<Int>()
 
     private fun resetEcgMeasurementStream() {
+        clearEcgWearFailure()
         synchronized(activeEcgSamples) { activeEcgSamples.clear() }
         synchronized(pendingEcgRawSamples) {
             pendingEcgRawSamples.clear()
@@ -6652,13 +6659,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     ),
                 )
                 if (state.deviceState == EDeviceStatus.UNPASS_WEAR || state.wear == 1) {
-                    failMeasurement(
-                        metric,
-                        "ECG_NOT_WORN",
-                        "请正确佩戴手表，并将手指持续贴在心电电极上",
-                    )
+                    deferEcgWearFailure(metric)
                 } else if (state.progress >= 100) {
+                    clearEcgWearFailure()
                     deferEcgCompletion(metric)
+                } else {
+                    clearEcgWearFailure()
                 }
             }
 
@@ -6922,12 +6928,37 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 false
             } else {
                 activeMetric = null
+                if (metric == "ecg" || activeHrvUsesEcg) clearEcgWearFailure()
                 measurementResultTimeoutTask?.let(connectionHandler::removeCallbacks)
                 measurementResultTimeoutTask = null
                 Log.i(LOG_TAG, "measurement result accepted metric=$metric")
                 true
             }
         }
+
+    private fun deferEcgWearFailure(metric: String) {
+        if (ecgWearFailureTask != null) return
+        val task =
+            Runnable {
+                ecgWearFailureTask = null
+                if (activeMetric == metric) {
+                    Log.w(LOG_TAG, "ecg electrode contact grace expired metric=$metric")
+                    failMeasurement(
+                        metric,
+                        "ECG_NOT_WORN",
+                        "请正确佩戴手表，并将手指持续贴在心电电极上",
+                    )
+                }
+            }
+        ecgWearFailureTask = task
+        Log.i(LOG_TAG, "ecg electrode contact missing; allowing grace metric=$metric")
+        connectionHandler.postDelayed(task, ECG_CONTACT_GRACE_MS)
+    }
+
+    private fun clearEcgWearFailure() {
+        ecgWearFailureTask?.let(connectionHandler::removeCallbacks)
+        ecgWearFailureTask = null
+    }
 
     private fun selectEcgSamples(
         filteredSamples: List<Number>,
@@ -7733,6 +7764,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         private const val MEASUREMENT_STOP_SETTLE_MS = 1_200L
         private const val MEASUREMENT_STOP_CALLBACK_TIMEOUT_MS = 3_000L
         private const val ECG_RESULT_SETTLE_MS = 5_000L
+        // W9S reports wear=1 about two seconds after an app-side ECG start.
+        // Give the user time to move a finger onto the electrode instead of
+        // immediately sending a stop command and making the watch appear idle.
+        private const val ECG_CONTACT_GRACE_MS = 15_000L
         private const val ECG_MIN_SAMPLE_CHANGE_RATIO = 0.05
         private const val ECG_MIN_VALID_SAMPLE_RATIO = 0.95
         private const val ECG_MAX_DISPLAY_DEVIATION_MV = 2.5

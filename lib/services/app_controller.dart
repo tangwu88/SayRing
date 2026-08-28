@@ -834,7 +834,9 @@ class AppController extends ChangeNotifier {
 
   Duration _measurementTimeoutFor(HealthMetric metric) => switch (metric) {
     HealthMetric.hrv => const Duration(seconds: 180),
-    HealthMetric.ecg => const Duration(seconds: 120),
+    // Native owns the 150-second W9S result timeout. This longer Flutter
+    // watchdog prevents a race while the 500 Hz stream is settling at 100%.
+    HealthMetric.ecg => const Duration(seconds: 160),
     HealthMetric.bloodPressure => const Duration(seconds: 150),
     HealthMetric.bodyComposition ||
     HealthMetric.bloodComposition => const Duration(seconds: 90),
@@ -2184,6 +2186,7 @@ class AppController extends ChangeNotifier {
       'BLOOD_COMPONENT_LOW_BATTERY',
       'ECG_MEASUREMENT_FAILED',
       'ECG_NOT_WORN',
+      'ECG_RESULT_TIMEOUT',
       'HRV_MEASUREMENT_FAILED',
       'HRV_NOT_WORN',
       'HRV_DEVICE_BUSY',
@@ -2294,7 +2297,8 @@ class AppController extends ChangeNotifier {
                 .toInt() ??
             measurementProgress;
         measurementWearConfirmed =
-            '${event.payload['deviceState'] ?? ''}' != 'UNPASS_WEAR';
+            '${event.payload['deviceState'] ?? ''}' != 'UNPASS_WEAR' &&
+            (event.payload['wear'] as num?)?.toInt() != 1;
         final frequency = (event.payload['frequency'] as num?)?.toInt();
         if (frequency != null && frequency >= 50 && frequency <= 1000) {
           measurementSampleFrequency = frequency;
