@@ -115,3 +115,11 @@
 - 自动化与构建：`flutter analyze --no-pub` 零问题；`flutter test --no-pub` 共 219 项全部通过；Android 双架构 Debug APK 构建成功。最终包 `build/app/outputs/flutter-apk/app-debug.apk`，大小 `219974568` 字节，SHA-256 `33cc80070c337d69947ec8e93cedeee292ee5f4cfe9674187c248fd742e1a357`，已覆盖安装到华为 MED AL00，登录与关爱成员状态正常保留。
 - iOS 复测：iPhone 15 Pro Max / iOS 26.6 已完成 Debug 构建、签名、安装和启动，Runner 进程在启动后持续存活；最终检查 Android 与 iOS 进程均在，现有 Android 日志中未发现本应用 `FATAL EXCEPTION` 或 ANR。iOS 仍只有 `sqflite_sqlcipher`、`yc_product_plugin` 暂不支持 Swift Package Manager 的未来兼容警告，不影响当前 CocoaPods 构建与真机运行。
 - 尚未虚报通过的两项：W9S 心电在本轮有效接触条件不足，仍未获得可用于最终确认的新 ADC 波形；现有运动记录均为零值，仍缺少一条非零手表记录逐项核对距离、热量和类型。心电防伪波形、缺口处理和运动单位转换已有自动化覆盖，运动启动入口继续隐藏，需有有效手表样本后再完成最终真机闭环。
+
+## 22:01 iOS 桌面启动闪退定位与独立运行包复测
+
+- 现场复现：iPhone 15 Pro Max 上的赛电 App 从桌面启动后立即退出，已安装版本为开发签名 Debug 包，启动前没有 Runner 进程。
+- 系统根因：使用 `devicectl --console` 独立启动后，原生日志明确输出 `Cannot create a FlutterEngine instance in debug mode without Flutter tooling or Xcode`，随后进程收到 signal 11。该现象是 iOS 14 以后 Debug FlutterEngine 脱离 Flutter/Xcode 的运行限制，不是赛电页面、帐号、蓝牙或厂商 SDK 的业务崩溃。
+- 处理结果：重新执行 `flutter run --profile` 完成开发签名 Profile 构建、覆盖安装和首次启动。随后完全脱离 Flutter 工具，通过系统启动方式连续冷启动 3 次，每次等待 12 至 15 秒后 Runner 进程均持续存活，未再出现 Debug FlutterEngine 错误或启动闪退。
+- 交接约束：开发调试可继续使用 Debug，但必须保持 Flutter/Xcode 附加；需要从手机桌面独立体验时，必须安装 Profile、Ad Hoc、TestFlight 或 Release 包。README 已补充 Profile 真机安装命令，避免再次把 Debug 包当作独立测试包。
+- 构建告警：本次 Profile 构建仅保留既有 `sqflite_sqlcipher`、`yc_product_plugin` Swift Package Manager 未来兼容提示，不影响当前 CocoaPods 构建、签名、安装和启动。

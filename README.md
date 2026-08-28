@@ -58,6 +58,14 @@ cd ios && pod install && cd ..
 flutter build ios --release --no-codesign
 ```
 
+`flutter run --debug` 安装的 iOS Debug 包只能在 Flutter 工具或 Xcode 保持连接时运行；
+断开调试后从手机桌面启动，系统会因无法创建 Debug FlutterEngine 而终止进程。需要交给测试人员
+从桌面独立启动时，请安装已签名的 Profile、Ad Hoc 或 Release 包，例如：
+
+```bash
+flutter run --profile -d <iPhone-UDID> --no-pub --no-resident
+```
+
 ### Android 在线更新
 
 App 默认从 GitHub Releases 的最新版本检查 Android APK。发布新版本时先更新
