@@ -108,7 +108,7 @@ void main() {
         expect(request.url.queryParameters['date'], '1787760000');
         final type = request.url.queryParameters['type'];
         if (type != null) requestedTypes.add(type);
-        if (type == 'BloodPressure') {
+        if (type == null || type == 'BloodPressure') {
           return http.Response(
             '{"code":500,"message":"数据查询失败"}',
             200,
@@ -164,7 +164,7 @@ void main() {
           'sleep',
         ]),
       );
-      expect(requestedPaths, hasLength(12));
+      expect(requestedPaths, hasLength(13));
     },
   );
 
@@ -239,6 +239,104 @@ void main() {
       expect(glucose['min'], 5.8);
       expect(glucose['max'], 7.2);
       expect(glucose['avg'], 6.5);
+    },
+  );
+
+  test(
+    'care metrics fall back to shared raw daily rows when chart APIs fail',
+    () async {
+      var rawDailyRequests = 0;
+      final client = MockClient((request) async {
+        if (request.url.path == '/api/v1/member/care/preview') {
+          return http.Response(
+            '{"code":200,"data":{}}',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (request.url.path != '/api/v1/member/daily-date/preview') {
+          return http.Response(
+            '{"code":200,"data":[]}',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        expect(request.url.queryParameters['selectmember'], '87');
+        final type = request.url.queryParameters['type'];
+        if (type == null) {
+          rawDailyRequests += 1;
+          return http.Response(
+            r'''{"code":200,"data":[
+              {"time":"08:00","pulseReat":"[68]",
+               "bloodPressure":"{\"bloodPressureHigh\":118,\"bloodPressureLow\":76}",
+               "bloodGlucose":5.8,
+               "bloodOxygen":"{\"oxygens\":[97,0,0]}",
+               "bodyTemperature":"{\"bodyTemperature\":36.5}",
+               "HRVData":"[51]",
+               "sleepData":"{\"allSleepTime\":420}"},
+              {"time":"20:00","pulseReat":"[75]",
+               "bloodPressure":"{\"bloodPressureHigh\":128,\"bloodPressureLow\":82}",
+               "bloodGlucose":7.2,
+               "bloodOxygen":"{\"oxygens\":[98,0,0]}",
+               "bodyTemperature":"{\"bodyTemperature\":36.8}",
+               "HRVData":"[57]"}
+            ]}''',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (const {
+          'pulseReat',
+          'BloodPressure',
+          'BodyTemperature',
+          'HRV',
+        }.contains(type)) {
+          return http.Response(
+            '{"code":500,"message":"Internal Server Error"}',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response(
+          '{"code":200,"data":[]}',
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final api = SaydianApiClient(
+        _authenticatedVault(),
+        client: client,
+        baseUri: Uri.parse('https://example.invalid'),
+      );
+
+      final preview = await api.getCareMemberPreview(
+        id: 59,
+        memberId: 87,
+        day: '2026-08-27',
+      );
+      final daily = (preview['daily'] as List).cast<Map>();
+
+      expect(rawDailyRequests, 1);
+      expect(daily.singleWhere((item) => item['title'] == '心率')['latest'], 75);
+      expect(
+        daily.singleWhere((item) => item['title'] == '血压')['latest'],
+        '128/82',
+      );
+      expect(daily.singleWhere((item) => item['title'] == '血糖')['latest'], 7.2);
+      expect(daily.singleWhere((item) => item['title'] == '血氧')['latest'], 98);
+      expect(
+        daily.singleWhere((item) => item['title'] == '体温')['latest'],
+        36.8,
+      );
+      expect(daily.singleWhere((item) => item['title'] == 'HRV')['latest'], 57);
+      expect(daily.singleWhere((item) => item['title'] == '睡眠')['latest'], 420);
+      for (final title in const ['心率', '血压', '血糖', '血氧', '体温', 'HRV', '睡眠']) {
+        expect(
+          daily.singleWhere((item) => item['title'] == title)['state'],
+          'ready',
+          reason: title,
+        );
+      }
     },
   );
 

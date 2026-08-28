@@ -123,3 +123,13 @@
 - 处理结果：重新执行 `flutter run --profile` 完成开发签名 Profile 构建、覆盖安装和首次启动。随后完全脱离 Flutter 工具，通过系统启动方式连续冷启动 3 次，每次等待 12 至 15 秒后 Runner 进程均持续存活，未再出现 Debug FlutterEngine 错误或启动闪退。
 - 交接约束：开发调试可继续使用 Debug，但必须保持 Flutter/Xcode 附加；需要从手机桌面独立体验时，必须安装 Profile、Ad Hoc、TestFlight 或 Release 包。README 已补充 Profile 真机安装命令，避免再次把 Debug 包当作独立测试包。
 - 构建告警：本次 Profile 构建仅保留既有 `sqflite_sqlcipher`、`yc_product_plugin` Swift Package Manager 未来兼容提示，不影响当前 CocoaPods 构建、签名、安装和启动。
+
+## 22:25 远程关爱日数据回退与服务器序列化兼容
+
+- Git 基线：修改前已在线执行 `git fetch --prune`，本地调试分支、`origin/main` 与远程调试分支均为 `1b6a5c8a6e0a716ae0f2519391a91806c6f64d17`，工作树干净。
+- 真机根因：使用 iPhone 现有登录会话进行匿名结构诊断，不输出帐号、成员标识或健康数值。同一成员、日期和 `selectmember` 下，血糖、血氧接口返回 200，心率、血压、体温和 HRV 图表接口均返回业务 500 `Internal Server Error`；因此“服务暂不可用”来自后台指标聚合分支，不是 iOS 页面、授权、成员 ID 或日期参数错误。
+- 可用回退：`/api/v1/member/daily-date/preview` 不传 `type` 时能正常返回当天原始共享记录。App 现优先使用各指标图表接口；接口报错或没有有效记录时，仅对日常指标回退到这批原始记录，在本机计算最新值、最大、最小、平均和记录数。
+- 序列化兼容：后台原始记录把 `pulseReat`、`HRVData`、`bodyTemperature` 等复合字段保存为 JSON 字符串。客户端现递归解码 JSON 字符串、列表和对象，并兼容血压对象、双值列表及 `高压/低压` 字符串；无效值和 0 占位仍会过滤，不生成虚假健康结果。
+- 真机结果：回退后心率、体温和 HRV 从“服务暂不可用”恢复为真实非空记录。当前成员当天的血压、血氧和睡眠原始字段确实为空，页面改为“对方当日没有可共享的该项记录”，不再把后台聚合故障误报给用户，也不猜测缺失数值。血糖和血液成分继续使用原聚合接口。
+- 自动化：新增“指标聚合接口 500/空数据、原始日记录可用”的回归测试，覆盖字符串化心率、血压、血糖、血氧、体温、HRV 和睡眠数据，以及血压双值统计。`flutter analyze --no-pub` 零问题，完整 `flutter test --no-pub` 共 220 项全部通过。
+- iOS 安装：诊断结束后已重新构建并覆盖安装正常 Profile App；脱离 Flutter/Xcode 冷启动并等待 15 秒，Runner 进程持续存活。诊断入口和结构日志未保留在正式代码中。

@@ -1409,6 +1409,23 @@ class SaydianApiClient
     if (parsedDay == null) return const [];
     final localDay = DateTime(parsedDay.year, parsedDay.month, parsedDay.day);
     final date = '${localDay.millisecondsSinceEpoch ~/ 1000}';
+    Object? sharedDailyRows;
+    var sharedDailyRowsAvailable = false;
+    try {
+      final response = await _authorizedGet(
+        '/api/v1/member/daily-date/preview',
+        {'selectmember': '$memberId', 'date': date},
+      );
+      final payload = _decode(response);
+      sharedDailyRows = payload['data'];
+      sharedDailyRowsAvailable = true;
+    } on ApiException catch (error) {
+      if (error.statusCode == 401 ||
+          error.code == 'NETWORK_TIMEOUT' ||
+          error.code == 'NETWORK_UNAVAILABLE') {
+        rethrow;
+      }
+    }
     const specs =
         <({String title, String endpoint, String? type, String unit})>[
           (
@@ -1481,19 +1498,41 @@ class SaydianApiClient
           'date': date,
         });
         final payload = _decode(response);
+        final normalized = _normalizeCareMetric(
+          title: spec.title,
+          type: spec.type ?? spec.endpoint,
+          unit: spec.unit,
+          raw: payload['data'],
+        );
         result.add(
-          _normalizeCareMetric(
-            title: spec.title,
-            type: spec.type ?? spec.endpoint,
-            unit: spec.unit,
-            raw: payload['data'],
-          ),
+          spec.endpoint == '/api/v1/member/daily-date/preview' &&
+                  normalized['state'] != 'ready' &&
+                  sharedDailyRowsAvailable
+              ? _normalizeCareRawFallback(
+                  title: spec.title,
+                  type: spec.type ?? spec.endpoint,
+                  unit: spec.unit,
+                  raw: sharedDailyRows,
+                )
+              : normalized,
         );
       } on ApiException catch (error) {
         if (error.statusCode == 401 ||
             error.code == 'NETWORK_TIMEOUT' ||
             error.code == 'NETWORK_UNAVAILABLE') {
           rethrow;
+        }
+        if (spec.endpoint == '/api/v1/member/daily-date/preview' &&
+            sharedDailyRowsAvailable) {
+          result.add(
+            _normalizeCareRawFallback(
+              title: spec.title,
+              type: spec.type ?? spec.endpoint,
+              unit: spec.unit,
+              raw: sharedDailyRows,
+            ),
+          );
+          continue;
         }
         result.add(<String, Object?>{
           'title': spec.title,
@@ -1527,11 +1566,7 @@ class SaydianApiClient
         : payload['data'] is List
         ? payload['data'] as List
         : const [];
-    rawRecords.addAll(
-      directRows.whereType<Map>().map(
-        (row) => row.map((key, value) => MapEntry('$key', value)),
-      ),
-    );
+    rawRecords.addAll(directRows.whereType<Map>().map(_decodeCareRawRecord));
 
     final categories = payload['categories'];
     final series = payload['series'];
@@ -1614,6 +1649,46 @@ class SaydianApiClient
     };
   }
 
+  Map<String, Object?> _normalizeCareRawFallback({
+    required String title,
+    required String type,
+    required String unit,
+    required Object? raw,
+  }) {
+    final normalized = _normalizeCareMetric(
+      title: title,
+      type: type,
+      unit: unit,
+      raw: raw,
+    );
+    if (normalized['state'] == 'ready') return normalized;
+    return <String, Object?>{...normalized, 'tips': '对方当日没有可共享的该项记录'};
+  }
+
+  Map<String, Object?> _decodeCareRawRecord(Map<Object?, Object?> row) =>
+      row.map((key, value) => MapEntry('$key', _decodeCareRawValue(value)));
+
+  Object? _decodeCareRawValue(Object? value) {
+    if (value is String) {
+      final text = value.trim();
+      final isJsonContainer =
+          (text.startsWith('{') && text.endsWith('}')) ||
+          (text.startsWith('[') && text.endsWith(']')) ||
+          (text.startsWith('"') && text.endsWith('"'));
+      if (!isJsonContainer) return value;
+      try {
+        return _decodeCareRawValue(jsonDecode(text));
+      } on FormatException {
+        return value;
+      }
+    }
+    if (value is List) {
+      return value.map(_decodeCareRawValue).toList(growable: false);
+    }
+    if (value is Map) return _decodeCareRawRecord(value);
+    return value;
+  }
+
   void _putCareSeriesValue({
     required Map<String, Object?> record,
     required String title,
@@ -1621,6 +1696,7 @@ class SaydianApiClient
     required int seriesIndex,
     required Object? value,
   }) {
+    final decodedValue = _decodeCareRawValue(value);
     if (title == '血压') {
       final normalized = seriesName.toLowerCase();
       final high =
@@ -1634,11 +1710,11 @@ class SaydianApiClient
           normalized.contains('diastolic') ||
           normalized.contains('low');
       if (high || (!low && seriesIndex == 0)) {
-        record['bloodPressureHigh'] = value;
+        record['bloodPressureHigh'] = decodedValue;
       } else if (low || seriesIndex == 1) {
-        record['bloodPressureLow'] = value;
+        record['bloodPressureLow'] = decodedValue;
       } else {
-        record[seriesName] = value;
+        record[seriesName] = decodedValue;
       }
       return;
     }
@@ -1651,9 +1727,9 @@ class SaydianApiClient
       _ => null,
     };
     if (canonicalKey != null && seriesIndex == 0) {
-      record[canonicalKey] = value;
+      record[canonicalKey] = decodedValue;
     } else {
-      record[seriesName] = value;
+      record[seriesName] = decodedValue;
     }
   }
 
@@ -1793,6 +1869,11 @@ class SaydianApiClient
     final nested = pressure is Map
         ? pressure.map((key, value) => MapEntry('$key', value))
         : const <String, Object?>{};
+    final pair = pressure is List && pressure.length >= 2
+        ? (_carePositiveNumber(pressure[0]), _carePositiveNumber(pressure[1]))
+        : pressure is String
+        ? _carePressureStringPair(pressure)
+        : null;
     final high = _carePositiveNumber(
       record['bloodPressureHigh'] ??
           record['highPressure'] ??
@@ -1800,7 +1881,8 @@ class SaydianApiClient
           nested['bloodPressureHigh'] ??
           nested['highPressure'] ??
           nested['high'] ??
-          nested['systolic'],
+          nested['systolic'] ??
+          pair?.$1,
     );
     final low = _carePositiveNumber(
       record['bloodPressureLow'] ??
@@ -1809,9 +1891,18 @@ class SaydianApiClient
           nested['bloodPressureLow'] ??
           nested['lowPressure'] ??
           nested['low'] ??
-          nested['diastolic'],
+          nested['diastolic'] ??
+          pair?.$2,
     );
     return high == null || low == null ? null : (high, low);
+  }
+
+  (num?, num?)? _carePressureStringPair(String value) {
+    final match = RegExp(
+      r'^\s*(\d{2,3}(?:\.\d+)?)\s*[/,\-]\s*(\d{2,3}(?:\.\d+)?)\s*$',
+    ).firstMatch(value);
+    if (match == null) return null;
+    return (num.tryParse(match.group(1)!), num.tryParse(match.group(2)!));
   }
 
   num? _carePositiveNumber(
