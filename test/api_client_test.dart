@@ -470,55 +470,66 @@ void main() {
     expect(() => api.addCare('abc'), throwsA(isA<ApiException>()));
   });
 
-  test('AI chat and profile save mirror the mini-program JSON posts', () async {
-    var requestIndex = 0;
-    final client = MockClient((request) async {
-      requestIndex++;
-      expect(request.method, 'POST');
-      expect(request.headers['authorization'], 'Bearer test-access-token');
-      expect(request.headers['token'], 'test-access-token');
-      expect(request.headers['content-type'], contains('application/json'));
-      final body = jsonDecode(request.body);
-      if (requestIndex == 1) {
-        expect(request.url.path, '/api/rf-article/chat/create');
-        expect(body, {'app': 1, 'message': '你好', 'session_id': 'session-1'});
-        return http.Response(
-          '{"code":200,"data":{"message":"您好","session_id":"session-1"}}',
-          200,
-          headers: {'content-type': 'application/json; charset=utf-8'},
+  test(
+    'AI chat stays JSON while profile save uses the deployed form contract',
+    () async {
+      var requestIndex = 0;
+      final client = MockClient((request) async {
+        requestIndex++;
+        expect(request.method, 'POST');
+        expect(request.headers['authorization'], 'Bearer test-access-token');
+        expect(request.headers['token'], 'test-access-token');
+        if (requestIndex == 1) {
+          expect(request.headers['content-type'], contains('application/json'));
+          final body = jsonDecode(request.body);
+          expect(request.url.path, '/api/rf-article/chat/create');
+          expect(body, {'app': 1, 'message': '你好', 'session_id': 'session-1'});
+          return http.Response(
+            '{"code":200,"data":{"message":"您好","session_id":"session-1"}}',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        expect(request.url.path, '/api/v1/member/member/save');
+        expect(
+          request.headers['content-type'],
+          startsWith('multipart/form-data;'),
         );
-      }
-      expect(request.url.path, '/api/v1/member/member/save');
-      expect(body, {
-        'nickname': '测试用户',
-        'gender': 1,
-        'birthday': '1960-01-02',
-        'height': '168.5',
-        'weight': '62',
-        'head_portrait': 'https://app.saidian.cc/avatar.png',
+        final body = utf8.decode(request.bodyBytes);
+        for (final entry in const {
+          'nickname': '测试用户',
+          'gender': '1',
+          'birthday': '1960-01-02',
+          'height': '168.5',
+          'weight': '62',
+          'head_portrait': 'https://app.saidian.cc/avatar.png',
+        }.entries) {
+          expect(body, contains('name="${entry.key}"'));
+          expect(body, contains(entry.value));
+        }
+        return http.Response('{"code":200,"data":{}}', 200);
       });
-      return http.Response('{"code":200,"data":{}}', 200);
-    });
-    final api = SaydianApiClient(
-      _authenticatedVault(),
-      client: client,
-      baseUri: Uri.parse('https://example.invalid'),
-    );
+      final api = SaydianApiClient(
+        _authenticatedVault(),
+        client: client,
+        baseUri: Uri.parse('https://example.invalid'),
+      );
 
-    expect(
-      await api.sendAiMessage(app: 1, message: '你好', sessionId: 'session-1'),
-      containsPair('message', '您好'),
-    );
-    await api.saveMemberProfile(
-      nickname: '测试用户',
-      gender: 1,
-      birthday: '1960-01-02',
-      height: 168.5,
-      weight: 62,
-      headPortrait: 'https://app.saidian.cc/avatar.png',
-    );
-    expect(requestIndex, 2);
-  });
+      expect(
+        await api.sendAiMessage(app: 1, message: '你好', sessionId: 'session-1'),
+        containsPair('message', '您好'),
+      );
+      await api.saveMemberProfile(
+        nickname: '测试用户',
+        gender: 1,
+        birthday: '1960-01-02',
+        height: 168.5,
+        weight: 62,
+        headPortrait: 'https://app.saidian.cc/avatar.png',
+      );
+      expect(requestIndex, 2);
+    },
+  );
 
   test('profile avatar upload follows the mini-program file contract', () async {
     final file = File(

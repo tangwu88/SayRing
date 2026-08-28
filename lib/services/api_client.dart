@@ -420,13 +420,12 @@ class SaydianApiClient
     required double weight,
     String? headPortrait,
   }) async {
-    final response = await _authorizedPostJson('/api/v1/member/member/save', {
+    final response = await _authorizedPostFields('/api/v1/member/member/save', {
       'nickname': nickname.trim(),
-      'gender': gender,
+      'gender': '$gender',
       'birthday': birthday,
-      // The member API validates these two fields as strings even though the
-      // values are numeric. Keep the public Dart API typed and normalize only
-      // at the transport boundary.
+      // The deployed member module follows the original mini-program form
+      // contract and validates numeric profile values as strings.
       'height': _profileNumber(height),
       'weight': _profileNumber(weight),
       if (headPortrait?.isNotEmpty ?? false) 'head_portrait': headPortrait!,

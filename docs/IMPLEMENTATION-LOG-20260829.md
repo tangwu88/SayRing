@@ -1,5 +1,22 @@
 # 2026-08-29 实施与测试记录
 
+## 01:30 iPhone 12 个人资料保存失败（待真机点击确认）
+
+- Git 基线：修改前本地 `codex/ios-full-migration`、远程同名分支与 `origin/main` 均为 `e0ccc2ac147430d47f86f13bf44cccbe83ebffd1`；工作树干净。首次 `git fetch --prune origin` 因磁盘剩余空间不足失败，使用 `flutter clean` 仅删除可重建的 `build`、`.dart_tool` 和 Flutter 临时配置后释放约 7.7 GB，再次 fetch 成功并确认三方提交号一致。
+- Bug 名称：iPhone 12 个人资料保存失败。
+- 复现步骤：iPhone 12 / iOS 18.7.8 从个人资料页填写合法昵称、性别、生日、身高和体重后点击“保存资料”。
+- 预期结果：服务端保存并刷新个人资料，页面提示成功。
+- 实际结果：页面提示保存失败；影响等级 P1。
+- 根因证据：交付源码和离线历史中 `/api/v1/member/member/save` 均使用 multipart 表单，当前 App 后续改为 JSON；现网保存失败与提交协议偏移一致。
+- 修改文件：`lib/services/api_client.dart`、`test/api_client_test.dart`、本实施记录。
+- 影响范围：仅个人资料保存请求；AI、关爱、商城和头像文件上传协议不变。
+- 预期修复：恢复原小程序表单合约，`gender`、`height`、`weight` 在传输层转为字符串，保留 Dart 域模型的数值类型。
+- 自动化验证：`dart format` 和 `git diff --check` 通过；`test/api_client_test.dart` 39 项通过；`flutter analyze --no-pub` 零问题；`flutter test --no-pub` 共 232 项全部通过。
+- Android 构建：Debug/Release 均成功。Debug APK 为 `194258044` 字节，SHA-256 `fbd1581dc507f1b32cc755c9cd69fa0c4397b8ab749b3d9bfb7c9aaf953318a4`；Release APK 为 `91652360` 字节，SHA-256 `eced934ef2b27d57e748526659ba82a771e7cad8c013341550c83d6319870c17`。
+- iOS 构建：无签名 Debug/Profile 均成功；`xcodebuild build-for-testing -only-testing:RunnerTests` 成功，仅编译 RunnerTests，不虚报为已执行 XCTest。
+- iPhone 12：iOS 18.7.8 已完成最新签名 Profile 构建、安装和 Flutter 附加启动，运行期未发现新崩溃。真实账号的“保存资料”结果仍等待用户在已启动页面点击确认。
+- 磁盘处理：原生测试和双端构建完成后磁盘再次接近满载，第二次使用 `flutter clean` 删除可重建缓存并重新执行 `flutter pub get`，随后签名 Profile 构建成功；未删除源码、测试或用户数据。
+
 ## 00:00 关爱、跨端历史、运动、预警与 iOS 表盘修复
 
 - Git 基线：修改前已执行 `git fetch --prune origin`；本地 `codex/ios-full-migration`、远程调试分支与 `origin/main` 均为 `5d203f231c9901f7cf682c5a35e7c34890a0c1a1`。本轮保留已有修改现场，没有覆盖原型、交付源码或用户数据。
