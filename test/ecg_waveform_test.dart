@@ -444,6 +444,20 @@ void main() {
     },
   );
 
+  test('live ECG bridges a short transport gap between stable samples', () {
+    const frequency = 250;
+    final samples = List<num>.generate(
+      frequency * 2,
+      (index) => 0.08 * math.sin(index / 8),
+    );
+    samples[260] = 8;
+    samples[261] = -8;
+
+    final trace = prepareLiveEcgTrace(samples, sampleFrequency: frequency);
+
+    expect(trace.skip(220).take(100).where((value) => value == null), isEmpty);
+  });
+
   test('live alternating converter rails remain blank', () {
     const frequency = 250;
     final trace = prepareLiveEcgTrace(

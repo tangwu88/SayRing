@@ -113,6 +113,54 @@ List<double?> prepareLiveEcgTrace(
     }
   }
 
+  // Bridge very short transport gaps only when both sides already contain a
+  // stable contact run. This keeps the live line visually continuous without
+  // turning alternating converter rails into a fabricated waveform.
+  final displayValid = [...valid];
+  final centered = raw
+      .map((sample) => sample.toDouble() - baseline)
+      .toList(growable: false);
+  final maximumGap = math.max(1, (frequency * .04).round());
+  final minimumNeighbourRun = math.max(4, (frequency * .04).round());
+  var gapIndex = 0;
+  while (gapIndex < displayValid.length) {
+    if (displayValid[gapIndex]) {
+      gapIndex++;
+      continue;
+    }
+    final gapStart = gapIndex;
+    while (gapIndex < displayValid.length && !displayValid[gapIndex]) {
+      gapIndex++;
+    }
+    final gapEnd = gapIndex;
+    if (gapStart == 0 || gapEnd >= displayValid.length) continue;
+    var leftRun = 0;
+    for (var index = gapStart - 1; index >= 0 && displayValid[index]; index--) {
+      leftRun++;
+    }
+    var rightRun = 0;
+    for (
+      var index = gapEnd;
+      index < displayValid.length && displayValid[index];
+      index++
+    ) {
+      rightRun++;
+    }
+    final gapLength = gapEnd - gapStart;
+    if (gapLength > maximumGap ||
+        leftRun < minimumNeighbourRun ||
+        rightRun < minimumNeighbourRun) {
+      continue;
+    }
+    final previous = centered[gapStart - 1];
+    final next = centered[gapEnd];
+    for (var offset = 0; offset < gapLength; offset++) {
+      final fraction = (offset + 1) / (gapLength + 1);
+      centered[gapStart + offset] = previous + (next - previous) * fraction;
+      displayValid[gapStart + offset] = true;
+    }
+  }
+
   // Select the newest continuous contact segment. This accepts a late stable
   // W9S contact even when the buffer still contains many old rails, while an
   // alternating converter stream (single-point runs) stays blank.
@@ -120,8 +168,8 @@ List<double?> prepareLiveEcgTrace(
   var currentStart = -1;
   var selectedStart = -1;
   var selectedEnd = -1;
-  for (var index = 0; index < valid.length; index++) {
-    if (valid[index]) {
+  for (var index = 0; index < displayValid.length; index++) {
+    if (displayValid[index]) {
       currentStart = currentStart < 0 ? index : currentStart;
       if (index - currentStart + 1 >= minimumRun) {
         selectedStart = currentStart;
@@ -141,10 +189,10 @@ List<double?> prepareLiveEcgTrace(
       .map<double?>((entry) {
         if (entry.key < selectedStart ||
             entry.key > selectedEnd ||
-            !valid[entry.key]) {
+            !displayValid[entry.key]) {
           return null;
         }
-        return entry.value.toDouble() - baseline;
+        return centered[entry.key];
       })
       .toList(growable: false);
 }

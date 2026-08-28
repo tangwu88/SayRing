@@ -80,14 +80,15 @@ void main() {
   );
 
   test(
-    'care preview falls back to mini-program daily rows when aggregate fails',
+    'care details pass the mini-program target member id to every metric',
     () async {
       final requestedPaths = <String>[];
+      final requestedTypes = <String>[];
       final client = MockClient((request) async {
         requestedPaths.add(request.url.path);
         if (request.url.path == '/api/v1/member/care/my') {
           return http.Response(
-            '{"code":200,"data":[{"id":59,"member":{"id":87,"nickname":"家人"}}]}',
+            '{"code":200,"data":[{"id":59,"to_member_id":136,"member":{"id":87,"nickname":"家人"}}]}',
             200,
             headers: {'content-type': 'application/json; charset=utf-8'},
           );
@@ -100,12 +101,12 @@ void main() {
             headers: {'content-type': 'application/json; charset=utf-8'},
           );
         }
-        expect(request.url.path, '/api/v1/member/daily-date/preview');
-        expect(request.url.queryParameters['selectmember'], '87');
-        expect(request.url.queryParameters['type'], 'BloodOxygen');
+        expect(request.url.queryParameters['selectmember'], '136');
+        expect(request.url.queryParameters['date'], '1787760000');
+        final type = request.url.queryParameters['type'];
+        if (type != null) requestedTypes.add(type);
         return http.Response(
-          '''{"code":200,"data":[{"pulseReat":78,"bloodOxygen":98,
-          "bodyTemperature":36.5,"HRVData":42,"step":2300}]}''',
+          '{"code":200,"data":[{"time":"08:00","value":78}]}',
           200,
         );
       });
@@ -120,13 +121,21 @@ void main() {
 
       expect(preview['fallback'], isTrue);
       expect(preview['daily'].toString(), contains('心率'));
-      expect(preview['daily'].toString(), contains('体温'));
-      expect(preview['jrjk'].toString(), contains('2300'));
-      expect(requestedPaths, [
-        '/api/v1/member/care/my',
-        '/api/v1/member/care/preview',
-        '/api/v1/member/daily-date/preview',
-      ]);
+      expect(preview['daily'].toString(), contains('血液成分'));
+      expect((preview['daily'] as List), hasLength(10));
+      expect(
+        requestedTypes,
+        containsAll(<String>[
+          'pulseReat',
+          'BloodPressure',
+          'BloodGlucose',
+          'bloodOxygen',
+          'BodyTemperature',
+          'HRV',
+          'sleep',
+        ]),
+      );
+      expect(requestedPaths, hasLength(12));
     },
   );
 
@@ -670,6 +679,45 @@ void main() {
       buyerMessage: '请尽快发货',
     );
     expect(order['id'], 99);
+  });
+
+  test('APP payment sends the backend WeChat and Alipay contracts', () async {
+    var requestIndex = 0;
+    final client = MockClient((request) async {
+      requestIndex++;
+      expect(request.method, 'POST');
+      expect(request.url.path, '/api/v1/pay');
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      expect(body['pay_type'], requestIndex == 1 ? '1' : '2');
+      expect(body['jump'], 0);
+      expect(body['trade_type'], 'app');
+      expect(body['order_group'], 'order');
+      expect(jsonDecode(body['data'] as String), {
+        'order_id': 99,
+        'money': 199,
+      });
+      return http.Response(
+        requestIndex == 1
+            ? '{"code":200,"data":{"payStatus":false,"config":{"appid":"wx-test"}}}'
+            : '{"code":200,"data":{"payStatus":false,"config":{"config":"signed-order"}}}',
+        200,
+      );
+    });
+    final api = SaydianApiClient(
+      _authenticatedVault(),
+      client: client,
+      baseUri: Uri.parse('https://example.invalid'),
+    );
+
+    expect(
+      await api.createShopPayment(provider: 'wechat', orderId: 99, money: 199),
+      containsPair('payStatus', false),
+    );
+    expect(
+      await api.createShopPayment(provider: 'alipay', orderId: 99, money: 199),
+      containsPair('payStatus', false),
+    );
+    expect(requestIndex, 2);
   });
 
   test(

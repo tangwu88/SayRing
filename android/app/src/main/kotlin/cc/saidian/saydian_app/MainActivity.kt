@@ -41,6 +41,10 @@ import com.inuker.bluetooth.library.search.response.SearchResponse
 import com.jieli.jl_fatfs.model.FatFile
 import com.jieli.jl_rcsp.interfaces.watch.OnWatchOpCallback
 import com.jieli.jl_rcsp.model.base.BaseError
+import com.alipay.sdk.app.PayTask
+import com.tencent.mm.opensdk.constants.Build as WechatBuild
+import com.tencent.mm.opensdk.modelpay.PayReq
+import com.tencent.mm.opensdk.openapi.WXAPIFactory
 import com.veepoo.protocol.VPOperateManager
 import com.veepoo.protocol.customui.WatchUIType
 import com.veepoo.protocol.listener.IHealthRemindListener
@@ -217,6 +221,12 @@ class MainActivity : FlutterActivity() {
             METHODS_CHANNEL,
         ).setMethodCallHandler { call, result ->
             prepareCall(call, result)
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            PAYMENTS_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            handlePaymentMethod(call, result)
         }
         EventChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -435,6 +445,82 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun handlePaymentMethod(call: MethodCall, result: MethodChannel.Result) {
+        when (call.method) {
+            "startWechatPay" -> startWechatPay(call.arguments, result)
+            "takeWechatPayResult" -> result.success(AppPaymentStore.takeWechatResult(this))
+            "startAlipay" -> startAlipay(call.argument<String>("orderInfo").orEmpty(), result)
+            else -> result.notImplemented()
+        }
+    }
+
+    private fun startWechatPay(arguments: Any?, result: MethodChannel.Result) {
+        val values = (arguments as? Map<*, *>).orEmpty()
+        fun value(vararg keys: String): String {
+            for (key in keys) {
+                val current = values[key]
+                if (current != null && "$current".trim().isNotEmpty()) return "$current".trim()
+            }
+            return ""
+        }
+        val appId = value("appId", "appid")
+        val partnerId = value("partnerId", "partnerid", "partner_id", "mch_id")
+        val prepayId = value("prepayId", "prepayid", "prepay_id")
+        val packageValue = value("packageValue", "package", "package_value").ifEmpty { "Sign=WXPay" }
+        val nonceStr = value("nonceStr", "noncestr", "nonce_str")
+        val timeStamp = value("timeStamp", "timestamp", "time_stamp")
+        val sign = value("sign", "paySign", "pay_sign")
+        if (listOf(appId, partnerId, prepayId, nonceStr, timeStamp, sign).any { it.isEmpty() }) {
+            result.error("WECHAT_PAY_CONFIG_INVALID", "后台返回的微信 APP 支付参数不完整", null)
+            return
+        }
+        val api = WXAPIFactory.createWXAPI(this, appId, true)
+        if (!api.registerApp(appId)) {
+            result.error("WECHAT_REGISTER_FAILED", "微信支付应用注册失败", null)
+            return
+        }
+        if (!api.isWXAppInstalled) {
+            result.error("WECHAT_NOT_INSTALLED", "请先安装微信后再支付", null)
+            return
+        }
+        if (api.wxAppSupportAPI < WechatBuild.PAY_SUPPORTED_SDK_INT) {
+            result.error("WECHAT_VERSION_UNSUPPORTED", "当前微信版本不支持 APP 支付，请升级微信", null)
+            return
+        }
+        AppPaymentStore.saveWechatAppId(this, appId)
+        AppPaymentStore.clearWechatResult(this)
+        val request =
+            PayReq().apply {
+                this.appId = appId
+                this.partnerId = partnerId
+                this.prepayId = prepayId
+                this.packageValue = packageValue
+                this.nonceStr = nonceStr
+                this.timeStamp = timeStamp
+                this.sign = sign
+            }
+        if (api.sendReq(request)) result.success(true)
+        else result.error("WECHAT_PAY_SEND_FAILED", "无法调起微信支付，请稍后重试", null)
+    }
+
+    private fun startAlipay(orderInfo: String, result: MethodChannel.Result) {
+        if (orderInfo.isBlank()) {
+            result.error("ALIPAY_CONFIG_INVALID", "后台未返回支付宝签名订单", null)
+            return
+        }
+        Thread {
+            try {
+                val payResult = PayTask(this).payV2(orderInfo, true)
+                mainHandler.post { result.success(payResult) }
+            } catch (error: Throwable) {
+                Log.e("SaidianPayment", "Alipay invocation failed", error)
+                mainHandler.post {
+                    result.error("ALIPAY_FAILED", error.message ?: "支付宝支付调起失败", null)
+                }
+            }
+        }.start()
+    }
+
     override fun onDestroy() {
         if (::adapter.isInitialized) adapter.close(preserveConnection = true)
         super.onDestroy()
@@ -443,6 +529,7 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val METHODS_CHANNEL = "cc.saidian/wearable_methods"
         private const val EVENTS_CHANNEL = "cc.saidian/wearable_events"
+        private const val PAYMENTS_CHANNEL = "cc.saidian/app_payments"
         private const val BLE_PERMISSION_REQUEST = 7001
         private const val BLE_ENABLE_REQUEST = 7002
         private val BLE_PERMISSION_METHODS =
@@ -4217,9 +4304,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 "hiking" -> ESportType.HIKE
                 else -> ESportType.OUTDOOR_RUNNING
             }
+        val supportsAppControl = supportsAppSportControl()
         val supportsMultiSport = supportsMultiSportMode()
         val supportsSingleSport = supportsSingleSportMode()
-        if (!supportsMultiSport && (!supportsSingleSport || mode != "running")) {
+        if (!supportsAppControl && !supportsMultiSport && (!supportsSingleSport || mode != "running")) {
             callback.error(
                 "SPORT_MODE_UNSUPPORTED",
                 if (supportsSingleSport) {
@@ -4259,9 +4347,43 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             }
         Log.i(
             LOG_TAG,
-            "start sport mode=$mode type=${sportType.name} multi=$supportsMultiSport single=$supportsSingleSport",
+            "start sport mode=$mode type=${sportType.name} appControl=$supportsAppControl multi=$supportsMultiSport single=$supportsSingleSport",
         )
-        if (supportsMultiSport) {
+        if (supportsAppControl) {
+            val guarded =
+                withOperationTimeout(
+                    callback,
+                    "SPORT_CONTROL_TIMEOUT",
+                    "手表未确认开启${sportModeLabel(mode)}，请保持连接后重试",
+                )
+            manager.setSportControlInfo(
+                writeResponse(guarded, "运动模式暂时无法开启"),
+                ESportControlType.START,
+                sportType,
+                object : ISportControlOptListener {
+                    override fun onSportControlOptFail() {
+                        guarded.error("SPORT_CONTROL_FAILED", "手表未能开启${sportModeLabel(mode)}")
+                    }
+
+                    override fun onSportControlOptSuccess() {
+                        activeSportUsesAppControl = true
+                        activeControlledSportType = sportType
+                        emit(
+                            "sportState",
+                            mapOf("value" to "running", "mode" to mode, "type" to sportType.name),
+                        )
+                        guarded.success(Unit)
+                    }
+
+                    override fun onSportControlDataChange(dataInfo: SportControlDataInfo) {
+                        Log.i(
+                            LOG_TAG,
+                            "sport start data requested=${sportType.name} returned=${dataInfo.sportType.name}",
+                        )
+                    }
+                },
+            )
+        } else if (supportsMultiSport) {
             manager.startMultSportModel(
                 writeResponse(callback, "运动模式暂时无法开启"),
                 listener,
@@ -4285,6 +4407,17 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private fun supportsSingleSportMode(): Boolean =
         functionPackage2?.sportModelFunction.haveFunction() ||
             legacyFunctionData?.sportModel.haveFunction()
+
+    private fun supportsAppSportControl(): Boolean =
+        legacyFunctionData?.daSport.haveFunction()
+
+    private fun sportModeLabel(mode: String): String =
+        when (mode) {
+            "walking" -> "步行"
+            "cycling" -> "骑行"
+            "hiking" -> "徒步"
+            else -> "跑步"
+        }
 
     private fun isSystemBluetoothEnabled(): Boolean =
         try {
@@ -4427,38 +4560,60 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             preferences.isSupportAutoMeasure ||
                 functionPackage4?.autoMeasure.haveFunction() ||
                 legacyFunctionData?.autoMeasure.haveFunction()
-        if (!supportsAutoMeasure) {
-            if (legacyTypes.isEmpty()) {
+        val modernFinished = AtomicBoolean(false)
+        val modernTimeout =
+            Runnable {
+                if (!modernFinished.compareAndSet(false, true)) return@Runnable
+                if (legacyTypes.isNotEmpty()) {
+                    readLegacyAutoMeasureSettings(legacyTypes, callback)
+                } else if (supportsAutoMeasure) {
+                    callback.error("AUTO_MEASURE_READ_TIMEOUT", "暂时未读取到自动检测设置，请稍后重试")
+                } else {
+                    autoMeasureSettings.clear()
+                    callback.success(emptyMap())
+                }
+            }
+        fun fallbackToLegacy() {
+            if (!modernFinished.compareAndSet(false, true)) return
+            connectionHandler.removeCallbacks(modernTimeout)
+            if (legacyTypes.isNotEmpty()) {
+                readLegacyAutoMeasureSettings(legacyTypes, callback)
+            } else if (supportsAutoMeasure) {
+                callback.error("AUTO_MEASURE_READ_FAILED", "手表不支持或无法读取自动检测设置")
+            } else {
                 autoMeasureSettings.clear()
                 callback.success(emptyMap())
-            } else {
-                readLegacyAutoMeasureSettings(legacyTypes, callback)
             }
-            return
         }
-        val guardedCallback =
-            withOperationTimeout(
-                callback,
-                "AUTO_MEASURE_READ_TIMEOUT",
-                "暂时未读取到自动检测设置，请稍后重试",
-            )
+        // Some W9S firmware advertises legacy switches but still implements
+        // B3 AutoMeasureData. Try the richer command first so the real 10-minute
+        // cadence and writable interval capability are not lost.
+        connectionHandler.postDelayed(modernTimeout, 4_000L)
         manager.readAutoMeasureSettingData(
-            writeResponse(guardedCallback, "自动检测设置暂时无法读取"),
+            IBleWriteResponse { code ->
+                if (code != Code.REQUEST_SUCCESS) fallbackToLegacy()
+            },
             object : IAutoMeasureSettingDataListener {
                 override fun onSettingDataChange(items: MutableList<AutoMeasureData>) {
+                    if (items.isEmpty()) {
+                        fallbackToLegacy()
+                        return
+                    }
+                    if (!modernFinished.compareAndSet(false, true)) return
+                    connectionHandler.removeCallbacks(modernTimeout)
                     autoMeasureSettings.clear()
                     items.forEach { item ->
                         autoMeasureName(item.funType)?.let { name ->
                             autoMeasureSettings[name] = item
                         }
                     }
-                    guardedCallback.success(
+                    callback.success(
                         autoMeasureSettings.mapValues { (_, item) -> item.isSwitchOpen },
                     )
                 }
 
                 override fun onSettingDataChangeFail() {
-                    guardedCallback.error("AUTO_MEASURE_READ_FAILED", "手表不支持或无法读取自动检测设置")
+                    fallbackToLegacy()
                 }
 
                 override fun onSettingDataChangeSuccess() = Unit
@@ -4690,7 +4845,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             return
         }
 
-        // Older W9S firmware exposes the five-minute automatic-measurement
+        // Older W9S firmware exposes automatic-measurement
         // switches through CustomSettingData instead of AutoMeasureData. The
         // protocol has no writable interval field for that command, so show
         // the real fixed cadence rather than hiding the interval completely or
@@ -4699,8 +4854,8 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         callback.success(
             legacyAutoMeasureTypes(preferences).associateWith {
                 mapOf(
-                    "minutes" to 5,
-                    "stepMinutes" to 5,
+                    "minutes" to 10,
+                    "stepMinutes" to 10,
                     "canModify" to false,
                 )
             },
@@ -6413,6 +6568,19 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     } else {
                         values
                     }
+                if (metric == "ecg") {
+                    result.aveHeart.takeIf { it in 30..210 }?.let { latestEcgHeartRate = it }
+                    result.aveHrv.takeIf { it in 1..250 }?.let { latestEcgHrv = it }
+                    // The result callback can arrive before the SDK's diagnosis
+                    // callback. Do not persist it first, otherwise the diagnosis
+                    // callback loses the claim and the risk fields are discarded.
+                    if (result.isSuccess) {
+                        deferEcgCompletion(metric)
+                    } else {
+                        deferEcgFailure(metric)
+                    }
+                    return
+                }
                 val hasUsablePrimary = metric == "hrv" || resultValues.containsKey("meanHeartRate")
                 if (resultValues.isEmpty() || !hasUsablePrimary) {
                     if (!result.isSuccess) deferEcgFailure(metric)
@@ -6457,12 +6625,25 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     "ecg diagnosis callback success=${diagnosis.isSuccess} heart=${diagnosis.heartRate} hrv=${diagnosis.hrv} qt=${diagnosis.qtTime}",
                 )
                 val metric = activeMetric ?: "ecg"
+                val hasRiskAnalysis =
+                    listOf(
+                        diagnosis.diseaseRisk,
+                        diagnosis.pressureIndex,
+                        diagnosis.fatigueIndex,
+                        diagnosis.myocarditisRisk,
+                        diagnosis.chdRisk,
+                        diagnosis.angioscleroticRisk,
+                    ).any { it > 0 } ||
+                        diagnosis.risk32?.any { it != 0 } == true ||
+                        diagnosis.diagnosis8?.any { it != 0 } == true ||
+                        diagnosis.diseaseResult?.any { it != 0 } == true
                 val values = buildMap<String, Number> {
                     if (diagnosis.heartRate in 30..210) put("meanHeartRate", diagnosis.heartRate)
                     if (diagnosis.hrv in 1..250) put("averageHRV", diagnosis.hrv)
                     if (diagnosis.qtTime > 0) put("averageTimeInterval", diagnosis.qtTime)
                     if (diagnosis.respRate > 0) put("respiratoryRate", diagnosis.respRate)
-                    if (diagnosis.isSuccess) {
+                    if (diagnosis.isSuccess && hasRiskAnalysis) {
+                        put("riskAnalysisAvailable", 1)
                         if (diagnosis.diseaseRisk >= 0) put("diseaseRisk", diagnosis.diseaseRisk)
                         if (diagnosis.pressureIndex >= 0) put("pressureIndex", diagnosis.pressureIndex)
                         if (diagnosis.fatigueIndex >= 0) put("fatigueIndex", diagnosis.fatigueIndex)
@@ -6488,6 +6669,20 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     } else {
                         values
                     }
+                if (metric == "ecg" && !hasRiskAnalysis) {
+                    diagnosis.heartRate.takeIf { it in 30..210 }?.let { latestEcgHeartRate = it }
+                    diagnosis.hrv.takeIf { it in 1..250 }?.let { latestEcgHrv = it }
+                    // A successful SDK callback containing only zero-filled risk
+                    // placeholders is not a real risk analysis. Preserve the ECG
+                    // trace through the deferred completion path without claiming
+                    // that every risk is zero.
+                    if (diagnosis.isSuccess) {
+                        deferEcgCompletion(metric)
+                    } else {
+                        deferEcgFailure(metric)
+                    }
+                    return
+                }
                 val hasUsablePrimary = metric == "hrv" || resultValues.containsKey("meanHeartRate")
                 if (resultValues.isEmpty() || !hasUsablePrimary) {
                     if (!diagnosis.isSuccess) deferEcgFailure(metric)
@@ -7246,13 +7441,14 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         if (bloodComponentSupported) manualMetrics += "blood_composition"
         val sportModes =
             when {
+                supportsAppSportControl() -> listOf("running", "walking", "cycling", "hiking")
                 supportsMultiSportMode() -> listOf("running", "walking", "cycling", "hiking")
                 supportsSingleSportMode() -> listOf("running")
                 else -> emptyList()
             }
         Log.i(
             LOG_TAG,
-            "sport capabilities single=${supportsSingleSportMode()} multi=${supportsMultiSportMode()} modes=$sportModes",
+            "sport capabilities app=${supportsAppSportControl()} single=${supportsSingleSportMode()} multi=${supportsMultiSportMode()} modes=$sportModes",
         )
         val features = mutableListOf<String>()
         val legacyAutoMeasureTypes = legacyAutoMeasureTypes(preferences)

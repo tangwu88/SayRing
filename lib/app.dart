@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'services/app_controller.dart';
 import 'ui/app_theme.dart';
@@ -42,6 +43,13 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
       title: 'Saydian赛电',
       debugShowCheckedModeBanner: false,
       theme: buildSaydianTheme(),
+      locale: const Locale('zh', 'CN'),
+      supportedLocales: const [Locale('zh', 'CN')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       builder: (context, child) => ListenableBuilder(
         listenable: controller,
         builder: (context, _) {

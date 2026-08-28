@@ -12,7 +12,7 @@
 
 ## 最近记录
 
-- [2026-08-28 c7467ff 最终 Release 包真机回归](IMPLEMENTATION-LOG-20260828.md)
+- [2026-08-28 远程关爱、小程序参数、双支付与健康链路回归](IMPLEMENTATION-LOG-20260828.md)
 - [2026-08-27 心电、AI、关爱、监测间隔与连接恢复](IMPLEMENTATION-LOG-20260827.md)
 - [2026-08-25 全界面体验与型号能力收口](IMPLEMENTATION-LOG-20260825.md)
 - [2026-08-24 远程关爱、商城、头像与心电真机回归](IMPLEMENTATION-LOG-20260824.md)

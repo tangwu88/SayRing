@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../services/api_client.dart';
+import '../services/app_payment_bridge.dart';
 import '../services/app_controller.dart';
 import 'app_theme.dart';
 import 'prototype_pages.dart';
@@ -1421,14 +1422,31 @@ class ShopPaymentStatusPage extends StatefulWidget {
   State<ShopPaymentStatusPage> createState() => _ShopPaymentStatusPageState();
 }
 
-class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage> {
+class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
+    with WidgetsBindingObserver {
   Map<String, Object?> _order = const {};
   bool _loading = true;
+  bool _paying = false;
+  String? _paymentMessage;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_load());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_finishWechatPayment());
+    }
   }
 
   Future<void> _load() async {
@@ -1438,6 +1456,58 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage> {
       _order = order;
       _loading = false;
     });
+  }
+
+  Future<void> _pay(AppPaymentProvider provider) async {
+    if (_paying) return;
+    final amount = _asDouble(
+      _order['order_money'] ?? _order['pay_money'] ?? _order['product_money'],
+    );
+    if (amount <= 0) {
+      setState(() => _paymentMessage = '订单金额异常，请刷新后重试');
+      return;
+    }
+    setState(() {
+      _paying = true;
+      _paymentMessage = null;
+    });
+    final result = await widget.controller.startShopPayment(
+      provider: provider,
+      orderId: widget.orderId,
+      money: amount,
+    );
+    if (!mounted) return;
+    if (provider == AppPaymentProvider.alipay) {
+      setState(() {
+        _paymentMessage = _paymentResultMessage(result, '支付宝');
+        _paying = false;
+      });
+      await _load();
+    } else {
+      setState(() {
+        _paymentMessage = widget.controller.errorMessage ?? '已打开微信，请在微信中完成支付';
+        _paying = false;
+      });
+    }
+  }
+
+  Future<void> _finishWechatPayment() async {
+    await Future<void>.delayed(const Duration(milliseconds: 450));
+    final result = await widget.controller.takeWechatPaymentResult();
+    if (!mounted || result == null) return;
+    setState(() => _paymentMessage = _paymentResultMessage(result, '微信'));
+    await _load();
+  }
+
+  String _paymentResultMessage(AppPaymentResult? result, String provider) {
+    if (result == null) {
+      return widget.controller.errorMessage ?? '$provider支付未能调起';
+    }
+    if (result.isSuccess) return '$provider已返回支付成功，正在核对订单状态';
+    if (result.isCancelled) return '已取消$provider支付';
+    return result.message.trim().isEmpty
+        ? '$provider支付未完成（${result.code}）'
+        : result.message;
   }
 
   @override
@@ -1477,12 +1547,12 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage> {
                   ),
                   const SizedBox(height: 18),
                   if (status == 0)
-                    const Card(
+                    Card(
                       child: Padding(
-                        padding: EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(16),
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                          children: const [
                             Icon(
                               Icons.info_outline_rounded,
                               color: SaydianColors.orange,
@@ -1490,7 +1560,7 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage> {
                             SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                '订单已提交，可在“我的订单”查看。当前请在微信小程序完成支付，支付状态会以订单页面显示为准。',
+                                '请选择支付方式。支付结果以服务器回调和订单状态为准；若客户端提示成功但订单尚未更新，请稍后刷新。',
                                 style: TextStyle(height: 1.55),
                               ),
                             ),
@@ -1498,6 +1568,40 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage> {
                         ),
                       ),
                     ),
+                  if (status == 0) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        key: const Key('shop-pay-wechat'),
+                        onPressed: _paying
+                            ? null
+                            : () => _pay(AppPaymentProvider.wechat),
+                        icon: const Icon(Icons.chat_bubble_rounded),
+                        label: Text(_paying ? '正在调起支付…' : '微信支付'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        key: const Key('shop-pay-alipay'),
+                        onPressed: _paying
+                            ? null
+                            : () => _pay(AppPaymentProvider.alipay),
+                        icon: const Icon(Icons.account_balance_wallet_rounded),
+                        label: const Text('支付宝支付'),
+                      ),
+                    ),
+                  ],
+                  if (_paymentMessage != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      _paymentMessage!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: SaydianColors.muted),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   FilledButton.icon(
                     onPressed: _load,

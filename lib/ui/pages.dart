@@ -5259,9 +5259,16 @@ class _CareMemberPageState extends State<CareMemberPage> {
 
   Future<void> _load({bool silent = false}) async {
     if (!silent && mounted) setState(() => _loading = true);
+    final nestedMember = widget.member['member'];
+    final memberId =
+        int.tryParse('${widget.member['to_member_id'] ?? ''}') ??
+        (nestedMember is Map
+            ? int.tryParse('${nestedMember['id'] ?? ''}')
+            : null);
     final value = await widget.controller.loadCareMemberPreview(
       widget.careId,
       day: _day,
+      memberId: memberId,
     );
     if (mounted) {
       setState(() {
@@ -5380,7 +5387,15 @@ class _CareMemberPageState extends State<CareMemberPage> {
                       ),
                       const SizedBox(height: 10),
                       for (final item in dailyItems) ...[
-                        _CareDailyCard(item: item),
+                        _CareDailyCard(
+                          item: item,
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  CareMetricDetailPage(item: item, day: _day),
+                            ),
+                          ),
+                        ),
                         const SizedBox(height: 10),
                       ],
                     ],
@@ -5523,9 +5538,10 @@ class _CareHealthCard extends StatelessWidget {
 }
 
 class _CareDailyCard extends StatelessWidget {
-  const _CareDailyCard({required this.item});
+  const _CareDailyCard({required this.item, required this.onTap});
 
   final Map<String, Object?> item;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -5533,74 +5549,227 @@ class _CareDailyCard extends StatelessWidget {
     final tips = '${item['tips'] ?? item['tip'] ?? ''}'.trim();
     final summary = _careSummary(item);
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: SaydianColors.brandRedSoft,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.monitor_heart_outlined,
-                    color: SaydianColors.brandRed,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: SaydianColors.brandRedSoft,
+                      borderRadius: BorderRadius.circular(12),
                     ),
+                    child: const Icon(
+                      Icons.monitor_heart_outlined,
+                      color: SaydianColors.brandRed,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: SaydianColors.muted,
+                  ),
+                ],
+              ),
+              if (summary.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final entry in summary.entries)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: SaydianColors.techBlueSoft,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text('${entry.key}  ${entry.value}'),
+                      ),
+                  ],
+                ),
+              ],
+              if (tips.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  tips,
+                  style: const TextStyle(
+                    color: SaydianColors.muted,
+                    fontSize: 14,
+                    height: 1.45,
                   ),
                 ),
               ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class CareMetricDetailPage extends StatelessWidget {
+  const CareMetricDetailPage({
+    required this.item,
+    required this.day,
+    super.key,
+  });
+
+  final Map<String, Object?> item;
+  final DateTime day;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = '${item['title'] ?? '健康数据'}';
+    final rawRecords = item['records'];
+    final records = rawRecords is List
+        ? rawRecords
+              .whereType<Map>()
+              .map((row) => row.map((key, value) => MapEntry('$key', value)))
+              .toList(growable: false)
+        : const <Map<String, Object?>>[];
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(
+            DateFormat('yyyy年M月d日').format(day),
+            style: const TextStyle(
+              color: SaydianColors.muted,
+              fontWeight: FontWeight.w700,
             ),
-            if (summary.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final entry in summary.entries)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: SaydianColors.techBlueSoft,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text('${entry.key}  ${entry.value}'),
-                    ),
-                ],
-              ),
-            ],
-            if (tips.isNotEmpty) ...[
+          ),
+          const SizedBox(height: 12),
+          if (records.isEmpty)
+            const _InlineNotice(
+              message: '这一天没有可展示的明细记录。',
+              icon: Icons.event_busy_outlined,
+              color: SaydianColors.orange,
+            )
+          else
+            for (var index = 0; index < records.length; index++) ...[
+              _CareMetricRecordCard(record: records[index], index: index),
               const SizedBox(height: 10),
-              Text(
-                tips,
-                style: const TextStyle(
-                  color: SaydianColors.muted,
-                  fontSize: 14,
-                  height: 1.45,
-                ),
-              ),
             ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CareMetricRecordCard extends StatelessWidget {
+  const _CareMetricRecordCard({required this.record, required this.index});
+
+  final Map<String, Object?> record;
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    const hiddenKeys = {'id', 'member_id', 'memberId'};
+    final entries = record.entries
+        .where(
+          (entry) =>
+              !hiddenKeys.contains(entry.key) &&
+              entry.value != null &&
+              '${entry.value}'.trim().isNotEmpty,
+        )
+        .toList(growable: false);
+    final time =
+        '${record['time'] ?? record['date'] ?? record['created_at'] ?? ''}'
+            .trim();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              time.isEmpty ? '第 ${index + 1} 条记录' : time,
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 8),
+            for (final entry in entries)
+              if (!const {'time', 'date', 'created_at'}.contains(entry.key))
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 94,
+                        child: Text(
+                          _careFieldLabel(entry.key),
+                          style: const TextStyle(color: SaydianColors.muted),
+                        ),
+                      ),
+                      Expanded(child: Text(_careFieldValue(entry.value))),
+                    ],
+                  ),
+                ),
           ],
         ),
       ),
     );
   }
+}
+
+String _careFieldLabel(String key) =>
+    const <String, String>{
+      'value': '数值',
+      'pulseReat': '心率',
+      'bloodOxygen': '血氧',
+      'bloodGlucose': '血糖',
+      'bodyTemperature': '体温',
+      'HRVData': 'HRV',
+      'highPressure': '收缩压',
+      'lowPressure': '舒张压',
+      'systolic': '收缩压',
+      'diastolic': '舒张压',
+      'name': '项目',
+    }[key] ??
+    key;
+
+String _careFieldValue(Object? value) {
+  if (value is num) return _careFormatNumber(value);
+  if (value is List) return value.map(_careFieldValue).join('、');
+  if (value is Map) {
+    return value.entries
+        .map((entry) => '${entry.key}: ${_careFieldValue(entry.value)}')
+        .join('，');
+  }
+  final parsed = num.tryParse('${value ?? ''}'.trim());
+  if (parsed != null) return _careFormatNumber(parsed);
+  return '$value';
+}
+
+String _careFormatNumber(num value) {
+  if (value is int) return '$value';
+  final numeric = value.toDouble();
+  if (!numeric.isFinite) return '$value';
+  return numeric
+      .toStringAsFixed(2)
+      .replaceFirst(RegExp(r'\.0+$'), '')
+      .replaceFirst(RegExp(r'(\.\d*?)0+$'), r'$1');
 }
 
 num _careNumber(Object? value) =>
@@ -5630,18 +5799,20 @@ Map<String, String> _careSummary(Map<String, Object?> item) {
   for (final entry in labels.entries) {
     final value = item[entry.key];
     if (value != null && '$value'.trim().isNotEmpty) {
-      result[entry.value] = '$value';
+      result[entry.value] = _careFieldValue(value);
     }
   }
   final body = item['bodycomposition'];
-  if (body is Map && body['BMI'] != null) result['BMI'] = '${body['BMI']}';
+  if (body is Map && body['BMI'] != null) {
+    result['BMI'] = _careFieldValue(body['BMI']);
+  }
   final ecg = item['ecgData'];
   if (ecg is Map) {
     if (ecg['meanHeartRate'] != null) {
-      result['平均心率'] = '${ecg['meanHeartRate']}';
+      result['平均心率'] = _careFieldValue(ecg['meanHeartRate']);
     }
     if (ecg['averageTimeInterval'] != null) {
-      result['平均间期'] = '${ecg['averageTimeInterval']}';
+      result['平均间期'] = _careFieldValue(ecg['averageTimeInterval']);
     }
   }
   return result;
@@ -7751,14 +7922,14 @@ class AccountSettingsPage extends StatelessWidget {
                 ListTile(
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      settings: const RouteSettings(name: 'account-security'),
+                      settings: const RouteSettings(name: 'reset-password'),
                       builder: (_) =>
-                          SecurityCenterPage(controller: controller),
+                          PasswordRecoveryPage(controller: controller),
                     ),
                   ),
-                  leading: const Icon(Icons.security_outlined),
-                  title: const Text('账号与安全'),
-                  subtitle: const Text('密码与登录保护'),
+                  leading: const Icon(Icons.password_rounded),
+                  title: const Text('重置密码'),
+                  subtitle: const Text('验证手机号后重新设置登录密码'),
                   trailing: const Icon(Icons.chevron_right_rounded),
                 ),
                 const Divider(indent: 56),

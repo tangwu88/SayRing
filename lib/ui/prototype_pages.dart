@@ -1787,7 +1787,10 @@ class _EcgRiskSection extends StatelessWidget {
     final values = definitions
         .where((item) => record.values[item.$1] != null)
         .toList(growable: false);
-    if (values.isEmpty) {
+    final hasAnalysis =
+        (record.values['riskAnalysisAvailable'] ?? 0) > 0 ||
+        values.any((item) => (record.values[item.$1] ?? 0) > 0);
+    if (!hasAnalysis) {
       return const FeatureStateCard(
         message: '本次手表未返回风险指标',
         detail: '风险分析只展示设备实际返回的数据，不根据单次波形自行诊断。',
@@ -3424,28 +3427,44 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                         leading: CircleAvatar(
                           child: Text(_contactInitial(contacts[index])),
                         ),
-                        title: Text('${contacts[index]['name'] ?? ''}'),
-                        subtitle: Text(
-                          contacts[index]['isEmergency'] == true
-                              ? '${contacts[index]['phone'] ?? ''} · 紧急联系人'
-                              : '${contacts[index]['phone'] ?? ''}',
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
+                        title: Row(
                           children: [
-                            if (contacts[index]['isEmergency'] == true)
-                              const Padding(
-                                padding: EdgeInsets.only(right: 6),
-                                child: Chip(label: Text('当前 SOS')),
+                            Expanded(
+                              child: Text(
+                                '${contacts[index]['name'] ?? ''}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            IconButton(
-                              onPressed: busy
-                                  ? null
-                                  : () => _deleteContact(contacts[index]),
-                              tooltip: '删除',
-                              icon: const Icon(Icons.delete_outline_rounded),
                             ),
+                            if (contacts[index]['isEmergency'] == true)
+                              Container(
+                                margin: const EdgeInsets.only(left: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 7,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: SaydianColors.brandRedSoft,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: const Text(
+                                  'SOS',
+                                  style: TextStyle(
+                                    color: SaydianColors.brandRed,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
                           ],
+                        ),
+                        subtitle: Text('${contacts[index]['phone'] ?? ''}'),
+                        trailing: IconButton(
+                          onPressed: busy
+                              ? null
+                              : () => _deleteContact(contacts[index]),
+                          tooltip: '删除',
+                          icon: const Icon(Icons.delete_outline_rounded),
                         ),
                       ),
                       if (index != contacts.length - 1)

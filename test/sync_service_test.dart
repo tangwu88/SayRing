@@ -144,6 +144,7 @@ abstract class _BaseFakeApi implements SaydianApi {
   Future<Map<String, Object?>> getCareMemberPreview({
     required int id,
     required String day,
+    int? memberId,
   }) async => const {};
 
   @override

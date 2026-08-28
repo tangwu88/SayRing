@@ -61,6 +61,12 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <activity
+            android:name="cc.saidian.app.wxapi.WXPayEntryActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <!-- vpbluetooth-1.20.aar leaves this declaration to the host app. -->
         <service
             android:name="com.inuker.bluetooth.library.BluetoothService"
@@ -80,6 +86,8 @@
             android:value="2" />
     </application>
     <queries>
+        <package android:name="com.tencent.mm" />
+        <package android:name="com.eg.android.AlipayGphone" />
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

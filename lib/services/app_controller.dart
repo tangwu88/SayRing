@@ -9,8 +9,10 @@ import 'package:permission_handler/permission_handler.dart';
 import '../domain/device_state_machine.dart';
 import '../domain/feature_models.dart';
 import '../domain/health_record_validation.dart';
+import '../domain/health_record_dedup.dart';
 import '../domain/models.dart';
 import 'api_client.dart';
+import 'app_payment_bridge.dart';
 import 'local_health_store.dart';
 import 'secure_vault.dart';
 import 'sync_service.dart';
@@ -18,8 +20,14 @@ import 'wearable_bridge.dart';
 import 'wearable_bootstrap.dart';
 
 class AppController extends ChangeNotifier {
-  AppController(this._vault, this._api, this._healthStore, this._wearable)
-    : _syncService = HealthSyncService(_healthStore, _api);
+  AppController(
+    this._vault,
+    this._api,
+    this._healthStore,
+    this._wearable, {
+    AppPaymentBridge? paymentBridge,
+  }) : _paymentBridge = paymentBridge ?? const MethodChannelAppPaymentBridge(),
+       _syncService = HealthSyncService(_healthStore, _api);
 
   factory AppController.production() {
     final vault = SecureSessionVault();
@@ -35,6 +43,7 @@ class AppController extends ChangeNotifier {
   final SaydianApi _api;
   final HealthStore _healthStore;
   final WearableBridge _wearable;
+  final AppPaymentBridge _paymentBridge;
   final HealthSyncService _syncService;
   final DeviceStateMachine deviceMachine = DeviceStateMachine();
 
@@ -1599,12 +1608,14 @@ class AppController extends ChangeNotifier {
   Future<Map<String, Object?>> loadCareMemberPreview(
     int id, {
     DateTime? day,
+    int? memberId,
   }) async {
     try {
       final selected = day ?? DateTime.now();
       return await _api.getCareMemberPreview(
         id: id,
         day: selected.toIso8601String().substring(0, 10),
+        memberId: memberId,
       );
     } on ApiException catch (error) {
       errorMessage = _apiErrorMessage(error, fallback: '对方数据暂时无法读取');
@@ -1783,6 +1794,83 @@ class AppController extends ChangeNotifier {
       isBusy = false;
       notifyListeners();
     }
+  }
+
+  Future<AppPaymentResult?> startShopPayment({
+    required AppPaymentProvider provider,
+    required int orderId,
+    required num money,
+  }) async {
+    if (session == null) {
+      errorMessage = '请先登录后支付订单';
+      notifyListeners();
+      return null;
+    }
+    isBusy = true;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      final response = await _requiredShopApi.createShopPayment(
+        provider: provider.name,
+        orderId: orderId,
+        money: money,
+      );
+      final config = response['config'];
+      if (provider == AppPaymentProvider.wechat) {
+        final signed = _paymentMap(config);
+        if (signed.isEmpty) throw const ApiException('后台未返回微信 APP 支付参数');
+        await _paymentBridge.startWechat(signed);
+        return null;
+      }
+      final signedOrder = _paymentString(config);
+      if (signedOrder.isEmpty) throw const ApiException('后台未返回支付宝 APP 支付参数');
+      return await _paymentBridge.startAlipay(signedOrder);
+    } on ApiException catch (error) {
+      errorMessage = _apiErrorMessage(error, fallback: '支付参数生成失败');
+      return null;
+    } on PlatformException catch (error) {
+      errorMessage = error.message?.trim().isNotEmpty == true
+          ? error.message
+          : '无法调起支付客户端，请确认已安装对应应用';
+      return null;
+    } finally {
+      isBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<AppPaymentResult?> takeWechatPaymentResult() async {
+    try {
+      return await _paymentBridge.takeWechatResult();
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  Map<String, Object?> _paymentMap(Object? value) {
+    if (value is! Map) return const {};
+    final map = value.map((key, value) => MapEntry('$key', value));
+    for (final key in const ['config', 'pay', 'params', 'pay_params']) {
+      if (map[key] is Map) return _paymentMap(map[key]);
+    }
+    return map;
+  }
+
+  String _paymentString(Object? value) {
+    if (value is String) return value.trim();
+    if (value is Map) {
+      for (final key in const [
+        'config',
+        'orderInfo',
+        'order_info',
+        'pay_info',
+      ]) {
+        final nested = value[key];
+        final result = _paymentString(nested);
+        if (result.isNotEmpty) return result;
+      }
+    }
+    return '';
   }
 
   Future<bool> confirmOrderReceipt(int orderId) => _guard(() async {
@@ -2303,8 +2391,7 @@ class AppController extends ChangeNotifier {
       for (final item in healthRecords) item.id: item,
       record.id: record,
     };
-    healthRecords = byId.values.toList()
-      ..sort((a, b) => b.measuredAt.compareTo(a.measuredAt));
+    healthRecords = deduplicateHealthRecords(byId.values);
     if (healthRecords.length > 200) {
       healthRecords = healthRecords.take(200).toList(growable: false);
     }
@@ -2407,8 +2494,7 @@ class AppController extends ChangeNotifier {
       for (final record in recent) record.id: record,
       for (final record in latest) record.id: record,
     };
-    healthRecords = byId.values.toList()
-      ..sort((a, b) => b.measuredAt.compareTo(a.measuredAt));
+    healthRecords = deduplicateHealthRecords(byId.values);
   }
 
   @override

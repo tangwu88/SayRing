@@ -40,6 +40,7 @@ abstract interface class SaydianApi {
   Future<Map<String, Object?>> getCareMemberPreview({
     required int id,
     required String day,
+    int? memberId,
   });
   Future<Map<String, Object?>> addCare(String mobile);
   Future<Map<String, Object?>> getMemberProfile();
@@ -118,6 +119,11 @@ abstract interface class SaydianShopApi {
     required int addressId,
     String buyerMessage = '',
     num point = 0,
+  });
+  Future<Map<String, Object?>> createShopPayment({
+    required String provider,
+    required int orderId,
+    required num money,
   });
   Future<void> confirmOrderReceipt(int orderId);
   Future<void> applyOrderRefund({
@@ -367,9 +373,12 @@ class SaydianApiClient
     for (final relation in members) {
       final relationId = int.tryParse('${relation['id'] ?? ''}');
       final member = relation['member'];
-      final memberId = member is Map
-          ? int.tryParse('${member['id'] ?? ''}')
-          : null;
+      // Match the mini-program contract exactly. `id` identifies the care
+      // relation and is used by care/preview; `to_member_id` identifies the
+      // observed member and is used by every health-detail endpoint.
+      final memberId =
+          int.tryParse('${relation['to_member_id'] ?? ''}') ??
+          (member is Map ? int.tryParse('${member['id'] ?? ''}') : null);
       if (relationId != null && memberId != null) {
         _careMemberIds[relationId] = memberId;
       }
@@ -735,6 +744,27 @@ class SaydianApiClient
           'type': 'buy_now',
           'point': point,
         });
+    return _data(_decode(response));
+  }
+
+  @override
+  Future<Map<String, Object?>> createShopPayment({
+    required String provider,
+    required int orderId,
+    required num money,
+  }) async {
+    final payType = switch (provider) {
+      'wechat' => '1',
+      'alipay' => '2',
+      _ => throw const ApiException('不支持的支付方式'),
+    };
+    final response = await _authorizedPostJson('/api/v1/pay', {
+      'pay_type': payType,
+      'jump': 0,
+      'trade_type': 'app',
+      'order_group': 'order',
+      'data': jsonEncode({'order_id': orderId, 'money': money}),
+    });
     return _data(_decode(response));
   }
 
@@ -1282,79 +1312,220 @@ class SaydianApiClient
   Future<Map<String, Object?>> getCareMemberPreview({
     required int id,
     required String day,
+    int? memberId,
   }) async {
+    Map<String, Object?> aggregate = const {};
+    ApiException? aggregateError;
     try {
       final response = await _authorizedGet('/api/v1/member/care/preview', {
         'id': '$id',
         'day': day,
       });
-      return _data(_decode(response));
+      aggregate = _data(_decode(response));
     } on ApiException catch (error) {
-      final memberId = _careMemberIds[id];
-      if (error.statusCode != 500 || memberId == null) rethrow;
-      return _getCareMemberDailyFallback(memberId: memberId, day: day);
+      aggregateError = error;
     }
+    final targetMemberId = memberId ?? _careMemberIds[id];
+    if (targetMemberId == null) {
+      if (aggregateError != null) throw aggregateError;
+      return aggregate;
+    }
+    final detail = await _getCareMemberHealthDetails(
+      memberId: targetMemberId,
+      day: day,
+    );
+    if (aggregate.isEmpty && detail.isEmpty && aggregateError != null) {
+      throw aggregateError;
+    }
+    return _mergeCarePreview(aggregate, detail);
   }
 
-  Future<Map<String, Object?>> _getCareMemberDailyFallback({
+  Future<List<Map<String, Object?>>> _getCareMemberHealthDetails({
     required int memberId,
     required String day,
   }) async {
     final parsedDay = DateTime.tryParse(day);
-    if (parsedDay == null) return const {};
+    if (parsedDay == null) return const [];
     final localDay = DateTime(parsedDay.year, parsedDay.month, parsedDay.day);
-    final response = await _authorizedGet('/api/v1/member/daily-date/preview', {
-      'selectmember': '$memberId',
-      // This endpoint is the same member-detail route used by the mini
-      // program. BloodOxygen currently returns the complete daily rows even
-      // when the aggregate care/preview route fails for recent W9S data.
-      'type': 'BloodOxygen',
-      'date': '${localDay.millisecondsSinceEpoch ~/ 1000}',
-    });
-    final payload = _decode(response);
-    final raw = payload['data'];
-    final rows = raw is List
-        ? raw.whereType<Map>().toList(growable: false)
-        : const <Map>[];
-    if (rows.isEmpty) return const {};
-
-    Object? latest(String key) {
-      for (final row in rows.reversed) {
-        final value = row[key];
-        if (value != null && '$value'.trim().isNotEmpty && '$value' != '0') {
-          return value;
-        }
+    final date = '${localDay.millisecondsSinceEpoch ~/ 1000}';
+    const specs =
+        <({String title, String endpoint, String? type, String unit})>[
+          (
+            title: '心率',
+            endpoint: '/api/v1/member/daily-date/preview',
+            type: 'pulseReat',
+            unit: '次/分',
+          ),
+          (
+            title: '血压',
+            endpoint: '/api/v1/member/daily-date/preview',
+            type: 'BloodPressure',
+            unit: 'mmHg',
+          ),
+          (
+            title: '血糖',
+            endpoint: '/api/v1/member/daily-date/preview',
+            type: 'BloodGlucose',
+            unit: 'mmol/L',
+          ),
+          (
+            title: '血氧',
+            endpoint: '/api/v1/member/daily-date/preview',
+            type: 'bloodOxygen',
+            unit: '%',
+          ),
+          (
+            title: '体温',
+            endpoint: '/api/v1/member/daily-date/preview',
+            type: 'BodyTemperature',
+            unit: '℃',
+          ),
+          (
+            title: 'HRV',
+            endpoint: '/api/v1/member/daily-date/preview',
+            type: 'HRV',
+            unit: 'ms',
+          ),
+          (
+            title: '睡眠',
+            endpoint: '/api/v1/member/daily-date/preview',
+            type: 'sleep',
+            unit: '',
+          ),
+          (
+            title: '心电',
+            endpoint: '/api/v1/member/e-c-g/preview',
+            type: null,
+            unit: '',
+          ),
+          (
+            title: '身体成分',
+            endpoint: '/api/v1/member/bodycomposition/preview',
+            type: null,
+            unit: '',
+          ),
+          (
+            title: '血液成分',
+            endpoint: '/api/v1/member/bloodcomposition/preview',
+            type: null,
+            unit: '',
+          ),
+        ];
+    final result = <Map<String, Object?>>[];
+    for (final spec in specs) {
+      try {
+        final response = await _authorizedGet(spec.endpoint, {
+          'selectmember': '$memberId',
+          if (spec.type != null) 'type': spec.type!,
+          'date': date,
+        });
+        final payload = _decode(response);
+        result.add(
+          _normalizeCareMetric(
+            title: spec.title,
+            type: spec.type ?? spec.endpoint,
+            unit: spec.unit,
+            raw: payload['data'],
+          ),
+        );
+      } on ApiException {
+        // Sharing permissions can differ per metric. Preserve all successful
+        // cards instead of failing the complete member page on one endpoint.
       }
-      return null;
+    }
+    return result;
+  }
+
+  Map<String, Object?> _normalizeCareMetric({
+    required String title,
+    required String type,
+    required String unit,
+    required Object? raw,
+  }) {
+    final payload = raw is Map
+        ? raw.map((key, value) => MapEntry('$key', value))
+        : const <String, Object?>{};
+    final records = <Map<String, Object?>>[];
+    final directRows = raw is List
+        ? raw
+        : payload['list'] is List
+        ? payload['list'] as List
+        : payload['data'] is List
+        ? payload['data'] as List
+        : const [];
+    records.addAll(
+      directRows.whereType<Map>().map(
+        (row) => row.map((key, value) => MapEntry('$key', value)),
+      ),
+    );
+
+    final categories = payload['categories'];
+    final series = payload['series'];
+    if (records.isEmpty && categories is List && series is List) {
+      for (var index = 0; index < categories.length; index++) {
+        final record = <String, Object?>{'time': categories[index]};
+        for (var seriesIndex = 0; seriesIndex < series.length; seriesIndex++) {
+          final rawSeries = series[seriesIndex];
+          if (rawSeries is! Map) continue;
+          final values = rawSeries['data'];
+          if (values is! List || index >= values.length) continue;
+          final name =
+              '${rawSeries['name'] ?? rawSeries['title'] ?? '数值${seriesIndex + 1}'}';
+          record[name] = values[index];
+        }
+        if (record.length > 1) records.add(record);
+      }
     }
 
-    final daily = <Map<String, Object?>>[];
-    void add(String title, Object? value, String unit) {
-      if (value == null) return;
-      daily.add({'title': title, 'value': value, 'tips': unit});
-    }
+    final maximum = payload['zuida'] ?? payload['max'];
+    final minimum = payload['zuixiao'] ?? payload['min'];
+    final average = payload['pj'] ?? payload['avg'];
+    final pressureAverage = payload['xypj'] != null || payload['mbpj'] != null
+        ? '${payload['xypj'] ?? '--'}/${payload['mbpj'] ?? '--'}'
+        : null;
+    final summaryAverage = pressureAverage ?? average;
+    return <String, Object?>{
+      'title': title,
+      'metricType': type,
+      'unit': unit,
+      'tips': records.isEmpty ? '当日暂无记录' : '共 ${records.length} 条记录',
+      'records': records,
+      'max': ?maximum,
+      'min': ?minimum,
+      'avg': ?summaryAverage,
+      for (final key in const ['triacylglycerol', 'uricAcidVal', 'xzfw'])
+        if (payload[key] != null) key: payload[key],
+    };
+  }
 
-    add('心率', latest('pulseReat'), '次/分');
-    final pressure = latest('bloodPressure');
-    if (pressure is Map) {
-      final high = pressure['highPressure'] ?? pressure['high'];
-      final low = pressure['lowPressure'] ?? pressure['low'];
-      if (high != null && low != null) add('血压', '$high/$low', 'mmHg');
-    } else {
-      add('血压', pressure, 'mmHg');
+  Map<String, Object?> _mergeCarePreview(
+    Map<String, Object?> aggregate,
+    List<Map<String, Object?>> detail,
+  ) {
+    final existing = aggregate['daily'] is List
+        ? (aggregate['daily'] as List)
+              .whereType<Map>()
+              .map((row) => row.map((key, value) => MapEntry('$key', value)))
+              .toList()
+        : <Map<String, Object?>>[];
+    final byTitle = <String, Map<String, Object?>>{
+      for (final item in detail) '${item['title'] ?? ''}': item,
+    };
+    final merged = <Map<String, Object?>>[];
+    for (final item in existing) {
+      final title = '${item['title'] ?? ''}';
+      final details = byTitle.remove(title);
+      merged.add(
+        details == null ? item : <String, Object?>{...item, ...details},
+      );
     }
-    add('血氧', latest('bloodOxygen'), '%');
-    add('体温', latest('bodyTemperature'), '℃');
-    add('血糖', latest('bloodGlucose'), 'mmol/L');
-    add('HRV', latest('HRVData'), 'ms');
-    final steps = latest('step');
-    final today = steps == null
-        ? const <Map<String, Object?>>[]
-        : <Map<String, Object?>>[
-            {'title': '步数', 'num': steps, 'unit': '步'},
-          ];
-    if (daily.isEmpty && today.isEmpty) return const {};
-    return <String, Object?>{'jrjk': today, 'daily': daily, 'fallback': true};
+    merged.addAll(byTitle.values);
+    return <String, Object?>{
+      ...aggregate,
+      'fallback': aggregate.isEmpty && detail.isNotEmpty,
+      'jrjk': aggregate['jrjk'] is List ? aggregate['jrjk']! : const [],
+      'daily': merged,
+    };
   }
 
   @override

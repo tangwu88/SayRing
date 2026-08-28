@@ -1316,6 +1316,7 @@ class _NoopApi implements SaydianApi, SaydianArticleApi {
   Future<Map<String, Object?>> getCareMemberPreview({
     required int id,
     required String day,
+    int? memberId,
   }) async => const {};
 
   @override

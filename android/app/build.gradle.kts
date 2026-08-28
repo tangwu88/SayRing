@@ -88,6 +88,8 @@ flutter {
 }
 
 dependencies {
+    implementation("com.tencent.mm.opensdk:wechat-sdk-android:6.8.40")
+    implementation("com.alipay.sdk:alipaysdk-android:15.8.42")
     if (hasCompleteVeepooSdk) {
         implementation(files(veepooSdkFiles))
         implementation("com.google.code.gson:gson:2.13.2")

@@ -125,7 +125,8 @@ void main() {
 
     expect(api.createdOrder, isTrue);
     expect(find.text('订单提交成功，等待支付'), findsOneWidget);
-    expect(find.textContaining('当前请在微信小程序完成支付'), findsOneWidget);
+    expect(find.text('微信支付'), findsOneWidget);
+    expect(find.text('支付宝支付'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -257,7 +258,7 @@ void main() {
       await tester.tap(find.byKey(const Key('device-shop-entry')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('shop-page')), findsOneWidget);
-      await tester.pageBack();
+      await _popRoute(tester);
       await tester.pumpAndSettle();
       await tester.tap(find.text('连接'));
       await tester.pumpAndSettle();
@@ -683,7 +684,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('健康数据总览'), findsOneWidget);
-    await tester.pageBack();
+    await _popRoute(tester);
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('profile-stat-care-members')));
@@ -713,7 +714,7 @@ void main() {
     expect(api.lastAiMessage, '如何改善睡眠？');
     expect(find.byKey(const Key('ai-message-input')), findsOneWidget);
     expect(find.byKey(const Key('ai-show-composer')), findsNothing);
-    await tester.pageBack();
+    await _popRoute(tester);
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('我的'));
@@ -723,7 +724,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('我的订单'), findsOneWidget);
     expect(find.textContaining('QA-ORDER-100'), findsOneWidget);
-    await tester.pageBack();
+    await _popRoute(tester);
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
@@ -735,14 +736,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('添加设备'), findsOneWidget);
     expect(find.byKey(const Key('device-shop-entry')), findsOneWidget);
-    await tester.pageBack();
+    await _popRoute(tester);
     await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.byKey(const Key('my-ai-question')));
     await tester.tap(find.byKey(const Key('my-ai-question')));
     await tester.pumpAndSettle();
     expect(find.text('AI 健康管家'), findsOneWidget);
-    await tester.pageBack();
+    await _popRoute(tester);
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
@@ -785,15 +786,15 @@ void main() {
       await tester.tap(find.text('QA 公告'));
       await tester.pumpAndSettle();
       expect(find.text('公告正文'), findsOneWidget);
-      await tester.pageBack();
+      await _popRoute(tester);
       await tester.pumpAndSettle();
-      await tester.pageBack();
+      await _popRoute(tester);
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('远程关爱'));
       await tester.pumpAndSettle();
       expect(find.text('守护家人健康'), findsOneWidget);
-      await tester.pageBack();
+      await _popRoute(tester);
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('健康'));
@@ -802,7 +803,7 @@ void main() {
       await tester.tap(find.text('全部数据'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('health-sport-entries')), findsNothing);
-      await tester.pageBack();
+      await _popRoute(tester);
       await tester.pumpAndSettle();
 
       await tester.scrollUntilVisible(
@@ -815,12 +816,12 @@ void main() {
       await tester.tap(find.text('跑步'));
       await tester.pumpAndSettle();
       expect(find.textContaining('请先在设备页连接手表'), findsOneWidget);
-      await tester.pageBack();
+      await _popRoute(tester);
       await tester.pumpAndSettle();
       await tester.tap(find.text('运动记录'));
       await tester.pumpAndSettle();
       expect(find.text('请先连接手表后读取运动记录'), findsOneWidget);
-      await tester.pageBack();
+      await _popRoute(tester);
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('我的'));
@@ -828,7 +829,7 @@ void main() {
       await tester.tap(find.text('单位设置'));
       await tester.pumpAndSettle();
       expect(find.text('公里'), findsOneWidget);
-      await tester.pageBack();
+      await _popRoute(tester);
       await tester.pumpAndSettle();
       expect(find.text('目标设置'), findsNothing);
       expect(find.byKey(const Key('my-add-device')), findsOneWidget);
@@ -946,6 +947,10 @@ Future<void> _pumpPhone(WidgetTester tester, AppController controller) async {
   addTearDown(() => tester.binding.setSurfaceSize(null));
   await tester.pumpWidget(SaydianApp(controller: controller));
   await tester.pump();
+}
+
+Future<void> _popRoute(WidgetTester tester) async {
+  await tester.binding.handlePopRoute();
 }
 
 final _session = Session(
