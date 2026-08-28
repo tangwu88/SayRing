@@ -120,13 +120,29 @@ void main() {
     expect(find.byKey(const Key('shop-checkout')), findsOneWidget);
     expect(find.textContaining('QA 收货人'), findsOneWidget);
     await tester.enterText(find.widgetWithText(TextField, '给商家留言'), 'QA留言');
+    await tester.enterText(
+      find.byKey(const Key('shop-checkout-points')),
+      '200',
+    );
+    await tester.ensureVisible(find.widgetWithText(FilledButton, '提交订单'));
+    await tester.tap(find.widgetWithText(FilledButton, '提交订单'));
+    await tester.pump();
+    expect(find.text('使用积分不能超过订单金额 199.00'), findsOneWidget);
+    expect(api.createdOrder, isFalse);
+
+    await tester.enterText(find.byKey(const Key('shop-checkout-points')), '20');
     await tester.tap(find.widgetWithText(FilledButton, '提交订单'));
     await tester.pumpAndSettle();
 
     expect(api.createdOrder, isTrue);
-    expect(find.text('订单提交成功，等待支付'), findsOneWidget);
+    expect(find.text('支付收银台'), findsOneWidget);
+    expect(find.text('订单号'), findsOneWidget);
+    expect(find.text('使用积分数量'), findsOneWidget);
+    expect(find.text('20.00'), findsOneWidget);
+    expect(find.text('订单总额'), findsOneWidget);
     expect(find.text('微信支付'), findsOneWidget);
     expect(find.text('支付宝支付'), findsOneWidget);
+    expect(find.byKey(const Key('shop-pay-submit')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -813,11 +829,10 @@ void main() {
       );
       await tester.drag(find.byType(Scrollable).first, const Offset(0, -120));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('跑步'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('请先在设备页连接手表'), findsOneWidget);
-      await _popRoute(tester);
-      await tester.pumpAndSettle();
+      expect(find.text('跑步'), findsNothing);
+      expect(find.text('步行'), findsNothing);
+      expect(find.text('骑行'), findsNothing);
+      expect(find.text('徒步'), findsNothing);
       await tester.tap(find.text('运动记录'));
       await tester.pumpAndSettle();
       expect(find.text('请先连接手表后读取运动记录'), findsOneWidget);
@@ -970,6 +985,7 @@ class _QaApi extends Fake
   (String, String)? lastRegistration;
   String? lastAiMessage;
   bool createdOrder = false;
+  num lastOrderPoint = 0;
   bool loggedOut = false;
 
   @override
@@ -1082,6 +1098,7 @@ class _QaApi extends Fake
     'order_sn': 'QA-ORDER-$id',
     'order_status': 0,
     'pay_money': 199,
+    'point': lastOrderPoint,
   };
 
   @override
@@ -1145,7 +1162,7 @@ class _QaApi extends Fake
       'address_details': '科技园 1 号',
     },
     'preview': const {'product_money': 199, 'shipping_money': 0},
-    'account': const {'money1': 100},
+    'account': const {'money1': 500},
     'products': [
       {
         'product_name': 'QA 智能手表',
@@ -1164,6 +1181,7 @@ class _QaApi extends Fake
     num point = 0,
   }) async {
     createdOrder = true;
+    lastOrderPoint = point;
     return const {'id': 100};
   }
 

@@ -101,8 +101,13 @@ List<double?> prepareLiveEcgTrace(
   // An isolated excursion that immediately returns to the same baseline is a
   // converter reset, not a QRS complex. Mark it as a gap before testing the
   // stable suffix so alternating rail data cannot qualify as valid contact.
+  final pointValid = [...valid];
   for (var index = 1; index < raw.length - 1; index++) {
-    if (!valid[index - 1] || !valid[index] || !valid[index + 1]) continue;
+    if (!pointValid[index - 1] ||
+        !pointValid[index] ||
+        !pointValid[index + 1]) {
+      continue;
+    }
     final previous = raw[index - 1].toDouble();
     final current = raw[index].toDouble();
     final next = raw[index + 1].toDouble();
@@ -161,35 +166,33 @@ List<double?> prepareLiveEcgTrace(
     }
   }
 
-  // Select the newest continuous contact segment. This accepts a late stable
-  // W9S contact even when the buffer still contains many old rails, while an
-  // alternating converter stream (single-point runs) stays blank.
-  final minimumRun = math.max(8, (frequency * .2).round());
-  var currentStart = -1;
-  var selectedStart = -1;
-  var selectedEnd = -1;
-  for (var index = 0; index < displayValid.length; index++) {
-    if (displayValid[index]) {
-      currentStart = currentStart < 0 ? index : currentStart;
-      if (index - currentStart + 1 >= minimumRun) {
-        selectedStart = currentStart;
-        selectedEnd = index;
-      }
-    } else {
-      currentStart = -1;
+  // Isolated edge points around a removed converter-reset burst are not a
+  // drawable ECG segment. Remove only one-point runs; a newly resumed real
+  // callback becomes visible after its second sample instead of waiting for a
+  // fixed-duration stability window.
+  var runIndex = 0;
+  while (runIndex < displayValid.length) {
+    if (!displayValid[runIndex]) {
+      runIndex++;
+      continue;
     }
-  }
-  if (selectedStart < 0) {
-    return List<double?>.filled(raw.length, null);
+    final runStart = runIndex;
+    while (runIndex < displayValid.length && displayValid[runIndex]) {
+      runIndex++;
+    }
+    if (runIndex - runStart == 1) displayValid[runStart] = false;
   }
 
+  // Render every valid point as soon as the SDK reports it. The earlier
+  // stable-suffix gate waited for a new 200 ms run after each short transport
+  // gap, making a continuously touched W9S electrode look delayed and
+  // intermittent. Invalid converter rails remain gaps and short transport
+  // gaps above are still bridged only between established valid neighbours.
   return raw
       .asMap()
       .entries
       .map<double?>((entry) {
-        if (entry.key < selectedStart ||
-            entry.key > selectedEnd ||
-            !displayValid[entry.key]) {
+        if (!displayValid[entry.key]) {
           return null;
         }
         return centered[entry.key];

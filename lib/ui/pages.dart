@@ -1761,78 +1761,86 @@ class _SportEntryPanel extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: SaydianColors.brandRedSoft,
-                  borderRadius: BorderRadius.circular(11),
-                ),
-                child: const Icon(
-                  Icons.directions_run_rounded,
-                  color: SaydianColors.brandRed,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          Visibility(
+            visible: false,
+            child: Column(
+              children: [
+                Row(
                   children: [
-                    Text(
-                      '开始今日运动',
-                      style: TextStyle(fontWeight: FontWeight.w900),
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: SaydianColors.brandRedSoft,
+                        borderRadius: BorderRadius.circular(11),
+                      ),
+                      child: const Icon(
+                        Icons.directions_run_rounded,
+                        color: SaydianColors.brandRed,
+                        size: 20,
+                      ),
                     ),
-                    Text(
-                      '选择运动类型，连接手表后同步记录',
-                      style: TextStyle(
-                        color: SaydianColors.muted,
-                        fontSize: 13,
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '开始今日运动',
+                            style: TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                          Text(
+                            '选择运动类型，连接手表后同步记录',
+                            style: TextStyle(
+                              color: SaydianColors.muted,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final enlarged = MediaQuery.textScalerOf(context).scale(1) > 1.25;
-              final columns = enlarged ? 2 : 4;
-              final width = constraints.maxWidth / columns;
-              final modes = controller.availableSportModes;
-              if (modes.isEmpty) {
-                return const _InlineNotice(
-                  message: '当前手表未开放由 APP 启动的运动模式，请直接在手表上开始运动。',
-                  icon: Icons.watch_rounded,
-                  color: SaydianColors.orange,
-                );
-              }
-              return Wrap(
-                children: [
-                  for (final mode in modes)
-                    SizedBox(
-                      width: width,
-                      child: _SportEntry(
-                        mode: mode,
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => SportSessionPage(
-                              controller: controller,
+                const SizedBox(height: 14),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final enlarged =
+                        MediaQuery.textScalerOf(context).scale(1) > 1.25;
+                    final columns = enlarged ? 2 : 4;
+                    final width = constraints.maxWidth / columns;
+                    final modes = controller.availableSportModes;
+                    if (modes.isEmpty) {
+                      return const _InlineNotice(
+                        message: '当前手表未开放由 APP 启动的运动模式，请直接在手表上开始运动。',
+                        icon: Icons.watch_rounded,
+                        color: SaydianColors.orange,
+                      );
+                    }
+                    return Wrap(
+                      children: [
+                        for (final mode in modes)
+                          SizedBox(
+                            width: width,
+                            child: _SportEntry(
                               mode: mode,
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => SportSessionPage(
+                                    controller: controller,
+                                    mode: mode,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
           ),
-          const SizedBox(height: 12),
           Material(
             color: SaydianColors.brandRedSoft,
             borderRadius: BorderRadius.circular(17),
@@ -5685,7 +5693,17 @@ class _CareMetricRecordCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const hiddenKeys = {'id', 'member_id', 'memberId'};
+    const hiddenKeys = {
+      'id',
+      'member_id',
+      'memberId',
+      'merchant_id',
+      'status',
+      'day',
+      'h',
+      'created_at',
+      'updated_at',
+    };
     final entries = record.entries
         .where(
           (entry) =>
@@ -5722,7 +5740,11 @@ class _CareMetricRecordCard extends StatelessWidget {
                           style: const TextStyle(color: SaydianColors.muted),
                         ),
                       ),
-                      Expanded(child: Text(_careFieldValue(entry.value))),
+                      Expanded(
+                        child: Text(
+                          '${_careFieldValue(entry.value)}${_careFieldUnit(entry.key)}',
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -5745,9 +5767,36 @@ String _careFieldLabel(String key) =>
       'lowPressure': '舒张压',
       'systolic': '收缩压',
       'diastolic': '舒张压',
+      'bloodPressureHigh': '收缩压',
+      'bloodPressureLow': '舒张压',
+      'uricAcidVal': '尿酸',
+      'cholesterol': '总胆固醇',
+      'triacylglycerol': '甘油三酯',
+      'highDensity': '高密度脂蛋白',
+      'lowDensity': '低密度脂蛋白',
       'name': '项目',
     }[key] ??
     key;
+
+String _careFieldUnit(String key) => switch (key) {
+  'uricAcidVal' => ' μmol/L',
+  'cholesterol' ||
+  'triacylglycerol' ||
+  'highDensity' ||
+  'lowDensity' => ' mmol/L',
+  'pulseReat' => ' 次/分',
+  'bloodOxygen' => ' %',
+  'bloodGlucose' => ' mmol/L',
+  'bodyTemperature' => ' ℃',
+  'HRVData' => ' ms',
+  'highPressure' ||
+  'lowPressure' ||
+  'systolic' ||
+  'diastolic' ||
+  'bloodPressureHigh' ||
+  'bloodPressureLow' => ' mmHg',
+  _ => '',
+};
 
 String _careFieldValue(Object? value) {
   if (value is num) return _careFormatNumber(value);
@@ -5768,8 +5817,8 @@ String _careFormatNumber(num value) {
   if (!numeric.isFinite) return '$value';
   return numeric
       .toStringAsFixed(2)
-      .replaceFirst(RegExp(r'\.0+$'), '')
-      .replaceFirst(RegExp(r'(\.\d*?)0+$'), r'$1');
+      .replaceFirst(RegExp(r'0+$'), '')
+      .replaceFirst(RegExp(r'\.$'), '');
 }
 
 num _careNumber(Object? value) =>

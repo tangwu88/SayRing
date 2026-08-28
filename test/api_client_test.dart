@@ -331,25 +331,23 @@ void main() {
   });
 
   test(
-    'missing health batch endpoint falls back to the mini-program daily route',
+    'health upload uses the mini-program daily route and field shapes',
     () async {
-      var requestCount = 0;
       final client = MockClient((request) async {
         expect(request.method, 'POST');
-        requestCount++;
-        if (requestCount == 1) {
-          expect(request.url.path, '/api/v1/member/health-records/batch');
-          return http.Response(
-            '{"code":404,"message":"页面未找到。","data":{}}',
-            200,
-            headers: {'content-type': 'application/json'},
-          );
-        }
         expect(request.url.path, '/api/v1/member/daily-date');
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         final daily =
             (body['dailyDate'] as List).single as Map<String, dynamic>;
-        expect(daily['pulseReat'], 72);
+        expect(daily['pulseReat'], [72]);
+        expect(daily['heartReat'], 72);
+        expect(daily['bloodPressure'], {
+          'bloodPressureHigh': 126,
+          'bloodPressureLow': 79,
+        });
+        expect(daily['bloodOxygen'], {
+          'oxygens': [98, 0, 0],
+        });
         return http.Response('{"code":200,"data":{}}', 200);
       });
       final api = SaydianApiClient(
@@ -357,24 +355,37 @@ void main() {
         client: client,
         baseUri: Uri.parse('https://example.invalid'),
       );
-      final record = HealthRecord(
-        id: 'record-1',
-        metric: HealthMetric.heartRate,
-        values: const {'value': 72},
-        unit: 'bpm',
-        measuredAt: DateTime.utc(2026, 8, 13),
+      HealthRecord record(
+        String id,
+        HealthMetric metric,
+        Map<String, num> values,
+        String unit,
+      ) => HealthRecord(
+        id: id,
+        metric: metric,
+        values: values,
+        unit: unit,
+        measuredAt: DateTime.utc(2026, 8, 13, 8, 30),
         timezone: '+08:00',
-        deviceId: 'ET488',
+        deviceId: 'W9S',
         firmwareVersion: '1.0.0',
         quality: 'good',
         source: MeasurementSource.wearable,
         rawVersion: 1,
       );
+      final records = [
+        record('heart', HealthMetric.heartRate, const {'value': 72}, 'bpm'),
+        record('pressure', HealthMetric.bloodPressure, const {
+          'systolic': 126,
+          'diastolic': 79,
+        }, 'mmHg'),
+        record('oxygen', HealthMetric.bloodOxygen, const {'value': 98}, '%'),
+      ];
 
       final result = await api.uploadHealthBatch(
-        SyncBatch(cursor: null, records: [record]),
+        SyncBatch(cursor: null, records: records),
       );
-      expect(result.acceptedIds, {'record-1'});
+      expect(result.acceptedIds, {'heart', 'pressure', 'oxygen'});
       expect(result.rejected, isEmpty);
     },
   );

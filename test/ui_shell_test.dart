@@ -90,10 +90,10 @@ void main() {
       350,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('跑步'), findsOneWidget);
-    expect(find.text('步行'), findsOneWidget);
-    expect(find.text('骑行'), findsOneWidget);
-    expect(find.text('徒步'), findsOneWidget);
+    expect(find.text('跑步'), findsNothing);
+    expect(find.text('步行'), findsNothing);
+    expect(find.text('骑行'), findsNothing);
+    expect(find.text('徒步'), findsNothing);
     expect(find.text('运动记录'), findsOneWidget);
 
     expect(
@@ -1270,6 +1270,47 @@ void main() {
     await tester.tap(recordTiles.last);
     await tester.pumpAndSettle();
     expect(find.text('心率详情'), findsOneWidget);
+  });
+
+  testWidgets('care blood composition detail uses readable Chinese fields', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: CareMetricDetailPage(
+          day: DateTime(2026, 8, 26),
+          item: const {
+            'title': '血液成分',
+            'records': [
+              {
+                'id': '1230',
+                'member_id': '87',
+                'date': '2026-08-26 17:56:29',
+                'uricAcidVal': '206.80000305176',
+                'cholesterol': '3.2999999523163',
+                'triacylglycerol': '1.039999961853',
+                'highDensity': '1.0800000429153',
+                'lowDensity': '2.1099998950958',
+                'status': '1',
+                'created_at': '1787738189',
+              },
+            ],
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('尿酸'), findsOneWidget);
+    expect(find.text('206.8 μmol/L'), findsOneWidget);
+    expect(find.text('总胆固醇'), findsOneWidget);
+    expect(find.text('3.3 mmol/L'), findsOneWidget);
+    expect(find.text('uricAcidVal'), findsNothing);
+    expect(find.text('created_at'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }
 

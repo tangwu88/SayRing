@@ -852,48 +852,12 @@ class SaydianApiClient
   }
 
   @override
-  Future<BatchUploadResult> uploadHealthBatch(SyncBatch batch) async {
-    final response = await _authorizedPostJson(
-      '/api/v1/member/health-records/batch',
-      batch.toJson(),
-      headers: {
-        'Idempotency-Key':
-            '${batch.records.firstOrNull?.id ?? 'empty'}-${batch.records.length}',
-      },
-    );
-    if (response.statusCode == 404 || response.statusCode == 405) {
-      return _uploadLegacyHealthRecords(batch);
-    }
-    Map<String, Object?> payload;
-    try {
-      payload = _decode(response);
-    } on ApiException catch (error) {
-      // The current backend can return a missing-route business code inside
-      // an HTTP 200 response. Fall back to the same endpoints used by the
-      // original mini program so care-member data is not silently stranded.
-      if (error.statusCode == 404 || error.statusCode == 405) {
-        return _uploadLegacyHealthRecords(batch);
-      }
-      rethrow;
-    }
-    final data = _data(payload);
-    final accepted = data['accepted'];
-    final rejected = data['rejected'];
-    return BatchUploadResult(
-      acceptedIds: accepted is List
-          ? accepted.map((value) => '$value').toSet()
-          : batch.records.map((record) => record.id).toSet(),
-      rejected: rejected is List
-          ? {
-              for (final item in rejected.whereType<Map>())
-                '${item['id']}': '${item['reason'] ?? '未知原因'}',
-            }
-          : const {},
-      nextCursor: data['nextCursor']?.toString(),
-    );
-  }
+  Future<BatchUploadResult> uploadHealthBatch(SyncBatch batch) =>
+      _uploadMiniProgramHealthRecords(batch);
 
-  Future<BatchUploadResult> _uploadLegacyHealthRecords(SyncBatch batch) async {
+  Future<BatchUploadResult> _uploadMiniProgramHealthRecords(
+    SyncBatch batch,
+  ) async {
     final accepted = <String>{};
     final rejected = <String, String>{};
     final activityRecords = batch.records
@@ -934,12 +898,53 @@ class SaydianApiClient
       }
     }
 
+    const dailyMetrics = <HealthMetric>{
+      HealthMetric.sleep,
+      HealthMetric.heartRate,
+      HealthMetric.bloodOxygen,
+      HealthMetric.bloodPressure,
+      HealthMetric.bloodGlucose,
+      HealthMetric.bodyTemperature,
+      HealthMetric.hrv,
+    };
+    final dailyGroups = <String, List<HealthRecord>>{};
+    for (final record in batch.records) {
+      if (!dailyMetrics.contains(record.metric)) continue;
+      final key = _miniProgramDailyDateKey(record.measuredAt.toLocal());
+      dailyGroups.putIfAbsent(key, () => <HealthRecord>[]).add(record);
+    }
+    if (dailyGroups.isNotEmpty) {
+      final dailyRecords = dailyGroups.values.expand((records) => records);
+      try {
+        final orderedKeys = dailyGroups.keys.toList()..sort();
+        final response = await _authorizedPostJson(
+          '/api/v1/member/daily-date',
+          {
+            'dailyDate': [
+              for (final key in orderedKeys)
+                _miniProgramDailyRow(dailyGroups[key]!),
+            ],
+          },
+        );
+        _decode(response);
+        accepted.addAll(dailyRecords.map((record) => record.id));
+      } on ApiException catch (error) {
+        for (final record in dailyRecords) {
+          rejected[record.id] = error.message;
+        }
+      } catch (_) {
+        for (final record in dailyRecords) {
+          rejected[record.id] = '健康数据同步失败，请稍后重试';
+        }
+      }
+    }
+
     for (final record in batch.records) {
       if (accepted.contains(record.id) || rejected.containsKey(record.id)) {
         continue;
       }
       try {
-        await _uploadLegacyHealthRecord(record);
+        await _uploadMiniProgramHealthRecord(record);
         accepted.add(record.id);
       } on ApiException catch (error) {
         rejected[record.id] = error.message;
@@ -954,7 +959,86 @@ class SaydianApiClient
     );
   }
 
-  Future<void> _uploadLegacyHealthRecord(HealthRecord record) async {
+  String _miniProgramDailyDateKey(DateTime local) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${local.year}-${two(local.month)}-${two(local.day)} '
+        '${two(local.hour)}:${two(local.minute)}:00';
+  }
+
+  Map<String, Object?> _miniProgramDailyRow(List<HealthRecord> records) {
+    final ordered = [...records]
+      ..sort((left, right) => left.measuredAt.compareTo(right.measuredAt));
+    final local = ordered.last.measuredAt.toLocal();
+    String two(int value) => value.toString().padLeft(2, '0');
+
+    HealthRecord? latest(HealthMetric metric) {
+      for (final record in ordered.reversed) {
+        if (record.metric == metric) return record;
+      }
+      return null;
+    }
+
+    num? primary(HealthMetric metric) {
+      final record = latest(metric);
+      return record?.values['value'] ?? record?.values.values.firstOrNull;
+    }
+
+    final heartRate = primary(HealthMetric.heartRate);
+    final oxygen = primary(HealthMetric.bloodOxygen);
+    final glucose = primary(HealthMetric.bloodGlucose);
+    final temperature = primary(HealthMetric.bodyTemperature);
+    final hrv = primary(HealthMetric.hrv);
+    final pressure = latest(HealthMetric.bloodPressure);
+    final sleep = latest(HealthMetric.sleep);
+    final sleepMinutes = ((sleep?.values['value'] ?? 0) * 60).round();
+    final deepMinutes = ((sleep?.values['deepHours'] ?? 0) * 60).round();
+    final lightMinutes = ((sleep?.values['lightHours'] ?? 0) * 60).round();
+
+    // Keep the field names and value shapes identical to pages/app/home.ts in
+    // the original mini program. The care-member preview endpoints read these
+    // legacy fields directly; normalized APP-only keys are not sufficient.
+    return <String, Object?>{
+      'date': _miniProgramDailyDateKey(local),
+      'h': two(local.hour),
+      'isHourse': local.minute == 0 ? 1 : 0,
+      'hourse': '${two(local.hour)}:${two(local.minute)}',
+      'step': 0,
+      'sleepData': sleep == null
+          ? null
+          : <String, Object?>{
+              'allSleepTime': sleepMinutes,
+              'deepSleepTime': deepMinutes,
+              'lowSleepTime': lightMinutes,
+              'wakeCount': (sleep.values['wakeCount'] ?? 0).round(),
+            },
+      'heartReat': heartRate,
+      'respirationRate': null,
+      'sleepAmountActivity': null,
+      'sleepStatus': null,
+      'meiTuo': null,
+      'pressure': null,
+      'bloodLiquid': null,
+      'bloodPressure': pressure == null
+          ? null
+          : <String, Object?>{
+              'bloodPressureHigh': pressure.values['systolic'],
+              'bloodPressureLow': pressure.values['diastolic'],
+            },
+      'bloodGlucose': glucose,
+      'bloodOxygen': oxygen == null
+          ? null
+          : <String, Object?>{
+              'oxygens': [oxygen, 0, 0],
+            },
+      'bodyTemperature': temperature == null
+          ? null
+          : <String, Object?>{'bodyTemperature': temperature},
+      'pulseReat': heartRate == null ? null : [heartRate],
+      'HRVData': hrv == null ? null : [hrv],
+    };
+  }
+
+  Future<void> _uploadMiniProgramHealthRecord(HealthRecord record) async {
     http.Response response;
     switch (record.metric) {
       case HealthMetric.bodyComposition:
@@ -1003,53 +1087,16 @@ class SaydianApiClient
         });
         break;
       case HealthMetric.sleep:
-        // Sleep is uploaded from the vendor daily-data reader where its stage
-        // payload is available. A summarized duration cannot be converted
-        // back into that losslessly.
-        throw const ApiException('睡眠分期数据需等待下次设备完整同步');
       case HealthMetric.steps:
       case HealthMetric.distance:
       case HealthMetric.calories:
-        return;
       case HealthMetric.heartRate:
       case HealthMetric.bloodOxygen:
       case HealthMetric.bloodPressure:
       case HealthMetric.bloodGlucose:
       case HealthMetric.bodyTemperature:
       case HealthMetric.hrv:
-        final local = record.measuredAt.toLocal();
-        String two(int value) => value.toString().padLeft(2, '0');
-        final value =
-            record.values['value'] ?? record.values.values.firstOrNull;
-        final daily = <String, Object?>{
-          'date':
-              '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}:00',
-          'h': two(local.hour),
-          'isHourse': local.minute == 0 ? 1 : 0,
-          'hourse': '${two(local.hour)}:${two(local.minute)}',
-          'step': 0,
-          'bloodPressure': record.metric == HealthMetric.bloodPressure
-              ? <String, Object?>{
-                  'highPressure': record.values['systolic'],
-                  'lowPressure': record.values['diastolic'],
-                }
-              : null,
-          'bloodGlucose': record.metric == HealthMetric.bloodGlucose
-              ? value
-              : null,
-          'bloodOxygen': record.metric == HealthMetric.bloodOxygen
-              ? value
-              : null,
-          'bodyTemperature': record.metric == HealthMetric.bodyTemperature
-              ? value
-              : null,
-          'pulseReat': record.metric == HealthMetric.heartRate ? value : null,
-          'HRVData': record.metric == HealthMetric.hrv ? value : null,
-        };
-        response = await _authorizedPostJson('/api/v1/member/daily-date', {
-          'dailyDate': [daily],
-        });
-        break;
+        return;
     }
     _decode(response);
   }

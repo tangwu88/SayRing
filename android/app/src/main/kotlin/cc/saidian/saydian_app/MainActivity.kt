@@ -654,9 +654,11 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private var activeSportUsesAppControl = false
     private var measurementResultTimeoutTask: Runnable? = null
     private var ecgSampleFrequency = DEFAULT_ECG_SAMPLE_FREQUENCY
+    private var activeEcgType = 0
     private var latestEcgHeartRate = 0
     private var latestEcgHrv = 0
     private var lastEcgAdcLogAt = 0L
+    private var lastEcgStateLogAt = 0L
     private var activeHrvUsesEcg = false
     private var activeHrvUsesMiniCheckup = false
     private var directHrvMeasurementSupported = false
@@ -5545,10 +5547,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 "blood_composition" ->
                     manager.startDetectBloodComponent(measurementWrite(callback), false, bloodComponentListener)
                 "ecg" -> {
-                    synchronized(activeEcgSamples) { activeEcgSamples.clear() }
-                    ecgSampleFrequency = DEFAULT_ECG_SAMPLE_FREQUENCY
-                    latestEcgHeartRate = 0
-                    latestEcgHrv = 0
+                    resetEcgMeasurementStream()
                     manager.startDetectECG(measurementWrite(callback), true, ecgListener)
                 }
                 "hrv" -> {
@@ -5590,10 +5589,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         // Some W9S firmware exposes HRV only as part of the ECG
                         // result.  Use the vendor ECG result instead of failing
                         // an otherwise measurable HRV entry.
-                        synchronized(activeEcgSamples) { activeEcgSamples.clear() }
-                        ecgSampleFrequency = DEFAULT_ECG_SAMPLE_FREQUENCY
-                        latestEcgHeartRate = 0
-                        latestEcgHrv = 0
+                        resetEcgMeasurementStream()
                         activeHrvUsesEcg = true
                         activeHrvUsesMiniCheckup = false
                         manager.startDetectECG(measurementWrite(callback), true, ecgListener)
@@ -6505,10 +6501,98 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     }
 
     private val activeEcgSamples = mutableListOf<Number>()
+    private val pendingEcgRawSamples = mutableListOf<Int>()
+    private val pendingEcgPowerSamples = mutableListOf<Int>()
+
+    private fun resetEcgMeasurementStream() {
+        synchronized(activeEcgSamples) { activeEcgSamples.clear() }
+        synchronized(pendingEcgRawSamples) {
+            pendingEcgRawSamples.clear()
+            pendingEcgPowerSamples.clear()
+        }
+        ecgSampleFrequency = DEFAULT_ECG_SAMPLE_FREQUENCY
+        activeEcgType = storedEcgType()
+        latestEcgHeartRate = 0
+        latestEcgHrv = 0
+        lastEcgAdcLogAt = 0L
+        lastEcgStateLogAt = 0L
+    }
+
+    private fun storedEcgType(): Int =
+        runCatching {
+            VpSpGetUtil.getVpSpVariInstance(appContext).getECGType()
+        }.getOrDefault(0).takeIf { it in 1..14 } ?: 0
+
+    private fun bufferPendingEcgSamples(data: IntArray, power: IntArray) {
+        synchronized(pendingEcgRawSamples) {
+            data.forEachIndexed { index, sample ->
+                pendingEcgRawSamples += sample
+                pendingEcgPowerSamples +=
+                    power.getOrNull(index)?.takeIf { it > 0 } ?: DEFAULT_ECG_POWER
+            }
+            val maximumPending =
+                (ecgSampleFrequency.coerceIn(50, 1000) * ECG_PENDING_SECONDS).coerceAtLeast(500)
+            val excess = pendingEcgRawSamples.size - maximumPending
+            if (excess > 0) {
+                pendingEcgRawSamples.subList(0, excess).clear()
+                pendingEcgPowerSamples.subList(0, excess).clear()
+            }
+        }
+    }
+
+    private fun flushPendingEcgSamples() {
+        if (activeEcgType !in 1..14) return
+        val pending =
+            synchronized(pendingEcgRawSamples) {
+                if (pendingEcgRawSamples.isEmpty()) {
+                    null
+                } else {
+                    Pair(
+                        pendingEcgRawSamples.toList(),
+                        pendingEcgPowerSamples.toIntArray(),
+                    ).also {
+                        pendingEcgRawSamples.clear()
+                        pendingEcgPowerSamples.clear()
+                    }
+                }
+            } ?: return
+        publishEcgSamples(
+            calibrateEcgSamples(
+                pending.first,
+                pending.second,
+                ecgTypeOverride = activeEcgType,
+            ),
+        )
+    }
+
+    private fun publishEcgSamples(
+        calibrated: List<Number>,
+        emitLive: Boolean = true,
+    ) {
+        if (calibrated.isEmpty()) return
+        synchronized(activeEcgSamples) { activeEcgSamples += calibrated }
+        if (!emitLive) return
+        emit(
+            "measurementProgress",
+            mapOf(
+                "metric" to (activeMetric ?: "ecg"),
+                // Match the official HBand demo: forward every ADC point in
+                // callback order so the Flutter trace retains its time axis.
+                "samples" to calibrated,
+            ),
+        )
+    }
+
     private val ecgListener =
         object : IECGDetectListener {
             override fun onEcgDetectInfoChange(info: EcgDetectInfo) {
                 ecgSampleFrequency = info.frequency.takeIf { it in 50..1000 } ?: DEFAULT_ECG_SAMPLE_FREQUENCY
+                if (activeEcgType !in 1..14) activeEcgType = storedEcgType()
+                flushPendingEcgSamples()
+                Log.i(
+                    LOG_TAG,
+                    "ecg info frequency=${info.frequency} draw=${info.drawFrequency} type=$activeEcgType",
+                )
                 emit(
                     "measurementProgress",
                     mapOf(
@@ -6521,6 +6605,14 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
             override fun onEcgDetectStateChange(state: EcgDetectState) {
                 val metric = activeMetric ?: return
+                val now = System.currentTimeMillis()
+                if (now - lastEcgStateLogAt >= 1_000L) {
+                    lastEcgStateLogAt = now
+                    Log.d(
+                        LOG_TAG,
+                        "ecg state measureType=${state.ecgType} hardwareType=$activeEcgType progress=${state.progress} wear=${state.wear} device=${state.deviceState.name} heart=${state.hr2} hrv=${state.hrv}",
+                    )
+                }
                 if (state.hr2 in 30..210) latestEcgHeartRate = state.hr2
                 if (state.hrv in 1..250) latestEcgHrv = state.hrv
                 emit(
@@ -6534,7 +6626,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         "hrv" to state.hrv,
                     ),
                 )
-                if (state.deviceState == EDeviceStatus.UNPASS_WEAR) {
+                if (state.deviceState == EDeviceStatus.UNPASS_WEAR || state.wear == 1) {
                     failMeasurement(
                         metric,
                         "ECG_NOT_WORN",
@@ -6625,7 +6717,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     "ecg diagnosis callback success=${diagnosis.isSuccess} heart=${diagnosis.heartRate} hrv=${diagnosis.hrv} qt=${diagnosis.qtTime}",
                 )
                 val metric = activeMetric ?: "ecg"
-                val hasRiskAnalysis =
+                val hasReturnedRiskValues =
                     listOf(
                         diagnosis.diseaseRisk,
                         diagnosis.pressureIndex,
@@ -6637,12 +6729,17 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         diagnosis.risk32?.any { it != 0 } == true ||
                         diagnosis.diagnosis8?.any { it != 0 } == true ||
                         diagnosis.diseaseResult?.any { it != 0 } == true
+                // A successful diagnosis callback is itself the SDK's
+                // authoritative indication that the risk result is present.
+                // Zero is a valid low-risk value and must not be treated as a
+                // missing field.
+                val hasRiskAnalysis = diagnosis.isSuccess || hasReturnedRiskValues
                 val values = buildMap<String, Number> {
                     if (diagnosis.heartRate in 30..210) put("meanHeartRate", diagnosis.heartRate)
                     if (diagnosis.hrv in 1..250) put("averageHRV", diagnosis.hrv)
                     if (diagnosis.qtTime > 0) put("averageTimeInterval", diagnosis.qtTime)
                     if (diagnosis.respRate > 0) put("respiratoryRate", diagnosis.respRate)
-                    if (diagnosis.isSuccess && hasRiskAnalysis) {
+                    if (hasRiskAnalysis) {
                         put("riskAnalysisAvailable", 1)
                         if (diagnosis.diseaseRisk >= 0) put("diseaseRisk", diagnosis.diseaseRisk)
                         if (diagnosis.pressureIndex >= 0) put("pressureIndex", diagnosis.pressureIndex)
@@ -6659,7 +6756,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         if (diagnosis.diseaseSdnn > 0) put("sdnn", diagnosis.diseaseSdnn)
                         if (diagnosis.diseaseRmssd > 0) put("rmssd", diagnosis.diseaseRmssd)
                         val abnormalCount = diagnosis.diseaseResult?.count { it != 0 } ?: 0
-                        if (abnormalCount > 0) put("deviceAbnormalFlags", abnormalCount)
+                        put("deviceAbnormalFlags", abnormalCount)
                     }
                     put("sampleFrequency", diagnosis.frequency.takeIf { it > 0 } ?: ecgSampleFrequency)
                 }
@@ -6672,10 +6769,8 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 if (metric == "ecg" && !hasRiskAnalysis) {
                     diagnosis.heartRate.takeIf { it in 30..210 }?.let { latestEcgHeartRate = it }
                     diagnosis.hrv.takeIf { it in 1..250 }?.let { latestEcgHrv = it }
-                    // A successful SDK callback containing only zero-filled risk
-                    // placeholders is not a real risk analysis. Preserve the ECG
-                    // trace through the deferred completion path without claiming
-                    // that every risk is zero.
+                    // The SDK did not provide a successful diagnosis callback.
+                    // Preserve the trace without inventing risk values.
                     if (diagnosis.isSuccess) {
                         deferEcgCompletion(metric)
                     } else {
@@ -6722,28 +6817,48 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             }
 
             override fun onEcgADCChange(data: IntArray, power: IntArray) {
-                val calibrated = calibrateEcgSamples(data.toList(), power)
+                if (activeEcgType !in 1..14) activeEcgType = storedEcgType()
+                if (activeEcgType !in 1..14) {
+                    bufferPendingEcgSamples(data, power)
+                    val now = System.currentTimeMillis()
+                    if (now - lastEcgAdcLogAt >= 1_000L) {
+                        lastEcgAdcLogAt = now
+                        Log.w(
+                            LOG_TAG,
+                            "ecg adc waiting for valid type raw=${data.size} pending=${pendingEcgRawSamples.size}",
+                        )
+                    }
+                    return
+                }
+                flushPendingEcgSamples()
+                val validRaw = data.filter { it != Int.MAX_VALUE }
+                val hasWaveformData = validRaw.any { it != 0 }
+                val calibrated =
+                    calibrateEcgSamples(
+                        data.toList(),
+                        power,
+                        ecgTypeOverride = activeEcgType,
+                    )
                 val now = System.currentTimeMillis()
                 if (now - lastEcgAdcLogAt >= 1_000L) {
                     lastEcgAdcLogAt = now
-                    val validRaw = data.count { it != Int.MAX_VALUE }
+                    val rawMinimum = validRaw.minOrNull()
+                    val rawMaximum = validRaw.maxOrNull()
+                    val powerMinimum = power.minOrNull()
+                    val powerMaximum = power.maxOrNull()
                     val minimum = calibrated.minOfOrNull { it.toDouble() }
                     val maximum = calibrated.maxOfOrNull { it.toDouble() }
                     Log.d(
                         LOG_TAG,
-                        "ecg adc raw=${data.size} valid=$validRaw power=${power.size} calibrated=${calibrated.size} range=$minimum..$maximum",
+                        "ecg adc type=$activeEcgType raw=${data.size}/${validRaw.size}/$rawMinimum..$rawMaximum power=${power.size}/$powerMinimum..$powerMaximum calibrated=${calibrated.size}/$minimum..$maximum",
                     )
                 }
-                synchronized(activeEcgSamples) { activeEcgSamples += calibrated }
-                if (calibrated.isNotEmpty()) {
-                    emit(
-                        "measurementProgress",
-                        mapOf(
-                            "metric" to (activeMetric ?: "ecg"),
-                            "samples" to calibrated.takeLast(160),
-                        ),
-                    )
-                }
+                // HBand documents that callbacks without reasonable waveform
+                // data must not be drawn. Some W9S firmware represents that
+                // state as a full zero packet instead of an empty array. Keep
+                // those samples in the quality buffer, but do not let them
+                // repeatedly replace the last genuine live trace on screen.
+                publishEcgSamples(calibrated, emitLive = hasWaveformData)
             }
         }
 
@@ -6950,11 +7065,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private fun calibrateEcgSamples(
         rawSamples: List<Number>,
         powers: IntArray? = null,
+        ecgTypeOverride: Int? = null,
     ): List<Number> {
-        val ecgType =
-            runCatching {
-                VpSpGetUtil.getVpSpVariInstance(appContext).getECGType()
-            }.getOrDefault(0)
+        val ecgType = ecgTypeOverride?.takeIf { it in 1..14 } ?: storedEcgType()
+        if (ecgType !in 1..14) return emptyList()
         return rawSamples.mapIndexedNotNull { index, sample ->
             if (sample.toLong() == Int.MAX_VALUE.toLong()) return@mapIndexedNotNull null
             val power = powers?.getOrNull(index)?.takeIf { it > 0 } ?: DEFAULT_ECG_POWER
@@ -7595,6 +7709,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         private const val ECG_MIN_USABLE_TAIL_SECONDS = 10
         private const val ECG_MAX_USABLE_TAIL_SECONDS = 30
         private const val ECG_CALIBRATED_RAW_VERSION = 2
+        private const val ECG_PENDING_SECONDS = 10
         private const val DEFAULT_ECG_POWER = 20
         private const val ALARM_CACHE_FALLBACK_MS = 1_000L
         private const val ALARM_CACHE_SETTLE_MS = 120L

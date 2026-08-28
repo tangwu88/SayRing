@@ -1160,6 +1160,10 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
       _showMessage('积分必须在 0～${_money(availablePoint)} 之间');
       return;
     }
+    if (point > _total) {
+      _showMessage('使用积分不能超过订单金额 ${_money(_total)}');
+      return;
+    }
     setState(() => _submitting = true);
     final order = await widget.controller.createShopOrder(
       items: orderItems,
@@ -1330,6 +1334,7 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
                   child: Padding(
                     padding: const EdgeInsets.all(14),
                     child: TextField(
+                      key: const Key('shop-checkout-points'),
                       controller: _point,
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
@@ -1428,6 +1433,7 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
   bool _loading = true;
   bool _paying = false;
   String? _paymentMessage;
+  AppPaymentProvider _selectedProvider = AppPaymentProvider.wechat;
 
   @override
   void initState() {
@@ -1458,11 +1464,20 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
     });
   }
 
+  double get _paymentAmount => _asDouble(
+    _order['order_money'] ?? _order['pay_money'] ?? _order['product_money'],
+  );
+
+  double get _usedPoints => _asDouble(
+    _order['point'] ??
+        _order['use_point'] ??
+        _order['used_point'] ??
+        _order['user_point'],
+  );
+
   Future<void> _pay(AppPaymentProvider provider) async {
     if (_paying) return;
-    final amount = _asDouble(
-      _order['order_money'] ?? _order['pay_money'] ?? _order['product_money'],
-    );
+    final amount = _paymentAmount;
     if (amount <= 0) {
       setState(() => _paymentMessage = '订单金额异常，请刷新后重试');
       return;
@@ -1514,96 +1529,145 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
   Widget build(BuildContext context) {
     final status = _asInt(_order['order_status']);
     return Scaffold(
-      appBar: AppBar(title: const Text('订单结果')),
+      backgroundColor: const Color(0xFFF7F7F8),
+      appBar: AppBar(title: const Text('支付收银台')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 120),
                 children: [
-                  Icon(
-                    status == 0
-                        ? Icons.schedule_rounded
-                        : Icons.check_circle_rounded,
-                    size: 72,
-                    color: status == 0
-                        ? SaydianColors.orange
-                        : SaydianColors.green,
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    status == 0 ? '订单提交成功，等待支付' : '订单状态已更新',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 21,
-                      fontWeight: FontWeight.w900,
+                  Container(
+                    key: const Key('shop-payment-summary'),
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x0D000000),
+                          blurRadius: 18,
+                          offset: Offset(0, 6),
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '订单号：${_order['order_sn'] ?? widget.orderId}',
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 18),
-                  if (status == 0)
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Icon(
-                              Icons.info_outline_rounded,
-                              color: SaydianColors.orange,
+                    child: Column(
+                      children: [
+                        _PaymentSummaryRow(
+                          label: '订单号',
+                          value: '${_order['order_sn'] ?? widget.orderId}',
+                        ),
+                        const SizedBox(height: 13),
+                        _PaymentSummaryRow(
+                          label: '使用积分数量',
+                          value: _money(_usedPoints),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 14),
+                          child: Divider(height: 1),
+                        ),
+                        Row(
+                          children: [
+                            const Text(
+                              '订单总额',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
-                            SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                '请选择支付方式。支付结果以服务器回调和订单状态为准；若客户端提示成功但订单尚未更新，请稍后刷新。',
-                                style: TextStyle(height: 1.55),
+                            const Spacer(),
+                            Text(
+                              '¥${_money(_paymentAmount)}',
+                              key: const Key('shop-payment-total'),
+                              style: const TextStyle(
+                                color: SaydianColors.brandRed,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w900,
                               ),
                             ),
                           ],
                         ),
-                      ),
+                      ],
                     ),
+                  ),
                   if (status == 0) ...[
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        key: const Key('shop-pay-wechat'),
-                        onPressed: _paying
-                            ? null
-                            : () => _pay(AppPaymentProvider.wechat),
-                        icon: const Icon(Icons.chat_bubble_rounded),
-                        label: Text(_paying ? '正在调起支付…' : '微信支付'),
+                    const SizedBox(height: 24),
+                    const Text(
+                      '选择支付方式',
+                      style: TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        key: const Key('shop-pay-alipay'),
-                        onPressed: _paying
-                            ? null
-                            : () => _pay(AppPaymentProvider.alipay),
-                        icon: const Icon(Icons.account_balance_wallet_rounded),
-                        label: const Text('支付宝支付'),
-                      ),
+                    const SizedBox(height: 12),
+                    _PaymentMethodTile(
+                      key: const Key('shop-pay-wechat'),
+                      title: '微信支付',
+                      subtitle: '使用微信安全支付',
+                      icon: Icons.chat_bubble_rounded,
+                      iconColor: const Color(0xFF07C160),
+                      selected: _selectedProvider == AppPaymentProvider.wechat,
+                      onTap: _paying
+                          ? null
+                          : () => setState(
+                              () =>
+                                  _selectedProvider = AppPaymentProvider.wechat,
+                            ),
+                    ),
+                    const SizedBox(height: 10),
+                    _PaymentMethodTile(
+                      key: const Key('shop-pay-alipay'),
+                      title: '支付宝支付',
+                      subtitle: '使用支付宝安全支付',
+                      icon: Icons.account_balance_wallet_rounded,
+                      iconColor: const Color(0xFF1677FF),
+                      selected: _selectedProvider == AppPaymentProvider.alipay,
+                      onTap: _paying
+                          ? null
+                          : () => setState(
+                              () =>
+                                  _selectedProvider = AppPaymentProvider.alipay,
+                            ),
                     ),
                   ],
                   if (_paymentMessage != null) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      _paymentMessage!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: SaydianColors.muted),
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: SaydianColors.brandGoldSoft,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _paymentMessage!,
+                        style: const TextStyle(
+                          color: SaydianColors.muted,
+                          height: 1.45,
+                        ),
+                      ),
                     ),
                   ],
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
+                  if (status != 0) ...[
+                    const SizedBox(height: 18),
+                    Row(
+                      children: const [
+                        Icon(
+                          Icons.check_circle_rounded,
+                          color: SaydianColors.green,
+                        ),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            '订单状态已更新，无需重复支付。',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 18),
+                  OutlinedButton.icon(
                     onPressed: _load,
                     icon: const Icon(Icons.refresh_rounded),
                     label: const Text('刷新订单状态'),
@@ -1626,6 +1690,161 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
                 ],
               ),
             ),
+      bottomNavigationBar: !_loading && status == 0
+          ? SafeArea(
+              minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: SizedBox(
+                height: 52,
+                child: FilledButton(
+                  key: const Key('shop-pay-submit'),
+                  onPressed: _paying ? null : () => _pay(_selectedProvider),
+                  child: Text(
+                    _paying ? '正在调起支付…' : '去支付  ¥${_money(_paymentAmount)}',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+            )
+          : null,
+    );
+  }
+}
+
+class _PaymentSummaryRow extends StatelessWidget {
+  const _PaymentSummaryRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 108,
+          child: Text(
+            label,
+            style: const TextStyle(color: SaydianColors.muted),
+          ),
+        ),
+        Expanded(
+          child: FittedBox(
+            alignment: Alignment.centerRight,
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              maxLines: 1,
+              softWrap: false,
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PaymentMethodTile extends StatelessWidget {
+  const _PaymentMethodTile({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.iconColor,
+    required this.selected,
+    required this.onTap,
+    super.key,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color iconColor;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: selected
+                  ? SaydianColors.brandRed
+                  : const Color(0xFFE6E7EA),
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: .1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: iconColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: SaydianColors.muted,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                width: 24,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: selected ? SaydianColors.brandRed : Colors.white,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: selected
+                        ? SaydianColors.brandRed
+                        : const Color(0xFFB8BBC1),
+                    width: 1.5,
+                  ),
+                ),
+                child: selected
+                    ? const Icon(
+                        Icons.check_rounded,
+                        size: 16,
+                        color: Colors.white,
+                      )
+                    : null,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

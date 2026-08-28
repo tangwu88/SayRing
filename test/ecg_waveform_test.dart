@@ -458,6 +458,22 @@ void main() {
     expect(trace.skip(220).take(100).where((value) => value == null), isEmpty);
   });
 
+  test('live ECG resumes immediately after a transport gap', () {
+    const frequency = 250;
+    final samples = <num>[
+      for (var index = 0; index < frequency * 2; index++)
+        0.08 * math.sin(index / 8),
+      8,
+      -8,
+      for (var index = 0; index < 24; index++)
+        0.08 * math.sin((frequency * 2 + index) / 8),
+    ];
+
+    final trace = prepareLiveEcgTrace(samples, sampleFrequency: frequency);
+
+    expect(trace.skip(trace.length - 24).whereType<double>().length, 24);
+  });
+
   test('live alternating converter rails remain blank', () {
     const frequency = 250;
     final trace = prepareLiveEcgTrace(
