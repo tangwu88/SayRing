@@ -4556,19 +4556,37 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
     fun readAutoMeasureSettings(callback: ResultCallback<Map<String, Boolean>>) {
         ensureConnected(callback) ?: return
-        val preferences = VpSpGetUtil.getVpSpVariInstance(appContext)
-        val legacyTypes = legacyAutoMeasureTypes(preferences)
-        val supportsAutoMeasure =
-            preferences.isSupportAutoMeasure ||
+        fun currentLegacyTypes(): Set<String> =
+            legacyAutoMeasureTypes(VpSpGetUtil.getVpSpVariInstance(appContext))
+
+        fun currentlySupportsAutoMeasure(): Boolean {
+            val preferences = VpSpGetUtil.getVpSpVariInstance(appContext)
+            return preferences.isSupportAutoMeasure ||
                 functionPackage4?.autoMeasure.haveFunction() ||
                 legacyFunctionData?.autoMeasure.haveFunction()
+        }
+
+        val initialLegacyTypes = currentLegacyTypes()
+        // The W9S exposes these switches through CustomSettingData. Sending the
+        // newer B3 command first leaves affected firmware waiting until timeout
+        // and can make the first page entry look like a read failure.
+        if (connectedDeviceName.contains("W9S", ignoreCase = true) &&
+            initialLegacyTypes.isNotEmpty()
+        ) {
+            readLegacyAutoMeasureSettings(initialLegacyTypes, callback)
+            return
+        }
         val modernFinished = AtomicBoolean(false)
         val modernTimeout =
             Runnable {
                 if (!modernFinished.compareAndSet(false, true)) return@Runnable
+                // Capability packets may finish after this method starts. Read
+                // the shared SDK preferences again instead of using a stale
+                // empty set captured during connection setup.
+                val legacyTypes = currentLegacyTypes()
                 if (legacyTypes.isNotEmpty()) {
                     readLegacyAutoMeasureSettings(legacyTypes, callback)
-                } else if (supportsAutoMeasure) {
+                } else if (currentlySupportsAutoMeasure()) {
                     callback.error("AUTO_MEASURE_READ_TIMEOUT", "暂时未读取到自动检测设置，请稍后重试")
                 } else {
                     autoMeasureSettings.clear()
@@ -4578,9 +4596,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         fun fallbackToLegacy() {
             if (!modernFinished.compareAndSet(false, true)) return
             connectionHandler.removeCallbacks(modernTimeout)
+            val legacyTypes = currentLegacyTypes()
             if (legacyTypes.isNotEmpty()) {
                 readLegacyAutoMeasureSettings(legacyTypes, callback)
-            } else if (supportsAutoMeasure) {
+            } else if (currentlySupportsAutoMeasure()) {
                 callback.error("AUTO_MEASURE_READ_FAILED", "手表不支持或无法读取自动检测设置")
             } else {
                 autoMeasureSettings.clear()

@@ -57,6 +57,7 @@ class AppController extends ChangeNotifier {
   int _deviceSyncGeneration = 0;
   DeviceInfo? _latestDeviceDetails;
   String? _deviceSyncErrorMessage;
+  Future<void>? _deviceSettingsRefresh;
 
   bool isBooting = true;
   bool isBusy = false;
@@ -108,6 +109,7 @@ class AppController extends ChangeNotifier {
   String temperatureUnit = '摄氏度（℃）';
   Map<String, bool> autoMeasureSettings = const {};
   Map<String, AutoMeasureIntervalSetting> autoMeasureIntervals = const {};
+  bool isDeviceSettingsLoading = false;
   Map<DeviceFeature, Map<String, Object?>> deviceFeatureData = const {};
   Set<DeviceFeature> deviceFeatureBusy = const {};
   int cameraShutterSequence = 0;
@@ -967,8 +969,25 @@ class AppController extends ChangeNotifier {
     await refreshSportRecords();
   }
 
-  Future<void> refreshDeviceSettings() async {
+  Future<void> refreshDeviceSettings() {
+    final activeRefresh = _deviceSettingsRefresh;
+    if (activeRefresh != null) return activeRefresh;
+
+    late final Future<void> refresh;
+    refresh = _refreshDeviceSettings().whenComplete(() {
+      if (!identical(_deviceSettingsRefresh, refresh)) return;
+      _deviceSettingsRefresh = null;
+      if (_disposed) return;
+      isDeviceSettingsLoading = false;
+      notifyListeners();
+    });
+    _deviceSettingsRefresh = refresh;
+    return refresh;
+  }
+
+  Future<void> _refreshDeviceSettings() async {
     await Future<void>.delayed(Duration.zero);
+    if (_disposed) return;
     if (connectedDevice == null) {
       autoMeasureSettings = const {};
       autoMeasureIntervals = const {};
@@ -977,33 +996,75 @@ class AppController extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    final expectedDeviceId = connectedDevice!.id;
+    isDeviceSettingsLoading = true;
     deviceSettingsStatus = '正在读取手表设置';
-    heartRateWarningSupported = false;
     notifyListeners();
     try {
-      final settings = await _wearable.readAutoMeasureSettings();
-      autoMeasureSettings = settings;
-      final bridge = _wearable;
-      autoMeasureIntervals = bridge is WearableAutoMeasureIntervalBridge
-          ? await (bridge as WearableAutoMeasureIntervalBridge)
-                .readAutoMeasureIntervals()
-          : const {};
-      final warning = await _wearable.readHeartRateWarning();
-      heartRateWarningSupported = warning != null;
-      if (warning != null && warning > 0) {
-        final bounded = warning.clamp(70, 185).toInt();
-        heartRateWarning = (bounded ~/ 5) * 5;
+      Map<String, bool> settings;
+      try {
+        settings = await _wearable.readAutoMeasureSettings();
+      } on PlatformException catch (error) {
+        if (!_isTransientDeviceSettingsError(error)) rethrow;
+        if (_disposed || connectedDevice?.id != expectedDeviceId) return;
+        deviceSettingsStatus = '手表正在准备设置，正在重新读取';
+        notifyListeners();
+        await Future<void>.delayed(const Duration(milliseconds: 650));
+        if (_disposed || connectedDevice?.id != expectedDeviceId) return;
+        settings = await _wearable.readAutoMeasureSettings();
       }
+      if (_disposed || connectedDevice?.id != expectedDeviceId) return;
+      autoMeasureSettings = settings;
+      var partialRead = false;
+      final bridge = _wearable;
+      if (bridge is WearableAutoMeasureIntervalBridge) {
+        try {
+          autoMeasureIntervals =
+              await (bridge as WearableAutoMeasureIntervalBridge)
+                  .readAutoMeasureIntervals();
+        } on PlatformException {
+          partialRead = true;
+        } catch (_) {
+          partialRead = true;
+        }
+      } else {
+        autoMeasureIntervals = const {};
+      }
+      try {
+        final warning = await _wearable.readHeartRateWarning();
+        heartRateWarningSupported = warning != null;
+        if (warning != null && warning > 0) {
+          final bounded = warning.clamp(70, 185).toInt();
+          heartRateWarning = (bounded ~/ 5) * 5;
+        }
+      } on PlatformException {
+        partialRead = true;
+      } catch (_) {
+        partialRead = true;
+      }
+      if (_disposed || connectedDevice?.id != expectedDeviceId) return;
       deviceSettingsStatus = settings.isEmpty && !heartRateWarningSupported
           ? '当前手表未提供可设置的健康检测项目'
+          : partialRead
+          ? '主要设置已读取，部分项目可稍后刷新'
           : '设置已同步';
     } on PlatformException catch (error) {
-      deviceSettingsStatus = _wearableErrorMessage(error, fallback: '读取手表设置失败');
+      deviceSettingsStatus = autoMeasureSettings.isEmpty
+          ? _wearableErrorMessage(error, fallback: '读取手表设置失败，请点击重试')
+          : '刷新失败，已显示上次读取的设置';
     } catch (_) {
-      deviceSettingsStatus = '手表设置读取失败，请稍后重试';
+      deviceSettingsStatus = autoMeasureSettings.isEmpty
+          ? '手表设置读取失败，请稍后重试'
+          : '刷新失败，已显示上次读取的设置';
     }
-    notifyListeners();
+    if (!_disposed) notifyListeners();
   }
+
+  bool _isTransientDeviceSettingsError(PlatformException error) => const {
+    'AUTO_MEASURE_READ_FAILED',
+    'AUTO_MEASURE_READ_TIMEOUT',
+    'WEARABLE_ERROR',
+  }.contains(error.code);
 
   Future<void> setAutoMeasureSetting(String type, bool enabled) async {
     if (connectedDevice == null) {

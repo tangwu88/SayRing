@@ -1198,6 +1198,35 @@ void main() {
     },
   );
 
+  test(
+    'health settings coalesce duplicate entry reads and retry capability startup',
+    () async {
+      final wearable = _TransientHealthMonitoringWearable();
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        wearable,
+      )..connectedDevice = const DeviceInfo(id: 'watch-1', name: 'W9S');
+      addTearDown(controller.dispose);
+
+      final first = controller.refreshDeviceSettings();
+      final duplicate = controller.refreshDeviceSettings();
+
+      expect(identical(first, duplicate), isTrue);
+      await Future.wait([first, duplicate]);
+
+      expect(wearable.autoMeasureReads, 2);
+      expect(controller.isDeviceSettingsLoading, isFalse);
+      expect(controller.autoMeasureSettings, const {
+        'heartRate': true,
+        'bodyTemperature': true,
+      });
+      expect(controller.heartRateWarning, 145);
+      expect(controller.deviceSettingsStatus, '设置已同步');
+    },
+  );
+
   testWidgets('health trend supports period switching and record details', (
     tester,
   ) async {
@@ -1516,6 +1545,25 @@ class _PartialHealthMonitoringWearable extends _NoopWearable {
 
   @override
   Future<int?> readHeartRateWarning() async => 140;
+}
+
+class _TransientHealthMonitoringWearable extends _NoopWearable {
+  int autoMeasureReads = 0;
+
+  @override
+  Future<Map<String, bool>> readAutoMeasureSettings() async {
+    autoMeasureReads++;
+    if (autoMeasureReads == 1) {
+      throw PlatformException(
+        code: 'AUTO_MEASURE_READ_TIMEOUT',
+        message: '能力数据仍在初始化',
+      );
+    }
+    return const {'heartRate': true, 'bodyTemperature': true};
+  }
+
+  @override
+  Future<int?> readHeartRateWarning() async => 145;
 }
 
 class _TrackingMeasurementWearable extends _NoopWearable {

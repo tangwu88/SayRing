@@ -8413,7 +8413,9 @@ class _PermissionManagementPageState extends State<PermissionManagementPage> {
   void initState() {
     super.initState();
     if (widget.healthOnly) {
-      unawaited(widget.controller.refreshDeviceSettings());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(widget.controller.refreshDeviceSettings());
+      });
     } else {
       unawaited(_refresh());
     }
@@ -8519,7 +8521,9 @@ class _PermissionManagementPageState extends State<PermissionManagementPage> {
           title: Text(title),
           subtitle: Text(enabled ? '已开启' : '已关闭'),
           value: enabled,
-          onChanged: widget.controller.connectedDevice == null
+          onChanged:
+              widget.controller.connectedDevice == null ||
+                  widget.controller.isDeviceSettingsLoading
               ? null
               : (value) {
                   unawaited(
@@ -8550,7 +8554,8 @@ class _PermissionManagementPageState extends State<PermissionManagementPage> {
                           child: Text('$minutes 分钟'),
                         ),
                     ],
-                    onChanged: !enabled
+                    onChanged:
+                        !enabled || widget.controller.isDeviceSettingsLoading
                         ? null
                         : (minutes) {
                             if (minutes != null) {
@@ -8626,11 +8631,18 @@ class _PermissionManagementPageState extends State<PermissionManagementPage> {
             ),
           ),
           IconButton(
-            onPressed: controller.connectedDevice == null
+            onPressed:
+                controller.connectedDevice == null ||
+                    controller.isDeviceSettingsLoading
                 ? null
                 : controller.refreshDeviceSettings,
             tooltip: '从手表刷新',
-            icon: const Icon(Icons.refresh_rounded),
+            icon: controller.isDeviceSettingsLoading
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh_rounded),
           ),
         ],
       ),
@@ -8650,8 +8662,10 @@ class _PermissionManagementPageState extends State<PermissionManagementPage> {
           message: controller.deviceSettingsStatus,
           detail: '没有读取到可设置项目，可重新读取手表设置。',
           icon: Icons.monitor_heart_outlined,
-          actionLabel: '重新读取',
-          onAction: controller.refreshDeviceSettings,
+          actionLabel: controller.isDeviceSettingsLoading ? null : '重新读取',
+          onAction: controller.isDeviceSettingsLoading
+              ? null
+              : controller.refreshDeviceSettings,
         )
       else
         Card(child: Column(children: tiles)),
@@ -8672,7 +8686,9 @@ class _PermissionManagementPageState extends State<PermissionManagementPage> {
         for (var value = 70; value < 190; value += 5)
           DropdownMenuItem(value: value, child: Text('$value 次/分')),
       ],
-      onChanged: widget.controller.connectedDevice == null
+      onChanged:
+          widget.controller.connectedDevice == null ||
+              widget.controller.isDeviceSettingsLoading
           ? null
           : (value) {
               if (value != null) {
