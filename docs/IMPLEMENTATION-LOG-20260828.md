@@ -143,3 +143,17 @@
 - 超时竞争修复：完整真机周期约 114 秒，旧 Flutter/原生 120 秒超时与结果收尾存在竞争。现将 Android 心电结果超时延长至 150 秒，Flutter 兜底延长至 160 秒，并纳入 `ECG_RESULT_TIMEOUT` 明确错误码；其他测量超时保持不变。
 - 最终包冒烟：覆盖安装最终 APK 后，无有效接触时测量仍能从 2% 继续到 12%，约 15 秒后在 16% 正确结束并提示电极接触问题，未再出现 2% 立即停止。此次最终短测未建立有效接触，因此只确认启动、宽限和错误提示，不重复宣称最终包已保存有效波形。
 - 自动化与构建：`git diff --check` 通过；`flutter analyze --no-pub lib test` 零问题；完整 `flutter test --no-pub` 共 221 项全部通过；Android Debug APK 构建、保留数据覆盖安装成功。最终 APK 大小 `231800886` 字节，SHA-256 `c527fef81036c0204ac50fe0a580c022e75e0225d8d6b10b13435ae0c40c9534`。仅保留 `camera_android_camerax` 的既有未来 Kotlin 迁移警告，不影响当前构建和真机运行。
+
+## 23:18 Android W9S 手表端心电历史同步（完成）
+
+- Git 基线：修改前工作树干净，已在线执行 `git fetch --prune`；本地 `codex/ios-full-migration`、`origin/codex/ios-full-migration` 与 `origin/main` 均为 `fdfac1f14b9194bfae66dc8a12ebaa738a7a3967`。
+- Bug：W9S 在手表端完成心电测量后，Android App 同步完成但“心电分析”仍显示暂无数据。预期是同步设备端手动心电记录的原始时间、心率、HRV、QT 及可用真实波形；实际心电记录完全未进入本地加密数据库。影响等级 P1。
+- 根因：当前 Android `syncHealthData` 只串行读取睡眠和日常 `OriginData/OriginData3`，`completeOriginHealthSync` 随即返回；代码没有调用厂商提供的 `readECGData(..., EEcgDataType.MANUALLY, ...)`，所以并非页面或数据库过滤，而是原生桥接缺失了整段心电历史读取。
+- 厂商依据：已对照 HBand 官方 Android Demo `OperaterActivity` 及当前 `vpprotocol-2.3.77.15.aar` 接口。官方示例以全零 `TimeData` 读取全部手动心电，并通过 `IECGReadDataListener` 分别接收 `EcgDetectResult` 或 `EcgDiagnosis`；SDK 同时明确要求耗时操作串行执行。
+- 修改范围：仅调整 Android Veepoo 历史同步桥接、心电记录去重和对应回归测试；把心电历史放在日常原始数据完成之后读取，复用既有真实波形校准与质量过滤，不改变手动测量、Yuc 设备、云端接口或健康判断规则。
+- 实现结果：原生桥接串行调用 `readECGData` 读取手表端手动心电，兼容 `EcgDetectResult` 和 `EcgDiagnosis` 两种回调。合法的原始时间、心率、HRV、QT、呼吸率及设备明确返回的客观字段可入库；无波形时页面明确说明，不根据无效采样生成曲线。
+- 编译失败与修正：首次 Android 构建因对可空 `IntArray` 调用 `isNullOrEmpty` 报 `Unresolved reference`，改为显式空值和 `isEmpty` 判断后重新构建通过。新增页面测试首次编译又因测试记录遗漏必填 `rawVersion` 失败，补齐后定向和全量测试均通过；两次失败均未当作通过记录。
+- 重复同步问题：首版真机复测发现同一条 `23:08:22` 心电被展示为 3 条。根因是厂商 `TimeData` 只有秒精度，转为 `Calendar` 后残留当前毫秒，每次同步都生成不同 ID。现已把历史心电毫秒归零，并在入库前和趋势查询时按“指标＋设备＋测量秒”保留信息最完整的一条；旧加密记录不删除。
+- 真机闭环：华为 MED AL00（Android 10）连接 `SD-Watch-W9S` / `38:23:A4:5E:CA:69` 后手动执行“同步数据”。日志明确返回 `source=diagnosis received=1 accepted=1`；首页显示“心电 79 / 仅 1 条记录”，分析页显示记录数 1 条，详情可查看手表时间、心率 79 bpm、QT 372 ms 和 HRV 52 ms。再次完整同步后仍为 1 条，进程存活，未发现 `FATAL EXCEPTION` 或 ANR。
+- 波形边界：该条记录返回 10000 个候选采样，但质量校验判定 `low_span`，因此只保存真实心率、HRV 和 QT 等字段，没有伪造波形。这证明历史同步链路已打通，但不把本条低幅采样标记为有效波形通过。
+- 自动化与构建：`git diff --check` 通过；`flutter analyze --no-pub lib test` 零问题；完整 `flutter test --no-pub` 共 225 项全部通过；Android Debug APK 构建和保留数据覆盖安装成功。最终 APK 大小 `231800886` 字节，SHA-256 `0de616b26084c48a8c043b4433e5216bdee2ae0964ec858d1fed50d757cc273a`；仅保留 `camera_android_camerax` 未来 Built-in Kotlin 迁移警告，不影响当前构建和真机运行。

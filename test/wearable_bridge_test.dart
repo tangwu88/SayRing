@@ -56,6 +56,45 @@ void main() {
   });
 
   test(
+    'decodes a watch-side ECG history record without inventing a waveform',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(methods, (call) async {
+            if (call.method != 'syncHealthData') return null;
+            return <Object?>[
+              <Object?, Object?>{
+                'id': 'W9S:ecg:2026-08-28T14:30:00.000Z',
+                'type': 'ecg',
+                'values': <Object?, Object?>{
+                  'meanHeartRate': 78,
+                  'averageHRV': 62,
+                  'averageTimeInterval': 410,
+                  'sampleFrequency': 500,
+                },
+                'unit': '',
+                'measuredAt': '2026-08-28T14:30:00.000Z',
+                'timezone': '+08:00',
+                'deviceId': 'W9S',
+                'firmwareVersion': '00.16.06',
+                'quality': 'device_reported',
+                'source': 'wearable',
+                'rawVersion': 1,
+              },
+            ];
+          });
+      final bridge = MethodChannelWearableBridge(methods: methods);
+
+      final records = await bridge.syncHealthData();
+
+      expect(records, hasLength(1));
+      expect(records.single.metric, HealthMetric.ecg);
+      expect(records.single.values['averageTimeInterval'], 410);
+      expect(records.single.samples, isEmpty);
+      expect(records.single.rawVersion, 1);
+    },
+  );
+
+  test(
     'pulls connected device details and preserves a null disconnect',
     () async {
       var connected = true;

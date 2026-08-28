@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
 
@@ -90,5 +92,29 @@ void main() {
       capabilities.toJson()['sportModes'],
       containsAll(['running', 'walking']),
     );
+  });
+
+  test('Android Veepoo sync reads manual ECG history after origin data', () {
+    final source = File(
+      'android/app/src/main/kotlin/cc/saidian/saydian_app/MainActivity.kt',
+    ).readAsStringSync();
+    final originCompletion = source.indexOf(
+      'private fun completeOriginHealthSync',
+    );
+    final ecgReader = source.indexOf('private fun readEcgHistoryData');
+    final finalCompletion = source.indexOf('private fun completeHealthSync');
+
+    expect(originCompletion, greaterThanOrEqualTo(0));
+    expect(ecgReader, greaterThan(originCompletion));
+    expect(finalCompletion, greaterThan(ecgReader));
+
+    final originBlock = source.substring(originCompletion, ecgReader);
+    final ecgBlock = source.substring(ecgReader, finalCompletion);
+    expect(originBlock, contains('readEcgHistoryData('));
+    expect(ecgBlock, contains('manager.readECGData('));
+    expect(ecgBlock, contains('EEcgDataType.MANUALLY'));
+    expect(ecgBlock, contains('TimeData(0, 0, 0, 0, 0, 0)'));
+    expect(ecgBlock, contains('IECGReadDataListener'));
+    expect(source, contains('set(Calendar.MILLISECOND, 0)'));
   });
 }

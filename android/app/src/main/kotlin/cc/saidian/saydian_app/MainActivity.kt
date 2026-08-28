@@ -72,6 +72,7 @@ import com.veepoo.protocol.listener.data.IFunSwitchListener
 import com.veepoo.protocol.listener.data.IHeartDataListener
 import com.veepoo.protocol.listener.data.IHrvDetectListener
 import com.veepoo.protocol.listener.data.IECGDetectListener
+import com.veepoo.protocol.listener.data.IECGReadDataListener
 import com.veepoo.protocol.listener.data.IHealthAlarmIntervalListener
 import com.veepoo.protocol.listener.data.ILongSeatDataListener
 import com.veepoo.protocol.listener.data.IMtuChangeListener
@@ -154,6 +155,7 @@ import com.veepoo.protocol.model.enums.ECameraStatus
 import com.veepoo.protocol.model.enums.EContactOpt
 import com.veepoo.protocol.model.enums.ECustomStatus
 import com.veepoo.protocol.model.enums.EDeviceStatus
+import com.veepoo.protocol.model.enums.EEcgDataType
 import com.veepoo.protocol.model.enums.EFunctionStatus
 import com.veepoo.protocol.model.enums.EHealthAlarmType
 import com.veepoo.protocol.model.enums.EHeartStatus
@@ -5042,15 +5044,16 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             emitError = false,
         )
         val deviceId = connectedDeviceId
+        val records = mutableListOf<Map<String, Any?>>()
         val generation =
             synchronized(this) {
                 healthSyncGeneration += 1
                 activeHealthSyncCallback = callback
                 activeHealthSyncDeviceId = deviceId
                 activeHealthSyncProgress = 0.0
+                activeHealthSyncRecords = records
                 healthSyncGeneration
             }
-        val records = mutableListOf<Map<String, Any?>>()
         emitHealthSyncProgress(deviceId, cursor, 0.0)
         armHealthSyncTimeout(generation, callback, deviceId, "睡眠数据")
         manager.readSleepData(
@@ -5359,7 +5362,9 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             emitHealthSyncProgress(
                 deviceId,
                 cursor,
-                0.1 + progress.coerceIn(0f, 1f) * 0.9,
+                0.1 +
+                    progress.coerceIn(0f, 1f) *
+                    if (supportsEcgHistorySync()) 0.8 else 0.9,
             )
             armHealthSyncTimeout(generation, callback, deviceId, "日常健康数据")
         }
@@ -5373,10 +5378,214 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         records: MutableList<Map<String, Any?>>,
     ) {
         connectionHandler.post {
-            if (!finishHealthSync(generation, callback, deviceId)) return@post
-            emitHealthSyncProgress(deviceId, cursor, 1.0)
-            callback.success(records.distinctBy { it["id"] })
+            if (!isHealthSyncActive(generation, callback, deviceId)) return@post
+            if (supportsEcgHistorySync()) {
+                emitHealthSyncProgress(deviceId, cursor, 0.9)
+                readEcgHistoryData(generation, callback, deviceId, cursor, records)
+            } else {
+                completeHealthSync(generation, callback, deviceId, cursor, records)
+            }
         }
+    }
+
+    private fun supportsEcgHistorySync(): Boolean =
+        (capabilities["metrics"] as? Collection<*>)?.contains("ecg") == true
+
+    private fun readEcgHistoryData(
+        generation: Int,
+        callback: ResultCallback<List<Map<String, Any?>>>,
+        deviceId: String,
+        cursor: String?,
+        records: MutableList<Map<String, Any?>>,
+    ) {
+        if (!isHealthSyncActive(generation, callback, deviceId)) return
+        val pendingEcgRecords = mutableListOf<Map<String, Any?>>()
+        val completed = AtomicBoolean(false)
+        var completionTask: Runnable? = null
+
+        fun collect(source: String, incoming: List<Map<String, Any?>>) {
+            connectionHandler.post {
+                if (completed.get() || !isHealthSyncActive(generation, callback, deviceId)) {
+                    return@post
+                }
+                pendingEcgRecords += incoming
+                completionTask?.let(connectionHandler::removeCallbacks)
+                val task =
+                    Runnable {
+                        if (!completed.compareAndSet(false, true) ||
+                            !isHealthSyncActive(generation, callback, deviceId)
+                        ) {
+                            return@Runnable
+                        }
+                        val unique = pendingEcgRecords.distinctBy { it["id"] }
+                        records += unique
+                        Log.i(
+                            LOG_TAG,
+                            "ecg history read complete source=$source received=${incoming.size} accepted=${unique.size}",
+                        )
+                        completeHealthSync(generation, callback, deviceId, cursor, records)
+                    }
+                completionTask = task
+                connectionHandler.postDelayed(task, ECG_HISTORY_CALLBACK_SETTLE_MS)
+            }
+        }
+
+        emitHealthSyncProgress(deviceId, cursor, 0.92)
+        armHealthSyncTimeout(generation, callback, deviceId, "心电历史数据")
+        manager.readECGData(
+            healthReadWriteResponse(generation, callback, deviceId, "心电历史数据"),
+            TimeData(0, 0, 0, 0, 0, 0),
+            EEcgDataType.MANUALLY,
+            object : IECGReadDataListener {
+                override fun readDataFinish(resultList: MutableList<EcgDetectResult>) {
+                    collect("result", resultList.mapNotNull(::ecgHistoryRecord))
+                }
+
+                override fun readDiagnosisDataFinish(resultList: MutableList<EcgDiagnosis>) {
+                    collect("diagnosis", resultList.mapNotNull(::ecgHistoryRecord))
+                }
+            },
+        )
+    }
+
+    private fun completeHealthSync(
+        generation: Int,
+        callback: ResultCallback<List<Map<String, Any?>>>,
+        deviceId: String,
+        cursor: String?,
+        records: MutableList<Map<String, Any?>>,
+    ) {
+        if (!finishHealthSync(generation, callback, deviceId)) return
+        emitHealthSyncProgress(deviceId, cursor, 1.0)
+        callback.success(records.distinctBy { it["id"] })
+    }
+
+    private fun ecgHistoryRecord(result: EcgDetectResult): Map<String, Any?>? {
+        val measuredAt = validEcgHistoryDate(result.timeBean) ?: return null
+        val frequency = result.frequency.takeIf { it in 50..1000 } ?: DEFAULT_ECG_SAMPLE_FREQUENCY
+        val values = buildMap<String, Number> {
+            if (result.aveHeart in 30..210) put("meanHeartRate", result.aveHeart)
+            if (result.aveHrv in 1..250) put("averageHRV", result.aveHrv)
+            if (result.aveQT > 0) put("averageTimeInterval", result.aveQT)
+            if (result.aveResRate > 0) put("respiratoryRate", result.aveResRate)
+            put("sampleFrequency", frequency)
+            if (result.isSuccess) {
+                val abnormalCount = result.diseaseResult?.count { it != 0 } ?: 0
+                if (abnormalCount > 0) put("deviceAbnormalFlags", abnormalCount)
+            }
+        }
+        if (!values.containsKey("meanHeartRate") && !values.containsKey("averageHRV")) return null
+        val samples =
+            selectHistoricalEcgSamples(
+                listOf(result.filterSignals, result.originSign),
+                result.powers,
+                frequency,
+            )
+        return record(
+            "ecg",
+            values,
+            "",
+            measuredAt,
+            samples,
+            rawVersion = if (samples.isEmpty()) 1 else ECG_CALIBRATED_RAW_VERSION,
+        )
+    }
+
+    private fun ecgHistoryRecord(diagnosis: EcgDiagnosis): Map<String, Any?>? {
+        val measuredAt = validEcgHistoryDate(diagnosis.timeBean) ?: return null
+        val frequency = diagnosis.frequency.takeIf { it in 50..1000 } ?: DEFAULT_ECG_SAMPLE_FREQUENCY
+        val hasReturnedRiskValues =
+            listOf(
+                diagnosis.diseaseRisk,
+                diagnosis.pressureIndex,
+                diagnosis.fatigueIndex,
+                diagnosis.myocarditisRisk,
+                diagnosis.chdRisk,
+                diagnosis.angioscleroticRisk,
+            ).any { it > 0 } ||
+                diagnosis.risk32?.any { it != 0 } == true ||
+                diagnosis.diagnosis8?.any { it != 0 } == true ||
+                diagnosis.diseaseResult?.any { it != 0 } == true
+        val hasRiskAnalysis = diagnosis.isSuccess || hasReturnedRiskValues
+        val values = buildMap<String, Number> {
+            if (diagnosis.heartRate in 30..210) put("meanHeartRate", diagnosis.heartRate)
+            if (diagnosis.hrv in 1..250) put("averageHRV", diagnosis.hrv)
+            if (diagnosis.qtTime > 0) put("averageTimeInterval", diagnosis.qtTime)
+            if (diagnosis.respRate > 0) put("respiratoryRate", diagnosis.respRate)
+            if (hasRiskAnalysis) {
+                put("riskAnalysisAvailable", 1)
+                if (diagnosis.diseaseRisk >= 0) put("diseaseRisk", diagnosis.diseaseRisk)
+                if (diagnosis.pressureIndex >= 0) put("pressureIndex", diagnosis.pressureIndex)
+                if (diagnosis.fatigueIndex >= 0) put("fatigueIndex", diagnosis.fatigueIndex)
+                if (diagnosis.myocarditisRisk >= 0) put("myocarditisRisk", diagnosis.myocarditisRisk)
+                if (diagnosis.chdRisk >= 0) put("chdRisk", diagnosis.chdRisk)
+                if (diagnosis.angioscleroticRisk >= 0) {
+                    put("angioscleroticRisk", diagnosis.angioscleroticRisk)
+                }
+                if (diagnosis.qrsTime > 0) put("qrsTime", diagnosis.qrsTime)
+                if (diagnosis.qrsAmp > 0) put("qrsAmplitude", diagnosis.qrsAmp)
+                if (diagnosis.pwvMeanVal > 0) put("pulseWaveVelocity", diagnosis.pwvMeanVal)
+                if (diagnosis.stMeanAmp != 0) put("stAmplitude", diagnosis.stMeanAmp)
+                if (diagnosis.diseaseSdnn > 0) put("sdnn", diagnosis.diseaseSdnn)
+                if (diagnosis.diseaseRmssd > 0) put("rmssd", diagnosis.diseaseRmssd)
+                put("deviceAbnormalFlags", diagnosis.diseaseResult?.count { it != 0 } ?: 0)
+            }
+            put("sampleFrequency", frequency)
+        }
+        if (!values.containsKey("meanHeartRate") && !values.containsKey("averageHRV")) return null
+        val samples =
+            selectHistoricalEcgSamples(
+                listOf(diagnosis.filterSignals),
+                diagnosis.powers,
+                frequency,
+            )
+        return record(
+            "ecg",
+            values,
+            "",
+            measuredAt,
+            samples,
+            rawVersion = if (samples.isEmpty()) 1 else ECG_CALIBRATED_RAW_VERSION,
+        )
+    }
+
+    private fun validEcgHistoryDate(time: TimeData?): Date? {
+        val value = time ?: return null
+        val maximumYear = Calendar.getInstance().get(Calendar.YEAR) + 1
+        if (value.year !in 2000..maximumYear ||
+            value.month !in 1..12 ||
+            value.day !in 1..31 ||
+            value.hour !in 0..23 ||
+            value.minute !in 0..59 ||
+            value.second !in 0..59
+        ) {
+            return null
+        }
+        return runCatching {
+            value.toCalendar().apply {
+                // TimeData has second precision. Calendar otherwise retains
+                // the current millisecond, changing the record id on re-sync.
+                set(Calendar.MILLISECOND, 0)
+            }.time
+        }.getOrNull()
+    }
+
+    private fun selectHistoricalEcgSamples(
+        candidates: List<IntArray?>,
+        powers: IntArray?,
+        frequency: Int,
+    ): List<Number> {
+        for (candidate in candidates) {
+            if (candidate == null || candidate.isEmpty()) continue
+            val calibrated = calibrateEcgSamples(candidate.toList(), powers)
+            val rejection = ecgTraceRejectionReason(calibrated, frequency)
+            if (rejection == null) return calibrated
+            Log.i(
+                LOG_TAG,
+                "ecg history waveform rejected samples=${calibrated.size} reason=$rejection",
+            )
+        }
+        return emptyList()
     }
 
     private fun timeoutOriginHealthSync(
@@ -5468,7 +5677,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 )
             }
         healthSyncTimeoutTask = timeout
-        connectionHandler.postDelayed(timeout, HEALTH_SYNC_IDLE_TIMEOUT_MS)
+        connectionHandler.postDelayed(
+            timeout,
+            if (stage == "心电历史数据") ECG_HISTORY_SYNC_TIMEOUT_MS else HEALTH_SYNC_IDLE_TIMEOUT_MS,
+        )
     }
 
     private fun finishHealthSync(
@@ -7019,8 +7231,11 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private fun isUsableEcgTrace(samples: List<Number>): Boolean =
         ecgTraceRejectionReason(samples) == null
 
-    private fun ecgTraceRejectionReason(samples: List<Number>): String? {
-        val frequency = ecgSampleFrequency.coerceIn(50, 1000)
+    private fun ecgTraceRejectionReason(
+        samples: List<Number>,
+        sampleFrequency: Int = ecgSampleFrequency,
+    ): String? {
+        val frequency = sampleFrequency.coerceIn(50, 1000)
         val minimumSamples = frequency.coerceAtLeast(16)
         if (samples.size < minimumSamples) return "too_short"
         val values = samples.map { it.toDouble() }.filter { it.isFinite() }
@@ -7754,6 +7969,8 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         private const val PERSON_SYNC_TIMEOUT_MS = 8_000L
         private const val CONNECTION_FLOW_TIMEOUT_MS = 180_000L
         private const val HEALTH_SYNC_IDLE_TIMEOUT_MS = 45_000L
+        private const val ECG_HISTORY_SYNC_TIMEOUT_MS = 180_000L
+        private const val ECG_HISTORY_CALLBACK_SETTLE_MS = 800L
         private const val DEVICE_SETTING_TIMEOUT_MS = 15_000L
         // W9S needs about 12.4 seconds to return its first valid heart sample
         // after the sensor starts. Keep enough margin so a correctly worn

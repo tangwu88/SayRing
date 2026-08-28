@@ -4168,6 +4168,25 @@ class _EcgWaveformCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (samples.isEmpty) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(12, 16, 12, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('心电波形', style: TextStyle(fontWeight: FontWeight.w800)),
+              SizedBox(height: 10),
+              FeatureStateCard(
+                message: '手表未返回可用心电波形',
+                detail: '本次同步的心率、HRV 和 QT 等指标仍可查看；App 不会根据无效采样生成波形。',
+                icon: Icons.monitor_heart_outlined,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     if (!calibrated) {
       return const Card(
         child: Padding(

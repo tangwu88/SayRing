@@ -1054,6 +1054,99 @@ void main() {
     expect(wearable.stops, 1);
   });
 
+  testWidgets('watch-side ECG metrics do not claim a missing waveform', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    await controller.initialize();
+    addTearDown(controller.dispose);
+    final record = HealthRecord(
+      id: 'watch-ecg-history-1',
+      metric: HealthMetric.ecg,
+      values: const {
+        'meanHeartRate': 79,
+        'averageHRV': 52,
+        'averageTimeInterval': 372,
+        'sampleFrequency': 500,
+      },
+      unit: '',
+      measuredAt: DateTime.utc(2026, 8, 28, 15, 8, 22),
+      timezone: '+08:00',
+      deviceId: 'W9S',
+      firmwareVersion: '00.16.06',
+      quality: 'device_reported',
+      source: MeasurementSource.wearable,
+      rawVersion: 1,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: HealthRecordDetailPage(controller: controller, record: record),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('手表未返回可用心电波形'), findsOneWidget);
+    expect(find.textContaining('不会根据无效采样生成波形'), findsOneWidget);
+    expect(find.text('该记录未保存有效的波形增益信息'), findsNothing);
+  });
+
+  test('repeated watch ECG history is shown once after later syncs', () async {
+    final store = MemoryHealthStore();
+    await store.initialize();
+    final measuredAt = DateTime.utc(2026, 8, 28, 15, 8, 22, 100);
+    await store.upsert([
+      HealthRecord(
+        id: 'watch-ecg-first-read',
+        metric: HealthMetric.ecg,
+        values: const {'meanHeartRate': 79},
+        unit: '',
+        measuredAt: measuredAt,
+        timezone: '+08:00',
+        deviceId: 'W9S',
+        firmwareVersion: '00.16.06',
+        quality: 'device_reported',
+        source: MeasurementSource.wearable,
+        rawVersion: 1,
+      ),
+      HealthRecord(
+        id: 'watch-ecg-later-read',
+        metric: HealthMetric.ecg,
+        values: const {'meanHeartRate': 79, 'averageHRV': 52},
+        unit: '',
+        measuredAt: measuredAt.add(const Duration(milliseconds: 700)),
+        timezone: '+08:00',
+        deviceId: 'W9S',
+        firmwareVersion: '00.16.06',
+        quality: 'device_reported',
+        source: MeasurementSource.wearable,
+        rawVersion: 1,
+      ),
+    ]);
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      store,
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+
+    final records = await controller.loadHealthRecords(
+      metric: HealthMetric.ecg,
+      start: DateTime.utc(2026, 8, 28),
+      end: DateTime.utc(2026, 8, 29),
+    );
+
+    expect(records, hasLength(1));
+    expect(records.single.id, 'watch-ecg-later-read');
+  });
+
   test(
     'new threshold-exceeding wearable record raises a global alert',
     () async {

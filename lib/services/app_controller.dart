@@ -584,9 +584,9 @@ class AppController extends ChangeNotifier {
     try {
       final receivedRecords = await _wearable.syncHealthData();
       if (!_isDeviceSyncCurrent(generation, deviceId)) return false;
-      final records = receivedRecords
-          .where(hasSaneWearableTransportValues)
-          .toList();
+      final records = deduplicateHealthRecords(
+        receivedRecords.where(hasSaneWearableTransportValues),
+      );
       await _healthStore.upsert(records);
       if (!_isDeviceSyncCurrent(generation, deviceId)) return false;
       await _refreshHealthRecordCache();
@@ -802,11 +802,13 @@ class AppController extends ChangeNotifier {
     required HealthMetric metric,
     required DateTime start,
     required DateTime end,
-  }) async => (await _healthStore.range(
-    metric: metric,
-    start: start,
-    end: end,
-  )).where(hasSaneWearableTransportValues).toList();
+  }) async => deduplicateHealthRecords(
+    (await _healthStore.range(
+      metric: metric,
+      start: start,
+      end: end,
+    )).where(hasSaneWearableTransportValues),
+  );
 
   void setUnits({String? distance, String? temperature}) {
     if (distance != null) distanceUnit = distance;
