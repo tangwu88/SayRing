@@ -23,10 +23,28 @@ class RunnerTests: XCTestCase {
     XCTAssertTrue(WearablePayloadMapper.bool(nil, default: true))
   }
 
+  func testWearableHardwareAddressMapping() {
+    XCTAssertEqual(
+      WearablePayloadMapper.hardwareAddress("67:97:35:81:2f:44"),
+      "67:97:35:81:2F:44"
+    )
+    XCTAssertEqual(
+      WearablePayloadMapper.hardwareAddress("5c8bbc6f26fc"),
+      "5C:8B:BC:6F:26:FC"
+    )
+    XCTAssertEqual(
+      WearablePayloadMapper.hardwareAddress("07-43-00-00-4d-e9"),
+      "07:43:00:00:4D:E9"
+    )
+    XCTAssertNil(WearablePayloadMapper.hardwareAddress("36CE3B81-94C2-9B3F-C30F-BE9AB1EB2C7D"))
+    XCTAssertNil(WearablePayloadMapper.hardwareAddress(""))
+  }
+
   func testWearableSportRecordPayloadMatchesFlutterContract() {
     XCTAssertEqual(WearablePayloadMapper.sportWireName(rawValue: 1), "running")
     XCTAssertEqual(WearablePayloadMapper.sportWireName(rawValue: 2), "walking")
     XCTAssertEqual(WearablePayloadMapper.sportWireName(rawValue: 5), "hiking")
+    XCTAssertEqual(WearablePayloadMapper.sportWireName(rawValue: 11), "mountaineering")
     XCTAssertEqual(WearablePayloadMapper.sportWireName(rawValue: 7), "cycling")
 
     let payload = WearablePayloadMapper.sportRecord(from: [
@@ -77,6 +95,7 @@ class RunnerTests: XCTestCase {
       defaultCount: 2,
       marketCount: 1,
       photoCount: 1,
+      marketInstalled: true,
       currentType: 2,
       currentStyle: 1
     )
@@ -85,6 +104,19 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(entries[2]["id"] as? String, "market:1")
     XCTAssertEqual(entries[3]["id"] as? String, "photo:1")
     XCTAssertEqual(entries[3]["isCurrent"] as? Bool, true)
+
+    let emptyMarket = WearablePayloadMapper.watchFaceEntries(
+      defaultCount: 2,
+      marketCount: 1,
+      photoCount: 0,
+      marketInstalled: false,
+      currentType: 0,
+      currentStyle: 0
+    )
+    XCTAssertEqual(emptyMarket.count, 2)
+    XCTAssertEqual(WearablePayloadMapper.screenSize(deviceShape: 0x3A)?.width, 410)
+    XCTAssertEqual(WearablePayloadMapper.screenSize(deviceShape: 0x3A)?.height, 502)
+    XCTAssertNil(WearablePayloadMapper.screenSize(deviceShape: 0xFF))
   }
 
 }

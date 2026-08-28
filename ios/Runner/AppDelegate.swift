@@ -73,6 +73,8 @@ import VeepooBleSDK
       adapter.disconnect(result)
     case "getDeviceDetails":
       adapter.getDeviceDetails(result)
+    case "getWatchFaceProfile":
+      adapter.getWatchFaceProfile(result)
     case "getCapabilities":
       result(adapter.capabilities())
     case "syncHealthData":
@@ -128,6 +130,7 @@ private protocol WearableAdapter: AnyObject {
   )
   func disconnect(_ result: @escaping FlutterResult)
   func getDeviceDetails(_ result: @escaping FlutterResult)
+  func getWatchFaceProfile(_ result: @escaping FlutterResult)
   func capabilities() -> [String: Any]
   func syncHealthData(cursor: String?, result: @escaping FlutterResult)
   func startMeasurement(_ metric: String, result: @escaping FlutterResult)
@@ -165,6 +168,7 @@ private final class UnconfiguredWearableAdapter: WearableAdapter {
   ) { missing(result) }
   func disconnect(_ result: @escaping FlutterResult) { missing(result) }
   func getDeviceDetails(_ result: @escaping FlutterResult) { missing(result) }
+  func getWatchFaceProfile(_ result: @escaping FlutterResult) { missing(result) }
   func capabilities() -> [String: Any] { ["resolved": false] }
   func syncHealthData(cursor: String?, result: @escaping FlutterResult) { missing(result) }
   func startMeasurement(_ metric: String, result: @escaping FlutterResult) { missing(result) }
@@ -211,6 +215,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
   private var worldClockModels: [VPWorldClockModel] = []
   private var weatherConfigModel: VPWeatherConfigModel?
   private var photoDialModel: VPPhotoDialModel?
+  private var marketDialModel: VPDeviceMarketDialModel?
   private var phoneCallState: [String: Any] = [
     "connectionStatus": "unknown",
     "paired": false,
@@ -256,6 +261,8 @@ private final class VeepooWearableAdapter: WearableAdapter {
       } else if state == .connectStateDisConnect {
         self?.awaitingAutomaticReconnect = self?.connectResult == nil
         self?.connected = nil
+        self?.marketDialModel = nil
+        self?.manager.peripheralManage.deviceTestOffStoreECGDidFinishBlock = nil
         self?.emit("disconnected", [:])
       }
     }
@@ -285,12 +292,16 @@ private final class VeepooWearableAdapter: WearableAdapter {
       let payload = self.scanned.values.sorted { $0.rssi.intValue > $1.rssi.intValue }.map { model in
         let deviceID = Self.routeIdentifier(model)
         let deviceName = Self.displayName(model.deviceName)
-        return [
+        var payload: [String: Any] = [
           "id": deviceID,
           "name": deviceName,
           "model": deviceName,
           "rssi": model.rssi.intValue,
-        ] as [String: Any]
+        ]
+        if let hardwareAddress = WearablePayloadMapper.hardwareAddress(model.deviceAddress) {
+          payload["hardwareAddress"] = hardwareAddress
+        }
+        return payload
       }
       self.emit("state", ["value": "disconnected"])
       callback(payload)
@@ -333,6 +344,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     ) { [weak self] status in
       guard let self else { return }
       if status == 1 {
+        self.registerDeviceDataCallbacks()
         let details = self.deviceDetails(device)
         self.emit("deviceDetails", details)
         self.emit("capabilitiesUpdated", self.capabilities())
@@ -363,9 +375,11 @@ private final class VeepooWearableAdapter: WearableAdapter {
   }
 
   func disconnect(_ result: @escaping FlutterResult) {
+    manager.peripheralManage.deviceTestOffStoreECGDidFinishBlock = nil
     manager.veepooSDKDisconnectDevice()
     connected = nil
     connectedRouteID = nil
+    marketDialModel = nil
     emit("disconnected", [:])
     result(nil)
   }
@@ -376,6 +390,13 @@ private final class VeepooWearableAdapter: WearableAdapter {
       return
     }
     result(deviceDetails(device))
+  }
+
+  private func registerDeviceDataCallbacks() {
+    manager.peripheralManage.deviceTestOffStoreECGDidFinishBlock = { [weak self] in
+      guard let self, self.connected != nil else { return }
+      self.emit("healthDataReady", ["metric": "ecg", "origin": "watch_history"])
+    }
   }
 
   func capabilities() -> [String: Any] {
@@ -401,7 +422,17 @@ private final class VeepooWearableAdapter: WearableAdapter {
     if model.hrvType > 0 { metrics.append("hrv") }
     if model.bodyCompositionType > 0 { metrics.append("body_composition") }
     if model.bloodAnalysisType > 0 { metrics.append("blood_composition") }
-    let manualMetrics = metrics.filter { !["steps", "distance", "calories", "sleep"].contains($0) }
+    let manualMetrics = metrics.filter {
+      !["steps", "distance", "calories", "sleep", "hrv"].contains($0)
+    }
+    let sportModes: [String]
+    if model.runningSaveTimes <= 0 {
+      sportModes = []
+    } else if model.runningType == 0 {
+      sportModes = ["running"]
+    } else {
+      sportModes = ["running", "walking", "cycling", "hiking"]
+    }
     var features = ["health_monitoring"]
     if model.dialCount > 0 || model.marketDialCount > 0 { features.append("watch_faces") }
     if model.photoDialCount > 0 { features.append("photo_watch_face") }
@@ -424,6 +455,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       "resolved": true,
       "metrics": metrics,
       "manualMetrics": manualMetrics,
+      "sportModes": sportModes,
       "features": features,
       "integratedFeatures": features.filter { ["health_monitoring", "watch_faces", "photo_watch_face", "find_watch", "camera", "phone_calls", "contacts", "notifications", "alarms", "weather", "world_clock", "health_reminders", "health_assessment", "screen_display"].contains($0) },
       "supportsBackgroundSync": true,
@@ -519,10 +551,14 @@ private final class VeepooWearableAdapter: WearableAdapter {
         guard let self, let model else { return }
         let values = self.ecgValues(model)
         if !values.isEmpty {
-          let samples = model.filterSignals
-            .compactMap(Self.number)
-            .filter { $0.int64Value != Int64(Int32.max) }
-          self.emitRecord(type: metric, values: values, unit: "", samples: samples)
+          let waveform = Self.convertedEcgWaveform(model)
+          self.emitRecord(
+            type: metric,
+            values: values,
+            unit: "",
+            samples: waveform.samples,
+            rawVersion: waveform.rawVersion
+          )
         }
       }
     case "body_composition":
@@ -579,13 +615,18 @@ private final class VeepooWearableAdapter: WearableAdapter {
       result(FlutterError(code: "SPORT_UNSUPPORTED", message: "当前手表不支持该运动模式", details: nil))
       return
     }
+    if model.runningType == 0 && mode != "running" {
+      result(FlutterError(code: "SPORT_UNSUPPORTED", message: "当前手表仅支持单一运动模式", details: nil))
+      return
+    }
     let sdkMode: VPDeviceRuningMode = switch mappedMode {
     case .outdoorRun: .outdoorRun
     case .outdoorWalk: .outdoorWalk
     case .outdoorRide: .outdoorCycle
     case .hiking: .hiking
     }
-    manager.peripheralManage.veepooSDKSettingDeviceRunning(1, run: sdkMode) { [weak self] state, success in
+    let commandMode: VPDeviceRuningMode = model.runningType == 0 ? .common : sdkMode
+    manager.peripheralManage.veepooSDKSettingDeviceRunning(1, run: commandMode) { [weak self] state, success in
       guard let self else { return }
       if success {
         self.activeSportMode = mode
@@ -852,7 +893,14 @@ private final class VeepooWearableAdapter: WearableAdapter {
       return
     }
     if feature == "watch_faces" {
-      switchWatchFace(values, result: result)
+      switch values["operation"] as? String {
+      case "switch":
+        switchWatchFace(values, result: result)
+      case "upload_network":
+        uploadNetworkWatchFace(values, result: result)
+      default:
+        result(FlutterError(code: "INVALID_ARGUMENT", message: "表盘操作参数无效", details: nil))
+      }
       return
     }
     if feature == "photo_watch_face" {
@@ -1049,7 +1097,16 @@ private final class VeepooWearableAdapter: WearableAdapter {
           let itemDate = item.date ?? dateString
           let itemTime = item.testTime ?? "12:00"
           let at = Self.parseDate("\(itemDate) \(itemTime)") ?? date
-          records.append(record(type: "ecg", values: values, unit: "", at: at, samples: item.filterSignals.compactMap(Self.number)))
+          let waveform = Self.convertedEcgWaveform(item)
+          records.append(record(
+            type: "ecg",
+            values: values,
+            unit: "",
+            at: at,
+            samples: waveform.samples,
+            rawVersion: waveform.rawVersion,
+            origin: "watch_history"
+          ))
         }
       }
 
@@ -1092,11 +1149,33 @@ private final class VeepooWearableAdapter: WearableAdapter {
     return Dictionary(grouping: records, by: { $0["id"] as? String ?? UUID().uuidString }).compactMap { $0.value.first }
   }
 
-  private func emitRecord(type: String, values: [String: NSNumber], unit: String, samples: [NSNumber] = []) {
-    emit("healthRecord", record(type: type, values: values, unit: unit, at: Date(), samples: samples))
+  private func emitRecord(
+    type: String,
+    values: [String: NSNumber],
+    unit: String,
+    samples: [NSNumber] = [],
+    rawVersion: Int = 1
+  ) {
+    emit("healthRecord", record(
+      type: type,
+      values: values,
+      unit: unit,
+      at: Date(),
+      samples: samples,
+      rawVersion: rawVersion,
+      origin: "app_measurement"
+    ))
   }
 
-  private func record(type: String, values: [String: NSNumber], unit: String, at: Date, samples: [NSNumber] = []) -> [String: Any] {
+  private func record(
+    type: String,
+    values: [String: NSNumber],
+    unit: String,
+    at: Date,
+    samples: [NSNumber] = [],
+    rawVersion: Int = 1,
+    origin: String = "watch_history"
+  ) -> [String: Any] {
     let timestamp = Self.isoFormatter.string(from: at)
     let deviceID = connectedRouteID ?? ""
     var payload: [String: Any] = [
@@ -1110,7 +1189,8 @@ private final class VeepooWearableAdapter: WearableAdapter {
       "firmwareVersion": connected?.deviceVersion ?? "",
       "quality": "device_reported",
       "source": "wearable",
-      "rawVersion": 1,
+      "origin": origin,
+      "rawVersion": rawVersion,
     ]
     if !samples.isEmpty { payload["samples"] = samples }
     return payload
@@ -1121,7 +1201,33 @@ private final class VeepooWearableAdapter: WearableAdapter {
     if let value = Self.number(model.aveHeart), value.doubleValue > 0 { values["meanHeartRate"] = value }
     if let value = Self.number(model.aveHrv), value.doubleValue > 0 { values["averageHRV"] = value }
     if let value = Self.number(model.aveQT), value.doubleValue > 0 { values["averageTimeInterval"] = value }
+    if let value = Self.number(model.uploadFrequency ?? model.frequency),
+       (50...1_000).contains(value.intValue) {
+      values["sampleFrequency"] = value
+    }
     return values
+  }
+
+  private static func convertedEcgWaveform(
+    _ model: VPECGTestDataModel
+  ) -> (samples: [NSNumber], rawVersion: Int) {
+    let gain = model.getGainValue()
+    let ecgType = model.ecgType ?? ""
+    let testType = model.type ?? ""
+    var hasConvertedSignal = false
+    let samples = model.filterSignals.compactMap(Self.number).map { value -> NSNumber in
+      if value.int64Value == Int64(Int32.max) { return value }
+      let converted = VPECGTestDataModel.convertToMv(
+        withValue: CGFloat(value.doubleValue),
+        ecgType: ecgType,
+        testType: testType,
+        gain: gain
+      )
+      if abs(converted) > 0.000_001 { hasConvertedSignal = true }
+      return NSNumber(value: Double(converted))
+    }
+    guard samples.count > 1, hasConvertedSignal else { return ([], 1) }
+    return (samples, 2)
   }
 
   private func bodyCompositionValues(_ model: VPBodyCompositionValueModel) -> [String: NSNumber] {
@@ -1160,18 +1266,21 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func deviceDetails(_ device: VPPeripheralModel) -> [String: Any] {
     let deviceName = Self.displayName(device.deviceName)
-    return [
+    var details: [String: Any] = [
       "id": connectedRouteID ?? Self.routeIdentifier(device),
       "name": deviceName,
       "model": deviceName,
       "firmwareVersion": device.deviceVersion ?? "",
       "rssi": device.rssi.intValue,
     ]
+    if let hardwareAddress = WearablePayloadMapper.hardwareAddress(device.deviceAddress) {
+      details["hardwareAddress"] = hardwareAddress
+    }
+    return details
   }
 
-  /// CoreBluetooth UUID is the only stable iOS connection key. Veepoo's
-  /// `deviceAddress` can be a privacy/BLE address and can change after
-  /// authentication, so it must never be presented as the watch's MAC.
+  /// Keep CoreBluetooth UUID as the stable iOS routing key. The SDK-provided
+  /// address is exposed separately as `hardwareAddress` for user display.
   private static func routeIdentifier(_ device: VPPeripheralModel) -> String {
     device.peripheral.identifier.uuidString
   }
@@ -1961,28 +2070,115 @@ private final class VeepooWearableAdapter: WearableAdapter {
       result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持表盘管理", details: nil))
       return
     }
-    manager.peripheralManage.veepooSDKSettingDeviceScreenStyle(
-      0,
-      settingMode: 2,
-      dialType: .default
-    ) { dialType, style, success in
-      guard success else {
-        result(FlutterError(code: "WATCH_FACE_READ_FAILED", message: "表盘信息暂时无法读取", details: nil))
-        return
+    func finish(_ marketModel: VPDeviceMarketDialModel?) {
+      self.manager.peripheralManage.veepooSDKSettingDeviceScreenStyle(
+        0,
+        settingMode: 2,
+        dialType: .default
+      ) { dialType, style, success in
+        guard success else {
+          result(FlutterError(code: "WATCH_FACE_READ_FAILED", message: "表盘信息暂时无法读取", details: nil))
+          return
+        }
+        var payload: [String: Any] = [
+          "items": WearablePayloadMapper.watchFaceEntries(
+            defaultCount: Int(device.dialCount),
+            marketCount: Int(device.marketDialCount),
+            photoCount: Int(device.photoDialCount),
+            marketInstalled: (marketModel?.imageId ?? 0) > 0,
+            currentType: Int(dialType.rawValue),
+            currentStyle: Int(style)
+          ),
+          "onlineMarketSupported": false,
+        ]
+        if let marketModel,
+           let screen = WearablePayloadMapper.screenSize(deviceShape: marketModel.deviceShape),
+           marketModel.binProtocol > 0,
+           marketModel.length > 0,
+           device.deviceNumber > 0,
+           !device.deviceTestVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          payload.merge(self.watchFaceProfilePayload(device: device, marketModel: marketModel, screen: screen)) { _, new in new }
+        }
+        result(payload)
       }
-      result(["items": WearablePayloadMapper.watchFaceEntries(
-        defaultCount: Int(device.dialCount),
-        marketCount: Int(device.marketDialCount),
-        photoCount: Int(device.photoDialCount),
-        currentType: Int(dialType.rawValue),
-        currentStyle: Int(style)
-      )])
+    }
+    guard device.marketDialCount > 0 else {
+      finish(nil)
+      return
+    }
+    readMarketDialModel { model, _ in
+      finish(model)
     }
   }
 
+  func getWatchFaceProfile(_ result: @escaping FlutterResult) {
+    guard let device = connected, device.marketDialCount > 0 else {
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持在线表盘", details: nil))
+      return
+    }
+    readMarketDialModel { [weak self] model, error in
+      guard let self else { return }
+      guard error == nil,
+            let model,
+            model.binProtocol > 0,
+            model.length > 0,
+            let screen = WearablePayloadMapper.screenSize(deviceShape: model.deviceShape),
+            device.deviceNumber > 0,
+            !device.deviceTestVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        result(FlutterError(
+          code: "WATCH_FACE_PROFILE_INVALID",
+          message: "手表返回的在线表盘规格不完整",
+          details: error?.localizedDescription
+        ))
+        return
+      }
+      result(self.watchFaceProfilePayload(device: device, marketModel: model, screen: screen))
+    }
+  }
+
+  private func readMarketDialModel(
+    _ completion: @escaping (VPDeviceMarketDialModel?, Error?) -> Void
+  ) {
+    if let marketDialModel {
+      completion(marketDialModel, nil)
+      return
+    }
+    manager.peripheralManage.veepooSDK_dialChannel(
+      with: .read,
+      dialType: .market,
+      photoDialModel: nil,
+      result: { [weak self] _, model, error in
+        guard let self else { return }
+        if error == nil, let model {
+          self.marketDialModel = model
+        }
+        completion(model, error)
+      },
+      transformProgress: nil
+    )
+  }
+
+  private func watchFaceProfilePayload(
+    device: VPPeripheralModel,
+    marketModel: VPDeviceMarketDialModel,
+    screen: (width: Int, height: Int)
+  ) -> [String: Any] {
+    [
+      "onlineMarketSupported": true,
+      "deviceNumber": Int(device.deviceNumber),
+      "deviceTestVersion": device.deviceTestVersion ?? "",
+      "deviceVersion": device.deviceVersion ?? "",
+      "dialShape": marketModel.deviceShape,
+      "binProtocol": marketModel.binProtocol,
+      "maxLength": marketModel.length,
+      "screenWidth": screen.width,
+      "screenHeight": screen.height,
+    ]
+  }
+
   private func switchWatchFace(_ values: [String: Any], result: @escaping FlutterResult) {
-    guard connected != nil, values["operation"] as? String == "switch" else {
-      result(FlutterError(code: "INVALID_ARGUMENT", message: "表盘切换参数无效", details: nil))
+    guard connected != nil else {
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
       return
     }
     let type: VPDeviceDialType
@@ -2002,6 +2198,120 @@ private final class VeepooWearableAdapter: WearableAdapter {
     ) { _, _, success in
       success ? result(nil) : result(FlutterError(code: "WATCH_FACE_SWITCH_FAILED", message: "表盘切换失败", details: nil))
     }
+  }
+
+  private func uploadNetworkWatchFace(_ values: [String: Any], result: @escaping FlutterResult) {
+    guard let device = connected, device.marketDialCount > 0,
+          let fileURL = WearablePayloadMapper.localFileURL(values["filePath"] as? String ?? ""),
+          FileManager.default.fileExists(atPath: fileURL.path) else {
+      result(FlutterError(code: "INVALID_ARGUMENT", message: "表盘文件无效或手表不支持在线表盘", details: nil))
+      return
+    }
+    readMarketDialModel { [weak self] model, error in
+      guard let self else { return }
+      guard error == nil, let model else {
+        result(FlutterError(code: "WATCH_FACE_PROFILE_READ_FAILED", message: "无法读取手表的表盘规格", details: error?.localizedDescription))
+        return
+      }
+      let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
+      let actualLength = (attributes?[.size] as? NSNumber)?.intValue ?? 0
+      let reportedLength = Self.number(values["fileLength"])?.intValue ?? 0
+      let requestedProtocol = Self.number(values["binProtocol"])?.intValue ?? 0
+      let requestedShape = Self.number(values["itemDialShape"])?.intValue ?? 0
+      guard actualLength > 0,
+            (reportedLength <= 0 || actualLength == reportedLength),
+            actualLength <= model.length,
+            requestedProtocol == model.binProtocol,
+            Self.isCompatibleDialShape(requestedShape, actual: model.deviceShape) else {
+        result(FlutterError(
+          code: "WATCH_FACE_INCOMPATIBLE",
+          message: "该表盘与当前手表的屏幕或协议不匹配",
+          details: [
+            "actualLength": actualLength,
+            "reportedLength": reportedLength,
+            "maximumLength": model.length,
+            "deviceProtocol": model.binProtocol,
+            "requestedProtocol": requestedProtocol,
+            "deviceShape": model.deviceShape,
+            "requestedShape": requestedShape,
+          ]
+        ))
+        return
+      }
+
+      var finished = false
+      var activating = false
+      var timeout: DispatchWorkItem?
+      func finish(_ error: FlutterError?) {
+        guard !finished else { return }
+        finished = true
+        timeout?.cancel()
+        result(error)
+      }
+      func activate() {
+        guard !activating, !finished else { return }
+        activating = true
+        self.manager.peripheralManage.veepooSDKSettingDeviceScreenStyle(
+          1,
+          settingMode: 1,
+          dialType: .market
+        ) { _, _, success in
+          guard success else {
+            finish(FlutterError(code: "WATCH_FACE_ACTIVATE_FAILED", message: "表盘已传送，但手表未能切换到新表盘", details: nil))
+            return
+          }
+          self.manager.peripheralManage.veepooSDKSettingDeviceScreenStyle(
+            0,
+            settingMode: 2,
+            dialType: .default
+          ) { dialType, _, readSuccess in
+            guard readSuccess, dialType == .market else {
+              finish(FlutterError(code: "WATCH_FACE_VERIFY_FAILED", message: "新表盘切换结果未能验证", details: nil))
+              return
+            }
+            model.imageId = max(model.imageId, 1)
+            self.marketDialModel = model
+            self.emit("deviceFeatureProgress", ["feature": "watch_faces", "progress": 100])
+            finish(nil)
+          }
+        }
+      }
+
+      timeout = DispatchWorkItem {
+        finish(FlutterError(code: "WATCH_FACE_UPLOAD_TIMEOUT", message: "表盘传输超时，请保持手表靠近手机后重试", details: nil))
+      }
+      if let timeout {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 150, execute: timeout)
+      }
+      VPMarketDialManager.share().startTransfer(
+        withFilePath: fileURL,
+        transformProgress: { [weak self] rawProgress in
+          let normalized = rawProgress > 1 ? rawProgress / 100 : rawProgress
+          let percentage = WearablePayloadMapper.progress(
+            completed: Int((normalized * 1_000).rounded()),
+            total: 1_000
+          )
+          self?.emit("deviceFeatureProgress", ["feature": "watch_faces", "progress": min(percentage, 99)])
+          if normalized >= 0.999 {
+            activate()
+          }
+        },
+        failure: { error in
+          finish(FlutterError(
+            code: "WATCH_FACE_UPLOAD_FAILED",
+            message: "表盘传输失败",
+            details: error?.localizedDescription
+          ))
+        }
+      )
+    }
+  }
+
+  private static func isCompatibleDialShape(_ requested: Int, actual: Int) -> Bool {
+    guard requested > 0 else { return false }
+    if requested == actual { return true }
+    let size = WearablePayloadMapper.screenSize(deviceShape: actual)
+    return requested == 58 && size?.width == 410 && size?.height == 502
   }
 
   private func readPhotoWatchFace(_ result: @escaping FlutterResult) {

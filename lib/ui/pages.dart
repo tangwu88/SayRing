@@ -1794,7 +1794,7 @@ class _SportEntryPanel extends StatelessWidget {
       child: Column(
         children: [
           Visibility(
-            visible: false,
+            visible: true,
             child: Column(
               children: [
                 Row(
@@ -1989,6 +1989,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
   final List<SportRoutePoint> _routePoints = [];
   double _routeDistanceKm = 0;
   String _locationStatus = '开始后可记录前台户外轨迹';
+  bool _allowPop = false;
 
   @override
   void dispose() {
@@ -1998,28 +1999,11 @@ class _SportSessionPageState extends State<SportSessionPage> {
   }
 
   Future<void> _toggleSport() async {
-    if (widget.controller.activeSport != null) {
-      final startedAt = _startedAt;
-      await _positionSubscription?.cancel();
-      _positionSubscription = null;
-      await widget.controller.stopSport();
-      _timer?.cancel();
-      if (startedAt != null && _elapsedSeconds > 0) {
-        await widget.controller.saveLocalSportRecord(
-          SportRecord(
-            id: 'local:${startedAt.toUtc().toIso8601String()}',
-            mode: widget.mode,
-            startedAt: startedAt,
-            durationSeconds: _elapsedSeconds,
-            distanceKm: _routeDistanceKm,
-            calories: 0,
-            routePoints: List.unmodifiable(_routePoints),
-          ),
-        );
-      }
-      if (mounted) setState(() {});
+    if (widget.controller.activeSport == widget.mode) {
+      await _stopAndSaveSport();
       return;
     }
+    if (widget.controller.activeSport != null) return;
     final started = await widget.controller.startSport(widget.mode);
     if (!started || !mounted) return;
     _startedAt = DateTime.now();
@@ -2037,6 +2021,56 @@ class _SportSessionPageState extends State<SportSessionPage> {
     });
     setState(() {});
     unawaited(_startLocationTracking());
+  }
+
+  Future<void> _stopAndSaveSport() async {
+    final startedAt = _startedAt;
+    await _positionSubscription?.cancel();
+    _positionSubscription = null;
+    await widget.controller.stopSport();
+    _timer?.cancel();
+    if (startedAt != null && _elapsedSeconds > 0) {
+      await widget.controller.saveLocalSportRecord(
+        SportRecord(
+          id: 'local:${startedAt.toUtc().toIso8601String()}',
+          mode: widget.mode,
+          startedAt: startedAt,
+          durationSeconds: _elapsedSeconds,
+          distanceKm: _routeDistanceKm,
+          calories: 0,
+          routePoints: List.unmodifiable(_routePoints),
+        ),
+      );
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _confirmExit() async {
+    if (widget.controller.activeSport != widget.mode) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('结束当前运动？'),
+        content: const Text('离开前将先停止手表运动，并保存已记录的运动时长和轨迹。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('继续运动'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('结束并离开'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _stopAndSaveSport();
+    if (!mounted) return;
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop();
+    });
   }
 
   Future<void> _startLocationTracking() async {
@@ -2090,86 +2124,103 @@ class _SportSessionPageState extends State<SportSessionPage> {
   @override
   Widget build(BuildContext context) {
     final active = widget.controller.activeSport == widget.mode;
+    final anotherSportActive = widget.controller.activeSport != null && !active;
     final duration = Duration(seconds: _elapsedSeconds);
     final time = [
       duration.inHours,
       duration.inMinutes.remainder(60),
       duration.inSeconds.remainder(60),
     ].map((value) => value.toString().padLeft(2, '0')).join(':');
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.mode.label)),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 34, horizontal: 20),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF1D3B6F), Color(0xFF385D9C)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+    return PopScope(
+      canPop: _allowPop || !active,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && active) unawaited(_confirmExit());
+      },
+      child: Scaffold(
+        appBar: AppBar(title: Text(widget.mode.label)),
+        body: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 34, horizontal: 20),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF1D3B6F), Color(0xFF385D9C)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(28),
               ),
-              borderRadius: BorderRadius.circular(28),
-            ),
-            child: Column(
-              children: [
-                Icon(
-                  active ? Icons.directions_run_rounded : Icons.route_rounded,
-                  color: Colors.white,
-                  size: 70,
-                ),
-                const SizedBox(height: 22),
-                Text(
-                  time,
-                  style: const TextStyle(
+              child: Column(
+                children: [
+                  Icon(
+                    active ? Icons.directions_run_rounded : Icons.route_rounded,
                     color: Colors.white,
-                    fontSize: 46,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 2,
+                    size: 70,
                   ),
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  active
-                      ? '${widget.mode.label}进行中'
-                      : '准备开始${widget.mode.label}',
-                  style: const TextStyle(color: Colors.white70),
-                ),
-              ],
+                  const SizedBox(height: 22),
+                  Text(
+                    time,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 46,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    active
+                        ? '${widget.mode.label}进行中'
+                        : '准备开始${widget.mode.label}',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 18),
-          _InlineNotice(
-            message: widget.controller.connectedDevice == null
-                ? '请先在设备页连接手表，运动模式将由手表记录。'
-                : '已连接 ${widget.controller.connectedDevice!.name}。$_locationStatus',
-            icon: Icons.watch_rounded,
-            color: SaydianColors.blue,
-          ),
-          if (_routePoints.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            SportRoutePreview(
-              points: _routePoints,
-              distanceKm: _routeDistanceKm,
+            const SizedBox(height: 18),
+            _InlineNotice(
+              message: widget.controller.connectedDevice == null
+                  ? '请先在设备页连接手表，运动模式将由手表记录。'
+                  : '已连接 ${widget.controller.connectedDevice!.name}。$_locationStatus',
+              icon: Icons.watch_rounded,
+              color: SaydianColors.blue,
             ),
+            if (_routePoints.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              SportRoutePreview(
+                points: _routePoints,
+                distanceKm: _routeDistanceKm,
+              ),
+            ],
+            const SizedBox(height: 24),
           ],
-          const SizedBox(height: 24),
-        ],
-      ),
-      bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(20, 8, 20, 14),
-        child: SizedBox(
-          height: 52,
-          child: FilledButton.icon(
-            key: const Key('sport-session-toggle'),
-            onPressed: widget.controller.connectedDevice == null
-                ? null
-                : _toggleSport,
-            style: FilledButton.styleFrom(
-              backgroundColor: active ? Colors.red : SaydianColors.ink,
+        ),
+        bottomNavigationBar: SafeArea(
+          minimum: const EdgeInsets.fromLTRB(20, 8, 20, 14),
+          child: SizedBox(
+            height: 52,
+            child: FilledButton.icon(
+              key: const Key('sport-session-toggle'),
+              onPressed:
+                  widget.controller.connectedDevice == null ||
+                      anotherSportActive
+                  ? null
+                  : _toggleSport,
+              style: FilledButton.styleFrom(
+                backgroundColor: active ? Colors.red : SaydianColors.ink,
+              ),
+              icon: Icon(
+                active ? Icons.stop_rounded : Icons.play_arrow_rounded,
+              ),
+              label: Text(
+                anotherSportActive
+                    ? '请先结束${widget.controller.activeSport!.label}'
+                    : active
+                    ? '结束运动'
+                    : '开始${widget.mode.label}',
+              ),
             ),
-            icon: Icon(active ? Icons.stop_rounded : Icons.play_arrow_rounded),
-            label: Text(active ? '结束运动' : '开始${widget.mode.label}'),
           ),
         ),
       ),
@@ -4128,6 +4179,7 @@ class _DeviceWatchFaceMarketStripState
   final _service = DeviceWatchFaceMarketService();
   List<DeviceWatchFaceMarketItem> _items = const [];
   DeviceWatchFaceMarketProfile _profile = DeviceWatchFaceMarketProfile.w9s;
+  bool _supported = false;
 
   @override
   void initState() {
@@ -4136,14 +4188,18 @@ class _DeviceWatchFaceMarketStripState
   }
 
   Future<void> _load() async {
+    if (widget.controller.connectedDevice?.sdkSource !=
+        WearableSdkSource.veepoo) {
+      return;
+    }
     try {
       final profileData = await widget.controller.readWatchFaceProfile();
-      final profile = profileData.isEmpty
-          ? DeviceWatchFaceMarketProfile.w9s
-          : DeviceWatchFaceMarketProfile.fromMap(profileData);
+      if (profileData['onlineMarketSupported'] != true) return;
+      final profile = DeviceWatchFaceMarketProfile.fromMap(profileData);
       final result = await _service.loadPage(page: 1, profile: profile);
       if (mounted) {
         setState(() {
+          _supported = true;
           _profile = profile;
           _items = result.items.take(4).toList();
         });
@@ -4168,6 +4224,7 @@ class _DeviceWatchFaceMarketStripState
 
   @override
   Widget build(BuildContext context) {
+    if (!_supported) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -5085,9 +5142,9 @@ class _CarePageState extends State<CarePage> {
                     child: _CareActionEntry(
                       icon: Icons.mark_email_unread_outlined,
                       title: '关爱邀请',
-                      subtitle: controller.careInvitations.isEmpty
+                      subtitle: controller.pendingCareInvitations.isEmpty
                           ? controller.careInvitationStatus
-                          : '${controller.careInvitations.length} 条待处理',
+                          : '${controller.pendingCareInvitations.length} 条待处理',
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
                           settings: const RouteSettings(
@@ -5799,7 +5856,10 @@ class CareMetricDetailPage extends StatelessWidget {
             )
           else
             for (var index = 0; index < records.length; index++) ...[
-              _CareMetricRecordCard(record: records[index], index: index),
+              if (title == '心电')
+                _CareEcgRecordCard(record: records[index], index: index)
+              else
+                _CareMetricRecordCard(record: records[index], index: index),
               const SizedBox(height: 10),
             ],
         ],
@@ -5832,6 +5892,17 @@ class _CareMetricRecordCard extends StatelessWidget {
       'measuredAt',
       'created_at',
       'updated_at',
+      'samples',
+      'totalArray',
+      'filterSignals',
+      'waveformData',
+      'data',
+      'ecgData',
+      'item',
+      'result',
+      'rawVersion',
+      'sampleFrequency',
+      'origin',
     };
     final entries = record.entries
         .where(
@@ -5875,6 +5946,121 @@ class _CareMetricRecordCard extends StatelessWidget {
                     ],
                   ),
                 ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CareEcgRecordCard extends StatelessWidget {
+  const _CareEcgRecordCard({required this.record, required this.index});
+
+  final Map<String, Object?> record;
+  final int index;
+
+  num? _number(String key) {
+    final value = record[key];
+    return value is num ? value : num.tryParse('${value ?? ''}');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final samples = record['samples'] is List
+        ? (record['samples'] as List).whereType<num>().toList(growable: false)
+        : const <num>[];
+    final frequency = (_number('sampleFrequency')?.toInt() ?? 250).clamp(
+      50,
+      1000,
+    );
+    final calibrated = (_number('rawVersion')?.toInt() ?? 1) >= 2;
+    final usableWaveform =
+        calibrated &&
+        samples.length > 1 &&
+        hasUsableEcgSignal(samples, sampleFrequency: frequency);
+    final values = <(String, num?, String)>[
+      ('心率', _number('meanHeartRate'), 'bpm'),
+      ('QT', _number('averageTimeInterval'), 'ms'),
+      ('HRV', _number('averageHRV'), 'ms'),
+    ];
+    final time = _careRecordTimeLabel(record);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    time.isEmpty ? '第 ${index + 1} 条记录' : time,
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+                const Text(
+                  '远程成员数据',
+                  style: TextStyle(
+                    color: SaydianColors.techBlue,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                for (final value in values)
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(
+                          value.$1,
+                          style: const TextStyle(color: SaydianColors.muted),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          value.$2 == null
+                              ? '--'
+                              : _careFormatNumber(value.$2!),
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        Text(
+                          value.$3,
+                          style: const TextStyle(
+                            color: SaydianColors.muted,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (usableWaveform)
+              Container(
+                height: 150,
+                width: double.infinity,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF08090B),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: CustomPaint(
+                  painter: _LiveEcgPainter(samples, sampleFrequency: frequency),
+                ),
+              )
+            else
+              const _InlineNotice(
+                message: '服务端未返回带校准信息的可用心电波形，仅展示已有客观指标。',
+                icon: Icons.monitor_heart_outlined,
+                color: SaydianColors.orange,
+              ),
           ],
         ),
       ),

@@ -340,6 +340,55 @@ void main() {
     },
   );
 
+  test(
+    'care ECG uses the authorized member endpoint and preserves waveform metadata',
+    () async {
+      var ecgRequests = 0;
+      final client = MockClient((request) async {
+        if (request.url.path == '/api/v1/member/e-c-g/preview') {
+          ecgRequests += 1;
+          expect(request.url.queryParameters['selectmember'], '87');
+          expect(request.url.queryParameters['date'], isNotEmpty);
+          return http.Response(
+            r'''{"code":200,"data":[{"id":19,"date":"2026-08-27 09:30:00","data":"{\"aveHeart\":79,\"aveHrv\":52,\"aveQT\":372,\"frequency\":250,\"rawVersion\":2}","totalArray":"[0.0,0.12,-0.08,0.18,-0.04]"}]}''',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        return http.Response(
+          '{"code":200,"data":[]}',
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final api = SaydianApiClient(
+        _authenticatedVault(),
+        client: client,
+        baseUri: Uri.parse('https://example.invalid'),
+      );
+
+      final preview = await api.getCareMemberPreview(
+        id: 59,
+        memberId: 87,
+        day: '2026-08-27',
+      );
+      final daily = (preview['daily'] as List).cast<Map>();
+      final ecg = daily.singleWhere((item) => item['title'] == '心电');
+      final record = (ecg['records'] as List).cast<Map>().single;
+
+      expect(ecgRequests, 1);
+      expect(ecg['state'], 'ready');
+      expect(ecg['latest'], 79);
+      expect(record['meanHeartRate'], 79);
+      expect(record['averageHRV'], 52);
+      expect(record['averageTimeInterval'], 372);
+      expect(record['sampleFrequency'], 250);
+      expect(record['rawVersion'], 2);
+      expect(record['origin'], 'remote_member');
+      expect(record['samples'], [0.0, 0.12, -0.08, 0.18, -0.04]);
+    },
+  );
+
   test('add care uses the mini-program authenticated JSON contract', () async {
     final vault = MemorySessionVault()
       ..session = Session(

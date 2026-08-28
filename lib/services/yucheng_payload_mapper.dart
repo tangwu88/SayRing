@@ -67,9 +67,18 @@ class YuchengPayloadMapper {
       DeviceFeature.camera,
       DeviceFeature.watchFaces,
     };
+    final sportModes = f['isSupportSport'] == true
+        ? const {
+            SportMode.running,
+            SportMode.walking,
+            SportMode.cycling,
+            SportMode.hiking,
+          }
+        : const <SportMode>{};
     return DeviceCapabilities(
       metrics: metrics,
       manualMetrics: manualMetrics,
+      sportModes: sportModes,
       features: features,
       integratedFeatures: features.intersection(implementedFeatures),
       supportsBackgroundSync: true,

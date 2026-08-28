@@ -19,6 +19,26 @@ bool hasSaneWearableTransportValues(HealthRecord record) {
   };
 }
 
+/// Keeps objective ECG metrics when a device returns samples that cannot be
+/// presented as a calibrated waveform. Invalid transport samples are never
+/// drawn, but they must not make the accompanying heart-rate/HRV fields vanish.
+HealthRecord sanitizeWearableTransportRecord(HealthRecord record) {
+  if (record.source != MeasurementSource.wearable ||
+      record.metric != HealthMetric.ecg ||
+      record.origin != MeasurementOrigin.watchHistory ||
+      record.rawVersion < 2) {
+    return record;
+  }
+  final frequency = (record.values['sampleFrequency'] ?? 250).toInt().clamp(
+    50,
+    1000,
+  );
+  if (hasUsableEcgSignal(record.samples, sampleFrequency: frequency)) {
+    return record;
+  }
+  return record.copyWith(rawVersion: 1, samples: const []);
+}
+
 bool _hasSaneEcg(HealthRecord record) {
   final values = record.values;
   final heartRate = values['meanHeartRate'] ?? values['averageHeartRate'];

@@ -42,6 +42,35 @@ enum HealthMetric {
 
 enum MeasurementSource { wearable, manual, imported }
 
+enum MeasurementOrigin {
+  watchHistory('watch_history', '手表历史数据'),
+  appMeasurement('app_measurement', 'App 手动测量数据'),
+  remoteMember('remote_member', '远程成员数据'),
+  manualEntry('manual_entry', '人工录入数据'),
+  imported('imported', '导入数据'),
+  unknown('unknown', '来源未标记');
+
+  const MeasurementOrigin(this.wireName, this.label);
+
+  final String wireName;
+  final String label;
+
+  static MeasurementOrigin fromWire(
+    Object? raw, {
+    required MeasurementSource source,
+  }) {
+    final value = '${raw ?? ''}'.trim();
+    for (final origin in values) {
+      if (origin.wireName == value || origin.name == value) return origin;
+    }
+    return switch (source) {
+      MeasurementSource.wearable => MeasurementOrigin.watchHistory,
+      MeasurementSource.manual => MeasurementOrigin.manualEntry,
+      MeasurementSource.imported => MeasurementOrigin.imported,
+    };
+  }
+}
+
 enum SportMode {
   running('running', '跑步'),
   walking('walking', '步行'),
@@ -429,8 +458,9 @@ class HealthRecord {
     required this.quality,
     required this.source,
     required this.rawVersion,
+    MeasurementOrigin? origin,
     this.samples = const [],
-  });
+  }) : origin = origin ?? MeasurementOrigin.fromWire(null, source: source);
 
   final String id;
   final HealthMetric metric;
@@ -442,11 +472,16 @@ class HealthRecord {
   final String firmwareVersion;
   final String quality;
   final MeasurementSource source;
+  final MeasurementOrigin origin;
   final int rawVersion;
   final List<num> samples;
 
   factory HealthRecord.fromJson(Map<String, Object?> json) {
     final rawValues = json['values'];
+    final source = MeasurementSource.values.firstWhere(
+      (source) => source.name == json['source'],
+      orElse: () => MeasurementSource.wearable,
+    );
     return HealthRecord(
       id: '${json['id']}',
       metric: HealthMetric.fromWire('${json['type']}'),
@@ -462,9 +497,10 @@ class HealthRecord {
       deviceId: '${json['deviceId'] ?? ''}',
       firmwareVersion: '${json['firmwareVersion'] ?? ''}',
       quality: '${json['quality'] ?? 'unknown'}',
-      source: MeasurementSource.values.firstWhere(
-        (source) => source.name == json['source'],
-        orElse: () => MeasurementSource.wearable,
+      source: source,
+      origin: MeasurementOrigin.fromWire(
+        json['origin'] ?? json['captureMode'],
+        source: source,
       ),
       rawVersion: (json['rawVersion'] as num?)?.toInt() ?? 1,
       samples: json['samples'] is List
@@ -484,9 +520,33 @@ class HealthRecord {
     'firmwareVersion': firmwareVersion,
     'quality': quality,
     'source': source.name,
+    'origin': origin.wireName,
     'rawVersion': rawVersion,
     if (samples.isNotEmpty) 'samples': samples,
   };
+
+  HealthRecord copyWith({
+    Map<String, num>? values,
+    String? quality,
+    MeasurementSource? source,
+    MeasurementOrigin? origin,
+    int? rawVersion,
+    List<num>? samples,
+  }) => HealthRecord(
+    id: id,
+    metric: metric,
+    values: values ?? this.values,
+    unit: unit,
+    measuredAt: measuredAt,
+    timezone: timezone,
+    deviceId: deviceId,
+    firmwareVersion: firmwareVersion,
+    quality: quality ?? this.quality,
+    source: source ?? this.source,
+    origin: origin ?? this.origin,
+    rawVersion: rawVersion ?? this.rawVersion,
+    samples: samples ?? this.samples,
+  );
 
   String get displayValue {
     if (metric == HealthMetric.bloodPressure) {
@@ -556,6 +616,7 @@ class HealthWarningAlert {
     required this.title,
     required this.message,
     required this.triggeredAt,
+    this.origin = MeasurementOrigin.unknown,
   });
 
   final String id;
@@ -563,6 +624,7 @@ class HealthWarningAlert {
   final String title;
   final String message;
   final DateTime triggeredAt;
+  final MeasurementOrigin origin;
 
   Map<String, Object?> toJson() => {
     'id': id,
@@ -570,6 +632,7 @@ class HealthWarningAlert {
     'title': title,
     'message': message,
     'triggeredAt': triggeredAt.toUtc().toIso8601String(),
+    'origin': origin.wireName,
   };
 
   factory HealthWarningAlert.fromJson(Map<String, Object?> json) =>
@@ -581,6 +644,10 @@ class HealthWarningAlert {
         triggeredAt:
             DateTime.tryParse('${json['triggeredAt'] ?? ''}')?.toLocal() ??
             DateTime.fromMillisecondsSinceEpoch(0),
+        origin: MeasurementOrigin.fromWire(
+          json['origin'],
+          source: MeasurementSource.wearable,
+        ),
       );
 }
 

@@ -274,9 +274,9 @@ class YuchengWearableBridge
   @override
   Future<void> startSport(SportMode mode) async {
     _connectedId;
-    _require(
-      await _client.sport(state: YuchengSportState.start, type: _sports[mode]!),
-    );
+    final type = _sports[mode];
+    if (type == null) throw _unsupported();
+    _require(await _client.sport(state: YuchengSportState.start, type: type));
   }
 
   @override

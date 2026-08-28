@@ -680,7 +680,7 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
                   color: SaydianColors.danger,
                 ),
                 title: Text(alert.title),
-                subtitle: Text(alert.message),
+                subtitle: Text('${alert.message}\n来源：${alert.origin.label}'),
                 trailing: Text(
                   DateFormat('yyyy-MM-dd\nHH:mm').format(alert.triggeredAt),
                   textAlign: TextAlign.right,
@@ -1093,7 +1093,7 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
       body: ListenableBuilder(
         listenable: widget.controller,
         builder: (context, _) {
-          final invitations = widget.controller.careInvitations;
+          final invitations = widget.controller.pendingCareInvitations;
           if (invitations.isEmpty) {
             return RefreshIndicator(
               onRefresh: widget.controller.refreshCareInvitations,
@@ -1101,7 +1101,7 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                 padding: const EdgeInsets.all(16),
                 children: [
                   FeatureStateCard(
-                    message: widget.controller.careStatus == '服务暂不可用'
+                    message: widget.controller.careInvitationStatus == '服务暂不可用'
                         ? '关爱邀请服务暂不可用'
                         : '暂无新的关爱邀请',
                     detail: '收到邀请后，可在这里明确同意或拒绝。',
@@ -1125,8 +1125,6 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                 final mobile = '${memberMap['mobile'] ?? ''}'.trim();
                 final avatar = '${memberMap['head_portrait'] ?? ''}'.trim();
                 final inviterId = '${invite['inviter_id'] ?? ''}'.trim();
-                final status =
-                    int.tryParse('${invite['examine_status'] ?? 0}') ?? 0;
                 return Card(
                   child: Padding(
                     padding: const EdgeInsets.all(14),
@@ -1189,29 +1187,23 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                           ),
                         ],
                         const SizedBox(height: 8),
-                        if (status == 0)
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: () => _respond(invite, false),
-                                  child: const Text('拒绝'),
-                                ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => _respond(invite, false),
+                                child: const Text('拒绝'),
                               ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: FilledButton(
-                                  onPressed: () => _respond(invite, true),
-                                  child: const Text('同意'),
-                                ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: () => _respond(invite, true),
+                                child: const Text('同意'),
                               ),
-                            ],
-                          )
-                        else
-                          Text(
-                            status == 1 ? '已同意' : '已拒绝',
-                            style: const TextStyle(color: SaydianColors.muted),
-                          ),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),
@@ -1442,6 +1434,14 @@ class HealthRecordDetailPage extends StatelessWidget {
                     date,
                     style: const TextStyle(color: SaydianColors.muted),
                   ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '数据来源：${record.origin.label}',
+                    style: const TextStyle(
+                      color: SaydianColors.techBlue,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1616,7 +1616,34 @@ class _EcgSummaryCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
-            Text(date, style: const TextStyle(color: Color(0xFFEECBD2))),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    date,
+                    style: const TextStyle(color: Color(0xFFEECBD2)),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .14),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    record.origin.label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 18),
             Row(
               children: [
@@ -2447,8 +2474,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     final noLocalData = _featureData.isEmpty;
     final faces = _items;
     final progress = (_featureData['progress'] as num?)?.toInt();
-    final onlineMarketSupported =
-        _featureData['onlineMarketSupported'] != false;
+    final onlineMarketSupported = _featureData['onlineMarketSupported'] == true;
     return Column(
       children: [
         if (onlineMarketSupported) ...[

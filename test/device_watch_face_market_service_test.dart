@@ -20,10 +20,10 @@ void main() {
       expect(profile.dialShape, 58);
       expect(profile.screenWidth, 410);
       expect(profile.screenHeight, 502);
-      expect(profile.binProtocol, 2);
-      expect(profile.maxLength, 614733);
-      expect(profile.deviceNumber, 6702);
-      expect(profile.deviceTestVersion, '11.95.01.00');
+      expect(profile.binProtocol, 99);
+      expect(profile.maxLength, 1);
+      expect(profile.deviceNumber, 1);
+      expect(profile.deviceTestVersion, 'device-firmware');
     },
   );
 
@@ -45,6 +45,9 @@ void main() {
                 "fileLenght": 189520,
                 "fileUrl": "https://www.vphband.com/themebin/watch041",
                 "previewUrl": "https://www.vphband.com/themebin/watch041.png",
+                "crc": 47136,
+                "binProtocol": 2,
+                "dialShape": 58,
                 "available": true
               },
               {
@@ -72,6 +75,9 @@ void main() {
       expect(result.items, hasLength(1));
       expect(result.items.single.name, '296JL041');
       expect(result.items.single.fileLength, 189520);
+      expect(result.items.single.crc, 47136);
+      expect(result.items.single.binProtocol, 2);
+      expect(result.items.single.dialShape, 58);
     },
   );
 

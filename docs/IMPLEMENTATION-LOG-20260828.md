@@ -157,3 +157,11 @@
 - 真机闭环：华为 MED AL00（Android 10）连接 `SD-Watch-W9S` / `38:23:A4:5E:CA:69` 后手动执行“同步数据”。日志明确返回 `source=diagnosis received=1 accepted=1`；首页显示“心电 79 / 仅 1 条记录”，分析页显示记录数 1 条，详情可查看手表时间、心率 79 bpm、QT 372 ms 和 HRV 52 ms。再次完整同步后仍为 1 条，进程存活，未发现 `FATAL EXCEPTION` 或 ANR。
 - 波形边界：该条记录返回 10000 个候选采样，但质量校验判定 `low_span`，因此只保存真实心率、HRV 和 QT 等字段，没有伪造波形。这证明历史同步链路已打通，但不把本条低幅采样标记为有效波形通过。
 - 自动化与构建：`git diff --check` 通过；`flutter analyze --no-pub lib test` 零问题；完整 `flutter test --no-pub` 共 225 项全部通过；Android Debug APK 构建和保留数据覆盖安装成功。最终 APK 大小 `231800886` 字节，SHA-256 `0de616b26084c48a8c043b4433e5216bdee2ae0964ec858d1fed50d757cc273a`；仅保留 `camera_android_camerax` 未来 Built-in Kotlin 迁移警告，不影响当前构建和真机运行。
+
+## 23:44 iOS Veepoo 连接标识恢复真实 MAC 展示（进行中）
+
+- Git 基线：修改前工作树干净，已执行 `git fetch --prune` 和 `git pull --ff-only`；本地 `codex/ios-full-migration`、远程调试分支与 `origin/main` 均为 `5d203f231c9901f7cf682c5a35e7c34890a0c1a1`。
+- Bug：iOS 添加设备页将 CoreBluetooth UUID 显示为“iOS 连接标识”，用户无法用手表上的 MAC 核对设备。预期是 Veepoo SDK 返回合法 `deviceAddress` 时显示标准 `MAC · XX:XX:XX:XX:XX:XX`；实际扫描和连接详情都没有传递该字段。影响等级 P1。
+- 根因：Veepoo `VPPeripheralModel` 已提供 `deviceAddress`，但 iOS 桥接仅返回 `peripheral.identifier.uuidString`。UUID 作为稳定连接键是正确的，但不应代替厂商地址用于用户展示。
+- 修改范围：仅调整 `ios/Runner/AppDelegate.swift`、`ios/Runner/WearablePayloadMapper.swift`、iOS 原生测试和 Flutter 设备字段测试。连接、重连和路由键仍使用 CoreBluetooth UUID；只有通过 6 字节十六进制校验的 SDK 地址才作为 `hardwareAddress` 显示，不截取 UUID 伪造 MAC。
+- 预期：Vep 和 Yuc 设备都优先显示真实 MAC；厂商未返回合法地址时，仍保留明确的 iOS 连接标识降级，避免把系统 UUID 误标为 MAC。

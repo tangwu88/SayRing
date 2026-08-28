@@ -157,12 +157,22 @@ class AppController extends ChangeNotifier {
       _hasResolvedDeviceCapabilities &&
       capabilities?.supportsManualMeasurement(metric) == true;
 
+  List<Map<String, Object?>> get pendingCareInvitations =>
+      careInvitations.where(_isPendingCareInvitation).toList(growable: false);
+
+  static bool _isPendingCareInvitation(Map<String, Object?> invitation) {
+    final raw = invitation['examine_status'] ?? invitation['examineStatus'];
+    if (raw is num) return raw.toInt() == 0;
+    final value = '${raw ?? ''}'.trim().toLowerCase();
+    return value == '0' || value == 'pending' || value == 'waiting';
+  }
+
   List<SportMode> get availableSportModes {
     final reported = capabilities?.sportModes;
     if (connectedDevice == null ||
         !_hasResolvedDeviceCapabilities ||
         reported == null) {
-      return SportMode.values;
+      return const [];
     }
     return SportMode.values.where(reported.contains).toList(growable: false);
   }
@@ -585,12 +595,17 @@ class AppController extends ChangeNotifier {
       final receivedRecords = await _wearable.syncHealthData();
       if (!_isDeviceSyncCurrent(generation, deviceId)) return false;
       final records = deduplicateHealthRecords(
-        receivedRecords.where(hasSaneWearableTransportValues),
+        receivedRecords
+            .map(sanitizeWearableTransportRecord)
+            .where(hasSaneWearableTransportValues),
       );
       await _healthStore.upsert(records);
       if (!_isDeviceSyncCurrent(generation, deviceId)) return false;
       await _refreshHealthRecordCache();
       if (!_isDeviceSyncCurrent(generation, deviceId)) return false;
+      for (final record in records) {
+        _evaluateHealthWarning(record);
+      }
       syncStatus = records.isEmpty ? '设备暂无新数据' : '已同步 ${records.length} 条';
       succeeded = true;
     } on PlatformException catch (error) {
@@ -1221,8 +1236,8 @@ class AppController extends ChangeNotifier {
       return await (bridge as WearableWatchFaceProfileBridge)
           .getWatchFaceProfile();
     } catch (_) {
-      // The market has a device-family fallback, so a transient profile read
-      // must not block the rest of the device page or show a global error.
+      // Never guess a device-family profile: a wrong binary compatibility
+      // tuple can make a valid watch-face file fail or damage the transfer.
       return const {};
     }
   }
@@ -1301,10 +1316,10 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> synchronizeCloud() async {
-    if (_syncing) return;
+    if (_syncing || _disposed) return;
     if (session == null) {
       cloudSyncStatus = '未登录，数据仅保存在本机';
-      notifyListeners();
+      if (!_disposed) notifyListeners();
       return;
     }
     _syncing = true;
@@ -1316,7 +1331,7 @@ class AppController extends ChangeNotifier {
       cloudSyncStatus = _apiErrorMessage(error, fallback: '数据上传失败，请稍后重试');
     } finally {
       _syncing = false;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -1365,14 +1380,20 @@ class AppController extends ChangeNotifier {
     }
     final careApi = _api is SaydianCareApi ? _api as SaydianCareApi : null;
     if (careApi == null) {
+      careInvitations = careInvitations
+          .where((item) => !_isPendingCareInvitation(item))
+          .toList(growable: false);
       careInvitationStatus = '服务暂不可用';
       notifyListeners();
       return;
     }
     try {
       careInvitations = await careApi.getCareInvitations();
-      careInvitationStatus = careInvitations.isEmpty ? '暂无待处理' : '已加载';
+      careInvitationStatus = pendingCareInvitations.isEmpty ? '暂无待处理' : '已加载';
     } on ApiException catch (error) {
+      careInvitations = careInvitations
+          .where((item) => !_isPendingCareInvitation(item))
+          .toList(growable: false);
       careInvitationStatus = _apiErrorMessage(error, fallback: '关爱邀请暂时无法读取');
     }
     notifyListeners();
@@ -2278,7 +2299,12 @@ class AppController extends ChangeNotifier {
       }
     } else if (event.type == 'healthRecord') {
       try {
-        final record = HealthRecord.fromJson(event.payload);
+        var record = HealthRecord.fromJson(event.payload);
+        if (_activeMeasurementMetric == record.metric &&
+            record.origin == MeasurementOrigin.watchHistory) {
+          record = record.copyWith(origin: MeasurementOrigin.appMeasurement);
+        }
+        record = sanitizeWearableTransportRecord(record);
         if (!hasSaneWearableTransportValues(record)) {
           _finishRejectedWearableMeasurement(record);
         } else {
@@ -2286,6 +2312,10 @@ class AppController extends ChangeNotifier {
         }
       } catch (_) {
         errorMessage = '收到无法识别的设备数据';
+      }
+    } else if (event.type == 'healthDataReady') {
+      if (connectedDevice != null && !isDeviceSyncing) {
+        unawaited(syncDeviceData());
       }
     } else if (event.type == 'measurementProgress') {
       final metric = HealthMetric.fromWire(
@@ -2533,6 +2563,7 @@ class AppController extends ChangeNotifier {
     )) {
       return;
     }
+    if (healthWarningAlerts.any((item) => item.id == record.id)) return;
     final settings = healthWarningSettings;
     String? message;
     if (record.metric == HealthMetric.heartRate && settings.heartRateEnabled) {
@@ -2571,7 +2602,8 @@ class AppController extends ChangeNotifier {
       metric: record.metric,
       title: '${record.metric.label}健康预警',
       message: message,
-      triggeredAt: DateTime.now(),
+      triggeredAt: record.measuredAt.toLocal(),
+      origin: record.origin,
     );
     healthWarningAlerts = [
       alert,

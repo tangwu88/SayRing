@@ -1636,6 +1636,96 @@ void main() {
     expect(find.text('这一天没有可展示的明细记录。'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'remote ECG shows objective fields without dumping raw payload keys',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: CareMetricDetailPage(
+            day: DateTime(2026, 8, 27),
+            item: const {
+              'title': '心电',
+              'records': [
+                {
+                  'date': '2026-08-27 09:30:00',
+                  'meanHeartRate': 79,
+                  'averageHRV': 52,
+                  'averageTimeInterval': 372,
+                  'sampleFrequency': 250,
+                  'rawVersion': 1,
+                  'samples': [0, 120, -80, 180],
+                  'origin': 'remote_member',
+                },
+              ],
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('远程成员数据'), findsOneWidget);
+      expect(find.text('心率'), findsOneWidget);
+      expect(find.text('79'), findsOneWidget);
+      expect(find.text('QT'), findsOneWidget);
+      expect(find.text('372'), findsOneWidget);
+      expect(find.text('HRV'), findsOneWidget);
+      expect(find.text('52'), findsOneWidget);
+      expect(find.textContaining('未返回带校准信息'), findsOneWidget);
+      expect(find.text('samples'), findsNothing);
+      expect(find.text('rawVersion'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  test(
+    'recent watch-history threshold is saved once during device sync',
+    () async {
+      final record = HealthRecord(
+        id: 'watch-sync-warning-1',
+        metric: HealthMetric.heartRate,
+        values: const {'value': 126},
+        unit: 'bpm',
+        measuredAt: DateTime.now().toUtc(),
+        timezone: '+08:00',
+        deviceId: 'W9S',
+        firmwareVersion: '00.20.01',
+        quality: 'device_reported',
+        source: MeasurementSource.wearable,
+        origin: MeasurementOrigin.watchHistory,
+        rawVersion: 1,
+      );
+      final wearable = _SyncHealthWearable([record]);
+      final vault = MemorySessionVault()
+        ..healthWarningSettings = const HealthWarningSettings(
+          heartRateEnabled: true,
+          heartRateUpper: 100,
+        );
+      final controller = AppController(
+        vault,
+        _NoopApi(),
+        MemoryHealthStore(),
+        wearable,
+      )..connectedDevice = const DeviceInfo(id: 'watch-1', name: 'W9S');
+      await controller.initialize();
+      addTearDown(controller.dispose);
+
+      await controller.syncDeviceData();
+      await controller.syncDeviceData();
+
+      expect(controller.healthWarningAlerts, hasLength(1));
+      expect(controller.activeHealthWarningAlert?.id, record.id);
+      expect(
+        controller.activeHealthWarningAlert?.origin,
+        MeasurementOrigin.watchHistory,
+      );
+      expect(
+        controller.activeHealthWarningAlert?.triggeredAt.toUtc(),
+        record.measuredAt,
+      );
+    },
+  );
 }
 
 HealthRecord _historicalHeartRateRecord() => HealthRecord(
@@ -1854,6 +1944,15 @@ class _PartialHealthMonitoringWearable extends _NoopWearable {
 
   @override
   Future<int?> readHeartRateWarning() async => 140;
+}
+
+class _SyncHealthWearable extends _NoopWearable {
+  _SyncHealthWearable(this.records);
+
+  final List<HealthRecord> records;
+
+  @override
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) async => records;
 }
 
 class _TransientHealthMonitoringWearable extends _NoopWearable {

@@ -54,6 +54,7 @@ import com.veepoo.protocol.listener.base.IBleNotifyResponse
 import com.veepoo.protocol.listener.base.IBleWriteResponse
 import com.veepoo.protocol.listener.base.IConnectResponse
 import com.veepoo.protocol.listener.base.INotifyResponse
+import com.veepoo.protocol.listener.data.AbsDeviceManualDetectDataListener
 import com.veepoo.protocol.listener.data.IAutoMeasureSettingDataListener
 import com.veepoo.protocol.listener.data.IAlarm2DataListListener
 import com.veepoo.protocol.listener.data.IBatteryDataListener
@@ -99,7 +100,12 @@ import com.veepoo.protocol.model.datas.BatteryData
 import com.veepoo.protocol.model.datas.BpData
 import com.veepoo.protocol.model.datas.BpSettingData
 import com.veepoo.protocol.model.datas.BloodComponent
+import com.veepoo.protocol.model.datas.BloodComponentManualData
+import com.veepoo.protocol.model.datas.BloodGlucoseManualData
+import com.veepoo.protocol.model.datas.BloodOxygenManualData
+import com.veepoo.protocol.model.datas.BloodPressureManualData
 import com.veepoo.protocol.model.datas.BodyComponent
+import com.veepoo.protocol.model.datas.BodyTemperatureManualData
 import com.veepoo.protocol.model.datas.AutoMeasureData
 import com.veepoo.protocol.model.datas.Contact
 import com.veepoo.protocol.model.datas.EcgDetectInfo
@@ -115,11 +121,14 @@ import com.veepoo.protocol.model.datas.FunctionDeviceSupportData
 import com.veepoo.protocol.model.datas.FunctionSocailMsgData
 import com.veepoo.protocol.model.datas.FunSwitchFlags
 import com.veepoo.protocol.model.datas.HRVOriginData
+import com.veepoo.protocol.model.datas.HrvManualData
 import com.veepoo.protocol.util.EcgUtil
 import com.veepoo.protocol.model.datas.HeartData
+import com.veepoo.protocol.model.datas.HeartRateManualData
 import com.veepoo.protocol.model.datas.HealthAlarmInterval
 import com.veepoo.protocol.model.datas.HealthRemind
 import com.veepoo.protocol.model.datas.MiniCheckupDetailData
+import com.veepoo.protocol.model.datas.MiniCheckupManualData
 import com.veepoo.protocol.model.datas.MiniCheckupResultData
 import com.veepoo.protocol.model.datas.OriginData
 import com.veepoo.protocol.model.datas.OriginData3
@@ -150,6 +159,7 @@ import com.veepoo.protocol.model.enums.EBloodComponentDetectState
 import com.veepoo.protocol.model.enums.EBloodGlucoseRiskLevel
 import com.veepoo.protocol.model.enums.EBloodGlucoseStatus
 import com.veepoo.protocol.model.enums.DetectState
+import com.veepoo.protocol.model.enums.DeviceManualDataType
 import com.veepoo.protocol.model.enums.EAutoMeasureType
 import com.veepoo.protocol.model.enums.ECameraStatus
 import com.veepoo.protocol.model.enums.EContactOpt
@@ -1641,6 +1651,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             runCatching { preferences.allLength }.getOrDefault(0).takeIf { it > 0 }
                 ?: 614_733
         return mapOf(
+            "onlineMarketSupported" to manager.isJLCPUPlatform,
             "deviceNumber" to deviceNumber,
             "deviceTestVersion" to testVersion,
             "dialShape" to dialShape,
@@ -5331,6 +5342,30 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         origin: OriginHalfHourData,
         records: MutableList<Map<String, Any?>>,
     ) {
+        origin.halfHourRateDatas.orEmpty().forEach { rate ->
+            val at = rate.time?.toCalendar()?.time ?: parseOriginTime(rate.date, rate.time?.clock)
+            if (rate.rateValue in 30..240) {
+                records += record("heart_rate", mapOf("value" to rate.rateValue), "bpm", at)
+            }
+        }
+        origin.halfHourBps.orEmpty().forEach { pressure ->
+            val at = pressure.time?.toCalendar()?.time ?: parseOriginTime(pressure.date, pressure.time?.clock)
+            if (pressure.highValue in 60..260 &&
+                pressure.lowValue in 30..180 &&
+                pressure.highValue > pressure.lowValue
+            ) {
+                records +=
+                    record(
+                        "blood_pressure",
+                        mapOf(
+                            "systolic" to pressure.highValue,
+                            "diastolic" to pressure.lowValue,
+                        ),
+                        "mmHg",
+                        at,
+                    )
+            }
+        }
         origin.halfHourSportDatas.orEmpty().forEach { sport ->
             val at = sport.time?.toCalendar()?.time ?: parseOriginTime(sport.date, sport.time?.clock)
             if (sport.stepValue > 0) records += record("steps", mapOf("value" to sport.stepValue), "步", at)
@@ -5362,9 +5397,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             emitHealthSyncProgress(
                 deviceId,
                 cursor,
-                0.1 +
-                    progress.coerceIn(0f, 1f) *
-                    if (supportsEcgHistorySync()) 0.8 else 0.9,
+                0.1 + progress.coerceIn(0f, 1f) * 0.6,
             )
             armHealthSyncTimeout(generation, callback, deviceId, "日常健康数据")
         }
@@ -5379,12 +5412,271 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     ) {
         connectionHandler.post {
             if (!isHealthSyncActive(generation, callback, deviceId)) return@post
-            if (supportsEcgHistorySync()) {
-                emitHealthSyncProgress(deviceId, cursor, 0.9)
-                readEcgHistoryData(generation, callback, deviceId, cursor, records)
+            emitHealthSyncProgress(deviceId, cursor, 0.7)
+            readDeviceManualHealthData(generation, callback, deviceId, cursor, records)
+        }
+    }
+
+    private fun readDeviceManualHealthData(
+        generation: Int,
+        callback: ResultCallback<List<Map<String, Any?>>>,
+        deviceId: String,
+        cursor: String?,
+        records: MutableList<Map<String, Any?>>,
+    ) {
+        if (!isHealthSyncActive(generation, callback, deviceId)) return
+        val preferences = VpSpGetUtil.getVpSpVariInstance(appContext)
+        val reportedTypes =
+            runCatching { preferences.supportReadDeviceManual }
+                .getOrDefault(emptyList())
+        val supported =
+            if (DeviceManualDataType.ALL in reportedTypes) {
+                listOf(DeviceManualDataType.ALL)
             } else {
-                completeHealthSync(generation, callback, deviceId, cursor, records)
+                reportedTypes.filter { it in supportedManualHistoryTypes }
             }
+        if (!preferences.isSupportReadDeviceManual || supported.isEmpty()) {
+            completeManualHealthSync(generation, callback, deviceId, cursor, records)
+            return
+        }
+
+        val completed = AtomicBoolean(false)
+        fun finish(readFailed: Boolean = false) {
+            connectionHandler.post {
+                if (!completed.compareAndSet(false, true) ||
+                    !isHealthSyncActive(generation, callback, deviceId)
+                ) {
+                    return@post
+                }
+                if (readFailed) {
+                    Log.w(LOG_TAG, "manual health history read failed; continuing with collected data")
+                }
+                completeManualHealthSync(generation, callback, deviceId, cursor, records)
+            }
+        }
+        fun append(action: () -> Unit) {
+            connectionHandler.post {
+                if (completed.get() || !isHealthSyncActive(generation, callback, deviceId)) {
+                    return@post
+                }
+                action()
+                armHealthSyncTimeout(generation, callback, deviceId, "手表手动测量历史")
+            }
+        }
+
+        armHealthSyncTimeout(generation, callback, deviceId, "手表手动测量历史")
+        manager.readDeviceManualData(
+            IBleWriteResponse { code ->
+                if (code != Code.REQUEST_SUCCESS) finish(readFailed = true)
+            },
+            0L,
+            supported,
+            emptyList(),
+            object : AbsDeviceManualDetectDataListener() {
+                override fun onBloodPressureDataChange(items: List<BloodPressureManualData>) = append {
+                    items.forEach { item ->
+                        val at = manualHistoryDate(item.timeStamp) ?: return@forEach
+                        if (item.systolic !in 60..260 ||
+                            item.diastolic !in 30..180 ||
+                            item.systolic <= item.diastolic
+                        ) {
+                            return@forEach
+                        }
+                        val values = buildMap<String, Number> {
+                            put("systolic", item.systolic)
+                            put("diastolic", item.diastolic)
+                            if (item.heartRate in 30..240) put("pulse", item.heartRate)
+                        }
+                        records += record("blood_pressure", values, "mmHg", at)
+                    }
+                }
+
+                override fun onHeartRateDataChange(items: List<HeartRateManualData>) = append {
+                    items.forEach { item ->
+                        val at = manualHistoryDate(item.timeStamp) ?: return@forEach
+                        val values = item.rate?.filter { it in 30..240 }.orEmpty()
+                        if (values.isNotEmpty()) {
+                            records += record("heart_rate", mapOf("value" to values.average()), "bpm", at)
+                        }
+                    }
+                }
+
+                override fun onBloodOxygenDataChange(items: List<BloodOxygenManualData>) = append {
+                    items.forEach { item ->
+                        val at = manualHistoryDate(item.timeStamp) ?: return@forEach
+                        val values = item.oxygen?.filter { it in 50..100 }.orEmpty()
+                        if (values.isNotEmpty()) {
+                            records += record("blood_oxygen", mapOf("value" to values.average()), "%", at)
+                        }
+                    }
+                }
+
+                override fun onBodyTemperatureDataChange(items: List<BodyTemperatureManualData>) = append {
+                    items.forEach { item ->
+                        val at = manualHistoryDate(item.timeStamp) ?: return@forEach
+                        if (item.temperature.isFinite() && item.temperature in 20f..45f) {
+                            records += record(
+                                "body_temperature",
+                                mapOf("value" to item.temperature),
+                                "℃",
+                                at,
+                            )
+                        }
+                    }
+                }
+
+                override fun onBloodGlucoseDataChange(items: List<BloodGlucoseManualData>) = append {
+                    items.forEach { item ->
+                        val at = manualHistoryDate(item.timeStamp) ?: return@forEach
+                        if (item.bloodGlucoseValue.isFinite() && item.bloodGlucoseValue in 0.1f..40f) {
+                            records += record(
+                                "blood_glucose",
+                                mapOf("value" to item.bloodGlucoseValue),
+                                "mmol/L",
+                                at,
+                            )
+                        }
+                    }
+                }
+
+                override fun onHrvManualDataChange(items: List<HrvManualData>) = append {
+                    items.forEach { item ->
+                        val at = manualHistoryDate(item.timeStamp) ?: return@forEach
+                        val values = item.hrv?.filter { it in 1..300 }.orEmpty()
+                        if (values.isNotEmpty()) {
+                            records += record("hrv", mapOf("value" to values.average()), "ms", at)
+                        }
+                    }
+                }
+
+                override fun onBloodComponentManualDataChange(items: List<BloodComponentManualData>) = append {
+                    items.forEach { item ->
+                        val at = manualHistoryDate(item.timeStamp) ?: return@forEach
+                        val values = manualBloodComponentValues(
+                            item.uricAcid,
+                            item.gettCHO(),
+                            item.gettAG(),
+                            item.gethDL(),
+                            item.getlDL(),
+                        )
+                        if (values.isNotEmpty()) {
+                            records += record("blood_composition", values, "", at)
+                        }
+                    }
+                }
+
+                override fun onMiniCheckupManualDataChange(items: List<MiniCheckupManualData>) = append {
+                    items.forEach { item -> appendMiniCheckupManualData(item, records) }
+                }
+
+                override fun onReadProgress(progress: Float) {
+                    connectionHandler.post {
+                        if (completed.get() || !isHealthSyncActive(generation, callback, deviceId)) {
+                            return@post
+                        }
+                        emitHealthSyncProgress(
+                            deviceId,
+                            cursor,
+                            0.7 + progress.coerceIn(0f, 1f) * 0.18,
+                        )
+                        armHealthSyncTimeout(generation, callback, deviceId, "手表手动测量历史")
+                    }
+                }
+
+                override fun onReadComplete() = finish()
+
+                override fun onReadFail() = finish(readFailed = true)
+            },
+        )
+    }
+
+    private fun completeManualHealthSync(
+        generation: Int,
+        callback: ResultCallback<List<Map<String, Any?>>>,
+        deviceId: String,
+        cursor: String?,
+        records: MutableList<Map<String, Any?>>,
+    ) {
+        if (!isHealthSyncActive(generation, callback, deviceId)) return
+        if (supportsEcgHistorySync()) {
+            emitHealthSyncProgress(deviceId, cursor, 0.9)
+            readEcgHistoryData(generation, callback, deviceId, cursor, records)
+        } else {
+            completeHealthSync(generation, callback, deviceId, cursor, records)
+        }
+    }
+
+    private fun manualHistoryDate(seconds: Int): Date? {
+        if (seconds <= 0) return null
+        val value = Date(seconds.toLong() * 1_000L)
+        val now = System.currentTimeMillis()
+        return value.takeIf { it.time in 946_684_800_000L..(now + 86_400_000L) }
+    }
+
+    private fun manualBloodComponentValues(
+        uricAcid: Float,
+        totalCholesterol: Float,
+        triglycerides: Float,
+        highDensity: Float,
+        lowDensity: Float,
+    ): Map<String, Number> = buildMap {
+        if (uricAcid in 90f..1000f) put("uricAcid", uricAcid)
+        if (totalCholesterol in 0.01f..100f) put("totalCholesterol", totalCholesterol)
+        if (triglycerides in 0.01f..100f) put("triglycerides", triglycerides)
+        if (highDensity in 0.01f..100f) put("highDensityLipoprotein", highDensity)
+        if (lowDensity in 0.01f..100f) put("lowDensityLipoprotein", lowDensity)
+    }
+
+    private fun appendMiniCheckupManualData(
+        item: MiniCheckupManualData,
+        records: MutableList<Map<String, Any?>>,
+    ) {
+        val at = manualHistoryDate(item.timeStamp) ?: return
+        if (item.heart in 30..240) {
+            records += record("heart_rate", mapOf("value" to item.heart), "bpm", at)
+        }
+        if (item.oxygen in 50..100) {
+            records += record("blood_oxygen", mapOf("value" to item.oxygen), "%", at)
+        }
+        if (item.highValue in 60..260 && item.lowValue in 30..180 && item.highValue > item.lowValue) {
+            records += record(
+                "blood_pressure",
+                mapOf("systolic" to item.highValue, "diastolic" to item.lowValue),
+                "mmHg",
+                at,
+            )
+        }
+        if (item.bloodGlucose.isFinite() && item.bloodGlucose in 0.1f..40f) {
+            records += record("blood_glucose", mapOf("value" to item.bloodGlucose), "mmol/L", at)
+        }
+        if (item.temperature.isFinite() && item.temperature in 20f..45f) {
+            records += record("body_temperature", mapOf("value" to item.temperature), "℃", at)
+        }
+        if (item.hrv in 1..300) {
+            records += record("hrv", mapOf("value" to item.hrv), "ms", at)
+        }
+        item.bloodComponent?.let { component ->
+            val values = manualBloodComponentValues(
+                component.uricAcid,
+                component.gettCHO(),
+                component.gettAG(),
+                component.gethDL(),
+                component.getlDL(),
+            )
+            if (values.isNotEmpty()) records += record("blood_composition", values, "", at)
+        }
+        item.bodyComponent?.let { component ->
+            val values = buildMap<String, Number> {
+                if (component.getBMI() in 5f..80f) put("bmi", component.getBMI())
+                if (component.bodyFatRate in 2f..48f) put("bodyFatRate", component.bodyFatRate)
+                if (component.fatRate in 1f..248f) put("fatMass", component.fatRate)
+                if (component.muscleMass in 1f..248f) put("muscleMass", component.muscleMass)
+                if (component.bodyWater in 10f..90f) put("bodyWaterRate", component.bodyWater)
+                if (component.basalMetabolicRate in 25f..14_995f) {
+                    put("basalMetabolicRate", component.basalMetabolicRate)
+                }
+            }
+            if (values.isNotEmpty()) records += record("body_composition", values, "", at)
         }
     }
 
@@ -5417,7 +5709,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         ) {
                             return@Runnable
                         }
-                        val unique = pendingEcgRecords.distinctBy { it["id"] }
+                        val unique = preferredHealthRecords(pendingEcgRecords)
                         records += unique
                         Log.i(
                             LOG_TAG,
@@ -5457,7 +5749,51 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     ) {
         if (!finishHealthSync(generation, callback, deviceId)) return
         emitHealthSyncProgress(deviceId, cursor, 1.0)
-        callback.success(records.distinctBy { it["id"] })
+        callback.success(preferredHealthRecords(records))
+    }
+
+    private fun preferredHealthRecords(
+        records: List<Map<String, Any?>>,
+    ): List<Map<String, Any?>> =
+        records
+            .groupBy { it["id"] }
+            .values
+            .mapNotNull(::mergeHealthRecordCandidates)
+
+    private fun mergeHealthRecordCandidates(
+        candidates: List<Map<String, Any?>>,
+    ): Map<String, Any?>? {
+        val base = candidates.maxByOrNull(::healthRecordRichness) ?: return null
+        val values = linkedMapOf<String, Number>()
+        candidates.sortedBy(::healthRecordRichness).forEach { candidate ->
+            (candidate["values"] as? Map<*, *>)?.forEach { (key, value) ->
+                if (key != null && value is Number) values[key.toString()] = value
+            }
+        }
+        val rawVersion =
+            candidates.maxOfOrNull { (it["rawVersion"] as? Number)?.toInt() ?: 1 } ?: 1
+        // Never attach a longer raw-v1 ADC array to a calibrated raw-v2
+        // candidate. Waveform samples and their version are one contract.
+        val samples =
+            candidates
+                .filter { (it["rawVersion"] as? Number)?.toInt() ?: 1 == rawVersion }
+                .mapNotNull { it["samples"] as? List<*> }
+                .maxByOrNull { it.size }
+                ?.filterIsInstance<Number>()
+                .orEmpty()
+        return buildMap {
+            putAll(base)
+            put("values", values)
+            put("rawVersion", rawVersion)
+            if (samples.isNotEmpty()) put("samples", samples) else remove("samples")
+        }
+    }
+
+    private fun healthRecordRichness(record: Map<String, Any?>): Int {
+        val valueCount = (record["values"] as? Map<*, *>)?.size ?: 0
+        val sampleCount = (record["samples"] as? Collection<*>)?.size ?: 0
+        val rawVersion = (record["rawVersion"] as? Number)?.toInt() ?: 1
+        return valueCount * 10_000 + minOf(sampleCount, 9_999) + rawVersion * 100_000
     }
 
     private fun ecgHistoryRecord(result: EcgDetectResult): Map<String, Any?>? {
@@ -7621,6 +7957,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         measuredAt: Date,
         samples: List<Number> = emptyList(),
         rawVersion: Int = 1,
+        origin: String = "watch_history",
     ): Map<String, Any?> {
         val timestamp = iso8601(measuredAt)
         return buildMap(
@@ -7636,6 +7973,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             "firmwareVersion" to firmwareVersion,
             "quality" to "device_reported",
             "source" to "wearable",
+            "origin" to origin,
             "rawVersion" to rawVersion,
             ))
             if (samples.isNotEmpty()) put("samples", samples)
@@ -7643,7 +7981,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     }
 
     private fun emitRecord(record: Map<String, Any?>) {
-        emit("healthRecord", record)
+        emit("healthRecord", record + ("origin" to "app_measurement"))
     }
 
     private fun emit(type: String, payload: Map<String, Any?>) {
@@ -7970,7 +8308,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         private const val CONNECTION_FLOW_TIMEOUT_MS = 180_000L
         private const val HEALTH_SYNC_IDLE_TIMEOUT_MS = 45_000L
         private const val ECG_HISTORY_SYNC_TIMEOUT_MS = 180_000L
-        private const val ECG_HISTORY_CALLBACK_SETTLE_MS = 800L
+        private const val ECG_HISTORY_CALLBACK_SETTLE_MS = 1_500L
         private const val DEVICE_SETTING_TIMEOUT_MS = 15_000L
         // W9S needs about 12.4 seconds to return its first valid heart sample
         // after the sensor starts. Keep enough margin so a correctly worn
@@ -8019,6 +8357,17 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         private const val STALE_DISCONNECT_POLL_MS = 150L
         private const val NOTIFICATION_PREFS = "saidian_notification_settings"
         private const val LEGACY_SEDENTARY_ID = "legacy_sedentary"
+        private val supportedManualHistoryTypes =
+            setOf(
+                DeviceManualDataType.BLOOD_PRESSURE,
+                DeviceManualDataType.HEART_RATE,
+                DeviceManualDataType.BLOOD_GLUCOSE,
+                DeviceManualDataType.BLOOD_OXYGEN,
+                DeviceManualDataType.BODY_TEMPERATURE,
+                DeviceManualDataType.HRV,
+                DeviceManualDataType.BLOOD_COMPOSITION,
+                DeviceManualDataType.MINI_CHECKUP,
+            )
         private val NOTIFICATION_KEYS =
             listOf(
                 "incomingCall",

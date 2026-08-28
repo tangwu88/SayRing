@@ -38,6 +38,11 @@ $flutter = 'F:\Codex\home\tools\flutter\bin\flutter.bat'
 首次使用时复制 `config/dev.json.example` 为 `config/dev.json`。配置文件、签名材料、
 Token 和密码不得提交到代码库；合作方 SDK 二进制仅随本私有 App 仓库锁定。
 
+每次修改前必须先同步远端、检查是否存在并发 Xcode/Flutter 构建，并按
+[修改与回归检查清单](docs/REGRESSION-CHECKLIST.md) 完成影响面、全量测试和真机门禁。
+本轮跨端问题的共同根因与防复发约束见
+[2026-08-29 跨端问题修复复盘](docs/BUG-RETROSPECTIVE-20260829.md)。
+
 ## 构建
 
 ```powershell

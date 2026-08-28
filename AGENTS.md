@@ -39,6 +39,17 @@
 4. 记录文件与对应源码一起提交到 Git，便于下一位同事先更新再继续，避免重复已经失败的方法。
 5. 交付前核对日志中的待验证项，不能把“未执行”写成“已通过”。
 
+## 0.2 跨模块回归门禁（强制）
+
+1. 每次修改前阅读 `docs/BUG-RETROSPECTIVE-20260829.md` 和
+   `docs/REGRESSION-CHECKLIST.md`，逐项确认数据来源、能力门禁和关联页面。
+2. 同一仓库的 iOS 构建必须串行；发现另一个 `flutter run` 或 `xcodebuild`
+   正在编译时先等待，禁止并发清理共享 DerivedData。
+3. 定向测试不能代替全量测试；提交前必须完成静态分析、全量 Flutter 测试、
+   Android Debug/Release、iOS Debug/Profile 和可执行的真机检查。
+4. iOS Debug 只能在 Flutter/Xcode 附加时判断调试稳定性；桌面独立启动必须使用
+   Profile、Ad Hoc、TestFlight 或 Release。
+
 ## 1. 不破坏现有代码
 
 修改代码前：

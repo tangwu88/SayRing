@@ -120,6 +120,12 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
             'screenHeight': widget.profile.screenHeight,
             'dialShape': widget.profile.dialShape,
             'maxLength': widget.profile.maxLength,
+            'fileLength': item.fileLength,
+            'crc': item.crc,
+            'binProtocol': item.binProtocol ?? widget.profile.binProtocol,
+            'itemDialShape': item.dialShape ?? widget.profile.dialShape,
+            'fileUrl': item.fileUrl.toString(),
+            'previewUrl': item.previewUrl.toString(),
           });
       if (!mounted) return;
       final resultMessage = saved

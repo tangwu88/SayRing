@@ -22,6 +22,9 @@ class DeviceWatchFaceMarketItem {
     required this.previewUrl,
     required this.fileLength,
     required this.available,
+    required this.crc,
+    required this.binProtocol,
+    required this.dialShape,
   });
 
   final String name;
@@ -29,6 +32,9 @@ class DeviceWatchFaceMarketItem {
   final Uri previewUrl;
   final int fileLength;
   final bool available;
+  final int? crc;
+  final int? binProtocol;
+  final int? dialShape;
 
   factory DeviceWatchFaceMarketItem.fromMap(Map<Object?, Object?> map) {
     final fileUrl = Uri.tryParse('${map['fileUrl'] ?? ''}');
@@ -43,9 +49,17 @@ class DeviceWatchFaceMarketItem {
       name: '${map['name'] ?? '在线表盘'}'.trim(),
       fileUrl: fileUrl,
       previewUrl: previewUrl,
-      fileLength: (map['fileLenght'] as num?)?.toInt() ?? 0,
+      fileLength: _optionalInt(map['fileLenght'] ?? map['fileLength']) ?? 0,
       available: map['available'] != false,
+      crc: _optionalInt(map['crc']),
+      binProtocol: _optionalInt(map['binProtocol']),
+      dialShape: _optionalInt(map['dialShape']),
     );
+  }
+
+  static int? _optionalInt(Object? value) {
+    final parsed = value is num ? value.toInt() : int.tryParse('$value');
+    return parsed != null && parsed >= 0 ? parsed : null;
   }
 }
 
@@ -91,10 +105,15 @@ class DeviceWatchFaceMarketProfile {
         : reportedDialShape;
     return DeviceWatchFaceMarketProfile(
       dialShape: catalogueDialShape,
-      binProtocol: catalogue.binProtocol,
-      maxLength: catalogue.maxLength,
-      deviceNumber: catalogue.deviceNumber,
-      deviceTestVersion: catalogue.deviceTestVersion,
+      binProtocol: number('binProtocol', catalogue.binProtocol),
+      maxLength: number('maxLength', catalogue.maxLength),
+      deviceNumber: number('deviceNumber', catalogue.deviceNumber),
+      deviceTestVersion:
+          '${value['deviceTestVersion'] ?? value['deviceVersion'] ?? ''}'
+              .trim()
+              .isNotEmpty
+          ? '${value['deviceTestVersion'] ?? value['deviceVersion']}'.trim()
+          : catalogue.deviceTestVersion,
       screenWidth: screenWidth,
       screenHeight: screenHeight,
     );
@@ -124,10 +143,9 @@ class DeviceWatchFaceMarketProfile {
 /// Loads the Veepoo/JL online watch-face catalogue.
 ///
 /// Veepoo's catalogue endpoint expects the binary compatibility profile used
-/// by its network-dial manager. It is not the same as the values reported by
-/// `PwdData` for the connected watch. The display type and pixel dimensions
-/// are read from the watch at runtime; the remaining fields intentionally use
-/// the vendor catalogue profile above.
+/// by its network-dial manager. Every compatibility field comes from the
+/// authenticated device session; the W9S profile is only a test/fallback value
+/// and must not be used to open the market for an unidentified device.
 class DeviceWatchFaceMarketService {
   DeviceWatchFaceMarketService({http.Client? client})
     : _client = client ?? http.Client();

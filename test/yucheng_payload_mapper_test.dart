@@ -85,6 +85,7 @@ void main() {
       'isSupportStartBloodOxygenMeasurement': false,
       'isSupportFindDevice': true,
       'isSupportWatchFace': true,
+      'isSupportSport': true,
       'isSupportOta': true,
       'isSupportAlarm': false,
     });
@@ -104,5 +105,11 @@ void main() {
     expect(capabilities.supportsFeature(DeviceFeature.findWatch), isTrue);
     expect(capabilities.supportsFeature(DeviceFeature.watchFaces), isTrue);
     expect(capabilities.supportsFeature(DeviceFeature.alarms), isFalse);
+    expect(capabilities.sportModes, {
+      SportMode.running,
+      SportMode.walking,
+      SportMode.cycling,
+      SportMode.hiking,
+    });
   });
 }

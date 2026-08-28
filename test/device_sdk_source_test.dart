@@ -24,9 +24,14 @@ void main() {
   });
 
   test('only real hardware addresses are labelled as MAC addresses', () {
-    const iOSDevice = DeviceInfo(
+    const iOSDeviceWithoutAddress = DeviceInfo(
       id: 'veepoo:36CE3B81-94C2-9B3F-C30F-BE9AB1EB2C7D',
       name: 'SD-WATCH-W9S',
+    );
+    const iOSDeviceWithAddress = DeviceInfo(
+      id: 'veepoo:36CE3B81-94C2-9B3F-C30F-BE9AB1EB2C7D',
+      name: 'SD-WATCH-W9S',
+      hardwareAddress: '67:97:35:81:2f:44',
     );
     const yucDevice = DeviceInfo(
       id: 'yucheng:F88A714C-1FD0-CBD9-126B-E098D1D63483',
@@ -35,8 +40,13 @@ void main() {
     );
     const compactAddress = DeviceInfo(id: 'veepoo:5c8bbc6f26fc', name: 'ET488');
 
-    expect(iOSDevice.macAddress, isNull);
-    expect(iOSDevice.identifierLabel, 'iOS 连接标识 · 36CE3B81…B1EB2C7D');
+    expect(iOSDeviceWithoutAddress.macAddress, isNull);
+    expect(
+      iOSDeviceWithoutAddress.identifierLabel,
+      'iOS 连接标识 · 36CE3B81…B1EB2C7D',
+    );
+    expect(iOSDeviceWithAddress.macAddress, '67:97:35:81:2F:44');
+    expect(iOSDeviceWithAddress.identifierLabel, 'MAC · 67:97:35:81:2F:44');
     expect(yucDevice.macAddress, '07:43:00:00:4D:E9');
     expect(yucDevice.identifierLabel, 'MAC · 07:43:00:00:4D:E9');
     expect(compactAddress.macAddress, '5C:8B:BC:6F:26:FC');
@@ -94,27 +104,95 @@ void main() {
     );
   });
 
-  test('Android Veepoo sync reads manual ECG history after origin data', () {
-    final source = File(
-      'android/app/src/main/kotlin/cc/saidian/saydian_app/MainActivity.kt',
-    ).readAsStringSync();
-    final originCompletion = source.indexOf(
-      'private fun completeOriginHealthSync',
+  test(
+    'Android Veepoo sync serializes origin, manual health and ECG history',
+    () {
+      final source = File(
+        'android/app/src/main/kotlin/cc/saidian/saydian_app/MainActivity.kt',
+      ).readAsStringSync();
+      final originCompletion = source.indexOf(
+        'private fun completeOriginHealthSync',
+      );
+      final manualReader = source.indexOf(
+        'private fun readDeviceManualHealthData',
+      );
+      final ecgReader = source.indexOf('private fun readEcgHistoryData');
+      final finalCompletion = source.indexOf('private fun completeHealthSync');
+
+      expect(originCompletion, greaterThanOrEqualTo(0));
+      expect(manualReader, greaterThan(originCompletion));
+      expect(ecgReader, greaterThan(manualReader));
+      expect(finalCompletion, greaterThan(ecgReader));
+
+      final originBlock = source.substring(originCompletion, manualReader);
+      final manualBlock = source.substring(manualReader, ecgReader);
+      final ecgBlock = source.substring(ecgReader, finalCompletion);
+      expect(originBlock, contains('readDeviceManualHealthData('));
+      expect(manualBlock, contains('manager.readDeviceManualData('));
+      expect(source, contains('DeviceManualDataType.BLOOD_PRESSURE'));
+      expect(manualBlock, contains('listOf(DeviceManualDataType.ALL)'));
+      expect(manualBlock, contains('onBloodPressureDataChange'));
+      expect(manualBlock, contains('completeManualHealthSync('));
+      expect(source, contains('origin.halfHourBps.orEmpty()'));
+      expect(source, contains('origin.halfHourRateDatas.orEmpty()'));
+      expect(ecgBlock, contains('manager.readECGData('));
+      expect(ecgBlock, contains('EEcgDataType.MANUALLY'));
+      expect(ecgBlock, contains('TimeData(0, 0, 0, 0, 0, 0)'));
+      expect(ecgBlock, contains('IECGReadDataListener'));
+      expect(source, contains('set(Calendar.MILLISECOND, 0)'));
+      expect(
+        source,
+        contains('it["rawVersion"] as? Number)?.toInt() ?: 1 == rawVersion'),
+      );
+    },
+  );
+
+  test('iOS Veepoo keeps its UUID route and exposes the SDK address', () {
+    final source = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+
+    expect(source, contains('device.peripheral.identifier.uuidString'));
+    expect(
+      source,
+      contains('WearablePayloadMapper.hardwareAddress(model.deviceAddress)'),
     );
-    final ecgReader = source.indexOf('private fun readEcgHistoryData');
-    final finalCompletion = source.indexOf('private fun completeHealthSync');
+    expect(source, contains('payload["hardwareAddress"] = hardwareAddress'));
+    expect(
+      source,
+      contains('WearablePayloadMapper.hardwareAddress(device.deviceAddress)'),
+    );
+    expect(source, contains('details["hardwareAddress"] = hardwareAddress'));
+  });
 
-    expect(originCompletion, greaterThanOrEqualTo(0));
-    expect(ecgReader, greaterThan(originCompletion));
-    expect(finalCompletion, greaterThan(ecgReader));
+  test(
+    'iOS online watch faces use a separate validated transfer operation',
+    () {
+      final source = File('ios/Runner/AppDelegate.swift').readAsStringSync();
 
-    final originBlock = source.substring(originCompletion, ecgReader);
-    final ecgBlock = source.substring(ecgReader, finalCompletion);
-    expect(originBlock, contains('readEcgHistoryData('));
-    expect(ecgBlock, contains('manager.readECGData('));
-    expect(ecgBlock, contains('EEcgDataType.MANUALLY'));
-    expect(ecgBlock, contains('TimeData(0, 0, 0, 0, 0, 0)'));
-    expect(ecgBlock, contains('IECGReadDataListener'));
-    expect(source, contains('set(Calendar.MILLISECOND, 0)'));
+      expect(source, contains('case "upload_network":'));
+      expect(
+        source,
+        contains('uploadNetworkWatchFace(values, result: result)'),
+      );
+      expect(
+        source,
+        contains('manager.peripheralManage.veepooSDK_dialChannel('),
+      );
+      expect(source, contains('VPMarketDialManager.share().startTransfer('));
+      expect(source, contains('WATCH_FACE_INCOMPATIBLE'));
+      expect(source, contains('WATCH_FACE_VERIFY_FAILED'));
+      expect(source, contains('"onlineMarketSupported": true'));
+    },
+  );
+
+  test('iOS ECG converts ADC samples before declaring calibrated waveform', () {
+    final source = File('ios/Runner/AppDelegate.swift').readAsStringSync();
+
+    expect(source, contains('VPECGTestDataModel.convertToMv('));
+    expect(
+      source,
+      contains('guard samples.count > 1, hasConvertedSignal else'),
+    );
+    expect(source, contains('deviceTestOffStoreECGDidFinishBlock'));
+    expect(source, contains('"origin": "watch_history"'));
   });
 }

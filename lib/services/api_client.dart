@@ -1096,6 +1096,8 @@ class SaydianApiClient
           'data': <String, Object?>{
             ...record.values,
             'date': record.measuredAt.toLocal().toIso8601String(),
+            'rawVersion': record.rawVersion,
+            'origin': record.origin.wireName,
           },
           'totalArray': record.samples,
         });
@@ -1593,7 +1595,10 @@ class SaydianApiClient
       }
     }
 
-    final records = rawRecords
+    final normalizedRecords = title == '心电'
+        ? rawRecords.map(_normalizeCareEcgRecord)
+        : rawRecords;
+    final records = normalizedRecords
         .where((record) => _careRecordHasReading(title, record))
         .toList(growable: false);
     final values = records
@@ -1667,6 +1672,80 @@ class SaydianApiClient
 
   Map<String, Object?> _decodeCareRawRecord(Map<Object?, Object?> row) =>
       row.map((key, value) => MapEntry('$key', _decodeCareRawValue(value)));
+
+  Map<String, Object?> _normalizeCareEcgRecord(Map<String, Object?> record) {
+    final normalized = <String, Object?>{...record};
+    for (final key in const ['data', 'ecgData', 'item', 'result']) {
+      final nested = record[key];
+      if (nested is! Map) continue;
+      for (final entry in nested.entries) {
+        normalized.putIfAbsent('${entry.key}', () => entry.value);
+      }
+    }
+
+    num? firstNumber(List<String> keys) {
+      for (final key in keys) {
+        final value = _carePositiveNumber(normalized[key]);
+        if (value != null) return value;
+      }
+      return null;
+    }
+
+    final heartRate = firstNumber(const [
+      'meanHeartRate',
+      'aveHeart',
+      'heartRate',
+      'heart',
+      'value',
+    ]);
+    final hrv = firstNumber(const ['averageHRV', 'aveHrv', 'hrv', 'HRVData']);
+    final qt = firstNumber(const [
+      'averageTimeInterval',
+      'aveQT',
+      'qtTime',
+      'qt',
+    ]);
+    final frequency = firstNumber(const [
+      'sampleFrequency',
+      'frequency',
+      'uploadFrequency',
+    ]);
+    if (heartRate != null) normalized['meanHeartRate'] = heartRate;
+    if (hrv != null) normalized['averageHRV'] = hrv;
+    if (qt != null) normalized['averageTimeInterval'] = qt;
+    if (frequency != null && frequency >= 50 && frequency <= 1000) {
+      normalized['sampleFrequency'] = frequency.toInt();
+    }
+
+    for (final key in const [
+      'samples',
+      'totalArray',
+      'filterSignals',
+      'waveformData',
+    ]) {
+      final samples = _careNumericSeries(normalized[key]);
+      if (samples.length > 1) {
+        normalized['samples'] = samples;
+        break;
+      }
+    }
+    normalized['origin'] = MeasurementOrigin.remoteMember.wireName;
+    return normalized;
+  }
+
+  List<num> _careNumericSeries(Object? value) {
+    if (value is! List) return const [];
+    return value
+        .map((item) => item is num ? item : num.tryParse('$item'))
+        .whereType<num>()
+        .where(
+          (item) =>
+              item.toDouble().isFinite &&
+              item.toInt() != 2147483647 &&
+              item.abs() < 1000000000,
+        )
+        .toList(growable: false);
+  }
 
   Object? _decodeCareRawValue(Object? value) {
     if (value is String) {

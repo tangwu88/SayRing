@@ -30,10 +30,32 @@ enum WearablePayloadMapper {
     value as? Bool ?? fallback
   }
 
+  static func hardwareAddress(_ rawValue: String?) -> String? {
+    let value = (rawValue ?? "")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .uppercased()
+      .replacingOccurrences(of: "-", with: ":")
+    if value.range(
+      of: "^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$",
+      options: .regularExpression
+    ) != nil {
+      return value
+    }
+    guard value.range(of: "^[0-9A-F]{12}$", options: .regularExpression) != nil else {
+      return nil
+    }
+    return stride(from: 0, to: value.count, by: 2).map { offset in
+      let start = value.index(value.startIndex, offsetBy: offset)
+      let end = value.index(start, offsetBy: 2)
+      return String(value[start..<end])
+    }.joined(separator: ":")
+  }
+
   static func sportWireName(rawValue: Int) -> String {
     switch rawValue {
     case 2, 4: "walking"
-    case 5, 11: "hiking"
+    case 5: "hiking"
+    case 11: "mountaineering"
     case 7, 8: "cycling"
     default: "running"
     }
@@ -103,6 +125,7 @@ enum WearablePayloadMapper {
     defaultCount: Int,
     marketCount: Int,
     photoCount: Int,
+    marketInstalled: Bool,
     currentType: Int,
     currentStyle: Int
   ) -> [[String: Any]] {
@@ -117,7 +140,7 @@ enum WearablePayloadMapper {
         "status": "手表内置",
       ])
     }
-    if marketCount > 0 {
+    if marketCount > 0 && marketInstalled {
       entries.append([
         "id": "market:1",
         "name": "已安装市场表盘",
@@ -138,6 +161,53 @@ enum WearablePayloadMapper {
       ])
     }
     return entries
+  }
+
+  static func screenSize(deviceShape: Int) -> (width: Int, height: Int)? {
+    switch deviceShape {
+    case 0x01, 0x02, 0x05, 0x0B, 0x3C, 0x4C, 0x51, 0x7A:
+      return (240, 240)
+    case 0x03, 0x04, 0x09, 0x31, 0x44, 0x5E, 0x6A:
+      return (240, 280)
+    case 0x0F, 0x32, 0x45, 0x5F, 0x64, 0x6B:
+      return (240, 284)
+    case 0x10, 0x33, 0x46:
+      return (240, 286)
+    case 0x38, 0x42, 0x5D, 0x62, 0x69:
+      return (240, 296)
+    case 0x3B, 0x4B:
+      return (240, 292)
+    case 0x0D, 0x3E, 0x65, 0x6E:
+      return (172, 320)
+    case 0x12, 0x3D, 0x61, 0x6C:
+      return (200, 320)
+    case 0x11, 0x37, 0x48:
+      return (320, 380)
+    case 0x39, 0x49, 0x59, 0x5A:
+      return (320, 386)
+    case 0x34, 0x47, 0x63, 0x6D:
+      return (368, 448)
+    case 0x3A, 0x4A, 0x55, 0x70, 0x71, 0x79, 0x7D, 0x7E:
+      return (410, 502)
+    case 0x08, 0x30, 0x4D, 0x54, 0x5C, 0x68, 0x74, 0x75, 0x76:
+      return (360, 360)
+    case 0x35, 0x4F, 0x5B, 0x67, 0x78, 0x7B:
+      return (466, 466)
+    case 0x36, 0x4E:
+      return (412, 412)
+    case 0x3F:
+      return (390, 390)
+    case 0x40, 0x72, 0x73:
+      return (390, 450)
+    case 0x41:
+      return (416, 416)
+    case 0x43:
+      return (320, 320)
+    case 0x50, 0x57:
+      return (480, 480)
+    default:
+      return nil
+    }
   }
 
   private static func integer(_ value: Any?) -> Int {

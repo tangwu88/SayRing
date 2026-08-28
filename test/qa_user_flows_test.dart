@@ -12,6 +12,7 @@ import 'package:saydian_app/services/app_payment_bridge.dart';
 import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
+import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
 
 void main() {
@@ -240,6 +241,34 @@ void main() {
     expect(find.textContaining('邀请人账号 ID：82'), findsOneWidget);
     expect(find.text('暂无需要授权的关爱人'), findsNothing);
   });
+
+  testWidgets(
+    'care pending count and list ignore accepted or rejected invitations',
+    (tester) async {
+      final controller = _authenticatedController(
+        api: _MixedCareInvitationApi(),
+      );
+      addTearDown(controller.dispose);
+      await controller.refreshCareInvitations();
+
+      expect(controller.careInvitations, hasLength(3));
+      expect(controller.pendingCareInvitations, hasLength(1));
+
+      await tester.pumpWidget(
+        MaterialApp(home: CarePage(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 条待处理'), findsOneWidget);
+      await tester.tap(find.text('关爱邀请'));
+      await tester.pumpAndSettle();
+      expect(find.text('待处理成员'), findsOneWidget);
+      expect(find.text('已接受成员'), findsNothing);
+      expect(find.text('已拒绝成员'), findsNothing);
+      expect(find.widgetWithText(FilledButton, '同意'), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, '拒绝'), findsOneWidget);
+    },
+  );
 
   testWidgets('device scan and connection uses the wearable flow', (
     tester,
@@ -1372,6 +1401,36 @@ class _CareFailureApi extends _QaApi implements SaydianCareApi {
     invitationRequests += 1;
     throw const ApiException('邀请查询失败', statusCode: 500);
   }
+}
+
+class _MixedCareInvitationApi extends _QaApi implements SaydianCareApi {
+  @override
+  Future<List<Map<String, Object?>>> getCareInvitations() async => const [
+    {
+      'id': 11,
+      'examine_status': 0,
+      'inviter_id': 81,
+      'member': {'nickname': '待处理成员'},
+    },
+    {
+      'id': 12,
+      'examine_status': 1,
+      'inviter_id': 82,
+      'member': {'nickname': '已接受成员'},
+    },
+    {
+      'id': 13,
+      'examine_status': 2,
+      'inviter_id': 83,
+      'member': {'nickname': '已拒绝成员'},
+    },
+  ];
+
+  @override
+  Future<void> respondCareInvitation({
+    required int id,
+    required bool accepted,
+  }) async {}
 }
 
 class _CarePreviewFailureApi extends _QaApi {

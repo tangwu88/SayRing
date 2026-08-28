@@ -24,6 +24,7 @@ void main() {
     expect(decoded.displayValue, '120/78');
     expect(decoded.values, record.values);
     expect(decoded.measuredAt, record.measuredAt);
+    expect(decoded.origin, MeasurementOrigin.watchHistory);
   });
 
   test('CarePermission is private by default', () {
@@ -102,6 +103,7 @@ void main() {
       title: '心率预警',
       message: '心率 121 bpm 超过上限',
       triggeredAt: DateTime.utc(2026, 8, 25, 8, 30),
+      origin: MeasurementOrigin.remoteMember,
     );
 
     final decoded = HealthWarningAlert.fromJson(alert.toJson());
@@ -111,5 +113,6 @@ void main() {
     expect(decoded.title, alert.title);
     expect(decoded.message, alert.message);
     expect(decoded.triggeredAt.toUtc(), alert.triggeredAt);
+    expect(decoded.origin, MeasurementOrigin.remoteMember);
   });
 }
