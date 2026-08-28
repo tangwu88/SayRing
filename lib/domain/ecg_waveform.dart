@@ -32,10 +32,12 @@ class EcgDisplayWaveform {
   final bool hasVariation;
 }
 
-/// Centers live calibrated ECG samples without smoothing them and marks
-/// converter/contact excursions as gaps. Breaking the path at an invalid point
-/// is important: clipping it to the chart edge creates a tall vertical line
-/// that looks like a heartbeat even though the device did not report one.
+/// Prepares live calibrated ECG samples without smoothing or re-centering them
+/// and marks converter/contact excursions as gaps. HBand's reference view
+/// draws the calibrated mV value against a fixed baseline. Re-centering the
+/// complete visible window on every callback moves already drawn beats and
+/// makes a valid trace appear to jump. Breaking the path at an invalid point
+/// also keeps missing ADC points from becoming fake vertical heartbeats.
 List<double?> prepareLiveEcgTrace(
   Iterable<num> source, {
   int sampleFrequency = 250,
@@ -122,9 +124,7 @@ List<double?> prepareLiveEcgTrace(
   // stable contact run. This keeps the live line visually continuous without
   // turning alternating converter rails into a fabricated waveform.
   final displayValid = [...valid];
-  final centered = raw
-      .map((sample) => sample.toDouble() - baseline)
-      .toList(growable: false);
+  final displayValues = raw.map((sample) => sample.toDouble()).toList();
   final maximumGap = math.max(1, (frequency * .04).round());
   final minimumNeighbourRun = math.max(4, (frequency * .04).round());
   var gapIndex = 0;
@@ -139,6 +139,11 @@ List<double?> prepareLiveEcgTrace(
     }
     final gapEnd = gapIndex;
     if (gapStart == 0 || gapEnd >= displayValid.length) continue;
+    final containsMissingAdc = raw
+        .skip(gapStart)
+        .take(gapEnd - gapStart)
+        .any((sample) => !sample.isFinite || sample.toInt() == 0x7fffffff);
+    if (containsMissingAdc) continue;
     var leftRun = 0;
     for (var index = gapStart - 1; index >= 0 && displayValid[index]; index--) {
       leftRun++;
@@ -157,11 +162,12 @@ List<double?> prepareLiveEcgTrace(
         rightRun < minimumNeighbourRun) {
       continue;
     }
-    final previous = centered[gapStart - 1];
-    final next = centered[gapEnd];
+    final previous = displayValues[gapStart - 1];
+    final next = displayValues[gapEnd];
     for (var offset = 0; offset < gapLength; offset++) {
       final fraction = (offset + 1) / (gapLength + 1);
-      centered[gapStart + offset] = previous + (next - previous) * fraction;
+      displayValues[gapStart + offset] =
+          previous + (next - previous) * fraction;
       displayValid[gapStart + offset] = true;
     }
   }
@@ -195,7 +201,7 @@ List<double?> prepareLiveEcgTrace(
         if (!displayValid[entry.key]) {
           return null;
         }
-        return centered[entry.key];
+        return displayValues[entry.key];
       })
       .toList(growable: false);
 }

@@ -8,6 +8,7 @@ import 'package:saydian_app/app.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
+import 'package:saydian_app/services/app_payment_bridge.dart';
 import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
@@ -919,6 +920,41 @@ void main() {
     expect(controller.careStatus, '已加载');
   });
 
+  testWidgets('care page distinguishes an API failure from an empty list', (
+    tester,
+  ) async {
+    final api = _CareFailureApi();
+    final controller = _authenticatedController(api: api);
+    addTearDown(controller.dispose);
+    await _pumpPhone(tester, controller);
+
+    await tester.tap(find.text('远程关爱'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('care-members-error')), findsOneWidget);
+    expect(find.text('加载失败'), findsOneWidget);
+    expect(find.text('暂无关爱成员'), findsNothing);
+    expect(find.text('重新加载'), findsOneWidget);
+    expect(controller.careErrorMessage, '数据查询失败');
+
+    expect(api.memberRequests, 1);
+    expect(api.invitationRequests, 1);
+    await tester.tap(find.text('重新加载'));
+    await tester.pumpAndSettle();
+    expect(api.memberRequests, 2);
+    expect(api.invitationRequests, 2);
+  });
+
+  test('care member detail preserves a visible load failure state', () async {
+    final controller = _authenticatedController(api: _CarePreviewFailureApi());
+    addTearDown(controller.dispose);
+
+    final result = await controller.loadCareMemberPreview(59, memberId: 87);
+
+    expect(result['loadError'], '成员健康数据查询失败');
+    expect(controller.errorMessage, '成员健康数据查询失败');
+  });
+
   test('AI history normalizes string sender flags', () async {
     final api = _RegressionApi();
     final controller = _authenticatedController(api: api);
@@ -929,6 +965,39 @@ void main() {
     expect(controller.aiMessages.map((item) => item['my']), [0, 1]);
     expect(controller.errorMessage, isNull);
   });
+
+  test(
+    'payment errors replace server internals with actionable messages',
+    () async {
+      final unavailable = _authenticatedController(
+        api: _PaymentFailureApi(
+          const ApiException('Internal Server Error', statusCode: 500),
+        ),
+      );
+      addTearDown(unavailable.dispose);
+
+      await unavailable.startShopPayment(
+        provider: AppPaymentProvider.alipay,
+        orderId: 99,
+        money: 199,
+      );
+
+      expect(unavailable.errorMessage, '支付服务暂不可用，请稍后重试');
+
+      final misconfigured = _authenticatedController(
+        api: _PaymentFailureApi(const ApiException('微信授权有误')),
+      );
+      addTearDown(misconfigured.dispose);
+
+      await misconfigured.startShopPayment(
+        provider: AppPaymentProvider.wechat,
+        orderId: 99,
+        money: 199,
+      );
+
+      expect(misconfigured.errorMessage, '支付服务配置异常，请稍后重试');
+    },
+  );
 }
 
 AppController _controller({
@@ -1271,6 +1340,49 @@ class _RegressionApi extends _QaApi {
     {'id': 2, 'message': '用户问题', 'my': '1', 'session_id': 'qa'},
     {'id': 3, 'message': 'AI 回复', 'my': '0', 'session_id': 'qa'},
   ];
+}
+
+class _PaymentFailureApi extends _QaApi {
+  _PaymentFailureApi(this.error);
+
+  final ApiException error;
+
+  @override
+  Future<Map<String, Object?>> createShopPayment({
+    required String provider,
+    required int orderId,
+    required num money,
+  }) async {
+    throw error;
+  }
+}
+
+class _CareFailureApi extends _QaApi implements SaydianCareApi {
+  int memberRequests = 0;
+  int invitationRequests = 0;
+
+  @override
+  Future<List<Map<String, Object?>>> getCareMembers() async {
+    memberRequests += 1;
+    throw const ApiException('数据查询失败', statusCode: 500);
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> getCareInvitations() async {
+    invitationRequests += 1;
+    throw const ApiException('邀请查询失败', statusCode: 500);
+  }
+}
+
+class _CarePreviewFailureApi extends _QaApi {
+  @override
+  Future<Map<String, Object?>> getCareMemberPreview({
+    required int id,
+    required String day,
+    int? memberId,
+  }) async {
+    throw const ApiException('成员健康数据查询失败', statusCode: 500);
+  }
 }
 
 class _QaWearable extends Fake implements WearableBridge {

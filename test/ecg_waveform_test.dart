@@ -474,6 +474,39 @@ void main() {
     expect(trace.skip(trace.length - 24).whereType<double>().length, 24);
   });
 
+  test('live ECG keeps the SDK calibrated baseline instead of jumping it', () {
+    const frequency = 250;
+    final samples = List<num>.generate(
+      frequency * 2,
+      (index) => 0.75 + 0.08 * math.sin(index / 8),
+    );
+
+    final trace = prepareLiveEcgTrace(samples, sampleFrequency: frequency);
+    final visible = trace.whereType<double>().toList(growable: false);
+
+    expect(visible, hasLength(samples.length));
+    expect(
+      visible.reduce((a, b) => a + b) / visible.length,
+      closeTo(0.75, .01),
+    );
+  });
+
+  test('live ECG preserves a missing ADC point as a time-axis gap', () {
+    const frequency = 250;
+    final samples = List<num>.generate(
+      frequency * 2,
+      (index) => 0.08 * math.sin(index / 8),
+    );
+    samples[240] = 0x7fffffff;
+
+    final trace = prepareLiveEcgTrace(samples, sampleFrequency: frequency);
+
+    expect(trace, hasLength(samples.length));
+    expect(trace[240], isNull);
+    expect(trace[239], isNotNull);
+    expect(trace[241], isNotNull);
+  });
+
   test('live alternating converter rails remain blank', () {
     const frequency = 250;
     final trace = prepareLiveEcgTrace(

@@ -4304,6 +4304,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 "walking" -> ESportType.OUTDOOR_WALK
                 "cycling" -> ESportType.OUTDOOR_RIDING
                 "hiking" -> ESportType.HIKE
+                "mountaineering" -> ESportType.Mountaineering
                 else -> ESportType.OUTDOOR_RUNNING
             }
         val supportsAppControl = supportsAppSportControl()
@@ -4418,6 +4419,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             "walking" -> "步行"
             "cycling" -> "骑行"
             "hiking" -> "徒步"
+            "mountaineering" -> "登山"
             else -> "跑步"
         }
 
@@ -4541,8 +4543,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             "mode" to sportModeName(data.getSportType()),
             "startedAt" to startedAt,
             "durationSeconds" to data.getSportTime(),
-            "distanceKm" to data.getDistance(),
-            "calories" to data.getCalories(),
+            // This GPS callback is documented in metres and calories. Keep
+            // the raw units explicit; Flutter normalizes them to km/kcal.
+            "distanceMeters" to data.getDistance(),
+            "caloriesCal" to data.getCalories(),
         )
     }
 
@@ -4550,7 +4554,8 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         when (type) {
             2, 4 -> "walking"
             7, 8 -> "cycling"
-            5, 11 -> "hiking"
+            5 -> "hiking"
+            11 -> "mountaineering"
             else -> "running"
         }
 
@@ -6580,6 +6585,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 pending.first,
                 pending.second,
                 ecgTypeOverride = activeEcgType,
+                preserveGaps = true,
             ),
         )
     }
@@ -6857,6 +6863,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         data.toList(),
                         power,
                         ecgTypeOverride = activeEcgType,
+                        preserveGaps = true,
                     )
                 val now = System.currentTimeMillis()
                 if (now - lastEcgAdcLogAt >= 1_000L) {
@@ -6865,8 +6872,9 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     val rawMaximum = validRaw.maxOrNull()
                     val powerMinimum = power.minOrNull()
                     val powerMaximum = power.maxOrNull()
-                    val minimum = calibrated.minOfOrNull { it.toDouble() }
-                    val maximum = calibrated.maxOfOrNull { it.toDouble() }
+                    val drawable = calibrated.filter { it.toLong() != Int.MAX_VALUE.toLong() }
+                    val minimum = drawable.minOfOrNull { it.toDouble() }
+                    val maximum = drawable.maxOfOrNull { it.toDouble() }
                     Log.d(
                         LOG_TAG,
                         "ecg adc type=$activeEcgType raw=${data.size}/${validRaw.size}/$rawMinimum..$rawMaximum power=${power.size}/$powerMinimum..$powerMaximum calibrated=${calibrated.size}/$minimum..$maximum",
@@ -7085,12 +7093,16 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         rawSamples: List<Number>,
         powers: IntArray? = null,
         ecgTypeOverride: Int? = null,
+        preserveGaps: Boolean = false,
     ): List<Number> {
         val ecgType = ecgTypeOverride?.takeIf { it in 1..14 } ?: storedEcgType()
         if (ecgType !in 1..14) return emptyList()
+        val fallbackPower = powers?.firstOrNull { it > 0 } ?: DEFAULT_ECG_POWER
         return rawSamples.mapIndexedNotNull { index, sample ->
-            if (sample.toLong() == Int.MAX_VALUE.toLong()) return@mapIndexedNotNull null
-            val power = powers?.getOrNull(index)?.takeIf { it > 0 } ?: DEFAULT_ECG_POWER
+            if (sample.toLong() == Int.MAX_VALUE.toLong()) {
+                return@mapIndexedNotNull if (preserveGaps) Int.MAX_VALUE else null
+            }
+            val power = powers?.getOrNull(index)?.takeIf { it > 0 } ?: fallbackPower
             runCatching {
                 EcgUtil.convertToMvWithValue(sample.toInt(), ecgType, false, power)
                     .takeIf { it.isFinite() }

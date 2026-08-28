@@ -41,10 +41,15 @@ Token 和密码不得提交到代码库；合作方 SDK 二进制仅随本私有
 ## 构建
 
 ```powershell
-& $flutter build apk --debug
-& $flutter build apk --release
-& $flutter build appbundle --release
+& $flutter build apk --debug '--target-platform=android-arm,android-arm64'
+& $flutter build apk --release '--target-platform=android-arm,android-arm64'
+& $flutter build appbundle --release '--target-platform=android-arm,android-arm64'
 ```
+
+手表 SDK 同时包含 32/64 位 ARM 库，所以交付包必须显式构建
+`android-arm,android-arm64`。设备定向调试留下的 Gradle/Flutter 缓存可能使默认
+构建只保留当前设备架构；发包前应确认 APK 同时存在
+`lib/armeabi-v7a/libflutter.so` 和 `lib/arm64-v8a/libflutter.so`。
 
 iOS 必须在 macOS/Xcode 环境执行：
 

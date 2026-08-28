@@ -80,7 +80,7 @@ void main() {
   );
 
   test(
-    'care details pass the mini-program target member id to every metric',
+    'care details keep successful readings and expose per-metric failures',
     () async {
       final requestedPaths = <String>[];
       final requestedTypes = <String>[];
@@ -96,7 +96,10 @@ void main() {
         if (request.url.path == '/api/v1/member/care/preview') {
           expect(request.url.queryParameters['id'], '59');
           return http.Response(
-            '{"code":500,"message":"汇总失败"}',
+            '''{"code":200,"data":{"jrjk":[
+              {"title":"血压","num":0,"unit":"次/分"},
+              {"title":"步数","num":1200,"unit":"步"}
+            ],"daily":[]}}''',
             200,
             headers: {'content-type': 'application/json; charset=utf-8'},
           );
@@ -105,9 +108,25 @@ void main() {
         expect(request.url.queryParameters['date'], '1787760000');
         final type = request.url.queryParameters['type'];
         if (type != null) requestedTypes.add(type);
+        if (type == 'BloodPressure') {
+          return http.Response(
+            '{"code":500,"message":"数据查询失败"}',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        if (type == 'BloodGlucose') {
+          return http.Response(
+            '''{"code":200,"data":[{"time":"08:00",
+              "bloodGlucose":7.179999828338623}]}''',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
         return http.Response(
-          '{"code":200,"data":[{"time":"08:00","value":78}]}',
+          '{"code":200,"data":[]}',
           200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
         );
       });
       final api = SaydianApiClient(
@@ -119,10 +138,20 @@ void main() {
       await api.getCareMembers();
       final preview = await api.getCareMemberPreview(id: 59, day: '2026-08-27');
 
-      expect(preview['fallback'], isTrue);
-      expect(preview['daily'].toString(), contains('心率'));
-      expect(preview['daily'].toString(), contains('血液成分'));
-      expect((preview['daily'] as List), hasLength(10));
+      expect(preview['fallback'], isFalse);
+      final today = (preview['jrjk'] as List).cast<Map>();
+      expect(today, hasLength(1));
+      expect(today.single['title'], '步数');
+      final daily = (preview['daily'] as List).cast<Map>();
+      expect(daily, hasLength(10));
+      final pressure = daily.singleWhere((item) => item['title'] == '血压');
+      expect(pressure['state'], 'unavailable');
+      expect(pressure['tips'], contains('服务暂不可用'));
+      final glucose = daily.singleWhere((item) => item['title'] == '血糖');
+      expect(glucose['state'], 'ready');
+      expect(glucose['latest'], closeTo(7.18, 0.001));
+      expect(glucose['avg'], closeTo(7.18, 0.001));
+      expect((glucose['records'] as List), hasLength(1));
       expect(
         requestedTypes,
         containsAll(<String>[
@@ -136,6 +165,80 @@ void main() {
         ]),
       );
       expect(requestedPaths, hasLength(12));
+    },
+  );
+
+  test(
+    'care chart series map to accurate latest values and statistics',
+    () async {
+      final client = MockClient((request) async {
+        if (request.url.path == '/api/v1/member/care/preview') {
+          return http.Response(
+            '{"code":200,"data":{}}',
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        final type = request.url.queryParameters['type'];
+        final body = switch (type) {
+          'pulseReat' =>
+            '''{"code":200,"data":{
+          "categories":["20:15","08:10"],
+          "series":[{"name":"心率","data":[75,68]}]}}''',
+          'BloodPressure' =>
+            '''{"code":200,"data":{
+          "categories":["21:30","07:30"],
+          "series":[
+            {"name":"收缩压","data":[128,118]},
+            {"name":"舒张压","data":[82,76]}
+          ]}}''',
+          'BloodGlucose' =>
+            '''{"code":200,"data":{
+          "categories":["20:00","08:00"],
+          "series":[{"name":"血糖","data":[7.2,5.8]}]}}''',
+          _ => '{"code":200,"data":[]}',
+        };
+        return http.Response(
+          body,
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final api = SaydianApiClient(
+        _authenticatedVault(),
+        client: client,
+        baseUri: Uri.parse('https://example.invalid'),
+      );
+
+      final preview = await api.getCareMemberPreview(
+        id: 59,
+        memberId: 87,
+        day: '2026-08-27',
+      );
+      final daily = (preview['daily'] as List).cast<Map>();
+      final heartRate = daily.singleWhere((item) => item['title'] == '心率');
+      expect(heartRate['state'], 'ready');
+      expect(heartRate['latest'], 75);
+      expect(heartRate['min'], 68);
+      expect(heartRate['max'], 75);
+      expect(heartRate['avg'], 71.5);
+
+      final pressure = daily.singleWhere((item) => item['title'] == '血压');
+      expect(pressure['state'], 'ready');
+      expect(pressure['latest'], '128/82');
+      expect(pressure['max'], '128/82');
+      expect(pressure['min'], '118/76');
+      expect(pressure['avg'], '123/79');
+      final pressureRecords = (pressure['records'] as List).cast<Map>();
+      expect(pressureRecords.first['bloodPressureHigh'], 128);
+      expect(pressureRecords.first['bloodPressureLow'], 82);
+
+      final glucose = daily.singleWhere((item) => item['title'] == '血糖');
+      expect(glucose['state'], 'ready');
+      expect(glucose['latest'], 7.2);
+      expect(glucose['min'], 5.8);
+      expect(glucose['max'], 7.2);
+      expect(glucose['avg'], 6.5);
     },
   );
 
@@ -699,14 +802,11 @@ void main() {
       expect(request.method, 'POST');
       expect(request.url.path, '/api/v1/pay');
       final body = jsonDecode(request.body) as Map<String, dynamic>;
-      expect(body['pay_type'], requestIndex == 1 ? '1' : '2');
+      expect(body['pay_type'], requestIndex == 1 ? 100 : 101);
       expect(body['jump'], 0);
       expect(body['trade_type'], 'app');
       expect(body['order_group'], 'order');
-      expect(jsonDecode(body['data'] as String), {
-        'order_id': 99,
-        'money': 199,
-      });
+      expect(jsonDecode(body['data'] as String), {'order_id': 99});
       return http.Response(
         requestIndex == 1
             ? '{"code":200,"data":{"payStatus":false,"config":{"appid":"wx-test"}}}'

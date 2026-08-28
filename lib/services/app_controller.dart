@@ -87,6 +87,7 @@ class AppController extends ChangeNotifier {
   List<Map<String, Object?>> careMembers = const [];
   List<Map<String, Object?>> careInvitations = const [];
   String careStatus = '等待加载';
+  String? careErrorMessage;
   String careInvitationStatus = '等待加载';
   List<Map<String, Object?>> aiArticles = const [];
   List<Map<String, Object?>> aiMessages = const [];
@@ -1318,16 +1319,35 @@ class AppController extends ChangeNotifier {
   Future<void> refreshCare() async {
     if (session == null) {
       careMembers = const [];
+      careStatus = '请先登录';
+      careErrorMessage = null;
+      notifyListeners();
       return;
     }
+    careStatus = '加载中';
+    careErrorMessage = null;
+    notifyListeners();
     try {
-      careMembers = _careMembersWithoutCurrentAccount(
-        await _api.getCareMembers(),
-      );
+      final sourceMembers = await _api.getCareMembers();
+      careMembers = _careMembersWithoutCurrentAccount(sourceMembers);
       careStatus = '已加载';
+      if (kDebugMode) {
+        debugPrint(
+          'Care members refreshed: source=${sourceMembers.length}, '
+          'visible=${careMembers.length}, signedInMemberId='
+          '${session?.memberId.trim().isNotEmpty == true ? 'set' : 'empty'}',
+        );
+      }
     } on ApiException catch (error) {
-      errorMessage = _apiErrorMessage(error, fallback: '关爱数据暂时无法读取');
+      careErrorMessage = _apiErrorMessage(error, fallback: '关爱数据暂时无法读取');
+      errorMessage = careErrorMessage;
       careStatus = error is FeatureNotConfiguredException ? '服务暂不可用' : '加载失败';
+      if (kDebugMode) {
+        debugPrint(
+          'Care members refresh failed: status=${error.statusCode ?? 'none'}, '
+          'code=${error.code ?? 'none'}',
+        );
+      }
     }
     notifyListeners();
   }
@@ -1679,9 +1699,10 @@ class AppController extends ChangeNotifier {
         memberId: memberId,
       );
     } on ApiException catch (error) {
-      errorMessage = _apiErrorMessage(error, fallback: '对方数据暂时无法读取');
+      final message = _apiErrorMessage(error, fallback: '对方数据暂时无法读取');
+      errorMessage = message;
       notifyListeners();
-      return const {};
+      return <String, Object?>{'loadError': message};
     }
   }
 
@@ -1887,7 +1908,7 @@ class AppController extends ChangeNotifier {
       if (signedOrder.isEmpty) throw const ApiException('后台未返回支付宝 APP 支付参数');
       return await _paymentBridge.startAlipay(signedOrder);
     } on ApiException catch (error) {
-      errorMessage = _apiErrorMessage(error, fallback: '支付参数生成失败');
+      errorMessage = _shopPaymentErrorMessage(error);
       return null;
     } on PlatformException catch (error) {
       errorMessage = error.message?.trim().isNotEmpty == true
@@ -1898,6 +1919,19 @@ class AppController extends ChangeNotifier {
       isBusy = false;
       notifyListeners();
     }
+  }
+
+  String _shopPaymentErrorMessage(ApiException error) {
+    final message = error.message.trim();
+    final normalized = message.toLowerCase();
+    if ((error.statusCode ?? 0) >= 500 ||
+        normalized.contains('internal server error')) {
+      return '支付服务暂不可用，请稍后重试';
+    }
+    if (message.contains('授权有误') || message.contains('配置')) {
+      return '支付服务配置异常，请稍后重试';
+    }
+    return _apiErrorMessage(error, fallback: '支付参数生成失败，请稍后重试');
   }
 
   Future<AppPaymentResult?> takeWechatPaymentResult() async {

@@ -67,6 +67,22 @@ void main() {
     expect(record.startedAt, DateTime(2026, 8, 7, 8, 30));
   });
 
+  test('SportRecord normalizes Veepoo GPS meters and calories', () {
+    final record = SportRecord.fromMap(const {
+      'id': 'gps-sport-1',
+      'mode': 'mountaineering',
+      'startedAt': '2026-08-28 09:00:00',
+      'durationSeconds': 3600,
+      'distanceMeters': 12500.0,
+      'caloriesCal': 320000.0,
+    });
+
+    expect(record.mode, SportMode.mountaineering);
+    expect(record.mode.label, '登山');
+    expect(record.distanceKm, 12.5);
+    expect(record.calories, 320);
+  });
+
   test('WearableEvent unwraps the native event-channel payload', () {
     final event = WearableEvent.fromMap(const {
       'type': 'scanDevice',

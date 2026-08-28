@@ -46,7 +46,8 @@ enum SportMode {
   running('running', '跑步'),
   walking('walking', '步行'),
   cycling('cycling', '骑行'),
-  hiking('hiking', '徒步');
+  hiking('hiking', '徒步'),
+  mountaineering('mountaineering', '登山');
 
   const SportMode(this.wireName, this.label);
 
@@ -90,8 +91,12 @@ class SportRecord {
     mode: SportMode.fromWire('${map['mode'] ?? 'running'}'),
     startedAt: DateTime.tryParse('${map['startedAt'] ?? ''}'),
     durationSeconds: (map['durationSeconds'] as num?)?.toInt() ?? 0,
-    distanceKm: (map['distanceKm'] as num?)?.toDouble() ?? 0,
-    calories: (map['calories'] as num?)?.toDouble() ?? 0,
+    distanceKm: map.containsKey('distanceKm')
+        ? _number(map['distanceKm'])
+        : _number(map['distanceMeters']) / 1000,
+    calories: map.containsKey('calories')
+        ? _number(map['calories'])
+        : _number(map['caloriesCal']) / 1000,
     routePoints: map['routePoints'] is List
         ? (map['routePoints'] as List)
               .whereType<Map>()
@@ -99,6 +104,9 @@ class SportRecord {
               .toList()
         : const [],
   );
+
+  static double _number(Object? value) =>
+      value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
 
   Map<String, Object?> toMap() => {
     'id': id,

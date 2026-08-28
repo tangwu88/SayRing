@@ -1928,12 +1928,14 @@ class _SportEntry extends StatelessWidget {
       SportMode.walking => Icons.directions_walk_rounded,
       SportMode.cycling => Icons.directions_bike_rounded,
       SportMode.hiking => Icons.hiking_rounded,
+      SportMode.mountaineering => Icons.landscape_rounded,
     };
     final color = switch (mode) {
       SportMode.running => SaydianColors.brandRed,
       SportMode.walking => SaydianColors.brandGoldDark,
       SportMode.cycling => const Color(0xFF9E2435),
       SportMode.hiking => const Color(0xFF8A6432),
+      SportMode.mountaineering => const Color(0xFF64543A),
     };
     return InkWell(
       onTap: onTap,
@@ -4970,230 +4972,303 @@ class _CarePageState extends State<CarePage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final controller = widget.controller;
-    final memberCount = controller.careMembers.length;
-    return RefreshIndicator(
-      onRefresh: () async {
-        await Future.wait([
-          controller.refreshCare(),
-          controller.refreshCareInvitations(),
-        ]);
-      },
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFA51125), Color(0xFFD72D42)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.controller,
+    builder: (context, _) {
+      final controller = widget.controller;
+      final memberCount = controller.careMembers.length;
+      return RefreshIndicator(
+        onRefresh: () async {
+          await Future.wait([
+            controller.refreshCare(),
+            controller.refreshCareInvitations(),
+          ]);
+        },
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFA51125), Color(0xFFD72D42)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x2EA51125),
+                    blurRadius: 22,
+                    offset: Offset(0, 10),
+                  ),
+                ],
               ),
-              borderRadius: BorderRadius.circular(22),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x2EA51125),
-                  blurRadius: 22,
-                  offset: Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 58,
-                  height: 58,
-                  decoration: const BoxDecoration(
-                    color: Color(0x33FFFFFF),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.favorite_rounded,
-                    color: Colors.white,
-                    size: 30,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '守护家人健康',
-                        style: TextStyle(
-                          fontSize: 19,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        memberCount == 0
-                            ? '添加关爱成员后查看授权数据'
-                            : '正在关爱 $memberCount 位家人',
-                        style: const TextStyle(
-                          color: Color(0xFFFFDCE1),
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton.filled(
-                  onPressed:
-                      controller.session == null || controller.isPreviewMode
-                      ? null
-                      : () => _showAddCareDialog(context, controller),
-                  style: IconButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: SaydianColors.brandRed,
-                  ),
-                  icon: const Icon(Icons.person_add_alt_1_rounded),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            margin: EdgeInsets.zero,
-            child: Row(
-              children: [
-                Expanded(
-                  child: _CareActionEntry(
-                    icon: Icons.manage_accounts_outlined,
-                    title: '共享管理',
-                    subtitle: '授权与隐私',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        settings: const RouteSettings(
-                          name: 'sharing-management',
-                        ),
-                        builder: (_) =>
-                            SharingManagementPage(controller: controller),
-                      ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 58,
+                    height: 58,
+                    decoration: const BoxDecoration(
+                      color: Color(0x33FFFFFF),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.favorite_rounded,
+                      color: Colors.white,
+                      size: 30,
                     ),
                   ),
-                ),
-                const SizedBox(height: 76, child: VerticalDivider(width: 1)),
-                Expanded(
-                  child: _CareActionEntry(
-                    icon: Icons.mark_email_unread_outlined,
-                    title: '关爱邀请',
-                    subtitle: controller.careInvitations.isEmpty
-                        ? controller.careInvitationStatus
-                        : '${controller.careInvitations.length} 条待处理',
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        settings: const RouteSettings(name: 'care-invitations'),
-                        builder: (_) =>
-                            CareInvitationsPage(controller: controller),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          const Text(
-            '关爱成员',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 12),
-          if (controller.careMembers.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(26),
-                child: Column(
-                  children: [
-                    Container(
-                      width: 78,
-                      height: 78,
-                      decoration: BoxDecoration(
-                        color: SaydianColors.brandRedSoft,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.group_outlined,
-                        size: 38,
-                        color: SaydianColors.brandRed,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      controller.isPreviewMode ? '当前暂无关爱成员' : '暂无关爱成员',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '通过手机号邀请家人，对方接受并授权后才会共享健康数据。',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: SaydianColors.muted,
-                        fontSize: 13,
-                        height: 1.5,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    FilledButton.icon(
-                      onPressed:
-                          controller.session == null || controller.isPreviewMode
-                          ? null
-                          : () => _showAddCareDialog(context, controller),
-                      icon: const Icon(Icons.person_add_alt_1),
-                      label: const Text('添加关爱'),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          else
-            for (final member in controller.careMembers)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Card(
-                  child: ListTile(
-                    onTap: () {
-                      final id = int.tryParse('${member['id'] ?? ''}');
-                      if (id == null) return;
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => CareMemberPage(
-                            controller: controller,
-                            member: member,
-                            careId: id,
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '守护家人健康',
+                          style: TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
                           ),
                         ),
-                      );
-                    },
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 15,
-                      vertical: 8,
+                        const SizedBox(height: 5),
+                        Text(
+                          memberCount == 0
+                              ? '添加关爱成员后查看授权数据'
+                              : '正在关爱 $memberCount 位家人',
+                          style: const TextStyle(
+                            color: Color(0xFFFFDCE1),
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
                     ),
-                    leading: _MemberAvatar(
-                      imageUrl: '${member['head_portrait'] ?? ''}'.trim(),
-                      size: 46,
+                  ),
+                  IconButton.filled(
+                    onPressed:
+                        controller.session == null || controller.isPreviewMode
+                        ? null
+                        : () => _showAddCareDialog(context, controller),
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: SaydianColors.brandRed,
                     ),
-                    title: Text(
-                      '${member['nickname'] ?? member['mobile'] ?? '关爱成员'}',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    icon: const Icon(Icons.person_add_alt_1_rounded),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              margin: EdgeInsets.zero,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _CareActionEntry(
+                      icon: Icons.manage_accounts_outlined,
+                      title: '共享管理',
+                      subtitle: '授权与隐私',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          settings: const RouteSettings(
+                            name: 'sharing-management',
+                          ),
+                          builder: (_) =>
+                              SharingManagementPage(controller: controller),
+                        ),
+                      ),
                     ),
-                    subtitle: Text(
-                      '${member['mobile'] ?? '手机号未提供'}\n点击查看实时健康数据',
+                  ),
+                  const SizedBox(height: 76, child: VerticalDivider(width: 1)),
+                  Expanded(
+                    child: _CareActionEntry(
+                      icon: Icons.mark_email_unread_outlined,
+                      title: '关爱邀请',
+                      subtitle: controller.careInvitations.isEmpty
+                          ? controller.careInvitationStatus
+                          : '${controller.careInvitations.length} 条待处理',
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          settings: const RouteSettings(
+                            name: 'care-invitations',
+                          ),
+                          builder: (_) =>
+                              CareInvitationsPage(controller: controller),
+                        ),
+                      ),
                     ),
-                    trailing: const Icon(Icons.chevron_right_rounded),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              '关爱成员',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 12),
+            if (controller.careMembers.isEmpty)
+              _CareMembersStateCard(
+                status: controller.careStatus,
+                errorMessage: controller.careErrorMessage,
+                isPreviewMode: controller.isPreviewMode,
+                canAdd: controller.session != null && !controller.isPreviewMode,
+                onRetry: () async {
+                  await Future.wait([
+                    controller.refreshCare(),
+                    controller.refreshCareInvitations(),
+                  ]);
+                },
+                onAdd: () => _showAddCareDialog(context, controller),
+              )
+            else
+              for (final member in controller.careMembers)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Card(
+                    child: ListTile(
+                      onTap: () {
+                        final id = int.tryParse('${member['id'] ?? ''}');
+                        if (id == null) return;
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => CareMemberPage(
+                              controller: controller,
+                              member: member,
+                              careId: id,
+                            ),
+                          ),
+                        );
+                      },
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 15,
+                        vertical: 8,
+                      ),
+                      leading: _MemberAvatar(
+                        imageUrl: '${member['head_portrait'] ?? ''}'.trim(),
+                        size: 46,
+                      ),
+                      title: Text(
+                        '${member['nickname'] ?? member['mobile'] ?? '关爱成员'}',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: Text(
+                        '${member['mobile'] ?? '手机号未提供'}\n点击查看实时健康数据',
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                    ),
                   ),
                 ),
+            const SizedBox(height: 4),
+            const _InlineNotice(
+              message: '默认不共享任何数据；成员可按指标授权并随时撤销。',
+              icon: Icons.privacy_tip_outlined,
+              color: SaydianColors.green,
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _CareMembersStateCard extends StatelessWidget {
+  const _CareMembersStateCard({
+    required this.status,
+    required this.errorMessage,
+    required this.isPreviewMode,
+    required this.canAdd,
+    required this.onRetry,
+    required this.onAdd,
+  });
+
+  final String status;
+  final String? errorMessage;
+  final bool isPreviewMode;
+  final bool canAdd;
+  final Future<void> Function() onRetry;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final loading = status == '加载中' || status == '等待加载';
+    final failed = status == '加载失败' || status == '服务暂不可用';
+    final stateKey = loading
+        ? const Key('care-members-loading')
+        : failed
+        ? const Key('care-members-error')
+        : const Key('care-members-empty');
+    final title = loading
+        ? '正在读取关爱成员'
+        : failed
+        ? status
+        : isPreviewMode
+        ? '当前暂无关爱成员'
+        : '暂无关爱成员';
+    final description = failed
+        ? (errorMessage?.trim().isNotEmpty == true
+              ? errorMessage!.trim()
+              : '关爱数据暂时无法读取，请稍后重试。')
+        : '通过手机号邀请家人，对方接受并授权后才会共享健康数据。';
+
+    return Card(
+      key: stateKey,
+      child: Padding(
+        padding: const EdgeInsets.all(26),
+        child: Column(
+          children: [
+            Container(
+              width: 78,
+              height: 78,
+              decoration: BoxDecoration(
+                color: failed
+                    ? const Color(0xFFFFF3E8)
+                    : SaydianColors.brandRedSoft,
+                shape: BoxShape.circle,
               ),
-          const SizedBox(height: 4),
-          const _InlineNotice(
-            message: '默认不共享任何数据；成员可按指标授权并随时撤销。',
-            icon: Icons.privacy_tip_outlined,
-            color: SaydianColors.green,
-          ),
-        ],
+              child: loading
+                  ? const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: CircularProgressIndicator(strokeWidth: 3),
+                    )
+                  : Icon(
+                      failed ? Icons.cloud_off_outlined : Icons.group_outlined,
+                      size: 38,
+                      color: failed
+                          ? const Color(0xFFC75A00)
+                          : SaydianColors.brandRed,
+                    ),
+            ),
+            const SizedBox(height: 14),
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              description,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: SaydianColors.muted,
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+            if (!loading) ...[
+              const SizedBox(height: 16),
+              if (failed)
+                OutlinedButton.icon(
+                  onPressed: () => unawaited(onRetry()),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('重新加载'),
+                )
+              else
+                FilledButton.icon(
+                  onPressed: canAdd ? onAdd : null,
+                  icon: const Icon(Icons.person_add_alt_1),
+                  label: const Text('添加关爱'),
+                ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -5323,6 +5398,7 @@ class _CareMemberPageState extends State<CareMemberPage> {
   Widget build(BuildContext context) {
     final name =
         '${widget.member['nickname'] ?? widget.member['mobile'] ?? '关爱成员'}';
+    final loadError = '${_data['loadError'] ?? ''}'.trim();
     final todayItems = _mapList(_data['jrjk']);
     final dailyItems = _mapList(_data['daily']);
     return Scaffold(
@@ -5388,7 +5464,13 @@ class _CareMemberPageState extends State<CareMemberPage> {
                         ],
                       ),
                     ),
-                  if (_data.isEmpty)
+                  if (loadError.isNotEmpty)
+                    _InlineNotice(
+                      message: loadError,
+                      icon: Icons.cloud_off_outlined,
+                      color: SaydianColors.orange,
+                    )
+                  else if (_data.isEmpty)
                     const _InlineNotice(
                       message: '对方尚未授权健康数据，或当前日期没有数据。',
                       icon: Icons.privacy_tip_outlined,
@@ -5397,8 +5479,8 @@ class _CareMemberPageState extends State<CareMemberPage> {
                   else ...[
                     if (todayItems.isNotEmpty) ...[
                       const _CareSectionTitle(
-                        title: '今日健康',
-                        subtitle: '成员授权共享的实时概况',
+                        title: '今日活动',
+                        subtitle: '成员授权共享的活动概况',
                       ),
                       const SizedBox(height: 10),
                       LayoutBuilder(
@@ -5588,6 +5670,7 @@ class _CareDailyCard extends StatelessWidget {
     final title = '${item['title'] ?? '健康详情'}';
     final tips = '${item['tips'] ?? item['tip'] ?? ''}'.trim();
     final summary = _careSummary(item);
+    final unavailable = item['state'] == 'unavailable';
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -5606,9 +5689,13 @@ class _CareDailyCard extends StatelessWidget {
                       color: SaydianColors.brandRedSoft,
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(
-                      Icons.monitor_heart_outlined,
-                      color: SaydianColors.brandRed,
+                    child: Icon(
+                      unavailable
+                          ? Icons.cloud_off_outlined
+                          : Icons.monitor_heart_outlined,
+                      color: unavailable
+                          ? SaydianColors.orange
+                          : SaydianColors.brandRed,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -5680,6 +5767,8 @@ class CareMetricDetailPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = '${item['title'] ?? '健康数据'}';
+    final state = '${item['state'] ?? ''}';
+    final tips = '${item['tips'] ?? ''}'.trim();
     final rawRecords = item['records'];
     final records = rawRecords is List
         ? rawRecords
@@ -5701,9 +5790,11 @@ class CareMetricDetailPage extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           if (records.isEmpty)
-            const _InlineNotice(
-              message: '这一天没有可展示的明细记录。',
-              icon: Icons.event_busy_outlined,
+            _InlineNotice(
+              message: tips.isNotEmpty ? tips : '这一天没有可展示的明细记录。',
+              icon: state == 'unavailable'
+                  ? Icons.cloud_off_outlined
+                  : Icons.event_busy_outlined,
               color: SaydianColors.orange,
             )
           else
@@ -5865,6 +5956,7 @@ Color _careColor(Object? value) {
 
 Map<String, String> _careSummary(Map<String, Object?> item) {
   const labels = <String, String>{
+    'latest': '最近',
     'num': '当前',
     'value': '当前',
     'max': '最高',
@@ -5877,10 +5969,12 @@ Map<String, String> _careSummary(Map<String, Object?> item) {
     'lightSleep': '浅睡',
   };
   final result = <String, String>{};
+  final unit = '${item['unit'] ?? ''}'.trim();
   for (final entry in labels.entries) {
     final value = item[entry.key];
     if (value != null && '$value'.trim().isNotEmpty) {
-      result[entry.value] = _careFieldValue(value);
+      final formatted = _careFieldValue(value);
+      result[entry.value] = unit.isEmpty ? formatted : '$formatted $unit';
     }
   }
   final body = item['bodycomposition'];

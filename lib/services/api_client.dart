@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../domain/models.dart';
@@ -322,6 +323,12 @@ class SaydianApiClient
         : data is Map && data['list'] is List
         ? data['list'] as List
         : const [];
+    if (kDebugMode) {
+      final shape = data is Map
+          ? 'mapKeys=${data.keys.map((key) => '$key').join(',')}'
+          : 'type=${data.runtimeType}';
+      debugPrint('Care member response: $shape, rows=${rawList.length}');
+    }
     final members = rawList
         .whereType<Map>()
         .map((value) {
@@ -753,9 +760,14 @@ class SaydianApiClient
     required int orderId,
     required num money,
   }) async {
+    if (orderId <= 0 || money <= 0) {
+      throw const ApiException('订单金额或编号异常，请刷新后重试');
+    }
     final payType = switch (provider) {
-      'wechat' => '1',
-      'alipay' => '2',
+      // RageFrame PayTypeEnum: WeChat = 100, Alipay = 101. Values 1 and 2
+      // mean balance/cash and cannot generate APP payment parameters.
+      'wechat' => 100,
+      'alipay' => 101,
       _ => throw const ApiException('不支持的支付方式'),
     };
     final response = await _authorizedPostJson('/api/v1/pay', {
@@ -763,7 +775,9 @@ class SaydianApiClient
       'jump': 0,
       'trade_type': 'app',
       'order_group': 'order',
-      'data': jsonEncode({'order_id': orderId, 'money': money}),
+      // The server reads and verifies the payable amount from the order.
+      // Never trust a client-supplied amount for payment signing.
+      'data': jsonEncode({'order_id': orderId}),
     });
     return _data(_decode(response));
   }
@@ -1475,9 +1489,22 @@ class SaydianApiClient
             raw: payload['data'],
           ),
         );
-      } on ApiException {
-        // Sharing permissions can differ per metric. Preserve all successful
-        // cards instead of failing the complete member page on one endpoint.
+      } on ApiException catch (error) {
+        if (error.statusCode == 401 ||
+            error.code == 'NETWORK_TIMEOUT' ||
+            error.code == 'NETWORK_UNAVAILABLE') {
+          rethrow;
+        }
+        result.add(<String, Object?>{
+          'title': spec.title,
+          'metricType': spec.type ?? spec.endpoint,
+          'unit': spec.unit,
+          'state': 'unavailable',
+          'tips': error.statusCode == 403
+              ? '${spec.title}未获共享授权'
+              : '${spec.title}服务暂不可用，请稍后重试',
+          'records': const <Object?>[],
+        });
       }
     }
     return result;
@@ -1492,7 +1519,7 @@ class SaydianApiClient
     final payload = raw is Map
         ? raw.map((key, value) => MapEntry('$key', value))
         : const <String, Object?>{};
-    final records = <Map<String, Object?>>[];
+    final rawRecords = <Map<String, Object?>>[];
     final directRows = raw is List
         ? raw
         : payload['list'] is List
@@ -1500,7 +1527,7 @@ class SaydianApiClient
         : payload['data'] is List
         ? payload['data'] as List
         : const [];
-    records.addAll(
+    rawRecords.addAll(
       directRows.whereType<Map>().map(
         (row) => row.map((key, value) => MapEntry('$key', value)),
       ),
@@ -1508,7 +1535,7 @@ class SaydianApiClient
 
     final categories = payload['categories'];
     final series = payload['series'];
-    if (records.isEmpty && categories is List && series is List) {
+    if (rawRecords.isEmpty && categories is List && series is List) {
       for (var index = 0; index < categories.length; index++) {
         final record = <String, Object?>{'time': categories[index]};
         for (var seriesIndex = 0; seriesIndex < series.length; seriesIndex++) {
@@ -1518,31 +1545,317 @@ class SaydianApiClient
           if (values is! List || index >= values.length) continue;
           final name =
               '${rawSeries['name'] ?? rawSeries['title'] ?? '数值${seriesIndex + 1}'}';
-          record[name] = values[index];
+          _putCareSeriesValue(
+            record: record,
+            title: title,
+            seriesName: name,
+            seriesIndex: seriesIndex,
+            value: values[index],
+          );
         }
-        if (record.length > 1) records.add(record);
+        if (title == '睡眠') _putCareSleepTotal(record);
+        if (record.length > 1) rawRecords.add(record);
       }
     }
 
-    final maximum = payload['zuida'] ?? payload['max'];
-    final minimum = payload['zuixiao'] ?? payload['min'];
-    final average = payload['pj'] ?? payload['avg'];
-    final pressureAverage = payload['xypj'] != null || payload['mbpj'] != null
-        ? '${payload['xypj'] ?? '--'}/${payload['mbpj'] ?? '--'}'
-        : null;
-    final summaryAverage = pressureAverage ?? average;
+    final records = rawRecords
+        .where((record) => _careRecordHasReading(title, record))
+        .toList(growable: false);
+    final values = records
+        .map((record) => _careMetricReading(title, record))
+        .whereType<num>()
+        .toList(growable: false);
+    final pressureValues = title == '血压'
+        ? records.map(_carePressureReading).whereType<(num, num)>().toList()
+        : const <(num, num)>[];
+    final latestIndex = _latestCareRecordIndex(records);
+    Object? latest;
+    Object? average;
+    Object? maximum;
+    Object? minimum;
+    if (pressureValues.isNotEmpty) {
+      String pair(num high, num low) =>
+          '${_careApiNumber(high)}/${_careApiNumber(low)}';
+      final latestPressure = _carePressureReading(records[latestIndex]);
+      if (latestPressure != null) {
+        latest = pair(latestPressure.$1, latestPressure.$2);
+      }
+      average = pair(
+        pressureValues.map((value) => value.$1).reduce((a, b) => a + b) /
+            pressureValues.length,
+        pressureValues.map((value) => value.$2).reduce((a, b) => a + b) /
+            pressureValues.length,
+      );
+      maximum = pair(
+        pressureValues.map((value) => value.$1).reduce((a, b) => a > b ? a : b),
+        pressureValues.map((value) => value.$2).reduce((a, b) => a > b ? a : b),
+      );
+      minimum = pair(
+        pressureValues.map((value) => value.$1).reduce((a, b) => a < b ? a : b),
+        pressureValues.map((value) => value.$2).reduce((a, b) => a < b ? a : b),
+      );
+    } else if (values.isNotEmpty) {
+      latest = _careMetricReading(title, records[latestIndex]);
+      maximum = values.reduce((a, b) => a > b ? a : b);
+      minimum = values.reduce((a, b) => a < b ? a : b);
+      average = values.reduce((a, b) => a + b) / values.length;
+    }
     return <String, Object?>{
       'title': title,
       'metricType': type,
       'unit': unit,
+      'state': records.isEmpty ? 'empty' : 'ready',
       'tips': records.isEmpty ? '当日暂无记录' : '共 ${records.length} 条记录',
       'records': records,
+      'latest': ?latest,
       'max': ?maximum,
       'min': ?minimum,
-      'avg': ?summaryAverage,
-      for (final key in const ['triacylglycerol', 'uricAcidVal', 'xzfw'])
-        if (payload[key] != null) key: payload[key],
+      'avg': ?average,
     };
+  }
+
+  void _putCareSeriesValue({
+    required Map<String, Object?> record,
+    required String title,
+    required String seriesName,
+    required int seriesIndex,
+    required Object? value,
+  }) {
+    if (title == '血压') {
+      final normalized = seriesName.toLowerCase();
+      final high =
+          normalized.contains('收缩') ||
+          normalized.contains('高压') ||
+          normalized.contains('systolic') ||
+          normalized.contains('high');
+      final low =
+          normalized.contains('舒张') ||
+          normalized.contains('低压') ||
+          normalized.contains('diastolic') ||
+          normalized.contains('low');
+      if (high || (!low && seriesIndex == 0)) {
+        record['bloodPressureHigh'] = value;
+      } else if (low || seriesIndex == 1) {
+        record['bloodPressureLow'] = value;
+      } else {
+        record[seriesName] = value;
+      }
+      return;
+    }
+    final canonicalKey = switch (title) {
+      '心率' => 'pulseReat',
+      '血糖' => 'bloodGlucose',
+      '血氧' => 'bloodOxygen',
+      '体温' => 'bodyTemperature',
+      'HRV' => 'HRVData',
+      _ => null,
+    };
+    if (canonicalKey != null && seriesIndex == 0) {
+      record[canonicalKey] = value;
+    } else {
+      record[seriesName] = value;
+    }
+  }
+
+  void _putCareSleepTotal(Map<String, Object?> record) {
+    final values = record.entries
+        .where((entry) => entry.key != 'time')
+        .map((entry) => (entry.key, _carePositiveNumber(entry.value)))
+        .where((entry) => entry.$2 != null)
+        .toList(growable: false);
+    if (values.isEmpty) return;
+    num? total;
+    for (final entry in values) {
+      if (entry.$1.contains('总') ||
+          entry.$1.contains('时长') ||
+          entry.$1.toLowerCase().contains('total')) {
+        total = entry.$2;
+        break;
+      }
+    }
+    record['sleepMinutes'] =
+        total ?? values.map((entry) => entry.$2!).reduce((a, b) => a + b);
+  }
+
+  int _latestCareRecordIndex(List<Map<String, Object?>> records) {
+    if (records.isEmpty) return 0;
+    var latestIndex = records.length - 1;
+    int? latestTime;
+    for (var index = 0; index < records.length; index++) {
+      final time = _careRecordTime(records[index]);
+      if (time != null && (latestTime == null || time > latestTime)) {
+        latestTime = time;
+        latestIndex = index;
+      }
+    }
+    return latestIndex;
+  }
+
+  int? _careRecordTime(Map<String, Object?> record) {
+    for (final key in const [
+      'timestamp',
+      'measuredAt',
+      'created_at',
+      'updated_at',
+      'date',
+      'time',
+      'hourse',
+      'h',
+    ]) {
+      final value = record[key];
+      if (value is num) {
+        final numeric = value.toInt();
+        if (numeric > 1000000000000) return numeric;
+        if (numeric > 1000000000) return numeric * 1000;
+        if (numeric >= 0 && numeric < 86400) return numeric;
+      }
+      final text = '${value ?? ''}'.trim();
+      if (text.isEmpty) continue;
+      final numeric = int.tryParse(text);
+      if (numeric != null) {
+        if (numeric > 1000000000000) return numeric;
+        if (numeric > 1000000000) return numeric * 1000;
+      }
+      final clock = RegExp(
+        r'^(\d{1,2}):(\d{2})(?::(\d{2}))?$',
+      ).firstMatch(text);
+      if (clock != null) {
+        final hour = int.parse(clock.group(1)!);
+        final minute = int.parse(clock.group(2)!);
+        final second = int.tryParse(clock.group(3) ?? '') ?? 0;
+        if (hour < 24 && minute < 60 && second < 60) {
+          return hour * 3600 + minute * 60 + second;
+        }
+      }
+      final parsed = DateTime.tryParse(text);
+      if (parsed != null) return parsed.millisecondsSinceEpoch;
+    }
+    return null;
+  }
+
+  bool _careRecordHasReading(String title, Map<String, Object?> record) {
+    if (title == '血压') return _carePressureReading(record) != null;
+    if (_careMetricReading(title, record) != null) return true;
+    const metadata = <String>{
+      'id',
+      'member_id',
+      'memberId',
+      'merchant_id',
+      'status',
+      'day',
+      'date',
+      'time',
+      'h',
+      'hourse',
+      'isHourse',
+      'created_at',
+      'updated_at',
+    };
+    if (title != '身体成分' && title != '血液成分' && title != '心电') {
+      return false;
+    }
+    return record.entries.any(
+      (entry) =>
+          !metadata.contains(entry.key) &&
+          _careContainsPositiveValue(entry.value),
+    );
+  }
+
+  num? _careMetricReading(String title, Map<String, Object?> record) {
+    final raw = switch (title) {
+      '心率' => record['pulseReat'] ?? record['heartReat'] ?? record['value'],
+      '血糖' => record['bloodGlucose'] ?? record['value'],
+      '血氧' => record['bloodOxygen'] ?? record['oxygen'] ?? record['value'],
+      '体温' =>
+        record['bodyTemperature'] ?? record['temperature'] ?? record['value'],
+      'HRV' => record['HRVData'] ?? record['hrv'] ?? record['value'],
+      '睡眠' => record['sleepData'] ?? record['sleepMinutes'] ?? record['value'],
+      '心电' =>
+        record['meanHeartRate'] ??
+            (record['ecgData'] is Map
+                ? (record['ecgData'] as Map)['meanHeartRate']
+                : null),
+      _ => record['value'],
+    };
+    return _carePositiveNumber(
+      raw,
+      preferredKeys: switch (title) {
+        '血氧' => const ['oxygens', 'bloodOxygen', 'value'],
+        '体温' => const ['bodyTemperature', 'temperature', 'value'],
+        '睡眠' => const ['allSleepTime', 'sleepMinutes', 'value'],
+        _ => const [],
+      },
+    );
+  }
+
+  (num, num)? _carePressureReading(Map<String, Object?> record) {
+    final pressure = record['bloodPressure'];
+    final nested = pressure is Map
+        ? pressure.map((key, value) => MapEntry('$key', value))
+        : const <String, Object?>{};
+    final high = _carePositiveNumber(
+      record['bloodPressureHigh'] ??
+          record['highPressure'] ??
+          record['systolic'] ??
+          nested['bloodPressureHigh'] ??
+          nested['highPressure'] ??
+          nested['high'] ??
+          nested['systolic'],
+    );
+    final low = _carePositiveNumber(
+      record['bloodPressureLow'] ??
+          record['lowPressure'] ??
+          record['diastolic'] ??
+          nested['bloodPressureLow'] ??
+          nested['lowPressure'] ??
+          nested['low'] ??
+          nested['diastolic'],
+    );
+    return high == null || low == null ? null : (high, low);
+  }
+
+  num? _carePositiveNumber(
+    Object? value, {
+    List<String> preferredKeys = const [],
+  }) {
+    if (value is num) return value.isFinite && value > 0 ? value : null;
+    if (value is String) {
+      final parsed = num.tryParse(value.trim());
+      return parsed != null && parsed.isFinite && parsed > 0 ? parsed : null;
+    }
+    if (value is List) {
+      for (final item in value) {
+        final parsed = _carePositiveNumber(item, preferredKeys: preferredKeys);
+        if (parsed != null) return parsed;
+      }
+      return null;
+    }
+    if (value is Map) {
+      for (final key in preferredKeys) {
+        final parsed = _carePositiveNumber(
+          value[key],
+          preferredKeys: preferredKeys,
+        );
+        if (parsed != null) return parsed;
+      }
+    }
+    return null;
+  }
+
+  bool _careContainsPositiveValue(Object? value) {
+    if (_carePositiveNumber(value) != null) return true;
+    if (value is List) return value.any(_careContainsPositiveValue);
+    if (value is Map) return value.values.any(_careContainsPositiveValue);
+    return false;
+  }
+
+  String _careApiNumber(num value) {
+    final numeric = value.toDouble();
+    if (numeric == numeric.roundToDouble()) return '${numeric.round()}';
+    return numeric
+        .toStringAsFixed(2)
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
   }
 
   Map<String, Object?> _mergeCarePreview(
@@ -1562,18 +1875,38 @@ class SaydianApiClient
     for (final item in existing) {
       final title = '${item['title'] ?? ''}';
       final details = byTitle.remove(title);
-      merged.add(
-        details == null ? item : <String, Object?>{...item, ...details},
-      );
+      merged.add(details ?? item);
     }
     merged.addAll(byTitle.values);
+    final today = aggregate['jrjk'] is List
+        ? (aggregate['jrjk'] as List)
+              .whereType<Map>()
+              .map((item) => item.map((key, value) => MapEntry('$key', value)))
+              .where(
+                (item) => !_careHealthTitles.contains('${item['title'] ?? ''}'),
+              )
+              .toList(growable: false)
+        : const <Map<String, Object?>>[];
     return <String, Object?>{
       ...aggregate,
       'fallback': aggregate.isEmpty && detail.isNotEmpty,
-      'jrjk': aggregate['jrjk'] is List ? aggregate['jrjk']! : const [],
+      'jrjk': today,
       'daily': merged,
     };
   }
+
+  static const _careHealthTitles = <String>{
+    '心率',
+    '血压',
+    '血糖',
+    '血氧',
+    '体温',
+    'HRV',
+    '睡眠',
+    '心电',
+    '身体成分',
+    '血液成分',
+  };
 
   @override
   Future<List<Map<String, Object?>>> getCareInvitations() async {

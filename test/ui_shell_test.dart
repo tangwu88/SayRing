@@ -1392,6 +1392,30 @@ void main() {
     expect(find.text('created_at'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('care metric detail explains server-unavailable data', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: CareMetricDetailPage(
+          day: DateTime(2026, 8, 27),
+          item: const {
+            'title': '血压',
+            'state': 'unavailable',
+            'tips': '血压服务暂不可用，请稍后重试',
+            'records': <Object?>[],
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('血压服务暂不可用，请稍后重试'), findsOneWidget);
+    expect(find.text('这一天没有可展示的明细记录。'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 HealthRecord _historicalHeartRateRecord() => HealthRecord(
