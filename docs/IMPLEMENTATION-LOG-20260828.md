@@ -42,3 +42,11 @@
 - 原生修复：W9S 直接使用实际支持的 `CustomSettingData` 健康监测协议，避免先发送不适配的新协议命令并等待超时；其他设备在新协议失败或超时时重新读取 SDK 当前能力，不再使用请求开始时的过期值。
 - Flutter 修复：同一时刻的健康设置刷新合并为一个任务；能力启动瞬时失败自动重试一次；读取期间禁用刷新、开关和间隔选择，并显示加载状态；监测间隔或心率预警等可选项失败时保留已读取的主要开关，不再让整个页面进入错误状态。
 - 回归结果：新增“重复进入合并读取并在能力初始化失败后重试”测试；`flutter analyze --no-pub` 无问题，完整 `flutter test --no-pub` 共 208 项全部通过，Android Debug APK 构建成功。APK 路径 `build/app/outputs/flutter-apk/app-debug.apk`，大小 `221338314` 字节，文件 SHA-256 `4E97B1B22E9D6FAAEB2D99481B4999AF943C331A5AB2C9B4BFEE7232450A7131`。按本轮要求先更新 Git，未覆盖安装到手机。
+
+## 16:35 健康首页提示层级与添加设备入口
+
+- Git 基线：修改前工作树干净，在线 `fetch` 后确认当前分支落后 `origin/main` 1 个提交；已快进并推送至 `39dfd3e`，本地调试分支、`origin/main` 与远程调试分支一致。
+- 原因：按真机截图反馈，未连接设备提示需要增大并居中，点击后直接进入添加设备；健康免责声明需要移动到健康页内容区最底部、底部导航栏上方。
+- 文件/范围：`lib/ui/pages.dart` 健康首页与通用行内提示组件，`test/ui_shell_test.dart` 首页布局和导航回归；不修改接口、健康数据、设备扫描和连接业务逻辑。
+- 预期：蓝色提示以 15px 半粗居中显示，整条提示可点击进入“添加设备”；已连接但暂无指标时不跳转；绿色免责声明在内容较少时贴近页面底部，内容较多时位于滚动末尾。
+- 结果：`dart format` 完成且 `git diff --check` 无空白错误；新增首页布局与跳转测试通过；`flutter analyze --no-pub` 无问题，完整 `flutter test --no-pub` 共 209 项全部通过。iOS Profile 在 iPhone 15 Pro Max / iOS 26.6 上构建、安装并启动成功，最新版 Runner 进程持续存活，设备中未出现 2026-08-28 的 Runner 崩溃日志。Flutter `--no-resident` 结束时仍输出既有的 `Lost connection to device`，但命令退出码为 0 且进程实际存活，因此未误判为 App 闪退。

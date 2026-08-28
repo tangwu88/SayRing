@@ -376,6 +376,7 @@ class DashboardPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final latest = controller.latestByMetric;
+    final disconnected = controller.connectedDevice == null;
     const supportedMetrics = [
       HealthMetric.bloodPressure,
       HealthMetric.heartRate,
@@ -392,105 +393,136 @@ class DashboardPage extends StatelessWidget {
       bottom: false,
       child: RefreshIndicator(
         onRefresh: controller.synchronizeCloud,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
-          children: [
-            _DashboardHeader(controller: controller),
-            const SizedBox(height: 12),
-            _AiHealthAssistantCard(controller: controller),
-            const SizedBox(height: 12),
-            _FeatureEntryGrid(
-              onCare: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => Scaffold(
-                    appBar: AppBar(title: const Text('远程关爱')),
-                    body: CarePage(controller: controller),
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  _DashboardHeader(controller: controller),
+                  const SizedBox(height: 12),
+                  _AiHealthAssistantCard(controller: controller),
+                  const SizedBox(height: 12),
+                  _FeatureEntryGrid(
+                    onCare: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => Scaffold(
+                          appBar: AppBar(title: const Text('远程关爱')),
+                          body: CarePage(controller: controller),
+                        ),
+                      ),
+                    ),
+                    onEncyclopedia: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        settings: const RouteSettings(
+                          name: 'health-encyclopedia-categories',
+                        ),
+                        builder: (_) =>
+                            ArticleCategoryPage(controller: controller),
+                      ),
+                    ),
+                    onWarning: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        settings: const RouteSettings(name: 'health-warnings'),
+                        builder: (_) =>
+                            HealthWarningPage(controller: controller),
+                      ),
+                    ),
+                    onMall: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        settings: const RouteSettings(name: 'shop-home'),
+                        builder: (_) => ShopHomePage(
+                          controller: controller,
+                          ordersPageBuilder: (_) => OrdersPage(
+                            controller: controller,
+                            initialStatus: null,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _SectionTitle(
+                    title: '健康数据',
+                    subtitle: DateFormat('M月d日').format(DateTime.now()),
+                    actionLabel: '全部数据',
+                    onAction: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        settings: const RouteSettings(name: 'all-health-data'),
+                        builder: (_) =>
+                            AllHealthDataPage(controller: controller),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (metrics.isEmpty)
+                    _InlineNotice(
+                      key: const Key('dashboard-health-empty-notice'),
+                      message: disconnected ? '连接手表后可查看支持的健康数据' : '暂无可显示的健康数据',
+                      icon: Icons.watch_outlined,
+                      color: SaydianColors.blue,
+                      compact: true,
+                      centered: true,
+                      onTap: disconnected
+                          ? () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                settings: const RouteSettings(
+                                  name: 'device-search',
+                                ),
+                                builder: (_) =>
+                                    DeviceSearchPage(controller: controller),
+                              ),
+                            )
+                          : null,
+                    )
+                  else
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: metrics.length,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        mainAxisExtent: 142 + (textScale - 1) * 160,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                      ),
+                      itemBuilder: (context, index) {
+                        final metric = metrics[index];
+                        return _MetricCard(
+                          controller: controller,
+                          metric: metric,
+                          record: latest[metric],
+                        );
+                      },
+                    ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    '运动与记录',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 12),
+                  _SportEntryPanel(controller: controller),
+                ]),
+              ),
+            ),
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 24),
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: _InlineNotice(
+                    key: Key('dashboard-health-notice'),
+                    message: '测量结果仅供健康管理参考，如有不适请咨询专业医务人员。',
+                    icon: Icons.health_and_safety_outlined,
+                    color: SaydianColors.green,
+                    compact: true,
+                    legal: true,
                   ),
                 ),
               ),
-              onEncyclopedia: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  settings: const RouteSettings(
-                    name: 'health-encyclopedia-categories',
-                  ),
-                  builder: (_) => ArticleCategoryPage(controller: controller),
-                ),
-              ),
-              onWarning: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  settings: const RouteSettings(name: 'health-warnings'),
-                  builder: (_) => HealthWarningPage(controller: controller),
-                ),
-              ),
-              onMall: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  settings: const RouteSettings(name: 'shop-home'),
-                  builder: (_) => ShopHomePage(
-                    controller: controller,
-                    ordersPageBuilder: (_) =>
-                        OrdersPage(controller: controller, initialStatus: null),
-                  ),
-                ),
-              ),
             ),
-            const SizedBox(height: 16),
-            _SectionTitle(
-              title: '健康数据',
-              subtitle: DateFormat('M月d日').format(DateTime.now()),
-              actionLabel: '全部数据',
-              onAction: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  settings: const RouteSettings(name: 'all-health-data'),
-                  builder: (_) => AllHealthDataPage(controller: controller),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (metrics.isEmpty)
-              _InlineNotice(
-                message: controller.connectedDevice == null
-                    ? '连接手表后可查看支持的健康数据'
-                    : '暂无可显示的健康数据',
-                icon: Icons.watch_outlined,
-                color: SaydianColors.blue,
-                compact: true,
-              )
-            else
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: metrics.length,
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  mainAxisExtent: 142 + (textScale - 1) * 160,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                ),
-                itemBuilder: (context, index) {
-                  final metric = metrics[index];
-                  return _MetricCard(
-                    controller: controller,
-                    metric: metric,
-                    record: latest[metric],
-                  );
-                },
-              ),
-            const SizedBox(height: 12),
-            const _InlineNotice(
-              key: Key('dashboard-health-notice'),
-              message: '测量结果仅供健康管理参考，如有不适请咨询专业医务人员。',
-              icon: Icons.health_and_safety_outlined,
-              color: SaydianColors.green,
-              compact: true,
-              legal: true,
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              '运动与记录',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 12),
-            _SportEntryPanel(controller: controller),
           ],
         ),
       ),
@@ -8779,6 +8811,8 @@ class _InlineNotice extends StatelessWidget {
     required this.color,
     this.compact = false,
     this.legal = false,
+    this.centered = false,
+    this.onTap,
   });
 
   final String message;
@@ -8786,44 +8820,74 @@ class _InlineNotice extends StatelessWidget {
   final Color color;
   final bool compact;
   final bool legal;
+  final bool centered;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: legal
-          ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
-          : compact
-          ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
-          : const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: legal ? 0.05 : 0.08),
-        border: Border.all(color: color.withValues(alpha: legal ? 0.15 : 0.24)),
-        borderRadius: BorderRadius.circular(compact || legal ? 10 : 14),
+    final padding = legal || compact
+        ? const EdgeInsets.symmetric(horizontal: 10, vertical: 8)
+        : const EdgeInsets.all(14);
+    final borderRadius = BorderRadius.circular(compact || legal ? 10 : 14);
+    final decoration = BoxDecoration(
+      color: color.withValues(alpha: legal ? 0.05 : 0.08),
+      border: Border.all(color: color.withValues(alpha: legal ? 0.15 : 0.24)),
+      borderRadius: borderRadius,
+    );
+    final text = Text(
+      message,
+      textAlign: centered ? TextAlign.center : TextAlign.start,
+      style: TextStyle(
+        color: color,
+        fontSize: centered
+            ? 15
+            : legal
+            ? 12
+            : compact
+            ? 12.5
+            : null,
+        fontWeight: centered ? FontWeight.w600 : null,
+        height: centered
+            ? 1.35
+            : legal
+            ? 1.4
+            : compact
+            ? 1.3
+            : 1.45,
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: compact || legal ? 16 : 20),
-          SizedBox(width: compact || legal ? 7 : 10),
-          Expanded(
-            child: Text(
-              message,
-              style: TextStyle(
-                color: color,
-                fontSize: legal
-                    ? 12
-                    : compact
-                    ? 12.5
-                    : null,
-                height: legal
-                    ? 1.4
-                    : compact
-                    ? 1.3
-                    : 1.45,
-              ),
-            ),
+    );
+    final content = Row(
+      mainAxisAlignment: centered
+          ? MainAxisAlignment.center
+          : MainAxisAlignment.start,
+      crossAxisAlignment: centered
+          ? CrossAxisAlignment.center
+          : CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: color, size: compact || legal ? 16 : 20),
+        SizedBox(width: compact || legal ? 7 : 10),
+        if (centered) Flexible(child: text) else Expanded(child: text),
+      ],
+    );
+    if (onTap == null) {
+      return Container(
+        padding: padding,
+        decoration: decoration,
+        child: content,
+      );
+    }
+    return Semantics(
+      button: true,
+      child: Material(
+        color: Colors.transparent,
+        child: Ink(
+          decoration: decoration,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: borderRadius,
+            child: Padding(padding: padding, child: content),
           ),
-        ],
+        ),
       ),
     );
   }

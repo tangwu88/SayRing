@@ -182,6 +182,57 @@ void main() {
   });
 
   testWidgets(
+    'empty health notice is centered, opens device search, and keeps legal copy at bottom',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(430, 932));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+      )..enterPreview();
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) => AppShell(controller: controller),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final emptyNotice = find.byKey(
+        const Key('dashboard-health-empty-notice'),
+      );
+      final emptyMessage = find.text('连接手表后可查看支持的健康数据');
+      expect(emptyNotice, findsOneWidget);
+      expect(emptyMessage, findsOneWidget);
+      final emptyText = tester.widget<Text>(emptyMessage);
+      expect(emptyText.textAlign, TextAlign.center);
+      expect(emptyText.style?.fontSize, 15);
+      expect(emptyText.style?.fontWeight, FontWeight.w600);
+
+      final legalNotice = find.byKey(const Key('dashboard-health-notice'));
+      final navigationBar = find.byType(NavigationBar);
+      expect(legalNotice, findsOneWidget);
+      expect(
+        tester.getTopLeft(navigationBar).dy -
+            tester.getBottomLeft(legalNotice).dy,
+        inInclusiveRange(16, 32),
+      );
+
+      await tester.tap(emptyNotice);
+      await tester.pumpAndSettle();
+      expect(find.text('添加设备'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'historical metric remains visible while unsupported actions stay hidden',
     (tester) async {
       final controller =
