@@ -5478,8 +5478,8 @@ class _CareMemberPageState extends State<CareMemberPage> {
                     )
                   else ...[
                     if (todayItems.isNotEmpty) ...[
-                      const _CareSectionTitle(
-                        title: '今日活动',
+                      _CareSectionTitle(
+                        title: _isToday(_day) ? '今日活动' : '当日活动',
                         subtitle: '成员授权共享的活动概况',
                       ),
                       const SizedBox(height: 10),
@@ -5823,7 +5823,13 @@ class _CareMetricRecordCard extends StatelessWidget {
       'merchant_id',
       'status',
       'day',
+      'date',
+      'time',
       'h',
+      'hourse',
+      'isHourse',
+      'timestamp',
+      'measuredAt',
       'created_at',
       'updated_at',
     };
@@ -5835,9 +5841,7 @@ class _CareMetricRecordCard extends StatelessWidget {
               '${entry.value}'.trim().isNotEmpty,
         )
         .toList(growable: false);
-    final time =
-        '${record['time'] ?? record['date'] ?? record['created_at'] ?? ''}'
-            .trim();
+    final time = _careRecordTimeLabel(record);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -5876,6 +5880,63 @@ class _CareMetricRecordCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _careRecordTimeLabel(Map<String, Object?> record) {
+  final raw =
+      record['time'] ??
+      record['hourse'] ??
+      record['h'] ??
+      record['date'] ??
+      record['timestamp'] ??
+      record['measuredAt'] ??
+      record['created_at'];
+  if (raw == null) return '';
+  if (raw is num) return _careNumericTimeLabel(raw);
+
+  final text = '$raw'.trim();
+  if (text.isEmpty) return '';
+  if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(text)) return '';
+
+  final clock = RegExp(r'^(\d{1,2}):(\d{2})(?::(\d{2}))?$').firstMatch(text);
+  if (clock != null) {
+    final hour = int.parse(clock.group(1)!);
+    final minute = int.parse(clock.group(2)!);
+    final second = int.tryParse(clock.group(3) ?? '') ?? 0;
+    if (hour < 24 && minute < 60 && second < 60) {
+      return _careClockLabel(hour, minute, second);
+    }
+  }
+
+  final numeric = num.tryParse(text);
+  if (numeric != null) return _careNumericTimeLabel(numeric);
+
+  final parsed = DateTime.tryParse(text.replaceFirst(' ', 'T'));
+  if (parsed == null) return text;
+  return _careClockLabel(parsed.hour, parsed.minute, parsed.second);
+}
+
+String _careNumericTimeLabel(num value) {
+  final numeric = value.toInt();
+  if (value == numeric && numeric >= 0 && numeric < 24) {
+    return _careClockLabel(numeric, 0, 0);
+  }
+  DateTime? parsed;
+  if (numeric > 1000000000000) {
+    parsed = DateTime.fromMillisecondsSinceEpoch(numeric);
+  } else if (numeric > 1000000000) {
+    parsed = DateTime.fromMillisecondsSinceEpoch(numeric * 1000);
+  }
+  return parsed == null
+      ? _careFieldValue(value)
+      : _careClockLabel(parsed.hour, parsed.minute, parsed.second);
+}
+
+String _careClockLabel(int hour, int minute, int second) {
+  final base =
+      '${hour.toString().padLeft(2, '0')}:'
+      '${minute.toString().padLeft(2, '0')}';
+  return second == 0 ? base : '$base:${second.toString().padLeft(2, '0')}';
 }
 
 String _careFieldLabel(String key) =>

@@ -1393,6 +1393,65 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('care metric detail formats hour categories as clock times', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: CareMetricDetailPage(
+          day: DateTime(2026, 8, 26),
+          item: const {
+            'title': '血氧',
+            'records': [
+              {'time': '18', 'bloodOxygen': 99},
+              {'time': '19:30', 'bloodOxygen': 98},
+              {'date': '2026-08-26 20:15:30', 'bloodOxygen': 96},
+            ],
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('18:00'), findsOneWidget);
+    expect(find.text('19:30'), findsOneWidget);
+    expect(find.text('20:15:30'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('care history labels authorized activity as selected-day data', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = AppController(
+      MemorySessionVault(),
+      _CarePreviewApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: CareMemberPage(
+          controller: controller,
+          member: const {'nickname': '关爱成员', 'to_member_id': 87},
+          careId: 59,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('今日活动'), findsOneWidget);
+    await tester.tap(find.byTooltip('前一天'));
+    await tester.pumpAndSettle();
+    expect(find.text('当日活动'), findsOneWidget);
+    expect(find.text('今日活动'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('care metric detail explains server-unavailable data', (
     tester,
   ) async {
@@ -1539,6 +1598,20 @@ class _NoopApi implements SaydianApi, SaydianArticleApi {
   @override
   Future<BatchUploadResult> uploadHealthBatch(SyncBatch batch) =>
       throw UnimplementedError();
+}
+
+class _CarePreviewApi extends _NoopApi {
+  @override
+  Future<Map<String, Object?>> getCareMemberPreview({
+    required int id,
+    required String day,
+    int? memberId,
+  }) async => const {
+    'jrjk': [
+      {'title': '步数', 'num': 1234, 'unit': '步'},
+    ],
+    'daily': <Object?>[],
+  };
 }
 
 class _NoopWearable implements WearableBridge {
