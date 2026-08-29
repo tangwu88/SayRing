@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
@@ -11,6 +12,114 @@ import 'ui/app_update_gate_scope.dart';
 import 'ui/brand_assets.dart';
 import 'ui/pages.dart';
 import 'ui/prototype_pages.dart';
+
+class DismissKeyboardOnBackgroundTap extends StatefulWidget {
+  const DismissKeyboardOnBackgroundTap({required this.child, super.key});
+
+  final Widget child;
+
+  @override
+  State<DismissKeyboardOnBackgroundTap> createState() =>
+      _DismissKeyboardOnBackgroundTapState();
+}
+
+class _DismissKeyboardOnBackgroundTapState
+    extends State<DismissKeyboardOnBackgroundTap> {
+  final Map<int, _KeyboardDismissPointer> _pointers = {};
+
+  void _handlePointerDown(PointerDownEvent event) {
+    if (event.buttons & kPrimaryButton == 0) return;
+    final focus = FocusManager.instance.primaryFocus;
+    if (!_isEditableFocus(focus)) return;
+    _pointers[event.pointer] = _KeyboardDismissPointer(
+      startPosition: event.position,
+      focus: focus!,
+      startedInsideFocusedEditable: _containsGlobalPosition(
+        focus,
+        event.position,
+      ),
+    );
+  }
+
+  void _handlePointerMove(PointerMoveEvent event) {
+    final pointer = _pointers[event.pointer];
+    if (pointer == null || pointer.moved) return;
+    if ((event.position - pointer.startPosition).distanceSquared >
+        kTouchSlop * kTouchSlop) {
+      pointer.moved = true;
+    }
+  }
+
+  void _handlePointerUp(PointerUpEvent event) {
+    final pointer = _pointers.remove(event.pointer);
+    if (pointer == null ||
+        pointer.moved ||
+        pointer.startedInsideFocusedEditable) {
+      return;
+    }
+
+    // Listener observes without joining the gesture arena, so child buttons,
+    // links and fields still receive their normal tap. Defer the focus check
+    // until their handlers have run: a newly focused EditableText must keep
+    // focus, while a non-editable tap dismisses the original keyboard.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final currentFocus = FocusManager.instance.primaryFocus;
+      if (identical(currentFocus, pointer.focus) && currentFocus!.hasFocus) {
+        currentFocus.unfocus();
+      }
+    });
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
+  void _handlePointerCancel(PointerCancelEvent event) {
+    _pointers.remove(event.pointer);
+  }
+
+  bool _isEditableFocus(FocusNode? focus) {
+    final context = focus?.context;
+    if (context == null) return false;
+    return context.widget is EditableText ||
+        context.findAncestorWidgetOfExactType<EditableText>() != null;
+  }
+
+  bool _containsGlobalPosition(FocusNode focus, Offset globalPosition) {
+    final renderObject = focus.context?.findRenderObject();
+    if (renderObject is! RenderBox ||
+        !renderObject.attached ||
+        !renderObject.hasSize) {
+      return false;
+    }
+    final localPosition = renderObject.globalToLocal(globalPosition);
+    return (Offset.zero & renderObject.size).contains(localPosition);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      key: const Key('global-keyboard-dismiss'),
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: _handlePointerDown,
+      onPointerMove: _handlePointerMove,
+      onPointerUp: _handlePointerUp,
+      onPointerCancel: _handlePointerCancel,
+      child: widget.child,
+    );
+  }
+}
+
+class _KeyboardDismissPointer {
+  _KeyboardDismissPointer({
+    required this.startPosition,
+    required this.focus,
+    required this.startedInsideFocusedEditable,
+  });
+
+  final Offset startPosition;
+  final FocusNode focus;
+  final bool startedInsideFocusedEditable;
+  bool moved = false;
+}
 
 class SaydianApp extends StatefulWidget {
   const SaydianApp({
@@ -336,77 +445,80 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      builder: (context, child) => AppUpdateGateScope(
-        controller: _updateGateController,
-        child: ListenableBuilder(
-          listenable: controller,
-          builder: (context, _) {
-            final alert = controller.activeHealthWarningAlert;
-            return Stack(
-              children: [
-                child ?? const SizedBox.shrink(),
-                if (alert != null)
-                  Positioned(
-                    left: 12,
-                    right: 12,
-                    top: MediaQuery.paddingOf(context).top + 10,
-                    child: Material(
-                      key: const Key('global-health-warning'),
-                      elevation: 10,
-                      color: const Color(0xFFFFF1EE),
-                      borderRadius: BorderRadius.circular(16),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Padding(
-                              padding: EdgeInsets.only(top: 2),
-                              child: Icon(
-                                Icons.warning_amber_rounded,
-                                color: SaydianColors.danger,
+      builder: (context, child) => DismissKeyboardOnBackgroundTap(
+        child: AppUpdateGateScope(
+          controller: _updateGateController,
+          child: ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) {
+              final alert = controller.activeHealthWarningAlert;
+              return Stack(
+                children: [
+                  child ?? const SizedBox.shrink(),
+                  if (alert != null)
+                    Positioned(
+                      left: 12,
+                      right: 12,
+                      top: MediaQuery.paddingOf(context).top + 10,
+                      child: Material(
+                        key: const Key('global-health-warning'),
+                        elevation: 10,
+                        color: const Color(0xFFFFF1EE),
+                        borderRadius: BorderRadius.circular(16),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Padding(
+                                padding: EdgeInsets.only(top: 2),
+                                child: Icon(
+                                  Icons.warning_amber_rounded,
+                                  color: SaydianColors.danger,
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    alert.title,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      color: SaydianColors.danger,
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      alert.title,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        color: SaydianColors.danger,
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 3),
-                                  Text(alert.message),
-                                  const SizedBox(height: 3),
-                                  const Text(
-                                    '请休息后复测；如有明显不适，请及时咨询医务人员。',
-                                    style: TextStyle(fontSize: 13),
-                                  ),
-                                ],
+                                    const SizedBox(height: 3),
+                                    Text(alert.message),
+                                    const SizedBox(height: 3),
+                                    const Text(
+                                      '请休息后复测；如有明显不适，请及时咨询医务人员。',
+                                      style: TextStyle(fontSize: 13),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                            Semantics(
-                              button: true,
-                              label: '关闭健康预警',
-                              child: IconButton(
-                                key: const Key('dismiss-health-warning'),
-                                onPressed: controller.dismissHealthWarningAlert,
-                                icon: const Icon(Icons.close_rounded),
+                              Semantics(
+                                button: true,
+                                label: '关闭健康预警',
+                                child: IconButton(
+                                  key: const Key('dismiss-health-warning'),
+                                  onPressed:
+                                      controller.dismissHealthWarningAlert,
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-              ],
-            );
-          },
+                ],
+              );
+            },
+          ),
         ),
       ),
       home: ListenableBuilder(

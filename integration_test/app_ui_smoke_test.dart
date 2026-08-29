@@ -29,7 +29,7 @@ void main() {
     await tester.tap(find.byKey(const Key('dashboard-ai-ask')));
     await tester.pumpAndSettle();
     expect(find.text('AI 健康管家'), findsOneWidget);
-    await tester.pageBack();
+    await _popRoute(tester);
     await tester.pumpAndSettle();
 
     final heartRate = find.byKey(const ValueKey('health-metric-heartRate'));
@@ -53,14 +53,14 @@ void main() {
     await tester.tap(find.text('月'));
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.calendar_month_outlined), findsOneWidget);
-    await tester.pageBack();
+    await _popRoute(tester);
     await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.text('全部数据'));
     await tester.tap(find.text('全部数据'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('health-sport-entries')), findsNothing);
-    await tester.pageBack();
+    await _popRoute(tester);
     await tester.pumpAndSettle();
 
     final sports = find.byKey(const Key('health-sport-entries'));
@@ -94,7 +94,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('4006386738'), findsOneWidget);
     expect(find.text('添加客服'), findsOneWidget);
-    await tester.pageBack();
+    await _popRoute(tester);
     await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.text('关于我们'));
@@ -104,4 +104,8 @@ void main() {
     expect(find.text('用户协议'), findsOneWidget);
     expect(find.text('检查更新'), findsOneWidget);
   });
+}
+
+Future<void> _popRoute(WidgetTester tester) async {
+  await tester.binding.handlePopRoute();
 }
