@@ -1129,7 +1129,7 @@ void main() {
       expect(request.method, 'POST');
       expect(request.url.path, '/api/v1/pay');
       final body = jsonDecode(request.body) as Map<String, dynamic>;
-      expect(body['pay_type'], requestIndex == 1 ? 100 : 101);
+      expect(body['pay_type'], requestIndex == 1 ? '100' : '101');
       expect(body['jump'], 0);
       expect(body['trade_type'], 'app');
       expect(body['order_group'], 'order');

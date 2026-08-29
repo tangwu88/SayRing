@@ -925,8 +925,11 @@ class SaydianApiClient
     final payType = switch (provider) {
       // RageFrame PayTypeEnum: WeChat = 100, Alipay = 101. Values 1 and 2
       // mean balance/cash and cannot generate APP payment parameters.
-      'wechat' => 100,
-      'alipay' => 101,
+      // The payment endpoint validates this enum as a string, matching the
+      // delivered mini-program contract. Sending a JSON number is rejected
+      // before the provider-specific payment parameters are generated.
+      'wechat' => '100',
+      'alipay' => '101',
       _ => throw const ApiException('不支持的支付方式'),
     };
     final response = await _authorizedPostJson('/api/v1/pay', {
