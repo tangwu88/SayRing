@@ -6,6 +6,41 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testGalleryImagePayloadAcceptsTypedBytesAndSanitizesFileName() throws {
+    let typedBytes = FlutterStandardTypedData(bytes: Data([0xFF, 0xD8, 0xFF, 0xD9]))
+    let payload = try XCTUnwrap(
+      GalleryImagePayload(arguments: [
+        "bytes": typedBytes,
+        "fileName": "../saidian-photo.exe",
+        "mimeType": "image/jpeg",
+      ]))
+
+    XCTAssertEqual(payload.data, Data([0xFF, 0xD8, 0xFF, 0xD9]))
+    XCTAssertEqual(payload.fileName, "saidian-photo.jpg")
+    XCTAssertEqual(payload.mimeType, "image/jpeg")
+  }
+
+  func testGalleryImagePayloadRejectsEmptyOversizedOrUnsupportedData() {
+    XCTAssertNil(
+      GalleryImagePayload(arguments: [
+        "bytes": FlutterStandardTypedData(bytes: Data()),
+        "fileName": "empty.jpg",
+        "mimeType": "image/jpeg",
+      ]))
+    XCTAssertNil(
+      GalleryImagePayload(arguments: [
+        "bytes": FlutterStandardTypedData(bytes: Data([1, 2, 3])),
+        "fileName": "not-an-image.txt",
+        "mimeType": "text/plain",
+      ]))
+    XCTAssertNil(
+      GalleryImagePayload(arguments: [
+        "bytes": Data(repeating: 1, count: GalleryImagePayload.maximumByteCount + 1),
+        "fileName": "too-large.jpg",
+        "mimeType": "image/jpeg",
+      ]))
+  }
+
   func testWearableSportModeAndHeartWarningMapping() {
     XCTAssertEqual(WearablePayloadMapper.sportMode("walking"), .outdoorWalk)
     XCTAssertEqual(WearablePayloadMapper.sportMode("cycling"), .outdoorRide)

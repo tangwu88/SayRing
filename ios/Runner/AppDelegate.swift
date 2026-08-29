@@ -1,10 +1,69 @@
 import CryptoKit
 import Flutter
+import Photos
 import UIKit
 import UserNotifications
 #if canImport(VeepooBleSDK) && !targetEnvironment(simulator)
 import VeepooBleSDK
 #endif
+
+struct GalleryImagePayload: Equatable {
+  static let maximumByteCount = 50 * 1024 * 1024
+
+  let data: Data
+  let fileName: String
+  let mimeType: String
+
+  init?(arguments: [String: Any]?) {
+    guard let arguments else { return nil }
+    let imageData: Data?
+    if let typedData = arguments["bytes"] as? FlutterStandardTypedData {
+      imageData = typedData.data
+    } else {
+      imageData = arguments["bytes"] as? Data
+    }
+    guard let imageData,
+      !imageData.isEmpty,
+      imageData.count <= Self.maximumByteCount
+    else {
+      return nil
+    }
+
+    let mimeType = (arguments["mimeType"] as? String)?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased() ?? "image/jpeg"
+    let allowedExtensions: Set<String>
+    let preferredExtension: String
+    switch mimeType {
+    case "image/jpeg":
+      allowedExtensions = ["jpg", "jpeg"]
+      preferredExtension = "jpg"
+    case "image/png":
+      allowedExtensions = ["png"]
+      preferredExtension = "png"
+    case "image/heic", "image/heif":
+      allowedExtensions = ["heic", "heif"]
+      preferredExtension = "heic"
+    default:
+      return nil
+    }
+
+    let rawName = (arguments["fileName"] as? String)?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let lastPathComponent = (rawName as NSString).lastPathComponent
+    let currentExtension = (lastPathComponent as NSString).pathExtension.lowercased()
+    let baseName = (lastPathComponent as NSString).deletingPathExtension
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let safeBaseName = baseName.isEmpty ? "saidian-camera" : baseName
+    let fileName = allowedExtensions.contains(currentExtension)
+      ? lastPathComponent
+      : "\(safeBaseName).\(preferredExtension)"
+
+    self.data = imageData
+    self.fileName = fileName
+    self.mimeType = mimeType
+  }
+}
 
 enum WearableBatteryChargeState: String, Equatable {
   case normal
@@ -503,6 +562,10 @@ enum WearableWatchFaceProfilePayload {
     _ call: FlutterMethodCall,
     result: @escaping FlutterResult
   ) {
+    if call.method == "saveGalleryImage" {
+      saveGalleryImage(call.arguments as? [String: Any], result: result)
+      return
+    }
     guard let adapter = wearableAdapter else {
       result(FlutterError(code: "SDK_NOT_CONFIGURED", message: "设备连接服务暂时无法使用", details: nil))
       return
@@ -573,6 +636,80 @@ enum WearableWatchFaceProfilePayload {
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+
+  private func saveGalleryImage(
+    _ arguments: [String: Any]?,
+    result: @escaping FlutterResult
+  ) {
+    guard let payload = GalleryImagePayload(arguments: arguments) else {
+      result(
+        FlutterError(
+          code: "PHOTO_ARGUMENT_INVALID",
+          message: "照片数据无效，请重新拍摄",
+          details: nil
+        ))
+      return
+    }
+
+    let save: () -> Void = {
+      PHPhotoLibrary.shared().performChanges {
+        let request = PHAssetCreationRequest.forAsset()
+        let options = PHAssetResourceCreationOptions()
+        options.originalFilename = payload.fileName
+        request.addResource(with: .photo, data: payload.data, options: options)
+      } completionHandler: { saved, error in
+        DispatchQueue.main.async {
+          if saved {
+            result(["saved": true, "fileName": payload.fileName])
+          } else {
+            result(
+              FlutterError(
+                code: "PHOTO_SAVE_FAILED",
+                message: "照片保存失败，请检查相册空间后重试",
+                details: error?.localizedDescription
+              ))
+          }
+        }
+      }
+    }
+
+    let handleAuthorization: (PHAuthorizationStatus) -> Void = { status in
+      if status == .authorized {
+        save()
+        return
+      }
+      if #available(iOS 14, *), status == .limited {
+        save()
+        return
+      }
+      result(
+        FlutterError(
+          code: "PHOTO_PERMISSION_DENIED",
+          message: "请在系统设置中允许赛电添加照片后重试",
+          details: nil
+        ))
+    }
+
+    let status: PHAuthorizationStatus
+    if #available(iOS 14, *) {
+      status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+    } else {
+      status = PHPhotoLibrary.authorizationStatus()
+    }
+    if status == .notDetermined {
+      if #available(iOS 14, *) {
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { newStatus in
+          DispatchQueue.main.async { handleAuthorization(newStatus) }
+        }
+      } else {
+        PHPhotoLibrary.requestAuthorization { newStatus in
+          DispatchQueue.main.async { handleAuthorization(newStatus) }
+        }
+      }
+      return
+    }
+    handleAuthorization(status)
   }
 }
 

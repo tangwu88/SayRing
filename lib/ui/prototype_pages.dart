@@ -19,6 +19,7 @@ import '../domain/ecg_waveform.dart';
 import '../domain/health_interpretation.dart';
 import '../domain/models.dart';
 import '../services/app_controller.dart';
+import '../services/camera_remote_shutter_gate.dart';
 import '../services/device_weather_service.dart';
 import '../services/device_watch_face_market_service.dart';
 import 'app_theme.dart';
@@ -2197,7 +2198,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   String? _cameraMessage;
   bool _takingPhoto = false;
   bool _cameraRemoteStarted = false;
-  int _seenCameraShutter = 0;
+  bool _cameraInitializing = false;
+  int _cameraGeneration = 0;
+  late final CameraRemoteShutterGate _cameraShutterGate;
   XFile? _dialPhoto;
   int _dialTimePosition = 0;
   final DeviceWeatherService _weatherService = DeviceWeatherService();
@@ -2211,7 +2214,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _seenCameraShutter = widget.controller.cameraShutterSequence;
+    _cameraShutterGate = CameraRemoteShutterGate(
+      initialSequence: widget.controller.cameraShutterSequence,
+    );
     widget.controller.addListener(_handleControllerEvent);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
@@ -2234,21 +2239,35 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.controller.removeListener(_handleControllerEvent);
-    _camera?.removeListener(_handleCameraState);
+    _cameraGeneration += 1;
+    final camera = _camera;
+    _camera = null;
+    camera?.removeListener(_handleCameraState);
+    _cameraShutterGate.disarm(
+      currentSequence: widget.controller.cameraShutterSequence,
+    );
     if (_cameraRemoteStarted) {
-      unawaited(
-        widget.controller.triggerDeviceAction(
-          DeviceFeature.camera,
-          enabled: false,
-        ),
-      );
+      unawaited(_stopCameraRemoteIgnoringErrors());
     }
-    unawaited(_camera?.dispose());
+    _cameraRemoteStarted = false;
+    unawaited(camera?.dispose());
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (widget.feature == DeviceFeature.camera) {
+      _cameraShutterGate.setLifecycleState(
+        state,
+        currentSequence: widget.controller.cameraShutterSequence,
+      );
+      if (state == AppLifecycleState.resumed) {
+        unawaited(_resumeCamera());
+      } else {
+        unawaited(_suspendCamera());
+      }
+      return;
+    }
     if (state == AppLifecycleState.resumed &&
         widget.feature == DeviceFeature.notifications &&
         widget.controller.availabilityFor(widget.feature).isReady) {
@@ -2259,9 +2278,26 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   void _handleControllerEvent() {
     if (!mounted) return;
     if (widget.feature == DeviceFeature.camera) {
+      final availability = widget.controller.availabilityFor(widget.feature);
+      if (!availability.isReady) {
+        _cameraShutterGate.disarm(
+          currentSequence: widget.controller.cameraShutterSequence,
+        );
+        if (_camera != null || _cameraRemoteStarted || _cameraInitializing) {
+          unawaited(_suspendCamera(message: '手表已断开，请重新连接后使用'));
+        }
+        return;
+      }
+      if (_camera == null &&
+          !_cameraInitializing &&
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        unawaited(_resumeCamera());
+      }
       final sequence = widget.controller.cameraShutterSequence;
-      if (sequence > _seenCameraShutter) {
-        _seenCameraShutter = sequence;
+      if (_cameraShutterGate.shouldCapture(
+        sequence: sequence,
+        now: DateTime.now(),
+      )) {
         unawaited(_takePhoto());
       }
     }
@@ -2375,6 +2411,13 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Future<void> _initializeCamera() async {
+    if (_cameraInitializing || _camera != null) return;
+    final lifecycleState = WidgetsBinding.instance.lifecycleState;
+    if (lifecycleState != null && lifecycleState != AppLifecycleState.resumed) {
+      return;
+    }
+    _cameraInitializing = true;
+    final generation = ++_cameraGeneration;
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
@@ -2391,7 +2434,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         enableAudio: false,
       );
       await controller.initialize();
-      if (!mounted) {
+      if (!mounted ||
+          generation != _cameraGeneration ||
+          WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
         await controller.dispose();
         return;
       }
@@ -2402,7 +2447,10 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       final started = await widget.controller.triggerDeviceAction(
         DeviceFeature.camera,
       );
-      if (!mounted) return;
+      if (!mounted || generation != _cameraGeneration) {
+        if (started) unawaited(_stopCameraRemoteIgnoringErrors());
+        return;
+      }
       if (controller.value.hasError) {
         _handleCameraState();
         return;
@@ -2413,6 +2461,16 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             ? '可点击手机按钮，也可在手表上点击拍照'
             : widget.controller.errorMessage ?? '手表相机遥控暂时无法开启';
       });
+      if (started) {
+        _cameraShutterGate.arm(
+          now: DateTime.now(),
+          currentSequence: widget.controller.cameraShutterSequence,
+        );
+      } else {
+        _cameraShutterGate.disarm(
+          currentSequence: widget.controller.cameraShutterSequence,
+        );
+      }
     } on CameraException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -2422,6 +2480,55 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       });
     } catch (_) {
       if (mounted) setState(() => _cameraMessage = '手机相机暂时无法使用，请稍后重试');
+    } finally {
+      if (generation == _cameraGeneration) _cameraInitializing = false;
+    }
+  }
+
+  Future<void> _suspendCamera({String message = '返回 App 后将重新打开相机'}) async {
+    if (widget.feature != DeviceFeature.camera) return;
+    final generation = ++_cameraGeneration;
+    _cameraInitializing = false;
+    final camera = _camera;
+    final shouldStopRemote = _cameraRemoteStarted;
+    _camera = null;
+    _cameraRemoteStarted = false;
+    _cameraShutterGate.disarm(
+      currentSequence: widget.controller.cameraShutterSequence,
+    );
+    camera?.removeListener(_handleCameraState);
+    if (mounted) {
+      setState(() => _cameraMessage = message);
+    }
+    if (shouldStopRemote) {
+      await _stopCameraRemoteIgnoringErrors();
+    }
+    await camera?.dispose();
+    if (generation != _cameraGeneration) return;
+  }
+
+  Future<void> _resumeCamera() async {
+    if (!mounted || widget.feature != DeviceFeature.camera) return;
+    _cameraShutterGate.setLifecycleState(
+      AppLifecycleState.resumed,
+      currentSequence: widget.controller.cameraShutterSequence,
+    );
+    if (!widget.controller.availabilityFor(widget.feature).isReady) {
+      if (mounted) setState(() => _cameraMessage = '手表已断开，请重新连接后使用');
+      return;
+    }
+    await _initializeCamera();
+  }
+
+  Future<void> _stopCameraRemoteIgnoringErrors() async {
+    try {
+      await widget.controller.triggerDeviceAction(
+        DeviceFeature.camera,
+        enabled: false,
+      );
+    } catch (_) {
+      // The foreground gate still prevents background callbacks from taking a
+      // photo when the watch command cannot be stopped immediately.
     }
   }
 
@@ -2438,6 +2545,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       _cameraMessage = message;
       _cameraRemoteStarted = false;
     });
+    _cameraShutterGate.disarm(
+      currentSequence: widget.controller.cameraShutterSequence,
+    );
     if (shouldStopRemote) {
       unawaited(
         widget.controller.triggerDeviceAction(
@@ -2470,7 +2580,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       if (mounted) {
         setState(() {
           _lastPhoto = photo;
-          _cameraMessage = '照片已保存到手机相册「图片/赛电」';
+          _cameraMessage = '照片已保存到手机相册';
         });
       }
     } on CameraException catch (error) {
