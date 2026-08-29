@@ -54,12 +54,12 @@ done
   echo "Invalid RELEASE_SSH_PORT." >&2
   exit 2
 }
-[[ "$RELEASE_REMOTE_ROOT" =~ ^/[A-Za-z0-9._/-]+$ ]] &&
-  [[ "$RELEASE_REMOTE_ROOT" != *".."* ]] &&
-  [[ "$RELEASE_REMOTE_ROOT" != */ ]] || {
+if ! [[ "$RELEASE_REMOTE_ROOT" =~ ^/[A-Za-z0-9._/-]+$ ]] ||
+  [[ "$RELEASE_REMOTE_ROOT" == *".."* ]] ||
+  [[ "$RELEASE_REMOTE_ROOT" == */ ]]; then
   echo "RELEASE_REMOTE_ROOT must be an explicit safe absolute directory." >&2
   exit 2
-}
+fi
 [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
   echo "EXPECTED_SHA256 is invalid." >&2
   exit 2
