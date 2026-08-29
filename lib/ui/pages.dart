@@ -6093,13 +6093,26 @@ class CareMetricDetailPage extends StatelessWidget {
     final title = '${item['title'] ?? '健康数据'}';
     final state = '${item['state'] ?? ''}';
     final tips = '${item['tips'] ?? ''}'.trim();
+    final metricUnit = '${item['unit'] ?? ''}'.trim();
     final rawRecords = item['records'];
-    final records = rawRecords is List
+    final allRecords = rawRecords is List
         ? rawRecords
               .whereType<Map>()
               .map((row) => row.map((key, value) => MapEntry('$key', value)))
               .toList(growable: false)
         : const <Map<String, Object?>>[];
+    final records = title == '心电'
+        ? allRecords
+        : allRecords
+              .where(
+                (record) => _careMetricDisplayFields(
+                  title,
+                  record,
+                  fallbackUnit: metricUnit,
+                ).isNotEmpty,
+              )
+              .toList(growable: false);
+    final summary = _careMetricDaySummary(title, records);
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: ListView(
@@ -6113,6 +6126,10 @@ class CareMetricDetailPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
+          if (records.isNotEmpty) ...[
+            _CareMetricDaySummaryCard(summary: summary),
+            const SizedBox(height: 12),
+          ],
           if (records.isEmpty)
             _InlineNotice(
               message: tips.isNotEmpty ? tips : '这一天没有可展示的明细记录。',
@@ -6126,7 +6143,12 @@ class CareMetricDetailPage extends StatelessWidget {
               if (title == '心电')
                 _CareEcgRecordCard(record: records[index], index: index)
               else
-                _CareMetricRecordCard(record: records[index], index: index),
+                _CareMetricRecordCard(
+                  metricTitle: title,
+                  metricUnit: metricUnit,
+                  record: records[index],
+                  index: index,
+                ),
               const SizedBox(height: 10),
             ],
         ],
@@ -6135,50 +6157,69 @@ class CareMetricDetailPage extends StatelessWidget {
   }
 }
 
-class _CareMetricRecordCard extends StatelessWidget {
-  const _CareMetricRecordCard({required this.record, required this.index});
+class _CareMetricDaySummaryCard extends StatelessWidget {
+  const _CareMetricDaySummaryCard({required this.summary});
 
+  final Map<String, String> summary;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('当日摘要', style: TextStyle(fontWeight: FontWeight.w900)),
+          const SizedBox(height: 3),
+          const Text(
+            '仅汇总当前所选日期的有效记录',
+            style: TextStyle(color: SaydianColors.muted, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final entry in summary.entries)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: SaydianColors.techBlueSoft,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text('${entry.key}  ${entry.value}'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _CareMetricRecordCard extends StatelessWidget {
+  const _CareMetricRecordCard({
+    required this.metricTitle,
+    required this.metricUnit,
+    required this.record,
+    required this.index,
+  });
+
+  final String metricTitle;
+  final String metricUnit;
   final Map<String, Object?> record;
   final int index;
 
   @override
   Widget build(BuildContext context) {
-    const hiddenKeys = {
-      'id',
-      'member_id',
-      'memberId',
-      'merchant_id',
-      'status',
-      'day',
-      'date',
-      'time',
-      'h',
-      'hourse',
-      'isHourse',
-      'timestamp',
-      'measuredAt',
-      'created_at',
-      'updated_at',
-      'samples',
-      'totalArray',
-      'filterSignals',
-      'waveformData',
-      'data',
-      'ecgData',
-      'item',
-      'result',
-      'rawVersion',
-      'sampleFrequency',
-      'origin',
-    };
-    final entries = record.entries
-        .where(
-          (entry) =>
-              !hiddenKeys.contains(entry.key) &&
-              entry.value != null &&
-              '${entry.value}'.trim().isNotEmpty,
-        )
-        .toList(growable: false);
+    final fields = _careMetricDisplayFields(
+      metricTitle,
+      record,
+      fallbackUnit: metricUnit,
+    );
     final time = _careRecordTimeLabel(record);
     return Card(
       child: Padding(
@@ -6191,8 +6232,13 @@ class _CareMetricRecordCard extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 8),
-            for (final entry in entries)
-              if (!const {'time', 'date', 'created_at'}.contains(entry.key))
+            if (fields.isEmpty)
+              Text(
+                '该记录未包含可用的$metricTitle数据',
+                style: const TextStyle(color: SaydianColors.muted),
+              )
+            else
+              for (final field in fields)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Row(
@@ -6201,13 +6247,15 @@ class _CareMetricRecordCard extends StatelessWidget {
                       SizedBox(
                         width: 94,
                         child: Text(
-                          _careFieldLabel(entry.key),
+                          field.label,
                           style: const TextStyle(color: SaydianColors.muted),
                         ),
                       ),
                       Expanded(
                         child: Text(
-                          '${_careFieldValue(entry.value)}${_careFieldUnit(entry.key)}',
+                          field.unit.isEmpty
+                              ? field.value
+                              : '${field.value} ${field.unit}',
                         ),
                       ),
                     ],
@@ -6335,22 +6383,422 @@ class _CareEcgRecordCard extends StatelessWidget {
   }
 }
 
+typedef _CareMetricDisplayField = ({String label, String value, String unit});
+
+List<_CareMetricDisplayField> _careMetricDisplayFields(
+  String title,
+  Map<String, Object?> record, {
+  String fallbackUnit = '',
+}) {
+  _CareMetricDisplayField? scalar(
+    String label,
+    List<String> keys,
+    String unit,
+  ) {
+    final value = _careMetricNumber(record, keys);
+    if (value == null) return null;
+    return (
+      label: label,
+      value: _careFormatNumber(value),
+      unit: unit.isEmpty ? fallbackUnit : unit,
+    );
+  }
+
+  switch (title) {
+    case '心率':
+      return [
+        ?scalar('心率', const [
+          'pulseReat',
+          'heartReat',
+          'heartRate',
+          'heart',
+        ], '次/分'),
+      ];
+    case '血糖':
+      return [
+        ?scalar('血糖', const [
+          'bloodGlucose',
+          'bloodSugar',
+          'glucose',
+        ], 'mmol/L'),
+      ];
+    case '血氧':
+      return [
+        ?scalar('血氧', const ['bloodOxygen', 'oxygen', 'oxygens', 'spo2'], '%'),
+      ];
+    case '体温':
+      return [
+        ?scalar('体温', const ['bodyTemperature', 'temperature', 'temp'], '℃'),
+      ];
+    case 'HRV':
+      return [
+        ?scalar('HRV', const ['HRVData', 'hrv', 'averageHRV', 'aveHrv'], 'ms'),
+      ];
+    case '血压':
+      final high = scalar('收缩压', const [
+        'bloodPressureHigh',
+        'highPressure',
+        'systolic',
+        'high',
+      ], 'mmHg');
+      final low = scalar('舒张压', const [
+        'bloodPressureLow',
+        'lowPressure',
+        'diastolic',
+        'low',
+      ], 'mmHg');
+      final pair = _careMetricPressurePair(record);
+      final pulse = scalar('脉搏', const [
+        'pulseReat',
+        'heartReat',
+        'heartRate',
+        'pulse',
+      ], '次/分');
+      return [
+        high ??
+            (pair == null
+                ? null
+                : (
+                    label: '收缩压',
+                    value: _careFormatNumber(pair.$1),
+                    unit: 'mmHg',
+                  )),
+        low ??
+            (pair == null
+                ? null
+                : (
+                    label: '舒张压',
+                    value: _careFormatNumber(pair.$2),
+                    unit: 'mmHg',
+                  )),
+        ?pulse,
+      ].whereType<_CareMetricDisplayField>().toList(growable: false);
+    case '睡眠':
+      return _careCompositeMetricFields(record, const [
+        (label: '总睡眠', keys: ['sleepMinutes', 'allSleepTime'], unit: '分钟'),
+        (label: '深睡', keys: ['deepSleep', 'deepSleepTime'], unit: '分钟'),
+        (label: '浅睡', keys: ['lightSleep', 'lightSleepTime'], unit: '分钟'),
+        (label: '清醒', keys: ['awake', 'awakeTime'], unit: '分钟'),
+      ]);
+    case '身体成分':
+      return _careCompositeMetricFields(record, const [
+        (label: 'BMI', keys: ['BMI', 'bmi'], unit: ''),
+        (label: '体脂率', keys: ['bodyFatRate', 'bodyFatPercentage'], unit: '%'),
+        (label: '脂肪量', keys: ['fatRate', 'fatMass'], unit: 'kg'),
+        (label: '去脂体重', keys: ['fatFreeRate', 'fatFreeMass'], unit: 'kg'),
+        (label: '肌肉率', keys: ['muscleRate'], unit: '%'),
+        (label: '肌肉量', keys: ['muscleMass'], unit: 'kg'),
+        (label: '皮下脂肪率', keys: ['subcutaneousFat'], unit: '%'),
+        (label: '体水分率', keys: ['bodyMoisture', 'bodyWaterRate'], unit: '%'),
+        (label: '水分量', keys: ['waterContent', 'waterMass'], unit: 'kg'),
+        (
+          label: '骨骼肌率',
+          keys: ['skeletalMuscle', 'skeletalMuscleRate'],
+          unit: '%',
+        ),
+        (label: '骨量', keys: ['boneMass'], unit: 'kg'),
+        (label: '蛋白质率', keys: ['proteinProportion', 'proteinRate'], unit: '%'),
+        (label: '蛋白质量', keys: ['proteinMass'], unit: 'kg'),
+        (
+          label: '基础代谢',
+          keys: ['basalMetabolicRate', 'basalMetabolism'],
+          unit: 'kcal/日',
+        ),
+      ]);
+    case '血液成分':
+      return _careCompositeMetricFields(record, const [
+        (label: '尿酸', keys: ['uricAcidVal', 'uricAcid'], unit: 'μmol/L'),
+        (
+          label: '总胆固醇',
+          keys: ['cholesterol', 'totalCholesterol'],
+          unit: 'mmol/L',
+        ),
+        (
+          label: '甘油三酯',
+          keys: ['triacylglycerol', 'triglycerides'],
+          unit: 'mmol/L',
+        ),
+        (
+          label: '高密度脂蛋白',
+          keys: ['highDensity', 'highDensityLipoprotein'],
+          unit: 'mmol/L',
+        ),
+        (
+          label: '低密度脂蛋白',
+          keys: ['lowDensity', 'lowDensityLipoprotein'],
+          unit: 'mmol/L',
+        ),
+      ]);
+    default:
+      final value = _careMetricNumber(record, const []);
+      if (value == null) return const [];
+      return [
+        (label: title, value: _careFormatNumber(value), unit: fallbackUnit),
+      ];
+  }
+}
+
+typedef _CareCompositeMetricSpec = ({
+  String label,
+  List<String> keys,
+  String unit,
+});
+
+List<_CareMetricDisplayField> _careCompositeMetricFields(
+  Map<String, Object?> record,
+  List<_CareCompositeMetricSpec> specs,
+) => specs
+    .map((spec) {
+      final value = _careMetricNumber(record, spec.keys, allowGeneric: false);
+      return value == null
+          ? null
+          : (
+              label: spec.label,
+              value: _careFormatNumber(value),
+              unit: spec.unit,
+            );
+    })
+    .whereType<_CareMetricDisplayField>()
+    .toList(growable: false);
+
+num? _careMetricNumber(
+  Map<String, Object?> record,
+  List<String> keys, {
+  bool allowGeneric = true,
+}) {
+  for (final source in _careMetricSources(record)) {
+    for (final key in keys) {
+      if (!source.containsKey(key)) continue;
+      final value = _carePositiveDisplayNumber(
+        source[key],
+        preferredKeys: keys,
+        allowAnyNested: true,
+      );
+      if (value != null) return value;
+    }
+  }
+  if (!allowGeneric) return null;
+  for (final source in _careMetricSources(record)) {
+    if (!source.containsKey('value')) continue;
+    final raw = source['value'];
+    if (raw is num || raw is String) {
+      final value = _carePositiveDisplayNumber(raw);
+      if (value != null) return value;
+    } else {
+      final value = _carePositiveDisplayNumber(
+        raw,
+        preferredKeys: keys,
+        allowAnyNested: false,
+      );
+      if (value != null) return value;
+    }
+  }
+  return null;
+}
+
+Iterable<Map<String, Object?>> _careMetricSources(
+  Map<String, Object?> record, [
+  int depth = 0,
+]) sync* {
+  yield record;
+  if (depth >= 2) return;
+  const wrapperKeys = [
+    'data',
+    'result',
+    'item',
+    'detail',
+    'bloodPressure',
+    'bodycomposition',
+    'bodyComposition',
+    'bloodcomposition',
+    'bloodComposition',
+    'sleepData',
+  ];
+  for (final key in wrapperKeys) {
+    final value = record[key];
+    if (value is Map) {
+      final nested = value.map((key, value) => MapEntry('$key', value));
+      yield* _careMetricSources(nested, depth + 1);
+    }
+  }
+}
+
+num? _carePositiveDisplayNumber(
+  Object? value, {
+  List<String> preferredKeys = const [],
+  bool allowAnyNested = true,
+}) {
+  if (value is num) {
+    return value.isFinite && value > 0 ? value : null;
+  }
+  if (value is String) {
+    final parsed = num.tryParse(value.trim());
+    return parsed != null && parsed.isFinite && parsed > 0 ? parsed : null;
+  }
+  if (value is List) {
+    for (final item in value) {
+      final parsed = _carePositiveDisplayNumber(
+        item,
+        preferredKeys: preferredKeys,
+        allowAnyNested: allowAnyNested,
+      );
+      if (parsed != null) return parsed;
+    }
+    return null;
+  }
+  if (value is Map) {
+    for (final key in preferredKeys) {
+      if (!value.containsKey(key)) continue;
+      final parsed = _carePositiveDisplayNumber(
+        value[key],
+        preferredKeys: preferredKeys,
+        allowAnyNested: allowAnyNested,
+      );
+      if (parsed != null) return parsed;
+    }
+    for (final key in const ['value', 'num']) {
+      if (!value.containsKey(key)) continue;
+      final parsed = _carePositiveDisplayNumber(
+        value[key],
+        preferredKeys: preferredKeys,
+        allowAnyNested: allowAnyNested,
+      );
+      if (parsed != null) return parsed;
+    }
+    if (allowAnyNested) {
+      for (final nested in value.values) {
+        final parsed = _carePositiveDisplayNumber(
+          nested,
+          preferredKeys: preferredKeys,
+          allowAnyNested: true,
+        );
+        if (parsed != null) return parsed;
+      }
+    }
+  }
+  return null;
+}
+
+(num, num)? _careMetricPressurePair(Map<String, Object?> record) {
+  final high = _careMetricNumber(record, const [
+    'bloodPressureHigh',
+    'highPressure',
+    'systolic',
+    'high',
+  ], allowGeneric: false);
+  final low = _careMetricNumber(record, const [
+    'bloodPressureLow',
+    'lowPressure',
+    'diastolic',
+    'low',
+  ], allowGeneric: false);
+  if (high != null && low != null) return (high, low);
+  final raw = record['bloodPressure'];
+  if (raw is List && raw.length >= 2) {
+    final first = _carePositiveDisplayNumber(raw[0]);
+    final second = _carePositiveDisplayNumber(raw[1]);
+    if (first != null && second != null) return (first, second);
+  }
+  if (raw is String) {
+    final match = RegExp(
+      r'^\s*(\d{2,3}(?:\.\d+)?)\s*[/,\-]\s*(\d{2,3}(?:\.\d+)?)\s*$',
+    ).firstMatch(raw);
+    if (match != null) {
+      final first = num.tryParse(match.group(1)!);
+      final second = num.tryParse(match.group(2)!);
+      if (first != null && second != null && first > 0 && second > 0) {
+        return (first, second);
+      }
+    }
+  }
+  return null;
+}
+
+Map<String, String> _careMetricDaySummary(
+  String title,
+  List<Map<String, Object?>> records,
+) {
+  final result = <String, String>{'记录数': '${records.length} 条'};
+  if (title == '心电' || title == '身体成分' || title == '血液成分') {
+    return result;
+  }
+  if (title == '血压') {
+    final values = records
+        .map(_careMetricPressurePair)
+        .whereType<(num, num)>()
+        .toList(growable: false);
+    if (values.isEmpty) return result;
+    String pair(num high, num low) =>
+        '${_careFormatNumber(high)}/${_careFormatNumber(low)} mmHg';
+    result['最近'] = pair(values.last.$1, values.last.$2);
+    result['平均'] = pair(
+      values.map((value) => value.$1).reduce((a, b) => a + b) / values.length,
+      values.map((value) => value.$2).reduce((a, b) => a + b) / values.length,
+    );
+    result['最高'] = pair(
+      values.map((value) => value.$1).reduce(math.max),
+      values.map((value) => value.$2).reduce(math.max),
+    );
+    result['最低'] = pair(
+      values.map((value) => value.$1).reduce(math.min),
+      values.map((value) => value.$2).reduce(math.min),
+    );
+    return result;
+  }
+  final keys = switch (title) {
+    '心率' => const ['pulseReat', 'heartReat', 'heartRate', 'heart'],
+    '血糖' => const ['bloodGlucose', 'bloodSugar', 'glucose'],
+    '血氧' => const ['bloodOxygen', 'oxygen', 'oxygens', 'spo2'],
+    '体温' => const ['bodyTemperature', 'temperature', 'temp'],
+    'HRV' => const ['HRVData', 'hrv', 'averageHRV', 'aveHrv'],
+    '睡眠' => const ['sleepMinutes', 'allSleepTime'],
+    _ => const <String>[],
+  };
+  final values = records
+      .map((record) => _careMetricNumber(record, keys))
+      .whereType<num>()
+      .toList(growable: false);
+  if (values.isEmpty) return result;
+  final unit = switch (title) {
+    '心率' => '次/分',
+    '血糖' => 'mmol/L',
+    '血氧' => '%',
+    '体温' => '℃',
+    'HRV' => 'ms',
+    '睡眠' => '分钟',
+    _ => '',
+  };
+  String format(num value) => unit.isEmpty
+      ? _careFormatNumber(value)
+      : '${_careFormatNumber(value)} $unit';
+  result['最近'] = format(values.last);
+  result['平均'] = format(values.reduce((a, b) => a + b) / values.length);
+  result['最高'] = format(values.reduce(math.max));
+  result['最低'] = format(values.reduce(math.min));
+  return result;
+}
+
 String _careRecordTimeLabel(Map<String, Object?> record) {
-  final raw =
-      record['time'] ??
-      record['hourse'] ??
-      record['h'] ??
-      record['date'] ??
-      record['timestamp'] ??
-      record['measuredAt'] ??
-      record['created_at'];
+  Object? raw;
+  for (final key in const [
+    'time',
+    'hourse',
+    'h',
+    'date',
+    'timestamp',
+    'measuredAt',
+    'created_at',
+  ]) {
+    final candidate = record[key];
+    if (candidate == null || '$candidate'.trim().isEmpty) continue;
+    raw = candidate;
+    break;
+  }
   if (raw == null) return '';
   if (raw is num) return _careNumericTimeLabel(raw);
 
   final text = '$raw'.trim();
-  if (text.isEmpty) return '';
   if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(text)) return '';
-
   final clock = RegExp(r'^(\d{1,2}):(\d{2})(?::(\d{2}))?$').firstMatch(text);
   if (clock != null) {
     final hour = int.parse(clock.group(1)!);
@@ -6359,17 +6807,18 @@ String _careRecordTimeLabel(Map<String, Object?> record) {
     if (hour < 24 && minute < 60 && second < 60) {
       return _careClockLabel(hour, minute, second);
     }
+    return '';
   }
-
   final numeric = num.tryParse(text);
   if (numeric != null) return _careNumericTimeLabel(numeric);
-
   final parsed = DateTime.tryParse(text.replaceFirst(' ', 'T'));
-  if (parsed == null) return text;
-  return _careClockLabel(parsed.hour, parsed.minute, parsed.second);
+  return parsed == null
+      ? ''
+      : _careClockLabel(parsed.hour, parsed.minute, parsed.second);
 }
 
 String _careNumericTimeLabel(num value) {
+  if (!value.isFinite || value < 0) return '';
   final numeric = value.toInt();
   if (value == numeric && numeric >= 0 && numeric < 24) {
     return _careClockLabel(numeric, 0, 0);
@@ -6381,7 +6830,7 @@ String _careNumericTimeLabel(num value) {
     parsed = DateTime.fromMillisecondsSinceEpoch(numeric * 1000);
   }
   return parsed == null
-      ? _careFieldValue(value)
+      ? ''
       : _careClockLabel(parsed.hour, parsed.minute, parsed.second);
 }
 
@@ -6391,49 +6840,6 @@ String _careClockLabel(int hour, int minute, int second) {
       '${minute.toString().padLeft(2, '0')}';
   return second == 0 ? base : '$base:${second.toString().padLeft(2, '0')}';
 }
-
-String _careFieldLabel(String key) =>
-    const <String, String>{
-      'value': '数值',
-      'pulseReat': '心率',
-      'bloodOxygen': '血氧',
-      'bloodGlucose': '血糖',
-      'bodyTemperature': '体温',
-      'HRVData': 'HRV',
-      'highPressure': '收缩压',
-      'lowPressure': '舒张压',
-      'systolic': '收缩压',
-      'diastolic': '舒张压',
-      'bloodPressureHigh': '收缩压',
-      'bloodPressureLow': '舒张压',
-      'uricAcidVal': '尿酸',
-      'cholesterol': '总胆固醇',
-      'triacylglycerol': '甘油三酯',
-      'highDensity': '高密度脂蛋白',
-      'lowDensity': '低密度脂蛋白',
-      'name': '项目',
-    }[key] ??
-    key;
-
-String _careFieldUnit(String key) => switch (key) {
-  'uricAcidVal' => ' μmol/L',
-  'cholesterol' ||
-  'triacylglycerol' ||
-  'highDensity' ||
-  'lowDensity' => ' mmol/L',
-  'pulseReat' => ' 次/分',
-  'bloodOxygen' => ' %',
-  'bloodGlucose' => ' mmol/L',
-  'bodyTemperature' => ' ℃',
-  'HRVData' => ' ms',
-  'highPressure' ||
-  'lowPressure' ||
-  'systolic' ||
-  'diastolic' ||
-  'bloodPressureHigh' ||
-  'bloodPressureLow' => ' mmHg',
-  _ => '',
-};
 
 String _careFieldValue(Object? value) {
   if (value is num) return _careFormatNumber(value);

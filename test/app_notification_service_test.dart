@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -65,7 +66,25 @@ void main() {
     await service.activateAfterPrivacyConsent();
     expect(service.isActivated, isTrue);
     expect(jpush.setupCount, 1);
+    expect(jpush.lastSetupDebug, isFalse);
     expect(jpush.authValues, [true]);
+  });
+
+  test('vendored Android JPush setup never logs its arguments', () {
+    final source = File(
+      'third_party/jpush_flutter/android/src/main/java/'
+      'com/jiguang/jpush/JPushPlugin.java',
+    ).readAsStringSync();
+    final setupStart = source.indexOf('public void setup(');
+    final setupEnd = source.indexOf('\n    public void ', setupStart + 1);
+
+    expect(setupStart, greaterThanOrEqualTo(0));
+    expect(setupEnd, greaterThan(setupStart));
+    final setupBlock = source.substring(setupStart, setupEnd);
+    expect(
+      RegExp(r'Log\.[^(]+\([^;]*call\.arguments').hasMatch(setupBlock),
+      isFalse,
+    );
   });
 
   test('registration id has a short bounded timeout', () async {
@@ -82,6 +101,66 @@ void main() {
     final stopwatch = Stopwatch()..start();
     expect(await service.registrationId(), isNull);
     expect(stopwatch.elapsed, lessThan(const Duration(seconds: 1)));
+  });
+
+  test(
+    'registration id reuses one native request while it is pending',
+    () async {
+      final registration = Completer<String>();
+      final jpush = _FakeJPush(registrationId: registration.future);
+      final service = JPushAppNotificationService(
+        jpush: jpush,
+        appKey: 'test-app-key',
+        registrationTimeout: const Duration(milliseconds: 20),
+      );
+      addTearDown(service.dispose);
+      await service.activateAfterPrivacyConsent();
+
+      expect(await service.registrationId(), isNull);
+      expect(await service.registrationId(), isNull);
+      expect(jpush.registrationIdReadCount, 1);
+
+      registration.complete('registration-test');
+      await Future<void>.delayed(Duration.zero);
+    },
+  );
+
+  test('connected callback requests a fresh device registration', () async {
+    final jpush = _FakeJPush();
+    final service = JPushAppNotificationService(
+      jpush: jpush,
+      appKey: 'test-app-key',
+    );
+    addTearDown(service.dispose);
+    await service.activateAfterPrivacyConsent();
+    final ready = service.registrationReadyEvents.first;
+
+    await jpush.emitConnected(true);
+
+    await ready.timeout(const Duration(seconds: 1));
+  });
+
+  test('connected callback accepts native numeric result payload', () async {
+    final jpush = _FakeJPush();
+    final service = JPushAppNotificationService(
+      jpush: jpush,
+      appKey: 'test-app-key',
+    );
+    addTearDown(service.dispose);
+    await service.activateAfterPrivacyConsent();
+    var readyCount = 0;
+    final subscription = service.registrationReadyEvents.listen(
+      (_) => readyCount++,
+    );
+    addTearDown(subscription.cancel);
+
+    await jpush.emitConnected(0);
+    await Future<void>.delayed(Duration.zero);
+    expect(readyCount, 0);
+
+    await jpush.emitConnected(1);
+    await Future<void>.delayed(Duration.zero);
+    expect(readyCount, 1);
   });
 
   test(
@@ -183,11 +262,14 @@ final class _FakeJPush extends JPushFlutterInterface {
   final List<bool> authValues = [];
   int handlerInstallCount = 0;
   int setupCount = 0;
+  bool? lastSetupDebug;
   int launchNotificationReadCount = 0;
+  int registrationIdReadCount = 0;
   bool notificationEnabled = false;
   EventHandler? _authorizationHandler;
   EventHandler? _receiveNotificationHandler;
   EventHandler? _receiveMessageHandler;
+  EventHandler? _connectedHandler;
 
   Future<void> emitAuthorization(bool enabled) async {
     notificationEnabled = enabled;
@@ -199,6 +281,9 @@ final class _FakeJPush extends JPushFlutterInterface {
 
   Future<void> emitMessage(Map<String, Object?> payload) async =>
       _receiveMessageHandler?.call(Map<String, dynamic>.from(payload));
+
+  Future<void> emitConnected(Object connected) async =>
+      _connectedHandler?.call(<String, dynamic>{'result': connected});
 
   @override
   void addEventHandler({
@@ -219,6 +304,7 @@ final class _FakeJPush extends JPushFlutterInterface {
     _authorizationHandler = onReceiveNotificationAuthorization;
     _receiveNotificationHandler = onReceiveNotification;
     _receiveMessageHandler = onReceiveMessage;
+    _connectedHandler = onConnected;
   }
 
   @override
@@ -232,6 +318,7 @@ final class _FakeJPush extends JPushFlutterInterface {
     bool debug = false,
   }) {
     setupCount++;
+    lastSetupDebug = debug;
   }
 
   @override
@@ -253,7 +340,10 @@ final class _FakeJPush extends JPushFlutterInterface {
   void setUnShowAtTheForeground({bool unShow = false}) {}
 
   @override
-  Future<String> getRegistrationID() => _registrationId;
+  Future<String> getRegistrationID() {
+    registrationIdReadCount++;
+    return _registrationId;
+  }
 
   @override
   Future<Map<dynamic, dynamic>> getLaunchAppNotification() async {

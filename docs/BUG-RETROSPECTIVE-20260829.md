@@ -59,12 +59,19 @@
 ## 验证证据
 
 - `flutter analyze --no-pub`：零问题。
-- `TZ=UTC flutter test --no-pub` 与 `TZ=Asia/Shanghai flutter test --no-pub`：各 310/310 通过；UTC 午夜测试夹具已修复，`flutter analyze --no-pub` 零问题。
-- 发布 Python 测试 18/18、Android 原生门禁测试 5/5、iOS RunnerTests 18/18 通过。
+- `TZ=UTC flutter test --no-pub` 与 `TZ=Asia/Shanghai flutter test --no-pub`：各 326/326 通过；UTC 午夜测试夹具已修复，`flutter analyze --no-pub` 零问题。
+- 发布 Python 测试 18/18、Android 原生门禁测试 5/5 通过；iOS RunnerTests 同日较早批次 18/18，最终工作区重跑被 XCTest 框架签名阻断，18 项未执行。
 - Android Debug、显式 QA Release APK/AAB 及 iOS Debug/Profile、显式 QA Release 无签名构建通过；未配置生产资源的普通 Release 按预期失败关闭。
-- Android QA Release 覆盖安装保留登录、本地健康数据、设置和设备绑定；旧血压 `136/81 mmHg`、心率 `84 次/分`、体温 `36.5℃` 恢复可见，W9S 显示真实 MAC、电量 `100%`，表盘商城 161 款且缩略图可见；未发现本应用 `FATAL EXCEPTION` 或 ANR。
-- iPhone 12 / iOS 18.7.8 可用：签名 Debug 三次独立启动存活且无新增崩溃日志，Xcode 真实连接 `SD-Watch-W9` 并读取电量 `98%`，RunnerTests 18/18。签名 Profile 因缺 APNs entitlement/provisioning 被阻断；UI integration 最终为 `No tests ran`，不能写通过。
-- iPhone 15 Pro Max 本轮未连接，未执行本轮回归，不得沿用旧轮次结果写成通过。
+- Android QA Release 覆盖安装保留登录、本地健康数据、设置和设备绑定；历史健康记录恢复可见（数值已脱敏），W9S 显示真实 MAC、电量 `100%`，表盘商城 161 款且缩略图可见；未发现本应用 `FATAL EXCEPTION` 或 ANR。
+- MED Android 已扫描并连接 ET488、W9S、W8：ET488 在线目录 215 款，W9S 在线目录 161 款且 `dialShape=58`，W8 只读 5 个已安装表盘且无虚假预览。
+- 最终 W8 重连读取电量 `85%`、未充电；该次连接无 GATT 133，捷理敏感对象日志计数为 0。相机系统策略禁用时明确提示并禁用快门，权限恢复后功能恢复。
+- 真实远程成员 HRV 页面复测为 4 条纯 HRV 记录，无混入字段或 `-1` 时间；关于页异常短值回退为本地安全说明。
+- W9S 心电启动/停止均收到 ACK；测试时未佩戴，没有有效波形，只能认定命令链路通过。
+- Android JPush 注册与 TCP 连接成功且控制台包名匹配；服务端推送接口和业务事件链路未提供，不能认定通知端到端通过。
+- iPhone 12 / iOS 18.7.8 较早批次可用：签名 Debug 三次独立启动存活且无新增崩溃日志，Xcode 真实连接 `SD-Watch-W9` 并读取电量 `98%`，当时 RunnerTests 18/18。最终重跑因 `errSecInternalComponent` 未执行；签名 Profile 因缺 APNs entitlement/provisioning 被阻断，UI integration 最终为 `No tests ran`，均不能写最终通过。
+- iOS 极光控制台没有与 Bundle 匹配的 APNs 证书配置；后续手机重新要求信任开发证书，UI 补充取证暂停。
+- iPhone 15 Pro Max 收尾阶段已连接，旧版 `0.1.19 (23)` 可启动并稳定 30 秒；最终包因 Xcode `No Accounts` 和 Provisioning Profile 未包含该设备而安装失败，不得把旧包结果写成最终代码通过。
+- 第二台 JAD Android 已存在 `0.1.19 (23)`，但物理 PIN 锁定，本轮未能打开 App 或完成独立调试。
 
 真实在线表盘传输、有效心电电极波形和非零运动记录，必须以最终现场结果更新实施日志，未完成前不得写“真机通过”。
 
@@ -98,6 +105,12 @@
 | Android Release 带入高风险权限或 ABI 门禁被一刀切关闭 | 插件 Manifest 合并未审计；JCore 锁定版本只提供单架构可选库 | Release 显式移除后台定位、读取电话状态和查询全部应用权限；ABI 只允许锁定 JPush/JCore 组合下 `libjutils.so` 精确例外，版本或文件集合变化立即失败 |
 | 发布时清单与 APK 不一致，或失败后线上停在半成品 | 并发发布缺少互斥和条件写入，覆盖前也没有可验证回滚点 | 发布必须使用互斥锁和基于线上清单哈希的 CAS；先发布不可变产物，再原子替换清单；公开地址验证失败时立即恢复旧清单并再次验证，锁冲突或 CAS 不一致直接停线，过期锁只能按明确的恢复流程处理 |
 | 真机表盘测试改变了用户原表盘 | 临时安装前没有记录原表盘，结束时也没有回读确认恢复 | 临时表盘测试必须记录设备、时间、原表盘路径/ID、目标表盘和操作结果；验收结束恢复原表盘并回读确认，恢复失败立即登记为阻断，不得声称测试完成 |
+| 远程关爱指标详情混入整行字段 | 通用详情卡遍历远端整行，未按当前指标投影；无效时间又被直接格式化 | 详情必须使用指标白名单和中文单位；HRV 只显示 HRV，血压拆收缩/舒张，标量指标互不混入，复合指标只保留相关子项；负数/无效时间显示记录序号；当日摘要不得扩展成伪周/月趋势 |
+| 关于页遇到异常短文本或脏数据显示异常 | 页面缺少异常长度和非预期响应的防御性回退 | 远端文案必须先校验结构和最小可用内容；异常时显示本地安全回退，不截取、不拼接未经确认的数据；客户端修复后仍需异常样本复测 |
+| W8 相机被系统策略禁用时保持黑屏 | 系统明确拒绝相机能力，但页面没有把不可用原因转成用户提示 | 系统策略拒绝必须结束加载并显示明确提示；不得保持黑屏或伪称设备相机已打开；客户端修复后已完成禁用与恢复两段真机复测 |
+| JPush 插件日志回显客户端标识 | 上游 Android 插件无条件记录完整 `setup` 参数，SDK Debug 模式还会增加底层日志 | 锁定本地 `jpush_flutter 3.5.1` 源码并移除参数日志；厂商详细日志在所有构建模式关闭，只保留脱敏连接/重试状态；最终真机日志确认 AppKey 精确值和 Registration ID 形态均未出现 |
+| 心电命令 ACK 被误写成波形通过 | ACK 只表示设备接受启动/停止命令，未佩戴或接触不良不会产生有效波形 | 心电验收必须分为命令 ACK、佩戴/接触、实时样本、波形质量、保存和历史同步；缺任一环节都不能写完整通过 |
+| Android JPush 在线被误当成业务推送完成 | SDK 注册/TCP 只覆盖客户端到极光传输层，不能替代服务端设备登记、Outbox 和目标账号投递 | 推送结论分传输层、平台配置、服务端事件和双账号到达四层记录；不得在文档中保存 AppKey、RID、Token 或 AuthKey |
 | 本机 ShellCheck 通过但 CI 报 `SC2015` | 本机与 GitHub Runner 的 ShellCheck 版本或信息级退出策略不同；脚本使用了容易被误读为 if/else 的 `A && B || C` | 发布脚本统一使用显式 `if/then/fi`，不依赖短路表达式模拟分支；以远端固定 CI 结果为最终门禁，本机工具版本差异不得作为忽略 CI 的理由 |
 | 本机 Actionlint 通过但 CI 误报 `macos-26` 为未知 Runner | 本机为 1.7.12，CI 仍锁定 1.7.7；旧版 Runner 标签目录没有 GitHub 已上线的 `macos-26` | CI 与本机必须共用明确的 Actionlint 版本；新增 GitHub Runner 标签时先在远端固定版本重现，工具升级和工作流变更放在同一个提交验证，不用忽略规则掩盖真实错误 |
 
@@ -116,3 +129,5 @@
 - v5 遗留数据可被非升级时已持久化账号认领、认领不是单一事务，或首次未登录迁移后未写 secure-vault marker。
 - iOS 表盘目录绕过原生 Veepoo 会话，或电量、同步、测量、传输可并发占用 SDK 命令通道。
 - 更新页可绕过根 Gate，或清单、APK 的最终重定向地址未重新执行同源 HTTPS 校验。
+- 只取得心电命令 ACK、JPush TCP 在线或客户端修复，却把有效波形、业务通知或真机场景写成通过。
+- 交接资料包含 AppKey、RID、Token、AuthKey 或其他可复用推送凭据。

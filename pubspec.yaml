@@ -48,6 +48,10 @@ dev_dependencies:
 # The vendored copy only removes application-wide R8 options that AGP rejects
 # when they are declared from an Android library's consumer ProGuard file.
 dependency_overrides:
+  # Keep the required 3.5.1 plugin reproducible and suppress its Android
+  # setup-argument log, which otherwise exposes the configured AppKey.
+  jpush_flutter:
+    path: third_party/jpush_flutter
   jpush_flutter_android:
     path: third_party/jpush_flutter_android
 

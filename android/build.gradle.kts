@@ -1,3 +1,22 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        val huaweiPushEnabled =
+            System.getenv("JPUSH_VENDOR_CHANNELS")
+                .orEmpty()
+                .split(',')
+                .any { it.trim().equals("huawei", ignoreCase = true) }
+        if (huaweiPushEnabled) {
+            // AGConnect 1.x still verifies that the legacy buildscript
+            // classpath declares the Android Gradle Plugin coordinate.
+            classpath("com.android.tools.build:gradle:9.0.1")
+        }
+    }
+}
+
 allprojects {
     repositories {
         maven("https://maven.aliyun.com/repository/google")

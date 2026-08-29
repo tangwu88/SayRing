@@ -4,9 +4,13 @@
 
 截至 2026-08-29，正式发布资源尚未配置，不应发布生产包或生产更新清单，也不得把当前状态写成“正式上线通过”。
 
-客户端和本地门禁当前证据为：Flutter 双时区各 310/310、发布 Python 18/18、Android 原生 5/5、iOS RunnerTests 18/18；Android QA Release 覆盖安装后旧健康数据恢复，W9S 的真实 MAC、电量 `100%`、161 款表盘目录和缩略图可见，且未发现崩溃。上述证据只说明客户端与 QA 构建链可用，不能替代生产凭据、服务端接口、正式签名、公开更新源和商店验收。
+客户端和本地门禁当前证据为：Flutter 双时区各 326/326、发布 Python 18/18、Android 原生 5/5；iOS RunnerTests 同日较早批次 18/18，但最终工作区重跑被 XCTest 框架签名阻断，18 项未执行。Android QA Release 覆盖安装后历史健康数据恢复，W9S 的真实 MAC 格式、电量 `100%`、161 款表盘目录和缩略图可见，且未发现崩溃。上述证据只说明客户端与 QA 构建链可用，不能替代生产凭据、服务端接口、正式签名、公开更新源和商店验收。
 
-iPhone 12 本轮可用：签名 Debug 三次独立启动存活且无新增崩溃日志，Xcode 连接 `SD-Watch-W9` 并读取电量 `98%`。签名 Profile 因当前 Provisioning Profile 缺少 APNs entitlement 被阻断；UI integration 最终为 `No tests ran`，不计为通过。iPhone 15 Pro Max 未连接，未执行本轮真机回归。
+Android 现场补充证明：MED 可扫描连接 ET488、W9S、W8；ET488 目录 215 款，W9S 目录 161 款且 `dialShape=58`，W8 只读 5 个已安装表盘且无虚假预览，最终代码读取 W8 电量 `85%`。真实成员 HRV、关于页回退和 W8 相机禁用/恢复均完成真机复测。Android JPush SDK 注册和 TCP 连接成功、控制台包名匹配，但控制台集成度仍为 `--`，这只证明传输层，不解除服务端接口和业务通知阻断。
+
+最终 Android APK 已使用本地锁定的 `jpush_flutter 3.5.1` 移除上游 `setup` 参数日志；真机日志未出现 AppKey 精确值或 Registration ID 形态。`onConnected=true` 后设备登记仍进入 `retryScheduled / server_rejected`，因此服务器阻断结论不变。
+
+iPhone 12 较早批次可用：签名 Debug 三次独立启动存活且无新增崩溃日志，Xcode 连接 `SD-Watch-W9` 并读取电量 `98%`。签名 Profile 因当前 Provisioning Profile 缺少 APNs entitlement 被阻断，极光控制台也没有与 Bundle 匹配的 APNs 证书配置；后续开发证书重新信任又阻断 UI 补充取证。UI integration 最终为 `No tests ran`，不计为通过。iPhone 15 Pro Max 收尾时已连接，旧版 `0.1.19 (23)` 启动稳定 30 秒，但最终包因 Xcode `No Accounts` 且 Profile 不包含该设备而安装失败；第二台 JAD Android 仍被物理 PIN 锁定。两台设备均未完成最终代码回归。
 
 本轮早期已通过 GitHub CLI 只读检查确认：
 
@@ -23,8 +27,10 @@ iPhone 12 本轮可用：签名 Debug 三次独立启动存活且无新增崩溃
 - [ ] 提供同时覆盖 App 标识与 APNs entitlement 的 iOS Provisioning Profile；当前签名 Profile 因该能力缺失无法完成真机验收。
 - [ ] 提供长期稳定的 Android 正式 keystore、alias、密码和独立核对的证书 SHA-256。
 - [ ] 确认线上已安装版本的证书是否与该正式证书一致；不一致时无法直接覆盖升级。
-- [ ] 提供包名 `cc.saidian.app` 对应的 JPush AppKey。
+- [ ] 将包名 `cc.saidian.app` 对应的生产 JPush 配置注入受保护 Environment；现场调试配置不得作为 CI 生产凭据，也不得写入仓库或交接文档。
 - [ ] 在极光后台完成 iOS APNs 证书或 Token 配置，以及服务端发送凭据配置；不得把 Master Secret 提交到 App 或 Git。
+- [ ] 在极光控制台建立与 `cc.saidian.app` Bundle 匹配的 APNs 配置；当前控制台没有匹配项。
+- [ ] 完成极光 HarmonyOS 应用包名、Server Key/JSON 配置；当前 HarmonyOS 页面仍为空，不能计入鸿蒙推送覆盖。
 - [ ] 明确量产首发需要的 Android 厂商通道；选中的 Huawei、Xiaomi、Oppo、Vivo、Honor 等通道必须提供完整凭据。
 - [ ] 提供可无鉴权 HTTPS 下载 APK 和 JSON 的公网域名。
 - [ ] 提供发布目录、最小权限 SSH 账号、私钥和经核对的 known_hosts。
@@ -63,6 +69,8 @@ ABI 将 JCore 降级到不满足要求的版本。
 - [ ] 关爱邀请创建返回稳定 `invitation_id`，同一事务写通知 Outbox 并触发极光/APNs 推送。
 
 2026-08-29 只读请求确认：推送设备登记/解绑、未读数和已读路由均返回业务 `code:404`，尚未部署。现有 `/api/v1/member/notify` 在未授权访问时返回业务 `code:500` 并暴露 Yii 文件路径/堆栈；服务端需改为统一 401/403 错误并关闭生产堆栈输出。
+
+Android JPush SDK 注册和 TCP 已连通，控制台包名匹配；没有执行或记录任何敏感凭据。该结果不能替代下列业务闭环：登录账号登记 installation、邀请/预警 Outbox、目标账号推送、点击后回源、已读同步和退出解绑。
 
 在接口、极光/APNs 和双账号生产网络验证完成前，“关爱邀请及健康预警 10 秒内到达”不能验收。前台轮询和应用内红点不能替代后台即时推送结论。
 

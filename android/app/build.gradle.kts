@@ -64,6 +64,22 @@ val jpushVendorChannels =
         .orNull
         ?.trim()
         .orEmpty()
+val enabledJpushVendorChannels =
+    jpushVendorChannels
+        .split(',')
+        .map { it.trim().lowercase() }
+        .filter(String::isNotEmpty)
+        .toSet()
+val huaweiPushEnabled = "huawei" in enabledJpushVendorChannels
+if (huaweiPushEnabled) {
+    val huaweiConfig = file("agconnect-services.json")
+    if (!huaweiConfig.isFile) {
+        throw GradleException(
+            "Huawei push is enabled but android/app/agconnect-services.json is missing",
+        )
+    }
+    apply(from = "huawei-agconnect.gradle")
+}
 val productionSigningValues =
     listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
         .associateWith { signingProperties.getProperty(it)?.trim().orEmpty() }

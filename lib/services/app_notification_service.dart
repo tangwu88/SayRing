@@ -14,6 +14,7 @@ abstract interface class AppNotificationService {
   Stream<Map<String, Object?>> get receivedEvents;
   Stream<Map<String, Object?>> get openedEvents;
   Stream<bool> get permissionChanges;
+  Stream<void> get registrationReadyEvents;
 
   Future<void> initialize();
   Future<void> activateAfterPrivacyConsent();
@@ -70,10 +71,14 @@ final class JPushAppNotificationService implements AppNotificationService {
       StreamController.broadcast();
   final StreamController<bool> _permissionChanges =
       StreamController.broadcast();
+  final StreamController<void> _registrationReady =
+      StreamController.broadcast();
   bool _handlersInitialized = false;
   bool _setupCompleted = false;
   bool _active = false;
+  bool _nativeConnected = false;
   Future<void>? _activation;
+  Future<String?>? _registrationLookup;
   Future<void>? _launchNotificationLookup;
   bool _launchNotificationChecked = false;
   Completer<bool>? _permissionDecision;
@@ -92,6 +97,9 @@ final class JPushAppNotificationService implements AppNotificationService {
 
   @override
   Stream<bool> get permissionChanges => _permissionChanges.stream;
+
+  @override
+  Stream<void> get registrationReadyEvents => _registrationReady.stream;
 
   @override
   Future<void> initialize() async {
@@ -125,7 +133,7 @@ final class JPushAppNotificationService implements AppNotificationService {
         deliveryKind: 'data',
         systemAlreadyPresented: false,
       ),
-      onConnected: (_) async {},
+      onConnected: (value) async => _handleConnection(value),
       onInAppMessageClick: (value) async => _emit(
         value,
         _opened,
@@ -183,12 +191,17 @@ final class JPushAppNotificationService implements AppNotificationService {
         appKey: _configuredAppKey,
         channel: 'production',
         production: kReleaseMode,
-        debug: kDebugMode,
+        // The vendor SDK prints AppKey and Registration ID when its debug
+        // logger is enabled. Connection state is already exposed through the
+        // sanitized onConnected/registration state maintained by this service,
+        // so verbose native logging must stay disabled in every build mode.
+        debug: false,
       );
       _setupCompleted = true;
     }
     _jpush.setUnShowAtTheForeground(unShow: false);
     _active = true;
+    if (_nativeConnected) _emitRegistrationReady();
     unawaited(_consumeLaunchNotificationIfNeeded());
   }
 
@@ -235,6 +248,7 @@ final class JPushAppNotificationService implements AppNotificationService {
     }
     if (!_active) return;
     _active = false;
+    _nativeConnected = false;
     try {
       await _jpush.stopPush().timeout(_registrationTimeout);
     } catch (_) {
@@ -246,10 +260,24 @@ final class JPushAppNotificationService implements AppNotificationService {
   @override
   Future<String?> registrationId() async {
     if (!isConfigured || !_active) return null;
+    var operation = _registrationLookup;
+    if (operation == null) {
+      operation = _readRegistrationId();
+      _registrationLookup = operation;
+      unawaited(
+        operation.whenComplete(() {
+          if (identical(_registrationLookup, operation)) {
+            _registrationLookup = null;
+          }
+        }),
+      );
+    }
+    return operation.timeout(_registrationTimeout, onTimeout: () => null);
+  }
+
+  Future<String?> _readRegistrationId() async {
     try {
-      final value = (await _jpush.getRegistrationID().timeout(
-        _registrationTimeout,
-      )).trim();
+      final value = (await _jpush.getRegistrationID()).trim();
       return value.isEmpty ? null : value;
     } catch (_) {
       return null;
@@ -422,12 +450,24 @@ final class JPushAppNotificationService implements AppNotificationService {
     if (!_permissionChanges.isClosed) _permissionChanges.add(enabled);
   }
 
+  void _handleConnection(Map<String, dynamic> value) {
+    final raw = value['result'] ?? value['connected'] ?? value['isConnected'];
+    _nativeConnected =
+        raw == true || raw == 1 || '$raw'.trim().toLowerCase() == 'true';
+    if (_nativeConnected && _active) _emitRegistrationReady();
+  }
+
+  void _emitRegistrationReady() {
+    if (!_registrationReady.isClosed) _registrationReady.add(null);
+  }
+
   @override
   Future<void> dispose() async {
     await deactivate();
     await _received.close();
     await _opened.close();
     await _permissionChanges.close();
+    await _registrationReady.close();
   }
 }
 
@@ -444,6 +484,8 @@ final class DisabledAppNotificationService implements AppNotificationService {
   Stream<Map<String, Object?>> get openedEvents => const Stream.empty();
   @override
   Stream<bool> get permissionChanges => const Stream.empty();
+  @override
+  Stream<void> get registrationReadyEvents => const Stream.empty();
   @override
   Future<void> initialize() async {}
   @override

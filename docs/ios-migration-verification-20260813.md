@@ -69,7 +69,7 @@ APK v2 签名验证通过，仍使用 Android Debug 证书，仅供内部调试�
 - 签名 Profile 包于 17:20 冷启动后进入后台约 83 秒，Runner PID 1537 持续存活；延长观察期间没有生成新的 Runner 崩溃报告，进一步排除业务包稳定性问题。
 - Profile 冷启动及再次回到前台时，SDK 两次均输出 `BT status: 0`；这与应用回读的 `paired=false` 一致，确认通话蓝牙仍阻塞在 iOS 系统配对层，不是 Flutter 页面状态未刷新。
 - 用户确认配对后于 18:02、18:03 再次真机冷启动、重连并发起通话连接；普通 BLE 已连接 ET488，但 SDK 仍输出 `BT status: 0`。项目 SDK 头文件定义 0 为“未连接”，App 回读仍为 `enabled=true`、`paired=false`、`audioEnabled=false`，需以 iOS 蓝牙列表显示的实际连接状态继续区分系统 HFP 未连接与厂商 SDK 状态异常。
-- 20:47 使用独立 Profile 真机探针再次冷启动并调用官方 `veepooSDK_openDeviceBTSwitch()`。ET488 认证、电量 84% 和通话地址 `5C:8B:BC:6F:26:FC` 读取正常，12 秒后最终状态仍为 `enabled=true`、`paired=false`、`audioEnabled=false`、`connectionStatus=disconnected`。
+- 20:47 使用独立 Profile 真机探针再次冷启动并调用官方 `veepooSDK_openDeviceBTSwitch()`。ET488 认证、电量 84% 和通话地址 `<MAC 已脱敏>` 读取正常，12 秒后最终状态仍为 `enabled=true`、`paired=false`、`audioEnabled=false`、`connectionStatus=disconnected`。
 - 同期 iOS `bluetoothd` 显示 ET488 `classicPaired=1`、`lePaired=1`，但连接集合仅为 `BLE`，没有 `HFP`。这说明系统保存了经典蓝牙配对信息，但通话服务未实际建立；Flutter 状态与厂商 SDK、iOS 系统日志三方一致。
 - 21:03 在 iOS 蓝牙列表点按 ET488 重新连接后，系统进一步上报 `classicPaired=0`、`lePaired=1`；仍未出现 HFP 路由。由此确认当前只保留低功耗蓝牙配对，系统列表的“已连接”不能等同于通话蓝牙已连接。
 - 21:39 覆盖安装正式 Profile 包并冷启动，ET488 自动恢复为“已连接”，正式首页健康数据和设备能力页渲染正常；临时 HFP 探针已从源码和安装包移除。

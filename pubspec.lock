@@ -543,10 +543,9 @@ packages:
   jpush_flutter:
     dependency: "direct main"
     description:
-      name: jpush_flutter
-      sha256: "90f37793c305cbe42891d075137eb32faa94cb8ba12317579e79c09a12ca14f7"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/jpush_flutter"
+      relative: true
+    source: path
     version: "3.5.1"
   jpush_flutter_android:
     dependency: "direct main"

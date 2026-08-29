@@ -228,6 +228,59 @@ class ReleaseGateTest(unittest.TestCase):
                 with self.assertRaisesRegex(gate.GateError, "forbidden permission"):
                     gate.apk_manifest_command(args)
 
+    def test_apk_manifest_uses_final_vivo_and_honor_metadata_names(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "AndroidManifest.xml"
+            manifest.write_text(
+                textwrap.dedent(
+                    f'''\
+                    <manifest xmlns:android="{gate.ANDROID_NS}"
+                        package="cc.saidian.app"
+                        android:versionName="0.2.1"
+                        android:versionCode="24">
+                      <application>
+                        <meta-data android:name="JPUSH_APPKEY"
+                            android:value="test-jpush-app-key" />
+                        <meta-data android:name="JPUSH_CHANNEL"
+                            android:value="production" />
+                        <meta-data android:name="com.vivo.push.api_key"
+                            android:value="test-vivo-key" />
+                        <meta-data android:name="com.vivo.push.app_id"
+                            android:value="test-vivo-id" />
+                        <meta-data android:name="com.hihonor.push.app_id"
+                            android:value="test-honor-id" />
+                      </application>
+                    </manifest>
+                    '''
+                ),
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                xml=str(manifest),
+                expected_package="cc.saidian.app",
+                expected_version="0.2.1",
+                expected_build=24,
+            )
+            environment = {
+                "JPUSH_APP_KEY": "test-jpush-app-key",
+                "JPUSH_CHANNEL": "production",
+                "JPUSH_VENDOR_CHANNELS": "vivo,honor",
+                "JPUSH_VIVO_APP_KEY": "test-vivo-key",
+                "JPUSH_VIVO_APP_ID": "test-vivo-id",
+                "JPUSH_HONOR_APP_ID": "test-honor-id",
+            }
+            with mock.patch.dict(os.environ, environment, clear=True):
+                gate.apk_manifest_command(args)
+
+            text = manifest.read_text(encoding="utf-8")
+            manifest.write_text(
+                text.replace("com.vivo.push.api_key", "VIVO_APPKEY"),
+                encoding="utf-8",
+            )
+            with mock.patch.dict(os.environ, environment, clear=True):
+                with self.assertRaisesRegex(gate.GateError, "missing or mismatches"):
+                    gate.apk_manifest_command(args)
+
     def test_redirect_must_remain_on_same_https_origin(self) -> None:
         gate.verify_same_https_origin(
             "https://download.saidian.cn/app-update.json?attempt=1",

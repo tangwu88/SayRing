@@ -388,6 +388,123 @@ void main() {
   });
 
   test(
+    'connected callback retries a registration id that was not ready',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      _mockPackageInfo();
+      final api = _NotificationApi();
+      final notifications = _FakeNotificationService(
+        registrationIdResults: <Future<String?>>[
+          Future<String?>.value(null),
+          Future<String?>.value('registration-test'),
+        ],
+      );
+      final controller = AppController(
+        MemorySessionVault(),
+        api,
+        MemoryHealthStore(),
+        _NotificationWearable(),
+        notificationService: notifications,
+        pushRegistrationRetryDelays: const [Duration(seconds: 1)],
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      await controller.login(
+        '13000000000',
+        'test-only-password',
+        privacyConsentGranted: true,
+      );
+      await _drainEvents();
+      expect(
+        controller.pushDeviceRegistrationState,
+        PushDeviceRegistrationState.retryScheduled,
+      );
+
+      notifications.emitRegistrationReady();
+      await _drainEvents();
+
+      expect(api.registerCount, 1);
+      expect(
+        controller.pushDeviceRegistrationState,
+        PushDeviceRegistrationState.registered,
+      );
+      expect(controller.pushDeviceRegistrationIssueCode, isNull);
+    },
+  );
+
+  test('server registration rejection retries with bounded backoff', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    _mockPackageInfo();
+    final api = _NotificationApi()..registerFailuresRemaining = 1;
+    final controller = AppController(
+      MemorySessionVault(),
+      api,
+      MemoryHealthStore(),
+      _NotificationWearable(),
+      notificationService: _FakeNotificationService(),
+      pushRegistrationRetryDelays: const [Duration(milliseconds: 5)],
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.login(
+      '13000000000',
+      'test-only-password',
+      privacyConsentGranted: true,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    expect(api.registerCount, 2);
+    expect(
+      controller.pushDeviceRegistrationState,
+      PushDeviceRegistrationState.registered,
+    );
+    expect(controller.pushDeviceRegistrationRetryAttempt, 0);
+    expect(controller.pushDeviceRegistrationIssueCode, isNull);
+  });
+
+  test(
+    'registration retry budget is finite and exposes final failure',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      _mockPackageInfo();
+      final api = _NotificationApi()..registerFailuresRemaining = 99;
+      final controller = AppController(
+        MemorySessionVault(),
+        api,
+        MemoryHealthStore(),
+        _NotificationWearable(),
+        notificationService: _FakeNotificationService(),
+        pushRegistrationRetryDelays: const [
+          Duration(milliseconds: 1),
+          Duration(milliseconds: 1),
+        ],
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      await controller.login(
+        '13000000000',
+        'test-only-password',
+        privacyConsentGranted: true,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(api.registerCount, 3);
+      expect(
+        controller.pushDeviceRegistrationState,
+        PushDeviceRegistrationState.failed,
+      );
+      expect(controller.pushDeviceRegistrationRetryAttempt, 2);
+      expect(controller.pushDeviceRegistrationIssueCode, 'server_rejected');
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(api.registerCount, 3);
+    },
+  );
+
+  test(
     'failed logout unbind is retried without persisting account data',
     () async {
       final vault = MemorySessionVault();
@@ -409,6 +526,11 @@ void main() {
       await first.logout();
 
       expect(vault.pendingPushUnregisterInstallationId, 'installation-test');
+      expect(
+        first.pushDeviceRegistrationState,
+        PushDeviceRegistrationState.unregisterRetryPending,
+      );
+      expect(first.pushDeviceRegistrationIssueCode, 'server_rejected');
       first.dispose();
 
       final secondApi = _NotificationApi();
@@ -433,6 +555,79 @@ void main() {
         secondApi.unregisteredInstallationIds,
         contains('installation-test'),
       );
+      expect(secondApi.registerCount, 1);
+    },
+  );
+
+  test(
+    'pending prior-account unbind blocks new-account registration',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final vault = MemorySessionVault()
+        ..pendingPushUnregisterInstallationId = 'installation-test';
+      final api = _NotificationApi()..unregisterSucceeds = false;
+      final controller = AppController(
+        vault,
+        api,
+        MemoryHealthStore(),
+        _NotificationWearable(),
+        notificationService: _FakeNotificationService(),
+        pushRegistrationRetryDelays: const [Duration(seconds: 1)],
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+
+      await controller.login(
+        '13100000000',
+        'test-only-password',
+        privacyConsentGranted: true,
+      );
+      await _drainEvents();
+
+      expect(api.unregisterCount, 1);
+      expect(api.registerCount, 0);
+      expect(vault.pendingPushUnregisterInstallationId, 'installation-test');
+      expect(
+        controller.pushDeviceRegistrationState,
+        PushDeviceRegistrationState.retryScheduled,
+      );
+      expect(
+        controller.pushDeviceRegistrationIssueCode,
+        'prior_unbind_pending',
+      );
+    },
+  );
+
+  test(
+    'unsupported unregister endpoint keeps installation-only retry marker',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final vault = MemorySessionVault();
+      final controller = AppController(
+        vault,
+        _NoNotificationApi(),
+        MemoryHealthStore(),
+        _NotificationWearable(),
+        notificationService: _FakeNotificationService(),
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      await controller.login(
+        '13000000000',
+        'test-only-password',
+        privacyConsentGranted: true,
+      );
+
+      await controller.logout();
+
+      expect(vault.pendingPushUnregisterInstallationId, 'installation-test');
+      expect(
+        controller.pushDeviceRegistrationState,
+        PushDeviceRegistrationState.unregisterRetryPending,
+      );
+      expect(controller.pushDeviceRegistrationIssueCode, 'api_not_supported');
     },
   );
 
@@ -798,18 +993,24 @@ void _mockPackageInfo() {
 class _FakeNotificationService implements AppNotificationService {
   _FakeNotificationService({
     Future<String?>? registrationIdResult,
+    List<Future<String?>>? registrationIdResults,
     Future<String>? installationIdResult,
-  }) : _registrationIdResult =
-           registrationIdResult ?? Future<String?>.value('registration-test'),
+  }) : _registrationIdResults =
+           registrationIdResults ??
+           <Future<String?>>[
+             registrationIdResult ?? Future<String?>.value('registration-test'),
+           ],
        _installationIdResult =
            installationIdResult ?? Future<String>.value('installation-test');
 
   final Future<String> _installationIdResult;
 
-  final Future<String?> _registrationIdResult;
+  final List<Future<String?>> _registrationIdResults;
+  int registrationIdReadCount = 0;
   final _received = StreamController<Map<String, Object?>>.broadcast();
   final _opened = StreamController<Map<String, Object?>>.broadcast();
   final _permissions = StreamController<bool>.broadcast();
+  final _registrationReady = StreamController<void>.broadcast();
   final List<int> badges = [];
   bool permissionRequested = false;
   bool activated = false;
@@ -818,6 +1019,7 @@ class _FakeNotificationService implements AppNotificationService {
 
   void receive(Map<String, Object?> payload) => _received.add(payload);
   void open(Map<String, Object?> payload) => _opened.add(payload);
+  void emitRegistrationReady() => _registrationReady.add(null);
 
   @override
   bool get isConfigured => true;
@@ -830,13 +1032,22 @@ class _FakeNotificationService implements AppNotificationService {
   @override
   Stream<bool> get permissionChanges => _permissions.stream;
   @override
+  Stream<void> get registrationReadyEvents => _registrationReady.stream;
+  @override
   Future<void> initialize() async {}
   @override
   Future<void> activateAfterPrivacyConsent() async => activated = true;
   @override
   Future<void> deactivate() async => activated = false;
   @override
-  Future<String?> registrationId() => _registrationIdResult;
+  Future<String?> registrationId() {
+    final index = registrationIdReadCount < _registrationIdResults.length
+        ? registrationIdReadCount
+        : _registrationIdResults.length - 1;
+    registrationIdReadCount++;
+    return _registrationIdResults[index];
+  }
+
   @override
   Future<String> installationId() => _installationIdResult;
   @override
@@ -874,6 +1085,7 @@ class _FakeNotificationService implements AppNotificationService {
     await _received.close();
     await _opened.close();
     await _permissions.close();
+    await _registrationReady.close();
   }
 }
 
@@ -881,6 +1093,7 @@ class _NotificationApi extends Fake
     implements SaydianApi, SaydianCareApi, SaydianNotificationApi {
   int unregisterCount = 0;
   int registerCount = 0;
+  int registerFailuresRemaining = 0;
   bool unregisterSucceeds = true;
   final List<String> unregisteredInstallationIds = [];
   final List<String> markedEventIds = [];
@@ -940,6 +1153,10 @@ class _NotificationApi extends Fake
   }) async {
     registerCount++;
     if (!registerStarted.isCompleted) registerStarted.complete();
+    if (registerFailuresRemaining > 0) {
+      registerFailuresRemaining--;
+      return false;
+    }
     return registerResult?.future ?? true;
   }
 
@@ -975,6 +1192,32 @@ class _NotificationApi extends Fake
     required int memberId,
     required Set<String> settings,
   }) async {}
+  @override
+  Future<void> logout() async {}
+}
+
+class _NoNotificationApi extends Fake implements SaydianApi {
+  @override
+  Future<Session> login(String mobile, String password) async => Session(
+    accessToken: 'test-access',
+    refreshToken: 'test-refresh',
+    expiresAt: _futureExpiry,
+    memberId: mobile,
+    displayName: mobile,
+  );
+
+  @override
+  Future<List<Map<String, Object?>>> getArticles() async => const [];
+
+  @override
+  Future<List<Map<String, Object?>>> getCareMembers() async => const [];
+
+  @override
+  Future<Map<String, Object?>> getMemberProfile() async => const {};
+
+  @override
+  Future<Map<String, Object?>> getActivityGoals() async => const {};
+
   @override
   Future<void> logout() async {}
 }

@@ -1,0 +1,16 @@
+// Loaded only when JPUSH_VENDOR_CHANNELS enables Huawei and the protected
+// android/app/agconnect-services.json file is present. Keeping AGCP on this
+// isolated script classpath avoids leaking its legacy Android DSL types into
+// the AGP 9 Kotlin application script.
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url "https://developer.huawei.com/repo/" }
+    }
+    dependencies {
+        classpath "com.huawei.agconnect:agcp:1.9.1.301"
+    }
+}
+
+apply plugin: com.huawei.agconnect.agcp.AGCPlugin

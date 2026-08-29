@@ -2234,6 +2234,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.controller.removeListener(_handleControllerEvent);
+    _camera?.removeListener(_handleCameraState);
     if (_cameraRemoteStarted) {
       unawaited(
         widget.controller.triggerDeviceAction(
@@ -2395,10 +2396,17 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         return;
       }
       _camera = controller;
+      controller.addListener(_handleCameraState);
+      _handleCameraState();
+      if (controller.value.hasError) return;
       final started = await widget.controller.triggerDeviceAction(
         DeviceFeature.camera,
       );
       if (!mounted) return;
+      if (controller.value.hasError) {
+        _handleCameraState();
+        return;
+      }
       setState(() {
         _cameraRemoteStarted = started;
         _cameraMessage = started
@@ -2417,9 +2425,37 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     }
   }
 
+  void _handleCameraState() {
+    final camera = _camera;
+    if (!mounted || camera == null || !camera.value.hasError) return;
+    final description = camera.value.errorDescription?.trim() ?? '';
+    final message = description.toLowerCase().contains('disabled')
+        ? '相机已被系统策略停用，请在系统设置中开启相机后重试'
+        : '手机相机暂时无法使用，请检查相机权限或系统设置';
+    if (_cameraMessage == message) return;
+    final shouldStopRemote = _cameraRemoteStarted;
+    setState(() {
+      _cameraMessage = message;
+      _cameraRemoteStarted = false;
+    });
+    if (shouldStopRemote) {
+      unawaited(
+        widget.controller.triggerDeviceAction(
+          DeviceFeature.camera,
+          enabled: false,
+        ),
+      );
+    }
+  }
+
   Future<void> _takePhoto() async {
     final camera = _camera;
-    if (camera == null || !camera.value.isInitialized || _takingPhoto) return;
+    if (camera == null ||
+        !camera.value.isInitialized ||
+        camera.value.hasError ||
+        _takingPhoto) {
+      return;
+    }
     setState(() => _takingPhoto = true);
     try {
       final photo = await camera.takePicture();
@@ -2888,7 +2924,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (camera != null && camera.value.isInitialized)
+                  if (camera != null &&
+                      camera.value.isInitialized &&
+                      !camera.value.hasError)
                     Center(
                       child: AspectRatio(
                         // Camera preview sizes are reported in the sensor's
@@ -2942,7 +2980,10 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                             height: 68,
                             child: FilledButton(
                               key: const ValueKey('camera-shutter-button'),
-                              onPressed: camera == null || _takingPhoto
+                              onPressed:
+                                  camera == null ||
+                                      camera.value.hasError ||
+                                      _takingPhoto
                                   ? null
                                   : _takePhoto,
                               style: FilledButton.styleFrom(
@@ -4874,7 +4915,9 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
     final article = await widget.controller.loadSingleArticle(14);
     final raw = '${article['content'] ?? article['description'] ?? ''}';
     final plain = _aboutPlainText(raw);
-    if (mounted && plain.isNotEmpty) setState(() => _introduction = plain);
+    if (mounted && _isUsefulAboutIntroduction(plain)) {
+      setState(() => _introduction = plain);
+    }
   }
 
   void _openLegal(int id, String title) {
@@ -5046,6 +5089,11 @@ String _aboutPlainText(String raw) => raw
     .replaceAll('&gt;', '>')
     .replaceAll(RegExp(r'\n\s*\n\s*\n+'), '\n\n')
     .trim();
+
+bool _isUsefulAboutIntroduction(String value) {
+  final compact = value.replaceAll(RegExp(r'\s+'), '');
+  return compact.runes.length >= 8;
+}
 
 class SecurityCenterPage extends StatelessWidget {
   const SecurityCenterPage({required this.controller, super.key});

@@ -32,6 +32,19 @@ class YuchengOperationResult<T> {
   final T? data;
 }
 
+class YuchengDeviceBasicInfo {
+  const YuchengDeviceBasicInfo({
+    required this.batteryPercent,
+    required this.batteryStatus,
+    required this.firmwareVersion,
+  });
+
+  /// Vendor values: 0 normal, 1 low, 2 charging, 3 full.
+  final int batteryStatus;
+  final int batteryPercent;
+  final String firmwareVersion;
+}
+
 abstract interface class YuchengProductClient {
   Stream<Map<String, Object?>> get events;
   Future<void> initialize({
@@ -44,6 +57,7 @@ abstract interface class YuchengProductClient {
   Future<void> disconnect();
   Future<YuchengOperationResult<String>> model();
   Future<YuchengOperationResult<String>> firmware();
+  Future<YuchengOperationResult<YuchengDeviceBasicInfo>> basicInfo();
   Future<Map<String, Object?>> capabilities();
   Future<YuchengOperationResult<void>> syncTime();
   Future<YuchengOperationResult<void>> setUserProfile({
@@ -183,6 +197,22 @@ class PluginYuchengProductClient implements YuchengProductClient {
   Future<YuchengOperationResult<String>> firmware() async {
     final r = await _plugin.queryDeviceBasicInfo();
     return YuchengOperationResult(r?.statusCode ?? 1, r?.data.firmwareVersion);
+  }
+
+  @override
+  Future<YuchengOperationResult<YuchengDeviceBasicInfo>> basicInfo() async {
+    final r = await _plugin.queryDeviceBasicInfo();
+    final data = r?.data;
+    return YuchengOperationResult(
+      r?.statusCode ?? 1,
+      data == null
+          ? null
+          : YuchengDeviceBasicInfo(
+              batteryPercent: data.batteryPower,
+              batteryStatus: data.batteryStatus.index,
+              firmwareVersion: data.firmwareVersion,
+            ),
+    );
   }
 
   @override

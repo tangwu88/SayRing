@@ -27,6 +27,27 @@ import 'sync_service.dart';
 import 'wearable_bridge.dart';
 import 'wearable_bootstrap.dart';
 
+enum PushDeviceRegistrationState {
+  idle,
+  waitingForRegistrationId,
+  registering,
+  registered,
+  retryScheduled,
+  unavailable,
+  unregistering,
+  unregistered,
+  unregisterRetryPending,
+  failed,
+}
+
+const _defaultPushRegistrationRetryDelays = <Duration>[
+  Duration(seconds: 2),
+  Duration(seconds: 5),
+  Duration(seconds: 15),
+  Duration(seconds: 30),
+  Duration(minutes: 1),
+];
+
 class AppController extends ChangeNotifier {
   AppController(
     this._vault,
@@ -35,9 +56,13 @@ class AppController extends ChangeNotifier {
     this._wearable, {
     AppPaymentBridge? paymentBridge,
     AppNotificationService? notificationService,
+    List<Duration>? pushRegistrationRetryDelays,
   }) : _paymentBridge = paymentBridge ?? const MethodChannelAppPaymentBridge(),
        _notificationService =
            notificationService ?? const DisabledAppNotificationService(),
+       _pushRegistrationRetryDelays = List.unmodifiable(
+         pushRegistrationRetryDelays ?? _defaultPushRegistrationRetryDelays,
+       ),
        _syncService = HealthSyncService(_healthStore, _api) {
     _notificationInboxRepository = StoredNotificationInboxRepository(
       _healthStore,
@@ -65,6 +90,7 @@ class AppController extends ChangeNotifier {
   final WearableBridge _wearable;
   final AppPaymentBridge _paymentBridge;
   final AppNotificationService _notificationService;
+  final List<Duration> _pushRegistrationRetryDelays;
   final HealthSyncService _syncService;
   late NotificationInboxRepository _notificationInboxRepository;
   late NotificationInboxService _notificationInboxService;
@@ -78,6 +104,7 @@ class AppController extends ChangeNotifier {
   StreamSubscription<Map<String, Object?>>? _pushReceivedEvents;
   StreamSubscription<Map<String, Object?>>? _pushOpenedEvents;
   StreamSubscription<bool>? _pushPermissionEvents;
+  StreamSubscription<void>? _pushRegistrationReadyEvents;
   Timer? _careInvitationPollTimer;
   int _careInvitationPollBackoffIndex = 0;
   bool _appIsForeground = true;
@@ -96,6 +123,8 @@ class AppController extends ChangeNotifier {
   Future<void>? _careInvitationRefresh;
   Future<void>? _pushRegistration;
   int? _pushRegistrationGeneration;
+  Timer? _pushRegistrationRetryTimer;
+  int _pushRegistrationRetryAttempt = 0;
   int _sessionGeneration = 0;
   int? _connectedDeviceSessionGeneration;
   int? _activeMeasurementSessionGeneration;
@@ -143,6 +172,11 @@ class AppController extends ChangeNotifier {
   int? remoteNotificationUnreadCount;
   NotificationRouteIntent? pendingNotificationRoute;
   bool notificationPermissionEnabled = false;
+  PushDeviceRegistrationState pushDeviceRegistrationState =
+      PushDeviceRegistrationState.idle;
+  String? pushDeviceRegistrationIssueCode;
+  Duration? pushDeviceRegistrationRetryDelay;
+  int get pushDeviceRegistrationRetryAttempt => _pushRegistrationRetryAttempt;
   List<Map<String, Object?>> orders = const [];
   List<Map<String, Object?>> addresses = const [];
   List<Map<String, Object?>> shopCart = const [];
@@ -259,6 +293,18 @@ class AppController extends ChangeNotifier {
     _sessionGeneration++;
     _careInvitationRefresh = null;
     _pushRegistration = null;
+    _pushRegistrationRetryTimer?.cancel();
+    _pushRegistrationRetryTimer = null;
+    _pushRegistrationRetryAttempt = 0;
+    pushDeviceRegistrationRetryDelay = null;
+    if (value != null ||
+        (pushDeviceRegistrationState !=
+                PushDeviceRegistrationState.unregistered &&
+            pushDeviceRegistrationState !=
+                PushDeviceRegistrationState.unregisterRetryPending)) {
+      pushDeviceRegistrationState = PushDeviceRegistrationState.idle;
+      pushDeviceRegistrationIssueCode = null;
+    }
     _invalidateDeviceSync();
     _measurementTimeout?.cancel();
     _measurementTimeout = null;
@@ -390,9 +436,16 @@ class AppController extends ChangeNotifier {
     ) {
       if (_disposed || session == null || !_privacyConsentGranted) return;
       notificationPermissionEnabled = enabled;
-      if (enabled) unawaited(_registerPushDevice());
+      if (enabled) {
+        unawaited(_registerPushDevice(resetBackoff: true));
+      }
       notifyListeners();
     });
+    _pushRegistrationReadyEvents = _notificationService.registrationReadyEvents
+        .listen((_) {
+          if (_disposed || session == null || !_privacyConsentGranted) return;
+          unawaited(_registerPushDevice(resetBackoff: true));
+        });
     try {
       await _notificationService.initialize();
     } catch (_) {
@@ -479,7 +532,7 @@ class AppController extends ChangeNotifier {
     if (session != null) {
       unawaited(refreshCare());
       unawaited(refreshCareInvitations());
-      unawaited(_registerPushDevice());
+      unawaited(_registerPushDevice(resetBackoff: true));
       unawaited(_refreshRemoteNotificationUnreadCount());
       unawaited(refreshMemberProfile());
       unawaited(refreshActivityGoals());
@@ -670,7 +723,7 @@ class AppController extends ChangeNotifier {
       } catch (_) {
         notificationPermissionEnabled = false;
       }
-      unawaited(_registerPushDevice());
+      unawaited(_registerPushDevice(resetBackoff: true));
     }
     if (_notificationStorageReady) await _refreshNotificationInboxState();
   }
@@ -2197,7 +2250,9 @@ class AppController extends ChangeNotifier {
     await _notificationService.requestPermission();
     notificationPermissionEnabled = await _notificationService
         .isPermissionEnabled();
-    if (notificationPermissionEnabled) unawaited(_registerPushDevice());
+    if (notificationPermissionEnabled) {
+      unawaited(_registerPushDevice(resetBackoff: true));
+    }
     if (!_disposed) notifyListeners();
   }
 
@@ -2233,7 +2288,7 @@ class AppController extends ChangeNotifier {
         refreshCareInvitations(),
         _refreshRemoteNotificationUnreadCount(),
       ]);
-      unawaited(_registerPushDevice());
+      unawaited(_registerPushDevice(resetBackoff: true));
     }
     await Future.wait(operations);
     _scheduleCareInvitationPoll(const Duration(seconds: 30));
@@ -2287,8 +2342,9 @@ class AppController extends ChangeNotifier {
     await _refreshNotificationInboxState();
   }
 
-  Future<void> _registerPushDevice() {
+  Future<void> _registerPushDevice({bool resetBackoff = false}) {
     final generation = _sessionGeneration;
+    if (resetBackoff) _resetPushRegistrationBackoff();
     final active = _pushRegistration;
     if (active != null && _pushRegistrationGeneration == generation) {
       return active;
@@ -2310,9 +2366,18 @@ class AppController extends ChangeNotifier {
         : null;
     if (session == null ||
         !_privacyConsentGranted ||
-        notificationApi == null ||
-        !_notificationService.isConfigured ||
         !_notificationService.isActivated) {
+      return;
+    }
+    if (notificationApi == null || !_notificationService.isConfigured) {
+      _setPushDeviceRegistrationState(
+        PushDeviceRegistrationState.unavailable,
+        generation: generation,
+        issueCode: notificationApi == null
+            ? 'api_not_supported'
+            : 'client_not_configured',
+        log: true,
+      );
       return;
     }
     final platform = switch (defaultTargetPlatform) {
@@ -2320,17 +2385,52 @@ class AppController extends ChangeNotifier {
       TargetPlatform.android => 'android',
       _ => null,
     };
-    if (platform == null) return;
+    if (platform == null) {
+      _setPushDeviceRegistrationState(
+        PushDeviceRegistrationState.unavailable,
+        generation: generation,
+        issueCode: 'platform_not_supported',
+        log: true,
+      );
+      return;
+    }
     try {
-      await _retryPendingPushUnregister(notificationApi, generation);
+      final priorInstallationUnbound = await _retryPendingPushUnregister(
+        notificationApi,
+        generation,
+      );
       if (!_isCurrentSessionGeneration(generation)) return;
+      if (!priorInstallationUnbound) {
+        // Do not register the same installation/RID to a new account while an
+        // older account association may still exist. The server contract does
+        // not guarantee that POST atomically replaces every prior owner.
+        _schedulePushRegistrationRetry(
+          generation,
+          issueCode: 'prior_unbind_pending',
+        );
+        return;
+      }
+      _setPushDeviceRegistrationState(
+        PushDeviceRegistrationState.waitingForRegistrationId,
+        generation: generation,
+      );
       final registrationId = await _notificationService.registrationId();
       if (!_isCurrentSessionGeneration(generation)) return;
-      if (registrationId == null || registrationId.trim().isEmpty) return;
+      if (registrationId == null || registrationId.trim().isEmpty) {
+        _schedulePushRegistrationRetry(
+          generation,
+          issueCode: 'registration_id_pending',
+        );
+        return;
+      }
       final package = await PackageInfo.fromPlatform();
       if (!_isCurrentSessionGeneration(generation)) return;
       final installationId = await _notificationService.installationId();
       if (!_isCurrentSessionGeneration(generation)) return;
+      _setPushDeviceRegistrationState(
+        PushDeviceRegistrationState.registering,
+        generation: generation,
+      );
       final registered = await notificationApi.registerPushDevice(
         installationId: installationId,
         registrationId: registrationId,
@@ -2339,67 +2439,207 @@ class AppController extends ChangeNotifier {
         buildNumber: int.tryParse(package.buildNumber),
       );
       if (!_isCurrentSessionGeneration(generation)) return;
-      if (registered) {
-        final pending = await _vault.readPendingPushUnregisterInstallationId();
-        if (!_isCurrentSessionGeneration(generation)) return;
-        if (pending == installationId) {
-          await _vault.clearPendingPushUnregisterInstallationId();
-        }
+      if (!registered) {
+        _schedulePushRegistrationRetry(
+          generation,
+          issueCode: 'server_rejected',
+        );
+        return;
       }
+      final pending = await _vault.readPendingPushUnregisterInstallationId();
+      if (!_isCurrentSessionGeneration(generation)) return;
+      if (pending == installationId) {
+        await _vault.clearPendingPushUnregisterInstallationId();
+      }
+      _resetPushRegistrationBackoff();
+      _setPushDeviceRegistrationState(
+        PushDeviceRegistrationState.registered,
+        generation: generation,
+      );
     } on ApiException {
-      // The deployed server may not have the optional push-device contract yet.
+      _schedulePushRegistrationRetry(generation, issueCode: 'api_error');
     } on PlatformException {
-      // Registration will be retried on the next foreground transition.
+      _schedulePushRegistrationRetry(generation, issueCode: 'platform_error');
+    } on TimeoutException {
+      _schedulePushRegistrationRetry(generation, issueCode: 'timeout');
     } catch (_) {
-      // Push setup must never block login or local health features.
+      _schedulePushRegistrationRetry(generation, issueCode: 'unexpected_error');
     }
+  }
+
+  void _resetPushRegistrationBackoff() {
+    _pushRegistrationRetryTimer?.cancel();
+    _pushRegistrationRetryTimer = null;
+    _pushRegistrationRetryAttempt = 0;
+    pushDeviceRegistrationRetryDelay = null;
+  }
+
+  void _schedulePushRegistrationRetry(
+    int generation, {
+    required String issueCode,
+  }) {
+    if (_disposed ||
+        !_isCurrentSessionGeneration(generation) ||
+        session == null ||
+        !_privacyConsentGranted) {
+      return;
+    }
+    if (_pushRegistrationRetryTimer?.isActive ?? false) return;
+    if (_pushRegistrationRetryAttempt >= _pushRegistrationRetryDelays.length) {
+      _setPushDeviceRegistrationState(
+        PushDeviceRegistrationState.failed,
+        generation: generation,
+        issueCode: issueCode,
+        log: true,
+      );
+      return;
+    }
+    final configuredDelay =
+        _pushRegistrationRetryDelays[_pushRegistrationRetryAttempt];
+    final delay = configuredDelay.isNegative ? Duration.zero : configuredDelay;
+    _pushRegistrationRetryAttempt++;
+    _setPushDeviceRegistrationState(
+      PushDeviceRegistrationState.retryScheduled,
+      generation: generation,
+      issueCode: issueCode,
+      retryDelay: delay,
+      log: true,
+    );
+    _pushRegistrationRetryTimer = Timer(delay, () {
+      _pushRegistrationRetryTimer = null;
+      if (_disposed || !_isCurrentSessionGeneration(generation)) return;
+      unawaited(_registerPushDevice());
+    });
+  }
+
+  void _setPushDeviceRegistrationState(
+    PushDeviceRegistrationState state, {
+    int? generation,
+    String? issueCode,
+    Duration? retryDelay,
+    bool log = false,
+  }) {
+    if (generation != null && !_isCurrentSessionGeneration(generation)) return;
+    pushDeviceRegistrationState = state;
+    pushDeviceRegistrationIssueCode = issueCode;
+    pushDeviceRegistrationRetryDelay = retryDelay;
+    if (log) {
+      debugPrint(
+        '[push-device] state=${state.name} '
+        'issue=${issueCode ?? 'none'} '
+        'attempt=$_pushRegistrationRetryAttempt '
+        'retry_ms=${retryDelay?.inMilliseconds ?? 0}',
+      );
+    }
+    if (!_disposed) notifyListeners();
   }
 
   Future<void> _unregisterPushDevice() async {
     final notificationApi = _api is SaydianNotificationApi
         ? _api as SaydianNotificationApi
         : null;
-    if (notificationApi == null || !_notificationService.isConfigured) return;
-    final installationId = await _notificationService.installationId();
-    await _vault.writePendingPushUnregisterInstallationId(installationId);
+    if (!_notificationService.isConfigured) {
+      _setPushDeviceRegistrationState(PushDeviceRegistrationState.unregistered);
+      return;
+    }
+    if (notificationApi == null) {
+      try {
+        final installationId = await _notificationService.installationId();
+        await _vault.writePendingPushUnregisterInstallationId(installationId);
+      } catch (_) {
+        // The state below remains observable without exposing identifiers.
+      }
+      _setPushDeviceRegistrationState(
+        PushDeviceRegistrationState.unregisterRetryPending,
+        issueCode: 'api_not_supported',
+        log: true,
+      );
+      return;
+    }
     try {
+      final installationId = await _notificationService.installationId();
+      await _vault.writePendingPushUnregisterInstallationId(installationId);
+      _setPushDeviceRegistrationState(
+        PushDeviceRegistrationState.unregistering,
+      );
       final removed = await notificationApi.unregisterPushDevice(
         installationId: installationId,
       );
       if (removed) {
         await _vault.clearPendingPushUnregisterInstallationId();
+        _setPushDeviceRegistrationState(
+          PushDeviceRegistrationState.unregistered,
+        );
+      } else {
+        _setPushDeviceRegistrationState(
+          PushDeviceRegistrationState.unregisterRetryPending,
+          issueCode: 'server_rejected',
+          log: true,
+        );
       }
     } on ApiException {
-      // Logout still clears the local session if the optional endpoint is absent.
+      _setPushDeviceRegistrationState(
+        PushDeviceRegistrationState.unregisterRetryPending,
+        issueCode: 'api_error',
+        log: true,
+      );
+    } on PlatformException {
+      _setPushDeviceRegistrationState(
+        PushDeviceRegistrationState.unregisterRetryPending,
+        issueCode: 'platform_error',
+        log: true,
+      );
     } catch (_) {
-      // A later authenticated registration replaces any stale association.
+      _setPushDeviceRegistrationState(
+        PushDeviceRegistrationState.unregisterRetryPending,
+        issueCode: 'unexpected_error',
+        log: true,
+      );
     }
   }
 
-  Future<void> _retryPendingPushUnregister(
+  Future<bool> _retryPendingPushUnregister(
     SaydianNotificationApi notificationApi,
     int generation,
   ) async {
     final installationId = await _vault
         .readPendingPushUnregisterInstallationId();
-    if (!_isCurrentSessionGeneration(generation)) return;
-    if (installationId == null) return;
+    if (!_isCurrentSessionGeneration(generation)) return false;
+    if (installationId == null) return true;
     try {
       final removed = await notificationApi.unregisterPushDevice(
         installationId: installationId,
       );
-      if (!_isCurrentSessionGeneration(generation)) return;
+      if (!_isCurrentSessionGeneration(generation)) return false;
       if (removed &&
           await _vault.readPendingPushUnregisterInstallationId() ==
               installationId &&
           _isCurrentSessionGeneration(generation)) {
         await _vault.clearPendingPushUnregisterInstallationId();
+        return true;
       }
+      _setPushDeviceRegistrationState(
+        PushDeviceRegistrationState.unregisterRetryPending,
+        generation: generation,
+        issueCode: 'server_rejected',
+        log: true,
+      );
     } on ApiException {
-      // Keep the installation-only retry marker for the next authenticated run.
+      _setPushDeviceRegistrationState(
+        PushDeviceRegistrationState.unregisterRetryPending,
+        generation: generation,
+        issueCode: 'api_error',
+        log: true,
+      );
     } catch (_) {
-      // No account, token, or registration id is persisted in the retry marker.
+      _setPushDeviceRegistrationState(
+        PushDeviceRegistrationState.unregisterRetryPending,
+        generation: generation,
+        issueCode: 'unexpected_error',
+        log: true,
+      );
     }
+    return false;
   }
 
   Future<void> _markRemoteNotificationEventReadBestEffort(
@@ -3770,6 +4010,7 @@ class AppController extends ChangeNotifier {
     _disposed = true;
     _measurementTimeout?.cancel();
     _careInvitationPollTimer?.cancel();
+    _pushRegistrationRetryTimer?.cancel();
     _invalidateDeviceSync();
     unawaited(_wearableEvents?.cancel());
     unawaited(_deviceStates?.cancel());
@@ -3777,6 +4018,7 @@ class AppController extends ChangeNotifier {
     unawaited(_pushReceivedEvents?.cancel());
     unawaited(_pushOpenedEvents?.cancel());
     unawaited(_pushPermissionEvents?.cancel());
+    unawaited(_pushRegistrationReadyEvents?.cancel());
     unawaited(_notificationService.dispose());
     deviceMachine.dispose();
     unawaited(_healthStore.close());

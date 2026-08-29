@@ -27,7 +27,7 @@
 ### 自动化与构建
 
 - `flutter analyze`：零问题。
-- `TZ=UTC flutter test` 与 `TZ=Asia/Shanghai flutter test`：各 310/310 通过。
+- `TZ=UTC flutter test` 与 `TZ=Asia/Shanghai flutter test`：各 326/326 通过。
 - Android `:app:testDebugUnitTest --rerun-tasks`：5/5 通过；Debug、显式 QA Release APK 与 AAB 构建通过。
 - iOS 无签名 Debug/Profile，以及设置 `SAIDIAN_ALLOW_QA_RELEASE=true` 后的 Release 构建通过。
 - Android Release Manifest 已确认不含后台定位、读取电话状态和查询全部应用权限；安装 APK 所需权限按更新能力受控保留。
@@ -45,34 +45,55 @@
 
 ### iOS 原生与设备
 
-- iPhone 12 / iOS 18.7.8：最终代码的 iOS 原生 RunnerTests 真机执行 18/18 通过，结果位于 `build/runner-device-tests-online-readiness/Logs/Test/Test-Runner-2026.08.29_07-50-02-+0800.xcresult`。
+- iPhone 12 / iOS 18.7.8：同日较早批次 iOS 原生 RunnerTests 曾执行 18/18 通过；最终工作区重跑在 XCTest 框架签名阶段被 `errSecInternalComponent` 阻断，18 项未执行，不能把较早结果冒充最终重跑结果。
 - iPhone 12：签名 Debug 安装后完成三次独立启动，Runner 进程均持续存活，设备侧未发现新的 Runner 崩溃日志。该证据仅代表签名 Debug，不替代 Profile/Release 独立冷启验收。
 - iPhone 12：Xcode 真实连接 `SD-Watch-W9`，设备页读取电量为 `98%`。
+- iPhone 12：Debug 包完成安装并稳定运行，W9 连接、健康同步和原生电量读取均有真机证据；后续因手机重新要求信任开发证书，UI 补充取证被阻断，不能把未执行页面继续写成通过。
 - iOS 签名 Profile 因当前 Provisioning Profile 缺少 APNs entitlement 被阻断；这是签名资源阻断，不得写成 Profile 真机通过。
+- 最终工作区 iOS 无签名 Debug、Profile 和显式 QA Release 构建通过；默认 Release 无签名按上线门禁正确失败。模拟器 RunnerTests 还受宇程 `JLAudioUnitKit` 缺少 Apple Silicon 模拟器模块阻断。
 - UI integration 尝试受 LLDB/Xcode attach 链路影响，最终结果为 `No tests ran`；不能计入通过测试数。
 - iOS Veepoo 表盘目录、下载和安装资料已改为调用原生 `VPMarketDialManager`，不再把 Android 目录接口用于 iOS；目录与下载结果绑定连接代次和真实设备 profile。
 - iOS 电量采用真实百分比/格数语义；电量、健康历史同步、测量和表盘传输共用原生命令互斥与超时控制，换表后的迟到回调不能覆盖当前连接。
-- iPhone 15 Pro Max：本轮不可用，未执行该机型回归；不得写成通过。
+- 极光控制台当前没有与 `cc.saidian.app` 匹配的 iOS APNs 证书/Bundle 配置；iOS 系统推送未接通，不能沿用 Android 通道结果。控制台 Android 集成度仍为 `--`，HarmonyOS 的应用包名、Server Key/JSON 也未配置完成。
+- iPhone 15 Pro Max：收尾阶段已连接，机内旧版 `0.1.19 (23)` 可启动并持续运行 30 秒；最终代码签名包因 Xcode 当前 `No Accounts` 且 Provisioning Profile 不包含该设备而无法安装。只能记录旧包稳定性，不能计入最终代码真机通过。
 - iOS 生产更新仍只能跳转真实 App Store 产品页；当前没有产品页及生产清单，线上更新未验收。
 
-### Android W9S 真机
+### Android MED 多设备真机
 
-- 严格 profile 读取为 `dialShape=58`，在线目录实测返回 161 项。
-- 手表 SDK 电量读取值实测为 `battery=100`。
-- 临时安装并切换表盘 144 成功，验收后已恢复原表盘 146。
+- MED Android 已分别扫描并连接 ET488、W9S、W8；本轮只对实际进入的功能逐项记录，不用单一手表结果代替其他型号。
+- ET488 在线表盘目录实测 215 项；W9S 严格 profile 为 `dialShape=58`，在线目录实测 161 项。
+- W8 只读返回 5 个已安装表盘；没有厂商授权在线目录时不开放安装，也不生成虚假缩略图。
+- W9S 电量实测为 `100%`；最终代码在 W8 重连后读取到 `85%`、未充电。重连过程未出现 GATT 133，捷理日志敏感对象计数为 0。
+- 同日较早批次曾临时切换表盘 144 并恢复原表盘 146；本次最终回归没有再次改变表盘，避免占用唯一自定义槽位。
 - Android Debug 冷启动仍偏慢；使用同包名、同调试证书的最终 QA Release 覆盖安装后，首次安装时间保持不变，进程持续存活，未发现本应用 `FATAL EXCEPTION` 或 ANR。
 - 最终 Android QA Release 冷启动后恢复 Veepoo BLE 通知与写入流量；本次覆盖安装保留登录、本地健康数据、设置和手表绑定。
-- QA Release 冷启动后旧健康数据恢复可见：血压 `136/81 mmHg`、心率 `84 次/分`、体温 `36.5℃`。
-- W9S 自动恢复连接，页面显示真实 MAC `38:23:A4:5E:CA:69`、电量 `100%`；表盘商城返回 161 款且真实缩略图可见。
+- QA Release 冷启动后历史健康记录恢复可见（数值已脱敏）。
+- W9S 自动恢复连接，页面显示真实 MAC `<MAC 已脱敏>`、电量 `100%`；表盘商城返回 161 款且真实缩略图可见。
+- W9S 心电启动和停止命令均收到设备 ACK；测试时手表未佩戴，因此没有有效波形。该项只能记为“命令链路通过、有效心电样本未验证”。
+- W8 相机系统策略禁用真机复测通过：页面显示明确不可用原因且快门禁用；恢复权限后预览与快门入口恢复。本轮异常路径未拍照，也未留下测试媒体。
+- 另一台 JAD Android 已存在 `0.1.19 (23)`，但处于物理 PIN 锁定状态，本轮无法打开 App 或完成独立回归，不计入设备覆盖。
+
+### 客户端问题修复补充
+
+- 远程关爱指标详情曾直接遍历整行原始字段，导致 HRV 页面混入步数、心率、血压和英文嵌套键，并显示时间 `-1`。客户端已改为按当前指标白名单投影，统一中文标签/单位，血压拆分收缩压和舒张压，无效时间显示“第 N 条记录”，复合身体/血液成分只保留相关子项；定向 `ui_shell_test.dart` 41/41 通过，MED 上真实成员 HRV 页面复测为 4 条纯 HRV 记录，无混入字段及 `-1` 时间。
+- “关于我们”页面对异常短文本/脏数据的回退已修复；MED 真机确认异常短值未展示，改用本地安全说明。真实生产接口的更多异常结构仍由自动化覆盖并继续保留防御。
+
+### 推送通道现场结果
+
+- Android JPush SDK 已完成注册并建立 TCP 连接，控制台应用包名与 `cc.saidian.app` 一致；该证据只证明 Android 客户端到极光的传输层接通。
+- 真机日志审计发现上游 Android 插件会无条件回显包含 AppKey 的 `setup` 参数。仓库现锁定本地 `jpush_flutter 3.5.1` 源码并移除参数日志，同时在所有构建模式关闭厂商详细日志；最终 APK 覆盖安装后 AppKey 精确值与 Registration ID 形态日志均为 0，`onConnected=true`，现场临时日志已删除。
+- 客户端随后按有限退避尝试登记设备，最终状态为 `retryScheduled / server_rejected`，再次证明服务端登记接口仍是外部阻断而非 SDK 连接失败。
+- 未记录或提交任何 AppKey、Registration ID、Token、AuthKey 等敏感值。
+- 服务端设备登记、未读/已读、关爱 Outbox 和真实业务推送仍缺失，因此不能把 SDK 在线等同于健康预警或关爱邀请端到端到达。
 
 ### 外部阻断与上线结论
 
-- 尚缺 JPush AppKey、APNs 配置、已选 Android 厂商通道凭据、Android 正式签名、公开 HTTPS 更新清单和 App Store 产品页。
+- 尚缺受保护 CI 中的生产 JPush 配置、iOS APNs 配置、已选 Android 厂商通道凭据、Android 正式签名、公开 HTTPS 更新清单和 App Store 产品页；现场 Android 调试通道已连通不等于生产凭据完成。
 - 2026-08-29 现场请求 `https://app.saidian.cc/app-update.json` 返回 HTTP 404，证实该地址尚不能作为生产更新清单。
 - Apple 公开查询中包名 `cc.saidian.app` 在中国、美国、香港区均无产品结果，iOS 正式商店跳转无法验收。
 - 服务端推送设备登记/解绑、未读数和已读路由只读请求均返回业务 `code:404`，关爱邀请 Outbox 推送链路也未能验证；客户端轮询只能作为前台兜底，不能冒充后台即时推送。
 - 现有 `/api/v1/member/notify` 在未授权请求下返回业务 `code:500` 并暴露 Yii 文件路径/堆栈；服务端需统一为 401/403 并关闭生产堆栈输出。
 - 因上述资源和接口缺失，关爱请求与健康预警的生产推送“10 秒内到达”无法认证，Android 旧正式包升级和 iOS App Store 跳转的线上更新也无法认证。
-- 当前结论：客户端、自动化门禁和 iPhone 12／已连接 Android 范围内的验证已就绪；生产推送与正式在线升级仍为服务器、凭据和商店资源阻断，iPhone 15 Pro Max 也未完成本轮回归，不能标记达到正式上线条件。
+- 当前结论：Android MED 上 ET488/W9S/W8 的扫描连接、表盘能力、W8 电量、关爱详情、关于页、相机异常恢复和 Android JPush 传输层均有真机证据；iPhone 12 Debug 的 W9 连接、同步和电量有证据，iPhone 15 Pro Max 仅旧包启动稳定。有效 W9S 心电波形、iOS APNs、HarmonyOS 推送配置、业务推送、正式在线升级、iPhone 15 Pro Max 最终包安装及 PIN 锁定的 JAD Android 均未完成，不能标记达到正式上线条件。
 
 后续每次格式化、静态检查、测试、构建和真机验证继续追加记录，失败项保留原始结论并注明修复结果。

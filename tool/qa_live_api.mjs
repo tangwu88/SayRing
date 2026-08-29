@@ -1,4 +1,8 @@
 const baseUrl = process.env.SAYDIAN_API_BASE_URL ?? 'https://app.saidian.cc';
+// Deliberately invalid sentinels: this probe must never authenticate or return
+// a real access token. Do not replace them with a real QA account.
+const invalidUsername = 'qa-invalid-account-never-use';
+const invalidPassword = 'invalid-password';
 
 const checks = [
   ['商城首页', '/api/v1/pages?code=SHOP_HOME'],
@@ -19,8 +23,8 @@ results.push(
     method: 'POST',
     headers: {'content-type': 'application/x-www-form-urlencoded'},
     body: new URLSearchParams({
-      username: 'qa_invalid_account_20260810',
-      password: 'invalid-password',
+      username: invalidUsername,
+      password: invalidPassword,
       group: 'app',
     }),
   }),

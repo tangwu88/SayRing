@@ -97,6 +97,89 @@ void main() {
     expect(device.macAddress, '07:43:00:00:4D:E9');
   });
 
+  test(
+    'maps the W8 basic-info battery without guessing another field',
+    () async {
+      final client = _FakeYuchengClient(
+        modelName: 'W8S',
+        basicInfoValue: const YuchengDeviceBasicInfo(
+          batteryPercent: 86,
+          batteryStatus: 2,
+          firmwareVersion: '1.23',
+        ),
+      );
+      final bridge = YuchengWearableBridge(
+        client: client,
+        initialHealthSettleDelay: Duration.zero,
+        deviceInfoSettleDelay: Duration.zero,
+        deviceInfoRetryDelay: Duration.zero,
+      );
+
+      await bridge.scanDevices();
+      await bridge.connect('YC-01', profile: _profile);
+      final details = await bridge.getConnectedDeviceDetails();
+
+      expect(client.basicInfoCalls, 1);
+      expect(details?.firmwareVersion, '1.23');
+      expect(details?.effectiveBattery?.displayLabel, '86%');
+      expect(details?.effectiveBattery?.isCharging, isTrue);
+      expect(details?.effectiveBattery?.isLow, isFalse);
+      expect(details?.effectiveBattery?.updatedAt?.isUtc, isTrue);
+    },
+  );
+
+  test('rejects a late W8 battery callback from an older connection', () async {
+    final oldRead = Completer<YuchengOperationResult<YuchengDeviceBasicInfo>>();
+    final currentRead =
+        Completer<YuchengOperationResult<YuchengDeviceBasicInfo>>();
+    final client = _FakeYuchengClient(
+      modelName: 'W8S',
+      basicInfoResults: [oldRead.future, currentRead.future],
+    );
+    final bridge = YuchengWearableBridge(
+      client: client,
+      initialHealthSettleDelay: Duration.zero,
+      deviceInfoSettleDelay: Duration.zero,
+      deviceInfoRetryDelay: Duration.zero,
+    );
+    await bridge.scanDevices();
+    await bridge.connect('YC-01', profile: _profile);
+    await _waitUntil(() => client.basicInfoCalls == 1);
+
+    await bridge.disconnect();
+    await bridge.connect('YC-01', profile: _profile);
+    await _waitUntil(() => client.basicInfoCalls == 2);
+    final detailsFuture = bridge.getConnectedDeviceDetails();
+    currentRead.complete(
+      const YuchengOperationResult(
+        0,
+        YuchengDeviceBasicInfo(
+          batteryPercent: 73,
+          batteryStatus: 0,
+          firmwareVersion: '2.00',
+        ),
+      ),
+    );
+    final currentDetails = await detailsFuture;
+
+    oldRead.complete(
+      const YuchengOperationResult(
+        0,
+        YuchengDeviceBasicInfo(
+          batteryPercent: 12,
+          batteryStatus: 1,
+          firmwareVersion: '0.01',
+        ),
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    final afterLateCallback = await bridge.getConnectedDeviceDetails();
+
+    expect(currentDetails?.effectiveBattery?.displayLabel, '73%');
+    expect(afterLateCallback?.effectiveBattery?.displayLabel, '73%');
+    expect(afterLateCallback?.firmwareVersion, '2.00');
+  });
+
   test('times out a Yucheng history read instead of hanging sync', () async {
     final client = _FakeYuchengClient(
       modelName: 'W8S',
@@ -338,6 +421,12 @@ class _FakeYuchengClient implements YuchengProductClient {
     this.healthResult,
     this.watchFaceRows = const [],
     this.capabilityFailuresBeforeSuccess = 0,
+    this.basicInfoResults = const [],
+    this.basicInfoValue = const YuchengDeviceBasicInfo(
+      batteryPercent: 86,
+      batteryStatus: 0,
+      firmwareVersion: '1.0',
+    ),
     this.capabilityFlags = const {
       'isSupportStep': true,
       'isSupportSleep': true,
@@ -356,12 +445,16 @@ class _FakeYuchengClient implements YuchengProductClient {
   healthResult;
   final List<Map<String, Object?>> watchFaceRows;
   final int capabilityFailuresBeforeSuccess;
+  final List<Future<YuchengOperationResult<YuchengDeviceBasicInfo>>>
+  basicInfoResults;
+  final YuchengDeviceBasicInfo basicInfoValue;
   final Map<String, Object?> capabilityFlags;
   int disconnectCount = 0;
   int modelCalls = 0;
   int? changedWatchFaceId;
   bool? reconnectEnabled;
   int capabilityCalls = 0;
+  int basicInfoCalls = 0;
   final _events = StreamController<Map<String, Object?>>.broadcast();
   @override
   Stream<Map<String, Object?>> get events => _events.stream;
@@ -400,6 +493,13 @@ class _FakeYuchengClient implements YuchengProductClient {
   @override
   Future<YuchengOperationResult<String>> firmware() async =>
       const YuchengOperationResult(0, '1.0');
+  @override
+  Future<YuchengOperationResult<YuchengDeviceBasicInfo>> basicInfo() {
+    final index = basicInfoCalls++;
+    if (index < basicInfoResults.length) return basicInfoResults[index];
+    return Future.value(YuchengOperationResult(0, basicInfoValue));
+  }
+
   @override
   Future<Map<String, Object?>> capabilities() async {
     capabilityCalls++;
@@ -457,4 +557,12 @@ class _FakeYuchengClient implements YuchengProductClient {
     changedWatchFaceId = dialId;
     return const YuchengOperationResult(0, null);
   }
+}
+
+Future<void> _waitUntil(bool Function() predicate) async {
+  for (var attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return;
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+  }
+  fail('Timed out waiting for the asynchronous Yucheng operation');
 }

@@ -16,15 +16,24 @@ class YuchengWearableBridge
     this.healthReadTimeout = const Duration(seconds: 8),
     this.initialHealthSettleDelay = const Duration(seconds: 3),
     this.capabilityRetryDelay = const Duration(milliseconds: 500),
+    this.deviceInfoSettleDelay = const Duration(seconds: 2),
+    this.deviceInfoReadTimeout = const Duration(seconds: 3),
+    this.deviceInfoRetryDelay = const Duration(milliseconds: 500),
   }) : _client = client ?? PluginYuchengProductClient();
   final YuchengProductClient _client;
   final Duration healthReadTimeout;
   final Duration initialHealthSettleDelay;
   final Duration capabilityRetryDelay;
+  final Duration deviceInfoSettleDelay;
+  final Duration deviceInfoReadTimeout;
+  final Duration deviceInfoRetryDelay;
   final _events = StreamController<WearableEvent>.broadcast();
   bool _initialized = false;
   String? _deviceId;
-  final String _firmware = '';
+  String _firmware = '';
+  DeviceBatteryInfo? _battery;
+  Future<void>? _deviceInfoLoad;
+  int _connectionGeneration = 0;
   DeviceCapabilities? _capabilities;
   Future<DeviceCapabilities>? _capabilityLoad;
   final Map<String, String> _scannedNames = {};
@@ -87,6 +96,7 @@ class YuchengWearableBridge
         message: '此设备暂时无法连接，请选择赛电手表',
       );
     }
+    _invalidateDeviceSession();
     final connected = await _client
         .connect(deviceId)
         .timeout(const Duration(seconds: 30), onTimeout: () => false);
@@ -100,36 +110,146 @@ class YuchengWearableBridge
     // ready state. Issuing another model and setup sequence here can leave its
     // native command queue waiting forever. BLE authentication is therefore
     // the connection boundary; optional metadata is loaded separately.
+    final generation = ++_connectionGeneration;
     _deviceId = deviceId;
     _capabilities = null;
     _capabilitiesResolved = false;
     _needsInitialHealthSettle = true;
     unawaited(_publishCapabilitiesWhenReady());
+    unawaited(_loadDeviceInfo(generation, deviceId, publish: true));
   }
 
   @override
   Future<void> disconnect() async {
+    _invalidateDeviceSession();
     await _client.disconnect();
-    _deviceId = null;
-    _capabilities = null;
-    _capabilityLoad = null;
-    _capabilitiesResolved = false;
-    _needsInitialHealthSettle = false;
-    _activeMeasurementMetric = null;
-    _measurementStartedAt = null;
   }
 
   @override
   Future<DeviceInfo?> getConnectedDeviceDetails() async {
     final deviceId = _deviceId;
     if (deviceId == null) return null;
+    final generation = _connectionGeneration;
+    final updatedAt = _battery?.updatedAt;
+    final isFresh =
+        updatedAt != null &&
+        DateTime.now().toUtc().difference(updatedAt) <
+            const Duration(minutes: 5);
+    if (!isFresh) {
+      await _loadDeviceInfo(generation, deviceId, publish: false);
+    }
+    if (!_isCurrentDeviceSession(generation, deviceId)) return null;
     final name = _scannedNames[deviceId] ?? '赛电手表';
     return DeviceInfo(
       id: deviceId,
       name: name,
       model: name,
       firmwareVersion: _firmware.isEmpty ? null : _firmware,
+      battery: _battery,
+      batteryPercent: _battery?.percent,
     );
+  }
+
+  Future<void> _loadDeviceInfo(
+    int generation,
+    String deviceId, {
+    required bool publish,
+  }) async {
+    if (!_isCurrentDeviceSession(generation, deviceId)) return;
+    final activeLoad = _deviceInfoLoad;
+    if (activeLoad != null) {
+      await activeLoad;
+      return;
+    }
+    late final Future<void> load;
+    load = _readDeviceInfo(generation, deviceId, publish: publish);
+    _deviceInfoLoad = load;
+    try {
+      await load;
+    } finally {
+      if (identical(_deviceInfoLoad, load)) _deviceInfoLoad = null;
+    }
+  }
+
+  Future<void> _readDeviceInfo(
+    int generation,
+    String deviceId, {
+    required bool publish,
+  }) async {
+    if (deviceInfoSettleDelay > Duration.zero) {
+      await Future<void>.delayed(deviceInfoSettleDelay);
+    }
+    for (var attempt = 0; attempt < 4; attempt += 1) {
+      if (!_isCurrentDeviceSession(generation, deviceId)) return;
+      try {
+        final result = await _client.basicInfo().timeout(deviceInfoReadTimeout);
+        if (!_isCurrentDeviceSession(generation, deviceId)) return;
+        final info = result.data;
+        if (result.status == 0 && info != null) {
+          final firmware = info.firmwareVersion.trim();
+          if (firmware.isNotEmpty) _firmware = firmware;
+          if (info.batteryPercent >= 0 && info.batteryPercent <= 100) {
+            _battery = DeviceBatteryInfo(
+              value: info.batteryPercent,
+              scale: 100,
+              isPercent: true,
+              low: info.batteryStatus == 1,
+              chargeState: info.batteryStatus == 2
+                  ? DeviceBatteryChargeState.charging
+                  : DeviceBatteryChargeState.normal,
+              updatedAt: DateTime.now().toUtc(),
+            );
+          }
+          if (publish && _isCurrentDeviceSession(generation, deviceId)) {
+            _events.add(
+              WearableEvent(
+                type: 'deviceDetails',
+                payload: _deviceDetails().toJson(),
+              ),
+            );
+          }
+          return;
+        }
+        if (result.status == 2) return;
+      } catch (_) {
+        // Device information can share the vendor command queue with the
+        // post-connect feature handshake. Retry without clearing an older
+        // valid value, and never guess a percentage from another field.
+      }
+      if (attempt < 3 && deviceInfoRetryDelay > Duration.zero) {
+        await Future<void>.delayed(deviceInfoRetryDelay);
+      }
+    }
+  }
+
+  DeviceInfo _deviceDetails() {
+    final deviceId = _connectedId;
+    final name = _scannedNames[deviceId] ?? '赛电手表';
+    return DeviceInfo(
+      id: deviceId,
+      name: name,
+      model: name,
+      firmwareVersion: _firmware.isEmpty ? null : _firmware,
+      battery: _battery,
+      batteryPercent: _battery?.percent,
+    );
+  }
+
+  bool _isCurrentDeviceSession(int generation, String deviceId) =>
+      _connectionGeneration == generation && _deviceId == deviceId;
+
+  void _invalidateDeviceSession() {
+    _connectionGeneration += 1;
+    _deviceId = null;
+    _firmware = '';
+    _battery = null;
+    _deviceInfoLoad = null;
+    _capabilities = null;
+    _capabilityLoad = null;
+    _capabilitiesResolved = false;
+    _needsInitialHealthSettle = false;
+    _activeMeasurementMetric = null;
+    _measurementStartedAt = null;
   }
 
   @override
@@ -402,20 +522,21 @@ class YuchengWearableBridge
     final payload = rawPayload is Map
         ? rawPayload.map((k, v) => MapEntry('$k', v))
         : <String, Object?>{'value': rawPayload};
+    final bluetoothState = payload['state'] ?? payload['value'];
+    if (type == 'bluetoothStateChange' && bluetoothState == 4) {
+      // Invalidate pending basic-info reads before forwarding the disconnect.
+      // A late callback from the old W8 must never populate the next watch's
+      // battery value.
+      _invalidateDeviceSession();
+    }
     if (type == 'deviceHealthDataMeasureStateChange') {
       _handleMeasurementState(payload);
       return;
     }
     final mapped = switch (type) {
       'bluetoothStateChange' => WearableEvent(
-        type: (payload['state'] ?? payload['value']) == 4
-            ? 'disconnected'
-            : 'state',
-        payload: {
-          'value': (payload['state'] ?? payload['value']) == 2
-              ? 'ready'
-              : 'connecting',
-        },
+        type: bluetoothState == 4 ? 'disconnected' : 'state',
+        payload: {'value': bluetoothState == 2 ? 'ready' : 'connecting'},
       ),
       'deviceRealHeartRate' => _liveHealthRecord(HealthMetric.heartRate, {
         'value': _number(payload['value']),

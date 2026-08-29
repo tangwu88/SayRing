@@ -1555,6 +1555,168 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('care HRV detail hides unrelated raw row fields', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: CareMetricDetailPage(
+          day: DateTime(2026, 8, 29),
+          item: const {
+            'title': 'HRV',
+            'unit': 'ms',
+            'records': [
+              {
+                'time': -1,
+                'HRVData': {'hrv': 47},
+                'step': 9321,
+                'heartReat': 84,
+                'bloodPressure': {
+                  'bloodPressureHigh': 136,
+                  'bloodPressureLow': 81,
+                },
+                'bodyTemperature': 36.5,
+                'englishNestedKey': {'value': 999},
+              },
+            ],
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('当日摘要'), findsOneWidget);
+    expect(find.text('第 1 条记录'), findsOneWidget);
+    expect(find.text('47 ms'), findsWidgets);
+    expect(find.text('-1'), findsNothing);
+    expect(find.text('step'), findsNothing);
+    expect(find.text('heartReat'), findsNothing);
+    expect(find.text('bloodPressure'), findsNothing);
+    expect(find.text('bodyTemperature'), findsNothing);
+    expect(find.text('englishNestedKey'), findsNothing);
+    expect(find.text('84 次/分'), findsNothing);
+    expect(find.text('136 mmHg'), findsNothing);
+    expect(find.text('36.5 ℃'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('care blood pressure splits systolic diastolic and pulse', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: CareMetricDetailPage(
+          day: DateTime(2026, 8, 29),
+          item: const {
+            'title': '血压',
+            'unit': 'mmHg',
+            'records': [
+              {
+                'time': 10,
+                'bloodPressure': {
+                  'bloodPressureHigh': 136,
+                  'bloodPressureLow': 81,
+                },
+                'pulseReat': 84,
+                'HRVData': 47,
+                'step': 9321,
+              },
+            ],
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('收缩压'), findsOneWidget);
+    expect(find.text('136 mmHg'), findsOneWidget);
+    expect(find.text('舒张压'), findsOneWidget);
+    expect(find.text('81 mmHg'), findsOneWidget);
+    expect(find.text('脉搏'), findsOneWidget);
+    expect(find.text('84 次/分'), findsOneWidget);
+    expect(find.textContaining('136/81 mmHg'), findsWidgets);
+    expect(find.text('HRV'), findsNothing);
+    expect(find.text('step'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('care temperature detail does not leak glucose or heart rate', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: CareMetricDetailPage(
+          day: DateTime(2026, 8, 29),
+          item: const {
+            'title': '体温',
+            'unit': '℃',
+            'records': [
+              {
+                'time': 'invalid-time',
+                'bodyTemperature': 36.5,
+                'bloodGlucose': 5.9,
+                'heartReat': 84,
+              },
+            ],
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('第 1 条记录'), findsOneWidget);
+    expect(find.text('体温'), findsWidgets);
+    expect(find.text('36.5 ℃'), findsWidgets);
+    expect(find.text('血糖'), findsNothing);
+    expect(find.text('5.9 mmol/L'), findsNothing);
+    expect(find.text('心率'), findsNothing);
+    expect(find.text('84 次/分'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('care body composition keeps only related nested submetrics', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: CareMetricDetailPage(
+          day: DateTime(2026, 8, 29),
+          item: const {
+            'title': '身体成分',
+            'records': [
+              {
+                'date': '2026-08-29 11:20:00',
+                'data': {
+                  'BMI': 21.3,
+                  'bodyFatRate': 18.2,
+                  'muscleMass': 48.1,
+                  'bloodGlucose': 5.5,
+                  'heartReat': 82,
+                },
+              },
+            ],
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('BMI'), findsOneWidget);
+    expect(find.text('21.3'), findsOneWidget);
+    expect(find.text('体脂率'), findsOneWidget);
+    expect(find.text('18.2 %'), findsOneWidget);
+    expect(find.text('肌肉量'), findsOneWidget);
+    expect(find.text('48.1 kg'), findsOneWidget);
+    expect(find.text('血糖'), findsNothing);
+    expect(find.text('5.5 mmol/L'), findsNothing);
+    expect(find.text('心率'), findsNothing);
+    expect(find.text('82 次/分'), findsNothing);
+    expect(find.text('bodyFatRate'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('care metric detail formats hour categories as clock times', (
     tester,
   ) async {

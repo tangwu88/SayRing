@@ -4,6 +4,41 @@
 > 当前交接说明请阅读 [`HANDOFF-20260812.md`](HANDOFF-20260812.md)。不要用旧 Git bundle
 > 覆盖当前工作树。
 
+## 2026-08-29 最新交接增量
+
+以下内容只追加当前现场结果，不改写下方 2026-08-05 历史基线。接手时先阅读：
+
+- [`IMPLEMENTATION-LOG-20260829-ONLINE-READINESS.md`](IMPLEMENTATION-LOG-20260829-ONLINE-READINESS.md)
+- [`REGRESSION-CHECKLIST.md`](REGRESSION-CHECKLIST.md)
+- [`BUG-RETROSPECTIVE-20260829.md`](BUG-RETROSPECTIVE-20260829.md)
+- [`release/PRODUCTION-RELEASE-BLOCKERS.md`](release/PRODUCTION-RELEASE-BLOCKERS.md)
+
+已取得真机证据：
+
+- MED Android 已扫描并连接 ET488、W9S、W8。
+- ET488 在线表盘目录 215 款；W9S 在线目录 161 款且 `dialShape=58`；W8 只读 5 个已安装表盘，无授权在线商城时不显示虚假预览。
+- W9S 心电启动/停止有设备 ACK；测试时未佩戴，没有有效波形，因此尚未完成心电全链路验收。
+- Android JPush SDK 注册与 TCP 连接成功，控制台包名匹配。该结论仅覆盖客户端传输层，不包含服务端业务推送。
+- `jpush_flutter 3.5.1` 已固定到 `third_party/jpush_flutter`，仅移除 Android `setup` 参数日志；最终真机确认连接成功，AppKey 精确值与 Registration ID 形态日志均为 0。设备登记仍为 `server_rejected` 退避重试。
+- iPhone 12 Debug 已安装并稳定运行，W9 连接、健康同步和原生电量 `98%` 有真机证据。
+- 最终代码在 W8 上读取到电量 `85%`、未充电；该次连接无 GATT 133，捷理敏感对象日志计数为 0。
+- 真实远程成员 HRV 页面只显示当前指标且无 `-1` 时间；关于页异常短值回退正常；W8 相机禁用与权限恢复两段真机复测通过。
+
+客户端本轮已修复并复测：
+
+- 远程关爱指标详情不再遍历整行原始字段；按当前指标显示中文标签/单位，血压拆分，HRV 单独显示，无效时间使用记录序号。定向 UI 测试 41/41 通过。
+- “关于我们”异常短文本/脏数据使用安全回退。
+- W8 相机被系统策略禁用时由黑屏改为明确提示，快门禁用；权限恢复后功能恢复。
+
+当前阻断和未执行：
+
+- 服务端推送设备登记/解绑、未读/已读及关爱 Outbox 未部署；公开更新清单、Android 正式下载地址和 App Store 产品页缺失。
+- 极光 Android 集成度仍为 `--`；iOS 没有与 Bundle 匹配的 APNs 证书配置，HarmonyOS 包名和 Server Key/JSON 也未配置；签名 Profile 还缺 APNs entitlement。后续开发证书重新信任阻断了 iOS UI 补充取证。
+- iPhone 15 Pro Max 已连接，旧版 `0.1.19 (23)` 启动稳定 30 秒；最终包因 Xcode `No Accounts` 且 Provisioning Profile 不包含该设备而安装失败。第二台 JAD Android 仍被物理 PIN 锁定；两者均不能计入最终代码设备覆盖。
+- 生产推送、有效 W9S 心电波形、iOS 最终包 UI、电量/表盘页面与正式更新仍需复测，不得写“正式上线通过”。
+
+接手资料、日志和提交中禁止记录 AppKey、Registration ID、Token、AuthKey、密码或完整健康原始数据。
+
 交接日期：2026-08-05
 
 项目目录：`F:\xcodeplace\国内电商\赛电app`

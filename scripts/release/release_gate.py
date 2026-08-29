@@ -478,13 +478,16 @@ def apk_manifest_command(args: argparse.Namespace) -> None:
     vendor_map = {
         "xiaomi": {"XIAOMI_APPKEY": "JPUSH_XIAOMI_APP_KEY", "XIAOMI_APPID": "JPUSH_XIAOMI_APP_ID"},
         "meizu": {"MEIZU_APPKEY": "JPUSH_MEIZU_APP_KEY", "MEIZU_APPID": "JPUSH_MEIZU_APP_ID"},
-        "vivo": {"VIVO_APPKEY": "JPUSH_VIVO_APP_KEY", "VIVO_APPID": "JPUSH_VIVO_APP_ID"},
+        "vivo": {
+            "com.vivo.push.api_key": "JPUSH_VIVO_APP_KEY",
+            "com.vivo.push.app_id": "JPUSH_VIVO_APP_ID",
+        },
         "oppo": {
             "OPPO_APPKEY": "JPUSH_OPPO_APP_KEY",
             "OPPO_APPID": "JPUSH_OPPO_APP_ID",
             "OPPO_APPSECRET": "JPUSH_OPPO_APP_SECRET",
         },
-        "honor": {"HONOR_APPID": "JPUSH_HONOR_APP_ID"},
+        "honor": {"com.hihonor.push.app_id": "JPUSH_HONOR_APP_ID"},
     }
     enabled = {
         value.strip().lower()

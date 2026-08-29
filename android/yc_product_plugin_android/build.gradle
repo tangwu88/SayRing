@@ -18,11 +18,17 @@ def patchedYuchengJavaSource = layout.buildDirectory
 def prepareYuchengPluginSources = tasks.register('prepareYuchengPluginSources', Sync) {
     def querySource = file(yuchengJavaSource.path +
             '/com/example/yc_product_plugin/YcProductPluginQuery.java')
+    def initSource = file(yuchengJavaSource.path +
+            '/com/example/yc_product_plugin/YcProductPluginInit.java')
     def brokenLine = 'map.put("data", map);'
+    def initAnchor = '        YCBTClient.initClient(context, isReconnectEnable, isLogEnable);'
 
     doFirst {
         if (!querySource.isFile()) {
             throw new GradleException("Missing Yucheng query source: ${querySource}")
+        }
+        if (!initSource.isFile()) {
+            throw new GradleException("Missing Yucheng init source: ${initSource}")
         }
         def occurrenceCount = new String(querySource.bytes, 'ISO-8859-1')
                 .count(brokenLine)
@@ -30,6 +36,13 @@ def prepareYuchengPluginSources = tasks.register('prepareYuchengPluginSources', 
             throw new GradleException(
                     "Expected one Yucheng cyclic-map defect, found ${occurrenceCount}. " +
                             'Review the upstream plugin before building.')
+        }
+        def initAnchorCount = new String(initSource.bytes, 'ISO-8859-1')
+                .count(initAnchor)
+        if (initAnchorCount != 1) {
+            throw new GradleException(
+                    "Expected one Yucheng init anchor, found ${initAnchorCount}. " +
+                            'Review the upstream plugin logging setup before building.')
         }
     }
 
@@ -42,6 +55,24 @@ def prepareYuchengPluginSources = tasks.register('prepareYuchengPluginSources', 
         def sourceBytes = new String(patchedQuerySource.bytes, 'ISO-8859-1')
         patchedQuerySource.bytes = sourceBytes
                 .replace(brokenLine, 'map.put("data", new HashMap());')
+                .getBytes('ISO-8859-1')
+
+        def patchedInitSource = file(patchedYuchengJavaSource.path +
+                '/com/example/yc_product_plugin/YcProductPluginInit.java')
+        def initSourceBytes = new String(patchedInitSource.bytes, 'ISO-8859-1')
+        def safeLoggingSetup = initAnchor + '''
+
+        // The Yucheng flag does not configure the bundled JieLi loggers.  Some
+        // of those loggers include TargetInfoResponse.toString(), which exposes
+        // the device authentication key.  Disable only the bundled JieLi raw
+        // protocol logs in every build; app-level diagnostics remain intact.
+        com.jieli.jl_rcsp.util.JL_Log.configureLog(context, false, false);
+        com.jieli.jl_bt_ota.util.JL_Log.setLog(false);
+        com.jieli.jl_bt_ota.util.JL_Log.setIsSaveLogFile(context, false);
+        com.jieli.bluetooth_connect.util.JL_Log.setLog(false);
+        com.jieli.bluetooth_connect.util.JL_Log.setIsSaveLogFile(false, context);'''
+        patchedInitSource.bytes = initSourceBytes
+                .replace(initAnchor, safeLoggingSetup)
                 .getBytes('ISO-8859-1')
     }
 }

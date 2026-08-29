@@ -425,6 +425,34 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('关于我们忽略服务端短占位词', (tester) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _ShortAboutApi(),
+      MemoryHealthStore(),
+      _CoverageWearable(),
+    )..isBooting = false;
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AboutSaydianPage(
+          controller: controller,
+          packageInfoLoader: () async => PackageInfo(
+            appName: '赛电健康',
+            packageName: 'cc.saidian.app',
+            version: '0.1.19',
+            buildNumber: '23',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('手动阀'), findsNothing);
+    expect(find.text('记录日常健康趋势，连接家人与设备，让健康管理更简单。'), findsOneWidget);
+  });
+
   test('release UI source does not contain developer-facing copy', () {
     final source = [
       'lib/app.dart',
@@ -467,6 +495,15 @@ class _CoverageApi extends Fake implements SaydianApi {
       _ => '关于赛电',
     },
     'content': '<p>赛电健康服务说明</p>',
+  };
+}
+
+class _ShortAboutApi extends _CoverageApi {
+  @override
+  Future<Map<String, Object?>> getSingleArticle(int id) async => {
+    'id': id,
+    'title': '关于赛电',
+    'content': '<p>手动阀</p>',
   };
 }
 
