@@ -415,10 +415,18 @@ class AppController extends ChangeNotifier {
         unawaited(synchronizeCloud());
       }
     });
+    var healthStoreRecoveryPending = false;
     try {
       await _healthStore.initialize();
       _notificationStorageReady = true;
-      storageStatus = '数据已安全保存在本机';
+      final recoveryStatus = _healthStore;
+      final recoveryNotice = recoveryStatus is HealthStoreRecoveryStatus
+          ? (recoveryStatus as HealthStoreRecoveryStatus).recoveryNotice
+          : null;
+      healthStoreRecoveryPending = recoveryStatus is HealthStoreRecoveryStatus
+          ? (recoveryStatus as HealthStoreRecoveryStatus).recoveryPending
+          : false;
+      storageStatus = recoveryNotice ?? '数据已安全保存在本机';
     } catch (_) {
       storageStatus = '本机数据暂时无法读取';
     }
@@ -474,7 +482,9 @@ class AppController extends ChangeNotifier {
     } catch (_) {
       _privacyConsentGranted = false;
     }
-    if (_notificationStorageReady && sessionReadSucceeded) {
+    if (_notificationStorageReady &&
+        sessionReadSucceeded &&
+        !healthStoreRecoveryPending) {
       try {
         final migrationHandled = await _vault
             .readLegacyHealthMigrationHandled();

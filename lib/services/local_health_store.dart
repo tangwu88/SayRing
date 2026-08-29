@@ -1,5 +1,6 @@
-import 'dart:convert';
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
@@ -37,6 +38,37 @@ abstract interface class HealthStore implements NotificationInboxStorage {
   Future<void> close();
 }
 
+abstract interface class HealthStoreRecoveryStatus {
+  String? get recoveryNotice;
+  bool get recoveryPending;
+}
+
+abstract interface class HealthStoreFileOperations {
+  Future<bool> exists(String file);
+  Future<void> rename(String source, String destination);
+  Future<void> delete(String file);
+  Future<void> writeText(String file, String contents);
+}
+
+class IoHealthStoreFileOperations implements HealthStoreFileOperations {
+  const IoHealthStoreFileOperations();
+
+  @override
+  Future<bool> exists(String file) => File(file).exists();
+
+  @override
+  Future<void> rename(String source, String destination) async {
+    await File(source).rename(destination);
+  }
+
+  @override
+  Future<void> delete(String file) => File(file).delete();
+
+  @override
+  Future<void> writeText(String file, String contents) =>
+      File(file).writeAsString(contents, flush: true);
+}
+
 typedef HealthDatabaseOpener =
     Future<Database> Function(
       String file, {
@@ -63,19 +95,40 @@ Future<Database> _openEncryptedHealthDatabase(
   onUpgrade: onUpgrade,
 );
 
-class EncryptedHealthStore implements HealthStore {
+bool _isUnreadableEncryptedDatabaseError(Object error) {
+  final message = error.toString().toLowerCase();
+  return message.contains('file is not a database') ||
+      message.contains('sqlite_notadb') ||
+      message.contains('code 26') ||
+      message.contains('error 26') ||
+      message.contains('hmac check failed');
+}
+
+class EncryptedHealthStore implements HealthStore, HealthStoreRecoveryStatus {
   EncryptedHealthStore(
     this._vault, {
     this._databasePathProvider,
     this._databaseOpener = _openEncryptedHealthDatabase,
-  });
+    this.fileOperations = const IoHealthStoreFileOperations(),
+    DateTime Function()? clock,
+  }) : _clock = clock ?? DateTime.now;
 
   final SessionVault _vault;
   final Future<String> Function()? _databasePathProvider;
   final HealthDatabaseOpener _databaseOpener;
+  final HealthStoreFileOperations fileOperations;
+  final DateTime Function() _clock;
   Database? _database;
   Future<void> _databaseQueue = Future<void>.value();
   String _ownerId = 'anonymous';
+
+  @override
+  String? recoveryNotice;
+
+  @override
+  bool recoveryPending = false;
+
+  HealthStoreFileOperations get _fileOperations => fileOperations;
 
   Future<T> _enqueue<T>(Future<T> Function() operation) {
     final completer = Completer<T>();
@@ -100,6 +153,8 @@ class EncryptedHealthStore implements HealthStore {
   @override
   Future<void> initialize() async {
     if (_database != null) return;
+    recoveryNotice = null;
+    recoveryPending = false;
     final configuredPath = _databasePathProvider;
     final file = configuredPath == null
         ? path.join(
@@ -107,8 +162,13 @@ class EncryptedHealthStore implements HealthStore {
             'saydian_health_v1.db',
           )
         : await configuredPath();
+    final recoveryMarker = _recoveryMarkerPath(file);
+    if (await _fileOperations.exists(recoveryMarker)) {
+      recoveryPending = true;
+      recoveryNotice = '此前检测到本机加密数据库无法读取；原数据库文件仍保留，恢复处理尚未完成';
+    }
     final password = await _vault.databaseKey();
-    _database = await _databaseOpener(
+    Future<Database> open() => _databaseOpener(
       file,
       password: password,
       version: 6,
@@ -188,6 +248,194 @@ class EncryptedHealthStore implements HealthStore {
         }
       },
     );
+    try {
+      _database = await open();
+    } catch (error, stackTrace) {
+      if (!_isUnreadableEncryptedDatabaseError(error)) {
+        Error.throwWithStackTrace(error, stackTrace);
+      }
+      final recovered = await _quarantineUnreadableDatabase(file, open);
+      if (recovered == null) {
+        Error.throwWithStackTrace(error, stackTrace);
+      }
+      _database = recovered;
+      recoveryPending = true;
+      recoveryNotice = '检测到本机加密数据库暂时无法读取；原数据库文件已隔离保留，App 当前使用新建数据库';
+    }
+  }
+
+  static const _databaseFileSuffixes = ['', '-wal', '-shm', '-journal'];
+
+  static String _recoveryMarkerPath(String file) => '$file.recovery-pending';
+
+  Future<bool> _backupSetExists(String backupBase) async {
+    for (final suffix in _databaseFileSuffixes) {
+      if (await _fileOperations.exists('$backupBase$suffix')) return true;
+    }
+    return false;
+  }
+
+  Future<void> _rollbackMovedFiles(List<MapEntry<String, String>> moved) async {
+    Object? firstError;
+    StackTrace? firstStackTrace;
+    for (final entry in moved.reversed) {
+      try {
+        if (!await _fileOperations.exists(entry.value)) continue;
+        if (await _fileOperations.exists(entry.key)) {
+          throw FileSystemException(
+            'Refusing to overwrite a database file during recovery rollback',
+            entry.key,
+          );
+        }
+        await _fileOperations.rename(entry.value, entry.key);
+      } catch (error, stackTrace) {
+        firstError ??= error;
+        firstStackTrace ??= stackTrace;
+      }
+    }
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError, firstStackTrace!);
+    }
+  }
+
+  Future<void> _deleteFreshDatabaseFiles(String file) async {
+    Object? firstError;
+    StackTrace? firstStackTrace;
+    for (final suffix in _databaseFileSuffixes.reversed) {
+      final fresh = '$file$suffix';
+      try {
+        if (await _fileOperations.exists(fresh)) {
+          await _fileOperations.delete(fresh);
+        }
+      } catch (error, stackTrace) {
+        firstError ??= error;
+        firstStackTrace ??= stackTrace;
+      }
+    }
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError, firstStackTrace!);
+    }
+  }
+
+  Future<void> _preserveRecoveryMarkerBestEffort(
+    String marker,
+    String backupBase,
+  ) async {
+    recoveryPending = true;
+    recoveryNotice = '本机加密数据库恢复未完成；原数据库文件仍保留，请勿删除应用数据';
+    try {
+      if (!await _fileOperations.exists(marker)) {
+        await _fileOperations.writeText(marker, '$backupBase\n');
+      }
+    } catch (_) {
+      // The backup files remain authoritative even when a damaged filesystem
+      // also prevents the conservative marker from being written.
+    }
+  }
+
+  Future<Database?> _quarantineUnreadableDatabase(
+    String file,
+    Future<Database> Function() reopen,
+  ) async {
+    if (!await _fileOperations.exists(file)) return null;
+
+    final token = _clock().toUtc().microsecondsSinceEpoch;
+    var backupBase = '$file.unreadable-$token';
+    var suffix = 0;
+    while (await _backupSetExists(backupBase)) {
+      suffix += 1;
+      backupBase = '$file.unreadable-$token-$suffix';
+    }
+    final marker = _recoveryMarkerPath(file);
+    final markerAlreadyExisted = await _fileOperations.exists(marker);
+
+    final moved = <MapEntry<String, String>>[];
+    try {
+      for (final sidecar in _databaseFileSuffixes) {
+        final source = '$file$sidecar';
+        if (!await _fileOperations.exists(source)) continue;
+        final backup = '$backupBase$sidecar';
+        try {
+          await _fileOperations.rename(source, backup);
+          moved.add(MapEntry(source, backup));
+        } catch (_) {
+          // A custom or platform file operation can fail after performing the
+          // rename. Detect that state so rollback still restores the source.
+          if (!await _fileOperations.exists(source) &&
+              await _fileOperations.exists(backup)) {
+            moved.add(MapEntry(source, backup));
+          }
+          rethrow;
+        }
+      }
+    } catch (error, stackTrace) {
+      try {
+        await _rollbackMovedFiles(moved);
+      } catch (rollbackError, rollbackStackTrace) {
+        await _preserveRecoveryMarkerBestEffort(marker, backupBase);
+        Error.throwWithStackTrace(rollbackError, rollbackStackTrace);
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+
+    var markerCreated = false;
+    try {
+      if (!markerAlreadyExisted) {
+        await _fileOperations.writeText(marker, '$backupBase\n');
+        markerCreated = true;
+      }
+    } catch (error, stackTrace) {
+      try {
+        await _rollbackMovedFiles(moved);
+      } catch (rollbackError, rollbackStackTrace) {
+        await _preserveRecoveryMarkerBestEffort(marker, backupBase);
+        Error.throwWithStackTrace(rollbackError, rollbackStackTrace);
+      }
+      if (!markerAlreadyExisted && await _fileOperations.exists(marker)) {
+        try {
+          await _fileOperations.delete(marker);
+        } catch (_) {
+          // A stale marker is conservative: it prevents legacy migration from
+          // being marked handled after the original files were restored.
+        }
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+
+    try {
+      return await reopen();
+    } catch (error, stackTrace) {
+      Object? recoveryError;
+      StackTrace? recoveryStackTrace;
+      try {
+        // Every original path was vacated before reopen started, so files now
+        // present at these paths were created by this reopen attempt only.
+        await _deleteFreshDatabaseFiles(file);
+      } catch (cleanupError, cleanupStackTrace) {
+        recoveryError ??= cleanupError;
+        recoveryStackTrace ??= cleanupStackTrace;
+      }
+      try {
+        await _rollbackMovedFiles(moved);
+      } catch (rollbackError, rollbackStackTrace) {
+        recoveryError ??= rollbackError;
+        recoveryStackTrace ??= rollbackStackTrace;
+      }
+      if (markerCreated && recoveryError == null) {
+        try {
+          if (await _fileOperations.exists(marker)) {
+            await _fileOperations.delete(marker);
+          }
+        } catch (markerError, markerStackTrace) {
+          recoveryError ??= markerError;
+          recoveryStackTrace ??= markerStackTrace;
+        }
+      }
+      if (recoveryError != null) {
+        Error.throwWithStackTrace(recoveryError, recoveryStackTrace!);
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
   }
 
   @override
