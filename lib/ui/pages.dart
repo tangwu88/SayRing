@@ -15,6 +15,7 @@ import '../domain/health_interpretation.dart';
 import '../domain/models.dart';
 import '../services/app_controller.dart';
 import '../services/device_watch_face_market_service.dart';
+import '../services/notification_models.dart';
 import 'app_theme.dart';
 import 'brand_assets.dart';
 import 'health_trend_page.dart';
@@ -52,7 +53,11 @@ class _LoginPageState extends State<LoginPage> {
       ).showSnackBar(const SnackBar(content: Text('请先阅读并同意用户协议与隐私政策')));
       return;
     }
-    await widget.controller.login(_account.text, _password.text);
+    await widget.controller.login(
+      _account.text,
+      _password.text,
+      privacyConsentGranted: true,
+    );
   }
 
   @override
@@ -574,9 +579,18 @@ class _DashboardHeader extends StatelessWidget {
         ),
         const SizedBox(width: 6),
         Badge(
+          isLabelVisible: controller.notificationUnreadCount > 0,
+          label: Text(
+            controller.notificationUnreadCount > 99
+                ? '99+'
+                : '${controller.notificationUnreadCount}',
+          ),
           smallSize: 9,
           backgroundColor: Color(0xFFD70B25),
           child: IconButton(
+            tooltip: controller.notificationUnreadCount > 0
+                ? '消息，${controller.notificationUnreadCount} 条未读'
+                : '消息',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => NotificationsPage(controller: controller),
@@ -3712,7 +3726,9 @@ class DevicePage extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                              _BatteryBadge(value: connected.batteryPercent),
+                              _BatteryBadge(
+                                battery: connected.effectiveBattery,
+                              ),
                             ],
                           ),
                           const SizedBox(height: 5),
@@ -4120,26 +4136,31 @@ class DevicePage extends StatelessWidget {
 }
 
 class _BatteryBadge extends StatelessWidget {
-  const _BatteryBadge({required this.value});
+  const _BatteryBadge({required this.battery});
 
-  final int? value;
+  final DeviceBatteryInfo? battery;
 
   @override
   Widget build(BuildContext context) {
-    final percent = value?.clamp(0, 100);
-    final color = switch (percent) {
+    final value = battery;
+    final percent = value?.percent;
+    final color = switch (value) {
       null => SaydianColors.muted,
-      <= 15 => SaydianColors.danger,
-      <= 35 => SaydianColors.orange,
+      DeviceBatteryInfo(isLow: true) => SaydianColors.danger,
+      DeviceBatteryInfo(isPercent: true, value: <= 35) => SaydianColors.orange,
       _ => SaydianColors.green,
     };
+    final label = value?.displayLabel ?? '--';
+    final semantics = value == null
+        ? '手表电量暂未读取'
+        : '手表电量 $label，${value.chargeState.label}';
     return Semantics(
-      label: percent == null ? '手表电量暂未读取' : '手表电量 $percent%',
+      label: semantics,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            percent == null ? '--' : '$percent%',
+            label,
             style: TextStyle(
               color: color,
               fontSize: 14,
@@ -4148,11 +4169,14 @@ class _BatteryBadge extends StatelessWidget {
           ),
           const SizedBox(width: 4),
           Icon(
-            percent == null
+            value == null
                 ? Icons.battery_unknown_rounded
-                : percent <= 15
+                : value.isCharging
+                ? Icons.battery_charging_full_rounded
+                : percent != null && percent <= 15
                 ? Icons.battery_1_bar_rounded
-                : percent <= 50
+                : (percent != null && percent <= 50) ||
+                      (!value.isPercent && value.value <= 2)
                 ? Icons.battery_4_bar_rounded
                 : Icons.battery_full_rounded,
             color: color,
@@ -4178,45 +4202,115 @@ class _DeviceWatchFaceMarketStripState
     extends State<_DeviceWatchFaceMarketStrip> {
   final _service = DeviceWatchFaceMarketService();
   List<DeviceWatchFaceMarketItem> _items = const [];
-  DeviceWatchFaceMarketProfile _profile = DeviceWatchFaceMarketProfile.w9s;
+  DeviceWatchFaceMarketProfile? _profile;
   bool _supported = false;
+  String? _loadedDeviceId;
+  bool _loading = false;
+  final _loadGate = WatchFaceLoadRequestGate();
 
   @override
   void initState() {
     super.initState();
+    widget.controller.addListener(_handleDeviceChanged);
     unawaited(_load());
   }
 
+  @override
+  void dispose() {
+    widget.controller.removeListener(_handleDeviceChanged);
+    super.dispose();
+  }
+
+  void _handleDeviceChanged() {
+    final currentId = widget.controller.connectedDevice?.id;
+    if (currentId == _loadedDeviceId) return;
+    _loadGate.invalidate();
+    if (mounted) {
+      setState(() {
+        _loadedDeviceId = currentId;
+        _profile = null;
+        _supported = false;
+        _items = const [];
+        _loading = false;
+      });
+    }
+    if (currentId != null) unawaited(_load());
+  }
+
   Future<void> _load() async {
+    if (_loading) return;
     if (widget.controller.connectedDevice?.sdkSource !=
         WearableSdkSource.veepoo) {
       return;
     }
+    final generation = _loadGate.begin();
+    _loading = true;
+    final requestedDeviceId = widget.controller.connectedDevice?.id;
+    _loadedDeviceId = requestedDeviceId;
     try {
       final profileData = await widget.controller.readWatchFaceProfile();
       if (profileData['onlineMarketSupported'] != true) return;
       final profile = DeviceWatchFaceMarketProfile.fromMap(profileData);
-      final result = await _service.loadPage(page: 1, profile: profile);
-      if (mounted) {
+      if (!profile.matchesDevice(requestedDeviceId) ||
+          widget.controller.connectedDevice?.id != requestedDeviceId) {
+        return;
+      }
+      final items = widget.controller.usesNativeWatchFaceMarket
+          ? (await widget.controller.readNativeWatchFaceCatalog())
+                .map(DeviceWatchFaceMarketItem.fromNative)
+                .where(
+                  (item) =>
+                      item.available &&
+                      item.dialShape == profile.dialShape &&
+                      item.binProtocol == profile.binProtocol,
+                )
+                .take(4)
+                .toList(growable: false)
+          : (await _service.loadPage(
+              page: 1,
+              profile: profile,
+            )).items.take(4).toList();
+      if (mounted &&
+          _loadGate.accepts(
+            token: generation,
+            requestedDeviceId: requestedDeviceId,
+            currentDeviceId: widget.controller.connectedDevice?.id,
+          ) &&
+          profile.matchesDevice(requestedDeviceId)) {
         setState(() {
           _supported = true;
           _profile = profile;
-          _items = result.items.take(4).toList();
+          _loadedDeviceId = requestedDeviceId;
+          _items = items;
         });
       }
     } catch (_) {
       // The full market page has an explicit retry state. Keep this compact
       // preview quiet when the phone is temporarily offline.
+    } finally {
+      if (_loadGate.accepts(
+        token: generation,
+        requestedDeviceId: requestedDeviceId,
+        currentDeviceId: widget.controller.connectedDevice?.id,
+      )) {
+        _loading = false;
+      }
     }
   }
 
   void _openMarket() {
+    final profile = _profile;
+    if (profile == null ||
+        !profile.matchesDevice(widget.controller.connectedDevice?.id)) {
+      unawaited(_load());
+      return;
+    }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: 'device-watch-face-market'),
         builder: (_) => DeviceWatchFaceMarketPage(
           controller: widget.controller,
-          profile: _profile,
+          profile: profile,
         ),
       ),
     );
@@ -4658,53 +4752,87 @@ class _DeviceSearchEmpty extends StatelessWidget {
   }
 }
 
-class DeviceInfoPage extends StatelessWidget {
+class DeviceInfoPage extends StatefulWidget {
   const DeviceInfoPage({required this.controller, super.key});
 
   final AppController controller;
 
   @override
+  State<DeviceInfoPage> createState() => _DeviceInfoPageState();
+}
+
+class _DeviceInfoPageState extends State<DeviceInfoPage> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(widget.controller.refreshConnectedDeviceDetails());
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final device = controller.connectedDevice;
     return Scaffold(
       appBar: AppBar(title: const Text('关于设备')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  title: const Text('设备名称'),
-                  trailing: Text(device?.name ?? '--'),
+      body: ListenableBuilder(
+        listenable: widget.controller,
+        builder: (context, _) {
+          final device = widget.controller.connectedDevice;
+          final battery = device?.effectiveBattery;
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      title: const Text('设备名称'),
+                      trailing: Text(device?.name ?? '--'),
+                    ),
+                    const Divider(indent: 16),
+                    ListTile(
+                      title: const Text('设备型号'),
+                      trailing: Text(device?.model ?? '--'),
+                    ),
+                    const Divider(indent: 16),
+                    ListTile(
+                      title: const Text('固件版本'),
+                      trailing: Text(device?.firmwareVersion ?? '--'),
+                    ),
+                    const Divider(indent: 16),
+                    ListTile(
+                      title: const Text('手表电量'),
+                      subtitle: battery?.updatedAt == null
+                          ? null
+                          : Text(
+                              '更新于 ${DateFormat('MM-dd HH:mm').format(battery!.updatedAt!.toLocal())}',
+                            ),
+                      trailing: _BatteryBadge(battery: battery),
+                    ),
+                    if (battery != null) ...[
+                      const Divider(indent: 16),
+                      ListTile(
+                        title: const Text('充电状态'),
+                        trailing: Text(battery.chargeState.label),
+                      ),
+                    ],
+                    const Divider(indent: 16),
+                    ListTile(
+                      title: Text(
+                        device?.macAddress != null
+                            ? 'MAC 地址'
+                            : defaultTargetPlatform == TargetPlatform.iOS
+                            ? 'iOS 设备标识'
+                            : '设备标识',
+                      ),
+                      subtitle: Text(
+                        device?.macAddress ?? device?.nativeId ?? '--',
+                      ),
+                    ),
+                  ],
                 ),
-                const Divider(indent: 16),
-                ListTile(
-                  title: const Text('设备型号'),
-                  trailing: Text(device?.model ?? '--'),
-                ),
-                const Divider(indent: 16),
-                ListTile(
-                  title: const Text('固件版本'),
-                  trailing: Text(device?.firmwareVersion ?? '--'),
-                ),
-                const Divider(indent: 16),
-                ListTile(
-                  title: Text(
-                    device?.macAddress != null
-                        ? 'MAC 地址'
-                        : defaultTargetPlatform == TargetPlatform.iOS
-                        ? 'iOS 设备标识'
-                        : '设备标识',
-                  ),
-                  subtitle: Text(
-                    device?.macAddress ?? device?.nativeId ?? '--',
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -4751,6 +4879,37 @@ class _NotificationsPageState extends State<NotificationsPage> {
     unawaited(widget.controller.refreshNotifications());
   }
 
+  Future<void> _openItem(Map<String, Object?> item) async {
+    final eventId = '${item['event_id'] ?? ''}'.trim();
+    if (eventId.isNotEmpty) {
+      await widget.controller.markNotificationEventRead(eventId);
+    }
+    if (!mounted) return;
+    final eventType = '${item['_eventType'] ?? ''}';
+    if (eventType == NotificationEventType.careInvitation.name) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => CareInvitationsPage(
+            controller: widget.controller,
+            targetInvitationId: '${item['entity_id'] ?? ''}'.trim(),
+          ),
+        ),
+      );
+      return;
+    }
+    final id = int.tryParse('${item['id'] ?? ''}');
+    if (id == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => NotificationDetailPage(
+          controller: widget.controller,
+          id: id,
+          initial: item,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -4761,89 +4920,197 @@ class _NotificationsPageState extends State<NotificationsPage> {
           final healthWarnings = widget.controller.healthWarningAlerts
               .asMap()
               .entries
-              .map(
-                (entry) => <String, Object?>{
+              .map((entry) {
+                final eventId = widget.controller.healthWarningEventId(
+                  entry.value,
+                );
+                final matchingEvents = widget.controller.notificationInboxEvents
+                    .where((item) => item.eventId == eventId)
+                    .toList(growable: false);
+                final event = matchingEvents.isEmpty
+                    ? null
+                    : matchingEvents.first;
+                return <String, Object?>{
                   'id': -(entry.key + 1),
                   '_localHealthWarning': true,
+                  '_localNotification': true,
+                  '_eventType': NotificationEventType.healthWarning.name,
+                  'event_id': eventId,
+                  'is_read': event?.isRead ?? true,
                   'title': entry.value.title,
                   'content': entry.value.message,
                   'created_at': DateFormat(
                     'yyyy-MM-dd HH:mm',
                   ).format(entry.value.triggeredAt.toLocal()),
                   'kind': 'health_warning',
+                };
+              })
+              .toList(growable: false);
+          final healthEventIds = healthWarnings
+              .map((item) => '${item['event_id'] ?? ''}')
+              .toSet();
+          final localEvents = widget.controller.notificationInboxEvents
+              .where((event) => !healthEventIds.contains(event.eventId))
+              .map(
+                (event) => <String, Object?>{
+                  'id': -((event.eventId.hashCode & 0x3fffffff) + 1000),
+                  '_localNotification': true,
+                  '_eventType': event.type.name,
+                  'event_id': event.eventId,
+                  'entity_id': event.entityId,
+                  'is_read': event.isRead,
+                  'title': switch (event.type) {
+                    NotificationEventType.careInvitation => '关爱邀请',
+                    NotificationEventType.healthWarning => '健康预警',
+                    NotificationEventType.system => '系统消息',
+                  },
+                  'content': switch (event.type) {
+                    NotificationEventType.careInvitation =>
+                      '您有新的关爱请求，请点击查看最新状态。',
+                    NotificationEventType.healthWarning => '有新的健康预警，请打开预警记录查看。',
+                    NotificationEventType.system => '您有一条新消息。',
+                  },
+                  'created_at': DateFormat(
+                    'yyyy-MM-dd HH:mm',
+                  ).format(event.createdAt.toLocal()),
+                  'kind': event.type == NotificationEventType.healthWarning
+                      ? 'health_warning'
+                      : event.type.wireName,
                 },
+              )
+              .toList(growable: false);
+          final localEventIds = <String>{
+            ...healthEventIds,
+            ...localEvents.map((item) => '${item['event_id'] ?? ''}'),
+          };
+          final remoteNotifications = widget.controller.notifications
+              .where(
+                (item) => !localEventIds.contains(
+                  '${item['event_id'] ?? item['eventId'] ?? ''}',
+                ),
               )
               .toList(growable: false);
           final values = <Map<String, Object?>>[
             ...healthWarnings,
-            ...widget.controller.notifications,
+            ...localEvents,
+            ...remoteNotifications,
           ];
-          if (values.isEmpty) {
-            return Center(
-              child: Text(
-                widget.controller.notificationStatus,
-                style: const TextStyle(color: SaydianColors.muted),
-              ),
-            );
-          }
-          return RefreshIndicator(
-            onRefresh: widget.controller.refreshNotifications,
-            child: ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: values.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 10),
-              itemBuilder: (context, index) {
-                final item = values[index];
-                final id = int.tryParse('${item['id'] ?? ''}');
-                final isHealthWarning = item['kind'] == 'health_warning';
-                return Card(
-                  clipBehavior: Clip.antiAlias,
+          final permissionCard =
+              widget.controller.notificationServiceConfigured &&
+                  !widget.controller.notificationPermissionEnabled
+              ? Card(
+                  margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                   child: ListTile(
-                    onTap: id == null
-                        ? null
-                        : () => Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => NotificationDetailPage(
-                                controller: widget.controller,
-                                id: id,
-                                initial: item,
-                              ),
-                            ),
-                          ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
+                    leading: const Icon(Icons.notifications_off_outlined),
+                    title: const Text('系统通知未开启'),
+                    subtitle: const Text('应用内红点和消息仍可使用，开启后可及时收到关爱邀请与健康预警。'),
+                    trailing: PopupMenuButton<String>(
+                      onSelected: (value) {
+                        if (value == 'request') {
+                          unawaited(
+                            widget.controller.requestNotificationPermission(),
+                          );
+                        } else {
+                          unawaited(
+                            widget.controller.openNotificationSettings(),
+                          );
+                        }
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'request', child: Text('允许通知')),
+                        PopupMenuItem(value: 'settings', child: Text('系统设置')),
+                      ],
                     ),
-                    leading: CircleAvatar(
-                      backgroundColor: isHealthWarning
-                          ? SaydianColors.brandRedSoft
-                          : SaydianColors.techBlueSoft,
-                      foregroundColor: isHealthWarning
-                          ? SaydianColors.brandRed
-                          : SaydianColors.techBlue,
-                      child: Icon(
-                        isHealthWarning
-                            ? Icons.health_and_safety_rounded
-                            : Icons.notifications_none_rounded,
-                      ),
-                    ),
-                    title: Text(
-                      '${item['title'] ?? item['name'] ?? '系统消息'}',
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    subtitle: Text(
-                      [
-                        _notificationPreview(item),
-                        '${item['created_at'] ?? item['createdAt'] ?? ''}',
-                      ].where((value) => value.trim().isNotEmpty).join('\n'),
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    trailing: const Icon(Icons.chevron_right_rounded),
                   ),
-                );
-              },
-            ),
+                )
+              : null;
+          return Column(
+            children: [
+              ?permissionCard,
+              Expanded(
+                child: values.isEmpty
+                    ? Center(
+                        child: Text(
+                          widget.controller.notificationStatus,
+                          style: const TextStyle(color: SaydianColors.muted),
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: widget.controller.refreshNotifications,
+                        child: ListView.separated(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: values.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final item = values[index];
+                            final isHealthWarning =
+                                item['kind'] == 'health_warning';
+                            final unread = item['is_read'] == false;
+                            return Card(
+                              clipBehavior: Clip.antiAlias,
+                              child: ListTile(
+                                onTap: () => unawaited(_openItem(item)),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ),
+                                leading: CircleAvatar(
+                                  backgroundColor: isHealthWarning
+                                      ? SaydianColors.brandRedSoft
+                                      : SaydianColors.techBlueSoft,
+                                  foregroundColor: isHealthWarning
+                                      ? SaydianColors.brandRed
+                                      : SaydianColors.techBlue,
+                                  child: Icon(
+                                    isHealthWarning
+                                        ? Icons.health_and_safety_rounded
+                                        : Icons.notifications_none_rounded,
+                                  ),
+                                ),
+                                title: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '${item['title'] ?? item['name'] ?? '系统消息'}',
+                                        style: TextStyle(
+                                          fontWeight: unread
+                                              ? FontWeight.w900
+                                              : FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                    if (unread)
+                                      const Padding(
+                                        padding: EdgeInsets.only(left: 8),
+                                        child: CircleAvatar(
+                                          radius: 4,
+                                          backgroundColor:
+                                              SaydianColors.brandRed,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                subtitle: Text(
+                                  [
+                                        _notificationPreview(item),
+                                        '${item['created_at'] ?? item['createdAt'] ?? ''}',
+                                      ]
+                                      .where((value) => value.trim().isNotEmpty)
+                                      .join('\n'),
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: const Icon(
+                                  Icons.chevron_right_rounded,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+              ),
+            ],
           );
         },
       ),
@@ -4877,7 +5144,7 @@ class _NotificationDetailPageState extends State<NotificationDetailPage> {
   }
 
   Future<void> _load() async {
-    if (widget.initial['_localHealthWarning'] == true) return;
+    if (widget.initial['_localNotification'] == true) return;
     final value = await widget.controller.loadNotification(widget.id);
     if (mounted && value.isNotEmpty) setState(() => _value = value);
   }

@@ -58,6 +58,15 @@ app.*.map.json
 *.keystore
 *.p12
 *.mobileprovision
+*.p8
+*.pem
+*.key
+*.cer
+*.der
+.env
+.env.*
+!.env.example
+google-services.json
 /android/app/libs/*.aar
 !/android/app/libs/vpprotocol-2.3.77.15.aar
 /android/app/libs/*.jar

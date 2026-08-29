@@ -15,6 +15,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.location.LocationManager
 import android.media.MediaScannerConnection
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -26,6 +27,7 @@ import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.inuker.bluetooth.library.Code
 import com.inuker.bluetooth.library.Constants
 import com.inuker.bluetooth.library.connect.response.BleNotifyResponse
@@ -147,6 +149,7 @@ import com.veepoo.protocol.model.datas.TemptureDetectData
 import com.veepoo.protocol.model.datas.TextAlarmData
 import com.veepoo.protocol.model.datas.TimeData
 import com.veepoo.protocol.model.datas.UIDataCustom
+import com.veepoo.protocol.model.datas.UIDataServer
 import com.veepoo.protocol.model.datas.WorldClock
 import com.veepoo.protocol.model.datas.UICustomSetData
 import com.veepoo.protocol.model.datas.weather.WeatherData
@@ -239,6 +242,12 @@ class MainActivity : FlutterActivity() {
             PAYMENTS_CHANNEL,
         ).setMethodCallHandler { call, result ->
             handlePaymentMethod(call, result)
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            UPDATE_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            handleUpdateMethod(call, result)
         }
         EventChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -538,10 +547,71 @@ class MainActivity : FlutterActivity() {
         super.onDestroy()
     }
 
+    private fun handleUpdateMethod(call: MethodCall, result: MethodChannel.Result) {
+        when (call.method) {
+            "installApk" -> {
+                val filePath = call.argument<String>("filePath")?.trim().orEmpty()
+                if (filePath.isEmpty()) {
+                    result.error("INVALID_APK", "安装包路径无效", null)
+                    return
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                    !packageManager.canRequestPackageInstalls()
+                ) {
+                    result.error("UNKNOWN_SOURCES_DISABLED", "尚未允许安装未知来源应用", null)
+                    return
+                }
+                val file = File(filePath)
+                val cacheRoot = cacheDir.canonicalFile
+                val canonical = runCatching { file.canonicalFile }.getOrNull()
+                if (canonical == null ||
+                    !canonical.isFile ||
+                    canonical.extension.lowercase(Locale.ROOT) != "apk" ||
+                    !canonical.path.startsWith(cacheRoot.path + File.separator)
+                ) {
+                    result.error("INVALID_APK", "安装包文件无效", null)
+                    return
+                }
+                val uri = FileProvider.getUriForFile(
+                    this,
+                    "$packageName.update_provider",
+                    canonical,
+                )
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                runCatching { startActivity(intent) }
+                    .onSuccess { result.success(null) }
+                    .onFailure {
+                        result.error("INSTALLER_UNAVAILABLE", "无法打开系统安装器", null)
+                    }
+            }
+            "openUnknownSourcesSettings" -> {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                    result.success(null)
+                    return
+                }
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName"),
+                )
+                runCatching { startActivity(intent) }
+                    .onSuccess { result.success(null) }
+                    .onFailure {
+                        result.error("SETTINGS_UNAVAILABLE", "无法打开安装授权设置", null)
+                    }
+            }
+            else -> result.notImplemented()
+        }
+    }
+
     companion object {
         private const val METHODS_CHANNEL = "cc.saidian/wearable_methods"
         private const val EVENTS_CHANNEL = "cc.saidian/wearable_events"
         private const val PAYMENTS_CHANNEL = "cc.saidian/app_payments"
+        private const val UPDATE_CHANNEL = "cc.saidian/app_update"
         private const val BLE_PERMISSION_REQUEST = 7001
         private const val BLE_ENABLE_REQUEST = 7002
         private val BLE_PERMISSION_METHODS =
@@ -643,13 +713,17 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private var connectedDeviceId = ""
     private var connectedDeviceName = ""
     private var firmwareVersion = ""
-    private var batteryPercent: Int? = null
-    private var batteryReadInFlight = false
+    private var batterySnapshot: VeepooBatterySnapshot? = null
+    private val batteryReadGate = VeepooBatteryReadGate()
+    private var batteryReadTimeoutTask: Runnable? = null
+    private var batteryRefreshPending = false
+    private val batteryReadCompletions =
+        mutableListOf<(VeepooBatterySnapshot?, cancelled: Boolean) -> Unit>()
+    private val watchFaceTransferGate = VeepooExclusiveOperationGate()
     private var watchFaceDeviceNumber = 0
     private var watchFaceDeviceTestVersion = ""
-    private var watchFaceDialShape = 0
-    private var watchFaceScreenWidth = 0
-    private var watchFaceScreenHeight = 0
+    private var watchFaceProfile: VeepooWatchFaceProfile? = null
+    private var watchFaceListContext: VeepooWatchFaceOperationContext? = null
     private var watchDataDays = 3
     private var capabilities = defaultCapabilities()
     private var legacyFunctionData: FunctionDeviceSupportData? = null
@@ -740,6 +814,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
     private fun releaseJLWatchFaceSession() {
         availableWatchFacePaths.clear()
+        watchFaceListContext = null
+        watchFaceProfile = null
+        watchFaceDeviceNumber = 0
+        watchFaceDeviceTestVersion = ""
         if (!jlWatchFaceSessionActive) return
         jlWatchFaceSessionActive = false
         runCatching { manager.releaseJLSDK() }
@@ -938,10 +1016,13 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             "已有连接任务被新的连接操作替代",
             emitError = true,
         )
+        resetBatterySession()
         firmwareVersion = ""
-        watchFaceDialShape = 0
-        watchFaceScreenWidth = 0
-        watchFaceScreenHeight = 0
+        watchFaceProfile = null
+        watchFaceListContext = null
+        watchFaceDeviceNumber = 0
+        watchFaceDeviceTestVersion = ""
+        availableWatchFacePaths.clear()
         watchDataDays = 3
         capabilities = defaultCapabilities()
         legacyFunctionData = null
@@ -1355,32 +1436,120 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             put("model", deviceName.ifBlank { "Veepoo" })
             put("hardwareAddress", deviceId)
             firmwareVersion.takeIf { it.isNotBlank() }?.let { put("firmwareVersion", it) }
-            batteryPercent?.let { put("batteryPercent", it) }
+            batterySnapshot?.let { snapshot ->
+                put("battery", snapshot.toPayload())
+                put("batteryValue", snapshot.value)
+                put("batteryScale", snapshot.scale)
+                put("batteryIsPercent", snapshot.isPercent)
+                put("batteryLow", snapshot.low)
+                put("batteryChargeState", snapshot.chargeState)
+                snapshot.percent?.let { put("batteryPercent", it) }
+            }
         }
 
-    private fun refreshBatteryLevel() {
+    private fun refreshBatteryLevel(
+        completion: ((VeepooBatterySnapshot?, cancelled: Boolean) -> Unit)? = null,
+    ) {
+        completion?.let(batteryReadCompletions::add)
+        if (isHealthSyncInFlight() || watchFaceTransferGate.isInFlight) {
+            batteryRefreshPending = true
+            return
+        }
         val deviceId = connectedDeviceId.trim()
-        if (deviceId.isEmpty() || batteryReadInFlight) return
-        if (!runCatching { manager.isDeviceConnected(deviceId) }.getOrDefault(false)) return
-        batteryReadInFlight = true
-        manager.readBattery(
-            IBleWriteResponse { code ->
-                if (code != Code.REQUEST_SUCCESS) batteryReadInFlight = false
-            },
-            object : IBatteryDataListener {
-                override fun onDataChange(data: BatteryData) {
-                    connectionHandler.post {
-                        batteryReadInFlight = false
-                        if (!connectedDeviceId.equals(deviceId, ignoreCase = true)) return@post
-                        val reported = data.batteryPercent
-                        if (reported in 0..100) {
-                            batteryPercent = reported
-                            emit("deviceDetails", deviceDetailsPayload(deviceId))
-                        }
+        if (deviceId.isEmpty() ||
+            !runCatching { manager.isDeviceConnected(deviceId) }.getOrDefault(false)
+        ) {
+            finishBatteryReadCompletions(null, cancelled = true)
+            return
+        }
+        if (batteryReadGate.isInFlight) return
+        val request = batteryReadGate.begin(connectionGeneration, deviceId) ?: return
+        val timeout = Runnable { completeBatteryRead(request, null) }
+        batteryReadTimeoutTask = timeout
+        connectionHandler.postDelayed(timeout, BATTERY_READ_TIMEOUT_MS)
+        runCatching {
+            manager.readBattery(
+                IBleWriteResponse { code ->
+                    if (code != Code.REQUEST_SUCCESS) {
+                        connectionHandler.post { completeBatteryRead(request, null) }
                     }
-                }
-            },
-        )
+                },
+                object : IBatteryDataListener {
+                    override fun onDataChange(data: BatteryData) {
+                        val snapshot =
+                            VeepooBatterySnapshot.fromSdk(
+                                isPercent = data.isPercent,
+                                percent = data.batteryPercent,
+                                level = data.batteryLevel,
+                                low = data.isLowBattery,
+                                chargeState = data.state,
+                            )
+                        connectionHandler.post { completeBatteryRead(request, snapshot) }
+                    }
+                },
+            )
+        }.onFailure { error ->
+            Log.w(LOG_TAG, "Battery read failed before SDK callback", error)
+            connectionHandler.post { completeBatteryRead(request, null) }
+        }
+    }
+
+    private fun completeBatteryRead(
+        request: VeepooBatteryReadRequest,
+        reported: VeepooBatterySnapshot?,
+    ) {
+        if (!batteryReadGate.owns(request)) return
+        batteryReadTimeoutTask?.let(connectionHandler::removeCallbacks)
+        batteryReadTimeoutTask = null
+        val belongsToCurrentDevice =
+            batteryReadGate.complete(
+                request,
+                currentConnectionGeneration = connectionGeneration,
+                currentDeviceId = connectedDeviceId,
+            )
+        val accepted = reported.takeIf { belongsToCurrentDevice }
+        if (accepted != null) {
+            batterySnapshot = accepted
+            emit("deviceDetails", deviceDetailsPayload(request.deviceId))
+        }
+        finishBatteryReadCompletions(accepted, cancelled = false)
+    }
+
+    private fun finishBatteryReadCompletions(
+        snapshot: VeepooBatterySnapshot?,
+        cancelled: Boolean,
+    ) {
+        if (batteryReadCompletions.isEmpty()) return
+        val callbacks = batteryReadCompletions.toList()
+        batteryReadCompletions.clear()
+        callbacks.forEach { it(snapshot, cancelled) }
+    }
+
+    private fun isHealthSyncInFlight(): Boolean =
+        synchronized(this) { activeHealthSyncCallback != null }
+
+    private fun releaseDeferredBatteryRefresh() {
+        if (!batteryRefreshPending) return
+        batteryRefreshPending = false
+        val expectedConnectionGeneration = connectionGeneration
+        val expectedDeviceId = connectedDeviceId
+        connectionHandler.post {
+            if (connectionGeneration == expectedConnectionGeneration &&
+                connectedDeviceId.equals(expectedDeviceId, ignoreCase = true)
+            ) {
+                refreshBatteryLevel()
+            }
+        }
+    }
+
+    private fun resetBatterySession() {
+        batteryReadTimeoutTask?.let(connectionHandler::removeCallbacks)
+        batteryReadTimeoutTask = null
+        batteryReadGate.reset()
+        batterySnapshot = null
+        batteryRefreshPending = false
+        watchFaceTransferGate.reset()
+        finishBatteryReadCompletions(null, cancelled = true)
     }
 
     private fun failConnection(
@@ -1445,6 +1614,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 if (code == Code.REQUEST_SUCCESS) {
                     connectionPreferences.edit().clear().apply()
                     connectedDeviceId = ""
+                    resetBatterySession()
                     clearMeasurementSessionState()
                     emit("disconnected", emptyMap())
                     callback.success(Unit)
@@ -1549,64 +1719,20 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             callback.error("FEATURE_UNSUPPORTED", "当前手表不支持在线表盘")
             return
         }
-        val completed = AtomicBoolean(false)
-        val timeout =
-            Runnable {
-                if (completed.compareAndSet(false, true)) {
-                    callback.error("READ_TIMEOUT", "手表屏幕规格读取超时，请重新连接后重试")
-                }
-            }
-        fun finish(profile: Map<String, Any?>? = null, message: String? = null) {
-            if (!completed.compareAndSet(false, true)) return
-            connectionHandler.removeCallbacks(timeout)
-            if (profile != null) callback.success(profile)
-            else callback.error("READ_FAILED", message ?: "手表屏幕规格读取失败，请重新连接后重试")
+        val context = currentWatchFaceOperationContext()
+        if (context == null) {
+            callback.error("NOT_CONNECTED", "请先连接赛电设备")
+            return
         }
-        connectionHandler.postDelayed(timeout, WATCH_FACE_PROFILE_TIMEOUT_MS)
-        manager.readWatchUiInfo(
-            IBleWriteResponse { code ->
-                if (code != Code.REQUEST_SUCCESS) {
-                    connectionHandler.post {
-                        finish(message = "手表屏幕规格读取失败，请重新连接后重试")
-                    }
-                }
-            },
-            EUIFromType.CUSTOM,
-            object : IUIBaseInfoListener<UIDataCustom> {
-                override fun onBaseUiInfo(data: UIDataCustom) {
-                    connectionHandler.post {
-                        val uiType = data.customUIType
-                        val ui = runCatching { WatchUIType.getInstance(uiType) }.getOrNull()
-                        val width = ui?.bigBitmapWidth ?: 0
-                        val height = ui?.bigBitmapHeight ?: 0
-                        val dialShape = resolveWatchUiTypeCode(uiType)
-                        if (dialShape <= 0 || width <= 0 || height <= 0) {
-                            finish(message = "手表返回的屏幕规格无效，请重新连接后重试")
-                            return@post
-                        }
-                        watchFaceDialShape = dialShape
-                        watchFaceScreenWidth = width
-                        watchFaceScreenHeight = height
-                        Log.i(
-                            LOG_TAG,
-                            "Watch-face profile type=${uiType.name} dialShape=$dialShape size=${width}x$height",
-                        )
-                        finish(watchFaceProfilePayload())
-                    }
-                }
-            },
+        readWatchFaceProfile(
+            context = context,
+            forceRefresh = true,
+            onSuccess = { profile -> callback.success(profile.toPayload()) },
+            onError = callback::error,
         )
     }
 
     private fun resolveWatchUiTypeCode(type: EWatchUIType): Int {
-        val cached =
-            runCatching { VpSpGetUtil.getVpSpVariInstance(appContext).watchuiCoustom }
-                .getOrDefault(0)
-        if (cached > 0 &&
-            runCatching { EWatchUIType.getEWatchUIType(cached) == type }.getOrDefault(false)
-        ) {
-            return cached
-        }
         for (code in 0..255) {
             if (runCatching { EWatchUIType.getEWatchUIType(code) == type }.getOrDefault(false)) {
                 return code
@@ -1619,46 +1745,195 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         }
     }
 
+    private fun currentWatchFaceOperationContext(): VeepooWatchFaceOperationContext? {
+        val deviceId = connectedDeviceId.trim()
+        val generation = connectionGeneration
+        if (deviceId.isEmpty() || generation <= 0) return null
+        return VeepooWatchFaceOperationContext(deviceId, generation)
+    }
+
+    private fun isWatchFaceContextCurrent(context: VeepooWatchFaceOperationContext): Boolean =
+        connectionGeneration == context.connectionGeneration &&
+            connectedDeviceId.equals(context.deviceId, ignoreCase = true) &&
+            runCatching { manager.isDeviceConnected(context.deviceId) }.getOrDefault(false)
+
+    private fun currentWatchFaceServerSlotCount(): Int {
+        return listOfNotNull(
+            functionPackage3?.watchUiServerCount,
+            legacyFunctionData?.watchUiServerCount,
+        ).firstOrNull { it > 0 } ?: 0
+    }
+
+    private fun readWatchFaceProfile(
+        context: VeepooWatchFaceOperationContext,
+        forceRefresh: Boolean,
+        onSuccess: (VeepooWatchFaceProfile) -> Unit,
+        onError: (String, String) -> Unit,
+    ) {
+        if (!isWatchFaceContextCurrent(context)) {
+            onError("DEVICE_CHANGED", "连接设备已切换，请重新进入表盘中心")
+            return
+        }
+        if (!manager.isJLCPUPlatform) {
+            onError("FEATURE_UNSUPPORTED", "当前手表不支持在线表盘")
+            return
+        }
+        val cached = watchFaceProfile
+        if (!forceRefresh && cached?.matchesContext(
+                context.deviceId,
+                context.connectionGeneration,
+            ) == true
+        ) {
+            onSuccess(cached)
+            return
+        }
+        val slotCount = currentWatchFaceServerSlotCount()
+        if (slotCount <= 0) {
+            watchFaceProfile = null
+            onError("FEATURE_UNSUPPORTED", "当前手表没有可用的服务器表盘槽位")
+            return
+        }
+        val completed = AtomicBoolean(false)
+        val serverReceived = AtomicBoolean(false)
+        val customReceived = AtomicBoolean(false)
+        val timeout =
+            Runnable {
+                if (completed.compareAndSet(false, true)) {
+                    if (watchFaceProfile?.matchesContext(
+                            context.deviceId,
+                            context.connectionGeneration,
+                        ) == true
+                    ) {
+                        watchFaceProfile = null
+                    }
+                    onError("READ_TIMEOUT", "手表表盘规格读取超时，请重新连接后重试")
+                }
+            }
+        fun fail(code: String, message: String) {
+            if (!completed.compareAndSet(false, true)) return
+            connectionHandler.removeCallbacks(timeout)
+            if (watchFaceProfile?.matchesContext(
+                    context.deviceId,
+                    context.connectionGeneration,
+                ) == true
+            ) {
+                watchFaceProfile = null
+            }
+            onError(code, message)
+        }
+        fun readCustomUi(server: UIDataServer) {
+            if (!isWatchFaceContextCurrent(context)) {
+                fail("DEVICE_CHANGED", "连接设备已切换，请重新进入表盘中心")
+                return
+            }
+            manager.readWatchUiInfo(
+                IBleWriteResponse { code ->
+                    if (code != Code.REQUEST_SUCCESS) {
+                        connectionHandler.post {
+                            fail("READ_FAILED", "手表屏幕规格读取失败，请重新连接后重试")
+                        }
+                    }
+                },
+                EUIFromType.CUSTOM,
+                object : IUIBaseInfoListener<UIDataCustom> {
+                    override fun onBaseUiInfo(data: UIDataCustom) {
+                        connectionHandler.post {
+                            if (!customReceived.compareAndSet(false, true) || completed.get()) {
+                                return@post
+                            }
+                            if (!isWatchFaceContextCurrent(context)) {
+                                fail("DEVICE_CHANGED", "连接设备已切换，请重新进入表盘中心")
+                                return@post
+                            }
+                            val uiType = data.customUIType
+                            val ui = runCatching { WatchUIType.getInstance(uiType) }.getOrNull()
+                            val width = ui?.bigBitmapWidth ?: 0
+                            val height = ui?.bigBitmapHeight ?: 0
+                            val deviceLabel = connectedDeviceName.trim()
+                            val profile =
+                                VeepooWatchFaceProfileRules.create(
+                                    VeepooWatchFaceProfileInput(
+                                        deviceId = context.deviceId,
+                                        deviceLabel = deviceLabel,
+                                        deviceNumber = watchFaceDeviceNumber,
+                                        firmware = watchFaceDeviceTestVersion,
+                                        width = width,
+                                        height = height,
+                                        serverDialShape = server.deviceAialShape,
+                                        binProtocol = server.binDataType,
+                                        maxFileLength = server.dataCanSendLength.toLong(),
+                                        slotCount = slotCount,
+                                        connectionGeneration = context.connectionGeneration,
+                                        isJlPlatform = manager.isJLCPUPlatform,
+                                    ),
+                                )
+                            if (profile == null) {
+                                Log.w(
+                                    LOG_TAG,
+                                    "Incomplete watch-face profile " +
+                                        "deviceNumber=$watchFaceDeviceNumber " +
+                                        "firmwarePresent=${watchFaceDeviceTestVersion.isNotBlank()} " +
+                                        "serverShape=${server.deviceAialShape} " +
+                                        "bin=${server.binDataType} max=${server.dataCanSendLength} " +
+                                        "slots=$slotCount size=${width}x$height",
+                                )
+                                fail(
+                                    "FEATURE_UNSUPPORTED",
+                                    "手表未提供完整的在线表盘规格，当前仅可使用已安装表盘",
+                                )
+                                return@post
+                            }
+                            if (!completed.compareAndSet(false, true)) return@post
+                            connectionHandler.removeCallbacks(timeout)
+                            watchFaceProfile = profile
+                            Log.i(
+                                LOG_TAG,
+                                "Watch-face profile serverShape=${server.deviceAialShape} " +
+                                    "customType=${resolveWatchUiTypeCode(uiType)} " +
+                                    "catalogueShape=${profile.dialShape} " +
+                                    "size=${profile.width}x${profile.height} " +
+                                    "bin=${profile.binProtocol} max=${profile.maxFileLength} " +
+                                    "slots=${profile.slotCount}",
+                            )
+                            onSuccess(profile)
+                        }
+                    }
+                },
+            )
+        }
+        connectionHandler.postDelayed(timeout, WATCH_FACE_PROFILE_TIMEOUT_MS)
+        manager.readWatchUiInfo(
+            IBleWriteResponse { code ->
+                if (code != Code.REQUEST_SUCCESS) {
+                    connectionHandler.post {
+                        fail("READ_FAILED", "手表服务器表盘规格读取失败，请重新连接后重试")
+                    }
+                }
+            },
+            EUIFromType.SERVER,
+            object : IUIBaseInfoListener<UIDataServer> {
+                override fun onBaseUiInfo(data: UIDataServer) {
+                    connectionHandler.post {
+                        if (!serverReceived.compareAndSet(false, true) || completed.get()) return@post
+                        readCustomUi(data)
+                    }
+                }
+            },
+        )
+    }
+
     private fun watchFaceProfilePayload(): Map<String, Any?> {
-        val preferences = VpSpGetUtil.getVpSpVariInstance(appContext)
-        val cachedShape = runCatching { preferences.watchuiCoustom }.getOrDefault(0)
-        val dialShape =
-            watchFaceDialShape.takeIf { it > 0 }
-                ?: cachedShape.takeIf { it > 0 }
-                ?: 58
-        val cachedUi =
-            runCatching {
-                WatchUIType.getInstance(EWatchUIType.getEWatchUIType(dialShape))
-            }.getOrNull()
-        val width =
-            watchFaceScreenWidth.takeIf { it > 0 }
-                ?: cachedUi?.bigBitmapWidth?.takeIf { it > 0 }
-                ?: 410
-        val height =
-            watchFaceScreenHeight.takeIf { it > 0 }
-                ?: cachedUi?.bigBitmapHeight?.takeIf { it > 0 }
-                ?: 502
-        val deviceNumber =
-            watchFaceDeviceNumber.takeIf { it > 0 }
-                ?: runCatching { preferences.deviceNumber.toIntOrNull() }.getOrNull()
-                ?: 6702
-        val testVersion =
-            watchFaceDeviceTestVersion.takeIf { it.isNotBlank() }
-                ?: runCatching { preferences.testVersion.trim() }.getOrDefault("")
-                    .takeIf { it.isNotBlank() }
-                ?: "11.95.01.00"
-        val maxLength =
-            runCatching { preferences.allLength }.getOrDefault(0).takeIf { it > 0 }
-                ?: 614_733
+        val context = currentWatchFaceOperationContext()
+        val profile = watchFaceProfile
+        if (context != null &&
+            profile?.matchesContext(context.deviceId, context.connectionGeneration) == true &&
+            isWatchFaceContextCurrent(context)
+        ) {
+            return profile.toPayload()
+        }
         return mapOf(
-            "onlineMarketSupported" to manager.isJLCPUPlatform,
-            "deviceNumber" to deviceNumber,
-            "deviceTestVersion" to testVersion,
-            "dialShape" to dialShape,
-            "binProtocol" to 2,
-            "maxLength" to maxLength,
-            "screenWidth" to width,
-            "screenHeight" to height,
+            "onlineMarketSupported" to false,
+            "provider" to VeepooWatchFaceProfileRules.PROVIDER,
         )
     }
 
@@ -1673,11 +1948,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         connectedDeviceName = ""
         clearMeasurementSessionState()
         firmwareVersion = ""
-        watchFaceDialShape = 0
-        watchFaceScreenWidth = 0
-        watchFaceScreenHeight = 0
-        batteryPercent = null
-        batteryReadInFlight = false
+        resetBatterySession()
         releaseJLWatchFaceSession()
         unregisterConnectStatusListener()
         emit("disconnected", mapOf("deviceId" to deviceId))
@@ -1901,6 +2172,37 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
             return
         }
+        val context = currentWatchFaceOperationContext()
+        if (context == null || !isWatchFaceContextCurrent(context)) {
+            callback.error("NOT_CONNECTED", "请先连接赛电设备")
+            return
+        }
+        readWatchFaceProfile(
+            context = context,
+            forceRefresh = true,
+            onSuccess = { readJlWatchFaces(callback, context) },
+            onError = { code, message ->
+                if (!isWatchFaceContextCurrent(context)) {
+                    callback.error("DEVICE_CHANGED", "连接设备已切换，请重新进入表盘中心")
+                } else {
+                    // Installed/current dials remain useful when the device has
+                    // no complete online-market profile. The returned payload
+                    // keeps onlineMarketSupported=false in that case.
+                    Log.w(LOG_TAG, "Online watch-face profile unavailable: $code $message")
+                    readJlWatchFaces(callback, context)
+                }
+            },
+        )
+    }
+
+    private fun readJlWatchFaces(
+        callback: ResultCallback<Any?>,
+        context: VeepooWatchFaceOperationContext,
+    ) {
+        if (!isWatchFaceContextCurrent(context)) {
+            callback.error("DEVICE_CHANGED", "连接设备已切换，请重新进入表盘中心")
+            return
+        }
         val completed = AtomicBoolean(false)
         val authenticationStarted = AtomicBoolean(false)
         val rawFallbackStarted = AtomicBoolean(false)
@@ -1919,8 +2221,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             Log.w(LOG_TAG, "JL watch-face session failed: $cause")
             callback.error(code, message)
         }
-        loadRawDialList = {
+        loadRawDialList = rawList@{
             if (!completed.get() && rawFallbackStarted.compareAndSet(false, true)) {
+                if (!isWatchFaceContextCurrent(context)) {
+                    fail("DEVICE_CHANGED", "连接设备已切换，请重新进入表盘中心")
+                    return@rawList
+                }
                 connectionHandler.removeCallbacks(timeout)
                 runCatching { JLWatchFaceManager.getInstance().release() }
                     .onFailure { Log.w(LOG_TAG, "JL watch-face reader reset failed", it) }
@@ -1945,8 +2251,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         object : OnWatchOpCallback<java.util.ArrayList<WatchInfo>> {
                             override fun onSuccess(result: java.util.ArrayList<WatchInfo>?) {
                                 connectionHandler.post {
+                                    if (!isWatchFaceContextCurrent(context)) {
+                                        fail("DEVICE_CHANGED", "连接设备已切换，请重新进入表盘中心")
+                                        return@post
+                                    }
                                     if (!completed.compareAndSet(false, true)) return@post
-                                    rawFallbackTimeout?.let(connectionHandler::removeCallbacks)
+                                    connectionHandler.removeCallbacks(fallbackTimeout)
                                     val watchInfos = result.orEmpty()
                                     val files = watchInfos.mapNotNull { it.fatFile }
                                     val currentPath =
@@ -1966,6 +2276,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                         }
                                     availableWatchFacePaths.clear()
                                     files.mapTo(availableWatchFacePaths) { it.path }
+                                    watchFaceListContext = context
                                     emit(
                                         "deviceFeatureProgress",
                                         mapOf("feature" to "watch_faces", "progress" to 100),
@@ -2004,8 +2315,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         }
         lateinit var loadDialList: () -> Unit
         lateinit var authenticate: () -> Unit
-        loadDialList = {
+        loadDialList = dialList@{
             if (!completed.get()) {
+                if (!isWatchFaceContextCurrent(context)) {
+                    fail("DEVICE_CHANGED", "连接设备已切换，请重新进入表盘中心")
+                    return@dialList
+                }
                 manager.listJLWatchList(
                     object : JLWatchFaceManager.OnWatchDialInfoGetListener {
                         override fun onGettingWatchDialInfo() {
@@ -2035,6 +2350,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             val watchInfoByPath = mutableMapOf<String, WatchInfo>()
                             fun completeWithCurrent(current: FatFile?) {
                                 connectionHandler.post {
+                                    if (!isWatchFaceContextCurrent(context)) {
+                                        fail("DEVICE_CHANGED", "连接设备已切换，请重新进入表盘中心")
+                                        return@post
+                                    }
                                     if (!currentReadFinished.compareAndSet(false, true)) return@post
                                     if (!completed.compareAndSet(false, true)) return@post
                                     connectionHandler.removeCallbacks(timeout)
@@ -2105,6 +2424,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                     items.mapNotNullTo(availableWatchFacePaths) {
                                         it["id"]?.toString()?.takeIf(String::isNotBlank)
                                     }
+                                    watchFaceListContext = context
                                     emit(
                                         "deviceFeatureProgress",
                                         mapOf("feature" to "watch_faces", "progress" to 100),
@@ -2177,8 +2497,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 )
             }
         }
-        authenticate = {
+        authenticate = auth@{
             if (!completed.get() && authenticationStarted.compareAndSet(false, true)) {
+                if (!isWatchFaceContextCurrent(context)) {
+                    fail("DEVICE_CHANGED", "连接设备已切换，请重新进入表盘中心")
+                    return@auth
+                }
                 if (RcspAuthManager.getInstance().isAuthPass) {
                     loadDialList()
                 } else {
@@ -2220,6 +2544,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     override fun onResponse(code: Int) {
                         connectionHandler.post {
                             if (completed.get()) return@post
+                            if (!isWatchFaceContextCurrent(context)) {
+                                fail("DEVICE_CHANGED", "连接设备已切换，请重新进入表盘中心")
+                                return@post
+                            }
                             if (code != Code.REQUEST_SUCCESS) {
                                 fail("NOTIFY_FAILED", "手表未完成表盘连接，请稍后重试", code)
                                 return@post
@@ -2295,6 +2623,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private fun prepareJLWatchFaceSession(
         onReady: () -> Unit,
         onError: (String, String) -> Unit,
+        context: VeepooWatchFaceOperationContext? = null,
     ) {
         val completed = AtomicBoolean(false)
         val timeout =
@@ -2309,13 +2638,21 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             onError(code, message)
         }
         fun ready() {
+            if (context != null && !isWatchFaceContextCurrent(context)) {
+                fail("DEVICE_CHANGED", "连接设备已切换，请重新进入表盘中心")
+                return
+            }
             if (!completed.compareAndSet(false, true)) return
             connectionHandler.removeCallbacks(timeout)
             jlWatchFaceSessionActive = true
             onReady()
         }
         lateinit var authenticate: () -> Unit
-        authenticate = {
+        authenticate = auth@{
+            if (context != null && !isWatchFaceContextCurrent(context)) {
+                fail("DEVICE_CHANGED", "连接设备已切换，请重新进入表盘中心")
+                return@auth
+            }
             if (RcspAuthManager.getInstance().isAuthPass) {
                 ready()
             } else {
@@ -2347,6 +2684,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
                 override fun onResponse(code: Int) {
                     connectionHandler.post {
+                        if (context != null && !isWatchFaceContextCurrent(context)) {
+                            fail("DEVICE_CHANGED", "连接设备已切换，请重新进入表盘中心")
+                            return@post
+                        }
                         if (code != Code.REQUEST_SUCCESS) {
                             fail("JL_NOTIFY_FAILED", "手表未完成表盘连接，请稍后重试")
                             return@post
@@ -2370,80 +2711,216 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         feature: String,
         values: Map<*, *>?,
         callback: ResultCallback<Unit>,
+        batteryPreflightPassed: Boolean = false,
     ) {
+        val context = currentWatchFaceOperationContext()
+        if (context == null || !isWatchFaceContextCurrent(context)) {
+            callback.error("NOT_CONNECTED", "请先连接赛电设备")
+            return
+        }
         val path = values?.get("filePath")?.toString().orEmpty()
-        val expectedWidth = (values?.get("screenWidth") as? Number)?.toInt() ?: 0
-        val expectedHeight = (values?.get("screenHeight") as? Number)?.toInt() ?: 0
-        val requestedMaxLength = (values?.get("maxLength") as? Number)?.toLong() ?: 0L
-        val deviceMaxLength = (watchFaceProfilePayload()["maxLength"] as? Number)?.toLong() ?: 0L
-        val maxLength =
-            requestedMaxLength.takeIf { it > 0 }
-                ?: deviceMaxLength.takeIf { it > 0 }
-                ?: 614_733L
         val file = java.io.File(path)
-        if (!file.isFile || file.length() <= 100 || file.length() > maxLength) {
+        if (!file.isFile) {
             callback.error("INVALID_ARGUMENT", "表盘文件无效，请重新下载")
             return
         }
+        if (!batteryPreflightPassed) {
+            prepareFreshBatteryForWatchFace(
+                context = context,
+                onReady = {
+                    uploadNetworkWatchFace(
+                        feature,
+                        values,
+                        callback,
+                        batteryPreflightPassed = true,
+                    )
+                },
+                onError = callback::error,
+            )
+            return
+        }
+        if (isHealthSyncInFlight()) {
+            callback.error("DEVICE_BUSY", "手表健康数据正在同步，请稍后重试")
+            return
+        }
+        val transferGeneration = watchFaceTransferGate.begin()
+        if (transferGeneration == null) {
+            callback.error("DEVICE_BUSY", "手表正在传送表盘，请稍后重试")
+            return
+        }
+        val request =
+            VeepooWatchFaceUploadRequest(
+                deviceId = values?.get("deviceId")?.toString(),
+                profileFingerprint = values?.get("profileFingerprint")?.toString(),
+                width = (values?.get("screenWidth") as? Number)?.toInt() ?: 0,
+                height = (values?.get("screenHeight") as? Number)?.toInt() ?: 0,
+                profileDialShape = (values?.get("dialShape") as? Number)?.toInt() ?: 0,
+                itemDialShape = (values?.get("itemDialShape") as? Number)?.toInt() ?: 0,
+                binProtocol = (values?.get("binProtocol") as? Number)?.toInt() ?: 0,
+                maxFileLength =
+                    ((values?.get("maxFileLength") ?: values?.get("maxLength")) as? Number)
+                        ?.toLong() ?: 0L,
+                expectedFileLength = (values?.get("fileLength") as? Number)?.toLong() ?: 0L,
+            )
         val completed = AtomicBoolean(false)
-        val timeout =
-            Runnable {
-                if (completed.compareAndSet(false, true)) {
-                    Log.w(LOG_TAG, "Network watch face upload timed out")
-                    callback.error("WRITE_TIMEOUT", "表盘传送超时，请保持手表靠近手机后重试")
-                }
-            }
-        fun finish(success: Boolean, message: String? = null) {
+        var timeout: Runnable? = null
+        var contextMonitor: Runnable? = null
+        fun finish(
+            success: Boolean,
+            code: String = "TRANSFER_FAILED",
+            message: String? = null,
+        ) {
             if (!completed.compareAndSet(false, true)) return
-            connectionHandler.removeCallbacks(timeout)
+            timeout?.let(connectionHandler::removeCallbacks)
+            contextMonitor?.let(connectionHandler::removeCallbacks)
+            if (watchFaceTransferGate.complete(transferGeneration)) {
+                releaseDeferredBatteryRefresh()
+            }
             if (success) callback.success(Unit)
-            else callback.error("TRANSFER_FAILED", message ?: "表盘设置失败，请稍后重试")
+            else callback.error(code, message ?: "表盘设置失败，请稍后重试")
+        }
+        timeout =
+            Runnable {
+                Log.w(LOG_TAG, "Network watch face upload timed out")
+                finish(
+                    false,
+                    "WRITE_TIMEOUT",
+                    "表盘传送超时，请保持手表靠近手机后重试",
+                )
+            }
+        contextMonitor =
+            object : Runnable {
+                override fun run() {
+                    if (completed.get()) return
+                    if (!isWatchFaceContextCurrent(context)) {
+                        finish(
+                            false,
+                            "DEVICE_CHANGED",
+                            "连接设备已切换，表盘传送已取消",
+                        )
+                        return
+                    }
+                    connectionHandler.postDelayed(this, WATCH_FACE_CONTEXT_POLL_MS)
+                }
         }
         connectionHandler.postDelayed(timeout, WATCH_FACE_UPLOAD_TIMEOUT_MS)
-        val startTransfer = {
+        connectionHandler.post(contextMonitor)
+
+        fun finishValidationIssue(
+            profile: VeepooWatchFaceProfile,
+            issue: VeepooWatchFaceUploadIssue,
+        ) {
+            val (code, message) =
+                when (issue) {
+                    VeepooWatchFaceUploadIssue.DEVICE_CONTEXT_CHANGED ->
+                        "DEVICE_CHANGED" to "连接设备已切换，表盘传送已取消"
+                    VeepooWatchFaceUploadIssue.PROFILE_FINGERPRINT_MISMATCH ->
+                        "PROFILE_MISMATCH" to "表盘规格已变化，请刷新表盘商城后重试"
+                    VeepooWatchFaceUploadIssue.DIMENSIONS_MISMATCH ->
+                        "PROFILE_MISMATCH" to
+                            "该表盘尺寸与当前手表 ${profile.width}×${profile.height} 不匹配"
+                    VeepooWatchFaceUploadIssue.DIAL_SHAPE_MISMATCH ->
+                        "PROFILE_MISMATCH" to "该表盘形状与当前手表不匹配"
+                    VeepooWatchFaceUploadIssue.BIN_PROTOCOL_MISMATCH ->
+                        "PROFILE_MISMATCH" to "该表盘传输协议与当前手表不匹配"
+                    VeepooWatchFaceUploadIssue.MAX_FILE_LENGTH_MISMATCH ->
+                        "PROFILE_MISMATCH" to "手表表盘容量已变化，请刷新商城后重试"
+                    VeepooWatchFaceUploadIssue.FILE_INVALID ->
+                        "INVALID_ARGUMENT" to "表盘文件无效或超过手表容量，请重新下载"
+                    VeepooWatchFaceUploadIssue.FILE_LENGTH_MISMATCH ->
+                        "INVALID_ARGUMENT" to "表盘文件不完整，请重新下载"
+                }
+            finish(false, code, message)
+        }
+
+        fun startTransfer(profile: VeepooWatchFaceProfile) {
+            if (!isWatchFaceContextCurrent(context) ||
+                !profile.matchesContext(context.deviceId, context.connectionGeneration)
+            ) {
+                finish(false, "DEVICE_CHANGED", "连接设备已切换，表盘传送已取消")
+                return
+            }
             prepareJLWatchFaceSession(
                 onReady = {
+                    if (!isWatchFaceContextCurrent(context) || completed.get()) {
+                        finish(false, "DEVICE_CHANGED", "连接设备已切换，表盘传送已取消")
+                        return@prepareJLWatchFaceSession
+                    }
                     val upload =
                         Runnable {
+                            if (!isWatchFaceContextCurrent(context) || completed.get()) {
+                                finish(false, "DEVICE_CHANGED", "连接设备已切换，表盘传送已取消")
+                                return@Runnable
+                            }
+                            val issue =
+                                VeepooWatchFaceProfileRules.validateUpload(
+                                    profile = profile,
+                                    request = request,
+                                    actualFileLength = file.length(),
+                                    currentDeviceId = connectedDeviceId,
+                                    currentConnectionGeneration = connectionGeneration,
+                                )
+                            if (issue != null) {
+                                finishValidationIssue(profile, issue)
+                                return@Runnable
+                            }
                             JLWatchHolder.getInstance().updateJLWatchServerDial(
                                 file.absolutePath,
                                 object : JLWatchHolder.OnSetJLWatchDialListener {
                                     override fun onStart() {
-                                        emit(
-                                            "deviceFeatureProgress",
-                                            mapOf("feature" to feature, "progress" to 0),
-                                        )
+                                        if (isWatchFaceContextCurrent(context) && !completed.get()) {
+                                            emit(
+                                                "deviceFeatureProgress",
+                                                mapOf("feature" to feature, "progress" to 0),
+                                            )
+                                        }
                                     }
 
                                     override fun onProgress(progress: Int) {
-                                        emit(
-                                            "deviceFeatureProgress",
-                                            mapOf(
-                                                "feature" to feature,
-                                                "progress" to progress.coerceIn(0, 100),
-                                            ),
-                                        )
+                                        if (isWatchFaceContextCurrent(context) && !completed.get()) {
+                                            emit(
+                                                "deviceFeatureProgress",
+                                                mapOf(
+                                                    "feature" to feature,
+                                                    "progress" to progress.coerceIn(0, 100),
+                                                ),
+                                            )
+                                        }
                                     }
 
                                     override fun onComplete(path: String?) {
-                                        emit(
-                                            "deviceFeatureProgress",
-                                            mapOf("feature" to feature, "progress" to 100),
-                                        )
-                                        val installedPath = path?.trim().orEmpty()
-                                        if (installedPath.isBlank()) {
-                                            connectionHandler.post {
-                                                finish(false, "表盘已传输，但没有取得手表中的表盘位置")
+                                        connectionHandler.post {
+                                            if (!isWatchFaceContextCurrent(context) || completed.get()) {
+                                                finish(
+                                                    false,
+                                                    "DEVICE_CHANGED",
+                                                    "连接设备已切换，表盘传送已取消",
+                                                )
+                                                return@post
                                             }
-                                            return
-                                        }
-                                        // JLWatchHolder refreshes the FAT list and invokes its own
-                                        // callback-less switch before onComplete. W9S can ignore that
-                                        // shortcut while still accepting the upload. Select the exact
-                                        // installed FAT path with a real callback and verify it before
-                                        // telling Flutter that the operation succeeded.
-                                        connectionHandler.postDelayed(
-                                            {
+                                            emit(
+                                                "deviceFeatureProgress",
+                                                mapOf("feature" to feature, "progress" to 100),
+                                            )
+                                            val installedPath = path?.trim().orEmpty()
+                                            if (installedPath.isBlank()) {
+                                                finish(
+                                                    false,
+                                                    message = "表盘已传输，但没有取得手表中的表盘位置",
+                                                )
+                                                return@post
+                                            }
+                                            // Select the exact installed FAT path, then read it back.
+                                            connectionHandler.postDelayed(
+                                                {
+                                                    if (!isWatchFaceContextCurrent(context) || completed.get()) {
+                                                        finish(
+                                                            false,
+                                                            "DEVICE_CHANGED",
+                                                            "连接设备已切换，表盘传送已取消",
+                                                        )
+                                                        return@postDelayed
+                                                    }
                                                 runCatching {
                                                     WatchManager.getInstance().setCurrentWatchInfo(
                                                         installedPath,
@@ -2451,6 +2928,16 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                                             override fun onSuccess(result: FatFile?) {
                                                                 connectionHandler.postDelayed(
                                                                     {
+                                                                        if (!isWatchFaceContextCurrent(context) ||
+                                                                            completed.get()
+                                                                        ) {
+                                                                            finish(
+                                                                                false,
+                                                                                "DEVICE_CHANGED",
+                                                                                "连接设备已切换，表盘传送已取消",
+                                                                            )
+                                                                            return@postDelayed
+                                                                        }
                                                                         WatchManager.getInstance()
                                                                             .getCurrentWatchInfo(
                                                                                 object : OnWatchOpCallback<FatFile> {
@@ -2458,6 +2945,16 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                                                                         current: FatFile?,
                                                                                     ) {
                                                                                         connectionHandler.post {
+                                                                                            if (!isWatchFaceContextCurrent(context) ||
+                                                                                                completed.get()
+                                                                                            ) {
+                                                                                                finish(
+                                                                                                    false,
+                                                                                                    "DEVICE_CHANGED",
+                                                                                                    "连接设备已切换，表盘传送已取消",
+                                                                                                )
+                                                                                                return@post
+                                                                                            }
                                                                                             if (current != null) {
                                                                                                 JLWatchFaceManager
                                                                                                     .getInstance()
@@ -2476,7 +2973,8 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                                                                             }
                                                                                             finish(
                                                                                                 active,
-                                                                                                "表盘已传输，但手表未确认启用，请在表盘中心重试",
+                                                                                                message =
+                                                                                                    "表盘已传输，但手表未确认启用，请在表盘中心重试",
                                                                                             )
                                                                                         }
                                                                                     }
@@ -2491,7 +2989,8 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                                                                         connectionHandler.post {
                                                                                             finish(
                                                                                                 false,
-                                                                                                "表盘已传输，但无法确认是否启用，请在表盘中心重试",
+                                                                                                message =
+                                                                                                    "表盘已传输，但无法确认是否启用，请在表盘中心重试",
                                                                                             )
                                                                                         }
                                                                                     }
@@ -2510,7 +3009,8 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                                                 connectionHandler.post {
                                                                     finish(
                                                                         false,
-                                                                        "表盘已传输，但启用失败，请在表盘中心重试",
+                                                                        message =
+                                                                            "表盘已传输，但启用失败，请在表盘中心重试",
                                                                     )
                                                                 }
                                                             }
@@ -2524,12 +3024,14 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                                     )
                                                     finish(
                                                         false,
-                                                        "表盘已传输，但启用失败，请在表盘中心重试",
+                                                        message =
+                                                            "表盘已传输，但启用失败，请在表盘中心重试",
                                                     )
                                                 }
-                                            },
-                                            WATCH_FACE_SWITCH_SETTLE_MS,
-                                        )
+                                                },
+                                                WATCH_FACE_SWITCH_SETTLE_MS,
+                                            )
+                                        }
                                     }
 
                                     override fun onFiled(code: Int, message: String?) {
@@ -2554,48 +3056,47 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                                             }
                                                         }
                                                 }
-                                            finish(false, userMessage)
+                                            finish(false, message = userMessage)
                                         }
                                     }
                                 },
                             )
                         }
                     prepareNetworkWatchFaceSlot(
+                        context = context,
                         onReady = { upload.run() },
-                        onError = { message -> finish(false, message) },
+                        onError = { message -> finish(false, message = message) },
                     )
                 },
-                onError = { _, message -> finish(false, message) },
+                onError = { code, message -> finish(false, code, message) },
+                context = context,
             )
         }
-        if (expectedWidth <= 0 || expectedHeight <= 0) {
-            startTransfer()
-            return
-        }
-        manager.readWatchUiInfo(
-            IBleWriteResponse { code ->
-                if (code != Code.REQUEST_SUCCESS) {
-                    connectionHandler.post { finish(false, "无法读取手表屏幕规格，请重新连接后重试") }
+
+        readWatchFaceProfile(
+            context = context,
+            forceRefresh = true,
+            onSuccess = { profile ->
+                val issue =
+                    VeepooWatchFaceProfileRules.validateUpload(
+                        profile = profile,
+                        request = request,
+                        actualFileLength = file.length(),
+                        currentDeviceId = connectedDeviceId,
+                        currentConnectionGeneration = connectionGeneration,
+                    )
+                if (issue == null) {
+                    startTransfer(profile)
+                    return@readWatchFaceProfile
                 }
+                finishValidationIssue(profile, issue)
             },
-            EUIFromType.CUSTOM,
-            object : IUIBaseInfoListener<UIDataCustom> {
-                override fun onBaseUiInfo(data: UIDataCustom) {
-                    val ui = WatchUIType.getInstance(data.customUIType)
-                    if (ui.bigBitmapWidth != expectedWidth || ui.bigBitmapHeight != expectedHeight) {
-                        finish(
-                            false,
-                            "该表盘为 ${expectedWidth}×${expectedHeight}，与当前手表 ${ui.bigBitmapWidth}×${ui.bigBitmapHeight} 不匹配",
-                        )
-                    } else {
-                        startTransfer()
-                    }
-                }
-            },
+            onError = { code, message -> finish(false, code, message) },
         )
     }
 
     private fun prepareNetworkWatchFaceSlot(
+        context: VeepooWatchFaceOperationContext,
         onReady: () -> Unit,
         onError: (String) -> Unit,
     ) {
@@ -2603,11 +3104,21 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         val timeout =
             Runnable {
                 if (completed.compareAndSet(false, true)) {
-                    Log.w(LOG_TAG, "Watch-face slot inspection timed out; continuing upload")
-                    onReady()
+                    if (isWatchFaceContextCurrent(context)) {
+                        Log.w(LOG_TAG, "Watch-face slot inspection timed out; continuing upload")
+                        onReady()
+                    } else {
+                        onError("连接设备已切换，表盘传送已取消")
+                    }
                 }
             }
         fun proceed() {
+            if (!isWatchFaceContextCurrent(context)) {
+                if (!completed.compareAndSet(false, true)) return
+                connectionHandler.removeCallbacks(timeout)
+                onError("连接设备已切换，表盘传送已取消")
+                return
+            }
             if (!completed.compareAndSet(false, true)) return
             connectionHandler.removeCallbacks(timeout)
             onReady()
@@ -2632,6 +3143,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         serverFatFiles: MutableList<FatFile>,
                         picFatFile: FatFile?,
                     ) {
+                        if (!isWatchFaceContextCurrent(context)) {
+                            fail("连接设备已切换，表盘传送已取消")
+                            return
+                        }
                         if (completed.get() || serverFatFiles.isEmpty() || systemFatFiles.isEmpty()) {
                             proceed()
                             return
@@ -2639,6 +3154,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         WatchManager.getInstance().getCurrentWatchInfo(
                             object : OnWatchOpCallback<FatFile> {
                                 override fun onSuccess(current: FatFile?) {
+                                    if (!isWatchFaceContextCurrent(context)) {
+                                        fail("连接设备已切换，表盘传送已取消")
+                                        return
+                                    }
                                     if (completed.get()) return
                                     val currentPath = current?.path.orEmpty()
                                     val currentIsServer =
@@ -2658,6 +3177,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                         systemPath,
                                         object : OnWatchOpCallback<FatFile> {
                                             override fun onSuccess(result: FatFile?) {
+                                                if (!isWatchFaceContextCurrent(context)) {
+                                                    fail("连接设备已切换，表盘传送已取消")
+                                                    return
+                                                }
                                                 connectionHandler.postDelayed(
                                                     { proceed() },
                                                     WATCH_FACE_REPLACE_SETTLE_MS,
@@ -2696,17 +3219,22 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     }
 
     private fun switchWatchFace(values: Map<*, *>, callback: ResultCallback<Unit>) {
+        val context = currentWatchFaceOperationContext()
+        if (context == null || !isWatchFaceContextCurrent(context)) {
+            callback.error("NOT_CONNECTED", "请先连接赛电设备")
+            return
+        }
         val targetPath = values["id"]?.toString()?.trim().orEmpty()
+        val listContext = watchFaceListContext
+        if (listContext == null ||
+            listContext.connectionGeneration != context.connectionGeneration ||
+            !listContext.deviceId.equals(context.deviceId, ignoreCase = true)
+        ) {
+            callback.error("STALE_WATCH_FACE_LIST", "设备已变化，请刷新表盘列表后重试")
+            return
+        }
         val faceManager = JLWatchFaceManager.getInstance()
-        val allowedPaths =
-            buildSet {
-                faceManager.systemFatFiles.orEmpty().mapTo(this) { it.path }
-                faceManager.serverFatFiles.orEmpty().mapTo(this) { it.path }
-                faceManager.picFatFile?.path?.let(::add)
-                faceManager.currentFatFile?.path?.let(::add)
-                WatchManager.getInstance().devFatFileList.orEmpty().mapTo(this) { it.path }
-                addAll(availableWatchFacePaths)
-            }
+        val allowedPaths = availableWatchFacePaths.toSet()
         if (targetPath.isBlank() || !allowedPaths.contains(targetPath)) {
             callback.error("INVALID_ARGUMENT", "请选择要使用的表盘")
             return
@@ -2715,12 +3243,20 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         val timeout =
             Runnable {
                 if (completed.compareAndSet(false, true)) {
-                    callback.error("WRITE_TIMEOUT", "表盘切换超时，请保持手表靠近手机后重试")
+                    if (isWatchFaceContextCurrent(context)) {
+                        callback.error("WRITE_TIMEOUT", "表盘切换超时，请保持手表靠近手机后重试")
+                    } else {
+                        callback.error("DEVICE_CHANGED", "连接设备已切换，表盘切换已取消")
+                    }
                 }
             }
         fun finish(success: Boolean) {
             if (!completed.compareAndSet(false, true)) return
             connectionHandler.removeCallbacks(timeout)
+            if (!isWatchFaceContextCurrent(context)) {
+                callback.error("DEVICE_CHANGED", "连接设备已切换，表盘切换已取消")
+                return
+            }
             if (success) callback.success(Unit)
             else callback.error("WRITE_FAILED", "表盘切换失败，请保持手表靠近手机后重试")
         }
@@ -2729,6 +3265,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 object : OnWatchOpCallback<FatFile> {
                     override fun onSuccess(result: FatFile?) {
                         connectionHandler.post {
+                            if (!isWatchFaceContextCurrent(context)) {
+                                finish(false)
+                                return@post
+                            }
                             if (result != null) faceManager.currentFatFile = result
                             finish(result?.path == targetPath)
                         }
@@ -2746,6 +3286,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             targetPath,
             object : OnWatchOpCallback<FatFile> {
                 override fun onSuccess(result: FatFile?) {
+                    if (!isWatchFaceContextCurrent(context)) {
+                        connectionHandler.post { finish(false) }
+                        return
+                    }
                     connectionHandler.postDelayed(
                         { verifyCurrentFace() },
                         WATCH_FACE_VERIFY_DELAY_MS,
@@ -2764,6 +3308,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         feature: String,
         values: Map<*, *>?,
         callback: ResultCallback<Unit>,
+        batteryPreflightPassed: Boolean = false,
     ) {
         val path = values?.get("imagePath")?.toString().orEmpty()
         val file = java.io.File(path)
@@ -2771,52 +3316,154 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             callback.error("INVALID_ARGUMENT", "请选择一张有效照片")
             return
         }
+        val context = currentWatchFaceOperationContext()
+        if (context == null || !isWatchFaceContextCurrent(context)) {
+            callback.error("NOT_CONNECTED", "请先连接赛电设备")
+            return
+        }
+        if (!batteryPreflightPassed) {
+            prepareFreshBatteryForWatchFace(
+                context = context,
+                onReady = {
+                    uploadPhotoWatchFace(
+                        feature,
+                        values,
+                        callback,
+                        batteryPreflightPassed = true,
+                    )
+                },
+                onError = callback::error,
+            )
+            return
+        }
+        if (isHealthSyncInFlight()) {
+            callback.error("DEVICE_BUSY", "手表健康数据正在同步，请稍后重试")
+            return
+        }
+        val transferGeneration = watchFaceTransferGate.begin()
+        if (transferGeneration == null) {
+            callback.error("DEVICE_BUSY", "手表正在传送表盘，请稍后重试")
+            return
+        }
+        val completed = AtomicBoolean(false)
+        var timeout: Runnable? = null
+        fun finish(success: Boolean, code: String = "TRANSFER_FAILED", message: String = "照片表盘设置失败，请稍后重试") {
+            if (!completed.compareAndSet(false, true)) return
+            timeout?.let(connectionHandler::removeCallbacks)
+            if (watchFaceTransferGate.complete(transferGeneration)) {
+                releaseDeferredBatteryRefresh()
+            }
+            if (success) callback.success(Unit) else callback.error(code, message)
+        }
+        val guardedCallback =
+            object : ResultCallback<Unit> {
+                override fun success(value: Unit) {
+                    connectionHandler.post { finish(true) }
+                }
+
+                override fun error(code: String, message: String) {
+                    connectionHandler.post { finish(false, code, message) }
+                }
+            }
+        timeout =
+            Runnable {
+                finish(
+                    false,
+                    "WRITE_TIMEOUT",
+                    "照片表盘传送超时，请保持手表靠近手机后重试",
+                )
+            }
+        connectionHandler.postDelayed(timeout, WATCH_FACE_UPLOAD_TIMEOUT_MS)
         prepareJLWatchFaceSession(
             onReady = {
                 preparePhotoWatchFaceImage(
                     sourcePath = path,
                     onReady = { preparedPath ->
-                        manager.setJLWatchPhotoDial(
-                            preparedPath,
-                            object : JLWatchFaceManager.JLTransferPicDialListener {
-                        override fun onLowPower() {
-                            callback.error("LOW_POWER", "手表电量较低，请充电后再设置表盘")
-                        }
+                        runCatching {
+                            manager.setJLWatchPhotoDial(
+                                preparedPath,
+                                object : JLWatchFaceManager.JLTransferPicDialListener {
+                                    override fun onLowPower() {
+                                        connectionHandler.post {
+                                            finish(false, "LOW_POWER", "手表电量较低，请充电后再设置表盘")
+                                        }
+                                    }
 
-                        override fun onJLTransferPicDialStart() {
-                            emit("deviceFeatureProgress", mapOf("feature" to feature, "progress" to 0))
-                        }
+                                    override fun onJLTransferPicDialStart() {
+                                        emit("deviceFeatureProgress", mapOf("feature" to feature, "progress" to 0))
+                                    }
 
-                        override fun onTransferPicDialProgress(progress: Int) {
-                            emit(
-                                "deviceFeatureProgress",
-                                mapOf("feature" to feature, "progress" to progress.coerceIn(0, 100)),
+                                    override fun onTransferPicDialProgress(progress: Int) {
+                                        emit(
+                                            "deviceFeatureProgress",
+                                            mapOf("feature" to feature, "progress" to progress.coerceIn(0, 100)),
+                                        )
+                                    }
+
+                                    override fun onScaleBGPFileTransferComplete() = Unit
+
+                                    override fun onAIPreviewTransferComplete() = Unit
+
+                                    override fun onBigBGPFileTransferComplete() = Unit
+
+                                    override fun onTransferComplete() {
+                                        connectionHandler.post {
+                                            if (completed.get()) return@post
+                                            emit("deviceFeatureProgress", mapOf("feature" to feature, "progress" to 100))
+                                            applyPhotoWatchFaceLayout(values, guardedCallback)
+                                        }
+                                    }
+
+                                    override fun onTransferError(code: Int, errorMsg: String) {
+                                        Log.w(LOG_TAG, "Photo watch face failed: code=$code message=$errorMsg")
+                                        connectionHandler.post {
+                                            finish(false, "TRANSFER_FAILED", "照片表盘设置失败，请保持手表靠近手机后重试")
+                                        }
+                                    }
+                                },
                             )
+                        }.onFailure { error ->
+                            Log.w(LOG_TAG, "Photo watch face failed before SDK callback", error)
+                            connectionHandler.post {
+                                finish(false, "TRANSFER_FAILED", "照片表盘设置失败，请保持手表靠近手机后重试")
+                            }
                         }
-
-                        override fun onScaleBGPFileTransferComplete() = Unit
-
-                        override fun onAIPreviewTransferComplete() = Unit
-
-                        override fun onBigBGPFileTransferComplete() = Unit
-
-                        override fun onTransferComplete() {
-                            emit("deviceFeatureProgress", mapOf("feature" to feature, "progress" to 100))
-                            applyPhotoWatchFaceLayout(values, callback)
-                        }
-
-                        override fun onTransferError(code: Int, errorMsg: String) {
-                            Log.w(LOG_TAG, "Photo watch face failed: code=$code message=$errorMsg")
-                            callback.error("TRANSFER_FAILED", "照片表盘设置失败，请保持手表靠近手机后重试")
-                        }
-                            },
-                        )
                     },
-                    onError = { code, message -> callback.error(code, message) },
+                    onError = { code, message -> finish(false, code, message) },
                 )
             },
-            onError = { code, message -> callback.error(code, message) },
+            onError = { code, message -> finish(false, code, message) },
         )
+    }
+
+    private fun prepareFreshBatteryForWatchFace(
+        context: VeepooWatchFaceOperationContext,
+        onReady: () -> Unit,
+        onError: (String, String) -> Unit,
+    ) {
+        if (!isWatchFaceContextCurrent(context)) {
+            onError("DEVICE_CHANGED", "连接设备已切换，表盘传送已取消")
+            return
+        }
+        refreshBatteryLevel { snapshot, cancelled ->
+            if (cancelled) {
+                onError("DEVICE_CHANGED", "连接设备已切换，表盘传送已取消")
+                return@refreshBatteryLevel
+            }
+            if (!isWatchFaceContextCurrent(context)) {
+                onError("DEVICE_CHANGED", "连接设备已切换，表盘传送已取消")
+                return@refreshBatteryLevel
+            }
+            if (snapshot == null) {
+                onError("BATTERY_READ_FAILED", "无法读取手表电量，请保持连接后重试")
+                return@refreshBatteryLevel
+            }
+            if (snapshot.low) {
+                onError("LOW_POWER", "手表电量较低，请充电后再设置表盘")
+                return@refreshBatteryLevel
+            }
+            onReady()
+        }
     }
 
     private fun preparePhotoWatchFaceImage(
@@ -5049,6 +5696,20 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
     fun syncHealthData(cursor: String?, callback: ResultCallback<List<Map<String, Any?>>>) {
         ensureConnected(callback) ?: return
+        if (watchFaceTransferGate.isInFlight) {
+            callback.error("DEVICE_BUSY", "手表正在传送表盘，请稍后再同步数据")
+            return
+        }
+        if (batteryReadGate.isInFlight) {
+            batteryReadCompletions += { _, cancelled ->
+                if (cancelled) {
+                    callback.error("HEALTH_SYNC_CANCELLED", "连接设备已变化，数据同步已取消")
+                } else {
+                    syncHealthData(cursor, callback)
+                }
+            }
+            return
+        }
         cancelActiveHealthSync(
             "HEALTH_SYNC_SUPERSEDED",
             "历史数据同步已由新的同步任务替代",
@@ -6041,6 +6702,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         if (claimed) {
             healthSyncTimeoutTask?.let(connectionHandler::removeCallbacks)
             healthSyncTimeoutTask = null
+            releaseDeferredBatteryRefresh()
         }
         return claimed
     }
@@ -6086,6 +6748,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             }
         healthSyncTimeoutTask?.let(connectionHandler::removeCallbacks)
         healthSyncTimeoutTask = null
+        releaseDeferredBatteryRefresh()
         if (callback != null) {
             if (emitError) emit("error", mapOf("code" to code, "message" to message))
             callback.error(code, message)
@@ -8026,6 +8689,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             )
                             connectingDeviceId = ""
                             connectedDeviceId = ""
+                            resetBatterySession()
                             clearMeasurementSessionState()
                             releaseJLWatchFaceSession()
                             emit("disconnected", mapOf("deviceId" to mac))
@@ -8299,6 +8963,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     }
 
     companion object {
+        private const val BATTERY_READ_TIMEOUT_MS = 8_000L
         private const val CONNECTION_PREFERENCES = "saidian_wearable_connection"
         private const val LAST_DEVICE_ID = "last_device_id"
         private const val LAST_DEVICE_NAME = "last_device_name"
@@ -8347,6 +9012,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         private const val JL_SESSION_PREPARE_TIMEOUT_MS = 20_000L
         private const val WATCH_FACE_SWITCH_TIMEOUT_MS = 20_000L
         private const val WATCH_FACE_UPLOAD_TIMEOUT_MS = 150_000L
+        private const val WATCH_FACE_CONTEXT_POLL_MS = 500L
         private const val WATCH_FACE_REPLACE_SETTLE_MS = 1_500L
         private const val WATCH_FACE_SWITCH_SETTLE_MS = 1_000L
         private const val WATCH_FACE_VERIFY_DELAY_MS = 1_200L

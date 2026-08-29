@@ -13,6 +13,7 @@ import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/pages.dart';
+import 'package:saydian_app/ui/app_update_gate_scope.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
 
 void main() {
@@ -388,6 +389,40 @@ void main() {
     await tester.drag(find.byType(ListView).last, const Offset(0, -600));
     await tester.pumpAndSettle();
     expect(find.text('常见问题'), findsOneWidget);
+  });
+
+  testWidgets('关于我们手动检查统一交给根级更新门禁', (tester) async {
+    final controller = _controller();
+    final updateGate = AppUpdateGateController();
+    var checks = 0;
+    Future<void> checkNow() async => checks++;
+    updateGate.attach(checkNow);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AboutSaydianPage(
+          controller: controller,
+          updateGateController: updateGate,
+          packageInfoLoader: () async => PackageInfo(
+            appName: '赛电健康',
+            packageName: 'cc.saidian.app',
+            version: '0.1.19',
+            buildNumber: '19',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final updateTile = find.widgetWithText(ListTile, '检查更新');
+    await tester.ensureVisible(updateTile);
+    await tester.pumpAndSettle();
+    await tester.tap(updateTile);
+    await tester.pumpAndSettle();
+
+    expect(checks, 1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   test('release UI source does not contain developer-facing copy', () {

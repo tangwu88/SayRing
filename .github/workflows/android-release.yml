@@ -1,102 +1,515 @@
-name: Android Online Release
+name: Android Production Release
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - android-v*
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing annotated tag, for example android-v0.2.0+24
+        required: true
+        type: string
+      release_notes:
+        description: User-visible production release notes
+        required: true
+        type: string
+      minimum_supported_build:
+        description: Oldest build allowed to continue without a mandatory update
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: android-release-${{ github.ref }}
+  group: android-production-release
   cancel-in-progress: false
 
 jobs:
-  build-release:
+  release:
+    name: Gate, sign, verify and atomically publish
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
+    environment: production
+    env:
+      FLUTTER_VERSION: 3.44.9
+      PRODUCTION_PACKAGE: cc.saidian.app
+      RELEASE_NOTES_FILE: /tmp/saidian-release-notes.txt
+
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: subosito/flutter-action@v2
+      - name: Check out exact release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          flutter-version: 3.44.9
-          channel: stable
-          cache: true
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
 
-      - name: Read version
-        id: version
+      - name: Run release-script unit tests
+        run: python3 -m unittest discover -s scripts/release -p 'test_*.py'
+
+      - name: Resolve and gate production metadata
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_RELEASE_NOTES: ${{ inputs.release_notes }}
+          INPUT_MINIMUM_BUILD: ${{ inputs.minimum_supported_build }}
+          CONFIGURED_MINIMUM_BUILD: ${{ vars.SAYDIAN_ANDROID_MINIMUM_SUPPORTED_BUILD }}
+          SAYDIAN_UPDATE_MANIFEST_URL: ${{ vars.SAYDIAN_UPDATE_MANIFEST_URL }}
+          SAYDIAN_ANDROID_APK_BASE_URL: ${{ vars.SAYDIAN_ANDROID_APK_BASE_URL }}
+          SAYDIAN_UPDATE_ALLOWED_HOSTS: ${{ vars.SAYDIAN_UPDATE_ALLOWED_HOSTS }}
+          SAYDIAN_API_BASE_URL: ${{ vars.SAYDIAN_API_BASE_URL }}
+          JPUSH_CHANNEL: ${{ vars.JPUSH_CHANNEL }}
+          JPUSH_VENDOR_CHANNELS: ${{ vars.JPUSH_VENDOR_CHANNELS }}
+          SAYDIAN_MANIFEST_BOOTSTRAP_ALLOWED: ${{ vars.SAYDIAN_MANIFEST_BOOTSTRAP_ALLOWED }}
+          SAYDIAN_RELEASE_SSH_HOST: ${{ vars.SAYDIAN_RELEASE_SSH_HOST }}
+          SAYDIAN_RELEASE_SSH_USER: ${{ vars.SAYDIAN_RELEASE_SSH_USER }}
+          SAYDIAN_RELEASE_SSH_PORT: ${{ vars.SAYDIAN_RELEASE_SSH_PORT }}
+          SAYDIAN_RELEASE_REMOTE_ROOT: ${{ vars.SAYDIAN_RELEASE_REMOTE_ROOT }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+          JPUSH_APP_KEY: ${{ secrets.JPUSH_APP_KEY }}
+          SAYDIAN_RELEASE_SSH_PRIVATE_KEY: ${{ secrets.SAYDIAN_RELEASE_SSH_PRIVATE_KEY }}
+          SAYDIAN_RELEASE_SSH_KNOWN_HOSTS: ${{ secrets.SAYDIAN_RELEASE_SSH_KNOWN_HOSTS }}
         shell: bash
         run: |
           set -euo pipefail
-          metadata="$(awk '/^version:/{print $2; exit}' pubspec.yaml)"
-          version="${metadata%%+*}"
-          build="${metadata##*+}"
-          test -n "$version"
-          [[ "$build" =~ ^[1-9][0-9]*$ ]]
-          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "android-v${version}+${build}" ]]; then
-            echo "Tag must be android-v${version}+${build}." >&2
+          required_variables=(
+            SAYDIAN_UPDATE_MANIFEST_URL
+            SAYDIAN_ANDROID_APK_BASE_URL
+            SAYDIAN_UPDATE_ALLOWED_HOSTS
+            SAYDIAN_API_BASE_URL
+            JPUSH_CHANNEL
+            JPUSH_VENDOR_CHANNELS
+            SAYDIAN_MANIFEST_BOOTSTRAP_ALLOWED
+            SAYDIAN_RELEASE_SSH_HOST
+            SAYDIAN_RELEASE_SSH_USER
+            SAYDIAN_RELEASE_SSH_PORT
+            SAYDIAN_RELEASE_REMOTE_ROOT
+          )
+          required_secrets=(
+            ANDROID_KEYSTORE_BASE64
+            ANDROID_KEY_ALIAS
+            ANDROID_KEY_PASSWORD
+            ANDROID_STORE_PASSWORD
+            ANDROID_SIGNING_CERT_SHA256
+            JPUSH_APP_KEY
+            SAYDIAN_RELEASE_SSH_PRIVATE_KEY
+            SAYDIAN_RELEASE_SSH_KNOWN_HOSTS
+          )
+          for name in "${required_variables[@]}"; do
+            [[ -n "${!name:-}" ]] || {
+              echo "Missing protected production variable: $name" >&2
+              exit 1
+            }
+          done
+          for name in "${required_secrets[@]}"; do
+            [[ -n "${!name:-}" ]] || {
+              echo "Missing protected production secret: $name" >&2
+              exit 1
+            }
+          done
+          [[ "$SAYDIAN_MANIFEST_BOOTSTRAP_ALLOWED" == "true" || \
+             "$SAYDIAN_MANIFEST_BOOTSTRAP_ALLOWED" == "false" ]] || {
+            echo "SAYDIAN_MANIFEST_BOOTSTRAP_ALLOWED must explicitly be true or false." >&2
             exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "build=$build" >> "$GITHUB_OUTPUT"
+          }
 
-      - name: Install Android signing key
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            release_tag="$INPUT_RELEASE_TAG"
+            minimum_build="$INPUT_MINIMUM_BUILD"
+            printf '%s\n' "$INPUT_RELEASE_NOTES" > "$RELEASE_NOTES_FILE"
+          else
+            release_tag="$GITHUB_REF_NAME"
+            minimum_build="$CONFIGURED_MINIMUM_BUILD"
+            git for-each-ref --format='%(contents)' "refs/tags/$release_tag" \
+              > "$RELEASE_NOTES_FILE"
+          fi
+          [[ "$(git cat-file -t "$release_tag")" == "tag" ]] || {
+            echo "Production releases require an existing annotated tag." >&2
+            exit 1
+          }
+          [[ -n "$minimum_build" ]] || {
+            echo "A minimum supported build decision is required." >&2
+            exit 1
+          }
+          tag_commit="$(git rev-list -n 1 "$release_tag")"
+          [[ "$tag_commit" == "$(git rev-parse HEAD)" ]] || {
+            echo "Checked-out commit does not match $release_tag." >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$tag_commit" origin/main || {
+            echo "Release tag commit must already be contained in origin/main." >&2
+            exit 1
+          }
+          [[ -z "$(git status --porcelain)" ]] || {
+            echo "Release checkout is not clean before credential injection." >&2
+            exit 1
+          }
+          git tag --list 'android-v*' > "$RUNNER_TEMP/android-release-tags.txt"
+          python3 scripts/release/release_gate.py metadata \
+            --pubspec pubspec.yaml \
+            --tag "$release_tag" \
+            --minimum-supported-build "$minimum_build" \
+            --release-notes-file "$RELEASE_NOTES_FILE" \
+            --manifest-url "$SAYDIAN_UPDATE_MANIFEST_URL" \
+            --apk-base-url "$SAYDIAN_ANDROID_APK_BASE_URL" \
+            --api-base-url "$SAYDIAN_API_BASE_URL" \
+            --allowed-hosts "$SAYDIAN_UPDATE_ALLOWED_HOSTS" \
+            --tags-file "$RUNNER_TEMP/android-release-tags.txt" \
+            --output "$GITHUB_OUTPUT"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install and validate production signing key
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
         shell: bash
         run: |
           set -euo pipefail
-          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_STORE_PASSWORD; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "Missing GitHub Secret: $name" >&2
-              exit 1
-            fi
-          done
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/saidian-release.jks
+          keystore="android/app/saidian-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          [[ -s "$keystore" ]]
+          keytool -list -keystore "$keystore" -storepass "$ANDROID_STORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          keytool -exportcert -keystore "$keystore" -storepass "$ANDROID_STORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" -file "$RUNNER_TEMP/saidian-release-cert.der"
+          if keytool -printcert -file "$RUNNER_TEMP/saidian-release-cert.der" \
+            | grep -qi 'Android Debug'; then
+            echo "A debug certificate cannot sign a production release." >&2
+            exit 1
+          fi
+          actual_cert_sha="$(sha256sum "$RUNNER_TEMP/saidian-release-cert.der" | awk '{print $1}')"
+          expected_cert_sha="$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" \
+            | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          [[ "$expected_cert_sha" =~ ^[0-9a-f]{64}$ ]] || {
+            echo "ANDROID_SIGNING_CERT_SHA256 is invalid." >&2
+            exit 1
+          }
+          [[ "$actual_cert_sha" == "$expected_cert_sha" ]] || {
+            echo "Production signing certificate fingerprint mismatch." >&2
+            exit 1
+          }
           {
-            echo "storeFile=saidian-release.jks"
+            echo 'storeFile=saidian-release.jks'
             echo "storePassword=$ANDROID_STORE_PASSWORD"
             echo "keyAlias=$ANDROID_KEY_ALIAS"
             echo "keyPassword=$ANDROID_KEY_PASSWORD"
           } > android/key.properties
+          chmod 600 "$keystore" android/key.properties
 
-      - name: Build signed APK
+      - name: Prepare ephemeral JPush and vendor configuration
         env:
-          API_BASE_URL: ${{ vars.SAYDIAN_API_BASE_URL }}
+          JPUSH_APP_KEY: ${{ secrets.JPUSH_APP_KEY }}
+          JPUSH_CHANNEL: ${{ vars.JPUSH_CHANNEL }}
+          JPUSH_VENDOR_CHANNELS: ${{ vars.JPUSH_VENDOR_CHANNELS }}
+          HUAWEI_AGCONNECT_SERVICES_JSON_BASE64: ${{ secrets.HUAWEI_AGCONNECT_SERVICES_JSON_BASE64 }}
+          JPUSH_XIAOMI_APP_KEY: ${{ secrets.JPUSH_XIAOMI_APP_KEY }}
+          JPUSH_XIAOMI_APP_ID: ${{ secrets.JPUSH_XIAOMI_APP_ID }}
+          JPUSH_MEIZU_APP_KEY: ${{ secrets.JPUSH_MEIZU_APP_KEY }}
+          JPUSH_MEIZU_APP_ID: ${{ secrets.JPUSH_MEIZU_APP_ID }}
+          JPUSH_VIVO_APP_KEY: ${{ secrets.JPUSH_VIVO_APP_KEY }}
+          JPUSH_VIVO_APP_ID: ${{ secrets.JPUSH_VIVO_APP_ID }}
+          JPUSH_OPPO_APP_KEY: ${{ secrets.JPUSH_OPPO_APP_KEY }}
+          JPUSH_OPPO_APP_ID: ${{ secrets.JPUSH_OPPO_APP_ID }}
+          JPUSH_OPPO_APP_SECRET: ${{ secrets.JPUSH_OPPO_APP_SECRET }}
+          JPUSH_HONOR_APP_ID: ${{ secrets.JPUSH_HONOR_APP_ID }}
         run: |
+          python3 scripts/release/prepare_push_config.py \
+            --pubspec pubspec.yaml \
+            --vendors "$JPUSH_VENDOR_CHANNELS" \
+            --expected-package "$PRODUCTION_PACKAGE"
+
+      - name: Analyze and test
+        run: |
+          set -euo pipefail
           flutter pub get
           flutter analyze
-          flutter test
-          flutter build apk --release \
-            --build-name "${{ steps.version.outputs.version }}" \
-            --build-number "${{ steps.version.outputs.build }}" \
-            --dart-define="SAYDIAN_API_BASE_URL=${API_BASE_URL:-https://app.saidian.cc}"
+          TZ=UTC flutter test
+          TZ=Asia/Shanghai flutter test
+          (cd android && ./gradlew :app:testDebugUnitTest)
 
-      - name: Prepare release files
+      - name: Build signed production APK
+        env:
+          SAYDIAN_API_BASE_URL: ${{ steps.release.outputs.api_base_url }}
+          SAYDIAN_UPDATE_MANIFEST_URL: ${{ steps.release.outputs.manifest_url }}
+          SAYDIAN_UPDATE_ALLOWED_HOSTS: ${{ steps.release.outputs.allowed_hosts }}
+          JPUSH_APP_KEY: ${{ secrets.JPUSH_APP_KEY }}
+          JPUSH_CHANNEL: ${{ vars.JPUSH_CHANNEL }}
+          JPUSH_VENDOR_CHANNELS: ${{ vars.JPUSH_VENDOR_CHANNELS }}
+          JPUSH_XIAOMI_APP_KEY: ${{ secrets.JPUSH_XIAOMI_APP_KEY }}
+          JPUSH_XIAOMI_APP_ID: ${{ secrets.JPUSH_XIAOMI_APP_ID }}
+          JPUSH_MEIZU_APP_KEY: ${{ secrets.JPUSH_MEIZU_APP_KEY }}
+          JPUSH_MEIZU_APP_ID: ${{ secrets.JPUSH_MEIZU_APP_ID }}
+          JPUSH_VIVO_APP_KEY: ${{ secrets.JPUSH_VIVO_APP_KEY }}
+          JPUSH_VIVO_APP_ID: ${{ secrets.JPUSH_VIVO_APP_ID }}
+          JPUSH_OPPO_APP_KEY: ${{ secrets.JPUSH_OPPO_APP_KEY }}
+          JPUSH_OPPO_APP_ID: ${{ secrets.JPUSH_OPPO_APP_ID }}
+          JPUSH_OPPO_APP_SECRET: ${{ secrets.JPUSH_OPPO_APP_SECRET }}
+          JPUSH_HONOR_APP_ID: ${{ secrets.JPUSH_HONOR_APP_ID }}
+          SAIDIAN_PRODUCTION_RELEASE: "true"
+          SAIDIAN_ALLOW_QA_RELEASE: "false"
+        run: |
+          set -euo pipefail
+          flutter build apk --release \
+            --target-platform=android-arm,android-arm64 \
+            --build-name "${{ steps.release.outputs.version }}" \
+            --build-number "${{ steps.release.outputs.build }}" \
+            --dart-define="SAYDIAN_API_BASE_URL=$SAYDIAN_API_BASE_URL" \
+            --dart-define="SAYDIAN_UPDATE_MANIFEST_URL=$SAYDIAN_UPDATE_MANIFEST_URL" \
+            --dart-define="SAYDIAN_UPDATE_ALLOWED_HOSTS=$SAYDIAN_UPDATE_ALLOWED_HOSTS" \
+            --dart-define="JPUSH_APP_KEY=$JPUSH_APP_KEY"
+
+      - name: Verify signature, package, push configuration and ABIs
+        id: artifact
+        env:
+          ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
+          JPUSH_APP_KEY: ${{ secrets.JPUSH_APP_KEY }}
+          JPUSH_CHANNEL: ${{ vars.JPUSH_CHANNEL }}
+          JPUSH_VENDOR_CHANNELS: ${{ vars.JPUSH_VENDOR_CHANNELS }}
+          JPUSH_XIAOMI_APP_KEY: ${{ secrets.JPUSH_XIAOMI_APP_KEY }}
+          JPUSH_XIAOMI_APP_ID: ${{ secrets.JPUSH_XIAOMI_APP_ID }}
+          JPUSH_MEIZU_APP_KEY: ${{ secrets.JPUSH_MEIZU_APP_KEY }}
+          JPUSH_MEIZU_APP_ID: ${{ secrets.JPUSH_MEIZU_APP_ID }}
+          JPUSH_VIVO_APP_KEY: ${{ secrets.JPUSH_VIVO_APP_KEY }}
+          JPUSH_VIVO_APP_ID: ${{ secrets.JPUSH_VIVO_APP_ID }}
+          JPUSH_OPPO_APP_KEY: ${{ secrets.JPUSH_OPPO_APP_KEY }}
+          JPUSH_OPPO_APP_ID: ${{ secrets.JPUSH_OPPO_APP_ID }}
+          JPUSH_OPPO_APP_SECRET: ${{ secrets.JPUSH_OPPO_APP_SECRET }}
+          JPUSH_HONOR_APP_ID: ${{ secrets.JPUSH_HONOR_APP_ID }}
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p dist
-          target="dist/Saydian-${{ steps.version.outputs.version }}+${{ steps.version.outputs.build }}-release.apk"
-          cp build/app/outputs/flutter-apk/app-release.apk "$target"
-          sha256sum "$target" > dist/SHA256SUMS.txt
+          apk="dist/${{ steps.release.outputs.apk_filename }}"
+          cp build/app/outputs/flutter-apk/app-release.apk "$apk"
+          digest="$(sha256sum "$apk" | awk '{print $1}')"
+          checksum="dist/SHA256SUMS-${{ steps.release.outputs.version }}+${{ steps.release.outputs.build }}.txt"
+          printf '%s  %s\n' "$digest" "$(basename "$apk")" > "$checksum"
 
-      - uses: actions/upload-artifact@v7
-        with:
-          name: saydian-android-${{ steps.version.outputs.version }}-${{ steps.version.outputs.build }}
-          path: dist/*
-          retention-days: 30
+          build_tools="$(find "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools" \
+            -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -x "$build_tools/apksigner"
+          "$build_tools/apksigner" verify --verbose --print-certs "$apk" \
+            > "$RUNNER_TEMP/apksigner-report.txt"
+          signer_sha="$(awk -F': ' '/Signer #1 certificate SHA-256 digest:/{print $2; exit}' \
+            "$RUNNER_TEMP/apksigner-report.txt" | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          expected_sha="$(printf '%s' "$ANDROID_SIGNING_CERT_SHA256" \
+            | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          [[ "$signer_sha" == "$expected_sha" ]] || {
+            echo "Built APK is not signed by the approved production certificate." >&2
+            exit 1
+          }
+          grep -q '^Verified using v2 scheme (APK Signature Scheme v2): true$' \
+            "$RUNNER_TEMP/apksigner-report.txt"
 
-      - name: Publish GitHub Release
-        if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v2
+          (cd android && ./gradlew :app:dependencies \
+            --configuration releaseRuntimeClasspath --console=plain) \
+            > "$RUNNER_TEMP/release-runtime-dependencies.txt"
+          python3 scripts/release/release_gate.py apk-abis \
+            --apk "$apk" \
+            --dependency-report "$RUNNER_TEMP/release-runtime-dependencies.txt" \
+            --pubspec-lock pubspec.lock
+
+          apkanalyzer="$(find "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/cmdline-tools" \
+            -type f -name apkanalyzer -perm -u+x | sort | tail -n 1)"
+          test -x "$apkanalyzer"
+          "$apkanalyzer" manifest print "$apk" > "$RUNNER_TEMP/apk-manifest.xml"
+          python3 scripts/release/release_gate.py apk-manifest \
+            --xml "$RUNNER_TEMP/apk-manifest.xml" \
+            --expected-package "$PRODUCTION_PACKAGE" \
+            --expected-version "${{ steps.release.outputs.version }}" \
+            --expected-build "${{ steps.release.outputs.build }}"
+          {
+            echo "apk=$apk"
+            echo "checksum=$checksum"
+            echo "sha256=$digest"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Fetch current public manifest
+        id: existing_manifest
+        env:
+          MANIFEST_URL: ${{ steps.release.outputs.manifest_url }}
+          BOOTSTRAP_ALLOWED: ${{ vars.SAYDIAN_MANIFEST_BOOTSTRAP_ALLOWED }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/existing-app-update.json"
+          separator='?'
+          [[ "$MANIFEST_URL" == *\?* ]] && separator='&'
+          requested_url="${MANIFEST_URL}${separator}release_preflight=$GITHUB_RUN_ID"
+          response="$(curl --location --proto '=https' --proto-redir '=https' \
+            --silent --show-error \
+            --connect-timeout 20 --max-time 60 \
+            -H 'Cache-Control: no-cache' \
+            -o "$output" -w $'%{http_code}\n%{url_effective}' \
+            "$requested_url")"
+          status="${response%%$'\n'*}"
+          effective_url="${response#*$'\n'}"
+          [[ "$effective_url" != "$response" ]]
+          python3 scripts/release/release_gate.py same-origin \
+            --requested "$requested_url" \
+            --effective "$effective_url"
+          if [[ "$status" == "200" ]]; then
+            [[ -s "$output" ]]
+            echo "existing=$output" >> "$GITHUB_OUTPUT"
+            echo "sha256=$(sha256sum "$output" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          elif [[ "$status" == "404" && "$BOOTSTRAP_ALLOWED" == "true" ]]; then
+            rm -f "$output"
+            echo "existing=" >> "$GITHUB_OUTPUT"
+            echo "sha256=absent" >> "$GITHUB_OUTPUT"
+          else
+            echo "Production manifest preflight returned HTTP $status; publication blocked." >&2
+            exit 1
+          fi
+
+      - name: Generate and verify candidate manifest
+        env:
+          EXISTING_MANIFEST: ${{ steps.existing_manifest.outputs.existing }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          arguments=()
+          if [[ -n "$EXISTING_MANIFEST" ]]; then
+            arguments+=(--existing "$EXISTING_MANIFEST")
+          fi
+          python3 scripts/release/release_gate.py manifest \
+            "${arguments[@]}" \
+            --output dist/app-update.json \
+            --version "${{ steps.release.outputs.version }}" \
+            --build "${{ steps.release.outputs.build }}" \
+            --minimum-supported-build "${{ steps.release.outputs.minimum_supported_build }}" \
+            --release-notes-file "$RELEASE_NOTES_FILE" \
+            --published-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --apk-url "${{ steps.release.outputs.apk_public_url }}" \
+            --sha256 "${{ steps.artifact.outputs.sha256 }}"
+          python3 scripts/release/release_gate.py verify-manifest \
+            --manifest dist/app-update.json \
+            --version "${{ steps.release.outputs.version }}" \
+            --build "${{ steps.release.outputs.build }}" \
+            --minimum-supported-build "${{ steps.release.outputs.minimum_supported_build }}" \
+            --apk-url "${{ steps.release.outputs.apk_public_url }}" \
+            --sha256 "${{ steps.artifact.outputs.sha256 }}" \
+            --apk-file "${{ steps.artifact.outputs.apk }}"
+
+      - name: Remove Android build credentials before external actions
+        run: |
+          rm -f \
+            android/app/saidian-release.jks \
+            android/key.properties \
+            android/app/agconnect-services.json \
+            "$RUNNER_TEMP/saidian-release-cert.der"
+
+      - name: Upload verified release artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
+          name: saydian-android-production-${{ steps.release.outputs.version }}-${{ steps.release.outputs.build }}
+          path: |
+            ${{ steps.artifact.outputs.apk }}
+            ${{ steps.artifact.outputs.checksum }}
+            dist/app-update.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Configure protected release SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SAYDIAN_RELEASE_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SAYDIAN_RELEASE_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/saidian-release-ssh-key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/saidian-release-known-hosts"
+          chmod 600 "$RUNNER_TEMP/saidian-release-ssh-key"
+          chmod 644 "$RUNNER_TEMP/saidian-release-known-hosts"
+          ssh-keygen -y -f "$RUNNER_TEMP/saidian-release-ssh-key" >/dev/null
+          ssh-keygen -l -f "$RUNNER_TEMP/saidian-release-known-hosts" >/dev/null
+
+      - name: Atomically publish APK then manifest
+        env:
+          RELEASE_SSH_HOST: ${{ vars.SAYDIAN_RELEASE_SSH_HOST }}
+          RELEASE_SSH_USER: ${{ vars.SAYDIAN_RELEASE_SSH_USER }}
+          RELEASE_SSH_PORT: ${{ vars.SAYDIAN_RELEASE_SSH_PORT }}
+          RELEASE_SSH_KEY_PATH: ${{ runner.temp }}/saidian-release-ssh-key
+          RELEASE_SSH_KNOWN_HOSTS_PATH: ${{ runner.temp }}/saidian-release-known-hosts
+          RELEASE_REMOTE_ROOT: ${{ vars.SAYDIAN_RELEASE_REMOTE_ROOT }}
+          APK_FILE: ${{ steps.artifact.outputs.apk }}
+          CHECKSUM_FILE: ${{ steps.artifact.outputs.checksum }}
+          MANIFEST_FILE: dist/app-update.json
+          APK_PUBLIC_URL: ${{ steps.release.outputs.apk_public_url }}
+          MANIFEST_PUBLIC_URL: ${{ steps.release.outputs.manifest_url }}
+          EXPECTED_SHA256: ${{ steps.artifact.outputs.sha256 }}
+          EXPECTED_PREVIOUS_MANIFEST_SHA256: ${{ steps.existing_manifest.outputs.sha256 }}
+          RELEASE_TOKEN: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: bash scripts/release/atomic_publish.sh
+
+      - name: Verify live semantic manifest
+        env:
+          MANIFEST_URL: ${{ steps.release.outputs.manifest_url }}
+        run: |
+          set -euo pipefail
+          separator='?'
+          [[ "$MANIFEST_URL" == *\?* ]] && separator='&'
+          requested_url="${MANIFEST_URL}${separator}release_final=$GITHUB_RUN_ID"
+          effective_url="$(curl --fail --location --proto '=https' --proto-redir '=https' \
+            --silent --show-error \
+            -H 'Cache-Control: no-cache' \
+            "$requested_url" \
+            -o "$RUNNER_TEMP/live-app-update.json" \
+            --write-out '%{url_effective}')"
+          python3 scripts/release/release_gate.py same-origin \
+            --requested "$requested_url" \
+            --effective "$effective_url"
+          python3 scripts/release/release_gate.py verify-manifest \
+            --manifest "$RUNNER_TEMP/live-app-update.json" \
+            --version "${{ steps.release.outputs.version }}" \
+            --build "${{ steps.release.outputs.build }}" \
+            --minimum-supported-build "${{ steps.release.outputs.minimum_supported_build }}" \
+            --apk-url "${{ steps.release.outputs.apk_public_url }}" \
+            --sha256 "${{ steps.artifact.outputs.sha256 }}"
+
+      - name: Remove release SSH identity before external actions
+        run: |
+          rm -f \
+            "$RUNNER_TEMP/saidian-release-ssh-key" \
+            "$RUNNER_TEMP/saidian-release-known-hosts"
+
+      - name: Archive production release in private GitHub repository
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ steps.release.outputs.release_tag }}
+          body_path: ${{ env.RELEASE_NOTES_FILE }}
           files: |
-            dist/*.apk
-            dist/SHA256SUMS.txt
-          generate_release_notes: true
+            ${{ steps.artifact.outputs.apk }}
+            ${{ steps.artifact.outputs.checksum }}
+            dist/app-update.json
+          generate_release_notes: false
+          make_latest: true
+
+      - name: Remove ephemeral credentials and generated configuration
+        if: always()
+        run: |
+          rm -f \
+            android/app/saidian-release.jks \
+            android/key.properties \
+            android/app/agconnect-services.json \
+            "$RUNNER_TEMP/saidian-release-cert.der" \
+            "$RUNNER_TEMP/saidian-release-ssh-key" \
+            "$RUNNER_TEMP/saidian-release-known-hosts"

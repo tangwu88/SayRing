@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -242,6 +243,30 @@ void main() {
     },
   );
 
+  test('care day boundary always uses China UTC+8 epoch seconds', () async {
+    final requestedDates = <String>{};
+    final client = MockClient((request) async {
+      if (request.url.path != '/api/v1/member/care/preview') {
+        final date = request.url.queryParameters['date'];
+        if (date != null) requestedDates.add(date);
+      }
+      return http.Response(
+        '{"code":200,"data":[]}',
+        200,
+        headers: {'content-type': 'application/json; charset=utf-8'},
+      );
+    });
+    final api = SaydianApiClient(
+      _authenticatedVault(),
+      client: client,
+      baseUri: Uri.parse('https://example.invalid'),
+    );
+
+    await api.getCareMemberPreview(id: 59, memberId: 87, day: '2026-08-27');
+
+    expect(requestedDates, {'1787760000'});
+  });
+
   test(
     'care metrics fall back to shared raw daily rows when chart APIs fail',
     () async {
@@ -421,6 +446,150 @@ void main() {
 
     expect(result['id'], 9);
     expect(result['to_member_id'], 2);
+  });
+
+  test(
+    'push registration and notification state use stable contracts',
+    () async {
+      var requestIndex = 0;
+      final client = MockClient((request) async {
+        requestIndex += 1;
+        expect(request.headers['authorization'], 'Bearer test-access-token');
+        expect(request.headers['token'], 'test-access-token');
+        switch (requestIndex) {
+          case 1:
+            expect(request.method, 'POST');
+            expect(request.url.path, '/api/v1/member/push-devices');
+            expect(jsonDecode(request.body), {
+              'installation_id': 'installation-test',
+              'platform': 'ios',
+              'provider': 'jpush',
+              'registration_id': 'redacted-registration-id',
+              'app_version': 'test-version',
+              'build': 23,
+            });
+            return http.Response('{"code":200,"data":{}}', 200);
+          case 2:
+            expect(request.method, 'GET');
+            expect(request.url.path, '/api/v1/member/notify/unread-count');
+            return http.Response(
+              '{"code":200,"data":{"unread_count":"3"}}',
+              200,
+            );
+          case 3:
+            expect(request.method, 'POST');
+            expect(request.url.path, '/api/v1/member/notify/19/read');
+            expect(jsonDecode(request.body), isEmpty);
+            return http.Response('', 204);
+          case 4:
+            expect(request.method, 'POST');
+            expect(
+              request.url.path,
+              '/api/v1/member/notify/server-event-19/read',
+            );
+            expect(jsonDecode(request.body), isEmpty);
+            return http.Response('', 204);
+          case 5:
+            expect(request.method, 'DELETE');
+            expect(
+              request.url.path,
+              '/api/v1/member/push-devices/installation-test',
+            );
+            return http.Response('{"code":200,"data":{}}', 200);
+          default:
+            fail('unexpected request');
+        }
+      });
+      final api = SaydianApiClient(
+        _authenticatedVault(),
+        client: client,
+        baseUri: Uri.parse('https://example.invalid'),
+      );
+
+      expect(
+        await api.registerPushDevice(
+          installationId: 'installation-test',
+          registrationId: 'redacted-registration-id',
+          platform: 'ios',
+          appVersion: 'test-version',
+          buildNumber: 23,
+        ),
+        isTrue,
+      );
+      expect(await api.getNotificationUnreadCount(), 3);
+      expect(await api.markNotificationRead(id: 19), isTrue);
+      expect(
+        await api.markNotificationEventRead(eventId: 'server-event-19'),
+        isTrue,
+      );
+      expect(
+        await api.unregisterPushDevice(installationId: 'installation-test'),
+        isTrue,
+      );
+      expect(requestIndex, 5);
+    },
+  );
+
+  test('optional notification endpoints tolerate 404 and 405', () async {
+    var requestIndex = 0;
+    final client = MockClient((request) async {
+      requestIndex += 1;
+      return switch (requestIndex) {
+        1 => http.Response('not found', 404),
+        2 => http.Response(
+          '{"code":405,"message":"not available","data":{}}',
+          200,
+        ),
+        3 => http.Response('', 405),
+        4 => http.Response(
+          '{"code":"404","message":"not available","data":{}}',
+          200,
+        ),
+        5 => http.Response('', 404),
+        _ => throw StateError('unexpected request'),
+      };
+    });
+    final api = SaydianApiClient(
+      _authenticatedVault(),
+      client: client,
+      baseUri: Uri.parse('https://example.invalid'),
+    );
+
+    expect(
+      await api.registerPushDevice(
+        installationId: 'installation-test',
+        registrationId: 'redacted-registration-id',
+        platform: 'android',
+      ),
+      isFalse,
+    );
+    expect(await api.getNotificationUnreadCount(), isNull);
+    expect(await api.markNotificationRead(id: 19), isFalse);
+    expect(
+      await api.markNotificationEventRead(eventId: 'server-event-19'),
+      isFalse,
+    );
+    expect(
+      await api.unregisterPushDevice(installationId: 'installation-test'),
+      isFalse,
+    );
+  });
+
+  test('push registration validates metadata before sending secrets', () async {
+    final api = SaydianApiClient(
+      _authenticatedVault(),
+      client: MockClient((_) async => fail('request should not be sent')),
+      baseUri: Uri.parse('https://example.invalid'),
+    );
+
+    await expectLater(
+      api.registerPushDevice(
+        installationId: '../unsafe',
+        registrationId: 'redacted-registration-id',
+        platform: 'ios',
+      ),
+      throwsA(isA<ApiException>()),
+    );
   });
 
   test('avatar upload follows the mini-program multipart contract', () async {
@@ -1358,6 +1527,72 @@ void main() {
     expect(vault.session?.accessToken, 'fresh-access');
     expect(vault.session?.refreshToken, 'fresh-refresh');
   });
+
+  test(
+    'delayed A refresh cannot overwrite or retry after switching to B',
+    () async {
+      final accountA = Session(
+        accessToken: 'access-a',
+        refreshToken: 'refresh-a',
+        expiresAt: DateTime.now().toUtc().add(const Duration(hours: 8)),
+        memberId: '7',
+        displayName: 'A',
+      );
+      final accountB = Session(
+        accessToken: 'access-b',
+        refreshToken: 'refresh-b',
+        expiresAt: DateTime.now().toUtc().add(const Duration(hours: 8)),
+        memberId: '8',
+        displayName: 'B',
+      );
+      final vault = MemorySessionVault()..session = accountA;
+      final refreshStarted = Completer<void>();
+      final releaseRefresh = Completer<void>();
+      var requestCount = 0;
+      final client = MockClient((request) async {
+        requestCount++;
+        if (request.url.path == '/api/v1/member/care/my') {
+          expect(request.headers['authorization'], 'Bearer access-a');
+          return http.Response(
+            '{"code":401,"message":"Unauthorized","data":{}}',
+            200,
+          );
+        }
+        expect(request.url.path, '/api/v1/site/refresh');
+        if (!refreshStarted.isCompleted) refreshStarted.complete();
+        await releaseRefresh.future;
+        return http.Response(
+          '{"code":200,"data":{"access_token":"fresh-a","refresh_token":"fresh-refresh-a","expiration_time":43200,"member":{"id":7,"nickname":"A"}}}',
+          200,
+          headers: const {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      final api = SaydianApiClient(
+        vault,
+        client: client,
+        baseUri: Uri.parse('https://example.invalid'),
+      );
+
+      final oldRequest = api.getCareMembers();
+      await refreshStarted.future;
+      await vault.writeSession(accountB);
+      releaseRefresh.complete();
+
+      await expectLater(
+        oldRequest,
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.statusCode,
+            'status',
+            401,
+          ),
+        ),
+      );
+      expect(vault.session?.memberId, '8');
+      expect(vault.session?.accessToken, 'access-b');
+      expect(requestCount, 2);
+    },
+  );
 }
 
 MemorySessionVault _authenticatedVault() =>

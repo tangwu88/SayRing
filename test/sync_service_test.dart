@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/api_client.dart';
@@ -84,6 +86,40 @@ void main() {
     expect(await store.pending(), isEmpty);
     expect((await store.recent()).map((record) => record.id), ['valid-heart']);
   });
+
+  test(
+    'account switch prevents a delayed upload from marking or moving cursors',
+    () async {
+      final store = MemoryHealthStore();
+      final api = _DelayedAcceptingApi();
+      final service = HealthSyncService(store, api);
+      await store.initialize();
+      await store.switchOwner('account-a');
+      await store.upsert([
+        _measurement('account-a-record', HealthMetric.heartRate, {'value': 78}),
+      ]);
+      var current = true;
+
+      final sync = service.synchronizeNow(isCurrent: () => current);
+      await api.started.future;
+      current = false;
+      await store.switchOwner('account-b');
+      api.result.complete(
+        const BatchUploadResult(
+          acceptedIds: {'account-a-record'},
+          rejected: {},
+          nextCursor: 'cursor-a',
+        ),
+      );
+      await sync;
+
+      expect(await store.pending(), isEmpty);
+      expect(await store.readCursor(), isNull);
+      await store.switchOwner('account-a');
+      expect((await store.pending()).single.id, 'account-a-record');
+      expect(await store.readCursor(), isNull);
+    },
+  );
 }
 
 HealthRecord _measurement(
@@ -127,6 +163,17 @@ class _UnconfiguredApi extends _BaseFakeApi {
   @override
   Future<BatchUploadResult> uploadHealthBatch(SyncBatch batch) {
     throw const FeatureNotConfiguredException('批量健康同步接口未配置');
+  }
+}
+
+class _DelayedAcceptingApi extends _BaseFakeApi {
+  final Completer<void> started = Completer<void>();
+  final Completer<BatchUploadResult> result = Completer<BatchUploadResult>();
+
+  @override
+  Future<BatchUploadResult> uploadHealthBatch(SyncBatch batch) {
+    if (!started.isCompleted) started.complete();
+    return result.future;
   }
 }
 

@@ -2,9 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
+
+import 'wearable_bridge.dart';
 
 class DeviceWatchFaceMarketException implements Exception {
   const DeviceWatchFaceMarketException(this.message);
@@ -25,6 +29,7 @@ class DeviceWatchFaceMarketItem {
     required this.crc,
     required this.binProtocol,
     required this.dialShape,
+    this.nativeCatalogId,
   });
 
   final String name;
@@ -35,6 +40,21 @@ class DeviceWatchFaceMarketItem {
   final int? crc;
   final int? binProtocol;
   final int? dialShape;
+  final String? nativeCatalogId;
+
+  factory DeviceWatchFaceMarketItem.fromNative(
+    NativeWatchFaceCatalogItem item,
+  ) => DeviceWatchFaceMarketItem(
+    name: item.name,
+    fileUrl: item.fileUrl,
+    previewUrl: item.previewUrl,
+    fileLength: 0,
+    available: true,
+    crc: item.crc,
+    binProtocol: item.binProtocol,
+    dialShape: item.dialShape,
+    nativeCatalogId: item.id,
+  );
 
   factory DeviceWatchFaceMarketItem.fromMap(Map<Object?, Object?> map) {
     final fileUrl = Uri.tryParse('${map['fileUrl'] ?? ''}');
@@ -69,75 +89,139 @@ class DeviceWatchFaceMarketPageData {
     required this.pageCount,
     required this.total,
     required this.items,
+    this.isCached = false,
   });
 
   final int pageIndex;
   final int pageCount;
   final int total;
   final List<DeviceWatchFaceMarketItem> items;
+  final bool isCached;
 }
 
 class DeviceWatchFaceMarketProfile {
   const DeviceWatchFaceMarketProfile({
+    required this.provider,
+    required this.deviceId,
+    required this.deviceLabel,
     required this.dialShape,
     required this.binProtocol,
-    required this.maxLength,
+    required this.maxFileLength,
     required this.deviceNumber,
-    required this.deviceTestVersion,
+    required this.firmwareVersion,
     required this.screenWidth,
     required this.screenHeight,
+    required this.slotCount,
+    required this.profileFingerprint,
   });
 
   factory DeviceWatchFaceMarketProfile.fromMap(Map<String, Object?> value) {
-    int number(String key, int fallback) =>
+    String text(String key, [String? alias]) =>
+        '${value[key] ?? (alias == null ? null : value[alias]) ?? ''}'.trim();
+    int number(String key, [String? alias]) =>
         (value[key] as num?)?.toInt() ??
-        int.tryParse('${value[key] ?? ''}') ??
-        fallback;
-    const catalogue = DeviceWatchFaceMarketProfile.w9s;
-    final screenWidth = number('screenWidth', catalogue.screenWidth);
-    final screenHeight = number('screenHeight', catalogue.screenHeight);
-    final reportedDialShape = number('dialShape', catalogue.dialShape);
-    // The SDK has multiple custom-UI variants for the same physical panel
-    // (for example standard/Apple/Earth/Aurora 410x502). Veepoo's online
-    // catalogue groups all of them under the base display code 58.
-    final catalogueDialShape = screenWidth == 410 && screenHeight == 502
-        ? 58
-        : reportedDialShape;
+        (alias == null ? null : (value[alias] as num?)?.toInt()) ??
+        int.tryParse(text(key, alias)) ??
+        0;
+    bool aliasesAgree(String key, String alias) {
+      if (!value.containsKey(key) || !value.containsKey(alias)) return true;
+      final primary = '${value[key] ?? ''}'.trim();
+      final secondary = '${value[alias] ?? ''}'.trim();
+      return primary == secondary;
+    }
+
+    final provider = text('provider');
+    final deviceId = text('deviceId');
+    final deviceLabel = text('deviceLabel');
+    final firmware = text('firmware', 'deviceTestVersion');
+    final fingerprint = text('profileFingerprint').toLowerCase();
+    final screenWidth = number('width', 'screenWidth');
+    final screenHeight = number('height', 'screenHeight');
+    final dialShape = number('dialShape');
+    final binProtocol = number('binProtocol');
+    final maxFileLength = number('maxFileLength', 'maxLength');
+    final deviceNumber = number('deviceNumber');
+    final slotCount = number('slotCount');
+    final valid =
+        value['onlineMarketSupported'] == true &&
+        number('profileVersion') == 1 &&
+        text('profileFingerprintAlgorithm').toLowerCase() == 'sha256' &&
+        provider.toLowerCase() == 'vep' &&
+        deviceId.isNotEmpty &&
+        deviceLabel.isNotEmpty &&
+        firmware.isNotEmpty &&
+        RegExp(r'^[a-f0-9]{64}$').hasMatch(fingerprint) &&
+        screenWidth > 0 &&
+        screenHeight > 0 &&
+        dialShape > 0 &&
+        binProtocol > 0 &&
+        maxFileLength > 100 &&
+        deviceNumber > 0 &&
+        slotCount > 0 &&
+        aliasesAgree('firmware', 'deviceTestVersion') &&
+        aliasesAgree('width', 'screenWidth') &&
+        aliasesAgree('height', 'screenHeight') &&
+        aliasesAgree('maxFileLength', 'maxLength');
+    if (!valid) {
+      throw const DeviceWatchFaceMarketException('当前手表的表盘兼容规格不完整');
+    }
     return DeviceWatchFaceMarketProfile(
-      dialShape: catalogueDialShape,
-      binProtocol: number('binProtocol', catalogue.binProtocol),
-      maxLength: number('maxLength', catalogue.maxLength),
-      deviceNumber: number('deviceNumber', catalogue.deviceNumber),
-      deviceTestVersion:
-          '${value['deviceTestVersion'] ?? value['deviceVersion'] ?? ''}'
-              .trim()
-              .isNotEmpty
-          ? '${value['deviceTestVersion'] ?? value['deviceVersion']}'.trim()
-          : catalogue.deviceTestVersion,
+      provider: provider,
+      deviceId: deviceId,
+      deviceLabel: deviceLabel,
+      dialShape: dialShape,
+      binProtocol: binProtocol,
+      maxFileLength: maxFileLength,
+      deviceNumber: deviceNumber,
+      firmwareVersion: firmware,
       screenWidth: screenWidth,
       screenHeight: screenHeight,
+      slotCount: slotCount,
+      profileFingerprint: fingerprint,
     );
   }
 
-  /// Safe fallback for the currently supplied W9S hardware. The connected
-  /// device profile returned by the SDK always takes precedence.
-  static const w9s = DeviceWatchFaceMarketProfile(
+  /// Test fixture only. Production callers must use a freshly read profile.
+  static const testW9s = DeviceWatchFaceMarketProfile(
+    provider: 'Vep',
+    deviceId: 'test-w9s',
+    deviceLabel: 'SD-Watch-W9S',
     dialShape: 58,
     binProtocol: 2,
-    maxLength: 614733,
+    maxFileLength: 614733,
     deviceNumber: 6702,
-    deviceTestVersion: '11.95.01.00',
+    firmwareVersion: '11.95.01.00',
     screenWidth: 410,
     screenHeight: 502,
+    slotCount: 1,
+    profileFingerprint:
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   );
 
+  final String provider;
+  final String deviceId;
+  final String deviceLabel;
   final int dialShape;
   final int binProtocol;
-  final int maxLength;
+  final int maxFileLength;
   final int deviceNumber;
-  final String deviceTestVersion;
+  final String firmwareVersion;
   final int screenWidth;
   final int screenHeight;
+  final int slotCount;
+  final String profileFingerprint;
+
+  bool matchesDevice(String? currentDeviceId) =>
+      currentDeviceId != null &&
+      _nativeVeepooDeviceId(currentDeviceId) == deviceId.toLowerCase();
+
+  static String? _nativeVeepooDeviceId(String value) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized.startsWith('yucheng:')) return null;
+    return normalized.startsWith('veepoo:')
+        ? normalized.substring('veepoo:'.length)
+        : normalized;
+  }
 }
 
 /// Loads the Veepoo/JL online watch-face catalogue.
@@ -147,10 +231,22 @@ class DeviceWatchFaceMarketProfile {
 /// authenticated device session; the W9S profile is only a test/fallback value
 /// and must not be used to open the market for an unidentified device.
 class DeviceWatchFaceMarketService {
-  DeviceWatchFaceMarketService({http.Client? client})
-    : _client = client ?? http.Client();
+  DeviceWatchFaceMarketService({
+    http.Client? client,
+    Future<Directory> Function()? supportDirectory,
+    Future<String> Function()? appVersionLoader,
+    bool? directCatalogueAllowed,
+  }) : _client = client ?? http.Client(),
+       _supportDirectory = supportDirectory ?? getApplicationSupportDirectory,
+       _appVersionLoader =
+           appVersionLoader ??
+           (() async => (await PackageInfo.fromPlatform()).version),
+       _directCatalogueAllowed = directCatalogueAllowed ?? !Platform.isIOS;
 
   final http.Client _client;
+  final Future<Directory> Function() _supportDirectory;
+  final Future<String> Function() _appVersionLoader;
+  final bool _directCatalogueAllowed;
 
   static const _endpoint =
       'https://www.vphband.com:9001/api/system/getthemespage';
@@ -158,19 +254,156 @@ class DeviceWatchFaceMarketService {
 
   Future<DeviceWatchFaceMarketPageData> loadPage({
     int page = 1,
-    DeviceWatchFaceMarketProfile profile = DeviceWatchFaceMarketProfile.w9s,
+    required DeviceWatchFaceMarketProfile profile,
   }) async {
+    final normalizedPage = page < 1 ? 1 : page;
+    try {
+      final response = await _requestCatalogue(
+        page: normalizedPage,
+        pageSize: _pageSize,
+        profile: profile,
+      );
+      final parsed = _parseResponse(response.body, normalizedPage);
+      await _writeCache(profile, 'page-$normalizedPage.json', response.body);
+      return parsed;
+    } on DeviceWatchFaceMarketException {
+      final cached = await _readCachedPage(
+        profile,
+        'page-$normalizedPage.json',
+        normalizedPage,
+      );
+      if (cached != null) return cached;
+      rethrow;
+    }
+  }
+
+  Future<List<DeviceWatchFaceMarketItem>> loadIndex({
+    required DeviceWatchFaceMarketProfile profile,
+  }) async {
+    try {
+      final response = await _requestCatalogue(
+        page: 1,
+        pageSize: 200,
+        profile: profile,
+      );
+      final parsed = _parseResponse(response.body, 1);
+      await _writeCache(profile, 'index.json', response.body);
+      return parsed.items.take(200).toList(growable: false);
+    } on DeviceWatchFaceMarketException {
+      final cached = await _readCachedPage(profile, 'index.json', 1);
+      if (cached != null) return cached.items.take(200).toList(growable: false);
+      rethrow;
+    }
+  }
+
+  DeviceWatchFaceMarketItem? matchInstalledPath(
+    String installedPath,
+    Iterable<DeviceWatchFaceMarketItem> catalogue,
+  ) {
+    final installed = _normalizedResourceName(installedPath);
+    if (installed.isEmpty) return null;
+    for (final item in catalogue) {
+      if (_normalizedResourceName(item.fileUrl.path) == installed) return item;
+    }
+    return null;
+  }
+
+  bool hasUsablePreviewReference(Map<String, Object?> face) {
+    return _findUsablePreviewReference(face, const [
+          'thumbnail',
+          'thumbnailUrl',
+          'previewPath',
+          'previewUrl',
+        ]) !=
+        null;
+  }
+
+  static String? findUsablePreviewReference(Map<String, Object?> face) {
+    return _findUsablePreviewReference(face, const [
+      'thumbnail',
+      'thumbnailUrl',
+      'previewPath',
+      'preview',
+      'previewUrl',
+      'image',
+      'imageUrl',
+      'background',
+      'filePath',
+    ]);
+  }
+
+  static String? _findUsablePreviewReference(
+    Map<String, Object?> face,
+    Iterable<String> keys,
+  ) {
+    for (final key in keys) {
+      final value = '${face[key] ?? ''}'.trim();
+      if (value.isEmpty) continue;
+      final uri = Uri.tryParse(value);
+      if (uri != null && uri.isScheme('https') && uri.host.isNotEmpty) {
+        return value;
+      }
+      final file = File(value.replaceFirst('file://', ''));
+      try {
+        if (file.existsSync() && file.lengthSync() > 0) return value;
+      } on FileSystemException {
+        // Fall through so an official catalogue preview can be matched.
+      }
+    }
+    return null;
+  }
+
+  Future<File?> previewFile(
+    DeviceWatchFaceMarketItem item, {
+    required DeviceWatchFaceMarketProfile profile,
+  }) async {
+    final directory = await _profileCacheDirectory(profile);
+    final previews = Directory(path.join(directory.path, 'previews'));
+    await previews.create(recursive: true);
+    final extension = path.extension(item.previewUrl.path).toLowerCase();
+    final safeExtension =
+        const {'.png', '.jpg', '.jpeg', '.webp'}.contains(extension)
+        ? extension
+        : '.img';
+    final key = sha256.convert(utf8.encode(item.previewUrl.toString()));
+    final file = File(path.join(previews.path, '$key$safeExtension'));
+    if (await file.exists() && await file.length() > 0) return file;
+    try {
+      final response = await _client
+          .get(item.previewUrl)
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode < 200 ||
+          response.statusCode >= 300 ||
+          response.bodyBytes.isEmpty) {
+        return null;
+      }
+      await file.writeAsBytes(response.bodyBytes, flush: true);
+      return file;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<http.Response> _requestCatalogue({
+    required int page,
+    required int pageSize,
+    required DeviceWatchFaceMarketProfile profile,
+  }) async {
+    if (!_directCatalogueAllowed) {
+      throw const DeviceWatchFaceMarketException('苹果设备必须通过手表 SDK 读取表盘目录');
+    }
+    final appVersion = (await _appVersionLoader()).trim();
     final uri = Uri.parse(_endpoint).replace(
       queryParameters: {
         'dialShape': '${profile.dialShape}',
         'binProtocol': '${profile.binProtocol}',
-        'maxLength': '${profile.maxLength}',
+        'maxLength': '${profile.maxFileLength}',
         'deviceNumber': '${profile.deviceNumber}',
-        'deviceVersion': profile.deviceTestVersion,
+        'deviceVersion': profile.firmwareVersion,
         'appType': 'android',
-        'appVersion': '1.28.7',
-        'pageIndex': '${page < 1 ? 1 : page}',
-        'pageSize': '$_pageSize',
+        'appVersion': appVersion.isEmpty ? 'unknown' : appVersion,
+        'pageIndex': '$page',
+        'pageSize': '$pageSize',
       },
     );
     http.Response response;
@@ -182,9 +415,13 @@ class DeviceWatchFaceMarketService {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw const DeviceWatchFaceMarketException('表盘商城暂时无法访问，请稍后重试');
     }
+    return response;
+  }
+
+  DeviceWatchFaceMarketPageData _parseResponse(String body, int page) {
     Object? decoded;
     try {
-      decoded = jsonDecode(response.body);
+      decoded = jsonDecode(body);
     } catch (_) {
       throw const DeviceWatchFaceMarketException('表盘商城返回了无法识别的数据');
     }
@@ -213,10 +450,69 @@ class DeviceWatchFaceMarketService {
     );
   }
 
+  Future<DeviceWatchFaceMarketPageData?> _readCachedPage(
+    DeviceWatchFaceMarketProfile profile,
+    String fileName,
+    int page,
+  ) async {
+    try {
+      final file = File(
+        path.join((await _profileCacheDirectory(profile)).path, fileName),
+      );
+      if (!await file.exists()) return null;
+      final parsed = _parseResponse(await file.readAsString(), page);
+      return DeviceWatchFaceMarketPageData(
+        pageIndex: parsed.pageIndex,
+        pageCount: parsed.pageCount,
+        total: parsed.total,
+        items: parsed.items,
+        isCached: true,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeCache(
+    DeviceWatchFaceMarketProfile profile,
+    String fileName,
+    String body,
+  ) async {
+    try {
+      final directory = await _profileCacheDirectory(profile);
+      await directory.create(recursive: true);
+      final target = File(path.join(directory.path, fileName));
+      final temporary = File('${target.path}.tmp');
+      await temporary.writeAsString(body, flush: true);
+      await temporary.rename(target.path);
+    } catch (_) {
+      // Cache failures never turn a valid online catalogue into an error.
+    }
+  }
+
+  Future<Directory> _profileCacheDirectory(
+    DeviceWatchFaceMarketProfile profile,
+  ) async {
+    final root = await _supportDirectory();
+    return Directory(
+      path.join(root.path, 'watch_face_catalog', profile.profileFingerprint),
+    );
+  }
+
   Future<String> download(
     DeviceWatchFaceMarketItem item, {
+    required DeviceWatchFaceMarketProfile profile,
     void Function(double progress)? onProgress,
   }) async {
+    if (!_directCatalogueAllowed) {
+      throw const DeviceWatchFaceMarketException('苹果设备必须通过手表 SDK 下载表盘');
+    }
+    if ((item.dialShape != null && item.dialShape != profile.dialShape) ||
+        (item.binProtocol != null && item.binProtocol != profile.binProtocol) ||
+        item.fileLength <= 100 ||
+        item.fileLength > profile.maxFileLength) {
+      throw const DeviceWatchFaceMarketException('此表盘与当前手表规格不匹配');
+    }
     http.StreamedResponse response;
     try {
       final request = http.Request('GET', item.fileUrl);
@@ -271,4 +567,13 @@ class DeviceWatchFaceMarketService {
     onProgress?.call(1);
     return file.path;
   }
+}
+
+String _normalizedResourceName(String value) {
+  final decoded = Uri.decodeComponent(value).replaceAll('\\', '/');
+  final base = path.basename(decoded).toLowerCase();
+  final extension = path.extension(base);
+  return extension.isEmpty
+      ? base
+      : base.substring(0, base.length - extension.length);
 }

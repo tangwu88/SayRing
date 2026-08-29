@@ -177,6 +177,139 @@ class SportRoutePoint {
   };
 }
 
+enum DeviceBatteryChargeState {
+  normal,
+  charging,
+  lowPressureDeprecated,
+  fullUnreliable,
+  unknown;
+
+  factory DeviceBatteryChargeState.fromWire(Object? value) =>
+      switch ('${value ?? ''}'.trim().toLowerCase()) {
+        'normal' => normal,
+        'charging' => charging,
+        'low_pressure_deprecated' => lowPressureDeprecated,
+        'full_unreliable' => fullUnreliable,
+        _ => unknown,
+      };
+
+  String get wireName => switch (this) {
+    normal => 'normal',
+    charging => 'charging',
+    lowPressureDeprecated => 'low_pressure_deprecated',
+    fullUnreliable => 'full_unreliable',
+    unknown => 'unknown',
+  };
+
+  String get label => switch (this) {
+    charging => '充电中',
+    lowPressureDeprecated => '低电状态',
+    normal => '未充电',
+    fullUnreliable || unknown => '充电状态未知',
+  };
+}
+
+class DeviceBatteryInfo {
+  const DeviceBatteryInfo({
+    required this.value,
+    required this.scale,
+    required this.isPercent,
+    required this.chargeState,
+    this.low,
+    this.updatedAt,
+  });
+
+  final int value;
+  final int scale;
+  final bool isPercent;
+  final bool? low;
+  final DeviceBatteryChargeState chargeState;
+  final DateTime? updatedAt;
+
+  int? get percent => isPercent ? value : null;
+  bool get isCharging => chargeState == DeviceBatteryChargeState.charging;
+  bool get isLow => low ?? (!isPercent && value <= 1);
+  String get displayLabel => isPercent ? '$value%' : '$value/$scale 格';
+
+  factory DeviceBatteryInfo.percentage(int value) => DeviceBatteryInfo(
+    value: value.clamp(0, 100),
+    scale: 100,
+    isPercent: true,
+    chargeState: DeviceBatteryChargeState.unknown,
+  );
+
+  static DeviceBatteryInfo? tryFromDeviceMap(Map<Object?, Object?> map) {
+    final nested = map['battery'];
+    if (nested is Map) {
+      return _tryParse(
+        nested.map((key, value) => MapEntry<Object?, Object?>(key, value)),
+      );
+    }
+    final hasStructuredFields = const [
+      'batteryValue',
+      'batteryScale',
+      'batteryIsPercent',
+      'batteryChargeState',
+      'batteryUpdatedAt',
+    ].any(map.containsKey);
+    if (hasStructuredFields) {
+      return _tryParse(<Object?, Object?>{
+        'value': map['batteryValue'],
+        'scale': map['batteryScale'],
+        'isPercent': map['batteryIsPercent'],
+        'low': map['batteryLow'],
+        'chargeState': map['batteryChargeState'],
+        'updatedAt': map['batteryUpdatedAt'],
+      });
+    }
+    final legacy = _batteryInt(map['batteryPercent']);
+    return legacy == null || legacy < 0 || legacy > 100
+        ? null
+        : DeviceBatteryInfo.percentage(legacy);
+  }
+
+  static DeviceBatteryInfo? _tryParse(Map<Object?, Object?> map) {
+    final value = _batteryInt(map['value']);
+    final scale = _batteryInt(map['scale']);
+    final isPercent = map['isPercent'];
+    if (value == null ||
+        scale == null ||
+        isPercent is! bool ||
+        (scale != 4 && scale != 100) ||
+        isPercent != (scale == 100) ||
+        value < 0 ||
+        value > scale) {
+      return null;
+    }
+    final rawLow = map['low'];
+    if (rawLow != null && rawLow is! bool) return null;
+    final updatedAt = DateTime.tryParse('${map['updatedAt'] ?? ''}');
+    return DeviceBatteryInfo(
+      value: value,
+      scale: scale,
+      isPercent: isPercent,
+      low: isPercent ? rawLow as bool? : null,
+      chargeState: DeviceBatteryChargeState.fromWire(map['chargeState']),
+      updatedAt: updatedAt?.toUtc(),
+    );
+  }
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'value': value,
+    'scale': scale,
+    'isPercent': isPercent,
+    'low': low,
+    'chargeState': chargeState.wireName,
+    'updatedAt': updatedAt?.toUtc().toIso8601String(),
+  };
+}
+
+int? _batteryInt(Object? value) => value is num
+    ? value.toInt()
+    : value is String
+    ? int.tryParse(value.trim())
+    : null;
+
 class DeviceInfo {
   const DeviceInfo({
     required this.id,
@@ -185,6 +318,7 @@ class DeviceInfo {
     this.serialNumber,
     this.hardwareAddress,
     this.firmwareVersion,
+    this.battery,
     this.batteryPercent,
     this.rssi,
     this.lastSyncAt,
@@ -196,23 +330,32 @@ class DeviceInfo {
   final String? serialNumber;
   final String? hardwareAddress;
   final String? firmwareVersion;
+  final DeviceBatteryInfo? battery;
   final int? batteryPercent;
   final int? rssi;
   final DateTime? lastSyncAt;
 
-  factory DeviceInfo.fromMap(Map<Object?, Object?> map) => DeviceInfo(
-    id: '${map['id'] ?? map['identifier'] ?? ''}',
-    name: _displayName(map['name']),
-    model: map['model']?.toString(),
-    serialNumber: map['serialNumber']?.toString(),
-    hardwareAddress: map['hardwareAddress']?.toString(),
-    firmwareVersion: map['firmwareVersion']?.toString(),
-    batteryPercent: map['batteryPercent'] is num
-        ? (map['batteryPercent'] as num).toInt().clamp(0, 100).toInt()
-        : null,
-    rssi: map['rssi'] is num ? (map['rssi'] as num).toInt() : null,
-    lastSyncAt: DateTime.tryParse('${map['lastSyncAt'] ?? ''}'),
-  );
+  factory DeviceInfo.fromMap(Map<Object?, Object?> map) {
+    final battery = DeviceBatteryInfo.tryFromDeviceMap(map);
+    return DeviceInfo(
+      id: '${map['id'] ?? map['identifier'] ?? ''}',
+      name: _displayName(map['name']),
+      model: map['model']?.toString(),
+      serialNumber: map['serialNumber']?.toString(),
+      hardwareAddress: map['hardwareAddress']?.toString(),
+      firmwareVersion: map['firmwareVersion']?.toString(),
+      battery: battery,
+      batteryPercent: battery?.percent,
+      rssi: map['rssi'] is num ? (map['rssi'] as num).toInt() : null,
+      lastSyncAt: DateTime.tryParse('${map['lastSyncAt'] ?? ''}'),
+    );
+  }
+
+  DeviceBatteryInfo? get effectiveBattery =>
+      battery ??
+      (batteryPercent == null
+          ? null
+          : DeviceBatteryInfo.percentage(batteryPercent!));
 
   static String _displayName(Object? raw) {
     final cleaned = '${raw ?? ''}'
@@ -235,6 +378,7 @@ class DeviceInfo {
     'serialNumber': serialNumber,
     'hardwareAddress': hardwareAddress,
     'firmwareVersion': firmwareVersion,
+    'battery': battery?.toJson(),
     'batteryPercent': batteryPercent,
     'rssi': rssi,
     'lastSyncAt': lastSyncAt?.toUtc().toIso8601String(),
@@ -696,6 +840,7 @@ class Session {
     required this.expiresAt,
     required this.memberId,
     required this.displayName,
+    this.accountKey = '',
   });
 
   final String accessToken;
@@ -703,6 +848,7 @@ class Session {
   final DateTime expiresAt;
   final String memberId;
   final String displayName;
+  final String accountKey;
 
   bool get isExpired => expiresAt.isBefore(DateTime.now());
 
@@ -712,6 +858,7 @@ class Session {
     'expiresAt': expiresAt.toUtc().toIso8601String(),
     'memberId': memberId,
     'displayName': displayName,
+    if (accountKey.isNotEmpty) 'accountKey': accountKey,
   };
 
   factory Session.fromJson(Map<String, Object?> json) => Session(
@@ -720,6 +867,23 @@ class Session {
     expiresAt: DateTime.parse('${json['expiresAt']}'),
     memberId: '${json['memberId']}',
     displayName: '${json['displayName']}',
+    accountKey: '${json['accountKey'] ?? ''}',
+  );
+
+  Session copyWith({
+    String? accessToken,
+    String? refreshToken,
+    DateTime? expiresAt,
+    String? memberId,
+    String? displayName,
+    String? accountKey,
+  }) => Session(
+    accessToken: accessToken ?? this.accessToken,
+    refreshToken: refreshToken ?? this.refreshToken,
+    expiresAt: expiresAt ?? this.expiresAt,
+    memberId: memberId ?? this.memberId,
+    displayName: displayName ?? this.displayName,
+    accountKey: accountKey ?? this.accountKey,
   );
 }
 

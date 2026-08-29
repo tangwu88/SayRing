@@ -1272,7 +1272,8 @@ void main() {
       );
       await controller.initialize();
       addTearDown(controller.dispose);
-      final measuredAt = DateTime.now();
+      final now = DateTime.now();
+      final measuredAt = DateTime(now.year, now.month, now.day, 12);
       await store.upsert([
         for (var index = 0; index < 4; index++)
           HealthRecord(

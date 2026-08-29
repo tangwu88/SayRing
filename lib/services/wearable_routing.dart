@@ -47,6 +47,7 @@ class RoutedDevice {
     String? serialNumber,
     String? hardwareAddress,
     String? firmwareVersion,
+    DeviceBatteryInfo? battery,
     int? batteryPercent,
     int? rssi,
   }) => RoutedDevice(
@@ -57,6 +58,7 @@ class RoutedDevice {
       serialNumber: serialNumber,
       hardwareAddress: hardwareAddress,
       firmwareVersion: firmwareVersion,
+      battery: battery,
       batteryPercent: batteryPercent,
       rssi: rssi,
     ),
@@ -75,6 +77,7 @@ class RoutedDevice {
     serialNumber: device.serialNumber,
     hardwareAddress: device.hardwareAddress,
     firmwareVersion: device.firmwareVersion,
+    battery: device.battery,
     batteryPercent: device.batteryPercent,
     rssi: device.rssi,
   );

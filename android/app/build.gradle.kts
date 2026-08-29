@@ -21,6 +21,60 @@ val signingProperties = Properties().apply {
         signingPropertiesFile.inputStream().use(::load)
     }
 }
+val jpushAppKey =
+    providers.gradleProperty("JPUSH_APPKEY")
+        .orElse(providers.environmentVariable("JPUSH_APP_KEY"))
+        .orNull
+        ?.trim()
+        .orEmpty()
+val jpushChannel =
+    providers.gradleProperty("JPUSH_CHANNEL")
+        .orElse(providers.environmentVariable("JPUSH_CHANNEL"))
+        .orNull
+        ?.trim()
+        .orEmpty()
+fun releaseModeFlag(name: String): Boolean {
+    val value = providers.environmentVariable(name).orNull?.trim()?.lowercase().orEmpty()
+    return when (value) {
+        "", "false" -> false
+        "true" -> true
+        else -> throw GradleException("$name must be true, false, or unset")
+    }
+}
+
+val productionReleaseRequested = releaseModeFlag("SAIDIAN_PRODUCTION_RELEASE")
+val qaReleaseAllowed = releaseModeFlag("SAIDIAN_ALLOW_QA_RELEASE")
+val updateManifestUrl =
+    providers.environmentVariable("SAYDIAN_UPDATE_MANIFEST_URL")
+        .orNull
+        ?.trim()
+        .orEmpty()
+val apiBaseUrl =
+    providers.environmentVariable("SAYDIAN_API_BASE_URL")
+        .orNull
+        ?.trim()
+        .orEmpty()
+val updateAllowedHosts =
+    providers.environmentVariable("SAYDIAN_UPDATE_ALLOWED_HOSTS")
+        .orNull
+        ?.trim()
+        .orEmpty()
+val jpushVendorChannels =
+    providers.environmentVariable("JPUSH_VENDOR_CHANNELS")
+        .orNull
+        ?.trim()
+        .orEmpty()
+val productionSigningValues =
+    listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+        .associateWith { signingProperties.getProperty(it)?.trim().orEmpty() }
+val productionStoreFile =
+    productionSigningValues.getValue("storeFile")
+        .takeIf(String::isNotEmpty)
+        ?.let(::file)
+val hasCompleteProductionSigning =
+    signingPropertiesFile.isFile &&
+        productionSigningValues.values.all(String::isNotEmpty) &&
+        productionStoreFile?.isFile == true
 
 if (hasAnyVeepooArtifact && !hasCompleteVeepooSdk) {
     val missing = veepooSdkFiles.filterNot { it.isFile }.joinToString { it.name }
@@ -43,6 +97,15 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Keep all distributable variants on the same two supported ARM ABIs.
+        // The release gate separately checks per-library symmetry.
+        ndk {
+            abiFilters += setOf("armeabi-v7a", "arm64-v8a")
+        }
+        manifestPlaceholders["JPUSH_APPKEY"] =
+            jpushAppKey.ifEmpty { "debug-disabled" }
+        manifestPlaceholders["JPUSH_CHANNEL"] =
+            jpushChannel.ifEmpty { "developer-disabled" }
         buildConfigField("boolean", "VEEPOO_SDK_PRESENT", hasCompleteVeepooSdk.toString())
     }
 
@@ -50,13 +113,26 @@ android {
         buildConfig = true
     }
 
+    packaging {
+        jniLibs {
+            // Several transitive AARs also publish desktop/emulator binaries.
+            // Distribution is intentionally limited to the two supported ARM
+            // ABIs; release_gate.py verifies that their .so sets are symmetric.
+            excludes += setOf(
+                "lib/armeabi/**",
+                "lib/x86/**",
+                "lib/x86_64/**",
+            )
+        }
+    }
+
     signingConfigs {
-        if (signingPropertiesFile.isFile) {
+        if (hasCompleteProductionSigning) {
             create("productionRelease") {
-                keyAlias = signingProperties.getProperty("keyAlias")
-                keyPassword = signingProperties.getProperty("keyPassword")
-                storeFile = file(signingProperties.getProperty("storeFile"))
-                storePassword = signingProperties.getProperty("storePassword")
+                keyAlias = productionSigningValues.getValue("keyAlias")
+                keyPassword = productionSigningValues.getValue("keyPassword")
+                storeFile = productionStoreFile
+                storePassword = productionSigningValues.getValue("storePassword")
             }
         }
     }
@@ -66,15 +142,66 @@ android {
             // Local QA keeps the existing debug-signing fallback.  Tagged
             // online releases provide key.properties from GitHub Secrets and
             // therefore use the stable production key.
-            signingConfig = signingConfigs.getByName(
-                if (signingPropertiesFile.isFile) "productionRelease" else "debug",
-            )
+            signingConfig =
+                if (productionReleaseRequested &&
+                    !qaReleaseAllowed &&
+                    hasCompleteProductionSigning
+                ) {
+                    signingConfigs.getByName("productionRelease")
+                } else {
+                    signingConfigs.getByName("debug")
+                }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
         }
     }
+}
+
+val verifySaidianReleaseMode by tasks.registering {
+    group = "verification"
+    description = "Rejects ambiguous or unconfigured Saydian Release builds."
+    doLast {
+        if (productionReleaseRequested == qaReleaseAllowed) {
+            throw GradleException(
+                "Release builds require exactly one mode: " +
+                    "SAIDIAN_PRODUCTION_RELEASE=true or SAIDIAN_ALLOW_QA_RELEASE=true",
+            )
+        }
+        if (qaReleaseAllowed) {
+            logger.warn("QA RELEASE - NOT FOR DISTRIBUTION; debug signing and disabled push are expected.")
+            return@doLast
+        }
+        if (jpushAppKey.isEmpty() || jpushChannel != "production") {
+            throw GradleException(
+                "Production release requires JPUSH_APP_KEY and JPUSH_CHANNEL=production",
+            )
+        }
+        if (jpushVendorChannels.isEmpty()) {
+            throw GradleException("Production release requires an explicit JPUSH_VENDOR_CHANNELS decision")
+        }
+        if (!apiBaseUrl.startsWith("https://")) {
+            throw GradleException("Production release requires an HTTPS SAYDIAN_API_BASE_URL")
+        }
+        if (!updateManifestUrl.startsWith("https://") || updateAllowedHosts.isEmpty()) {
+            throw GradleException(
+                "Production release requires an HTTPS SAYDIAN_UPDATE_MANIFEST_URL and " +
+                    "SAYDIAN_UPDATE_ALLOWED_HOSTS",
+            )
+        }
+        if (!hasCompleteProductionSigning) {
+            throw GradleException(
+                "Production release requires complete android/key.properties and its keystore file",
+            )
+        }
+    }
+}
+
+tasks.matching {
+    it.name.startsWith("pre") && it.name.endsWith("ReleaseBuild")
+}.configureEach {
+    dependsOn(verifySaidianReleaseMode)
 }
 
 kotlin {

@@ -1,9 +1,452 @@
+import CryptoKit
 import Flutter
 import UIKit
 import UserNotifications
 #if canImport(VeepooBleSDK) && !targetEnvironment(simulator)
 import VeepooBleSDK
 #endif
+
+enum WearableBatteryChargeState: String, Equatable {
+  case normal
+  case charging
+  case lowPressureDeprecated = "low_pressure_deprecated"
+  case fullUnreliable = "full_unreliable"
+  case unknown
+
+  init(rawValueFromSDK value: Int) {
+    self =
+      switch value {
+      case 0: .normal
+      case 1: .charging
+      case 2: .lowPressureDeprecated
+      case 3: .fullUnreliable
+      default: .unknown
+      }
+  }
+}
+
+struct WearableBatterySnapshot: Equatable {
+  let value: Int
+  let scale: Int
+  let isPercent: Bool
+  let low: Bool?
+  let chargeState: WearableBatteryChargeState
+  let updatedAt: Date
+
+  init?(
+    isPercent: Bool,
+    low: Bool,
+    chargeStateRawValue: Int,
+    value: Int,
+    updatedAt: Date
+  ) {
+    let scale = isPercent ? 100 : 4
+    guard (0...scale).contains(value) else { return nil }
+    self.value = value
+    self.scale = scale
+    self.isPercent = isPercent
+    self.low = low
+    self.chargeState = WearableBatteryChargeState(rawValueFromSDK: chargeStateRawValue)
+    self.updatedAt = updatedAt
+  }
+
+  var percent: Int? { isPercent ? value : nil }
+
+  var payload: [String: Any] {
+    [
+      "value": value,
+      "scale": scale,
+      "isPercent": isPercent,
+      "low": low.map { $0 as Any } ?? NSNull(),
+      "chargeState": chargeState.rawValue,
+      "updatedAt": Self.isoFormatter.string(from: updatedAt),
+    ]
+  }
+
+  private static let isoFormatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+  }()
+}
+
+enum WearableBatteryRefreshDecision: Equatable {
+  case skip
+  case deferUntilIdle
+  case start(generation: UInt)
+}
+
+struct WearableBatteryRefreshGate {
+  static let freshnessInterval: TimeInterval = 5 * 60
+
+  private(set) var generation: UInt = 0
+  private(set) var isInFlight = false
+
+  mutating func reset() {
+    generation &+= 1
+    isInFlight = false
+  }
+
+  mutating func request(
+    now: Date,
+    lastUpdatedAt: Date?,
+    force: Bool,
+    isBlocked: Bool
+  ) -> WearableBatteryRefreshDecision {
+    if isInFlight { return .skip }
+    if !force,
+      let lastUpdatedAt,
+      now.timeIntervalSince(lastUpdatedAt) <= Self.freshnessInterval
+    {
+      return .skip
+    }
+    if isBlocked { return .deferUntilIdle }
+    isInFlight = true
+    generation &+= 1
+    return .start(generation: generation)
+  }
+
+  mutating func complete(generation expectedGeneration: UInt) -> Bool {
+    guard isInFlight, generation == expectedGeneration else { return false }
+    isInFlight = false
+    return true
+  }
+}
+
+struct WearableWatchFaceTransferGate {
+  private(set) var generation: UInt = 0
+  private(set) var activeGeneration: UInt?
+
+  var isInFlight: Bool { activeGeneration != nil }
+
+  mutating func begin() -> UInt? {
+    guard activeGeneration == nil else { return nil }
+    generation &+= 1
+    activeGeneration = generation
+    return generation
+  }
+
+  mutating func complete(generation expectedGeneration: UInt) -> Bool {
+    guard activeGeneration == expectedGeneration else { return false }
+    activeGeneration = nil
+    return true
+  }
+
+  mutating func reset() {
+    generation &+= 1
+    activeGeneration = nil
+  }
+}
+
+struct WearableHealthSyncRequest: Equatable {
+  let generation: UInt
+  let routeID: String
+}
+
+struct WearableHealthSyncGate {
+  private(set) var generation: UInt = 0
+  private(set) var active: WearableHealthSyncRequest?
+
+  var isInFlight: Bool { active != nil }
+
+  mutating func begin(routeID: String) -> WearableHealthSyncRequest? {
+    guard active == nil else { return nil }
+    let normalized = routeID.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalized.isEmpty else { return nil }
+    generation &+= 1
+    let request = WearableHealthSyncRequest(generation: generation, routeID: normalized)
+    active = request
+    return request
+  }
+
+  func accepts(_ request: WearableHealthSyncRequest, currentRouteID: String?) -> Bool {
+    guard active == request,
+      let currentRouteID = currentRouteID?.trimmingCharacters(in: .whitespacesAndNewlines)
+    else { return false }
+    return request.routeID.caseInsensitiveCompare(currentRouteID) == .orderedSame
+  }
+
+  mutating func complete(_ request: WearableHealthSyncRequest) -> Bool {
+    guard active == request else { return false }
+    active = nil
+    return true
+  }
+
+  mutating func reset() {
+    generation &+= 1
+    active = nil
+  }
+}
+
+struct WearableDeviceSessionIdentity: Equatable {
+  let routeID: String
+  let generation: UInt
+}
+
+struct WearableDeviceRequestToken: Equatable {
+  let session: WearableDeviceSessionIdentity
+  let generation: UInt
+}
+
+struct WearableDeviceSessionGate {
+  private(set) var sessionGeneration: UInt = 0
+  private(set) var requestGeneration: UInt = 0
+  private(set) var routeID: String?
+
+  var currentSession: WearableDeviceSessionIdentity? {
+    guard let routeID else { return nil }
+    return WearableDeviceSessionIdentity(routeID: routeID, generation: sessionGeneration)
+  }
+
+  mutating func beginSession(routeID: String) {
+    let normalized = routeID.trimmingCharacters(in: .whitespacesAndNewlines)
+    sessionGeneration &+= 1
+    requestGeneration &+= 1
+    self.routeID = normalized.isEmpty ? nil : normalized
+  }
+
+  mutating func endSession() {
+    sessionGeneration &+= 1
+    requestGeneration &+= 1
+    routeID = nil
+  }
+
+  mutating func beginRequest() -> WearableDeviceRequestToken? {
+    guard let session = currentSession else { return nil }
+    requestGeneration &+= 1
+    return WearableDeviceRequestToken(session: session, generation: requestGeneration)
+  }
+
+  func accepts(_ session: WearableDeviceSessionIdentity) -> Bool {
+    guard let currentSession else { return false }
+    return currentSession == session
+  }
+
+  func accepts(_ token: WearableDeviceRequestToken) -> Bool {
+    accepts(token.session) && token.generation == requestGeneration
+  }
+}
+
+struct WearableNativeWatchFaceCatalogToken: Equatable {
+  let session: WearableDeviceSessionIdentity
+  let generation: UInt
+}
+
+/// Keeps native SDK catalogue models scoped to the exact connected watch.
+/// The adapter owns the SDK objects; this gate owns only their stable IDs so
+/// it remains unit-testable without loading the vendor framework.
+struct WearableNativeWatchFaceCatalogGate {
+  private(set) var generation: UInt = 0
+  private(set) var session: WearableDeviceSessionIdentity?
+  private(set) var catalogIDs: Set<String> = []
+  private var activeRequest: WearableNativeWatchFaceCatalogToken?
+
+  mutating func begin(
+    session: WearableDeviceSessionIdentity
+  ) -> WearableNativeWatchFaceCatalogToken {
+    generation &+= 1
+    let token = WearableNativeWatchFaceCatalogToken(
+      session: session,
+      generation: generation
+    )
+    activeRequest = token
+    return token
+  }
+
+  func accepts(_ token: WearableNativeWatchFaceCatalogToken) -> Bool {
+    activeRequest == token
+  }
+
+  mutating func commit(
+    _ token: WearableNativeWatchFaceCatalogToken,
+    catalogIDs: Set<String>
+  ) -> Bool {
+    guard accepts(token) else { return false }
+    activeRequest = nil
+    session = token.session
+    self.catalogIDs = catalogIDs
+    return true
+  }
+
+  mutating func cancel(_ token: WearableNativeWatchFaceCatalogToken) -> Bool {
+    guard accepts(token) else { return false }
+    activeRequest = nil
+    return true
+  }
+
+  func owns(
+    catalogID: String,
+    session expectedSession: WearableDeviceSessionIdentity
+  ) -> Bool {
+    session == expectedSession && catalogIDs.contains(catalogID)
+  }
+
+  mutating func reset() {
+    generation &+= 1
+    activeRequest = nil
+    session = nil
+    catalogIDs.removeAll()
+  }
+}
+
+enum WearableNativeWatchFaceCatalogPayload {
+  static func make(
+    name: String,
+    fileURL: String,
+    previewURL: String,
+    crc: Int,
+    binProtocol: Int,
+    dialShape: Int
+  ) -> [String: Any]? {
+    let normalizedFileURL = fileURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedPreviewURL = previewURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let file = URL(string: normalizedFileURL),
+      file.scheme != nil,
+      let preview = URL(string: normalizedPreviewURL),
+      preview.scheme != nil,
+      crc >= 0,
+      binProtocol > 0,
+      dialShape > 0
+    else {
+      return nil
+    }
+    let canonical = [
+      normalizedFileURL,
+      normalizedPreviewURL,
+      String(crc),
+      String(binProtocol),
+      String(dialShape),
+    ].joined(separator: "\n")
+    let identifier = SHA256.hash(data: Data(canonical.utf8))
+      .map { String(format: "%02x", $0) }
+      .joined()
+    return [
+      "id": identifier,
+      "name": name.trimmingCharacters(in: .whitespacesAndNewlines),
+      "fileUrl": normalizedFileURL,
+      "previewUrl": normalizedPreviewURL,
+      "crc": crc,
+      "binProtocol": binProtocol,
+      "dialShape": dialShape,
+    ]
+  }
+}
+
+enum WearableMarketDialVerification {
+  static func confirmsChangedImage(previousImageID: Int, refreshedImageID: Int) -> Bool {
+    refreshedImageID > 0 && refreshedImageID != previousImageID
+  }
+
+  static func normalizedResourceName(_ value: String) -> String {
+    let decoded = value.removingPercentEncoding ?? value
+    let component = (decoded as NSString).lastPathComponent
+    return ((component as NSString).deletingPathExtension)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+  }
+
+  static func confirmsResource(expected: String, current: String) -> Bool {
+    let expectedName = normalizedResourceName(expected)
+    return !expectedName.isEmpty && expectedName == normalizedResourceName(current)
+  }
+}
+
+enum WearableTransferProgress {
+  static func normalized(_ rawValue: Double) -> Double {
+    rawValue > 1 ? rawValue / 100 : rawValue
+  }
+
+  static func isComplete(_ rawValue: Double) -> Bool {
+    normalized(rawValue) >= 1
+  }
+}
+
+enum WearableWatchFaceProfilePayload {
+  static func make(
+    deviceID: String,
+    deviceLabel: String,
+    provider: String,
+    defaultSlotCount: Int,
+    marketSlotCount: Int,
+    photoSlotCount: Int,
+    deviceNumber: Int,
+    deviceTestVersion: String,
+    deviceVersion: String,
+    dialShape: Int,
+    binProtocol: Int,
+    maxLength: Int,
+    screenWidth: Int,
+    screenHeight: Int
+  ) -> [String: Any]? {
+    let normalizedDeviceID = deviceID.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedDeviceLabel = deviceLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedProvider = provider.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedTestVersion = deviceTestVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedDeviceVersion = deviceVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalizedDeviceID.isEmpty,
+      !normalizedDeviceLabel.isEmpty,
+      !normalizedProvider.isEmpty,
+      defaultSlotCount >= 0,
+      marketSlotCount > 0,
+      photoSlotCount >= 0,
+      deviceNumber > 0,
+      !normalizedTestVersion.isEmpty,
+      dialShape > 0,
+      binProtocol > 0,
+      maxLength > 0,
+      screenWidth > 0,
+      screenHeight > 0
+    else {
+      return nil
+    }
+
+    let canonicalProfile = [
+      "profileVersion=1",
+      "provider=\(normalizedProvider)",
+      "deviceId=\(normalizedDeviceID)",
+      "deviceLabel=\(normalizedDeviceLabel)",
+      "defaultSlotCount=\(defaultSlotCount)",
+      "marketSlotCount=\(marketSlotCount)",
+      "photoSlotCount=\(photoSlotCount)",
+      "deviceNumber=\(deviceNumber)",
+      "deviceTestVersion=\(normalizedTestVersion)",
+      "deviceVersion=\(normalizedDeviceVersion)",
+      "dialShape=\(dialShape)",
+      "binProtocol=\(binProtocol)",
+      "maxLength=\(maxLength)",
+      "screenWidth=\(screenWidth)",
+      "screenHeight=\(screenHeight)",
+    ].joined(separator: "\n")
+    let fingerprint = SHA256.hash(data: Data(canonicalProfile.utf8))
+      .map { String(format: "%02x", $0) }
+      .joined()
+
+    return [
+      "onlineMarketSupported": true,
+      "profileVersion": 1,
+      "profileFingerprint": fingerprint,
+      "profileFingerprintAlgorithm": "sha256",
+      "deviceId": normalizedDeviceID,
+      "deviceLabel": normalizedDeviceLabel,
+      "provider": normalizedProvider,
+      "slotCount": marketSlotCount,
+      "defaultSlotCount": defaultSlotCount,
+      "photoSlotCount": photoSlotCount,
+      "deviceNumber": deviceNumber,
+      "firmware": normalizedTestVersion,
+      "deviceTestVersion": normalizedTestVersion,
+      "deviceVersion": normalizedDeviceVersion,
+      "dialShape": dialShape,
+      "binProtocol": binProtocol,
+      "maxFileLength": maxLength,
+      "maxLength": maxLength,
+      "width": screenWidth,
+      "height": screenHeight,
+      "screenWidth": screenWidth,
+      "screenHeight": screenHeight,
+    ]
+  }
+}
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -22,6 +465,11 @@ import VeepooBleSDK
     wearableAdapter = UnconfiguredWearableAdapter()
     #endif
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  override func applicationDidBecomeActive(_ application: UIApplication) {
+    super.applicationDidBecomeActive(application)
+    wearableAdapter?.refreshDeviceDetailsIfNeeded()
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
@@ -75,6 +523,13 @@ import VeepooBleSDK
       adapter.getDeviceDetails(result)
     case "getWatchFaceProfile":
       adapter.getWatchFaceProfile(result)
+    case "getNativeWatchFaceCatalog":
+      adapter.getNativeWatchFaceCatalog(result)
+    case "downloadNativeWatchFace":
+      adapter.downloadNativeWatchFace(
+        arguments?["catalogId"] as? String ?? "",
+        result: result
+      )
     case "getCapabilities":
       result(adapter.capabilities())
     case "syncHealthData":
@@ -130,7 +585,10 @@ private protocol WearableAdapter: AnyObject {
   )
   func disconnect(_ result: @escaping FlutterResult)
   func getDeviceDetails(_ result: @escaping FlutterResult)
+  func refreshDeviceDetailsIfNeeded()
   func getWatchFaceProfile(_ result: @escaping FlutterResult)
+  func getNativeWatchFaceCatalog(_ result: @escaping FlutterResult)
+  func downloadNativeWatchFace(_ catalogID: String, result: @escaping FlutterResult)
   func capabilities() -> [String: Any]
   func syncHealthData(cursor: String?, result: @escaping FlutterResult)
   func startMeasurement(_ metric: String, result: @escaping FlutterResult)
@@ -168,7 +626,12 @@ private final class UnconfiguredWearableAdapter: WearableAdapter {
   ) { missing(result) }
   func disconnect(_ result: @escaping FlutterResult) { missing(result) }
   func getDeviceDetails(_ result: @escaping FlutterResult) { missing(result) }
+  func refreshDeviceDetailsIfNeeded() {}
   func getWatchFaceProfile(_ result: @escaping FlutterResult) { missing(result) }
+  func getNativeWatchFaceCatalog(_ result: @escaping FlutterResult) { missing(result) }
+  func downloadNativeWatchFace(_ catalogID: String, result: @escaping FlutterResult) {
+    missing(result)
+  }
   func capabilities() -> [String: Any] { ["resolved": false] }
   func syncHealthData(cursor: String?, result: @escaping FlutterResult) { missing(result) }
   func startMeasurement(_ metric: String, result: @escaping FlutterResult) { missing(result) }
@@ -197,6 +660,11 @@ private final class UnconfiguredWearableAdapter: WearableAdapter {
 
 #if canImport(VeepooBleSDK) && !targetEnvironment(simulator)
 private final class VeepooWearableAdapter: WearableAdapter {
+  private struct DeferredDeviceOperation {
+    let execute: () -> Void
+    let cancel: () -> Void
+  }
+
   private let manager = VPBleCentralManage.sharedBleManager()!
   private weak var events: WearableStreamHandler?
   private var scanned: [String: VPPeripheralModel] = [:]
@@ -216,12 +684,32 @@ private final class VeepooWearableAdapter: WearableAdapter {
   private var weatherConfigModel: VPWeatherConfigModel?
   private var photoDialModel: VPPhotoDialModel?
   private var marketDialModel: VPDeviceMarketDialModel?
+  private var marketDialModelSession: WearableDeviceSessionIdentity?
+  private var nativeMarketDialModels: [String: VPServerMarketDialModel] = [:]
+  private var nativeMarketDialDeviceModel: VPDeviceMarketDialModel?
+  private var nativeMarketDialCatalogGate = WearableNativeWatchFaceCatalogGate()
+  private var nativeMarketDialDownloadGate = WearableWatchFaceTransferGate()
+  private var nativeMarketDialDownloadTimeout: DispatchWorkItem?
+  private var watchFaceSessionGate = WearableDeviceSessionGate()
+  private var batterySnapshot: WearableBatterySnapshot?
+  private var batteryRefreshGate = WearableBatteryRefreshGate()
+  private var batteryTimeout: DispatchWorkItem?
+  private var scheduledBatteryRefresh: DispatchWorkItem?
+  private var deferredUntilBatteryIdle: DeferredDeviceOperation?
+  private var healthSyncGate = WearableHealthSyncGate()
+  private var healthSyncTimeout: DispatchWorkItem?
+  private var healthSyncResult: FlutterResult?
+  private var deviceSessionReady = false
+  private var activeMeasurementMetric: String?
+  private var watchFaceTransferGate = WearableWatchFaceTransferGate()
   private var phoneCallState: [String: Any] = [
     "connectionStatus": "unknown",
     "paired": false,
     "enabled": false,
     "audioEnabled": false,
   ]
+
+  private static let batteryReadTimeout: TimeInterval = 8
 
   init(events: WearableStreamHandler) {
     self.events = events
@@ -249,21 +737,36 @@ private final class VeepooWearableAdapter: WearableAdapter {
       self.emit("phoneCallState", self.phoneCallState)
     }
     manager.vpBleConnectStateChangeBlock = { [weak self] state in
-      if state == .connectStateTimeout || state == .confirmStateTimeout {
-        self?.failConnect("CONNECT_FAILED", "设备连接失败或超时")
-      } else if state == .connectStateVerifyPasswordFailure {
-        self?.failConnect("PASSWORD_FAILED", "设备密码校验失败")
-      } else if state == .connectStateConnect {
-        self?.emit("state", ["value": "authenticating"])
-      } else if state == .connectStateVerifyPasswordSuccess {
-        self?.connected = self?.manager.peripheralModel
-        self?.synchronizePersonalInformation()
-      } else if state == .connectStateDisConnect {
-        self?.awaitingAutomaticReconnect = self?.connectResult == nil
-        self?.connected = nil
-        self?.marketDialModel = nil
-        self?.manager.peripheralManage.deviceTestOffStoreECGDidFinishBlock = nil
-        self?.emit("disconnected", [:])
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        if state == .connectStateTimeout || state == .confirmStateTimeout {
+          self.failConnect("CONNECT_FAILED", "设备连接失败或超时")
+        } else if state == .connectStateVerifyPasswordFailure {
+          self.failConnect("PASSWORD_FAILED", "设备密码校验失败")
+        } else if state == .connectStateConnect {
+          self.emit("state", ["value": "authenticating"])
+        } else if state == .connectStateVerifyPasswordSuccess {
+          self.connected = self.manager.peripheralModel
+          if let routeID = self.connectedRouteID ?? self.connected.map(Self.routeIdentifier) {
+            self.ensureWatchFaceSession(routeID: routeID)
+          }
+          self.deviceSessionReady = false
+          self.synchronizePersonalInformation()
+        } else if state == .connectStateDisConnect {
+          self.awaitingAutomaticReconnect = self.connectResult == nil
+          self.deviceSessionReady = false
+          self.resetBatterySession(cancelDeferredOperation: true)
+          self.cancelHealthSync(
+            code: "HEALTH_SYNC_CANCELLED",
+            message: "手表连接已断开，数据同步已取消"
+          )
+          self.activeMeasurementMetric = nil
+          self.watchFaceTransferGate.reset()
+          self.connected = nil
+          self.resetWatchFaceSession()
+          self.manager.peripheralManage.deviceTestOffStoreECGDidFinishBlock = nil
+          self.emit("disconnected", [:])
+        }
       }
     }
   }
@@ -317,6 +820,15 @@ private final class VeepooWearableAdapter: WearableAdapter {
       result(FlutterError(code: "DEVICE_NOT_FOUND", message: "设备已离开扫描范围，请重新扫描", details: nil))
       return
     }
+    deviceSessionReady = false
+    resetBatterySession(cancelDeferredOperation: true)
+    beginWatchFaceSession(routeID: deviceID)
+    cancelHealthSync(
+      code: "HEALTH_SYNC_CANCELLED",
+      message: "连接设备已变化，数据同步已取消"
+    )
+    activeMeasurementMetric = nil
+    watchFaceTransferGate.reset()
     connectResult = result
     userProfile = profile
     connected = model
@@ -344,6 +856,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     ) { [weak self] status in
       guard let self else { return }
       if status == 1 {
+        self.deviceSessionReady = true
         self.registerDeviceDataCallbacks()
         let details = self.deviceDetails(device)
         self.emit("deviceDetails", details)
@@ -356,7 +869,9 @@ private final class VeepooWearableAdapter: WearableAdapter {
           self.awaitingAutomaticReconnect = false
           self.emit("reconnected", details)
         }
+        self.scheduleBatteryRefresh(force: true, delay: 1)
       } else {
+        self.deviceSessionReady = false
         self.awaitingAutomaticReconnect = false
         self.emit("error", ["code": "PERSON_SYNC_FAILED", "message": "个人信息同步失败"])
         if let callback = self.connectResult {
@@ -368,6 +883,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
   }
 
   private func failConnect(_ code: String, _ message: String) {
+    deviceSessionReady = false
     guard let callback = connectResult else { return }
     connectResult = nil
     emit("error", ["code": code, "message": message])
@@ -375,11 +891,19 @@ private final class VeepooWearableAdapter: WearableAdapter {
   }
 
   func disconnect(_ result: @escaping FlutterResult) {
+    deviceSessionReady = false
     manager.peripheralManage.deviceTestOffStoreECGDidFinishBlock = nil
+    resetBatterySession(cancelDeferredOperation: true)
+    cancelHealthSync(
+      code: "HEALTH_SYNC_CANCELLED",
+      message: "手表连接已断开，数据同步已取消"
+    )
+    activeMeasurementMetric = nil
+    watchFaceTransferGate.reset()
     manager.veepooSDKDisconnectDevice()
     connected = nil
     connectedRouteID = nil
-    marketDialModel = nil
+    resetWatchFaceSession()
     emit("disconnected", [:])
     result(nil)
   }
@@ -390,6 +914,264 @@ private final class VeepooWearableAdapter: WearableAdapter {
       return
     }
     result(deviceDetails(device))
+    requestBatteryRefreshIfNeeded(force: false)
+  }
+
+  func refreshDeviceDetailsIfNeeded() {
+    requestBatteryRefreshIfNeeded(force: false)
+  }
+
+  private var isBatteryRefreshBlocked: Bool {
+    !deviceSessionReady || healthSyncGate.isInFlight || activeMeasurementMetric != nil || watchFaceTransferGate.isInFlight
+  }
+
+  private func scheduleBatteryRefresh(force: Bool, delay: TimeInterval) {
+    guard Thread.isMainThread else {
+      DispatchQueue.main.async { [weak self] in
+        self?.scheduleBatteryRefresh(force: force, delay: delay)
+      }
+      return
+    }
+    scheduledBatteryRefresh?.cancel()
+    let expectedGeneration = batteryRefreshGate.generation
+    let work = DispatchWorkItem { [weak self] in
+      guard let self,
+        self.batteryRefreshGate.generation == expectedGeneration
+      else { return }
+      self.scheduledBatteryRefresh = nil
+      self.requestBatteryRefreshIfNeeded(force: force)
+    }
+    scheduledBatteryRefresh = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay), execute: work)
+  }
+
+  private func requestBatteryRefreshIfNeeded(force: Bool) {
+    guard Thread.isMainThread else {
+      DispatchQueue.main.async { [weak self] in
+        self?.requestBatteryRefreshIfNeeded(force: force)
+      }
+      return
+    }
+    guard connected != nil,
+      let routeID = connectedRouteID?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !routeID.isEmpty
+    else { return }
+    let decision = batteryRefreshGate.request(
+      now: Date(),
+      lastUpdatedAt: batterySnapshot?.updatedAt,
+      force: force,
+      isBlocked: isBatteryRefreshBlocked
+    )
+    guard case .start(let generation) = decision else { return }
+    startBatteryRead(generation: generation, routeID: routeID)
+  }
+
+  private func startBatteryRead(generation: UInt, routeID: String) {
+    batteryTimeout?.cancel()
+    let timeout = DispatchWorkItem { [weak self] in
+      self?.completeBatteryRead(
+        generation: generation,
+        routeID: routeID,
+        snapshot: nil
+      )
+    }
+    batteryTimeout = timeout
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + Self.batteryReadTimeout,
+      execute: timeout
+    )
+    manager.peripheralManage.veepooSDKReadDeviceBatteryAndChargeInfo {
+      [weak self] isPercent, chargeState, low, battery in
+      let snapshot = WearableBatterySnapshot(
+        isPercent: isPercent,
+        low: low,
+        chargeStateRawValue: Int(chargeState.rawValue),
+        value: Int(battery),
+        updatedAt: Date()
+      )
+      DispatchQueue.main.async { [weak self] in
+        self?.completeBatteryRead(
+          generation: generation,
+          routeID: routeID,
+          snapshot: snapshot
+        )
+      }
+    }
+  }
+
+  private func completeBatteryRead(
+    generation: UInt,
+    routeID: String,
+    snapshot: WearableBatterySnapshot?
+  ) {
+    guard Thread.isMainThread else {
+      DispatchQueue.main.async { [weak self] in
+        self?.completeBatteryRead(
+          generation: generation,
+          routeID: routeID,
+          snapshot: snapshot
+        )
+      }
+      return
+    }
+    guard batteryRefreshGate.complete(generation: generation) else { return }
+    batteryTimeout?.cancel()
+    batteryTimeout = nil
+    if connectedRouteID == routeID,
+      let device = connected,
+      let snapshot
+    {
+      batterySnapshot = snapshot
+      emit("deviceDetails", deviceDetails(device))
+    }
+    releaseDeferredDeviceOperation()
+  }
+
+  private func resetBatterySession(cancelDeferredOperation: Bool) {
+    scheduledBatteryRefresh?.cancel()
+    scheduledBatteryRefresh = nil
+    batteryTimeout?.cancel()
+    batteryTimeout = nil
+    batterySnapshot = nil
+    batteryRefreshGate.reset()
+    guard cancelDeferredOperation,
+      let deferred = deferredUntilBatteryIdle
+    else { return }
+    deferredUntilBatteryIdle = nil
+    deferred.cancel()
+  }
+
+  private func beginWatchFaceSession(routeID: String) {
+    watchFaceSessionGate.beginSession(routeID: routeID)
+    marketDialModel = nil
+    marketDialModelSession = nil
+    resetNativeWatchFaceCatalog()
+    photoDialModel = nil
+  }
+
+  private func ensureWatchFaceSession(routeID: String) {
+    if let current = watchFaceSessionGate.currentSession,
+      current.routeID.caseInsensitiveCompare(routeID) == .orderedSame
+    {
+      return
+    }
+    beginWatchFaceSession(routeID: routeID)
+  }
+
+  private func resetWatchFaceSession() {
+    watchFaceSessionGate.endSession()
+    marketDialModel = nil
+    marketDialModelSession = nil
+    resetNativeWatchFaceCatalog()
+    photoDialModel = nil
+  }
+
+  private func resetNativeWatchFaceCatalog() {
+    nativeMarketDialDownloadTimeout?.cancel()
+    nativeMarketDialDownloadTimeout = nil
+    nativeMarketDialDownloadGate.reset()
+    nativeMarketDialCatalogGate.reset()
+    nativeMarketDialModels.removeAll()
+    nativeMarketDialDeviceModel = nil
+  }
+
+  private func deferDeviceOperationUntilBatteryIdle(
+    execute: @escaping () -> Void,
+    cancel: @escaping () -> Void,
+    rejectAsBusy: @escaping () -> Void
+  ) -> Bool {
+    scheduledBatteryRefresh?.cancel()
+    scheduledBatteryRefresh = nil
+    guard batteryRefreshGate.isInFlight else { return false }
+    guard deferredUntilBatteryIdle == nil else {
+      rejectAsBusy()
+      return true
+    }
+    deferredUntilBatteryIdle = DeferredDeviceOperation(
+      execute: execute,
+      cancel: cancel
+    )
+    return true
+  }
+
+  private func releaseDeferredDeviceOperation() {
+    guard !batteryRefreshGate.isInFlight,
+      let deferred = deferredUntilBatteryIdle
+    else { return }
+    deferredUntilBatteryIdle = nil
+    deferred.execute()
+  }
+
+  private func finishBatteryBlockingOperation() {
+    guard Thread.isMainThread else {
+      DispatchQueue.main.async { [weak self] in
+        self?.finishBatteryBlockingOperation()
+      }
+      return
+    }
+    if !isBatteryRefreshBlocked {
+      requestBatteryRefreshIfNeeded(force: false)
+    }
+  }
+
+  private func prepareFreshBatteryForWatchFace(
+    execute: @escaping () -> Void,
+    cancel: @escaping () -> Void,
+    result: @escaping FlutterResult
+  ) {
+    guard deviceSessionReady,
+      connected != nil,
+      healthSyncGate.isInFlight == false,
+      activeMeasurementMetric == nil,
+      watchFaceTransferGate.isInFlight == false
+    else {
+      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在处理其他操作，请稍后重试", details: nil))
+      return
+    }
+
+    if batteryRefreshGate.isInFlight {
+      _ = deferDeviceOperationUntilBatteryIdle(
+        execute: { [weak self] in
+          self?.prepareFreshBatteryForWatchFace(
+            execute: execute,
+            cancel: cancel,
+            result: result
+          )
+        },
+        cancel: cancel,
+        rejectAsBusy: {
+          result(FlutterError(code: "DEVICE_BUSY", message: "手表正在处理其他操作，请稍后重试", details: nil))
+        }
+      )
+      return
+    }
+
+    let startedAt = Date()
+    requestBatteryRefreshIfNeeded(force: true)
+    guard batteryRefreshGate.isInFlight else {
+      result(FlutterError(code: "BATTERY_READ_FAILED", message: "无法读取手表电量，请保持连接后重试", details: nil))
+      return
+    }
+    _ = deferDeviceOperationUntilBatteryIdle(
+      execute: { [weak self] in
+        guard let self,
+          let snapshot = self.batterySnapshot,
+          snapshot.updatedAt >= startedAt
+        else {
+          result(FlutterError(code: "BATTERY_READ_FAILED", message: "无法读取手表电量，请保持连接后重试", details: nil))
+          return
+        }
+        guard snapshot.low != true else {
+          result(FlutterError(code: "LOW_POWER", message: "手表电量较低，请充电后再设置表盘", details: nil))
+          return
+        }
+        execute()
+      },
+      cancel: cancel,
+      rejectAsBusy: {
+        result(FlutterError(code: "DEVICE_BUSY", message: "手表正在处理其他操作，请稍后重试", details: nil))
+      }
+    )
   }
 
   private func registerDeviceDataCallbacks() {
@@ -465,35 +1247,130 @@ private final class VeepooWearableAdapter: WearableAdapter {
   }
 
   func syncHealthData(cursor: String?, result: @escaping FlutterResult) {
-    guard connected != nil else {
+    guard connected != nil,
+      let routeID = connectedRouteID?.trimmingCharacters(in: .whitespacesAndNewlines),
+      !routeID.isEmpty
+    else {
       result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
       return
     }
+    guard !watchFaceTransferGate.isInFlight, activeMeasurementMetric == nil else {
+      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在处理其他操作，请稍后再同步数据", details: nil))
+      return
+    }
+    if deferDeviceOperationUntilBatteryIdle(
+      execute: { [weak self] in
+        self?.syncHealthData(cursor: cursor, result: result)
+      },
+      cancel: {
+        result(FlutterError(code: "NOT_CONNECTED", message: "手表连接已断开，数据同步已取消", details: nil))
+      },
+      rejectAsBusy: {
+        result(FlutterError(code: "DEVICE_BUSY", message: "手表正在处理其他操作，请稍后重试", details: nil))
+      }
+    ) {
+      return
+    }
+    guard let request = healthSyncGate.begin(routeID: routeID) else {
+      result(FlutterError(code: "DEVICE_BUSY", message: "手表数据正在同步", details: nil))
+      return
+    }
+    healthSyncResult = result
+    healthSyncTimeout?.cancel()
+    let timeout = DispatchWorkItem { [weak self] in
+      self?.completeHealthSync(
+        request: request,
+        payload: FlutterError(
+          code: "HEALTH_SYNC_TIMEOUT",
+          message: "手表健康数据同步超时，请保持连接后重试",
+          details: nil
+        )
+      )
+    }
+    healthSyncTimeout = timeout
+    DispatchQueue.main.asyncAfter(deadline: .now() + 180, execute: timeout)
     emit("syncProgress", [
-      "deviceId": connectedRouteID ?? "",
+      "deviceId": routeID,
       "progress": 0.0,
       "cursor": cursor as Any,
     ])
     manager.peripheralManage.veepooSdkStartReadDeviceAllData { [weak self] state, totalDays, currentDay, progress in
-      guard let self else { return }
-      let total = max(totalDays, 1)
-      let fraction = min(1.0, (Double(currentDay) + Double(progress) / 100.0) / Double(total))
-      self.emit("syncProgress", [
-        "deviceId": self.connectedRouteID ?? "",
-        "progress": fraction,
-        "cursor": cursor as Any,
-      ])
-      if state == .complete {
-        let records = self.recordsFromDatabase()
+      DispatchQueue.main.async { [weak self] in
+        guard let self,
+          self.healthSyncGate.accepts(request, currentRouteID: self.connectedRouteID)
+        else { return }
+        let total = max(totalDays, 1)
+        let fraction = min(1.0, (Double(currentDay) + Double(progress) / 100.0) / Double(total))
         self.emit("syncProgress", [
-          "deviceId": self.connectedRouteID ?? "",
-          "progress": 1.0,
+          "deviceId": routeID,
+          "progress": fraction,
           "cursor": cursor as Any,
         ])
-        result(records)
-      } else if state == .invalid {
-        result(FlutterError(code: "SYNC_UNSUPPORTED", message: "当前设备不支持健康数据同步", details: nil))
+        if state == .complete {
+          let records = self.recordsFromDatabase()
+          self.emit("syncProgress", [
+            "deviceId": routeID,
+            "progress": 1.0,
+            "cursor": cursor as Any,
+          ])
+          self.completeHealthSync(request: request, payload: records)
+        } else if state == .invalid {
+          self.completeHealthSync(
+            request: request,
+            payload: FlutterError(
+              code: "SYNC_UNSUPPORTED",
+              message: "当前设备不支持健康数据同步",
+              details: nil
+            )
+          )
+        }
       }
+    }
+  }
+
+  private func completeHealthSync(
+    request: WearableHealthSyncRequest,
+    payload: Any
+  ) {
+    guard Thread.isMainThread else {
+      DispatchQueue.main.async { [weak self] in
+        self?.completeHealthSync(request: request, payload: payload)
+      }
+      return
+    }
+    guard healthSyncGate.complete(request) else { return }
+    healthSyncTimeout?.cancel()
+    healthSyncTimeout = nil
+    let callback = healthSyncResult
+    healthSyncResult = nil
+    finishBatteryBlockingOperation()
+    guard request.routeID.caseInsensitiveCompare(connectedRouteID ?? "") == .orderedSame else {
+      callback?(FlutterError(
+        code: "DEVICE_CHANGED",
+        message: "连接设备已变化，本次同步结果已丢弃",
+        details: nil
+      ))
+      return
+    }
+    callback?(payload)
+  }
+
+  private func cancelHealthSync(code: String, message: String) {
+    guard Thread.isMainThread else {
+      DispatchQueue.main.async { [weak self] in
+        self?.cancelHealthSync(code: code, message: message)
+      }
+      return
+    }
+    let callback = healthSyncResult
+    let wasInFlight = healthSyncGate.isInFlight
+    healthSyncTimeout?.cancel()
+    healthSyncTimeout = nil
+    healthSyncResult = nil
+    healthSyncGate.reset()
+    if wasInFlight {
+      finishBatteryBlockingOperation()
+      callback?(FlutterError(code: code, message: message, details: nil))
     }
   }
 
@@ -506,6 +1383,24 @@ private final class VeepooWearableAdapter: WearableAdapter {
       result(FlutterError(code: "UNSUPPORTED_METRIC", message: "当前设备不支持该指标", details: nil))
       return
     }
+    if deferDeviceOperationUntilBatteryIdle(
+      execute: { [weak self] in
+        self?.startMeasurement(metric, result: result)
+      },
+      cancel: {
+        result(FlutterError(code: "NOT_CONNECTED", message: "手表连接已断开，测量已取消", details: nil))
+      },
+      rejectAsBusy: {
+        result(FlutterError(code: "DEVICE_BUSY", message: "手表正在处理其他操作，请稍后重试", details: nil))
+      }
+    ) {
+      return
+    }
+    guard activeMeasurementMetric == nil else {
+      result(FlutterError(code: "DEVICE_BUSY", message: "另一项手表测量尚未结束", details: nil))
+      return
+    }
+    activeMeasurementMetric = metric
     emit("state", ["value": "measuring", "metric": metric])
     switch metric {
     case "heart_rate":
@@ -574,6 +1469,8 @@ private final class VeepooWearableAdapter: WearableAdapter {
         if !values.isEmpty { self.emitRecord(type: metric, values: values, unit: "") }
       }
     default:
+      activeMeasurementMetric = nil
+      finishBatteryBlockingOperation()
       result(FlutterError(code: "MEASUREMENT_NOT_AVAILABLE", message: "该指标仅支持同步手表历史数据", details: nil))
       return
     }
@@ -602,6 +1499,10 @@ private final class VeepooWearableAdapter: WearableAdapter {
       result(FlutterError(code: "MEASUREMENT_NOT_AVAILABLE", message: "该指标没有可停止的实时测量", details: nil))
       return
     }
+    if activeMeasurementMetric == metric {
+      activeMeasurementMetric = nil
+    }
+    finishBatteryBlockingOperation()
     result(nil)
   }
 
@@ -1275,6 +2176,21 @@ private final class VeepooWearableAdapter: WearableAdapter {
     ]
     if let hardwareAddress = WearablePayloadMapper.hardwareAddress(device.deviceAddress) {
       details["hardwareAddress"] = hardwareAddress
+    }
+    if let batterySnapshot {
+      let battery = batterySnapshot.payload
+      details["battery"] = battery
+      details["batteryValue"] = batterySnapshot.value
+      details["batteryScale"] = batterySnapshot.scale
+      details["batteryIsPercent"] = batterySnapshot.isPercent
+      details["batteryChargeState"] = batterySnapshot.chargeState.rawValue
+      details["batteryUpdatedAt"] = battery["updatedAt"]
+      if let low = batterySnapshot.low {
+        details["batteryLow"] = low
+      }
+      if let percent = batterySnapshot.percent {
+        details["batteryPercent"] = percent
+      }
     }
     return details
   }
@@ -2066,7 +2982,10 @@ private final class VeepooWearableAdapter: WearableAdapter {
   }
 
   private func readWatchFaces(_ result: @escaping FlutterResult) {
-    guard let device = connected, device.dialCount > 0 || device.marketDialCount > 0 || device.photoDialCount > 0 else {
+    guard let device = connected,
+      let expectedSession = watchFaceSessionGate.currentSession,
+      device.dialCount > 0 || device.marketDialCount > 0 || device.photoDialCount > 0
+    else {
       result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持表盘管理", details: nil))
       return
     }
@@ -2076,6 +2995,10 @@ private final class VeepooWearableAdapter: WearableAdapter {
         settingMode: 2,
         dialType: .default
       ) { dialType, style, success in
+        guard self.watchFaceSessionGate.accepts(expectedSession) else {
+          result(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，表盘读取结果已丢弃", details: nil))
+          return
+        }
         guard success else {
           result(FlutterError(code: "WATCH_FACE_READ_FAILED", message: "表盘信息暂时无法读取", details: nil))
           return
@@ -2096,8 +3019,9 @@ private final class VeepooWearableAdapter: WearableAdapter {
            marketModel.binProtocol > 0,
            marketModel.length > 0,
            device.deviceNumber > 0,
-           !device.deviceTestVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-          payload.merge(self.watchFaceProfilePayload(device: device, marketModel: marketModel, screen: screen)) { _, new in new }
+           !device.deviceTestVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let profile = self.watchFaceProfilePayload(device: device, marketModel: marketModel, screen: screen) {
+          payload.merge(profile) { _, new in new }
         }
         result(payload)
       }
@@ -2106,7 +3030,11 @@ private final class VeepooWearableAdapter: WearableAdapter {
       finish(nil)
       return
     }
-    readMarketDialModel { model, _ in
+    readMarketDialModel { model, error in
+      guard error == nil, self.watchFaceSessionGate.accepts(expectedSession) else {
+        result(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，表盘读取结果已丢弃", details: error?.localizedDescription))
+        return
+      }
       finish(model)
     }
   }
@@ -2132,15 +3060,382 @@ private final class VeepooWearableAdapter: WearableAdapter {
         ))
         return
       }
-      result(self.watchFaceProfilePayload(device: device, marketModel: model, screen: screen))
+      guard let payload = self.watchFaceProfilePayload(
+        device: device,
+        marketModel: model,
+        screen: screen
+      ) else {
+        result(FlutterError(
+          code: "WATCH_FACE_PROFILE_INVALID",
+          message: "手表返回的在线表盘身份或规格不完整",
+          details: nil
+        ))
+        return
+      }
+      result(payload)
+    }
+  }
+
+  func getNativeWatchFaceCatalog(_ result: @escaping FlutterResult) {
+    guard let device = connected,
+      device.marketDialCount > 0,
+      let expectedSession = watchFaceSessionGate.currentSession
+    else {
+      result(FlutterError(
+        code: "FEATURE_UNSUPPORTED",
+        message: "当前手表不支持在线表盘",
+        details: nil
+      ))
+      return
+    }
+    if deferDeviceOperationUntilBatteryIdle(
+      execute: { [weak self] in self?.getNativeWatchFaceCatalog(result) },
+      cancel: {
+        result(FlutterError(
+          code: "NOT_CONNECTED",
+          message: "手表连接已断开，表盘目录读取已取消",
+          details: nil
+        ))
+      },
+      rejectAsBusy: {
+        result(FlutterError(
+          code: "DEVICE_BUSY",
+          message: "手表正在处理其他操作，请稍后重试",
+          details: nil
+        ))
+      }
+    ) {
+      return
+    }
+    guard !watchFaceTransferGate.isInFlight else {
+      result(FlutterError(
+        code: "DEVICE_BUSY",
+        message: "手表正在传送表盘，请稍后重试",
+        details: nil
+      ))
+      return
+    }
+
+    readMarketDialModel(forceRefresh: true) { [weak self] deviceModel, readError in
+      guard let self else { return }
+      guard self.watchFaceSessionGate.accepts(expectedSession) else {
+        result(FlutterError(
+          code: "DEVICE_CHANGED",
+          message: "连接设备已变化，表盘目录结果已丢弃",
+          details: nil
+        ))
+        return
+      }
+      guard readError == nil, let deviceModel else {
+        result(FlutterError(
+          code: "WATCH_FACE_PROFILE_READ_FAILED",
+          message: "无法读取手表的表盘规格",
+          details: readError?.localizedDescription
+        ))
+        return
+      }
+
+      let requestToken = self.nativeMarketDialCatalogGate.begin(
+        session: expectedSession
+      )
+      var finished = false
+      var timeout: DispatchWorkItem?
+      func finish(_ payload: [[String: Any]]?, error: FlutterError?) {
+        guard Thread.isMainThread else {
+          DispatchQueue.main.async { finish(payload, error: error) }
+          return
+        }
+        guard !finished else { return }
+        finished = true
+        timeout?.cancel()
+        if error != nil {
+          _ = self.nativeMarketDialCatalogGate.cancel(requestToken)
+        }
+        if let error {
+          result(error)
+        } else {
+          result(payload ?? [])
+        }
+      }
+      timeout = DispatchWorkItem {
+        finish(nil, error: FlutterError(
+          code: "WATCH_FACE_CATALOG_TIMEOUT",
+          message: "表盘目录读取超时，请稍后重试",
+          details: nil
+        ))
+      }
+      if let timeout {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 45, execute: timeout)
+      }
+
+      VPMarketDialManager.share().getVeepooServerAllMarketDials(
+        withDeviceInfo: deviceModel,
+        success: { [weak self] response in
+          DispatchQueue.main.async {
+            guard let self else { return }
+            guard self.watchFaceSessionGate.accepts(expectedSession),
+              self.nativeMarketDialCatalogGate.accepts(requestToken)
+            else {
+              finish(nil, error: FlutterError(
+                code: "DEVICE_CHANGED",
+                message: "连接设备已变化，表盘目录结果已丢弃",
+                details: nil
+              ))
+              return
+            }
+            var payload: [[String: Any]] = []
+            var models: [String: VPServerMarketDialModel] = [:]
+            for model in response ?? [] {
+              guard model.binProtocol == deviceModel.binProtocol,
+                Self.isCompatibleDialShape(
+                  Int(model.dialShape),
+                  actual: Int(deviceModel.deviceShape)
+                ),
+                let item = WearableNativeWatchFaceCatalogPayload.make(
+                  name: "",
+                  fileURL: model.fileUrl,
+                  previewURL: model.previewUrl,
+                  crc: Int(model.crc),
+                  binProtocol: Int(model.binProtocol),
+                  dialShape: Int(model.dialShape)
+                ),
+                let identifier = item["id"] as? String
+              else {
+                continue
+              }
+              payload.append(item)
+              models[identifier] = model
+            }
+            guard self.nativeMarketDialCatalogGate.commit(
+              requestToken,
+              catalogIDs: Set(models.keys)
+            ) else {
+              finish(nil, error: FlutterError(
+                code: "DEVICE_CHANGED",
+                message: "连接设备已变化，表盘目录结果已丢弃",
+                details: nil
+              ))
+              return
+            }
+            self.nativeMarketDialModels = models
+            self.nativeMarketDialDeviceModel = deviceModel
+            finish(payload, error: nil)
+          }
+        },
+        failure: { error, errorCode in
+          DispatchQueue.main.async {
+            finish(nil, error: FlutterError(
+              code: "WATCH_FACE_CATALOG_FAILED",
+              message: "表盘目录暂时无法读取",
+              details: [
+                "vendorCode": errorCode,
+                "message": error?.localizedDescription ?? "",
+              ]
+            ))
+          }
+        }
+      )
+    }
+  }
+
+  func downloadNativeWatchFace(_ catalogID: String, result: @escaping FlutterResult) {
+    let normalizedCatalogID = catalogID.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let expectedSession = watchFaceSessionGate.currentSession,
+      !normalizedCatalogID.isEmpty,
+      nativeMarketDialCatalogGate.owns(
+        catalogID: normalizedCatalogID,
+        session: expectedSession
+      ),
+      let serverModel = nativeMarketDialModels[normalizedCatalogID],
+      let catalogDeviceModel = nativeMarketDialDeviceModel
+    else {
+      result(FlutterError(
+        code: "WATCH_FACE_CATALOG_STALE",
+        message: "表盘目录已失效，请重新进入商城",
+        details: nil
+      ))
+      return
+    }
+    guard !watchFaceTransferGate.isInFlight,
+      !nativeMarketDialDownloadGate.isInFlight
+    else {
+      result(FlutterError(
+        code: "DEVICE_BUSY",
+        message: "手表正在处理表盘任务，请稍后重试",
+        details: nil
+      ))
+      return
+    }
+    if deferDeviceOperationUntilBatteryIdle(
+      execute: { [weak self] in
+        self?.downloadNativeWatchFace(normalizedCatalogID, result: result)
+      },
+      cancel: {
+        result(FlutterError(
+          code: "NOT_CONNECTED",
+          message: "手表连接已断开，表盘下载已取消",
+          details: nil
+        ))
+      },
+      rejectAsBusy: {
+        result(FlutterError(
+          code: "DEVICE_BUSY",
+          message: "手表正在处理其他操作，请稍后重试",
+          details: nil
+        ))
+      }
+    ) {
+      return
+    }
+    guard let downloadGeneration = nativeMarketDialDownloadGate.begin() else {
+      result(FlutterError(
+        code: "DEVICE_BUSY",
+        message: "表盘正在下载，请稍后重试",
+        details: nil
+      ))
+      return
+    }
+
+    var finished = false
+    func finish(_ payload: [String: Any]?, error: FlutterError?) {
+      guard Thread.isMainThread else {
+        DispatchQueue.main.async { finish(payload, error: error) }
+        return
+      }
+      guard !finished else { return }
+      guard nativeMarketDialDownloadGate.complete(generation: downloadGeneration) else {
+        // A disconnect, device switch, timeout, or a newer request owns the
+        // shared timeout now. Do not let this late callback cancel it.
+        finished = true
+        return
+      }
+      finished = true
+      nativeMarketDialDownloadTimeout?.cancel()
+      nativeMarketDialDownloadTimeout = nil
+      if let error {
+        result(error)
+      } else {
+        result(payload)
+      }
+    }
+    nativeMarketDialDownloadTimeout = DispatchWorkItem {
+      finish(nil, error: FlutterError(
+        code: "WATCH_FACE_DOWNLOAD_TIMEOUT",
+        message: "表盘下载超时，请检查网络后重试",
+        details: nil
+      ))
+    }
+    if let timeout = nativeMarketDialDownloadTimeout {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 150, execute: timeout)
+    }
+
+    readMarketDialModel(forceRefresh: true) { [weak self] currentDeviceModel, readError in
+      guard let self else { return }
+      guard readError == nil,
+        let currentDeviceModel,
+        self.watchFaceSessionGate.accepts(expectedSession),
+        self.nativeMarketDialCatalogGate.owns(
+          catalogID: normalizedCatalogID,
+          session: expectedSession
+        ),
+        self.nativeMarketDialModels[normalizedCatalogID] === serverModel,
+        currentDeviceModel.binProtocol == catalogDeviceModel.binProtocol,
+        currentDeviceModel.deviceShape == catalogDeviceModel.deviceShape,
+        currentDeviceModel.length == catalogDeviceModel.length,
+        currentDeviceModel.address == catalogDeviceModel.address,
+        currentDeviceModel.packageIndex == catalogDeviceModel.packageIndex,
+        serverModel.binProtocol == currentDeviceModel.binProtocol,
+        Self.isCompatibleDialShape(
+          Int(serverModel.dialShape),
+          actual: Int(currentDeviceModel.deviceShape)
+        )
+      else {
+        finish(nil, error: FlutterError(
+          code: "WATCH_FACE_PROFILE_STALE",
+          message: "连接设备或表盘规格已变化，请重新进入商城",
+          details: readError?.localizedDescription
+        ))
+        return
+      }
+
+      VPMarketDialManager.share().downloadMarketDialBinFile(
+        with: serverModel,
+        deviceMarketDialModel: currentDeviceModel,
+        success: { fileURL in
+          DispatchQueue.main.async {
+            guard self.watchFaceSessionGate.accepts(expectedSession),
+              self.nativeMarketDialCatalogGate.owns(
+                catalogID: normalizedCatalogID,
+                session: expectedSession
+              ),
+              let fileURL
+            else {
+              finish(nil, error: FlutterError(
+                code: "DEVICE_CHANGED",
+                message: "连接设备已变化，表盘下载结果已丢弃",
+                details: nil
+              ))
+              return
+            }
+            let attributes = try? FileManager.default.attributesOfItem(
+              atPath: fileURL.path
+            )
+            let fileLength = (attributes?[.size] as? NSNumber)?.intValue ?? 0
+            guard fileLength > 0, fileLength <= currentDeviceModel.length else {
+              finish(nil, error: FlutterError(
+                code: "WATCH_FACE_DOWNLOAD_INVALID",
+                message: "厂商返回的表盘文件无效",
+                details: [
+                  "fileLength": fileLength,
+                  "maximumLength": currentDeviceModel.length,
+                ]
+              ))
+              return
+            }
+            finish([
+              "catalogId": normalizedCatalogID,
+              "filePath": fileURL.path,
+              "fileLength": fileLength,
+            ], error: nil)
+          }
+        },
+        failure: { error, errorCode in
+          DispatchQueue.main.async {
+            finish(nil, error: FlutterError(
+              code: "WATCH_FACE_DOWNLOAD_FAILED",
+              message: "表盘文件下载失败",
+              details: [
+                "vendorCode": errorCode,
+                "message": error?.localizedDescription ?? "",
+              ]
+            ))
+          }
+        }
+      )
     }
   }
 
   private func readMarketDialModel(
+    forceRefresh: Bool = false,
     _ completion: @escaping (VPDeviceMarketDialModel?, Error?) -> Void
   ) {
-    if let marketDialModel {
+    guard let session = watchFaceSessionGate.currentSession else {
+      completion(nil, Self.watchFaceError(1, "手表连接已变化"))
+      return
+    }
+    if !forceRefresh,
+      let marketDialModel,
+      marketDialModelSession == session
+    {
       completion(marketDialModel, nil)
+      return
+    }
+    if forceRefresh {
+      marketDialModel = nil
+      marketDialModelSession = nil
+    }
+    guard let requestToken = watchFaceSessionGate.beginRequest() else {
+      completion(nil, Self.watchFaceError(1, "手表连接已变化"))
       return
     }
     manager.peripheralManage.veepooSDK_dialChannel(
@@ -2148,11 +3443,18 @@ private final class VeepooWearableAdapter: WearableAdapter {
       dialType: .market,
       photoDialModel: nil,
       result: { [weak self] _, model, error in
-        guard let self else { return }
-        if error == nil, let model {
-          self.marketDialModel = model
+        DispatchQueue.main.async { [weak self] in
+          guard let self else { return }
+          guard self.watchFaceSessionGate.accepts(requestToken) else {
+            completion(nil, Self.watchFaceError(2, "手表连接或表盘读取任务已变化"))
+            return
+          }
+          if error == nil, let model {
+            self.marketDialModel = model
+            self.marketDialModelSession = requestToken.session
+          }
+          completion(model, error)
         }
-        completion(model, error)
       },
       transformProgress: nil
     )
@@ -2162,22 +3464,29 @@ private final class VeepooWearableAdapter: WearableAdapter {
     device: VPPeripheralModel,
     marketModel: VPDeviceMarketDialModel,
     screen: (width: Int, height: Int)
-  ) -> [String: Any] {
-    [
-      "onlineMarketSupported": true,
-      "deviceNumber": Int(device.deviceNumber),
-      "deviceTestVersion": device.deviceTestVersion ?? "",
-      "deviceVersion": device.deviceVersion ?? "",
-      "dialShape": marketModel.deviceShape,
-      "binProtocol": marketModel.binProtocol,
-      "maxLength": marketModel.length,
-      "screenWidth": screen.width,
-      "screenHeight": screen.height,
-    ]
+  ) -> [String: Any]? {
+    WearableWatchFaceProfilePayload.make(
+      deviceID: connectedRouteID ?? Self.routeIdentifier(device),
+      deviceLabel: Self.displayName(device.deviceName),
+      provider: "Vep",
+      defaultSlotCount: Int(device.dialCount),
+      marketSlotCount: Int(device.marketDialCount),
+      photoSlotCount: Int(device.photoDialCount),
+      deviceNumber: Int(device.deviceNumber),
+      deviceTestVersion: device.deviceTestVersion ?? "",
+      deviceVersion: device.deviceVersion ?? "",
+      dialShape: marketModel.deviceShape,
+      binProtocol: marketModel.binProtocol,
+      maxLength: marketModel.length,
+      screenWidth: screen.width,
+      screenHeight: screen.height
+    )
   }
 
   private func switchWatchFace(_ values: [String: Any], result: @escaping FlutterResult) {
-    guard connected != nil else {
+    guard connected != nil,
+      let expectedSession = watchFaceSessionGate.currentSession
+    else {
       result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
       return
     }
@@ -2195,22 +3504,173 @@ private final class VeepooWearableAdapter: WearableAdapter {
       index,
       settingMode: 1,
       dialType: type
-    ) { _, _, success in
-      success ? result(nil) : result(FlutterError(code: "WATCH_FACE_SWITCH_FAILED", message: "表盘切换失败", details: nil))
+    ) { [weak self] _, _, success in
+      DispatchQueue.main.async { [weak self] in
+        guard let self,
+          self.watchFaceSessionGate.accepts(expectedSession)
+        else {
+          result(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，表盘切换结果已丢弃", details: nil))
+          return
+        }
+        guard success else {
+          result(FlutterError(code: "WATCH_FACE_SWITCH_FAILED", message: "表盘切换失败", details: nil))
+          return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+          guard let self,
+            self.watchFaceSessionGate.accepts(expectedSession)
+          else {
+            result(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，表盘切换结果已丢弃", details: nil))
+            return
+          }
+          self.manager.peripheralManage.veepooSDKSettingDeviceScreenStyle(
+            0,
+            settingMode: 2,
+            dialType: .default
+          ) { readType, readStyle, readSuccess in
+            DispatchQueue.main.async {
+              guard self.watchFaceSessionGate.accepts(expectedSession) else {
+                result(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，表盘切换结果已丢弃", details: nil))
+                return
+              }
+              guard readSuccess, readType == type, readStyle == index else {
+                result(FlutterError(
+                  code: "WATCH_FACE_VERIFY_FAILED",
+                  message: "手表未返回与目标一致的表盘，请重试",
+                  details: ["expectedStyle": Int(index), "actualStyle": readStyle]
+                ))
+                return
+              }
+              result(nil)
+            }
+          }
+        }
+      }
     }
   }
 
-  private func uploadNetworkWatchFace(_ values: [String: Any], result: @escaping FlutterResult) {
-    guard let device = connected, device.marketDialCount > 0,
+  private static func watchFaceError(_ code: Int, _ message: String) -> NSError {
+    NSError(
+      domain: "cc.saidian.watch-face",
+      code: code,
+      userInfo: [NSLocalizedDescriptionKey: message]
+    )
+  }
+
+  private func uploadNetworkWatchFace(
+    _ values: [String: Any],
+    result: @escaping FlutterResult,
+    batteryPreflightPassed: Bool = false
+  ) {
+    guard let device = connected,
+          let expectedRouteID = connectedRouteID,
+          let expectedSession = watchFaceSessionGate.currentSession,
+          device.marketDialCount > 0,
           let fileURL = WearablePayloadMapper.localFileURL(values["filePath"] as? String ?? ""),
           FileManager.default.fileExists(atPath: fileURL.path) else {
       result(FlutterError(code: "INVALID_ARGUMENT", message: "表盘文件无效或手表不支持在线表盘", details: nil))
       return
     }
-    readMarketDialModel { [weak self] model, error in
-      guard let self else { return }
+    guard !watchFaceTransferGate.isInFlight else {
+      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在传送表盘，请稍后重试", details: nil))
+      return
+    }
+    if !batteryPreflightPassed {
+      prepareFreshBatteryForWatchFace(
+        execute: { [weak self] in
+          self?.uploadNetworkWatchFace(
+            values,
+            result: result,
+            batteryPreflightPassed: true
+          )
+        },
+        cancel: {
+          result(FlutterError(code: "NOT_CONNECTED", message: "手表连接已断开，表盘传输已取消", details: nil))
+        },
+        result: result
+      )
+      return
+    }
+    guard let transferGeneration = watchFaceTransferGate.begin() else {
+      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在传送表盘，请稍后重试", details: nil))
+      return
+    }
+    var finished = false
+    var timeout: DispatchWorkItem?
+    func finish(_ error: FlutterError?) {
+      guard Thread.isMainThread else {
+        DispatchQueue.main.async { finish(error) }
+        return
+      }
+      guard !finished else { return }
+      finished = true
+      timeout?.cancel()
+      if watchFaceTransferGate.complete(generation: transferGeneration) {
+        finishBatteryBlockingOperation()
+      }
+      result(error)
+    }
+    timeout = DispatchWorkItem {
+      finish(FlutterError(code: "WATCH_FACE_UPLOAD_TIMEOUT", message: "表盘传输超时，请保持手表靠近手机后重试", details: nil))
+    }
+    if let timeout {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 150, execute: timeout)
+    }
+    readMarketDialModel(forceRefresh: true) { [weak self] model, error in
+      guard let self else {
+        finish(FlutterError(code: "WATCH_FACE_UPLOAD_CANCELLED", message: "表盘传输已取消", details: nil))
+        return
+      }
       guard error == nil, let model else {
-        result(FlutterError(code: "WATCH_FACE_PROFILE_READ_FAILED", message: "无法读取手表的表盘规格", details: error?.localizedDescription))
+        finish(FlutterError(code: "WATCH_FACE_PROFILE_READ_FAILED", message: "无法读取手表的表盘规格", details: error?.localizedDescription))
+        return
+      }
+      guard let activeDevice = self.connected,
+            let currentRouteID = self.connectedRouteID,
+            currentRouteID == expectedRouteID,
+            let screen = WearablePayloadMapper.screenSize(deviceShape: model.deviceShape),
+            let currentProfile = self.watchFaceProfilePayload(
+              device: activeDevice,
+              marketModel: model,
+              screen: screen
+            ),
+            let currentFingerprint = currentProfile["profileFingerprint"] as? String else {
+        finish(FlutterError(
+          code: "WATCH_FACE_PROFILE_STALE",
+          message: "连接设备或表盘规格已变化，请重新进入商城",
+          details: nil
+        ))
+        return
+      }
+      let requestedDeviceID = (values["deviceId"] as? String)?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      let requestedFingerprint = (values["profileFingerprint"] as? String)?
+        .trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+      let requestedWidth = Self.number(values["screenWidth"])?.intValue ?? 0
+      let requestedHeight = Self.number(values["screenHeight"])?.intValue ?? 0
+      let requestedMaximumLength = Self.number(
+        values["maxFileLength"] ?? values["maxLength"]
+      )?.intValue ?? 0
+      let requestedProfileShape = Self.number(values["dialShape"])?.intValue ?? 0
+      guard !requestedDeviceID.isEmpty,
+            requestedDeviceID.caseInsensitiveCompare(currentRouteID) == .orderedSame,
+            requestedFingerprint == currentFingerprint.lowercased(),
+            requestedWidth == screen.width,
+            requestedHeight == screen.height,
+            requestedMaximumLength == model.length,
+            Self.isCompatibleDialShape(requestedProfileShape, actual: model.deviceShape) else {
+        finish(FlutterError(
+          code: "WATCH_FACE_PROFILE_STALE",
+          message: "连接设备或表盘规格已变化，请重新进入商城",
+          details: [
+            "requestedDeviceId": requestedDeviceID,
+            "currentDeviceId": currentRouteID,
+            "requestedWidth": requestedWidth,
+            "requestedHeight": requestedHeight,
+            "currentWidth": screen.width,
+            "currentHeight": screen.height,
+          ]
+        ))
         return
       }
       let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
@@ -2223,7 +3683,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
             actualLength <= model.length,
             requestedProtocol == model.binProtocol,
             Self.isCompatibleDialShape(requestedShape, actual: model.deviceShape) else {
-        result(FlutterError(
+        finish(FlutterError(
           code: "WATCH_FACE_INCOMPATIBLE",
           message: "该表盘与当前手表的屏幕或协议不匹配",
           details: [
@@ -2239,15 +3699,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
         return
       }
 
-      var finished = false
       var activating = false
-      var timeout: DispatchWorkItem?
-      func finish(_ error: FlutterError?) {
-        guard !finished else { return }
-        finished = true
-        timeout?.cancel()
-        result(error)
-      }
       func activate() {
         guard !activating, !finished else { return }
         activating = true
@@ -2256,54 +3708,165 @@ private final class VeepooWearableAdapter: WearableAdapter {
           settingMode: 1,
           dialType: .market
         ) { _, _, success in
-          guard success else {
-            finish(FlutterError(code: "WATCH_FACE_ACTIVATE_FAILED", message: "表盘已传送，但手表未能切换到新表盘", details: nil))
-            return
-          }
-          self.manager.peripheralManage.veepooSDKSettingDeviceScreenStyle(
-            0,
-            settingMode: 2,
-            dialType: .default
-          ) { dialType, _, readSuccess in
-            guard readSuccess, dialType == .market else {
-              finish(FlutterError(code: "WATCH_FACE_VERIFY_FAILED", message: "新表盘切换结果未能验证", details: nil))
+          DispatchQueue.main.async {
+            guard self.watchFaceSessionGate.accepts(expectedSession) else {
+              finish(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，表盘传输结果已丢弃", details: nil))
               return
             }
-            model.imageId = max(model.imageId, 1)
-            self.marketDialModel = model
-            self.emit("deviceFeatureProgress", ["feature": "watch_faces", "progress": 100])
-            finish(nil)
+            guard success else {
+              finish(FlutterError(code: "WATCH_FACE_ACTIVATE_FAILED", message: "表盘已传送，但手表未能切换到新表盘", details: nil))
+              return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+              guard self.watchFaceSessionGate.accepts(expectedSession) else {
+                finish(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，表盘传输结果已丢弃", details: nil))
+                return
+              }
+              self.manager.peripheralManage.veepooSDKSettingDeviceScreenStyle(
+                0,
+                settingMode: 2,
+                dialType: .default
+              ) { dialType, style, readSuccess in
+                DispatchQueue.main.async {
+                  guard self.watchFaceSessionGate.accepts(expectedSession) else {
+                    finish(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，表盘传输结果已丢弃", details: nil))
+                    return
+                  }
+                  guard readSuccess, dialType == .market, style == 1 else {
+                    finish(FlutterError(code: "WATCH_FACE_VERIFY_FAILED", message: "新表盘切换结果未能验证", details: nil))
+                    return
+                  }
+                  self.confirmTransferredMarketDial(
+                    fileURL: fileURL,
+                    previousImageID: model.imageId,
+                    session: expectedSession
+                  ) { verificationError in
+                    guard verificationError == nil else {
+                      finish(verificationError)
+                      return
+                    }
+                    self.emit("deviceFeatureProgress", ["feature": "watch_faces", "progress": 100])
+                    finish(nil)
+                  }
+                }
+              }
+            }
           }
         }
       }
 
-      timeout = DispatchWorkItem {
-        finish(FlutterError(code: "WATCH_FACE_UPLOAD_TIMEOUT", message: "表盘传输超时，请保持手表靠近手机后重试", details: nil))
-      }
-      if let timeout {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 150, execute: timeout)
-      }
       VPMarketDialManager.share().startTransfer(
         withFilePath: fileURL,
         transformProgress: { [weak self] rawProgress in
-          let normalized = rawProgress > 1 ? rawProgress / 100 : rawProgress
-          let percentage = WearablePayloadMapper.progress(
-            completed: Int((normalized * 1_000).rounded()),
-            total: 1_000
-          )
-          self?.emit("deviceFeatureProgress", ["feature": "watch_faces", "progress": min(percentage, 99)])
-          if normalized >= 0.999 {
-            activate()
+          DispatchQueue.main.async {
+            let normalized = WearableTransferProgress.normalized(rawProgress)
+            let percentage = WearablePayloadMapper.progress(
+              completed: Int((normalized * 1_000).rounded()),
+              total: 1_000
+            )
+            self?.emit("deviceFeatureProgress", ["feature": "watch_faces", "progress": min(percentage, 99)])
+            if WearableTransferProgress.isComplete(rawProgress) {
+              activate()
+            }
           }
         },
         failure: { error in
-          finish(FlutterError(
-            code: "WATCH_FACE_UPLOAD_FAILED",
-            message: "表盘传输失败",
-            details: error?.localizedDescription
-          ))
+          DispatchQueue.main.async {
+            finish(FlutterError(
+              code: "WATCH_FACE_UPLOAD_FAILED",
+              message: "表盘传输失败",
+              details: error?.localizedDescription
+            ))
+          }
         }
       )
+    }
+  }
+
+  private func confirmTransferredMarketDial(
+    fileURL: URL,
+    previousImageID: Int,
+    session: WearableDeviceSessionIdentity,
+    completion: @escaping (FlutterError?) -> Void
+  ) {
+    guard watchFaceSessionGate.accepts(session), let device = connected else {
+      completion(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，无法验证新表盘", details: nil))
+      return
+    }
+    let cpuType = Self.number(device.value(forKey: "CPUType"))?.intValue ?? 0
+    if cpuType == 1 {
+      let dialManager = VPMarketDialManager.share()
+      dialManager.openJLDialFileSystem { [weak self] success in
+        DispatchQueue.main.async {
+          guard let self, self.watchFaceSessionGate.accepts(session) else {
+            completion(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，无法验证新表盘", details: nil))
+            return
+          }
+          guard success else {
+            completion(FlutterError(code: "WATCH_FACE_VERIFY_UNAVAILABLE", message: "表盘已传送，但无法打开手表文件系统确认结果", details: nil))
+            return
+          }
+          dialManager.getJLWatchNames { names in
+            DispatchQueue.main.async {
+              guard self.watchFaceSessionGate.accepts(session),
+                let names,
+                !names.isEmpty
+              else {
+                completion(FlutterError(code: "WATCH_FACE_VERIFY_UNAVAILABLE", message: "表盘已传送，但手表未返回可验证的表盘目录", details: nil))
+                return
+              }
+              dialManager.getJLCurrentPhotoAndMarketWatchName(with: names) {
+                [weak self] _, marketWatchName in
+                DispatchQueue.main.async {
+                  guard let self, self.watchFaceSessionGate.accepts(session) else {
+                    completion(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，无法验证新表盘", details: nil))
+                    return
+                  }
+                  guard let marketWatchName,
+                    WearableMarketDialVerification.confirmsResource(
+                      expected: fileURL.lastPathComponent,
+                      current: marketWatchName
+                    )
+                  else {
+                    completion(FlutterError(
+                      code: "WATCH_FACE_VERIFY_FAILED",
+                      message: "手表未返回与本次传输一致的表盘文件",
+                      details: ["expected": fileURL.lastPathComponent, "actual": marketWatchName ?? ""]
+                    ))
+                    return
+                  }
+                  self.marketDialModel = nil
+                  self.marketDialModelSession = nil
+                  completion(nil)
+                }
+              }
+            }
+          }
+        }
+      }
+      return
+    }
+    readMarketDialModel(forceRefresh: true) { [weak self] refreshed, error in
+      guard let self, self.watchFaceSessionGate.accepts(session) else {
+        completion(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，无法验证新表盘", details: nil))
+        return
+      }
+      guard error == nil, let refreshed else {
+        completion(FlutterError(code: "WATCH_FACE_VERIFY_UNAVAILABLE", message: "表盘已传送，但手表未返回可验证的安装标识", details: error?.localizedDescription))
+        return
+      }
+      guard WearableMarketDialVerification.confirmsChangedImage(
+        previousImageID: previousImageID,
+        refreshedImageID: refreshed.imageId
+      ) else {
+        completion(FlutterError(
+          code: "WATCH_FACE_VERIFY_UNCONFIRMED",
+          message: "手表未返回新的表盘标识，本次安装不能确认为成功",
+          details: ["previousImageId": previousImageID, "currentImageId": refreshed.imageId]
+        ))
+        return
+      }
+      completion(nil)
     }
   }
 
@@ -2315,7 +3878,9 @@ private final class VeepooWearableAdapter: WearableAdapter {
   }
 
   private func readPhotoWatchFace(_ result: @escaping FlutterResult) {
-    guard connected?.photoDialCount ?? 0 > 0 else {
+    guard connected?.photoDialCount ?? 0 > 0,
+      let expectedSession = watchFaceSessionGate.currentSession
+    else {
       result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持照片表盘", details: nil))
       return
     }
@@ -2324,7 +3889,10 @@ private final class VeepooWearableAdapter: WearableAdapter {
       dialType: .photo,
       photoDialModel: nil,
       result: { [weak self] model, _, error in
-        guard let self else { return }
+        guard let self, self.watchFaceSessionGate.accepts(expectedSession) else {
+          result(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，照片表盘读取结果已丢弃", details: nil))
+          return
+        }
         guard error == nil, let model else {
           result(FlutterError(code: "PHOTO_WATCH_FACE_READ_FAILED", message: "照片表盘信息暂时无法读取", details: error?.localizedDescription))
           return
@@ -2341,8 +3909,13 @@ private final class VeepooWearableAdapter: WearableAdapter {
     )
   }
 
-  private func uploadPhotoWatchFace(_ values: [String: Any], result: @escaping FlutterResult) {
+  private func uploadPhotoWatchFace(
+    _ values: [String: Any],
+    result: @escaping FlutterResult,
+    batteryPreflightPassed: Bool = false
+  ) {
     guard connected?.photoDialCount ?? 0 > 0,
+          let expectedSession = watchFaceSessionGate.currentSession,
           values["operation"] as? String == "upload_photo",
           let url = WearablePayloadMapper.localFileURL(values["imagePath"] as? String ?? ""),
           FileManager.default.fileExists(atPath: url.path),
@@ -2350,34 +3923,89 @@ private final class VeepooWearableAdapter: WearableAdapter {
       result(FlutterError(code: "INVALID_ARGUMENT", message: "请选择有效的表盘照片", details: nil))
       return
     }
+    guard !watchFaceTransferGate.isInFlight else {
+      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在传送表盘，请稍后重试", details: nil))
+      return
+    }
+    if !batteryPreflightPassed {
+      prepareFreshBatteryForWatchFace(
+        execute: { [weak self] in
+          self?.uploadPhotoWatchFace(
+            values,
+            result: result,
+            batteryPreflightPassed: true
+          )
+        },
+        cancel: {
+          result(FlutterError(code: "NOT_CONNECTED", message: "手表连接已断开，照片表盘传输已取消", details: nil))
+        },
+        result: result
+      )
+      return
+    }
+    guard let transferGeneration = watchFaceTransferGate.begin() else {
+      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在传送表盘，请稍后重试", details: nil))
+      return
+    }
+    var finished = false
+    var timeout: DispatchWorkItem?
+    func finish(_ error: FlutterError?) {
+      guard Thread.isMainThread else {
+        DispatchQueue.main.async { finish(error) }
+        return
+      }
+      guard !finished else { return }
+      finished = true
+      timeout?.cancel()
+      if watchFaceTransferGate.complete(generation: transferGeneration) {
+        finishBatteryBlockingOperation()
+      }
+      result(error)
+    }
+    timeout = DispatchWorkItem {
+      finish(FlutterError(
+        code: "PHOTO_WATCH_FACE_UPLOAD_TIMEOUT",
+        message: "照片表盘传输超时，请保持手表靠近手机后重试",
+        details: nil
+      ))
+    }
+    if let timeout {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 150, execute: timeout)
+    }
     func upload(_ model: VPPhotoDialModel) {
+      guard !finished, watchFaceSessionGate.accepts(expectedSession) else {
+        finish(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，照片表盘结果已丢弃", details: nil))
+        return
+      }
       guard model.configModel.screenSize.width > 0, model.configModel.screenSize.height > 0 else {
-        result(FlutterError(code: "PHOTO_WATCH_FACE_UNSUPPORTED", message: "SDK 尚未适配当前手表屏幕", details: nil))
+        finish(FlutterError(code: "PHOTO_WATCH_FACE_UNSUPPORTED", message: "SDK 尚未适配当前手表屏幕", details: nil))
         return
       }
       model.isDefaultBG = false
       model.transformImage = Self.aspectFill(source, size: model.configModel.screenSize)
-      var finished = false
-      func finish(_ error: FlutterError?) {
-        guard !finished else { return }
-        finished = true
-        result(error)
-      }
       self.manager.peripheralManage.veepooSDK_dialChannel(
         with: .setupPhotoDial,
         dialType: .photo,
         photoDialModel: model,
         result: { _, _, error in
-          if let error {
-            finish(FlutterError(code: "PHOTO_WATCH_FACE_UPLOAD_FAILED", message: "照片表盘传输失败", details: error.localizedDescription))
-          } else {
-            finish(nil)
+          DispatchQueue.main.async {
+            guard self.watchFaceSessionGate.accepts(expectedSession) else {
+              finish(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，照片表盘结果已丢弃", details: nil))
+              return
+            }
+            if let error {
+              finish(FlutterError(code: "PHOTO_WATCH_FACE_UPLOAD_FAILED", message: "照片表盘传输失败", details: error.localizedDescription))
+            } else {
+              self.emit("deviceFeatureProgress", ["feature": "photo_watch_face", "progress": 100])
+              finish(nil)
+            }
           }
         },
         transformProgress: { [weak self] progress in
-          let percentage = WearablePayloadMapper.progress(completed: Int((progress * 1_000).rounded()), total: 1_000)
-          self?.emit("deviceFeatureProgress", ["feature": "photo_watch_face", "progress": percentage])
-          if progress >= 0.999 { finish(nil) }
+          DispatchQueue.main.async {
+            let percentage = WearablePayloadMapper.progress(completed: Int((progress * 1_000).rounded()), total: 1_000)
+            self?.emit("deviceFeatureProgress", ["feature": "photo_watch_face", "progress": min(percentage, 99)])
+          }
         }
       )
     }
@@ -2390,13 +4018,18 @@ private final class VeepooWearableAdapter: WearableAdapter {
       dialType: .photo,
       photoDialModel: nil,
       result: { [weak self] model, _, error in
-        guard let self else { return }
-        guard error == nil, let model else {
-          result(FlutterError(code: "PHOTO_WATCH_FACE_READ_FAILED", message: "照片表盘信息暂时无法读取", details: error?.localizedDescription))
-          return
+        DispatchQueue.main.async { [weak self] in
+          guard let self, self.watchFaceSessionGate.accepts(expectedSession) else {
+            finish(FlutterError(code: "DEVICE_CHANGED", message: "连接设备已变化，照片表盘读取结果已丢弃", details: nil))
+            return
+          }
+          guard error == nil, let model else {
+            finish(FlutterError(code: "PHOTO_WATCH_FACE_READ_FAILED", message: "照片表盘信息暂时无法读取", details: error?.localizedDescription))
+            return
+          }
+          self.photoDialModel = model
+          upload(model)
         }
-        self.photoDialModel = model
-        upload(model)
       },
       transformProgress: nil
     )

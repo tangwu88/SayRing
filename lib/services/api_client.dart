@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
@@ -162,6 +163,20 @@ abstract interface class SaydianCareApi {
   });
 }
 
+abstract interface class SaydianNotificationApi {
+  Future<bool> registerPushDevice({
+    required String installationId,
+    required String registrationId,
+    required String platform,
+    String? appVersion,
+    int? buildNumber,
+  });
+  Future<bool> unregisterPushDevice({required String installationId});
+  Future<int?> getNotificationUnreadCount();
+  Future<bool> markNotificationRead({required int id});
+  Future<bool> markNotificationEventRead({required String eventId});
+}
+
 abstract interface class SaydianProfileUploadApi {
   Future<String> uploadProfileImage(String filePath);
 }
@@ -174,6 +189,7 @@ class SaydianApiClient
         SaydianArticleApi,
         SaydianShopApi,
         SaydianCareApi,
+        SaydianNotificationApi,
         SaydianProfileUploadApi {
   SaydianApiClient(this._vault, {http.Client? client, Uri? baseUri})
     : _client = client ?? http.Client(),
@@ -190,7 +206,7 @@ class SaydianApiClient
   final http.Client _client;
   final Uri _baseUri;
   final Map<int, int> _careMemberIds = <int, int>{};
-  Future<Session>? _refreshingSession;
+  final Map<String, Future<Session>> _refreshingSessions = {};
 
   static const _requestTimeout = Duration(seconds: 20);
   static const _aiReplyTimeout = Duration(seconds: 75);
@@ -202,12 +218,14 @@ class SaydianApiClient
   Future<Session> login(String username, String password) => _authenticate(
     '/api/v1/site/login',
     {'username': username, 'password': password, 'group': 'app'},
+    accountKey: _stableLoginAccountKey(username),
   );
 
   @override
   Future<Session> register(String mobile, String password) => _authenticate(
     '/api/v1/site/register',
     {'mobile': mobile, 'password': password, 'group': 'app'},
+    accountKey: _stableLoginAccountKey(mobile),
   );
 
   @override
@@ -233,7 +251,7 @@ class SaydianApiClient
     'password_repetition': password,
     'nickname': nickname.trim(),
     'group': 'app',
-  });
+  }, accountKey: _stableLoginAccountKey(mobile));
 
   @override
   Future<Session> resetPassword({
@@ -246,26 +264,48 @@ class SaydianApiClient
     'password': password,
     'password_repetition': password,
     'group': 'app',
-  });
+  }, accountKey: _stableLoginAccountKey(mobile));
 
   @override
   Future<Session> refreshSession(Session session) {
-    final pending = _refreshingSession;
+    final refreshKey = _stableSessionAccountKey(session);
+    final pending = _refreshingSessions[refreshKey];
     if (pending != null) return pending;
-    final refresh = _authenticate('/api/v1/site/refresh', {
-      'refresh_token': session.refreshToken,
-      'group': 'app',
-    }, fallback: session);
-    _refreshingSession = refresh;
+    final refresh = _authenticate(
+      '/api/v1/site/refresh',
+      {'refresh_token': session.refreshToken, 'group': 'app'},
+      fallback: session,
+      accountKey: session.accountKey,
+      expectedSession: session,
+    );
+    _refreshingSessions[refreshKey] = refresh;
     return refresh.whenComplete(() {
-      if (identical(_refreshingSession, refresh)) _refreshingSession = null;
+      if (identical(_refreshingSessions[refreshKey], refresh)) {
+        _refreshingSessions.remove(refreshKey);
+      }
     });
+  }
+
+  String _stableLoginAccountKey(String identifier) => sha256
+      .convert(
+        utf8.encode('saydian-account:${identifier.trim().toLowerCase()}'),
+      )
+      .toString();
+
+  String _stableSessionAccountKey(Session session) {
+    final memberId = session.memberId.trim();
+    if (memberId.isNotEmpty) return 'member:$memberId';
+    final accountKey = session.accountKey.trim();
+    if (accountKey.isNotEmpty) return 'account:$accountKey';
+    return 'unresolved:${identityHashCode(session)}';
   }
 
   Future<Session> _authenticate(
     String path,
     Map<String, String> fields, {
     Session? fallback,
+    String? accountKey,
+    Session? expectedSession,
   }) async {
     final request = http.MultipartRequest('POST', _uri(path))
       ..fields.addAll(fields);
@@ -291,11 +331,27 @@ class SaydianApiClient
       memberId: '${memberMap['id'] ?? fallback?.memberId ?? ''}',
       displayName:
           '${memberMap['nickname'] ?? memberMap['username'] ?? fallback?.displayName ?? '赛电用户'}',
+      accountKey: accountKey?.trim().isNotEmpty == true
+          ? accountKey!.trim()
+          : fallback?.accountKey ?? '',
     );
     if (session.accessToken.isEmpty) {
       throw const ApiException('登录响应缺少 access_token');
     }
-    await _vault.writeSession(session);
+    if (expectedSession == null) {
+      await _vault.writeSession(session);
+    } else {
+      final replaced = await _vault.writeSessionIfUnchanged(
+        expectedSession,
+        session,
+      );
+      if (!replaced) {
+        throw const ApiException(
+          '登录账号已切换，已忽略旧账号刷新',
+          code: 'STALE_SESSION_REFRESH',
+        );
+      }
+    }
     return session;
   }
 
@@ -544,6 +600,110 @@ class SaydianApiClient
   Future<Map<String, Object?>> getNotification(int id) async {
     final response = await _authorizedGet('/api/v1/member/notify/$id');
     return _data(_decode(response));
+  }
+
+  @override
+  Future<bool> registerPushDevice({
+    required String installationId,
+    required String registrationId,
+    required String platform,
+    String? appVersion,
+    int? buildNumber,
+  }) async {
+    final normalizedInstallationId = _validatedInstallationId(installationId);
+    final normalizedPlatform = platform.trim().toLowerCase();
+    final normalizedRegistrationId = registrationId.trim();
+    if (!const {'ios', 'android'}.contains(normalizedPlatform) ||
+        normalizedRegistrationId.isEmpty ||
+        normalizedRegistrationId.length > 8192 ||
+        (buildNumber != null && buildNumber <= 0)) {
+      throw const ApiException('推送设备信息不完整');
+    }
+    final normalizedVersion = appVersion?.trim();
+    if (normalizedVersion != null && normalizedVersion.length > 64) {
+      throw const ApiException('应用版本信息不正确');
+    }
+    final response = await _authorizedPostJson(
+      '/api/v1/member/push-devices',
+      <String, Object?>{
+        'installation_id': normalizedInstallationId,
+        'platform': normalizedPlatform,
+        'provider': 'jpush',
+        'registration_id': normalizedRegistrationId,
+        if (normalizedVersion != null && normalizedVersion.isNotEmpty)
+          'app_version': normalizedVersion,
+        'build': ?buildNumber,
+      },
+    );
+    return _decodeOptionalNotificationMutation(response);
+  }
+
+  @override
+  Future<bool> unregisterPushDevice({required String installationId}) async {
+    final normalizedInstallationId = _validatedInstallationId(installationId);
+    final response = await _authorizedDelete(
+      '/api/v1/member/push-devices/${Uri.encodeComponent(normalizedInstallationId)}',
+    );
+    return _decodeOptionalNotificationMutation(response);
+  }
+
+  @override
+  Future<int?> getNotificationUnreadCount() async {
+    final response = await _authorizedGet('/api/v1/member/notify/unread-count');
+    if (_isOptionalNotificationEndpointUnavailableResponse(response)) {
+      return null;
+    }
+    if (response.statusCode >= 200 &&
+        response.statusCode < 300 &&
+        response.body.trim().isEmpty) {
+      return null;
+    }
+    Map<String, Object?> payload;
+    try {
+      payload = _decode(response);
+    } on ApiException catch (error) {
+      if (_isOptionalNotificationEndpointUnavailable(error.statusCode)) {
+        return null;
+      }
+      rethrow;
+    }
+    final data = payload['data'];
+    final Object? rawCount = switch (data) {
+      Map<Object?, Object?> map => map['unread_count'] ?? map['count'],
+      num value => value,
+      String value => value,
+      _ => payload['unread_count'],
+    };
+    final count = switch (rawCount) {
+      int value => value,
+      num value when value.isFinite && value == value.toInt() => value.toInt(),
+      String value => int.tryParse(value.trim()),
+      _ => null,
+    };
+    if (count == null || count < 0) {
+      throw const ApiException('消息未读数响应格式不正确');
+    }
+    return count;
+  }
+
+  @override
+  Future<bool> markNotificationRead({required int id}) async {
+    if (id <= 0) throw const ApiException('消息标识不正确');
+    final response = await _authorizedPostJson(
+      '/api/v1/member/notify/$id/read',
+      const <String, Object?>{},
+    );
+    return _decodeOptionalNotificationMutation(response);
+  }
+
+  @override
+  Future<bool> markNotificationEventRead({required String eventId}) async {
+    final normalizedEventId = _validatedNotificationEventId(eventId);
+    final response = await _authorizedPostJson(
+      '/api/v1/member/notify/${Uri.encodeComponent(normalizedEventId)}/read',
+      const <String, Object?>{},
+    );
+    return _decodeOptionalNotificationMutation(response);
   }
 
   @override
@@ -1225,6 +1385,78 @@ class SaydianApiClient
     ),
   );
 
+  Future<http.Response> _authorizedDelete(String path) =>
+      _withAuthorizationRetry(
+        (session) => _performRequest(
+          () => _client.delete(
+            _uri(path),
+            headers: _authorizationHeaders(session),
+          ),
+        ),
+      );
+
+  String _validatedInstallationId(String value) {
+    final normalized = value.trim();
+    if (!RegExp(r'^[A-Za-z0-9._:-]{1,160}$').hasMatch(normalized)) {
+      throw const ApiException('推送设备信息不完整');
+    }
+    return normalized;
+  }
+
+  String _validatedNotificationEventId(String value) {
+    final normalized = value.trim();
+    if (!RegExp(r'^[A-Za-z0-9._:-]{1,160}$').hasMatch(normalized)) {
+      throw const ApiException('消息事件标识不正确');
+    }
+    return normalized;
+  }
+
+  bool _decodeOptionalNotificationMutation(http.Response response) {
+    if (_isOptionalNotificationEndpointUnavailableResponse(response)) {
+      return false;
+    }
+    if (response.statusCode >= 200 &&
+        response.statusCode < 300 &&
+        response.body.trim().isEmpty) {
+      return true;
+    }
+    try {
+      _decode(response);
+      return true;
+    } on ApiException catch (error) {
+      if (_isOptionalNotificationEndpointUnavailable(error.statusCode)) {
+        return false;
+      }
+      rethrow;
+    }
+  }
+
+  bool _isOptionalNotificationEndpointUnavailable(int? statusCode) =>
+      statusCode == 404 || statusCode == 405;
+
+  bool _isOptionalNotificationEndpointUnavailableResponse(
+    http.Response response,
+  ) {
+    if (_isOptionalNotificationEndpointUnavailable(response.statusCode)) {
+      return true;
+    }
+    try {
+      final payload = jsonDecode(response.body);
+      if (payload is! Map) return false;
+      final rawCode = payload['code'];
+      final code = switch (rawCode) {
+        int value => value,
+        num value when value.isFinite && value == value.toInt() =>
+          value.toInt(),
+        String value => int.tryParse(value.trim()),
+        _ => null,
+      };
+      return _isOptionalNotificationEndpointUnavailable(code);
+    } on FormatException {
+      return false;
+    }
+  }
+
   Future<http.Response> _withAuthorizationRetry(
     Future<http.Response> Function(Session session) request,
   ) async {
@@ -1236,6 +1468,13 @@ class SaydianApiClient
     }
     try {
       final refreshed = await refreshSession(session);
+      final current = await _vault.readSession();
+      if (current == null ||
+          current.accessToken != refreshed.accessToken ||
+          current.memberId != refreshed.memberId ||
+          current.accountKey != refreshed.accountKey) {
+        return response;
+      }
       return request(refreshed);
     } on ApiException {
       // Preserve the original protected-resource response so the caller shows
@@ -1406,10 +1645,9 @@ class SaydianApiClient
     required int memberId,
     required String day,
   }) async {
-    final parsedDay = DateTime.tryParse(day);
-    if (parsedDay == null) return const [];
-    final localDay = DateTime(parsedDay.year, parsedDay.month, parsedDay.day);
-    final date = '${localDay.millisecondsSinceEpoch ~/ 1000}';
+    final chinaDayStart = _chinaDayStartEpochSeconds(day);
+    if (chinaDayStart == null) return const [];
+    final date = '$chinaDayStart';
     Object? sharedDailyRows;
     var sharedDailyRowsAvailable = false;
     try {
@@ -2183,4 +2421,20 @@ class SaydianApiClient
     });
     _decode(response);
   }
+}
+
+int? _chinaDayStartEpochSeconds(String day) {
+  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(day.trim());
+  if (match == null) return null;
+  final year = int.parse(match.group(1)!);
+  final month = int.parse(match.group(2)!);
+  final dayOfMonth = int.parse(match.group(3)!);
+  final utcCalendarDay = DateTime.utc(year, month, dayOfMonth);
+  if (utcCalendarDay.year != year ||
+      utcCalendarDay.month != month ||
+      utcCalendarDay.day != dayOfMonth) {
+    return null;
+  }
+  final chinaMidnightUtc = utcCalendarDay.subtract(const Duration(hours: 8));
+  return chinaMidnightUtc.millisecondsSinceEpoch ~/ 1000;
 }

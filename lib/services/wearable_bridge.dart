@@ -47,6 +47,100 @@ abstract interface class WearableWatchFaceProfileBridge {
   Future<Map<String, Object?>> getWatchFaceProfile();
 }
 
+/// Optional native Veepoo watch-face catalogue API.
+///
+/// iOS must use the catalogue and binary download APIs shipped with the
+/// Veepoo SDK. This avoids constructing the Android HTTP request shape on iOS
+/// and keeps the SDK model used for download bound to the live watch session.
+abstract interface class WearableNativeWatchFaceBridge {
+  Future<List<NativeWatchFaceCatalogItem>> getNativeWatchFaceCatalog();
+
+  Future<NativeWatchFaceDownload> downloadNativeWatchFace(String catalogId);
+}
+
+class NativeWatchFaceCatalogItem {
+  const NativeWatchFaceCatalogItem({
+    required this.id,
+    required this.name,
+    required this.fileUrl,
+    required this.previewUrl,
+    required this.crc,
+    required this.binProtocol,
+    required this.dialShape,
+  });
+
+  factory NativeWatchFaceCatalogItem.fromMap(Map<Object?, Object?> value) {
+    int requiredNumber(String key) {
+      final raw = value[key];
+      final parsed = raw is num ? raw.toInt() : int.tryParse('$raw');
+      if (parsed == null || parsed < 0) {
+        throw FormatException('Invalid native watch-face $key');
+      }
+      return parsed;
+    }
+
+    final id = '${value['id'] ?? ''}'.trim();
+    final fileUrl = Uri.tryParse('${value['fileUrl'] ?? ''}'.trim());
+    final previewUrl = Uri.tryParse('${value['previewUrl'] ?? ''}'.trim());
+    if (id.isEmpty ||
+        fileUrl == null ||
+        !fileUrl.hasScheme ||
+        previewUrl == null ||
+        !previewUrl.hasScheme) {
+      throw const FormatException('Invalid native watch-face catalogue item');
+    }
+    return NativeWatchFaceCatalogItem(
+      id: id,
+      name: '${value['name'] ?? ''}'.trim(),
+      fileUrl: fileUrl,
+      previewUrl: previewUrl,
+      crc: requiredNumber('crc'),
+      binProtocol: requiredNumber('binProtocol'),
+      dialShape: requiredNumber('dialShape'),
+    );
+  }
+
+  final String id;
+  final String name;
+  final Uri fileUrl;
+  final Uri previewUrl;
+  final int crc;
+  final int binProtocol;
+  final int dialShape;
+}
+
+class NativeWatchFaceDownload {
+  const NativeWatchFaceDownload({
+    required this.catalogId,
+    required this.filePath,
+    required this.fileLength,
+  });
+
+  factory NativeWatchFaceDownload.fromMap(Map<Object?, Object?> value) {
+    final catalogId = '${value['catalogId'] ?? ''}'.trim();
+    final filePath = '${value['filePath'] ?? ''}'.trim();
+    final rawLength = value['fileLength'];
+    final fileLength = rawLength is num
+        ? rawLength.toInt()
+        : int.tryParse('$rawLength');
+    if (catalogId.isEmpty ||
+        filePath.isEmpty ||
+        fileLength == null ||
+        fileLength <= 0) {
+      throw const FormatException('Invalid native watch-face download');
+    }
+    return NativeWatchFaceDownload(
+      catalogId: catalogId,
+      filePath: filePath,
+      fileLength: fileLength,
+    );
+  }
+
+  final String catalogId;
+  final String filePath;
+  final int fileLength;
+}
+
 class AutoMeasureIntervalSetting {
   const AutoMeasureIntervalSetting({
     required this.minutes,
@@ -105,6 +199,7 @@ class MethodChannelWearableBridge
         WearableBridge,
         WearableDeviceDetailsBridge,
         WearableWatchFaceProfileBridge,
+        WearableNativeWatchFaceBridge,
         WearableAutoMeasureIntervalBridge,
         WearableConnectionRecoveryBridge {
   MethodChannelWearableBridge({
@@ -112,6 +207,7 @@ class MethodChannelWearableBridge
     EventChannel? eventChannel,
     this.operationTimeout = const Duration(seconds: 30),
     this.syncTimeout = const Duration(minutes: 3),
+    this.watchFaceTimeout = const Duration(minutes: 3),
   }) : _methods = methods ?? const MethodChannel('cc.saidian/wearable_methods'),
        _eventChannel =
            eventChannel ?? const EventChannel('cc.saidian/wearable_events');
@@ -120,9 +216,9 @@ class MethodChannelWearableBridge
   final EventChannel _eventChannel;
   final Duration operationTimeout;
   final Duration syncTimeout;
+  final Duration watchFaceTimeout;
   final SerialOperationQueue _queue = SerialOperationQueue();
   static const _deviceFeatureTimeout = Duration(seconds: 20);
-  static const _watchFaceTimeout = Duration(minutes: 3);
 
   @override
   Stream<WearableEvent> get events => _eventChannel
@@ -177,12 +273,37 @@ class MethodChannelWearableBridge
   }
 
   @override
-  Future<Map<String, Object?>> getWatchFaceProfile() async {
+  Future<Map<String, Object?>> getWatchFaceProfile() => _queue.run(() async {
     final result =
         await _invokeOperation<Map<Object?, Object?>>('getWatchFaceProfile') ??
         const <Object?, Object?>{};
     return result.map((key, value) => MapEntry('$key', value));
-  }
+  });
+
+  @override
+  Future<List<NativeWatchFaceCatalogItem>> getNativeWatchFaceCatalog() =>
+      _queue.run(() async {
+        final result =
+            await _invoke<List<Object?>>(
+              'getNativeWatchFaceCatalog',
+            ).timeout(watchFaceTimeout) ??
+            const <Object?>[];
+        return result
+            .whereType<Map<Object?, Object?>>()
+            .map(NativeWatchFaceCatalogItem.fromMap)
+            .toList(growable: false);
+      });
+
+  @override
+  Future<NativeWatchFaceDownload> downloadNativeWatchFace(String catalogId) =>
+      _queue.run(() async {
+        final result =
+            await _invoke<Map<Object?, Object?>>('downloadNativeWatchFace', {
+              'catalogId': catalogId,
+            }).timeout(watchFaceTimeout) ??
+            const <Object?, Object?>{};
+        return NativeWatchFaceDownload.fromMap(result);
+      });
 
   @override
   Future<DeviceCapabilities> getCapabilities() => _queue.run(() async {
@@ -308,7 +429,7 @@ class MethodChannelWearableBridge
             }).timeout(
               feature == DeviceFeature.watchFaces ||
                       feature == DeviceFeature.photoWatchFace
-                  ? _watchFaceTimeout
+                  ? watchFaceTimeout
                   : _deviceFeatureTimeout,
             ) ??
             const <Object?, Object?>{};
@@ -327,7 +448,7 @@ class MethodChannelWearableBridge
         }).timeout(
           feature == DeviceFeature.watchFaces ||
                   feature == DeviceFeature.photoWatchFace
-              ? _watchFaceTimeout
+              ? watchFaceTimeout
               : _deviceFeatureTimeout,
         ),
   );

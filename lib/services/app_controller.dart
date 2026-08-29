@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart' as platform_info;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:uuid/uuid.dart';
 
 import '../domain/device_state_machine.dart';
 import '../domain/feature_models.dart';
@@ -13,7 +17,11 @@ import '../domain/health_record_dedup.dart';
 import '../domain/models.dart';
 import 'api_client.dart';
 import 'app_payment_bridge.dart';
+import 'app_notification_service.dart';
 import 'local_health_store.dart';
+import 'notification_inbox.dart';
+import 'notification_models.dart';
+import 'notification_route_service.dart';
 import 'secure_vault.dart';
 import 'sync_service.dart';
 import 'wearable_bridge.dart';
@@ -26,8 +34,19 @@ class AppController extends ChangeNotifier {
     this._healthStore,
     this._wearable, {
     AppPaymentBridge? paymentBridge,
+    AppNotificationService? notificationService,
   }) : _paymentBridge = paymentBridge ?? const MethodChannelAppPaymentBridge(),
-       _syncService = HealthSyncService(_healthStore, _api);
+       _notificationService =
+           notificationService ?? const DisabledAppNotificationService(),
+       _syncService = HealthSyncService(_healthStore, _api) {
+    _notificationInboxRepository = StoredNotificationInboxRepository(
+      _healthStore,
+      ownerId: _notificationOwnerId,
+    );
+    _notificationInboxService = NotificationInboxService(
+      _notificationInboxRepository,
+    );
+  }
 
   factory AppController.production() {
     final vault = SecureSessionVault();
@@ -36,6 +55,7 @@ class AppController extends ChangeNotifier {
       SaydianApiClient(vault),
       EncryptedHealthStore(vault),
       createProductionWearableBridge(),
+      notificationService: JPushAppNotificationService(),
     );
   }
 
@@ -44,20 +64,43 @@ class AppController extends ChangeNotifier {
   final HealthStore _healthStore;
   final WearableBridge _wearable;
   final AppPaymentBridge _paymentBridge;
+  final AppNotificationService _notificationService;
   final HealthSyncService _syncService;
+  late NotificationInboxRepository _notificationInboxRepository;
+  late NotificationInboxService _notificationInboxService;
+  static const NotificationRouteService _notificationRouteService =
+      NotificationRouteService();
   final DeviceStateMachine deviceMachine = DeviceStateMachine();
 
   StreamSubscription<WearableEvent>? _wearableEvents;
   StreamSubscription<DeviceConnectionState>? _deviceStates;
   StreamSubscription<List<ConnectivityResult>>? _connectivity;
+  StreamSubscription<Map<String, Object?>>? _pushReceivedEvents;
+  StreamSubscription<Map<String, Object?>>? _pushOpenedEvents;
+  StreamSubscription<bool>? _pushPermissionEvents;
+  Timer? _careInvitationPollTimer;
+  int _careInvitationPollBackoffIndex = 0;
+  bool _appIsForeground = true;
   Timer? _measurementTimeout;
   HealthMetric? _activeMeasurementMetric;
   bool _syncing = false;
+  bool _accountTransitioning = false;
+  Future<void>? _activeCloudSync;
   bool _disposed = false;
   int _deviceSyncGeneration = 0;
   DeviceInfo? _latestDeviceDetails;
   String? _deviceSyncErrorMessage;
   Future<void>? _deviceSettingsRefresh;
+  Future<void> _notificationIngestTail = Future<void>.value();
+  bool _notificationStorageReady = false;
+  Future<void>? _careInvitationRefresh;
+  Future<void>? _pushRegistration;
+  int? _pushRegistrationGeneration;
+  int _sessionGeneration = 0;
+  int? _connectedDeviceSessionGeneration;
+  int? _activeMeasurementSessionGeneration;
+  String _notificationOwnerId = 'anonymous';
+  bool _privacyConsentGranted = false;
 
   bool isBooting = true;
   bool isBusy = false;
@@ -95,6 +138,11 @@ class AppController extends ChangeNotifier {
   String? articleListLoadError;
   String? articleDetailLoadError;
   List<Map<String, Object?>> notifications = const [];
+  List<NotificationEvent> notificationInboxEvents = const [];
+  int notificationUnreadCount = 0;
+  int? remoteNotificationUnreadCount;
+  NotificationRouteIntent? pendingNotificationRoute;
+  bool notificationPermissionEnabled = false;
   List<Map<String, Object?>> orders = const [];
   List<Map<String, Object?>> addresses = const [];
   List<Map<String, Object?>> shopCart = const [];
@@ -160,11 +208,147 @@ class AppController extends ChangeNotifier {
   List<Map<String, Object?>> get pendingCareInvitations =>
       careInvitations.where(_isPendingCareInvitation).toList(growable: false);
 
+  bool get notificationServiceConfigured => _notificationService.isConfigured;
+
+  String _notificationOwnerFor(Session? value) {
+    final memberId = value?.memberId.trim() ?? '';
+    final accountIdentity = memberId.isNotEmpty
+        ? 'member:$memberId'
+        : value == null
+        ? ''
+        : 'account:${value.accountKey.trim()}';
+    if (accountIdentity.isEmpty) return 'anonymous';
+    if (accountIdentity == 'account:') {
+      throw StateError('Authenticated session has no stable account key');
+    }
+    return sha256
+        .convert(utf8.encode('saydian-notification-owner:$accountIdentity'))
+        .toString();
+  }
+
+  String _healthOwnerFor(Session? value) {
+    final memberId = value?.memberId.trim() ?? '';
+    final accountIdentity = memberId.isNotEmpty
+        ? 'member:$memberId'
+        : value == null
+        ? ''
+        : 'account:${value.accountKey.trim()}';
+    if (accountIdentity.isEmpty) return 'anonymous';
+    if (accountIdentity == 'account:') {
+      throw StateError('Authenticated session has no stable account key');
+    }
+    return sha256
+        .convert(utf8.encode('saydian-health-owner:$accountIdentity'))
+        .toString();
+  }
+
+  void _switchNotificationOwner(Session? value) {
+    _notificationOwnerId = _notificationOwnerFor(value);
+    _notificationInboxRepository = StoredNotificationInboxRepository(
+      _healthStore,
+      ownerId: _notificationOwnerId,
+    );
+    _notificationInboxService = NotificationInboxService(
+      _notificationInboxRepository,
+    );
+    notificationInboxEvents = const [];
+    notificationUnreadCount = 0;
+  }
+
+  int _advanceSessionGeneration(Session? value) {
+    _sessionGeneration++;
+    _careInvitationRefresh = null;
+    _pushRegistration = null;
+    _invalidateDeviceSync();
+    _measurementTimeout?.cancel();
+    _measurementTimeout = null;
+    _activeMeasurementMetric = null;
+    _activeMeasurementSessionGeneration = null;
+    measurementProgress = 0;
+    measurementSamples = const [];
+    _clearAccountScopedMemory();
+    _switchNotificationOwner(value);
+    return _sessionGeneration;
+  }
+
+  void _clearAccountScopedMemory() {
+    healthRecords = const [];
+    sportRecords = const [];
+    healthWarningAlerts = const [];
+    activeHealthWarningAlert = null;
+    activeSport = null;
+    careMembers = const [];
+    careInvitations = const [];
+    memberProfile = const {};
+    notifications = const [];
+    remoteNotificationUnreadCount = null;
+    cloudSyncStatus = session == null ? '未登录，数据仅保存在本机' : '尚未上传';
+  }
+
+  Future<bool> _switchHealthOwnerAndLoad(
+    Session? value, {
+    required int expectedGeneration,
+    bool loadCache = true,
+  }) async {
+    try {
+      await _healthStore.switchOwner(_healthOwnerFor(value));
+      if (!_isCurrentSessionGeneration(expectedGeneration)) return false;
+      if (!loadCache) return true;
+      await _refreshHealthRecordCache(expectedGeneration: expectedGeneration);
+      if (!_isCurrentSessionGeneration(expectedGeneration)) return false;
+      final alerts = await _healthStore.healthWarningAlerts();
+      if (!_isCurrentSessionGeneration(expectedGeneration)) return false;
+      final sports = await _healthStore.localSportRecords();
+      if (!_isCurrentSessionGeneration(expectedGeneration)) return false;
+      healthWarningAlerts = alerts;
+      sportRecords = sports;
+      return true;
+    } catch (_) {
+      if (_isCurrentSessionGeneration(expectedGeneration)) {
+        _clearAccountScopedMemory();
+        storageStatus = '本机数据暂时无法读取';
+      }
+      return false;
+    }
+  }
+
+  bool _isCurrentSessionGeneration(int value) =>
+      !_disposed && value == _sessionGeneration;
+
+  Future<void> _ensureStableSessionOwnerKey() async {
+    final current = session;
+    if (current == null ||
+        current.memberId.trim().isNotEmpty ||
+        current.accountKey.trim().isNotEmpty) {
+      return;
+    }
+    final stabilized = current.copyWith(
+      accountKey: 'local-${const Uuid().v4()}',
+    );
+    final replaced = await _vault.writeSessionIfUnchanged(current, stabilized);
+    if (replaced) {
+      session = stabilized;
+      return;
+    }
+    final latest = await _vault.readSession();
+    if (latest == null ||
+        (latest.memberId.trim().isEmpty && latest.accountKey.trim().isEmpty)) {
+      throw StateError('Unable to establish a stable session owner');
+    }
+    session = latest;
+  }
+
   static bool _isPendingCareInvitation(Map<String, Object?> invitation) {
     final raw = invitation['examine_status'] ?? invitation['examineStatus'];
     if (raw is num) return raw.toInt() == 0;
     final value = '${raw ?? ''}'.trim().toLowerCase();
     return value == '0' || value == 'pending' || value == 'waiting';
+  }
+
+  static String? _careInvitationId(Map<String, Object?> invitation) {
+    final value = '${invitation['id'] ?? invitation['invitation_id'] ?? ''}'
+        .trim();
+    return RegExp(r'^[A-Za-z0-9._:-]{1,160}$').hasMatch(value) ? value : null;
   }
 
   List<SportMode> get availableSportModes {
@@ -187,11 +371,32 @@ class AppController extends ChangeNotifier {
     });
     try {
       await _healthStore.initialize();
+      _notificationStorageReady = true;
       storageStatus = '数据已安全保存在本机';
-      await _refreshHealthRecordCache();
-      healthWarningAlerts = await _healthStore.healthWarningAlerts();
     } catch (_) {
       storageStatus = '本机数据暂时无法读取';
+    }
+    _pushReceivedEvents = _notificationService.receivedEvents.listen(
+      (payload) =>
+          unawaited(_handleNotificationPayload(payload).catchError((_) {})),
+    );
+    _pushOpenedEvents = _notificationService.openedEvents.listen(
+      (payload) => unawaited(
+        _handleNotificationPayload(payload, opened: true).catchError((_) {}),
+      ),
+    );
+    _pushPermissionEvents = _notificationService.permissionChanges.listen((
+      enabled,
+    ) {
+      if (_disposed || session == null || !_privacyConsentGranted) return;
+      notificationPermissionEnabled = enabled;
+      if (enabled) unawaited(_registerPushDevice());
+      notifyListeners();
+    });
+    try {
+      await _notificationService.initialize();
+    } catch (_) {
+      // Push is optional; login and local health data remain available.
     }
     try {
       healthWarningSettings = await _vault.readHealthWarningSettings();
@@ -203,11 +408,59 @@ class AppController extends ChangeNotifier {
     } catch (_) {
       shopCart = const [];
     }
+    var sessionReadSucceeded = false;
     try {
       session = await _vault.readSession();
+      await _ensureStableSessionOwnerKey();
+      sessionReadSucceeded = true;
     } catch (_) {
       errorMessage = '安全存储初始化失败';
     }
+    try {
+      _privacyConsentGranted = await _vault.readPrivacyConsentGranted();
+    } catch (_) {
+      _privacyConsentGranted = false;
+    }
+    if (_notificationStorageReady && sessionReadSucceeded) {
+      try {
+        final migrationHandled = await _vault
+            .readLegacyHealthMigrationHandled();
+        if (!migrationHandled) {
+          final persistedSession = session;
+          if (persistedSession != null) {
+            // v5 and earlier had no account column. Only the account already
+            // persisted when this migration is first observed may adopt those
+            // records; a later login never inherits another user's history.
+            await _healthStore.adoptLegacyData(
+              healthOwnerId: _healthOwnerFor(persistedSession),
+              notificationOwnerId: _notificationOwnerFor(persistedSession),
+            );
+          }
+          await _vault.writeLegacyHealthMigrationHandled();
+        }
+      } catch (_) {
+        storageStatus = '本机旧版本数据暂时无法读取';
+      }
+    }
+    final sessionGeneration = _advanceSessionGeneration(session);
+    if (_notificationStorageReady) {
+      await _switchHealthOwnerAndLoad(
+        session,
+        expectedGeneration: sessionGeneration,
+      );
+    }
+    if (session != null && _privacyConsentGranted) {
+      try {
+        await _notificationService.activateAfterPrivacyConsent();
+        notificationPermissionEnabled = await _notificationService
+            .isPermissionEnabled();
+      } catch (_) {
+        notificationPermissionEnabled = false;
+      }
+    } else {
+      notificationPermissionEnabled = false;
+    }
+    if (_notificationStorageReady) await _refreshNotificationInboxState();
     try {
       _wearableEvents = _wearable.events.listen(
         _handleWearableEvent,
@@ -226,24 +479,45 @@ class AppController extends ChangeNotifier {
     if (session != null) {
       unawaited(refreshCare());
       unawaited(refreshCareInvitations());
+      unawaited(_registerPushDevice());
+      unawaited(_refreshRemoteNotificationUnreadCount());
       unawaited(refreshMemberProfile());
       unawaited(refreshActivityGoals());
+      _scheduleCareInvitationPoll(const Duration(seconds: 30));
     }
   }
 
-  Future<bool> login(String username, String password) async {
+  Future<bool> login(
+    String username,
+    String password, {
+    bool privacyConsentGranted = false,
+  }) async {
     if (username.trim().isEmpty || password.isEmpty) {
       errorMessage = '请输入账号和密码';
       notifyListeners();
       return false;
     }
     return _guard(() async {
-      session = await _api.login(username.trim(), password);
-      isPreviewMode = false;
-      await refreshCare();
-      await refreshCareInvitations();
-      await refreshMemberProfile();
-      await refreshActivityGoals();
+      _accountTransitioning = true;
+      try {
+        await _drainCloudSync();
+        await _vault.writePrivacyConsentGranted(privacyConsentGranted);
+        _privacyConsentGranted = privacyConsentGranted;
+        session = await _api.login(username.trim(), password);
+        await _prepareAuthenticatedNotificationSession(
+          privacyConsentGranted: privacyConsentGranted,
+        );
+        isPreviewMode = false;
+        await refreshCare();
+        await refreshCareInvitations();
+        await _refreshRemoteNotificationUnreadCount();
+        await refreshMemberProfile();
+        await refreshActivityGoals();
+        _careInvitationPollBackoffIndex = 0;
+        _scheduleCareInvitationPoll(const Duration(seconds: 30));
+      } finally {
+        _accountTransitioning = false;
+      }
     });
   }
 
@@ -276,6 +550,7 @@ class AppController extends ChangeNotifier {
     String password, {
     String? code,
     String? nickname,
+    bool privacyConsentGranted = false,
   }) async {
     if (!RegExp(r'^1\d{10}$').hasMatch(mobile.trim())) {
       errorMessage = '请输入正确的中国大陆手机号';
@@ -294,21 +569,35 @@ class AppController extends ChangeNotifier {
       return false;
     }
     return _guard(() async {
-      session = smsApi == null
-          ? await _api.register(mobile.trim(), password)
-          : await smsApi.registerWithSms(
-              mobile: mobile.trim(),
-              code: code!.trim(),
-              password: password,
-              nickname: nickname?.trim().isNotEmpty == true
-                  ? nickname!.trim()
-                  : '赛电用户${mobile.trim().substring(7)}',
-            );
-      isPreviewMode = false;
-      await refreshCare();
-      await refreshCareInvitations();
-      await refreshMemberProfile();
-      await refreshActivityGoals();
+      _accountTransitioning = true;
+      try {
+        await _drainCloudSync();
+        await _vault.writePrivacyConsentGranted(privacyConsentGranted);
+        _privacyConsentGranted = privacyConsentGranted;
+        session = smsApi == null
+            ? await _api.register(mobile.trim(), password)
+            : await smsApi.registerWithSms(
+                mobile: mobile.trim(),
+                code: code!.trim(),
+                password: password,
+                nickname: nickname?.trim().isNotEmpty == true
+                    ? nickname!.trim()
+                    : '赛电用户${mobile.trim().substring(7)}',
+              );
+        await _prepareAuthenticatedNotificationSession(
+          privacyConsentGranted: privacyConsentGranted,
+        );
+        isPreviewMode = false;
+        await refreshCare();
+        await refreshCareInvitations();
+        await _refreshRemoteNotificationUnreadCount();
+        await refreshMemberProfile();
+        await refreshActivityGoals();
+        _careInvitationPollBackoffIndex = 0;
+        _scheduleCareInvitationPoll(const Duration(seconds: 30));
+      } finally {
+        _accountTransitioning = false;
+      }
     });
   }
 
@@ -340,13 +629,50 @@ class AppController extends ChangeNotifier {
       return false;
     }
     return _guard(() async {
-      session = await (api as SaydianSmsAuthApi).resetPassword(
-        mobile: normalized,
-        code: code.trim(),
-        password: password,
-      );
-      isPreviewMode = false;
+      _accountTransitioning = true;
+      try {
+        await _drainCloudSync();
+        session = await (api as SaydianSmsAuthApi).resetPassword(
+          mobile: normalized,
+          code: code.trim(),
+          password: password,
+        );
+        await _prepareAuthenticatedNotificationSession(
+          privacyConsentGranted: _privacyConsentGranted,
+        );
+        isPreviewMode = false;
+        await _refreshRemoteNotificationUnreadCount();
+        _careInvitationPollBackoffIndex = 0;
+        _scheduleCareInvitationPoll(const Duration(seconds: 30));
+      } finally {
+        _accountTransitioning = false;
+      }
     });
+  }
+
+  Future<void> _prepareAuthenticatedNotificationSession({
+    required bool privacyConsentGranted,
+  }) async {
+    await _ensureStableSessionOwnerKey();
+    _privacyConsentGranted = privacyConsentGranted;
+    await _vault.writePrivacyConsentGranted(privacyConsentGranted);
+    final generation = _advanceSessionGeneration(session);
+    await _switchHealthOwnerAndLoad(session, expectedGeneration: generation);
+    if (!_isCurrentSessionGeneration(generation)) return;
+    if (!privacyConsentGranted || session == null) {
+      notificationPermissionEnabled = false;
+      await _notificationService.deactivate();
+    } else {
+      try {
+        await _notificationService.activateAfterPrivacyConsent();
+        notificationPermissionEnabled = await _notificationService
+            .isPermissionEnabled();
+      } catch (_) {
+        notificationPermissionEnabled = false;
+      }
+      unawaited(_registerPushDevice());
+    }
+    if (_notificationStorageReady) await _refreshNotificationInboxState();
   }
 
   void enterPreview() {
@@ -357,9 +683,12 @@ class AppController extends ChangeNotifier {
 
   Future<void> logout() async {
     isBusy = true;
+    _accountTransitioning = true;
     notifyListeners();
     try {
+      await _drainCloudSync();
       if (session != null) {
+        await _unregisterPushDevice();
         await _api.logout();
       } else {
         await _vault.clearSession();
@@ -367,27 +696,77 @@ class AppController extends ChangeNotifier {
     } on ApiException catch (error) {
       errorMessage = _apiErrorMessage(error, fallback: '退出失败，请稍后重试');
     } finally {
+      try {
+        await _vault.clearSession();
+        await _vault.writePrivacyConsentGranted(false);
+      } catch (_) {
+        // The in-memory session is still cleared immediately below.
+      }
       session = null;
+      _privacyConsentGranted = false;
+      final generation = _advanceSessionGeneration(null);
+      await _switchHealthOwnerAndLoad(
+        null,
+        expectedGeneration: generation,
+        loadCache: false,
+      );
       isPreviewMode = false;
       memberProfile = const {};
+      careMembers = const [];
+      careInvitations = const [];
       aiMessages = const [];
       _aiSessionIds.clear();
       notifications = const [];
+      remoteNotificationUnreadCount = null;
+      pendingNotificationRoute = null;
+      _careInvitationPollTimer?.cancel();
+      notificationInboxEvents = const [];
+      notificationUnreadCount = 0;
+      await _notificationService.setBadge(0);
+      await _notificationService.deactivate();
       orders = const [];
       addresses = const [];
       selectedTab = 0;
+      _accountTransitioning = false;
       isBusy = false;
+      if (_notificationStorageReady) await _refreshNotificationInboxState();
       notifyListeners();
     }
   }
 
   Future<bool> deleteAccount() => _guard(() async {
-    if (session == null) {
-      throw const ApiException('快速体验账号无需注销');
+    _accountTransitioning = true;
+    try {
+      await _drainCloudSync();
+      if (session == null) {
+        throw const ApiException('快速体验账号无需注销');
+      }
+      final notificationInboxToClear = _notificationInboxService;
+      await _unregisterPushDevice();
+      await _api.deleteAccount();
+      await _vault.writePrivacyConsentGranted(false);
+      session = null;
+      _privacyConsentGranted = false;
+      final generation = _advanceSessionGeneration(null);
+      await _switchHealthOwnerAndLoad(
+        null,
+        expectedGeneration: generation,
+        loadCache: false,
+      );
+      isPreviewMode = false;
+      _careInvitationPollTimer?.cancel();
+      pendingNotificationRoute = null;
+      careMembers = const [];
+      careInvitations = const [];
+      remoteNotificationUnreadCount = null;
+      if (_notificationStorageReady) await notificationInboxToClear.clear();
+      notificationInboxEvents = const [];
+      notificationUnreadCount = 0;
+      await _notificationService.setBadge(0);
+      await _notificationService.deactivate();
+    } finally {
+      _accountTransitioning = false;
     }
-    await _api.deleteAccount();
-    session = null;
-    isPreviewMode = false;
   });
 
   void selectTab(int index) {
@@ -464,6 +843,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> connectDevice(DeviceInfo device) async {
+    final sessionGeneration = _sessionGeneration;
     errorMessage = null;
     _invalidateDeviceSync();
     _latestDeviceDetails = null;
@@ -490,6 +870,11 @@ class AppController extends ChangeNotifier {
           targetSteps: stepGoal,
         ),
       );
+      if (!_isCurrentSessionGeneration(sessionGeneration)) {
+        unawaited(_wearable.disconnect().catchError((_) {}));
+        return;
+      }
+      _connectedDeviceSessionGeneration = sessionGeneration;
       connectedDevice = _mergeDeviceDetails(device);
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.loading;
@@ -584,6 +969,9 @@ class AppController extends ChangeNotifier {
 
   Future<bool> _syncDeviceData(String deviceId, {required bool initial}) async {
     if (connectedDevice?.id != deviceId || isDeviceSyncing) return false;
+    final sessionGeneration = _sessionGeneration;
+    _connectedDeviceSessionGeneration ??= sessionGeneration;
+    if (_connectedDeviceSessionGeneration != sessionGeneration) return false;
     final generation = ++_deviceSyncGeneration;
     isDeviceSyncing = true;
     var succeeded = false;
@@ -593,29 +981,39 @@ class AppController extends ChangeNotifier {
     notifyListeners();
     try {
       final receivedRecords = await _wearable.syncHealthData();
-      if (!_isDeviceSyncCurrent(generation, deviceId)) return false;
+      if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+        return false;
+      }
       final records = deduplicateHealthRecords(
         receivedRecords
             .map(sanitizeWearableTransportRecord)
             .where(hasSaneWearableTransportValues),
       );
       await _healthStore.upsert(records);
-      if (!_isDeviceSyncCurrent(generation, deviceId)) return false;
-      await _refreshHealthRecordCache();
-      if (!_isDeviceSyncCurrent(generation, deviceId)) return false;
+      if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+        return false;
+      }
+      await _refreshHealthRecordCache(expectedGeneration: sessionGeneration);
+      if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+        return false;
+      }
       for (final record in records) {
-        _evaluateHealthWarning(record);
+        _evaluateHealthWarning(record, expectedGeneration: sessionGeneration);
       }
       syncStatus = records.isEmpty ? '设备暂无新数据' : '已同步 ${records.length} 条';
       succeeded = true;
     } on PlatformException catch (error) {
-      if (!_isDeviceSyncCurrent(generation, deviceId)) return false;
+      if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+        return false;
+      }
       syncStatus = '设备已连接，${initial ? '首次数据同步失败' : '历史数据同步失败'}';
       _deviceSyncErrorMessage =
           '设备已连接，但${_wearableErrorMessage(error, fallback: initial ? '首次数据同步失败' : '历史数据同步失败')}';
       errorMessage = _deviceSyncErrorMessage;
     } catch (_) {
-      if (!_isDeviceSyncCurrent(generation, deviceId)) return false;
+      if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+        return false;
+      }
       syncStatus = '设备已连接，${initial ? '首次数据同步失败' : '历史数据同步失败'}';
       _deviceSyncErrorMessage = '设备已连接，但数据读取失败，请稍后重试';
       errorMessage = _deviceSyncErrorMessage;
@@ -626,12 +1024,19 @@ class AppController extends ChangeNotifier {
         if (!_disposed) notifyListeners();
       }
     }
-    return succeeded && _isDeviceSyncCurrent(generation, deviceId);
+    return succeeded &&
+        _isDeviceSyncCurrent(generation, deviceId, sessionGeneration);
   }
 
-  bool _isDeviceSyncCurrent(int generation, String deviceId) =>
+  bool _isDeviceSyncCurrent(
+    int generation,
+    String deviceId,
+    int sessionGeneration,
+  ) =>
       !_disposed &&
       _deviceSyncGeneration == generation &&
+      _isCurrentSessionGeneration(sessionGeneration) &&
+      _connectedDeviceSessionGeneration == sessionGeneration &&
       connectedDevice?.id == deviceId;
 
   void _invalidateDeviceSync() {
@@ -654,6 +1059,7 @@ class AppController extends ChangeNotifier {
       await _wearable.disconnect();
     } finally {
       connectedDevice = null;
+      _connectedDeviceSessionGeneration = null;
       _latestDeviceDetails = null;
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.disconnected;
@@ -682,6 +1088,7 @@ class AppController extends ChangeNotifier {
       if (details == null) {
         _invalidateDeviceSync();
         connectedDevice = null;
+        _connectedDeviceSessionGeneration = null;
         _latestDeviceDetails = null;
         capabilities = null;
         deviceCapabilityState = DeviceCapabilityState.disconnected;
@@ -749,10 +1156,14 @@ class AppController extends ChangeNotifier {
       return false;
     }
     try {
+      final sessionGeneration = _sessionGeneration;
       _activeMeasurementMetric = metric;
+      _activeMeasurementSessionGeneration = sessionGeneration;
       deviceMachine.transition(DeviceConnectionState.measuring);
       await _wearable.startMeasurement(metric);
-      if (_activeMeasurementMetric != metric ||
+      if (!_isCurrentSessionGeneration(sessionGeneration) ||
+          _activeMeasurementSessionGeneration != sessionGeneration ||
+          _activeMeasurementMetric != metric ||
           measurementErrorMessage != null) {
         return false;
       }
@@ -764,6 +1175,7 @@ class AppController extends ChangeNotifier {
       return true;
     } on WearableSdkNotConfigured catch (_) {
       _activeMeasurementMetric = null;
+      _activeMeasurementSessionGeneration = null;
       measurementErrorMessage = '此功能暂时无法使用，请稍后再试';
       errorMessage = measurementErrorMessage;
       if (deviceState == DeviceConnectionState.measuring) {
@@ -771,6 +1183,7 @@ class AppController extends ChangeNotifier {
       }
     } on PlatformException catch (error) {
       _activeMeasurementMetric = null;
+      _activeMeasurementSessionGeneration = null;
       measurementErrorMessage = _wearableErrorMessage(
         error,
         fallback: '${metric.label}测量失败',
@@ -781,6 +1194,7 @@ class AppController extends ChangeNotifier {
       }
     } catch (_) {
       _activeMeasurementMetric = null;
+      _activeMeasurementSessionGeneration = null;
       measurementErrorMessage = '${metric.label}测量失败，请稍后重试';
       errorMessage = measurementErrorMessage;
       if (deviceState == DeviceConnectionState.measuring) {
@@ -795,6 +1209,7 @@ class AppController extends ChangeNotifier {
     _measurementTimeout?.cancel();
     _measurementTimeout = null;
     _activeMeasurementMetric = null;
+    _activeMeasurementSessionGeneration = null;
     measurementProgress = 0;
     measurementWearConfirmed = true;
     measurementSamples = const [];
@@ -817,13 +1232,18 @@ class AppController extends ChangeNotifier {
     required HealthMetric metric,
     required DateTime start,
     required DateTime end,
-  }) async => deduplicateHealthRecords(
-    (await _healthStore.range(
+  }) async {
+    final generation = _sessionGeneration;
+    final records = await _healthStore.range(
       metric: metric,
       start: start,
       end: end,
-    )).where(hasSaneWearableTransportValues),
-  );
+    );
+    if (!_isCurrentSessionGeneration(generation)) return const [];
+    return deduplicateHealthRecords(
+      records.where(hasSaneWearableTransportValues),
+    );
+  }
 
   void setUnits({String? distance, String? temperature}) {
     if (distance != null) distanceUnit = distance;
@@ -832,8 +1252,15 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _handleMeasurementTimeout(HealthMetric metric) async {
-    if (_activeMeasurementMetric != metric || _disposed) return;
+    final generation = _activeMeasurementSessionGeneration;
+    if (_activeMeasurementMetric != metric ||
+        generation == null ||
+        !_isCurrentSessionGeneration(generation)) {
+      return;
+    }
     _activeMeasurementMetric = null;
+    _activeMeasurementSessionGeneration = null;
+    _activeMeasurementSessionGeneration = null;
     _measurementTimeout = null;
     measurementErrorMessage = '长时间未检测到有效结果，请确认手表已贴合手腕后重新测量';
     errorMessage = measurementErrorMessage;
@@ -895,10 +1322,18 @@ class AppController extends ChangeNotifier {
   }
 
   void dismissHealthWarningAlert() {
-    if (activeHealthWarningAlert == null) return;
+    final alert = activeHealthWarningAlert;
+    if (alert == null) return;
     activeHealthWarningAlert = null;
+    unawaited(markHealthWarningRead(alert));
     notifyListeners();
   }
+
+  String healthWarningEventId(HealthWarningAlert alert) =>
+      'health-warning-${_stableIdentifierHash(alert.id)}';
+
+  Future<void> markHealthWarningRead(HealthWarningAlert alert) =>
+      markNotificationEventRead(healthWarningEventId(alert));
 
   Future<bool> startSport(SportMode mode) async {
     if (connectedDevice == null) {
@@ -952,9 +1387,11 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> refreshSportRecords() async {
+    final generation = _sessionGeneration;
     await Future<void>.delayed(Duration.zero);
-    if (_disposed) return;
+    if (!_isCurrentSessionGeneration(generation)) return;
     final localRecords = await _healthStore.localSportRecords();
+    if (!_isCurrentSessionGeneration(generation)) return;
     if (connectedDevice == null) {
       sportRecords = localRecords;
       notifyListeners();
@@ -963,7 +1400,7 @@ class AppController extends ChangeNotifier {
     sportRecords = localRecords;
     try {
       final records = await _wearable.readSportRecords();
-      if (_disposed) return;
+      if (!_isCurrentSessionGeneration(generation)) return;
       final byId = <String, SportRecord>{
         for (final record in records) record.id: record,
         for (final record in localRecords) record.id: record,
@@ -975,17 +1412,19 @@ class AppController extends ChangeNotifier {
           ),
         );
     } on PlatformException catch (error) {
-      if (_disposed) return;
+      if (!_isCurrentSessionGeneration(generation)) return;
       errorMessage = _wearableErrorMessage(error, fallback: '读取运动记录失败');
     } catch (_) {
-      if (_disposed) return;
+      if (!_isCurrentSessionGeneration(generation)) return;
       errorMessage = '运动记录读取失败，请稍后重试';
     }
     notifyListeners();
   }
 
   Future<void> saveLocalSportRecord(SportRecord record) async {
+    final generation = _sessionGeneration;
     await _healthStore.saveSportRecord(record);
+    if (!_isCurrentSessionGeneration(generation)) return;
     await refreshSportRecords();
   }
 
@@ -1242,6 +1681,29 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  bool get usesNativeWatchFaceMarket =>
+      defaultTargetPlatform == TargetPlatform.iOS &&
+      _wearable is WearableNativeWatchFaceBridge;
+
+  Future<List<NativeWatchFaceCatalogItem>> readNativeWatchFaceCatalog() async {
+    if (connectedDevice == null || !usesNativeWatchFaceMarket) {
+      throw UnsupportedError('当前平台不支持原生表盘目录');
+    }
+    return (_wearable as WearableNativeWatchFaceBridge)
+        .getNativeWatchFaceCatalog();
+  }
+
+  Future<NativeWatchFaceDownload> downloadNativeWatchFace(
+    String catalogId,
+  ) async {
+    if (connectedDevice == null || !usesNativeWatchFaceMarket) {
+      throw UnsupportedError('当前平台不支持原生表盘下载');
+    }
+    return (_wearable as WearableNativeWatchFaceBridge).downloadNativeWatchFace(
+      catalogId,
+    );
+  }
+
   Future<bool> writeDeviceFeature(
     DeviceFeature feature,
     Map<String, Object?> values,
@@ -1316,26 +1778,50 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> synchronizeCloud() async {
-    if (_syncing || _disposed) return;
+    if (_syncing || _disposed || _accountTransitioning) return;
     if (session == null) {
       cloudSyncStatus = '未登录，数据仅保存在本机';
       if (!_disposed) notifyListeners();
       return;
     }
+    final generation = _sessionGeneration;
+    final completion = Completer<void>();
+    final activeFuture = completion.future;
+    _activeCloudSync = activeFuture;
     _syncing = true;
     try {
-      final result = await _syncService.synchronizeNow();
+      final result = await _syncService.synchronizeNow(
+        isCurrent: () =>
+            !_accountTransitioning && _isCurrentSessionGeneration(generation),
+      );
+      if (!_isCurrentSessionGeneration(generation)) return;
       cloudSyncStatus =
           result.message ?? '已上传 ${result.uploaded} 条，拒绝 ${result.rejected} 条';
     } on ApiException catch (error) {
+      if (!_isCurrentSessionGeneration(generation)) return;
       cloudSyncStatus = _apiErrorMessage(error, fallback: '数据上传失败，请稍后重试');
     } finally {
       _syncing = false;
-      if (!_disposed) notifyListeners();
+      if (!completion.isCompleted) completion.complete();
+      if (identical(_activeCloudSync, activeFuture)) {
+        _activeCloudSync = null;
+      }
+      if (_isCurrentSessionGeneration(generation)) notifyListeners();
+    }
+  }
+
+  Future<void> _drainCloudSync() async {
+    final active = _activeCloudSync;
+    if (active == null) return;
+    try {
+      await active;
+    } catch (_) {
+      // Account switching must proceed after a failed upload as well.
     }
   }
 
   Future<void> refreshCare() async {
+    final generation = _sessionGeneration;
     if (session == null) {
       careMembers = const [];
       careStatus = '请先登录';
@@ -1348,6 +1834,7 @@ class AppController extends ChangeNotifier {
     notifyListeners();
     try {
       final sourceMembers = await _api.getCareMembers();
+      if (!_isCurrentSessionGeneration(generation)) return;
       careMembers = _careMembersWithoutCurrentAccount(sourceMembers);
       careStatus = '已加载';
       if (kDebugMode) {
@@ -1358,6 +1845,7 @@ class AppController extends ChangeNotifier {
         );
       }
     } on ApiException catch (error) {
+      if (!_isCurrentSessionGeneration(generation)) return;
       careErrorMessage = _apiErrorMessage(error, fallback: '关爱数据暂时无法读取');
       errorMessage = careErrorMessage;
       careStatus = error is FeatureNotConfiguredException ? '服务暂不可用' : '加载失败';
@@ -1368,35 +1856,65 @@ class AppController extends ChangeNotifier {
         );
       }
     }
-    notifyListeners();
+    if (_isCurrentSessionGeneration(generation)) notifyListeners();
   }
 
-  Future<void> refreshCareInvitations() async {
+  Future<void> refreshCareInvitations() {
+    final active = _careInvitationRefresh;
+    if (active != null) return active;
+    final operation = _refreshCareInvitationsNow();
+    _careInvitationRefresh = operation;
+    return operation.whenComplete(() {
+      if (identical(_careInvitationRefresh, operation)) {
+        _careInvitationRefresh = null;
+      }
+    });
+  }
+
+  Future<void> _refreshCareInvitationsNow() async {
+    final generation = _sessionGeneration;
     if (session == null) {
       careInvitations = const [];
       careInvitationStatus = '请先登录';
       notifyListeners();
       return;
     }
+    final previousPendingIds = pendingCareInvitations
+        .map(_careInvitationId)
+        .where((id) => id != null)
+        .cast<String>()
+        .toSet();
     final careApi = _api is SaydianCareApi ? _api as SaydianCareApi : null;
     if (careApi == null) {
-      careInvitations = careInvitations
-          .where((item) => !_isPendingCareInvitation(item))
-          .toList(growable: false);
       careInvitationStatus = '服务暂不可用';
       notifyListeners();
       return;
     }
     try {
-      careInvitations = await careApi.getCareInvitations();
+      final fetched = await careApi.getCareInvitations();
+      if (!_isCurrentSessionGeneration(generation)) return;
+      careInvitations = fetched;
       careInvitationStatus = pendingCareInvitations.isEmpty ? '暂无待处理' : '已加载';
+      await _reconcileCareInvitationEvents(
+        pendingCareInvitations
+            .map(_careInvitationId)
+            .whereType<String>()
+            .toSet(),
+        previouslyPendingIds: previousPendingIds,
+        expectedGeneration: generation,
+      );
+      await _ingestNewCareInvitations(
+        previousPendingIds,
+        expectedGeneration: generation,
+      );
+      _careInvitationPollBackoffIndex = 0;
     } on ApiException catch (error) {
-      careInvitations = careInvitations
-          .where((item) => !_isPendingCareInvitation(item))
-          .toList(growable: false);
+      if (!_isCurrentSessionGeneration(generation)) return;
       careInvitationStatus = _apiErrorMessage(error, fallback: '关爱邀请暂时无法读取');
+      _careInvitationPollBackoffIndex = (_careInvitationPollBackoffIndex + 1)
+          .clamp(0, 3);
     }
-    notifyListeners();
+    if (_isCurrentSessionGeneration(generation)) notifyListeners();
   }
 
   Future<bool> respondCareInvitation({
@@ -1408,6 +1926,7 @@ class AppController extends ChangeNotifier {
       throw const FeatureNotConfiguredException('远程关爱暂时无法使用，请稍后再试');
     }
     await careApi.respondCareInvitation(id: id, accepted: accepted);
+    await markNotificationEventRead('care-invitation-$id');
     await refreshCareInvitations();
     await refreshCare();
   });
@@ -1465,17 +1984,21 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> refreshMemberProfile() async {
+    final generation = _sessionGeneration;
     if (session == null) {
       memberProfile = const {};
       notifyListeners();
       return;
     }
     try {
-      memberProfile = await _api.getMemberProfile();
+      final profile = await _api.getMemberProfile();
+      if (!_isCurrentSessionGeneration(generation)) return;
+      memberProfile = profile;
     } on ApiException catch (error) {
+      if (!_isCurrentSessionGeneration(generation)) return;
       errorMessage = _apiErrorMessage(error, fallback: '个人资料暂时无法读取');
     }
-    notifyListeners();
+    if (_isCurrentSessionGeneration(generation)) notifyListeners();
   }
 
   Future<bool> saveMemberProfile({
@@ -1534,18 +2057,21 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> refreshActivityGoals() async {
+    final generation = _sessionGeneration;
     if (session == null) return;
     try {
       final goals = await _api.getActivityGoals();
+      if (!_isCurrentSessionGeneration(generation)) return;
       stepGoal = num.tryParse('${goals['steps'] ?? ''}')?.toInt() ?? stepGoal;
       distanceGoal =
           num.tryParse('${goals['juli'] ?? ''}')?.toDouble() ?? distanceGoal;
       calorieGoal =
           num.tryParse('${goals['reliang'] ?? ''}')?.toInt() ?? calorieGoal;
     } on ApiException catch (error) {
+      if (!_isCurrentSessionGeneration(generation)) return;
       errorMessage = _apiErrorMessage(error, fallback: '目标暂时无法读取');
     }
-    notifyListeners();
+    if (_isCurrentSessionGeneration(generation)) notifyListeners();
   }
 
   Future<bool> saveActivityGoals({
@@ -1655,9 +2181,542 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshNotifications() => refreshNotificationHistory();
+  Future<bool> shouldExplainNotificationPermission() async {
+    if (!notificationServiceConfigured || session == null) return false;
+    return _notificationService.shouldExplainPermission();
+  }
+
+  Future<void> markNotificationPermissionExplanationShown() =>
+      _notificationService.markPermissionExplanationShown();
+
+  Future<void> requestNotificationPermission() async {
+    if (session == null) return;
+    await _vault.writePrivacyConsentGranted(true);
+    _privacyConsentGranted = true;
+    await _notificationService.activateAfterPrivacyConsent();
+    await _notificationService.requestPermission();
+    notificationPermissionEnabled = await _notificationService
+        .isPermissionEnabled();
+    if (notificationPermissionEnabled) unawaited(_registerPushDevice());
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<void> openNotificationSettings() =>
+      _notificationService.openSettings();
+
+  void setAppForeground(bool foreground) {
+    _appIsForeground = foreground;
+    if (!foreground) {
+      _careInvitationPollTimer?.cancel();
+      return;
+    }
+    _scheduleCareInvitationPoll(const Duration(seconds: 30));
+  }
+
+  Future<void> handleAppResumed() async {
+    if (_disposed) return;
+    _appIsForeground = true;
+    if (session != null && _privacyConsentGranted) {
+      try {
+        await _notificationService.activateAfterPrivacyConsent();
+        notificationPermissionEnabled = await _notificationService
+            .isPermissionEnabled();
+      } catch (_) {
+        notificationPermissionEnabled = false;
+      }
+    } else {
+      notificationPermissionEnabled = false;
+    }
+    final operations = <Future<void>>[restoreWearableConnection()];
+    if (session != null) {
+      operations.addAll([
+        refreshCareInvitations(),
+        _refreshRemoteNotificationUnreadCount(),
+      ]);
+      unawaited(_registerPushDevice());
+    }
+    await Future.wait(operations);
+    _scheduleCareInvitationPoll(const Duration(seconds: 30));
+    if (!_disposed) notifyListeners();
+  }
+
+  NotificationRouteIntent? consumePendingNotificationRoute() {
+    if (session == null) return null;
+    final value = pendingNotificationRoute;
+    if (value == null) return null;
+    pendingNotificationRoute = null;
+    notifyListeners();
+    return value;
+  }
+
+  Future<void> markNotificationEventRead(String eventId) async {
+    if (!_notificationStorageReady) return;
+    final remoteEventId = notificationInboxEvents
+        .where((event) => event.eventId == eventId)
+        .map((event) => event.remoteEventId)
+        .whereType<String>()
+        .firstOrNull;
+    await _notificationInboxService.markRead(eventId);
+    await _refreshNotificationInboxState();
+    unawaited(
+      _markRemoteNotificationEventReadBestEffort(remoteEventId ?? eventId),
+    );
+  }
+
+  Future<void> markAllHealthWarningsRead() async {
+    if (!_notificationStorageReady) return;
+    final generation = _sessionGeneration;
+    final unread = notificationInboxEvents
+        .where(
+          (event) =>
+              event.type == NotificationEventType.healthWarning &&
+              !event.isRead,
+        )
+        .toList(growable: false);
+    for (final event in unread) {
+      await _notificationInboxService.markRead(event.eventId);
+      if (event.source != NotificationEventSource.device) {
+        unawaited(
+          _markRemoteNotificationEventReadBestEffort(
+            event.remoteEventId ?? event.eventId,
+            expectedGeneration: generation,
+          ),
+        );
+      }
+    }
+    await _refreshNotificationInboxState();
+  }
+
+  Future<void> _registerPushDevice() {
+    final generation = _sessionGeneration;
+    final active = _pushRegistration;
+    if (active != null && _pushRegistrationGeneration == generation) {
+      return active;
+    }
+    final operation = _registerPushDeviceNow(generation);
+    _pushRegistration = operation;
+    _pushRegistrationGeneration = generation;
+    return operation.whenComplete(() {
+      if (identical(_pushRegistration, operation)) {
+        _pushRegistration = null;
+        _pushRegistrationGeneration = null;
+      }
+    });
+  }
+
+  Future<void> _registerPushDeviceNow(int generation) async {
+    final notificationApi = _api is SaydianNotificationApi
+        ? _api as SaydianNotificationApi
+        : null;
+    if (session == null ||
+        !_privacyConsentGranted ||
+        notificationApi == null ||
+        !_notificationService.isConfigured ||
+        !_notificationService.isActivated) {
+      return;
+    }
+    final platform = switch (defaultTargetPlatform) {
+      TargetPlatform.iOS => 'ios',
+      TargetPlatform.android => 'android',
+      _ => null,
+    };
+    if (platform == null) return;
+    try {
+      await _retryPendingPushUnregister(notificationApi, generation);
+      if (!_isCurrentSessionGeneration(generation)) return;
+      final registrationId = await _notificationService.registrationId();
+      if (!_isCurrentSessionGeneration(generation)) return;
+      if (registrationId == null || registrationId.trim().isEmpty) return;
+      final package = await PackageInfo.fromPlatform();
+      if (!_isCurrentSessionGeneration(generation)) return;
+      final installationId = await _notificationService.installationId();
+      if (!_isCurrentSessionGeneration(generation)) return;
+      final registered = await notificationApi.registerPushDevice(
+        installationId: installationId,
+        registrationId: registrationId,
+        platform: platform,
+        appVersion: package.version,
+        buildNumber: int.tryParse(package.buildNumber),
+      );
+      if (!_isCurrentSessionGeneration(generation)) return;
+      if (registered) {
+        final pending = await _vault.readPendingPushUnregisterInstallationId();
+        if (!_isCurrentSessionGeneration(generation)) return;
+        if (pending == installationId) {
+          await _vault.clearPendingPushUnregisterInstallationId();
+        }
+      }
+    } on ApiException {
+      // The deployed server may not have the optional push-device contract yet.
+    } on PlatformException {
+      // Registration will be retried on the next foreground transition.
+    } catch (_) {
+      // Push setup must never block login or local health features.
+    }
+  }
+
+  Future<void> _unregisterPushDevice() async {
+    final notificationApi = _api is SaydianNotificationApi
+        ? _api as SaydianNotificationApi
+        : null;
+    if (notificationApi == null || !_notificationService.isConfigured) return;
+    final installationId = await _notificationService.installationId();
+    await _vault.writePendingPushUnregisterInstallationId(installationId);
+    try {
+      final removed = await notificationApi.unregisterPushDevice(
+        installationId: installationId,
+      );
+      if (removed) {
+        await _vault.clearPendingPushUnregisterInstallationId();
+      }
+    } on ApiException {
+      // Logout still clears the local session if the optional endpoint is absent.
+    } catch (_) {
+      // A later authenticated registration replaces any stale association.
+    }
+  }
+
+  Future<void> _retryPendingPushUnregister(
+    SaydianNotificationApi notificationApi,
+    int generation,
+  ) async {
+    final installationId = await _vault
+        .readPendingPushUnregisterInstallationId();
+    if (!_isCurrentSessionGeneration(generation)) return;
+    if (installationId == null) return;
+    try {
+      final removed = await notificationApi.unregisterPushDevice(
+        installationId: installationId,
+      );
+      if (!_isCurrentSessionGeneration(generation)) return;
+      if (removed &&
+          await _vault.readPendingPushUnregisterInstallationId() ==
+              installationId &&
+          _isCurrentSessionGeneration(generation)) {
+        await _vault.clearPendingPushUnregisterInstallationId();
+      }
+    } on ApiException {
+      // Keep the installation-only retry marker for the next authenticated run.
+    } catch (_) {
+      // No account, token, or registration id is persisted in the retry marker.
+    }
+  }
+
+  Future<void> _markRemoteNotificationEventReadBestEffort(
+    String eventId, {
+    int? expectedGeneration,
+  }) async {
+    final generation = expectedGeneration ?? _sessionGeneration;
+    final notificationApi = _api is SaydianNotificationApi
+        ? _api as SaydianNotificationApi
+        : null;
+    if (session == null || notificationApi == null) return;
+    try {
+      final marked = await notificationApi.markNotificationEventRead(
+        eventId: eventId,
+      );
+      if (marked && _isCurrentSessionGeneration(generation)) {
+        await _refreshRemoteNotificationUnreadCount();
+      }
+    } on ApiException {
+      // The optional stable event-id endpoint may not be deployed yet.
+    } catch (_) {
+      // Local read state and navigation must not be blocked by the server.
+    }
+  }
+
+  Future<void> _refreshRemoteNotificationUnreadCount() async {
+    final generation = _sessionGeneration;
+    final repository = _notificationInboxRepository;
+    final notificationApi = _api is SaydianNotificationApi
+        ? _api as SaydianNotificationApi
+        : null;
+    if (session == null || notificationApi == null) {
+      remoteNotificationUnreadCount = null;
+      await _refreshNotificationInboxState();
+      return;
+    }
+    try {
+      final unreadCount = await notificationApi.getNotificationUnreadCount();
+      if (!_isCurrentSessionGeneration(generation) ||
+          !identical(repository, _notificationInboxRepository)) {
+        return;
+      }
+      remoteNotificationUnreadCount = unreadCount;
+      if (remoteNotificationUnreadCount == 0 && _notificationStorageReady) {
+        final readAt = DateTime.now().toUtc();
+        for (final event in await repository.list()) {
+          if (!_isCurrentSessionGeneration(generation) ||
+              !identical(repository, _notificationInboxRepository)) {
+            return;
+          }
+          if (event.source != NotificationEventSource.device && !event.isRead) {
+            await repository.markRead(eventId: event.eventId, readAt: readAt);
+          }
+        }
+      }
+    } on ApiException {
+      if (!_isCurrentSessionGeneration(generation)) return;
+      remoteNotificationUnreadCount = null;
+    }
+    if (!_isCurrentSessionGeneration(generation)) return;
+    await _refreshNotificationInboxState();
+  }
+
+  Future<void> _refreshNotificationInboxState() async {
+    final generation = _sessionGeneration;
+    if (!_notificationStorageReady) {
+      notificationInboxEvents = const [];
+      notificationUnreadCount = remoteNotificationUnreadCount ?? 0;
+      return;
+    }
+    final repository = _notificationInboxRepository;
+    final events = await repository.list();
+    if (!_isCurrentSessionGeneration(generation) ||
+        !identical(repository, _notificationInboxRepository)) {
+      return;
+    }
+    notificationInboxEvents = events;
+    final localDeviceHealthUnread = notificationInboxEvents
+        .where(
+          (event) =>
+              event.type == NotificationEventType.healthWarning &&
+              event.source == NotificationEventSource.device &&
+              !event.isRead,
+        )
+        .length;
+    final localServerMirrorUnread = notificationInboxEvents
+        .where(
+          (event) =>
+              event.source != NotificationEventSource.device && !event.isRead,
+        )
+        .length;
+    final remoteUnread = remoteNotificationUnreadCount;
+    final serverUnread = remoteUnread ?? localServerMirrorUnread;
+    notificationUnreadCount = localDeviceHealthUnread + serverUnread;
+    unawaited(_notificationService.setBadge(notificationUnreadCount));
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<NotificationEvent?> _ingestNotificationPayload(
+    Map<String, Object?> payload, {
+    bool showLocalNotification = false,
+    int? expectedGeneration,
+  }) {
+    final generation = expectedGeneration ?? _sessionGeneration;
+    final completer = Completer<NotificationEvent?>();
+    _notificationIngestTail = _notificationIngestTail.then((_) async {
+      try {
+        completer.complete(
+          await _ingestNotificationPayloadNow(
+            payload,
+            showLocalNotification: showLocalNotification,
+            expectedGeneration: generation,
+          ),
+        );
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  Future<NotificationEvent?> _ingestNotificationPayloadNow(
+    Map<String, Object?> payload, {
+    required bool showLocalNotification,
+    required int expectedGeneration,
+  }) async {
+    if (!_notificationStorageReady ||
+        !_isCurrentSessionGeneration(expectedGeneration) ||
+        session == null) {
+      return null;
+    }
+    final repository = _notificationInboxRepository;
+    final inbox = _notificationInboxService;
+    final before = await repository.list();
+    if (!_isCurrentSessionGeneration(expectedGeneration) ||
+        !identical(repository, _notificationInboxRepository)) {
+      return null;
+    }
+    final event = await inbox.ingest(payload);
+    if (!_isCurrentSessionGeneration(expectedGeneration) ||
+        !identical(repository, _notificationInboxRepository)) {
+      return null;
+    }
+    if (event == null) return null;
+    final isNew = !before.any((item) => item.eventId == event.eventId);
+    if (isNew && event.source != NotificationEventSource.device) {
+      // A newly delivered server event is newer than the last unread-count
+      // snapshot. Fall back to the local mirror until the next successful
+      // authoritative refresh, otherwise a cached zero would hide the badge.
+      remoteNotificationUnreadCount = null;
+    }
+    await _refreshNotificationInboxState();
+    if (!_isCurrentSessionGeneration(expectedGeneration)) return null;
+    if (isNew && showLocalNotification) {
+      final entityId = event.entityId ?? event.eventId;
+      switch (event.type) {
+        case NotificationEventType.healthWarning:
+          await _notificationService.showHealthWarning(
+            eventId: event.eventId,
+            entityId: entityId,
+            createdAt: event.createdAt,
+            unreadCount: notificationUnreadCount,
+          );
+        case NotificationEventType.careInvitation:
+          await _notificationService.showCareInvitation(
+            eventId: event.eventId,
+            entityId: entityId,
+            createdAt: event.createdAt,
+            unreadCount: notificationUnreadCount,
+          );
+        case NotificationEventType.system:
+          break;
+      }
+    }
+    return event;
+  }
+
+  Future<void> _handleNotificationPayload(
+    Map<String, Object?> payload, {
+    bool opened = false,
+  }) async {
+    final generation = _sessionGeneration;
+    final normalizedPayload = Map<String, Object?>.from(payload);
+    if ('${normalizedPayload['event_id'] ?? ''}'.trim().isEmpty) return;
+    final parsed = NotificationEvent.tryParse(normalizedPayload);
+    if (parsed != null &&
+        parsed.type == NotificationEventType.careInvitation &&
+        parsed.entityId != null) {
+      normalizedPayload['remote_event_id'] = parsed.eventId;
+      normalizedPayload['event_id'] = 'care-invitation-${parsed.entityId}';
+    }
+    if (session == null) {
+      if (opened && parsed != null) {
+        pendingNotificationRoute = _notificationRouteService.resolve(parsed);
+        if (!_disposed) notifyListeners();
+      }
+      return;
+    }
+    final deliveryKind = '${normalizedPayload['_delivery_kind'] ?? ''}'
+        .trim()
+        .toLowerCase();
+    final systemAlreadyPresented =
+        switch (normalizedPayload['_system_already_presented']) {
+          true => true,
+          final num value => value.toInt() == 1,
+          final String value =>
+            value.trim().toLowerCase() == 'true' || value == '1',
+          _ => false,
+        };
+    final event = await _ingestNotificationPayload(
+      normalizedPayload,
+      showLocalNotification:
+          !opened && deliveryKind == 'data' && !systemAlreadyPresented,
+      expectedGeneration: generation,
+    );
+    if (event == null || !_isCurrentSessionGeneration(generation)) return;
+    if (opened) {
+      await _notificationInboxService.markRead(event.eventId);
+      if (!_isCurrentSessionGeneration(generation)) return;
+      pendingNotificationRoute = _notificationRouteService.resolve(event);
+      await _refreshNotificationInboxState();
+      unawaited(
+        _markRemoteNotificationEventReadBestEffort(
+          parsed?.eventId ?? event.eventId,
+          expectedGeneration: generation,
+        ),
+      );
+      if (!_disposed) notifyListeners();
+    }
+    if (event.type == NotificationEventType.careInvitation) {
+      unawaited(refreshCareInvitations());
+    }
+  }
+
+  Future<void> _ingestNewCareInvitations(
+    Set<String> previousIds, {
+    required int expectedGeneration,
+  }) async {
+    if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+    for (final invitation in pendingCareInvitations) {
+      if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+      final id = _careInvitationId(invitation);
+      if (id == null || previousIds.contains(id)) continue;
+      await _ingestNotificationPayload(
+        <String, Object?>{
+          'schema_version': NotificationEvent.schemaVersion,
+          'event_id': 'care-invitation-$id',
+          'event_type': NotificationEventType.careInvitation.wireName,
+          'entity_id': id,
+          'source': NotificationEventSource.polling.wireName,
+          'created_at': DateTime.now().toUtc().toIso8601String(),
+        },
+        showLocalNotification: true,
+        expectedGeneration: expectedGeneration,
+      );
+    }
+  }
+
+  Future<void> _reconcileCareInvitationEvents(
+    Set<String> pendingIds, {
+    required Set<String> previouslyPendingIds,
+    required int expectedGeneration,
+  }) async {
+    if (!_notificationStorageReady ||
+        !_isCurrentSessionGeneration(expectedGeneration)) {
+      return;
+    }
+    final repository = _notificationInboxRepository;
+    final readAt = DateTime.now().toUtc();
+    var changed = false;
+    for (final event in await repository.list()) {
+      if (!_isCurrentSessionGeneration(expectedGeneration) ||
+          !identical(repository, _notificationInboxRepository)) {
+        return;
+      }
+      if (event.type != NotificationEventType.careInvitation ||
+          event.isRead ||
+          event.entityId == null ||
+          !previouslyPendingIds.contains(event.entityId) ||
+          (event.entityId != null && pendingIds.contains(event.entityId))) {
+        continue;
+      }
+      await repository.markRead(eventId: event.eventId, readAt: readAt);
+      changed = true;
+    }
+    if (changed) await _refreshNotificationInboxState();
+  }
+
+  void _scheduleCareInvitationPoll([Duration? delay]) {
+    _careInvitationPollTimer?.cancel();
+    if (_disposed || !_appIsForeground || session == null) return;
+    const delays = <Duration>[
+      Duration(seconds: 30),
+      Duration(seconds: 60),
+      Duration(seconds: 120),
+      Duration(seconds: 300),
+    ];
+    final nextDelay = delay ?? delays[_careInvitationPollBackoffIndex];
+    _careInvitationPollTimer = Timer(nextDelay, () async {
+      if (_disposed || !_appIsForeground || session == null) return;
+      try {
+        await refreshCareInvitations();
+        await _refreshRemoteNotificationUnreadCount();
+      } finally {
+        _scheduleCareInvitationPoll();
+      }
+    });
+  }
+
+  Future<void> refreshNotifications() async {
+    await refreshNotificationHistory();
+    await _refreshRemoteNotificationUnreadCount();
+    await _refreshNotificationInboxState();
+  }
 
   Future<void> refreshNotificationHistory({bool allPages = false}) async {
+    final generation = _sessionGeneration;
     await Future<void>.delayed(Duration.zero);
     if (session == null) {
       notifications = const [];
@@ -1669,12 +2728,15 @@ class AppController extends ChangeNotifier {
     notifyListeners();
     try {
       if (!allPages) {
-        notifications = await _api.getNotifications();
+        final fetched = await _api.getNotifications();
+        if (!_isCurrentSessionGeneration(generation)) return;
+        notifications = fetched;
       } else {
         final merged = <Map<String, Object?>>[];
         final seen = <String>{};
         for (var page = 1; page <= 100; page++) {
           final values = await _api.getNotifications(page: page);
+          if (!_isCurrentSessionGeneration(generation)) return;
           if (values.isEmpty) break;
           var added = 0;
           for (final value in values) {
@@ -1692,23 +2754,38 @@ class AppController extends ChangeNotifier {
           }
           if (added == 0) break;
         }
+        if (!_isCurrentSessionGeneration(generation)) return;
         notifications = merged;
       }
       notificationStatus = notifications.isEmpty ? '暂无消息' : '已加载';
     } on ApiException catch (error) {
+      if (!_isCurrentSessionGeneration(generation)) return;
       notificationStatus = _apiErrorMessage(error, fallback: '消息暂时无法加载');
     }
-    notifyListeners();
+    if (_isCurrentSessionGeneration(generation)) notifyListeners();
   }
 
   Future<Map<String, Object?>> loadNotification(int id) async {
+    Map<String, Object?> value;
     try {
-      return await _api.getNotification(id);
+      value = await _api.getNotification(id);
     } on ApiException catch (error) {
       errorMessage = _apiErrorMessage(error, fallback: '消息暂时无法加载');
       notifyListeners();
       return const {};
     }
+    final notificationApi = _api is SaydianNotificationApi
+        ? _api as SaydianNotificationApi
+        : null;
+    if (notificationApi != null && id > 0) {
+      try {
+        await notificationApi.markNotificationRead(id: id);
+        await _refreshRemoteNotificationUnreadCount();
+      } on ApiException {
+        // The detail remains usable if the optional read endpoint is absent.
+      }
+    }
+    return value;
   }
 
   Future<Map<String, Object?>> loadCareMemberPreview(
@@ -1717,10 +2794,9 @@ class AppController extends ChangeNotifier {
     int? memberId,
   }) async {
     try {
-      final selected = day ?? DateTime.now();
       return await _api.getCareMemberPreview(
         id: id,
-        day: selected.toIso8601String().substring(0, 10),
+        day: formatCareCalendarDay(day),
         memberId: memberId,
       );
     } on ApiException catch (error) {
@@ -2298,6 +3374,14 @@ class AppController extends ChangeNotifier {
         syncStatus = '正在读取手表数据 ${(deviceSyncProgress * 100).round()}%';
       }
     } else if (event.type == 'healthRecord') {
+      final eventGeneration =
+          _activeMeasurementSessionGeneration ??
+          _connectedDeviceSessionGeneration ??
+          (connectedDevice == null ? _sessionGeneration : null);
+      if (eventGeneration == null ||
+          !_isCurrentSessionGeneration(eventGeneration)) {
+        return;
+      }
       try {
         var record = HealthRecord.fromJson(event.payload);
         if (_activeMeasurementMetric == record.metric &&
@@ -2308,13 +3392,17 @@ class AppController extends ChangeNotifier {
         if (!hasSaneWearableTransportValues(record)) {
           _finishRejectedWearableMeasurement(record);
         } else {
-          unawaited(_saveWearableRecord(record));
+          unawaited(
+            _saveWearableRecord(record, expectedGeneration: eventGeneration),
+          );
         }
       } catch (_) {
         errorMessage = '收到无法识别的设备数据';
       }
     } else if (event.type == 'healthDataReady') {
-      if (connectedDevice != null && !isDeviceSyncing) {
+      if (connectedDevice != null &&
+          _connectedDeviceSessionGeneration == _sessionGeneration &&
+          !isDeviceSyncing) {
         unawaited(syncDeviceData());
       }
     } else if (event.type == 'measurementProgress') {
@@ -2372,6 +3460,7 @@ class AppController extends ChangeNotifier {
       if (deviceState == DeviceConnectionState.connecting) return;
       _invalidateDeviceSync();
       connectedDevice = null;
+      _connectedDeviceSessionGeneration = null;
       _latestDeviceDetails = null;
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.disconnected;
@@ -2417,6 +3506,7 @@ class AppController extends ChangeNotifier {
     _measurementTimeout?.cancel();
     _measurementTimeout = null;
     _activeMeasurementMetric = null;
+    _activeMeasurementSessionGeneration = null;
     measurementProgress = 0;
     measurementSamples = const [];
     measurementWearConfirmed = false;
@@ -2431,6 +3521,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _restoreReconnectedDevice(Map<String, Object?> payload) async {
+    final sessionGeneration = _sessionGeneration;
     final device = DeviceInfo.fromMap(payload);
     if (device.id.trim().isEmpty ||
         deviceState != DeviceConnectionState.disconnected) {
@@ -2440,12 +3531,17 @@ class AppController extends ChangeNotifier {
     errorMessage = null;
     try {
       deviceMachine.transition(DeviceConnectionState.connecting);
+      if (!_isCurrentSessionGeneration(sessionGeneration)) return;
+      _connectedDeviceSessionGeneration = sessionGeneration;
       connectedDevice = _mergeDeviceDetails(device);
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.loading;
       deviceMachine.transition(DeviceConnectionState.authenticating);
       await refreshDeviceCapabilities(announceFailure: false);
-      if (connectedDevice?.id != device.id) return;
+      if (!_isCurrentSessionGeneration(sessionGeneration) ||
+          connectedDevice?.id != device.id) {
+        return;
+      }
       deviceMachine.transition(DeviceConnectionState.syncing);
       syncStatus = '设备已自动重连';
       deviceMachine.transition(DeviceConnectionState.ready);
@@ -2453,6 +3549,7 @@ class AppController extends ChangeNotifier {
       unawaited(_syncInitialDeviceData(device.id));
     } on PlatformException catch (error) {
       connectedDevice = null;
+      _connectedDeviceSessionGeneration = null;
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.disconnected;
       errorMessage = _wearableErrorMessage(error, fallback: '设备重连失败');
@@ -2462,6 +3559,7 @@ class AppController extends ChangeNotifier {
       notifyListeners();
     } catch (_) {
       connectedDevice = null;
+      _connectedDeviceSessionGeneration = null;
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.disconnected;
       errorMessage = '设备重连失败，请重新连接';
@@ -2499,19 +3597,27 @@ class AppController extends ChangeNotifier {
       firmwareVersion: (firmware?.isNotEmpty ?? false)
           ? firmware
           : device.firmwareVersion,
+      battery: details.battery ?? device.battery,
       batteryPercent: details.batteryPercent ?? device.batteryPercent,
       rssi: device.rssi ?? details.rssi,
       lastSyncAt: device.lastSyncAt ?? details.lastSyncAt,
     );
   }
 
-  Future<void> _saveWearableRecord(HealthRecord record) async {
-    if (!hasSaneWearableTransportValues(record)) return;
+  Future<void> _saveWearableRecord(
+    HealthRecord record, {
+    required int expectedGeneration,
+  }) async {
+    if (!_isCurrentSessionGeneration(expectedGeneration) ||
+        !hasSaneWearableTransportValues(record)) {
+      return;
+    }
     final shouldStopMeasurement = _activeMeasurementMetric == record.metric;
     if (shouldStopMeasurement) {
       _measurementTimeout?.cancel();
       _measurementTimeout = null;
       _activeMeasurementMetric = null;
+      _activeMeasurementSessionGeneration = null;
       measurementErrorMessage = null;
     }
 
@@ -2526,7 +3632,7 @@ class AppController extends ChangeNotifier {
     if (healthRecords.length > 200) {
       healthRecords = healthRecords.take(200).toList(growable: false);
     }
-    _evaluateHealthWarning(record);
+    _evaluateHealthWarning(record, expectedGeneration: expectedGeneration);
     if (shouldStopMeasurement &&
         deviceState == DeviceConnectionState.measuring) {
       deviceMachine.transition(DeviceConnectionState.ready);
@@ -2543,9 +3649,12 @@ class AppController extends ChangeNotifier {
     }
 
     try {
+      if (!_isCurrentSessionGeneration(expectedGeneration)) return;
       await _healthStore.upsertImmediate(record);
-      await _refreshHealthRecordCache();
-      if (!_disposed) notifyListeners();
+      if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+      await _refreshHealthRecordCache(expectedGeneration: expectedGeneration);
+      if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+      notifyListeners();
       unawaited(synchronizeCloud());
     } catch (error, stackTrace) {
       debugPrint(
@@ -2553,11 +3662,15 @@ class AppController extends ChangeNotifier {
         '$error\n$stackTrace',
       );
       errorMessage = '测量结果已显示，但暂时无法保存到本机';
-      if (!_disposed) notifyListeners();
+      if (_isCurrentSessionGeneration(expectedGeneration)) notifyListeners();
     }
   }
 
-  void _evaluateHealthWarning(HealthRecord record) {
+  void _evaluateHealthWarning(
+    HealthRecord record, {
+    required int expectedGeneration,
+  }) {
+    if (!_isCurrentSessionGeneration(expectedGeneration)) return;
     if (record.measuredAt.isBefore(
       DateTime.now().toUtc().subtract(const Duration(minutes: 5)),
     )) {
@@ -2610,17 +3723,39 @@ class AppController extends ChangeNotifier {
       ...healthWarningAlerts.where((item) => item.id != alert.id),
     ];
     unawaited(_healthStore.saveHealthWarningAlert(alert));
+    final entityId = _stableIdentifierHash(record.id);
+    unawaited(
+      _ingestNotificationPayload(
+        <String, Object?>{
+          'schema_version': NotificationEvent.schemaVersion,
+          'event_id': 'health-warning-$entityId',
+          'event_type': NotificationEventType.healthWarning.wireName,
+          'entity_id': entityId,
+          'source': NotificationEventSource.device.wireName,
+          'created_at': record.measuredAt.toUtc().toIso8601String(),
+        },
+        showLocalNotification: true,
+        expectedGeneration: expectedGeneration,
+      ),
+    );
     activeHealthWarningAlert = alert;
   }
 
-  Future<void> _refreshHealthRecordCache() async {
+  Future<void> _refreshHealthRecordCache({
+    required int expectedGeneration,
+  }) async {
     final storedRecent = await _healthStore.recent();
+    if (!_isCurrentSessionGeneration(expectedGeneration)) return;
     final storedLatest = await _healthStore.latestForEachMetric();
+    if (!_isCurrentSessionGeneration(expectedGeneration)) return;
     final invalidIds = [...storedRecent, ...storedLatest]
         .where((record) => !hasSaneWearableTransportValues(record))
         .map((record) => record.id)
         .toSet();
-    if (invalidIds.isNotEmpty) await _healthStore.markInvalid(invalidIds);
+    if (invalidIds.isNotEmpty) {
+      await _healthStore.markInvalid(invalidIds);
+      if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+    }
     final recent = storedRecent.where(hasSaneWearableTransportValues);
     final latest = storedLatest.where(hasSaneWearableTransportValues);
     final byId = <String, HealthRecord>{
@@ -2634,10 +3769,15 @@ class AppController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _measurementTimeout?.cancel();
+    _careInvitationPollTimer?.cancel();
     _invalidateDeviceSync();
     unawaited(_wearableEvents?.cancel());
     unawaited(_deviceStates?.cancel());
     unawaited(_connectivity?.cancel());
+    unawaited(_pushReceivedEvents?.cancel());
+    unawaited(_pushOpenedEvents?.cancel());
+    unawaited(_pushPermissionEvents?.cancel());
+    unawaited(_notificationService.dispose());
     deviceMachine.dispose();
     unawaited(_healthStore.close());
     super.dispose();
@@ -2646,3 +3786,20 @@ class AppController extends ChangeNotifier {
 
 int? _cartInt(Object? value) =>
     value is num ? value.toInt() : int.tryParse('${value ?? ''}');
+
+String _stableIdentifierHash(String source) {
+  final normalized = source.trim();
+  if (normalized.length <= 120 &&
+      RegExp(r'^[A-Za-z0-9._:-]+$').hasMatch(normalized)) {
+    return normalized;
+  }
+  return sha256.convert(utf8.encode(source)).toString();
+}
+
+String formatCareCalendarDay(DateTime? day, {DateTime? now}) {
+  final selected =
+      day ?? (now ?? DateTime.now()).toUtc().add(const Duration(hours: 8));
+  String twoDigits(int value) => value.toString().padLeft(2, '0');
+  return '${selected.year.toString().padLeft(4, '0')}-'
+      '${twoDigits(selected.month)}-${twoDigits(selected.day)}';
+}

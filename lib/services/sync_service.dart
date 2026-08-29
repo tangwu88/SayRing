@@ -21,16 +21,23 @@ class HealthSyncService {
   final HealthStore _store;
   final SaydianApi _api;
 
-  Future<SyncOutcome> synchronizeNow() async {
+  Future<SyncOutcome> synchronizeNow({bool Function()? isCurrent}) async {
+    bool canContinue() => isCurrent?.call() ?? true;
     var uploaded = 0;
     var rejected = 0;
     var quarantined = 0;
     while (true) {
+      if (!canContinue()) {
+        return SyncOutcome(uploaded: uploaded, rejected: rejected);
+      }
       // ECG records contain a calibrated waveform and can be much larger than
       // ordinary health rows. Keep cloud batches small so reading an old
       // offline queue never delays a freshly completed manual measurement for
       // tens of seconds. Uploads still continue until the queue is empty.
       final pending = await _store.pending(limit: 10);
+      if (!canContinue()) {
+        return SyncOutcome(uploaded: uploaded, rejected: rejected);
+      }
       if (pending.isEmpty) {
         return SyncOutcome(
           uploaded: uploaded,
@@ -43,19 +50,34 @@ class HealthSyncService {
           .toList();
       if (invalid.isNotEmpty) {
         await _store.markInvalid(invalid.map((record) => record.id));
+        if (!canContinue()) {
+          return SyncOutcome(uploaded: uploaded, rejected: rejected);
+        }
         quarantined += invalid.length;
         rejected += invalid.length;
       }
       final records = pending.where(hasSaneWearableTransportValues).toList();
       if (records.isEmpty) continue;
       final cursor = await _store.readCursor();
+      if (!canContinue()) {
+        return SyncOutcome(uploaded: uploaded, rejected: rejected);
+      }
       try {
         final result = await _api.uploadHealthBatch(
           SyncBatch(cursor: cursor, records: records),
         );
+        if (!canContinue()) {
+          return SyncOutcome(uploaded: uploaded, rejected: rejected);
+        }
         await _store.markSynced(result.acceptedIds);
+        if (!canContinue()) {
+          return SyncOutcome(uploaded: uploaded, rejected: rejected);
+        }
         if (result.nextCursor != null) {
           await _store.writeCursor(result.nextCursor!);
+          if (!canContinue()) {
+            return SyncOutcome(uploaded: uploaded, rejected: rejected);
+          }
         }
         uploaded += result.acceptedIds.length;
         rejected += result.rejected.length;

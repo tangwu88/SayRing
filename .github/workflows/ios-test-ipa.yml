@@ -28,13 +28,43 @@ jobs:
     name: Build signed Ad Hoc IPA
     runs-on: macos-26
     timeout-minutes: 45
+    environment: ios-adhoc
     env:
       IOS_BUNDLE_ID: cc.saidian.app
       FLUTTER_VERSION: 3.44.9
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Gate source revision before loading signing secrets
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git fetch origin main --no-tags
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            [[ "$RELEASE_TAG" =~ ^ios-test-v[0-9]+\.[0-9]+\.[0-9]+\+[1-9][0-9]*$ ]] || {
+              echo "iOS test tag must be ios-test-vX.Y.Z+BUILD." >&2
+              exit 1
+            }
+            [[ "$(git cat-file -t "$RELEASE_TAG")" == "tag" ]] || {
+              echo "Signed Ad Hoc builds require an annotated tag." >&2
+              exit 1
+            }
+            [[ "$(git rev-list -n 1 "$RELEASE_TAG")" == "$(git rev-parse HEAD)" ]] || {
+              echo "Checked-out commit does not match the iOS test tag." >&2
+              exit 1
+            }
+          fi
+          git merge-base --is-ancestor HEAD origin/main || {
+            echo "Signed Ad Hoc builds must use a commit already contained in origin/main." >&2
+            exit 1
+          }
+          [[ -z "$(git status --porcelain)" ]]
 
       - name: Select Xcode 26.5
         run: |
@@ -44,37 +74,101 @@ jobs:
           xcodebuild -version
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
       - name: Resolve build metadata
+        id: metadata
         env:
           INPUT_BUILD_NAME: ${{ inputs.build_name }}
           INPUT_BUILD_NUMBER: ${{ inputs.build_number }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
           CONFIGURED_API_BASE_URL: ${{ vars.SAYDIAN_API_BASE_URL }}
+          CONFIGURED_UPDATE_MANIFEST_URL: ${{ vars.SAYDIAN_UPDATE_MANIFEST_URL }}
+          CONFIGURED_UPDATE_ALLOWED_HOSTS: ${{ vars.SAYDIAN_UPDATE_ALLOWED_HOSTS }}
+          CONFIGURED_JPUSH_APP_KEY: ${{ secrets.JPUSH_APP_KEY }}
         run: |
           set -euo pipefail
 
-          build_name="${INPUT_BUILD_NAME:-}"
-          if [[ -z "$build_name" ]]; then
-            build_name="$(awk '/^version:/{split($2, version, "+"); print version[1]; exit}' pubspec.yaml)"
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            release_metadata="${RELEASE_TAG#ios-test-v}"
+            build_name="${release_metadata%%+*}"
+            build_number="${release_metadata##*+}"
+          else
+            build_name="${INPUT_BUILD_NAME:-}"
+            if [[ -z "$build_name" ]]; then
+              build_name="$(awk '/^version:/{split($2, version, "+"); print version[1]; exit}' pubspec.yaml)"
+            fi
+            build_number="${INPUT_BUILD_NUMBER:-$GITHUB_RUN_NUMBER}"
           fi
+          [[ "$build_name" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo "build_name must be a semantic X.Y.Z version." >&2
+            exit 1
+          }
 
-          build_number="${INPUT_BUILD_NUMBER:-$GITHUB_RUN_NUMBER}"
           if ! [[ "$build_number" =~ ^[1-9][0-9]*$ ]]; then
             echo "build_number must be a positive integer." >&2
             exit 1
           fi
 
-          api_base_url="${CONFIGURED_API_BASE_URL:-https://app.saidian.cc}"
+          api_base_url="${CONFIGURED_API_BASE_URL:-}"
+          update_manifest_url="${CONFIGURED_UPDATE_MANIFEST_URL:-}"
+          update_allowed_hosts="${CONFIGURED_UPDATE_ALLOWED_HOSTS:-}"
+          jpush_app_key="${CONFIGURED_JPUSH_APP_KEY:-}"
+          API_BASE_URL="$api_base_url" UPDATE_MANIFEST_URL="$update_manifest_url" \
+            UPDATE_ALLOWED_HOSTS="$update_allowed_hosts" python3 - <<'PY'
+          import os
+          import re
+          from urllib.parse import urlparse
+
+          def https_url(name, value, *, manifest=False):
+              parsed = urlparse(value)
+              if (parsed.scheme != "https" or not parsed.hostname or parsed.username or
+                      parsed.password or parsed.fragment):
+                  raise SystemExit(f"{name} must be an explicit public HTTPS URL.")
+              if manifest and (parsed.query or not parsed.path.endswith("/app-update.json")):
+                  raise SystemExit(f"{name} must end with /app-update.json and have no query.")
+              return parsed.hostname.lower()
+
+          api_host = https_url("SAYDIAN_API_BASE_URL", os.environ["API_BASE_URL"])
+          manifest_host = https_url(
+              "SAYDIAN_UPDATE_MANIFEST_URL",
+              os.environ["UPDATE_MANIFEST_URL"],
+              manifest=True,
+          )
+          hosts = {
+              value.strip().lower().rstrip(".")
+              for value in os.environ["UPDATE_ALLOWED_HOSTS"].split(",")
+              if value.strip()
+          }
+          if not hosts or any(not re.fullmatch(r"[a-z0-9.-]+", host) for host in hosts):
+              raise SystemExit("SAYDIAN_UPDATE_ALLOWED_HOSTS is invalid.")
+          if manifest_host not in hosts or "apps.apple.com" not in hosts:
+              raise SystemExit("Allowed hosts must include the manifest host and apps.apple.com.")
+          if api_host.endswith((".invalid", ".test", ".example")):
+              raise SystemExit("SAYDIAN_API_BASE_URL cannot use a reserved host.")
+          PY
+          [[ ${#jpush_app_key} -ge 8 ]] || {
+            echo "JPUSH_APP_KEY is required for an iOS release build." >&2
+            exit 1
+          }
+          for value in "$api_base_url" "$update_manifest_url" "$update_allowed_hosts" "$jpush_app_key"; do
+            [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || {
+              echo "Build configuration contains a forbidden control character." >&2
+              exit 1
+            }
+          done
           {
-            echo "BUILD_NAME=$build_name"
-            echo "BUILD_NUMBER=$build_number"
-            echo "API_BASE_URL=$api_base_url"
-          } >> "$GITHUB_ENV"
+            printf 'build_name=%s\n' "$build_name"
+            printf 'build_number=%s\n' "$build_number"
+            printf 'api_base_url=%s\n' "$api_base_url"
+            printf 'update_manifest_url=%s\n' "$update_manifest_url"
+            printf 'update_allowed_hosts=%s\n' "$update_allowed_hosts"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install and validate Apple signing assets
         env:
@@ -105,9 +199,14 @@ jobs:
           profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$profile_plist")"
           team_id="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$profile_plist")"
           application_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")"
+          push_environment="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:aps-environment' "$profile_plist" 2>/dev/null || true)"
 
           if [[ "$application_identifier" != "$team_id.$IOS_BUNDLE_ID" ]]; then
             echo "Provisioning profile is for '$application_identifier', expected '$team_id.$IOS_BUNDLE_ID'." >&2
+            exit 1
+          fi
+          if [[ "$push_environment" != "production" ]]; then
+            echo "The Ad Hoc provisioning profile must include production APNs entitlement." >&2
             exit 1
           fi
           if ! /usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices:0' "$profile_plist" >/dev/null 2>&1; then
@@ -134,6 +233,11 @@ jobs:
           fi
           signing_certificate_sha1="$(awk '{print $2}' <<< "$identity_line")"
           signing_identity="$(sed -E 's/.*"([^"]+)".*/\1/' <<< "$identity_line")"
+          [[ "$profile_uuid" =~ ^[A-Fa-f0-9-]{36}$ ]]
+          [[ "$team_id" =~ ^[A-Z0-9]{10}$ ]]
+          for value in "$profile_name" "$signing_identity"; do
+            [[ -n "$value" && "$value" != *$'\n'* && "$value" != *$'\r'* ]]
+          done
 
           PROFILE_PLIST_PATH="$profile_plist" SIGNING_CERTIFICATE_SHA1="$signing_certificate_sha1" python3 - <<'PY'
           import datetime
@@ -166,6 +270,7 @@ jobs:
 
           {
             echo "SAIDIAN_CODE_SIGN_IDENTITY=$signing_identity"
+            echo "SAIDIAN_SIGNING_CERTIFICATE_SHA1=$signing_certificate_sha1"
             echo "SAIDIAN_DEVELOPMENT_TEAM=$team_id"
             echo "SAIDIAN_PROVISIONING_PROFILE_SPECIFIER=$profile_name"
             echo "INSTALLED_PROFILE_PATH=$installed_profile_path"
@@ -224,12 +329,24 @@ jobs:
           PY
 
       - name: Build signed IPA
+        env:
+          BUILD_NAME: ${{ steps.metadata.outputs.build_name }}
+          BUILD_NUMBER: ${{ steps.metadata.outputs.build_number }}
+          SAYDIAN_API_BASE_URL: ${{ steps.metadata.outputs.api_base_url }}
+          SAYDIAN_UPDATE_MANIFEST_URL: ${{ steps.metadata.outputs.update_manifest_url }}
+          SAYDIAN_UPDATE_ALLOWED_HOSTS: ${{ steps.metadata.outputs.update_allowed_hosts }}
+          JPUSH_APP_KEY: ${{ secrets.JPUSH_APP_KEY }}
+          SAIDIAN_PRODUCTION_RELEASE: "true"
+          SAIDIAN_ALLOW_QA_RELEASE: "false"
         run: |
           set -euo pipefail
           flutter build ipa --release \
             --build-name "$BUILD_NAME" \
             --build-number "$BUILD_NUMBER" \
-            --dart-define="SAYDIAN_API_BASE_URL=$API_BASE_URL" \
+            --dart-define="SAYDIAN_API_BASE_URL=$SAYDIAN_API_BASE_URL" \
+            --dart-define="SAYDIAN_UPDATE_MANIFEST_URL=$SAYDIAN_UPDATE_MANIFEST_URL" \
+            --dart-define="SAYDIAN_UPDATE_ALLOWED_HOSTS=$SAYDIAN_UPDATE_ALLOWED_HOSTS" \
+            --dart-define="JPUSH_APP_KEY=$JPUSH_APP_KEY" \
             --export-options-plist="$RUNNER_TEMP/ExportOptions.plist"
 
       - name: Verify and checksum IPA
@@ -246,13 +363,50 @@ jobs:
           mkdir -p "$verification_dir"
           unzip -q "${ipa_files[0]}" -d "$verification_dir"
           app_paths=("$verification_dir"/Payload/*.app)
-          codesign --verify --deep --strict --verbose=2 "${app_paths[0]}"
+          (( ${#app_paths[@]} == 1 ))
+          app_path="${app_paths[0]}"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Info.plist")" == "$IOS_BUNDLE_ID" ]]
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_path/Info.plist")" == "${{ steps.metadata.outputs.build_name }}" ]]
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_path/Info.plist")" == "${{ steps.metadata.outputs.build_number }}" ]]
+
+          embedded_plist="$RUNNER_TEMP/embedded-profile.plist"
+          security cms -D -i "$app_path/embedded.mobileprovision" > "$embedded_plist"
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$embedded_plist")" == \
+             "$(basename "$INSTALLED_PROFILE_PATH" .mobileprovision)" ]]
+          entitlements="$RUNNER_TEMP/final-entitlements.plist"
+          codesign --display --entitlements "$entitlements" --xml "$app_path"
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :aps-environment' "$entitlements")" == "production" ]]
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$entitlements")" == \
+             "$SAIDIAN_DEVELOPMENT_TEAM.$IOS_BUNDLE_ID" ]]
+          cert_prefix="$RUNNER_TEMP/ipa-signing-cert-"
+          codesign --display --extract-certificates "$cert_prefix" "$app_path"
+          [[ "$(shasum -a 1 "${cert_prefix}0" | awk '{print toupper($1)}')" == \
+             "$SAIDIAN_SIGNING_CERTIFICATE_SHA1" ]]
 
           shasum -a 256 "${ipa_files[@]}" > build/ios/ipa/SHA256SUMS.txt
           ls -lh build/ios/ipa
 
+      - name: Remove signing assets before artifact upload
+        run: |
+          if [[ -n "${TEMP_KEYCHAIN_PATH:-}" ]]; then
+            security delete-keychain "$TEMP_KEYCHAIN_PATH" 2>/dev/null || true
+          fi
+          if [[ -n "${INSTALLED_PROFILE_PATH:-}" ]]; then
+            rm -f "$INSTALLED_PROFILE_PATH"
+          fi
+          rm -rf \
+            "$RUNNER_TEMP/ios-distribution.p12" \
+            "$RUNNER_TEMP/ios-adhoc.mobileprovision" \
+            "$RUNNER_TEMP/ios-adhoc.plist" \
+            "$RUNNER_TEMP/ExportOptions.plist" \
+            "$RUNNER_TEMP/embedded-profile.plist" \
+            "$RUNNER_TEMP/final-entitlements.plist" \
+            "$RUNNER_TEMP/ipa-verification" \
+            "$RUNNER_TEMP"/ipa-signing-cert-*
+
       - name: Upload IPA artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: saydian-ios-adhoc-${{ github.run_number }}
           path: |
@@ -270,3 +424,12 @@ jobs:
           if [[ -n "${INSTALLED_PROFILE_PATH:-}" ]]; then
             rm -f "$INSTALLED_PROFILE_PATH"
           fi
+          rm -rf \
+            "$RUNNER_TEMP/ios-distribution.p12" \
+            "$RUNNER_TEMP/ios-adhoc.mobileprovision" \
+            "$RUNNER_TEMP/ios-adhoc.plist" \
+            "$RUNNER_TEMP/ExportOptions.plist" \
+            "$RUNNER_TEMP/embedded-profile.plist" \
+            "$RUNNER_TEMP/final-entitlements.plist" \
+            "$RUNNER_TEMP/ipa-verification" \
+            "$RUNNER_TEMP"/ipa-signing-cert-*

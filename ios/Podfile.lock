@@ -22,6 +22,13 @@ PODS:
     - Flutter
   - iOSDFULibrary (4.13.0):
     - ZIPFoundation (= 0.9.11)
+  - JCore (5.5.1)
+  - JPush (6.2.0):
+    - JCore (> 5.1.1)
+  - jpush_flutter (0.0.2):
+    - Flutter
+    - JCore (>= 5.5.0)
+    - JPush (= 6.2.0)
   - MJExtension (3.0.15.1)
   - package_info_plus (0.4.5):
     - Flutter
@@ -52,6 +59,7 @@ DEPENDENCIES:
   - geolocator_apple (from `.symlinks/plugins/geolocator_apple/darwin`)
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
   - integration_test (from `.symlinks/plugins/integration_test/ios`)
+  - jpush_flutter (from `.symlinks/plugins/jpush_flutter/ios`)
   - MJExtension (= 3.0.15.1)
   - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
@@ -63,6 +71,8 @@ SPEC REPOS:
   trunk:
     - FMDB
     - iOSDFULibrary
+    - JCore
+    - JPush
     - MJExtension
     - SQLCipher
     - ZIPFoundation
@@ -84,6 +94,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/image_picker_ios/ios"
   integration_test:
     :path: ".symlinks/plugins/integration_test/ios"
+  jpush_flutter:
+    :path: ".symlinks/plugins/jpush_flutter/ios"
   package_info_plus:
     :path: ".symlinks/plugins/package_info_plus/ios"
   permission_handler_apple:
@@ -106,6 +118,9 @@ SPEC CHECKSUMS:
   image_picker_ios: 4f2f91b01abdb52842a8e277617df877e40f905b
   integration_test: 252f60fa39af5e17c3aa9899d35d908a0721b573
   iOSDFULibrary: ae1bcb1cb921e6e3ff551755f6fdff1b77e07e15
+  JCore: 28b16cf0cbc90d08f0e4d7930bdd5a515bd3b8a1
+  JPush: eb729308f4d3c579840d4ba41a67065e8c491ada
+  jpush_flutter: caca0b07a7205011fa9987a1178d3acf5aabf066
   MJExtension: 19bc33ce2eee2d319760f5622562cf581a6ff756
   package_info_plus: c0502532a26c7662a62a356cebe2692ec5fe4ec4
   permission_handler_apple: ee2fe0fd04551b304eb002714ff067c371c822ed

@@ -1,0 +1,35 @@
+{
+  "channel": "production",
+  "releases": [
+    {
+      "channel": "production",
+      "destination": {
+        "type": "android_apk",
+        "url": "https://downloads.example.invalid/android/Saydian-1.0.0+100-release.apk"
+      },
+      "latest_build": 100,
+      "latest_version": "1.0.0",
+      "minimum_supported_build": 99,
+      "platform": "android",
+      "published_at": "2026-01-01T00:00:00Z",
+      "release_notes": "EXAMPLE ONLY - replace with approved user-visible notes",
+      "schema_version": 1,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "channel": "production",
+      "destination": {
+        "type": "app_store",
+        "url": "https://apps.apple.com/app/id0000000000"
+      },
+      "latest_build": 100,
+      "latest_version": "1.0.0",
+      "minimum_supported_build": 99,
+      "platform": "ios",
+      "published_at": "2026-01-01T00:00:00Z",
+      "release_notes": "EXAMPLE ONLY - replace with approved user-visible notes",
+      "schema_version": 1
+    }
+  ],
+  "schema_version": 1
+}

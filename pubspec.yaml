@@ -9,6 +9,7 @@ environment:
 dependencies:
   camera: ^0.11.2+1
   connectivity_plus: ^7.3.1
+  crypto: ^3.0.6
   device_info_plus: ^13.2.0
   flutter:
     sdk: flutter
@@ -20,6 +21,8 @@ dependencies:
   http: ^1.6.0
   image_picker: ^1.2.3
   intl: ^0.20.2
+  jpush_flutter: 3.5.1
+  jpush_flutter_android: 1.0.2
   path: ^1.9.1
   path_provider: ^2.1.6
   package_info_plus: ^10.2.1
@@ -39,6 +42,14 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  sqflite_common_ffi: ^2.4.2
+
+# Keep the required 1.0.2 plugin reproducible across developer machines and CI.
+# The vendored copy only removes application-wide R8 options that AGP rejects
+# when they are declared from an Android library's consumer ProGuard file.
+dependency_overrides:
+  jpush_flutter_android:
+    path: third_party/jpush_flutter_android
 
 flutter:
   config:

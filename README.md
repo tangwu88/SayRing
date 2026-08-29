@@ -47,9 +47,18 @@ Token 和密码不得提交到代码库；合作方 SDK 二进制仅随本私有
 
 ```powershell
 & $flutter build apk --debug '--target-platform=android-arm,android-arm64'
+$env:SAIDIAN_ALLOW_QA_RELEASE = 'true'
 & $flutter build apk --release '--target-platform=android-arm,android-arm64'
 & $flutter build appbundle --release '--target-platform=android-arm,android-arm64'
+Remove-Item Env:SAIDIAN_ALLOW_QA_RELEASE
 ```
+
+普通 Release 构建默认拒绝执行。内部无正式配置的编译验证必须显式设置
+`SAIDIAN_ALLOW_QA_RELEASE=true`；该产物使用测试签名和禁用推送配置，不得分发或发布。
+
+正式发布必须设置 `SAIDIAN_PRODUCTION_RELEASE=true`、
+`SAIDIAN_ALLOW_QA_RELEASE=false`，并同时提供正式签名、推送、API 和更新配置。
+两个模式不可同时开启；生产发布应使用受保护的 GitHub Actions 工作流。
 
 手表 SDK 同时包含 32/64 位 ARM 库，所以交付包必须显式构建
 `android-arm,android-arm64`。设备定向调试留下的 Gradle/Flutter 缓存可能使默认
@@ -60,8 +69,12 @@ iOS 必须在 macOS/Xcode 环境执行：
 
 ```bash
 cd ios && pod install && cd ..
-flutter build ios --release --no-codesign
+SAIDIAN_ALLOW_QA_RELEASE=true \
+  flutter build ios --release --no-codesign
 ```
+
+iOS Release 同样默认拒绝。上面的命令只用于无签名编译验证；签名 Ad Hoc/生产配置包
+由工作流显式使用 `SAIDIAN_PRODUCTION_RELEASE=true`，并保持 QA 开关为 `false`。
 
 `flutter run --debug` 安装的 iOS Debug 包只能在 Flutter 工具或 Xcode 保持连接时运行；
 断开调试后从手机桌面启动，系统会因无法创建 Debug FlutterEngine 而终止进程。需要交给测试人员
@@ -73,18 +86,19 @@ flutter run --profile -d <iPhone-UDID> --no-pub --no-resident
 
 ### Android 在线更新
 
-App 默认从 GitHub Releases 的最新版本检查 Android APK。发布新版本时先更新
-`pubspec.yaml` 中的版本号，再创建形如 `android-v0.1.18+22` 的 Git 标签。
-`.github/workflows/android-release.yml` 会运行分析和测试、使用正式签名构建 APK，
-并发布到 GitHub Release。仓库需要配置以下 Actions Secrets：
+App 不使用私有 GitHub Release 作为公网更新源。正式包必须配置
+`SAYDIAN_UPDATE_MANIFEST_URL` 和允许的公网 HTTPS 下载主机。
 
-- `ANDROID_KEYSTORE_BASE64`
-- `ANDROID_KEY_ALIAS`
-- `ANDROID_KEY_PASSWORD`
-- `ANDROID_STORE_PASSWORD`
+发布新版本时，同时递增 `pubspec.yaml` 的 versionName 和 build，再创建形如
+`android-v0.2.0+24` 的 annotated tag。`.github/workflows/android-release.yml` 会执行正式
+签名指纹、JPush/厂商凭据、版本、公网 APK、SHA-256 及原子清单发布门禁。
 
-可用仓库变量 `SAYDIAN_API_BASE_URL` 覆盖生产 API 地址。正式签名必须长期保持一致，
+生产环境变量、Secrets、SSH 目录约定和当前阻断项见
+[Android 正式发布门禁](docs/release/ANDROID-PRODUCTION-RELEASE.md)。正式签名必须长期保持一致，
 否则手机无法在已安装版本上直接升级。
+
+双端显式 Release 模式及验证记录见
+[Release 门禁实施记录](docs/release/RELEASE-GATE-IMPLEMENTATION-20260829.md)。
 
 Windows 开发机可通过 GitHub Actions 生成已签名的 Ad Hoc IPA，证书、描述文件、
 触发方式及安装步骤见 [Windows 与 GitHub Actions iOS 打包说明](docs/github-actions-ios.md)。
@@ -94,6 +108,9 @@ Windows 开发机可通过 GitHub Actions 生成已签名的 Ad Hoc IPA，证书
 
 ## 接入闸门
 
+- [本轮上线整改实施与验证记录（2026-08-29）](docs/IMPLEMENTATION-LOG-20260829-ONLINE-READINESS.md)
+- [正式发布阻断清单](docs/release/PRODUCTION-RELEASE-BLOCKERS.md)
+- [跨端问题复盘与防回归规则（2026-08-29）](docs/BUG-RETROSPECTIVE-20260829.md)
 - [最新开发交接说明（2026-08-12）](docs/HANDOFF-20260812.md)
 - [上一版开发交接说明（2026-08-11）](docs/HANDOFF-20260811.md)
 - [历史开发交接说明（2026-08-05）](docs/HANDOFF.md)

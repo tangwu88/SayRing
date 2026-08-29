@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -8,11 +9,19 @@ import '../domain/models.dart';
 abstract interface class SessionVault {
   Future<Session?> readSession();
   Future<void> writeSession(Session session);
+  Future<bool> writeSessionIfUnchanged(Session expected, Session replacement);
   Future<void> clearSession();
+  Future<bool> readPrivacyConsentGranted();
+  Future<void> writePrivacyConsentGranted(bool granted);
   Future<HealthWarningSettings> readHealthWarningSettings();
   Future<void> writeHealthWarningSettings(HealthWarningSettings settings);
   Future<List<Map<String, Object?>>> readShopCart();
   Future<void> writeShopCart(List<Map<String, Object?>> items);
+  Future<String?> readPendingPushUnregisterInstallationId();
+  Future<void> writePendingPushUnregisterInstallationId(String value);
+  Future<void> clearPendingPushUnregisterInstallationId();
+  Future<bool> readLegacyHealthMigrationHandled();
+  Future<void> writeLegacyHealthMigrationHandled();
   Future<String> databaseKey();
 }
 
@@ -21,14 +30,33 @@ class SecureSessionVault implements SessionVault {
     : _storage = storage ?? const FlutterSecureStorage();
 
   static const _sessionKey = 'saydian.session.v1';
+  static const _privacyConsentKey = 'saydian.privacy-consent.v1';
   static const _databaseKey = 'saydian.database.key.v1';
   static const _healthWarningKey = 'saydian.health-warning.v1';
   static const _shopCartKey = 'saydian.shop-cart.v1';
+  static const _pendingPushUnregisterKey =
+      'saydian.push.pending-unregister-installation.v1';
+  static const _legacyHealthMigrationHandledKey =
+      'saydian.health.legacy-migration-handled.v1';
 
   final FlutterSecureStorage _storage;
+  Future<void> _sessionMutationQueue = Future<void>.value();
 
-  @override
-  Future<Session?> readSession() async {
+  Future<T> _withSessionLock<T>(Future<T> Function() operation) {
+    final completer = Completer<T>();
+    _sessionMutationQueue = _sessionMutationQueue.catchError((_) {}).then((
+      _,
+    ) async {
+      try {
+        completer.complete(await operation());
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  Future<Session?> _readSessionDirect() async {
     final raw = await _storage.read(key: _sessionKey);
     if (raw == null || raw.isEmpty) return null;
     try {
@@ -38,17 +66,43 @@ class SecureSessionVault implements SessionVault {
         value.map((key, value) => MapEntry('$key', value)),
       );
     } on FormatException {
-      await clearSession();
+      await _storage.delete(key: _sessionKey);
       return null;
     }
   }
 
   @override
-  Future<void> writeSession(Session session) =>
-      _storage.write(key: _sessionKey, value: jsonEncode(session.toJson()));
+  Future<Session?> readSession() => _withSessionLock(_readSessionDirect);
 
   @override
-  Future<void> clearSession() => _storage.delete(key: _sessionKey);
+  Future<void> writeSession(Session session) => _withSessionLock(
+    () => _storage.write(key: _sessionKey, value: jsonEncode(session.toJson())),
+  );
+
+  @override
+  Future<bool> writeSessionIfUnchanged(Session expected, Session replacement) =>
+      _withSessionLock(() async {
+        final current = await _readSessionDirect();
+        if (!_sameSession(current, expected)) return false;
+        await _storage.write(
+          key: _sessionKey,
+          value: jsonEncode(replacement.toJson()),
+        );
+        return true;
+      });
+
+  @override
+  Future<void> clearSession() =>
+      _withSessionLock(() => _storage.delete(key: _sessionKey));
+
+  @override
+  Future<bool> readPrivacyConsentGranted() async =>
+      await _storage.read(key: _privacyConsentKey) == 'granted';
+
+  @override
+  Future<void> writePrivacyConsentGranted(bool granted) => granted
+      ? _storage.write(key: _privacyConsentKey, value: 'granted')
+      : _storage.delete(key: _privacyConsentKey);
 
   @override
   Future<HealthWarningSettings> readHealthWarningSettings() async {
@@ -93,6 +147,29 @@ class SecureSessionVault implements SessionVault {
       _storage.write(key: _shopCartKey, value: jsonEncode(items));
 
   @override
+  Future<String?> readPendingPushUnregisterInstallationId() async {
+    final value = await _storage.read(key: _pendingPushUnregisterKey);
+    final normalized = value?.trim();
+    return normalized == null || normalized.isEmpty ? null : normalized;
+  }
+
+  @override
+  Future<void> writePendingPushUnregisterInstallationId(String value) =>
+      _storage.write(key: _pendingPushUnregisterKey, value: value.trim());
+
+  @override
+  Future<void> clearPendingPushUnregisterInstallationId() =>
+      _storage.delete(key: _pendingPushUnregisterKey);
+
+  @override
+  Future<bool> readLegacyHealthMigrationHandled() async =>
+      await _storage.read(key: _legacyHealthMigrationHandledKey) == 'handled';
+
+  @override
+  Future<void> writeLegacyHealthMigrationHandled() =>
+      _storage.write(key: _legacyHealthMigrationHandledKey, value: 'handled');
+
+  @override
   Future<String> databaseKey() async {
     final existing = await _storage.read(key: _databaseKey);
     if (existing != null && existing.length >= 24) return existing;
@@ -107,6 +184,9 @@ class MemorySessionVault implements SessionVault {
   HealthWarningSettings healthWarningSettings = const HealthWarningSettings();
   String key = 'test-database-key-that-is-long-enough';
   List<Map<String, Object?>> shopCart = const [];
+  String? pendingPushUnregisterInstallationId;
+  bool privacyConsentGranted = false;
+  bool legacyHealthMigrationHandled = false;
 
   @override
   Future<void> clearSession() async => session = null;
@@ -116,6 +196,9 @@ class MemorySessionVault implements SessionVault {
 
   @override
   Future<Session?> readSession() async => session;
+
+  @override
+  Future<bool> readPrivacyConsentGranted() async => privacyConsentGranted;
 
   @override
   Future<HealthWarningSettings> readHealthWarningSettings() async =>
@@ -128,6 +211,20 @@ class MemorySessionVault implements SessionVault {
   Future<void> writeSession(Session value) async => session = value;
 
   @override
+  Future<bool> writeSessionIfUnchanged(
+    Session expected,
+    Session replacement,
+  ) async {
+    if (!_sameSession(session, expected)) return false;
+    session = replacement;
+    return true;
+  }
+
+  @override
+  Future<void> writePrivacyConsentGranted(bool granted) async =>
+      privacyConsentGranted = granted;
+
+  @override
   Future<void> writeHealthWarningSettings(
     HealthWarningSettings settings,
   ) async => healthWarningSettings = settings;
@@ -135,4 +232,31 @@ class MemorySessionVault implements SessionVault {
   @override
   Future<void> writeShopCart(List<Map<String, Object?>> items) async =>
       shopCart = items;
+
+  @override
+  Future<String?> readPendingPushUnregisterInstallationId() async =>
+      pendingPushUnregisterInstallationId;
+
+  @override
+  Future<void> writePendingPushUnregisterInstallationId(String value) async =>
+      pendingPushUnregisterInstallationId = value.trim();
+
+  @override
+  Future<void> clearPendingPushUnregisterInstallationId() async =>
+      pendingPushUnregisterInstallationId = null;
+
+  @override
+  Future<bool> readLegacyHealthMigrationHandled() async =>
+      legacyHealthMigrationHandled;
+
+  @override
+  Future<void> writeLegacyHealthMigrationHandled() async =>
+      legacyHealthMigrationHandled = true;
 }
+
+bool _sameSession(Session? left, Session right) =>
+    left != null &&
+    left.accessToken == right.accessToken &&
+    left.refreshToken == right.refreshToken &&
+    left.memberId == right.memberId &&
+    left.accountKey == right.accountKey;

@@ -19,10 +19,10 @@ import '../domain/ecg_waveform.dart';
 import '../domain/health_interpretation.dart';
 import '../domain/models.dart';
 import '../services/app_controller.dart';
-import '../services/app_update_service.dart';
 import '../services/device_weather_service.dart';
 import '../services/device_watch_face_market_service.dart';
 import 'app_theme.dart';
+import 'app_update_gate_scope.dart';
 import 'brand_assets.dart';
 import 'watch_face_market_page.dart';
 
@@ -114,6 +114,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
       mobile,
       _password.text,
       code: _code.text,
+      privacyConsentGranted: true,
     );
     if (!mounted) return;
     if (success) {
@@ -484,6 +485,7 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
     );
     widget.controller.addListener(_refresh);
     unawaited(widget.controller.refreshNotificationHistory(allPages: true));
+    unawaited(widget.controller.markAllHealthWarningsRead());
   }
 
   @override
@@ -1065,9 +1067,14 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
 }
 
 class CareInvitationsPage extends StatefulWidget {
-  const CareInvitationsPage({required this.controller, super.key});
+  const CareInvitationsPage({
+    required this.controller,
+    this.targetInvitationId,
+    super.key,
+  });
 
   final AppController controller;
+  final String? targetInvitationId;
 
   @override
   State<CareInvitationsPage> createState() => _CareInvitationsPageState();
@@ -1094,6 +1101,19 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
         listenable: widget.controller,
         builder: (context, _) {
           final invitations = widget.controller.pendingCareInvitations;
+          final targetId = widget.targetInvitationId;
+          final targetedMatches = targetId == null
+              ? const <Map<String, Object?>>[]
+              : widget.controller.careInvitations
+                    .where(
+                      (item) =>
+                          '${item['id'] ?? item['invitation_id'] ?? ''}' ==
+                          targetId,
+                    )
+                    .toList(growable: false);
+          final targeted = targetedMatches.isEmpty
+              ? null
+              : targetedMatches.first;
           if (invitations.isEmpty) {
             return RefreshIndicator(
               onRefresh: widget.controller.refreshCareInvitations,
@@ -1101,10 +1121,17 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                 padding: const EdgeInsets.all(16),
                 children: [
                   FeatureStateCard(
-                    message: widget.controller.careInvitationStatus == '服务暂不可用'
+                    message: targeted != null
+                        ? '该关爱邀请已处理'
+                        : targetId != null &&
+                              widget.controller.careInvitationStatus != '加载中'
+                        ? '该关爱邀请已处理或撤销'
+                        : widget.controller.careInvitationStatus == '服务暂不可用'
                         ? '关爱邀请服务暂不可用'
                         : '暂无新的关爱邀请',
-                    detail: '收到邀请后，可在这里明确同意或拒绝。',
+                    detail: targeted != null || targetId != null
+                        ? '页面已根据服务端最新状态刷新，不会重复显示操作按钮。'
+                        : '收到邀请后，可在这里明确同意或拒绝。',
                     icon: Icons.mark_email_unread_outlined,
                   ),
                 ],
@@ -2174,8 +2201,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   XFile? _dialPhoto;
   int _dialTimePosition = 0;
   final DeviceWeatherService _weatherService = DeviceWeatherService();
+  final DeviceWatchFaceMarketService _watchFaceMarketService =
+      DeviceWatchFaceMarketService();
   bool _weatherRefreshing = false;
   String? _weatherMessage;
+  bool _openingWatchFaceMarket = false;
 
   @override
   void initState() {
@@ -2243,7 +2273,61 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
 
   Future<void> _loadFeature() async {
     final value = await widget.controller.readDeviceFeature(widget.feature);
-    if (mounted && value.isNotEmpty) setState(() => _featureData = value);
+    if (mounted && value.isNotEmpty) {
+      setState(() => _featureData = value);
+      if (widget.feature == DeviceFeature.watchFaces) {
+        unawaited(_enrichWatchFacePreviews(value));
+      }
+    }
+  }
+
+  Future<void> _enrichWatchFacePreviews(Map<String, Object?> source) async {
+    try {
+      final profile = DeviceWatchFaceMarketProfile.fromMap(
+        await widget.controller.readWatchFaceProfile(),
+      );
+      if (!profile.matchesDevice(widget.controller.connectedDevice?.id)) return;
+      final catalogue = widget.controller.usesNativeWatchFaceMarket
+          ? (await widget.controller.readNativeWatchFaceCatalog())
+                .map(DeviceWatchFaceMarketItem.fromNative)
+                .where(
+                  (item) =>
+                      item.available &&
+                      item.dialShape == profile.dialShape &&
+                      item.binProtocol == profile.binProtocol,
+                )
+                .take(200)
+                .toList(growable: false)
+          : await _watchFaceMarketService.loadIndex(profile: profile);
+      final rawItems = source['items'];
+      if (rawItems is! List) return;
+      final enriched = rawItems
+          .whereType<Map>()
+          .map((raw) {
+            final face = raw.map((key, value) => MapEntry('$key', value));
+            final existingPreview = _watchFaceMarketService
+                .hasUsablePreviewReference(face);
+            if (existingPreview) return face;
+            final installedPath =
+                [face['path'], face['id'], face['filePath'], face['name']]
+                    .map((value) => '${value ?? ''}'.trim())
+                    .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+            final match = _watchFaceMarketService.matchInstalledPath(
+              installedPath,
+              catalogue,
+            );
+            return match == null
+                ? face
+                : {...face, 'previewUrl': match.previewUrl.toString()};
+          })
+          .toList(growable: false);
+      if (mounted &&
+          profile.matchesDevice(widget.controller.connectedDevice?.id)) {
+        setState(() => _featureData = {...source, 'items': enriched});
+      }
+    } catch (_) {
+      // Installed faces remain usable when the online index is unavailable.
+    }
   }
 
   Future<void> _loadScreen() async {
@@ -2496,18 +2580,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               ),
               subtitle: const Text('浏览并下载适配当前手表的在线表盘'),
               trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: busy
+              onTap: busy || _openingWatchFaceMarket
                   ? null
-                  : () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => DeviceWatchFaceMarketPage(
-                          controller: widget.controller,
-                          profile: DeviceWatchFaceMarketProfile.fromMap(
-                            _featureData,
-                          ),
-                        ),
-                      ),
-                    ),
+                  : _openWatchFaceMarket,
             ),
           ),
           const SizedBox(height: 12),
@@ -2549,10 +2624,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                       for (var index = 0; index < faces.length; index++) ...[
                         ListTile(
                           minLeadingWidth: 64,
-                          leading: _WatchFaceThumbnail(
-                            face: faces[index],
-                            fallbackIndex: index,
-                          ),
+                          leading: _WatchFaceThumbnail(face: faces[index]),
                           title: Text('${faces[index]['name'] ?? '手表表盘'}'),
                           subtitle: Text(
                             faces[index]['isCurrent'] == true
@@ -2590,6 +2662,35 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         ],
       ],
     );
+  }
+
+  Future<void> _openWatchFaceMarket() async {
+    if (_openingWatchFaceMarket) return;
+    setState(() => _openingWatchFaceMarket = true);
+    try {
+      final profileData = await widget.controller.readWatchFaceProfile();
+      final profile = DeviceWatchFaceMarketProfile.fromMap(profileData);
+      if (!profile.matchesDevice(widget.controller.connectedDevice?.id)) {
+        throw const DeviceWatchFaceMarketException('连接设备已变化，请重新进入表盘中心');
+      }
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => DeviceWatchFaceMarketPage(
+            controller: widget.controller,
+            profile: profile,
+          ),
+        ),
+      );
+    } on DeviceWatchFaceMarketException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _openingWatchFaceMarket = false);
+    }
   }
 
   Future<void> _switchWatchFace(Map<String, Object?> face) async {
@@ -4038,10 +4139,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
 }
 
 class _WatchFaceThumbnail extends StatelessWidget {
-  const _WatchFaceThumbnail({required this.face, required this.fallbackIndex});
+  const _WatchFaceThumbnail({required this.face});
 
   final Map<String, Object?> face;
-  final int fallbackIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -4058,7 +4158,13 @@ class _WatchFaceThumbnail extends StatelessWidget {
         );
       } else {
         final file = File(source.replaceFirst('file://', ''));
-        if (file.existsSync()) image = Image.file(file, fit: BoxFit.cover);
+        if (file.existsSync()) {
+          image = Image.file(
+            file,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => fallback,
+          );
+        }
       }
     }
     return Semantics(
@@ -4081,44 +4187,20 @@ class _WatchFaceThumbnail extends StatelessWidget {
   }
 
   String? get _imageSource {
-    for (final key in const [
-      'thumbnail',
-      'thumbnailUrl',
-      'previewPath',
-      'preview',
-      'previewUrl',
-      'image',
-      'imageUrl',
-      'background',
-      'filePath',
-    ]) {
-      final value = '${face[key] ?? ''}'.trim();
-      if (value.isNotEmpty) return value;
-    }
-    return null;
+    return DeviceWatchFaceMarketService.findUsablePreviewReference(face);
   }
 
   Widget get _fallback {
-    final label = '${face['id'] ?? fallbackIndex + 1}';
     return ColoredBox(
-      color: const Color(0xFF111827),
+      color: const Color(0xFFF1F3F5),
       child: Center(
-        child: Container(
-          width: 45,
-          height: 50,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: const Color(0xFF273244),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.white24),
-          ),
-          child: Text(
-            label.length > 4 ? label.substring(label.length - 4) : label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
+        child: Text(
+          '预览\n暂不可用',
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: SaydianColors.muted,
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
           ),
         ),
       ),
@@ -4751,13 +4833,13 @@ class CustomerServicePage extends StatelessWidget {
 class AboutSaydianPage extends StatefulWidget {
   const AboutSaydianPage({
     required this.controller,
-    this.updateService,
+    this.updateGateController,
     this.packageInfoLoader,
     super.key,
   });
 
   final AppController controller;
-  final AppUpdateService? updateService;
+  final AppUpdateGateController? updateGateController;
   final Future<PackageInfo> Function()? packageInfoLoader;
 
   @override
@@ -4765,7 +4847,6 @@ class AboutSaydianPage extends StatefulWidget {
 }
 
 class _AboutSaydianPageState extends State<AboutSaydianPage> {
-  late final AppUpdateService _updateService;
   String _version = '--';
   String _build = '--';
   String _introduction = '记录日常健康趋势，连接家人与设备，让健康管理更简单。';
@@ -4774,7 +4855,6 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
   @override
   void initState() {
     super.initState();
-    _updateService = widget.updateService ?? AppUpdateService();
     unawaited(_load());
   }
 
@@ -4813,64 +4893,12 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
     if (_checking) return;
     setState(() => _checking = true);
     try {
-      final info = await _updateService.check();
-      if (!mounted) return;
-      if (!info.hasUpdate) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('当前已是最新版本 V${info.currentVersion}')),
-        );
-        return;
+      final gate =
+          widget.updateGateController ?? AppUpdateGateScope.maybeOf(context);
+      if (gate == null) {
+        throw StateError('missing root update gate');
       }
-      await showModalBottomSheet<void>(
-        context: context,
-        showDragHandle: true,
-        builder: (sheetContext) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '发现新版本 V${info.latestVersion}',
-                  style: Theme.of(
-                    sheetContext,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 8),
-                Text('当前版本 V${info.currentVersion} · 构建 ${info.currentBuild}'),
-                if (info.releaseNotes.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  Text(info.releaseNotes, style: const TextStyle(height: 1.5)),
-                ],
-                if (info.forceUpdate) ...[
-                  const SizedBox(height: 12),
-                  const Text('此版本包含必要兼容性更新。'),
-                ],
-                const SizedBox(height: 22),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () async {
-                      Navigator.of(sheetContext).pop();
-                      try {
-                        await _updateService.openDownload(info);
-                      } on AppUpdateException catch (error) {
-                        if (mounted) _message(error.message);
-                      }
-                    },
-                    child: Text(Platform.isIOS ? '前往 App Store 更新' : '前往更新'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    } on AppUpdateException catch (error) {
-      if (mounted) _message(error.message);
-    } on FormatException {
-      if (mounted) _message('版本信息格式不正确');
+      await gate.checkNow();
     } catch (_) {
       if (mounted) _message('暂时无法检查更新，请稍后再试');
     } finally {
@@ -4931,9 +4959,7 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
                 ListTile(
                   leading: const Icon(Icons.system_update_alt_rounded),
                   title: const Text('检查更新'),
-                  subtitle: Text(
-                    _updateService.isConfigured ? '检查是否有新版本' : '暂时无法在线检查更新',
-                  ),
+                  subtitle: const Text('检查是否有新版本'),
                   trailing: _checking
                       ? const SizedBox.square(
                           dimension: 22,

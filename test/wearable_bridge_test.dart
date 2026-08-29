@@ -55,6 +55,148 @@ void main() {
     await expectLater(bridge.readSportRecords(), completes);
   });
 
+  test('watch-face profile read waits for the serial device queue', () async {
+    final sportStarted = Completer<void>();
+    final releaseSport = Completer<Object?>();
+    final calls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(methods, (call) async {
+          calls.add(call.method);
+          if (call.method == 'startSport') {
+            sportStarted.complete();
+            return releaseSport.future;
+          }
+          if (call.method == 'getWatchFaceProfile') {
+            return <Object?, Object?>{'profileVersion': 1};
+          }
+          return null;
+        });
+    final bridge = MethodChannelWearableBridge(
+      methods: methods,
+      operationTimeout: const Duration(seconds: 1),
+    );
+
+    final sport = bridge.startSport(SportMode.walking);
+    await sportStarted.future;
+    final profile = bridge.getWatchFaceProfile();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(calls, ['startSport']);
+
+    releaseSport.complete(null);
+    await sport;
+    expect(await profile, {'profileVersion': 1});
+    expect(calls, ['startSport', 'getWatchFaceProfile']);
+  });
+
+  test('native watch-face catalogue is parsed on the serial queue', () async {
+    final sportStarted = Completer<void>();
+    final releaseSport = Completer<Object?>();
+    final calls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(methods, (call) async {
+          calls.add(call.method);
+          if (call.method == 'startSport') {
+            sportStarted.complete();
+            return releaseSport.future;
+          }
+          if (call.method == 'getNativeWatchFaceCatalog') {
+            return <Object?>[
+              <Object?, Object?>{
+                'id': 'native-1',
+                'name': '',
+                'fileUrl': 'https://vendor.example/WATCH001.bin',
+                'previewUrl': 'https://vendor.example/WATCH001.png',
+                'crc': 12345,
+                'binProtocol': 2,
+                'dialShape': 58,
+              },
+            ];
+          }
+          return null;
+        });
+    final bridge = MethodChannelWearableBridge(
+      methods: methods,
+      operationTimeout: const Duration(seconds: 1),
+    );
+
+    final sport = bridge.startSport(SportMode.walking);
+    await sportStarted.future;
+    final catalogue = bridge.getNativeWatchFaceCatalog();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(calls, ['startSport']);
+
+    releaseSport.complete(null);
+    await sport;
+    final items = await catalogue;
+    expect(items, hasLength(1));
+    expect(items.single.id, 'native-1');
+    expect(items.single.name, isEmpty);
+    expect(items.single.fileUrl.path, '/WATCH001.bin');
+    expect(items.single.previewUrl.path, '/WATCH001.png');
+    expect(items.single.crc, 12345);
+    expect(items.single.binProtocol, 2);
+    expect(items.single.dialShape, 58);
+    expect(calls, ['startSport', 'getNativeWatchFaceCatalog']);
+  });
+
+  test('native watch-face download is parsed and queued', () async {
+    final catalogueStarted = Completer<void>();
+    final releaseCatalogue = Completer<Object?>();
+    final calls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(methods, (call) async {
+          calls.add(call.method);
+          if (call.method == 'getNativeWatchFaceCatalog') {
+            catalogueStarted.complete();
+            return releaseCatalogue.future;
+          }
+          if (call.method == 'downloadNativeWatchFace') {
+            expect(call.arguments, {'catalogId': 'native-1'});
+            return <Object?, Object?>{
+              'catalogId': 'native-1',
+              'filePath': '/tmp/WATCH001.bin',
+              'fileLength': 602341,
+            };
+          }
+          return null;
+        });
+    final bridge = MethodChannelWearableBridge(methods: methods);
+
+    final catalogue = bridge.getNativeWatchFaceCatalog();
+    await catalogueStarted.future;
+    final download = bridge.downloadNativeWatchFace('native-1');
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(calls, ['getNativeWatchFaceCatalog']);
+
+    releaseCatalogue.complete(<Object?>[]);
+    await catalogue;
+    final artifact = await download;
+    expect(artifact.catalogId, 'native-1');
+    expect(artifact.filePath, '/tmp/WATCH001.bin');
+    expect(artifact.fileLength, 602341);
+    expect(calls, ['getNativeWatchFaceCatalog', 'downloadNativeWatchFace']);
+  });
+
+  test('timed out native watch-face command releases the queue', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(methods, (call) async {
+          if (call.method == 'getNativeWatchFaceCatalog') {
+            return Completer<List<Object?>>().future;
+          }
+          return null;
+        });
+    final bridge = MethodChannelWearableBridge(
+      methods: methods,
+      watchFaceTimeout: const Duration(milliseconds: 20),
+    );
+
+    await expectLater(
+      bridge.getNativeWatchFaceCatalog(),
+      throwsA(isA<TimeoutException>()),
+    );
+    await expectLater(bridge.stopSport(), completes);
+  });
+
   test(
     'decodes a watch-side ECG history record without inventing a waveform',
     () async {

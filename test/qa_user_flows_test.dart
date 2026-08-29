@@ -9,6 +9,7 @@ import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/app_payment_bridge.dart';
+import 'package:saydian_app/services/app_update_service.dart';
 import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
@@ -1058,8 +1059,27 @@ AppController _authenticatedController({_QaApi? api, _QaWearable? wearable}) {
 Future<void> _pumpPhone(WidgetTester tester, AppController controller) async {
   await tester.binding.setSurfaceSize(const Size(390, 844));
   addTearDown(() => tester.binding.setSurfaceSize(null));
-  await tester.pumpWidget(SaydianApp(controller: controller));
+  await tester.pumpWidget(
+    SaydianApp(controller: controller, updateCheckStore: _QaUpdateStore()),
+  );
   await tester.pump();
+  // The app resolves the persisted mandatory-update gate asynchronously
+  // before exposing any authenticated route.
+  await tester.pump(const Duration(milliseconds: 20));
+}
+
+class _QaUpdateStore implements AppUpdateCheckStore {
+  @override
+  Future<DateTime?> readLastSuccessfulCheck() async => null;
+
+  @override
+  Future<AppUpdateInfo?> readRequiredUpdate() async => null;
+
+  @override
+  Future<void> writeLastSuccessfulCheck(DateTime value) async {}
+
+  @override
+  Future<void> writeRequiredUpdate(AppUpdateInfo? value) async {}
 }
 
 Future<void> _popRoute(WidgetTester tester) async {

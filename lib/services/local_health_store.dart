@@ -6,10 +6,16 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 
 import '../domain/models.dart';
+import 'notification_inbox.dart';
 import 'secure_vault.dart';
 
-abstract interface class HealthStore {
+abstract interface class HealthStore implements NotificationInboxStorage {
   Future<void> initialize();
+  Future<void> switchOwner(String ownerId);
+  Future<void> adoptLegacyData({
+    required String healthOwnerId,
+    required String notificationOwnerId,
+  });
   Future<void> upsert(List<HealthRecord> records);
   Future<void> upsertImmediate(HealthRecord record);
   Future<List<HealthRecord>> recent({int limit = 200});
@@ -31,12 +37,45 @@ abstract interface class HealthStore {
   Future<void> close();
 }
 
+typedef HealthDatabaseOpener =
+    Future<Database> Function(
+      String file, {
+      required String password,
+      required int version,
+      OnDatabaseConfigureFn? onConfigure,
+      OnDatabaseCreateFn? onCreate,
+      OnDatabaseVersionChangeFn? onUpgrade,
+    });
+
+Future<Database> _openEncryptedHealthDatabase(
+  String file, {
+  required String password,
+  required int version,
+  OnDatabaseConfigureFn? onConfigure,
+  OnDatabaseCreateFn? onCreate,
+  OnDatabaseVersionChangeFn? onUpgrade,
+}) => openDatabase(
+  file,
+  password: password,
+  version: version,
+  onConfigure: onConfigure,
+  onCreate: onCreate,
+  onUpgrade: onUpgrade,
+);
+
 class EncryptedHealthStore implements HealthStore {
-  EncryptedHealthStore(this._vault);
+  EncryptedHealthStore(
+    this._vault, {
+    this._databasePathProvider,
+    this._databaseOpener = _openEncryptedHealthDatabase,
+  });
 
   final SessionVault _vault;
+  final Future<String> Function()? _databasePathProvider;
+  final HealthDatabaseOpener _databaseOpener;
   Database? _database;
   Future<void> _databaseQueue = Future<void>.value();
+  String _ownerId = 'anonymous';
 
   Future<T> _enqueue<T>(Future<T> Function() operation) {
     final completer = Completer<T>();
@@ -61,52 +100,64 @@ class EncryptedHealthStore implements HealthStore {
   @override
   Future<void> initialize() async {
     if (_database != null) return;
-    final directory = await getApplicationSupportDirectory();
-    final file = path.join(directory.path, 'saydian_health_v1.db');
+    final configuredPath = _databasePathProvider;
+    final file = configuredPath == null
+        ? path.join(
+            (await getApplicationSupportDirectory()).path,
+            'saydian_health_v1.db',
+          )
+        : await configuredPath();
     final password = await _vault.databaseKey();
-    _database = await openDatabase(
+    _database = await _databaseOpener(
       file,
       password: password,
-      version: 3,
+      version: 6,
       onConfigure: (database) async {
         await database.execute('PRAGMA foreign_keys = ON');
       },
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE health_records (
-            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            id TEXT NOT NULL,
             metric TEXT NOT NULL,
             measured_at TEXT NOT NULL,
             payload TEXT NOT NULL,
-            synced INTEGER NOT NULL DEFAULT 0
+            synced INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY(owner_id, id)
           )
         ''');
         await database.execute('''
           CREATE INDEX health_records_time
-          ON health_records(measured_at DESC)
+          ON health_records(owner_id, measured_at DESC)
         ''');
         await database.execute('''
           CREATE INDEX health_records_metric_time
-          ON health_records(metric, measured_at DESC)
+          ON health_records(owner_id, metric, measured_at DESC)
         ''');
         await database.execute('''
           CREATE TABLE metadata (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
+            owner_id TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY(owner_id, key)
           )
         ''');
         await database.execute('''
           CREATE TABLE sport_records (
-            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            id TEXT NOT NULL,
             started_at TEXT NOT NULL,
-            payload TEXT NOT NULL
+            payload TEXT NOT NULL,
+            PRIMARY KEY(owner_id, id)
           )
         ''');
         await database.execute('''
           CREATE INDEX sport_records_time
-          ON sport_records(started_at DESC)
+          ON sport_records(owner_id, started_at DESC)
         ''');
         await _createHealthWarningTable(database);
+        await _createNotificationInboxTable(database);
       },
       onUpgrade: (database, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -127,27 +178,307 @@ class EncryptedHealthStore implements HealthStore {
           ''');
         }
         if (oldVersion < 3) await _createHealthWarningTable(database);
+        if (oldVersion < 4) {
+          await _createNotificationInboxTable(database);
+        } else if (oldVersion < 5) {
+          await _migrateNotificationInboxToAccountScope(database);
+        }
+        if (oldVersion < 6) {
+          await _migrateHealthDataToAccountScope(database);
+        }
       },
     );
+  }
+
+  @override
+  Future<void> switchOwner(String ownerId) {
+    final normalized = ownerId.trim();
+    if (normalized.isEmpty) {
+      throw ArgumentError.value(ownerId, 'ownerId', 'must not be empty');
+    }
+    return _enqueue(() async {
+      _ownerId = normalized;
+    });
+  }
+
+  @override
+  Future<void> adoptLegacyData({
+    required String healthOwnerId,
+    required String notificationOwnerId,
+  }) {
+    final healthOwner = healthOwnerId.trim();
+    final notificationOwner = notificationOwnerId.trim();
+    const legacyOwner = 'legacy-unscoped';
+    if (healthOwner.isEmpty ||
+        notificationOwner.isEmpty ||
+        healthOwner == legacyOwner ||
+        notificationOwner == legacyOwner) {
+      throw ArgumentError('Legacy data requires stable account owners');
+    }
+    return _enqueue(() async {
+      await _db.transaction((transaction) async {
+        await transaction.execute(
+          '''
+          INSERT OR IGNORE INTO health_records(
+            owner_id, id, metric, measured_at, payload, synced
+          )
+          SELECT ?, id, metric, measured_at, payload, synced
+          FROM health_records WHERE owner_id = ?
+          ''',
+          [healthOwner, legacyOwner],
+        );
+        await transaction.delete(
+          'health_records',
+          where: 'owner_id = ?',
+          whereArgs: [legacyOwner],
+        );
+        await transaction.execute(
+          '''
+          INSERT OR IGNORE INTO sport_records(
+            owner_id, id, started_at, payload
+          )
+          SELECT ?, id, started_at, payload
+          FROM sport_records WHERE owner_id = ?
+          ''',
+          [healthOwner, legacyOwner],
+        );
+        await transaction.delete(
+          'sport_records',
+          where: 'owner_id = ?',
+          whereArgs: [legacyOwner],
+        );
+        await transaction.execute(
+          '''
+          INSERT OR IGNORE INTO health_warning_alerts(
+            owner_id, id, triggered_at, payload
+          )
+          SELECT ?, id, triggered_at, payload
+          FROM health_warning_alerts WHERE owner_id = ?
+          ''',
+          [healthOwner, legacyOwner],
+        );
+        await transaction.delete(
+          'health_warning_alerts',
+          where: 'owner_id = ?',
+          whereArgs: [legacyOwner],
+        );
+        await transaction.execute(
+          '''
+          INSERT OR IGNORE INTO metadata(owner_id, key, value)
+          SELECT ?, key, value FROM metadata WHERE owner_id = ?
+          ''',
+          [healthOwner, legacyOwner],
+        );
+        await transaction.delete(
+          'metadata',
+          where: 'owner_id = ?',
+          whereArgs: [legacyOwner],
+        );
+        await transaction.execute(
+          '''
+          INSERT OR IGNORE INTO notification_inbox(
+            account_id, event_id, created_at, payload
+          )
+          SELECT ?, event_id, created_at, payload
+          FROM notification_inbox WHERE account_id = ?
+          ''',
+          [notificationOwner, legacyOwner],
+        );
+        await transaction.delete(
+          'notification_inbox',
+          where: 'account_id = ?',
+          whereArgs: [legacyOwner],
+        );
+      });
+    });
   }
 
   static Future<void> _createHealthWarningTable(Database database) async {
     await database.execute('''
       CREATE TABLE IF NOT EXISTS health_warning_alerts (
-        id TEXT PRIMARY KEY,
+        owner_id TEXT NOT NULL,
+        id TEXT NOT NULL,
         triggered_at TEXT NOT NULL,
-        payload TEXT NOT NULL
+        payload TEXT NOT NULL,
+        PRIMARY KEY(owner_id, id)
       )
     ''');
     await database.execute('''
       CREATE INDEX IF NOT EXISTS health_warning_alerts_time
-      ON health_warning_alerts(triggered_at DESC)
+      ON health_warning_alerts(owner_id, triggered_at DESC)
     ''');
+  }
+
+  static Future<void> _createNotificationInboxTable(Database database) async {
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS notification_inbox (
+        account_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        payload TEXT NOT NULL,
+        PRIMARY KEY(account_id, event_id)
+      )
+    ''');
+    await database.execute('''
+      CREATE INDEX IF NOT EXISTS notification_inbox_time
+      ON notification_inbox(account_id, created_at DESC)
+    ''');
+  }
+
+  static Future<void> _migrateNotificationInboxToAccountScope(
+    Database database,
+  ) async {
+    await database.execute(
+      'ALTER TABLE notification_inbox RENAME TO notification_inbox_legacy_v4',
+    );
+    await database.execute('DROP INDEX IF EXISTS notification_inbox_time');
+    await _createNotificationInboxTable(database);
+    await database.execute('''
+      INSERT INTO notification_inbox(account_id, event_id, created_at, payload)
+      SELECT 'legacy-unscoped', event_id, created_at, payload
+      FROM notification_inbox_legacy_v4
+    ''');
+    await database.execute('DROP TABLE notification_inbox_legacy_v4');
+  }
+
+  static Future<bool> _tableExists(Database database, String name) async {
+    final rows = await database.query(
+      'sqlite_master',
+      columns: ['name'],
+      where: 'type = ? AND name = ?',
+      whereArgs: ['table', name],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
+  static Future<void> _migrateHealthDataToAccountScope(
+    Database database,
+  ) async {
+    const legacyOwner = 'legacy-unscoped';
+
+    if (await _tableExists(database, 'health_records')) {
+      await database.execute(
+        'ALTER TABLE health_records RENAME TO health_records_legacy_v5',
+      );
+      await database.execute('DROP INDEX IF EXISTS health_records_time');
+      await database.execute('DROP INDEX IF EXISTS health_records_metric_time');
+    }
+    await database.execute('''
+      CREATE TABLE health_records (
+        owner_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        metric TEXT NOT NULL,
+        measured_at TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        synced INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(owner_id, id)
+      )
+    ''');
+    await database.execute('''
+      CREATE INDEX health_records_time
+      ON health_records(owner_id, measured_at DESC)
+    ''');
+    await database.execute('''
+      CREATE INDEX health_records_metric_time
+      ON health_records(owner_id, metric, measured_at DESC)
+    ''');
+    if (await _tableExists(database, 'health_records_legacy_v5')) {
+      await database.execute(
+        '''
+        INSERT INTO health_records(
+          owner_id, id, metric, measured_at, payload, synced
+        )
+        SELECT ?, id, metric, measured_at, payload, synced
+        FROM health_records_legacy_v5
+      ''',
+        [legacyOwner],
+      );
+      await database.execute('DROP TABLE health_records_legacy_v5');
+    }
+
+    if (await _tableExists(database, 'sport_records')) {
+      await database.execute(
+        'ALTER TABLE sport_records RENAME TO sport_records_legacy_v5',
+      );
+      await database.execute('DROP INDEX IF EXISTS sport_records_time');
+    }
+    await database.execute('''
+      CREATE TABLE sport_records (
+        owner_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        PRIMARY KEY(owner_id, id)
+      )
+    ''');
+    await database.execute('''
+      CREATE INDEX sport_records_time
+      ON sport_records(owner_id, started_at DESC)
+    ''');
+    if (await _tableExists(database, 'sport_records_legacy_v5')) {
+      await database.execute(
+        '''
+        INSERT INTO sport_records(owner_id, id, started_at, payload)
+        SELECT ?, id, started_at, payload
+        FROM sport_records_legacy_v5
+      ''',
+        [legacyOwner],
+      );
+      await database.execute('DROP TABLE sport_records_legacy_v5');
+    }
+
+    if (await _tableExists(database, 'health_warning_alerts')) {
+      await database.execute('''
+        ALTER TABLE health_warning_alerts
+        RENAME TO health_warning_alerts_legacy_v5
+      ''');
+      await database.execute('DROP INDEX IF EXISTS health_warning_alerts_time');
+    }
+    await _createHealthWarningTable(database);
+    if (await _tableExists(database, 'health_warning_alerts_legacy_v5')) {
+      await database.execute(
+        '''
+        INSERT INTO health_warning_alerts(
+          owner_id, id, triggered_at, payload
+        )
+        SELECT ?, id, triggered_at, payload
+        FROM health_warning_alerts_legacy_v5
+      ''',
+        [legacyOwner],
+      );
+      await database.execute('DROP TABLE health_warning_alerts_legacy_v5');
+    }
+
+    if (await _tableExists(database, 'metadata')) {
+      await database.execute(
+        'ALTER TABLE metadata RENAME TO metadata_legacy_v5',
+      );
+    }
+    await database.execute('''
+      CREATE TABLE metadata (
+        owner_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        PRIMARY KEY(owner_id, key)
+      )
+    ''');
+    if (await _tableExists(database, 'metadata_legacy_v5')) {
+      await database.execute(
+        '''
+        INSERT INTO metadata(owner_id, key, value)
+        SELECT ?, key, value FROM metadata_legacy_v5
+      ''',
+        [legacyOwner],
+      );
+      await database.execute('DROP TABLE metadata_legacy_v5');
+    }
   }
 
   @override
   Future<void> upsert(List<HealthRecord> records) async {
     if (records.isEmpty) return;
+    final ownerId = _ownerId;
     // Device sync may return thousands of samples. Sending every insert over
     // the platform channel while a transaction is open keeps SQLCipher locked
     // long enough to block a freshly completed manual measurement. A batch is
@@ -156,6 +487,7 @@ class EncryptedHealthStore implements HealthStore {
       final batch = _db.batch();
       for (final record in records) {
         batch.insert('health_records', {
+          'owner_id': ownerId,
           'id': record.id,
           'metric': record.metric.wireName,
           'measured_at': record.measuredAt.toUtc().toIso8601String(),
@@ -174,22 +506,28 @@ class EncryptedHealthStore implements HealthStore {
     // before measurements are enabled, so this single non-transactional insert
     // can safely use sqflite's native command queue without joining the slower
     // background store queue.
-    await _db.insert('health_records', {
-      'id': record.id,
-      'metric': record.metric.wireName,
-      'measured_at': record.measuredAt.toUtc().toIso8601String(),
-      'payload': record.encode(),
-      'synced': 0,
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    final ownerId = _ownerId;
+    await _enqueue(
+      () => _db.insert('health_records', {
+        'owner_id': ownerId,
+        'id': record.id,
+        'metric': record.metric.wireName,
+        'measured_at': record.measuredAt.toUtc().toIso8601String(),
+        'payload': record.encode(),
+        'synced': 0,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore),
+    );
   }
 
   @override
   Future<List<HealthRecord>> recent({int limit = 200}) async {
+    final ownerId = _ownerId;
     final rows = await _enqueue(
       () => _db.query(
         'health_records',
         columns: ['payload'],
-        where: 'synced != -1',
+        where: 'owner_id = ? AND synced != -1',
+        whereArgs: [ownerId],
         orderBy: 'measured_at DESC',
         limit: limit,
       ),
@@ -203,13 +541,15 @@ class EncryptedHealthStore implements HealthStore {
     required DateTime start,
     required DateTime end,
   }) async {
+    final ownerId = _ownerId;
     final rows = await _enqueue(
       () => _db.query(
         'health_records',
         columns: ['payload'],
         where:
-            'metric = ? AND measured_at >= ? AND measured_at < ? AND synced != -1',
+            'owner_id = ? AND metric = ? AND measured_at >= ? AND measured_at < ? AND synced != -1',
         whereArgs: [
+          ownerId,
           metric.wireName,
           start.toUtc().toIso8601String(),
           end.toUtc().toIso8601String(),
@@ -222,38 +562,51 @@ class EncryptedHealthStore implements HealthStore {
 
   @override
   Future<List<HealthRecord>> latestForEachMetric() async {
+    final ownerId = _ownerId;
     final rows = await _enqueue(
-      () => _db.rawQuery('''
+      () => _db.rawQuery(
+        '''
         SELECT payload
         FROM health_records AS current
-        WHERE current.synced != -1 AND measured_at = (
+        WHERE current.owner_id = ? AND current.synced != -1 AND measured_at = (
           SELECT MAX(candidate.measured_at)
           FROM health_records AS candidate
-          WHERE candidate.metric = current.metric AND candidate.synced != -1
+          WHERE candidate.owner_id = current.owner_id
+            AND candidate.metric = current.metric
+            AND candidate.synced != -1
         )
         ORDER BY measured_at DESC
-      '''),
+      ''',
+        [ownerId],
+      ),
     );
     return _decodeRows(rows);
   }
 
   @override
-  Future<void> saveSportRecord(SportRecord record) => _enqueue(
-    () => _db.insert('sport_records', {
-      'id': record.id,
-      'started_at': (record.startedAt ?? DateTime.now())
-          .toUtc()
-          .toIso8601String(),
-      'payload': jsonEncode(record.toMap()),
-    }, conflictAlgorithm: ConflictAlgorithm.replace),
-  );
+  Future<void> saveSportRecord(SportRecord record) {
+    final ownerId = _ownerId;
+    return _enqueue(
+      () => _db.insert('sport_records', {
+        'owner_id': ownerId,
+        'id': record.id,
+        'started_at': (record.startedAt ?? DateTime.now())
+            .toUtc()
+            .toIso8601String(),
+        'payload': jsonEncode(record.toMap()),
+      }, conflictAlgorithm: ConflictAlgorithm.replace),
+    );
+  }
 
   @override
   Future<List<SportRecord>> localSportRecords() async {
+    final ownerId = _ownerId;
     final rows = await _enqueue(
       () => _db.query(
         'sport_records',
         columns: ['payload'],
+        where: 'owner_id = ?',
+        whereArgs: [ownerId],
         orderBy: 'started_at DESC',
       ),
     );
@@ -265,20 +618,27 @@ class EncryptedHealthStore implements HealthStore {
   }
 
   @override
-  Future<void> saveHealthWarningAlert(HealthWarningAlert alert) => _enqueue(
-    () => _db.insert('health_warning_alerts', {
-      'id': alert.id,
-      'triggered_at': alert.triggeredAt.toUtc().toIso8601String(),
-      'payload': jsonEncode(alert.toJson()),
-    }, conflictAlgorithm: ConflictAlgorithm.replace),
-  );
+  Future<void> saveHealthWarningAlert(HealthWarningAlert alert) {
+    final ownerId = _ownerId;
+    return _enqueue(
+      () => _db.insert('health_warning_alerts', {
+        'owner_id': ownerId,
+        'id': alert.id,
+        'triggered_at': alert.triggeredAt.toUtc().toIso8601String(),
+        'payload': jsonEncode(alert.toJson()),
+      }, conflictAlgorithm: ConflictAlgorithm.replace),
+    );
+  }
 
   @override
   Future<List<HealthWarningAlert>> healthWarningAlerts() async {
+    final ownerId = _ownerId;
     final rows = await _enqueue(
       () => _db.query(
         'health_warning_alerts',
         columns: ['payload'],
+        where: 'owner_id = ?',
+        whereArgs: [ownerId],
         orderBy: 'triggered_at DESC',
       ),
     );
@@ -295,12 +655,61 @@ class EncryptedHealthStore implements HealthStore {
   }
 
   @override
+  Future<List<Map<String, Object?>>> readAll({
+    String ownerId = 'default',
+  }) async {
+    final rows = await _enqueue(
+      () => _db.query(
+        'notification_inbox',
+        columns: ['payload'],
+        where: 'account_id = ?',
+        whereArgs: [ownerId],
+        orderBy: 'created_at DESC',
+      ),
+    );
+    return rows
+        .map((row) => jsonDecode('${row['payload']}'))
+        .whereType<Map>()
+        .map((row) => row.map((key, value) => MapEntry('$key', value)))
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> replaceAll(
+    List<Map<String, Object?>> rows, {
+    String ownerId = 'default',
+  }) => _enqueue(() async {
+    await _db.transaction((transaction) async {
+      await transaction.delete(
+        'notification_inbox',
+        where: 'account_id = ?',
+        whereArgs: [ownerId],
+      );
+      final batch = transaction.batch();
+      for (final row in rows) {
+        final eventId = '${row['event_id'] ?? ''}'.trim();
+        final createdAt = row['created_at'];
+        if (eventId.isEmpty || createdAt is! num) continue;
+        batch.insert('notification_inbox', {
+          'account_id': ownerId,
+          'event_id': eventId,
+          'created_at': createdAt.toInt(),
+          'payload': jsonEncode(row),
+        });
+      }
+      await batch.commit(noResult: true);
+    });
+  });
+
+  @override
   Future<List<HealthRecord>> pending({int limit = 200}) async {
+    final ownerId = _ownerId;
     final rows = await _enqueue(
       () => _db.query(
         'health_records',
         columns: ['payload'],
-        where: 'synced = 0',
+        where: 'owner_id = ? AND synced = 0',
+        whereArgs: [ownerId],
         orderBy: 'measured_at ASC',
         limit: limit,
       ),
@@ -320,6 +729,7 @@ class EncryptedHealthStore implements HealthStore {
 
   @override
   Future<void> markSynced(Iterable<String> ids) async {
+    final ownerId = _ownerId;
     final values = ids.toSet().toList();
     if (values.isEmpty) return;
     final placeholders = List.filled(values.length, '?').join(',');
@@ -327,14 +737,15 @@ class EncryptedHealthStore implements HealthStore {
       () => _db.update(
         'health_records',
         {'synced': 1},
-        where: 'id IN ($placeholders)',
-        whereArgs: values,
+        where: 'owner_id = ? AND id IN ($placeholders)',
+        whereArgs: [ownerId, ...values],
       ),
     );
   }
 
   @override
   Future<void> markInvalid(Iterable<String> ids) async {
+    final ownerId = _ownerId;
     final values = ids.toSet().toList();
     if (values.isEmpty) return;
     final placeholders = List.filled(values.length, '?').join(',');
@@ -342,20 +753,21 @@ class EncryptedHealthStore implements HealthStore {
       () => _db.update(
         'health_records',
         {'synced': -1},
-        where: 'id IN ($placeholders)',
-        whereArgs: values,
+        where: 'owner_id = ? AND id IN ($placeholders)',
+        whereArgs: [ownerId, ...values],
       ),
     );
   }
 
   @override
   Future<String?> readCursor() async {
+    final ownerId = _ownerId;
     return _enqueue(() async {
       final rows = await _db.query(
         'metadata',
         columns: ['value'],
-        where: 'key = ?',
-        whereArgs: ['sync_cursor'],
+        where: 'owner_id = ? AND key = ?',
+        whereArgs: [ownerId, 'sync_cursor'],
         limit: 1,
       );
       return rows.isEmpty ? null : '${rows.first['value']}';
@@ -363,12 +775,16 @@ class EncryptedHealthStore implements HealthStore {
   }
 
   @override
-  Future<void> writeCursor(String cursor) => _enqueue(
-    () => _db.insert('metadata', {
-      'key': 'sync_cursor',
-      'value': cursor,
-    }, conflictAlgorithm: ConflictAlgorithm.replace),
-  );
+  Future<void> writeCursor(String cursor) {
+    final ownerId = _ownerId;
+    return _enqueue(
+      () => _db.insert('metadata', {
+        'owner_id': ownerId,
+        'key': 'sync_cursor',
+        'value': cursor,
+      }, conflictAlgorithm: ConflictAlgorithm.replace),
+    );
+  }
 
   @override
   Future<void> close() async {
@@ -380,15 +796,101 @@ class EncryptedHealthStore implements HealthStore {
 }
 
 class MemoryHealthStore implements HealthStore {
-  final Map<String, HealthRecord> _records = {};
-  final Set<String> _synced = {};
-  final Set<String> _invalid = {};
-  String? _cursor;
-  final Map<String, SportRecord> _sportRecords = {};
-  final Map<String, HealthWarningAlert> _healthWarningAlerts = {};
+  String _ownerId = 'anonymous';
+  final Map<String, Map<String, HealthRecord>> _recordsByOwner = {};
+  final Map<String, Set<String>> _syncedByOwner = {};
+  final Map<String, Set<String>> _invalidByOwner = {};
+  final Map<String, String> _cursorByOwner = {};
+  final Map<String, Map<String, SportRecord>> _sportRecordsByOwner = {};
+  final Map<String, Map<String, HealthWarningAlert>>
+  _healthWarningAlertsByOwner = {};
+  final Map<String, List<Map<String, Object?>>> _notificationInboxRowsByOwner =
+      <String, List<Map<String, Object?>>>{};
 
   @override
   Future<void> initialize() async {}
+
+  Map<String, HealthRecord> get _records =>
+      _recordsByOwner.putIfAbsent(_ownerId, () => <String, HealthRecord>{});
+
+  Set<String> get _synced =>
+      _syncedByOwner.putIfAbsent(_ownerId, () => <String>{});
+
+  Set<String> get _invalid =>
+      _invalidByOwner.putIfAbsent(_ownerId, () => <String>{});
+
+  Map<String, SportRecord> get _sportRecords =>
+      _sportRecordsByOwner.putIfAbsent(_ownerId, () => <String, SportRecord>{});
+
+  Map<String, HealthWarningAlert> get _healthWarningAlerts =>
+      _healthWarningAlertsByOwner.putIfAbsent(
+        _ownerId,
+        () => <String, HealthWarningAlert>{},
+      );
+
+  @override
+  Future<void> switchOwner(String ownerId) async {
+    final normalized = ownerId.trim();
+    if (normalized.isEmpty) {
+      throw ArgumentError.value(ownerId, 'ownerId', 'must not be empty');
+    }
+    _ownerId = normalized;
+  }
+
+  @override
+  Future<void> adoptLegacyData({
+    required String healthOwnerId,
+    required String notificationOwnerId,
+  }) async {
+    final healthOwner = healthOwnerId.trim();
+    final notificationOwner = notificationOwnerId.trim();
+    const legacyOwner = 'legacy-unscoped';
+    if (healthOwner.isEmpty ||
+        notificationOwner.isEmpty ||
+        healthOwner == legacyOwner ||
+        notificationOwner == legacyOwner) {
+      throw ArgumentError('Legacy data requires stable account owners');
+    }
+
+    void moveMap<T>(Map<String, Map<String, T>> source, String targetOwner) {
+      final legacy = source.remove(legacyOwner);
+      if (legacy == null) return;
+      final target = source.putIfAbsent(targetOwner, () => <String, T>{});
+      for (final entry in legacy.entries) {
+        target.putIfAbsent(entry.key, () => entry.value);
+      }
+    }
+
+    void moveSet(Map<String, Set<String>> source, String targetOwner) {
+      final legacy = source.remove(legacyOwner);
+      if (legacy == null) return;
+      source.putIfAbsent(targetOwner, () => <String>{}).addAll(legacy);
+    }
+
+    moveMap(_recordsByOwner, healthOwner);
+    moveSet(_syncedByOwner, healthOwner);
+    moveSet(_invalidByOwner, healthOwner);
+    moveMap(_sportRecordsByOwner, healthOwner);
+    moveMap(_healthWarningAlertsByOwner, healthOwner);
+    final legacyCursor = _cursorByOwner.remove(legacyOwner);
+    if (legacyCursor != null) {
+      _cursorByOwner.putIfAbsent(healthOwner, () => legacyCursor);
+    }
+    final legacyInbox = _notificationInboxRowsByOwner.remove(legacyOwner);
+    if (legacyInbox != null) {
+      final target = _notificationInboxRowsByOwner.putIfAbsent(
+        notificationOwner,
+        () => <Map<String, Object?>>[],
+      );
+      final knownIds = target
+          .map((row) => '${row['event_id'] ?? ''}')
+          .where((id) => id.isNotEmpty)
+          .toSet();
+      target.addAll(
+        legacyInbox.where((row) => knownIds.add('${row['event_id'] ?? ''}')),
+      );
+    }
+  }
 
   @override
   Future<void> upsert(List<HealthRecord> records) async {
@@ -474,6 +976,23 @@ class MemoryHealthStore implements HealthStore {
   }
 
   @override
+  Future<List<Map<String, Object?>>> readAll({
+    String ownerId = 'default',
+  }) async => (_notificationInboxRowsByOwner[ownerId] ?? const [])
+      .map((row) => Map<String, Object?>.from(row))
+      .toList(growable: false);
+
+  @override
+  Future<void> replaceAll(
+    List<Map<String, Object?>> rows, {
+    String ownerId = 'default',
+  }) async {
+    _notificationInboxRowsByOwner[ownerId] = rows
+        .map((row) => Map<String, Object?>.from(row))
+        .toList(growable: false);
+  }
+
+  @override
   Future<List<HealthRecord>> pending({int limit = 200}) async => _records.values
       .where(
         (record) =>
@@ -489,10 +1008,11 @@ class MemoryHealthStore implements HealthStore {
   Future<void> markInvalid(Iterable<String> ids) async => _invalid.addAll(ids);
 
   @override
-  Future<String?> readCursor() async => _cursor;
+  Future<String?> readCursor() async => _cursorByOwner[_ownerId];
 
   @override
-  Future<void> writeCursor(String cursor) async => _cursor = cursor;
+  Future<void> writeCursor(String cursor) async =>
+      _cursorByOwner[_ownerId] = cursor;
 
   @override
   Future<void> close() async {}
