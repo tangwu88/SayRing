@@ -120,6 +120,33 @@ void main() {
     },
   );
 
+  testWidgets('connected and about-device pages identify the active SDK', (
+    tester,
+  ) async {
+    final controller = _controller()
+      ..connectedDevice = const DeviceInfo(
+        id: 'veepoo:watch-1',
+        name: 'SD-Watch-W9S',
+        model: 'W9S',
+      );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: DevicePage(controller: controller)),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Vep'), findsOneWidget);
+
+    await tester.pumpWidget(
+      MaterialApp(home: DeviceInfoPage(controller: controller)),
+    );
+    await tester.pump();
+    expect(find.text('设备服务'), findsOneWidget);
+    expect(find.text('Vep 设备服务'), findsOneWidget);
+  });
+
   testWidgets(
     'device capability loading and failure never reveal guessed features',
     (tester) async {

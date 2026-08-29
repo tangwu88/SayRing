@@ -23,6 +23,7 @@ class DeviceSdkBadge extends StatelessWidget {
     };
     return Semantics(
       label: label,
+      excludeSemantics: true,
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: color.withValues(alpha: .12),

@@ -18,6 +18,7 @@ import '../services/device_watch_face_market_service.dart';
 import '../services/notification_models.dart';
 import 'app_theme.dart';
 import 'brand_assets.dart';
+import 'device_sdk_badge.dart';
 import 'health_trend_page.dart';
 import 'prototype_pages.dart';
 import 'shop_pages.dart';
@@ -3720,12 +3721,20 @@ class DevicePage extends StatelessWidget {
                               Expanded(
                                 child: Text(
                                   connected.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
                               ),
+                              const SizedBox(width: 8),
+                              DeviceSdkBadge(
+                                source: connected.sdkSource,
+                                compact: true,
+                              ),
+                              const SizedBox(width: 8),
                               _BatteryBadge(
                                 battery: connected.effectiveBattery,
                               ),
@@ -4559,14 +4568,27 @@ class _DeviceSearchPageState extends State<DeviceSearchPage> {
                                           crossAxisAlignment:
                                               CrossAxisAlignment.start,
                                           children: [
-                                            Text(
-                                              device.name,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.w800,
-                                              ),
+                                            Row(
+                                              children: [
+                                                Flexible(
+                                                  child: Text(
+                                                    device.name,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                      fontSize: 16,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                DeviceSdkBadge(
+                                                  source: device.sdkSource,
+                                                  compact: true,
+                                                ),
+                                              ],
                                             ),
                                             const SizedBox(height: 5),
                                             Text(
@@ -4791,6 +4813,13 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                     ListTile(
                       title: const Text('设备型号'),
                       trailing: Text(device?.model ?? '--'),
+                    ),
+                    const Divider(indent: 16),
+                    ListTile(
+                      title: const Text('设备服务'),
+                      trailing: DeviceSdkBadge(
+                        source: device?.sdkSource ?? WearableSdkSource.unknown,
+                      ),
                     ),
                     const Divider(indent: 16),
                     ListTile(
@@ -9432,7 +9461,8 @@ class PermissionManagementPage extends StatefulWidget {
       _PermissionManagementPageState();
 }
 
-class _PermissionManagementPageState extends State<PermissionManagementPage> {
+class _PermissionManagementPageState extends State<PermissionManagementPage>
+    with WidgetsBindingObserver {
   Map<Permission, PermissionStatus> _statuses = const {};
 
   List<Permission> get _permissions =>
@@ -9458,11 +9488,25 @@ class _PermissionManagementPageState extends State<PermissionManagementPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     if (widget.healthOnly) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(widget.controller.refreshDeviceSettings());
       });
     } else {
+      unawaited(_refresh());
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !widget.healthOnly) {
       unawaited(_refresh());
     }
   }
@@ -9476,7 +9520,11 @@ class _PermissionManagementPageState extends State<PermissionManagementPage> {
   }
 
   Future<void> _request(Permission permission) async {
-    await permission.request();
+    if (permission == Permission.notification) {
+      await openAppSettings();
+    } else {
+      await permission.request();
+    }
     await _refresh();
   }
 

@@ -276,7 +276,14 @@ void main() {
   ) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     try {
-      final wearable = _QaWearable();
+      final wearable = _QaWearable(
+        scannedDevice: const DeviceInfo(
+          id: 'veepoo:QA:WATCH:01',
+          name: 'QA Watch',
+          model: 'QA-1',
+          rssi: -40,
+        ),
+      );
       final controller = _controller(wearable: wearable);
       await controller.initialize();
       controller
@@ -300,6 +307,7 @@ void main() {
 
       expect(find.text('添加设备'), findsOneWidget);
       expect(find.text('QA Watch'), findsOneWidget);
+      expect(find.text('Vep'), findsOneWidget);
       expect(wearable.scanCount, 1);
       expect(find.byKey(const Key('device-shop-entry')), findsOneWidget);
       await tester.tap(find.byKey(const Key('device-shop-entry')));
@@ -311,7 +319,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(wearable.stopScanCount, 1);
-      expect(wearable.connectedDeviceId, 'QA:WATCH:01');
+      expect(wearable.connectedDeviceId, 'veepoo:QA:WATCH:01');
       expect(find.text('添加设备'), findsNothing);
       expect(find.text('QA Watch'), findsOneWidget);
       expect(find.text('已连接'), findsWidgets);
@@ -1553,10 +1561,10 @@ class _QaWearable extends Fake implements WearableBridge {
     connectedDeviceId = deviceId;
     scheduleMicrotask(
       () => _events.add(
-        const WearableEvent(
+        WearableEvent(
           type: 'deviceDetails',
           payload: {
-            'id': 'QA:WATCH:01',
+            'id': scannedDevice.id,
             'name': 'QA Watch',
             'model': 'QA-1',
             'firmwareVersion': 'QA-FW-1',
