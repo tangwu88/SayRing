@@ -805,6 +805,117 @@ void main() {
     expect(await store.localSportRecords(), hasLength(1));
   });
 
+  testWidgets('app-side stop replaces the active tracking status', (
+    tester,
+  ) async {
+    const geolocatorChannel = MethodChannel('flutter.baseflow.com/geolocator');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(geolocatorChannel, (_) async => false);
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(geolocatorChannel, null),
+    );
+
+    final store = MemoryHealthStore();
+    final wearable = _QaSportWearable();
+    final controller = _controller(wearable: wearable, store: store);
+    await controller.initialize();
+    controller
+      ..connectedDevice = wearable.scannedDevice
+      ..capabilities = const DeviceCapabilities(
+        metrics: {},
+        sportModes: {SportMode.walking},
+      );
+    for (final state in const [
+      DeviceConnectionState.scanning,
+      DeviceConnectionState.connecting,
+      DeviceConnectionState.authenticating,
+      DeviceConnectionState.syncing,
+      DeviceConnectionState.ready,
+    ]) {
+      controller.deviceMachine.transition(state);
+    }
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SportSessionPage(controller: controller, mode: SportMode.walking),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('sport-session-toggle')));
+    await tester.pump(const Duration(seconds: 1));
+    expect(controller.activeSport, SportMode.walking);
+
+    await tester.tap(find.byKey(const Key('sport-session-toggle')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(controller.activeSport, isNull);
+    expect(find.text('开始步行'), findsOneWidget);
+    expect(find.textContaining('本次运动已结束，记录已保存'), findsOneWidget);
+    expect(find.textContaining('正在记录前台户外轨迹'), findsNothing);
+    expect(wearable.startCount, 1);
+    expect(wearable.stopCount, 1);
+    expect(await store.localSportRecords(), hasLength(1));
+  });
+
+  testWidgets('sport stop disables restart while the watch is still saving', (
+    tester,
+  ) async {
+    const geolocatorChannel = MethodChannel('flutter.baseflow.com/geolocator');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(geolocatorChannel, (_) async => false);
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(geolocatorChannel, null),
+    );
+
+    final stopCompleter = Completer<void>();
+    final wearable = _QaSportWearable(stopCompleter: stopCompleter);
+    final controller = _controller(wearable: wearable);
+    await controller.initialize();
+    controller
+      ..connectedDevice = wearable.scannedDevice
+      ..capabilities = const DeviceCapabilities(
+        metrics: {},
+        sportModes: {SportMode.walking},
+      );
+    for (final state in const [
+      DeviceConnectionState.scanning,
+      DeviceConnectionState.connecting,
+      DeviceConnectionState.authenticating,
+      DeviceConnectionState.syncing,
+      DeviceConnectionState.ready,
+    ]) {
+      controller.deviceMachine.transition(state);
+    }
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SportSessionPage(controller: controller, mode: SportMode.walking),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('sport-session-toggle')));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.tap(find.byKey(const Key('sport-session-toggle')));
+    await tester.pump();
+
+    expect(find.textContaining('正在结束运动并保存记录'), findsOneWidget);
+    expect(find.text('正在保存'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.widgetWithText(FilledButton, '正在保存'))
+          .onPressed,
+      isNull,
+    );
+
+    stopCompleter.complete();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('本次运动已结束，记录已保存'), findsOneWidget);
+    expect(find.text('开始步行'), findsOneWidget);
+  });
+
   testWidgets('short sport records display seconds instead of zero minutes', (
     tester,
   ) async {
@@ -1838,6 +1949,9 @@ class _QaWearable extends Fake implements WearableBridge {
 }
 
 class _QaSportWearable extends _QaWearable implements WearableSportPauseBridge {
+  _QaSportWearable({this.stopCompleter});
+
+  final Completer<void>? stopCompleter;
   int pauseCount = 0;
   int resumeCount = 0;
   int startCount = 0;
@@ -1851,6 +1965,7 @@ class _QaSportWearable extends _QaWearable implements WearableSportPauseBridge {
   @override
   Future<void> stopSport() async {
     stopCount++;
+    await stopCompleter?.future;
   }
 
   @override

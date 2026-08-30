@@ -387,9 +387,13 @@ class DashboardPage extends StatelessWidget {
       HealthMetric.bloodPressure,
       HealthMetric.heartRate,
       HealthMetric.bloodOxygen,
+      HealthMetric.bloodGlucose,
       HealthMetric.bodyTemperature,
       HealthMetric.ecg,
       HealthMetric.hrv,
+      HealthMetric.bodyComposition,
+      HealthMetric.bloodComposition,
+      HealthMetric.sleep,
     ];
     final metrics = supportedMetrics
         .where(controller.shouldShowHealthMetric)
@@ -2084,10 +2088,20 @@ class _SportSessionPageState extends State<SportSessionPage> {
 
   Future<void> _finalizeSport({required bool requestDeviceStop}) async {
     final startedAt = _startedAt;
+    final previousLocationStatus = _locationStatus;
+    var recordSaved = false;
+    if (mounted) {
+      setState(() {
+        _locationStatus = requestDeviceStop ? '正在结束运动并保存记录' : '手表已结束运动，正在保存记录';
+      });
+    }
     try {
       if (requestDeviceStop) {
         await widget.controller.stopSport();
-        if (widget.controller.activeSport == widget.mode) return;
+        if (widget.controller.activeSport == widget.mode) {
+          _locationStatus = previousLocationStatus;
+          return;
+        }
       }
 
       _timer?.cancel();
@@ -2118,12 +2132,15 @@ class _SportSessionPageState extends State<SportSessionPage> {
             routePoints: List.unmodifiable(_routePoints),
           ),
         );
+        recordSaved = true;
         _elapsedSeconds = durationSeconds;
       }
       _startedAt = null;
-      if (!requestDeviceStop) {
-        _locationStatus = '手表已结束本次运动，记录已保存';
-      }
+      _locationStatus = recordSaved
+          ? requestDeviceStop
+                ? '本次运动已结束，记录已保存'
+                : '手表已结束本次运动，记录已保存'
+          : '本次运动已结束';
     } finally {
       _finalizingSport = false;
       if (mounted) setState(() {});
@@ -2354,17 +2371,24 @@ class _SportSessionPageState extends State<SportSessionPage> {
                     key: const Key('sport-session-toggle'),
                     onPressed:
                         widget.controller.connectedDevice == null ||
-                            anotherSportActive
+                            anotherSportActive ||
+                            _finalizingSport
                         ? null
                         : _toggleSport,
                     style: FilledButton.styleFrom(
                       backgroundColor: active ? Colors.red : SaydianColors.ink,
                     ),
                     icon: Icon(
-                      active ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                      _finalizingSport
+                          ? Icons.hourglass_top_rounded
+                          : active
+                          ? Icons.stop_rounded
+                          : Icons.play_arrow_rounded,
                     ),
                     label: Text(
-                      anotherSportActive
+                      _finalizingSport
+                          ? '正在保存'
+                          : anotherSportActive
                           ? '请先结束${widget.controller.activeSport!.label}'
                           : active
                           ? '结束运动'

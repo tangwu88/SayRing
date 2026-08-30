@@ -115,6 +115,8 @@ class AppController extends ChangeNotifier {
   Future<void>? _activeCloudSync;
   bool _disposed = false;
   int _deviceSyncGeneration = 0;
+  int _wearableRestoreGeneration = 0;
+  Future<void>? _wearableRestoreInFlight;
   DeviceInfo? _latestDeviceDetails;
   String? _deviceSyncErrorMessage;
   Future<void>? _deviceSettingsRefresh;
@@ -855,6 +857,7 @@ class AppController extends ChangeNotifier {
         notifyListeners();
         return;
       }
+      await _cancelPendingWearableRestore();
       if (deviceState == DeviceConnectionState.error) {
         deviceMachine.transition(DeviceConnectionState.disconnected);
       }
@@ -915,6 +918,7 @@ class AppController extends ChangeNotifier {
     _invalidateDeviceSync();
     _latestDeviceDetails = null;
     try {
+      await _cancelPendingWearableRestore();
       if (deviceState == DeviceConnectionState.error) {
         deviceMachine.transition(DeviceConnectionState.disconnected);
       }
@@ -1121,6 +1125,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> disconnectDevice() async {
+    await _cancelPendingWearableRestore();
     _invalidateDeviceSync();
     try {
       await _wearable.disconnect();
@@ -1674,12 +1679,48 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _cancelPendingWearableRestore() async {
+    _wearableRestoreGeneration++;
+    final pending = _wearableRestoreInFlight;
+    if (pending == null) return;
+    try {
+      await _wearable.stopScan().timeout(const Duration(seconds: 3));
+    } catch (_) {
+      // The restore may already be connecting. Waiting below still prevents
+      // an old target from racing a user-selected device.
+    }
+    try {
+      await pending;
+    } catch (_) {
+      // Restore failures are already translated into controller status.
+    }
+  }
+
   Future<void> restoreWearableConnection() async {
     if (_disposed ||
         connectedDevice != null ||
         deviceState != DeviceConnectionState.disconnected) {
       return;
     }
+    final active = _wearableRestoreInFlight;
+    if (active != null) {
+      await active;
+      return;
+    }
+    final generation = _wearableRestoreGeneration;
+    late final Future<void> restore;
+    restore = _runWearableConnectionRestore(generation);
+    _wearableRestoreInFlight = restore;
+    try {
+      await restore;
+    } finally {
+      if (identical(_wearableRestoreInFlight, restore)) {
+        _wearableRestoreInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _runWearableConnectionRestore(int generation) async {
     final bridge = _wearable;
     if (bridge is! WearableConnectionRecoveryBridge) return;
     try {
@@ -1690,13 +1731,26 @@ class AppController extends ChangeNotifier {
               targetSteps: stepGoal,
             ),
           );
-      if (_disposed || device == null || connectedDevice != null) return;
+      if (_disposed || generation != _wearableRestoreGeneration) {
+        if (device != null && connectedDevice == null) {
+          try {
+            await _wearable.disconnect();
+          } catch (_) {
+            // The stale native session is best-effort cleanup. The pending
+            // manual action will still perform its own guarded disconnect.
+          }
+        }
+        return;
+      }
+      if (device == null || connectedDevice != null) return;
       await _restoreReconnectedDevice(device.toJson());
     } on PlatformException catch (error) {
+      if (generation != _wearableRestoreGeneration) return;
       if (error.code == 'NO_SAVED_DEVICE') return;
       sdkStatus = _wearableErrorMessage(error, fallback: '手表自动重连失败');
       notifyListeners();
     } catch (_) {
+      if (generation != _wearableRestoreGeneration) return;
       sdkStatus = '手表自动重连失败，可在设备页重新连接';
       notifyListeners();
     }
@@ -4080,6 +4134,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _wearableRestoreGeneration++;
     _measurementTimeout?.cancel();
     _careInvitationPollTimer?.cancel();
     _pushRegistrationRetryTimer?.cancel();

@@ -21,6 +21,8 @@ def prepareYuchengPluginSources = tasks.register('prepareYuchengPluginSources', 
     def initSource = file(yuchengJavaSource.path +
             '/com/example/yc_product_plugin/YcProductPluginInit.java')
     def brokenLine = 'map.put("data", map);'
+    def unsupportedSpeechInit =
+            '        SpeechUtility.createUtility(context, SpeechConstant.APPID + "=eac7ae72");'
     def initAnchor = '        YCBTClient.initClient(context, isReconnectEnable, isLogEnable);'
 
     doFirst {
@@ -44,6 +46,13 @@ def prepareYuchengPluginSources = tasks.register('prepareYuchengPluginSources', 
                     "Expected one Yucheng init anchor, found ${initAnchorCount}. " +
                             'Review the upstream plugin logging setup before building.')
         }
+        def unsupportedSpeechInitCount = new String(initSource.bytes, 'ISO-8859-1')
+                .count(unsupportedSpeechInit)
+        if (unsupportedSpeechInitCount != 1) {
+            throw new GradleException(
+                    "Expected one unsupported Yucheng speech initializer, found " +
+                            "${unsupportedSpeechInitCount}. Review the upstream plugin before building.")
+        }
     }
 
     from(yuchengJavaSource)
@@ -60,6 +69,13 @@ def prepareYuchengPluginSources = tasks.register('prepareYuchengPluginSources', 
         def patchedInitSource = file(patchedYuchengJavaSource.path +
                 '/com/example/yc_product_plugin/YcProductPluginInit.java')
         def initSourceBytes = new String(patchedInitSource.bytes, 'ISO-8859-1')
+        // Upstream bundles only the iFlytek Java stubs (Msc.jar), not the
+        // required libmsc.so runtime.  The app does not expose the vendor
+        // speech-recognition feature, so avoid initializing an unavailable
+        // component on every launch.  W8 BLE features remain independent.
+        initSourceBytes = initSourceBytes.replace(
+                unsupportedSpeechInit,
+                '        // Speech recognition is unavailable without the vendor libmsc.so runtime.')
         def safeLoggingSetup = initAnchor + '''
 
         // The Yucheng flag does not configure the bundled JieLi loggers.  Some

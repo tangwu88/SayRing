@@ -181,6 +181,51 @@ void main() {
     }
   });
 
+  testWidgets('dashboard exposes every health metric supported by the watch', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            _NoopApi(),
+            MemoryHealthStore(),
+            _NoopWearable(),
+          )
+          ..connectedDevice = const DeviceInfo(id: 'et488', name: 'ET488')
+          ..deviceCapabilityState = DeviceCapabilityState.ready
+          ..capabilities = const DeviceCapabilities(
+            metrics: {
+              HealthMetric.bloodGlucose,
+              HealthMetric.bodyComposition,
+              HealthMetric.bloodComposition,
+              HealthMetric.sleep,
+            },
+          );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: DashboardPage(controller: controller),
+      ),
+    );
+    await tester.pump();
+
+    for (final metric in const [
+      'bloodGlucose',
+      'bodyComposition',
+      'bloodComposition',
+      'sleep',
+    ]) {
+      expect(find.byKey(ValueKey('health-metric-$metric')), findsOneWidget);
+    }
+    expect(find.byKey(const ValueKey('health-metric-heartRate')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'empty health notice is centered, opens device search, and keeps legal copy at bottom',
     (tester) async {
