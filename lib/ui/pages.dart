@@ -2021,9 +2021,28 @@ class _SportSessionPageState extends State<SportSessionPage> {
   double _routeDistanceKm = 0;
   String _locationStatus = '开始后可记录前台户外轨迹';
   bool _allowPop = false;
+  bool _finalizingSport = false;
+  int _trackingGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_handleControllerChange);
+  }
+
+  void _handleControllerChange() {
+    if (_startedAt != null &&
+        widget.controller.activeSport != widget.mode &&
+        !_finalizingSport) {
+      _finalizingSport = true;
+      unawaited(_finalizeSport(requestDeviceStop: false));
+    }
+    if (mounted) setState(() {});
+  }
 
   @override
   void dispose() {
+    widget.controller.removeListener(_handleControllerChange);
     _timer?.cancel();
     unawaited(_positionSubscription?.cancel());
     super.dispose();
@@ -2037,43 +2056,82 @@ class _SportSessionPageState extends State<SportSessionPage> {
     if (widget.controller.activeSport != null) return;
     final started = await widget.controller.startSport(widget.mode);
     if (!started || !mounted) return;
+    _timer?.cancel();
+    await _positionSubscription?.cancel();
+    _positionSubscription = null;
     _startedAt = DateTime.now();
     _elapsedSeconds = 0;
     _routePoints.clear();
     _routeDistanceKm = 0;
+    _locationStatus = '正在准备前台户外轨迹';
+    final trackingGeneration = ++_trackingGeneration;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) {
-        setState(
-          () => _elapsedSeconds = DateTime.now()
-              .difference(_startedAt!)
-              .inSeconds,
-        );
+      if (mounted &&
+          widget.controller.activeSport == widget.mode &&
+          !widget.controller.sportPaused) {
+        setState(() => _elapsedSeconds += 1);
       }
     });
     setState(() {});
-    unawaited(_startLocationTracking());
+    unawaited(_startLocationTracking(trackingGeneration));
   }
 
   Future<void> _stopAndSaveSport() async {
+    if (_finalizingSport) return;
+    _finalizingSport = true;
+    await _finalizeSport(requestDeviceStop: true);
+  }
+
+  Future<void> _finalizeSport({required bool requestDeviceStop}) async {
     final startedAt = _startedAt;
-    await _positionSubscription?.cancel();
-    _positionSubscription = null;
-    await widget.controller.stopSport();
-    _timer?.cancel();
-    if (startedAt != null && _elapsedSeconds > 0) {
-      await widget.controller.saveLocalSportRecord(
-        SportRecord(
-          id: 'local:${startedAt.toUtc().toIso8601String()}',
-          mode: widget.mode,
-          startedAt: startedAt,
-          durationSeconds: _elapsedSeconds,
-          distanceKm: _routeDistanceKm,
-          calories: 0,
-          routePoints: List.unmodifiable(_routePoints),
-        ),
-      );
+    try {
+      if (requestDeviceStop) {
+        await widget.controller.stopSport();
+        if (widget.controller.activeSport == widget.mode) return;
+      }
+
+      _timer?.cancel();
+      _timer = null;
+      _trackingGeneration++;
+      await _positionSubscription?.cancel();
+      _positionSubscription = null;
+
+      final watchData = Map<String, num>.from(widget.controller.liveSportData);
+      final watchDuration = (watchData['durationSeconds'] ?? 0).toInt();
+      final watchDistanceMeters = (watchData['distanceMeters'] ?? 0).toDouble();
+      final durationSeconds = watchDuration > 0
+          ? watchDuration
+          : _elapsedSeconds;
+      if (startedAt != null && durationSeconds > 0) {
+        await widget.controller.saveLocalSportRecord(
+          SportRecord(
+            id: 'local:${startedAt.toUtc().toIso8601String()}',
+            mode: widget.mode,
+            startedAt: startedAt,
+            durationSeconds: durationSeconds,
+            distanceKm: watchDistanceMeters > 0
+                ? watchDistanceMeters / 1000
+                : _routeDistanceKm,
+            calories: (watchData['calories'] ?? 0).toDouble(),
+            steps: (watchData['steps'] ?? 0).toInt(),
+            heartRate: (watchData['heartRate'] ?? 0).toInt(),
+            routePoints: List.unmodifiable(_routePoints),
+          ),
+        );
+        _elapsedSeconds = durationSeconds;
+      }
+      _startedAt = null;
+      if (!requestDeviceStop) {
+        _locationStatus = '手表已结束本次运动，记录已保存';
+      }
+    } finally {
+      _finalizingSport = false;
+      if (mounted) setState(() {});
     }
-    if (mounted) setState(() {});
+  }
+
+  Future<void> _togglePause() async {
+    await widget.controller.setSportPaused(!widget.controller.sportPaused);
   }
 
   Future<void> _confirmExit() async {
@@ -2104,21 +2162,28 @@ class _SportSessionPageState extends State<SportSessionPage> {
     });
   }
 
-  Future<void> _startLocationTracking() async {
+  bool _isCurrentTrackingGeneration(int generation) =>
+      mounted && generation == _trackingGeneration && _startedAt != null;
+
+  Future<void> _startLocationTracking(int generation) async {
     if (!await Geolocator.isLocationServiceEnabled()) {
-      if (mounted) setState(() => _locationStatus = '定位服务未开启，仍会记录手表运动数据');
+      if (_isCurrentTrackingGeneration(generation)) {
+        setState(() => _locationStatus = '定位服务未开启，仍会记录手表运动数据');
+      }
       return;
     }
+    if (!_isCurrentTrackingGeneration(generation)) return;
     var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
+    if (!_isCurrentTrackingGeneration(generation)) return;
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
-      if (mounted) setState(() => _locationStatus = '未允许位置权限，仍会记录手表运动数据');
+      setState(() => _locationStatus = '未允许位置权限，仍会记录手表运动数据');
       return;
     }
-    if (mounted) setState(() => _locationStatus = '正在记录前台户外轨迹');
+    setState(() => _locationStatus = '正在记录前台户外轨迹');
     _positionSubscription =
         Geolocator.getPositionStream(
           locationSettings: const LocationSettings(
@@ -2127,7 +2192,10 @@ class _SportSessionPageState extends State<SportSessionPage> {
           ),
         ).listen(
           (position) {
-            if (position.accuracy > 80 || !mounted) return;
+            if (position.accuracy > 80 ||
+                !_isCurrentTrackingGeneration(generation)) {
+              return;
+            }
             final point = SportRoutePoint(
               latitude: position.latitude,
               longitude: position.longitude,
@@ -2147,7 +2215,9 @@ class _SportSessionPageState extends State<SportSessionPage> {
             setState(() => _routePoints.add(point));
           },
           onError: (_) {
-            if (mounted) setState(() => _locationStatus = '轨迹读取中断，手表运动仍在继续');
+            if (_isCurrentTrackingGeneration(generation)) {
+              setState(() => _locationStatus = '轨迹读取中断，手表运动仍在继续');
+            }
           },
         );
   }
@@ -2156,6 +2226,9 @@ class _SportSessionPageState extends State<SportSessionPage> {
   Widget build(BuildContext context) {
     final active = widget.controller.activeSport == widget.mode;
     final anotherSportActive = widget.controller.activeSport != null && !active;
+    final paused = active && widget.controller.sportPaused;
+    final liveData = widget.controller.liveSportData;
+    final watchDistanceKm = (liveData['distanceMeters'] ?? 0).toDouble() / 1000;
     final duration = Duration(seconds: _elapsedSeconds);
     final time = [
       duration.inHours,
@@ -2202,13 +2275,41 @@ class _SportSessionPageState extends State<SportSessionPage> {
                   const SizedBox(height: 7),
                   Text(
                     active
-                        ? '${widget.mode.label}进行中'
+                        ? (paused
+                              ? '${widget.mode.label}已暂停'
+                              : '${widget.mode.label}进行中')
                         : '准备开始${widget.mode.label}',
                     style: const TextStyle(color: Colors.white70),
                   ),
                 ],
               ),
             ),
+            if (active && liveData.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _SportLiveMetric(
+                    label: '手表距离',
+                    value: '${watchDistanceKm.toStringAsFixed(2)} km',
+                  ),
+                  _SportLiveMetric(
+                    label: '手表步数',
+                    value: '${(liveData['steps'] ?? 0).toInt()} 步',
+                  ),
+                  _SportLiveMetric(
+                    label: '实时心率',
+                    value: '${(liveData['heartRate'] ?? 0).toInt()} bpm',
+                  ),
+                  _SportLiveMetric(
+                    label: '手表热量',
+                    value:
+                        '${(liveData['calories'] ?? 0).toDouble().toStringAsFixed(1)} kcal',
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 18),
             _InlineNotice(
               message: widget.controller.connectedDevice == null
@@ -2229,34 +2330,80 @@ class _SportSessionPageState extends State<SportSessionPage> {
         ),
         bottomNavigationBar: SafeArea(
           minimum: const EdgeInsets.fromLTRB(20, 8, 20, 14),
-          child: SizedBox(
-            height: 52,
-            child: FilledButton.icon(
-              key: const Key('sport-session-toggle'),
-              onPressed:
-                  widget.controller.connectedDevice == null ||
+          child: Row(
+            children: [
+              if (active &&
+                  widget.controller.capabilities?.supportsSportPause ==
+                      true) ...[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const Key('sport-session-pause'),
+                    onPressed: _togglePause,
+                    icon: Icon(
+                      paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                    ),
+                    label: Text(paused ? '继续运动' : '暂停运动'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+              ],
+              Expanded(
+                child: SizedBox(
+                  height: 52,
+                  child: FilledButton.icon(
+                    key: const Key('sport-session-toggle'),
+                    onPressed:
+                        widget.controller.connectedDevice == null ||
+                            anotherSportActive
+                        ? null
+                        : _toggleSport,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: active ? Colors.red : SaydianColors.ink,
+                    ),
+                    icon: Icon(
+                      active ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                    ),
+                    label: Text(
                       anotherSportActive
-                  ? null
-                  : _toggleSport,
-              style: FilledButton.styleFrom(
-                backgroundColor: active ? Colors.red : SaydianColors.ink,
+                          ? '请先结束${widget.controller.activeSport!.label}'
+                          : active
+                          ? '结束运动'
+                          : '开始${widget.mode.label}',
+                    ),
+                  ),
+                ),
               ),
-              icon: Icon(
-                active ? Icons.stop_rounded : Icons.play_arrow_rounded,
-              ),
-              label: Text(
-                anotherSportActive
-                    ? '请先结束${widget.controller.activeSport!.label}'
-                    : active
-                    ? '结束运动'
-                    : '开始${widget.mode.label}',
-              ),
-            ),
+            ],
           ),
         ),
       ),
     );
   }
+}
+
+class _SportLiveMetric extends StatelessWidget {
+  const _SportLiveMetric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: (MediaQuery.sizeOf(context).width - 50) / 2,
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF4F7FC),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: SaydianColors.muted)),
+        const SizedBox(height: 3),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
+      ],
+    ),
+  );
 }
 
 class SportRecordsPage extends StatefulWidget {
@@ -2326,7 +2473,9 @@ class _SportRecordTile extends StatelessWidget {
     final duration = Duration(seconds: record.durationSeconds);
     final durationText = duration.inHours > 0
         ? '${duration.inHours}小时${duration.inMinutes.remainder(60)}分钟'
-        : '${duration.inMinutes}分钟';
+        : duration.inMinutes > 0
+        ? '${duration.inMinutes}分钟${duration.inSeconds.remainder(60) > 0 ? '${duration.inSeconds.remainder(60)}秒' : ''}'
+        : '${duration.inSeconds}秒';
     final usesMiles = controller.distanceUnit == '英里';
     final distance = usesMiles
         ? record.distanceKm * 0.621371
@@ -2418,6 +2567,20 @@ class SportRecordDetailPage extends StatelessWidget {
                   ListTile(
                     title: const Text('热量'),
                     trailing: Text('${record.calories.toStringAsFixed(1)} 千卡'),
+                  ),
+                ],
+                if (record.steps > 0) ...[
+                  const Divider(indent: 16),
+                  ListTile(
+                    title: const Text('步数'),
+                    trailing: Text('${record.steps} 步'),
+                  ),
+                ],
+                if (record.heartRate > 0) ...[
+                  const Divider(indent: 16),
+                  ListTile(
+                    title: const Text('手表心率'),
+                    trailing: Text('${record.heartRate} bpm'),
                   ),
                 ],
                 if (record.startedAt != null) ...[

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/feature_models.dart';
@@ -10,7 +11,11 @@ import 'yucheng_payload_mapper.dart';
 import 'yucheng_product_client.dart';
 
 class YuchengWearableBridge
-    implements WearableBridge, WearableDeviceDetailsBridge {
+    implements
+        WearableBridge,
+        WearableDeviceDetailsBridge,
+        WearableSportPauseBridge,
+        WearableConnectionRecoveryBridge {
   YuchengWearableBridge({
     YuchengProductClient? client,
     this.healthReadTimeout = const Duration(seconds: 8),
@@ -19,8 +24,12 @@ class YuchengWearableBridge
     this.deviceInfoSettleDelay = const Duration(seconds: 2),
     this.deviceInfoReadTimeout = const Duration(seconds: 3),
     this.deviceInfoRetryDelay = const Duration(milliseconds: 500),
-  }) : _client = client ?? PluginYuchengProductClient();
+    YuchengSavedDeviceStore? savedDeviceStore,
+  }) : _client = client ?? PluginYuchengProductClient(),
+       _savedDeviceStore =
+           savedDeviceStore ?? const SecureYuchengSavedDeviceStore();
   final YuchengProductClient _client;
+  final YuchengSavedDeviceStore _savedDeviceStore;
   final Duration healthReadTimeout;
   final Duration initialHealthSettleDelay;
   final Duration capabilityRetryDelay;
@@ -31,16 +40,19 @@ class YuchengWearableBridge
   bool _initialized = false;
   String? _deviceId;
   String _firmware = '';
+  String? _hardwareAddress;
   DeviceBatteryInfo? _battery;
   Future<void>? _deviceInfoLoad;
   int _connectionGeneration = 0;
   DeviceCapabilities? _capabilities;
   Future<DeviceCapabilities>? _capabilityLoad;
   final Map<String, String> _scannedNames = {};
+  final Map<String, String> _scannedHardwareAddresses = {};
   bool _needsInitialHealthSettle = false;
   bool _capabilitiesResolved = false;
   HealthMetric? _activeMeasurementMetric;
   DateTime? _measurementStartedAt;
+  int? _activeSportType;
 
   @override
   Stream<WearableEvent> get events => _events.stream;
@@ -74,6 +86,17 @@ class YuchengWearableBridge
     _scannedNames
       ..clear()
       ..addEntries(devices.map((device) => MapEntry(device.id, device.name)));
+    _scannedHardwareAddresses
+      ..clear()
+      ..addEntries(
+        devices
+            .where(
+              (device) => device.hardwareAddress?.trim().isNotEmpty ?? false,
+            )
+            .map(
+              (device) => MapEntry(device.id, device.hardwareAddress!.trim()),
+            ),
+      );
     return devices;
   }
 
@@ -106,12 +129,18 @@ class YuchengWearableBridge
         message: '连接失败，请将手表靠近手机后重试',
       );
     }
+    await _rememberDevice(
+      deviceId: deviceId,
+      name: scannedName,
+      hardwareAddress: _scannedHardwareAddresses[deviceId],
+    );
     // The plugin starts its own model/MCU/feature queries when BLE reaches the
     // ready state. Issuing another model and setup sequence here can leave its
     // native command queue waiting forever. BLE authentication is therefore
     // the connection boundary; optional metadata is loaded separately.
     final generation = ++_connectionGeneration;
     _deviceId = deviceId;
+    _hardwareAddress = _scannedHardwareAddresses[deviceId];
     _capabilities = null;
     _capabilitiesResolved = false;
     _needsInitialHealthSettle = true;
@@ -122,7 +151,74 @@ class YuchengWearableBridge
   @override
   Future<void> disconnect() async {
     _invalidateDeviceSession();
-    await _client.disconnect();
+    try {
+      await _client.disconnect();
+    } finally {
+      try {
+        await _savedDeviceStore.clear();
+      } catch (_) {
+        // Disconnect is already complete; storage cleanup is best-effort.
+      }
+    }
+  }
+
+  @override
+  Future<DeviceInfo?> restoreConnection({
+    required WearableUserProfile profile,
+  }) async {
+    await _initialize();
+    YuchengSavedDevice? saved;
+    try {
+      saved = await _savedDeviceStore.read();
+    } catch (_) {
+      return null;
+    }
+    if (saved == null ||
+        saved.identifier.trim().isEmpty ||
+        !YuchengDeviceClassifier.matches(saved.name)) {
+      return null;
+    }
+    _invalidateDeviceSession();
+    final connected = await _client
+        .connectSaved(
+          identifier: saved.identifier,
+          name: saved.name,
+          hardwareAddress: saved.hardwareAddress,
+        )
+        .timeout(const Duration(seconds: 30), onTimeout: () => false);
+    if (!connected) return null;
+    _scannedNames[saved.identifier] = saved.name;
+    final hardwareAddress = saved.hardwareAddress?.trim();
+    if (hardwareAddress != null && hardwareAddress.isNotEmpty) {
+      _scannedHardwareAddresses[saved.identifier] = hardwareAddress;
+    }
+    final generation = ++_connectionGeneration;
+    _deviceId = saved.identifier;
+    _capabilities = null;
+    _capabilitiesResolved = false;
+    _needsInitialHealthSettle = true;
+    unawaited(_publishCapabilitiesWhenReady());
+    unawaited(_loadDeviceInfo(generation, saved.identifier, publish: true));
+    return _deviceDetails();
+  }
+
+  Future<void> _rememberDevice({
+    required String deviceId,
+    required String name,
+    String? hardwareAddress,
+  }) async {
+    try {
+      await _savedDeviceStore.write(
+        YuchengSavedDevice(
+          identifier: deviceId,
+          name: name,
+          hardwareAddress: hardwareAddress,
+        ),
+      );
+    } catch (_) {
+      // A storage failure must not turn a successful BLE connection into an
+      // apparent connection failure. The next launch will simply rescan.
+    }
   }
 
   @override
@@ -144,6 +240,7 @@ class YuchengWearableBridge
       id: deviceId,
       name: name,
       model: name,
+      hardwareAddress: _hardwareAddress ?? _scannedHardwareAddresses[deviceId],
       firmwareVersion: _firmware.isEmpty ? null : _firmware,
       battery: _battery,
       batteryPercent: _battery?.percent,
@@ -179,6 +276,7 @@ class YuchengWearableBridge
     if (deviceInfoSettleDelay > Duration.zero) {
       await Future<void>.delayed(deviceInfoSettleDelay);
     }
+    await _readHardwareAddress(generation, deviceId);
     for (var attempt = 0; attempt < 4; attempt += 1) {
       if (!_isCurrentDeviceSession(generation, deviceId)) return;
       try {
@@ -222,6 +320,40 @@ class YuchengWearableBridge
     }
   }
 
+  Future<void> _readHardwareAddress(int generation, String deviceId) async {
+    if (_hardwareAddress != null ||
+        !_isCurrentDeviceSession(generation, deviceId)) {
+      return;
+    }
+    try {
+      final result = await _client.macAddress().timeout(deviceInfoReadTimeout);
+      if (result.status != 0 ||
+          !_isCurrentDeviceSession(generation, deviceId)) {
+        return;
+      }
+      final address = _normalizeHardwareAddress(result.data);
+      if (address == null) return;
+      _hardwareAddress = address;
+      _scannedHardwareAddresses[deviceId] = address;
+    } catch (_) {
+      // iOS scan results often omit the vendor MAC. Keep the CoreBluetooth
+      // identifier as a transparent fallback when the explicit query fails.
+    }
+  }
+
+  static String? _normalizeHardwareAddress(Object? raw) {
+    final separated = '${raw ?? ''}'.trim().replaceAll('-', ':').toUpperCase();
+    if (RegExp(r'^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$').hasMatch(separated)) {
+      return separated;
+    }
+    final compact = separated.replaceAll(RegExp(r'[^0-9A-F]'), '');
+    if (compact.length != 12) return null;
+    return List.generate(
+      6,
+      (index) => compact.substring(index * 2, index * 2 + 2),
+    ).join(':');
+  }
+
   DeviceInfo _deviceDetails() {
     final deviceId = _connectedId;
     final name = _scannedNames[deviceId] ?? '赛电手表';
@@ -229,6 +361,7 @@ class YuchengWearableBridge
       id: deviceId,
       name: name,
       model: name,
+      hardwareAddress: _hardwareAddress ?? _scannedHardwareAddresses[deviceId],
       firmwareVersion: _firmware.isEmpty ? null : _firmware,
       battery: _battery,
       batteryPercent: _battery?.percent,
@@ -242,6 +375,7 @@ class YuchengWearableBridge
     _connectionGeneration += 1;
     _deviceId = null;
     _firmware = '';
+    _hardwareAddress = null;
     _battery = null;
     _deviceInfoLoad = null;
     _capabilities = null;
@@ -250,6 +384,7 @@ class YuchengWearableBridge
     _needsInitialHealthSettle = false;
     _activeMeasurementMetric = null;
     _measurementStartedAt = null;
+    _activeSportType = null;
   }
 
   @override
@@ -390,6 +525,7 @@ class YuchengWearableBridge
     SportMode.walking: 0x10,
     SportMode.cycling: 0x03,
     SportMode.hiking: 0x1B,
+    SportMode.mountaineering: 0x0B,
   };
   @override
   Future<void> startSport(SportMode mode) async {
@@ -397,12 +533,39 @@ class YuchengWearableBridge
     final type = _sports[mode];
     if (type == null) throw _unsupported();
     _require(await _client.sport(state: YuchengSportState.start, type: type));
+    _activeSportType = type;
   }
 
   @override
   Future<void> stopSport() async {
     _connectedId;
-    _require(await _client.sport(state: YuchengSportState.stop, type: 0));
+    _require(
+      await _client.sport(
+        state: YuchengSportState.stop,
+        type: _activeSportType ?? 0,
+      ),
+    );
+    _activeSportType = null;
+  }
+
+  @override
+  Future<void> pauseSport() async {
+    _connectedId;
+    final type = _activeSportType;
+    if (_capabilities?.supportsSportPause != true || type == null) {
+      throw _unsupported('当前手表不支持暂停运动');
+    }
+    _require(await _client.sport(state: YuchengSportState.pause, type: type));
+  }
+
+  @override
+  Future<void> resumeSport() async {
+    _connectedId;
+    final type = _activeSportType;
+    if (_capabilities?.supportsSportPause != true || type == null) {
+      throw _unsupported('当前手表不支持暂停运动');
+    }
+    _require(await _client.sport(state: YuchengSportState.resume, type: type));
   }
 
   @override
@@ -472,6 +635,10 @@ class YuchengWearableBridge
   }) async {
     _connectedId;
     if (feature == DeviceFeature.findWatch) {
+      // Yucheng exposes findDevice as a one-shot reminder, not a persistent
+      // mode. The UI's stop action must therefore be a local state reset;
+      // calling the SDK again would make the watch ring a second time.
+      if (!enabled) return;
       _require(await _client.findDevice());
     } else if (feature == DeviceFeature.camera) {
       _require(await _client.camera(enabled));
@@ -506,6 +673,8 @@ class YuchengWearableBridge
       'deviceRealBloodGlucose',
       'deviceRealHRV',
       'deviceHealthDataMeasureStateChange',
+      'deviceSportStateChange',
+      'deviceRealSport',
       'deviceControlPhotoStateChange',
       'deviceWatchFaceChange',
       'deviceJieLiWatchFaceChange',
@@ -560,10 +729,10 @@ class YuchengWearableBridge
       'deviceRealHRV' => _liveHealthRecord(HealthMetric.hrv, {
         'value': _number(payload['value']),
       }),
-      'deviceControlPhotoStateChange' => WearableEvent(
-        type: 'cameraShutter',
-        payload: payload,
-      ),
+      'deviceSportStateChange' => _sportStateEvent(payload),
+      'deviceRealSport' => _sportDataEvent(payload),
+      'deviceControlPhotoStateChange' when _isPhotoCaptureState(payload) =>
+        WearableEvent(type: 'cameraShutter', payload: payload),
       'deviceWatchFaceChange' || 'deviceJieLiWatchFaceChange' => WearableEvent(
         type: 'deviceFeatureProgress',
         payload: {'feature': 'watch_faces', ...payload},
@@ -580,6 +749,64 @@ class YuchengWearableBridge
       }
     }
   }
+
+  static bool _isPhotoCaptureState(Map<String, Object?> payload) {
+    final raw = payload['value'] ?? payload['state'] ?? payload['index'];
+    if (raw is num) return raw.toInt() == 2;
+    final normalized = '${raw ?? ''}'.trim().toLowerCase();
+    return normalized == '2' ||
+        normalized == 'photo' ||
+        normalized == 'take_photo';
+  }
+
+  WearableEvent _sportStateEvent(Map<String, Object?> payload) {
+    final state = _number(payload['state'] ?? payload['value'])?.toInt() ?? -1;
+    final type = _number(payload['sportType'])?.toInt();
+    if (state == YuchengSportState.stop) {
+      _activeSportType = null;
+    } else if (type != null && type > 0) {
+      _activeSportType = type;
+    }
+    final mode = _modeForSportType(type);
+    final eventPayload = <String, Object?>{
+      'value': switch (state) {
+        YuchengSportState.stop => 'stopped',
+        YuchengSportState.pause => 'paused',
+        _ => 'running',
+      },
+      'state': state,
+    };
+    if (type != null) eventPayload['sportType'] = type;
+    if (mode != null) eventPayload['mode'] = mode.wireName;
+    return WearableEvent(type: 'sportState', payload: eventPayload);
+  }
+
+  static WearableEvent _sportDataEvent(Map<String, Object?> payload) {
+    final normalized = <String, Object?>{};
+    void add(String key, Object? raw) {
+      final value = _number(raw);
+      if (value != null && value.isFinite && value >= 0) {
+        normalized[key] = value;
+      }
+    }
+
+    add('durationSeconds', payload['time']);
+    add('heartRate', payload['heartRate']);
+    add('steps', payload['step']);
+    add('distanceMeters', payload['distance']);
+    add('calories', payload['calories']);
+    add('vo2max', payload['vo2max']);
+    return WearableEvent(type: 'sportData', payload: normalized);
+  }
+
+  static SportMode? _modeForSportType(int? type) => switch (type) {
+    0x0F => SportMode.running,
+    0x10 => SportMode.walking,
+    0x03 => SportMode.cycling,
+    0x1B => SportMode.hiking,
+    0x0B => SportMode.mountaineering,
+    _ => null,
+  };
 
   WearableEvent? _liveHealthRecord(
     HealthMetric metric,
@@ -691,4 +918,65 @@ class YuchengWearableBridge
     final minutes = (totalMinutes % 60).toString().padLeft(2, '0');
     return '$sign$hours:$minutes';
   }
+}
+
+class YuchengSavedDevice {
+  const YuchengSavedDevice({
+    required this.identifier,
+    required this.name,
+    this.hardwareAddress,
+  });
+
+  final String identifier;
+  final String name;
+  final String? hardwareAddress;
+}
+
+abstract interface class YuchengSavedDeviceStore {
+  Future<YuchengSavedDevice?> read();
+  Future<void> write(YuchengSavedDevice device);
+  Future<void> clear();
+}
+
+class SecureYuchengSavedDeviceStore implements YuchengSavedDeviceStore {
+  const SecureYuchengSavedDeviceStore();
+
+  static const _identifierKey = 'wearable.yuc.last.identifier';
+  static const _nameKey = 'wearable.yuc.last.name';
+  static const _hardwareAddressKey = 'wearable.yuc.last.hardware_address';
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+
+  @override
+  Future<YuchengSavedDevice?> read() async {
+    final identifier = (await _storage.read(key: _identifierKey))?.trim() ?? '';
+    final name = (await _storage.read(key: _nameKey))?.trim() ?? '';
+    if (identifier.isEmpty || name.isEmpty) return null;
+    final hardwareAddress = (await _storage.read(
+      key: _hardwareAddressKey,
+    ))?.trim();
+    return YuchengSavedDevice(
+      identifier: identifier,
+      name: name,
+      hardwareAddress: hardwareAddress?.isEmpty == true
+          ? null
+          : hardwareAddress,
+    );
+  }
+
+  @override
+  Future<void> write(YuchengSavedDevice device) async {
+    await _storage.write(key: _identifierKey, value: device.identifier);
+    await _storage.write(key: _nameKey, value: device.name);
+    await _storage.write(
+      key: _hardwareAddressKey,
+      value: device.hardwareAddress,
+    );
+  }
+
+  @override
+  Future<void> clear() => Future.wait([
+    _storage.delete(key: _identifierKey),
+    _storage.delete(key: _nameKey),
+    _storage.delete(key: _hardwareAddressKey),
+  ]).then((_) {});
 }

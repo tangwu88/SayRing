@@ -67,20 +67,25 @@ class YuchengPayloadMapper {
       DeviceFeature.camera,
       DeviceFeature.watchFaces,
     };
-    final sportModes = f['isSupportSport'] == true
-        ? const {
-            SportMode.running,
-            SportMode.walking,
-            SportMode.cycling,
-            SportMode.hiking,
-          }
-        : const <SportMode>{};
+    final sportModes = <SportMode>{};
+    if (f['isSupportOutdoorRunning'] == true) {
+      sportModes.add(SportMode.running);
+    }
+    if (f['isSupportOutdoorWalking'] == true) {
+      sportModes.add(SportMode.walking);
+    }
+    if (f['isSupportRiding'] == true) sportModes.add(SportMode.cycling);
+    if (f['isSupportOnFoot'] == true) sportModes.add(SportMode.hiking);
+    if (f['isSupportMountaineering'] == true) {
+      sportModes.add(SportMode.mountaineering);
+    }
     return DeviceCapabilities(
       metrics: metrics,
       manualMetrics: manualMetrics,
       sportModes: sportModes,
       features: features,
       integratedFeatures: features.intersection(implementedFeatures),
+      supportsSportPause: f['isSupportSportPause'] == true,
       supportsBackgroundSync: true,
       supportsWatchFaces: features.contains(DeviceFeature.watchFaces),
       supportsOta: f['isSupportOta'] == true,
@@ -101,6 +106,7 @@ class YuchengPayloadMapper {
           seconds * 1000,
           isUtc: true,
         );
+        final timezone = _localTimezone(at);
         void add(HealthMetric metric, Map<String, num> values) {
           if (values.isEmpty || values.values.any((v) => v <= 0)) return;
           output.add(
@@ -110,7 +116,7 @@ class YuchengPayloadMapper {
               values: values,
               unit: metric.defaultUnit,
               measuredAt: at,
-              timezone: '+00:00',
+              timezone: timezone,
               deviceId: deviceId,
               firmwareVersion: firmwareVersion,
               quality: 'sdk',
@@ -166,6 +172,7 @@ class YuchengPayloadMapper {
         final seconds = _num(row['startTimeStamp'])?.toInt() ?? 0;
         final mode = switch (_num(row['sportType'])?.toInt()) {
           0x03 => SportMode.cycling,
+          0x0B => SportMode.mountaineering,
           0x10 => SportMode.walking,
           0x1B => SportMode.hiking,
           _ => SportMode.running,
@@ -179,9 +186,22 @@ class YuchengPayloadMapper {
           durationSeconds: _num(row['sportTime'])?.toInt() ?? 0,
           distanceKm: (_num(row['distance']) ?? 0) / 1000,
           calories: (_num(row['calories']) ?? 0).toDouble(),
+          steps: _num(row['steps'] ?? row['step'])?.toInt() ?? 0,
+          heartRate: _num(row['heartRate'])?.toInt() ?? 0,
+          minimumHeartRate: _num(row['minimumHeartRate'])?.toInt() ?? 0,
+          maximumHeartRate: _num(row['maximumHeartRate'])?.toInt() ?? 0,
         );
       }).toList();
 
   static num? _num(Object? value) =>
       value is num ? value : num.tryParse('$value');
+
+  static String _localTimezone(DateTime instant) {
+    final offset = instant.toLocal().timeZoneOffset;
+    final totalMinutes = offset.inMinutes;
+    final absoluteMinutes = totalMinutes.abs();
+    final hours = (absoluteMinutes ~/ 60).toString().padLeft(2, '0');
+    final minutes = (absoluteMinutes % 60).toString().padLeft(2, '0');
+    return '${totalMinutes < 0 ? '-' : '+'}$hours:$minutes';
+  }
 }

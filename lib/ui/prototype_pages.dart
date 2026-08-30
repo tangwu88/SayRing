@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:camera/camera.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +13,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart' show DateFormat;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../domain/feature_models.dart';
@@ -22,6 +24,7 @@ import '../services/app_controller.dart';
 import '../services/camera_remote_shutter_gate.dart';
 import '../services/device_weather_service.dart';
 import '../services/device_watch_face_market_service.dart';
+import '../services/health_analysis.dart';
 import 'app_theme.dart';
 import 'app_update_gate_scope.dart';
 import 'brand_assets.dart';
@@ -1431,7 +1434,7 @@ class HealthRecordDetailPage extends StatelessWidget {
     if (record.metric == HealthMetric.ecg) {
       return _EcgRecordDetailPage(record: record);
     }
-    final time = record.measuredAt.toLocal();
+    final time = HealthAnalysisService.displayTime(record);
     final date =
         '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')} '
         '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
@@ -2193,12 +2196,15 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   DeviceScreenSettings? _screen;
   Map<String, Object?> _featureData = const {};
   bool _finding = false;
+  Timer? _findResetTimer;
   CameraController? _camera;
   XFile? _lastPhoto;
   String? _cameraMessage;
   bool _takingPhoto = false;
   bool _cameraRemoteStarted = false;
   bool _cameraInitializing = false;
+  bool _cameraPermissionRequesting = false;
+  bool _cameraPermissionPermanentlyDenied = false;
   int _cameraGeneration = 0;
   late final CameraRemoteShutterGate _cameraShutterGate;
   XFile? _dialPhoto;
@@ -2239,6 +2245,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.controller.removeListener(_handleControllerEvent);
+    _findResetTimer?.cancel();
     _cameraGeneration += 1;
     final camera = _camera;
     _camera = null;
@@ -2277,6 +2284,12 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
 
   void _handleControllerEvent() {
     if (!mounted) return;
+    if (widget.feature == DeviceFeature.findWatch &&
+        !widget.controller.availabilityFor(widget.feature).isReady &&
+        _finding) {
+      _findResetTimer?.cancel();
+      setState(() => _finding = false);
+    }
     if (widget.feature == DeviceFeature.camera) {
       final availability = widget.controller.availabilityFor(widget.feature);
       if (!availability.isReady) {
@@ -2411,10 +2424,38 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Future<void> _initializeCamera() async {
-    if (_cameraInitializing || _camera != null) return;
+    if (_cameraInitializing || _cameraPermissionRequesting || _camera != null) {
+      return;
+    }
     final lifecycleState = WidgetsBinding.instance.lifecycleState;
     if (lifecycleState != null && lifecycleState != AppLifecycleState.resumed) {
       return;
+    }
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      _cameraPermissionRequesting = true;
+      try {
+        var status = await Permission.camera.status;
+        if (!status.isGranted) status = await Permission.camera.request();
+        if (!mounted) return;
+        _cameraPermissionPermanentlyDenied = status.isPermanentlyDenied;
+        if (!status.isGranted) {
+          setState(() {
+            _cameraMessage = status.isPermanentlyDenied
+                ? '相机权限已关闭，请在系统设置中开启'
+                : '允许相机权限后使用';
+          });
+          return;
+        }
+      } on PlatformException {
+        if (!mounted) return;
+        setState(() => _cameraMessage = '无法读取相机权限，请稍后重试');
+        return;
+      } finally {
+        _cameraPermissionRequesting = false;
+      }
+      if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+        return;
+      }
     }
     _cameraInitializing = true;
     final generation = ++_cameraGeneration;
@@ -2483,6 +2524,15 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     } finally {
       if (generation == _cameraGeneration) _cameraInitializing = false;
     }
+  }
+
+  Future<void> _retryCamera() async {
+    if (_cameraPermissionPermanentlyDenied) {
+      await openAppSettings();
+      return;
+    }
+    if (mounted) setState(() => _cameraMessage = null);
+    await _initializeCamera();
   }
 
   Future<void> _suspendCamera({String message = '返回 App 后将重新打开相机'}) async {
@@ -2597,18 +2647,30 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Future<void> _toggleFind() async {
-    final next = !_finding;
+    final isOneShot =
+        widget.controller.connectedDevice?.sdkSource ==
+        WearableSdkSource.yucheng;
+    if (isOneShot && _finding) return;
+    final next = isOneShot || !_finding;
     final success = await widget.controller.triggerDeviceAction(
       widget.feature,
       enabled: next,
     );
     if (!mounted) return;
-    if (success) setState(() => _finding = next);
+    if (success) {
+      setState(() => _finding = next);
+      if (isOneShot) {
+        _findResetTimer?.cancel();
+        _findResetTimer = Timer(const Duration(seconds: 6), () {
+          if (mounted) setState(() => _finding = false);
+        });
+      }
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           success
-              ? (next ? '手表正在响铃或振动' : '已停止查找')
+              ? (isOneShot ? '已发送查找指令，请留意手表振动' : (next ? '手表正在响铃或振动' : '已停止查找'))
               : widget.controller.errorMessage ?? '暂时无法查找手表',
         ),
       ),
@@ -2644,6 +2706,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 _FindWatchPanel(
                   finding: _finding,
                   busy: busy,
+                  supportsStop:
+                      widget.controller.connectedDevice?.sdkSource !=
+                      WearableSdkSource.yucheng,
                   onPressed: _toggleFind,
                 )
               else if (widget.feature == DeviceFeature.screenDisplay)
@@ -3148,6 +3213,24 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                     ),
                   ],
                 ),
+                if (camera == null && _cameraMessage != null) ...[
+                  const SizedBox(height: 14),
+                  OutlinedButton.icon(
+                    key: const ValueKey('camera-retry-button'),
+                    onPressed:
+                        _cameraInitializing || _cameraPermissionRequesting
+                        ? null
+                        : _retryCamera,
+                    icon: Icon(
+                      _cameraPermissionPermanentlyDenied
+                          ? Icons.settings_outlined
+                          : Icons.refresh_rounded,
+                    ),
+                    label: Text(
+                      _cameraPermissionPermanentlyDenied ? '前往系统设置' : '重新打开相机',
+                    ),
+                  ),
+                ],
                 if (_lastPhoto != null) ...[
                   const SizedBox(height: 16),
                   ClipRRect(
@@ -4552,11 +4635,13 @@ class _FindWatchPanel extends StatelessWidget {
   const _FindWatchPanel({
     required this.finding,
     required this.busy,
+    required this.supportsStop,
     required this.onPressed,
   });
 
   final bool finding;
   final bool busy;
+  final bool supportsStop;
   final VoidCallback onPressed;
 
   @override
@@ -4575,7 +4660,9 @@ class _FindWatchPanel extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             Text(
-              finding ? '请留意附近响铃或振动的手表' : '让手表响铃或振动，帮助你快速找到它',
+              finding
+                  ? (supportsStop ? '请留意附近响铃或振动的手表' : '查找指令已发送，请留意手表振动')
+                  : '让手表响铃或振动，帮助你快速找到它',
               textAlign: TextAlign.center,
               style: const TextStyle(height: 1.5),
             ),
@@ -4583,8 +4670,12 @@ class _FindWatchPanel extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: busy ? null : onPressed,
-                child: Text(finding ? '停止查找' : '开始查找'),
+                onPressed: busy || (finding && !supportsStop)
+                    ? null
+                    : onPressed,
+                child: Text(
+                  finding ? (supportsStop ? '停止查找' : '正在查找') : '开始查找',
+                ),
               ),
             ),
           ],

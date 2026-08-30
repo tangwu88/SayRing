@@ -686,6 +686,220 @@ void main() {
     },
   );
 
+  testWidgets(
+    'sport session shows watch values and pauses only when reported',
+    (tester) async {
+      final wearable = _QaSportWearable();
+      final controller = _controller(wearable: wearable)
+        ..isBooting = false
+        ..connectedDevice = wearable.scannedDevice
+        ..capabilities = const DeviceCapabilities(
+          metrics: {},
+          sportModes: {SportMode.running},
+          supportsSportPause: true,
+        )
+        ..activeSport = SportMode.running
+        ..liveSportData = const {
+          'distanceMeters': 1280,
+          'steps': 2048,
+          'heartRate': 96,
+          'calories': 75,
+        };
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: SportSessionPage(
+            controller: controller,
+            mode: SportMode.running,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('1.28 km'), findsOneWidget);
+      expect(find.text('2048 步'), findsOneWidget);
+      expect(find.text('96 bpm'), findsOneWidget);
+      expect(find.text('75.0 kcal'), findsOneWidget);
+      expect(find.byKey(const Key('sport-session-pause')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('sport-session-pause')));
+      await tester.pump();
+      expect(wearable.pauseCount, 1);
+      expect(controller.sportPaused, isTrue);
+      expect(find.text('继续运动'), findsOneWidget);
+    },
+  );
+
+  testWidgets('watch-side stop finalizes the active sport only once', (
+    tester,
+  ) async {
+    const geolocatorChannel = MethodChannel('flutter.baseflow.com/geolocator');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(geolocatorChannel, (_) async => false);
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(geolocatorChannel, null),
+    );
+
+    final store = MemoryHealthStore();
+    final wearable = _QaSportWearable();
+    final controller = _controller(wearable: wearable, store: store);
+    await controller.initialize();
+    controller
+      ..connectedDevice = wearable.scannedDevice
+      ..capabilities = const DeviceCapabilities(
+        metrics: {},
+        sportModes: {SportMode.cycling},
+      );
+    for (final state in const [
+      DeviceConnectionState.scanning,
+      DeviceConnectionState.connecting,
+      DeviceConnectionState.authenticating,
+      DeviceConnectionState.syncing,
+      DeviceConnectionState.ready,
+    ]) {
+      controller.deviceMachine.transition(state);
+    }
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SportSessionPage(controller: controller, mode: SportMode.cycling),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('sport-session-toggle')));
+    await tester.pump(const Duration(seconds: 1));
+    wearable.emitEvent(
+      const WearableEvent(
+        type: 'sportData',
+        payload: {
+          'durationSeconds': 2,
+          'distanceMeters': 120,
+          'steps': 18,
+          'heartRate': 88,
+          'calories': 4,
+        },
+      ),
+    );
+    wearable.emitEvent(
+      const WearableEvent(
+        type: 'sportState',
+        payload: {'value': 'stopped', 'mode': 'cycling'},
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    final records = await store.localSportRecords();
+    expect(records, hasLength(1));
+    expect(records.single.durationSeconds, 2);
+    expect(records.single.distanceKm, closeTo(0.12, 0.001));
+    expect(records.single.steps, 18);
+    expect(records.single.heartRate, 88);
+    expect(wearable.stopCount, 0);
+    expect(find.textContaining('手表已结束本次运动，记录已保存'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('00:00:02'), findsOneWidget);
+    expect(await store.localSportRecords(), hasLength(1));
+  });
+
+  testWidgets('short sport records display seconds instead of zero minutes', (
+    tester,
+  ) async {
+    final store = MemoryHealthStore();
+    await store.saveSportRecord(
+      SportRecord(
+        id: 'short-sport',
+        mode: SportMode.cycling,
+        startedAt: DateTime(2026, 8, 30, 20),
+        durationSeconds: 2,
+        distanceKm: 0,
+        calories: 0,
+        routePoints: const [],
+      ),
+    );
+    final controller = _controller(store: store)..isBooting = false;
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(home: SportRecordsPage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('2秒'), findsOneWidget);
+    expect(find.textContaining('0分钟'), findsNothing);
+  });
+
+  test('watch sport events update state and preserve real values', () async {
+    final wearable = _QaWearable();
+    final controller = _controller(wearable: wearable);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+    controller
+      ..connectedDevice = wearable.scannedDevice
+      ..capabilities = const DeviceCapabilities(
+        metrics: {},
+        sportModes: {SportMode.hiking},
+        supportsSportPause: true,
+      );
+    for (final state in const [
+      DeviceConnectionState.scanning,
+      DeviceConnectionState.connecting,
+      DeviceConnectionState.authenticating,
+      DeviceConnectionState.syncing,
+      DeviceConnectionState.ready,
+    ]) {
+      controller.deviceMachine.transition(state);
+    }
+
+    wearable.emitEvent(
+      const WearableEvent(
+        type: 'sportState',
+        payload: {'value': 'running', 'mode': 'hiking'},
+      ),
+    );
+    wearable.emitEvent(
+      const WearableEvent(
+        type: 'sportData',
+        payload: {
+          'durationSeconds': 90,
+          'distanceMeters': 680,
+          'steps': 921,
+          'heartRate': 101,
+          'calories': 32,
+        },
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.activeSport, SportMode.hiking);
+    expect(controller.deviceState, DeviceConnectionState.measuring);
+    expect(controller.liveSportData['distanceMeters'], 680);
+
+    wearable.emitEvent(
+      const WearableEvent(
+        type: 'sportState',
+        payload: {'value': 'paused', 'mode': 'hiking'},
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.sportPaused, isTrue);
+
+    wearable.emitEvent(
+      const WearableEvent(
+        type: 'sportState',
+        payload: {'value': 'stopped', 'mode': 'hiking'},
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.activeSport, isNull);
+    expect(controller.sportPaused, isFalse);
+    expect(controller.deviceState, DeviceConnectionState.ready);
+    expect(controller.liveSportData['steps'], 921);
+  });
+
   testWidgets('initial sync failure keeps the authenticated device ready', (
     tester,
   ) async {
@@ -1621,4 +1835,31 @@ class _QaWearable extends Fake implements WearableBridge {
 
   @override
   Future<void> disconnect() async {}
+}
+
+class _QaSportWearable extends _QaWearable implements WearableSportPauseBridge {
+  int pauseCount = 0;
+  int resumeCount = 0;
+  int startCount = 0;
+  int stopCount = 0;
+
+  @override
+  Future<void> startSport(SportMode mode) async {
+    startCount++;
+  }
+
+  @override
+  Future<void> stopSport() async {
+    stopCount++;
+  }
+
+  @override
+  Future<void> pauseSport() async {
+    pauseCount++;
+  }
+
+  @override
+  Future<void> resumeSport() async {
+    resumeCount++;
+  }
 }

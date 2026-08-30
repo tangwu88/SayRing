@@ -104,6 +104,10 @@ class SportRecord {
     required this.durationSeconds,
     required this.distanceKm,
     required this.calories,
+    this.steps = 0,
+    this.heartRate = 0,
+    this.minimumHeartRate = 0,
+    this.maximumHeartRate = 0,
     this.routePoints = const [],
   });
 
@@ -113,6 +117,10 @@ class SportRecord {
   final int durationSeconds;
   final double distanceKm;
   final double calories;
+  final int steps;
+  final int heartRate;
+  final int minimumHeartRate;
+  final int maximumHeartRate;
   final List<SportRoutePoint> routePoints;
 
   factory SportRecord.fromMap(Map<Object?, Object?> map) => SportRecord(
@@ -126,6 +134,10 @@ class SportRecord {
     calories: map.containsKey('calories')
         ? _number(map['calories'])
         : _number(map['caloriesCal']) / 1000,
+    steps: (map['steps'] as num?)?.toInt() ?? 0,
+    heartRate: (map['heartRate'] as num?)?.toInt() ?? 0,
+    minimumHeartRate: (map['minimumHeartRate'] as num?)?.toInt() ?? 0,
+    maximumHeartRate: (map['maximumHeartRate'] as num?)?.toInt() ?? 0,
     routePoints: map['routePoints'] is List
         ? (map['routePoints'] as List)
               .whereType<Map>()
@@ -144,6 +156,10 @@ class SportRecord {
     'durationSeconds': durationSeconds,
     'distanceKm': distanceKm,
     'calories': calories,
+    'steps': steps,
+    'heartRate': heartRate,
+    'minimumHeartRate': minimumHeartRate,
+    'maximumHeartRate': maximumHeartRate,
     'routePoints': routePoints.map((point) => point.toMap()).toList(),
   };
 }
@@ -500,6 +516,7 @@ class DeviceCapabilities {
     this.sportModes,
     this.features = const <DeviceFeature>{},
     this.integratedFeatures = const <DeviceFeature>{},
+    this.supportsSportPause = false,
     this.supportsBackgroundSync = false,
     this.supportsWatchFaces = false,
     this.supportsOta = false,
@@ -515,6 +532,7 @@ class DeviceCapabilities {
   final Set<SportMode>? sportModes;
   final Set<DeviceFeature> features;
   final Set<DeviceFeature> integratedFeatures;
+  final bool supportsSportPause;
   final bool supportsBackgroundSync;
   final bool supportsWatchFaces;
   final bool supportsOta;
@@ -560,6 +578,7 @@ class DeviceCapabilities {
       sportModes: sportModes,
       features: features,
       integratedFeatures: integratedFeatures,
+      supportsSportPause: map['supportsSportPause'] == true,
       supportsBackgroundSync: map['supportsBackgroundSync'] == true,
       supportsWatchFaces: map['supportsWatchFaces'] == true,
       supportsOta: map['supportsOta'] == true,
@@ -583,6 +602,7 @@ class DeviceCapabilities {
     'integratedFeatures': integratedFeatures
         .map((feature) => feature.wireName)
         .toList(),
+    'supportsSportPause': supportsSportPause,
     'supportsBackgroundSync': supportsBackgroundSync,
     'supportsWatchFaces': supportsWatchFaces,
     'supportsOta': supportsOta,

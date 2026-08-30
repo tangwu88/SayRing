@@ -88,13 +88,41 @@ void main() {
     final bridge = YuchengWearableBridge(
       client: client,
       initialHealthSettleDelay: Duration.zero,
+      deviceInfoSettleDelay: Duration.zero,
+      deviceInfoRetryDelay: Duration.zero,
     );
 
     final device = (await bridge.scanDevices()).single;
+    await bridge.connect(device.id, profile: _profile);
+    final connected = await bridge.getConnectedDeviceDetails();
 
     expect(device.id, 'YC-01');
     expect(device.hardwareAddress, '07:43:00:00:4D:E9');
     expect(device.macAddress, '07:43:00:00:4D:E9');
+    expect(connected?.hardwareAddress, '07:43:00:00:4D:E9');
+    expect(connected?.identifierLabel, 'MAC · 07:43:00:00:4D:E9');
+  });
+
+  test('queries the W8 MAC when iOS scan omits it', () async {
+    final client = _FakeYuchengClient(
+      modelName: 'W8S',
+      scannedHardwareAddress: '',
+      queriedMacAddress: '07-43-00-00-4D-E9',
+    );
+    final bridge = YuchengWearableBridge(
+      client: client,
+      initialHealthSettleDelay: Duration.zero,
+      deviceInfoSettleDelay: Duration.zero,
+      deviceInfoRetryDelay: Duration.zero,
+    );
+
+    final device = (await bridge.scanDevices()).single;
+    await bridge.connect(device.id, profile: _profile);
+    final connected = await bridge.getConnectedDeviceDetails();
+
+    expect(device.macAddress, isNull);
+    expect(connected?.hardwareAddress, '07:43:00:00:4D:E9');
+    expect(connected?.identifierLabel, 'MAC · 07:43:00:00:4D:E9');
   });
 
   test(
@@ -219,6 +247,23 @@ void main() {
     client.emit({'bluetoothStateChange': 4});
 
     expect((await disconnected).type, 'disconnected');
+  });
+
+  test('emits a camera shutter only for the W8 photo state', () async {
+    final client = _FakeYuchengClient(modelName: 'W8S');
+    final bridge = YuchengWearableBridge(
+      client: client,
+      initialHealthSettleDelay: Duration.zero,
+    );
+    await bridge.scanDevices();
+    final shutter = bridge.events.firstWhere(
+      (event) => event.type == 'cameraShutter',
+    );
+
+    client.emit({'deviceControlPhotoStateChange': 1});
+    client.emit({'deviceControlPhotoStateChange': 2});
+
+    expect((await shutter).payload['value'], 2);
   });
 
   test('uses only the capability flags reported by the connected W8', () async {
@@ -402,6 +447,136 @@ void main() {
       expect(client.changedWatchFaceId, 101);
     },
   );
+
+  test('does not resend the one-shot W8 find command when stopping', () async {
+    final client = _FakeYuchengClient(modelName: 'W8S');
+    final bridge = YuchengWearableBridge(
+      client: client,
+      initialHealthSettleDelay: Duration.zero,
+    );
+    await bridge.scanDevices();
+    await bridge.connect('YC-01', profile: _profile);
+
+    await bridge.triggerDeviceAction(DeviceFeature.findWatch);
+    await bridge.triggerDeviceAction(DeviceFeature.findWatch, enabled: false);
+
+    expect(client.findDeviceCalls, 1);
+  });
+
+  test('uses exact W8 sport commands including pause and resume', () async {
+    final client = _FakeYuchengClient(
+      modelName: 'W8S',
+      capabilityFlags: const {
+        'isSupportHeartRate': true,
+        'isSupportOutdoorRunning': true,
+        'isSupportSportPause': true,
+      },
+    );
+    final bridge = YuchengWearableBridge(
+      client: client,
+      initialHealthSettleDelay: Duration.zero,
+      capabilityRetryDelay: Duration.zero,
+    );
+    await bridge.scanDevices();
+    await bridge.connect('YC-01', profile: _profile);
+    await bridge.getCapabilities();
+
+    await bridge.startSport(SportMode.running);
+    await bridge.pauseSport();
+    await bridge.resumeSport();
+    await bridge.stopSport();
+
+    expect(client.sportCalls, const [
+      (YuchengSportState.start, 0x0F),
+      (YuchengSportState.pause, 0x0F),
+      (YuchengSportState.resume, 0x0F),
+      (YuchengSportState.stop, 0x0F),
+    ]);
+  });
+
+  test('maps W8 sport state and live watch values without guessing', () async {
+    final client = _FakeYuchengClient(modelName: 'W8S');
+    final bridge = YuchengWearableBridge(
+      client: client,
+      initialHealthSettleDelay: Duration.zero,
+    );
+    await bridge.scanDevices();
+
+    final stateFuture = bridge.events.firstWhere(
+      (event) => event.type == 'sportState',
+    );
+    client.emit({
+      'deviceSportStateChange': {'state': 2, 'sportType': 0x1B},
+    });
+    final state = await stateFuture;
+    expect(state.payload, containsPair('value', 'paused'));
+    expect(state.payload, containsPair('mode', SportMode.hiking.wireName));
+
+    final dataFuture = bridge.events.firstWhere(
+      (event) => event.type == 'sportData',
+    );
+    client.emit({
+      'deviceRealSport': {
+        'time': 62,
+        'heartRate': 91,
+        'step': 320,
+        'distance': 450,
+        'calories': 16,
+        'vo2max': 33,
+      },
+    });
+    expect((await dataFuture).payload, {
+      'durationSeconds': 62,
+      'heartRate': 91,
+      'steps': 320,
+      'distanceMeters': 450,
+      'calories': 16,
+      'vo2max': 33,
+    });
+  });
+
+  test('restores only the explicitly remembered W8 connection', () async {
+    final store = _MemoryYuchengSavedDeviceStore();
+    final firstClient = _FakeYuchengClient(
+      modelName: 'W8 Plus',
+      scannedName: 'W8 Plus 549D',
+    );
+    final firstBridge = YuchengWearableBridge(
+      client: firstClient,
+      savedDeviceStore: store,
+      initialHealthSettleDelay: Duration.zero,
+    );
+    await firstBridge.scanDevices();
+    await firstBridge.connect('YC-01', profile: _profile);
+
+    final restoredClient = _FakeYuchengClient(modelName: 'W8 Plus');
+    final restoredBridge = YuchengWearableBridge(
+      client: restoredClient,
+      savedDeviceStore: store,
+      initialHealthSettleDelay: Duration.zero,
+    );
+    final restored = await restoredBridge.restoreConnection(profile: _profile);
+
+    expect(restoredClient.savedConnectCalls, ['YC-01']);
+    expect(restored?.name, 'W8 Plus 549D');
+    expect(restored?.hardwareAddress, '07:43:00:00:4D:E9');
+  });
+
+  test('explicit W8 disconnect removes the recovery target', () async {
+    final store = _MemoryYuchengSavedDeviceStore();
+    final client = _FakeYuchengClient(modelName: 'W8S');
+    final bridge = YuchengWearableBridge(
+      client: client,
+      savedDeviceStore: store,
+      initialHealthSettleDelay: Duration.zero,
+    );
+    await bridge.scanDevices();
+    await bridge.connect('YC-01', profile: _profile);
+
+    await bridge.disconnect();
+
+    expect(await store.read(), isNull);
+  });
 }
 
 const _profile = WearableUserProfile(
@@ -417,6 +592,8 @@ class _FakeYuchengClient implements YuchengProductClient {
   _FakeYuchengClient({
     required this.modelName,
     this.scannedName = 'W8 Ultra',
+    this.scannedHardwareAddress = '07:43:00:00:4D:E9',
+    this.queriedMacAddress = '07:43:00:00:4D:E9',
     this.measurementStatus = 0,
     this.healthResult,
     this.watchFaceRows = const [],
@@ -440,6 +617,8 @@ class _FakeYuchengClient implements YuchengProductClient {
   });
   final String modelName;
   final String scannedName;
+  final String scannedHardwareAddress;
+  final String queriedMacAddress;
   final int measurementStatus;
   final Future<YuchengOperationResult<List<Map<String, Object?>>>>?
   healthResult;
@@ -455,6 +634,9 @@ class _FakeYuchengClient implements YuchengProductClient {
   bool? reconnectEnabled;
   int capabilityCalls = 0;
   int basicInfoCalls = 0;
+  int findDeviceCalls = 0;
+  final List<(int, int)> sportCalls = [];
+  final List<String> savedConnectCalls = [];
   final _events = StreamController<Map<String, Object?>>.broadcast();
   @override
   Stream<Map<String, Object?>> get events => _events.stream;
@@ -472,13 +654,23 @@ class _FakeYuchengClient implements YuchengProductClient {
       'identifier': 'YC-01',
       'name': scannedName,
       'rssi': -40,
-      'hardwareAddress': '07:43:00:00:4D:E9',
+      'hardwareAddress': scannedHardwareAddress,
     },
   ];
   @override
   Future<void> stopScan() async {}
   @override
   Future<bool> connect(String identifier) async => true;
+  @override
+  Future<bool> connectSaved({
+    required String identifier,
+    required String name,
+    String? hardwareAddress,
+  }) async {
+    savedConnectCalls.add(identifier);
+    return true;
+  }
+
   @override
   Future<void> disconnect() async {
     disconnectCount++;
@@ -493,6 +685,9 @@ class _FakeYuchengClient implements YuchengProductClient {
   @override
   Future<YuchengOperationResult<String>> firmware() async =>
       const YuchengOperationResult(0, '1.0');
+  @override
+  Future<YuchengOperationResult<String>> macAddress() async =>
+      YuchengOperationResult(0, queriedMacAddress);
   @override
   Future<YuchengOperationResult<YuchengDeviceBasicInfo>> basicInfo() {
     final index = basicInfoCalls++;
@@ -535,7 +730,11 @@ class _FakeYuchengClient implements YuchengProductClient {
   Future<YuchengOperationResult<void>> sport({
     required int state,
     required int type,
-  }) async => const YuchengOperationResult(0, null);
+  }) async {
+    sportCalls.add((state, type));
+    return const YuchengOperationResult(0, null);
+  }
+
   @override
   Future<YuchengOperationResult<void>> setHealthMonitoring(
     bool enabled,
@@ -544,8 +743,11 @@ class _FakeYuchengClient implements YuchengProductClient {
   Future<YuchengOperationResult<void>> setHeartRateAlarm(int value) async =>
       const YuchengOperationResult(0, null);
   @override
-  Future<YuchengOperationResult<void>> findDevice() async =>
-      const YuchengOperationResult(0, null);
+  Future<YuchengOperationResult<void>> findDevice() async {
+    findDeviceCalls++;
+    return const YuchengOperationResult(0, null);
+  }
+
   @override
   Future<YuchengOperationResult<void>> camera(bool enabled) async =>
       const YuchengOperationResult(0, null);
@@ -556,6 +758,23 @@ class _FakeYuchengClient implements YuchengProductClient {
   Future<YuchengOperationResult<void>> changeWatchFace(int dialId) async {
     changedWatchFaceId = dialId;
     return const YuchengOperationResult(0, null);
+  }
+}
+
+class _MemoryYuchengSavedDeviceStore implements YuchengSavedDeviceStore {
+  YuchengSavedDevice? value;
+
+  @override
+  Future<YuchengSavedDevice?> read() async => value;
+
+  @override
+  Future<void> write(YuchengSavedDevice device) async {
+    value = device;
+  }
+
+  @override
+  Future<void> clear() async {
+    value = null;
   }
 }
 

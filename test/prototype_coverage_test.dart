@@ -361,6 +361,80 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('Yucheng find watch is one-shot and never sends a fake stop', (
+    tester,
+  ) async {
+    final wearable = _FeatureWearable();
+    final controller = AppController(
+      MemorySessionVault(),
+      _CoverageApi(),
+      MemoryHealthStore(),
+      wearable,
+    )..isBooting = false;
+    addTearDown(controller.dispose);
+    await controller.connectDevice(
+      const DeviceInfo(id: 'yucheng:WATCH:01', name: 'W8 Plus', model: 'JL'),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeviceFeaturePage(
+          controller: controller,
+          feature: DeviceFeature.findWatch,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '开始查找'));
+    await tester.pump();
+
+    expect(wearable.findActionStates, [true]);
+    expect(find.widgetWithText(FilledButton, '正在查找'), findsOneWidget);
+    expect(find.text('停止查找'), findsNothing);
+
+    await tester.tap(find.widgetWithText(FilledButton, '正在查找'));
+    await tester.pump();
+    expect(wearable.findActionStates, [true]);
+
+    await tester.pump(const Duration(seconds: 6));
+    expect(find.widgetWithText(FilledButton, '开始查找'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Veepoo find watch retains start and stop actions', (
+    tester,
+  ) async {
+    final wearable = _FeatureWearable();
+    final controller = AppController(
+      MemorySessionVault(),
+      _CoverageApi(),
+      MemoryHealthStore(),
+      wearable,
+    )..isBooting = false;
+    addTearDown(controller.dispose);
+    await controller.connectDevice(
+      const DeviceInfo(id: 'veepoo:WATCH:01', name: 'ET488', model: 'JL'),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeviceFeaturePage(
+          controller: controller,
+          feature: DeviceFeature.findWatch,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '开始查找'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, '停止查找'));
+    await tester.pump();
+
+    expect(wearable.findActionStates, [true, false]);
+    expect(find.widgetWithText(FilledButton, '开始查找'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('password recovery validates input without claiming success', (
     tester,
   ) async {
@@ -540,6 +614,8 @@ class _CoverageWearable extends Fake implements WearableBridge {
 }
 
 class _FeatureWearable extends Fake implements WearableBridge {
+  final List<bool> findActionStates = [];
+
   @override
   Stream<WearableEvent> get events => const Stream.empty();
 
@@ -617,7 +693,11 @@ class _FeatureWearable extends Fake implements WearableBridge {
   Future<void> triggerDeviceAction(
     DeviceFeature feature, {
     bool enabled = true,
-  }) async {}
+  }) async {
+    if (feature == DeviceFeature.findWatch) {
+      findActionStates.add(enabled);
+    }
+  }
 }
 
 class _EventCoverageWearable extends Fake implements WearableBridge {

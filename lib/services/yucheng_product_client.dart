@@ -24,6 +24,8 @@ abstract final class YuchengMeasurementType {
 abstract final class YuchengSportState {
   static const stop = 0;
   static const start = 1;
+  static const pause = 2;
+  static const resume = 3;
 }
 
 class YuchengOperationResult<T> {
@@ -54,9 +56,15 @@ abstract interface class YuchengProductClient {
   Future<List<Map<String, Object?>>> scan();
   Future<void> stopScan();
   Future<bool> connect(String identifier);
+  Future<bool> connectSaved({
+    required String identifier,
+    required String name,
+    String? hardwareAddress,
+  });
   Future<void> disconnect();
   Future<YuchengOperationResult<String>> model();
   Future<YuchengOperationResult<String>> firmware();
+  Future<YuchengOperationResult<String>> macAddress();
   Future<YuchengOperationResult<YuchengDeviceBasicInfo>> basicInfo();
   Future<Map<String, Object?>> capabilities();
   Future<YuchengOperationResult<void>> syncTime();
@@ -183,6 +191,38 @@ class PluginYuchengProductClient implements YuchengProductClient {
   }
 
   @override
+  Future<bool> connectSaved({
+    required String identifier,
+    required String name,
+    String? hardwareAddress,
+  }) async {
+    // The Android plugin resolves a connection only from its native scan list;
+    // constructing a Dart BluetoothDevice does not populate that list and leaves
+    // connectDevice waiting forever. Scan, then select only the exact persisted
+    // identifier or hardware address so a same-model watch is never guessed.
+    await scan();
+    final savedIdentifier = _normalizedDeviceKey(identifier);
+    final savedHardwareAddress = _normalizedDeviceKey(hardwareAddress ?? '');
+    yc.BluetoothDevice? matched;
+    for (final device in _scanned.values) {
+      final identifierMatches =
+          _normalizedDeviceKey(device.deviceIdentifier) == savedIdentifier;
+      final hardwareMatches =
+          savedHardwareAddress.isNotEmpty &&
+          _normalizedDeviceKey(device.macAddress) == savedHardwareAddress;
+      if (identifierMatches || hardwareMatches) {
+        matched = device;
+        break;
+      }
+    }
+    if (matched == null) return false;
+    return connect(matched.deviceIdentifier);
+  }
+
+  static String _normalizedDeviceKey(String value) =>
+      value.trim().toUpperCase();
+
+  @override
   Future<void> disconnect() async {
     await _plugin.disconnectDevice();
   }
@@ -197,6 +237,12 @@ class PluginYuchengProductClient implements YuchengProductClient {
   Future<YuchengOperationResult<String>> firmware() async {
     final r = await _plugin.queryDeviceBasicInfo();
     return YuchengOperationResult(r?.statusCode ?? 1, r?.data.firmwareVersion);
+  }
+
+  @override
+  Future<YuchengOperationResult<String>> macAddress() async {
+    final r = await _plugin.queryDeviceMacAddress();
+    return YuchengOperationResult(r?.statusCode ?? 1, r?.data);
   }
 
   @override
@@ -239,6 +285,12 @@ class PluginYuchengProductClient implements YuchengProductClient {
       'isSupportStartBloodGlucoseMeasurement':
           f.isSupportStartBloodGlucoseMeasurement,
       'isSupportSport': f.isSupportSport,
+      'isSupportOutdoorRunning': f.isSupportOutdoorRunning,
+      'isSupportOutdoorWalking': f.isSupportOutdoorWalking,
+      'isSupportRiding': f.isSupportRiding,
+      'isSupportOnFoot': f.isSupportOnFoot,
+      'isSupportMountaineering': f.isSupportMountaineering,
+      'isSupportSportPause': f.isSupportSportPause,
       'isSupportFindDevice': f.isSupportFindDevice,
       'isSupportCamera':
           f.isSupportManualPhotographing || f.isSupportShakePhotographing,
@@ -332,8 +384,12 @@ class PluginYuchengProductClient implements YuchengProductClient {
         'startTimeStamp': value.startTimeStamp,
         'sportType': value.sportType,
         'sportTime': value.sportTime,
+        'steps': value.step,
         'distance': value.distance,
         'calories': value.calories,
+        'heartRate': value.heartRate,
+        'minimumHeartRate': value.minimumHeartRate,
+        'maximumHeartRate': value.maximumHeartRate,
       };
     }
     if (value is Map) return value.map((k, v) => MapEntry('$k', v));
@@ -364,10 +420,12 @@ class PluginYuchengProductClient implements YuchengProductClient {
     required int state,
     required int type,
   }) async => _r(
-    await _plugin.appControlSport(
-      state == 0 ? yc.DeviceSportState.stop : yc.DeviceSportState.start,
-      type,
-    ),
+    await _plugin.appControlSport(switch (state) {
+      YuchengSportState.stop => yc.DeviceSportState.stop,
+      YuchengSportState.pause => yc.DeviceSportState.pause,
+      YuchengSportState.resume => yc.DeviceSportState.continueSport,
+      _ => yc.DeviceSportState.start,
+    }, type),
   );
   @override
   Future<YuchengOperationResult<void>> setHealthMonitoring(

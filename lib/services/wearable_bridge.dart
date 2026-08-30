@@ -40,6 +40,15 @@ abstract interface class WearableDeviceDetailsBridge {
   Future<DeviceInfo?> getConnectedDeviceDetails();
 }
 
+/// Optional controls for watches that explicitly report sport pause support.
+///
+/// This remains separate from [WearableBridge] so older SDK adapters and test
+/// doubles keep their existing contract.
+abstract interface class WearableSportPauseBridge {
+  Future<void> pauseSport();
+  Future<void> resumeSport();
+}
+
 /// Optional pull API for the connected watch's online watch-face catalogue
 /// parameters. The values must come from the authenticated device session;
 /// watches sold under the same model name can use different display profiles.

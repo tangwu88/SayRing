@@ -248,6 +248,30 @@ void main() {
     expect(veepoo.measurementCalls, [HealthMetric.heartRate]);
     expect(yucheng.measurementCalls, isEmpty);
   });
+
+  test('restores only the last selected SDK transport', () async {
+    final preference = _MemoryTransportPreference()
+      ..value = WearableTransport.yucheng;
+    final veepoo = _FakeWearableBridge(
+      scanned: const [],
+      connectedDetails: const DeviceInfo(id: 'VP-1', name: 'ET488'),
+    );
+    final yucheng = _FakeWearableBridge(
+      scanned: const [],
+      connectedDetails: const DeviceInfo(id: 'YC-1', name: 'W8 Plus 549D'),
+    );
+    final bridge = RoutedWearableBridge(
+      veepoo: veepoo,
+      yucheng: yucheng,
+      preferenceStore: preference,
+    );
+
+    final restored = await bridge.restoreConnection(profile: _profile);
+
+    expect(restored?.id, 'yucheng:YC-1');
+    expect(yucheng.restoreCalls, 1);
+    expect(veepoo.restoreCalls, 0);
+  });
 }
 
 const _profile = WearableUserProfile(
@@ -307,5 +331,22 @@ class _FakeWearableBridge extends Fake
   @override
   Future<void> startMeasurement(HealthMetric metric) async {
     measurementCalls.add(metric);
+  }
+}
+
+class _MemoryTransportPreference implements WearableTransportPreferenceStore {
+  WearableTransport? value;
+
+  @override
+  Future<WearableTransport?> read() async => value;
+
+  @override
+  Future<void> write(WearableTransport transport) async {
+    value = transport;
+  }
+
+  @override
+  Future<void> clear() async {
+    value = null;
   }
 }

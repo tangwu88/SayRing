@@ -95,6 +95,7 @@ void main() {
     final capabilities = DeviceCapabilities.fromMap({
       'metrics': <String>[],
       'sportModes': ['running', 'walking', 'unknown'],
+      'supportsSportPause': true,
     });
 
     expect(capabilities.sportModes, {SportMode.running, SportMode.walking});
@@ -102,6 +103,8 @@ void main() {
       capabilities.toJson()['sportModes'],
       containsAll(['running', 'walking']),
     );
+    expect(capabilities.supportsSportPause, isTrue);
+    expect(capabilities.toJson()['supportsSportPause'], isTrue);
   });
 
   test(

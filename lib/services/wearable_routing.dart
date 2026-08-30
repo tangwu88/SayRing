@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/feature_models.dart';
@@ -83,20 +84,25 @@ class RoutedWearableBridge
         WearableDeviceDetailsBridge,
         WearableWatchFaceProfileBridge,
         WearableAutoMeasureIntervalBridge,
+        WearableSportPauseBridge,
         WearableConnectionRecoveryBridge {
   RoutedWearableBridge({
     required WearableBridge veepoo,
     required WearableBridge yucheng,
+    WearableTransportPreferenceStore? preferenceStore,
   }) : _sources = {
          WearableTransport.veepoo: veepoo,
          WearableTransport.yucheng: yucheng,
-       } {
+       },
+       _preferenceStore =
+           preferenceStore ?? const SecureWearableTransportPreferenceStore() {
     _eventController
       ..onListen = _subscribeToSourceEvents
       ..onCancel = _cancelSourceEvents;
   }
 
   final Map<WearableTransport, WearableBridge> _sources;
+  final WearableTransportPreferenceStore _preferenceStore;
   final Map<String, RoutedDevice> _scanned = {};
   final StreamController<WearableEvent> _eventController =
       StreamController<WearableEvent>.broadcast();
@@ -202,6 +208,11 @@ class RoutedWearableBridge
     _activeTransport = device.transport;
     try {
       await _activeBridge.connect(device.nativeIdentifier, profile: profile);
+      try {
+        await _preferenceStore.write(device.transport);
+      } catch (_) {
+        // A preference write is not part of the authenticated BLE boundary.
+      }
     } catch (_) {
       _activeTransport = null;
       rethrow;
@@ -216,6 +227,11 @@ class RoutedWearableBridge
       await _sources[transport]!.disconnect();
     } finally {
       _activeTransport = null;
+      try {
+        await _preferenceStore.clear();
+      } catch (_) {
+        // The explicit disconnect has already completed.
+      }
     }
   }
 
@@ -223,7 +239,16 @@ class RoutedWearableBridge
   Future<DeviceInfo?> restoreConnection({
     required WearableUserProfile profile,
   }) async {
-    for (final entry in _sources.entries) {
+    WearableTransport? preferred;
+    try {
+      preferred = await _preferenceStore.read();
+    } catch (_) {
+      preferred = null;
+    }
+    final entries = preferred == null
+        ? _sources.entries
+        : _sources.entries.where((entry) => entry.key == preferred);
+    for (final entry in entries) {
       final bridge = entry.value;
       if (bridge is! WearableConnectionRecoveryBridge) continue;
       try {
@@ -282,6 +307,30 @@ class RoutedWearableBridge
 
   @override
   Future<void> stopSport() => _activeBridge.stopSport();
+
+  @override
+  Future<void> pauseSport() {
+    final bridge = _activeBridge;
+    if (bridge is! WearableSportPauseBridge) {
+      throw PlatformException(
+        code: 'SPORT_PAUSE_UNSUPPORTED',
+        message: '当前手表不支持暂停运动',
+      );
+    }
+    return (bridge as WearableSportPauseBridge).pauseSport();
+  }
+
+  @override
+  Future<void> resumeSport() {
+    final bridge = _activeBridge;
+    if (bridge is! WearableSportPauseBridge) {
+      throw PlatformException(
+        code: 'SPORT_PAUSE_UNSUPPORTED',
+        message: '当前手表不支持暂停运动',
+      );
+    }
+    return (bridge as WearableSportPauseBridge).resumeSport();
+  }
 
   @override
   Future<List<SportRecord>> readSportRecords() =>
@@ -412,4 +461,34 @@ class RoutedWearableBridge
     _cancelSourceEvents();
     await _eventController.close();
   }
+}
+
+abstract interface class WearableTransportPreferenceStore {
+  Future<WearableTransport?> read();
+  Future<void> write(WearableTransport transport);
+  Future<void> clear();
+}
+
+class SecureWearableTransportPreferenceStore
+    implements WearableTransportPreferenceStore {
+  const SecureWearableTransportPreferenceStore();
+
+  static const _key = 'wearable.last.transport';
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+
+  @override
+  Future<WearableTransport?> read() async {
+    final value = await _storage.read(key: _key);
+    for (final transport in WearableTransport.values) {
+      if (transport.name == value) return transport;
+    }
+    return null;
+  }
+
+  @override
+  Future<void> write(WearableTransport transport) =>
+      _storage.write(key: _key, value: transport.name);
+
+  @override
+  Future<void> clear() => _storage.delete(key: _key);
 }

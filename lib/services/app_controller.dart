@@ -153,6 +153,8 @@ class AppController extends ChangeNotifier {
   DeviceCapabilityState deviceCapabilityState =
       DeviceCapabilityState.disconnected;
   SportMode? activeSport;
+  bool sportPaused = false;
+  Map<String, num> liveSportData = const {};
   List<DeviceInfo> scannedDevices = const [];
   List<HealthRecord> healthRecords = const [];
   List<SportRecord> sportRecords = const [];
@@ -323,6 +325,8 @@ class AppController extends ChangeNotifier {
     healthWarningAlerts = const [];
     activeHealthWarningAlert = null;
     activeSport = null;
+    sportPaused = false;
+    liveSportData = const {};
     careMembers = const [];
     careInvitations = const [];
     memberProfile = const {};
@@ -1415,6 +1419,8 @@ class AppController extends ChangeNotifier {
     try {
       await _wearable.startSport(mode);
       activeSport = mode;
+      sportPaused = false;
+      liveSportData = const {};
       if (deviceState == DeviceConnectionState.ready) {
         deviceMachine.transition(DeviceConnectionState.measuring);
       }
@@ -1436,6 +1442,7 @@ class AppController extends ChangeNotifier {
     try {
       await _wearable.stopSport();
       activeSport = null;
+      sportPaused = false;
       if (deviceState == DeviceConnectionState.measuring) {
         deviceMachine.transition(DeviceConnectionState.ready);
       }
@@ -1446,6 +1453,37 @@ class AppController extends ChangeNotifier {
       errorMessage = '结束运动失败，请稍后重试';
     }
     notifyListeners();
+  }
+
+  Future<bool> setSportPaused(bool paused) async {
+    if (activeSport == null || capabilities?.supportsSportPause != true) {
+      errorMessage = '当前手表不支持暂停运动';
+      notifyListeners();
+      return false;
+    }
+    final bridge = _wearable;
+    if (bridge is! WearableSportPauseBridge) {
+      errorMessage = '当前手表不支持暂停运动';
+      notifyListeners();
+      return false;
+    }
+    try {
+      if (paused) {
+        await (bridge as WearableSportPauseBridge).pauseSport();
+      } else {
+        await (bridge as WearableSportPauseBridge).resumeSport();
+      }
+      sportPaused = paused;
+      errorMessage = null;
+      notifyListeners();
+      return true;
+    } on PlatformException catch (error) {
+      errorMessage = _wearableErrorMessage(error, fallback: '运动状态切换失败');
+    } catch (_) {
+      errorMessage = '运动状态切换失败，请稍后重试';
+    }
+    notifyListeners();
+    return false;
   }
 
   Future<void> refreshSportRecords() async {
@@ -3712,6 +3750,9 @@ class AppController extends ChangeNotifier {
       _connectedDeviceSessionGeneration = null;
       _latestDeviceDetails = null;
       capabilities = null;
+      activeSport = null;
+      sportPaused = false;
+      liveSportData = const {};
       deviceCapabilityState = DeviceCapabilityState.disconnected;
       if (deviceState != DeviceConnectionState.disconnected) {
         try {
@@ -3743,13 +3784,31 @@ class AppController extends ChangeNotifier {
           deviceMachine.transition(DeviceConnectionState.ready);
         }
       }
-    } else if (event.type == 'sportState' &&
-        event.payload['value'] == 'stopped') {
-      activeSport = null;
-      if (deviceState == DeviceConnectionState.measuring) {
-        deviceMachine.transition(DeviceConnectionState.ready);
+    } else if (event.type == 'sportData') {
+      if (activeSport != null) {
+        liveSportData = {
+          ...liveSportData,
+          for (final entry in event.payload.entries)
+            if (entry.value is num) entry.key: entry.value! as num,
+        };
       }
-      unawaited(refreshSportRecords());
+    } else if (event.type == 'sportState') {
+      final value = '${event.payload['value'] ?? ''}';
+      final mode = SportMode.tryFromWire('${event.payload['mode'] ?? ''}');
+      if (value == 'stopped') {
+        activeSport = null;
+        sportPaused = false;
+        if (deviceState == DeviceConnectionState.measuring) {
+          deviceMachine.transition(DeviceConnectionState.ready);
+        }
+        unawaited(refreshSportRecords());
+      } else if (value == 'running' || value == 'paused') {
+        if (mode != null) activeSport = mode;
+        sportPaused = value == 'paused';
+        if (activeSport != null && deviceState == DeviceConnectionState.ready) {
+          deviceMachine.transition(DeviceConnectionState.measuring);
+        }
+      }
     }
     notifyListeners();
   }
