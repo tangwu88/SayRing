@@ -112,3 +112,11 @@
 - 最终静态检查为零问题；`TZ=UTC flutter test` 与 `TZ=Asia/Shanghai flutter test` 各 341/341 通过；iOS 无签名 Debug 构建通过；Android 显式 QA Release APK 构建通过。
 - 远程关爱与消息接口在当前登录态仍返回 401，客户端已展示真实失败态；极光设备登记仍受服务端接口阻断；公开更新清单、Android 正式签名、Huawei 厂商推送配置和 App Store 产品页仍未提供，均不得标记为生产上线通过。
 - 当前 QA Release 使用调试签名，只适合现场长期测试。将来正式包如改用生产签名，Android 不能直接覆盖此测试包；正式发布前必须固定生产签名并单独验证数据迁移或云端恢复方案。
+
+## 2026-08-30 iPhone 保留式 Profile 安装
+
+- iPhone 15 Pro Max / iOS 26.6 已通过 USB 配对、解锁并确认开发者模式开启；Xcode Apple 账号重新认证后，自动生成的开发描述文件已包含当前设备。
+- 先行 Debug 包虽可安装，但脱离 Flutter 工具启动会按 Flutter 的 iOS Debug 约束主动终止，因此未将其冒充可独立运行版本。
+- 最终使用相同测试 Bundle ID 覆盖安装签名 Profile 包；安装前后应用容器数据库 UUID 保持一致，未执行卸载或清空数据。脱离调试器冷启动后 Runner 进程持续存活超过 20 秒。
+- 个人开发团队不支持 Push Notifications；现场 Profile 构建仅临时关闭该能力，产物生成后已恢复工程设置，Git 工作区无业务代码变化。本次结果不计入 iOS APNs 或业务推送验收。
+- 当前个人团队描述文件有效期至 2026-09-06 10:30（中国时区）。App 会保留在手机桌面并可直接打开，但到期后需重新签名覆盖安装；要长期分发必须改用正式开发者团队的 TestFlight、App Store 或合规 Ad Hoc 渠道。
