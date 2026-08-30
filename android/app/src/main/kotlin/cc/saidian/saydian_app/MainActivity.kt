@@ -5148,12 +5148,67 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     fun readSportRecords(callback: ResultCallback<List<Map<String, Any?>>>) {
         ensureConnected(callback) ?: return
         val records = mutableListOf<Map<String, Any?>>()
-        synchronized(this) { activeHealthSyncRecords = records }
+        val completed = AtomicBoolean(false)
+        lateinit var timeout: Runnable
+        var settleTimeout: Runnable? = null
+
+        fun snapshot(): List<Map<String, Any?>> =
+            synchronized(records) { records.distinctBy { it["id"] } }
+
+        fun finish() {
+            if (!completed.compareAndSet(false, true)) return
+            connectionHandler.removeCallbacks(timeout)
+            settleTimeout?.let(connectionHandler::removeCallbacks)
+            callback.success(snapshot())
+        }
+
+        fun fail(code: String, message: String) {
+            if (!completed.compareAndSet(false, true)) return
+            connectionHandler.removeCallbacks(timeout)
+            settleTimeout?.let(connectionHandler::removeCallbacks)
+            callback.error(code, message)
+        }
+
+        fun armSettleTimeout() {
+            if (completed.get()) return
+            settleTimeout?.let(connectionHandler::removeCallbacks)
+            val task =
+                Runnable {
+                    Log.w(LOG_TAG, "sport history completion missing; finishing after idle settle")
+                    finish()
+                }
+            settleTimeout = task
+            connectionHandler.postDelayed(task, SPORT_HISTORY_SETTLE_MS)
+        }
+
+        val guarded =
+            object : ResultCallback<List<Map<String, Any?>>> {
+                override fun success(value: List<Map<String, Any?>>) = finish()
+
+                override fun error(code: String, message: String) = fail(code, message)
+            }
+        timeout =
+            Runnable {
+                if (!completed.compareAndSet(false, true)) return@Runnable
+                val partial = snapshot()
+                if (partial.isNotEmpty()) {
+                    Log.w(
+                        LOG_TAG,
+                        "sport history completion timeout; returning ${partial.size} partial records",
+                    )
+                    callback.success(partial)
+                } else {
+                    callback.error("SPORT_HISTORY_TIMEOUT", "运动记录读取超时，请稍后重试")
+                }
+            }
+        connectionHandler.postDelayed(timeout, SPORT_HISTORY_TIMEOUT_MS)
         manager.readSportModelOrigin(
-            writeResponse(callback, "运动记录暂时无法读取"),
+            writeResponse(guarded, "运动记录暂时无法读取"),
             object : ISportModelOriginListener {
                 override fun onReadOriginProgress(progress: Float) {
+                    if (completed.get()) return
                     emit("sportSyncProgress", mapOf("progress" to progress.toDouble()))
+                    armSettleTimeout()
                 }
 
                 override fun onReadOriginProgressDetail(
@@ -5162,24 +5217,32 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     progress: Int,
                     total: Int,
                 ) {
+                    if (completed.get()) return
                     emit(
                         "sportSyncProgress",
                         mapOf("crc" to crc, "date" to date, "progress" to progress, "total" to total),
                     )
+                    armSettleTimeout()
                 }
 
                 override fun onHeadChangeListListener(data: SportModelOriginHeadData) {
-                    records += sportRecord(data)
+                    if (completed.get()) return
+                    synchronized(records) { records += sportRecord(data) }
+                    armSettleTimeout()
                 }
 
                 override fun onGPSWatchSportModeHeadChange(data: SportModelGPSWatchOriginHeadData) {
-                    records += sportRecord(data)
+                    if (completed.get()) return
+                    synchronized(records) { records += sportRecord(data) }
+                    armSettleTimeout()
                 }
 
-                override fun onItemChangeListListener(items: MutableList<SportModelOriginItemData>) = Unit
+                override fun onItemChangeListListener(items: MutableList<SportModelOriginItemData>) {
+                    armSettleTimeout()
+                }
 
                 override fun onReadOriginComplete() {
-                    callback.success(records.distinctBy { it["id"] })
+                    finish()
                 }
             },
         )
@@ -8973,6 +9036,8 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         private const val CONNECTION_FLOW_TIMEOUT_MS = 180_000L
         private const val HEALTH_SYNC_IDLE_TIMEOUT_MS = 45_000L
         private const val ECG_HISTORY_SYNC_TIMEOUT_MS = 180_000L
+        private const val SPORT_HISTORY_TIMEOUT_MS = 60_000L
+        private const val SPORT_HISTORY_SETTLE_MS = 5_000L
         private const val ECG_HISTORY_CALLBACK_SETTLE_MS = 1_500L
         private const val DEVICE_SETTING_TIMEOUT_MS = 15_000L
         // W9S needs about 12.4 seconds to return its first valid heart sample

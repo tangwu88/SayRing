@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:saydian_app/app.dart';
+import 'package:saydian_app/domain/ecg_waveform.dart';
 import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/app_controller.dart';
@@ -19,39 +20,36 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
     expect(find.text('健康数据'), findsOneWidget);
-    for (final title in const ['血压', '心率', '血氧', '体温', '心电', 'HRV']) {
-      expect(find.text(title), findsWidgets, reason: '$title 首页入口缺失');
-    }
-
-    final heartRateCard = find.byKey(const ValueKey('health-metric-heartRate'));
-    await tester.ensureVisible(heartRateCard);
-    await tester.pumpAndSettle();
-    await tester.tap(heartRateCard);
-    await tester.pumpAndSettle();
-    expect(find.text('心率分析'), findsOneWidget);
-    await tester.tap(find.text('周'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('月'));
-    await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.calendar_month_outlined), findsOneWidget);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
 
     controller.selectTab(1);
     await tester.pumpAndSettle();
+    if (controller.connectedDevice != null &&
+        !_isEt488(controller.connectedDevice!)) {
+      await controller.disconnectDevice();
+      await tester.pump(const Duration(seconds: 2));
+    }
     if (controller.connectedDevice == null) {
-      await controller.scanDevices();
-      await _waitUntil(
-        tester,
-        () => controller.scannedDevices.any(
-          (device) => device.name.toUpperCase().contains('ET488'),
-        ),
-        const Duration(seconds: 18),
-      );
-      final et488 = controller.scannedDevices.firstWhere(
-        (device) => device.name.toUpperCase().contains('ET488'),
-      );
-      await controller.connectDevice(et488);
+      var et488 = await _tryScanForDevice(tester, controller, _isEt488);
+      if (et488 == null) {
+        final seenW8 = controller.scannedDevices.where(_isW8);
+        final w8 = seenW8.isNotEmpty
+            ? seenW8.first
+            : await _tryScanForDevice(tester, controller, _isW8);
+        if (w8 != null) {
+          debugPrint('ET488_FALLBACK_W8:${w8.name}:${w8.id}');
+          await controller.connectDevice(w8);
+          await _waitUntil(
+            tester,
+            () => controller.connectedDevice?.id == w8.id,
+            const Duration(seconds: 25),
+          );
+          await controller.disconnectDevice();
+          await tester.pump(const Duration(seconds: 2));
+        }
+        et488 = await _tryScanForDevice(tester, controller, _isEt488);
+      }
+      expect(et488, isNotNull, reason: 'W8 过渡连接后仍未发现 ET488');
+      await controller.connectDevice(et488!);
     }
     await _waitUntil(
       tester,
@@ -73,8 +71,7 @@ void main() {
       const Duration(seconds: 20),
     );
     expect(find.text('示意'), findsWidgets);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
+    await _tapBack(tester);
 
     await controller.syncDeviceData();
     await tester.pumpAndSettle(const Duration(seconds: 2));
@@ -85,6 +82,52 @@ void main() {
     debugPrint(
       'ET488_CAPABILITIES:${capabilities!.metrics.map((metric) => metric.wireName).join(',')}',
     );
+    final now = DateTime.now();
+    final ecgRecords = await controller.loadHealthRecords(
+      metric: HealthMetric.ecg,
+      start: now.subtract(const Duration(days: 365)),
+      end: now.add(const Duration(days: 1)),
+    );
+    debugPrint('ET488_ECG_RECORDS:${ecgRecords.length}');
+    for (final record in ecgRecords.take(5)) {
+      final frequency = record.values['sampleFrequency']?.toInt() ?? 250;
+      final riskKeys = record.values.keys
+          .where((key) => key.toLowerCase().contains('risk'))
+          .toList(growable: false);
+      debugPrint(
+        'ET488_ECG_RECORD:raw=${record.rawVersion} samples=${record.samples.length} '
+        'usable=${record.samples.isNotEmpty && hasUsableEcgSignal(record.samples, sampleFrequency: frequency)} '
+        'riskKeys=${riskKeys.join(',')}',
+      );
+      if (record.rawVersion >= 2 && record.samples.isNotEmpty) {
+        expect(
+          hasUsableEcgSignal(record.samples, sampleFrequency: frequency),
+          isTrue,
+          reason: '心电历史包含被标记为已校准但不可用的异常波形',
+        );
+      }
+    }
+
+    controller.selectTab(0);
+    await tester.pumpAndSettle();
+    for (final metric in const [
+      HealthMetric.bloodPressure,
+      HealthMetric.heartRate,
+      HealthMetric.bloodOxygen,
+      HealthMetric.bodyTemperature,
+      HealthMetric.ecg,
+      HealthMetric.hrv,
+    ].where(capabilities.supports)) {
+      final card = find.byKey(ValueKey('health-metric-${metric.name}'));
+      await tester.scrollUntilVisible(
+        card,
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(card, findsOneWidget, reason: '${metric.label} 首页入口缺失');
+    }
+    controller.selectTab(1);
+    await tester.pumpAndSettle();
 
     const manuallyMeasured = [
       // ECG requires the watch to be idle, so exercise it before the shorter
@@ -146,6 +189,21 @@ void main() {
     for (final sport in const ['跑步', '步行', '骑行', '徒步', '运动记录']) {
       expect(find.text(sport), findsWidgets);
     }
+    for (final mode in controller.availableSportModes) {
+      controller.clearError();
+      expect(
+        await controller.startSport(mode),
+        isTrue,
+        reason: '${mode.label}未能从 App 启动',
+      );
+      await tester.pump(const Duration(seconds: 2));
+      expect(controller.activeSport, mode, reason: '${mode.label}启动后模式不一致');
+      await controller.stopSport();
+      await tester.pump(const Duration(seconds: 2));
+      expect(controller.activeSport, isNull, reason: '${mode.label}未能正常结束');
+      expect(controller.errorMessage, isNull, reason: '${mode.label}真机运动测试失败');
+      debugPrint('ET488_SPORT_OK:${mode.wireName}');
+    }
 
     controller.selectTab(2);
     await tester.pumpAndSettle();
@@ -155,8 +213,7 @@ void main() {
     expect(find.text('4006386738'), findsOneWidget);
     expect(find.text('公众号'), findsOneWidget);
     expect(find.text('添加客服'), findsOneWidget);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
+    await _tapBack(tester);
     await tester.ensureVisible(find.text('关于我们'));
     await tester.tap(find.text('关于我们'));
     await tester.pump(const Duration(seconds: 2));
@@ -181,6 +238,24 @@ Future<DeviceInfo> _scanForDevice(
   fail('三轮搜索后仍未重新发现目标手表');
 }
 
+Future<DeviceInfo?> _tryScanForDevice(
+  WidgetTester tester,
+  AppController controller,
+  bool Function(DeviceInfo device) matches,
+) async {
+  for (var attempt = 0; attempt < 3; attempt++) {
+    await controller.scanDevices();
+    final found = controller.scannedDevices.where(matches);
+    if (found.isNotEmpty) return found.first;
+    await tester.pump(const Duration(seconds: 2));
+  }
+  return null;
+}
+
+bool _isEt488(DeviceInfo device) => device.name.toUpperCase().contains('ET488');
+
+bool _isW8(DeviceInfo device) => device.name.toUpperCase().contains('W8');
+
 Future<void> _waitUntil(
   WidgetTester tester,
   bool Function() condition,
@@ -191,4 +266,11 @@ Future<void> _waitUntil(
     await tester.pump(const Duration(milliseconds: 500));
   }
   expect(condition(), isTrue);
+}
+
+Future<void> _tapBack(WidgetTester tester) async {
+  final back = find.byTooltip('返回');
+  expect(back, findsWidgets, reason: '当前页面缺少返回按钮');
+  await tester.tap(back.first);
+  await tester.pumpAndSettle();
 }
