@@ -6,7 +6,7 @@ import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/services/wearable_routing.dart';
 
 void main() {
-  test('matches supported normalized Yucheng model names', () {
+  test('routes every device name containing W8 to Yucheng', () {
     expect(YuchengDeviceClassifier.matches('W8'), isTrue);
     expect(YuchengDeviceClassifier.matches('w8s'), isTrue);
     expect(YuchengDeviceClassifier.matches('W8S 983F'), isTrue);
@@ -14,8 +14,10 @@ void main() {
     expect(YuchengDeviceClassifier.matches(' W8  Pro '), isTrue);
     expect(YuchengDeviceClassifier.matches('W8-Ultra'), isTrue);
     expect(YuchengDeviceClassifier.matches('w8 ultra-r'), isTrue);
-    expect(YuchengDeviceClassifier.matches('W80'), isFalse);
-    expect(YuchengDeviceClassifier.matches('W8 Pro Max'), isFalse);
+    expect(YuchengDeviceClassifier.matches('W8 Plus 549D'), isTrue);
+    expect(YuchengDeviceClassifier.matches('W80'), isTrue);
+    expect(YuchengDeviceClassifier.matches('W8 Pro Max'), isTrue);
+    expect(YuchengDeviceClassifier.matches('SAYDIAN-W8-BLE'), isTrue);
     expect(YuchengDeviceClassifier.matches('W9S'), isFalse);
     expect(YuchengDeviceClassifier.matches('w9 s 1234'), isFalse);
     expect(YuchengDeviceClassifier.matches('W9'), isFalse);
@@ -204,6 +206,26 @@ void main() {
       expect(devices, hasLength(1));
       expect(devices.single.id, 'yucheng:YC-W8S');
       expect(devices.single.name, 'w8s 4DE9');
+    },
+  );
+
+  test(
+    'routes W8 Plus through Yucheng and hides the Veepoo duplicate',
+    () async {
+      final bridge = RoutedWearableBridge(
+        veepoo: _FakeWearableBridge(
+          scanned: const [DeviceInfo(id: 'VP-W8-PLUS', name: 'W8 Plus 549D')],
+        ),
+        yucheng: _FakeWearableBridge(
+          scanned: const [DeviceInfo(id: 'YC-W8-PLUS', name: 'W8 Plus 549D')],
+        ),
+      );
+
+      final devices = await bridge.scanDevices();
+
+      expect(devices, hasLength(1));
+      expect(devices.single.id, 'yucheng:YC-W8-PLUS');
+      expect(devices.single.sdkSource, WearableSdkSource.yucheng);
     },
   );
 

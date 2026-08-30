@@ -11,20 +11,9 @@ enum WearableTransport { veepoo, yucheng }
 class YuchengDeviceClassifier {
   const YuchengDeviceClassifier._();
 
-  static const _models = ['W8ULTRAR', 'W8ULTRA', 'W8PRO', 'W8S', 'W8'];
-
   static bool matches(String name) {
-    final normalized = name.toUpperCase().replaceAll(
-      RegExp(r'[\s\-‐‑‒–—]'),
-      '',
-    );
-    for (final model in _models) {
-      if (normalized == model) return true;
-      if (!normalized.startsWith(model)) continue;
-      final suffix = normalized.substring(model.length);
-      if (RegExp(r'^[0-9A-F]{4,6}$').hasMatch(suffix)) return true;
-    }
-    return false;
+    final normalized = name.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
+    return normalized.contains('W8');
   }
 }
 
