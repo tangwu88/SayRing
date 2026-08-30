@@ -1323,7 +1323,6 @@ class AppController extends ChangeNotifier {
     }
     _activeMeasurementMetric = null;
     _activeMeasurementSessionGeneration = null;
-    _activeMeasurementSessionGeneration = null;
     _measurementTimeout = null;
     measurementErrorMessage = '长时间未检测到有效结果，请确认手表已贴合手腕后重新测量';
     errorMessage = measurementErrorMessage;
@@ -3735,6 +3734,10 @@ class AppController extends ChangeNotifier {
         _measurementTimeout?.cancel();
         _measurementTimeout = null;
         _activeMeasurementMetric = null;
+        _activeMeasurementSessionGeneration = null;
+        measurementProgress = 0;
+        measurementSamples = const [];
+        measurementWearConfirmed = false;
         measurementErrorMessage = resolvedMessage;
         if (deviceState == DeviceConnectionState.measuring) {
           deviceMachine.transition(DeviceConnectionState.ready);

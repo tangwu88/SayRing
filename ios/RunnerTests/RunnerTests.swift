@@ -507,4 +507,51 @@ class RunnerTests: XCTestCase {
     XCTAssertNil(profile(maxLength: 0))
   }
 
+  func testWearableEcgWaveformMapperTreatsMissingAndIncompleteSignalsAsEmpty() {
+    let missing = WearableEcgWaveformMapper.convert(signals: nil) { $0 }
+    XCTAssertTrue(missing.samples.isEmpty)
+    XCTAssertEqual(missing.sourceCount, 0)
+    XCTAssertEqual(missing.rawVersion, 1)
+
+    let single = WearableEcgWaveformMapper.convert(signals: [1]) { $0 }
+    XCTAssertTrue(single.samples.isEmpty)
+    XCTAssertEqual(single.sourceCount, 1)
+
+    let flat = WearableEcgWaveformMapper.convert(signals: [0, 0, 0]) { $0 }
+    XCTAssertTrue(flat.samples.isEmpty)
+    XCTAssertEqual(flat.sourceCount, 3)
+  }
+
+  func testWearableEcgWaveformMapperConvertsOnlyNewValidSamples() {
+    let converted = WearableEcgWaveformMapper.convert(
+      signals: [0, "2", NSNumber(value: 4)],
+      from: 1
+    ) { $0 * 0.5 }
+
+    XCTAssertEqual(converted.sourceCount, 3)
+    XCTAssertEqual(converted.rawVersion, 2)
+    XCTAssertEqual(converted.samples.map(\.doubleValue), [1, 2])
+  }
+
+  func testWearableEcgWaveformMapperRejectsNonFiniteConversion() {
+    let converted = WearableEcgWaveformMapper.convert(signals: [1, 2]) { _ in
+      .infinity
+    }
+
+    XCTAssertTrue(converted.samples.isEmpty)
+    XCTAssertEqual(converted.sourceCount, 2)
+    XCTAssertEqual(converted.rawVersion, 1)
+  }
+
+  func testWearableEcgMeasurementStatesSeparateProgressFromTerminalResults() {
+    XCTAssertFalse(WearableEcgMeasurementState.start.isTerminal)
+    XCTAssertFalse(WearableEcgMeasurementState.testing.isTerminal)
+    XCTAssertFalse(WearableEcgMeasurementState.notLead.isTerminal)
+    XCTAssertTrue(WearableEcgMeasurementState.deviceBusy.isTerminal)
+    XCTAssertTrue(WearableEcgMeasurementState.over.isTerminal)
+    XCTAssertTrue(WearableEcgMeasurementState.failure.isTerminal)
+    XCTAssertTrue(WearableEcgMeasurementState.complete.isTerminal)
+    XCTAssertTrue(WearableEcgMeasurementState.noFunction.isTerminal)
+  }
+
 }

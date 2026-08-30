@@ -188,9 +188,16 @@ void main() {
     final source = File('ios/Runner/AppDelegate.swift').readAsStringSync();
 
     expect(source, contains('VPECGTestDataModel.convertToMv('));
+    expect(source, contains('signals: model.filterSignals'));
     expect(
       source,
       contains('guard samples.count > 1, hasConvertedSignal else'),
+    );
+    expect(source, contains('emit("measurementProgress", progressPayload)'));
+    expect(source, contains('case .start, .testing, .notLead:'));
+    expect(
+      source,
+      contains('guard hasPrimaryResult, !waveform.samples.isEmpty'),
     );
     expect(source, contains('deviceTestOffStoreECGDidFinishBlock'));
     expect(source, contains('"origin": "watch_history"'));

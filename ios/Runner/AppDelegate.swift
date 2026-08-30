@@ -129,6 +129,67 @@ struct WearableBatterySnapshot: Equatable {
   }()
 }
 
+enum WearableEcgMeasurementState: Int, Equatable {
+  case start = 0
+  case testing = 1
+  case notLead = 2
+  case deviceBusy = 3
+  case over = 4
+  case failure = 5
+  case complete = 6
+  case noFunction = 7
+
+  var isTerminal: Bool {
+    switch self {
+    case .deviceBusy, .over, .failure, .complete, .noFunction:
+      true
+    case .start, .testing, .notLead:
+      false
+    }
+  }
+}
+
+struct WearableEcgWaveformConversion {
+  let samples: [NSNumber]
+  let sourceCount: Int
+
+  var rawVersion: Int { samples.isEmpty ? 1 : 2 }
+}
+
+enum WearableEcgWaveformMapper {
+  static func convert(
+    signals: [Any]?,
+    from startIndex: Int = 0,
+    converter: (Double) -> Double
+  ) -> WearableEcgWaveformConversion {
+    guard let signals, !signals.isEmpty else {
+      return WearableEcgWaveformConversion(samples: [], sourceCount: 0)
+    }
+    let safeStart = min(max(startIndex, 0), signals.count)
+    var hasConvertedSignal = false
+    let samples = signals.dropFirst(safeStart).compactMap(number).map { value -> NSNumber in
+      if value.int64Value == Int64(Int32.max) { return value }
+      let converted = converter(value.doubleValue)
+      if converted.isFinite, abs(converted) > 0.000_001 {
+        hasConvertedSignal = true
+      }
+      return NSNumber(value: converted.isFinite ? converted : 0)
+    }
+    guard samples.count > 1, hasConvertedSignal else {
+      return WearableEcgWaveformConversion(samples: [], sourceCount: signals.count)
+    }
+    return WearableEcgWaveformConversion(samples: samples, sourceCount: signals.count)
+  }
+
+  private static func number(_ value: Any) -> NSNumber? {
+    if let number = value as? NSNumber { return number }
+    if let string = value as? String, let number = Double(string) {
+      return NSNumber(value: number)
+    }
+    return nil
+  }
+}
+
 enum WearableBatteryRefreshDecision: Equatable {
   case skip
   case deferUntilIdle
@@ -838,6 +899,8 @@ private final class VeepooWearableAdapter: WearableAdapter {
   private var healthSyncResult: FlutterResult?
   private var deviceSessionReady = false
   private var activeMeasurementMetric: String?
+  private var measurementGeneration: UInt = 0
+  private var ecgLiveSignalCount = 0
   private var watchFaceTransferGate = WearableWatchFaceTransferGate()
   private var phoneCallState: [String: Any] = [
     "connectionStatus": "unknown",
@@ -885,7 +948,14 @@ private final class VeepooWearableAdapter: WearableAdapter {
         } else if state == .connectStateVerifyPasswordSuccess {
           self.connected = self.manager.peripheralModel
           if let routeID = self.connectedRouteID ?? self.connected.map(Self.routeIdentifier) {
+            self.connectedRouteID = routeID
             self.ensureWatchFaceSession(routeID: routeID)
+          }
+          // Veepoo may finish its SDK-managed reconnect before Flutter asks to
+          // restore the saved device. Treat that verified session as recovery
+          // so callbacks and operation gates are initialized after cold start.
+          if self.connectResult == nil {
+            self.awaitingAutomaticReconnect = true
           }
           self.deviceSessionReady = false
           self.synchronizePersonalInformation()
@@ -898,6 +968,8 @@ private final class VeepooWearableAdapter: WearableAdapter {
             message: "手表连接已断开，数据同步已取消"
           )
           self.activeMeasurementMetric = nil
+          self.measurementGeneration &+= 1
+          self.ecgLiveSignalCount = 0
           self.watchFaceTransferGate.reset()
           self.connected = nil
           self.resetWatchFaceSession()
@@ -965,6 +1037,8 @@ private final class VeepooWearableAdapter: WearableAdapter {
       message: "连接设备已变化，数据同步已取消"
     )
     activeMeasurementMetric = nil
+    measurementGeneration &+= 1
+    ecgLiveSignalCount = 0
     watchFaceTransferGate.reset()
     connectResult = result
     userProfile = profile
@@ -1036,6 +1110,8 @@ private final class VeepooWearableAdapter: WearableAdapter {
       message: "手表连接已断开，数据同步已取消"
     )
     activeMeasurementMetric = nil
+    measurementGeneration &+= 1
+    ecgLiveSignalCount = 0
     watchFaceTransferGate.reset()
     manager.veepooSDKDisconnectDevice()
     connected = nil
@@ -1516,8 +1592,16 @@ private final class VeepooWearableAdapter: WearableAdapter {
       result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
       return
     }
+    guard deviceSessionReady else {
+      result(FlutterError(code: "DEVICE_NOT_READY", message: "手表正在完成连接准备，请稍后重试", details: nil))
+      return
+    }
     guard (capabilities()["metrics"] as? [String])?.contains(metric) == true else {
       result(FlutterError(code: "UNSUPPORTED_METRIC", message: "当前设备不支持该指标", details: nil))
+      return
+    }
+    guard !healthSyncGate.isInFlight, !watchFaceTransferGate.isInFlight else {
+      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在处理其他操作，请稍后重试", details: nil))
       return
     }
     if deferDeviceOperationUntilBatteryIdle(
@@ -1538,6 +1622,9 @@ private final class VeepooWearableAdapter: WearableAdapter {
       return
     }
     activeMeasurementMetric = metric
+    measurementGeneration &+= 1
+    let currentMeasurementGeneration = measurementGeneration
+    if metric == "ecg" { ecgLiveSignalCount = 0 }
     emit("state", ["value": "measuring", "metric": metric])
     switch metric {
     case "heart_rate":
@@ -1579,19 +1666,14 @@ private final class VeepooWearableAdapter: WearableAdapter {
         }
       }
     case "ecg":
-      manager.peripheralManage.veepooSDKTestECGStart(true) { [weak self] _, _, model in
-        guard let self, let model else { return }
-        let values = self.ecgValues(model)
-        if !values.isEmpty {
-          let waveform = Self.convertedEcgWaveform(model)
-          self.emitRecord(
-            type: metric,
-            values: values,
-            unit: "",
-            samples: waveform.samples,
-            rawVersion: waveform.rawVersion
-          )
-        }
+      manager.peripheralManage.veepooSDKTestECGStart(true) { [weak self] state, progress, model in
+        guard let self else { return }
+        self.handleEcgMeasurement(
+          stateRawValue: state.rawValue,
+          progress: progress,
+          model: model,
+          generation: currentMeasurementGeneration
+        )
       }
     case "body_composition":
       manager.peripheralManage.veepooSDKTestBodyCompositionStart(true, progress: { _, _ in }) { [weak self] _, model in
@@ -1614,7 +1696,144 @@ private final class VeepooWearableAdapter: WearableAdapter {
     result(nil)
   }
 
+  private func handleEcgMeasurement(
+    stateRawValue: Int,
+    progress: UInt,
+    model: VPECGTestDataModel?,
+    generation: UInt
+  ) {
+    guard activeMeasurementMetric == "ecg",
+      measurementGeneration == generation
+    else { return }
+
+    let state = WearableEcgMeasurementState(rawValue: stateRawValue)
+    var progressPayload: [String: Any] = [
+      "metric": "ecg",
+      "progress": min(Int(progress), 100),
+      "wear": state == .notLead ? 1 : 0,
+      "deviceState": state == .notLead ? "UNPASS_WEAR" : "FREE",
+    ]
+    if let model {
+      let values = ecgValues(model)
+      if let frequency = values["sampleFrequency"] {
+        progressPayload["frequency"] = frequency
+      }
+      var liveWaveform = Self.convertedEcgWaveform(
+        model,
+        from: ecgLiveSignalCount
+      )
+      if liveWaveform.sourceCount < ecgLiveSignalCount {
+        liveWaveform = Self.convertedEcgWaveform(model, from: 0)
+      }
+      ecgLiveSignalCount = liveWaveform.sourceCount
+      if !liveWaveform.samples.isEmpty {
+        progressPayload["samples"] = liveWaveform.samples
+      }
+    }
+    emit("measurementProgress", progressPayload)
+
+    switch state {
+    case .start, .testing, .notLead:
+      return
+    case .complete, .over:
+      guard let model else {
+        finishEcgMeasurementWithError(
+          generation: generation,
+          message: "心电测量未返回有效结果，请重试"
+        )
+        return
+      }
+      let values = ecgValues(model)
+      let waveform = Self.convertedEcgWaveform(model, from: 0)
+      let hasPrimaryResult = values["meanHeartRate"] != nil || values["averageHRV"] != nil
+      guard hasPrimaryResult, !waveform.samples.isEmpty else {
+        finishEcgMeasurementWithError(
+          generation: generation,
+          message: "心电信号不完整，请正确佩戴并持续接触电极后重试"
+        )
+        return
+      }
+      finishEcgMeasurement(generation: generation)
+      emitRecord(
+        type: "ecg",
+        values: values,
+        unit: "",
+        samples: waveform.samples,
+        rawVersion: waveform.rawVersion
+      )
+    case .deviceBusy:
+      finishEcgMeasurementWithError(
+        generation: generation,
+        code: "MEASUREMENT_DEVICE_BUSY",
+        message: "手表正在处理其他任务，请稍后重试"
+      )
+    case .failure:
+      finishEcgMeasurementWithError(
+        generation: generation,
+        message: "本次心电测量未完成，请正确佩戴后重试"
+      )
+    case .noFunction:
+      finishEcgMeasurementWithError(
+        generation: generation,
+        message: "当前手表不支持 App 心电测量"
+      )
+    case nil:
+      finishEcgMeasurementWithError(
+        generation: generation,
+        message: "心电测量状态异常，请重试"
+      )
+    }
+  }
+
+  private func finishEcgMeasurement(generation: UInt) {
+    guard activeMeasurementMetric == "ecg",
+      measurementGeneration == generation
+    else { return }
+    activeMeasurementMetric = nil
+    measurementGeneration &+= 1
+    ecgLiveSignalCount = 0
+    finishBatteryBlockingOperation()
+  }
+
+  private func finishEcgMeasurementWithError(
+    generation: UInt,
+    code: String = "ECG_MEASUREMENT_FAILED",
+    message: String
+  ) {
+    guard activeMeasurementMetric == "ecg",
+      measurementGeneration == generation
+    else { return }
+    finishEcgMeasurement(generation: generation)
+    emit("error", ["code": code, "message": message])
+  }
+
   func stopMeasurement(_ metric: String, result: @escaping FlutterResult) {
+    let supportedMetrics: Set<String> = [
+      "heart_rate",
+      "blood_oxygen",
+      "blood_pressure",
+      "body_temperature",
+      "blood_glucose",
+      "ecg",
+      "body_composition",
+      "blood_composition",
+    ]
+    guard supportedMetrics.contains(metric) else {
+      result(FlutterError(code: "MEASUREMENT_NOT_AVAILABLE", message: "该指标没有可停止的实时测量", details: nil))
+      return
+    }
+    if let activeMeasurementMetric, activeMeasurementMetric != metric {
+      result(FlutterError(code: "DEVICE_BUSY", message: "另一项手表测量尚未结束", details: nil))
+      return
+    }
+    guard activeMeasurementMetric == metric else {
+      finishBatteryBlockingOperation()
+      result(nil)
+      return
+    }
+    activeMeasurementMetric = nil
+    measurementGeneration &+= 1
+    if metric == "ecg" { ecgLiveSignalCount = 0 }
     switch metric {
     case "heart_rate":
       manager.peripheralManage.veepooSDKTestHeartStart(false, testResult: nil)
@@ -1633,11 +1852,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     case "blood_composition":
       manager.peripheralManage.veepooSDKTestBloodAnalysisStart(false, isPersonalModel: false, progress: { _ in }, testResult: { _, _ in })
     default:
-      result(FlutterError(code: "MEASUREMENT_NOT_AVAILABLE", message: "该指标没有可停止的实时测量", details: nil))
-      return
-    }
-    if activeMeasurementMetric == metric {
-      activeMeasurementMetric = nil
+      break
     }
     finishBatteryBlockingOperation()
     result(nil)
@@ -2247,25 +2462,23 @@ private final class VeepooWearableAdapter: WearableAdapter {
   }
 
   private static func convertedEcgWaveform(
-    _ model: VPECGTestDataModel
-  ) -> (samples: [NSNumber], rawVersion: Int) {
+    _ model: VPECGTestDataModel,
+    from startIndex: Int = 0
+  ) -> WearableEcgWaveformConversion {
     let gain = model.getGainValue()
     let ecgType = model.ecgType ?? ""
     let testType = model.type ?? ""
-    var hasConvertedSignal = false
-    let samples = model.filterSignals.compactMap(Self.number).map { value -> NSNumber in
-      if value.int64Value == Int64(Int32.max) { return value }
-      let converted = VPECGTestDataModel.convertToMv(
-        withValue: CGFloat(value.doubleValue),
+    return WearableEcgWaveformMapper.convert(
+      signals: model.filterSignals,
+      from: startIndex
+    ) { value in
+      Double(VPECGTestDataModel.convertToMv(
+        withValue: CGFloat(value),
         ecgType: ecgType,
         testType: testType,
         gain: gain
-      )
-      if abs(converted) > 0.000_001 { hasConvertedSignal = true }
-      return NSNumber(value: Double(converted))
+      ))
     }
-    guard samples.count > 1, hasConvertedSignal else { return ([], 1) }
-    return (samples, 2)
   }
 
   private func bodyCompositionValues(_ model: VPBodyCompositionValueModel) -> [String: NSNumber] {

@@ -569,16 +569,31 @@ void main() {
       await controller.initialize();
       addTearDown(controller.dispose);
       controller.connectedDevice = wearable.scannedDevice;
+      controller.capabilities = const DeviceCapabilities(
+        metrics: {HealthMetric.heartRate},
+        manualMetrics: {HealthMetric.heartRate},
+      );
       for (final state in const [
         DeviceConnectionState.scanning,
         DeviceConnectionState.connecting,
         DeviceConnectionState.authenticating,
         DeviceConnectionState.syncing,
         DeviceConnectionState.ready,
-        DeviceConnectionState.measuring,
       ]) {
         controller.deviceMachine.transition(state);
       }
+      expect(await controller.startMeasurement(HealthMetric.heartRate), isTrue);
+      wearable.emitEvent(
+        const WearableEvent(
+          type: 'measurementProgress',
+          payload: {
+            'metric': 'heart_rate',
+            'progress': 42,
+            'samples': [1, 2, 3],
+          },
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
 
       wearable.emitEvent(
         const WearableEvent(
@@ -590,6 +605,11 @@ void main() {
 
       expect(controller.deviceState, DeviceConnectionState.ready);
       expect(controller.errorMessage, contains('正确佩戴'));
+      expect(controller.activeMeasurementMetric, isNull);
+      expect(controller.measurementProgress, 0);
+      expect(controller.measurementSamples, isEmpty);
+      expect(controller.measurementWearConfirmed, isFalse);
+      expect(await controller.startMeasurement(HealthMetric.heartRate), isTrue);
     },
   );
 
