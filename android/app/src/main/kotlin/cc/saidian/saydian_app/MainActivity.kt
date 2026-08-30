@@ -6919,6 +6919,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         measurementResultTimeoutTask?.let(connectionHandler::removeCallbacks)
         measurementResultTimeoutTask = null
         if (metric == "ecg" || activeHrvUsesEcg) clearEcgWearFailure()
+        // Invalidate the session before asking the SDK to stop. Some firmware
+        // invokes its completion listener synchronously from stopDetect* with
+        // the latest partial sample. Keeping activeMetric set until after the
+        // SDK call would let that cancelled sample be persisted as a complete
+        // health record.
+        synchronized(this) { activeMetric = null }
         val response = measurementStopWrite(callback, metric)
         when (metric) {
             "heart_rate" -> manager.stopDetectHeart(response)
@@ -6969,7 +6975,6 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             }
             else -> callback.error("MEASUREMENT_NOT_AVAILABLE", "该指标没有可停止的实时测量")
         }
-        activeMetric = null
     }
 
     private fun startBloodPressureMeasurement(callback: ResultCallback<Unit>) {

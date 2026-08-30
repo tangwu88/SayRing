@@ -150,6 +150,34 @@ void main() {
     },
   );
 
+  test(
+    'Android cancels a measurement before the SDK stop callback can save partial data',
+    () {
+      final source = File(
+        'android/app/src/main/kotlin/cc/saidian/saydian_app/MainActivity.kt',
+      ).readAsStringSync();
+      final stopStart = source.indexOf('fun stopMeasurement(');
+      final stopEnd = source.indexOf(
+        'private fun startBloodPressureMeasurement',
+        stopStart,
+      );
+      expect(stopStart, greaterThanOrEqualTo(0));
+      expect(stopEnd, greaterThan(stopStart));
+
+      final stopBlock = source.substring(stopStart, stopEnd);
+      final sessionInvalidation = stopBlock.indexOf(
+        'synchronized(this) { activeMetric = null }',
+      );
+      final sdkDispatch = stopBlock.indexOf('when (metric)');
+      expect(sessionInvalidation, greaterThanOrEqualTo(0));
+      expect(sdkDispatch, greaterThan(sessionInvalidation));
+      expect(
+        stopBlock.substring(sdkDispatch),
+        isNot(contains('activeMetric = null')),
+      );
+    },
+  );
+
   test('iOS Veepoo keeps its UUID route and exposes the SDK address', () {
     final source = File('ios/Runner/AppDelegate.swift').readAsStringSync();
 
