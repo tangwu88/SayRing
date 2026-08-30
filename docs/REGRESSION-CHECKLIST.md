@@ -122,6 +122,7 @@
 - [ ] `dart format` 只格式化本轮修改文件。
 - [ ] `git diff --check` 通过。
 - [ ] 相关定向测试通过。
+- [ ] 窄屏与文字放大回归使用复合指标最长展示值；“数值 + 单位”不换行挤压趋势图，日志无 `RenderFlex overflow`。
 - [ ] `flutter analyze --no-pub` 零问题。
 - [ ] `TZ=UTC flutter test --no-pub` 与 `TZ=Asia/Shanghai flutter test --no-pub` 两套全量通过。
 - [ ] UTC 午夜和中国时区跨日夹具使用显式时区边界，不依赖宿主时区解释。

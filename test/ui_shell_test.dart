@@ -299,7 +299,10 @@ void main() {
       MemoryHealthStore(),
       _NoopWearable(),
     )..enterPreview();
-    controller.healthRecords = [_historicalHeartRateRecord()];
+    controller.healthRecords = [
+      _historicalHeartRateRecord(),
+      _historicalBloodPressureRecord(),
+    ];
     addTearDown(controller.dispose);
 
     await tester.pumpWidget(
@@ -327,6 +330,15 @@ void main() {
     );
     expect(
       find.byKey(const ValueKey('health-metric-heartRate')),
+      findsOneWidget,
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('health-metric-bloodPressure')),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(
+      find.byKey(const ValueKey('health-metric-bloodPressure')),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
@@ -1896,6 +1908,20 @@ HealthRecord _historicalHeartRateRecord() => HealthRecord(
   metric: HealthMetric.heartRate,
   values: const {'value': 75},
   unit: 'bpm',
+  measuredAt: DateTime.now().toUtc().subtract(const Duration(minutes: 5)),
+  timezone: '+08:00',
+  deviceId: 'previous-watch',
+  firmwareVersion: '1.0',
+  quality: 'device_reported',
+  source: MeasurementSource.wearable,
+  rawVersion: 1,
+);
+
+HealthRecord _historicalBloodPressureRecord() => HealthRecord(
+  id: 'history-blood-pressure',
+  metric: HealthMetric.bloodPressure,
+  values: const {'systolic': 116, 'diastolic': 84},
+  unit: 'mmHg',
   measuredAt: DateTime.now().toUtc().subtract(const Duration(minutes: 5)),
   timezone: '+08:00',
   deviceId: 'previous-watch',

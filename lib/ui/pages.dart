@@ -1216,23 +1216,39 @@ class _MetricCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 4),
-              Wrap(
-                crossAxisAlignment: WrapCrossAlignment.end,
-                spacing: 6,
-                runSpacing: 2,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    _healthDisplayValue(record, controller),
-                    style: const TextStyle(
-                      fontSize: 23,
-                      fontWeight: FontWeight.w900,
+                  Flexible(
+                    flex: 3,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        _healthDisplayValue(record, controller),
+                        maxLines: 1,
+                        style: const TextStyle(
+                          fontSize: 23,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 3),
-                    child: Text(
-                      _healthDisplayUnit(metric, record, controller),
-                      style: const TextStyle(color: SaydianColors.muted),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    flex: 2,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          _healthDisplayUnit(metric, record, controller),
+                          maxLines: 1,
+                          softWrap: false,
+                          style: const TextStyle(color: SaydianColors.muted),
+                        ),
+                      ),
                     ),
                   ),
                 ],
