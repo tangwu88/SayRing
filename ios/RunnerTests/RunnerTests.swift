@@ -554,4 +554,21 @@ class RunnerTests: XCTestCase {
     XCTAssertTrue(WearableEcgMeasurementState.noFunction.isTerminal)
   }
 
+  func testWearableExplicitDisconnectGateRejectsOverlapAndLateCompletion() throws {
+    var gate = WearableExplicitDisconnectGate()
+    let first = try XCTUnwrap(gate.begin())
+
+    XCTAssertTrue(gate.isInFlight)
+    XCTAssertNil(gate.begin())
+    XCTAssertFalse(gate.complete(generation: first &+ 1))
+    XCTAssertTrue(gate.complete(generation: first))
+    XCTAssertFalse(gate.isInFlight)
+    XCTAssertFalse(gate.complete(generation: first))
+
+    let second = try XCTUnwrap(gate.begin())
+    gate.reset()
+    XCTAssertFalse(gate.complete(generation: second))
+    XCTAssertFalse(gate.isInFlight)
+  }
+
 }

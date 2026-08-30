@@ -233,6 +233,31 @@ struct WearableBatteryRefreshGate {
   }
 }
 
+struct WearableExplicitDisconnectGate {
+  private(set) var generation: UInt = 0
+  private(set) var activeGeneration: UInt?
+
+  var isInFlight: Bool { activeGeneration != nil }
+
+  mutating func begin() -> UInt? {
+    guard activeGeneration == nil else { return nil }
+    generation &+= 1
+    activeGeneration = generation
+    return generation
+  }
+
+  mutating func complete(generation expectedGeneration: UInt) -> Bool {
+    guard activeGeneration == expectedGeneration else { return false }
+    activeGeneration = nil
+    return true
+  }
+
+  mutating func reset() {
+    generation &+= 1
+    activeGeneration = nil
+  }
+}
+
 struct WearableWatchFaceTransferGate {
   private(set) var generation: UInt = 0
   private(set) var activeGeneration: UInt?
@@ -635,6 +660,8 @@ enum WearableWatchFaceProfilePayload {
     switch call.method {
     case "scanDevices":
       adapter.scanDevices(result)
+    case "stopScan":
+      adapter.stopScan(result)
     case "connect":
       adapter.connect(
         arguments?["deviceId"] as? String ?? "",
@@ -776,6 +803,7 @@ enum WearableWatchFaceProfilePayload {
 
 private protocol WearableAdapter: AnyObject {
   func scanDevices(_ result: @escaping FlutterResult)
+  func stopScan(_ result: @escaping FlutterResult)
   func connect(
     _ deviceID: String,
     profile: [String: Any],
@@ -817,6 +845,7 @@ private final class UnconfiguredWearableAdapter: WearableAdapter {
   }
 
   func scanDevices(_ result: @escaping FlutterResult) { missing(result) }
+  func stopScan(_ result: @escaping FlutterResult) { result(nil) }
   func connect(
     _ deviceID: String,
     profile: [String: Any],
@@ -869,6 +898,9 @@ private final class VeepooWearableAdapter: WearableAdapter {
   private var connected: VPPeripheralModel?
   private var connectedRouteID: String?
   private var scanResult: FlutterResult?
+  private var scanStartWorkItem: DispatchWorkItem?
+  private var scanTimeout: DispatchWorkItem?
+  private var userScanInProgress = false
   private var connectResult: FlutterResult?
   private var awaitingAutomaticReconnect = false
   private var userProfile: [String: Any] = [:]
@@ -897,6 +929,10 @@ private final class VeepooWearableAdapter: WearableAdapter {
   private var healthSyncGate = WearableHealthSyncGate()
   private var healthSyncTimeout: DispatchWorkItem?
   private var healthSyncResult: FlutterResult?
+  private var explicitDisconnectGate = WearableExplicitDisconnectGate()
+  private var explicitDisconnectGeneration: UInt?
+  private var explicitDisconnectResult: FlutterResult?
+  private var explicitDisconnectTimeout: DispatchWorkItem?
   private var deviceSessionReady = false
   private var activeMeasurementMetric: String?
   private var measurementGeneration: UInt = 0
@@ -946,6 +982,11 @@ private final class VeepooWearableAdapter: WearableAdapter {
         } else if state == .connectStateConnect {
           self.emit("state", ["value": "authenticating"])
         } else if state == .connectStateVerifyPasswordSuccess {
+          if self.explicitDisconnectGate.isInFlight {
+            self.manager.automaticConnection = false
+            self.manager.veepooSDKDisconnectDevice()
+            return
+          }
           self.connected = self.manager.peripheralModel
           if let routeID = self.connectedRouteID ?? self.connected.map(Self.routeIdentifier) {
             self.connectedRouteID = routeID
@@ -960,6 +1001,28 @@ private final class VeepooWearableAdapter: WearableAdapter {
           self.deviceSessionReady = false
           self.synchronizePersonalInformation()
         } else if state == .connectStateDisConnect {
+          if let generation = self.explicitDisconnectGeneration {
+            self.completeExplicitDisconnect(generation: generation)
+            return
+          }
+          if self.userScanInProgress {
+            self.awaitingAutomaticReconnect = false
+            self.deviceSessionReady = false
+            self.resetBatterySession(cancelDeferredOperation: true)
+            self.cancelHealthSync(
+              code: "HEALTH_SYNC_CANCELLED",
+              message: "手表连接已断开，数据同步已取消"
+            )
+            self.activeMeasurementMetric = nil
+            self.measurementGeneration &+= 1
+            self.ecgLiveSignalCount = 0
+            self.watchFaceTransferGate.reset()
+            self.connected = nil
+            self.connectedRouteID = nil
+            self.resetWatchFaceSession()
+            self.manager.peripheralManage.deviceTestOffStoreECGDidFinishBlock = nil
+            return
+          }
           self.awaitingAutomaticReconnect = self.connectResult == nil
           self.deviceSessionReady = false
           self.resetBatterySession(cancelDeferredOperation: true)
@@ -985,39 +1048,77 @@ private final class VeepooWearableAdapter: WearableAdapter {
       result(FlutterError(code: "SCAN_IN_PROGRESS", message: "正在扫描设备", details: nil))
       return
     }
+    // A user-initiated scan owns connection selection. Leaving the SDK's
+    // background reconnect enabled can silently reclaim the just-disconnected
+    // watch, making it disappear from the scan while Flutter shows no device.
+    manager.automaticConnection = false
     scanned.removeAll()
     scanResult = result
+    userScanInProgress = true
     emit("state", ["value": "scanning"])
-    manager.veepooSDKStartScanDeviceAndReceiveScanningDevice { [weak self] model in
-      guard let self,
-            let model else { return }
-      let routeID = Self.routeIdentifier(model)
-      guard !routeID.isEmpty else { return }
-      self.scanned[routeID] = model
-    }
-    // Match the Android HBand scan window. Some W9-family firmware advertises
-    // less frequently and can be missed by the former eight-second window.
-    DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
-      guard let self, let callback = self.scanResult else { return }
-      self.manager.veepooSDKStopScanDevice()
-      self.scanResult = nil
-      let payload = self.scanned.values.sorted { $0.rssi.intValue > $1.rssi.intValue }.map { model in
-        let deviceID = Self.routeIdentifier(model)
-        let deviceName = Self.displayName(model.deviceName)
-        var payload: [String: Any] = [
-          "id": deviceID,
-          "name": deviceName,
-          "model": deviceName,
-          "rssi": model.rssi.intValue,
-        ]
-        if let hardwareAddress = WearablePayloadMapper.hardwareAddress(model.deviceAddress) {
-          payload["hardwareAddress"] = hardwareAddress
-        }
-        return payload
+    manager.veepooSDKStopScanDevice()
+    // A killed app or an older build may leave the SDK holding a hidden GATT
+    // session. Release it before scanning so the watch resumes advertising.
+    manager.veepooSDKDisconnectDevice()
+    scanStartWorkItem?.cancel()
+    let start = DispatchWorkItem { [weak self] in
+      guard let self, self.scanResult != nil, self.userScanInProgress else {
+        return
       }
-      self.emit("state", ["value": "disconnected"])
-      callback(payload)
+      self.scanStartWorkItem = nil
+      self.manager.veepooSDKStartScanDeviceAndReceiveScanningDevice { [weak self] model in
+        guard let self,
+          self.scanResult != nil,
+          self.userScanInProgress,
+          let model
+        else { return }
+        let routeID = Self.routeIdentifier(model)
+        guard !routeID.isEmpty else { return }
+        self.scanned[routeID] = model
+      }
+      self.scanTimeout?.cancel()
+      let timeout = DispatchWorkItem { [weak self] in
+        self?.finishScan()
+      }
+      self.scanTimeout = timeout
+      // Match the Android HBand scan window. Some W9-family firmware
+      // advertises less frequently and needs the full window.
+      DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: timeout)
     }
+    scanStartWorkItem = start
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.75, execute: start)
+  }
+
+  func stopScan(_ result: @escaping FlutterResult) {
+    finishScan()
+    result(nil)
+  }
+
+  private func finishScan() {
+    scanStartWorkItem?.cancel()
+    scanStartWorkItem = nil
+    scanTimeout?.cancel()
+    scanTimeout = nil
+    manager.veepooSDKStopScanDevice()
+    userScanInProgress = false
+    guard let callback = scanResult else { return }
+    scanResult = nil
+    let payload = scanned.values.sorted { $0.rssi.intValue > $1.rssi.intValue }.map { model in
+      let deviceID = Self.routeIdentifier(model)
+      let deviceName = Self.displayName(model.deviceName)
+      var payload: [String: Any] = [
+        "id": deviceID,
+        "name": deviceName,
+        "model": deviceName,
+        "rssi": model.rssi.intValue,
+      ]
+      if let hardwareAddress = WearablePayloadMapper.hardwareAddress(model.deviceAddress) {
+        payload["hardwareAddress"] = hardwareAddress
+      }
+      return payload
+    }
+    emit("state", ["value": "disconnected"])
+    callback(payload)
   }
 
   func connect(
@@ -1029,6 +1130,8 @@ private final class VeepooWearableAdapter: WearableAdapter {
       result(FlutterError(code: "DEVICE_NOT_FOUND", message: "设备已离开扫描范围，请重新扫描", details: nil))
       return
     }
+    userScanInProgress = false
+    manager.automaticConnection = true
     deviceSessionReady = false
     resetBatterySession(cancelDeferredOperation: true)
     beginWatchFaceSession(routeID: deviceID)
@@ -1097,11 +1200,20 @@ private final class VeepooWearableAdapter: WearableAdapter {
     deviceSessionReady = false
     guard let callback = connectResult else { return }
     connectResult = nil
+    manager.automaticConnection = false
     emit("error", ["code": code, "message": message])
     callback(FlutterError(code: code, message: message, details: nil))
   }
 
   func disconnect(_ result: @escaping FlutterResult) {
+    guard let generation = explicitDisconnectGate.begin() else {
+      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在断开连接，请稍后重试", details: nil))
+      return
+    }
+    explicitDisconnectGeneration = generation
+    explicitDisconnectResult = result
+    explicitDisconnectTimeout?.cancel()
+    manager.automaticConnection = false
     deviceSessionReady = false
     manager.peripheralManage.deviceTestOffStoreECGDidFinishBlock = nil
     resetBatterySession(cancelDeferredOperation: true)
@@ -1114,11 +1226,36 @@ private final class VeepooWearableAdapter: WearableAdapter {
     ecgLiveSignalCount = 0
     watchFaceTransferGate.reset()
     manager.veepooSDKDisconnectDevice()
+    let timeout = DispatchWorkItem { [weak self] in
+      self?.completeExplicitDisconnect(generation: generation)
+    }
+    explicitDisconnectTimeout = timeout
+    DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: timeout)
+  }
+
+  private func completeExplicitDisconnect(generation: UInt) {
+    guard explicitDisconnectGate.complete(generation: generation) else { return }
+    explicitDisconnectTimeout?.cancel()
+    explicitDisconnectTimeout = nil
+    explicitDisconnectGeneration = nil
+    awaitingAutomaticReconnect = false
+    deviceSessionReady = false
+    resetBatterySession(cancelDeferredOperation: true)
+    cancelHealthSync(
+      code: "HEALTH_SYNC_CANCELLED",
+      message: "手表连接已断开，数据同步已取消"
+    )
+    activeMeasurementMetric = nil
+    measurementGeneration &+= 1
+    ecgLiveSignalCount = 0
+    watchFaceTransferGate.reset()
     connected = nil
     connectedRouteID = nil
     resetWatchFaceSession()
     emit("disconnected", [:])
-    result(nil)
+    let callback = explicitDisconnectResult
+    explicitDisconnectResult = nil
+    callback?(nil)
   }
 
   func getDeviceDetails(_ result: @escaping FlutterResult) {
