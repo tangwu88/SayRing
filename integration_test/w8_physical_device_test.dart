@@ -16,22 +16,29 @@ void main() {
     if (!controller.isAuthenticated) controller.enterPreview();
 
     debugPrint('W8_TEST_STEP:scan');
-    await controller.scanDevices();
-    final candidates =
-        controller.scannedDevices
-            .where(
-              (device) =>
-                  device.sdkSource == WearableSdkSource.yucheng &&
-                  YuchengDeviceClassifier.matches(device.name),
-            )
-            .toList()
-          ..sort((a, b) {
-            final aConnected = a.rssi == 0 ? 1 : 0;
-            final bConnected = b.rssi == 0 ? 1 : 0;
-            final connectedOrder = bConnected.compareTo(aConnected);
-            if (connectedOrder != 0) return connectedOrder;
-            return (b.rssi ?? -999).compareTo(a.rssi ?? -999);
-          });
+    var candidates = <DeviceInfo>[];
+    for (var attempt = 0; attempt < 3 && candidates.isEmpty; attempt++) {
+      await controller.scanDevices();
+      candidates =
+          controller.scannedDevices
+              .where(
+                (device) =>
+                    device.sdkSource == WearableSdkSource.yucheng &&
+                    YuchengDeviceClassifier.matches(device.name),
+              )
+              .toList()
+        ..sort((a, b) {
+          final aConnected = a.rssi == 0 ? 1 : 0;
+          final bConnected = b.rssi == 0 ? 1 : 0;
+          final connectedOrder = bConnected.compareTo(aConnected);
+          if (connectedOrder != 0) return connectedOrder;
+          return (b.rssi ?? -999).compareTo(a.rssi ?? -999);
+        });
+      if (candidates.isEmpty && attempt < 2) {
+        debugPrint('W8_SCAN_RETRY:${attempt + 1}');
+        await Future<void>.delayed(const Duration(seconds: 3));
+      }
+    }
     expect(candidates, isNotEmpty, reason: '没有发现 W8 系列设备');
     final w8 = candidates.first;
     debugPrint(
@@ -45,7 +52,7 @@ void main() {
     expect(connected?.sdkSource, WearableSdkSource.yucheng);
     expect(
       connected?.identifierLabel,
-      anyOf(startsWith('MAC · '), startsWith('iOS 标识 · ')),
+      anyOf(startsWith('MAC · '), startsWith('iOS 连接标识 · ')),
     );
     debugPrint('W8_IDENTITY:${connected?.identifierLabel}');
     await _waitUntil(

@@ -50,6 +50,21 @@ void main() {
     expect(data.points.single.at.hour, 9);
   });
 
+  test('legacy Yuc UTC marker displays in the phone local timezone', () {
+    final legacy = record(
+      id: 'yc-heart_rate-legacy',
+      metric: HealthMetric.heartRate,
+      at: DateTime.utc(2026, 8, 13, 1, 5),
+      values: const {'value': 80},
+      timezone: '+00:00',
+    );
+
+    expect(
+      HealthAnalysisService.displayTime(legacy),
+      legacy.measuredAt.toLocal(),
+    );
+  });
+
   test(
     'blood pressure computes independent systolic and diastolic summary',
     () {

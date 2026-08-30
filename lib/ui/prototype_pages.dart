@@ -2571,8 +2571,13 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Future<void> _stopCameraRemoteIgnoringErrors() async {
+    final controller = widget.controller;
+    // `dispose` runs while Flutter has the element tree locked. The controller
+    // publishes its busy state synchronously, so defer that notification to
+    // the next event turn instead of rebuilding listeners during unmount.
+    await Future<void>.delayed(Duration.zero);
     try {
-      await widget.controller.triggerDeviceAction(
+      await controller.triggerDeviceAction(
         DeviceFeature.camera,
         enabled: false,
       );

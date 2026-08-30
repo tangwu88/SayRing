@@ -1109,6 +1109,42 @@ void main() {
     expect(find.text('该记录未保存有效的波形增益信息'), findsNothing);
   });
 
+  testWidgets('health record detail honors the stored measurement timezone', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    await controller.initialize();
+    addTearDown(controller.dispose);
+    final record = HealthRecord(
+      id: 'timezone-heart-rate',
+      metric: HealthMetric.heartRate,
+      values: const {'value': 80},
+      unit: 'bpm',
+      measuredAt: DateTime.utc(2026, 8, 13, 1, 5),
+      timezone: '+08:00',
+      deviceId: 'watch',
+      firmwareVersion: '1.0',
+      quality: 'sdk',
+      source: MeasurementSource.wearable,
+      rawVersion: 1,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: HealthRecordDetailPage(controller: controller, record: record),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('2026-08-13 09:05'), findsOneWidget);
+  });
+
   test('repeated watch ECG history is shown once after later syncs', () async {
     final store = MemoryHealthStore();
     await store.initialize();
