@@ -1780,42 +1780,47 @@ class _EcgMedicalSection extends StatelessWidget {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 12),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: 10,
-                crossAxisSpacing: 10,
-                mainAxisExtent: 82,
-              ),
-              itemCount: values.length,
-              itemBuilder: (context, index) {
-                final item = values[index];
-                final value = record.values[item.$1]!;
-                return DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF7F7F8),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          item.$2,
-                          style: const TextStyle(color: SaydianColors.muted),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                const spacing = 10.0;
+                final itemWidth = (constraints.maxWidth - spacing) / 2;
+                return Wrap(
+                  spacing: spacing,
+                  runSpacing: spacing,
+                  children: [
+                    for (final item in values)
+                      SizedBox(
+                        width: itemWidth,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF7F7F8),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.$2,
+                                  style: const TextStyle(
+                                    color: SaydianColors.muted,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${_formatEcgNumber(record.values[item.$1]!)} ${item.$3}'
+                                      .trim(),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${_formatEcgNumber(value)} ${item.$3}'.trim(),
-                          style: const TextStyle(fontWeight: FontWeight.w900),
-                        ),
-                      ],
-                    ),
-                  ),
+                      ),
+                  ],
                 );
               },
             ),

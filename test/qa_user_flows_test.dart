@@ -184,6 +184,44 @@ void main() {
     expect(find.byKey(const Key('cart-checkout')), findsOneWidget);
   });
 
+  testWidgets('shop product and cart remain usable on a 320px Android screen', (
+    tester,
+  ) async {
+    final controller = _authenticatedController();
+    addTearDown(controller.dispose);
+    await controller.addToShopCart(
+      product: const {
+        'id': 1,
+        'name': '华为6A数据线加长版',
+        'picture': '',
+        'price': 500,
+      },
+      sku: const {'id': 11, 'name': '800ml/瓶', 'price': 500, 'stock': 5},
+      quantity: 1,
+    );
+    await _pumpPhone(tester, controller);
+    await tester.binding.setSurfaceSize(const Size(320, 568));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('赛电商城'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('QA 智能手表'));
+    await tester.pumpAndSettle();
+    expect(find.text('品质保障'), findsOneWidget);
+    expect(find.text('配送到家'), findsOneWidget);
+    expect(find.text('售后服务'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await _popRoute(tester);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('购物车'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('shopping-cart-page')), findsOneWidget);
+    expect(find.text('¥500.00'), findsWidgets);
+    expect(find.byKey(const Key('cart-checkout')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('preview mode shows a prominent login prompt on my page', (
     tester,
   ) async {

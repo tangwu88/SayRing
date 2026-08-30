@@ -1935,6 +1935,72 @@ void main() {
     },
   );
 
+  testWidgets(
+    'ECG detail stays readable on a narrow Android screen and does not invent risks',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 568));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+      );
+      addTearDown(controller.dispose);
+      final record = HealthRecord(
+        id: 'narrow-ecg',
+        metric: HealthMetric.ecg,
+        values: const {
+          'meanHeartRate': 83,
+          'averageHRV': 24,
+          'averageTimeInterval': 380,
+          'respiratoryRate': 17,
+          'sdnn': 38,
+          'rmssd': 31,
+        },
+        unit: '',
+        measuredAt: DateTime(2026, 8, 30, 12, 30),
+        timezone: '+08:00',
+        deviceId: 'ET488',
+        firmwareVersion: 'test',
+        quality: 'device_reported',
+        source: MeasurementSource.wearable,
+        origin: MeasurementOrigin.watchHistory,
+        rawVersion: 1,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(1.5)),
+            child: child!,
+          ),
+          home: HealthRecordDetailPage(controller: controller, record: record),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(
+        find.text('心率变异性 HRV'),
+        220,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('83 bpm'), findsOneWidget);
+      expect(find.text('24 ms'), findsOneWidget);
+      expect(find.text('380 ms'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text('风险分析').first);
+      await tester.pumpAndSettle();
+      expect(find.text('本次手表未返回风险指标'), findsOneWidget);
+      expect(find.textContaining('低风险 · 0'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   test(
     'recent watch-history threshold is saved once during device sync',
     () async {
