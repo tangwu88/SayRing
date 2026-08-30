@@ -26,6 +26,8 @@ Veepoo SDK 在首个 `Testing` 回调中已返回 `VPECGTestDataModel`，但 `fi
 - `TZ=Asia/Shanghai flutter test --no-pub`：341/341 通过。
 - `flutter analyze --no-pub`：零问题。
 - iOS Profile ARM 真机编译：通过。
+- 最终普通 App 包 `0.1.19 (23)` 已安装到 iPhone；独立终止并冷启动 3 次均成功，每次等待 8 秒后进程仍存活。
+- 三次冷启动后检查 iOS 系统崩溃目录，没有新增 `Runner` 崩溃日志。
 
 ## 验收边界
 
