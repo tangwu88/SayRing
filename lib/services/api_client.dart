@@ -941,7 +941,24 @@ class SaydianApiClient
       // Never trust a client-supplied amount for payment signing.
       'data': jsonEncode({'order_id': orderId}),
     });
-    return _data(_decode(response));
+    final payload = _decode(response);
+    final data = payload['data'];
+    if (data is Map) {
+      return data.map((key, value) => MapEntry('$key', value));
+    }
+    // Some RageFrame payment adapters return the signed Alipay order string
+    // directly in `data`. Preserve it instead of silently converting it to an
+    // empty map; signing remains exclusively server-side.
+    if (data is String && data.trim().isNotEmpty) {
+      return <String, Object?>{'config': data.trim()};
+    }
+    // Also tolerate provider wrappers placed next to `code` by older server
+    // deployments while excluding transport metadata from the payment parser.
+    return <String, Object?>{
+      for (final entry in payload.entries)
+        if (entry.key != 'code' && entry.key != 'message')
+          entry.key: entry.value,
+    };
   }
 
   double _shopNumber(Object? value) =>

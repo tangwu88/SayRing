@@ -74,3 +74,48 @@ require_value SAIDIAN_PROVISIONING_PROFILE_SPECIFIER \
 require_value SAYDIAN_UPDATE_ALLOWED_HOSTS "${SAYDIAN_UPDATE_ALLOWED_HOSTS:-}"
 require_https SAYDIAN_API_BASE_URL "${SAYDIAN_API_BASE_URL:-}"
 require_https SAYDIAN_UPDATE_MANIFEST_URL "${SAYDIAN_UPDATE_MANIFEST_URL:-}"
+require_value SAIDIAN_WECHAT_APP_ID "${SAIDIAN_WECHAT_APP_ID:-}"
+require_value SAIDIAN_WECHAT_UNIVERSAL_LINK \
+  "${SAIDIAN_WECHAT_UNIVERSAL_LINK:-}"
+require_value SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST \
+  "${SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST:-}"
+require_value SAIDIAN_ALIPAY_URL_SCHEME "${SAIDIAN_ALIPAY_URL_SCHEME:-}"
+
+if ! printf '%s' "$SAIDIAN_WECHAT_APP_ID" | grep -Eq '^wx[0-9A-Za-z]{8,}$'; then
+  echo "error: SAIDIAN_WECHAT_APP_ID is not a valid WeChat AppID." >&2
+  exit 1
+fi
+
+if ! printf '%s' "$SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST" | \
+  grep -Eq '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$'; then
+  echo "error: SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST is invalid." >&2
+  exit 1
+fi
+
+require_https SAIDIAN_WECHAT_UNIVERSAL_LINK \
+  "$SAIDIAN_WECHAT_UNIVERSAL_LINK"
+case "$SAIDIAN_WECHAT_UNIVERSAL_LINK" in
+  *\?*|*\#*)
+    echo "error: WeChat Universal Link cannot contain a query or fragment." >&2
+    exit 1
+    ;;
+  "https://$SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST/"|\
+  "https://$SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST/"*/)
+    ;;
+  *)
+    echo "error: WeChat Universal Link must match its host and end with /." >&2
+    exit 1
+    ;;
+esac
+
+if ! printf '%s' "$SAIDIAN_ALIPAY_URL_SCHEME" | \
+  grep -Eq '^[A-Za-z][A-Za-z0-9+.-]*$'; then
+  echo "error: SAIDIAN_ALIPAY_URL_SCHEME is invalid." >&2
+  exit 1
+fi
+case "$SAIDIAN_ALIPAY_URL_SCHEME" in
+  *unconfigured*)
+    echo "error: SAIDIAN_ALIPAY_URL_SCHEME is not configured." >&2
+    exit 1
+    ;;
+esac

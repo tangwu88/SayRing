@@ -31,21 +31,33 @@ void main() {
     if (controller.connectedDevice == null) {
       var et488 = await _tryScanForDevice(tester, controller, _isEt488);
       if (et488 == null) {
-        final seenW8 = controller.scannedDevices.where(_isW8);
-        final w8 = seenW8.isNotEmpty
-            ? seenW8.first
-            : await _tryScanForDevice(tester, controller, _isW8);
-        if (w8 != null) {
+        if (!controller.scannedDevices.any(_isW8)) {
+          await _tryScanForDevice(tester, controller, _isW8);
+        }
+        final seenW8 = controller.scannedDevices.where(_isW8).toList();
+        var connectedFallback = false;
+        for (final w8 in seenW8) {
           debugPrint('ET488_FALLBACK_W8:${w8.name}:${w8.id}');
           await controller.connectDevice(w8);
-          await _waitUntil(
+          connectedFallback = await _waitForCondition(
             tester,
             () => controller.connectedDevice?.id == w8.id,
             const Duration(seconds: 25),
           );
+          if (connectedFallback) {
+            debugPrint('ET488_FALLBACK_W8_CONNECTED:${w8.name}:${w8.id}');
+            await controller.disconnectDevice();
+            await tester.pump(const Duration(seconds: 2));
+            break;
+          }
+          debugPrint(
+            'ET488_FALLBACK_W8_UNAVAILABLE:${w8.name}:${controller.errorMessage ?? 'timeout'}',
+          );
           await controller.disconnectDevice();
+          controller.clearError();
           await tester.pump(const Duration(seconds: 2));
         }
+        debugPrint('ET488_FALLBACK_W8_RESULT:$connectedFallback');
         et488 = await _tryScanForDevice(tester, controller, _isEt488);
       }
       expect(et488, isNotNull, reason: 'W8 过渡连接后仍未发现 ET488');
@@ -59,7 +71,11 @@ void main() {
     expect(controller.connectedDevice?.name.toUpperCase(), contains('ET488'));
     expect(controller.connectedDevice?.sdkSource, WearableSdkSource.veepoo);
     await tester.pumpAndSettle();
-    expect(find.text('ET'), findsWidgets);
+    expect(
+      find.text(controller.connectedDevice!.name),
+      findsOneWidget,
+      reason: '设备页未展示当前实际连接的 ET488 名称',
+    );
 
     await controller.readDeviceFeature(DeviceFeature.watchFaces);
     await tester.pumpAndSettle();
@@ -67,10 +83,10 @@ void main() {
     await tester.tap(find.text('表盘中心'));
     await _waitUntil(
       tester,
-      () => find.text('示意').evaluate().isNotEmpty,
+      () => find.text('手表中的表盘').evaluate().isNotEmpty,
       const Duration(seconds: 20),
     );
-    expect(find.text('示意'), findsWidgets);
+    expect(find.text('手表中的表盘'), findsOneWidget);
     await _tapBack(tester);
 
     await controller.syncDeviceData();
@@ -266,6 +282,18 @@ Future<void> _waitUntil(
     await tester.pump(const Duration(milliseconds: 500));
   }
   expect(condition(), isTrue);
+}
+
+Future<bool> _waitForCondition(
+  WidgetTester tester,
+  bool Function() condition,
+  Duration timeout,
+) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition() && DateTime.now().isBefore(deadline)) {
+    await tester.pump(const Duration(milliseconds: 500));
+  }
+  return condition();
 }
 
 Future<void> _tapBack(WidgetTester tester) async {

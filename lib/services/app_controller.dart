@@ -3339,14 +3339,13 @@ class AppController extends ChangeNotifier {
         orderId: orderId,
         money: money,
       );
-      final config = response['config'];
       if (provider == AppPaymentProvider.wechat) {
-        final signed = _paymentMap(config);
+        final signed = AppPaymentPayloadParser.wechat(response);
         if (signed.isEmpty) throw const ApiException('后台未返回微信 APP 支付参数');
         await _paymentBridge.startWechat(signed);
         return null;
       }
-      final signedOrder = _paymentString(config);
+      final signedOrder = AppPaymentPayloadParser.alipay(response);
       if (signedOrder.isEmpty) throw const ApiException('后台未返回支付宝 APP 支付参数');
       return await _paymentBridge.startAlipay(signedOrder);
     } on ApiException catch (error) {
@@ -3382,32 +3381,6 @@ class AppController extends ChangeNotifier {
     } on PlatformException {
       return null;
     }
-  }
-
-  Map<String, Object?> _paymentMap(Object? value) {
-    if (value is! Map) return const {};
-    final map = value.map((key, value) => MapEntry('$key', value));
-    for (final key in const ['config', 'pay', 'params', 'pay_params']) {
-      if (map[key] is Map) return _paymentMap(map[key]);
-    }
-    return map;
-  }
-
-  String _paymentString(Object? value) {
-    if (value is String) return value.trim();
-    if (value is Map) {
-      for (final key in const [
-        'config',
-        'orderInfo',
-        'order_info',
-        'pay_info',
-      ]) {
-        final nested = value[key];
-        final result = _paymentString(nested);
-        if (result.isNotEmpty) return result;
-      }
-    }
-    return '';
   }
 
   Future<bool> confirmOrderReceipt(int orderId) => _guard(() async {

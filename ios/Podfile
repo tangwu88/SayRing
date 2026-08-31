@@ -30,6 +30,8 @@ target 'Runner' do
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 
   pod 'MJExtension', '3.0.15.1'
+  pod 'WechatOpenSDK-XCFramework', '2.0.7'
+  pod 'AlipaySDK-iOS', '15.8.30'
 
   target 'RunnerTests' do
     inherit! :search_paths

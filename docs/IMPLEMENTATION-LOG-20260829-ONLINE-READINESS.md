@@ -120,3 +120,17 @@
 - 最终使用相同测试 Bundle ID 覆盖安装签名 Profile 包；安装前后应用容器数据库 UUID 保持一致，未执行卸载或清空数据。脱离调试器冷启动后 Runner 进程持续存活超过 20 秒。
 - 个人开发团队不支持 Push Notifications；现场 Profile 构建仅临时关闭该能力，产物生成后已恢复工程设置，Git 工作区无业务代码变化。本次结果不计入 iOS APNs 或业务推送验收。
 - 当前个人团队描述文件有效期至 2026-09-06 10:30（中国时区）。App 会保留在手机桌面并可直接打开，但到期后需重新签名覆盖安装；要长期分发必须改用正式开发者团队的 TestFlight、App Store 或合规 Ad Hoc 渠道。
+
+## 2026-08-31 iOS 支付接入与 W9S 安全回归
+
+- iOS 已接入微信、支付宝原生 APP 支付 SDK、URL/Scene 回调和结果查询通道；客户端仅校验并转交服务端签名参数，不在设备端生成或修改支付签名。
+- 支付响应解析兼容服务端多层包装、支付宝直接字符串和常见字段别名；微信字段不完整、支付宝订单为空或生产配置仍为占位值时均安全拒绝唤起。
+- iPhone 原生通道测试验证上述安全失败没有闪退；未取得生产签名参数，因此没有唤起真实支付 App，也没有产生扣款。
+- 支付生产接口真机验证受 iPhone 当时 DNS/网络路由阻断；用户截图所示“后台未返回微信/支付宝 APP 支付参数”仍需服务端核对商户产品、证书、签名及返回字段。
+- iPhone 15 Pro Max 连接 W9S 真机回归通过：识别为 `Vep`，电量 `98/100`；心电、心率、血氧、血压、体温、身体成分的启动/停止均未导致断连，历史同步结束，断开后重连成功。
+- W9S 最终复测历史同步取得 1 条记录；未测试设备没有声明支持的手动项目，也未把同步完成等同于全部历史内容均已逐条人工核对。
+- 本轮未执行真实付款、表盘覆盖、OTA、恢复出厂、联系人删除或健康数据清空。支付的完整结果、外部阻断和剩余验收见 `PAYMENT-VERIFICATION-20260831.md`。
+- 复核支付字段时发现 Flutter 层与 iOS 原生层的微信字段别名不完全一致；现已统一 `app_id/appID`、`mchId/partnerID`、`prepayID`、`nonceString`、`signature` 等兼容入口，并补充 Flutter 与 RunnerTests 防回归用例。
+- 最终 `flutter analyze` 零问题；UTC 与 Asia/Shanghai 各 376 项 Flutter 测试通过；发布门禁 19 项、工作流 YAML、Shell 语法和差异格式检查通过。
+- iOS 无签名 Debug、Profile、显式 QA Release 构建通过，RunnerTests 原生目标 `build-for-testing` 编译通过；Android Debug 与显式 QA Release APK 构建通过。
+- 微信 CocoaPods 2.0.7 官方配置仍排除 Apple Silicon 模拟器 arm64，Flutter 会给出未来兼容警告；本轮 iPhone 真机和 iOS 设备构建通过，但不能把该结果写成 Apple Silicon 模拟器已兼容。

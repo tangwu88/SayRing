@@ -3,6 +3,8 @@ import Flutter
 import Photos
 import UIKit
 import UserNotifications
+@_implementationOnly import AlipaySDK
+@_implementationOnly import WechatOpenSDK
 #if canImport(VeepooBleSDK) && !targetEnvironment(simulator)
 import VeepooBleSDK
 #endif
@@ -593,12 +595,88 @@ enum WearableWatchFaceProfilePayload {
   }
 }
 
+struct IOSWechatPaymentRequest: Equatable {
+  let appID: String
+  let partnerID: String
+  let prepayID: String
+  let packageValue: String
+  let nonceString: String
+  let timestamp: UInt32
+  let signature: String
+}
+
+enum IOSPaymentPayloadMapper {
+  static func wechatRequest(_ values: [String: Any]) -> IOSWechatPaymentRequest? {
+    guard
+      let appID = string(values, keys: ["appId", "appID", "appid", "app_id"]),
+      let partnerID = string(
+        values,
+        keys: ["partnerId", "partnerID", "partnerid", "partner_id", "mchId", "mch_id"]
+      ),
+      let prepayID = string(values, keys: ["prepayId", "prepayID", "prepayid", "prepay_id"]),
+      let nonceString = string(
+        values,
+        keys: ["nonceStr", "nonceString", "noncestr", "nonce_str"]
+      ),
+      let timestampText = string(values, keys: ["timeStamp", "timestamp", "time_stamp"]),
+      let timestamp = UInt32(timestampText),
+      timestamp > 0,
+      let signature = string(values, keys: ["sign", "paySign", "pay_sign", "signature"])
+    else {
+      return nil
+    }
+    return IOSWechatPaymentRequest(
+      appID: appID,
+      partnerID: partnerID,
+      prepayID: prepayID,
+      packageValue: string(values, keys: ["packageValue", "package", "package_value"])
+        ?? "Sign=WXPay",
+      nonceString: nonceString,
+      timestamp: timestamp,
+      signature: signature
+    )
+  }
+
+  static func flutterDictionary(_ values: [AnyHashable: Any]?) -> [String: Any] {
+    guard let values else { return [:] }
+    return values.reduce(into: [String: Any]()) { result, entry in
+      let key = String(describing: entry.key)
+      switch entry.value {
+      case let value as String: result[key] = value
+      case let value as NSNumber: result[key] = value
+      case let value as NSNull: result[key] = value
+      default: result[key] = String(describing: entry.value)
+      }
+    }
+  }
+
+  private static func string(_ values: [String: Any], keys: [String]) -> String? {
+    for key in keys {
+      guard let value = values[key] else { continue }
+      let normalized: String
+      if let string = value as? String {
+        normalized = string.trimmingCharacters(in: .whitespacesAndNewlines)
+      } else if let number = value as? NSNumber {
+        normalized = number.stringValue
+      } else {
+        normalized = ""
+      }
+      if !normalized.isEmpty { return normalized }
+    }
+    return nil
+  }
+}
+
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, WXApiDelegate {
   private let wearableStreamHandler = WearableStreamHandler()
   private var wearableAdapter: WearableAdapter?
   private var methodChannel: FlutterMethodChannel?
   private var eventChannel: FlutterEventChannel?
+  private var paymentChannel: FlutterMethodChannel?
+  private var pendingAlipayResult: FlutterResult?
+
+  private static let wechatResultDefaultsKey = "cc.saidian.payment.wechat-result.v1"
 
   override func application(
     _ application: UIApplication,
@@ -609,6 +687,7 @@ enum WearableWatchFaceProfilePayload {
     #else
     wearableAdapter = UnconfiguredWearableAdapter()
     #endif
+    registerWechatIfConfigured()
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -642,6 +721,244 @@ enum WearableWatchFaceProfilePayload {
     )
     events.setStreamHandler(wearableStreamHandler)
     eventChannel = events
+
+    let payments = FlutterMethodChannel(
+      name: "cc.saidian/app_payments",
+      binaryMessenger: registrar.messenger()
+    )
+    payments.setMethodCallHandler { [weak self] call, result in
+      DispatchQueue.main.async {
+        self?.handlePaymentCall(call, result: result)
+      }
+    }
+    paymentChannel = payments
+  }
+
+  override func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
+  ) -> Bool {
+    if handlePaymentOpenURL(url) { return true }
+    return super.application(app, open: url, options: options)
+  }
+
+  override func application(
+    _ application: UIApplication,
+    continue userActivity: NSUserActivity,
+    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+  ) -> Bool {
+    if handlePaymentUniversalLink(userActivity) { return true }
+    return super.application(
+      application,
+      continue: userActivity,
+      restorationHandler: restorationHandler
+    )
+  }
+
+  func handlePaymentOpenURL(_ url: URL) -> Bool {
+    if WXApi.handleOpen(url, delegate: self) { return true }
+    guard url.scheme?.caseInsensitiveCompare(configuredAlipayScheme) == .orderedSame else {
+      return false
+    }
+    AlipaySDK.defaultService().processOrder(
+      withPaymentResult: url,
+      standbyCallback: { [weak self] values in
+        self?.completeAlipay(values)
+      }
+    )
+    return true
+  }
+
+  func handlePaymentUniversalLink(_ userActivity: NSUserActivity) -> Bool {
+    WXApi.handleOpenUniversalLink(userActivity, delegate: self)
+  }
+
+  func onResp(_ response: BaseResp) {
+    guard response is PayResp else { return }
+    let payload: [String: Any] = [
+      "code": String(response.errCode),
+      "message": response.errStr ?? "",
+      "completedAt": Int(Date().timeIntervalSince1970 * 1000),
+    ]
+    if let data = try? JSONSerialization.data(withJSONObject: payload) {
+      UserDefaults.standard.set(data, forKey: Self.wechatResultDefaultsKey)
+    }
+  }
+
+  private func handlePaymentCall(
+    _ call: FlutterMethodCall,
+    result: @escaping FlutterResult
+  ) {
+    switch call.method {
+    case "startWechatPay":
+      startWechatPayment(call.arguments as? [String: Any], result: result)
+    case "takeWechatPayResult":
+      result(takeWechatPaymentResult())
+    case "startAlipay":
+      let arguments = call.arguments as? [String: Any]
+      startAlipayPayment(arguments?["orderInfo"] as? String, result: result)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func startWechatPayment(
+    _ arguments: [String: Any]?,
+    result: @escaping FlutterResult
+  ) {
+    guard let arguments,
+      let requestValues = IOSPaymentPayloadMapper.wechatRequest(arguments)
+    else {
+      result(FlutterError(
+        code: "WECHAT_PAY_CONFIG_INVALID",
+        message: "后台返回的微信 APP 支付参数不完整",
+        details: nil
+      ))
+      return
+    }
+    let configuredAppID = configuredWechatAppID
+    let universalLink = configuredWechatUniversalLink
+    guard !configuredAppID.isEmpty, !universalLink.isEmpty else {
+      result(FlutterError(
+        code: "WECHAT_IOS_CONFIG_MISSING",
+        message: "iOS 微信支付尚未配置 AppID 和 Universal Link",
+        details: nil
+      ))
+      return
+    }
+    guard configuredAppID == requestValues.appID else {
+      result(FlutterError(
+        code: "WECHAT_APP_ID_MISMATCH",
+        message: "后台微信支付 AppID 与当前 iOS 应用不一致",
+        details: nil
+      ))
+      return
+    }
+    guard WXApi.registerApp(configuredAppID, universalLink: universalLink) else {
+      result(FlutterError(
+        code: "WECHAT_REGISTER_FAILED",
+        message: "微信支付应用注册失败，请检查 Universal Link",
+        details: nil
+      ))
+      return
+    }
+    guard WXApi.isWXAppInstalled() else {
+      result(FlutterError(code: "WECHAT_NOT_INSTALLED", message: "请先安装微信后再支付", details: nil))
+      return
+    }
+    guard WXApi.isWXAppSupport() else {
+      result(FlutterError(
+        code: "WECHAT_VERSION_UNSUPPORTED",
+        message: "当前微信版本不支持 APP 支付，请升级微信",
+        details: nil
+      ))
+      return
+    }
+    UserDefaults.standard.removeObject(forKey: Self.wechatResultDefaultsKey)
+    let request = PayReq()
+    request.partnerId = requestValues.partnerID
+    request.prepayId = requestValues.prepayID
+    request.package = requestValues.packageValue
+    request.nonceStr = requestValues.nonceString
+    request.timeStamp = requestValues.timestamp
+    request.sign = requestValues.signature
+    WXApi.send(request) { accepted in
+      DispatchQueue.main.async {
+        if accepted {
+          result(true)
+        } else {
+          result(FlutterError(
+            code: "WECHAT_PAY_SEND_FAILED",
+            message: "无法调起微信支付，请稍后重试",
+            details: nil
+          ))
+        }
+      }
+    }
+  }
+
+  private func takeWechatPaymentResult() -> [String: Any]? {
+    let defaults = UserDefaults.standard
+    guard let data = defaults.data(forKey: Self.wechatResultDefaultsKey),
+      let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else {
+      return nil
+    }
+    defaults.removeObject(forKey: Self.wechatResultDefaultsKey)
+    return value
+  }
+
+  private func startAlipayPayment(
+    _ rawOrder: String?,
+    result: @escaping FlutterResult
+  ) {
+    let order = rawOrder?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !order.isEmpty else {
+      result(FlutterError(
+        code: "ALIPAY_CONFIG_INVALID",
+        message: "后台未返回支付宝签名订单",
+        details: nil
+      ))
+      return
+    }
+    guard !configuredAlipayScheme.isEmpty else {
+      result(FlutterError(
+        code: "ALIPAY_IOS_CONFIG_MISSING",
+        message: "iOS 支付宝回跳 Scheme 尚未配置",
+        details: nil
+      ))
+      return
+    }
+    guard pendingAlipayResult == nil else {
+      result(FlutterError(code: "ALIPAY_BUSY", message: "已有支付宝支付正在处理中", details: nil))
+      return
+    }
+    pendingAlipayResult = result
+    AlipaySDK.defaultService().payOrder(
+      order,
+      fromScheme: configuredAlipayScheme,
+      callback: { [weak self] values in
+        self?.completeAlipay(values)
+      }
+    )
+  }
+
+  private func completeAlipay(_ values: [AnyHashable: Any]?) {
+    DispatchQueue.main.async { [weak self] in
+      guard let self, let pending = self.pendingAlipayResult else { return }
+      self.pendingAlipayResult = nil
+      pending(IOSPaymentPayloadMapper.flutterDictionary(values))
+    }
+  }
+
+  private func registerWechatIfConfigured() {
+    guard !configuredWechatAppID.isEmpty, !configuredWechatUniversalLink.isEmpty else { return }
+    _ = WXApi.registerApp(
+      configuredWechatAppID,
+      universalLink: configuredWechatUniversalLink
+    )
+  }
+
+  private var configuredWechatAppID: String {
+    configuredInfoValue("SaidianWechatAppId", rejecting: "unconfigured")
+  }
+
+  private var configuredWechatUniversalLink: String {
+    configuredInfoValue("SaidianWechatUniversalLink", rejecting: "unconfigured")
+  }
+
+  private var configuredAlipayScheme: String {
+    configuredInfoValue("SaidianAlipayUrlScheme", rejecting: "unconfigured")
+  }
+
+  private func configuredInfoValue(_ key: String, rejecting marker: String) -> String {
+    let value = (Bundle.main.object(forInfoDictionaryKey: key) as? String)?
+      .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if value.isEmpty || value.contains("$(") || value.lowercased().contains(marker) {
+      return ""
+    }
+    return value
   }
 
   private func handleWearableCall(

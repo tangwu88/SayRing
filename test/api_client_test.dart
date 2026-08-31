@@ -1159,6 +1159,33 @@ void main() {
   });
 
   test(
+    'APP payment preserves a directly returned signed order string',
+    () async {
+      final client = MockClient((request) async {
+        expect(request.url.path, '/api/v1/pay');
+        return http.Response(
+          '{"code":200,"data":"app_id=server&sign=server-signature"}',
+          200,
+        );
+      });
+      final api = SaydianApiClient(
+        _authenticatedVault(),
+        client: client,
+        baseUri: Uri.parse('https://example.invalid'),
+      );
+
+      expect(
+        await api.createShopPayment(
+          provider: 'alipay',
+          orderId: 99,
+          money: 199,
+        ),
+        containsPair('config', 'app_id=server&sign=server-signature'),
+      );
+    },
+  );
+
+  test(
     'multi-select checkout creates one backend order per selected SKU',
     () async {
       var requestCount = 0;

@@ -514,9 +514,39 @@ class XcodeReleaseBuildGateTest(unittest.TestCase):
                     "https://downloads.example.invalid/app-update.json",
                 "SAYDIAN_UPDATE_ALLOWED_HOSTS":
                     "downloads.example.invalid,apps.apple.com",
+                "SAIDIAN_WECHAT_APP_ID": "wx1234567890abcdef",
+                "SAIDIAN_WECHAT_UNIVERSAL_LINK":
+                    "https://pay.example.invalid/wechat/",
+                "SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST": "pay.example.invalid",
+                "SAIDIAN_ALIPAY_URL_SCHEME": "cc.saidian.app.alipay",
             }
         )
         self.assertEqual(0, complete.returncode, complete.stderr)
+
+    def test_production_release_rejects_inconsistent_payment_configuration(self) -> None:
+        environment = {
+            "CONFIGURATION": "Release",
+            "SAIDIAN_PRODUCTION_RELEASE": "true",
+            "JPUSH_APP_KEY": "test-app-key",
+            "PRODUCT_BUNDLE_IDENTIFIER": "cc.saidian.app",
+            "APS_ENVIRONMENT": "production",
+            "SAIDIAN_DEVELOPMENT_TEAM": "TESTTEAM",
+            "SAIDIAN_CODE_SIGN_IDENTITY": "Apple Distribution",
+            "SAIDIAN_PROVISIONING_PROFILE_SPECIFIER": "Test Ad Hoc",
+            "SAYDIAN_API_BASE_URL": "https://api.example.invalid",
+            "SAYDIAN_UPDATE_MANIFEST_URL":
+                "https://downloads.example.invalid/app-update.json",
+            "SAYDIAN_UPDATE_ALLOWED_HOSTS":
+                "downloads.example.invalid,apps.apple.com",
+            "SAIDIAN_WECHAT_APP_ID": "wx1234567890abcdef",
+            "SAIDIAN_WECHAT_UNIVERSAL_LINK":
+                "https://wrong.example.invalid/wechat/",
+            "SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST": "pay.example.invalid",
+            "SAIDIAN_ALIPAY_URL_SCHEME": "cc.saidian.app.alipay",
+        }
+        result = self.run_gate(environment)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("must match its host", result.stderr)
 
     def test_release_rejects_ambiguous_or_misspelled_modes(self) -> None:
         ambiguous = self.run_gate(

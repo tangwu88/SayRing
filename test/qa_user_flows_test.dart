@@ -1419,31 +1419,68 @@ void main() {
       expect(misconfigured.errorMessage, '支付服务配置异常，请稍后重试');
     },
   );
+
+  test(
+    'payment flow accepts nested provider payloads and forwards signatures',
+    () async {
+      final bridge = _RecordingPaymentBridge();
+      final api = _PaymentPayloadApi();
+      final controller = _authenticatedController(
+        api: api,
+        paymentBridge: bridge,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.startShopPayment(
+        provider: AppPaymentProvider.wechat,
+        orderId: 99,
+        money: 100,
+      );
+      expect(bridge.wechatParameters?['appid'], 'wx-production');
+      expect(controller.errorMessage, isNull);
+
+      final result = await controller.startShopPayment(
+        provider: AppPaymentProvider.alipay,
+        orderId: 99,
+        money: 100,
+      );
+      expect(bridge.alipayOrder, 'app_id=server&sign=server-signature');
+      expect(result?.isCancelled, isTrue);
+      expect(controller.errorMessage, isNull);
+    },
+  );
 }
 
 AppController _controller({
   _QaApi? api,
   _QaWearable? wearable,
   HealthStore? store,
+  AppPaymentBridge? paymentBridge,
 }) => AppController(
   MemorySessionVault(),
   api ?? _QaApi(),
   store ?? MemoryHealthStore(),
   wearable ?? _QaWearable(),
+  paymentBridge: paymentBridge,
 );
 
-AppController _authenticatedController({_QaApi? api, _QaWearable? wearable}) {
-  final controller = _controller(api: api, wearable: wearable)
-    ..isBooting = false
-    ..session = _session
-    ..memberProfile = const {
-      'nickname': 'QA 用户',
-      'mobile': '13600136000',
-      'birthday': '1990-01-01',
-      'height': 170,
-      'weight': 60,
-      'gender': 1,
-    };
+AppController _authenticatedController({
+  _QaApi? api,
+  _QaWearable? wearable,
+  AppPaymentBridge? paymentBridge,
+}) {
+  final controller =
+      _controller(api: api, wearable: wearable, paymentBridge: paymentBridge)
+        ..isBooting = false
+        ..session = _session
+        ..memberProfile = const {
+          'nickname': 'QA 用户',
+          'mobile': '13600136000',
+          'birthday': '1990-01-01',
+          'height': 170,
+          'weight': 60,
+          'gender': 1,
+        };
   return controller;
 }
 
@@ -1794,6 +1831,49 @@ class _PaymentFailureApi extends _QaApi {
     required num money,
   }) async {
     throw error;
+  }
+}
+
+class _PaymentPayloadApi extends _QaApi {
+  @override
+  Future<Map<String, Object?>> createShopPayment({
+    required String provider,
+    required int orderId,
+    required num money,
+  }) async => provider == 'wechat'
+      ? const {
+          'payment': {
+            'params': {
+              'appid': 'wx-production',
+              'partnerid': 'merchant-1',
+              'prepayid': 'prepay-1',
+              'noncestr': 'nonce-1',
+              'timestamp': '1788000000',
+              'sign': 'server-signature',
+            },
+          },
+        }
+      : const {
+          'data': {'orderString': 'app_id=server&sign=server-signature'},
+        };
+}
+
+class _RecordingPaymentBridge implements AppPaymentBridge {
+  Map<String, Object?>? wechatParameters;
+  String? alipayOrder;
+
+  @override
+  Future<void> startWechat(Map<String, Object?> signedParameters) async {
+    wechatParameters = signedParameters;
+  }
+
+  @override
+  Future<AppPaymentResult?> takeWechatResult() async => null;
+
+  @override
+  Future<AppPaymentResult> startAlipay(String signedOrder) async {
+    alipayOrder = signedOrder;
+    return const AppPaymentResult(code: '6001', message: 'cancelled', raw: {});
   }
 }
 

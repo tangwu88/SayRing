@@ -91,6 +91,10 @@ jobs:
           CONFIGURED_UPDATE_MANIFEST_URL: ${{ vars.SAYDIAN_UPDATE_MANIFEST_URL }}
           CONFIGURED_UPDATE_ALLOWED_HOSTS: ${{ vars.SAYDIAN_UPDATE_ALLOWED_HOSTS }}
           CONFIGURED_JPUSH_APP_KEY: ${{ secrets.JPUSH_APP_KEY }}
+          CONFIGURED_WECHAT_APP_ID: ${{ vars.SAIDIAN_WECHAT_APP_ID }}
+          CONFIGURED_WECHAT_UNIVERSAL_LINK: ${{ vars.SAIDIAN_WECHAT_UNIVERSAL_LINK }}
+          CONFIGURED_WECHAT_UNIVERSAL_LINK_HOST: ${{ vars.SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST }}
+          CONFIGURED_ALIPAY_URL_SCHEME: ${{ vars.SAIDIAN_ALIPAY_URL_SCHEME }}
         run: |
           set -euo pipefail
 
@@ -119,8 +123,16 @@ jobs:
           update_manifest_url="${CONFIGURED_UPDATE_MANIFEST_URL:-}"
           update_allowed_hosts="${CONFIGURED_UPDATE_ALLOWED_HOSTS:-}"
           jpush_app_key="${CONFIGURED_JPUSH_APP_KEY:-}"
+          wechat_app_id="${CONFIGURED_WECHAT_APP_ID:-}"
+          wechat_universal_link="${CONFIGURED_WECHAT_UNIVERSAL_LINK:-}"
+          wechat_universal_link_host="${CONFIGURED_WECHAT_UNIVERSAL_LINK_HOST:-}"
+          alipay_url_scheme="${CONFIGURED_ALIPAY_URL_SCHEME:-}"
           API_BASE_URL="$api_base_url" UPDATE_MANIFEST_URL="$update_manifest_url" \
-            UPDATE_ALLOWED_HOSTS="$update_allowed_hosts" python3 - <<'PY'
+            UPDATE_ALLOWED_HOSTS="$update_allowed_hosts" \
+            WECHAT_APP_ID="$wechat_app_id" \
+            WECHAT_UNIVERSAL_LINK="$wechat_universal_link" \
+            WECHAT_UNIVERSAL_LINK_HOST="$wechat_universal_link_host" \
+            ALIPAY_URL_SCHEME="$alipay_url_scheme" python3 - <<'PY'
           import os
           import re
           from urllib.parse import urlparse
@@ -151,12 +163,29 @@ jobs:
               raise SystemExit("Allowed hosts must include the manifest host and apps.apple.com.")
           if api_host.endswith((".invalid", ".test", ".example")):
               raise SystemExit("SAYDIAN_API_BASE_URL cannot use a reserved host.")
+
+          wechat_app_id = os.environ["WECHAT_APP_ID"]
+          if not re.fullmatch(r"wx[0-9A-Za-z]{8,}", wechat_app_id):
+              raise SystemExit("SAIDIAN_WECHAT_APP_ID is invalid or missing.")
+          wechat_host = os.environ["WECHAT_UNIVERSAL_LINK_HOST"].lower().rstrip(".")
+          if not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", wechat_host):
+              raise SystemExit("SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST is invalid or missing.")
+          wechat_link = urlparse(os.environ["WECHAT_UNIVERSAL_LINK"])
+          if (wechat_link.scheme != "https" or
+                  (wechat_link.hostname or "").lower().rstrip(".") != wechat_host or
+                  not wechat_link.path.endswith("/") or wechat_link.query or
+                  wechat_link.fragment or wechat_link.username or wechat_link.password):
+              raise SystemExit("SAIDIAN_WECHAT_UNIVERSAL_LINK must be HTTPS, match its host, and end with /.")
+          if not re.fullmatch(r"[A-Za-z][A-Za-z0-9+.-]*", os.environ["ALIPAY_URL_SCHEME"]):
+              raise SystemExit("SAIDIAN_ALIPAY_URL_SCHEME is invalid or missing.")
           PY
           [[ ${#jpush_app_key} -ge 8 ]] || {
             echo "JPUSH_APP_KEY is required for an iOS release build." >&2
             exit 1
           }
-          for value in "$api_base_url" "$update_manifest_url" "$update_allowed_hosts" "$jpush_app_key"; do
+          for value in "$api_base_url" "$update_manifest_url" "$update_allowed_hosts" \
+            "$jpush_app_key" "$wechat_app_id" "$wechat_universal_link" \
+            "$wechat_universal_link_host" "$alipay_url_scheme"; do
             [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || {
               echo "Build configuration contains a forbidden control character." >&2
               exit 1
@@ -168,6 +197,10 @@ jobs:
             printf 'api_base_url=%s\n' "$api_base_url"
             printf 'update_manifest_url=%s\n' "$update_manifest_url"
             printf 'update_allowed_hosts=%s\n' "$update_allowed_hosts"
+            printf 'wechat_app_id=%s\n' "$wechat_app_id"
+            printf 'wechat_universal_link=%s\n' "$wechat_universal_link"
+            printf 'wechat_universal_link_host=%s\n' "$wechat_universal_link_host"
+            printf 'alipay_url_scheme=%s\n' "$alipay_url_scheme"
           } >> "$GITHUB_OUTPUT"
 
       - name: Install and validate Apple signing assets
@@ -175,6 +208,7 @@ jobs:
           IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
           IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
           IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          EXPECTED_WECHAT_ASSOCIATED_DOMAIN: applinks:${{ steps.metadata.outputs.wechat_universal_link_host }}
         run: |
           set -euo pipefail
 
@@ -239,7 +273,10 @@ jobs:
             [[ -n "$value" && "$value" != *$'\n'* && "$value" != *$'\r'* ]]
           done
 
-          PROFILE_PLIST_PATH="$profile_plist" SIGNING_CERTIFICATE_SHA1="$signing_certificate_sha1" python3 - <<'PY'
+          PROFILE_PLIST_PATH="$profile_plist" \
+            SIGNING_CERTIFICATE_SHA1="$signing_certificate_sha1" \
+            EXPECTED_WECHAT_ASSOCIATED_DOMAIN="$EXPECTED_WECHAT_ASSOCIATED_DOMAIN" \
+            python3 - <<'PY'
           import datetime
           import hashlib
           import os
@@ -261,6 +298,14 @@ jobs:
           }
           if expected_sha1 not in allowed_sha1:
               raise SystemExit("The provisioning profile was not created with the certificate in IOS_P12_BASE64.")
+          associated_domains = profile.get("Entitlements", {}).get(
+              "com.apple.developer.associated-domains", []
+          )
+          expected_domain = os.environ["EXPECTED_WECHAT_ASSOCIATED_DOMAIN"]
+          if expected_domain not in associated_domains:
+              raise SystemExit(
+                  f"Provisioning profile is missing associated domain {expected_domain}."
+              )
           PY
 
           installed_profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
@@ -306,6 +351,37 @@ jobs:
           cd ios
           pod install
 
+      - name: Create native payment configuration
+        env:
+          SAIDIAN_WECHAT_APP_ID: ${{ steps.metadata.outputs.wechat_app_id }}
+          SAIDIAN_WECHAT_UNIVERSAL_LINK: ${{ steps.metadata.outputs.wechat_universal_link }}
+          SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST: ${{ steps.metadata.outputs.wechat_universal_link_host }}
+          SAIDIAN_ALIPAY_URL_SCHEME: ${{ steps.metadata.outputs.alipay_url_scheme }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          def xcconfig(value):
+              if any(character in value for character in ("\n", "\r", "$")):
+                  raise SystemExit("Native payment configuration contains a forbidden character.")
+              # A literal // starts an xcconfig comment. The empty build-setting
+              # expansion preserves the URL while keeping the line parseable.
+              return value.replace("://", ":/$()/")
+
+          values = {
+              "SAIDIAN_WECHAT_APP_ID": os.environ["SAIDIAN_WECHAT_APP_ID"],
+              "SAIDIAN_WECHAT_UNIVERSAL_LINK": os.environ["SAIDIAN_WECHAT_UNIVERSAL_LINK"],
+              "SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST": os.environ["SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST"],
+              "SAIDIAN_ALIPAY_URL_SCHEME": os.environ["SAIDIAN_ALIPAY_URL_SCHEME"],
+          }
+          output = "// Generated by CI. Do not commit.\n" + "".join(
+              f"{key} = {xcconfig(value)}\n" for key, value in values.items()
+          )
+          Path("ios/Flutter/Local.xcconfig").write_text(output, encoding="utf-8")
+          PY
+
       - name: Create Ad Hoc export options
         run: |
           python3 - <<'PY'
@@ -336,6 +412,10 @@ jobs:
           SAYDIAN_UPDATE_MANIFEST_URL: ${{ steps.metadata.outputs.update_manifest_url }}
           SAYDIAN_UPDATE_ALLOWED_HOSTS: ${{ steps.metadata.outputs.update_allowed_hosts }}
           JPUSH_APP_KEY: ${{ secrets.JPUSH_APP_KEY }}
+          SAIDIAN_WECHAT_APP_ID: ${{ steps.metadata.outputs.wechat_app_id }}
+          SAIDIAN_WECHAT_UNIVERSAL_LINK: ${{ steps.metadata.outputs.wechat_universal_link }}
+          SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST: ${{ steps.metadata.outputs.wechat_universal_link_host }}
+          SAIDIAN_ALIPAY_URL_SCHEME: ${{ steps.metadata.outputs.alipay_url_scheme }}
           SAIDIAN_PRODUCTION_RELEASE: "true"
           SAIDIAN_ALLOW_QA_RELEASE: "false"
         run: |
@@ -350,6 +430,8 @@ jobs:
             --export-options-plist="$RUNNER_TEMP/ExportOptions.plist"
 
       - name: Verify and checksum IPA
+        env:
+          EXPECTED_WECHAT_ASSOCIATED_DOMAIN: applinks:${{ steps.metadata.outputs.wechat_universal_link_host }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -379,6 +461,19 @@ jobs:
           [[ "$(/usr/libexec/PlistBuddy -c 'Print :aps-environment' "$entitlements")" == "production" ]]
           [[ "$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$entitlements")" == \
              "$SAIDIAN_DEVELOPMENT_TEAM.$IOS_BUNDLE_ID" ]]
+          FINAL_ENTITLEMENTS_PATH="$entitlements" \
+            EXPECTED_WECHAT_ASSOCIATED_DOMAIN="$EXPECTED_WECHAT_ASSOCIATED_DOMAIN" \
+            python3 - <<'PY'
+          import os
+          import plistlib
+
+          with open(os.environ["FINAL_ENTITLEMENTS_PATH"], "rb") as stream:
+              entitlements = plistlib.load(stream)
+          domains = entitlements.get("com.apple.developer.associated-domains", [])
+          expected = os.environ["EXPECTED_WECHAT_ASSOCIATED_DOMAIN"]
+          if expected not in domains:
+              raise SystemExit(f"Final IPA is missing associated domain {expected}.")
+          PY
           cert_prefix="$RUNNER_TEMP/ipa-signing-cert-"
           codesign --display --extract-certificates "$cert_prefix" "$app_path"
           [[ "$(shasum -a 1 "${cert_prefix}0" | awk '{print toupper($1)}')" == \

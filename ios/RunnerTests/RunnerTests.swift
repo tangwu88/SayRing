@@ -6,6 +6,79 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testIOSWechatPaymentPayloadAcceptsBackendAliases() throws {
+    let request = try XCTUnwrap(
+      IOSPaymentPayloadMapper.wechatRequest([
+        "appid": "wx-test-app",
+        "mch_id": "merchant-1",
+        "prepay_id": "prepay-1",
+        "package": "Sign=WXPay",
+        "nonce_str": "nonce-1",
+        "timestamp": NSNumber(value: 1_788_000_000),
+        "pay_sign": "signed-value",
+      ]))
+
+    XCTAssertEqual(request.appID, "wx-test-app")
+    XCTAssertEqual(request.partnerID, "merchant-1")
+    XCTAssertEqual(request.prepayID, "prepay-1")
+    XCTAssertEqual(request.packageValue, "Sign=WXPay")
+    XCTAssertEqual(request.nonceString, "nonce-1")
+    XCTAssertEqual(request.timestamp, 1_788_000_000)
+    XCTAssertEqual(request.signature, "signed-value")
+  }
+
+  func testIOSWechatPaymentPayloadRejectsMissingOrInvalidSignatureFields() {
+    XCTAssertNil(
+      IOSPaymentPayloadMapper.wechatRequest([
+        "appid": "wx-test-app",
+        "partnerid": "merchant-1",
+        "prepayid": "prepay-1",
+        "noncestr": "nonce-1",
+        "timestamp": "not-a-number",
+        "sign": "signed-value",
+      ]))
+    XCTAssertNil(
+      IOSPaymentPayloadMapper.wechatRequest([
+        "appid": "wx-test-app",
+        "partnerid": "merchant-1",
+        "prepayid": "prepay-1",
+        "noncestr": "nonce-1",
+        "timestamp": "1788000000",
+      ]))
+  }
+
+  func testIOSWechatPaymentPayloadUsesTheSameAliasesAsFlutterParser() throws {
+    let request = try XCTUnwrap(
+      IOSPaymentPayloadMapper.wechatRequest([
+        "app_id": "wx-test-app",
+        "mchId": "merchant-2",
+        "prepayID": "prepay-2",
+        "nonceString": "nonce-2",
+        "timeStamp": "1788000001",
+        "signature": "signed-value-2",
+      ]))
+
+    XCTAssertEqual(request.appID, "wx-test-app")
+    XCTAssertEqual(request.partnerID, "merchant-2")
+    XCTAssertEqual(request.prepayID, "prepay-2")
+    XCTAssertEqual(request.nonceString, "nonce-2")
+    XCTAssertEqual(request.timestamp, 1_788_000_001)
+    XCTAssertEqual(request.signature, "signed-value-2")
+  }
+
+  func testIOSAlipayResultIsReducedToFlutterSafeValues() {
+    let values = IOSPaymentPayloadMapper.flutterDictionary([
+      "resultStatus": "9000",
+      "memo": "ok",
+      "result": NSNull(),
+      "unsupported": URL(string: "https://example.invalid")!,
+    ])
+    XCTAssertEqual(values["resultStatus"] as? String, "9000")
+    XCTAssertEqual(values["memo"] as? String, "ok")
+    XCTAssertTrue(values["result"] is NSNull)
+    XCTAssertEqual(values["unsupported"] as? String, "https://example.invalid")
+  }
+
   func testGalleryImagePayloadAcceptsTypedBytesAndSanitizesFileName() throws {
     let typedBytes = FlutterStandardTypedData(bytes: Data([0xFF, 0xD8, 0xFF, 0xD9]))
     let payload = try XCTUnwrap(
