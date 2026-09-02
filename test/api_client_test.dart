@@ -471,24 +471,22 @@ void main() {
             return http.Response('{"code":200,"data":{}}', 200);
           case 2:
             expect(request.method, 'GET');
-            expect(request.url.path, '/api/v1/member/notify/unread-count');
+            expect(request.url.path, '/api/v1/member/notify/statistics');
             return http.Response(
-              '{"code":200,"data":{"unread_count":"3"}}',
+              '{"code":200,"data":{"announce_count":"2","remind_count":1}}',
               200,
             );
           case 3:
-            expect(request.method, 'POST');
-            expect(request.url.path, '/api/v1/member/notify/19/read');
-            expect(jsonDecode(request.body), isEmpty);
-            return http.Response('', 204);
+            expect(request.method, 'GET');
+            expect(request.url.path, '/api/v1/member/notify/19');
+            return http.Response('{"code":200,"data":{"id":19}}', 200);
           case 4:
-            expect(request.method, 'POST');
-            expect(
-              request.url.path,
-              '/api/v1/member/notify/server-event-19/read',
+            expect(request.method, 'GET');
+            expect(request.url.path, '/api/v1/member/notify/server-event-19');
+            return http.Response(
+              '{"code":200,"data":{"id":"server-event-19"}}',
+              200,
             );
-            expect(jsonDecode(request.body), isEmpty);
-            return http.Response('', 204);
           case 5:
             expect(request.method, 'DELETE');
             expect(
@@ -534,20 +532,51 @@ void main() {
     var requestIndex = 0;
     final client = MockClient((request) async {
       requestIndex += 1;
-      return switch (requestIndex) {
-        1 => http.Response('not found', 404),
-        2 => http.Response(
-          '{"code":405,"message":"not available","data":{}}',
-          200,
-        ),
-        3 => http.Response('', 405),
-        4 => http.Response(
-          '{"code":"404","message":"not available","data":{}}',
-          200,
-        ),
-        5 => http.Response('', 404),
-        _ => throw StateError('unexpected request'),
-      };
+      switch (requestIndex) {
+        case 1:
+          expect(request.url.path, '/api/v1/member/push-devices');
+          return http.Response('not found', 404);
+        case 2:
+          expect(request.url.path, '/api/v1/member/notify/statistics');
+          return http.Response(
+            '{"code":405,"message":"not available","data":{}}',
+            200,
+          );
+        case 3:
+          expect(request.url.path, '/api/v1/member/notify/unread-count');
+          return http.Response('', 404);
+        case 4:
+          expect(request.method, 'GET');
+          expect(request.url.path, '/api/v1/member/notify/19');
+          return http.Response('', 405);
+        case 5:
+          expect(request.method, 'POST');
+          expect(request.url.path, '/api/v1/member/notify/19/read');
+          return http.Response(
+            '{"code":"404","message":"not available","data":{}}',
+            200,
+          );
+        case 6:
+          expect(request.method, 'GET');
+          expect(request.url.path, '/api/v1/member/notify/server-event-19');
+          return http.Response('', 404);
+        case 7:
+          expect(request.method, 'POST');
+          expect(
+            request.url.path,
+            '/api/v1/member/notify/server-event-19/read',
+          );
+          return http.Response('', 405);
+        case 8:
+          expect(request.method, 'DELETE');
+          expect(
+            request.url.path,
+            '/api/v1/member/push-devices/installation-test',
+          );
+          return http.Response('', 404);
+        default:
+          throw StateError('unexpected request');
+      }
     });
     final api = SaydianApiClient(
       _authenticatedVault(),
@@ -573,6 +602,7 @@ void main() {
       await api.unregisterPushDevice(installationId: 'installation-test'),
       isFalse,
     );
+    expect(requestIndex, 8);
   });
 
   test('push registration validates metadata before sending secrets', () async {

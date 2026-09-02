@@ -666,7 +666,10 @@ class SaydianApiClient
 
   @override
   Future<int?> getNotificationUnreadCount() async {
-    final response = await _authorizedGet('/api/v1/member/notify/unread-count');
+    var response = await _authorizedGet('/api/v1/member/notify/statistics');
+    if (_isOptionalNotificationEndpointUnavailableResponse(response)) {
+      response = await _authorizedGet('/api/v1/member/notify/unread-count');
+    }
     if (_isOptionalNotificationEndpointUnavailableResponse(response)) {
       return null;
     }
@@ -684,19 +687,7 @@ class SaydianApiClient
       }
       rethrow;
     }
-    final data = payload['data'];
-    final Object? rawCount = switch (data) {
-      Map<Object?, Object?> map => map['unread_count'] ?? map['count'],
-      num value => value,
-      String value => value,
-      _ => payload['unread_count'],
-    };
-    final count = switch (rawCount) {
-      int value => value,
-      num value when value.isFinite && value == value.toInt() => value.toInt(),
-      String value => int.tryParse(value.trim()),
-      _ => null,
-    };
+    final count = _notificationUnreadCount(payload);
     if (count == null || count < 0) {
       throw const ApiException('消息未读数响应格式不正确');
     }
@@ -706,20 +697,29 @@ class SaydianApiClient
   @override
   Future<bool> markNotificationRead({required int id}) async {
     if (id <= 0) throw const ApiException('消息标识不正确');
-    final response = await _authorizedPostJson(
-      '/api/v1/member/notify/$id/read',
-      const <String, Object?>{},
-    );
+    var response = await _authorizedGet('/api/v1/member/notify/$id');
+    if (_isOptionalNotificationEndpointUnavailableResponse(response)) {
+      response = await _authorizedPostJson(
+        '/api/v1/member/notify/$id/read',
+        const <String, Object?>{},
+      );
+    }
     return _decodeOptionalNotificationMutation(response);
   }
 
   @override
   Future<bool> markNotificationEventRead({required String eventId}) async {
     final normalizedEventId = _validatedNotificationEventId(eventId);
-    final response = await _authorizedPostJson(
-      '/api/v1/member/notify/${Uri.encodeComponent(normalizedEventId)}/read',
-      const <String, Object?>{},
+    final encodedEventId = Uri.encodeComponent(normalizedEventId);
+    var response = await _authorizedGet(
+      '/api/v1/member/notify/$encodedEventId',
     );
+    if (_isOptionalNotificationEndpointUnavailableResponse(response)) {
+      response = await _authorizedPostJson(
+        '/api/v1/member/notify/$encodedEventId/read',
+        const <String, Object?>{},
+      );
+    }
     return _decodeOptionalNotificationMutation(response);
   }
 
@@ -1733,6 +1733,42 @@ class SaydianApiClient
       rethrow;
     }
   }
+
+  int? _notificationUnreadCount(Map<String, Object?> payload) {
+    final data = payload['data'];
+    final directValue = switch (data) {
+      Map<Object?, Object?> map => map['unread_count'] ?? map['count'],
+      num value => value,
+      String value => value,
+      _ => payload['unread_count'],
+    };
+    final directCount = _notificationCountValue(directValue);
+    if (directCount != null) return directCount;
+    if (data is! Map<Object?, Object?>) return null;
+
+    final hasAnnounceCount = data.containsKey('announce_count');
+    final hasRemindCount = data.containsKey('remind_count');
+    if (!hasAnnounceCount && !hasRemindCount) return null;
+    final announceCount = hasAnnounceCount
+        ? _notificationCountValue(data['announce_count'])
+        : 0;
+    final remindCount = hasRemindCount
+        ? _notificationCountValue(data['remind_count'])
+        : 0;
+    if (announceCount == null || remindCount == null) return null;
+    return announceCount + remindCount;
+  }
+
+  int? _notificationCountValue(Object? value) => switch (value) {
+    int count when count >= 0 => count,
+    num count when count.isFinite && count == count.toInt() && count >= 0 =>
+      count.toInt(),
+    String count => switch (int.tryParse(count.trim())) {
+      final parsed? when parsed >= 0 => parsed,
+      _ => null,
+    },
+    _ => null,
+  };
 
   bool _isOptionalNotificationEndpointUnavailable(int? statusCode) =>
       statusCode == 404 || statusCode == 405;
