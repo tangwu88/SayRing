@@ -764,6 +764,12 @@ void main() {
     'health upload uses the mini-program daily route and field shapes',
     () async {
       final client = MockClient((request) async {
+        if (request.url.path == '/api/saydian-app/v2/health/records/batch') {
+          return http.Response(
+            '{"code":404,"message":"not found","data":{}}',
+            404,
+          );
+        }
         expect(request.method, 'POST');
         expect(request.url.path, '/api/v1/member/daily-date');
         final body = jsonDecode(request.body) as Map<String, dynamic>;
@@ -819,6 +825,106 @@ void main() {
       expect(result.rejected, isEmpty);
     },
   );
+
+  test('health upload prefers the V2 idempotent batch contract', () async {
+    final client = MockClient((request) async {
+      expect(request.method, 'POST');
+      expect(request.url.path, '/api/saydian-app/v2/health/records/batch');
+      expect(request.headers['idempotency-key'], hasLength(64));
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      final record = (body['records'] as List).single as Map<String, dynamic>;
+      expect(record['metric'], 'temperature');
+      expect(record['timezoneOffsetMinutes'], 480);
+      expect(record['quality'], 'valid');
+      expect(record['source'], containsPair('deviceId', 'W9S'));
+      return http.Response(
+        '{"code":200,"message":"ok","data":{"acceptedIds":["temperature"],"rejected":[],"nextCursor":"cursor-2"}}',
+        200,
+      );
+    });
+    final api = SaydianApiClient(
+      _authenticatedVault(),
+      client: client,
+      baseUri: Uri.parse('https://example.invalid'),
+    );
+    final result = await api.uploadHealthBatch(
+      SyncBatch(
+        cursor: null,
+        records: [
+          HealthRecord(
+            id: 'temperature',
+            metric: HealthMetric.bodyTemperature,
+            values: const {'value': 36.6},
+            unit: '℃',
+            measuredAt: DateTime.utc(2026, 9, 2, 8),
+            timezone: '+08:00',
+            deviceId: 'W9S',
+            firmwareVersion: '1.0.0',
+            quality: 'good',
+            source: MeasurementSource.wearable,
+            rawVersion: 1,
+          ),
+        ],
+      ),
+    );
+    expect(result.acceptedIds, {'temperature'});
+    expect(result.nextCursor, 'cursor-2');
+  });
+
+  test('health warning and feedback use the V2 authenticated contracts', () async {
+    var step = 0;
+    final client = MockClient((request) async {
+      step++;
+      expect(request.headers['authorization'], 'Bearer test-access-token');
+      switch (step) {
+        case 1:
+          expect(request.url.path, '/api/saydian-app/v2/health/warning-rules');
+          return http.Response(
+            '{"code":200,"message":"ok","data":[{"metric":"heart_rate","enabled":false,"highThreshold":130},{"metric":"blood_pressure","enabled":true,"highThreshold":145,"secondaryHighThreshold":95}]}',
+            200,
+          );
+        case 2:
+          expect(request.method, 'POST');
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          final rules = body['rules'] as List;
+          expect(rules[1], containsPair('secondaryHighThreshold', 90));
+          return http.Response('{"code":200,"message":"ok","data":[]}', 200);
+        case 3:
+          expect(request.url.path, '/api/saydian-app/v2/health/warnings');
+          return http.Response(
+            '{"code":200,"message":"ok","data":{"items":[{"eventId":"warning-1","metric":"heart_rate","observedAt":"2026-09-02T08:00:00.000Z","rule":{"direction":"high"},"values":{"value":131}}]}}',
+            200,
+          );
+        default:
+          expect(request.url.path, '/api/saydian-app/v2/support/feedback');
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          expect(body, containsPair('category', '设备连接'));
+          expect(body, containsPair('content', '连接后数据没有更新'));
+          return http.Response(
+            '{"code":200,"message":"ok","data":{"id":"feedback-1","status":"open"}}',
+            200,
+          );
+      }
+    });
+    final api = SaydianApiClient(
+      _authenticatedVault(),
+      client: client,
+      baseUri: Uri.parse('https://example.invalid'),
+    );
+
+    final settings = await api.getHealthWarningSettings();
+    expect(settings?.heartRateEnabled, isFalse);
+    expect(settings?.heartRateUpper, 130);
+    expect(settings?.diastolicUpper, 95);
+    await api.saveHealthWarningSettings(const HealthWarningSettings());
+    final alerts = await api.getHealthWarningAlerts();
+    expect(alerts.single.id, 'warning-1');
+    expect(
+      await api.submitFeedback(category: '设备连接', content: '连接后数据没有更新'),
+      'feedback-1',
+    );
+    expect(step, 4);
+  });
 
   test('health encyclopedia uses the mini-program public endpoint', () async {
     final client = MockClient((request) async {
@@ -1158,19 +1264,57 @@ void main() {
     expect(requestIndex, 2);
   });
 
+  test('multi-select checkout creates one backend order', () async {
+    var requestCount = 0;
+    final client = MockClient((request) async {
+      requestCount++;
+      expect(request.url.path, '/api/inv-shop/v1/order/order/create-batch');
+      expect(request.headers['idempotency-key'], hasLength(64));
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      expect(body['point'], 5);
+      expect(body['items'], [
+        {'sku_id': 2975, 'num': 1},
+        {'sku_id': 2976, 'num': 2},
+      ]);
+      return http.Response('{"code":200,"data":{"id":101}}', 200);
+    });
+    final api = SaydianApiClient(
+      _authenticatedVault(),
+      client: client,
+      baseUri: Uri.parse('https://example.invalid'),
+    );
+
+    final result = await api.createShopOrder(
+      items: const [
+        {'sku_id': 2975, 'num': 1},
+        {'sku_id': 2976, 'num': 2},
+      ],
+      addressId: 8,
+      buyerMessage: '',
+      point: 5,
+    );
+    expect(requestCount, 1);
+    expect(result['id'], 101);
+  });
+
   test(
-    'multi-select checkout creates one backend order per selected SKU',
+    'multi-select checkout falls back only when batch route is absent',
     () async {
       var requestCount = 0;
       final client = MockClient((request) async {
         requestCount++;
+        if (request.url.path.endsWith('create-batch')) {
+          return http.Response(
+            '{"code":404,"message":"not found","data":{}}',
+            404,
+          );
+        }
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         final data = jsonDecode(body['data'] as String) as Map<String, dynamic>;
-        expect(body['point'], requestCount == 1 ? 5 : 0);
         return http.Response(
           jsonEncode({
             'code': 200,
-            'data': {'id': 100 + requestCount, 'sku_id': data['sku_id']},
+            'data': {'id': 99 + requestCount, 'sku_id': data['sku_id']},
           }),
           200,
         );
@@ -1190,9 +1334,8 @@ void main() {
         buyerMessage: '',
         point: 5,
       );
-      expect(requestCount, 2);
+      expect(requestCount, 3);
       expect(result['order_ids'], [101, 102]);
-      expect(result['created_sku_ids'], [2975, 2976]);
     },
   );
 

@@ -7783,7 +7783,7 @@ class _MyServicesGrid extends StatelessWidget {
       (
         label: '帮助反馈',
         icon: Icons.help_outline_rounded,
-        page: const FeedbackPage(),
+        page: FeedbackPage(controller: controller),
       ),
       (
         label: '联系客服',

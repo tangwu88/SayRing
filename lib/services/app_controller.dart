@@ -546,6 +546,7 @@ class AppController extends ChangeNotifier {
     notifyListeners();
     unawaited(refreshAiArticles());
     if (session != null) {
+      unawaited(refreshHealthWarningCloudState());
       unawaited(refreshCare());
       unawaited(refreshCareInvitations());
       unawaited(_registerPushDevice(resetBackoff: true));
@@ -582,6 +583,7 @@ class AppController extends ChangeNotifier {
         await _refreshRemoteNotificationUnreadCount();
         await refreshMemberProfile();
         await refreshActivityGoals();
+        unawaited(refreshHealthWarningCloudState());
         _careInvitationPollBackoffIndex = 0;
         _scheduleCareInvitationPoll(const Duration(seconds: 30));
       } finally {
@@ -1380,6 +1382,19 @@ class AppController extends ChangeNotifier {
       return false;
     }
     try {
+      final api = _api;
+      if (api is SaydianHealthCloudApi && session != null) {
+        try {
+          await (api as SaydianHealthCloudApi).saveHealthWarningSettings(
+            settings,
+          );
+        } on FeatureNotConfiguredException {
+          // The old service has no cloud rules. Preserve local reminders until
+          // the new compatibility service is switched on.
+        } on ApiException catch (error) {
+          if (error.statusCode != 404 && error.statusCode != 405) rethrow;
+        }
+      }
       await _vault.writeHealthWarningSettings(settings);
       healthWarningSettings = settings;
       errorMessage = null;
@@ -1389,6 +1404,76 @@ class AppController extends ChangeNotifier {
       errorMessage = '健康预警设置保存失败，请稍后重试';
       notifyListeners();
       return false;
+    }
+  }
+
+  Future<void> refreshHealthWarningCloudState() async {
+    final api = _api;
+    if (api is! SaydianHealthCloudApi || session == null) return;
+    final expectedGeneration = _sessionGeneration;
+    try {
+      final cloudApi = api as SaydianHealthCloudApi;
+      final results = await Future.wait<Object?>([
+        cloudApi.getHealthWarningSettings(),
+        cloudApi.getHealthWarningAlerts(),
+      ]);
+      if (_disposed ||
+          session == null ||
+          expectedGeneration != _sessionGeneration) {
+        return;
+      }
+      final settings = results[0];
+      if (settings is HealthWarningSettings) {
+        healthWarningSettings = settings;
+        await _vault.writeHealthWarningSettings(settings);
+      }
+      final remoteAlerts = results[1] as List<HealthWarningAlert>;
+      final merged = <String, HealthWarningAlert>{
+        for (final alert in healthWarningAlerts) alert.id: alert,
+        for (final alert in remoteAlerts) alert.id: alert,
+      };
+      healthWarningAlerts = merged.values.toList()
+        ..sort((left, right) => right.triggeredAt.compareTo(left.triggeredAt));
+      notifyListeners();
+    } on ApiException catch (error) {
+      if (error.statusCode == 404 || error.statusCode == 405) return;
+      // Background refresh failure must not hide already available local
+      // warnings or block the rest of app startup.
+    }
+  }
+
+  Future<bool> submitFeedback({
+    required String category,
+    required String content,
+    String contact = '',
+  }) async {
+    if (session == null) {
+      errorMessage = '请先登录后提交反馈';
+      notifyListeners();
+      return false;
+    }
+    final api = _api;
+    if (api is! SaydianFeedbackApi) {
+      errorMessage = '此功能暂时无法使用，请稍后再试';
+      notifyListeners();
+      return false;
+    }
+    isBusy = true;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      await (api as SaydianFeedbackApi).submitFeedback(
+        category: category,
+        content: content,
+        contact: contact,
+      );
+      return true;
+    } on ApiException catch (error) {
+      errorMessage = _apiErrorMessage(error, fallback: '反馈提交失败，请稍后重试');
+      return false;
+    } finally {
+      isBusy = false;
+      notifyListeners();
     }
   }
 

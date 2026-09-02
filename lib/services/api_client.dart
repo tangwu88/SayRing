@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -181,6 +182,20 @@ abstract interface class SaydianProfileUploadApi {
   Future<String> uploadProfileImage(String filePath);
 }
 
+abstract interface class SaydianHealthCloudApi {
+  Future<HealthWarningSettings?> getHealthWarningSettings();
+  Future<List<HealthWarningAlert>> getHealthWarningAlerts();
+  Future<void> saveHealthWarningSettings(HealthWarningSettings settings);
+}
+
+abstract interface class SaydianFeedbackApi {
+  Future<String> submitFeedback({
+    required String category,
+    required String content,
+    String contact = '',
+  });
+}
+
 class SaydianApiClient
     implements
         SaydianApi,
@@ -190,7 +205,9 @@ class SaydianApiClient
         SaydianShopApi,
         SaydianCareApi,
         SaydianNotificationApi,
-        SaydianProfileUploadApi {
+        SaydianProfileUploadApi,
+        SaydianHealthCloudApi,
+        SaydianFeedbackApi {
   SaydianApiClient(this._vault, {http.Client? client, Uri? baseUri})
     : _client = client ?? http.Client(),
       _baseUri =
@@ -855,9 +872,31 @@ class SaydianApiClient
       );
     }
 
-    // The backend has no multi-product order endpoint. Create one server order
-    // per selected SKU and return a single aggregate result to the UI. Points
-    // are applied once to avoid spending the requested amount repeatedly.
+    try {
+      final request = <String, Object?>{
+        'address_id': addressId,
+        'buyer_message': buyerMessage.trim(),
+        'items': items,
+        'point': point,
+      };
+      final response = await _authorizedPostJson(
+        '/api/inv-shop/v1/order/order/create-batch',
+        request,
+        headers: {
+          'Idempotency-Key': sha256
+              .convert(utf8.encode(jsonEncode(request)))
+              .toString(),
+        },
+      );
+      return _data(_decode(response));
+    } on ApiException catch (error) {
+      if (!_isOptionalNotificationEndpointUnavailable(error.statusCode)) {
+        rethrow;
+      }
+    }
+
+    // The old service has no multi-product endpoint. Keep its existing
+    // per-SKU behavior only while the compatibility endpoint is unavailable.
     final orders = <Map<String, Object?>>[];
     final createdSkuIds = <int>[];
     ApiException? partialFailure;
@@ -1028,8 +1067,269 @@ class SaydianApiClient
   }
 
   @override
-  Future<BatchUploadResult> uploadHealthBatch(SyncBatch batch) =>
-      _uploadMiniProgramHealthRecords(batch);
+  Future<HealthWarningSettings?> getHealthWarningSettings() async {
+    final response = await _authorizedGet(
+      '/api/saydian-app/v2/health/warning-rules',
+    );
+    final rules = _list(_decode(response));
+    if (rules.isEmpty) return null;
+    Map<String, Object?>? rule(String metric) {
+      for (final item in rules) {
+        if ('${item['metric'] ?? ''}' == metric) return item;
+      }
+      return null;
+    }
+
+    final defaults = const HealthWarningSettings();
+    final heartRate = rule('heart_rate');
+    final bloodPressure = rule('blood_pressure');
+    final temperature = rule('temperature');
+    return HealthWarningSettings(
+      heartRateEnabled: _booleanOrDefault(
+        heartRate?['enabled'],
+        defaults.heartRateEnabled,
+      ),
+      heartRateUpper:
+          (heartRate?['highThreshold'] as num?)?.toInt() ??
+          defaults.heartRateUpper,
+      bloodPressureEnabled: _booleanOrDefault(
+        bloodPressure?['enabled'],
+        defaults.bloodPressureEnabled,
+      ),
+      systolicUpper:
+          (bloodPressure?['highThreshold'] as num?)?.toInt() ??
+          defaults.systolicUpper,
+      diastolicUpper:
+          (bloodPressure?['secondaryHighThreshold'] as num?)?.toInt() ??
+          defaults.diastolicUpper,
+      temperatureEnabled: _booleanOrDefault(
+        temperature?['enabled'],
+        defaults.temperatureEnabled,
+      ),
+      temperatureUpper:
+          (temperature?['highThreshold'] as num?)?.toDouble() ??
+          defaults.temperatureUpper,
+    );
+  }
+
+  @override
+  Future<void> saveHealthWarningSettings(HealthWarningSettings settings) async {
+    final response = await _authorizedPostJson(
+      '/api/saydian-app/v2/health/warning-rules',
+      {
+        'rules': [
+          {
+            'metric': 'heart_rate',
+            'enabled': settings.heartRateEnabled,
+            'highThreshold': settings.heartRateUpper,
+          },
+          {
+            'metric': 'blood_pressure',
+            'enabled': settings.bloodPressureEnabled,
+            'highThreshold': settings.systolicUpper,
+            'secondaryHighThreshold': settings.diastolicUpper,
+          },
+          {
+            'metric': 'temperature',
+            'enabled': settings.temperatureEnabled,
+            'highThreshold': settings.temperatureUpper,
+          },
+        ],
+      },
+    );
+    _decode(response);
+  }
+
+  @override
+  Future<List<HealthWarningAlert>> getHealthWarningAlerts() async {
+    final response = await _authorizedGet(
+      '/api/saydian-app/v2/health/warnings',
+      {'limit': '100'},
+    );
+    final data = _data(_decode(response));
+    final items = data['items'] is List ? data['items'] as List : const [];
+    return items
+        .whereType<Map>()
+        .map((raw) {
+          final item = raw.map((key, value) => MapEntry('$key', value));
+          final metricWire = '${item['metric'] ?? ''}';
+          final metric = HealthMetric.fromWire(
+            metricWire == 'temperature' ? 'body_temperature' : metricWire,
+          );
+          final rule = item['rule'] is Map ? item['rule'] as Map : const {};
+          final direction = '${rule['direction'] ?? ''}' == 'low' ? '低于' : '超过';
+          return HealthWarningAlert(
+            id: '${item['eventId'] ?? ''}',
+            metric: metric,
+            title: '${metric.label}提醒',
+            message: '该记录$direction你设置的提醒值，请留意近期变化。',
+            triggeredAt:
+                DateTime.tryParse('${item['observedAt'] ?? ''}')?.toLocal() ??
+                DateTime.fromMillisecondsSinceEpoch(0),
+            origin: MeasurementOrigin.unknown,
+          );
+        })
+        .where((alert) => alert.id.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<String> submitFeedback({
+    required String category,
+    required String content,
+    String contact = '',
+  }) async {
+    final response =
+        await _authorizedPostJson('/api/saydian-app/v2/support/feedback', {
+          'category': category.trim(),
+          'content': content.trim(),
+          if (contact.trim().isNotEmpty) 'contact': contact.trim(),
+        });
+    final data = _data(_decode(response));
+    final id = '${data['id'] ?? ''}'.trim();
+    if (id.isEmpty) throw const ApiException('反馈提交结果不完整，请稍后重试');
+    return id;
+  }
+
+  @override
+  Future<BatchUploadResult> uploadHealthBatch(SyncBatch batch) async {
+    try {
+      return await _uploadHealthBatchV2(batch);
+    } on ApiException catch (error) {
+      if (!_isOptionalNotificationEndpointUnavailable(error.statusCode)) {
+        rethrow;
+      }
+      return _uploadMiniProgramHealthRecords(batch);
+    }
+  }
+
+  Future<BatchUploadResult> _uploadHealthBatchV2(SyncBatch batch) async {
+    if (batch.records.isEmpty) {
+      return BatchUploadResult(
+        acceptedIds: const {},
+        rejected: const {},
+        nextCursor: batch.cursor,
+      );
+    }
+    if (batch.records.length > 200) {
+      throw const ApiException('每次最多同步 200 条健康记录');
+    }
+    final records = <Map<String, Object?>>[];
+    for (final record in batch.records) {
+      Map<String, Object?>? ecgArtifact;
+      if (record.metric == HealthMetric.ecg && record.samples.isNotEmpty) {
+        ecgArtifact = await _uploadEcgArtifactV2(record);
+      }
+      records.add(_healthRecordV2(record, ecgArtifact: ecgArtifact));
+    }
+    final body = <String, Object?>{
+      if (batch.cursor != null) 'cursor': batch.cursor,
+      'records': records,
+    };
+    final idempotencyKey = sha256
+        .convert(utf8.encode(jsonEncode(body)))
+        .toString();
+    final response = await _authorizedPostJson(
+      '/api/saydian-app/v2/health/records/batch',
+      body,
+      headers: {'Idempotency-Key': idempotencyKey},
+    );
+    final data = _data(_decode(response));
+    final accepted = (data['acceptedIds'] as List? ?? const [])
+        .map((value) => '$value')
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    final rejected = <String, String>{};
+    for (final item in (data['rejected'] as List? ?? const [])) {
+      if (item is! Map) continue;
+      final id = '${item['id'] ?? ''}'.trim();
+      if (id.isEmpty) continue;
+      rejected[id] = '${item['message'] ?? '健康数据同步失败，请稍后重试'}';
+    }
+    return BatchUploadResult(
+      acceptedIds: accepted,
+      rejected: rejected,
+      nextCursor: data['nextCursor']?.toString(),
+    );
+  }
+
+  Map<String, Object?> _healthRecordV2(
+    HealthRecord record, {
+    Map<String, Object?>? ecgArtifact,
+  }) {
+    final quality = switch (record.quality.toLowerCase()) {
+      'good' || 'valid' => 'valid',
+      'poor' || 'suspect' => 'suspect',
+      'invalid' => 'invalid',
+      _ => 'unknown',
+    };
+    return <String, Object?>{
+      'id': record.id,
+      'metric': record.metric == HealthMetric.bodyTemperature
+          ? 'temperature'
+          : record.metric.wireName,
+      'observedAt': record.measuredAt.toUtc().toIso8601String(),
+      'timezoneOffsetMinutes': _timezoneOffsetMinutes(record),
+      'values': record.values,
+      if (record.unit.trim().isNotEmpty) 'unit': record.unit,
+      'quality': quality,
+      'source': <String, Object?>{
+        'platform': defaultTargetPlatform == TargetPlatform.iOS
+            ? 'ios'
+            : 'android',
+        if (record.deviceId.trim().isNotEmpty) 'deviceId': record.deviceId,
+        if (record.firmwareVersion.trim().isNotEmpty)
+          'firmware': record.firmwareVersion,
+      },
+      'ecgArtifact': ?ecgArtifact,
+    };
+  }
+
+  int _timezoneOffsetMinutes(HealthRecord record) {
+    final match = RegExp(
+      r'^([+-])(\d{2}):(\d{2})$',
+    ).firstMatch(record.timezone.trim());
+    if (match == null) {
+      return record.measuredAt.toLocal().timeZoneOffset.inMinutes;
+    }
+    final minutes =
+        int.parse(match.group(2)!) * 60 + int.parse(match.group(3)!);
+    return match.group(1) == '-' ? -minutes : minutes;
+  }
+
+  bool _booleanOrDefault(Object? value, bool fallback) {
+    return value is bool ? value : fallback;
+  }
+
+  Future<Map<String, Object?>> _uploadEcgArtifactV2(HealthRecord record) async {
+    final bytes = gzip.encode(utf8.encode(jsonEncode(record.samples)));
+    final digest = sha256.convert(bytes).toString();
+    final response = await _withAuthorizationRetry((session) {
+      final request =
+          http.MultipartRequest('POST', _uri('/api/saydian-app/v2/files/ecg'))
+            ..headers.addAll(_authorizationHeaders(session))
+            ..fields['sha256'] = digest
+            ..files.add(
+              http.MultipartFile.fromBytes(
+                'file',
+                bytes,
+                filename: '${record.id}.json.gz',
+              ),
+            );
+      return _sendMultipart(request);
+    });
+    final data = _data(_decode(response));
+    final objectKey = '${data['uploadObjectKey'] ?? ''}'.trim();
+    if (objectKey.isEmpty) {
+      throw const ApiException('心电数据上传结果不完整，请稍后重试');
+    }
+    return <String, Object?>{
+      'sampleRateHz': (record.values['sampleFrequency'] ?? 250).toInt(),
+      'sampleCount': record.samples.length,
+      'sha256': digest,
+      'uploadObjectKey': objectKey,
+    };
+  }
 
   Future<BatchUploadResult> _uploadMiniProgramHealthRecords(
     SyncBatch batch,
