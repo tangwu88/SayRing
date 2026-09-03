@@ -9416,6 +9416,9 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
   Uint8List? _avatarBytes;
   String? _avatarFilePath;
   bool _isPickingAvatar = false;
+  bool _isLoadingProfile = false;
+  bool _profileEdited = false;
+  String? _profileLoadError;
 
   @override
   void initState() {
@@ -9427,6 +9430,9 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
     _weight = TextEditingController(text: '${profile['weight'] ?? ''}');
     _gender = int.tryParse('${profile['gender'] ?? 1}') ?? 1;
     _avatarUrl = '${profile['head_portrait'] ?? ''}'.trim();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_loadLatestProfile());
+    });
   }
 
   @override
@@ -9447,8 +9453,40 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
       lastDate: DateTime.now(),
     );
     if (selected != null) {
+      _profileEdited = true;
       _birthday.text = DateFormat('yyyy-MM-dd').format(selected);
     }
+  }
+
+  Future<void> _loadLatestProfile() async {
+    if (widget.controller.session == null || _isLoadingProfile) return;
+    setState(() {
+      _isLoadingProfile = true;
+      _profileLoadError = null;
+    });
+    await widget.controller.refreshMemberProfile();
+    if (!mounted) return;
+    final profile = widget.controller.memberProfile;
+    setState(() {
+      _isLoadingProfile = false;
+      if (profile.isEmpty) {
+        _profileLoadError = widget.controller.errorMessage ?? '个人资料读取失败，请稍后重试';
+        return;
+      }
+      if (_profileEdited) return;
+      _nickname.text = '${profile['nickname'] ?? ''}';
+      _birthday.text = '${profile['birthday'] ?? ''}';
+      _height.text = '${profile['height'] ?? ''}';
+      _weight.text = '${profile['weight'] ?? ''}';
+      _gender = int.tryParse('${profile['gender'] ?? 1}') ?? 1;
+      if (_avatarFilePath == null) {
+        _avatarUrl = '${profile['head_portrait'] ?? ''}'.trim();
+      }
+    });
+  }
+
+  void _markProfileEdited(String _) {
+    _profileEdited = true;
   }
 
   Future<void> _pickAvatar() async {
@@ -9581,9 +9619,37 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
             textAlign: TextAlign.center,
             style: const TextStyle(color: SaydianColors.muted),
           ),
+          if (_isLoadingProfile) ...[
+            const SizedBox(height: 14),
+            const LinearProgressIndicator(),
+            const SizedBox(height: 8),
+            const Text(
+              '正在读取个人资料…',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: SaydianColors.muted),
+            ),
+          ] else if (_profileLoadError case final message?) ...[
+            const SizedBox(height: 14),
+            _InlineNotice(
+              message: message,
+              icon: Icons.info_outline_rounded,
+              color: SaydianColors.warning,
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _loadLatestProfile,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('重新读取'),
+              ),
+            ),
+          ],
           const SizedBox(height: 22),
           TextField(
+            key: const Key('profile-nickname'),
             controller: _nickname,
+            enabled: !_isLoadingProfile,
+            onChanged: _markProfileEdited,
             decoration: const InputDecoration(labelText: '昵称'),
           ),
           const SizedBox(height: 12),
@@ -9594,13 +9660,20 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
               DropdownMenuItem(value: 1, child: Text('男')),
               DropdownMenuItem(value: 2, child: Text('女')),
             ],
-            onChanged: (value) => setState(() => _gender = value ?? 1),
+            onChanged: _isLoadingProfile
+                ? null
+                : (value) => setState(() {
+                    _profileEdited = true;
+                    _gender = value ?? 1;
+                  }),
           ),
           const SizedBox(height: 12),
           TextField(
+            key: const Key('profile-birthday'),
             controller: _birthday,
             readOnly: true,
-            onTap: _selectBirthday,
+            enabled: !_isLoadingProfile,
+            onTap: _isLoadingProfile ? null : _selectBirthday,
             decoration: const InputDecoration(
               labelText: '出生日期',
               suffixIcon: Icon(Icons.calendar_month_outlined),
@@ -9608,13 +9681,19 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
           ),
           const SizedBox(height: 12),
           TextField(
+            key: const Key('profile-height'),
             controller: _height,
+            enabled: !_isLoadingProfile,
+            onChanged: _markProfileEdited,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(labelText: '身高（cm）'),
           ),
           const SizedBox(height: 12),
           TextField(
+            key: const Key('profile-weight'),
             controller: _weight,
+            enabled: !_isLoadingProfile,
+            onChanged: _markProfileEdited,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(labelText: '体重（kg）'),
           ),
@@ -9626,7 +9705,11 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
           ),
           const SizedBox(height: 18),
           FilledButton(
-            onPressed: widget.controller.isBusy || _isPickingAvatar
+            key: const Key('profile-save'),
+            onPressed:
+                widget.controller.isBusy ||
+                    _isPickingAvatar ||
+                    _isLoadingProfile
                 ? null
                 : _save,
             child: Text(_isPickingAvatar ? '正在读取照片' : '保存资料'),

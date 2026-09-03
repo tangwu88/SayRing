@@ -3884,6 +3884,16 @@ class AppController extends ChangeNotifier {
       // scan connection with the authenticated connection. The pending
       // connect future remains authoritative and will report a real failure.
       if (deviceState == DeviceConnectionState.connecting) return;
+      final activeDeviceId = connectedDevice?.id.trim() ?? '';
+      final eventDeviceId = '${event.payload['deviceId'] ?? ''}'.trim();
+      // A delayed disconnect from a previous watch must not clear a newer
+      // active session. Native transports include deviceId whenever the
+      // callback can be attributed to a specific device.
+      if (activeDeviceId.isNotEmpty &&
+          eventDeviceId.isNotEmpty &&
+          activeDeviceId.toLowerCase() != eventDeviceId.toLowerCase()) {
+        return;
+      }
       _invalidateDeviceSync();
       connectedDevice = null;
       _connectedDeviceSessionGeneration = null;

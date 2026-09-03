@@ -67,4 +67,26 @@ class VeepooBatteryReadGateTest {
         assertTrue(gate.complete(current))
         assertFalse(gate.isInFlight)
     }
+
+    @Test
+    fun `disconnect candidate only belongs to the current watch session`() {
+        val gate = VeepooDisconnectGate()
+        val candidate = gate.begin(7, "AA:BB")!!
+
+        assertNull(gate.begin(7, "AA:BB"))
+        assertFalse(gate.claim(candidate, 8, "AA:BB"))
+        assertNull(gate.active)
+    }
+
+    @Test
+    fun `reconnect reset invalidates a pending disconnect`() {
+        val gate = VeepooDisconnectGate()
+        val stale = gate.begin(7, "AA:BB")!!
+        gate.reset()
+        val current = gate.begin(7, "AA:BB")!!
+
+        assertFalse(gate.claim(stale, 7, "AA:BB"))
+        assertTrue(gate.claim(current, 7, "aa:bb"))
+        assertNull(gate.active)
+    }
 }

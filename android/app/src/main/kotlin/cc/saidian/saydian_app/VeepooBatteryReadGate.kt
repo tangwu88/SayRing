@@ -113,3 +113,52 @@ internal class VeepooExclusiveOperationGate {
         activeGeneration = null
     }
 }
+
+internal data class VeepooDisconnectCandidate(
+    val token: Long,
+    val connectionGeneration: Int,
+    val deviceId: String,
+)
+
+/**
+ * Keeps a low-level disconnect callback bound to the watch session that
+ * reported it. Veepoo can briefly publish DISCONNECTED while its GATT link is
+ * being refreshed, so callers confirm the candidate after a short grace
+ * period before clearing the user-visible connection.
+ */
+internal class VeepooDisconnectGate {
+    private var generation = 0L
+    var active: VeepooDisconnectCandidate? = null
+        private set
+
+    fun begin(
+        connectionGeneration: Int,
+        deviceId: String,
+    ): VeepooDisconnectCandidate? {
+        if (active != null) return null
+        val candidate =
+            VeepooDisconnectCandidate(
+                token = ++generation,
+                connectionGeneration = connectionGeneration,
+                deviceId = deviceId,
+            )
+        active = candidate
+        return candidate
+    }
+
+    fun claim(
+        candidate: VeepooDisconnectCandidate,
+        currentConnectionGeneration: Int,
+        currentDeviceId: String,
+    ): Boolean {
+        if (active != candidate) return false
+        active = null
+        return candidate.connectionGeneration == currentConnectionGeneration &&
+            candidate.deviceId.equals(currentDeviceId, ignoreCase = true)
+    }
+
+    fun reset() {
+        generation += 1
+        active = null
+    }
+}
