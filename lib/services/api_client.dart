@@ -962,23 +962,24 @@ class SaydianApiClient
       throw const ApiException('订单金额或编号异常，请刷新后重试');
     }
     final payType = switch (provider) {
-      // RageFrame PayTypeEnum: WeChat = 100, Alipay = 101. Values 1 and 2
-      // mean balance/cash and cannot generate APP payment parameters.
-      // The payment endpoint validates this enum as a string, matching the
-      // delivered mini-program contract. Sending a JSON number is rejected
-      // before the provider-specific payment parameters are generated.
-      'wechat' => '100',
-      'alipay' => '101',
+      // The delivered payment contract uses 1 for WeChat and 2 for Alipay.
+      // Keep these values as strings because the endpoint is a multipart
+      // form and validates the documented string fields.
+      'wechat' => '1',
+      'alipay' => '2',
       _ => throw const ApiException('不支持的支付方式'),
     };
-    final response = await _authorizedPostJson('/api/v1/pay', {
+    final response = await _authorizedPostFields('/api/v1/pay', {
       'pay_type': payType,
-      'jump': 0,
+      'jump': '0',
       'trade_type': 'app',
       'order_group': 'order',
-      // The server reads and verifies the payable amount from the order.
-      // Never trust a client-supplied amount for payment signing.
-      'data': jsonEncode({'order_id': orderId}),
+      // The server must still verify the payable amount against the order;
+      // this client value only follows the documented signing contract.
+      'data': jsonEncode({
+        'order_id': '$orderId',
+        'money': money.toStringAsFixed(2),
+      }),
     });
     return _data(_decode(response));
   }

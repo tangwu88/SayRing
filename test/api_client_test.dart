@@ -1264,12 +1264,24 @@ void main() {
       requestIndex++;
       expect(request.method, 'POST');
       expect(request.url.path, '/api/v1/pay');
-      final body = jsonDecode(request.body) as Map<String, dynamic>;
-      expect(body['pay_type'], requestIndex == 1 ? '100' : '101');
-      expect(body['jump'], 0);
-      expect(body['trade_type'], 'app');
-      expect(body['order_group'], 'order');
-      expect(jsonDecode(body['data'] as String), {'order_id': 99});
+      expect(
+        request.headers['content-type'],
+        startsWith('multipart/form-data;'),
+      );
+      final body = request.body;
+      expect(body, contains('name="pay_type"'));
+      expect(
+        body,
+        contains(requestIndex == 1 ? '\r\n\r\n1\r\n' : '\r\n\r\n2\r\n'),
+      );
+      expect(body, contains('name="jump"'));
+      expect(body, contains('\r\n\r\n0\r\n'));
+      expect(body, contains('name="trade_type"'));
+      expect(body, contains('\r\n\r\napp\r\n'));
+      expect(body, contains('name="order_group"'));
+      expect(body, contains('\r\n\r\norder\r\n'));
+      expect(body, contains('name="data"'));
+      expect(body, contains('{"order_id":"99","money":"199.00"}'));
       return http.Response(
         requestIndex == 1
             ? '{"code":200,"data":{"payStatus":false,"config":{"appid":"wx-test"}}}'
