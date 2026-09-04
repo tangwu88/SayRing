@@ -1424,8 +1424,19 @@ class AppController extends ChangeNotifier {
       }
       final settings = results[0];
       if (settings is HealthWarningSettings) {
-        healthWarningSettings = settings;
-        await _vault.writeHealthWarningSettings(settings);
+        // The deployed endpoint stores switches plus the heart-rate threshold.
+        // Blood-pressure and temperature thresholds remain local App settings.
+        final mergedSettings = HealthWarningSettings(
+          heartRateEnabled: settings.heartRateEnabled,
+          heartRateUpper: settings.heartRateUpper,
+          bloodPressureEnabled: settings.bloodPressureEnabled,
+          systolicUpper: healthWarningSettings.systolicUpper,
+          diastolicUpper: healthWarningSettings.diastolicUpper,
+          temperatureEnabled: settings.temperatureEnabled,
+          temperatureUpper: healthWarningSettings.temperatureUpper,
+        );
+        healthWarningSettings = mergedSettings;
+        await _vault.writeHealthWarningSettings(mergedSettings);
       }
       final remoteAlerts = results[1] as List<HealthWarningAlert>;
       final merged = <String, HealthWarningAlert>{
@@ -3528,6 +3539,16 @@ class AppController extends ChangeNotifier {
     if (skuId == null || productId == null || quantity <= 0) {
       throw const ApiException('商品规格信息不完整');
     }
+    final api = _api;
+    if (session != null && api is SaydianShopCartApi) {
+      shopCart = await (api as SaydianShopCartApi).addShopCartItem(
+        skuId: skuId,
+        quantity: quantity,
+      );
+      await _vault.writeShopCart(shopCart);
+      notifyListeners();
+      return;
+    }
     final next = shopCart
         .map((item) => Map<String, Object?>.from(item))
         .toList();
@@ -3559,6 +3580,28 @@ class AppController extends ChangeNotifier {
         .toList();
     final index = next.indexWhere((item) => _cartInt(item['sku_id']) == skuId);
     if (index < 0) return;
+    final api = _api;
+    if (session != null && api is SaydianShopCartApi) {
+      try {
+        if (quantity <= 0) {
+          shopCart = await (api as SaydianShopCartApi).deleteShopCartItems([
+            skuId,
+          ]);
+        } else {
+          final stock = _cartInt(next[index]['stock']) ?? quantity;
+          final normalized = quantity.clamp(1, stock < 1 ? 1 : stock);
+          shopCart = await (api as SaydianShopCartApi)
+              .updateShopCartItemQuantity(skuId: skuId, quantity: normalized);
+        }
+        await _vault.writeShopCart(shopCart);
+        notifyListeners();
+        return;
+      } on ApiException catch (error) {
+        errorMessage = _apiErrorMessage(error, fallback: '购物车更新失败，请稍后重试');
+        notifyListeners();
+        return;
+      }
+    }
     if (quantity <= 0) {
       next.removeAt(index);
     } else {
@@ -3571,20 +3614,51 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> clearShopCart() async {
-    shopCart = const [];
-    await _vault.writeShopCart(shopCart);
-    notifyListeners();
+    final skuIds = shopCart
+        .map((item) => _cartInt(item['sku_id']))
+        .whereType<int>()
+        .toSet();
+    await removeShopCartItems(skuIds);
   }
 
   Future<void> removeShopCartItems(Iterable<int> skuIds) async {
     final selected = skuIds.toSet();
     if (selected.isEmpty) return;
+    final api = _api;
+    if (session != null && api is SaydianShopCartApi) {
+      try {
+        shopCart = await (api as SaydianShopCartApi).deleteShopCartItems(
+          selected,
+        );
+        await _vault.writeShopCart(shopCart);
+        notifyListeners();
+        return;
+      } on ApiException catch (error) {
+        // An order created from the server cart consumes its rows. Keep the
+        // successful order flow usable even if the follow-up delete reports
+        // that those rows no longer exist.
+        errorMessage = _apiErrorMessage(error, fallback: '购物车同步失败，请稍后刷新');
+      }
+    }
     shopCart = shopCart
         .where((item) => !selected.contains(_cartInt(item['sku_id'])))
         .map((item) => Map<String, Object?>.from(item))
         .toList(growable: false);
     await _vault.writeShopCart(shopCart);
     notifyListeners();
+  }
+
+  Future<void> refreshShopCart() async {
+    final api = _api;
+    if (session == null || api is! SaydianShopCartApi) return;
+    try {
+      shopCart = await (api as SaydianShopCartApi).getShopCartItems();
+      await _vault.writeShopCart(shopCart);
+      notifyListeners();
+    } on ApiException {
+      // Preserve the cached cart while offline; checkout will surface a
+      // concrete server error if the user continues.
+    }
   }
 
   Future<Map<String, Object?>> loadShopAddress(int id) =>

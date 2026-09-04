@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -150,6 +149,19 @@ abstract interface class SaydianShopApi {
   Future<List<Map<String, Object?>>> getOrderExpress(int orderId);
 }
 
+abstract interface class SaydianShopCartApi {
+  Future<List<Map<String, Object?>>> getShopCartItems();
+  Future<List<Map<String, Object?>>> addShopCartItem({
+    required int skuId,
+    required int quantity,
+  });
+  Future<List<Map<String, Object?>>> updateShopCartItemQuantity({
+    required int skuId,
+    required int quantity,
+  });
+  Future<List<Map<String, Object?>>> deleteShopCartItems(Iterable<int> skuIds);
+}
+
 abstract interface class SaydianCareApi {
   Future<List<Map<String, Object?>>> getCareInvitations();
   Future<void> respondCareInvitation({required int id, required bool accepted});
@@ -203,6 +215,7 @@ class SaydianApiClient
         SaydianSmsAuthApi,
         SaydianArticleApi,
         SaydianShopApi,
+        SaydianShopCartApi,
         SaydianCareApi,
         SaydianNotificationApi,
         SaydianProfileUploadApi,
@@ -224,6 +237,7 @@ class SaydianApiClient
   final Uri _baseUri;
   final Map<int, int> _careMemberIds = <int, int>{};
   final Map<String, Future<Session>> _refreshingSessions = {};
+  bool? _bloodGlucoseWarningEnabled;
 
   static const _requestTimeout = Duration(seconds: 20);
   static const _aiReplyTimeout = Duration(seconds: 75);
@@ -609,6 +623,10 @@ class SaydianApiClient
   Future<List<Map<String, Object?>>> getNotifications({int page = 1}) async {
     final response = await _authorizedGet('/api/v1/member/notify', {
       'page': '$page',
+      // The mini program uses type=1 for announcements and type=2 for the
+      // signed-in member's notification inbox. Omitting it can return mixed
+      // announcement/notification data from the legacy service.
+      'type': '2',
     });
     return _list(_decode(response));
   }
@@ -640,18 +658,15 @@ class SaydianApiClient
     if (normalizedVersion != null && normalizedVersion.length > 64) {
       throw const ApiException('应用版本信息不正确');
     }
-    final response = await _authorizedPostJson(
-      '/api/v1/member/push-devices',
-      <String, Object?>{
-        'installation_id': normalizedInstallationId,
-        'platform': normalizedPlatform,
-        'provider': 'jpush',
-        'registration_id': normalizedRegistrationId,
-        if (normalizedVersion != null && normalizedVersion.isNotEmpty)
-          'app_version': normalizedVersion,
-        'build': ?buildNumber,
-      },
-    );
+    final response =
+        await _authorizedPostFields('/api/v1/member/push-devices', {
+          'installation_id': normalizedInstallationId,
+          'registration_id': normalizedRegistrationId,
+          'platform': normalizedPlatform,
+          'version': normalizedVersion?.isNotEmpty == true
+              ? normalizedVersion!
+              : buildNumber?.toString() ?? '',
+        });
     return _decodeOptionalNotificationMutation(response);
   }
 
@@ -795,53 +810,162 @@ class SaydianApiClient
   }
 
   @override
+  Future<List<Map<String, Object?>>> getShopCartItems() async {
+    final response = await _authorizedGet(
+      '/api/inv-shop/v1/member/cart-item/index',
+    );
+    return _shopCartList(_decode(response));
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> addShopCartItem({
+    required int skuId,
+    required int quantity,
+  }) async {
+    if (skuId <= 0 || quantity <= 0) {
+      throw const ApiException('商品规格或数量不正确');
+    }
+    final response = await _authorizedPostFields(
+      '/api/inv-shop/v1/member/cart-item/create',
+      {'sku_id': '$skuId', 'num': '$quantity'},
+    );
+    final payload = _decode(response);
+    final cart = _shopCartList(payload);
+    return cart.isNotEmpty ? cart : getShopCartItems();
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> updateShopCartItemQuantity({
+    required int skuId,
+    required int quantity,
+  }) async {
+    if (skuId <= 0 || quantity <= 0) {
+      throw const ApiException('商品规格或数量不正确');
+    }
+    final response = await _authorizedPostFields(
+      '/api/inv-shop/v1/member/cart-item/update-num',
+      {'sku_id': '$skuId', 'num': '$quantity'},
+    );
+    _decode(response);
+    return getShopCartItems();
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> deleteShopCartItems(
+    Iterable<int> skuIds,
+  ) async {
+    final selected = skuIds.where((id) => id > 0).toSet();
+    for (final skuId in selected) {
+      final response = await _authorizedPostFields(
+        '/api/inv-shop/v1/member/cart-item/delete-ids',
+        {'sku_ids': '$skuId'},
+      );
+      _decode(response);
+    }
+    return getShopCartItems();
+  }
+
+  List<Map<String, Object?>> _shopCartList(Map<String, Object?> payload) {
+    final data = payload['data'];
+    final rawItems = switch (data) {
+      List<Object?> values => values,
+      Map<Object?, Object?> map when map['cartList'] is List =>
+        map['cartList'] as List,
+      Map<Object?, Object?> map when map['list'] is List => map['list'] as List,
+      _ => const <Object?>[],
+    };
+    return rawItems
+        .whereType<Map>()
+        .map((raw) => raw.map((key, value) => MapEntry('$key', value)))
+        .map(_normalizeShopCartItem)
+        .toList(growable: false);
+  }
+
+  Map<String, Object?> _normalizeShopCartItem(Map<String, Object?> item) {
+    final product = item['product'] is Map
+        ? (item['product'] as Map).map(
+            (key, value) => MapEntry<String, Object?>('$key', value),
+          )
+        : const <String, Object?>{};
+    final cartItemId = _shopInt(item['id']);
+    final skuId = _shopInt(item['sku_id']);
+    final productId = _shopInt(item['product_id'] ?? product['id']);
+    return <String, Object?>{
+      ...item,
+      'cart_item_id': ?cartItemId,
+      'sku_id': ?skuId,
+      'product_id': ?productId,
+      'product_name': '${item['product_name'] ?? product['name'] ?? '商品'}',
+      'sku_name': '${item['sku_name'] ?? '默认规格'}',
+      'picture': '${item['product_img'] ?? product['picture'] ?? ''}',
+      'price': item['price'] ?? product['price'] ?? 0,
+      'stock': _shopInt(item['stock'] ?? product['stock']) ?? 999,
+      'quantity': _shopInt(item['number'] ?? item['quantity']) ?? 1,
+    };
+  }
+
+  Future<List<int>> _prepareShopCartCheckout(
+    List<Map<String, int>> items,
+  ) async {
+    final desired = <int, int>{};
+    for (final item in items) {
+      final skuId = item['sku_id'];
+      final quantity = item['num'];
+      if (skuId == null || skuId <= 0 || quantity == null || quantity <= 0) {
+        throw const ApiException('商品规格或数量不正确');
+      }
+      desired[skuId] = quantity;
+    }
+
+    var cart = await getShopCartItems();
+    for (final entry in desired.entries) {
+      Map<String, Object?>? existing;
+      for (final item in cart) {
+        if (_shopInt(item['sku_id']) == entry.key) {
+          existing = item;
+          break;
+        }
+      }
+      if (existing == null) {
+        cart = await addShopCartItem(skuId: entry.key, quantity: entry.value);
+      } else if (_shopInt(existing['quantity'] ?? existing['number']) !=
+          entry.value) {
+        cart = await updateShopCartItemQuantity(
+          skuId: entry.key,
+          quantity: entry.value,
+        );
+      }
+    }
+
+    final cartItemIds = <int>[];
+    for (final skuId in desired.keys) {
+      int? cartItemId;
+      for (final item in cart) {
+        if (_shopInt(item['sku_id']) == skuId) {
+          cartItemId = _shopInt(item['cart_item_id'] ?? item['id']);
+          break;
+        }
+      }
+      if (cartItemId == null) {
+        throw const ApiException('购物车数据同步不完整，请重新加入商品');
+      }
+      cartItemIds.add(cartItemId);
+    }
+    return cartItemIds;
+  }
+
+  @override
   Future<Map<String, Object?>> previewShopOrder({
     required List<Map<String, int>> items,
   }) async {
     if (items.isEmpty) throw const ApiException('请选择要结算的商品');
     if (items.length == 1) return _previewSingleShopOrder(items.single);
-
-    // The deployed shop service only accepts one buy_now item per preview.
-    // Compose the checkout summary from authoritative per-SKU previews so the
-    // cart can still support selecting several products without inventing
-    // prices or shipping costs on the client.
-    final previews = await Future.wait(items.map(_previewSingleShopOrder));
-    final first = previews.first;
-    final products = <Map<String, Object?>>[];
-    var productMoney = 0.0;
-    var shippingMoney = 0.0;
-    for (final preview in previews) {
-      final rawProducts = preview['products'];
-      if (rawProducts is List) {
-        products.addAll(
-          rawProducts.whereType<Map>().map(
-            (item) => item.map(
-              (key, value) => MapEntry<String, Object?>('$key', value),
-            ),
-          ),
-        );
-      }
-      final summary = preview['preview'];
-      if (summary is Map) {
-        productMoney += _shopNumber(summary['product_money']);
-        shippingMoney += _shopNumber(summary['shipping_money']);
-      }
-    }
-    final firstSummary = first['preview'];
-    return <String, Object?>{
-      ...first,
-      'products': products,
-      'preview': <String, Object?>{
-        if (firstSummary is Map)
-          ...firstSummary.map(
-            (key, value) => MapEntry<String, Object?>('$key', value),
-          ),
-        'product_money': productMoney,
-        'shipping_money': shippingMoney,
-      },
-      'multiple_orders': true,
-      'order_count': items.length,
-    };
+    final cartItemIds = await _prepareShopCartCheckout(items);
+    final response = await _authorizedGet(
+      '/api/inv-shop/v1/order/order/preview',
+      {'type': 'cart', 'data': cartItemIds.join(','), 'is_channel': '0'},
+    );
+    return _data(_decode(response));
   }
 
   Future<Map<String, Object?>> _previewSingleShopOrder(
@@ -871,64 +995,27 @@ class SaydianApiClient
         point: point,
       );
     }
-
-    try {
-      final request = <String, Object?>{
-        'address_id': addressId,
-        'buyer_message': buyerMessage.trim(),
-        'items': items,
-        'point': point,
-      };
-      final response = await _authorizedPostJson(
-        '/api/inv-shop/v1/order/order/create-batch',
-        request,
-        headers: {
-          'Idempotency-Key': sha256
-              .convert(utf8.encode(jsonEncode(request)))
-              .toString(),
-        },
-      );
-      return _data(_decode(response));
-    } on ApiException catch (error) {
-      if (!_isOptionalNotificationEndpointUnavailable(error.statusCode)) {
-        rethrow;
-      }
-    }
-
-    // The old service has no multi-product endpoint. Keep its existing
-    // per-SKU behavior only while the compatibility endpoint is unavailable.
-    final orders = <Map<String, Object?>>[];
-    final createdSkuIds = <int>[];
-    ApiException? partialFailure;
-    for (var index = 0; index < items.length; index++) {
-      try {
-        orders.add(
-          await _createSingleShopOrder(
-            item: items[index],
-            addressId: addressId,
-            buyerMessage: buyerMessage,
-            point: index == 0 ? point : 0,
-          ),
-        );
-        final skuId = items[index]['sku_id'];
-        if (skuId != null) createdSkuIds.add(skuId);
-      } on ApiException catch (error) {
-        if (orders.isEmpty) rethrow;
-        partialFailure = error;
-        break;
-      }
-    }
-    final orderIds = orders
-        .map((order) => _shopInt(order['id'] ?? order['order_id']))
-        .whereType<int>()
-        .toList(growable: false);
+    final cartItemIds = await _prepareShopCartCheckout(items);
+    final response =
+        await _authorizedPostJson('/api/inv-shop/v1/order/order/create', {
+          'merchant_id': 0,
+          'is_channel': 0,
+          'address_id': addressId,
+          'buyer_message': buyerMessage.trim(),
+          'data': cartItemIds.join(','),
+          'shipping_type': 1,
+          'type': 'cart',
+          'point': point,
+        });
+    final order = _data(_decode(response));
+    final orderId = _shopInt(order['id'] ?? order['order_id']);
     return <String, Object?>{
-      ...orders.first,
-      'orders': orders,
-      'order_ids': orderIds,
-      'created_sku_ids': createdSkuIds,
-      'multiple_orders': true,
-      if (partialFailure != null) 'partial_failure': partialFailure.message,
+      ...order,
+      if (orderId != null) 'order_ids': <int>[orderId],
+      'created_sku_ids': items
+          .map((item) => item['sku_id'])
+          .whereType<int>()
+          .toList(growable: false),
     };
   }
 
@@ -983,9 +1070,6 @@ class SaydianApiClient
     });
     return _data(_decode(response));
   }
-
-  double _shopNumber(Object? value) =>
-      value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
 
   int? _shopInt(Object? value) =>
       value is num ? value.toInt() : int.tryParse('$value');
@@ -1070,109 +1154,82 @@ class SaydianApiClient
   @override
   Future<HealthWarningSettings?> getHealthWarningSettings() async {
     final response = await _authorizedGet(
-      '/api/saydian-app/v2/health/warning-rules',
+      '/api/v1/member/health-warning/preview',
     );
-    final rules = _list(_decode(response));
-    if (rules.isEmpty) return null;
-    Map<String, Object?>? rule(String metric) {
-      for (final item in rules) {
-        if ('${item['metric'] ?? ''}' == metric) return item;
-      }
-      return null;
-    }
-
+    final data = _data(_decode(response));
+    const supportedKeys = <String>{
+      'heart_auto',
+      'heart_num',
+      'blood_pressure_auto',
+      'blood_glucose_auto',
+      'body_temperature_auto',
+    };
+    if (!data.keys.any(supportedKeys.contains)) return null;
     final defaults = const HealthWarningSettings();
-    final heartRate = rule('heart_rate');
-    final bloodPressure = rule('blood_pressure');
-    final temperature = rule('temperature');
+    final heartRateUpper = _healthWarningNumber(data['heart_num'])?.toInt();
+    _bloodGlucoseWarningEnabled = _healthWarningFlag(
+      data['blood_glucose_auto'],
+    );
     return HealthWarningSettings(
-      heartRateEnabled: _booleanOrDefault(
-        heartRate?['enabled'],
-        defaults.heartRateEnabled,
-      ),
+      heartRateEnabled:
+          _healthWarningFlag(data['heart_auto']) ?? defaults.heartRateEnabled,
       heartRateUpper:
-          (heartRate?['highThreshold'] as num?)?.toInt() ??
-          defaults.heartRateUpper,
-      bloodPressureEnabled: _booleanOrDefault(
-        bloodPressure?['enabled'],
-        defaults.bloodPressureEnabled,
-      ),
-      systolicUpper:
-          (bloodPressure?['highThreshold'] as num?)?.toInt() ??
-          defaults.systolicUpper,
-      diastolicUpper:
-          (bloodPressure?['secondaryHighThreshold'] as num?)?.toInt() ??
-          defaults.diastolicUpper,
-      temperatureEnabled: _booleanOrDefault(
-        temperature?['enabled'],
-        defaults.temperatureEnabled,
-      ),
-      temperatureUpper:
-          (temperature?['highThreshold'] as num?)?.toDouble() ??
-          defaults.temperatureUpper,
+          heartRateUpper != null &&
+              heartRateUpper >= 20 &&
+              heartRateUpper <= 300
+          ? heartRateUpper
+          : defaults.heartRateUpper,
+      bloodPressureEnabled:
+          _healthWarningFlag(data['blood_pressure_auto']) ??
+          defaults.bloodPressureEnabled,
+      systolicUpper: defaults.systolicUpper,
+      diastolicUpper: defaults.diastolicUpper,
+      temperatureEnabled:
+          _healthWarningFlag(data['body_temperature_auto']) ??
+          defaults.temperatureEnabled,
+      temperatureUpper: defaults.temperatureUpper,
     );
   }
 
+  bool? _healthWarningFlag(Object? value) => switch (value) {
+    bool enabled => enabled,
+    num enabled => enabled != 0,
+    String enabled => switch (enabled.trim().toLowerCase()) {
+      '1' || 'true' || 'on' || 'yes' || 'start' => true,
+      '0' || 'false' || 'off' || 'no' || 'stop' || '' => false,
+      _ => null,
+    },
+    _ => null,
+  };
+
+  num? _healthWarningNumber(Object? value) => switch (value) {
+    num number when number.isFinite => number,
+    String number => num.tryParse(number.trim()),
+    _ => null,
+  };
+
   @override
   Future<void> saveHealthWarningSettings(HealthWarningSettings settings) async {
-    final response = await _authorizedPostJson(
-      '/api/saydian-app/v2/health/warning-rules',
+    if (_bloodGlucoseWarningEnabled == null) {
+      await getHealthWarningSettings();
+    }
+    final response = await _authorizedPostFields(
+      '/api/v1/member/health-warning',
       {
-        'rules': [
-          {
-            'metric': 'heart_rate',
-            'enabled': settings.heartRateEnabled,
-            'highThreshold': settings.heartRateUpper,
-          },
-          {
-            'metric': 'blood_pressure',
-            'enabled': settings.bloodPressureEnabled,
-            'highThreshold': settings.systolicUpper,
-            'secondaryHighThreshold': settings.diastolicUpper,
-          },
-          {
-            'metric': 'temperature',
-            'enabled': settings.temperatureEnabled,
-            'highThreshold': settings.temperatureUpper,
-          },
-        ],
+        'heart_auto': settings.heartRateEnabled ? '1' : '0',
+        'heart_num': '${settings.heartRateUpper}',
+        'blood_pressure_auto': settings.bloodPressureEnabled ? '1' : '0',
+        // Blood glucose is not exposed by the current product UI. Preserve the
+        // last server value instead of silently disabling an existing rule.
+        'blood_glucose_auto': _bloodGlucoseWarningEnabled == true ? '1' : '0',
+        'body_temperature_auto': settings.temperatureEnabled ? '1' : '0',
       },
     );
     _decode(response);
   }
 
   @override
-  Future<List<HealthWarningAlert>> getHealthWarningAlerts() async {
-    final response = await _authorizedGet(
-      '/api/saydian-app/v2/health/warnings',
-      {'limit': '100'},
-    );
-    final data = _data(_decode(response));
-    final items = data['items'] is List ? data['items'] as List : const [];
-    return items
-        .whereType<Map>()
-        .map((raw) {
-          final item = raw.map((key, value) => MapEntry('$key', value));
-          final metricWire = '${item['metric'] ?? ''}';
-          final metric = HealthMetric.fromWire(
-            metricWire == 'temperature' ? 'body_temperature' : metricWire,
-          );
-          final rule = item['rule'] is Map ? item['rule'] as Map : const {};
-          final direction = '${rule['direction'] ?? ''}' == 'low' ? '低于' : '超过';
-          return HealthWarningAlert(
-            id: '${item['eventId'] ?? ''}',
-            metric: metric,
-            title: '${metric.label}提醒',
-            message: '该记录$direction你设置的提醒值，请留意近期变化。',
-            triggeredAt:
-                DateTime.tryParse('${item['observedAt'] ?? ''}')?.toLocal() ??
-                DateTime.fromMillisecondsSinceEpoch(0),
-            origin: MeasurementOrigin.unknown,
-          );
-        })
-        .where((alert) => alert.id.isNotEmpty)
-        .toList(growable: false);
-  }
+  Future<List<HealthWarningAlert>> getHealthWarningAlerts() async => const [];
 
   @override
   Future<String> submitFeedback({
@@ -1180,12 +1237,11 @@ class SaydianApiClient
     required String content,
     String contact = '',
   }) async {
-    final response =
-        await _authorizedPostJson('/api/saydian-app/v2/support/feedback', {
-          'category': category.trim(),
-          'content': content.trim(),
-          if (contact.trim().isNotEmpty) 'contact': contact.trim(),
-        });
+    final response = await _authorizedPostFields('/api/v1/member/feedback', {
+      'type': category.trim(),
+      'content': content.trim(),
+      'contact': contact.trim(),
+    });
     final data = _data(_decode(response));
     final id = '${data['id'] ?? ''}'.trim();
     if (id.isEmpty) throw const ApiException('反馈提交结果不完整，请稍后重试');
@@ -1193,144 +1249,8 @@ class SaydianApiClient
   }
 
   @override
-  Future<BatchUploadResult> uploadHealthBatch(SyncBatch batch) async {
-    try {
-      return await _uploadHealthBatchV2(batch);
-    } on ApiException catch (error) {
-      if (!_isOptionalNotificationEndpointUnavailable(error.statusCode)) {
-        rethrow;
-      }
-      return _uploadMiniProgramHealthRecords(batch);
-    }
-  }
-
-  Future<BatchUploadResult> _uploadHealthBatchV2(SyncBatch batch) async {
-    if (batch.records.isEmpty) {
-      return BatchUploadResult(
-        acceptedIds: const {},
-        rejected: const {},
-        nextCursor: batch.cursor,
-      );
-    }
-    if (batch.records.length > 200) {
-      throw const ApiException('每次最多同步 200 条健康记录');
-    }
-    final records = <Map<String, Object?>>[];
-    for (final record in batch.records) {
-      Map<String, Object?>? ecgArtifact;
-      if (record.metric == HealthMetric.ecg && record.samples.isNotEmpty) {
-        ecgArtifact = await _uploadEcgArtifactV2(record);
-      }
-      records.add(_healthRecordV2(record, ecgArtifact: ecgArtifact));
-    }
-    final body = <String, Object?>{
-      if (batch.cursor != null) 'cursor': batch.cursor,
-      'records': records,
-    };
-    final idempotencyKey = sha256
-        .convert(utf8.encode(jsonEncode(body)))
-        .toString();
-    final response = await _authorizedPostJson(
-      '/api/saydian-app/v2/health/records/batch',
-      body,
-      headers: {'Idempotency-Key': idempotencyKey},
-    );
-    final data = _data(_decode(response));
-    final accepted = (data['acceptedIds'] as List? ?? const [])
-        .map((value) => '$value')
-        .where((value) => value.isNotEmpty)
-        .toSet();
-    final rejected = <String, String>{};
-    for (final item in (data['rejected'] as List? ?? const [])) {
-      if (item is! Map) continue;
-      final id = '${item['id'] ?? ''}'.trim();
-      if (id.isEmpty) continue;
-      rejected[id] = '${item['message'] ?? '健康数据同步失败，请稍后重试'}';
-    }
-    return BatchUploadResult(
-      acceptedIds: accepted,
-      rejected: rejected,
-      nextCursor: data['nextCursor']?.toString(),
-    );
-  }
-
-  Map<String, Object?> _healthRecordV2(
-    HealthRecord record, {
-    Map<String, Object?>? ecgArtifact,
-  }) {
-    final quality = switch (record.quality.toLowerCase()) {
-      'good' || 'valid' => 'valid',
-      'poor' || 'suspect' => 'suspect',
-      'invalid' => 'invalid',
-      _ => 'unknown',
-    };
-    return <String, Object?>{
-      'id': record.id,
-      'metric': record.metric == HealthMetric.bodyTemperature
-          ? 'temperature'
-          : record.metric.wireName,
-      'observedAt': record.measuredAt.toUtc().toIso8601String(),
-      'timezoneOffsetMinutes': _timezoneOffsetMinutes(record),
-      'values': record.values,
-      if (record.unit.trim().isNotEmpty) 'unit': record.unit,
-      'quality': quality,
-      'source': <String, Object?>{
-        'platform': defaultTargetPlatform == TargetPlatform.iOS
-            ? 'ios'
-            : 'android',
-        if (record.deviceId.trim().isNotEmpty) 'deviceId': record.deviceId,
-        if (record.firmwareVersion.trim().isNotEmpty)
-          'firmware': record.firmwareVersion,
-      },
-      'ecgArtifact': ?ecgArtifact,
-    };
-  }
-
-  int _timezoneOffsetMinutes(HealthRecord record) {
-    final match = RegExp(
-      r'^([+-])(\d{2}):(\d{2})$',
-    ).firstMatch(record.timezone.trim());
-    if (match == null) {
-      return record.measuredAt.toLocal().timeZoneOffset.inMinutes;
-    }
-    final minutes =
-        int.parse(match.group(2)!) * 60 + int.parse(match.group(3)!);
-    return match.group(1) == '-' ? -minutes : minutes;
-  }
-
-  bool _booleanOrDefault(Object? value, bool fallback) {
-    return value is bool ? value : fallback;
-  }
-
-  Future<Map<String, Object?>> _uploadEcgArtifactV2(HealthRecord record) async {
-    final bytes = gzip.encode(utf8.encode(jsonEncode(record.samples)));
-    final digest = sha256.convert(bytes).toString();
-    final response = await _withAuthorizationRetry((session) {
-      final request =
-          http.MultipartRequest('POST', _uri('/api/saydian-app/v2/files/ecg'))
-            ..headers.addAll(_authorizationHeaders(session))
-            ..fields['sha256'] = digest
-            ..files.add(
-              http.MultipartFile.fromBytes(
-                'file',
-                bytes,
-                filename: '${record.id}.json.gz',
-              ),
-            );
-      return _sendMultipart(request);
-    });
-    final data = _data(_decode(response));
-    final objectKey = '${data['uploadObjectKey'] ?? ''}'.trim();
-    if (objectKey.isEmpty) {
-      throw const ApiException('心电数据上传结果不完整，请稍后重试');
-    }
-    return <String, Object?>{
-      'sampleRateHz': (record.values['sampleFrequency'] ?? 250).toInt(),
-      'sampleCount': record.samples.length,
-      'sha256': digest,
-      'uploadObjectKey': objectKey,
-    };
-  }
+  Future<BatchUploadResult> uploadHealthBatch(SyncBatch batch) =>
+      _uploadMiniProgramHealthRecords(batch);
 
   Future<BatchUploadResult> _uploadMiniProgramHealthRecords(
     SyncBatch batch,
@@ -1747,17 +1667,13 @@ class SaydianApiClient
     if (directCount != null) return directCount;
     if (data is! Map<Object?, Object?>) return null;
 
-    final hasAnnounceCount = data.containsKey('announce_count');
     final hasRemindCount = data.containsKey('remind_count');
-    if (!hasAnnounceCount && !hasRemindCount) return null;
-    final announceCount = hasAnnounceCount
-        ? _notificationCountValue(data['announce_count'])
-        : 0;
-    final remindCount = hasRemindCount
-        ? _notificationCountValue(data['remind_count'])
-        : 0;
-    if (announceCount == null || remindCount == null) return null;
-    return announceCount + remindCount;
+    if (hasRemindCount) {
+      return _notificationCountValue(data['remind_count']);
+    }
+    // announce_count belongs to the announcement tab and must not inflate the
+    // member notification badge.
+    return data.containsKey('announce_count') ? 0 : null;
   }
 
   int? _notificationCountValue(Object? value) => switch (value) {
