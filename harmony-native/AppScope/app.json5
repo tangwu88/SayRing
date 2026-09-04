@@ -1,0 +1,11 @@
+{
+  "app": {
+    "bundleName": "cc.saidian.saydian.harmony.dev",
+    "vendor": "SAYDIAN",
+    "versionCode": 3,
+    "versionName": "0.1.2",
+    "configuration": "$profile:configuration",
+    "icon": "$media:app_icon",
+    "label": "$string:app_name"
+  }
+}

@@ -1,0 +1,12 @@
+.hvigor/
+oh_modules/
+**/oh_modules/
+**/build/
+local.properties
+*.p12
+*.p7b
+*.cer
+*.pem
+*.log
+.DS_Store
+.idea/

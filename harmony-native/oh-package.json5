@@ -1,0 +1,8 @@
+{
+  "modelVersion": "6.0.0",
+  "name": "saydian-harmony-native",
+  "version": "1.0.0",
+  "description": "赛电原生鸿蒙首版：登录与首页。",
+  "dependencies": {},
+  "devDependencies": {}
+}
