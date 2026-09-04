@@ -179,6 +179,57 @@ void main() {
     expect(find.text('退出体验'), findsOneWidget);
   });
 
+  testWidgets('profile editor loads server values before saving', (
+    tester,
+  ) async {
+    final api = _ProfileApi();
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            api,
+            MemoryHealthStore(),
+            _NoopWearable(),
+          )
+          ..session = Session(
+            accessToken: 'profile-token',
+            refreshToken: 'profile-refresh',
+            expiresAt: DateTime(2030),
+            memberId: '82',
+            displayName: '旧昵称',
+          )
+          ..memberProfile = const {};
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: ProfileEditPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    TextField field(Key key) => tester.widget<TextField>(find.byKey(key));
+    expect(field(const Key('profile-nickname')).controller?.text, '服务端昵称');
+    expect(field(const Key('profile-birthday')).controller?.text, '1990-01-02');
+    expect(field(const Key('profile-height')).controller?.text, '168');
+    expect(field(const Key('profile-weight')).controller?.text, '62');
+
+    await tester.enterText(find.byKey(const Key('profile-nickname')), '保存后的昵称');
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('profile-save')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    final saveButton = tester.widget<FilledButton>(
+      find.byKey(const Key('profile-save')),
+    );
+    expect(saveButton.onPressed, isNotNull);
+    saveButton.onPressed!();
+    await tester.pumpAndSettle();
+
+    expect(api.savedNickname, '保存后的昵称');
+  });
+
   testWidgets('health alarm is visible above every app page until dismissed', (
     tester,
   ) async {
@@ -301,6 +352,31 @@ class _NoopApi implements SaydianApi {
   @override
   Future<BatchUploadResult> uploadHealthBatch(SyncBatch batch) =>
       throw UnimplementedError();
+}
+
+class _ProfileApi extends _NoopApi {
+  String? savedNickname;
+
+  @override
+  Future<Map<String, Object?>> getMemberProfile() async => const {
+    'nickname': '服务端昵称',
+    'birthday': '1990-01-02',
+    'height': '168',
+    'weight': '62',
+    'gender': '2',
+  };
+
+  @override
+  Future<void> saveMemberProfile({
+    required String nickname,
+    required int gender,
+    required String birthday,
+    required double height,
+    required double weight,
+    String? headPortrait,
+  }) async {
+    savedNickname = nickname;
+  }
 }
 
 class _NoopWearable implements WearableBridge {

@@ -546,6 +546,7 @@ class AppController extends ChangeNotifier {
     notifyListeners();
     unawaited(refreshAiArticles());
     if (session != null) {
+      unawaited(refreshHealthWarningCloudState());
       unawaited(refreshCare());
       unawaited(refreshCareInvitations());
       unawaited(_registerPushDevice(resetBackoff: true));
@@ -582,6 +583,7 @@ class AppController extends ChangeNotifier {
         await _refreshRemoteNotificationUnreadCount();
         await refreshMemberProfile();
         await refreshActivityGoals();
+        unawaited(refreshHealthWarningCloudState());
         _careInvitationPollBackoffIndex = 0;
         _scheduleCareInvitationPoll(const Duration(seconds: 30));
       } finally {
@@ -1380,6 +1382,19 @@ class AppController extends ChangeNotifier {
       return false;
     }
     try {
+      final api = _api;
+      if (api is SaydianHealthCloudApi && session != null) {
+        try {
+          await (api as SaydianHealthCloudApi).saveHealthWarningSettings(
+            settings,
+          );
+        } on FeatureNotConfiguredException {
+          // The old service has no cloud rules. Preserve local reminders until
+          // the new compatibility service is switched on.
+        } on ApiException catch (error) {
+          if (error.statusCode != 404 && error.statusCode != 405) rethrow;
+        }
+      }
       await _vault.writeHealthWarningSettings(settings);
       healthWarningSettings = settings;
       errorMessage = null;
@@ -1389,6 +1404,87 @@ class AppController extends ChangeNotifier {
       errorMessage = '健康预警设置保存失败，请稍后重试';
       notifyListeners();
       return false;
+    }
+  }
+
+  Future<void> refreshHealthWarningCloudState() async {
+    final api = _api;
+    if (api is! SaydianHealthCloudApi || session == null) return;
+    final expectedGeneration = _sessionGeneration;
+    try {
+      final cloudApi = api as SaydianHealthCloudApi;
+      final results = await Future.wait<Object?>([
+        cloudApi.getHealthWarningSettings(),
+        cloudApi.getHealthWarningAlerts(),
+      ]);
+      if (_disposed ||
+          session == null ||
+          expectedGeneration != _sessionGeneration) {
+        return;
+      }
+      final settings = results[0];
+      if (settings is HealthWarningSettings) {
+        // The deployed endpoint stores switches plus the heart-rate threshold.
+        // Blood-pressure and temperature thresholds remain local App settings.
+        final mergedSettings = HealthWarningSettings(
+          heartRateEnabled: settings.heartRateEnabled,
+          heartRateUpper: settings.heartRateUpper,
+          bloodPressureEnabled: settings.bloodPressureEnabled,
+          systolicUpper: healthWarningSettings.systolicUpper,
+          diastolicUpper: healthWarningSettings.diastolicUpper,
+          temperatureEnabled: settings.temperatureEnabled,
+          temperatureUpper: healthWarningSettings.temperatureUpper,
+        );
+        healthWarningSettings = mergedSettings;
+        await _vault.writeHealthWarningSettings(mergedSettings);
+      }
+      final remoteAlerts = results[1] as List<HealthWarningAlert>;
+      final merged = <String, HealthWarningAlert>{
+        for (final alert in healthWarningAlerts) alert.id: alert,
+        for (final alert in remoteAlerts) alert.id: alert,
+      };
+      healthWarningAlerts = merged.values.toList()
+        ..sort((left, right) => right.triggeredAt.compareTo(left.triggeredAt));
+      notifyListeners();
+    } on ApiException catch (error) {
+      if (error.statusCode == 404 || error.statusCode == 405) return;
+      // Background refresh failure must not hide already available local
+      // warnings or block the rest of app startup.
+    }
+  }
+
+  Future<bool> submitFeedback({
+    required String category,
+    required String content,
+    String contact = '',
+  }) async {
+    if (session == null) {
+      errorMessage = '请先登录后提交反馈';
+      notifyListeners();
+      return false;
+    }
+    final api = _api;
+    if (api is! SaydianFeedbackApi) {
+      errorMessage = '此功能暂时无法使用，请稍后再试';
+      notifyListeners();
+      return false;
+    }
+    isBusy = true;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      await (api as SaydianFeedbackApi).submitFeedback(
+        category: category,
+        content: content,
+        contact: contact,
+      );
+      return true;
+    } on ApiException catch (error) {
+      errorMessage = _apiErrorMessage(error, fallback: '反馈提交失败，请稍后重试');
+      return false;
+    } finally {
+      isBusy = false;
+      notifyListeners();
     }
   }
 
@@ -3416,6 +3512,16 @@ class AppController extends ChangeNotifier {
     if (skuId == null || productId == null || quantity <= 0) {
       throw const ApiException('商品规格信息不完整');
     }
+    final api = _api;
+    if (session != null && api is SaydianShopCartApi) {
+      shopCart = await (api as SaydianShopCartApi).addShopCartItem(
+        skuId: skuId,
+        quantity: quantity,
+      );
+      await _vault.writeShopCart(shopCart);
+      notifyListeners();
+      return;
+    }
     final next = shopCart
         .map((item) => Map<String, Object?>.from(item))
         .toList();
@@ -3447,6 +3553,28 @@ class AppController extends ChangeNotifier {
         .toList();
     final index = next.indexWhere((item) => _cartInt(item['sku_id']) == skuId);
     if (index < 0) return;
+    final api = _api;
+    if (session != null && api is SaydianShopCartApi) {
+      try {
+        if (quantity <= 0) {
+          shopCart = await (api as SaydianShopCartApi).deleteShopCartItems([
+            skuId,
+          ]);
+        } else {
+          final stock = _cartInt(next[index]['stock']) ?? quantity;
+          final normalized = quantity.clamp(1, stock < 1 ? 1 : stock);
+          shopCart = await (api as SaydianShopCartApi)
+              .updateShopCartItemQuantity(skuId: skuId, quantity: normalized);
+        }
+        await _vault.writeShopCart(shopCart);
+        notifyListeners();
+        return;
+      } on ApiException catch (error) {
+        errorMessage = _apiErrorMessage(error, fallback: '购物车更新失败，请稍后重试');
+        notifyListeners();
+        return;
+      }
+    }
     if (quantity <= 0) {
       next.removeAt(index);
     } else {
@@ -3459,20 +3587,51 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> clearShopCart() async {
-    shopCart = const [];
-    await _vault.writeShopCart(shopCart);
-    notifyListeners();
+    final skuIds = shopCart
+        .map((item) => _cartInt(item['sku_id']))
+        .whereType<int>()
+        .toSet();
+    await removeShopCartItems(skuIds);
   }
 
   Future<void> removeShopCartItems(Iterable<int> skuIds) async {
     final selected = skuIds.toSet();
     if (selected.isEmpty) return;
+    final api = _api;
+    if (session != null && api is SaydianShopCartApi) {
+      try {
+        shopCart = await (api as SaydianShopCartApi).deleteShopCartItems(
+          selected,
+        );
+        await _vault.writeShopCart(shopCart);
+        notifyListeners();
+        return;
+      } on ApiException catch (error) {
+        // An order created from the server cart consumes its rows. Keep the
+        // successful order flow usable even if the follow-up delete reports
+        // that those rows no longer exist.
+        errorMessage = _apiErrorMessage(error, fallback: '购物车同步失败，请稍后刷新');
+      }
+    }
     shopCart = shopCart
         .where((item) => !selected.contains(_cartInt(item['sku_id'])))
         .map((item) => Map<String, Object?>.from(item))
         .toList(growable: false);
     await _vault.writeShopCart(shopCart);
     notifyListeners();
+  }
+
+  Future<void> refreshShopCart() async {
+    final api = _api;
+    if (session == null || api is! SaydianShopCartApi) return;
+    try {
+      shopCart = await (api as SaydianShopCartApi).getShopCartItems();
+      await _vault.writeShopCart(shopCart);
+      notifyListeners();
+    } on ApiException {
+      // Preserve the cached cart while offline; checkout will surface a
+      // concrete server error if the user continues.
+    }
   }
 
   Future<Map<String, Object?>> loadShopAddress(int id) =>
@@ -3772,6 +3931,16 @@ class AppController extends ChangeNotifier {
       // scan connection with the authenticated connection. The pending
       // connect future remains authoritative and will report a real failure.
       if (deviceState == DeviceConnectionState.connecting) return;
+      final activeDeviceId = connectedDevice?.id.trim() ?? '';
+      final eventDeviceId = '${event.payload['deviceId'] ?? ''}'.trim();
+      // A delayed disconnect from a previous watch must not clear a newer
+      // active session. Native transports include deviceId whenever the
+      // callback can be attributed to a specific device.
+      if (activeDeviceId.isNotEmpty &&
+          eventDeviceId.isNotEmpty &&
+          activeDeviceId.toLowerCase() != eventDeviceId.toLowerCase()) {
+        return;
+      }
       _invalidateDeviceSync();
       connectedDevice = null;
       _connectedDeviceSessionGeneration = null;

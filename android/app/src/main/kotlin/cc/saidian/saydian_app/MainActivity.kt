@@ -708,6 +708,8 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private var healthSyncTimeoutTask: Runnable? = null
     private var connectStatusListener: IABleConnectStatusListener? = null
     private var connectStatusAddress = ""
+    private val disconnectGate = VeepooDisconnectGate()
+    private var disconnectConfirmationTask: Runnable? = null
     private var connectingDeviceId = ""
     private var eventListener: ((Map<String, Any?>) -> Unit)? = null
     private var connectedDeviceId = ""
@@ -1006,6 +1008,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         deviceId: String,
         callback: ResultCallback<Unit>,
     ): Int {
+        cancelPendingDisconnectConfirmation()
         cancelActiveHealthSync(
             "HEALTH_SYNC_CANCELLED",
             "连接设备已切换，历史数据同步已取消",
@@ -8729,6 +8732,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         if (connectionGeneration != generation) return@post
                         val activeCallback = activeConnectionFor(generation)
                         if (status == Constants.STATUS_CONNECTED) {
+                            cancelPendingDisconnectConfirmation()
                             // Low-level GATT may connect briefly while the SDK
                             // is still retrying service discovery. Only the
                             // official connect/notify callbacks advance stage.
@@ -8750,17 +8754,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             return@post
                         }
                         if (connectedDeviceId.equals(address, ignoreCase = true)) {
-                            cancelActiveHealthSync(
-                                "HEALTH_SYNC_CANCELLED",
-                                "设备连接已断开，历史数据同步已取消",
-                                emitError = false,
-                            )
-                            connectingDeviceId = ""
-                            connectedDeviceId = ""
-                            resetBatterySession()
-                            clearMeasurementSessionState()
-                            releaseJLWatchFaceSession()
-                            emit("disconnected", mapOf("deviceId" to mac))
+                            scheduleDisconnectConfirmation(address, generation, mac)
                         }
                     }
                 }
@@ -8770,7 +8764,49 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         manager.registerConnectStatusListener(address, listener)
     }
 
+    private fun scheduleDisconnectConfirmation(
+        address: String,
+        generation: Int,
+        reportedAddress: String,
+    ) {
+        val candidate = disconnectGate.begin(generation, address) ?: return
+        lateinit var task: Runnable
+        task =
+            Runnable {
+                if (disconnectConfirmationTask === task) disconnectConfirmationTask = null
+                if (!disconnectGate.claim(candidate, connectionGeneration, connectedDeviceId)) {
+                    return@Runnable
+                }
+                val currentAddress = VPOperateManager.getCurrentDeviceAddress().orEmpty()
+                val sdkStillConnected =
+                    runCatching {
+                        manager.isDeviceConnected(address) ||
+                            (currentAddress.equals(address, ignoreCase = true) &&
+                                manager.isDeviceConnected(currentAddress))
+                    }.getOrDefault(false)
+                if (sdkStillConnected) {
+                    Log.i(LOG_TAG, "Ignored transient disconnect for $address")
+                    return@Runnable
+                }
+                Log.i(LOG_TAG, "Confirmed disconnect for $address")
+                clearStaleConnection(reportedAddress.ifBlank { address })
+            }
+        disconnectConfirmationTask = task
+        Log.i(
+            LOG_TAG,
+            "Waiting to confirm disconnect for $address sync=${isHealthSyncInFlight()}",
+        )
+        connectionHandler.postDelayed(task, DISCONNECT_CONFIRMATION_MS)
+    }
+
+    private fun cancelPendingDisconnectConfirmation() {
+        disconnectConfirmationTask?.let(connectionHandler::removeCallbacks)
+        disconnectConfirmationTask = null
+        disconnectGate.reset()
+    }
+
     private fun unregisterConnectStatusListener() {
+        cancelPendingDisconnectConfirmation()
         val address = connectStatusAddress
         val listener = connectStatusListener
         connectStatusAddress = ""
@@ -9039,6 +9075,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         private val FIRMWARE_VERSION_PATTERN = Regex("^[0-9A-Fa-f]{2}(\\.[0-9A-Fa-f]{2}){2}$")
         private const val PERSON_SYNC_TIMEOUT_MS = 8_000L
         private const val CONNECTION_FLOW_TIMEOUT_MS = 180_000L
+        private const val DISCONNECT_CONFIRMATION_MS = 2_500L
         private const val HEALTH_SYNC_IDLE_TIMEOUT_MS = 45_000L
         private const val ECG_HISTORY_SYNC_TIMEOUT_MS = 180_000L
         private const val SPORT_HISTORY_TIMEOUT_MS = 60_000L

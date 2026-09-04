@@ -460,35 +460,40 @@ void main() {
           case 1:
             expect(request.method, 'POST');
             expect(request.url.path, '/api/v1/member/push-devices');
-            expect(jsonDecode(request.body), {
-              'installation_id': 'installation-test',
-              'platform': 'ios',
-              'provider': 'jpush',
-              'registration_id': 'redacted-registration-id',
-              'app_version': 'test-version',
-              'build': 23,
-            });
+            expect(
+              request.headers['content-type'],
+              startsWith('multipart/form-data;'),
+            );
+            expect(request.body, contains('name="installation_id"'));
+            expect(request.body, contains('\r\n\r\ninstallation-test\r\n'));
+            expect(request.body, contains('name="registration_id"'));
+            expect(
+              request.body,
+              contains('\r\n\r\nredacted-registration-id\r\n'),
+            );
+            expect(request.body, contains('name="platform"'));
+            expect(request.body, contains('\r\n\r\nios\r\n'));
+            expect(request.body, contains('name="version"'));
+            expect(request.body, contains('\r\n\r\ntest-version\r\n'));
             return http.Response('{"code":200,"data":{}}', 200);
           case 2:
             expect(request.method, 'GET');
-            expect(request.url.path, '/api/v1/member/notify/unread-count');
+            expect(request.url.path, '/api/v1/member/notify/statistics');
             return http.Response(
-              '{"code":200,"data":{"unread_count":"3"}}',
+              '{"code":200,"data":{"announce_count":"2","remind_count":1}}',
               200,
             );
           case 3:
-            expect(request.method, 'POST');
-            expect(request.url.path, '/api/v1/member/notify/19/read');
-            expect(jsonDecode(request.body), isEmpty);
-            return http.Response('', 204);
+            expect(request.method, 'GET');
+            expect(request.url.path, '/api/v1/member/notify/19');
+            return http.Response('{"code":200,"data":{"id":19}}', 200);
           case 4:
-            expect(request.method, 'POST');
-            expect(
-              request.url.path,
-              '/api/v1/member/notify/server-event-19/read',
+            expect(request.method, 'GET');
+            expect(request.url.path, '/api/v1/member/notify/server-event-19');
+            return http.Response(
+              '{"code":200,"data":{"id":"server-event-19"}}',
+              200,
             );
-            expect(jsonDecode(request.body), isEmpty);
-            return http.Response('', 204);
           case 5:
             expect(request.method, 'DELETE');
             expect(
@@ -516,7 +521,7 @@ void main() {
         ),
         isTrue,
       );
-      expect(await api.getNotificationUnreadCount(), 3);
+      expect(await api.getNotificationUnreadCount(), 1);
       expect(await api.markNotificationRead(id: 19), isTrue);
       expect(
         await api.markNotificationEventRead(eventId: 'server-event-19'),
@@ -530,24 +535,72 @@ void main() {
     },
   );
 
+  test('notification inbox requests type 2 instead of announcements', () async {
+    final client = MockClient((request) async {
+      expect(request.method, 'GET');
+      expect(request.url.path, '/api/v1/member/notify');
+      expect(request.url.queryParameters, {'page': '3', 'type': '2'});
+      return http.Response('{"code":200,"data":[{"id":8,"type":2}]}', 200);
+    });
+    final api = SaydianApiClient(
+      _authenticatedVault(),
+      client: client,
+      baseUri: Uri.parse('https://example.invalid'),
+    );
+
+    final notifications = await api.getNotifications(page: 3);
+    expect(notifications.single['type'], 2);
+  });
+
   test('optional notification endpoints tolerate 404 and 405', () async {
     var requestIndex = 0;
     final client = MockClient((request) async {
       requestIndex += 1;
-      return switch (requestIndex) {
-        1 => http.Response('not found', 404),
-        2 => http.Response(
-          '{"code":405,"message":"not available","data":{}}',
-          200,
-        ),
-        3 => http.Response('', 405),
-        4 => http.Response(
-          '{"code":"404","message":"not available","data":{}}',
-          200,
-        ),
-        5 => http.Response('', 404),
-        _ => throw StateError('unexpected request'),
-      };
+      switch (requestIndex) {
+        case 1:
+          expect(request.url.path, '/api/v1/member/push-devices');
+          return http.Response('not found', 404);
+        case 2:
+          expect(request.url.path, '/api/v1/member/notify/statistics');
+          return http.Response(
+            '{"code":405,"message":"not available","data":{}}',
+            200,
+          );
+        case 3:
+          expect(request.url.path, '/api/v1/member/notify/unread-count');
+          return http.Response('', 404);
+        case 4:
+          expect(request.method, 'GET');
+          expect(request.url.path, '/api/v1/member/notify/19');
+          return http.Response('', 405);
+        case 5:
+          expect(request.method, 'POST');
+          expect(request.url.path, '/api/v1/member/notify/19/read');
+          return http.Response(
+            '{"code":"404","message":"not available","data":{}}',
+            200,
+          );
+        case 6:
+          expect(request.method, 'GET');
+          expect(request.url.path, '/api/v1/member/notify/server-event-19');
+          return http.Response('', 404);
+        case 7:
+          expect(request.method, 'POST');
+          expect(
+            request.url.path,
+            '/api/v1/member/notify/server-event-19/read',
+          );
+          return http.Response('', 405);
+        case 8:
+          expect(request.method, 'DELETE');
+          expect(
+            request.url.path,
+            '/api/v1/member/push-devices/installation-test',
+          );
+          return http.Response('', 404);
+        default:
+          throw StateError('unexpected request');
+      }
     });
     final api = SaydianApiClient(
       _authenticatedVault(),
@@ -573,6 +626,7 @@ void main() {
       await api.unregisterPushDevice(installationId: 'installation-test'),
       isFalse,
     );
+    expect(requestIndex, 8);
   });
 
   test('push registration validates metadata before sending secrets', () async {
@@ -820,6 +874,116 @@ void main() {
     },
   );
 
+  test(
+    'health upload sends temperature through the deployed daily route',
+    () async {
+      final client = MockClient((request) async {
+        expect(request.method, 'POST');
+        expect(request.url.path, '/api/v1/member/daily-date');
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final daily =
+            (body['dailyDate'] as List).single as Map<String, dynamic>;
+        expect(daily['bodyTemperature'], {'bodyTemperature': 36.6});
+        return http.Response('{"code":200,"message":"ok","data":{}}', 200);
+      });
+      final api = SaydianApiClient(
+        _authenticatedVault(),
+        client: client,
+        baseUri: Uri.parse('https://example.invalid'),
+      );
+      final result = await api.uploadHealthBatch(
+        SyncBatch(
+          cursor: null,
+          records: [
+            HealthRecord(
+              id: 'temperature',
+              metric: HealthMetric.bodyTemperature,
+              values: const {'value': 36.6},
+              unit: '℃',
+              measuredAt: DateTime.utc(2026, 9, 2, 8),
+              timezone: '+08:00',
+              deviceId: 'W9S',
+              firmwareVersion: '1.0.0',
+              quality: 'good',
+              source: MeasurementSource.wearable,
+              rawVersion: 1,
+            ),
+          ],
+        ),
+      );
+      expect(result.acceptedIds, {'temperature'});
+      expect(result.nextCursor, isNull);
+    },
+  );
+
+  test(
+    'health warning and feedback use deployed mini-program contracts',
+    () async {
+      var step = 0;
+      final client = MockClient((request) async {
+        step++;
+        expect(request.headers['authorization'], 'Bearer test-access-token');
+        switch (step) {
+          case 1:
+            expect(request.method, 'GET');
+            expect(request.url.path, '/api/v1/member/health-warning/preview');
+            return http.Response(
+              '{"code":200,"message":"ok","data":{"heart_auto":"0","heart_num":"130.00","blood_pressure_auto":1,"blood_glucose_auto":"1","body_temperature_auto":"1"}}',
+              200,
+            );
+          case 2:
+            expect(request.method, 'POST');
+            expect(request.url.path, '/api/v1/member/health-warning');
+            expect(
+              request.headers['content-type'],
+              startsWith('multipart/form-data;'),
+            );
+            expect(request.body, contains('name="heart_auto"'));
+            expect(request.body, contains('name="heart_num"'));
+            expect(request.body, contains('\r\n\r\n120\r\n'));
+            expect(request.body, contains('name="blood_pressure_auto"'));
+            expect(request.body, contains('name="blood_glucose_auto"'));
+            expect(request.body, contains('name="body_temperature_auto"'));
+            return http.Response('{"code":200,"message":"ok","data":{}}', 200);
+          default:
+            expect(request.url.path, '/api/v1/member/feedback');
+            expect(
+              request.headers['content-type'],
+              startsWith('multipart/form-data;'),
+            );
+            expect(request.body, contains('name="type"'));
+            expect(request.body, contains('设备连接'));
+            expect(request.body, contains('name="content"'));
+            expect(request.body, contains('连接后数据没有更新'));
+            return http.Response(
+              '{"code":200,"message":"ok","data":{"id":3}}',
+              200,
+            );
+        }
+      });
+      final api = SaydianApiClient(
+        _authenticatedVault(),
+        client: client,
+        baseUri: Uri.parse('https://example.invalid'),
+      );
+
+      final settings = await api.getHealthWarningSettings();
+      expect(settings?.heartRateEnabled, isFalse);
+      expect(settings?.heartRateUpper, 130);
+      expect(settings?.bloodPressureEnabled, isTrue);
+      expect(settings?.temperatureEnabled, isTrue);
+      expect(settings?.diastolicUpper, 90);
+      await api.saveHealthWarningSettings(const HealthWarningSettings());
+      final alerts = await api.getHealthWarningAlerts();
+      expect(alerts, isEmpty);
+      expect(
+        await api.submitFeedback(category: '设备连接', content: '连接后数据没有更新'),
+        '3',
+      );
+      expect(step, 3);
+    },
+  );
+
   test('health encyclopedia uses the mini-program public endpoint', () async {
     final client = MockClient((request) async {
       expect(request.method, 'GET');
@@ -1049,29 +1213,28 @@ void main() {
   });
 
   test(
-    'shop checkout composes a multi-product preview from server prices',
+    'shop checkout previews multiple products through the server cart',
     () async {
       var requestCount = 0;
       final api = SaydianApiClient(
         _authenticatedVault(),
         client: MockClient((request) async {
           requestCount++;
-          final item = jsonDecode(request.url.queryParameters['data']!);
+          if (requestCount == 1) {
+            expect(request.url.path, '/api/inv-shop/v1/member/cart-item/index');
+            return http.Response(
+              '{"code":200,"data":[{"id":"18","sku_id":"2975","number":"1"},{"id":"19","sku_id":"2976","number":"1"}]}',
+              200,
+            );
+          }
+          expect(request.url.path, '/api/inv-shop/v1/order/order/preview');
+          expect(request.url.queryParameters, {
+            'type': 'cart',
+            'data': '18,19',
+            'is_channel': '0',
+          });
           return http.Response(
-            jsonEncode({
-              'code': 200,
-              'data': {
-                'address': {'id': 8},
-                'account': {'money1': 0},
-                'products': [
-                  {'sku_id': item['sku_id'], 'product_name': '商品$requestCount'},
-                ],
-                'preview': {
-                  'product_money': requestCount * 10,
-                  'shipping_money': 2,
-                },
-              },
-            }),
+            '{"code":200,"data":{"address":{"id":8},"account":{"money1":0},"products":[{"sku_id":2975},{"sku_id":2976}],"preview":{"product_money":30,"shipping_money":4}}}',
             200,
             headers: {'content-type': 'application/json; charset=utf-8'},
           );
@@ -1086,7 +1249,6 @@ void main() {
         ],
       );
       expect(requestCount, 2);
-      expect(preview['multiple_orders'], isTrue);
       expect((preview['products'] as List), hasLength(2));
       expect((preview['preview'] as Map)['product_money'], 30);
       expect((preview['preview'] as Map)['shipping_money'], 4);
@@ -1128,12 +1290,24 @@ void main() {
       requestIndex++;
       expect(request.method, 'POST');
       expect(request.url.path, '/api/v1/pay');
-      final body = jsonDecode(request.body) as Map<String, dynamic>;
-      expect(body['pay_type'], requestIndex == 1 ? '100' : '101');
-      expect(body['jump'], 0);
-      expect(body['trade_type'], 'app');
-      expect(body['order_group'], 'order');
-      expect(jsonDecode(body['data'] as String), {'order_id': 99});
+      expect(
+        request.headers['content-type'],
+        startsWith('multipart/form-data;'),
+      );
+      final body = request.body;
+      expect(body, contains('name="pay_type"'));
+      expect(
+        body,
+        contains(requestIndex == 1 ? '\r\n\r\n1\r\n' : '\r\n\r\n2\r\n'),
+      );
+      expect(body, contains('name="jump"'));
+      expect(body, contains('\r\n\r\n0\r\n'));
+      expect(body, contains('name="trade_type"'));
+      expect(body, contains('\r\n\r\napp\r\n'));
+      expect(body, contains('name="order_group"'));
+      expect(body, contains('\r\n\r\norder\r\n'));
+      expect(body, contains('name="data"'));
+      expect(body, contains('{"order_id":"99","money":"199.00"}'));
       return http.Response(
         requestIndex == 1
             ? '{"code":200,"data":{"payStatus":false,"config":{"appid":"wx-test"}}}'
@@ -1156,6 +1330,44 @@ void main() {
       containsPair('payStatus', false),
     );
     expect(requestIndex, 2);
+  });
+
+  test('multi-select checkout creates one order from server cart ids', () async {
+    var requestCount = 0;
+    final client = MockClient((request) async {
+      requestCount++;
+      if (requestCount == 1) {
+        expect(request.url.path, '/api/inv-shop/v1/member/cart-item/index');
+        return http.Response(
+          '{"code":200,"data":[{"id":"18","sku_id":"2975","number":"1"},{"id":"19","sku_id":"2976","number":"2"}]}',
+          200,
+        );
+      }
+      expect(request.url.path, '/api/inv-shop/v1/order/order/create');
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      expect(body['point'], 5);
+      expect(body['type'], 'cart');
+      expect(body['data'], '18,19');
+      return http.Response('{"code":200,"data":{"id":101}}', 200);
+    });
+    final api = SaydianApiClient(
+      _authenticatedVault(),
+      client: client,
+      baseUri: Uri.parse('https://example.invalid'),
+    );
+
+    final result = await api.createShopOrder(
+      items: const [
+        {'sku_id': 2975, 'num': 1},
+        {'sku_id': 2976, 'num': 2},
+      ],
+      addressId: 8,
+      buyerMessage: '',
+      point: 5,
+    );
+    expect(requestCount, 2);
+    expect(result['id'], 101);
+    expect(result['created_sku_ids'], [2975, 2976]);
   });
 
   test(
@@ -1186,21 +1398,34 @@ void main() {
   );
 
   test(
-    'multi-select checkout creates one backend order per selected SKU',
+    'multi-select checkout adds missing products before creating cart order',
     () async {
       var requestCount = 0;
       final client = MockClient((request) async {
         requestCount++;
+        if (requestCount == 1) {
+          expect(request.url.path, '/api/inv-shop/v1/member/cart-item/index');
+          return http.Response(
+            '{"code":200,"data":[{"id":"18","sku_id":"2975","number":"1"}]}',
+            200,
+          );
+        }
+        if (requestCount == 2) {
+          expect(request.url.path, '/api/inv-shop/v1/member/cart-item/create');
+          expect(request.body, contains('name="sku_id"'));
+          expect(request.body, contains('\r\n\r\n2976\r\n'));
+          expect(request.body, contains('name="num"'));
+          expect(request.body, contains('\r\n\r\n2\r\n'));
+          return http.Response(
+            '{"code":200,"data":{"cartList":[{"id":"18","sku_id":"2975","number":"1"},{"id":"19","sku_id":"2976","number":"2"}]}}',
+            200,
+          );
+        }
+        expect(request.url.path, '/api/inv-shop/v1/order/order/create');
         final body = jsonDecode(request.body) as Map<String, dynamic>;
-        final data = jsonDecode(body['data'] as String) as Map<String, dynamic>;
-        expect(body['point'], requestCount == 1 ? 5 : 0);
-        return http.Response(
-          jsonEncode({
-            'code': 200,
-            'data': {'id': 100 + requestCount, 'sku_id': data['sku_id']},
-          }),
-          200,
-        );
+        expect(body['type'], 'cart');
+        expect(body['data'], '18,19');
+        return http.Response('{"code":200,"data":{"id":102}}', 200);
       });
       final api = SaydianApiClient(
         _authenticatedVault(),
@@ -1217,9 +1442,8 @@ void main() {
         buyerMessage: '',
         point: 5,
       );
-      expect(requestCount, 2);
-      expect(result['order_ids'], [101, 102]);
-      expect(result['created_sku_ids'], [2975, 2976]);
+      expect(requestCount, 3);
+      expect(result['order_ids'], [102]);
     },
   );
 

@@ -785,6 +785,12 @@ class _ShoppingCartPageState extends State<ShoppingCartPage> {
   bool _selectionInitialized = false;
 
   @override
+  void initState() {
+    super.initState();
+    unawaited(widget.controller.refreshShopCart());
+  }
+
+  @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: widget.controller,
     builder: (context, _) {

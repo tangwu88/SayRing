@@ -534,6 +534,36 @@ void main() {
   });
 
   test(
+    'a delayed disconnect from an old watch keeps the current watch ready',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        final wearable = _QaWearable();
+        final controller = _controller(wearable: wearable);
+        await controller.initialize();
+        addTearDown(controller.dispose);
+
+        final scan = controller.scanDevices();
+        await Future<void>.delayed(Duration.zero);
+        await controller.connectDevice(wearable.scannedDevice);
+        await scan;
+        wearable.emitEvent(
+          const WearableEvent(
+            type: 'disconnected',
+            payload: {'deviceId': 'QA:WATCH:OLD'},
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(controller.deviceState, DeviceConnectionState.ready);
+        expect(controller.connectedDevice?.id, 'QA:WATCH:01');
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  test(
     'measurement sentinels finish with guidance before a retry succeeds',
     () async {
       final wearable = _QaWearable();

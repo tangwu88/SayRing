@@ -4898,7 +4898,9 @@ class _ScreenSettingsPanel extends StatelessWidget {
 }
 
 class FeedbackPage extends StatefulWidget {
-  const FeedbackPage({super.key});
+  const FeedbackPage({this.controller, super.key});
+
+  final AppController? controller;
 
   @override
   State<FeedbackPage> createState() => _FeedbackPageState();
@@ -4909,6 +4911,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
   final _contact = TextEditingController();
   String _category = '功能建议';
   String? _result;
+  bool _submitting = false;
 
   @override
   void dispose() {
@@ -4917,12 +4920,33 @@ class _FeedbackPageState extends State<FeedbackPage> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (_content.text.trim().length < 5) {
       setState(() => _result = '请至少填写 5 个字的问题说明');
       return;
     }
-    setState(() => _result = '此功能暂时无法使用，请稍后再试');
+    final controller = widget.controller;
+    if (controller == null) {
+      setState(() => _result = '此功能暂时无法使用，请稍后再试');
+      return;
+    }
+    setState(() {
+      _submitting = true;
+      _result = null;
+    });
+    final success = await controller.submitFeedback(
+      category: _category,
+      content: _content.text,
+      contact: _contact.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      _submitting = false;
+      _result = success
+          ? '反馈已提交，感谢你的建议'
+          : controller.errorMessage ?? '反馈提交失败，请稍后重试';
+      if (success) _content.clear();
+    });
   }
 
   @override
@@ -4977,7 +5001,10 @@ class _FeedbackPageState extends State<FeedbackPage> {
             FeatureStateCard(message: _result!, icon: Icons.info_outline),
           ],
           const SizedBox(height: 18),
-          FilledButton(onPressed: _submit, child: const Text('提交反馈')),
+          FilledButton(
+            onPressed: _submitting ? null : _submit,
+            child: Text(_submitting ? '正在提交…' : '提交反馈'),
+          ),
           const SizedBox(height: 28),
           Text(
             '常见问题',
