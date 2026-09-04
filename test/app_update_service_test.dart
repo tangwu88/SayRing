@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -43,6 +44,148 @@ void main() {
       }${sha256 == null ? '' : ',"sha256":"$sha256"'}
     }
   ''';
+
+  String backendRelease({
+    int code = 200,
+    int version = 1002,
+    String versionCode = '1.0.02',
+    int androidType = 1,
+    String android = 'downloads/Saydian.apk',
+    String ios = 'https://apps.apple.com/app/id1234567890',
+    int force = 1,
+    int lowwer = 20,
+    int status = 1,
+  }) => jsonEncode({
+    'code': code,
+    'message': code == 200 ? 'OK' : '版本服务异常',
+    'data': {
+      'id': 16,
+      'title': '赛电健康新版',
+      'version': version,
+      'version_code': versionCode,
+      'description': '<p>修复内容</p><p>优化体验</p>',
+      'android_type': androidType,
+      'android': android,
+      'ios': ios,
+      'force': force,
+      'lowwer': lowwer,
+      'status': status,
+      'created_at': 1788513945,
+      'updated_at': 1788513991,
+    },
+    'timestamp': 1788515506,
+  });
+
+  http.Response jsonResponse(String body, [int statusCode = 200]) =>
+      http.Response.bytes(
+        utf8.encode(body),
+        statusCode,
+        headers: const {'content-type': 'application/json; charset=utf-8'},
+      );
+
+  test(
+    'backend API sends the current build and parses the server contract',
+    () async {
+      late Uri requestedUri;
+      final service = AppUpdateService(
+        endpointUri: Uri.parse('https://app.saidian.cc/api/v1/site/version'),
+        targetPlatform: TargetPlatform.android,
+        packageInfoLoader: () async => package('0.1.19', '23'),
+        client: MockClient((request) async {
+          requestedUri = request.url;
+          return jsonResponse(backendRelease());
+        }),
+      );
+
+      final info = await service.check();
+
+      expect(requestedUri.path, '/api/v1/site/version');
+      expect(requestedUri.queryParameters['v'], '23');
+      expect(requestedUri.queryParameters['platform'], 'android');
+      expect(info.title, '赛电健康新版');
+      expect(info.latestVersion, '1.0.02');
+      expect(info.latestBuild, 1002);
+      expect(info.minimumSupportedBuild, 20);
+      expect(info.forceUpdate, isTrue);
+      expect(info.releaseNotes, '修复内容\n优化体验');
+      expect(info.destinationType, AppUpdateDestinationType.androidApk);
+      expect(
+        info.destinationUri,
+        Uri.parse('https://app.saidian.cc/downloads/Saydian.apk'),
+      );
+      expect(info.sha256, isNull);
+      expect(
+        info.publishedAt,
+        DateTime.fromMillisecondsSinceEpoch(1788513991000, isUtc: true),
+      );
+    },
+  );
+
+  test('backend data null means the installed build is current', () async {
+    final service = AppUpdateService(
+      endpointUri: Uri.parse('https://app.saidian.cc/api/v1/site/version'),
+      targetPlatform: TargetPlatform.android,
+      packageInfoLoader: () async => package('1.0.02', '1002'),
+      client: MockClient(
+        (_) async => http.Response(
+          jsonEncode({'code': 200, 'message': 'OK', 'data': null}),
+          200,
+        ),
+      ),
+    );
+
+    final info = await service.check();
+
+    expect(info.hasUpdate, isFalse);
+    expect(info.forceUpdate, isFalse);
+    expect(info.latestVersion, '1.0.02');
+    expect(info.latestBuild, 1002);
+  });
+
+  test(
+    'backend external Android updates open the configured destination',
+    () async {
+      final service = AppUpdateService(
+        endpointUri: Uri.parse('https://app.saidian.cc/api/v1/site/version'),
+        targetPlatform: TargetPlatform.android,
+        packageInfoLoader: () async => package('0.1.19', '23'),
+        client: MockClient(
+          (_) async =>
+              jsonResponse(backendRelease(androidType: 0, force: 0, lowwer: 0)),
+        ),
+      );
+
+      final info = await service.check();
+
+      expect(info.destinationType, AppUpdateDestinationType.androidStore);
+      expect(info.forceUpdate, isFalse);
+    },
+  );
+
+  test(
+    'backend business errors are surfaced without creating an update',
+    () async {
+      final service = AppUpdateService(
+        endpointUri: Uri.parse('https://app.saidian.cc/api/v1/site/version'),
+        targetPlatform: TargetPlatform.android,
+        packageInfoLoader: () async => package('0.1.19', '23'),
+        client: MockClient(
+          (_) async => jsonResponse(backendRelease(code: 500)),
+        ),
+      );
+
+      await expectLater(
+        service.check(),
+        throwsA(
+          isA<AppUpdateException>().having(
+            (error) => error.message,
+            'message',
+            '版本服务异常',
+          ),
+        ),
+      );
+    },
+  );
 
   test(
     'iOS production manifest accepts only an App Store destination',
@@ -518,6 +661,33 @@ void main() {
     },
   );
 
+  test('backend APK updates can install when the API omits SHA-256', () async {
+    final bytes = List<int>.generate(64, (index) => index);
+    final directory = await Directory.systemTemp.createTemp('saidian-api-apk-');
+    addTearDown(() => directory.delete(recursive: true));
+    const channel = MethodChannel('cc.saidian/update-test-no-hash');
+    MethodCall? invoked;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          invoked = call;
+          return null;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+    final installer = AndroidApkUpdateInstaller(
+      isAndroid: true,
+      channel: channel,
+      temporaryDirectory: () async => directory,
+      client: MockClient((_) async => http.Response.bytes(bytes, 200)),
+    );
+
+    await installer.downloadAndInstall(_apkInfo());
+
+    expect(invoked?.method, 'installApk');
+  });
+
   test(
     'Android installer deletes corrupt, empty, and interrupted files',
     () async {
@@ -630,15 +800,28 @@ void main() {
     },
   );
 
-  test('the production default has no private GitHub fallback', () {
-    expect(
-      AppUpdateService(targetPlatform: TargetPlatform.iOS).isConfigured,
-      isFalse,
+  test('the production default checks the backend version API', () async {
+    late Uri requestedUri;
+    final service = AppUpdateService(
+      targetPlatform: TargetPlatform.android,
+      packageInfoLoader: () async => package('1.0.02', '1002'),
+      client: MockClient((request) async {
+        requestedUri = request.url;
+        return http.Response(
+          jsonEncode({'code': 200, 'message': 'OK', 'data': null}),
+          200,
+        );
+      }),
     );
+
+    expect(service.isConfigured, isTrue);
+    expect((await service.check()).hasUpdate, isFalse);
+    expect(requestedUri.origin, 'https://app.saidian.cc');
+    expect(requestedUri.path, '/api/v1/site/version');
   });
 }
 
-AppUpdateInfo _apkInfo({required String hash}) => AppUpdateInfo(
+AppUpdateInfo _apkInfo({String? hash}) => AppUpdateInfo(
   currentVersion: '0.1.19',
   currentBuild: 23,
   latestVersion: '0.2.0',
