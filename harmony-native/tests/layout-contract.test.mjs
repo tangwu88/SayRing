@@ -197,3 +197,26 @@ test('disconnected health cards do not repeat the same empty-state line',()=>{
   assert.ok(cards.includes("this.wearableSnapshot.connected ? '当前手表不支持' : '连接手表后同步'"));
   assert.equal(cards.includes("this.wearableSnapshot.connected ? '当前手表不支持' : '暂无记录'"),false);
 });
+
+test('login and primary surfaces exclude decorative or internal helper copy',()=>{
+  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const login=source.slice(source.indexOf('  Login() {'),source.indexOf('  Registration() {'));
+  const wechat=login.slice(login.indexOf("Button(this.busy ? '正在打开微信…'"),login.indexOf("Button('注册账户')"));
+  assert.ok(wechat.includes(".width('60%')"));
+  assert.ok(login.includes("}.width('100%').justifyContent(FlexAlign.Center)"));
+  for(const copy of [
+    '欢迎来到赛电',
+    '今天也要保持好状态',
+    '日常健康疑问，随时向我提问。',
+    '优先展示手表支持的真实记录',
+    '更多购买方式即将开放',
+    '记录日常健康趋势，连接家人与设备，让健康管理更简单。',
+    '只读取和切换手表内已安装表盘；不猜测缩略图，不执行 OTA。',
+    '此配图地址暂不支持安全加载'
+  ]) assert.equal(source.includes(copy),false,`Redundant UI copy remains: ${copy}`);
+  for(const requiredCopy of [
+    '测量结果仅供健康管理参考',
+    '健康预警仅作健康管理提醒',
+    '请先阅读并同意用户协议与隐私政策'
+  ]) assert.ok(source.includes(requiredCopy),`Required user-safety copy missing: ${requiredCopy}`);
+});
