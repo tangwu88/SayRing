@@ -1,8 +1,29 @@
 # App 在线更新配置
 
+> 2026-09-04 起，App 运行时统一以服务端
+> `GET /api/v1/site/version?v={当前构建号}&platform={android|ios}` 为版本来源。
+> `SAYDIAN_UPDATE_MANIFEST_URL` 不再决定客户端检查地址。本文后半部分的
+> `app-update.json` 内容仅保留为现有发布流水线资料，不是 App 的运行时接口。
+
 ## 接入方式
 
-App 的“关于我们 → 检查更新”读取公网 HTTPS JSON 清单。
+App 启动、回到前台以及“关于我们 → 检查更新”都会通过
+`SAYDIAN_API_BASE_URL`（默认 `https://app.saidian.cc`）请求版本接口。
+客户端会自动传入当前 `versionCode/buildNumber` 和当前平台。
+
+服务端返回 `data=null` 表示当前已是最新版本；返回版本对象时，客户端使用：
+
+- `version`：最新构建号。
+- `version_code`：展示版本号。
+- `title`、`description`：更新标题和说明，说明中的 HTML 会转为纯文本。
+- `force`、`lowwer`：强制更新开关和最低兼容构建号。
+- `android_type`：`0` 为外部平台跳转，`1` 为 App 内下载 APK。
+- `android`、`ios`：对应平台的 HTTPS 下载或商店地址。
+
+如需覆盖默认接口地址，可在构建时设置
+`SAYDIAN_UPDATE_API_URL=https://正式域名/api/v1/site/version`。
+
+## 旧发布清单说明
 
 本地验证清单解析时，只能显式生成不可发布的 QA Release：
 

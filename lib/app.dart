@@ -344,7 +344,9 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('发现新版本 V${info.latestVersion}'),
+        title: Text(
+          info.title.isNotEmpty ? info.title : '发现新版本 V${info.latestVersion}',
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -618,7 +620,11 @@ class _UpdateActionPageState extends State<_UpdateActionPage> {
                   ),
                   const SizedBox(height: 18),
                   Text(
-                    widget.required ? '需要更新后继续使用' : '新版本已准备好',
+                    widget.info.title.isNotEmpty
+                        ? widget.info.title
+                        : widget.required
+                        ? '需要更新后继续使用'
+                        : '新版本已准备好',
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       fontSize: 24,

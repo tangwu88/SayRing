@@ -56,6 +56,8 @@ class AppUpdateInfo {
     required this.destinationUri,
     required this.releaseNotes,
     required this.publishedAt,
+    this.title = '',
+    this.forceUpdateRequested = false,
     this.sha256,
   });
 
@@ -68,15 +70,18 @@ class AppUpdateInfo {
   final Uri destinationUri;
   final String releaseNotes;
   final DateTime publishedAt;
+  final String title;
+  final bool forceUpdateRequested;
   final String? sha256;
 
-  bool get forceUpdate => currentBuild < minimumSupportedBuild;
-
   bool get hasUpdate =>
-      forceUpdate ||
       latestBuild > currentBuild ||
       (latestBuild == currentBuild &&
           _compareVersions(latestVersion, currentVersion) > 0);
+
+  bool get forceUpdate =>
+      hasUpdate &&
+      (forceUpdateRequested || currentBuild < minimumSupportedBuild);
 
   AppUpdateInfo withCurrentPackage(PackageInfo package) => AppUpdateInfo(
     currentVersion: package.version,
@@ -88,6 +93,8 @@ class AppUpdateInfo {
     destinationUri: destinationUri,
     releaseNotes: releaseNotes,
     publishedAt: publishedAt,
+    title: title,
+    forceUpdateRequested: forceUpdateRequested,
     sha256: sha256,
   );
 
@@ -101,6 +108,8 @@ class AppUpdateInfo {
     'destination_url': destinationUri.toString(),
     'release_notes': releaseNotes,
     'published_at': publishedAt.toUtc().toIso8601String(),
+    'title': title,
+    'force_update': forceUpdateRequested,
     if (sha256 != null) 'sha256': sha256,
   };
 
@@ -120,12 +129,14 @@ class AppUpdateInfo {
         publishedAt == null ||
         latestVersion.isEmpty ||
         latestBuild <= 0 ||
-        minimumSupportedBuild <= 0 ||
+        !value.containsKey('minimum_supported_build') ||
+        minimumSupportedBuild < 0 ||
         minimumSupportedBuild > latestBuild) {
       return null;
     }
     final hash = '${value['sha256'] ?? ''}'.trim().toLowerCase();
     if (destinationType == AppUpdateDestinationType.androidApk &&
+        hash.isNotEmpty &&
         !RegExp(r'^[a-f0-9]{64}$').hasMatch(hash)) {
       return null;
     }
@@ -139,6 +150,8 @@ class AppUpdateInfo {
       destinationUri: destinationUri,
       releaseNotes: '${value['release_notes'] ?? ''}',
       publishedAt: publishedAt.toUtc(),
+      title: '${value['title'] ?? ''}'.trim(),
+      forceUpdateRequested: _asBool(value['force_update']),
       sha256: hash.isEmpty ? null : hash,
     );
   }
@@ -147,13 +160,17 @@ class AppUpdateInfo {
 class AppUpdateService {
   AppUpdateService({
     http.Client? client,
+    Uri? endpointUri,
+    @Deprecated('Use endpointUri; manifestUri is kept for legacy tests only.')
     Uri? manifestUri,
     TargetPlatform? targetPlatform,
     Future<PackageInfo> Function()? packageInfoLoader,
     Set<String>? allowedDestinationHosts,
     Duration requestTimeout = const Duration(seconds: 15),
   }) : _client = client ?? http.Client(),
-       _manifestUri = manifestUri ?? _configuredManifestUri(),
+       assert(endpointUri == null || manifestUri == null),
+       _endpointUri =
+           endpointUri ?? manifestUri ?? _configuredVersionEndpointUri(),
        _targetPlatform = targetPlatform ?? defaultTargetPlatform,
        _packageInfoLoader = packageInfoLoader ?? PackageInfo.fromPlatform,
        _allowedDestinationHosts = allowedDestinationHosts == null
@@ -162,29 +179,45 @@ class AppUpdateService {
        _requestTimeout = Duration(microseconds: requestTimeout.inMicroseconds);
 
   final http.Client _client;
-  final Uri? _manifestUri;
+  final Uri? _endpointUri;
   final TargetPlatform _targetPlatform;
   final Future<PackageInfo> Function() _packageInfoLoader;
   final Set<String>? _allowedDestinationHosts;
   final Duration _requestTimeout;
 
-  bool get isConfigured => _manifestUri != null;
+  bool get isConfigured => _endpointUri != null;
 
   Future<PackageInfo> loadCurrentPackage() => _packageInfoLoader();
 
   Future<AppUpdateInfo> check() async {
-    final manifestUri = _manifestUri;
-    if (manifestUri == null) {
+    final endpointUri = _endpointUri;
+    if (endpointUri == null) {
       throw const AppUpdateException('在线更新服务暂未配置');
     }
-    _requireHttps(manifestUri, '更新清单地址必须使用 HTTPS');
+    _requireHttps(endpointUri, '版本接口地址必须使用 HTTPS');
+
+    final platformName = switch (_targetPlatform) {
+      TargetPlatform.iOS => 'ios',
+      TargetPlatform.android => 'android',
+      _ => throw const AppUpdateException('当前平台不支持在线更新'),
+    };
+    final package = await _packageInfoLoader();
+    final currentBuild = int.tryParse(package.buildNumber) ?? 0;
+    final requestUri = endpointUri.replace(
+      queryParameters: {
+        ...endpointUri.queryParameters,
+        'v': '$currentBuild',
+        'platform': platformName,
+      },
+    );
 
     late http.Response response;
-    late Uri finalManifestUri;
+    late Uri finalEndpointUri;
     try {
-      final request = http.Request('GET', manifestUri);
+      final request = http.Request('GET', requestUri)
+        ..headers['Accept'] = 'application/json';
       final streamed = await _client.send(request).timeout(_requestTimeout);
-      finalManifestUri = _responseUrl(streamed) ?? manifestUri;
+      finalEndpointUri = _responseUrl(streamed) ?? requestUri;
       response = await http.Response.fromStream(
         streamed,
       ).timeout(_requestTimeout);
@@ -196,8 +229,8 @@ class AppUpdateService {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw const AppUpdateException('暂时无法获取版本信息');
     }
-    if (!_isSameHttpsOrigin(manifestUri, finalManifestUri)) {
-      throw const AppUpdateException('更新清单重定向到了不可信地址');
+    if (!_isSameHttpsOrigin(endpointUri, finalEndpointUri)) {
+      throw const AppUpdateException('版本接口重定向到了不可信地址');
     }
 
     final Map<String, Object?> root;
@@ -209,11 +242,17 @@ class AppUpdateService {
       throw const AppUpdateException('版本信息格式不正确');
     }
 
-    final platformName = switch (_targetPlatform) {
-      TargetPlatform.iOS => 'ios',
-      TargetPlatform.android => 'android',
-      _ => throw const AppUpdateException('当前平台不支持在线更新'),
-    };
+    if (root.containsKey('code') || root.containsKey('data')) {
+      return _parseBackendResponse(
+        root,
+        platformName: platformName,
+        package: package,
+        endpointUri: endpointUri,
+      );
+    }
+
+    // Preserve legacy release-manifest support for existing QA artifacts.
+    // Production builds now use the backend version endpoint by default.
     final release = _selectRelease(root, platformName);
     if (_asInt(release['schema_version']) != 1 ||
         '${release['channel'] ?? ''}'.trim() != 'production' ||
@@ -250,7 +289,7 @@ class AppUpdateService {
     _validateDestination(
       destinationType,
       destinationUri,
-      manifestUri: manifestUri,
+      endpointUri: endpointUri,
     );
 
     final hash = '${release['sha256'] ?? destination['sha256'] ?? ''}'
@@ -261,7 +300,6 @@ class AppUpdateService {
       throw const AppUpdateException('Android 安装包缺少有效 SHA-256');
     }
 
-    final package = await _packageInfoLoader();
     return AppUpdateInfo(
       currentVersion: package.version,
       currentBuild: int.tryParse(package.buildNumber) ?? 0,
@@ -273,6 +311,124 @@ class AppUpdateService {
       releaseNotes: releaseNotes,
       publishedAt: publishedAt.toUtc(),
       sha256: hash.isEmpty ? null : hash,
+    );
+  }
+
+  AppUpdateInfo _parseBackendResponse(
+    Map<String, Object?> root, {
+    required String platformName,
+    required PackageInfo package,
+    required Uri endpointUri,
+  }) {
+    if (_asInt(root['code']) != 200) {
+      final message = '${root['message'] ?? ''}'.trim();
+      throw AppUpdateException(message.isEmpty ? '暂时无法获取版本信息' : message);
+    }
+
+    final publishedAt =
+        _asDateTime(root['timestamp']) ??
+        DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+    final rawData = root['data'];
+    if (rawData == null) {
+      return _currentPackageInfo(
+        package,
+        platformName: platformName,
+        endpointUri: endpointUri,
+        publishedAt: publishedAt,
+      );
+    }
+    if (rawData is! Map) {
+      throw const AppUpdateException('版本信息格式不正确');
+    }
+    final release = rawData.map((key, value) => MapEntry('$key', value));
+    if (release.containsKey('status') && _asInt(release['status']) != 1) {
+      return _currentPackageInfo(
+        package,
+        platformName: platformName,
+        endpointUri: endpointUri,
+        publishedAt: publishedAt,
+      );
+    }
+
+    final latestBuild = _asInt(release['version']);
+    final latestVersion = '${release['version_code'] ?? ''}'.trim();
+    final minimumSupportedBuild = _asInt(release['lowwer']);
+    if (latestBuild <= 0 ||
+        latestVersion.isEmpty ||
+        minimumSupportedBuild < 0 ||
+        minimumSupportedBuild > latestBuild) {
+      throw const AppUpdateException('版本信息缺少必要字段');
+    }
+
+    final destinationType = switch (platformName) {
+      'ios' => AppUpdateDestinationType.appStore,
+      'android' => switch (_asInt(release['android_type'])) {
+        0 => AppUpdateDestinationType.androidStore,
+        1 => AppUpdateDestinationType.androidApk,
+        _ => throw const AppUpdateException('Android 更新方式配置不正确'),
+      },
+      _ => throw const AppUpdateException('当前平台不支持在线更新'),
+    };
+    final destinationUri = _resolveBackendDestination(
+      endpointUri,
+      platformName == 'ios' ? release['ios'] : release['android'],
+    );
+    if (destinationUri == null) {
+      throw AppUpdateException(
+        platformName == 'ios' ? 'iOS 下载地址未配置' : 'Android 下载地址未配置',
+      );
+    }
+    _validateDestination(
+      destinationType,
+      destinationUri,
+      endpointUri: endpointUri,
+    );
+
+    final hash = '${release['sha256'] ?? release['android_sha256'] ?? ''}'
+        .trim()
+        .toLowerCase();
+    if (hash.isNotEmpty && !RegExp(r'^[a-f0-9]{64}$').hasMatch(hash)) {
+      throw const AppUpdateException('Android 安装包 SHA-256 配置不正确');
+    }
+
+    return AppUpdateInfo(
+      currentVersion: package.version,
+      currentBuild: int.tryParse(package.buildNumber) ?? 0,
+      latestVersion: latestVersion,
+      latestBuild: latestBuild,
+      minimumSupportedBuild: minimumSupportedBuild,
+      destinationType: destinationType,
+      destinationUri: destinationUri,
+      releaseNotes: _plainTextFromHtml(release['description']),
+      publishedAt:
+          _asDateTime(release['updated_at']) ??
+          _asDateTime(release['created_at']) ??
+          publishedAt,
+      title: '${release['title'] ?? ''}'.trim(),
+      forceUpdateRequested: _asBool(release['force']),
+      sha256: hash.isEmpty ? null : hash,
+    );
+  }
+
+  AppUpdateInfo _currentPackageInfo(
+    PackageInfo package, {
+    required String platformName,
+    required Uri endpointUri,
+    required DateTime publishedAt,
+  }) {
+    final currentBuild = int.tryParse(package.buildNumber) ?? 0;
+    return AppUpdateInfo(
+      currentVersion: package.version,
+      currentBuild: currentBuild,
+      latestVersion: package.version,
+      latestBuild: currentBuild,
+      minimumSupportedBuild: 0,
+      destinationType: platformName == 'ios'
+          ? AppUpdateDestinationType.appStore
+          : AppUpdateDestinationType.androidStore,
+      destinationUri: endpointUri,
+      releaseNotes: '',
+      publishedAt: publishedAt,
     );
   }
 
@@ -291,17 +447,18 @@ class AppUpdateService {
   Future<void> openDownload(AppUpdateInfo info) => openDestination(info);
 
   bool validatePersisted(AppUpdateInfo info) {
-    final manifestUri = _manifestUri;
-    if (manifestUri == null) return false;
+    final endpointUri = _endpointUri;
+    if (endpointUri == null) return false;
     try {
-      _requireHttps(manifestUri, '更新清单地址必须使用 HTTPS');
+      _requireHttps(endpointUri, '版本接口地址必须使用 HTTPS');
       _validateDestination(
         info.destinationType,
         info.destinationUri,
-        manifestUri: manifestUri,
+        endpointUri: endpointUri,
       );
       if (info.destinationType == AppUpdateDestinationType.androidApk &&
-          !RegExp(r'^[a-f0-9]{64}$').hasMatch(info.sha256 ?? '')) {
+          info.sha256 != null &&
+          !RegExp(r'^[a-f0-9]{64}$').hasMatch(info.sha256!)) {
         return false;
       }
       return true;
@@ -313,7 +470,7 @@ class AppUpdateService {
   void _validateDestination(
     AppUpdateDestinationType type,
     Uri uri, {
-    required Uri manifestUri,
+    required Uri endpointUri,
   }) {
     _requireHttps(uri, '更新地址必须使用 HTTPS');
     final platformIsIos = _targetPlatform == TargetPlatform.iOS;
@@ -327,16 +484,22 @@ class AppUpdateService {
       throw const AppUpdateException('Android 更新目标类型不正确');
     }
     final configuredHosts =
-        _allowedDestinationHosts ?? _configuredAllowedHosts(manifestUri.host);
+        _allowedDestinationHosts ?? _configuredAllowedHosts(endpointUri.host);
     if (!configuredHosts.contains(uri.host.toLowerCase())) {
       throw const AppUpdateException('更新地址不在允许的安全域名内');
     }
   }
 
-  static Uri? _configuredManifestUri() {
-    const value = String.fromEnvironment('SAYDIAN_UPDATE_MANIFEST_URL');
-    final configured = value.trim();
-    return configured.isEmpty ? null : Uri.tryParse(configured);
+  static Uri? _configuredVersionEndpointUri() {
+    const configuredEndpoint = String.fromEnvironment('SAYDIAN_UPDATE_API_URL');
+    if (configuredEndpoint.trim().isNotEmpty) {
+      return Uri.tryParse(configuredEndpoint.trim());
+    }
+    const configuredBase = String.fromEnvironment(
+      'SAYDIAN_API_BASE_URL',
+      defaultValue: 'https://app.saidian.cc',
+    );
+    return Uri.tryParse(configuredBase.trim())?.resolve('/api/v1/site/version');
   }
 
   static Set<String> _configuredAllowedHosts(String manifestHost) {
@@ -373,8 +536,7 @@ class AndroidApkUpdateInstaller {
     void Function(double progress)? onProgress,
   }) async {
     if (!_isAndroid ||
-        info.destinationType != AppUpdateDestinationType.androidApk ||
-        info.sha256 == null) {
+        info.destinationType != AppUpdateDestinationType.androidApk) {
       throw const AppUpdateException('当前更新不能使用 Android 安装器');
     }
     final directory = Directory(
@@ -429,7 +591,8 @@ class AndroidApkUpdateInstaller {
       throw const AppUpdateException('安装包内容为空');
     }
     final actual = digestSink.value!.toString().toLowerCase();
-    if (actual != info.sha256) {
+    final expectedHash = info.sha256;
+    if (expectedHash != null && actual != expectedHash) {
       if (await target.exists()) await target.delete();
       throw const AppUpdateException('安装包校验失败，已删除损坏文件');
     }
@@ -643,6 +806,16 @@ Map<String, Object?> _selectRelease(
   return root;
 }
 
+Uri? _resolveBackendDestination(Uri endpointUri, Object? raw) {
+  final value = '${raw ?? ''}'.trim();
+  if (value.isEmpty) return null;
+  final parsed = Uri.tryParse(value);
+  if (parsed == null) return null;
+  if (parsed.hasScheme) return parsed;
+  final origin = endpointUri.replace(path: '/', query: null, fragment: null);
+  return origin.resolveUri(parsed);
+}
+
 void _requireHttps(Uri uri, String message) {
   if (uri.scheme.toLowerCase() != 'https' || uri.host.isEmpty) {
     throw AppUpdateException(message);
@@ -666,6 +839,52 @@ final RegExp _appStoreProductPath = RegExp(
 
 int _asInt(Object? value) =>
     value is num ? value.toInt() : int.tryParse('${value ?? ''}'.trim()) ?? 0;
+
+bool _asBool(Object? value) {
+  if (value is bool) return value;
+  if (value is num) return value != 0;
+  return const {
+    '1',
+    'true',
+    'yes',
+    'on',
+  }.contains('${value ?? ''}'.trim().toLowerCase());
+}
+
+DateTime? _asDateTime(Object? value) {
+  if (value is num) {
+    final raw = value.toInt();
+    if (raw <= 0) return null;
+    final milliseconds = raw > 99999999999 ? raw : raw * 1000;
+    return DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true);
+  }
+  final raw = '${value ?? ''}'.trim();
+  if (raw.isEmpty) return null;
+  final numeric = int.tryParse(raw);
+  if (numeric != null) return _asDateTime(numeric);
+  return DateTime.tryParse(raw)?.toUtc();
+}
+
+String _plainTextFromHtml(Object? raw) {
+  var value = '${raw ?? ''}';
+  value = value
+      .replaceAll(RegExp(r'<\s*br\s*/?\s*>', caseSensitive: false), '\n')
+      .replaceAll(
+        RegExp(r'</\s*(?:p|div|li|h[1-6])\s*>', caseSensitive: false),
+        '\n',
+      )
+      .replaceAll(RegExp(r'<[^>]*>'), '')
+      .replaceAll('&nbsp;', ' ')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&apos;', "'")
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&amp;', '&')
+      .replaceAll(RegExp(r'[ \t]+\n'), '\n')
+      .replaceAll(RegExp(r'\n{3,}'), '\n\n');
+  return value.trim();
+}
 
 int _compareVersions(String left, String right) {
   final a = left.split('.').map((part) => int.tryParse(part) ?? 0).toList();
