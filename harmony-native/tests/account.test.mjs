@@ -50,7 +50,8 @@ test('WeChat login exchanges only the one-time callback data and never a client 
   await client.loginWithWechat(' temporary-code ',state);
   assert.equal(call.path,'/api/v1/site/wechat-login');
   assert.deepEqual(call.fields,[{name:'code',value:'temporary-code'},{name:'state',value:state},
-    {name:'group',value:'app'},{name:'platform',value:'harmony'}]);
+    {name:'group',value:'app'},{name:'platform',value:'harmony'},
+    {name:'consent_version',value:'harmony-native-legal-v1'},{name:'consent_accepted',value:'1'}]);
   assert.equal(call.fields.some(item=>/secret/i.test(item.name)),false);
   assert.equal(store.writes,1);
 });

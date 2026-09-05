@@ -144,7 +144,9 @@ export class AccountClient {
     // The client submits only WeChat's one-time code; confidential credentials remain server-side.
     return await this.authenticate('/api/v1/site/wechat-login', [
       { name: 'code', value: code.trim() }, { name: 'state', value: state.trim() },
-      { name: 'group', value: 'app' }, { name: 'platform', value: 'harmony' }
+      { name: 'group', value: 'app' }, { name: 'platform', value: 'harmony' },
+      { name: 'consent_version', value: 'harmony-native-legal-v1' },
+      { name: 'consent_accepted', value: '1' }
     ]);
   }
 
