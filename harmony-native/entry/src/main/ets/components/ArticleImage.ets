@@ -37,6 +37,7 @@ export struct ArticleImage {
       } else {
         if (this.loading) { Text('正在加载配图…').fontSize(14).fontColor('#747783') }
         Image(this.source).width('100%').aspectRatio(this.ratio).objectFit(ImageFit.Contain).autoResize(true)
+          .backgroundColor('#FFFCFB').borderRadius(18).clip(true)
           .accessibilityText(this.description)
           .onComplete((event) => {
             if (event && event.width > 0 && event.height > 0) {
@@ -47,6 +48,6 @@ export struct ArticleImage {
           })
           .onError(() => { this.failed = true; this.loading = false; this.stopTimeout(); })
       }
-    }.width('100%')
+    }.width('100%').borderRadius(18)
   }
 }

@@ -87,3 +87,33 @@ test('care member and sharing buttons allow multiline labels instead of the nati
     assert.equal(card.includes('.height('),false,'Cards must grow for system large text');
   }
 });
+
+test('visual system uses the approved warm Saydian palette and consistent surfaces',()=>{
+  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  for(const token of [
+    "const BG: string = '#FFF9F7'",
+    "const RED_SOFT: string = '#FFF0F3'",
+    "const GOLD_SOFT: string = '#FFF5DB'",
+    "const LINE: string = '#EEE7E5'",
+    'const CARD_SHADOW:'
+  ]) assert.ok(source.includes(token),`Missing design token: ${token}`);
+  assert.ok((source.match(/type\(ButtonType\.Normal\)/g)||[]).length>=30,
+    'Primary and card actions should use predictable rectangular touch surfaces');
+  assert.ok((source.match(/border\(\{ width: 1, color:/g)||[]).length>=20,
+    'Cards and controls should keep visible boundaries on the warm background');
+});
+
+test('polished UI avoids text glyphs as fake icons and keeps minimum button targets',()=>{
+  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  assert.equal(/Text\(['"`][^'"`]*[›◷✓][^'"`]*['"`]\)/.test(source),false);
+  for(const match of source.matchAll(/Button\([^\n]*?\.height\((\d+)\)/g)) {
+    assert.ok(Number(match[1])>=48,`Button height ${match[1]} is below the 48 vp touch target`);
+  }
+});
+
+test('shop thumbnails preserve product artwork instead of cropping it',()=>{
+  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const productImage=source.slice(source.indexOf('Image(product.picture)'),source.indexOf('.accessibilityText(product.name)'));
+  assert.ok(productImage.includes('objectFit(ImageFit.Contain)'));
+  assert.ok(productImage.includes('backgroundColor(SURFACE_ALT)'));
+});
