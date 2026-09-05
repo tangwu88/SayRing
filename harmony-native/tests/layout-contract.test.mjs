@@ -32,7 +32,7 @@ test('package metadata meets bundled build-tool rules without overstating the ap
   const app=JSON.parse(readFileSync(new URL('../AppScope/app.json5',import.meta.url),'utf8')).app;
   const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const updateSource=readFileSync(new URL('../entry/src/main/ets/services/AppUpdateService.ets',import.meta.url),'utf8');
-  assert.ok(source.includes('赛电健康 V${HARMONY_VERSION_NAME} (${HARMONY_VERSION_CODE})'));
+  assert.ok(source.includes('SayDian赛电 V${HARMONY_VERSION_NAME} (${HARMONY_VERSION_CODE})'));
   assert.ok(updateSource.includes(`HARMONY_VERSION_NAME: string = '${app.versionName}'`));
   assert.ok(updateSource.includes(`HARMONY_VERSION_CODE: number = ${app.versionCode}`));
 });
@@ -49,6 +49,7 @@ test('release identity stays aligned with the confirmed AGC HarmonyOS app',()=>{
   assert.ok(stage.includes('prepareJPush(this.context)'));
   assert.ok(push.includes('JPushInterface.setCallBackMsg(new SaydianPushCallback())'));
   assert.ok(push.includes('initializationTask = Promise.resolve(JPushInterface.init(context))'));
+  assert.ok(push.includes('configureJPush(applicationContext)'));
   assert.ok(push.includes('await initializeJPush(context)'));
   assert.ok(push.includes('await this.waitForRegistrationId()'));
 });
@@ -126,7 +127,7 @@ test('visual system uses the approved warm Saydian palette and consistent surfac
     "const LINE: string = '#EEE7E5'",
     'const CARD_SHADOW:'
   ]) assert.ok(source.includes(token),`Missing design token: ${token}`);
-  assert.ok((source.match(/type\(ButtonType\.Normal\)/g)||[]).length>=30,
+  assert.ok((source.match(/type\(ButtonType\.Normal\)/g)||[]).length>=24,
     'Primary and card actions should use predictable rectangular touch surfaces');
   assert.ok((source.match(/border\(\{ width: 1, color:/g)||[]).length>=20,
     'Cards and controls should keep visible boundaries on the warm background');
@@ -145,4 +146,34 @@ test('shop thumbnails preserve product artwork instead of cropping it',()=>{
   const productImage=source.slice(source.indexOf('Image(product.picture)'),source.indexOf('.accessibilityText(product.name)'));
   assert.ok(productImage.includes('objectFit(ImageFit.Contain)'));
   assert.ok(productImage.includes('backgroundColor(SURFACE_ALT)'));
+});
+
+test('device and mine pages follow the iOS information hierarchy without dropping actions',()=>{
+  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const device=source.slice(source.indexOf('DeviceHome()'),source.indexOf('MineHome()'));
+  const homeStart=source.indexOf('\n  Home() {',source.indexOf('MineHome()'));
+  const mine=source.slice(source.indexOf('MineHome()'),homeStart);
+  const home=source.slice(homeStart,source.indexOf('HealthAllContent()',homeStart));
+  for(const marker of ['device-current-card','设备功能','表盘与个性化','手动测量','关于设备','连接说明']) {
+    assert.ok(device.includes(marker),`Missing iOS-aligned device section: ${marker}`);
+  }
+  for(const marker of ['mine-profile-card','profile_stat_device','profile_stat_health','profile_stat_care',
+    'mine-orders-card','mine-quick-card','mine-services-card']) {
+    assert.ok(mine.includes(marker),`Missing iOS-aligned mine section: ${marker}`);
+  }
+  assert.ok(home.includes("Text(this.tab === 1 ? '设备' : '我的')"));
+  assert.ok(home.includes(".id('section-titlebar')"));
+  assert.equal(home.includes('.backgroundColor(this.tab === index ? RED_SOFT : SURFACE)'),false,
+    'Bottom navigation should not use the oversized selected pill removed from the iOS layout');
+});
+
+test('launcher identity uses the requested name and a high-resolution brand icon',()=>{
+  const app=JSON.parse(readFileSync(new URL('../AppScope/app.json5',import.meta.url),'utf8')).app;
+  const strings=JSON.parse(readFileSync(new URL('../AppScope/resources/base/element/string.json',import.meta.url),'utf8')).string;
+  assert.equal(strings.find(item=>item.name==='app_name')?.value,'SayDian赛电');
+  assert.equal(app.icon,'$media:app_icon_v2');
+  const icon=readFileSync(new URL('../AppScope/resources/base/media/app_icon_v2.png',import.meta.url));
+  assert.equal(icon.subarray(1,4).toString(),'PNG');
+  assert.equal(icon.readUInt32BE(16),1024);
+  assert.equal(icon.readUInt32BE(20),1024);
 });
