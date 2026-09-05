@@ -4,8 +4,9 @@ import {readFileSync} from 'node:fs';
 
 test('all root scroll surfaces remain top aligned while loading content',()=>{
   const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
-  assert.equal((source.match(/Scroll\(\)/g)||[]).length,3);
-  assert.equal((source.match(/align\(Alignment.Top\)/g)||[]).length,3);
+  const scrolls=(source.match(/Scroll\(\)/g)||[]).length;
+  assert.ok(scrolls>=4);
+  assert.equal((source.match(/align\(Alignment.Top\)/g)||[]).length,scrolls);
 });
 
 test('dynamic heading and notices are not passed as frozen scalar builder arguments',()=>{
@@ -171,9 +172,28 @@ test('launcher identity uses the requested name and a high-resolution brand icon
   const app=JSON.parse(readFileSync(new URL('../AppScope/app.json5',import.meta.url),'utf8')).app;
   const strings=JSON.parse(readFileSync(new URL('../AppScope/resources/base/element/string.json',import.meta.url),'utf8')).string;
   assert.equal(strings.find(item=>item.name==='app_name')?.value,'SayDian赛电');
-  assert.equal(app.icon,'$media:app_icon_v2');
-  const icon=readFileSync(new URL('../AppScope/resources/base/media/app_icon_v2.png',import.meta.url));
+  assert.equal(app.icon,'$media:app_icon_v3');
+  const module=JSON.parse(readFileSync(new URL('../entry/src/main/module.json5',import.meta.url),'utf8')).module;
+  assert.equal(module.abilities[0].icon,'$media:app_icon_v3');
+  assert.equal(module.abilities[0].startWindowIcon,'$media:app_icon_v3');
+  const icon=readFileSync(new URL('../AppScope/resources/base/media/app_icon_v3.png',import.meta.url));
   assert.equal(icon.subarray(1,4).toString(),'PNG');
   assert.equal(icon.readUInt32BE(16),1024);
   assert.equal(icon.readUInt32BE(20),1024);
+});
+
+test('login offers registration and WeChat authorization instead of guest browsing',()=>{
+  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  for(const marker of ['微信授权登录','注册账户','注册并登录','register_send_code'])assert.ok(source.includes(marker));
+  assert.equal(source.includes('先浏览首页'),false);
+  const manifest=JSON.parse(readFileSync(new URL('../entry/src/main/module.json5',import.meta.url),'utf8')).module;
+  assert.deepEqual(manifest.querySchemes,['weixin','wxopensdk']);
+  assert.ok(manifest.abilities[0].skills[0].actions.includes('wxentity.action.open'));
+});
+
+test('disconnected health cards do not repeat the same empty-state line',()=>{
+  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const cards=source.slice(source.indexOf('ForEach(this.wearableMetrics.filter'),source.indexOf("Text('运动与记录')"));
+  assert.ok(cards.includes("this.wearableSnapshot.connected ? '当前手表不支持' : '连接手表后同步'"));
+  assert.equal(cards.includes("this.wearableSnapshot.connected ? '当前手表不支持' : '暂无记录'"),false);
 });

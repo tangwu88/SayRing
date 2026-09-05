@@ -1,6 +1,7 @@
 import {
   ApiError, parseSession,
-  validateStoredSession, parseProfile, parseArticles, parseArticle, loginValidation
+  validateStoredSession, parseProfile, parseArticles, parseArticle, loginValidation,
+  registrationValidation, wechatAuthorizationValidation
 } from '../model/Contracts';
 import type { Envelope, Session, FormField, MemberProfile, Article } from '../model/Contracts';
 import { CARE_METRICS, careId, careMobileValidation, parseCareMembers, parseCareInvitations,
@@ -92,25 +93,59 @@ export class AccountClient {
     this.session = session;
   }
 
-  async login(account: string, password: string): Promise<Session> {
-    const validation = loginValidation(account, password, true);
-    if (validation) throw new ApiError(validation);
+  private async authenticate(path: string, fields: FormField[]): Promise<Session> {
     const epoch = ++this.generation;
     this.session = undefined;
     this.blockRestore = true;
     this.refreshing = undefined;
     this.clearCare();
-    // A failed account switch must not revive the previous account on a later restore.
+    // An unsuccessful account change must never restore the previous account.
     await this.clearVault();
     this.assertEpoch(epoch);
-    const payload = await this.transport.request('/api/v1/site/login', [
-      { name: 'username', value: account.trim() }, { name: 'password', value: password },
-      { name: 'group', value: 'app' }
-    ]);
+    const payload = await this.transport.request(path, fields);
     const session = parseSession(payload, this.now());
     await this.persist(session, epoch);
     this.blockRestore = false;
     return validateStoredSession(session);
+  }
+
+  async login(account: string, password: string): Promise<Session> {
+    const validation = loginValidation(account, password, true);
+    if (validation) throw new ApiError(validation);
+    return await this.authenticate('/api/v1/site/login', [
+      { name: 'username', value: account.trim() }, { name: 'password', value: password },
+      { name: 'group', value: 'app' }
+    ]);
+  }
+
+  async sendSmsCode(mobile: string, usage: 'register' | 'reset' = 'register'): Promise<void> {
+    const normalized = mobile.trim();
+    if (!/^1\d{10}$/.test(normalized)) throw new ApiError('请输入正确的中国大陆手机号');
+    await this.transport.request('/api/v1/site/sms-code', [
+      { name: 'mobile', value: normalized }, { name: 'usage', value: usage }
+    ]);
+  }
+
+  async registerWithSms(mobile: string, code: string, password: string,
+    confirmation: string, accepted: boolean): Promise<Session> {
+    const validation = registrationValidation(mobile, code, password, confirmation, accepted);
+    if (validation) throw new ApiError(validation);
+    const normalized = mobile.trim();
+    return await this.authenticate('/api/v1/site/register', [
+      { name: 'mobile', value: normalized }, { name: 'code', value: code.trim() },
+      { name: 'password', value: password }, { name: 'password_repetition', value: confirmation },
+      { name: 'nickname', value: `赛电用户${normalized.slice(-4)}` }, { name: 'group', value: 'app' }
+    ]);
+  }
+
+  async loginWithWechat(code: string, state: string): Promise<Session> {
+    const validation = wechatAuthorizationValidation(code, state);
+    if (validation) throw new ApiError(validation);
+    // The client submits only WeChat's one-time code; confidential credentials remain server-side.
+    return await this.authenticate('/api/v1/site/wechat-login', [
+      { name: 'code', value: code.trim() }, { name: 'state', value: state.trim() },
+      { name: 'group', value: 'app' }, { name: 'platform', value: 'harmony' }
+    ]);
   }
 
   async logout(): Promise<void> {

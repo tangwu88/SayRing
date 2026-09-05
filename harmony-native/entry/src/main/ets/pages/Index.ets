@@ -1,4 +1,5 @@
-import { ApiError, MemberProfile, Article, ArticleBlock, loginValidation, canSubmitLogin, profileName, profileField, articleBlocks } from '../model/Contracts';
+import { ApiError, MemberProfile, Article, ArticleBlock, Session, loginValidation, registrationValidation,
+  canSubmitLogin, profileName, profileField, articleBlocks } from '../model/Contracts';
 import { saydianApi } from '../services/SaydianApi';
 import { ArticleImage } from '../components/ArticleImage';
 import { CareMember, CareInvitation, CareShareSettings, CareMetric, CareMetricSpec, CareRecord, CareOption,
@@ -18,6 +19,8 @@ import {
 import { vepWearable, WearableServiceListener } from '../services/VepWearableService';
 import { AiChatMessage, AppUpdateInfo, ShopCategory, ShopHome, ShopProduct } from '../model/ExperienceContracts';
 import { appUpdateService, HARMONY_VERSION_CODE, HARMONY_VERSION_NAME } from '../services/AppUpdateService';
+import { WECHAT_AUTH_RESULT_KEY, parseWechatAuthResult } from '../model/WechatAuthContracts';
+import { wechatAuth } from '../services/WechatAuthService';
 
 const RED: string = '#D7082E';
 const RED_DARK: string = '#A90B29';
@@ -44,11 +47,22 @@ struct Index {
   @StorageLink(PENDING_NOTIFICATION_ROUTE)
   @Watch('pendingNotificationChanged')
   private pendingNotificationRoute: string = '';
+  @StorageLink(WECHAT_AUTH_RESULT_KEY)
+  @Watch('wechatAuthChanged')
+  private wechatAuthResult: string = '';
   @State private screen: string = 'login';
   @State private tab: number = 0;
   @State private account: string = '';
   @State private password: string = '';
   @State private accepted: boolean = false;
+  @State private registerMobile: string = '';
+  @State private registerCode: string = '';
+  @State private registerPassword: string = '';
+  @State private registerConfirmation: string = '';
+  @State private registerAccepted: boolean = false;
+  @State private registerError: string = '';
+  @State private smsBusy: boolean = false;
+  @State private smsCountdown: number = 0;
   @State private busy: boolean = false;
   @State private restoring: boolean = true;
   @State private error: string = '';
@@ -120,6 +134,7 @@ struct Index {
   private contentGeneration: number = 0;
   private selectedArticleId: string = '';
   private selectedAgreement: boolean = false;
+  private smsTimer: number = -1;
   private readonly wearableMetrics: WearableMetricSpec[] = [
     { key: 'activity', title: '活动' }, { key: 'sleep', title: '睡眠' },
     { key: 'heart', title: '心率' }, { key: 'pressure', title: '血压' },
@@ -137,15 +152,19 @@ struct Index {
 
   aboutToAppear(): void {
     this.bindWearable();
+    wechatAuth.attachContext(this.uiContext());
     this.restoreLogin();
+    this.consumeWechatAuthResult();
   }
-  onPageShow(): void { this.consumeNotificationRoute(); }
+  onPageShow(): void { this.consumeNotificationRoute(); this.consumeWechatAuthResult(); }
   aboutToDisappear(): void {
     ++this.pageGeneration; ++this.contentGeneration; ++this.careGeneration;
+    this.clearSmsCountdown();
     vepWearable.clearListener();
   }
 
   private pendingNotificationChanged(): void { this.consumeNotificationRoute(); }
+  private wechatAuthChanged(): void { this.consumeWechatAuthResult(); }
 
   private clearCareState(): void {
     ++this.careGeneration;
@@ -291,8 +310,7 @@ struct Index {
       const identity = await harmonyPush.getIdentity(this.uiContext());
       const registered = await saydianApi.registerPushDevice(identity,
         `${HARMONY_VERSION_NAME}+${HARMONY_VERSION_CODE}`);
-      this.pushStatus = registered ? '鸿蒙推送标识已登记，可接收服务端通知' :
-        '客户端已取得推送标识，但服务端尚未接受 harmony 平台登记';
+      this.pushStatus = registered ? '通知服务已开启' : '通知服务暂时不可用，请稍后重试';
     } catch (error) {
       this.pushStatus = error instanceof ApiError ? error.message : pushErrorMessage(this.businessErrorCode(error as Error));
     } finally { this.pushBusy = false; }
@@ -434,13 +452,13 @@ struct Index {
     let outcomeMessage: string = '';
     let clientReturned: boolean = false;
     let clientTimedOut: boolean = false;
-    this.paymentBusy = true; this.paymentMessage = '正在向服务端核对订单并获取签名参数…';
+    this.paymentBusy = true; this.paymentMessage = '正在核对订单…';
     try {
       const request = await saydianApi.harmonyPayment(this.selectedProvider, this.selectedOrder);
       const paymentModule = await import('../services/HarmonyPaymentService');
       await paymentModule.harmonyPayment.start(this.uiContext(), request);
       clientReturned = true;
-      outcomeMessage = '支付客户端已返回';
+      outcomeMessage = '支付流程已返回';
     } catch (error) {
       clientTimedOut = isPaymentTimeout(error as Error);
       if (clientTimedOut) outcomeMessage = '支付客户端响应超时，已停止等待';
@@ -451,11 +469,11 @@ struct Index {
       const latest = await saydianApi.shopOrder(orderId);
       if (this.selectedOrder.id === orderId) this.selectedOrder = latest;
       if (latest.status !== 0) {
-        this.paymentMessage = `服务端订单状态已更新：${this.orderStatus(latest.status)}`;
+        this.paymentMessage = `订单状态已更新：${this.orderStatus(latest.status)}`;
       } else if (clientTimedOut) {
         this.paymentMessage = `${outcomeMessage}；订单仍待支付，请确认未扣款后再重试`;
       } else if (clientReturned) {
-        this.paymentMessage = '支付客户端已返回，订单仍待支付；请确认支付结果或稍后刷新';
+        this.paymentMessage = '订单仍待支付，请确认支付结果或稍后刷新';
       } else {
         this.paymentMessage = `${outcomeMessage}；订单仍待支付`;
       }
@@ -654,6 +672,80 @@ struct Index {
     }
   }
 
+  private acceptAuthenticatedSession(session: Session): void {
+    this.password = '';
+    this.registerPassword = '';
+    this.registerConfirmation = '';
+    this.registerCode = '';
+    this.clearCareState();
+    this.profile = {};
+    this.profileError = '';
+    this.logoutFailed = false;
+    this.displayName = session.displayName;
+    this.guest = false;
+    this.tab = 0;
+    this.screen = 'home';
+    this.refreshProfile();
+  }
+
+  private startAuthenticatedServices(): void {
+    this.refreshNotificationCount();
+    this.connectPush(false);
+    this.consumeNotificationRoute();
+  }
+
+  private async startWechatLogin(): Promise<void> {
+    if (this.busy || this.restoring) return;
+    if (!this.accepted) {
+      this.error = '请先阅读并同意用户协议与隐私政策';
+      return;
+    }
+    this.error = '';
+    this.busy = true;
+    try {
+      const result = await wechatAuth.start();
+      if (!result.sent) this.error = result.message;
+    } finally { this.busy = false; }
+  }
+
+  private async consumeWechatAuthResult(): Promise<void> {
+    if (!this.wechatAuthResult) return;
+    const raw = this.wechatAuthResult;
+    AppStorage.setOrCreate<string>(WECHAT_AUTH_RESULT_KEY, '');
+    const result = parseWechatAuthResult(raw);
+    if (!result) {
+      this.error = '微信登录失败，请重试';
+      this.screen = 'login';
+      return;
+    }
+    if (result.status === 'error') {
+      this.error = result.message || '微信登录失败，请重试';
+      this.screen = 'login';
+      return;
+    }
+    if (this.busy) return;
+    this.busy = true;
+    this.error = '';
+    const epoch = ++this.pageGeneration;
+    try {
+      const session = await saydianApi.loginWithWechat(result.code, result.state);
+      if (epoch !== this.pageGeneration) return;
+      this.acceptAuthenticatedSession(session);
+    } catch (error) {
+      if (epoch === this.pageGeneration) {
+        const failure = error as Error;
+        this.error = failure instanceof ApiError && (failure.status === 404 || failure.status === 405) ?
+          '微信登录暂时不可用，请使用手机号登录' : failure.message;
+        this.screen = 'login';
+      }
+    } finally {
+      if (epoch === this.pageGeneration) {
+        this.busy = false;
+        if (!this.guest) this.startAuthenticatedServices();
+      }
+    }
+  }
+
   private async submitLogin(): Promise<void> {
     if (!canSubmitLogin(this.busy, this.restoring)) return;
     this.error = loginValidation(this.account, this.password, this.accepted);
@@ -663,26 +755,80 @@ struct Index {
     try {
       const session = await saydianApi.login(this.account, this.password);
       if (epoch !== this.pageGeneration) return;
-      this.password = '';
-      this.clearCareState();
-      this.profile = {};
-      this.profileError = '';
-      this.logoutFailed = false;
-      this.displayName = session.displayName;
-      this.guest = false;
-      this.tab = 0;
-      this.screen = 'home';
-      this.refreshProfile();
+      this.acceptAuthenticatedSession(session);
     } catch (error) {
       if (epoch === this.pageGeneration) this.error = (error as Error).message;
     } finally {
       if (epoch === this.pageGeneration) {
         this.busy = false;
-        if (!this.guest) {
-          this.refreshNotificationCount();
-          this.connectPush(false);
-          this.consumeNotificationRoute();
-        }
+        if (!this.guest) this.startAuthenticatedServices();
+      }
+    }
+  }
+
+  private openRegistration(): void {
+    this.error = '';
+    this.registerError = '';
+    this.registerMobile = '';
+    this.registerCode = '';
+    this.registerPassword = '';
+    this.registerConfirmation = '';
+    this.registerAccepted = false;
+    this.clearSmsCountdown();
+    this.screen = 'register';
+  }
+
+  private clearSmsCountdown(): void {
+    if (this.smsTimer >= 0) clearInterval(this.smsTimer);
+    this.smsTimer = -1;
+    this.smsCountdown = 0;
+  }
+
+  private beginSmsCountdown(): void {
+    this.clearSmsCountdown();
+    this.smsCountdown = 60;
+    this.smsTimer = setInterval(() => {
+      if (this.smsCountdown <= 1) this.clearSmsCountdown();
+      else this.smsCountdown--;
+    }, 1000);
+  }
+
+  private async sendRegistrationCode(): Promise<void> {
+    if (this.smsBusy || this.busy || this.smsCountdown > 0) return;
+    if (!/^1\d{10}$/.test(this.registerMobile.trim())) {
+      this.registerError = '请输入正确的中国大陆手机号';
+      return;
+    }
+    this.smsBusy = true;
+    this.registerError = '';
+    try {
+      await saydianApi.sendSmsCode(this.registerMobile, 'register');
+      this.beginSmsCountdown();
+    } catch (error) { this.registerError = (error as Error).message; }
+    finally { this.smsBusy = false; }
+  }
+
+  private async submitRegistration(): Promise<void> {
+    if (this.busy || this.restoring) return;
+    this.registerError = registrationValidation(this.registerMobile, this.registerCode,
+      this.registerPassword, this.registerConfirmation, this.registerAccepted);
+    if (this.registerError) return;
+    this.busy = true;
+    const epoch = ++this.pageGeneration;
+    try {
+      const session = await saydianApi.registerWithSms(this.registerMobile, this.registerCode,
+        this.registerPassword, this.registerConfirmation, this.registerAccepted);
+      if (epoch !== this.pageGeneration) return;
+      this.clearSmsCountdown();
+      this.account = this.registerMobile.trim();
+      this.accepted = true;
+      this.acceptAuthenticatedSession(session);
+    } catch (error) {
+      if (epoch === this.pageGeneration) this.registerError = (error as Error).message;
+    } finally {
+      if (epoch === this.pageGeneration) {
+        this.busy = false;
+        if (!this.guest) this.startAuthenticatedServices();
       }
     }
   }
@@ -766,7 +912,7 @@ struct Index {
       if (epoch !== this.contentGeneration) return;
       this.articleTitle = article.title || title;
       this.articleContent = articleBlocks(article.content || article.description);
-      if (this.articleContent.length === 0) this.articleError = '服务器暂未提供正文，请稍后重试';
+      if (this.articleContent.length === 0) this.articleError = '内容暂不可用，请稍后重试';
     } catch (error) {
       if (epoch === this.contentGeneration) this.articleError = (error as Error).message;
     } finally { if (epoch === this.contentGeneration) this.articleLoading = false; }
@@ -789,6 +935,12 @@ struct Index {
   private back(): void {
     if (this.careBusy || this.paymentBusy) return;
     ++this.contentGeneration;
+    if (this.screen === 'register') {
+      this.clearSmsCountdown();
+      this.registerError = '';
+      this.screen = 'login';
+      return;
+    }
     if (this.screen === 'shop-product') { this.screen = 'shop-home'; return; }
     if (this.screen === 'shop-payment') { this.screen = 'shop-orders'; this.paymentMessage = ''; return; }
     if (this.screen === 'shop-orders' || this.screen === 'messages' || this.screen === 'health-alerts' ||
@@ -808,7 +960,7 @@ struct Index {
   }
 
   onBackPress(): boolean {
-    if (this.screen === 'article' || this.screen === 'feature' || this.screen === 'articles' ||
+    if (this.screen === 'register' || this.screen === 'article' || this.screen === 'feature' || this.screen === 'articles' ||
       this.screen === 'messages' || this.screen === 'health-alerts' || this.screen === 'health-all' ||
       this.screen === 'sport-records' || this.screen === 'ai-chat' || this.screen === 'wearable-metric' ||
       this.screen === 'about' || this.screen === 'contact' || this.screen === 'help' || this.screen === 'permissions' ||
@@ -889,12 +1041,9 @@ struct Index {
   @Builder
   Login() {
     Scroll() {
-      Column({ space: 14 }) {
+      Column({ space: 13 }) {
         Image($r('app.media.brand_lockup')).width(188).height(88).objectFit(ImageFit.Contain)
-          .accessibilityText('赛电 SAYDIAN').margin({ top: 22, bottom: 4 })
-        Text('欢迎回到赛电').fontSize(26).fontWeight(FontWeight.Bold).fontColor(INK)
-        Text('登录后同步您的设备、健康与关爱服务').fontSize(15).fontColor(MUTED)
-          .lineHeight(22).margin({ bottom: 10 }).textAlign(TextAlign.Center)
+          .accessibilityText('赛电 SAYDIAN').margin({ top: 28, bottom: 14 })
         TextInput({ placeholder: '手机号 / 账号', text: this.account }).type(InputType.Normal)
           .height(54).fontSize(17).backgroundColor(SURFACE).borderRadius(14)
           .border({ width: 1, color: LINE })
@@ -929,20 +1078,75 @@ struct Index {
           .fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(14)
           .enabled(!this.busy && !this.restoring)
           .onClick(() => this.submitLogin()).id('login_submit')
-        Button('先浏览首页（未登录）').width('100%').height(48).fontColor(RED)
+        Button(this.busy ? '正在打开微信…' : '微信授权登录').width('100%').height(52).fontSize(17)
+          .fontWeight(FontWeight.Medium).fontColor(Color.White).backgroundColor('#07C160')
+          .type(ButtonType.Normal).borderRadius(14).enabled(!this.busy && !this.restoring)
+          .onClick(() => this.startWechatLogin()).id('wechat_login').accessibilityText('使用微信授权登录')
+        Button('注册账户').width('100%').height(48).fontSize(16).fontColor(INK)
           .backgroundColor(Color.Transparent).enabled(!this.busy && !this.restoring)
-          .onClick(() => {
-            ++this.pageGeneration;
-            this.profile = {};
-            this.displayName = '';
-            this.guest = true;
-            this.tab = 0;
-            this.screen = 'home';
-          }).id('browse_home')
-        if (this.restoring) { Text('正在检查本机登录状态…').fontSize(14).fontColor(MUTED) }
-        this.Notice({ message: '健康数据会保存在本机加密数据库；关爱、订单和推送功能需登录后使用。' })
-        Text('账号密码仅用于登录；密码不会保存到本机。').fontSize(12).fontColor(MUTED).textAlign(TextAlign.Center)
+          .onClick(() => this.openRegistration()).id('open_registration')
       }.width('100%').constraintSize({ maxWidth: 440 }).padding({ left: 22, right: 22, bottom: 32 })
+    }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Off)
+  }
+
+  @Builder
+  Registration() {
+    Scroll() {
+      Column({ space: 13 }) {
+        Image($r('app.media.brand_lockup')).width(166).height(78).objectFit(ImageFit.Contain)
+          .accessibilityText('赛电 SAYDIAN').margin({ top: 16, bottom: 2 })
+        Text('创建赛电账户').fontSize(25).fontWeight(FontWeight.Bold).fontColor(INK)
+        Text('注册后即可连接手表并同步数据').fontSize(14).fontColor(MUTED)
+          .lineHeight(21).textAlign(TextAlign.Center).margin({ bottom: 8 })
+        TextInput({ placeholder: '手机号', text: this.registerMobile }).type(InputType.PhoneNumber)
+          .height(54).fontSize(17).backgroundColor(SURFACE).borderRadius(14)
+          .border({ width: 1, color: LINE }).maxLength(11).enabled(!this.busy && !this.smsBusy)
+          .onChange((value: string) => this.registerMobile = value).id('register_mobile')
+          .accessibilityText('注册手机号')
+        Row({ space: 10 }) {
+          TextInput({ placeholder: '短信验证码', text: this.registerCode }).type(InputType.Number)
+            .layoutWeight(1).height(54).fontSize(17).backgroundColor(SURFACE).borderRadius(14)
+            .border({ width: 1, color: LINE }).maxLength(6).enabled(!this.busy)
+            .onChange((value: string) => this.registerCode = value).id('register_code')
+            .accessibilityText('短信验证码')
+          Button(this.smsBusy ? '发送中…' : this.smsCountdown > 0 ? `${this.smsCountdown}s` : '获取验证码')
+            .width(118).height(54).fontSize(14).fontColor(RED).backgroundColor(RED_SOFT)
+            .type(ButtonType.Normal).borderRadius(14).enabled(!this.busy && !this.smsBusy && this.smsCountdown === 0)
+            .onClick(() => this.sendRegistrationCode()).id('register_send_code')
+        }.width('100%')
+        TextInput({ placeholder: '设置密码（至少 6 位）', text: this.registerPassword }).type(InputType.Password)
+          .height(54).fontSize(17).backgroundColor(SURFACE).borderRadius(14)
+          .border({ width: 1, color: LINE }).maxLength(256).enabled(!this.busy)
+          .onChange((value: string) => this.registerPassword = value).id('register_password')
+          .accessibilityText('设置密码')
+        TextInput({ placeholder: '再次输入密码', text: this.registerConfirmation }).type(InputType.Password)
+          .height(54).fontSize(17).backgroundColor(SURFACE).borderRadius(14)
+          .border({ width: 1, color: LINE }).maxLength(256).enabled(!this.busy)
+          .onChange((value: string) => this.registerConfirmation = value).id('register_confirmation')
+          .onSubmit(() => this.submitRegistration()).accessibilityText('确认密码')
+        Row() {
+          Checkbox({ name: 'register-agreement' }).select(this.registerAccepted).enabled(!this.busy)
+            .selectedColor(RED).onChange((value: boolean) => this.registerAccepted = value)
+            .id('register_agreement').accessibilityText('同意用户协议与隐私政策')
+          Column({ space: 0 }) {
+            Text('我已阅读并同意').fontSize(13).fontColor(MUTED).width('100%')
+            Flex({ wrap: FlexWrap.Wrap }) {
+              Button('用户协议').height(48).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
+                .enabled(!this.busy).onClick(() => this.openArticle('2', '用户协议', true))
+              Button('隐私政策').height(48).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
+                .enabled(!this.busy).onClick(() => this.openArticle('3', '隐私政策', true))
+            }
+          }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+        }.width('100%').alignItems(VerticalAlign.Top)
+        if (this.registerError) { this.Notice({ message: this.registerError, color: '#FFF0E9' }) }
+        Button(this.busy ? '正在注册…' : '注册并登录').width('100%').height(54).fontSize(18)
+          .fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(14)
+          .enabled(!this.busy && !this.restoring).onClick(() => this.submitRegistration()).id('register_submit')
+        Button('已有账号，返回登录').width('100%').height(48).fontSize(16).fontColor(INK)
+          .backgroundColor(Color.Transparent).enabled(!this.busy)
+          .onClick(() => { this.clearSmsCountdown(); this.registerError = ''; this.screen = 'login'; })
+          .id('register_back_login')
+      }.width('100%').constraintSize({ maxWidth: 440 }).padding({ left: 22, right: 22, bottom: 30 })
     }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Off)
   }
 
@@ -954,7 +1158,7 @@ struct Index {
         Column({ space: 3 }) {
           Text(this.guest ? '您好，欢迎来到赛电' : `您好，${this.displayName}`)
             .fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(2)
-          Text(this.guest ? '当前未登录 · 可浏览首页' : '今天也要保持好状态')
+          Text('今天也要保持好状态')
             .fontSize(13).fontColor(MUTED).maxLines(2)
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         Row({ space: 5 }) {
@@ -1045,7 +1249,7 @@ struct Index {
             Text(this.wearableLatest(metric.key)).fontSize(15).lineHeight(21).fontWeight(FontWeight.Medium)
               .fontColor(this.wearableCapability(metric.key) ? INK : MUTED).width('100%').maxLines(4)
             Text(this.wearableSnapshot.connected && this.wearableCapability(metric.key) ? '最近记录' :
-              this.wearableSnapshot.connected ? '当前手表不支持' : '暂无记录')
+              this.wearableSnapshot.connected ? '当前手表不支持' : '连接手表后同步')
               .fontSize(12).fontColor(MUTED).width('100%')
           }.width('48%').constraintSize({ minHeight: 116 }).padding(14).margin({ bottom: 10 })
             .backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
@@ -1083,7 +1287,7 @@ struct Index {
             Column({ space: 5 }) {
               Text(this.wearableSnapshot.deviceName).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK)
                 .width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text(this.wearableSnapshot.mac ? `MAC · ${this.wearableSnapshot.mac}` : '真实 MAC 暂未提供')
+              Text(this.wearableSnapshot.mac ? `MAC · ${this.wearableSnapshot.mac}` : '设备标识暂不可用')
                 .fontSize(13).fontColor(MUTED).width('100%').maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
               Row({ space: 6 }) {
@@ -1278,7 +1482,7 @@ struct Index {
                   ` · ${this.wearableMeasurement.sampleFrequency} Hz` : ''}`)
                   .fontSize(13).fontColor(MUTED).width('100%')
               } else {
-                Text('等待真实心电采样点，不显示模拟波形。').fontSize(13).fontColor(MUTED).width('100%')
+                Text('请按手表提示保持接触，完成后会保存测量记录。').fontSize(13).fontColor(MUTED).width('100%')
               }
             }
             if (this.wearableMeasurement.running) {
@@ -1334,8 +1538,8 @@ struct Index {
         this.Notice({ message: this.wearableMessage,
           color: this.wearablePhase === 'error' || this.wearablePhase === 'permission' ? '#FFF0E9' : BLUE_SOFT })
         if (this.wearableDevices.length === 0) {
-          this.Notice({ message: vepWearable.isScanning() ? '正在搜索 ET488、W9、W9S 和 W8 系列…' :
-            '点击扫描后，Vep 设备可连接；名称含 W8 的设备显示为 Yuc。' })
+          this.Notice({ message: vepWearable.isScanning() ? '正在搜索附近手表…' :
+            '点击开始查找，并将手表靠近手机。' })
         }
         ForEach(this.wearableDevices, (device: WearableDevice) => {
           Row({ space: 12 }) {
@@ -1347,7 +1551,7 @@ struct Index {
               Text(device.provider).fontSize(14).fontWeight(FontWeight.Bold)
                 .fontColor(device.provider === 'Vep' ? '#32648B' : '#26864A')
               Text(this.signalText(device.rssi)).fontSize(12).fontColor(MUTED)
-              Text(device.provider === 'Vep' ? '连接' : '待 SDK').fontSize(15).fontWeight(FontWeight.Bold)
+              Text(device.provider === 'Vep' ? '连接' : '暂不支持').fontSize(15).fontWeight(FontWeight.Bold)
                 .fontColor(device.provider === 'Vep' ? '#32648B' : MUTED)
             }
           }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18)
@@ -1368,7 +1572,6 @@ struct Index {
           .border({ width: 1, color: LINE }).onClick(() => this.showFeature('连接说明',
             '1. 打开手机蓝牙并允许查找附近设备。\n2. 将手表充电激活并靠近手机。\n3. 点击“开始查找”选择自己的手表。'))
       }
-      this.Notice({ message: 'Vep：Veepoo，可连接 ET488、W9、W9S 等支持设备。\nYuc：Yucheng，名称只要包含 W8 就归入该类。\n\n本版本不开放 OTA、恢复出厂、删除联系人或清空健康数据。' })
     }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 24 })
   }
 
@@ -1527,7 +1730,7 @@ struct Index {
               .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(14)
             Text('账号设置').fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
           }.layoutWeight(1).constraintSize({ minHeight: 82 }).justifyContent(FlexAlign.Center)
-            .onClick(() => this.showFeature('账号设置', '可在个人资料中查看账号信息；收货地址、密码重置和注销账号的鸿蒙原生接口尚未开放。'))
+            .onClick(() => this.showFeature('账号设置', '账号信息可在个人资料中查看。'))
             .accessibilityText('账号设置')
           Column({ space: 7 }) {
             Column() { SymbolGlyph($r('sys.symbol.lock_shield')).fontSize(23).fontColor([BLUE]) }
@@ -1651,7 +1854,7 @@ struct Index {
           .onClick(() => { this.screen = 'home'; this.tab = 1; })
       }.width('100%')
       if (this.wearableMetricRecords('sport').length === 0) {
-        this.Notice({ message: '手表暂未返回运动历史。不使用手机步数或模拟数据代替。' })
+        this.Notice({ message: '暂无运动记录。连接手表并同步后可在这里查看。' })
       }
       ForEach(this.wearableMetricRecords('sport'), (record: HealthRecord) => {
         Column({ space: 8 }) {
@@ -1666,10 +1869,10 @@ struct Index {
 
   @Builder
   HealthAlertContent() {
-    this.Notice({ message: '健康预警只记录设备或服务端明确上报的事件，不根据普通测量值自行诊断。', color: GREEN_SOFT })
+    this.Notice({ message: '健康预警仅作健康管理提醒，如有不适请及时咨询专业医务人员。', color: GREEN_SOFT })
     Text(this.notificationCount > 0 ? `当前有 ${this.notificationCount} 条未读消息` : '暂无可展示的健康预警')
       .fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-    this.Notice({ message: '服务端尚未开放鸿蒙健康预警列表接口。客户端已保留通知权限、点击路由和未读数链路，不伪造预警历史。' })
+    this.Notice({ message: '暂无健康预警' })
     Button('消息与推送设置').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
       .onClick(() => this.openMessages()).id('alerts_open_messages')
   }
@@ -1736,7 +1939,7 @@ struct Index {
     Text(this.selectedProduct.name).fontSize(24).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
     Text(`¥${this.selectedProduct.price}`).fontSize(30).fontWeight(FontWeight.Bold).fontColor(RED).width('100%')
     Text(this.selectedProduct.stock > 0 ? `库存 ${this.selectedProduct.stock}` : '暂时缺货').fontSize(15).fontColor(MUTED).width('100%')
-    this.Notice({ message: '鸿蒙端已使用服务端真实商品目录。商品规格、购物车和创建订单接口尚未完成原生适配，因此不展示无法完成的“立即购买”按钮。' })
+    this.Notice({ message: '更多购买方式即将开放' })
     Button('查看我的订单').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
       .onClick(() => this.openOrders())
   }
@@ -1807,8 +2010,8 @@ struct Index {
     Text('如何连接手表？').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
     this.Notice({ message: '打开“设备”页后点击扫描。让手表保持亮屏、靠近手机，并确认未被其他手机占用。' })
     Text('为什么健康数据暂时为空？').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-    this.Notice({ message: '请确认设备已连接并完成同步。设备不支持的项目不会生成模拟记录。' })
-    this.Notice({ message: '鸿蒙原生反馈提交接口尚未开放。如需反馈，请通过“联系客服”提供设备型号、发生时间和复现步骤。', color: '#FFF4D8' })
+    this.Notice({ message: '请先连接手表并同步数据。' })
+    this.Notice({ message: '如需反馈，请联系客服并说明设备型号与问题发生时间。', color: '#FFF4D8' })
     Button('联系客服').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
       .onClick(() => this.screen = 'contact')
   }
@@ -1818,7 +2021,7 @@ struct Index {
     Text('蓝牙与附近设备').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
     this.Notice({ message: '用于扫描、连接手表并同步健康数据。仅在用户点击扫描时请求。', color: GREEN_SOFT })
     Text('位置').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-    this.Notice({ message: '鸿蒙系统在扫描附近蓝牙设备时要求位置权限。本版不申请后台常驻定位。' })
+    this.Notice({ message: '扫描附近设备时需要蓝牙与位置权限。' })
     Text('通知').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
     this.Notice({ message: '用于关爱邀请和健康预警。锁屏不显示具体健康数值。' })
     Button('去设备页检查蓝牙权限').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
@@ -1830,7 +2033,7 @@ struct Index {
   @Builder
   MessageContent() {
     this.Notice({ message: '健康预警锁屏通知只显示“有新的健康预警”，不在系统通知中暴露健康数值。', color: GREEN_SOFT })
-    Text(this.notificationCount < 0 ? '未读数：服务端暂未提供' : `未读数：${this.notificationCount}`)
+    Text(this.notificationCount < 0 ? '暂无未读消息' : `未读消息：${this.notificationCount}`)
       .fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
     this.Notice({ message: this.pushStatus, color: this.pushStatus.includes('已登记') ? GREEN_SOFT : GOLD_SOFT })
     Button(this.pushBusy ? '正在连接…' : '开启系统通知并登记推送')
@@ -1844,12 +2047,12 @@ struct Index {
         await this.openCare();
         if (!this.guest) this.screen = 'care-invitations';
       }).id('message_care_invitations')
-    this.Notice({ message: '客户端已实现极光点击路由和通知权限。只有服务端完成 harmony 设备登记、邀请事件及健康预警推送后，才会出现真实即时消息。' })
+    this.Notice({ message: '新的关爱邀请与健康提醒会显示在这里。' })
   }
 
   @Builder
   OrderContent() {
-    this.Notice({ message: '订单金额和状态每次从服务端读取。App 不在本机生成支付签名，也不以微信或支付宝返回页作为成功依据。', color: GREEN_SOFT })
+    this.Notice({ message: '支付前会重新核对订单金额与状态。', color: GREEN_SOFT })
     if (this.orderLoading) { LoadingProgress().width(40).height(40).color(RED) }
     if (this.paymentMessage) { this.Notice({ message: this.paymentMessage, color: '#FFF0E9' }) }
     if (!this.orderLoading && !this.paymentMessage && this.orders.length === 0) {
@@ -1898,7 +2101,7 @@ struct Index {
       .type(ButtonType.Normal).borderRadius(14).border({ width: 1, color: this.selectedProvider === 'alipay' ? RED : LINE })
       .enabled(!this.paymentBusy).onClick(() => this.selectPaymentProvider('alipay'))
       .id('select_alipay')
-    this.Notice({ message: '点击支付后，App 会先向服务端重新核对订单金额与状态，再获取鸿蒙签名参数唤起对应支付 App。' })
+    this.Notice({ message: '请确认订单金额与支付方式后继续。' })
     if (this.paymentMessage) {
       this.Notice({ message: this.paymentMessage, color: this.paymentMessage.includes('已更新') ? GREEN_SOFT : GOLD_SOFT })
     }
@@ -1918,7 +2121,7 @@ struct Index {
       Button('前往添加设备').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
         .onClick(() => { this.screen = 'home'; this.tab = 1; }).id('metric_go_device')
     } else if (!this.wearableCapability(this.selectedWearableMetric)) {
-      this.Notice({ message: `当前连接的 ${this.wearableSnapshot.deviceName} 未报告${this.wearableMetricTitle(this.selectedWearableMetric)}能力，因此不展示无效入口或模拟数据。` })
+      this.Notice({ message: `当前手表暂不支持${this.wearableMetricTitle(this.selectedWearableMetric)}。` })
       Button('返回设备').width('100%').constraintSize({ minHeight: 50 }).backgroundColor(RED)
         .onClick(() => { this.screen = 'home'; this.tab = 1; })
     } else {
@@ -2000,7 +2203,6 @@ struct Index {
         .onChange((value: string) => this.careMobile = value).id('care_mobile')
       Button(this.careBusy ? '正在提交…' : '发送关爱邀请').width('100%').constraintSize({ minHeight: 52 })
         .backgroundColor(RED).enabled(!this.careBusy && this.careMobile.trim().length > 0).onClick(() => this.sendCareInvitation())
-      Text('推送客户端已接入；服务端推送事件上线前，接收方仍需进入关爱邀请页刷新查看。').fontSize(14).fontColor(MUTED).width('100%')
     } else if (this.screen === 'care-invitations') {
       if (this.careInvitationError) { this.Notice({ message: this.careInvitationError, color: '#FFF0E9' }) }
       else if (!this.careLoading && this.pendingInvitations().length === 0) { this.Notice({ message: '暂无新的关爱邀请。已处理或撤销的邀请不会再次显示操作按钮。' }) }
@@ -2029,7 +2231,7 @@ struct Index {
     } else if (this.screen === 'care-settings') {
       Text(this.careSelectedInviter.name).fontSize(22).fontWeight(FontWeight.Bold).width('100%')
       this.Notice({ message: '仅勾选的项目会共享。修改后点击保存才会生效；关闭项目并保存即可撤销。', color: GREEN_SOFT })
-      if (this.careSettings.unknown.length) { this.Notice({ message: `服务端另有 ${this.careSettings.unknown.length} 项历史设置，本版保存时保持原值。` }) }
+      if (this.careSettings.unknown.length) { this.Notice({ message: `另有 ${this.careSettings.unknown.length} 项历史设置将保持不变。` }) }
       ForEach(CARE_OPTIONS, (option: CareOption) => {
         Row({ space: 12 }) {
           Text(option.label).fontSize(18).layoutWeight(1)
@@ -2072,7 +2274,7 @@ struct Index {
               Text(record.time).fontSize(15).fontColor(MUTED).width('100%')
               Text(careRecordText(record)).fontSize(18).fontColor(INK).width('100%')
               if (record.samples.length > 1) {
-                Text(`真实波形已收到 ${record.samples.length} 点${record.frequency ? `，采样率 ${record.frequency} Hz` : '，采样率未提供'}。原生波形图仍在适配，不展示模拟波形。`)
+                Text(`本次记录含 ${record.samples.length} 个心电采样点${record.frequency ? `，采样率 ${record.frequency} Hz` : ''}。`)
                   .fontSize(14).fontColor(MUTED).width('100%')
               }
             }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
@@ -2172,6 +2374,7 @@ struct Index {
   build() {
     Column() {
       if (this.screen === 'login') { this.Login() }
+      else if (this.screen === 'register') { this.Registration() }
       else if (this.screen === 'home') { this.Home() }
       else { this.ContentPage() }
     }.width('100%').height('100%').backgroundColor(BG)

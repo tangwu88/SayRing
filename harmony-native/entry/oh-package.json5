@@ -5,6 +5,7 @@
   "main": "",
   "dependencies": {
     "@jg/push": "1.4.2",
+    "@tencent/wechat_open_sdk": "1.0.21",
     "@veepoo/vpble-sdk": "file:libs/veepoo-vpble-sdk-1.0.0.har",
     "pako": "2.1.0"
   }

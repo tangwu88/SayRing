@@ -64,6 +64,29 @@ export function loginValidation(account: string, password: string, accepted: boo
   return '';
 }
 
+export function registrationValidation(mobile: string, code: string, password: string,
+  confirmation: string, accepted: boolean): string {
+  if (!accepted) return '请先阅读并同意用户协议与隐私政策';
+  if (!/^1\d{10}$/.test(mobile.trim())) return '请输入正确的中国大陆手机号';
+  if (!/^\d{4,6}$/.test(code.trim())) return '请输入收到的短信验证码';
+  if (password.length < 6) return '密码至少需要 6 位';
+  if (password.length > 256) return '密码长度不正确';
+  if (password !== confirmation) return '两次输入的密码不一致';
+  return '';
+}
+
+export function wechatAuthorizationValidation(code: string, state: string): string {
+  const normalizedCode = code.trim();
+  const normalizedState = state.trim();
+  if (normalizedCode.length < 6 || normalizedCode.length > 1024 || /[\s\x00-\x1f\x7f]/.test(normalizedCode)) {
+    return '微信授权信息无效，请重试';
+  }
+  if (!/^sd_[0-9]{13}_[A-Za-z0-9-]{16,64}$/.test(normalizedState)) {
+    return '微信授权状态已失效，请重试';
+  }
+  return '';
+}
+
 export function canSubmitLogin(busy: boolean, restoring: boolean): boolean {
   return !busy && !restoring;
 }

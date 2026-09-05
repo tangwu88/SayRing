@@ -66,12 +66,11 @@ test('Harmony home and profile follow the iOS functional information architectur
     '运动与记录', '我的订单', '权限管理', '帮助反馈', '联系客服', '关于我们', '检查更新']) {
     assert.ok(source.includes(label), `missing ${label}`);
   }
-  assert.doesNotMatch(source, /原生开发验证版|查看适配进度/);
-  assert.match(source, /商品规格、购物车和创建订单接口尚未完成原生适配/);
+  assert.doesNotMatch(source, /原生开发验证版|查看适配进度|原生适配|接口尚未|先浏览首页|模拟记录/);
 });
 
 test('vendor dial channel error is localized instead of leaking JL terminology', () => {
   const source = readFileSync(new URL('../entry/src/main/ets/services/VepWearableService.ets', import.meta.url), 'utf8');
   assert.match(source, /JL RCSP service not available/);
-  assert.match(source, /当前手表未开放表盘读取通道/);
+  assert.match(source, /当前手表暂不支持表盘读取/);
 });

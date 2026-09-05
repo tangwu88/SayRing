@@ -62,7 +62,7 @@ export function pushRegistrationFields(identity: PushIdentity, version: string):
 }
 
 export function pushErrorMessage(code: number): string {
-  if (code === 1001500001) return '当前安装包的客户端标识或签名指纹未生效';
+  if (code === 1001500001) return '通知服务暂时不可用，请稍后重试';
   if (code === 1000900010) return '当前安装包与华为正式应用身份不一致';
   if (code === 1000900012) return '华为 Push Kit 尚未为当前应用开通';
   if (code === 1000900014 || code === 801) return '当前设备不支持鸿蒙推送能力';
@@ -176,7 +176,7 @@ export function parseHarmonyPayment(provider: PaymentProvider, data: Object | un
       return { provider: provider, thirdAppId: explicitAppId, payInfo: explicitPayInfo };
     }
   }
-  throw new ApiError(provider === 'wechat' ? '后台未返回鸿蒙微信支付参数' : '后台未返回鸿蒙支付宝支付参数');
+  throw new ApiError('暂时无法发起支付，请稍后重试');
 }
 
 export function paymentErrorMessage(code: number): string {

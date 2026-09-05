@@ -39,8 +39,8 @@ test('invalid push identifiers and control bytes are rejected', () => {
   assert.throws(() => pushRegistrationFields({ installationId: 'fixture-installation-123', registrationId: 'bad\nregistration-token' }, '0.1.3'));
 });
 
-test('push failures distinguish app identity rights, permission, device and network', () => {
-  assert.match(pushErrorMessage(1001500001), /签名指纹/);
+test('push failures stay actionable without exposing integration details', () => {
+  assert.match(pushErrorMessage(1001500001), /暂时不可用/);
   assert.match(pushErrorMessage(1000900010), /应用身份/);
   assert.match(pushErrorMessage(1000900012), /Push Kit/);
   assert.match(pushErrorMessage(1000900014), /设备/);
@@ -96,8 +96,8 @@ test('legacy Android provider payloads never enter Harmony PaymentKit', () => {
     noncestr: 'nonce', timestamp: '123456', sign: 'server-signature'
   } };
   const alipay = { config: 'app_id=20260001&biz_content=fixture&sign=server-signature' };
-  assert.throws(() => parseHarmonyPayment('wechat', wechat), /鸿蒙微信支付参数/);
-  assert.throws(() => parseHarmonyPayment('alipay', alipay), /鸿蒙支付宝支付参数/);
+  assert.throws(() => parseHarmonyPayment('wechat', wechat), /暂时无法发起支付/);
+  assert.throws(() => parseHarmonyPayment('alipay', alipay), /暂时无法发起支付/);
 });
 
 test('payment failures distinguish official provider outcomes', () => {

@@ -20,7 +20,7 @@ export class AppUpdateService {
         maxLimit: 256 * 1024,
         usingCache: false
       });
-      if (response.responseCode === 404) throw new ApiError('在线更新服务暂未配置', 404);
+      if (response.responseCode === 404) throw new ApiError('暂时无法检查更新，请稍后重试', 404);
       if (response.responseCode < 200 || response.responseCode >= 300) {
         throw new ApiError('在线更新服务暂不可用', response.responseCode);
       }

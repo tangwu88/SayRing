@@ -6,15 +6,20 @@ import { captureNotificationRoute, initializeNotificationNavigation } from '../s
 import { isPaymentCallbackExpected, setPaymentCallbackExpected } from '../services/PaymentLaunchState';
 import { LogLevel, VPBleSDK } from '@veepoo/vpble-sdk';
 import { vepWearable } from '../services/VepWearableService';
+import { initializeWechatAuthState, wechatAuth } from '../services/WechatAuthService';
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want): void {
     initializeNotificationNavigation();
+    initializeWechatAuthState();
+    wechatAuth.attachContext(this.context);
+    wechatAuth.handleWant(want);
     captureJPushClick(want, this.context.getApplicationContext());
     captureNotificationRoute(want);
   }
 
   onNewWant(want: Want): void {
+    wechatAuth.handleWant(want);
     captureJPushClick(want, this.context.getApplicationContext());
     captureNotificationRoute(want);
     this.handlePaymentWant(want);
@@ -31,6 +36,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(stage: window.WindowStage): void {
+    wechatAuth.attachContext(this.context);
     VPBleSDK.getInstance().init({
       context: this.context,
       debugMode: false,

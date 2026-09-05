@@ -169,7 +169,7 @@ export class VepWearableService {
       return false;
     }
     if (descriptor.provider === 'Yuc') {
-      this.emitPhase('error', 'W8 已识别为 Yuc；厂商尚未提供鸿蒙 SDK，暂不发起假连接');
+      this.emitPhase('error', '当前 W8 系列暂不支持连接');
       return false;
     }
     const target = this.vepDevices.get(deviceKey);
@@ -1318,7 +1318,7 @@ export class VepWearableService {
     if (code === 2900003) return '手机蓝牙已关闭';
     if (code === 2900001) return '系统蓝牙服务暂不可用';
     if (/JL RCSP service not available/i.test(error.message)) {
-      return `${fallback}：当前手表未开放表盘读取通道`;
+      return `${fallback}：当前手表暂不支持表盘读取`;
     }
     if (/timeout|超时/i.test(error.message)) return `${fallback}：连接超时，请确认手表未被其他手机占用`;
     return error.message && error.message.length <= 120 ? `${fallback}：${error.message}` : fallback;

@@ -289,7 +289,7 @@ export function parseCareMetric(spec: CareMetricSpec, data: Object | undefined, 
   const payload = object(data);
   let rows: Object[] = Array.isArray(data) ? data as Object[] : Array.isArray(payload['list']) ? payload['list'] as Object[] :
     Array.isArray(payload['data']) ? payload['data'] as Object[] : chartRows(spec, payload);
-  if (rows.length > 3000) throw new ApiError('当日记录过多，请联系服务端分页支持');
+  if (rows.length > 3000) throw new ApiError('当日记录较多，暂时无法全部显示');
   const records: CareRecord[] = [];
   const seen: Set<string> = new Set();
   rows.forEach((raw: Object, index: number) => {

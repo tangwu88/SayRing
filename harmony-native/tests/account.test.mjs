@@ -32,6 +32,34 @@ test('login uses existing contract and stores no password',async()=>{
     assert.equal(path,'/api/v1/site/login');assert.deepEqual(fields,[{name:'username',value:'fixture'},{name:'password',value:' synthetic '},{name:'group',value:'app'}]);return auth();
   });await client.login(' fixture ',' synthetic ');assert.equal(store.writes,1);assert.equal('password' in store.value,false);
 });
+test('SMS registration uses the confirmed contract and stores only the resulting session',async()=>{
+  const calls=[];const {client,store}=make(undefined,async(path,fields)=>{calls.push({path,fields});return path.endsWith('/sms-code')?{code:200,data:{}}:auth();});
+  await client.sendSmsCode(' 13800138000 ');
+  await client.registerWithSms(' 13800138000 ',' 123456 ','register-password','register-password',true);
+  assert.deepEqual(calls[0],{path:'/api/v1/site/sms-code',fields:[{name:'mobile',value:'13800138000'},{name:'usage',value:'register'}]});
+  assert.equal(calls[1].path,'/api/v1/site/register');
+  assert.deepEqual(Object.fromEntries(calls[1].fields.map(item=>[item.name,item.value])),{
+    mobile:'13800138000',code:'123456',password:'register-password',password_repetition:'register-password',
+    nickname:'赛电用户8000',group:'app'
+  });
+  assert.equal(store.writes,1);assert.equal('password' in store.value,false);
+});
+test('WeChat login exchanges only the one-time callback data and never a client secret',async()=>{
+  const state='sd_1788569000000_01234567-89ab-cdef-0123456789ab';let call;
+  const {client,store}=make(undefined,async(path,fields)=>{call={path,fields};return auth();});
+  await client.loginWithWechat(' temporary-code ',state);
+  assert.equal(call.path,'/api/v1/site/wechat-login');
+  assert.deepEqual(call.fields,[{name:'code',value:'temporary-code'},{name:'state',value:state},
+    {name:'group',value:'app'},{name:'platform',value:'harmony'}]);
+  assert.equal(call.fields.some(item=>/secret/i.test(item.name)),false);
+  assert.equal(store.writes,1);
+});
+test('failed WeChat account switch cannot restore the previous account',async()=>{
+  const state='sd_1788569000000_01234567-89ab-cdef-0123456789ab';
+  const {client,store}=make(session(),async()=>{throw new ApiError('fixture unavailable',404);});await client.restore();
+  await assert.rejects(client.loginWithWechat('temporary-code',state));
+  assert.equal(client.current(),undefined);assert.equal(store.value,undefined);
+});
 test('failed account switch cannot restore previous account',async()=>{
   const {client,store}=make(session(),async()=>{throw new ApiError('fixture failure',422);});await client.restore();
   await assert.rejects(client.login('fixture-b','synthetic'));assert.equal(client.current(),undefined);assert.equal(store.value,undefined);assert.equal(await client.restore(),undefined);

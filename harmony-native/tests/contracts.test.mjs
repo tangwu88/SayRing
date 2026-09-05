@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   API_BASE, ApiError, decodeEnvelope, loginValidation, expirationMillis, parseSession,
   buildMultipart, profileName, profileField, articleText, safeMessage, canSubmitLogin,
+  registrationValidation, wechatAuthorizationValidation,
 } from '../entry/src/main/ets/model/Contracts.ts';
 
 const now = Date.UTC(2026, 8, 4, 8);
@@ -26,6 +27,20 @@ test('empty and excessive password rejected without changing real password rules
   assert.match(loginValidation('fixture', '', true), /密码/);
   assert.match(loginValidation('fixture', 'x'.repeat(257), true), /长度/);
   assert.equal(loginValidation(' fixture ', ' x ', true), '');
+});
+test('registration requires a valid mobile code matching passwords and consent', () => {
+  assert.match(registrationValidation('13800138000', '123456', 'abcdef', 'abcdef', false), /同意/);
+  assert.match(registrationValidation('1380013800', '123456', 'abcdef', 'abcdef', true), /手机号/);
+  assert.match(registrationValidation('13800138000', '12ab', 'abcdef', 'abcdef', true), /验证码/);
+  assert.match(registrationValidation('13800138000', '123456', 'short', 'short', true), /至少/);
+  assert.match(registrationValidation('13800138000', '123456', 'abcdef', 'different', true), /不一致/);
+  assert.equal(registrationValidation(' 13800138000 ', ' 123456 ', 'abcdef', 'abcdef', true), '');
+});
+test('native WeChat callback accepts only bounded one-time codes and signed state shape', () => {
+  const state = 'sd_1788569000000_01234567-89ab-cdef-0123456789ab';
+  assert.equal(wechatAuthorizationValidation('temporary-code', state), '');
+  assert.match(wechatAuthorizationValidation('bad code', state), /授权信息/);
+  assert.match(wechatAuthorizationValidation('temporary-code', 'bad-state'), /授权状态/);
 });
 test('HTTP and business errors are both enforced', () => {
   assert.throws(() => decodeEnvelope('{"code":401,"message":"请登录"}', 200), (e) => e instanceof ApiError && e.status === 401);
