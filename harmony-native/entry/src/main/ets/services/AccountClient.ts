@@ -6,6 +6,9 @@ import type { Envelope, Session, FormField, MemberProfile, Article } from '../mo
 import { CARE_METRICS, careId, careMobileValidation, parseCareMembers, parseCareInvitations,
   parseCareSettings, careSettingsBody, chinaDaySeconds, parseCareMetric, careMetricState } from '../model/CareContracts';
 import type { CareMember, CareInvitation, CareShareSettings, CareMetric, CareMetricSpec } from '../model/CareContracts';
+import { notificationUnreadCount, parseHarmonyPayment, parseShopOrder, parseShopOrders,
+  paymentFields, pushRegistrationFields } from '../model/PushPaymentContracts';
+import type { HarmonyPaymentRequest, PaymentProvider, PushIdentity, ShopOrder } from '../model/PushPaymentContracts';
 
 export interface SessionStore {
   read(): Promise<Session | undefined>;
@@ -13,7 +16,8 @@ export interface SessionStore {
   clear(): Promise<void>;
 }
 export interface ApiTransport {
-  request(path: string, fields?: FormField[], session?: Session, jsonBody?: string): Promise<Envelope>;
+  request(path: string, fields?: FormField[], session?: Session, jsonBody?: string,
+    method?: 'GET' | 'POST' | 'DELETE'): Promise<Envelope>;
 }
 
 // This is the production coordinator, also exercised by host tests with synthetic stores/transports.
@@ -148,13 +152,14 @@ export class AccountClient {
     return next;
   }
 
-  private async authorized(path: string, jsonBody?: string): Promise<Envelope> {
+  private async authorizedRequest(path: string, fields?: FormField[], jsonBody?: string,
+    method?: 'GET' | 'POST' | 'DELETE'): Promise<Envelope> {
     const epoch = this.generation;
     try {
       let session = await this.ensureSession();
       this.assertEpoch(epoch);
       let response: Envelope;
-      try { response = await this.transport.request(path, undefined, session, jsonBody); }
+      try { response = await this.transport.request(path, fields, session, jsonBody, method); }
       catch (error) {
         this.assertEpoch(epoch);
         if (error instanceof ApiError) {
@@ -162,7 +167,7 @@ export class AccountClient {
         } else { throw new ApiError('请求失败，请稍后重试'); }
         session = await this.ensureSession(session.accessToken);
         this.assertEpoch(epoch);
-        response = await this.transport.request(path, undefined, session, jsonBody);
+        response = await this.transport.request(path, fields, session, jsonBody, method);
       }
       this.assertEpoch(epoch);
       return response;
@@ -171,6 +176,14 @@ export class AccountClient {
       if (error instanceof ApiError && error.status === 401) await this.invalidate(epoch);
       throw error as Error;
     }
+  }
+
+  private async authorized(path: string, jsonBody?: string): Promise<Envelope> {
+    return await this.authorizedRequest(path, undefined, jsonBody, jsonBody === undefined ? 'GET' : 'POST');
+  }
+
+  private async authorizedFields(path: string, fields: FormField[]): Promise<Envelope> {
+    return await this.authorizedRequest(path, fields, undefined, 'POST');
   }
 
   async profile(): Promise<MemberProfile> {
@@ -182,6 +195,59 @@ export class AccountClient {
       if (error instanceof ApiError && error.status === 401) await this.invalidate(epoch);
       throw error as Error;
     }
+  }
+
+  async registerPushDevice(identity: PushIdentity, version: string): Promise<boolean> {
+    try {
+      await this.authorizedFields('/api/v1/member/push-devices', pushRegistrationFields(identity, version));
+      return true;
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 404 || error.status === 405 || error.status === 422)) return false;
+      throw error as Error;
+    }
+  }
+
+  async unregisterPushDevice(installationId: string): Promise<boolean> {
+    const normalized = installationId.trim();
+    if (!/^[A-Za-z0-9._:-]{8,160}$/.test(normalized)) throw new ApiError('推送设备标识无效');
+    try {
+      await this.authorizedRequest(`/api/v1/member/push-devices/${encodeURIComponent(normalized)}`,
+        undefined, undefined, 'DELETE');
+      return true;
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 404 || error.status === 405)) return false;
+      throw error as Error;
+    }
+  }
+
+  async notificationUnread(): Promise<number | undefined> {
+    for (const path of ['/api/v1/member/notify/statistics', '/api/v1/member/notify/unread-count']) {
+      try {
+        const response = await this.authorized(path);
+        return notificationUnreadCount(response.data);
+      } catch (error) {
+        if (!(error instanceof ApiError) || (error.status !== 404 && error.status !== 405)) throw error as Error;
+      }
+    }
+    return undefined;
+  }
+
+  async shopOrders(): Promise<ShopOrder[]> {
+    const response = await this.authorized('/api/inv-shop/v1/member/order/index?page=1');
+    return parseShopOrders(response.data);
+  }
+
+  async shopOrder(id: number): Promise<ShopOrder> {
+    if (!Number.isSafeInteger(id) || id <= 0) throw new ApiError('订单编号异常');
+    const response = await this.authorized(`/api/inv-shop/v1/member/order/view?id=${id}`);
+    return parseShopOrder(response.data);
+  }
+
+  async harmonyPayment(provider: PaymentProvider, order: ShopOrder): Promise<HarmonyPaymentRequest> {
+    // Refresh amount and state before asking the server to sign; client display values never authorize payment.
+    const current = await this.shopOrder(order.id);
+    const response = await this.authorizedFields('/api/v1/pay', paymentFields(provider, current));
+    return parseHarmonyPayment(provider, response.data);
   }
 
   async careMembers(): Promise<CareMember[]> {

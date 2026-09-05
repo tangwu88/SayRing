@@ -33,6 +33,27 @@ test('package metadata meets bundled build-tool rules without overstating the ap
   const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   assert.ok(source.includes(`赛电鸿蒙 ${app.versionName} ·`));
 });
+
+test('optional PaymentKit is not loaded during cold start',()=>{
+  const page=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const ability=readFileSync(new URL('../entry/src/main/ets/entryability/EntryAbility.ets',import.meta.url),'utf8');
+  const startPayment=page.slice(page.indexOf('private async startPayment()'),page.indexOf('private money('));
+  assert.equal(page.includes("import { harmonyPayment } from '../services/HarmonyPaymentService'"),false);
+  assert.equal(ability.includes("import { handleHarmonyPaymentCallback } from '../services/HarmonyPaymentService'"),false);
+  assert.ok(startPayment.includes("canIUse('SystemCapability.Payment.ThirdPaymentService')"));
+  assert.ok(startPayment.indexOf("canIUse('SystemCapability.Payment.ThirdPaymentService')") <
+    startPayment.indexOf('saydianApi.harmonyPayment'));
+  assert.ok(startPayment.indexOf('saydianApi.harmonyPayment') <
+    startPayment.indexOf("await import('../services/HarmonyPaymentService')"));
+  assert.ok(ability.includes("await import('../services/HarmonyPaymentService')"));
+});
+
+test('foreground notification changes trigger the whitelisted route consumer',()=>{
+  const page=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  assert.ok(page.includes("@Watch('pendingNotificationChanged')"));
+  assert.ok(page.includes('private pendingNotificationChanged(): void { this.consumeNotificationRoute(); }'));
+});
+
 test('care session invalidation clears profile loading before presenting login again',()=>{
   const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const handler=source.slice(source.indexOf('private careFailure('),source.indexOf('private async openCare('));

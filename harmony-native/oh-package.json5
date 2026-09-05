@@ -3,6 +3,8 @@
   "name": "saydian-harmony-native",
   "version": "1.0.0",
   "description": "赛电原生鸿蒙首版：登录与首页。",
-  "dependencies": {},
+  "dependencies": {
+    "@jg/push": "1.4.0"
+  },
   "devDependencies": {}
 }

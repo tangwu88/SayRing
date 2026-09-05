@@ -1,9 +1,9 @@
-# 赛电原生鸿蒙首版
+# 赛电原生鸿蒙开发版
 
-ArkTS + ArkUI，独立于已有 Flutter/Android/iOS 工程。当前范围包含账号、公开内容与远程关爱，不是完整功能移植或正式发布版本。
+ArkTS + ArkUI，独立于已有 Flutter/Android/iOS 工程。当前范围包含账号、公开内容、远程关爱、消息推送客户端、商城订单与鸿蒙三方支付客户端，不是完整功能移植或正式发布版本。
 
-最新开发版本 0.1.2（3），本轮实际结果见 [关爱实施记录](docs/CARE-IMPLEMENTATION-20260904.md)。
-0.1.2 双时区各 87 项主机测试、Debug/Release 构建通过；两台原生模拟器已安装并验证冷启动保留登录。
+最新开发版本 0.1.3（4），本轮实际结果见 [推送与支付实施记录](docs/PUSH-PAYMENT-IMPLEMENTATION-20260905.md)。
+0.1.3 在 UTC 与 Asia/Shanghai 下各 102 项主机测试通过，Debug/Release 构建成功；原生模拟器已覆盖安装并验证冷启动保留登录。
 0.1.1 的验证记录与归档保留为历史证据，不代替新版本验收。
 
 Git 保存范围和发布边界见 [2026-09-04 开发检查点](docs/GIT-CHECKPOINT-20260904.md)。此前记录中的“未提交”描述保留为当时状态，本次保存不代表正式上线验收完成。
@@ -37,23 +37,25 @@ node --test tests/*.test.mjs
 - 公开健康百科、用户协议和隐私政策；内容由现有服务端读取，本站安全附件配图已实际显示；异常加载与重试仍需补做完整系统层验收。
 - “先浏览首页”明确属于未登录浏览，不生成账号、健康记录或模拟测量。
 - 远程关爱成员、邀请、共享设置和 10 类成员记录；不混入本机健康记录，写入只在用户点击后执行。
+- 消息未读数、通知权限、极光鸿蒙标识登记及关爱/健康预警白名单路由；正式送达仍依赖 AGC、Push Kit、极光和服务端配置。
+- 商城真实订单列表、支付前再次读取订单金额与状态、服务端支付参数解析、微信/支付宝选择及结果回查；App 不在本机生成签名。
 
 ## 待适配
 
-蓝牙连接、Veepoo/Yucheng SDK、健康历史及本地加密库、测量、趋势/真实心电波形图、关爱双账号写入联调、AI、运动、表盘、商城支付、推送、在线升级、注册及找回密码。
+蓝牙连接、Veepoo/Yucheng SDK、健康历史及本地加密库、测量、趋势/真实心电波形图、关爱双账号写入联调、AI、运动、表盘、在线升级、注册及找回密码。推送的生产配置、服务端即时事件和支付的正式商户参数仍未完成联调。
 
 不得用 Android APK 代替原生 HAP，也不得把本版空态或模拟器结果写成手表真机验收通过。
 
-本轮记录见 [关爱实施记录](docs/CARE-IMPLEMENTATION-20260904.md)、[正式发布阻断清单](docs/RELEASE-BLOCKERS-0.1.2.md)。[逐页交互与兼容检查](docs/UI-REGRESSION-20260904.md)、[首轮检查](docs/QA-RELEASE-20260904.md) 和 [最初实施](docs/IMPLEMENTATION-20260904.md) 保留历史证据。
+本轮记录见 [推送与支付实施记录](docs/PUSH-PAYMENT-IMPLEMENTATION-20260905.md)、[验证记录](docs/QA-RELEASE-20260905.md) 和 [正式发布阻断清单](docs/RELEASE-BLOCKERS-0.1.3.md)。[关爱实施记录](docs/CARE-IMPLEMENTATION-20260904.md)、[逐页交互与兼容检查](docs/UI-REGRESSION-20260904.md) 和 [最初实施](docs/IMPLEMENTATION-20260904.md) 保留历史证据。
 
 ## Release 候选包
 
 构建方式：`hvigorw --mode project -p product=default -p buildMode=release assembleApp --no-daemon`。
 
-0.1.2 产物位于 `build/release-review-0.1.2-20260904/`，旧 0.1.0/0.1.1 包保留不覆盖。
+0.1.3 产物位于 `build/release-review-0.1.3-20260905/`，旧 0.1.0/0.1.1/0.1.2 包保留不覆盖。
 它是开发包名的 **未签名构建候选**，不是可以上架或向真实手机正式分发的版本。发布前必须完成上述阻断清单和正式签名，不得简单改文件名后称为正式版。
 
-先把同一次源码的 Debug HAP、Release APP，以及从该 APP 提取的 `entry-default.hap`（改为候选 Release HAP 文件名）放入该目录，再运行 `node scripts/package-review.mjs 20260904`。
+先把同一次源码的 Debug HAP、Release APP，以及从该 APP 提取的 `entry-default.hap`（改为候选 Release HAP 文件名）放入该目录，再运行 `node scripts/package-review.mjs 20260905`。
 不要直接用模块构建目录的 Release HAP 替代容器版：官方 APP 组装会重新排版 pack.info；虽可语义相同，文件哈希仍不同。
 归档脚本复跑双时区测试，验证产物元数据与嵌套 HAP 一致性，只打包原生源码白名单；如汇总 ZIP 已存在则拒绝覆盖。
 

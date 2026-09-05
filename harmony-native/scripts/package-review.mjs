@@ -33,7 +33,10 @@ for(const name of artifacts) {
     assert.equal(meta.app.versionCode,app.versionCode);
     assert.equal(meta.app.debug,debug);
     assert.equal(meta.app.buildMode,debug?'debug':'release');
-    assert.deepEqual(meta.module.requestPermissions.map(p=>p.name),['ohos.permission.INTERNET']);
+    assert.deepEqual(meta.module.requestPermissions.map(p=>p.name).sort(),[
+      'ohos.permission.APP_TRACKING_CONSENT','ohos.permission.GET_NETWORK_INFO',
+      'ohos.permission.GET_WIFI_INFO','ohos.permission.INTERNET'
+    ]);
     if(!debug)assert.equal(entries.includes('sourceMaps.map'),false);
   }
 }
@@ -47,13 +50,13 @@ for(const tz of ['UTC','Asia/Shanghai']) {
   verification+=`\nTZ=${tz}\n${output}`;
 }
 fs.writeFileSync(path.join(stage,'HOST-TESTS.txt'),verification);
-const documents=['QA-RELEASE-20260904.md','UI-REGRESSION-20260904.md','CARE-IMPLEMENTATION-20260904.md',
+const documents=['PUSH-PAYMENT-IMPLEMENTATION-20260905.md','QA-RELEASE-20260905.md',
   `RELEASE-BLOCKERS-${app.versionName}.md`,`CANDIDATE-README-${app.versionName}.md`];
 for(const name of documents) {
   fs.copyFileSync(path.join(root,'docs',name),path.join(stage,name));
 }
 const sources=['AppScope','entry/src','entry/oh-package.json5','entry/hvigorfile.ts','entry/build-profile.json5',
-  'hvigor','hvigorfile.ts','build-profile.json5','oh-package.json5','README.md','docs','tests','scripts'];
+  'hvigor','hvigorfile.ts','build-profile.json5','oh-package.json5','oh-package-lock.json5','README.md','docs','tests','scripts'];
 function checkSource(relative) {
   const full=path.join(root,relative),info=fs.lstatSync(full);
   assert.equal(info.isSymbolicLink(),false,'Source archive must not follow external links');
@@ -64,7 +67,7 @@ sources.forEach(checkSource);
 run('/usr/bin/tar',['-czf',path.join(stage,'harmony-native-source.tgz'),...sources],{env:{...process.env,COPYFILE_DISABLE:'1'}});
 run('/usr/bin/tar',['-tzf',path.join(stage,'harmony-native-source.tgz')]);
 const manifest={schema_version:1,version:app.versionName,build:app.versionCode,bundle:app.bundleName,
-  release_ready:false,signed:false,review_date:date,scope:'native HarmonyOS account, public content and remote care; full wearable product incomplete',
+  release_ready:false,signed:false,review_date:date,scope:'native HarmonyOS account, public content, remote care, push client and payment client; production platform configuration and full wearable product incomplete',
   required_reading:`RELEASE-BLOCKERS-${app.versionName}.md`,artifacts:artifacts.map(name=>({name,sha256:sha(fs.readFileSync(path.join(stage,name)))}))};
 fs.writeFileSync(path.join(stage,'review-manifest.json'),JSON.stringify(manifest,null,2)+'\n');
 const names=[...artifacts,'HOST-TESTS.txt',...documents,'harmony-native-source.tgz','review-manifest.json'];

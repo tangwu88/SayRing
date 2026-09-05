@@ -3,6 +3,12 @@ import { saydianApi } from '../services/SaydianApi';
 import { ArticleImage } from '../components/ArticleImage';
 import { CareMember, CareInvitation, CareShareSettings, CareMetric, CareMetricSpec, CareRecord, CareOption,
   CARE_OPTIONS, CARE_METRICS, chinaDay, chinaDaySeconds, shiftChinaDay, careMetricLatest, careRecordText } from '../model/CareContracts';
+import { common } from '@kit.AbilityKit';
+import { BusinessError } from '@kit.BasicServicesKit';
+import { pushErrorMessage, paymentErrorMessage } from '../model/PushPaymentContracts';
+import type { PaymentProvider, ShopOrder } from '../model/PushPaymentContracts';
+import { harmonyPush } from '../services/HarmonyPushService';
+import { PENDING_NOTIFICATION_ROUTE } from '../services/NotificationNavigation';
 
 const RED: string = '#D7082E';
 const INK: string = '#1C1D29';
@@ -14,6 +20,9 @@ interface NoticeOptions { message: string; color?: string; }
 @Entry
 @Component
 struct Index {
+  @StorageLink(PENDING_NOTIFICATION_ROUTE)
+  @Watch('pendingNotificationChanged')
+  private pendingNotificationRoute: string = '';
   @State private screen: string = 'login';
   @State private tab: number = 0;
   @State private account: string = '';
@@ -55,6 +64,15 @@ struct Index {
   @State private careMetricKey: string = 'heart';
   @State private careMetricData: CareMetric = { key: 'heart', title: '心率', unit: '', state: 'empty', message: '', records: [] };
   @State private careRecordLimit: number = 30;
+  @State private notificationCount: number = -1;
+  @State private pushBusy: boolean = false;
+  @State private pushStatus: string = '尚未检查鸿蒙推送';
+  @State private orders: ShopOrder[] = [];
+  @State private orderLoading: boolean = false;
+  @State private paymentBusy: boolean = false;
+  @State private paymentMessage: string = '';
+  @State private selectedOrder: ShopOrder = { id: 0, number: '', amountCents: 0, status: 0, summary: '' };
+  @State private selectedProvider: PaymentProvider = 'wechat';
   private careGeneration: number = 0;
   private previousScreen: string = 'login';
   private pageGeneration: number = 0;
@@ -64,7 +82,10 @@ struct Index {
   private readonly metrics: string[] = ['心率', '血压', '血氧', '血糖', '体温', '睡眠', 'HRV', '心电', '身体成分', '血液成分'];
 
   aboutToAppear(): void { this.restoreLogin(); }
+  onPageShow(): void { this.consumeNotificationRoute(); }
   aboutToDisappear(): void { ++this.pageGeneration; ++this.contentGeneration; ++this.careGeneration; }
+
+  private pendingNotificationChanged(): void { this.consumeNotificationRoute(); }
 
   private clearCareState(): void {
     ++this.careGeneration;
@@ -75,6 +96,129 @@ struct Index {
     this.careSelectedMember = { relationId: 0, memberId: 0, name: '', mobile: '' };
     this.careSelectedInviter = { id: 0, inviterId: 0, name: '', mobile: '', state: '' };
     this.careLoading = false; this.careBusy = false;
+  }
+
+  private uiContext(): common.UIAbilityContext {
+    return this.getUIContext().getHostContext() as common.UIAbilityContext;
+  }
+
+  private businessErrorCode(error: Error): number {
+    const code = (error as BusinessError).code;
+    if (typeof code === 'number') return code;
+    const match = error.message.match(/\b(?:code\D*)?(\d{3,10})\b/i);
+    return match ? Number(match[1]) : 0;
+  }
+
+  private async refreshNotificationCount(): Promise<void> {
+    if (this.guest) { this.notificationCount = -1; return; }
+    try {
+      const count = await saydianApi.notificationUnread();
+      this.notificationCount = count === undefined ? -1 : count;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) this.careFailure(error as Error);
+      this.notificationCount = -1;
+    }
+  }
+
+  private async connectPush(requestPermission: boolean): Promise<void> {
+    if (this.pushBusy) return;
+    if (this.guest) { this.pushStatus = '请先登录赛电账号，再开启消息推送'; return; }
+    this.pushBusy = true;
+    this.pushStatus = '正在检查系统通知与推送身份…';
+    try {
+      let enabled = await harmonyPush.notificationEnabled();
+      if (!enabled && requestPermission) {
+        await harmonyPush.requestNotificationPermission(this.uiContext());
+        enabled = await harmonyPush.notificationEnabled();
+      }
+      if (!enabled) { this.pushStatus = '系统通知未开启；应用内消息仍可手动刷新'; return; }
+      const identity = await harmonyPush.getIdentity(this.uiContext());
+      const registered = await saydianApi.registerPushDevice(identity, '0.1.3+4');
+      this.pushStatus = registered ? '鸿蒙推送标识已登记，可接收服务端通知' :
+        '客户端已取得推送标识，但服务端尚未接受 harmony 平台登记';
+    } catch (error) {
+      this.pushStatus = error instanceof ApiError ? error.message : pushErrorMessage(this.businessErrorCode(error as Error));
+    } finally { this.pushBusy = false; }
+  }
+
+  private async releasePushBeforeLogout(): Promise<void> {
+    const identity = harmonyPush.currentIdentity();
+    if (identity) {
+      try { await saydianApi.unregisterPushDevice(identity.installationId); } catch {}
+    }
+    try { await harmonyPush.clearToken(); } catch {}
+    this.notificationCount = -1;
+    this.pushStatus = '已退出账号，推送标识已从本机清除';
+  }
+
+  private async openMessages(): Promise<void> {
+    if (this.guest) { this.showFeature('消息', '请先登录赛电账号，再查看关爱邀请和健康预警。'); return; }
+    this.screen = 'messages';
+    await this.refreshNotificationCount();
+    await this.connectPush(false);
+  }
+
+  private async consumeNotificationRoute(): Promise<void> {
+    const route = this.pendingNotificationRoute;
+    if (!route || this.guest || this.restoring) return;
+    this.pendingNotificationRoute = '';
+    if (route === 'care-invitations') {
+      await this.openCare();
+      if (!this.guest) this.screen = 'care-invitations';
+    } else if (route === 'health-alerts') {
+      this.previousScreen = 'home';
+      this.detailTitle = '健康预警';
+      this.detailBody = '已收到健康预警通知。原生鸿蒙端仍需服务端开放预警列表接口后，才能读取并展示对应事件；不会根据普通测量值自行诊断。';
+      this.screen = 'feature';
+    }
+  }
+
+  private async openOrders(): Promise<void> {
+    if (this.guest) { this.showFeature('商城订单', '请先登录赛电账号，再查看订单与支付状态。'); return; }
+    this.screen = 'shop-orders'; this.orderLoading = true; this.paymentMessage = ''; this.orders = [];
+    try { this.orders = await saydianApi.shopOrders(); }
+    catch (error) { this.paymentMessage = (error as Error).message || '订单暂时无法加载'; }
+    finally { this.orderLoading = false; }
+  }
+
+  private openPayment(order: ShopOrder): void {
+    if (order.status !== 0) { this.paymentMessage = '订单状态已更新，无需重复支付'; return; }
+    this.selectedOrder = order; this.selectedProvider = 'wechat'; this.paymentMessage = '';
+    this.screen = 'shop-payment';
+  }
+
+  private async startPayment(): Promise<void> {
+    if (this.paymentBusy || this.selectedOrder.id <= 0) return;
+    if (!canIUse('SystemCapability.Payment.ThirdPaymentService')) {
+      this.paymentMessage = '当前设备未安装或不支持鸿蒙三方支付服务';
+      return;
+    }
+    this.paymentBusy = true; this.paymentMessage = '正在向服务端核对订单并获取签名参数…';
+    try {
+      const request = await saydianApi.harmonyPayment(this.selectedProvider, this.selectedOrder);
+      const paymentModule = await import('../services/HarmonyPaymentService');
+      await paymentModule.harmonyPayment.start(this.uiContext(), request);
+      const latest = await saydianApi.shopOrder(this.selectedOrder.id);
+      this.selectedOrder = latest;
+      this.paymentMessage = latest.status === 0 ? '支付客户端已返回，订单仍待支付；请稍后刷新核对' :
+        '服务端订单状态已更新';
+    } catch (error) {
+      if (error instanceof ApiError) this.paymentMessage = error.message;
+      else this.paymentMessage = paymentErrorMessage(this.businessErrorCode(error as Error));
+    } finally { this.paymentBusy = false; }
+  }
+
+  private money(cents: number): string {
+    return `¥${(cents / 100).toFixed(2)}`;
+  }
+
+  private orderStatus(status: number): string {
+    if (status === 0) return '待支付';
+    if (status === 1) return '已支付';
+    if (status === 2) return '已发货';
+    if (status === 3) return '已完成';
+    if (status === -1 || status === 4) return '已取消';
+    return `状态 ${status}`;
   }
 
   private careFailure(error: Error): string {
@@ -240,7 +384,16 @@ struct Index {
       }
     } catch (error) {
       if (epoch === this.pageGeneration) this.error = (error as Error).message;
-    } finally { if (epoch === this.pageGeneration) this.restoring = false; }
+    } finally {
+      if (epoch === this.pageGeneration) {
+        this.restoring = false;
+        if (!this.guest) {
+          this.refreshNotificationCount();
+          this.connectPush(false);
+          this.consumeNotificationRoute();
+        }
+      }
+    }
   }
 
   private async submitLogin(): Promise<void> {
@@ -264,7 +417,16 @@ struct Index {
       this.refreshProfile();
     } catch (error) {
       if (epoch === this.pageGeneration) this.error = (error as Error).message;
-    } finally { if (epoch === this.pageGeneration) this.busy = false; }
+    } finally {
+      if (epoch === this.pageGeneration) {
+        this.busy = false;
+        if (!this.guest) {
+          this.refreshNotificationCount();
+          this.connectPush(false);
+          this.consumeNotificationRoute();
+        }
+      }
+    }
   }
 
   private async refreshProfile(): Promise<void> {
@@ -302,6 +464,7 @@ struct Index {
     ++this.pageGeneration;
     this.clearCareState();
     try {
+      await this.releasePushBeforeLogout();
       await saydianApi.logout();
       this.logoutFailed = false;
       this.error = '';
@@ -368,6 +531,8 @@ struct Index {
   private back(): void {
     if (this.careBusy) return;
     ++this.contentGeneration;
+    if (this.screen === 'shop-payment') { this.screen = 'shop-orders'; this.paymentMessage = ''; return; }
+    if (this.screen === 'shop-orders' || this.screen === 'messages') { this.screen = 'home'; return; }
     if (this.screen.startsWith('care')) {
       ++this.careGeneration; this.careLoading = false; this.careMessage = '';
       if (this.screen === 'care') { this.screen = 'home'; this.clearCareState(); }
@@ -380,7 +545,8 @@ struct Index {
   }
 
   onBackPress(): boolean {
-    if (this.screen === 'article' || this.screen === 'feature' || this.screen === 'articles' || this.screen.startsWith('care')) {
+    if (this.screen === 'article' || this.screen === 'feature' || this.screen === 'articles' ||
+      this.screen === 'messages' || this.screen.startsWith('shop-') || this.screen.startsWith('care')) {
       this.back();
       return true;
     }
@@ -398,7 +564,9 @@ struct Index {
     Row() {
       Button('‹ 返回').fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
         .height(48).enabled(!this.careBusy).onClick(() => this.back()).accessibilityText('返回上一页')
-      Text(this.screen.startsWith('care') ? this.careHeading() : this.screen === 'articles' ? '健康百科' : this.screen === 'article' ? this.articleTitle : this.detailTitle)
+      Text(this.screen.startsWith('care') ? this.careHeading() : this.screen === 'messages' ? '消息与推送' :
+        this.screen === 'shop-orders' ? '我的订单' : this.screen === 'shop-payment' ? '支付收银台' :
+          this.screen === 'articles' ? '健康百科' : this.screen === 'article' ? this.articleTitle : this.detailTitle)
         .fontSize(20).fontWeight(FontWeight.Bold).layoutWeight(1).maxLines(2)
     }.width('100%').margin({ bottom: 16 })
   }
@@ -462,7 +630,7 @@ struct Index {
             this.screen = 'home';
           }).id('browse_home')
         if (this.restoring) { Text('正在检查本机登录状态…').fontSize(14).fontColor(MUTED) }
-        this.Notice({ message: '原生鸿蒙开发验证版\n已开放登录、首页、健康百科与远程关爱。注册、密码找回请暂用现有安卓版或苹果版。' })
+        this.Notice({ message: '原生鸿蒙开发验证版\n已开放登录、首页、健康百科、远程关爱、消息推送和订单支付客户端链路。正式推送、支付仍需服务端和鸿蒙正式应用身份配合。' })
         Text('账号密码仅用于登录；密码不会保存到本机。').fontSize(12).fontColor(MUTED).textAlign(TextAlign.Center)
       }.width('100%').constraintSize({ maxWidth: 460 }).padding({ left: 24, right: 24, bottom: 32 })
     }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Off)
@@ -478,8 +646,9 @@ struct Index {
             .fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(2)
           Text(this.guest ? '当前未登录 · 可浏览首页' : '今天也要保持好状态').fontSize(14).fontColor(MUTED)
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-        Button('消息').height(48).fontSize(14).fontColor(INK).backgroundColor(Color.White)
-          .onClick(() => this.showFeature('消息', '鸿蒙原生推送与消息中心尚未接入。本页不显示虚构未读数量。'))
+        Button(this.notificationCount > 0 ? `消息 ${this.notificationCount > 99 ? '99+' : this.notificationCount}` : '消息')
+          .height(48).fontSize(14).fontColor(this.notificationCount > 0 ? RED : INK).backgroundColor(Color.White)
+          .onClick(() => this.openMessages()).id('open_messages')
       }.width('100%').alignItems(VerticalAlign.Center)
       Row({ space: 12 }) {
         Image($r('app.media.health_doctor')).width(105).height(170).objectFit(ImageFit.Cover).borderRadius(18)
@@ -488,7 +657,7 @@ struct Index {
           Text('AI 健康管家').fontSize(24).fontWeight(FontWeight.Bold).fontColor('#9F1230')
           Text('让健康信息更直观\n让日常管理更轻松').fontSize(15).fontColor(INK).lineHeight(23)
           Button('查看适配进度').fontSize(15).height(46).backgroundColor(RED).width('100%')
-            .onClick(() => this.showFeature('原生适配进度', '已接入：账号密码登录、登录凭证安全保存、个人资料只读、健康百科与协议、远程关爱列表/邀请/共享设置及成员记录。\n\n待接入：AI 对话、手表蓝牙、健康同步、测量、消息推送、支付和在线升级。\n\n当前不是完整功能版或正式发布版。'))
+            .onClick(() => this.showFeature('原生适配进度', '已接入：账号登录、个人资料只读、健康百科、远程关爱、消息推送客户端、商城订单与鸿蒙系统支付客户端。\n\n待平台或服务端配置：极光鸿蒙包名与 Server key、harmony 推送设备登记、未读数、鸿蒙微信/支付宝签名参数。\n\n待适配：AI 对话、手表蓝牙、健康同步、测量和在线升级。'))
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       }.width('100%').padding(14).borderRadius(24).backgroundColor('#FFF1F2')
       Row({ space: 10 }) {
@@ -496,6 +665,12 @@ struct Index {
           .onClick(() => this.openCare()).id('family_care')
         Button('健康百科').layoutWeight(1).height(52).fontColor(INK).backgroundColor('#FFF0CC')
           .onClick(() => this.openArticles()).id('health_articles')
+      }.width('100%')
+      Row({ space: 10 }) {
+        Button('商城订单').layoutWeight(1).height(52).fontColor(INK).backgroundColor('#EAF1F8')
+          .onClick(() => this.openOrders()).id('health_orders')
+        Button('消息通知').layoutWeight(1).height(52).fontColor(INK).backgroundColor('#EAF2EA')
+          .onClick(() => this.openMessages()).id('health_notifications')
       }.width('100%')
       if (this.profileError) { this.Notice({ message: this.profileError, color: '#FFF0E9' }) }
       Row() {
@@ -551,6 +726,10 @@ struct Index {
         Button(this.profileLoading ? '正在读取资料…' : '刷新个人资料').width('100%').height(50)
           .fontColor(RED).backgroundColor(Color.White).enabled(!this.profileLoading && !this.busy)
           .onClick(() => this.refreshProfile()).id('refresh_profile')
+        Button('消息与推送').width('100%').height(50).fontColor(INK).backgroundColor(Color.White)
+          .onClick(() => this.openMessages()).id('mine_messages')
+        Button('我的订单与支付').width('100%').height(50).fontColor(INK).backgroundColor(Color.White)
+          .onClick(() => this.openOrders()).id('mine_orders')
         Button(this.busy ? '正在退出…' : '退出本机登录').width('100%').height(50).backgroundColor(RED)
           .enabled(!this.busy).onClick(() => this.signOut()).id('logout')
       }
@@ -558,7 +737,7 @@ struct Index {
         .onClick(() => this.openArticle('2', '用户协议', true))
       Button('隐私政策').width('100%').height(48).fontColor(INK).backgroundColor(Color.White)
         .onClick(() => this.openArticle('3', '隐私政策', true))
-      this.Notice({ message: '赛电鸿蒙 0.1.2 · 原生开发验证版\n本版安装于原生鸿蒙模拟器，仅用于本轮开发验证。' })
+      this.Notice({ message: '赛电鸿蒙 0.1.3 · 原生开发验证版\n推送与支付的正式能力以服务端和鸿蒙平台配置状态为准。' })
     }.width('100%').padding(24)
   }
 
@@ -581,6 +760,85 @@ struct Index {
         })
       }.width('100%').backgroundColor(Color.White)
     }.height('100%').width('100%')
+  }
+
+  @Builder
+  MessageContent() {
+    this.Notice({ message: '健康预警锁屏通知只显示“有新的健康预警”，不在系统通知中暴露健康数值。', color: '#EAF2EA' })
+    Text(this.notificationCount < 0 ? '未读数：服务端暂未提供' : `未读数：${this.notificationCount}`)
+      .fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+    this.Notice({ message: this.pushStatus, color: this.pushStatus.includes('已登记') ? '#EAF2EA' : '#FFF4D8' })
+    Button(this.pushBusy ? '正在连接…' : '开启系统通知并登记推送')
+      .width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED).enabled(!this.pushBusy)
+      .onClick(() => this.connectPush(true)).id('enable_push')
+    Button('刷新未读数').width('100%').constraintSize({ minHeight: 48 })
+      .fontColor(RED).backgroundColor(Color.White).enabled(!this.pushBusy)
+      .onClick(() => this.refreshNotificationCount()).id('refresh_unread')
+    Button('查看关爱邀请').width('100%').constraintSize({ minHeight: 52 })
+      .fontColor(INK).backgroundColor(Color.White).onClick(async () => {
+        await this.openCare();
+        if (!this.guest) this.screen = 'care-invitations';
+      }).id('message_care_invitations')
+    this.Notice({ message: '客户端已实现极光点击路由和通知权限。只有服务端完成 harmony 设备登记、邀请事件及健康预警推送后，才会出现真实即时消息。' })
+  }
+
+  @Builder
+  OrderContent() {
+    this.Notice({ message: '订单金额和状态每次从服务端读取。App 不在本机生成支付签名，也不以微信或支付宝返回页作为成功依据。', color: '#EAF2EA' })
+    if (this.orderLoading) { LoadingProgress().width(40).height(40).color(RED) }
+    if (this.paymentMessage) { this.Notice({ message: this.paymentMessage, color: '#FFF0E9' }) }
+    if (!this.orderLoading && !this.paymentMessage && this.orders.length === 0) {
+      this.Notice({ message: '当前账号暂无可显示订单。' })
+    }
+    ForEach(this.orders, (order: ShopOrder) => {
+      Column({ space: 10 }) {
+        Text(order.summary).fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').maxLines(2)
+        Text(`订单号：${order.number}`).fontSize(14).fontColor(MUTED).width('100%').maxLines(2)
+        Row() {
+          Text(this.orderStatus(order.status)).fontSize(15).fontColor(order.status === 0 ? RED : MUTED).layoutWeight(1)
+          Text(this.money(order.amountCents)).fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK)
+        }.width('100%')
+        if (order.status === 0) {
+          Button('去支付').width('100%').constraintSize({ minHeight: 48 }).backgroundColor(RED)
+            .onClick(() => this.openPayment(order)).id(`pay_order_${order.id}`)
+        }
+      }.width('100%').padding(18).backgroundColor(Color.White).borderRadius(18)
+    }, (order: ShopOrder) => String(order.id))
+    Button(this.orderLoading ? '正在刷新…' : '刷新订单').width('100%').constraintSize({ minHeight: 48 })
+      .fontColor(RED).backgroundColor(Color.White).enabled(!this.orderLoading)
+      .onClick(() => this.openOrders()).id('refresh_orders')
+  }
+
+  @Builder
+  PaymentContent() {
+    Column({ space: 12 }) {
+      Text(this.selectedOrder.summary).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').maxLines(2)
+      Text(`订单号：${this.selectedOrder.number}`).fontSize(14).fontColor(MUTED).width('100%').maxLines(2)
+      Row() {
+        Text('订单总额').fontSize(17).fontColor(INK).layoutWeight(1)
+        Text(this.money(this.selectedOrder.amountCents)).fontSize(27).fontWeight(FontWeight.Bold).fontColor(RED)
+      }.width('100%')
+    }.width('100%').padding(18).backgroundColor(Color.White).borderRadius(18)
+    Text('选择支付方式').fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+    Button(this.selectedProvider === 'wechat' ? '✓  微信支付' : '微信支付')
+      .width('100%').constraintSize({ minHeight: 54 }).fontColor(this.selectedProvider === 'wechat' ? RED : INK)
+      .backgroundColor(Color.White).enabled(!this.paymentBusy).onClick(() => this.selectedProvider = 'wechat')
+      .id('select_wechat')
+    Button(this.selectedProvider === 'alipay' ? '✓  支付宝支付' : '支付宝支付')
+      .width('100%').constraintSize({ minHeight: 54 }).fontColor(this.selectedProvider === 'alipay' ? RED : INK)
+      .backgroundColor(Color.White).enabled(!this.paymentBusy).onClick(() => this.selectedProvider = 'alipay')
+      .id('select_alipay')
+    this.Notice({ message: '点击支付后，App 会先向服务端重新核对订单金额与状态，再获取鸿蒙签名参数唤起对应支付 App。' })
+    if (this.paymentMessage) {
+      this.Notice({ message: this.paymentMessage, color: this.paymentMessage.includes('已更新') ? '#EAF2EA' : '#FFF4D8' })
+    }
+    Button(this.paymentBusy ? '正在处理…' : `支付 ${this.money(this.selectedOrder.amountCents)}`)
+      .width('100%').constraintSize({ minHeight: 56 }).fontSize(18).fontWeight(FontWeight.Bold)
+      .backgroundColor(RED).enabled(!this.paymentBusy && this.selectedOrder.status === 0)
+      .onClick(() => this.startPayment()).id('confirm_payment')
+    Button('返回并刷新订单').width('100%').constraintSize({ minHeight: 48 })
+      .fontColor(RED).backgroundColor(Color.White).enabled(!this.paymentBusy)
+      .onClick(() => this.openOrders()).id('payment_return_orders')
   }
 
   @Builder
@@ -615,7 +873,7 @@ struct Index {
         .onChange((value: string) => this.careMobile = value).id('care_mobile')
       Button(this.careBusy ? '正在提交…' : '发送关爱邀请').width('100%').constraintSize({ minHeight: 52 })
         .backgroundColor(RED).enabled(!this.careBusy && this.careMobile.trim().length > 0).onClick(() => this.sendCareInvitation())
-      Text('本版尚未接入鸿蒙系统推送，邀请接收方可进入关爱邀请页刷新查看。').fontSize(14).fontColor(MUTED).width('100%')
+      Text('推送客户端已接入；服务端推送事件上线前，接收方仍需进入关爱邀请页刷新查看。').fontSize(14).fontColor(MUTED).width('100%')
     } else if (this.screen === 'care-invitations') {
       if (this.careInvitationError) { this.Notice({ message: this.careInvitationError, color: '#FFF0E9' }) }
       else if (!this.careLoading && this.pendingInvitations().length === 0) { this.Notice({ message: '暂无新的关爱邀请。已处理或撤销的邀请不会再次显示操作按钮。' }) }
@@ -717,6 +975,12 @@ struct Index {
             Button('前往登录').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
               .onClick(() => { this.error = ''; this.screen = 'login'; })
           }
+        } else if (this.screen === 'messages') {
+          this.MessageContent()
+        } else if (this.screen === 'shop-orders') {
+          this.OrderContent()
+        } else if (this.screen === 'shop-payment') {
+          this.PaymentContent()
         } else if (this.screen.startsWith('care')) {
           this.CareContent()
         } else if (this.screen === 'articles') {
