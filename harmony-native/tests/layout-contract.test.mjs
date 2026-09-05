@@ -33,7 +33,7 @@ test('package metadata meets bundled build-tool rules without overstating the ap
   const app=JSON.parse(readFileSync(new URL('../AppScope/app.json5',import.meta.url),'utf8')).app;
   const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const updateSource=readFileSync(new URL('../entry/src/main/ets/services/AppUpdateService.ets',import.meta.url),'utf8');
-  assert.ok(source.includes('SayDian赛电 V${HARMONY_VERSION_NAME} (${HARMONY_VERSION_CODE})'));
+  assert.ok(source.includes('V${HARMONY_VERSION_NAME} (${HARMONY_VERSION_CODE})'));
   assert.ok(updateSource.includes(`HARMONY_VERSION_NAME: string = '${app.versionName}'`));
   assert.ok(updateSource.includes(`HARMONY_VERSION_CODE: number = ${app.versionCode}`));
 });
@@ -107,38 +107,40 @@ test('failed or remotely handled invitation refreshes actionable list rather tha
   assert.ok(failure.includes('await this.readCareInvitations(epoch)'));
 });
 
-test('care member and sharing buttons allow multiline labels instead of the native one-line default',()=>{
+test('care member and sharing cards preserve readable member details',()=>{
   const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
-  for(const marker of ['Button(`${member.name}', 'Button(`${invite.name}']) {
-    const start=source.indexOf(marker);
-    assert.ok(start>=0);
-    const card=source.slice(start,source.indexOf('.onClick(',start));
-    assert.ok(card.includes('.labelStyle({ maxLines: 8 })'));
-    assert.ok(card.includes('.constraintSize({ minHeight:'));
-    assert.equal(card.includes('.height('),false,'Cards must grow for system large text');
-  }
+  const member=source.slice(source.indexOf('ForEach(this.careMembers'),source.indexOf("Button('刷新关爱列表')"));
+  assert.ok(member.includes('Text(member.name)'));
+  assert.ok(member.includes("Text(member.mobile || '查看已授权的健康记录')"));
+  assert.ok(member.includes('.constraintSize({ minHeight: 78 })'));
+  const sharing=source.slice(source.indexOf('ForEach(this.sharingTargets'),source.indexOf("} else if (this.screen === 'care-settings')"));
+  assert.ok(sharing.includes('.labelStyle({ maxLines: 8 })'));
+  assert.ok(sharing.includes('.constraintSize({ minHeight: 76 })'));
 });
 
-test('visual system uses the approved warm Saydian palette and consistent surfaces',()=>{
+test('visual system uses the current iOS Saydian palette and consistent surfaces',()=>{
   const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   for(const token of [
-    "const BG: string = '#FFF9F7'",
-    "const RED_SOFT: string = '#FFF0F3'",
-    "const GOLD_SOFT: string = '#FFF5DB'",
-    "const LINE: string = '#EEE7E5'",
+    "const RED: string = '#D20B27'",
+    "const INK: string = '#171B2B'",
+    "const BG: string = '#F5F7FA'",
+    "const RED_SOFT: string = '#FFE8EC'",
+    "const GOLD_SOFT: string = '#FFF6DE'",
+    "const BLUE_SOFT: string = '#EAF1FF'",
+    "const LINE: string = '#DDE3EC'",
     'const CARD_SHADOW:'
   ]) assert.ok(source.includes(token),`Missing design token: ${token}`);
   assert.ok((source.match(/type\(ButtonType\.Normal\)/g)||[]).length>=24,
     'Primary and card actions should use predictable rectangular touch surfaces');
   assert.ok((source.match(/border\(\{ width: 1, color:/g)||[]).length>=20,
-    'Cards and controls should keep visible boundaries on the warm background');
+    'Cards and controls should keep visible boundaries on the light canvas');
 });
 
 test('polished UI avoids text glyphs as fake icons and keeps minimum button targets',()=>{
   const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   assert.equal(/Text\(['"`][^'"`]*[›◷✓][^'"`]*['"`]\)/.test(source),false);
   for(const match of source.matchAll(/Button\([^\n]*?\.height\((\d+)\)/g)) {
-    assert.ok(Number(match[1])>=48,`Button height ${match[1]} is below the 48 vp touch target`);
+    assert.ok(Number(match[1])>=44,`Button height ${match[1]} is below the compact iOS-aligned touch target`);
   }
 });
 
@@ -155,9 +157,10 @@ test('device and mine pages follow the iOS information hierarchy without droppin
   const homeStart=source.indexOf('\n  Home() {',source.indexOf('MineHome()'));
   const mine=source.slice(source.indexOf('MineHome()'),homeStart);
   const home=source.slice(homeStart,source.indexOf('HealthAllContent()',homeStart));
-  for(const marker of ['device-current-card','设备功能','表盘与个性化','手动测量','关于设备','连接说明']) {
+  for(const marker of ['device-current-card','设备功能','表盘与个性化','关于设备','连接说明']) {
     assert.ok(device.includes(marker),`Missing iOS-aligned device section: ${marker}`);
   }
+  assert.equal(device.includes("Text('手动测量')"),false,'Manual measurement belongs to health metric pages');
   for(const marker of ['mine-profile-card','profile_stat_device','profile_stat_health','profile_stat_care',
     'mine-orders-card','mine-quick-card','mine-services-card']) {
     assert.ok(mine.includes(marker),`Missing iOS-aligned mine section: ${marker}`);
@@ -184,7 +187,7 @@ test('launcher identity uses the requested name and a high-resolution brand icon
 
 test('login offers registration and WeChat authorization instead of guest browsing',()=>{
   const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
-  for(const marker of ['微信授权登录','注册账户','注册并登录','register_send_code'])assert.ok(source.includes(marker));
+  for(const marker of ['微信授权登录','注册账户','register_submit','register_send_code'])assert.ok(source.includes(marker));
   assert.equal(source.includes('先浏览首页'),false);
   const manifest=JSON.parse(readFileSync(new URL('../entry/src/main/module.json5',import.meta.url),'utf8')).module;
   assert.deepEqual(manifest.querySchemes,['weixin','wxopensdk']);
@@ -193,20 +196,21 @@ test('login offers registration and WeChat authorization instead of guest browsi
 
 test('disconnected health cards do not repeat the same empty-state line',()=>{
   const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
-  const cards=source.slice(source.indexOf('ForEach(this.wearableMetrics.filter'),source.indexOf("Text('运动与记录')"));
-  assert.ok(cards.includes("this.wearableSnapshot.connected ? '当前手表不支持' : '连接手表后同步'"));
+  const cards=source.slice(source.indexOf('HealthHome()'),source.indexOf('DeviceHome()'));
+  assert.ok(cards.includes('if (this.visibleWearableMetrics().length === 0)'));
+  assert.ok(cards.includes("'连接手表后可查看支持的健康数据'"));
+  assert.ok(cards.includes('ForEach(this.visibleWearableMetrics()'));
   assert.equal(cards.includes("this.wearableSnapshot.connected ? '当前手表不支持' : '暂无记录'"),false);
 });
 
 test('login and primary surfaces exclude decorative or internal helper copy',()=>{
   const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const login=source.slice(source.indexOf('  Login() {'),source.indexOf('  Registration() {'));
-  const wechat=login.slice(login.indexOf("Button(this.busy ? '正在打开微信…'"),login.indexOf("Button('注册账户')"));
+  const wechat=login.slice(login.indexOf("Button(this.busy ? '正在打开微信…'"),login.indexOf('  Registration()'));
   assert.ok(wechat.includes(".width('60%')"));
   assert.ok(login.includes("}.width('100%').justifyContent(FlexAlign.Center)"));
   for(const copy of [
     '欢迎来到赛电',
-    '今天也要保持好状态',
     '日常健康疑问，随时向我提问。',
     '优先展示手表支持的真实记录',
     '更多购买方式即将开放',
@@ -214,9 +218,25 @@ test('login and primary surfaces exclude decorative or internal helper copy',()=
     '只读取和切换手表内已安装表盘；不猜测缩略图，不执行 OTA。',
     '此配图地址暂不支持安全加载'
   ]) assert.equal(source.includes(copy),false,`Redundant UI copy remains: ${copy}`);
+  assert.ok(source.includes('今天也要保持好状态'),'The Harmony home should retain the iOS greeting subtitle');
   for(const requiredCopy of [
     '测量结果仅供健康管理参考',
     '健康预警仅作健康管理提醒',
     '请先阅读并同意用户协议与隐私政策'
   ]) assert.ok(source.includes(requiredCopy),`Required user-safety copy missing: ${requiredCopy}`);
+});
+
+test('device search and profile shortcuts match the iOS navigation hierarchy',()=>{
+  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const search=source.slice(source.indexOf('DeviceSearchContent()'),source.indexOf('MineHome()'));
+  for(const marker of ['已发现设备','请选择需要连接的手表','device_search_refresh','device_search_shop']) {
+    assert.ok(source.includes(marker),`Missing device search contract: ${marker}`);
+  }
+  assert.ok(search.includes('wearableIdentifierText(device)'));
+  assert.ok(search.includes("device.provider === 'Vep' ? '连接' : '暂不支持'"));
+  const mineStart=source.indexOf('MineHome()');
+  const mine=source.slice(mineStart,source.indexOf('\n  Home() {',mineStart));
+  for(const marker of ['AI提问','单位设置','mine_account','mine_units']) assert.ok(mine.includes(marker));
+  assert.equal(mine.includes("Text('个人资料').fontSize(17)"),false,'Profile should not be duplicated in the quick card');
+  assert.equal(mine.includes("Text('消息与推送').fontSize(17)"),false,'Messages stay in the health header like iOS');
 });

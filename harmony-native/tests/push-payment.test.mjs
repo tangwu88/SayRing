@@ -26,11 +26,11 @@ function accountClient(request) {
 }
 
 test('Harmony push registration is explicit and contains no account data', () => {
-  assert.deepEqual(pushRegistrationFields({ installationId: 'fixture-installation-123', registrationId: 'fixture-registration-token-123' }, '0.1.3+5'), [
+  assert.deepEqual(pushRegistrationFields({ installationId: 'fixture-installation-123', registrationId: 'fixture-registration-token-123' }, '0.1.3+6'), [
     { name: 'installation_id', value: 'fixture-installation-123' },
     { name: 'registration_id', value: 'fixture-registration-token-123' },
     { name: 'platform', value: 'harmony' },
-    { name: 'version', value: '0.1.3+5' }
+    { name: 'version', value: '0.1.3+6' }
   ]);
 });
 
@@ -132,7 +132,7 @@ test('push device registration and removal use authenticated server methods', as
   });
   await client.restore();
   assert.equal(await client.registerPushDevice({ installationId: 'fixture-installation-123',
-    registrationId: 'fixture-registration-token-123' }, '0.1.3+5'), true);
+    registrationId: 'fixture-registration-token-123' }, '0.1.3+6'), true);
   assert.equal(await client.unregisterPushDevice('fixture-installation-123'), true);
   assert.deepEqual(calls.map(item => [item.path, item.method, item.token]), [
     ['/api/v1/member/push-devices', 'POST', 'synthetic-access'],
