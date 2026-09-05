@@ -34,6 +34,12 @@ test('package metadata meets bundled build-tool rules without overstating the ap
   assert.ok(source.includes(`赛电鸿蒙 ${app.versionName} ·`));
 });
 
+test('release identity stays aligned with the confirmed AGC HarmonyOS app',()=>{
+  const app=JSON.parse(readFileSync(new URL('../AppScope/app.json5',import.meta.url),'utf8')).app;
+  assert.equal(app.bundleName,'cc.saidian.app.hm');
+  assert.equal(app.bundleName.endsWith('.dev'),false);
+});
+
 test('optional PaymentKit is not loaded during cold start',()=>{
   const page=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const ability=readFileSync(new URL('../entry/src/main/ets/entryability/EntryAbility.ets',import.meta.url),'utf8');

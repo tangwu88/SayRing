@@ -12,7 +12,7 @@ const app=JSON.parse(fs.readFileSync(path.join(root,'AppScope/app.json5'),'utf8'
 const date=process.argv[2];
 assert.match(date??'',/^\d{8}$/,'Pass a YYYYMMDD review date');
 assert.match(app.versionName,/^\d+\.\d+\.\d+$/);
-assert.equal(app.bundleName,'cc.saidian.saydian.harmony.dev');
+assert.equal(app.bundleName,'cc.saidian.app.hm');
 const stage=path.join(root,'build',`release-review-${app.versionName}-${date}`);
 const archive=path.join(root,'build',`Saydian-Harmony-${app.versionName}-UNSIGNED-REVIEW-${date}.zip`);
 assert.ok(!fs.existsSync(archive),'Existing archives are preserved. Use a new review date/version.');

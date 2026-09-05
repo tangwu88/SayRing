@@ -4,7 +4,7 @@
 
 - 修改前已在 `codex/harmony-native-login-home` 执行远端更新，工作分支与上游均为 `42c2bc8`，无分叉后开始修改。
 - 只修改独立原生鸿蒙工程 `harmony-native`；未改 Flutter、Android、iOS、服务器或极光后台数据。
-- App 版本升至 0.1.3（4）；继续使用开发包名 `cc.saidian.saydian.harmony.dev`，没有冒充正式应用身份。
+- App 版本升至 0.1.3（4）时先使用开发包名 `cc.saidian.saydian.harmony.dev`，没有在尚未确认 AGC 身份时猜测正式包名。
 - 不读取、提交或打印极光 Master Secret、支付密钥、证书密码、用户 Token 或健康数据。
 
 ## 推送实现
@@ -52,9 +52,14 @@
 
 ## 仍需外部配合
 
-- 登录华为 AppGallery Connect，确认已有正式应用及唯一 bundleName，开通 Push Kit，取得与该应用匹配的配置。
-- 在极光鸿蒙设置中填写相同正式包名并上传该应用的 Server key JSON。包名保存后不可修改，当前未盲填开发包名。
+- 在极光鸿蒙设置中填写 `cc.saidian.app.hm`，并上传 APP ID `6917615560681044373` 对应的 Server key JSON。包名保存后不可修改，私钥文件不得进入 Git。
 - 提供正式发布证书、Profile 和本机安全保存的密码，完成签名安装与升级保留数据测试。
 - 服务端实现/确认 harmony 推送设备登记、退出解绑、邀请与健康预警事件 Outbox，以及不含敏感健康数值的推送负载。
 - 服务端按微信/支付宝正式商户配置返回 Harmony `third_app_id` 与 `pay_info`；随后使用沙箱或指定测试订单完成回调、取消、失败和订单回查联调。
 - 接入一台原生 HarmonyOS 真机进行推送前台/后台/进程终止送达和第三方支付拉起验收。
+
+## 2026-09-05 生产身份补充记录
+
+- AGC 已确认现有 HarmonyOS 应用“Saydian赛电”：APP ID `6917615560681044373`，包名 `cc.saidian.app.hm`，所属项目“Saydian赛电”。
+- `cc.saidian.app` 与已有 Android 应用冲突；`cc.saidian.app.harmony` 因包含平台保留词被 AGC 拒绝，未提交。
+- AGC Push Kit 已保存开启。本地 bundleName 已更改为 `cc.saidian.app.hm`；正式签名和极光 Server key 仍是独立门禁。

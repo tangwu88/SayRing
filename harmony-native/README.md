@@ -2,7 +2,7 @@
 
 ArkTS + ArkUI，独立于已有 Flutter/Android/iOS 工程。当前范围包含账号、公开内容、远程关爱、消息推送客户端、商城订单与鸿蒙三方支付客户端，不是完整功能移植或正式发布版本。
 
-最新开发版本 0.1.3（4），本轮实际结果见 [推送与支付实施记录](docs/PUSH-PAYMENT-IMPLEMENTATION-20260905.md)。
+最新开发版本 0.1.3（4），已对齐 AGC 正式身份 `cc.saidian.app.hm`（APP ID `6917615560681044373`）并开启 Push Kit；发布签名和极光服务端凭据仍是上线门禁。本轮实际结果见 [推送与支付实施记录](docs/PUSH-PAYMENT-IMPLEMENTATION-20260905.md)。
 0.1.3 在 UTC 与 Asia/Shanghai 下各 102 项主机测试通过，Debug/Release 构建成功；原生模拟器已覆盖安装并验证冷启动保留登录。
 0.1.1 的验证记录与归档保留为历史证据，不代替新版本验收。
 
@@ -53,7 +53,7 @@ node --test tests/*.test.mjs
 构建方式：`hvigorw --mode project -p product=default -p buildMode=release assembleApp --no-daemon`。
 
 0.1.3 产物位于 `build/release-review-0.1.3-20260905/`，旧 0.1.0/0.1.1/0.1.2 包保留不覆盖。
-它是开发包名的 **未签名构建候选**，不是可以上架或向真实手机正式分发的版本。发布前必须完成上述阻断清单和正式签名，不得简单改文件名后称为正式版。
+该历史归档是开发包名的 **未签名构建候选**，不是可以上架或向真实手机正式分发的版本。当前源码已切换正式 bundleName，但在发布证书、Profile 和签名验证完成前仍不得称为正式版。
 
 先把同一次源码的 Debug HAP、Release APP，以及从该 APP 提取的 `entry-default.hap`（改为候选 Release HAP 文件名）放入该目录，再运行 `node scripts/package-review.mjs 20260905`。
 不要直接用模块构建目录的 Release HAP 替代容器版：官方 APP 组装会重新排版 pack.info；虽可语义相同，文件哈希仍不同。

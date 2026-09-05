@@ -2,13 +2,12 @@
 
 ## 当前结论
 
-0.1.3 的推送和支付客户端链路已实现并通过构建、自动化及模拟器页面检查，但当前只能生成未签名审查包，不能称为正式签名版或上线版。
+0.1.3 的推送和支付客户端链路已实现并通过构建、自动化及模拟器页面检查。AGC 正式应用身份已确认，Push Kit 已开启；发布证书、Profile、极光服务端凭据和真机验收仍未完成，因此仍不能称为正式签名版或上线版。
 
 | 优先级 | 阻断项 | 当前证据 | 解除条件 |
 | --- | --- | --- | --- |
-| P0 | 正式应用身份未确认 | 工程仍为 `cc.saidian.saydian.harmony.dev`；AGC 页面未登录 | 在 AGC 确认现有正式应用及唯一 bundleName，禁止新建重复应用或猜包名 |
 | P0 | Release 签名缺失 | `signingConfigs` 为空；构建明确提示 No signingConfig | 取得同一正式应用的发布证书、Profile、别名与本机安全密码，并验证签名链 |
-| P0 | 极光鸿蒙配置为空 | 极光页面的应用包名、HarmonyOS Server key 均为空 | AGC 开通 Push Kit 后，在极光填写完全一致的正式包名并上传 Server key JSON |
+| P0 | 极光鸿蒙配置未完成 | AGC Push Kit 已开启；极光的 HarmonyOS 包名和 Server key 尚未最终保存 | 在极光填写 `cc.saidian.app.hm`，上传该 APP ID 的 Server key JSON，且不向 Git/日志暴露私钥 |
 | P0 | 推送服务端未联调 | 客户端有登记/解绑/未读和路由；模拟器无法取得正式 registration ID | 服务端开放 harmony 设备登记，邀请/预警 Outbox 和 APNs/极光事件发送，真机 10 秒内验收 |
 | P0 | 支付正式参数未联调 | 订单读取成功；未调用真实 `/api/v1/pay` | 服务端返回 Harmony `third_app_id`、`pay_info`，提供指定测试订单及微信/支付宝正式配置 |
 | P0 | 原生真机缺失 | HDC 只有模拟器 | 原生 HarmonyOS 手机安装正式签名包，测试推送三态、支付三态和升级保留数据 |
@@ -32,3 +31,9 @@
 3. 推送前台、后台、进程终止三态送达并可正确路由；通知内容不暴露健康值。
 4. 微信、支付宝分别完成成功、取消、失败、重复回调和订单回查；使用指定测试订单，不使用普通用户订单。
 5. Release 自动化、双时区测试、权限清单、SHA-256 和归档复核全部通过后，才可标记 release_ready=true。
+
+## 已解除的阻断
+
+- AGC 正式应用已确认：“Saydian赛电”，APP ID `6917615560681044373`，bundleName `cc.saidian.app.hm`。
+- `cc.saidian.app` 已被 Android 应用占用；`harmony` 是平台保留词，两者均不能作为新 HarmonyOS 包名。
+- AGC 中 Push Kit 已保存开启；本地工程已切换到与 AGC 一致的正式 bundleName。
