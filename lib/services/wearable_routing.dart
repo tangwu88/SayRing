@@ -201,7 +201,7 @@ class RoutedWearableBridge
         YuchengDeviceClassifier.matches(device.display.name)) {
       throw PlatformException(
         code: 'YUCHENG_DISCOVERY_MISMATCH',
-        message: 'Yuc 设备未被云创 SDK 识别，请重新扫描后重试',
+        message: '当前手表暂时无法连接，请重新扫描后重试',
       );
     }
 

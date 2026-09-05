@@ -18,7 +18,7 @@ import '../services/device_watch_face_market_service.dart';
 import '../services/notification_models.dart';
 import 'app_theme.dart';
 import 'brand_assets.dart';
-import 'device_sdk_badge.dart';
+import 'health_reports_page.dart';
 import 'health_trend_page.dart';
 import 'prototype_pages.dart';
 import 'shop_pages.dart';
@@ -3933,11 +3933,6 @@ class DevicePage extends StatelessWidget {
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              DeviceSdkBadge(
-                                source: connected.sdkSource,
-                                compact: true,
-                              ),
-                              const SizedBox(width: 8),
                               _BatteryBadge(
                                 battery: connected.effectiveBattery,
                               ),
@@ -4786,11 +4781,6 @@ class _DeviceSearchPageState extends State<DeviceSearchPage> {
                                                     ),
                                                   ),
                                                 ),
-                                                const SizedBox(width: 8),
-                                                DeviceSdkBadge(
-                                                  source: device.sdkSource,
-                                                  compact: true,
-                                                ),
                                               ],
                                             ),
                                             const SizedBox(height: 5),
@@ -5019,10 +5009,8 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                     ),
                     const Divider(indent: 16),
                     ListTile(
-                      title: const Text('设备服务'),
-                      trailing: DeviceSdkBadge(
-                        source: device?.sdkSource ?? WearableSdkSource.unknown,
-                      ),
+                      title: const Text('连接状态'),
+                      trailing: Text(device == null ? '未连接' : '已连接'),
                     ),
                     const Divider(indent: 16),
                     ListTile(
@@ -6604,7 +6592,7 @@ class _CareEcgRecordCard extends StatelessWidget {
               )
             else
               const _InlineNotice(
-                message: '服务端未返回带校准信息的可用心电波形，仅展示已有客观指标。',
+                message: '暂未获取可用的心电波形，仅展示已有健康指标。',
                 icon: Icons.monitor_heart_outlined,
                 color: SaydianColors.orange,
               ),
@@ -7770,6 +7758,11 @@ class _MyServicesGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final entries = <({String label, IconData icon, Widget page})>[
+      (
+        label: '健康档案',
+        icon: Icons.assignment_ind_outlined,
+        page: HealthProfilePage(controller: controller),
+      ),
       (
         label: '账号设置',
         icon: Icons.manage_accounts_outlined,

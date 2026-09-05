@@ -1,6 +1,7 @@
 import CryptoKit
 import Flutter
 import Photos
+import StoreKit
 import UIKit
 import UserNotifications
 @_implementationOnly import AlipaySDK
@@ -667,6 +668,117 @@ enum IOSPaymentPayloadMapper {
   }
 }
 
+@available(iOS 15.0, *)
+private enum StoreKitBridgeError: LocalizedError {
+  case invalidRequest
+  case productUnavailable
+  case unverifiedTransaction
+
+  var code: String {
+    switch self {
+    case .invalidRequest:
+      return "STOREKIT_INVALID_REQUEST"
+    case .productUnavailable:
+      return "STOREKIT_PRODUCT_UNAVAILABLE"
+    case .unverifiedTransaction:
+      return "STOREKIT_UNVERIFIED"
+    }
+  }
+
+  var errorDescription: String? {
+    switch self {
+    case .invalidRequest:
+      return "苹果购买信息不完整，请稍后重试"
+    case .productUnavailable:
+      return "当前购买方案暂时不可用，请刷新后重试"
+    case .unverifiedTransaction:
+      return "购买结果验证失败，请使用恢复购买重试"
+    }
+  }
+}
+
+@available(iOS 15.0, *)
+@MainActor
+private final class StoreKitPurchaseCoordinator {
+  static let shared = StoreKitPurchaseCoordinator()
+
+  private init() {}
+
+  func purchase(
+    productID: String,
+    appAccountToken: String
+  ) async throws -> [String: Any] {
+    let normalizedProductID = productID.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalizedProductID.isEmpty,
+          let accountToken = UUID(uuidString: appAccountToken) else {
+      throw StoreKitBridgeError.invalidRequest
+    }
+    let products = try await Product.products(for: [normalizedProductID])
+    guard let product = products.first(where: { $0.id == normalizedProductID }) else {
+      throw StoreKitBridgeError.productUnavailable
+    }
+    let outcome = try await product.purchase(options: [.appAccountToken(accountToken)])
+    switch outcome {
+    case .success(let verification):
+      return try verifiedPayload(verification)
+    case .userCancelled:
+      return ["status": "cancelled"]
+    case .pending:
+      return ["status": "pending"]
+    @unknown default:
+      return ["status": "pending"]
+    }
+  }
+
+  func restorePurchases() async throws -> [[String: Any]] {
+    try await AppStore.sync()
+    var transactions: [String: [String: Any]] = [:]
+
+    for await verification in Transaction.unfinished {
+      if let payload = try? verifiedPayload(verification),
+         let transactionID = payload["transactionId"] as? String {
+        transactions[transactionID] = payload
+      }
+    }
+    for await verification in Transaction.currentEntitlements {
+      if let payload = try? verifiedPayload(verification),
+         let transactionID = payload["transactionId"] as? String {
+        transactions[transactionID] = payload
+      }
+    }
+    return Array(transactions.values)
+  }
+
+  func finish(transactionID: String) async -> Bool {
+    let normalizedID = transactionID.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalizedID.isEmpty else { return false }
+    for await verification in Transaction.unfinished {
+      guard case .verified(let transaction) = verification,
+            String(transaction.id) == normalizedID else {
+        continue
+      }
+      await transaction.finish()
+      return true
+    }
+    return false
+  }
+
+  private func verifiedPayload(
+    _ verification: VerificationResult<Transaction>
+  ) throws -> [String: Any] {
+    guard case .verified(let transaction) = verification else {
+      throw StoreKitBridgeError.unverifiedTransaction
+    }
+    return [
+      "status": "verified",
+      "productId": transaction.productID,
+      "transactionId": String(transaction.id),
+      "appAccountToken": transaction.appAccountToken?.uuidString ?? "",
+      "signedTransactionInfo": verification.jwsRepresentation,
+    ]
+  }
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, WXApiDelegate {
   private let wearableStreamHandler = WearableStreamHandler()
@@ -675,6 +787,7 @@ enum IOSPaymentPayloadMapper {
   private var eventChannel: FlutterEventChannel?
   private var paymentChannel: FlutterMethodChannel?
   private var pendingAlipayResult: FlutterResult?
+  private var storeKitChannel: FlutterMethodChannel?
 
   private static let wechatResultDefaultsKey = "cc.saidian.payment.wechat-result.v1"
 
@@ -732,6 +845,15 @@ enum IOSPaymentPayloadMapper {
       }
     }
     paymentChannel = payments
+
+    let storeKit = FlutterMethodChannel(
+      name: "cc.saidian/storekit",
+      binaryMessenger: registrar.messenger()
+    )
+    storeKit.setMethodCallHandler { [weak self] call, result in
+      self?.handleStoreKitCall(call, result: result)
+    }
+    storeKitChannel = storeKit
   }
 
   override func application(
@@ -812,7 +934,7 @@ enum IOSPaymentPayloadMapper {
     else {
       result(FlutterError(
         code: "WECHAT_PAY_CONFIG_INVALID",
-        message: "后台返回的微信 APP 支付参数不完整",
+        message: "微信支付信息不完整，请稍后重试",
         details: nil
       ))
       return
@@ -822,7 +944,7 @@ enum IOSPaymentPayloadMapper {
     guard !configuredAppID.isEmpty, !universalLink.isEmpty else {
       result(FlutterError(
         code: "WECHAT_IOS_CONFIG_MISSING",
-        message: "iOS 微信支付尚未配置 AppID 和 Universal Link",
+        message: "微信支付暂时无法使用，请稍后再试",
         details: nil
       ))
       return
@@ -830,7 +952,7 @@ enum IOSPaymentPayloadMapper {
     guard configuredAppID == requestValues.appID else {
       result(FlutterError(
         code: "WECHAT_APP_ID_MISMATCH",
-        message: "后台微信支付 AppID 与当前 iOS 应用不一致",
+        message: "微信支付暂时无法使用，请稍后再试",
         details: nil
       ))
       return
@@ -838,7 +960,7 @@ enum IOSPaymentPayloadMapper {
     guard WXApi.registerApp(configuredAppID, universalLink: universalLink) else {
       result(FlutterError(
         code: "WECHAT_REGISTER_FAILED",
-        message: "微信支付应用注册失败，请检查 Universal Link",
+        message: "微信支付暂时无法使用，请稍后再试",
         details: nil
       ))
       return
@@ -897,7 +1019,7 @@ enum IOSPaymentPayloadMapper {
     guard !order.isEmpty else {
       result(FlutterError(
         code: "ALIPAY_CONFIG_INVALID",
-        message: "后台未返回支付宝签名订单",
+        message: "支付宝支付信息不完整，请稍后重试",
         details: nil
       ))
       return
@@ -905,7 +1027,7 @@ enum IOSPaymentPayloadMapper {
     guard !configuredAlipayScheme.isEmpty else {
       result(FlutterError(
         code: "ALIPAY_IOS_CONFIG_MISSING",
-        message: "iOS 支付宝回跳 Scheme 尚未配置",
+        message: "支付宝支付暂时无法使用，请稍后再试",
         details: nil
       ))
       return
@@ -959,6 +1081,52 @@ enum IOSPaymentPayloadMapper {
       return ""
     }
     return value
+  }
+
+  private func handleStoreKitCall(
+    _ call: FlutterMethodCall,
+    result: @escaping FlutterResult
+  ) {
+    guard #available(iOS 15.0, *) else {
+      result(
+        FlutterError(
+          code: "STOREKIT_NOT_AVAILABLE",
+          message: "当前系统版本暂不支持苹果购买",
+          details: nil
+        ))
+      return
+    }
+    let arguments = call.arguments as? [String: Any]
+    Task { @MainActor in
+      do {
+        switch call.method {
+        case "purchase":
+          let payload = try await StoreKitPurchaseCoordinator.shared.purchase(
+            productID: arguments?["productId"] as? String ?? "",
+            appAccountToken: arguments?["appAccountToken"] as? String ?? ""
+          )
+          result(payload)
+        case "restorePurchases":
+          result(try await StoreKitPurchaseCoordinator.shared.restorePurchases())
+        case "finish":
+          let finished = await StoreKitPurchaseCoordinator.shared.finish(
+            transactionID: arguments?["transactionId"] as? String ?? ""
+          )
+          result(finished)
+        default:
+          result(FlutterMethodNotImplemented)
+        }
+      } catch let error as StoreKitBridgeError {
+        result(FlutterError(code: error.code, message: error.errorDescription, details: nil))
+      } catch {
+        result(
+          FlutterError(
+            code: "STOREKIT_FAILED",
+            message: "苹果购买暂时无法完成，请稍后重试",
+            details: nil
+          ))
+      }
+    }
   }
 
   private func handleWearableCall(

@@ -1928,7 +1928,8 @@ void main() {
       expect(find.text('372'), findsOneWidget);
       expect(find.text('HRV'), findsOneWidget);
       expect(find.text('52'), findsOneWidget);
-      expect(find.textContaining('未返回带校准信息'), findsOneWidget);
+      expect(find.textContaining('暂未获取可用的心电波形'), findsOneWidget);
+      expect(find.textContaining('服务端'), findsNothing);
       expect(find.text('samples'), findsNothing);
       expect(find.text('rawVersion'), findsNothing);
       expect(tester.takeException(), isNull);

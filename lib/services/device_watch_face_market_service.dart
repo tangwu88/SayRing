@@ -390,7 +390,7 @@ class DeviceWatchFaceMarketService {
     required DeviceWatchFaceMarketProfile profile,
   }) async {
     if (!_directCatalogueAllowed) {
-      throw const DeviceWatchFaceMarketException('苹果设备必须通过手表 SDK 读取表盘目录');
+      throw const DeviceWatchFaceMarketException('当前手机无法完成此操作，请在手表上操作');
     }
     final appVersion = (await _appVersionLoader()).trim();
     final uri = Uri.parse(_endpoint).replace(
@@ -505,7 +505,7 @@ class DeviceWatchFaceMarketService {
     void Function(double progress)? onProgress,
   }) async {
     if (!_directCatalogueAllowed) {
-      throw const DeviceWatchFaceMarketException('苹果设备必须通过手表 SDK 下载表盘');
+      throw const DeviceWatchFaceMarketException('当前手机无法完成此操作，请在手表上操作');
     }
     if ((item.dialShape != null && item.dialShape != profile.dialShape) ||
         (item.binProtocol != null && item.binProtocol != profile.binProtocol) ||

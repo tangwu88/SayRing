@@ -12,6 +12,7 @@ import 'package:uuid/uuid.dart';
 
 import '../domain/device_state_machine.dart';
 import '../domain/feature_models.dart';
+import '../domain/health_report_models.dart';
 import '../domain/health_record_validation.dart';
 import '../domain/health_record_dedup.dart';
 import '../domain/models.dart';
@@ -23,6 +24,7 @@ import 'notification_inbox.dart';
 import 'notification_models.dart';
 import 'notification_route_service.dart';
 import 'secure_vault.dart';
+import 'storekit_purchase_bridge.dart';
 import 'sync_service.dart';
 import 'wearable_bridge.dart';
 import 'wearable_bootstrap.dart';
@@ -55,9 +57,13 @@ class AppController extends ChangeNotifier {
     this._healthStore,
     this._wearable, {
     AppPaymentBridge? paymentBridge,
+    StoreKitPurchaseBridge? storeKitPurchaseBridge,
     AppNotificationService? notificationService,
     List<Duration>? pushRegistrationRetryDelays,
   }) : _paymentBridge = paymentBridge ?? const MethodChannelAppPaymentBridge(),
+       _storeKitPurchaseBridge =
+           storeKitPurchaseBridge ??
+           const MethodChannelStoreKitPurchaseBridge(),
        _notificationService =
            notificationService ?? const DisabledAppNotificationService(),
        _pushRegistrationRetryDelays = List.unmodifiable(
@@ -89,6 +95,7 @@ class AppController extends ChangeNotifier {
   final HealthStore _healthStore;
   final WearableBridge _wearable;
   final AppPaymentBridge _paymentBridge;
+  final StoreKitPurchaseBridge _storeKitPurchaseBridge;
   final AppNotificationService _notificationService;
   final List<Duration> _pushRegistrationRetryDelays;
   final HealthSyncService _syncService;
@@ -2291,7 +2298,7 @@ class AppController extends ChangeNotifier {
         ? _api as SaydianProfileUploadApi
         : null;
     if (uploadApi == null) {
-      errorMessage = '头像上传接口暂未配置';
+      errorMessage = '头像暂时无法上传，请稍后再试';
       notifyListeners();
       return null;
     }
@@ -3437,12 +3444,14 @@ class AppController extends ChangeNotifier {
       );
       if (provider == AppPaymentProvider.wechat) {
         final signed = AppPaymentPayloadParser.wechat(response);
-        if (signed.isEmpty) throw const ApiException('后台未返回微信 APP 支付参数');
+        if (signed.isEmpty) throw const ApiException('微信支付信息不完整，请稍后重试');
         await _paymentBridge.startWechat(signed);
         return null;
       }
       final signedOrder = AppPaymentPayloadParser.alipay(response);
-      if (signedOrder.isEmpty) throw const ApiException('后台未返回支付宝 APP 支付参数');
+      if (signedOrder.isEmpty) {
+        throw const ApiException('支付宝支付信息不完整，请稍后重试');
+      }
       return await _paymentBridge.startAlipay(signedOrder);
     } on ApiException catch (error) {
       errorMessage = _shopPaymentErrorMessage(error);
@@ -3477,6 +3486,230 @@ class AppController extends ChangeNotifier {
     } on PlatformException {
       return null;
     }
+  }
+
+  SaydianHealthReportApi get _requiredHealthReportApi {
+    final api = _api;
+    if (api is SaydianHealthReportApi) return api as SaydianHealthReportApi;
+    throw const FeatureNotConfiguredException('健康档案暂时无法使用，请稍后再试');
+  }
+
+  String get _healthReportPlatform =>
+      defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
+
+  Future<HealthReportDashboard> loadHealthReportDashboard() async {
+    if (session == null) throw const ApiException('请先登录后查看健康档案');
+    final api = _requiredHealthReportApi;
+    final profileFuture = api.getHealthProfile();
+    final eligibilityFuture = api.getHealthReportEligibility();
+    final entitlementFuture = api.getHealthReportEntitlements();
+    final offersFuture = api.getHealthReportOffers(
+      platform: _healthReportPlatform,
+    );
+    final reportsFuture = api.getHealthReports();
+    return HealthReportDashboard(
+      profile: await profileFuture,
+      eligibility: await eligibilityFuture,
+      entitlements: await entitlementFuture,
+      offers: await offersFuture,
+      reports: await reportsFuture,
+    );
+  }
+
+  Future<void> setHealthAnalysisConsent(bool granted) async {
+    if (session == null) throw const ApiException('请先登录后管理健康分析授权');
+    await _requiredHealthReportApi.setHealthAnalysisConsent(
+      granted: granted,
+      version: 'health-ai-analysis-v1',
+    );
+  }
+
+  Future<HealthReportSummary> createHealthReport() async {
+    if (session == null) throw const ApiException('请先登录后生成健康报告');
+    return _requiredHealthReportApi.createHealthReport();
+  }
+
+  Future<HealthReportSummary> retryHealthReport(String reportId) async {
+    if (session == null) throw const ApiException('请先登录后重试健康报告');
+    return _requiredHealthReportApi.retryHealthReport(reportId);
+  }
+
+  Future<Map<String, Object?>> loadFullHealthReport(String reportId) async {
+    if (session == null) throw const ApiException('请先登录后查看健康报告');
+    return _requiredHealthReportApi.getFullHealthReport(reportId);
+  }
+
+  Future<Uint8List> exportHealthReport(String reportId) async {
+    if (session == null) throw const ApiException('请先登录后导出健康报告');
+    return _requiredHealthReportApi.exportHealthReport(reportId);
+  }
+
+  Future<HealthPurchaseFlowResult> startHealthPurchase({
+    required HealthReportOffer offer,
+    required HealthReportSummary report,
+    AppPaymentProvider? androidProvider,
+  }) async {
+    if (session == null) throw const ApiException('请先登录后购买健康报告');
+    if (!report.needsPayment) {
+      throw const ApiException('当前报告不需要购买');
+    }
+    final platform = _healthReportPlatform;
+    final isApple = platform == 'ios';
+    if (!isApple && androidProvider == null) {
+      throw const ApiException('请选择支付方式');
+    }
+    final channel = isApple
+        ? 'apple_iap'
+        : androidProvider == AppPaymentProvider.wechat
+        ? 'wechat_app'
+        : 'alipay_app';
+    final businessType = offer.isMembership
+        ? 'health_membership'
+        : 'health_report';
+    final intent = await _requiredHealthReportApi.createHealthPayment(
+      businessType: businessType,
+      businessId: offer.isMembership ? '' : report.id,
+      offerId: offer.id,
+      channel: channel,
+      platform: platform,
+      idempotencyKey: 'health:${offer.id}:${report.id}:${const Uuid().v4()}',
+    );
+    if (isApple) return _startAppleHealthPurchase(intent);
+    return _startAndroidHealthPurchase(intent, androidProvider!);
+  }
+
+  Future<HealthPurchaseFlowResult> _startAppleHealthPurchase(
+    HealthPaymentIntent intent,
+  ) async {
+    final productId = '${intent.invoke['productId'] ?? ''}'.trim();
+    final accountToken = '${intent.invoke['appAccountToken'] ?? ''}'.trim();
+    if (productId.isEmpty || accountToken != intent.id) {
+      throw const ApiException('苹果购买信息不完整，请稍后重试');
+    }
+    final transaction = await _storeKitPurchaseBridge.purchase(
+      productId: productId,
+      appAccountToken: accountToken,
+    );
+    switch (transaction.state) {
+      case StoreKitPurchaseState.cancelled:
+        return HealthPurchaseFlowResult(
+          state: HealthPurchaseFlowState.cancelled,
+          intent: intent,
+          message: '已取消购买',
+        );
+      case StoreKitPurchaseState.pending:
+        return HealthPurchaseFlowResult(
+          state: HealthPurchaseFlowState.pendingApproval,
+          intent: intent,
+          message: '购买正在等待确认，确认后会自动更新',
+        );
+      case StoreKitPurchaseState.verified:
+        if (transaction.appAccountToken != intent.id ||
+            transaction.transactionId.isEmpty ||
+            transaction.signedTransactionInfo.isEmpty) {
+          throw const ApiException('苹果购买结果与当前订单不一致');
+        }
+        final verified = await _requiredHealthReportApi
+            .verifyAppleHealthPayment(
+              paymentIntentId: intent.id,
+              signedTransactionInfo: transaction.signedTransactionInfo,
+            );
+        if (verified.status != HealthPaymentStatus.succeeded) {
+          return HealthPurchaseFlowResult(
+            state: HealthPurchaseFlowState.awaitingConfirmation,
+            intent: verified,
+            message: '购买结果正在确认，请稍后刷新',
+          );
+        }
+        await _storeKitPurchaseBridge.finish(transaction.transactionId);
+        return HealthPurchaseFlowResult(
+          state: HealthPurchaseFlowState.succeeded,
+          intent: verified,
+          message: '购买成功，报告正在生成',
+        );
+    }
+  }
+
+  Future<HealthPurchaseFlowResult> _startAndroidHealthPurchase(
+    HealthPaymentIntent intent,
+    AppPaymentProvider provider,
+  ) async {
+    if (provider == AppPaymentProvider.wechat) {
+      final signed = AppPaymentPayloadParser.wechat(intent.invoke);
+      if (signed.isEmpty) throw const ApiException('微信支付信息不完整，请稍后重试');
+      await _paymentBridge.startWechat(signed);
+      return HealthPurchaseFlowResult(
+        state: HealthPurchaseFlowState.awaitingConfirmation,
+        intent: intent,
+        message: '已打开微信，完成支付后返回查看结果',
+      );
+    }
+    final signedOrder = AppPaymentPayloadParser.alipay(intent.invoke);
+    if (signedOrder.isEmpty) {
+      throw const ApiException('支付宝支付信息不完整，请稍后重试');
+    }
+    final result = await _paymentBridge.startAlipay(signedOrder);
+    if (result.isCancelled) {
+      return HealthPurchaseFlowResult(
+        state: HealthPurchaseFlowState.cancelled,
+        intent: intent,
+        message: '已取消支付',
+      );
+    }
+    return HealthPurchaseFlowResult(
+      state: HealthPurchaseFlowState.awaitingConfirmation,
+      intent: intent,
+      message: result.isSuccess ? '支付结果正在确认' : '请确认支付结果后刷新',
+    );
+  }
+
+  Future<HealthPaymentIntent> refreshHealthPayment(String paymentIntentId) {
+    if (session == null) throw const ApiException('请先登录后查看支付结果');
+    return _requiredHealthReportApi.getHealthPayment(paymentIntentId);
+  }
+
+  Future<int> restoreAppleHealthPurchases() async {
+    if (defaultTargetPlatform != TargetPlatform.iOS) {
+      throw const FeatureNotConfiguredException('当前设备无需恢复苹果购买');
+    }
+    if (session == null) throw const ApiException('请先登录后恢复购买');
+    final transactions = await _storeKitPurchaseBridge.restorePurchases();
+    var restored = 0;
+    for (final transaction in transactions) {
+      try {
+        final intent = await _requiredHealthReportApi.verifyAppleHealthPayment(
+          paymentIntentId: transaction.appAccountToken,
+          signedTransactionInfo: transaction.signedTransactionInfo,
+        );
+        if (intent.status == HealthPaymentStatus.succeeded) {
+          await _storeKitPurchaseBridge.finish(transaction.transactionId);
+          restored++;
+        }
+      } on ApiException {
+        // A transaction may belong to another app account. Keep it unfinished
+        // and do not reveal account details; the matching account can restore it.
+      }
+    }
+    return restored;
+  }
+
+  String healthReportErrorMessage(Object error) {
+    if (error is ApiException) {
+      return _apiErrorMessage(error, fallback: '健康档案暂时无法使用，请稍后重试');
+    }
+    if (error is PlatformException) {
+      return switch (error.code) {
+        'STOREKIT_CANCELLED' => '已取消购买',
+        'STOREKIT_NOT_AVAILABLE' => '苹果购买暂时无法使用，请稍后再试',
+        'STOREKIT_PRODUCT_UNAVAILABLE' => '当前购买方案暂时不可用，请刷新后重试',
+        'STOREKIT_UNVERIFIED' => '购买结果验证失败，请使用恢复购买重试',
+        _ =>
+          error.message?.trim().isNotEmpty == true
+              ? error.message!.trim()
+              : '支付暂时无法完成，请稍后重试',
+      };
+    }
+    return '健康档案暂时无法使用，请稍后重试';
   }
 
   Future<bool> confirmOrderReceipt(int orderId) => _guard(() async {

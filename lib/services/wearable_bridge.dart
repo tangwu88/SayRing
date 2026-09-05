@@ -195,7 +195,7 @@ abstract interface class WearableConnectionRecoveryBridge {
 }
 
 class WearableSdkNotConfigured implements Exception {
-  const WearableSdkNotConfigured([this.message = 'Veepoo 合作方 SDK 尚未配置']);
+  const WearableSdkNotConfigured([this.message = '此功能暂时无法使用，请稍后再试']);
 
   final String message;
 
@@ -481,7 +481,7 @@ class MethodChannelWearableBridge
       return await _methods.invokeMethod<T>(method, arguments);
     } on PlatformException catch (error) {
       if (error.code == 'SDK_NOT_CONFIGURED') {
-        throw WearableSdkNotConfigured(error.message ?? 'Veepoo SDK 未配置');
+        throw WearableSdkNotConfigured(error.message ?? '此功能暂时无法使用，请稍后再试');
       }
       rethrow;
     } on MissingPluginException {

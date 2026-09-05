@@ -345,7 +345,8 @@ void main() {
 
       expect(find.text('添加设备'), findsOneWidget);
       expect(find.text('QA Watch'), findsOneWidget);
-      expect(find.text('Vep'), findsOneWidget);
+      expect(find.text('Vep'), findsNothing);
+      expect(find.text('Yuc'), findsNothing);
       expect(wearable.scanCount, 1);
       expect(find.byKey(const Key('device-shop-entry')), findsOneWidget);
       await tester.tap(find.byKey(const Key('device-shop-entry')));

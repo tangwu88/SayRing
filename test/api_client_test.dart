@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:saydian_app/domain/health_report_models.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/secure_vault.dart';
@@ -1844,6 +1845,238 @@ void main() {
       expect(requestCount, 2);
     },
   );
+
+  test('health profile dashboard reads normalized V2 contracts', () async {
+    final requested = <String>[];
+    final client = MockClient((request) async {
+      requested.add(request.url.path);
+      if (request.url.path == '/api/saydian-app/v2/billing/offers') {
+        expect(request.headers['authorization'], isNull);
+        expect(request.url.queryParameters['platform'], 'ios');
+      } else {
+        expect(request.headers['authorization'], 'Bearer test-access-token');
+      }
+      final data = switch (request.url.path) {
+        '/api/saydian-app/v2/health/profile' => {
+          'memberId': 'member-1',
+          'period': {
+            'from': '2026-08-01T00:00:00.000Z',
+            'to': '2026-08-30T23:59:59.000Z',
+          },
+          'dataCompleteness': {
+            'validRecordCount': 12,
+            'distinctDays': 4,
+            'metricCount': 1,
+          },
+          'metrics': [
+            {'metric': 'heart_rate', 'recordCount': 12, 'latestValue': 72},
+          ],
+          'devices': <Object?>[],
+          'activeWarningCount': 0,
+          'analysisConsent': {'granted': true, 'version': 'health-v1'},
+        },
+        '/api/saydian-app/v2/health/reports/eligibility' => {
+          'eligible': true,
+          'validRecordCount': 12,
+          'distinctDays': 4,
+          'minimumDistinctDays': 3,
+          'missing': <Object?>[],
+          'consentRequired': false,
+          'availableCredits': 1,
+        },
+        '/api/saydian-app/v2/health/reports' => {
+          'items': [
+            {
+              'id': 'report-12345678',
+              'status': 'ready',
+              'dataCompleteness': {'validRecordCount': 12, 'distinctDays': 4},
+              'freePreview': {'summary': '已有4天有效数据'},
+              'aiGenerated': true,
+            },
+          ],
+        },
+        '/api/saydian-app/v2/billing/offers' => {
+          'items': [
+            {
+              'id': 'offer-12345678',
+              'code': 'single-report',
+              'title': '单次详细报告',
+              'description': '生成1份报告',
+              'entitlement': 'single_report',
+              'priceCents': 990,
+              'currency': 'CNY',
+              'creditCount': 1,
+              'version': 1,
+            },
+          ],
+        },
+        '/api/saydian-app/v2/billing/entitlements' => {
+          'availableReportCredits': 1,
+          'activeMembership': null,
+        },
+        _ => throw StateError('unexpected ${request.url}'),
+      };
+      return http.Response(
+        jsonEncode({'code': 'OK', 'message': 'ok', 'data': data}),
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    });
+    final api = SaydianApiClient(
+      _authenticatedVault(),
+      client: client,
+      baseUri: Uri.parse('https://example.invalid'),
+    );
+
+    expect((await api.getHealthProfile()).validRecordCount, 12);
+    expect((await api.getHealthReportEligibility()).eligible, isTrue);
+    expect((await api.getHealthReports()).single.aiGenerated, isTrue);
+    expect(
+      (await api.getHealthReportOffers(platform: 'ios')).single.priceCents,
+      990,
+    );
+    expect((await api.getHealthReportEntitlements()).availableReportCredits, 1);
+    expect(requested, [
+      '/api/saydian-app/v2/health/profile',
+      '/api/saydian-app/v2/health/reports/eligibility',
+      '/api/saydian-app/v2/health/reports',
+      '/api/saydian-app/v2/billing/offers',
+      '/api/saydian-app/v2/billing/entitlements',
+    ]);
+  });
+
+  test('health report actions send exact V2 bodies and accept PDF export', () async {
+    var index = 0;
+    final client = MockClient((request) async {
+      index++;
+      expect(request.headers['authorization'], 'Bearer test-access-token');
+      if (index == 1) {
+        expect(
+          request.url.path,
+          '/api/saydian-app/v2/health/profile/analysis-consent',
+        );
+        expect(jsonDecode(request.body), {
+          'granted': true,
+          'version': 'health-ai-analysis-v1',
+        });
+        return http.Response('{"code":"OK","data":{"granted":true}}', 200);
+      }
+      if (index == 2 || index == 3) {
+        expect(
+          request.url.path,
+          index == 2
+              ? '/api/saydian-app/v2/health/reports'
+              : '/api/saydian-app/v2/health/reports/report-12345678/retry',
+        );
+        return http.Response(
+          '{"code":"OK","data":{"id":"report-12345678","status":"queued","dataCompleteness":{"validRecordCount":8,"distinctDays":3},"freePreview":{},"aiGenerated":false}}',
+          200,
+        );
+      }
+      if (index == 4) {
+        expect(
+          request.url.path,
+          '/api/saydian-app/v2/health/reports/report-12345678/full',
+        );
+        return http.Response(
+          '{"code":"OK","data":{"id":"report-12345678","content":{"overview":"稳定"}}}',
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }
+      if (index == 5) {
+        expect(
+          request.url.path,
+          '/api/saydian-app/v2/health/reports/report-12345678/export',
+        );
+        return http.Response.bytes(
+          const [0x25, 0x50, 0x44, 0x46],
+          200,
+          headers: {'content-type': 'application/pdf'},
+        );
+      }
+      if (index == 6) {
+        expect(request.url.path, '/api/saydian-app/v2/billing/payments');
+        expect(jsonDecode(request.body), {
+          'businessType': 'health_report',
+          'businessId': 'report-12345678',
+          'offerId': 'offer-12345678',
+          'channel': 'apple_iap',
+          'platform': 'ios',
+          'idempotencyKey': 'health-test-key',
+        });
+        return http.Response(
+          '{"code":"OK","data":{"id":"payment-12345678","paymentNo":"PAY1","businessType":"health_report","businessId":"report-12345678","channel":"apple_iap","status":"pending","amountCents":990,"currency":"CNY","invoke":{"productId":"cc.saidian.report"}}}',
+          200,
+        );
+      }
+      if (index == 7) {
+        expect(
+          request.url.path,
+          '/api/saydian-app/v2/billing/payments/payment-12345678',
+        );
+        return http.Response(
+          '{"code":"OK","data":{"id":"payment-12345678","paymentNo":"PAY1","businessType":"health_report","businessId":"report-12345678","channel":"apple_iap","status":"pending","amountCents":990,"currency":"CNY","invoke":null}}',
+          200,
+        );
+      }
+      expect(
+        request.url.path,
+        '/api/saydian-app/v2/billing/apple/transactions/verify',
+      );
+      expect(jsonDecode(request.body), {
+        'paymentIntentId': 'payment-12345678',
+        'signedTransactionInfo': 'signed-jws',
+      });
+      return http.Response(
+        '{"code":"OK","data":{"id":"payment-12345678","paymentNo":"PAY1","businessType":"health_report","businessId":"report-12345678","channel":"apple_iap","status":"succeeded","amountCents":990,"currency":"CNY","invoke":null}}',
+        200,
+      );
+    });
+    final api = SaydianApiClient(
+      _authenticatedVault(),
+      client: client,
+      baseUri: Uri.parse('https://example.invalid'),
+    );
+
+    await api.setHealthAnalysisConsent(
+      granted: true,
+      version: 'health-ai-analysis-v1',
+    );
+    expect((await api.createHealthReport()).status, HealthReportStatus.queued);
+    expect(
+      (await api.retryHealthReport('report-12345678')).status,
+      HealthReportStatus.queued,
+    );
+    expect(
+      (await api.getFullHealthReport('report-12345678'))['content'],
+      isA<Map>(),
+    );
+    expect(await api.exportHealthReport('report-12345678'), hasLength(4));
+    expect(
+      (await api.createHealthPayment(
+        businessType: 'health_report',
+        businessId: 'report-12345678',
+        offerId: 'offer-12345678',
+        channel: 'apple_iap',
+        platform: 'ios',
+        idempotencyKey: 'health-test-key',
+      )).status,
+      HealthPaymentStatus.pending,
+    );
+    expect(
+      (await api.getHealthPayment('payment-12345678')).status,
+      HealthPaymentStatus.pending,
+    );
+    expect(
+      (await api.verifyAppleHealthPayment(
+        paymentIntentId: 'payment-12345678',
+        signedTransactionInfo: 'signed-jws',
+      )).status,
+      HealthPaymentStatus.succeeded,
+    );
+    expect(index, 8);
+  });
 }
 
 MemorySessionVault _authenticatedVault() =>

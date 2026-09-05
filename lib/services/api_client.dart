@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../domain/models.dart';
+import '../domain/health_report_models.dart';
 import 'secure_vault.dart';
 
 class ApiException implements Exception {
@@ -200,6 +201,37 @@ abstract interface class SaydianHealthCloudApi {
   Future<void> saveHealthWarningSettings(HealthWarningSettings settings);
 }
 
+abstract interface class SaydianHealthReportApi {
+  Future<HealthProfileSummary> getHealthProfile();
+  Future<void> setHealthAnalysisConsent({
+    required bool granted,
+    required String version,
+  });
+  Future<HealthReportEligibility> getHealthReportEligibility();
+  Future<List<HealthReportSummary>> getHealthReports();
+  Future<HealthReportSummary> createHealthReport();
+  Future<HealthReportSummary> retryHealthReport(String reportId);
+  Future<Map<String, Object?>> getFullHealthReport(String reportId);
+  Future<Uint8List> exportHealthReport(String reportId);
+  Future<List<HealthReportOffer>> getHealthReportOffers({
+    required String platform,
+  });
+  Future<HealthReportEntitlements> getHealthReportEntitlements();
+  Future<HealthPaymentIntent> createHealthPayment({
+    required String businessType,
+    required String businessId,
+    required String offerId,
+    required String channel,
+    required String platform,
+    required String idempotencyKey,
+  });
+  Future<HealthPaymentIntent> getHealthPayment(String paymentIntentId);
+  Future<HealthPaymentIntent> verifyAppleHealthPayment({
+    required String paymentIntentId,
+    required String signedTransactionInfo,
+  });
+}
+
 abstract interface class SaydianFeedbackApi {
   Future<String> submitFeedback({
     required String category,
@@ -220,6 +252,7 @@ class SaydianApiClient
         SaydianNotificationApi,
         SaydianProfileUploadApi,
         SaydianHealthCloudApi,
+        SaydianHealthReportApi,
         SaydianFeedbackApi {
   SaydianApiClient(this._vault, {http.Client? client, Uri? baseUri})
     : _client = client ?? http.Client(),
@@ -1518,6 +1551,194 @@ class SaydianApiClient
   }
 
   @override
+  Future<HealthProfileSummary> getHealthProfile() async {
+    final response = await _authorizedGet('/api/saydian-app/v2/health/profile');
+    return HealthProfileSummary.fromMap(_data(_decode(response)));
+  }
+
+  @override
+  Future<void> setHealthAnalysisConsent({
+    required bool granted,
+    required String version,
+  }) async {
+    final response = await _authorizedPostJson(
+      '/api/saydian-app/v2/health/profile/analysis-consent',
+      <String, Object?>{
+        'granted': granted,
+        'version': granted ? version.trim() : '',
+      },
+    );
+    _decode(response);
+  }
+
+  @override
+  Future<HealthReportEligibility> getHealthReportEligibility() async {
+    final response = await _authorizedGet(
+      '/api/saydian-app/v2/health/reports/eligibility',
+    );
+    return HealthReportEligibility.fromMap(_data(_decode(response)));
+  }
+
+  @override
+  Future<List<HealthReportSummary>> getHealthReports() async {
+    final response = await _authorizedGet('/api/saydian-app/v2/health/reports');
+    final data = _data(_decode(response));
+    return _maps(data['items'])
+        .map(HealthReportSummary.fromMap)
+        .where((report) => report.id.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<HealthReportSummary> createHealthReport() async {
+    final response = await _authorizedPostJson(
+      '/api/saydian-app/v2/health/reports',
+      const <String, Object?>{},
+    );
+    return HealthReportSummary.fromMap(_data(_decode(response)));
+  }
+
+  @override
+  Future<HealthReportSummary> retryHealthReport(String reportId) async {
+    final encoded = Uri.encodeComponent(_requiredReportId(reportId));
+    final response = await _authorizedPostJson(
+      '/api/saydian-app/v2/health/reports/$encoded/retry',
+      const <String, Object?>{},
+    );
+    return HealthReportSummary.fromMap(_data(_decode(response)));
+  }
+
+  @override
+  Future<Map<String, Object?>> getFullHealthReport(String reportId) async {
+    final encoded = Uri.encodeComponent(_requiredReportId(reportId));
+    final response = await _authorizedGet(
+      '/api/saydian-app/v2/health/reports/$encoded/full',
+    );
+    return _data(_decode(response));
+  }
+
+  @override
+  Future<Uint8List> exportHealthReport(String reportId) async {
+    final encoded = Uri.encodeComponent(_requiredReportId(reportId));
+    final response = await _authorizedGet(
+      '/api/saydian-app/v2/health/reports/$encoded/export',
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      _decode(response);
+    }
+    final contentType = response.headers['content-type']?.toLowerCase() ?? '';
+    if (!contentType.contains('application/pdf') ||
+        response.bodyBytes.isEmpty) {
+      throw const ApiException('报告文件暂时无法下载，请稍后重试');
+    }
+    return Uint8List.fromList(response.bodyBytes);
+  }
+
+  @override
+  Future<List<HealthReportOffer>> getHealthReportOffers({
+    required String platform,
+  }) async {
+    final response = await _performRequest(
+      () => _client.get(
+        _uri('/api/saydian-app/v2/billing/offers', {
+          'platform': platform.trim().toLowerCase(),
+        }),
+      ),
+    );
+    final data = _data(_decode(response));
+    return _maps(data['items'])
+        .map(HealthReportOffer.fromMap)
+        .where(
+          (offer) =>
+              offer.id.isNotEmpty &&
+              offer.title.isNotEmpty &&
+              offer.priceCents > 0 &&
+              offer.entitlement != HealthReportEntitlement.unknown,
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  Future<HealthReportEntitlements> getHealthReportEntitlements() async {
+    final response = await _authorizedGet(
+      '/api/saydian-app/v2/billing/entitlements',
+    );
+    return HealthReportEntitlements.fromMap(_data(_decode(response)));
+  }
+
+  @override
+  Future<HealthPaymentIntent> createHealthPayment({
+    required String businessType,
+    required String businessId,
+    required String offerId,
+    required String channel,
+    required String platform,
+    required String idempotencyKey,
+  }) async {
+    final response = await _authorizedPostJson(
+      '/api/saydian-app/v2/billing/payments',
+      <String, Object?>{
+        'businessType': businessType,
+        'businessId': businessId,
+        'offerId': offerId,
+        'channel': channel,
+        'platform': platform,
+        'idempotencyKey': idempotencyKey,
+      },
+    );
+    return HealthPaymentIntent.fromMap(_data(_decode(response)));
+  }
+
+  @override
+  Future<HealthPaymentIntent> getHealthPayment(String paymentIntentId) async {
+    final encoded = Uri.encodeComponent(
+      _requiredPaymentIntentId(paymentIntentId),
+    );
+    final response = await _authorizedGet(
+      '/api/saydian-app/v2/billing/payments/$encoded',
+    );
+    return HealthPaymentIntent.fromMap(_data(_decode(response)));
+  }
+
+  @override
+  Future<HealthPaymentIntent> verifyAppleHealthPayment({
+    required String paymentIntentId,
+    required String signedTransactionInfo,
+  }) async {
+    final response = await _authorizedPostJson(
+      '/api/saydian-app/v2/billing/apple/transactions/verify',
+      <String, Object?>{
+        'paymentIntentId': _requiredPaymentIntentId(paymentIntentId),
+        'signedTransactionInfo': signedTransactionInfo.trim(),
+      },
+    );
+    return HealthPaymentIntent.fromMap(_data(_decode(response)));
+  }
+
+  String _requiredReportId(String value) {
+    final normalized = value.trim();
+    if (!RegExp(r'^[A-Za-z0-9-]{8,80}$').hasMatch(normalized)) {
+      throw const ApiException('报告标识不正确');
+    }
+    return normalized;
+  }
+
+  String _requiredPaymentIntentId(String value) {
+    final normalized = value.trim();
+    if (!RegExp(r'^[A-Za-z0-9-]{8,80}$').hasMatch(normalized)) {
+      throw const ApiException('支付记录标识不正确');
+    }
+    return normalized;
+  }
+
+  List<Map<String, Object?>> _maps(Object? value) => value is List
+      ? value
+            .whereType<Map>()
+            .map((map) => map.map((key, value) => MapEntry('$key', value)))
+            .toList(growable: false)
+      : const [];
+
+  @override
   Future<void> logout() async {
     try {
       final response = await _authorizedPostJson(
@@ -1526,7 +1747,7 @@ class SaydianApiClient
       );
       if (response.statusCode == 404 || response.statusCode == 405) {
         throw FeatureNotConfiguredException(
-          '服务端退出接口未配置，已仅清除本机会话',
+          '已安全退出当前设备',
           statusCode: response.statusCode,
         );
       }
@@ -1544,7 +1765,7 @@ class SaydianApiClient
     );
     if (response.statusCode == 404 || response.statusCode == 405) {
       throw FeatureNotConfiguredException(
-        '账号注销接口未配置',
+        '账号注销暂时无法使用，请稍后再试',
         statusCode: response.statusCode,
       );
     }

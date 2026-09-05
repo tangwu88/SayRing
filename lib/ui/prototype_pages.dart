@@ -707,7 +707,7 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
               detail:
                   widget.controller.notificationStatus == '已加载' ||
                       widget.controller.notificationStatus == '暂无消息'
-                  ? '这里只显示设备或服务端明确上报的事件，不会根据普通测量值自行判断疾病。'
+                  ? '这里只显示已确认的健康提醒，不会根据普通测量值自行判断疾病。'
                   : '${widget.controller.notificationStatus}。不会用普通测量值生成预警。',
               icon: Icons.health_and_safety_outlined,
               color: SaydianColors.green,
@@ -751,7 +751,7 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
                         ),
                         const SizedBox(height: 5),
                         Text(
-                          '${warning['content'] ?? warning['message'] ?? warning['created_at'] ?? '服务端已上报'}',
+                          '${warning['content'] ?? warning['message'] ?? warning['created_at'] ?? '已收到健康提醒'}',
                           maxLines: 4,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -1134,7 +1134,7 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                         ? '关爱邀请服务暂不可用'
                         : '暂无新的关爱邀请',
                     detail: targeted != null || targetId != null
-                        ? '页面已根据服务端最新状态刷新，不会重复显示操作按钮。'
+                        ? '页面已刷新为最新状态，不会重复显示操作按钮。'
                         : '收到邀请后，可在这里明确同意或拒绝。',
                     icon: Icons.mark_email_unread_outlined,
                   ),
