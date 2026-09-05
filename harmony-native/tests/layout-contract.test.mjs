@@ -57,6 +57,25 @@ test('optional PaymentKit is not loaded during cold start',()=>{
   assert.ok(ability.includes("await import('../services/HarmonyPaymentService')"));
 });
 
+test('payment flow times out safely and always rechecks the server order',()=>{
+  const page=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const service=readFileSync(new URL('../entry/src/main/ets/services/HarmonyPaymentService.ets',import.meta.url),'utf8');
+  const startPayment=page.slice(page.indexOf('private async startPayment()'),page.indexOf('private money('));
+  const back=page.slice(page.indexOf('private back()'),page.indexOf('onBackPress()'));
+  const heading=page.slice(page.indexOf('Heading()'),page.indexOf('private careHeading()'));
+  assert.ok(startPayment.includes('const orderId = this.selectedOrder.id'));
+  assert.ok(startPayment.includes('await saydianApi.shopOrder(orderId)'));
+  assert.ok(startPayment.includes('订单状态暂未核实'));
+  assert.ok(service.includes('await withPaymentTimeout(client.pay(request.payInfo))'));
+  assert.ok(service.includes('finally'));
+  assert.ok(back.includes('this.careBusy || this.paymentBusy'));
+  assert.ok(heading.includes('.enabled(!this.careBusy && !this.paymentBusy)'));
+  const provider=page.slice(page.indexOf('private selectPaymentProvider('),page.indexOf('private async startPayment()'));
+  assert.ok(provider.includes("this.paymentMessage = ''"));
+  assert.ok(page.includes("this.selectPaymentProvider('wechat')"));
+  assert.ok(page.includes("this.selectPaymentProvider('alipay')"));
+});
+
 test('foreground notification changes trigger the whitelisted route consumer',()=>{
   const page=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   assert.ok(page.includes("@Watch('pendingNotificationChanged')"));

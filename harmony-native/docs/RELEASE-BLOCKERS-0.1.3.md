@@ -11,7 +11,7 @@
 | P0 | 生产 Release 签名缺失 | Debug/Release HAP 均可用本机开发 Profile 签名安装，但 `appProvisionType=debug` | 取得同一正式应用的发布证书、Profile、别名与本机安全密码，并验证签名链和覆盖升级 |
 | P0 | 极光鸿蒙配置未完成 | AGC Push Kit 已开启；极光的 HarmonyOS 包名和 Server key 尚未最终保存 | 在极光填写 `cc.saidian.app.hm`，上传该 APP ID 的 Server key JSON，且不向 Git/日志暴露私钥 |
 | P0 | 推送服务端未联调 | 客户端有登记/解绑/未读和路由；模拟器无法取得正式 registration ID | 服务端开放 harmony 设备登记，邀请/预警 Outbox 和 APNs/极光事件发送，真机 10 秒内验收 |
-| P0 | 支付正式参数未联调 | 订单读取成功；未调用真实 `/api/v1/pay` | 服务端返回 Harmony `third_app_id`、`pay_info`，提供指定测试订单及微信/支付宝正式配置 |
+| P0 | 支付正式参数未联调 | nova 14 已调用真实 `/api/v1/pay`：微信缺少鸿蒙参数，支付宝仍返回旧平台参数；客户端已拒绝旧参数并安全回查订单 | 服务端返回 Harmony `third_app_id`、合法 JSON `pay_info`，提供指定测试订单及微信/支付宝正式配置 |
 | P0 | 推送/支付/升级真机闭环 | nova 14 已完成 App、W9S 和页面回归；生产服务资源尚未齐全 | 在原生 HarmonyOS 手机完成推送三态、支付三态、市场跳转和生产签名覆盖升级 |
 | P1 | 隐私/上架材料 | 新 SDK 合并网络状态与广告标识同意权限 | 更新隐私披露、用途说明、备案与应用市场权限清单并完成法务审核 |
 | P1 | 在线升级 | 客户端已接严格生产清单与 AppGallery 白名单；线上清单当前未配置 | 发布正式 AppGallery 产品页和 `app-update.json` 后验收普通/强制更新 |

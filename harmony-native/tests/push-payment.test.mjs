@@ -11,6 +11,9 @@ const {
 } = await import('../entry/src/main/ets/model/PushPaymentContracts.ts');
 const { AccountClient } = await import('../entry/src/main/ets/services/AccountClient.ts');
 const { ApiError } = await import('../entry/src/main/ets/model/Contracts.ts');
+const {
+  PAYMENT_TIMEOUT_MESSAGE, withPaymentTimeout, isPaymentTimeout
+} = await import('../entry/src/main/ets/model/PaymentWatchdog.ts');
 
 const order = { id: 99, number: 'ORDER-99', amountCents: 19900, status: 0, summary: '测试夹具订单' };
 const now = Date.UTC(2026, 8, 5, 8);
@@ -86,22 +89,38 @@ test('explicit Harmony payInfo is preferred and must be valid JSON', () => {
   assert.throws(() => parseHarmonyPayment('wechat', { third_app_id: 'wx-fixture', pay_info: 'not-json' }));
 });
 
-test('legacy provider payloads are converted without signing on device', () => {
-  const wechat = parseHarmonyPayment('wechat', { config: {
+test('legacy Android provider payloads never enter Harmony PaymentKit', () => {
+  const wechat = { config: {
     appid: 'wx-fixture', partnerid: 'partner', prepayid: 'prepay', package: 'Sign=WXPay',
     noncestr: 'nonce', timestamp: '123456', sign: 'server-signature'
-  } });
-  assert.equal(wechat.thirdAppId, 'wx-fixture');
-  assert.equal(JSON.parse(wechat.payInfo).sign, 'server-signature');
-  const alipay = parseHarmonyPayment('alipay', { config: 'app_id=20260001&biz_content=fixture&sign=server-signature' });
-  assert.equal(alipay.thirdAppId, '20260001');
-  assert.equal(JSON.parse(alipay.payInfo).orderInfo.includes('server-signature'), true);
+  } };
+  const alipay = { config: 'app_id=20260001&biz_content=fixture&sign=server-signature' };
+  assert.throws(() => parseHarmonyPayment('wechat', wechat), /鸿蒙微信支付参数/);
+  assert.throws(() => parseHarmonyPayment('alipay', alipay), /鸿蒙支付宝支付参数/);
 });
 
-test('payment failures distinguish cancel, malformed data and unsupported device', () => {
+test('payment failures distinguish official provider outcomes', () => {
   assert.match(paymentErrorMessage(1022830000), /取消/);
+  assert.match(paymentErrorMessage(1014900000), /取消/);
   assert.match(paymentErrorMessage(1022830002), /参数/);
   assert.match(paymentErrorMessage(801), /不支持/);
+  assert.match(paymentErrorMessage(1001930001), /失败/);
+  assert.match(paymentErrorMessage(1001930002), /已处理/);
+  assert.match(paymentErrorMessage(1001930010), /重复/);
+  assert.match(paymentErrorMessage(1014900004), /网络/);
+  assert.match(paymentErrorMessage(1014900005), /环境/);
+});
+
+test('payment watchdog resolves normal calls and releases hung clients', async () => {
+  assert.equal(await withPaymentTimeout(Promise.resolve('done'), 20), 'done');
+  const providerError = new Error('provider failed');
+  await assert.rejects(withPaymentTimeout(Promise.reject(providerError), 20), providerError);
+  await assert.rejects(withPaymentTimeout(new Promise(() => {}), 5), error => {
+    assert.equal(error.message, PAYMENT_TIMEOUT_MESSAGE);
+    assert.equal(isPaymentTimeout(error), true);
+    return true;
+  });
+  assert.equal(isPaymentTimeout(providerError), false);
 });
 
 test('push device registration and removal use authenticated server methods', async () => {

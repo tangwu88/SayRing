@@ -44,12 +44,6 @@ function cents(value: Object | undefined): number {
   return Number.isSafeInteger(result) && result > 0 ? result : 0;
 }
 
-function safeJson(value: Record<string, Object>): string {
-  const serialized = JSON.stringify(value);
-  if (serialized.length === 0 || serialized.length > 16384) throw new ApiError('支付参数长度异常');
-  return serialized;
-}
-
 export function pushRegistrationFields(identity: PushIdentity, version: string): FormField[] {
   const installationId = identity.installationId.trim();
   const registrationId = identity.registrationId.trim();
@@ -158,13 +152,6 @@ export function paymentFields(provider: PaymentProvider, order: ShopOrder): Form
   ];
 }
 
-function queryValue(query: string, key: string): string {
-  const match = query.match(new RegExp(`(?:^|&)${key}=([^&]+)`));
-  if (!match) return '';
-  try { return decodeURIComponent(match[1].replace(/\+/g, '%20')).trim(); }
-  catch { return ''; }
-}
-
 function nestedCandidates(data: Object | undefined): Record<string, Object>[] {
   const root = object(data);
   const values: Record<string, Object>[] = [root];
@@ -188,35 +175,17 @@ export function parseHarmonyPayment(provider: PaymentProvider, data: Object | un
       return { provider: provider, thirdAppId: explicitAppId, payInfo: explicitPayInfo };
     }
   }
-  if (provider === 'wechat') {
-    for (const candidate of candidates) {
-      const aliases: string[][] = [
-        ['appid', 'app_id'], ['partnerid', 'partner_id'], ['prepayid', 'prepay_id'],
-        ['package', 'package_value'], ['noncestr', 'nonce_str'], ['timestamp', 'time_stamp'], ['sign', 'signature']
-      ];
-      const normalized: Record<string, Object> = {};
-      aliases.forEach((names: string[]) => {
-        const value = text(candidate[names[0]] ?? candidate[names[1]], 4096);
-        if (value) normalized[names[0]] = value;
-      });
-      if (Object.keys(normalized).length === aliases.length) {
-        return { provider: provider, thirdAppId: String(normalized['appid']), payInfo: safeJson(normalized) };
-      }
-    }
-  } else {
-    for (const candidate of candidates) {
-      const signed = text(candidate['orderInfo'] ?? candidate['order_string'] ?? candidate['orderString'] ?? candidate['config'], 16384);
-      const appId = text(candidate['third_app_id'] ?? candidate['thirdAppId'], 256) || queryValue(signed, 'app_id');
-      if (signed && appId) return { provider: provider, thirdAppId: appId, payInfo: safeJson({ orderInfo: signed }) };
-    }
-  }
   throw new ApiError(provider === 'wechat' ? '后台未返回鸿蒙微信支付参数' : '后台未返回鸿蒙支付宝支付参数');
 }
 
 export function paymentErrorMessage(code: number): string {
-  if (code === 1022830000 || code === 1001930000) return '已取消支付';
+  if (code === 1022830000 || code === 1001930000 || code === 1014900000) return '已取消支付';
   if (code === 1022830002 || code === 401) return '支付参数无效，请刷新订单后重试';
   if (code === 801) return '当前设备或系统版本不支持该支付方式';
-  if (code === 1001930011) return '支付网络连接失败，请稍后重试';
+  if (code === 1001930001 || code === 1014900001) return '支付失败，请确认订单状态后重试';
+  if (code === 1001930002 || code === 1014900002) return '交易已处理，请刷新订单状态';
+  if (code === 1001930010 || code === 1014900003) return '支付请求正在处理，请勿重复提交';
+  if (code === 1001930011 || code === 1014900004) return '支付网络连接失败，请稍后重试';
+  if (code === 1014900005) return '支付环境尚未准备完成，请稍后重试';
   return '支付未完成，请稍后重试';
 }

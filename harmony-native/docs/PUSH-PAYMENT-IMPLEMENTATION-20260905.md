@@ -63,3 +63,12 @@
 - AGC 已确认现有 HarmonyOS 应用“Saydian赛电”：APP ID `6917615560681044373`，包名 `cc.saidian.app.hm`，所属项目“Saydian赛电”。
 - `cc.saidian.app` 与已有 Android 应用冲突；`cc.saidian.app.harmony` 因包含平台保留词被 AGC 拒绝，未提交。
 - AGC Push Kit 已保存开启。本地 bundleName 已更改为 `cc.saidian.app.hm`；正式签名和极光 Server key 仍是独立门禁。
+
+## 2026-09-05 nova 14 支付复测与防崩修复
+
+- 真机订单读取正常：已支付订单不显示支付按钮，待支付订单使用服务端订单号与金额。
+- 当前服务端的微信请求未返回鸿蒙 `third_app_id` 与合法 JSON `pay_info`，客户端显示“后台未返回鸿蒙微信支付参数”，并重新核对订单状态。
+- 当前服务端的支付宝响应仍是旧平台 `orderInfo/config`。旧实现将其包装后调用鸿蒙 Payment Kit，nova 14 的系统支付服务出现 `libblueshield` 加载失败并终止 App 进程；订单复查仍为待支付，未确认扣款。
+- 已删除旧平台参数自动转换。现在只有服务端明确返回鸿蒙原生 `third_app_id` 与 JSON `pay_info` 时才会调用 Payment Kit，避免因猜测参数格式再次触发支付组件崩溃。
+- Payment Kit 调用新增 30 秒保护、成功/失败统一释放客户端、返回按钮锁定，以及任意结果后的服务端订单二次核验。客户端返回仍不直接视为支付成功。
+- UTC 与 Asia/Shanghai 各 128 项测试通过，Debug HAP 编译与本机开发签名成功，并覆盖安装至 nova 14；正式成功/取消/失败回调仍需服务端鸿蒙参数和指定测试订单后验收。

@@ -7,6 +7,7 @@ import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { pushErrorMessage, paymentErrorMessage } from '../model/PushPaymentContracts';
 import type { PaymentProvider, ShopOrder } from '../model/PushPaymentContracts';
+import { isPaymentTimeout } from '../model/PaymentWatchdog';
 import { harmonyPush } from '../services/HarmonyPushService';
 import { PENDING_NOTIFICATION_ROUTE } from '../services/NotificationNavigation';
 import {
@@ -416,25 +417,52 @@ struct Index {
     this.screen = 'shop-payment';
   }
 
+  private selectPaymentProvider(provider: PaymentProvider): void {
+    if (this.paymentBusy) return;
+    this.selectedProvider = provider;
+    this.paymentMessage = '';
+  }
+
   private async startPayment(): Promise<void> {
     if (this.paymentBusy || this.selectedOrder.id <= 0) return;
     if (!canIUse('SystemCapability.Payment.ThirdPaymentService')) {
       this.paymentMessage = '当前设备未安装或不支持鸿蒙三方支付服务';
       return;
     }
+    const orderId = this.selectedOrder.id;
+    let outcomeMessage: string = '';
+    let clientReturned: boolean = false;
+    let clientTimedOut: boolean = false;
     this.paymentBusy = true; this.paymentMessage = '正在向服务端核对订单并获取签名参数…';
     try {
       const request = await saydianApi.harmonyPayment(this.selectedProvider, this.selectedOrder);
       const paymentModule = await import('../services/HarmonyPaymentService');
       await paymentModule.harmonyPayment.start(this.uiContext(), request);
-      const latest = await saydianApi.shopOrder(this.selectedOrder.id);
-      this.selectedOrder = latest;
-      this.paymentMessage = latest.status === 0 ? '支付客户端已返回，订单仍待支付；请稍后刷新核对' :
-        '服务端订单状态已更新';
+      clientReturned = true;
+      outcomeMessage = '支付客户端已返回';
     } catch (error) {
-      if (error instanceof ApiError) this.paymentMessage = error.message;
-      else this.paymentMessage = paymentErrorMessage(this.businessErrorCode(error as Error));
-    } finally { this.paymentBusy = false; }
+      clientTimedOut = isPaymentTimeout(error as Error);
+      if (clientTimedOut) outcomeMessage = '支付客户端响应超时，已停止等待';
+      else if (error instanceof ApiError) outcomeMessage = error.message;
+      else outcomeMessage = paymentErrorMessage(this.businessErrorCode(error as Error));
+    }
+    try {
+      const latest = await saydianApi.shopOrder(orderId);
+      if (this.selectedOrder.id === orderId) this.selectedOrder = latest;
+      if (latest.status !== 0) {
+        this.paymentMessage = `服务端订单状态已更新：${this.orderStatus(latest.status)}`;
+      } else if (clientTimedOut) {
+        this.paymentMessage = `${outcomeMessage}；订单仍待支付，请确认未扣款后再重试`;
+      } else if (clientReturned) {
+        this.paymentMessage = '支付客户端已返回，订单仍待支付；请确认支付结果或稍后刷新';
+      } else {
+        this.paymentMessage = `${outcomeMessage}；订单仍待支付`;
+      }
+    } catch {
+      this.paymentMessage = `${outcomeMessage || '支付流程已结束'}；订单状态暂未核实，请返回订单列表刷新`;
+    } finally {
+      this.paymentBusy = false;
+    }
   }
 
   private money(cents: number): string {
@@ -758,7 +786,7 @@ struct Index {
   }
 
   private back(): void {
-    if (this.careBusy) return;
+    if (this.careBusy || this.paymentBusy) return;
     ++this.contentGeneration;
     if (this.screen === 'shop-product') { this.screen = 'shop-home'; return; }
     if (this.screen === 'shop-payment') { this.screen = 'shop-orders'; this.paymentMessage = ''; return; }
@@ -803,7 +831,7 @@ struct Index {
     Row() {
       Button('返回').fontSize(15).fontWeight(FontWeight.Medium).fontColor(RED)
         .backgroundColor(RED_SOFT).type(ButtonType.Normal).borderRadius(12).width(66).height(48)
-        .enabled(!this.careBusy).onClick(() => this.back()).accessibilityText('返回上一页')
+        .enabled(!this.careBusy && !this.paymentBusy).onClick(() => this.back()).accessibilityText('返回上一页')
       Text(this.screen.startsWith('care') ? this.careHeading() : this.screen === 'messages' ? '消息与推送' :
         this.screen === 'health-alerts' ? '健康预警' : this.screen === 'health-all' ? '全部健康数据' :
           this.screen === 'sport-records' ? '运动与记录' : this.screen === 'ai-chat' ? 'AI 健康管家' :
@@ -1662,13 +1690,13 @@ struct Index {
       .width('100%').constraintSize({ minHeight: 54 }).fontColor(this.selectedProvider === 'wechat' ? RED : INK)
       .backgroundColor(this.selectedProvider === 'wechat' ? RED_SOFT : SURFACE)
       .type(ButtonType.Normal).borderRadius(14).border({ width: 1, color: this.selectedProvider === 'wechat' ? RED : LINE })
-      .enabled(!this.paymentBusy).onClick(() => this.selectedProvider = 'wechat')
+      .enabled(!this.paymentBusy).onClick(() => this.selectPaymentProvider('wechat'))
       .id('select_wechat')
     Button(this.selectedProvider === 'alipay' ? '支付宝支付（已选）' : '支付宝支付')
       .width('100%').constraintSize({ minHeight: 54 }).fontColor(this.selectedProvider === 'alipay' ? RED : INK)
       .backgroundColor(this.selectedProvider === 'alipay' ? RED_SOFT : SURFACE)
       .type(ButtonType.Normal).borderRadius(14).border({ width: 1, color: this.selectedProvider === 'alipay' ? RED : LINE })
-      .enabled(!this.paymentBusy).onClick(() => this.selectedProvider = 'alipay')
+      .enabled(!this.paymentBusy).onClick(() => this.selectPaymentProvider('alipay'))
       .id('select_alipay')
     this.Notice({ message: '点击支付后，App 会先向服务端重新核对订单金额与状态，再获取鸿蒙签名参数唤起对应支付 App。' })
     if (this.paymentMessage) {

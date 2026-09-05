@@ -1,6 +1,7 @@
 import { thirdPaymentService } from '@kit.PaymentKit';
 import type { common, Want } from '@kit.AbilityKit';
 import type { HarmonyPaymentRequest } from '../model/PushPaymentContracts';
+import { withPaymentTimeout } from '../model/PaymentWatchdog';
 import { setPaymentCallbackExpected } from './PaymentLaunchState';
 
 let activeClient: thirdPaymentService.ThirdPayClient | undefined = undefined;
@@ -12,11 +13,13 @@ export class HarmonyPaymentService {
     const client = new thirdPaymentService.ThirdPayClient(context, method, request.thirdAppId);
     activeClient = client;
     setPaymentCallbackExpected(true);
-    try { await client.pay(request.payInfo); }
-    catch (error) {
-      activeClient = undefined;
-      setPaymentCallbackExpected(false);
-      throw error as Error;
+    try {
+      await withPaymentTimeout(client.pay(request.payInfo));
+    } finally {
+      if (activeClient === client) {
+        activeClient = undefined;
+        setPaymentCallbackExpected(false);
+      }
     }
   }
 }
