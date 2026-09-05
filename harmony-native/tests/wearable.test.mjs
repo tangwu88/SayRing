@@ -5,7 +5,7 @@ import {
   batteryText, boundedHealthValue, capabilitiesFromFeatureList, cleanDeviceName, createWearableDevice,
   healthRecordText, healthValue, isCurrentConnectionGeneration, mergeWearableDevices,
   normalizeMac, wearableIdentifierText, wearableProviderForName, WEARABLE_AUTO_SYNC_DELAY_MS,
-  WEARABLE_CONNECT_TIMEOUT_MS,
+  WEARABLE_CONNECT_TIMEOUT_MS, WEARABLE_SCAN_TIMEOUT_MS,
 } from '../entry/src/main/ets/model/WearableContracts.ts';
 
 test('all names containing W8 are classified as Yuc while Vep names remain Vep', () => {
@@ -86,6 +86,20 @@ test('late callbacks cannot update a newer connection generation', () => {
 test('W9 secondary authentication is not cut off by the former 20 second timeout', () => {
   assert.equal(WEARABLE_CONNECT_TIMEOUT_MS, 45000);
   assert.equal(WEARABLE_AUTO_SYNC_DELAY_MS, 12000);
+});
+
+test('scan timeout is bounded and stale timeout callbacks cannot stop a newer scan', () => {
+  assert.equal(WEARABLE_SCAN_TIMEOUT_MS, 12000);
+  const service = readFileSync(new URL('../entry/src/main/ets/services/VepWearableService.ets', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../entry/src/main/ets/pages/Index.ets', import.meta.url), 'utf8');
+  assert.match(service, /private scanGeneration: number = 0/);
+  assert.match(service, /scanGeneration !== this\.scanGeneration \|\| !this\.scanning/);
+  assert.match(service, /this\.scanTimer = -1;\s*this\.stopScan\('扫描已完成'\)/);
+  assert.match(page, /TextTimer\(\{ isCountDown: true, count: WEARABLE_SCAN_TIMEOUT_MS/);
+  assert.match(page, /if \(this\.wearablePhase === 'scanning'\)/);
+  assert.match(page, /elapsedTime \* 1000 < WEARABLE_SCAN_TIMEOUT_MS/);
+  assert.match(page, /Text\(this\.wearablePhase === 'scanning' \? '正在查找手表' : '暂未发现设备'\)/);
+  assert.match(page, /vepWearable\.stopScan\('扫描已完成'\)/);
 });
 
 test('automatic post-connect sync waits for JL initialization and excludes advanced commands', () => {

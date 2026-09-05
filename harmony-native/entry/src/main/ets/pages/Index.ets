@@ -14,7 +14,7 @@ import { PENDING_NOTIFICATION_ROUTE } from '../services/NotificationNavigation';
 import {
   HealthRecord, MeasurementState, WearableConnectionPhase, WearableDevice, WearableDial, WearableMetricKey,
   WearableSnapshot, batteryText, emptyMeasurement, emptyWearableSnapshot, healthRecordText,
-  latestMetricRecord, wearableIdentifierText
+  latestMetricRecord, wearableIdentifierText, WEARABLE_SCAN_TIMEOUT_MS
 } from '../model/WearableContracts';
 import { vepWearable, WearableServiceListener } from '../services/VepWearableService';
 import { AiChatMessage, AppUpdateInfo, ShopCategory, ShopHome, ShopProduct } from '../model/ExperienceContracts';
@@ -139,6 +139,7 @@ struct Index {
   private selectedArticleId: string = '';
   private selectedAgreement: boolean = false;
   private smsTimer: number = -1;
+  private scanCountdownController: TextTimerController = new TextTimerController();
   private readonly wearableMetrics: WearableMetricSpec[] = [
     { key: 'activity', title: '活动' }, { key: 'sleep', title: '睡眠' },
     { key: 'heart', title: '心率' }, { key: 'pressure', title: '血压' },
@@ -274,7 +275,16 @@ struct Index {
     this.previousScreen = 'home';
     this.previousTab = this.tab;
     this.screen = 'device-search';
-    if (!this.wearableBusy() && !vepWearable.isScanning()) vepWearable.startScan();
+    if (!this.wearableBusy() && !vepWearable.isScanning()) this.startWearableScan();
+  }
+
+  private async startWearableScan(): Promise<void> {
+    const started = await vepWearable.startScan();
+    if (!started || this.screen !== 'device-search') return;
+    try {
+      this.scanCountdownController.reset();
+      this.scanCountdownController.start();
+    } catch {}
   }
 
   private openWearableMetric(metric: WearableMetricKey): void {
@@ -1075,7 +1085,7 @@ struct Index {
         Button() {
           SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(23).fontColor([INK])
         }.backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12).width(48).height(48)
-          .enabled(!this.wearableBusy()).onClick(() => vepWearable.startScan())
+          .enabled(!this.wearableBusy()).onClick(() => this.startWearableScan())
           .accessibilityText('重新查找附近设备').id('device_search_refresh')
       } else {
         Blank().width(48)
@@ -1630,10 +1640,27 @@ struct Index {
     if (this.wearablePhase === 'error' || this.wearablePhase === 'permission') {
       this.Notice({ message: this.wearableMessage, color: '#FFF0E9' })
     }
-    if (vepWearable.isScanning()) {
+    if (this.wearablePhase === 'scanning') {
       Row({ space: 8 }) {
         LoadingProgress().width(18).height(18).color(TECH_BLUE)
-        Text('正在搜索附近设备…').fontSize(13).fontColor(MUTED)
+        Text('正在搜索附近设备').fontSize(13).fontColor(MUTED)
+        TextTimer({ isCountDown: true, count: WEARABLE_SCAN_TIMEOUT_MS,
+          controller: this.scanCountdownController }).format('ss').fontSize(13).fontColor(MUTED)
+          .onAppear(() => {
+            try {
+              this.scanCountdownController.reset();
+              this.scanCountdownController.start();
+            } catch {}
+          })
+          .onTimer((_utc: number, elapsedTime: number) => {
+            // With format('ss'), Harmony reports elapsed whole seconds.
+            if (elapsedTime * 1000 < WEARABLE_SCAN_TIMEOUT_MS) return;
+            vepWearable.stopScan('扫描已完成');
+          })
+          .onDisAppear(() => {
+            try { this.scanCountdownController.pause(); } catch {}
+          })
+        Text('秒').fontSize(13).fontColor(MUTED)
       }.width('100%').justifyContent(FlexAlign.Center).padding({ bottom: 4 })
     }
     if (this.wearableDevices.length === 0) {
@@ -1641,7 +1668,7 @@ struct Index {
         Column() {
           SymbolGlyph($r('sys.symbol.dot_radiowaves_left_and_right')).fontSize(48).fontColor([TECH_BLUE])
         }.width(104).height(104).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(52)
-        Text(vepWearable.isScanning() ? '正在查找手表' : '暂未发现设备')
+        Text(this.wearablePhase === 'scanning' ? '正在查找手表' : '暂未发现设备')
           .fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK)
         Text('让手表保持亮屏并靠近手机').fontSize(13).fontColor(MUTED)
       }.width('100%').padding({ top: 42, bottom: 42 })

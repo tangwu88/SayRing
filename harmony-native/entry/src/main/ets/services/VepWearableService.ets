@@ -45,6 +45,7 @@ export class VepWearableService {
   private vepDevices: Map<string, BleDevice> = new Map();
   private scanning: boolean = false;
   private scanTimer: number = -1;
+  private scanGeneration: number = 0;
   private reconnectTimer: number = -1;
   private reconnectAttempt: number = 0;
   private connectionGeneration: number = 0;
@@ -117,6 +118,7 @@ export class VepWearableService {
       return false;
     }
     this.stopScan();
+    const scanGeneration = ++this.scanGeneration;
     this.devices = [];
     this.vepDevices.clear();
     this.emitDevices();
@@ -138,7 +140,13 @@ export class VepWearableService {
       this.scanning = true;
       this.busyOperation = 'scan';
       this.emitPhase('scanning', '正在扫描附近手表…');
-      this.scanTimer = setTimeout(() => this.stopScan('扫描已完成'), WEARABLE_SCAN_TIMEOUT_MS);
+      this.scanTimer = setTimeout(() => {
+        if (scanGeneration !== this.scanGeneration || !this.scanning) return;
+        // Do not clear the timer that is currently executing. The generation
+        // guard prevents a late timeout from stopping a newer scan.
+        this.scanTimer = -1;
+        this.stopScan('扫描已完成');
+      }, WEARABLE_SCAN_TIMEOUT_MS);
       return true;
     } catch (error) {
       this.scanning = false;
@@ -149,6 +157,7 @@ export class VepWearableService {
   }
 
   stopScan(message: string = ''): void {
+    ++this.scanGeneration;
     if (this.scanTimer !== -1) {
       clearTimeout(this.scanTimer);
       this.scanTimer = -1;

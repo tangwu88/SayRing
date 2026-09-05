@@ -150,6 +150,7 @@
 - [ ] iOS 独立桌面冷启动使用 Profile、Ad Hoc、TestFlight 或 Release，连续执行至少 3 次。
 - [ ] 签名 Profile 的 Provisioning Profile 包含所需 APNs entitlement；缺失时停线，不通过临时移除能力伪造验收。
 - [ ] 手表扫描、连接、能力握手、同步、断线重连和冷启动恢复逐项检查。
+- [x] 鸿蒙扫描界面使用响应式连接阶段，不直接依赖服务对象 getter；无设备时等待超过 12 秒，扫描动画必须结束并显示真实空态。
 - [x] MED Android 对 ET488、W9S、W8 完成扫描和连接。
 - [x] iPhone 12 Debug 对 W9 完成连接、健康同步和原生电量 `98%` 读取。
 - [ ] iPhone 12 后续因开发证书重新信任阻断 UI 补充取证；恢复信任后继续，不沿用之前页面状态代替。
