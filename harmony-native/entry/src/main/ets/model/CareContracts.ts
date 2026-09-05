@@ -17,6 +17,17 @@ export const CARE_OPTIONS: CareOption[] = [
   { key: 'heartReat', label: '心率' }, { key: 'HRV', label: 'HRV' },
   { key: 'bodycomposition', label: '身体成分' }, { key: 'bloodcomposition', label: '血液成分' }
 ];
+
+export function careGroupOptions(daily: boolean): CareOption[] {
+  return daily ? CARE_OPTIONS.slice(0, 4) : CARE_OPTIONS.slice(4);
+}
+
+export function toggleCareGroup(settings: CareShareSettings, daily: boolean): CareShareSettings {
+  const keys = careGroupOptions(daily).map((option: CareOption) => option.key);
+  const all = keys.every((key: string) => settings.enabled.includes(key));
+  const enabled = settings.enabled.filter((key: string) => !keys.includes(key));
+  return { enabled: all ? enabled : [...enabled, ...keys], unknown: [...settings.unknown] };
+}
 const DAILY: string = '/api/v1/member/daily-date/preview';
 export const CARE_METRICS: CareMetricSpec[] = [
   { key: 'heart', title: '心率', endpoint: DAILY, type: 'pulseReat', unit: '次/分' },

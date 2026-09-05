@@ -20,6 +20,7 @@ import {
   isCurrentConnectionGeneration, mergeWearableDevices, normalizeMac, wearableProviderForName
 } from '../model/WearableContracts';
 import { StoredWearableBinding, wearableHealthStore } from './WearableHealthStore';
+import { DiscoveryPacketCache, knownWearableName } from '../model/WearableDiscovery';
 
 interface ConnectionEvent {
   oldState: ConnectionState;
@@ -43,6 +44,9 @@ export class VepWearableService {
   private listener: WearableServiceListener | null = null;
   private devices: WearableDevice[] = [];
   private vepDevices: Map<string, BleDevice> = new Map();
+  private scanPackets: DiscoveryPacketCache = new DiscoveryPacketCache();
+  private scanObserved: number = 0;
+  private scanObservedIds: Set<string> = new Set();
   private scanning: boolean = false;
   private scanTimer: number = -1;
   private scanGeneration: number = 0;
@@ -121,6 +125,8 @@ export class VepWearableService {
     const scanGeneration = ++this.scanGeneration;
     this.devices = [];
     this.vepDevices.clear();
+    this.scanPackets.clear();
+    this.scanObserved = 0; this.scanObservedIds.clear();
     this.emitDevices();
     try {
       ble.on('BLEDeviceFind', this.onScanResults);
@@ -134,7 +140,8 @@ export class VepWearableService {
         ble.startBLEScan([{}], options);
       } catch {
         // Some Harmony builds reject a generic filter. Vep discovery must still remain available.
-        ble.startBLEScan([{ manufactureId: 0xF8F8 }], options);
+        ble.startBLEScan([{ manufactureId: 0xF8F8 }, { name: 'ET488' },
+          { name: 'SD-Watch-W9' }, { name: 'SD-Watch-W9S' }, { name: 'SD-WATCH-W9S' }], options);
         this.mergeConnectedW8Devices();
       }
       this.scanning = true;
@@ -163,6 +170,8 @@ export class VepWearableService {
       this.scanTimer = -1;
     }
     if (this.scanning) {
+      // Aggregate only: no nearby device identifiers or private advertisement bytes.
+      console.info(`[Saydian BLE] scan callbacks=${this.scanObserved}, nearby=${this.scanObservedIds.size}, watches=${this.devices.length}`);
       try { ble.off('BLEDeviceFind', this.onScanResults); } catch {}
       try { ble.stopBLEScan(); } catch {}
     }
@@ -550,8 +559,20 @@ export class VepWearableService {
   }
 
   private onScanResults = (results: Array<ble.ScanResult>): void => {
+    if (!this.scanning) return;
+    this.scanObserved += results.length;
+    results.forEach((result: ble.ScanResult) => this.scanObservedIds.add(result.deviceId));
     const incoming: WearableDevice[] = [];
-    const vepResults = this.sdk.processScanResults(results);
+    const normalized: ble.ScanResult[] = results.map((result: ble.ScanResult): ble.ScanResult => {
+      const packet = this.scanPackets.observe({ id: result.deviceId, name: result.deviceName ?? '',
+        rssi: result.rssi, connectable: result.connectable,
+        data: Array.from(new Uint8Array(result.data)) }, Date.now());
+      return { deviceId: result.deviceId, deviceName: packet.name, rssi: packet.rssi,
+        connectable: packet.connectable, data: new Uint8Array(packet.data).buffer };
+    });
+    let vepResults: BleDevice[] = [];
+    try { vepResults = this.sdk.processScanResults(normalized); }
+    catch { /* An unrecognized advertisement must not discard the rest of the batch. */ }
     vepResults.forEach((device: BleDevice) => {
       if (wearableProviderForName(device.deviceName) === 'Yuc') return;
       const descriptor = createWearableDevice('Vep', device.deviceName, device.deviceId,
@@ -561,11 +582,20 @@ export class VepWearableService {
         this.vepDevices.set(descriptor.key, device);
       }
     });
-    results.forEach((result: ble.ScanResult) => {
-      if (wearableProviderForName(result.deviceName) !== 'Yuc') return;
-      const descriptor = createWearableDevice('Yuc', result.deviceName, result.deviceId,
+    normalized.forEach((result: ble.ScanResult) => {
+      const provider = knownWearableName(result.deviceName);
+      if (!provider || vepResults.some((device: BleDevice) =>
+        device.deviceId === result.deviceId && provider === 'Vep')) return;
+      const descriptor = createWearableDevice(provider, result.deviceName, result.deviceId,
         '', result.rssi, result.connectable);
-      if (descriptor) incoming.push(descriptor);
+      if (!descriptor) return;
+      incoming.push(descriptor);
+      if (provider === 'Vep') {
+        // Official demo also connects a BleDevice with an empty mac. Never copy
+        // the Harmony transport address into the hardware MAC field.
+        this.vepDevices.set(descriptor.key, { deviceId: result.deviceId,
+          deviceName: result.deviceName, mac: '', rssi: result.rssi, connectable: result.connectable });
+      }
     });
     if (incoming.length > 0) {
       this.devices = mergeWearableDevices(this.devices, incoming);
@@ -1131,6 +1161,20 @@ export class VepWearableService {
         .sort((a: HealthRecord, b: HealthRecord) => b.timestamp - a.timestamp);
       this.emitSnapshot();
     } catch {}
+  }
+
+  async healthRange(deviceKey: string, metric: WearableMetricKey, start: number, end: number): Promise<HealthRecord[]> {
+    if (!deviceKey || deviceKey !== this.snapshot.deviceKey || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+      throw new Error('设备或日期已变更，请重新选择');
+    }
+    const generation = this.connectionGeneration;
+    const records = await wearableHealthStore.loadRange(deviceKey, metric, start, end - 1);
+    if (generation !== this.connectionGeneration || deviceKey !== this.snapshot.deviceKey) throw new Error('设备已变更，请重新选择');
+    const result: Map<string, HealthRecord> = new Map();
+    records.forEach((record: HealthRecord) => result.set(record.id, record));
+    this.snapshot.records.filter((record: HealthRecord) => record.deviceKey === deviceKey && record.metric === metric &&
+      record.timestamp >= start && record.timestamp < end).forEach((record: HealthRecord) => result.set(record.id, record));
+    return Array.from(result.values());
   }
 
   private persistRecords(records: HealthRecord[]): void {

@@ -4,6 +4,12 @@ import {
   registrationValidation, wechatAuthorizationValidation
 } from '../model/Contracts';
 import type { Envelope, Session, FormField, MemberProfile, Article } from '../model/Contracts';
+import { profileDraftError, feedbackError } from '../model/DisplayPreferences';
+import type { ProfileDraft } from '../model/DisplayPreferences';
+import { parseAddresses, parseInbox, parseArticleCategories } from '../model/AccountPageContracts';
+import type { ShippingAddress, InboxMessage, ArticleCategory } from '../model/AccountPageContracts';
+import { addressBody } from '../model/AddressForm';
+import type { AddressDraft, RegionCatalog } from '../model/AddressForm';
 import { CARE_METRICS, careId, careMobileValidation, parseCareMembers, parseCareInvitations,
   parseCareSettings, careSettingsBody, chinaDaySeconds, parseCareMetric, careMetricState } from '../model/CareContracts';
 import type { CareMember, CareInvitation, CareShareSettings, CareMetric, CareMetricSpec } from '../model/CareContracts';
@@ -20,7 +26,7 @@ export interface SessionStore {
 }
 export interface ApiTransport {
   request(path: string, fields?: FormField[], session?: Session, jsonBody?: string,
-    method?: 'GET' | 'POST' | 'DELETE'): Promise<Envelope>;
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE'): Promise<Envelope>;
 }
 
 // This is the production coordinator, also exercised by host tests with synthetic stores/transports.
@@ -150,6 +156,39 @@ export class AccountClient {
     ]);
   }
 
+  async resetPassword(mobile: string, code: string, password: string, confirmation: string): Promise<Session> {
+    const validation = registrationValidation(mobile, code, password, confirmation, true);
+    if (validation) throw new ApiError(validation);
+    return await this.authenticate('/api/v1/site/up-pwd', [
+      { name: 'mobile', value: mobile.trim() }, { name: 'code', value: code.trim() },
+      { name: 'password', value: password }, { name: 'password_repetition', value: confirmation },
+      { name: 'group', value: 'app' }
+    ]);
+  }
+
+  async addresses(): Promise<ShippingAddress[]> {
+    return parseAddresses((await this.authorized('/api/v1/member/address?page=1')).data);
+  }
+
+  async saveAddress(draft: AddressDraft, regions: RegionCatalog): Promise<ShippingAddress> {
+    const body = addressBody(draft, regions);
+    const path = draft.id ? `/api/v1/member/address/${draft.id}` : '/api/v1/member/address';
+    const response = await this.authorizedRequest(path, undefined, body, draft.id ? 'PUT' : 'POST');
+    const saved = parseAddresses([response.data ?? {}])[0];
+    if (draft.id && saved.id !== draft.id) throw new ApiError('地址保存结果不一致，请刷新列表确认');
+    return saved;
+  }
+
+  async inbox(): Promise<InboxMessage[]> {
+    return parseInbox((await this.authorized('/api/v1/member/notify?page=1&type=2')).data);
+  }
+
+  async readInboxMessage(id: number): Promise<InboxMessage> {
+    if (!Number.isSafeInteger(id) || id <= 0) throw new ApiError('消息编号无效');
+    const response = await this.authorized(`/api/v1/member/notify/${id}`);
+    return parseInbox([response.data ?? {}])[0];
+  }
+
   async logout(): Promise<void> {
     ++this.generation;
     this.session = undefined;
@@ -192,7 +231,7 @@ export class AccountClient {
   }
 
   private async authorizedRequest(path: string, fields?: FormField[], jsonBody?: string,
-    method?: 'GET' | 'POST' | 'DELETE'): Promise<Envelope> {
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE'): Promise<Envelope> {
     const epoch = this.generation;
     try {
       let session = await this.ensureSession();
@@ -246,6 +285,34 @@ export class AccountClient {
     }
   }
 
+  async saveProfile(draft: ProfileDraft): Promise<MemberProfile> {
+    const error = profileDraftError(draft);
+    if (error) throw new ApiError(error);
+    const epoch = this.generation;
+    await this.authorizedFields('/api/v1/member/member/save', [
+      { name: 'nickname', value: draft.nickname.trim() }, { name: 'gender', value: String(draft.gender) },
+      { name: 'birthday', value: draft.birthday }, { name: 'height', value: String(Number(draft.height)) },
+      { name: 'weight', value: String(Number(draft.weight)) }
+    ]);
+    this.assertEpoch(epoch);
+    const profile = await this.profile();
+    this.assertEpoch(epoch);
+    return profile;
+  }
+
+  async submitFeedback(category: string, content: string, contact: string): Promise<string> {
+    const error = feedbackError(category, content, contact);
+    if (error) throw new ApiError(error);
+    const response = await this.authorizedFields('/api/v1/member/feedback', [
+      { name: 'type', value: category }, { name: 'content', value: content.trim() },
+      { name: 'contact', value: contact.trim() }
+    ]);
+    const data = response.data as Record<string, Object>;
+    const id = data && (typeof data['id'] === 'string' || typeof data['id'] === 'number') ? String(data['id']) : '';
+    if (!id) throw new ApiError('反馈提交结果不完整，请稍后重试');
+    return id;
+  }
+
   async unregisterPushDevice(installationId: string): Promise<boolean> {
     const normalized = installationId.trim();
     if (!/^[A-Za-z0-9._:-]{8,160}$/.test(normalized)) throw new ApiError('推送设备标识无效');
@@ -271,8 +338,10 @@ export class AccountClient {
     return undefined;
   }
 
-  async shopOrders(): Promise<ShopOrder[]> {
-    const response = await this.authorized('/api/inv-shop/v1/member/order/index?page=1');
+  async shopOrders(status: number = 99): Promise<ShopOrder[]> {
+    if (![99, 0, 1, 2, 3, -1].includes(status)) throw new ApiError('订单筛选无效');
+    const query = status === 99 ? '' : `&synthesize_status=${status}`;
+    const response = await this.authorized(`/api/inv-shop/v1/member/order/index?page=1${query}`);
     return parseShopOrders(response.data);
   }
 
@@ -415,6 +484,15 @@ export class AccountClient {
 
   async articles(): Promise<Article[]> {
     return parseArticles((await this.transport.request('/api/rf-article/article/index')).data);
+  }
+
+  async articleCategories(): Promise<ArticleCategory[]> {
+    return parseArticleCategories((await this.transport.request('/api/rf-article/article-cate/index?pid=3')).data);
+  }
+
+  async articlesByCategory(categoryId: number): Promise<Article[]> {
+    if (!Number.isSafeInteger(categoryId) || categoryId < 0) throw new ApiError('健康分类无效');
+    return parseArticles((await this.transport.request(`/api/rf-article/article/index?page=1${categoryId ? '&cate_id=' + categoryId : ''}`)).data);
   }
 
   async article(id: string, agreement: boolean): Promise<Article> {

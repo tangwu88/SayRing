@@ -5,7 +5,7 @@ import { SessionVault } from './SessionVault';
 
 class NativeHttpTransport implements ApiTransport {
   async request(path: string, fields?: FormField[], session?: Session, jsonBody?: string,
-    method?: 'GET' | 'POST' | 'DELETE'): Promise<Envelope> {
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE'): Promise<Envelope> {
     // Fixed HTTPS origin; credentials never reach configurable hosts or redirects.
     if (!path.startsWith('/api/') || path.includes('://')) throw new ApiError('请求地址不正确');
     if (fields && jsonBody !== undefined) throw new ApiError('请求格式不正确');
@@ -25,6 +25,7 @@ class NativeHttpTransport implements ApiTransport {
     try {
       const response = await client.request(`${API_BASE}${path}`, {
         method: requestMethod === 'DELETE' ? http.RequestMethod.DELETE :
+          requestMethod === 'PUT' ? http.RequestMethod.PUT :
           requestMethod === 'POST' ? http.RequestMethod.POST : http.RequestMethod.GET,
         header: headers,
         extraData: fields ? buildMultipart(fields, boundary) : jsonBody ?? '',

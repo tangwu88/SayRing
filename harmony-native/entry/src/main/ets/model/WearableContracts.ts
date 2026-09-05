@@ -180,10 +180,16 @@ export function mergeWearableDevices(current: WearableDevice[], incoming: Wearab
   const merged: Map<string, WearableDevice> = new Map();
   current.forEach((device: WearableDevice) => merged.set(device.key, device));
   incoming.forEach((device: WearableDevice) => {
-    const existing = merged.get(device.key);
-    if (!existing || device.rssi !== existing.rssi || device.name !== existing.name || device.connectable !== existing.connectable) {
-      merged.set(device.key, device);
-    }
+    const sameTransport = Array.from(merged.values()).find((item: WearableDevice) =>
+      item.provider === device.provider && item.transportId === device.transportId);
+    // A later SDK packet can add the real MAC. It must enrich the discovered
+    // transport, not add a second row; later name-only packets cannot erase it.
+    const mac = device.mac || sameTransport?.mac || '';
+    const next = createWearableDevice(device.provider, device.name, device.transportId,
+      mac, device.rssi, device.connectable);
+    if (!next) return;
+    if (sameTransport) merged.delete(sameTransport.key);
+    merged.set(next.key, next);
   });
   return Array.from(merged.values()).sort((a: WearableDevice, b: WearableDevice) => {
     if (a.provider !== b.provider) return a.provider === 'Vep' ? -1 : 1;

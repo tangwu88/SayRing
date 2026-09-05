@@ -1,0 +1,29 @@
+import { abilityAccessCtrl, bundleManager, common, Permissions } from '@kit.AbilityKit';
+import { notificationManager } from '@kit.NotificationKit';
+
+export interface PermissionRow { key: string; title: string; status: string; enabled: boolean; }
+
+export async function readPermissionRows(): Promise<PermissionRow[]> {
+  const manager = abilityAccessCtrl.createAtManager();
+  const info = bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_WITH_APPLICATION);
+  const tokenId = info.appInfo.accessTokenId;
+  const bluetooth = manager.checkAccessTokenSync(tokenId, 'ohos.permission.ACCESS_BLUETOOTH') === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED;
+  const location = manager.checkAccessTokenSync(tokenId, 'ohos.permission.APPROXIMATELY_LOCATION') === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED;
+  const notifications = await notificationManager.isNotificationEnabled();
+  return [
+    { key: 'bluetooth', title: '蓝牙', status: bluetooth ? '已允许' : '未允许', enabled: bluetooth },
+    { key: 'location', title: '位置', status: location ? '已允许' : '未允许', enabled: location },
+    { key: 'notifications', title: '通知', status: notifications ? '已允许' : '未允许', enabled: notifications }
+  ];
+}
+
+export async function openPermissionSetting(context: common.UIAbilityContext, key: string): Promise<void> {
+  if (key === 'notifications') { await notificationManager.openNotificationSettings(context); return; }
+  const permissions: Permissions[] = key === 'bluetooth' ? ['ohos.permission.ACCESS_BLUETOOTH'] :
+    ['ohos.permission.APPROXIMATELY_LOCATION', 'ohos.permission.LOCATION'];
+  const manager = abilityAccessCtrl.createAtManager();
+  const result = await manager.requestPermissionsFromUser(context, permissions);
+  if (result.authResults.some((state: number) => state !== abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED)) {
+    await manager.requestPermissionOnSetting(context, permissions);
+  }
+}
