@@ -40,3 +40,4 @@
 - 极光 HarmonyOS 包名与 Server key 已配置，nova 14 已取得真实 Registration ID，账号登记接口返回成功。
 - 极光普通通知已完成前台送达、后台送达和点击唤醒；普通通知不等同于关爱/预警业务路由验收。
 - 正式 Release 证书和发布 Profile 已创建；0.1.3（5）签名 APP/HAP 通过官方完整性及 `type=release` 校验。
+- 合并远端 `main` 的后台版本接口改动后，Flutter 分析零问题、全量 387 项测试通过；鸿蒙 UTC 与 Asia/Shanghai 各 128/128 通过。
