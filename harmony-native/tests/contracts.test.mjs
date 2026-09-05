@@ -102,9 +102,18 @@ test('article content is plain text, not active scripts', () => {
   assert.equal(articleText('<script>alert(1)</script><p>第一段</p><p>第二段 &amp; 内容</p>'), '第一段\n第二段 & 内容');
   assert.equal(articleText(undefined), '');
 });
-test('native manifest only requests network permission', () => {
+test('native manifest declares only network and foreground wearable discovery permissions', () => {
   const manifest = JSON.parse(readFileSync(new URL('../entry/src/main/module.json5', import.meta.url)));
-  assert.deepEqual(manifest.module.requestPermissions, [{ name: 'ohos.permission.INTERNET' }]);
+  assert.deepEqual(manifest.module.requestPermissions.map(item => item.name), [
+    'ohos.permission.INTERNET',
+    'ohos.permission.ACCESS_BLUETOOTH',
+    'ohos.permission.APPROXIMATELY_LOCATION',
+    'ohos.permission.LOCATION',
+  ]);
+  for (const item of manifest.module.requestPermissions.slice(1)) {
+    assert.match(item.reason, /^\$string:/);
+    assert.deepEqual(item.usedScene, { abilities: ['EntryAbility'], when: 'inuse' });
+  }
   assert.equal(manifest.module.abilities[0].name, 'EntryAbility');
 });
 test('credential storage never falls back to plaintext preferences', () => {

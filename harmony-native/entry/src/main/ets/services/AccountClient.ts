@@ -9,6 +9,8 @@ import type { CareMember, CareInvitation, CareShareSettings, CareMetric, CareMet
 import { notificationUnreadCount, parseHarmonyPayment, parseShopOrder, parseShopOrders,
   paymentFields, pushRegistrationFields } from '../model/PushPaymentContracts';
 import type { HarmonyPaymentRequest, PaymentProvider, PushIdentity, ShopOrder } from '../model/PushPaymentContracts';
+import { parseAiMessages, parseAiReply, parseShopHome } from '../model/ExperienceContracts';
+import type { AiChatMessage, ShopHome } from '../model/ExperienceContracts';
 
 export interface SessionStore {
   read(): Promise<Session | undefined>;
@@ -248,6 +250,25 @@ export class AccountClient {
     const current = await this.shopOrder(order.id);
     const response = await this.authorizedFields('/api/v1/pay', paymentFields(provider, current));
     return parseHarmonyPayment(provider, response.data);
+  }
+
+  async shopHome(): Promise<ShopHome> {
+    const response = await this.transport.request('/api/v1/pages?code=SHOP_HOME');
+    return parseShopHome(response.data);
+  }
+
+  async aiMessages(): Promise<AiChatMessage[]> {
+    const response = await this.authorized('/api/rf-article/chat/index?app=1&page=1');
+    return parseAiMessages(response.data);
+  }
+
+  async sendAiMessage(message: string, sessionId: string = ''): Promise<AiChatMessage> {
+    const normalized = message.trim();
+    if (!normalized || normalized.length > 2000) throw new ApiError('请输入 1~2000 字的问题');
+    const body: Record<string, Object> = { app: 1, message: normalized };
+    if (sessionId) body['session_id'] = sessionId;
+    const response = await this.authorized('/api/rf-article/chat/create', JSON.stringify(body));
+    return parseAiReply(response.data);
   }
 
   async careMembers(): Promise<CareMember[]> {

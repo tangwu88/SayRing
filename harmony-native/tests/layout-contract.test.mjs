@@ -31,7 +31,10 @@ test('package metadata meets bundled build-tool rules without overstating the ap
   }
   const app=JSON.parse(readFileSync(new URL('../AppScope/app.json5',import.meta.url),'utf8')).app;
   const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
-  assert.ok(source.includes(`赛电鸿蒙 ${app.versionName} ·`));
+  const updateSource=readFileSync(new URL('../entry/src/main/ets/services/AppUpdateService.ets',import.meta.url),'utf8');
+  assert.ok(source.includes('赛电健康 V${HARMONY_VERSION_NAME} (${HARMONY_VERSION_CODE})'));
+  assert.ok(updateSource.includes(`HARMONY_VERSION_NAME: string = '${app.versionName}'`));
+  assert.ok(updateSource.includes(`HARMONY_VERSION_CODE: number = ${app.versionCode}`));
 });
 
 test('release identity stays aligned with the confirmed AGC HarmonyOS app',()=>{

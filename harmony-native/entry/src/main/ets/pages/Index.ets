@@ -9,6 +9,14 @@ import { pushErrorMessage, paymentErrorMessage } from '../model/PushPaymentContr
 import type { PaymentProvider, ShopOrder } from '../model/PushPaymentContracts';
 import { harmonyPush } from '../services/HarmonyPushService';
 import { PENDING_NOTIFICATION_ROUTE } from '../services/NotificationNavigation';
+import {
+  HealthRecord, MeasurementState, WearableConnectionPhase, WearableDevice, WearableDial, WearableMetricKey,
+  WearableSnapshot, batteryText, emptyMeasurement, emptyWearableSnapshot, healthRecordText,
+  latestMetricRecord, wearableIdentifierText
+} from '../model/WearableContracts';
+import { vepWearable, WearableServiceListener } from '../services/VepWearableService';
+import { AiChatMessage, AppUpdateInfo, ShopCategory, ShopHome, ShopProduct } from '../model/ExperienceContracts';
+import { appUpdateService, HARMONY_VERSION_CODE, HARMONY_VERSION_NAME } from '../services/AppUpdateService';
 
 const RED: string = '#D7082E';
 const INK: string = '#1C1D29';
@@ -16,6 +24,7 @@ const MUTED: string = '#747783';
 const BG: string = '#F6F7FB';
 
 interface NoticeOptions { message: string; color?: string; }
+interface WearableMetricSpec { key: WearableMetricKey; title: string; }
 
 @Entry
 @Component
@@ -73,17 +82,56 @@ struct Index {
   @State private paymentMessage: string = '';
   @State private selectedOrder: ShopOrder = { id: 0, number: '', amountCents: 0, status: 0, summary: '' };
   @State private selectedProvider: PaymentProvider = 'wechat';
+  @State private wearableDevices: WearableDevice[] = [];
+  @State private wearablePhase: WearableConnectionPhase = 'idle';
+  @State private wearableMessage: string = '尚未连接手表';
+  @State private wearableSnapshot: WearableSnapshot = emptyWearableSnapshot();
+  @State private wearableMeasurement: MeasurementState = emptyMeasurement();
+  @State private selectedWearableMetric: WearableMetricKey = 'heart';
+  @State private aiMessages: AiChatMessage[] = [];
+  @State private aiInput: string = '';
+  @State private aiSessionId: string = '';
+  @State private aiBusy: boolean = false;
+  @State private aiError: string = '';
+  @State private shopHome: ShopHome = { bannerUrl: '', categories: [] };
+  @State private shopCategoryIndex: number = 0;
+  @State private shopLoading: boolean = false;
+  @State private shopError: string = '';
+  @State private selectedProduct: ShopProduct = { id: 0, name: '', picture: '', price: '0.00', stock: 0 };
+  @State private updateBusy: boolean = false;
+  @State private updateStatus: string = '点击检查是否有新版本';
+  @State private updateInfo: AppUpdateInfo = { latestVersion: '', latestBuild: 0,
+    minimumSupportedBuild: 0, releaseNotes: '', destinationUrl: '', hasUpdate: false, required: false };
   private careGeneration: number = 0;
   private previousScreen: string = 'login';
   private pageGeneration: number = 0;
   private contentGeneration: number = 0;
   private selectedArticleId: string = '';
   private selectedAgreement: boolean = false;
-  private readonly metrics: string[] = ['心率', '血压', '血氧', '血糖', '体温', '睡眠', 'HRV', '心电', '身体成分', '血液成分'];
+  private readonly wearableMetrics: WearableMetricSpec[] = [
+    { key: 'activity', title: '活动' }, { key: 'sleep', title: '睡眠' },
+    { key: 'heart', title: '心率' }, { key: 'pressure', title: '血压' },
+    { key: 'oxygen', title: '血氧' }, { key: 'glucose', title: '血糖' },
+    { key: 'temperature', title: '体温' }, { key: 'hrv', title: 'HRV' },
+    { key: 'ecg', title: '心电' }, { key: 'bodyComposition', title: '身体成分' },
+    { key: 'bloodComponents', title: '血液成分' }, { key: 'sport', title: '运动记录' }
+  ];
+  private readonly measurementMetrics: WearableMetricSpec[] = [
+    { key: 'heart', title: '心率' }, { key: 'pressure', title: '血压' },
+    { key: 'oxygen', title: '血氧' }, { key: 'glucose', title: '血糖' },
+    { key: 'temperature', title: '体温' }, { key: 'ecg', title: '心电' },
+    { key: 'bodyComposition', title: '身体成分' }, { key: 'bloodComponents', title: '血液成分' }
+  ];
 
-  aboutToAppear(): void { this.restoreLogin(); }
+  aboutToAppear(): void {
+    this.bindWearable();
+    this.restoreLogin();
+  }
   onPageShow(): void { this.consumeNotificationRoute(); }
-  aboutToDisappear(): void { ++this.pageGeneration; ++this.contentGeneration; ++this.careGeneration; }
+  aboutToDisappear(): void {
+    ++this.pageGeneration; ++this.contentGeneration; ++this.careGeneration;
+    vepWearable.clearListener();
+  }
 
   private pendingNotificationChanged(): void { this.consumeNotificationRoute(); }
 
@@ -100,6 +148,102 @@ struct Index {
 
   private uiContext(): common.UIAbilityContext {
     return this.getUIContext().getHostContext() as common.UIAbilityContext;
+  }
+
+  private bindWearable(): void {
+    vepWearable.attachContext(this.uiContext());
+    const listener: WearableServiceListener = {
+      onDevices: (devices: WearableDevice[]) => this.wearableDevices = devices,
+      onPhase: (phase: WearableConnectionPhase, message: string) => {
+        this.wearablePhase = phase;
+        this.wearableMessage = message;
+      },
+      onSnapshot: (snapshot: WearableSnapshot) => this.wearableSnapshot = snapshot,
+      onMeasurement: (measurement: MeasurementState) => this.wearableMeasurement = measurement
+    };
+    vepWearable.setListener(listener);
+  }
+
+  private wearableBusy(): boolean {
+    return this.wearablePhase === 'connecting' || this.wearablePhase === 'authenticating' ||
+      this.wearablePhase === 'syncing' || this.wearablePhase === 'disconnecting';
+  }
+
+  private wearableCapability(metric: WearableMetricKey): boolean {
+    const capabilities = this.wearableSnapshot.capabilities;
+    if (metric === 'activity') return capabilities.activity;
+    if (metric === 'sleep') return capabilities.sleep;
+    if (metric === 'heart') return capabilities.heart;
+    if (metric === 'pressure') return capabilities.pressure;
+    if (metric === 'oxygen') return capabilities.oxygen;
+    if (metric === 'temperature') return capabilities.temperature;
+    if (metric === 'glucose') return capabilities.glucose;
+    if (metric === 'hrv') return capabilities.hrv;
+    if (metric === 'ecg') return capabilities.ecg;
+    if (metric === 'bodyComposition') return capabilities.bodyComposition;
+    if (metric === 'bloodComponents') return capabilities.bloodComponents;
+    return capabilities.sport;
+  }
+
+  private wearableMetricMeasurable(metric: WearableMetricKey): boolean {
+    return this.measurementMetrics.some((item: WearableMetricSpec) => item.key === metric);
+  }
+
+  private wearableMetricRecords(metric: WearableMetricKey): HealthRecord[] {
+    return this.wearableSnapshot.records.filter((record: HealthRecord) => record.metric === metric)
+      .sort((a: HealthRecord, b: HealthRecord) => b.timestamp - a.timestamp);
+  }
+
+  private wearableLatest(metric: WearableMetricKey): string {
+    if (!this.wearableSnapshot.connected) return '暂无记录';
+    if (!this.wearableCapability(metric)) return '设备不支持';
+    return healthRecordText(latestMetricRecord(this.wearableSnapshot.records, metric));
+  }
+
+  private wearableMetricTitle(metric: WearableMetricKey): string {
+    const found = this.wearableMetrics.find((item: WearableMetricSpec) => item.key === metric);
+    return found?.title ?? '健康数据';
+  }
+
+  private openWearableMetric(metric: WearableMetricKey): void {
+    this.selectedWearableMetric = metric;
+    this.previousScreen = 'home';
+    this.screen = 'wearable-metric';
+  }
+
+  private wearableRecordTime(timestamp: number): string {
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return '时间未知';
+    const date = new Date(timestamp);
+    const pad = (value: number): string => value < 10 ? `0${value}` : `${value}`;
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
+  private wearableSyncTime(): string {
+    return this.wearableSnapshot.syncedAt > 0 ? `最近同步 ${this.wearableRecordTime(this.wearableSnapshot.syncedAt)}` : '尚未同步健康数据';
+  }
+
+  private signalText(rssi: number): string {
+    if (rssi === 0) return '已连接';
+    if (rssi >= -60) return `强 ${rssi}`;
+    if (rssi >= -80) return `中 ${rssi}`;
+    return `弱 ${rssi}`;
+  }
+
+  private measurementText(): string {
+    if (this.wearableMeasurement.values.length === 0) return this.wearableMeasurement.status || '等待手表读数';
+    return this.wearableMeasurement.values.map((value) =>
+      `${value.name} ${value.value}${value.unit}`).join(' · ');
+  }
+
+  private ecgWaveformPoints(): number[][] {
+    const samples = this.wearableMeasurement.samples.slice(-240);
+    if (samples.length < 2) return [];
+    let min = samples[0];
+    let max = samples[0];
+    samples.forEach((value: number) => { min = Math.min(min, value); max = Math.max(max, value); });
+    const range = Math.max(1, max - min);
+    return samples.map((value: number, index: number) =>
+      [Math.round(index * 320 / Math.max(1, samples.length - 1)), Math.round(112 - ((value - min) / range) * 104)]);
   }
 
   private businessErrorCode(error: Error): number {
@@ -166,10 +310,7 @@ struct Index {
       await this.openCare();
       if (!this.guest) this.screen = 'care-invitations';
     } else if (route === 'health-alerts') {
-      this.previousScreen = 'home';
-      this.detailTitle = '健康预警';
-      this.detailBody = '已收到健康预警通知。原生鸿蒙端仍需服务端开放预警列表接口后，才能读取并展示对应事件；不会根据普通测量值自行诊断。';
-      this.screen = 'feature';
+      this.openHealthAlerts();
     }
   }
 
@@ -179,6 +320,83 @@ struct Index {
     try { this.orders = await saydianApi.shopOrders(); }
     catch (error) { this.paymentMessage = (error as Error).message || '订单暂时无法加载'; }
     finally { this.orderLoading = false; }
+  }
+
+  private openHealthAlerts(): void {
+    this.previousScreen = 'home';
+    this.screen = 'health-alerts';
+    this.refreshNotificationCount();
+  }
+
+  private async openShop(): Promise<void> {
+    this.previousScreen = 'home';
+    this.screen = 'shop-home';
+    this.shopLoading = true; this.shopError = ''; this.shopHome = { bannerUrl: '', categories: [] };
+    try {
+      this.shopHome = await saydianApi.shopHome();
+      this.shopCategoryIndex = 0;
+    } catch (error) { this.shopError = (error as Error).message || '商城暂时无法加载'; }
+    finally { this.shopLoading = false; }
+  }
+
+  private shopCategory(): ShopCategory {
+    if (this.shopHome.categories.length === 0) return { id: '', name: '', products: [] };
+    const index = Math.max(0, Math.min(this.shopCategoryIndex, this.shopHome.categories.length - 1));
+    return this.shopHome.categories[index];
+  }
+
+  private openShopProduct(product: ShopProduct): void {
+    this.selectedProduct = product;
+    this.screen = 'shop-product';
+  }
+
+  private async openAiChat(): Promise<void> {
+    if (this.guest) { this.showFeature('AI 健康管家', '请先登录赛电账号，再向 AI 健康管家提问。'); return; }
+    this.previousScreen = 'home'; this.screen = 'ai-chat'; this.aiBusy = true; this.aiError = '';
+    try {
+      this.aiMessages = await saydianApi.aiMessages();
+      const withSession = this.aiMessages.find((item: AiChatMessage) => item.sessionId.length > 0);
+      this.aiSessionId = withSession?.sessionId ?? '';
+    } catch (error) { this.aiError = this.careFailure(error as Error); }
+    finally { this.aiBusy = false; }
+  }
+
+  private async sendAiChat(): Promise<void> {
+    const message = this.aiInput.trim();
+    if (this.aiBusy || !message) return;
+    this.aiBusy = true; this.aiError = '';
+    const pending: AiChatMessage = { id: `local-${Date.now()}`, text: message, mine: true,
+      sessionId: this.aiSessionId, failed: false };
+    this.aiMessages = [...this.aiMessages, pending];
+    try {
+      const reply = await saydianApi.sendAiMessage(message, this.aiSessionId);
+      if (reply.sessionId) this.aiSessionId = reply.sessionId;
+      this.aiMessages = [...this.aiMessages, reply];
+      this.aiInput = '';
+    } catch (error) {
+      pending.failed = true;
+      this.aiMessages = this.aiMessages.map((item: AiChatMessage) => item.id === pending.id ? pending : item);
+      this.aiError = this.careFailure(error as Error);
+    } finally { this.aiBusy = false; }
+  }
+
+  private async checkOnlineUpdate(): Promise<void> {
+    if (this.updateBusy) return;
+    this.updateBusy = true; this.updateStatus = '正在检查更新…';
+    try {
+      this.updateInfo = await appUpdateService.check();
+      this.updateStatus = this.updateInfo.hasUpdate ?
+        `发现新版本 V${this.updateInfo.latestVersion}${this.updateInfo.required ? '，需要更新后继续使用' : ''}` :
+        `当前已是最新版本 V${HARMONY_VERSION_NAME}`;
+    } catch (error) { this.updateStatus = (error as Error).message || '暂时无法检查更新'; }
+    finally { this.updateBusy = false; }
+  }
+
+  private async openUpdateDestination(): Promise<void> {
+    if (!this.updateInfo.hasUpdate || !this.updateInfo.destinationUrl) return;
+    try {
+      await this.uiContext().startAbility({ action: 'ohos.want.action.viewData', uri: this.updateInfo.destinationUrl });
+    } catch { this.updateStatus = '无法打开华为应用市场，请稍后重试'; }
   }
 
   private openPayment(order: ShopOrder): void {
@@ -531,8 +749,13 @@ struct Index {
   private back(): void {
     if (this.careBusy) return;
     ++this.contentGeneration;
+    if (this.screen === 'shop-product') { this.screen = 'shop-home'; return; }
     if (this.screen === 'shop-payment') { this.screen = 'shop-orders'; this.paymentMessage = ''; return; }
-    if (this.screen === 'shop-orders' || this.screen === 'messages') { this.screen = 'home'; return; }
+    if (this.screen === 'shop-orders' || this.screen === 'messages' || this.screen === 'health-alerts' ||
+      this.screen === 'health-all' || this.screen === 'sport-records' || this.screen === 'ai-chat' ||
+      this.screen === 'shop-home' || this.screen === 'about' || this.screen === 'contact' ||
+      this.screen === 'help' || this.screen === 'permissions') { this.screen = 'home'; return; }
+    if (this.screen === 'wearable-metric') { this.screen = 'home'; return; }
     if (this.screen.startsWith('care')) {
       ++this.careGeneration; this.careLoading = false; this.careMessage = '';
       if (this.screen === 'care') { this.screen = 'home'; this.clearCareState(); }
@@ -546,7 +769,10 @@ struct Index {
 
   onBackPress(): boolean {
     if (this.screen === 'article' || this.screen === 'feature' || this.screen === 'articles' ||
-      this.screen === 'messages' || this.screen.startsWith('shop-') || this.screen.startsWith('care')) {
+      this.screen === 'messages' || this.screen === 'health-alerts' || this.screen === 'health-all' ||
+      this.screen === 'sport-records' || this.screen === 'ai-chat' || this.screen === 'wearable-metric' ||
+      this.screen === 'about' || this.screen === 'contact' || this.screen === 'help' || this.screen === 'permissions' ||
+      this.screen.startsWith('shop-') || this.screen.startsWith('care')) {
       this.back();
       return true;
     }
@@ -565,8 +791,14 @@ struct Index {
       Button('‹ 返回').fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
         .height(48).enabled(!this.careBusy).onClick(() => this.back()).accessibilityText('返回上一页')
       Text(this.screen.startsWith('care') ? this.careHeading() : this.screen === 'messages' ? '消息与推送' :
-        this.screen === 'shop-orders' ? '我的订单' : this.screen === 'shop-payment' ? '支付收银台' :
-          this.screen === 'articles' ? '健康百科' : this.screen === 'article' ? this.articleTitle : this.detailTitle)
+        this.screen === 'health-alerts' ? '健康预警' : this.screen === 'health-all' ? '全部健康数据' :
+          this.screen === 'sport-records' ? '运动与记录' : this.screen === 'ai-chat' ? 'AI 健康管家' :
+            this.screen === 'shop-home' ? '赛电商城' : this.screen === 'shop-product' ? '商品详情' :
+              this.screen === 'shop-orders' ? '我的订单' : this.screen === 'shop-payment' ? '支付收银台' :
+                this.screen === 'about' ? '关于我们' : this.screen === 'contact' ? '联系客服' :
+                  this.screen === 'help' ? '帮助与反馈' : this.screen === 'permissions' ? '权限管理' :
+          this.screen === 'wearable-metric' ? this.wearableMetricTitle(this.selectedWearableMetric) :
+            this.screen === 'articles' ? '健康百科' : this.screen === 'article' ? this.articleTitle : this.detailTitle)
         .fontSize(20).fontWeight(FontWeight.Bold).layoutWeight(1).maxLines(2)
     }.width('100%').margin({ bottom: 16 })
   }
@@ -630,7 +862,7 @@ struct Index {
             this.screen = 'home';
           }).id('browse_home')
         if (this.restoring) { Text('正在检查本机登录状态…').fontSize(14).fontColor(MUTED) }
-        this.Notice({ message: '原生鸿蒙开发验证版\n已开放登录、首页、健康百科、远程关爱、消息推送和订单支付客户端链路。正式推送、支付仍需服务端和鸿蒙正式应用身份配合。' })
+        this.Notice({ message: '健康数据会保存在本机加密数据库；关爱、订单和推送功能需登录后使用。' })
         Text('账号密码仅用于登录；密码不会保存到本机。').fontSize(12).fontColor(MUTED).textAlign(TextAlign.Center)
       }.width('100%').constraintSize({ maxWidth: 460 }).padding({ left: 24, right: 24, bottom: 32 })
     }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Off)
@@ -655,9 +887,9 @@ struct Index {
           .accessibilityText('赛电健康管家形象')
         Column({ space: 12 }) {
           Text('AI 健康管家').fontSize(24).fontWeight(FontWeight.Bold).fontColor('#9F1230')
-          Text('让健康信息更直观\n让日常管理更轻松').fontSize(15).fontColor(INK).lineHeight(23)
-          Button('查看适配进度').fontSize(15).height(46).backgroundColor(RED).width('100%')
-            .onClick(() => this.showFeature('原生适配进度', '已接入：账号登录、个人资料只读、健康百科、远程关爱、消息推送客户端、商城订单与鸿蒙系统支付客户端。\n\n待平台或服务端配置：极光鸿蒙包名与 Server key、harmony 推送设备登记、未读数、鸿蒙微信/支付宝签名参数。\n\n待适配：AI 对话、手表蓝牙、健康同步、测量和在线升级。'))
+          Text('我是您的健康管家，\n有任何健康问题都可以向我提问。').fontSize(15).fontColor(INK).lineHeight(23)
+          Button('马上提问').fontSize(16).height(46).backgroundColor(RED).width('100%')
+            .onClick(() => this.openAiChat()).id('open_ai_chat')
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       }.width('100%').padding(14).borderRadius(24).backgroundColor('#FFF1F2')
       Row({ space: 10 }) {
@@ -667,42 +899,221 @@ struct Index {
           .onClick(() => this.openArticles()).id('health_articles')
       }.width('100%')
       Row({ space: 10 }) {
-        Button('商城订单').layoutWeight(1).height(52).fontColor(INK).backgroundColor('#EAF1F8')
-          .onClick(() => this.openOrders()).id('health_orders')
-        Button('消息通知').layoutWeight(1).height(52).fontColor(INK).backgroundColor('#EAF2EA')
-          .onClick(() => this.openMessages()).id('health_notifications')
+        Button('健康预警').layoutWeight(1).height(52).fontColor(INK).backgroundColor('#FFE8ED')
+          .onClick(() => this.openHealthAlerts()).id('health_alerts')
+        Button('赛电商城').layoutWeight(1).height(52).fontColor(INK).backgroundColor('#FFF0CC')
+          .onClick(() => this.openShop()).id('health_shop')
       }.width('100%')
       if (this.profileError) { this.Notice({ message: this.profileError, color: '#FFF0E9' }) }
       Row() {
         Text('健康数据').fontSize(25).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
-        Text(`${new Date().getMonth() + 1}月${new Date().getDate()}日`).fontSize(15).fontColor(MUTED)
+        Button('全部数据  ›').height(44).fontSize(15).fontWeight(FontWeight.Bold).fontColor(RED)
+          .backgroundColor(Color.Transparent).onClick(() => this.screen = 'health-all').id('health_all')
       }.width('100%')
-      Button('手表连接功能适配中').height(54).width('100%').fontSize(17).fontColor('#32648B')
+      Button(this.wearableSnapshot.connected ? `已连接 ${this.wearableSnapshot.deviceName}` : '连接手表后查看健康数据')
+        .constraintSize({ minHeight: 54 }).width('100%').fontSize(17).fontColor('#32648B')
         .backgroundColor('#E5EFF9').onClick(() => this.tab = 1).id('connect_watch_notice')
-      Text('尚未接入手表，以下项目暂无本机记录。').fontSize(14).fontColor(MUTED).width('100%')
+      Text(this.wearableSnapshot.connected ? this.wearableSyncTime() : '尚未连接手表，以下项目暂无本机记录。')
+        .fontSize(14).fontColor(MUTED).width('100%')
       Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
-        ForEach(this.metrics, (metric: string) => {
+        ForEach(this.wearableMetrics.filter((metric: WearableMetricSpec) => metric.key !== 'sport'), (metric: WearableMetricSpec) => {
           Column({ space: 9 }) {
-            Text(metric).fontSize(18).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
-            Text('—').fontSize(28).fontColor(MUTED).width('100%')
-            Text('暂无记录').fontSize(13).fontColor(MUTED).width('100%')
+            Text(metric.title).fontSize(18).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
+            Text(this.wearableLatest(metric.key)).fontSize(15).lineHeight(22)
+              .fontColor(this.wearableCapability(metric.key) ? INK : MUTED).width('100%').maxLines(4)
+            Text(this.wearableSnapshot.connected && this.wearableCapability(metric.key) ? '查看全部记录 >' :
+              this.wearableSnapshot.connected ? '当前手表不支持' : '暂无记录')
+              .fontSize(13).fontColor(MUTED).width('100%')
           }.width('48%').padding(18).margin({ bottom: 12 }).backgroundColor(Color.White).borderRadius(20)
-            .onClick(() => this.showFeature(`${metric}记录`, `当前鸿蒙版本尚未接入手表健康同步，因此没有${metric}记录。\n\n没有真实数据时不绘制趋势，不生成测量结果，不将其他账号或设备的数据用作本机数据。`))
-            .accessibilityText(`${metric}，暂无记录，手表同步功能尚未适配`)
-        }, (metric: string) => metric)
+            .onClick(() => this.openWearableMetric(metric.key))
+            .accessibilityText(`${metric.title}，${this.wearableLatest(metric.key)}`)
+        }, (metric: WearableMetricSpec) => metric.key)
       }.width('100%')
+
+      Text('运动与记录').fontSize(25).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      Row({ space: 14 }) {
+        Text('◷').fontSize(30).fontColor(RED)
+        Column({ space: 5 }) {
+          Text('运动记录').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text(this.wearableSnapshot.connected ? this.wearableLatest('sport') : '连接手表后读取运动记录')
+            .fontSize(14).fontColor(MUTED).width('100%').maxLines(3)
+        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+        Text('›').fontSize(30).fontColor(RED)
+      }.width('100%').padding(18).backgroundColor('#FFF1F2').borderRadius(20)
+        .onClick(() => this.screen = 'sport-records').accessibilityText('查看运动记录')
       this.Notice({ message: '测量结果仅供健康管理参考，如有不适请咨询专业医务人员。', color: '#EAF2EA' })
     }.width('100%').padding(20)
   }
 
   @Builder
   DeviceHome() {
-    Column({ space: 20 }) {
+    Column({ space: 16 }) {
       Text('我的设备').fontSize(28).fontWeight(FontWeight.Bold).width('100%').fontColor(INK)
-      Text('原生鸿蒙蓝牙正在适配').fontSize(22).fontWeight(FontWeight.Medium).fontColor(INK)
-      this.Notice({ message: '本轮没有连接附近手表，也不会抢占安卓或苹果手机的蓝牙连接。' })
-      this.Notice({ message: 'Vep：Veepoo\nYuc：Yucheng（名称包含 W8 的系列）\n\n厂商鸿蒙 SDK 及原生桥接验收前，不开放扫描、测量、同步、表盘写入和固件升级。' })
-      Button('返回健康首页').width('100%').height(50).backgroundColor(RED).onClick(() => this.tab = 0)
+      this.Notice({ message: this.wearableMessage,
+        color: this.wearablePhase === 'error' || this.wearablePhase === 'permission' ? '#FFF0E9' :
+          this.wearableSnapshot.connected ? '#EAF2EA' : '#EAF1F8' })
+
+      if (this.wearableSnapshot.connected) {
+        Column({ space: 12 }) {
+          Row() {
+            Column({ space: 4 }) {
+              Text(this.wearableSnapshot.deviceName).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(2)
+              Text('Vep · Veepoo').fontSize(13).fontColor('#32648B')
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            Text(batteryText(this.wearableSnapshot.battery)).fontSize(17).fontWeight(FontWeight.Medium)
+              .fontColor(this.wearableSnapshot.battery.lowBattery ? RED : INK)
+          }.width('100%')
+          Text(this.wearableSnapshot.mac ? `MAC · ${this.wearableSnapshot.mac}` : '真实 MAC 未提供')
+            .fontSize(14).fontColor(MUTED).width('100%')
+          if (this.wearableSnapshot.model || this.wearableSnapshot.firmware) {
+            Text(`型号 ${this.wearableSnapshot.model || '未知'} · 固件 ${this.wearableSnapshot.firmware || '未知'}`)
+              .fontSize(14).fontColor(MUTED).width('100%').maxLines(3)
+          }
+          Text(this.wearableSyncTime()).fontSize(13).fontColor(MUTED).width('100%')
+          Row({ space: 10 }) {
+            Button('刷新信息').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor('#32648B')
+              .backgroundColor('#E5EFF9').enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
+              .onClick(() => vepWearable.refresh()).id('wearable_refresh')
+            Button('同步近三天').layoutWeight(1).constraintSize({ minHeight: 48 }).backgroundColor(RED)
+              .enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
+              .onClick(() => vepWearable.syncHistory()).id('wearable_sync')
+          }.width('100%')
+          Row({ space: 10 }) {
+            Button('同步时间').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(INK)
+              .backgroundColor(Color.White).enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
+              .onClick(() => vepWearable.syncTime()).id('wearable_sync_time')
+            if (this.wearableSnapshot.capabilities.findDevice) {
+              Button('查找手表').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(INK)
+                .backgroundColor(Color.White).enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
+                .onClick(() => vepWearable.findDevice()).id('wearable_find')
+            }
+          }.width('100%')
+          Row({ space: 10 }) {
+            Button('读取设备设置').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(INK)
+              .backgroundColor(Color.White).enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
+              .onClick(() => vepWearable.readDeviceConfiguration()).id('wearable_read_settings')
+            if (this.wearableSnapshot.capabilities.dial) {
+              Button('读取表盘').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(INK)
+                .backgroundColor(Color.White).enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
+                .onClick(() => vepWearable.readDials()).id('wearable_read_dials')
+            }
+          }.width('100%')
+          Button('断开当前手表').width('100%').constraintSize({ minHeight: 48 }).fontColor(RED)
+            .backgroundColor(Color.White).enabled(!this.wearableBusy())
+            .onClick(() => vepWearable.disconnect()).id('wearable_disconnect')
+        }.width('100%').padding(18).backgroundColor(Color.White).borderRadius(20)
+
+        if (this.wearableSnapshot.settings.loadedAt > 0) {
+          Column({ space: 8 }) {
+            Text('手表实际设置').fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text(`单位 ${this.wearableSnapshot.settings.unitSystem} · 时制 ${this.wearableSnapshot.settings.timeFormat}`)
+              .fontSize(15).fontColor(INK).width('100%')
+            Text(`自动健康：${this.wearableSnapshot.settings.automaticHealth}`).fontSize(14).fontColor(MUTED).width('100%')
+            Text(`久坐提醒：${this.wearableSnapshot.settings.sedentaryReminder}`).fontSize(14).fontColor(MUTED).width('100%')
+            Text(`消息提醒：${this.wearableSnapshot.settings.messageReminder}`).fontSize(14).fontColor(MUTED).width('100%')
+            Text(this.wearableSnapshot.settings.alarms.length > 0 ?
+              `闹钟：${this.wearableSnapshot.settings.alarms.join('\n')}` : '闹钟：无已读取记录')
+              .fontSize(14).fontColor(MUTED).lineHeight(22).width('100%')
+          }.width('100%').padding(18).backgroundColor(Color.White).borderRadius(20)
+        }
+
+        if (this.wearableSnapshot.dials.length > 0) {
+          Column({ space: 10 }) {
+            Row() {
+              Text('手表内表盘').fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+              if (this.wearableSnapshot.originalDialKey &&
+                this.wearableSnapshot.currentDialKey !== this.wearableSnapshot.originalDialKey) {
+                Button('恢复原表盘').height(42).fontColor(RED).backgroundColor('#FFF1F2')
+                  .enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
+                  .onClick(() => vepWearable.restoreOriginalDial()).id('wearable_restore_dial')
+              }
+            }.width('100%')
+            ForEach(this.wearableSnapshot.dials, (dial: WearableDial) => {
+              Row({ space: 10 }) {
+                Column({ space: 4 }) {
+                  Text(dial.fileName || '未命名表盘').fontSize(16).fontWeight(FontWeight.Medium)
+                    .fontColor(INK).maxLines(2).width('100%')
+                  Text(dial.selected ? '当前使用' : '手表内已安装').fontSize(13)
+                    .fontColor(dial.selected ? RED : MUTED).width('100%')
+                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                Button(dial.selected ? '使用中' : '切换').height(42).fontColor(dial.selected ? MUTED : RED)
+                  .backgroundColor(dial.selected ? '#F0F1F3' : '#FFF1F2')
+                  .enabled(!dial.selected && !this.wearableBusy() && !this.wearableMeasurement.running)
+                  .onClick(() => vepWearable.setExistingDial(dial.key))
+              }.width('100%').padding(12).backgroundColor('#F8F9FB').borderRadius(14)
+            }, (dial: WearableDial) => dial.key)
+            Text('只读取和切换手表内已安装表盘；不猜测缩略图，不执行 OTA。')
+              .fontSize(13).fontColor(MUTED).width('100%')
+          }.width('100%').padding(18).backgroundColor(Color.White).borderRadius(20)
+        }
+
+        Text('手动测量').fontSize(23).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+          ForEach(this.measurementMetrics, (metric: WearableMetricSpec) => {
+            if (this.wearableCapability(metric.key)) {
+              Button(`测${metric.title}`).width('48%').constraintSize({ minHeight: 50 }).margin({ bottom: 10 })
+                .fontColor(this.wearableMeasurement.metric === metric.key ? Color.White : INK)
+                .backgroundColor(this.wearableMeasurement.metric === metric.key ? RED : Color.White)
+                .enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
+                .onClick(() => vepWearable.startMeasurement(metric.key)).id(`measure_${metric.key}`)
+            }
+          }, (metric: WearableMetricSpec) => metric.key)
+        }.width('100%')
+
+        if (this.wearableMeasurement.metric) {
+          Column({ space: 12 }) {
+            Row() {
+              Text(this.wearableMetricTitle(this.wearableMeasurement.metric)).fontSize(20).fontWeight(FontWeight.Bold)
+                .fontColor(INK).layoutWeight(1)
+              if (this.wearableMeasurement.running) {
+                Text(`${this.wearableMeasurement.progress}%`).fontSize(16).fontColor(RED)
+              }
+            }.width('100%')
+            Text(this.measurementText()).fontSize(16).fontColor(INK).lineHeight(24).width('100%')
+            if (this.wearableMeasurement.metric === 'ecg') {
+              if (this.wearableMeasurement.samples.length > 1) {
+                Polyline({ width: 320, height: 120 }).points(this.ecgWaveformPoints())
+                  .fillOpacity(0).stroke(RED).strokeWidth(2).width('100%').height(120)
+                Text(`真实波形 ${this.wearableMeasurement.samples.length} 点${this.wearableMeasurement.sampleFrequency > 0 ?
+                  ` · ${this.wearableMeasurement.sampleFrequency} Hz` : ''}`)
+                  .fontSize(13).fontColor(MUTED).width('100%')
+              } else {
+                Text('等待真实心电采样点，不显示模拟波形。').fontSize(13).fontColor(MUTED).width('100%')
+              }
+            }
+            if (this.wearableMeasurement.running) {
+              Button('结束测量').width('100%').constraintSize({ minHeight: 50 }).backgroundColor(RED)
+                .onClick(() => vepWearable.stopMeasurement()).id('measure_stop')
+            }
+          }.width('100%').padding(18).backgroundColor('#FFF1F2').borderRadius(20)
+        }
+      } else {
+        Button(vepWearable.isScanning() ? '停止扫描' : '扫描附近手表').width('100%').constraintSize({ minHeight: 54 })
+          .backgroundColor(vepWearable.isScanning() ? '#8A8D98' : RED).enabled(!this.wearableBusy())
+          .onClick(() => vepWearable.isScanning() ? vepWearable.stopScan('已停止扫描') : vepWearable.startScan())
+          .id('wearable_scan')
+        if (this.wearableDevices.length === 0) {
+          this.Notice({ message: vepWearable.isScanning() ? '正在搜索 ET488、W9、W9S 和 W8 系列…' :
+            '点击扫描后，Vep 设备可连接；名称含 W8 的设备显示为 Yuc。' })
+        }
+        ForEach(this.wearableDevices, (device: WearableDevice) => {
+          Row({ space: 12 }) {
+            Column({ space: 6 }) {
+              Text(device.name).fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(2).width('100%')
+              Text(wearableIdentifierText(device)).fontSize(13).fontColor(MUTED).maxLines(2).width('100%')
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            Column({ space: 6 }) {
+              Text(device.provider).fontSize(14).fontWeight(FontWeight.Bold)
+                .fontColor(device.provider === 'Vep' ? '#32648B' : '#26864A')
+              Text(this.signalText(device.rssi)).fontSize(12).fontColor(MUTED)
+              Text(device.provider === 'Vep' ? '连接' : '待 SDK').fontSize(15).fontWeight(FontWeight.Bold)
+                .fontColor(device.provider === 'Vep' ? '#32648B' : MUTED)
+            }
+          }.width('100%').padding(18).backgroundColor(Color.White).borderRadius(18)
+            .onClick(() => vepWearable.connect(device.key)).accessibilityText(`${device.name}，${device.provider}，${this.signalText(device.rssi)}`)
+        }, (device: WearableDevice) => device.key)
+      }
+      this.Notice({ message: 'Vep：Veepoo，可连接 ET488、W9、W9S 等支持设备。\nYuc：Yucheng，名称只要包含 W8 就归入该类。\n\n本版本不开放 OTA、恢复出厂、删除联系人或清空健康数据。' })
     }.width('100%').padding(24)
   }
 
@@ -710,34 +1121,77 @@ struct Index {
   MineHome() {
     Column({ space: 18 }) {
       Text('我的').fontSize(28).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-      Image($r('app.media.app_icon')).width(72).height(72).borderRadius(36)
-      Text(this.guest ? '暂未登录' : this.displayName).fontSize(23).fontWeight(FontWeight.Bold).fontColor(INK)
-        .width('100%').textAlign(TextAlign.Center).maxLines(3).textOverflow({ overflow: TextOverflow.Ellipsis })
+      Row({ space: 15 }) {
+        Image($r('app.media.app_icon')).width(72).height(72).borderRadius(36).accessibilityText('赛电头像')
+        Column({ space: 6 }) {
+          Text(this.guest ? '暂未登录' : this.displayName).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK)
+            .width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(this.guest ? '登录后开启云端健康服务' : `会员 ID：${profileField(this.profile.id)}`)
+            .fontSize(14).fontColor(MUTED).width('100%')
+        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+      }.width('100%').padding(20).backgroundColor('#FFF1F2').borderRadius(24)
       if (this.guest) {
         Button('登录赛电账号').width('100%').height(52).backgroundColor(RED)
           .onClick(() => { this.error = ''; this.screen = 'login'; }).id('go_login')
       } else {
-        this.Notice({ message: `昵称：${profileName(this.profile) || this.displayName}\n生日：${profileField(this.profile.birthday)}\n身高：${profileField(this.profile.height, ' cm')}\n体重：${profileField(this.profile.weight, ' kg')}` })
-        Text('以上资料来自当前账号服务端，仅查看，不修改。').fontSize(13).fontColor(MUTED)
-        if (this.profileUpdatedAt) {
-          Text(`最近读取 ${this.profileUpdatedAt}`).fontSize(13).fontColor(MUTED)
-        }
+        Row({ space: 9 }) {
+          Button(this.wearableSnapshot.connected ? '设备\n在线' : '设备\n未连接').layoutWeight(1).constraintSize({ minHeight: 72 })
+            .padding(4).labelStyle({ maxLines: 2 }).fontColor(this.wearableSnapshot.connected ? '#26864A' : MUTED).backgroundColor(Color.White)
+            .onClick(() => this.tab = 1).id('profile_stat_device')
+          Button(`健康记录\n${this.wearableSnapshot.records.length} 条`).layoutWeight(1).constraintSize({ minHeight: 72 })
+            .padding(4).labelStyle({ maxLines: 2 }).fontColor(RED).backgroundColor(Color.White)
+            .onClick(() => this.screen = 'health-all').id('profile_stat_health')
+          Button(`关爱成员\n${this.careMembers.length} 人`).layoutWeight(1).constraintSize({ minHeight: 72 })
+            .padding(4).labelStyle({ maxLines: 2 }).fontColor('#32648B').backgroundColor(Color.White)
+            .onClick(() => this.openCare()).id('profile_stat_care')
+        }.width('100%')
+      }
+
+      Text('我的订单').fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      Row({ space: 8 }) {
+        ForEach(['待支付', '待发货', '待收货', '售后'], (label: string) => {
+          Button(label).layoutWeight(1).constraintSize({ minHeight: 54 }).padding(4).labelStyle({ maxLines: 2 })
+            .fontSize(12).fontColor(INK)
+            .backgroundColor(Color.White).onClick(() => this.openOrders())
+        })
+      }.width('100%')
+
+      Column({ space: 10 }) {
+        Button('查看个人资料  ›').width('100%').height(50).fontColor(INK).backgroundColor(Color.White)
+          .onClick(() => this.showFeature('个人资料', this.guest ? '请先登录赛电账号。' :
+            `昵称：${profileName(this.profile) || this.displayName}\n生日：${profileField(this.profile.birthday)}\n身高：${profileField(this.profile.height, ' cm')}\n体重：${profileField(this.profile.weight, ' kg')}`))
+        Button('AI 提问  ›').width('100%').height(50).fontColor(INK).backgroundColor(Color.White)
+          .onClick(() => this.openAiChat()).id('mine_ai')
+        Button('消息与推送  ›').width('100%').height(50).fontColor(INK).backgroundColor(Color.White)
+          .onClick(() => this.openMessages()).id('mine_messages')
+      }.width('100%').padding(10).backgroundColor(Color.White).borderRadius(20)
+
+      Text('我的服务').fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      Row({ space: 8 }) {
+        Button('账号设置').layoutWeight(1).height(52).fontSize(14).fontColor(INK).backgroundColor(Color.White)
+          .onClick(() => this.showFeature('账号设置', '可在个人资料中查看账号信息；收货地址、密码重置和注销账号的鸿蒙原生接口尚未开放。'))
+        Button('权限管理').layoutWeight(1).height(52).fontSize(14).fontColor(INK).backgroundColor(Color.White)
+          .onClick(() => this.screen = 'permissions').id('mine_permissions')
+        Button('帮助反馈').layoutWeight(1).height(52).fontSize(14).fontColor(INK).backgroundColor(Color.White)
+          .onClick(() => this.screen = 'help').id('mine_help')
+      }.width('100%')
+      Row({ space: 8 }) {
+        Button('联系客服').layoutWeight(1).height(52).fontSize(14).fontColor(INK).backgroundColor(Color.White)
+          .onClick(() => this.screen = 'contact').id('mine_contact')
+        Button('关于我们').layoutWeight(1).height(52).fontSize(14).fontColor(INK).backgroundColor(Color.White)
+          .onClick(() => this.screen = 'about').id('mine_about')
+      }.width('100%')
+
+      if (!this.guest) {
         if (this.profileError) { this.Notice({ message: this.profileError, color: '#FFF0E9' }) }
         Button(this.profileLoading ? '正在读取资料…' : '刷新个人资料').width('100%').height(50)
           .fontColor(RED).backgroundColor(Color.White).enabled(!this.profileLoading && !this.busy)
           .onClick(() => this.refreshProfile()).id('refresh_profile')
-        Button('消息与推送').width('100%').height(50).fontColor(INK).backgroundColor(Color.White)
-          .onClick(() => this.openMessages()).id('mine_messages')
-        Button('我的订单与支付').width('100%').height(50).fontColor(INK).backgroundColor(Color.White)
-          .onClick(() => this.openOrders()).id('mine_orders')
-        Button(this.busy ? '正在退出…' : '退出本机登录').width('100%').height(50).backgroundColor(RED)
+        Button(this.busy ? '正在退出…' : '退出登录').width('100%').height(50).backgroundColor(RED)
           .enabled(!this.busy).onClick(() => this.signOut()).id('logout')
       }
-      Button('用户协议').width('100%').height(48).fontColor(INK).backgroundColor(Color.White)
-        .onClick(() => this.openArticle('2', '用户协议', true))
-      Button('隐私政策').width('100%').height(48).fontColor(INK).backgroundColor(Color.White)
-        .onClick(() => this.openArticle('3', '隐私政策', true))
-      this.Notice({ message: '赛电鸿蒙 0.1.3 · 原生开发验证版\n推送与支付的正式能力以服务端和鸿蒙平台配置状态为准。' })
+      Text(`赛电健康 V${HARMONY_VERSION_NAME} (${HARMONY_VERSION_CODE})`).fontSize(13).fontColor(MUTED)
+        .width('100%').textAlign(TextAlign.Center)
     }.width('100%').padding(24)
   }
 
@@ -755,11 +1209,213 @@ struct Index {
         ForEach(['健康', '设备', '我的'], (title: string, index: number) => {
           Button(title).layoutWeight(1).height(60).fontSize(17)
             .fontWeight(this.tab === index ? FontWeight.Bold : FontWeight.Normal)
-            .fontColor(this.tab === index ? RED : MUTED).backgroundColor(Color.Transparent)
+            .fontColor(this.tab === index ? RED : MUTED).backgroundColor(Color.White)
             .onClick(() => this.tab = index).id(`tab_${index}`)
         })
       }.width('100%').backgroundColor(Color.White)
     }.height('100%').width('100%')
+  }
+
+  @Builder
+  HealthAllContent() {
+    this.Notice({ message: this.wearableSnapshot.connected ?
+      `${this.wearableSnapshot.deviceName} · ${this.wearableSyncTime()}` : '连接手表后可查看设备实际支持的健康数据。', color: '#EAF2EA' })
+    ForEach(this.wearableMetrics, (metric: WearableMetricSpec) => {
+      Row({ space: 12 }) {
+        Column({ space: 5 }) {
+          Text(metric.title).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text(this.wearableLatest(metric.key)).fontSize(14).fontColor(MUTED).lineHeight(22).maxLines(3).width('100%')
+        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+        Text(this.wearableSnapshot.connected && this.wearableCapability(metric.key) ? '›' : '—')
+          .fontSize(26).fontColor(this.wearableCapability(metric.key) ? RED : MUTED)
+      }.width('100%').padding(18).backgroundColor(Color.White).borderRadius(18)
+        .onClick(() => this.openWearableMetric(metric.key))
+        .accessibilityText(`${metric.title}，${this.wearableLatest(metric.key)}`)
+    }, (metric: WearableMetricSpec) => metric.key)
+    Text('数值仅供健康管理参考，不自动判断疾病或异常。').fontSize(13).fontColor(MUTED).width('100%')
+  }
+
+  @Builder
+  SportRecordContent() {
+    if (!this.wearableSnapshot.connected) {
+      this.Notice({ message: '连接手表后才能同步运动记录。' })
+      Button('前往添加设备').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
+        .onClick(() => { this.screen = 'home'; this.tab = 1; }).id('sport_go_device')
+    } else if (!this.wearableCapability('sport')) {
+      this.Notice({ message: `当前 ${this.wearableSnapshot.deviceName} 未报告可读取的运动记录能力。` })
+    } else {
+      Row({ space: 10 }) {
+        Button('同步近三天').layoutWeight(1).constraintSize({ minHeight: 50 }).backgroundColor(RED)
+          .enabled(!this.wearableBusy() && !this.wearableMeasurement.running).onClick(() => vepWearable.syncHistory())
+        Button('查看设备').layoutWeight(1).constraintSize({ minHeight: 50 }).fontColor(RED).backgroundColor(Color.White)
+          .onClick(() => { this.screen = 'home'; this.tab = 1; })
+      }.width('100%')
+      if (this.wearableMetricRecords('sport').length === 0) {
+        this.Notice({ message: '手表暂未返回运动历史。不使用手机步数或模拟数据代替。' })
+      }
+      ForEach(this.wearableMetricRecords('sport'), (record: HealthRecord) => {
+        Column({ space: 8 }) {
+          Text(this.wearableRecordTime(record.timestamp)).fontSize(14).fontColor(MUTED).width('100%')
+          Text(healthRecordText(record)).fontSize(18).fontColor(INK).lineHeight(26).width('100%')
+          Text(record.source === 'watch_history' ? '来源：手表历史' : '来源：App 记录')
+            .fontSize(13).fontColor(MUTED).width('100%')
+        }.width('100%').padding(18).backgroundColor(Color.White).borderRadius(18)
+      }, (record: HealthRecord) => record.id)
+    }
+  }
+
+  @Builder
+  HealthAlertContent() {
+    this.Notice({ message: '健康预警只记录设备或服务端明确上报的事件，不根据普通测量值自行诊断。', color: '#EAF2EA' })
+    Text(this.notificationCount > 0 ? `当前有 ${this.notificationCount} 条未读消息` : '暂无可展示的健康预警')
+      .fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+    this.Notice({ message: '服务端尚未开放鸿蒙健康预警列表接口。客户端已保留通知权限、点击路由和未读数链路，不伪造预警历史。' })
+    Button('消息与推送设置').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
+      .onClick(() => this.openMessages()).id('alerts_open_messages')
+  }
+
+  @Builder
+  ShopHomeContent() {
+    Row({ space: 10 }) {
+      Button('我的订单').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.White)
+        .onClick(() => this.openOrders()).id('shop_orders')
+      Button(this.shopLoading ? '正在刷新…' : '刷新商城').layoutWeight(1).constraintSize({ minHeight: 48 })
+        .backgroundColor(RED).enabled(!this.shopLoading).onClick(() => this.openShop()).id('shop_refresh')
+    }.width('100%')
+    if (this.shopLoading) { LoadingProgress().width(40).height(40).color(RED) }
+    if (this.shopError) { this.Notice({ message: this.shopError, color: '#FFF0E9' }) }
+    if (this.shopHome.bannerUrl) {
+      ArticleImage({ source: this.shopHome.bannerUrl, description: '赛电商城横幅' })
+    }
+    if (!this.shopLoading && !this.shopError && this.shopHome.categories.length === 0) {
+      this.Notice({ message: '商城暂无可展示分类。' })
+    }
+    if (this.shopHome.categories.length > 0) {
+      Flex({ wrap: FlexWrap.Wrap }) {
+        ForEach(this.shopHome.categories, (category: ShopCategory, index: number) => {
+          Button(category.name).constraintSize({ minHeight: 46 }).margin({ right: 8, bottom: 8 })
+            .fontColor(this.shopCategoryIndex === index ? Color.White : INK)
+            .backgroundColor(this.shopCategoryIndex === index ? RED : Color.White)
+            .onClick(() => this.shopCategoryIndex = index)
+        }, (category: ShopCategory) => category.id)
+      }.width('100%')
+      if (this.shopCategory().products.length === 0) {
+        this.Notice({ message: '当前分类暂无商品。' })
+      }
+      ForEach(this.shopCategory().products, (product: ShopProduct) => {
+        Row({ space: 14 }) {
+          if (product.picture) {
+            Image(product.picture).width(104).height(104).objectFit(ImageFit.Cover).borderRadius(14)
+              .accessibilityText(product.name)
+          } else {
+            Text('商品').width(104).height(104).fontSize(16).fontColor(MUTED).textAlign(TextAlign.Center)
+              .backgroundColor('#F0F1F5').borderRadius(14)
+          }
+          Column({ space: 8 }) {
+            Text(product.name).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').maxLines(2)
+            Text(`¥${product.price}`).fontSize(22).fontWeight(FontWeight.Bold).fontColor(RED).width('100%')
+            Text(product.stock > 0 ? `库存 ${product.stock}` : '暂时缺货').fontSize(13).fontColor(MUTED).width('100%')
+          }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+          Text('›').fontSize(28).fontColor(RED)
+        }.width('100%').padding(14).backgroundColor(Color.White).borderRadius(18)
+          .onClick(() => this.openShopProduct(product)).accessibilityText(`${product.name}，${product.price} 元`)
+      }, (product: ShopProduct) => String(product.id))
+    }
+  }
+
+  @Builder
+  ShopProductContent() {
+    if (this.selectedProduct.picture) {
+      ArticleImage({ source: this.selectedProduct.picture, description: this.selectedProduct.name })
+    }
+    Text(this.selectedProduct.name).fontSize(24).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+    Text(`¥${this.selectedProduct.price}`).fontSize(30).fontWeight(FontWeight.Bold).fontColor(RED).width('100%')
+    Text(this.selectedProduct.stock > 0 ? `库存 ${this.selectedProduct.stock}` : '暂时缺货').fontSize(15).fontColor(MUTED).width('100%')
+    this.Notice({ message: '鸿蒙端已使用服务端真实商品目录。商品规格、购物车和创建订单接口尚未完成原生适配，因此不展示无法完成的“立即购买”按钮。' })
+    Button('查看我的订单').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
+      .onClick(() => this.openOrders())
+  }
+
+  @Builder
+  AiChatContent() {
+    this.Notice({ message: '可以咨询日常健康管理问题。AI 回答仅供参考，不能替代医生诊断。', color: '#EAF2EA' })
+    if (this.aiBusy && this.aiMessages.length === 0) { LoadingProgress().width(40).height(40).color(RED) }
+    if (this.aiError) { this.Notice({ message: this.aiError, color: '#FFF0E9' }) }
+    if (!this.aiBusy && !this.aiError && this.aiMessages.length === 0) {
+      this.Notice({ message: '您好，我是 AI 健康管家。请在下方输入您的问题。' })
+    }
+    ForEach(this.aiMessages, (message: AiChatMessage) => {
+      Row() {
+        if (message.mine) { Blank().layoutWeight(1) }
+        Column({ space: 5 }) {
+          Text(message.text).fontSize(16).lineHeight(24).fontColor(message.mine ? Color.White : INK)
+            .copyOption(CopyOptions.InApp).width('100%')
+          if (message.failed) { Text('发送失败，请检查网络后重试').fontSize(12).fontColor('#FFD7D7').width('100%') }
+        }.width('78%').padding(14).backgroundColor(message.mine ? RED : Color.White).borderRadius(18)
+        if (!message.mine) { Blank().layoutWeight(1) }
+      }.width('100%')
+    }, (message: AiChatMessage) => message.id)
+    TextInput({ placeholder: '请输入消息…', text: this.aiInput }).fontSize(17).height(56).maxLength(2000)
+      .backgroundColor(Color.White).enabled(!this.aiBusy).onChange((value: string) => this.aiInput = value)
+      .onSubmit(() => this.sendAiChat()).id('ai_input')
+    Button(this.aiBusy ? '正在等待回复…' : '发送').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
+      .enabled(!this.aiBusy && this.aiInput.trim().length > 0).onClick(() => this.sendAiChat()).id('ai_send')
+  }
+
+  @Builder
+  AboutContent() {
+    Image($r('app.media.brand_lockup')).width(176).height(92).objectFit(ImageFit.Contain).accessibilityText('赛电 SAYDIAN')
+    Text('赛电健康').fontSize(23).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').textAlign(TextAlign.Center)
+    Text('记录日常健康趋势，连接家人与设备，让健康管理更简单。')
+      .fontSize(15).fontColor(MUTED).lineHeight(24).width('100%').textAlign(TextAlign.Center)
+    Text(`V${HARMONY_VERSION_NAME} (${HARMONY_VERSION_CODE})`).fontSize(14).fontColor(MUTED).width('100%').textAlign(TextAlign.Center)
+    Button('隐私政策  ›').width('100%').height(52).fontColor(INK).backgroundColor(Color.White)
+      .onClick(() => this.openArticle('3', '隐私政策', true))
+    Button('用户协议  ›').width('100%').height(52).fontColor(INK).backgroundColor(Color.White)
+      .onClick(() => this.openArticle('2', '用户协议', true))
+    Button(this.updateBusy ? '正在检查更新…' : '检查更新  ›').width('100%').height(52).fontColor(INK)
+      .backgroundColor(Color.White).enabled(!this.updateBusy).onClick(() => this.checkOnlineUpdate()).id('check_update')
+    this.Notice({ message: this.updateStatus, color: this.updateInfo.hasUpdate ? '#FFF4D8' : '#EAF1F8' })
+    if (this.updateInfo.hasUpdate) {
+      if (this.updateInfo.releaseNotes) { Text(this.updateInfo.releaseNotes).fontSize(15).fontColor(INK).lineHeight(24).width('100%') }
+      Button('前往华为应用市场更新').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
+        .onClick(() => this.openUpdateDestination()).id('open_update')
+    }
+    this.Notice({ message: '健康测量结果仅供健康管理参考，不用于诊断或治疗。', color: '#EAF2EA' })
+  }
+
+  @Builder
+  ContactContent() {
+    Text('联系电话').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+    Text('4006386738').fontSize(24).fontColor(RED).width('100%').copyOption(CopyOptions.InApp)
+    Text('微信公众号').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+    Text('赛电').fontSize(24).fontColor(RED).width('100%').copyOption(CopyOptions.InApp)
+    this.Notice({ message: '联系前请准备设备型号和问题发生时间。请勿向非官方账号发送验证码、密码或完整健康记录。', color: '#EAF2EA' })
+  }
+
+  @Builder
+  HelpContent() {
+    Text('如何连接手表？').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+    this.Notice({ message: '打开“设备”页后点击扫描。让手表保持亮屏、靠近手机，并确认未被其他手机占用。' })
+    Text('为什么健康数据暂时为空？').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+    this.Notice({ message: '请确认设备已连接并完成同步。设备不支持的项目不会生成模拟记录。' })
+    this.Notice({ message: '鸿蒙原生反馈提交接口尚未开放。如需反馈，请通过“联系客服”提供设备型号、发生时间和复现步骤。', color: '#FFF4D8' })
+    Button('联系客服').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
+      .onClick(() => this.screen = 'contact')
+  }
+
+  @Builder
+  PermissionContent() {
+    Text('蓝牙与附近设备').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+    this.Notice({ message: '用于扫描、连接手表并同步健康数据。仅在用户点击扫描时请求。', color: '#EAF2EA' })
+    Text('位置').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+    this.Notice({ message: '鸿蒙系统在扫描附近蓝牙设备时要求位置权限。本版不申请后台常驻定位。' })
+    Text('通知').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+    this.Notice({ message: '用于关爱邀请和健康预警。锁屏不显示具体健康数值。' })
+    Button('去设备页检查蓝牙权限').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
+      .onClick(() => { this.screen = 'home'; this.tab = 1; })
+    Button('开启系统通知').width('100%').constraintSize({ minHeight: 52 }).fontColor(RED).backgroundColor(Color.White)
+      .enabled(!this.pushBusy).onClick(() => this.connectPush(true))
   }
 
   @Builder
@@ -839,6 +1495,63 @@ struct Index {
     Button('返回并刷新订单').width('100%').constraintSize({ minHeight: 48 })
       .fontColor(RED).backgroundColor(Color.White).enabled(!this.paymentBusy)
       .onClick(() => this.openOrders()).id('payment_return_orders')
+  }
+
+  @Builder
+  WearableMetricContent() {
+    if (!this.wearableSnapshot.connected) {
+      this.Notice({ message: '连接 Vep 手表后才能同步和查看本机健康记录。' })
+      Button('前往添加设备').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
+        .onClick(() => { this.screen = 'home'; this.tab = 1; }).id('metric_go_device')
+    } else if (!this.wearableCapability(this.selectedWearableMetric)) {
+      this.Notice({ message: `当前连接的 ${this.wearableSnapshot.deviceName} 未报告${this.wearableMetricTitle(this.selectedWearableMetric)}能力，因此不展示无效入口或模拟数据。` })
+      Button('返回设备').width('100%').constraintSize({ minHeight: 50 }).backgroundColor(RED)
+        .onClick(() => { this.screen = 'home'; this.tab = 1; })
+    } else {
+      this.Notice({ message: `${this.wearableSnapshot.deviceName} · ${this.wearableSyncTime()}`, color: '#EAF2EA' })
+      Row({ space: 10 }) {
+        Button('同步近三天').layoutWeight(1).constraintSize({ minHeight: 50 }).backgroundColor(RED)
+          .enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
+          .onClick(() => vepWearable.syncHistory())
+        if (this.wearableMetricMeasurable(this.selectedWearableMetric)) {
+          Button(this.wearableMeasurement.running && this.wearableMeasurement.metric === this.selectedWearableMetric ?
+            '结束测量' : '开始测量').layoutWeight(1).constraintSize({ minHeight: 50 })
+            .fontColor(RED).backgroundColor(Color.White).enabled(!this.wearableBusy() &&
+              (!this.wearableMeasurement.running || this.wearableMeasurement.metric === this.selectedWearableMetric))
+            .onClick(() => this.wearableMeasurement.running ? vepWearable.stopMeasurement() :
+              vepWearable.startMeasurement(this.selectedWearableMetric))
+        }
+      }.width('100%')
+      if (this.wearableMeasurement.metric === this.selectedWearableMetric && this.wearableMeasurement.status) {
+        Column({ space: 10 }) {
+          Text(this.measurementText()).fontSize(17).fontColor(INK).lineHeight(25).width('100%')
+          if (this.selectedWearableMetric === 'ecg' && this.wearableMeasurement.samples.length > 1) {
+            Polyline({ width: 320, height: 120 }).points(this.ecgWaveformPoints())
+              .fillOpacity(0).stroke(RED).strokeWidth(2).width('100%').height(120)
+            Text(`真实心电波形 ${this.wearableMeasurement.samples.length} 点`)
+              .fontSize(13).fontColor(MUTED).width('100%')
+          }
+        }.width('100%').padding(18).backgroundColor('#FFF1F2').borderRadius(18)
+      }
+      if (this.wearableMetricRecords(this.selectedWearableMetric).length === 0) {
+        this.Notice({ message: '暂无真实记录。可点击同步，或在手表支持时开始手动测量。' })
+      }
+      ForEach(this.wearableMetricRecords(this.selectedWearableMetric), (record: HealthRecord) => {
+        Column({ space: 8 }) {
+          Row() {
+            Text(this.wearableRecordTime(record.timestamp)).fontSize(14).fontColor(MUTED).layoutWeight(1)
+            Text(record.source === 'watch_history' ? '手表历史' : 'App 测量')
+              .fontSize(12).fontColor(record.source === 'watch_history' ? '#32648B' : RED)
+          }.width('100%')
+          Text(healthRecordText(record)).fontSize(17).fontColor(INK).lineHeight(25).width('100%')
+          if (record.samples.length > 1) {
+            Text(`已保留 ${record.samples.length} 个真实波形点${record.sampleFrequency > 0 ?
+              ` · ${record.sampleFrequency} Hz` : ''}`).fontSize(13).fontColor(MUTED).width('100%')
+          }
+        }.width('100%').padding(18).backgroundColor(Color.White).borderRadius(18)
+      }, (record: HealthRecord) => record.id)
+      Text('数值仅供健康管理参考，不自动判断疾病或异常。').fontSize(13).fontColor(MUTED).width('100%')
+    }
   }
 
   @Builder
@@ -975,6 +1688,20 @@ struct Index {
             Button('前往登录').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
               .onClick(() => { this.error = ''; this.screen = 'login'; })
           }
+        } else if (this.screen === 'wearable-metric') {
+          this.WearableMetricContent()
+        } else if (this.screen === 'health-all') {
+          this.HealthAllContent()
+        } else if (this.screen === 'sport-records') {
+          this.SportRecordContent()
+        } else if (this.screen === 'health-alerts') {
+          this.HealthAlertContent()
+        } else if (this.screen === 'ai-chat') {
+          this.AiChatContent()
+        } else if (this.screen === 'shop-home') {
+          this.ShopHomeContent()
+        } else if (this.screen === 'shop-product') {
+          this.ShopProductContent()
         } else if (this.screen === 'messages') {
           this.MessageContent()
         } else if (this.screen === 'shop-orders') {
@@ -983,6 +1710,14 @@ struct Index {
           this.PaymentContent()
         } else if (this.screen.startsWith('care')) {
           this.CareContent()
+        } else if (this.screen === 'about') {
+          this.AboutContent()
+        } else if (this.screen === 'contact') {
+          this.ContactContent()
+        } else if (this.screen === 'help') {
+          this.HelpContent()
+        } else if (this.screen === 'permissions') {
+          this.PermissionContent()
         } else if (this.screen === 'articles') {
           if (this.listLoading) { LoadingProgress().width(40).height(40).color(RED) }
           if (this.listError) {

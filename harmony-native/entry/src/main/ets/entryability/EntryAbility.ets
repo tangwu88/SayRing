@@ -4,6 +4,8 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { captureJPushClick } from '../services/HarmonyPushService';
 import { captureNotificationRoute, initializeNotificationNavigation } from '../services/NotificationNavigation';
 import { isPaymentCallbackExpected, setPaymentCallbackExpected } from '../services/PaymentLaunchState';
+import { LogLevel, VPBleSDK } from '@veepoo/vpble-sdk';
+import { vepWearable } from '../services/VepWearableService';
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want): void {
@@ -29,6 +31,12 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(stage: window.WindowStage): void {
+    VPBleSDK.getInstance().init({
+      context: this.context,
+      debugMode: false,
+      logging: { enable: true, level: LogLevel.INFO, consoleOutput: false }
+    });
+    vepWearable.attachContext(this.context);
     stage.loadContent('pages/Index', (error) => {
       if (error.code) {
         hilog.error(0x0100, 'SaydianHarmony', 'Page load failed: %{public}d', error.code);
@@ -36,5 +44,9 @@ export default class EntryAbility extends UIAbility {
         hilog.info(0x0100, 'SaydianHarmony', 'Native login and home ready');
       }
     });
+  }
+
+  onWindowStageDestroy(): void {
+    vepWearable.shutdown();
   }
 }

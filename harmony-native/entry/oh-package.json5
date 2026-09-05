@@ -1,1 +1,9 @@
-{"name":"entry","version":"1.0.0","description":"Saydian native HarmonyOS","main":"","dependencies":{}}
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "Saydian native HarmonyOS",
+  "main": "",
+  "dependencies": {
+    "@veepoo/vpble-sdk": "file:libs/veepoo-vpble-sdk-1.0.0.har"
+  }
+}
