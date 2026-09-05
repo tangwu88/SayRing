@@ -2,24 +2,22 @@
 
 ## 当前结论
 
-0.1.3 的推送、支付、苹果版同构页面和 Veepoo 手表客户端链路已实现。华为 nova 14 与 W9S 已完成真机安装、连接、同步、测量启停、设备控制和表盘恢复；生产证书/Profile、极光服务端凭据、真实支付、线上更新和完整设备矩阵仍未完成，因此仍不能称为正式上线版。
+0.1.3（5）的推送、支付、苹果版同构页面和 Veepoo 手表客户端链路已实现。华为 nova 14 与 W9S 已完成真机安装、连接、同步、测量启停、设备控制和表盘恢复；正式 Release 签名及极光普通通知通道已经通过验证。关爱/预警业务推送、真实支付、线上更新和完整设备矩阵仍未完成，因此仍不能称为正式上线版。
 
 最新范围和证据以 [Vep 手表与苹果版页面对齐 QA](WEARABLE-UI-QA-20260905.md) 为准；下表中旧的模拟器结论已按本轮真机结果更新。
 
 | 优先级 | 阻断项 | 当前证据 | 解除条件 |
 | --- | --- | --- | --- |
-| P0 | 生产 Release 签名缺失 | Debug/Release HAP 均可用本机开发 Profile 签名安装，但 `appProvisionType=debug` | 取得同一正式应用的发布证书、Profile、别名与本机安全密码，并验证签名链和覆盖升级 |
-| P0 | 极光鸿蒙配置未完成 | AGC Push Kit 已开启；极光的 HarmonyOS 包名和 Server key 尚未最终保存 | 在极光填写 `cc.saidian.app.hm`，上传该 APP ID 的 Server key JSON，且不向 Git/日志暴露私钥 |
-| P0 | 推送服务端未联调 | 客户端有登记/解绑/未读和路由；模拟器无法取得正式 registration ID | 服务端开放 harmony 设备登记，邀请/预警 Outbox 和 APNs/极光事件发送，真机 10 秒内验收 |
+| P0 | 业务推送服务端未联调 | nova 14 已取得真实推送标识、完成账号绑定，普通通知已前台/后台送达并点击唤醒；尚未收到真实关爱邀请或健康预警事件 | 服务端发送邀请/预警 Outbox 事件，补测前台、后台、进程终止及白名单直达页面 |
 | P0 | 支付正式参数未联调 | nova 14 已调用真实 `/api/v1/pay`：微信缺少鸿蒙参数，支付宝仍返回旧平台参数；客户端已拒绝旧参数并安全回查订单 | 服务端返回 Harmony `third_app_id`、合法 JSON `pay_info`，提供指定测试订单及微信/支付宝正式配置 |
-| P0 | 推送/支付/升级真机闭环 | nova 14 已完成 App、W9S 和页面回归；生产服务资源尚未齐全 | 在原生 HarmonyOS 手机完成推送三态、支付三态、市场跳转和生产签名覆盖升级 |
+| P0 | 支付/升级真机闭环 | nova 14 已完成 App、W9S、页面和普通推送回归；生产支付及市场资源尚未齐全 | 完成业务推送三态、支付三态、市场跳转和正式签名版本覆盖升级 |
 | P1 | 隐私/上架材料 | 新 SDK 合并网络状态与广告标识同意权限 | 更新隐私披露、用途说明、备案与应用市场权限清单并完成法务审核 |
 | P1 | 在线升级 | 客户端已接严格生产清单与 AppGallery 白名单；线上清单当前未配置 | 发布正式 AppGallery 产品页和 `app-update.json` 后验收普通/强制更新 |
 | P1 | 完整手表矩阵 | W9S 主要链路已通过；W8 只识别为 Yuc，W9/ET488/完整 ECG 尚未完成 | Yucheng 提供鸿蒙 SDK，并补测 W9、ET488、佩戴 ECG 和 30 分钟稳定连接 |
 
 ## 服务端接口待确认
 
-- `POST /api/v1/member/push-devices`：接受 harmony 平台设备并幂等绑定当前账号。
+- `POST /api/v1/member/push-devices`：nova 14 当前账号登记已成功；服务端仍需确认多设备幂等更新和失效标识淘汰。
 - `DELETE /api/v1/member/push-devices/{installation_id}`：退出或账号失效时解绑。
 - `GET /api/v1/member/notify/statistics` 或 `/unread-count`：未读数和消息列表状态一致。
 - 关爱邀请、健康预警事务写入 Outbox；负载只携带事件 ID、类型、实体 ID 和白名单路由。
@@ -29,7 +27,7 @@
 ## 正式签名门禁
 
 1. AGC 正式应用、工程 bundleName、极光包名、Profile 中 bundleName 四处完全一致。
-2. Release APP/HAP 可在原生真机安装，签名校验成功，旧正式签名包覆盖升级后登录和本地数据保留。
+2. Release APP/HAP 签名校验已成功；仍需从同一正式签名旧包覆盖升级，并确认登录和本地数据保留。
 3. 推送前台、后台、进程终止三态送达并可正确路由；通知内容不暴露健康值。
 4. 微信、支付宝分别完成成功、取消、失败、重复回调和订单回查；使用指定测试订单，不使用普通用户订单。
 5. Release 自动化、双时区测试、权限清单、SHA-256 和归档复核全部通过后，才可标记 release_ready=true。
@@ -39,3 +37,6 @@
 - AGC 正式应用已确认：“Saydian赛电”，APP ID `6917615560681044373`，bundleName `cc.saidian.app.hm`。
 - `cc.saidian.app` 已被 Android 应用占用；`harmony` 是平台保留词，两者均不能作为新 HarmonyOS 包名。
 - AGC 中 Push Kit 已保存开启；本地工程已切换到与 AGC 一致的正式 bundleName。
+- 极光 HarmonyOS 包名与 Server key 已配置，nova 14 已取得真实 Registration ID，账号登记接口返回成功。
+- 极光普通通知已完成前台送达、后台送达和点击唤醒；普通通知不等同于关爱/预警业务路由验收。
+- 正式 Release 证书和发布 Profile 已创建；0.1.3（5）签名 APP/HAP 通过官方完整性及 `type=release` 校验。

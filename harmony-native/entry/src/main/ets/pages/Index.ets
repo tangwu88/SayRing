@@ -289,7 +289,8 @@ struct Index {
       }
       if (!enabled) { this.pushStatus = '系统通知未开启；应用内消息仍可手动刷新'; return; }
       const identity = await harmonyPush.getIdentity(this.uiContext());
-      const registered = await saydianApi.registerPushDevice(identity, '0.1.3+4');
+      const registered = await saydianApi.registerPushDevice(identity,
+        `${HARMONY_VERSION_NAME}+${HARMONY_VERSION_CODE}`);
       this.pushStatus = registered ? '鸿蒙推送标识已登记，可接收服务端通知' :
         '客户端已取得推送标识，但服务端尚未接受 harmony 平台登记';
     } catch (error) {

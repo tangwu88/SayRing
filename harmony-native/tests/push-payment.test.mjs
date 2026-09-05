@@ -26,11 +26,11 @@ function accountClient(request) {
 }
 
 test('Harmony push registration is explicit and contains no account data', () => {
-  assert.deepEqual(pushRegistrationFields({ installationId: 'fixture-installation-123', registrationId: 'fixture-registration-token-123' }, '0.1.3+4'), [
+  assert.deepEqual(pushRegistrationFields({ installationId: 'fixture-installation-123', registrationId: 'fixture-registration-token-123' }, '0.1.3+5'), [
     { name: 'installation_id', value: 'fixture-installation-123' },
     { name: 'registration_id', value: 'fixture-registration-token-123' },
     { name: 'platform', value: 'harmony' },
-    { name: 'version', value: '0.1.3+4' }
+    { name: 'version', value: '0.1.3+5' }
   ]);
 });
 
@@ -40,6 +40,7 @@ test('invalid push identifiers and control bytes are rejected', () => {
 });
 
 test('push failures distinguish app identity rights, permission, device and network', () => {
+  assert.match(pushErrorMessage(1001500001), /签名指纹/);
   assert.match(pushErrorMessage(1000900010), /应用身份/);
   assert.match(pushErrorMessage(1000900012), /Push Kit/);
   assert.match(pushErrorMessage(1000900014), /设备/);
@@ -131,7 +132,7 @@ test('push device registration and removal use authenticated server methods', as
   });
   await client.restore();
   assert.equal(await client.registerPushDevice({ installationId: 'fixture-installation-123',
-    registrationId: 'fixture-registration-token-123' }, '0.1.3+4'), true);
+    registrationId: 'fixture-registration-token-123' }, '0.1.3+5'), true);
   assert.equal(await client.unregisterPushDevice('fixture-installation-123'), true);
   assert.deepEqual(calls.map(item => [item.path, item.method, item.token]), [
     ['/api/v1/member/push-devices', 'POST', 'synthetic-access'],

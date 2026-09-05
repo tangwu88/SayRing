@@ -4,7 +4,7 @@ import { AppUpdateInfo, parseAppUpdateManifest } from '../model/ExperienceContra
 
 const UPDATE_MANIFEST_URL: string = 'https://app.saidian.cc/app-update.json';
 export const HARMONY_VERSION_NAME: string = '0.1.3';
-export const HARMONY_VERSION_CODE: number = 4;
+export const HARMONY_VERSION_CODE: number = 5;
 
 export class AppUpdateService {
   async check(): Promise<AppUpdateInfo> {

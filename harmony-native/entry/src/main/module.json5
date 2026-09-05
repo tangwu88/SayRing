@@ -8,6 +8,11 @@
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",
+    "srcEntry": "./ets/abilitystage/EntryAbilityStage.ets",
+    "metadata": [{
+      "name": "client_id",
+      "value": "2031340074867668160"
+    }],
     "requestPermissions": [
       { "name": "ohos.permission.INTERNET" },
       {

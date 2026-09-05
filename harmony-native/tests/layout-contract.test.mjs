@@ -41,6 +41,16 @@ test('release identity stays aligned with the confirmed AGC HarmonyOS app',()=>{
   const app=JSON.parse(readFileSync(new URL('../AppScope/app.json5',import.meta.url),'utf8')).app;
   assert.equal(app.bundleName,'cc.saidian.app.hm');
   assert.equal(app.bundleName.endsWith('.dev'),false);
+  const module=JSON.parse(readFileSync(new URL('../entry/src/main/module.json5',import.meta.url),'utf8')).module;
+  assert.equal(module.srcEntry,'./ets/abilitystage/EntryAbilityStage.ets');
+  assert.equal(module.metadata.find(item=>item.name==='client_id')?.value,'2031340074867668160');
+  const stage=readFileSync(new URL('../entry/src/main/ets/abilitystage/EntryAbilityStage.ets',import.meta.url),'utf8');
+  const push=readFileSync(new URL('../entry/src/main/ets/services/HarmonyPushService.ets',import.meta.url),'utf8');
+  assert.ok(stage.includes('prepareJPush(this.context)'));
+  assert.ok(push.includes('JPushInterface.setCallBackMsg(new SaydianPushCallback())'));
+  assert.ok(push.includes('initializationTask = Promise.resolve(JPushInterface.init(context))'));
+  assert.ok(push.includes('await initializeJPush(context)'));
+  assert.ok(push.includes('await this.waitForRegistrationId()'));
 });
 
 test('optional PaymentKit is not loaded during cold start',()=>{

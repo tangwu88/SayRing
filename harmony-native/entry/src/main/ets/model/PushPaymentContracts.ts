@@ -62,6 +62,7 @@ export function pushRegistrationFields(identity: PushIdentity, version: string):
 }
 
 export function pushErrorMessage(code: number): string {
+  if (code === 1001500001) return '当前安装包的客户端标识或签名指纹未生效';
   if (code === 1000900010) return '当前安装包与华为正式应用身份不一致';
   if (code === 1000900012) return '华为 Push Kit 尚未为当前应用开通';
   if (code === 1000900014 || code === 801) return '当前设备不支持鸿蒙推送能力';
