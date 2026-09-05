@@ -29,6 +29,9 @@ import { DisplayUnits, ProfileDraft, FEEDBACK_TYPES, defaultDisplayUnits, displa
   displayNumber, feedbackError, profileDraftError } from '../model/DisplayPreferences';
 import { displayPreferenceStore } from '../services/DisplayPreferenceStore';
 import { ShippingAddress, InboxMessage, ArticleCategory, orderStatusLabel, orderMatchesFilter } from '../model/AccountPageContracts';
+import { ProductDetail, ShopSku, ShopLine, ShopSelection, CheckoutPreview, OrderDetail, Shipment, ShipmentTrace,
+  commerceMoney, commerceCents, purchaseError, checkoutError, orderHeading, orderExplanation } from '../model/CommerceContracts';
+
 import { AddressDraft, RegionCatalog, RegionChoice, emptyAddressDraft, copyAddressDraft, emptyRegions, parseRegions,
   addressRegionChoices, selectAddressRegion, addressValidation } from '../model/AddressForm';
 import { PermissionRow, readPermissionRows, openPermissionSetting } from '../services/PermissionPresentation';
@@ -54,6 +57,8 @@ const GREEN: string = '#287A3B';
 const GOLD: string = '#705300';
 const CARD_SHADOW: string = '#17151B2B';
 
+interface CommerceLineProps { line: ShopLine; }
+interface CommerceAmountProps { label: string; amount: number; emphasis?: boolean; }
 interface NoticeOptions { message: string; color?: string; }
 interface WearableMetricSpec { key: WearableMetricKey; title: string; }
 interface PageRowOptions { title: string; subtitle?: string; icon: Resource; action: () => void; id?: string; }
@@ -193,6 +198,32 @@ struct Index {
   @State private shopLoading: boolean = false;
   @State private shopError: string = '';
   @State private selectedProduct: ShopProduct = { id: 0, name: '', picture: '', price: '0.00', stock: 0 };
+  @State private productDetail: ProductDetail | undefined = undefined;
+  @State private selectedSkuIndex: number = 0;
+  @State private purchaseQuantity: number = 1;
+  @State private purchaseSheet: boolean = false;
+  @State private purchaseToCart: boolean = false;
+  @State private commerceLoading: boolean = false;
+  @State private commerceBusy: boolean = false;
+  @State private commerceError: string = '';
+  @State private cartLines: ShopLine[] = [];
+  @State private cartSelection: number[] = [];
+  @State private checkoutItems: ShopSelection[] = [];
+  @State private checkoutPreview: CheckoutPreview | undefined = undefined;
+  @State private checkoutAddress: ShippingAddress | undefined = undefined;
+  @State private checkoutPoints: string = '0';
+  @State private checkoutMessage: string = '';
+  @State private checkoutAttempted: boolean = false;
+  private checkoutFromCart: boolean = false;
+  @State private selectingCheckoutAddress: boolean = false;
+  @State private orderDetail: OrderDetail | undefined = undefined;
+  @State private shipments: Shipment[] = [];
+  @State private refundLine: ShopLine | undefined = undefined;
+  @State private refundType: number = 0;
+  @State private refundAmount: string = '';
+  @State private refundReason: string = '';
+  @State private refundAttempted: boolean = false;
+  private commerceOrderId: number = 0;
   @State private updateBusy: boolean = false;
   @State private updateStatus: string = '点击检查是否有新版本';
   @State private updateInfo: AppUpdateInfo = { latestVersion: '', latestBuild: 0,
@@ -329,6 +360,11 @@ struct Index {
   }
 
   private clearAccountForms(): void {
+    ++this.contentGeneration;
+    this.cartLines = []; this.cartSelection = []; this.checkoutItems = []; this.checkoutPreview = undefined;
+    this.checkoutAddress = undefined; this.checkoutMessage = ''; this.checkoutPoints = '0';
+    this.orderDetail = undefined; this.shipments = []; this.refundLine = undefined; this.refundReason = '';
+    this.commerceError = ''; this.selectingCheckoutAddress = false; this.purchaseSheet = false;
     this.inbox = []; this.addresses = []; this.inboxError = ''; this.accountPageError = '';
     this.addressDraft = emptyAddressDraft();
     ++this.orderGeneration; this.orders = []; this.orderLoading = false; this.paymentMessage = '';
@@ -805,9 +841,154 @@ struct Index {
     return this.shopHome.categories[index];
   }
 
-  private openShopProduct(product: ShopProduct): void {
+  private async openShopProduct(product: ShopProduct): Promise<void> {
     this.selectedProduct = product;
-    this.screen = 'shop-product';
+    if (this.screen !== 'shop-product') this.openInnerPage('shop-product');
+    this.productDetail = undefined; this.commerceError = ''; this.commerceLoading = true;
+    const epoch = ++this.contentGeneration;
+    try {
+      const detail = await saydianApi.shopProductDetail(product.id);
+      if (epoch !== this.contentGeneration) return;
+      this.productDetail = detail; this.selectedSkuIndex = 0; this.purchaseQuantity = detail.minBuy;
+    } catch (error) { if (epoch === this.contentGeneration) this.commerceError = this.accountFormFailure(error as Error); }
+    finally { if (epoch === this.contentGeneration) this.commerceLoading = false; }
+  }
+
+  private purchaseSku(): ShopSku | undefined { return this.productDetail?.skus[this.selectedSkuIndex]; }
+  private showPurchase(toCart: boolean): void {
+    this.commerceError = '';
+    if (!this.productDetail?.skus.length) { this.commerceError = '该商品暂无可购买规格'; return; }
+    this.purchaseToCart = toCart; this.purchaseSheet = true;
+  }
+  private async purchaseSelected(): Promise<void> {
+    if (this.commerceBusy) return;
+    const sku = this.purchaseSku();
+    this.commerceError = purchaseError(this.productDetail, sku, this.purchaseQuantity);
+    if (this.commerceError || !sku) return;
+    if (this.guest) { this.commerceError = '请先登录后购买'; return; }
+    if (!this.purchaseToCart) {
+      this.purchaseSheet = false; this.openCheckout([{ skuId: sku.id, quantity: this.purchaseQuantity }]); return;
+    }
+    this.commerceBusy = true;
+    try {
+      this.cartLines = await saydianApi.changeShopCart(sku.id, this.purchaseQuantity, 'add');
+      this.purchaseSheet = false;
+      this.getUIContext().getPromptAction().showToast({ message: '已加入购物车' });
+    } catch (error) { this.commerceError = this.accountFormFailure(error as Error); }
+    finally { this.commerceBusy = false; }
+  }
+  private async openCart(): Promise<void> {
+    if (this.guest) { this.showFeature('购物车', '请先登录后查看购物车'); return; }
+    if (this.screen !== 'shop-cart') this.openInnerPage('shop-cart');
+    this.commerceLoading = true; this.commerceError = ''; this.cartLines = []; const epoch = ++this.contentGeneration;
+    try {
+      const lines = await saydianApi.shopCart();
+      if (epoch !== this.contentGeneration) return;
+      this.cartLines = lines; this.cartSelection = lines.map((line: ShopLine) => line.skuId);
+    } catch (error) { if (epoch === this.contentGeneration) this.commerceError = this.accountFormFailure(error as Error); }
+    finally { if (epoch === this.contentGeneration) this.commerceLoading = false; }
+  }
+  private cartChosen(): ShopLine[] { return this.cartLines.filter((line: ShopLine) => this.cartSelection.includes(line.skuId)); }
+  private cartTotal(): number {
+    const selected = this.cartChosen();
+    return selected.some((line: ShopLine) => line.priceCents < 0) ? -1 : selected.reduce((sum: number, line: ShopLine) => sum + line.priceCents * line.quantity, 0);
+  }
+  private toggleCart(id: number, selected: boolean): void {
+    this.cartSelection = selected ? Array.from(new Set([...this.cartSelection, id])) : this.cartSelection.filter((value: number) => value !== id);
+  }
+  private async changeCart(line: ShopLine, quantity: number, remove: boolean = false): Promise<void> {
+    if (this.commerceBusy) return;
+    if (remove) {
+      if (!await this.confirmCommerce('移出购物车？', line.name, '移出') || this.screen !== 'shop-cart') return;
+    }
+    this.commerceBusy = true; this.commerceError = '';
+    try {
+      this.cartLines = await saydianApi.changeShopCart(line.skuId, quantity, remove ? 'delete' : 'quantity');
+      this.cartSelection = this.cartSelection.filter((id: number) => this.cartLines.some((value: ShopLine) => value.skuId === id));
+    } catch (error) { this.commerceError = this.accountFormFailure(error as Error); }
+    finally { this.commerceBusy = false; }
+  }
+  private async confirmCommerce(title: string, message: string, confirm: string): Promise<boolean> {
+    try {
+      const result = await this.getUIContext().getPromptAction().showDialog({ title, message,
+        buttons: [{ text: '取消', color: MUTED }, { text: confirm, color: RED }] });
+      return result.index === 1;
+    } catch { return false; }
+  }
+  private openCheckout(items: ShopSelection[], fromCart: boolean = false): void {
+    if (this.guest || !items.length) return;
+    this.checkoutItems = items; this.checkoutFromCart = fromCart; this.checkoutPreview = undefined; this.checkoutAddress = undefined;
+    this.checkoutAttempted = false; this.checkoutPoints = '0'; this.checkoutMessage = '';
+    this.openInnerPage('shop-checkout'); this.loadCheckout();
+  }
+  private async loadCheckout(): Promise<void> {
+    this.commerceLoading = true; this.commerceError = ''; const epoch = ++this.contentGeneration;
+    try {
+      const preview = await saydianApi.shopCheckout(this.checkoutItems);
+      if (epoch !== this.contentGeneration) return;
+      this.checkoutPreview = preview; this.checkoutAddress = preview.address;
+    } catch (error) { if (epoch === this.contentGeneration) this.commerceError = this.accountFormFailure(error as Error); }
+    finally { if (epoch === this.contentGeneration) this.commerceLoading = false; }
+  }
+  private async submitCommerceOrder(): Promise<void> {
+    if (this.commerceBusy || this.checkoutAttempted) return;
+    this.commerceError = checkoutError(this.checkoutPreview, this.checkoutAddress?.id ?? '', this.checkoutPoints, this.checkoutMessage);
+    if (this.commerceError || !this.checkoutPreview || !this.checkoutAddress) return;
+    this.commerceBusy = true; this.checkoutAttempted = true;
+    try {
+      const id = await saydianApi.createCommerceOrder(this.checkoutItems, this.checkoutPreview, this.checkoutAddress.id, this.checkoutPoints, this.checkoutMessage);
+      // An order exists now. A subsequent read failure must never offer duplicate creation.
+      if (this.checkoutFromCart) {
+        let cleaned = false;
+        try { cleaned = await saydianApi.removeCreatedCartItems(id, this.checkoutItems); } catch { cleaned = false; }
+        if (!cleaned) this.getUIContext().getPromptAction().showToast({ message: '订单已生成，购物车请稍后刷新确认' });
+      }
+      this.commerceBusy = false; this.innerParents.delete('shop-checkout');
+      this.screen = 'shop-orders'; await this.openCommerceOrder(id);
+    } catch (error) { this.commerceError = this.accountFormFailure(error as Error); }
+    finally { this.commerceBusy = false; }
+  }
+  private async openCommerceOrder(id: number): Promise<void> {
+    if (this.screen !== 'shop-order-detail') this.openInnerPage('shop-order-detail');
+    this.commerceOrderId = id; this.orderDetail = undefined; this.commerceLoading = true; this.commerceError = '';
+    const epoch = ++this.contentGeneration;
+    try {
+      const detail = await saydianApi.commerceOrder(id);
+      if (epoch === this.contentGeneration) { this.orderDetail = detail; this.selectedOrder = detail.order; }
+    } catch (error) { if (epoch === this.contentGeneration) this.commerceError = this.accountFormFailure(error as Error); }
+    finally { if (epoch === this.contentGeneration) this.commerceLoading = false; }
+  }
+  private async openShipments(): Promise<void> {
+    if (this.screen !== 'shop-express') this.openInnerPage('shop-express');
+    this.commerceLoading = true; this.commerceError = ''; this.shipments = []; const epoch = ++this.contentGeneration;
+    try { const shipments = await saydianApi.shopShipments(this.commerceOrderId); if (epoch === this.contentGeneration) this.shipments = shipments; }
+    catch (error) { if (epoch === this.contentGeneration) this.commerceError = this.accountFormFailure(error as Error); }
+    finally { if (epoch === this.contentGeneration) this.commerceLoading = false; }
+  }
+  private async confirmReceipt(): Promise<void> {
+    if (this.commerceBusy || this.orderDetail?.order.status !== 2) return;
+    const id = this.commerceOrderId;
+    if (!await this.confirmCommerce('确认已经收到商品？', '确认收货后订单将完成。如尚未收到商品，请不要确认。', '确认收货') ||
+      this.commerceOrderId !== id || this.screen !== 'shop-order-detail') return;
+    this.commerceBusy = true; this.commerceError = '';
+    try { this.orderDetail = await saydianApi.confirmShopReceipt(id); }
+    catch (error) { this.commerceError = this.accountFormFailure(error as Error); }
+    finally { this.commerceBusy = false; }
+  }
+  private openRefund(line: ShopLine): void {
+    this.refundLine = line; this.refundType = 0; this.refundAmount = line.priceCents >= 0 ? (line.priceCents / 100).toFixed(2) : '';
+    this.refundReason = ''; this.refundAttempted = false; this.commerceError = ''; this.openInnerPage('shop-refund');
+  }
+  private async submitRefund(): Promise<void> {
+    if (this.commerceBusy || this.refundAttempted || !this.refundLine || this.refundLine.applied) return;
+    if (commerceCents(this.refundAmount) <= 0 || !this.refundReason.trim()) { this.commerceError = '请检查申请金额和售后原因'; return; }
+    this.commerceBusy = true; this.refundAttempted = true; this.commerceError = '';
+    try {
+      const detail = await saydianApi.applyShopRefund(this.commerceOrderId, this.refundLine.id, this.refundType + 1, this.refundAmount, this.refundReason);
+      this.orderDetail = detail; this.refundLine = detail.products.find((line: ShopLine) => line.id === this.refundLine?.id);
+      this.commerceError = '申请结果请以最新订单状态为准';
+    } catch (error) { this.commerceError = this.accountFormFailure(error as Error); }
+    finally { this.commerceBusy = false; }
   }
 
   private async openAiChat(): Promise<void> {
@@ -1427,13 +1608,19 @@ struct Index {
   }
 
   private back(): void {
-    if (this.careBusy || this.paymentBusy || this.formBusy) return;
+    if (this.careBusy || this.paymentBusy || this.formBusy || this.commerceBusy) return;
+    if (this.purchaseSheet) { this.purchaseSheet = false; return; }
+    if (this.screen === 'addresses') this.selectingCheckoutAddress = false;
+    this.commerceError = ''; this.commerceLoading = false;
     ++this.contentGeneration;
     if (this.screen === 'address-edit') { this.addressDraft = emptyAddressDraft(); this.regionsLoading = false; }
     if (this.screen === 'reset-password') {
       this.clearSmsCountdown(); this.resetCode = ''; this.resetPassword = ''; this.resetConfirmation = '';
     }
     const parent = this.innerParents.get(this.screen);
+    if (this.screen === 'shop-payment' && parent === 'shop-order-detail') {
+      this.innerParents.delete(this.screen); this.screen = parent; this.openCommerceOrder(this.commerceOrderId); return;
+    }
     if (parent) { this.innerParents.delete(this.screen); this.screen = parent; this.formMessage = ''; return; }
     if (this.screen === 'register') {
       this.clearSmsCountdown();
@@ -1529,13 +1716,16 @@ struct Index {
       Button() {
         SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(24).fontColor([INK])
       }.backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12).width(48).height(48)
-        .enabled(!this.careBusy && !this.paymentBusy && !this.formBusy).onClick(() => this.back()).accessibilityText('返回上一页')
+        .enabled(!this.careBusy && !this.paymentBusy && !this.formBusy && !this.commerceBusy).onClick(() => this.back()).accessibilityText('返回上一页')
       Text(this.screen === 'health-record' ? '记录详情' : this.screen === 'profile-edit' ? '个人资料' : this.screen === 'addresses' ? '收货地址' :
         this.screen === 'address-edit' ? (this.addressDraft.id ? '编辑地址' : '新增地址') : this.screen === 'reset-password' ? '重置密码' :
         this.screen.startsWith('care') ? this.careHeading() : this.screen === 'messages' ? '消息' :
         this.screen === 'health-alerts' ? '健康预警' : this.screen === 'health-all' ? '全部健康数据' :
           this.screen === 'sport-records' ? '运动与记录' : this.screen === 'ai-chat' ? 'AI 健康管家' :
             this.screen === 'device-search' ? '添加设备' :
+            this.screen === 'shop-cart' ? '购物车' : this.screen === 'shop-checkout' ? '确认订单' :
+            this.screen === 'shop-order-detail' ? '订单详情' : this.screen === 'shop-express' ? '物流信息' :
+            this.screen === 'shop-after-sales' ? '售后服务' : this.screen === 'shop-refund' ? '申请售后' :
             this.screen === 'shop-home' ? '赛电商城' : this.screen === 'shop-product' ? '商品详情' :
               this.screen === 'shop-orders' ? '我的订单' : this.screen === 'shop-payment' ? '支付收银台' :
                 this.screen === 'about' ? '关于我们' : this.screen === 'contact' ? '联系客服' :
@@ -1551,6 +1741,10 @@ struct Index {
         }.backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12).width(48).height(48)
           .enabled(!this.wearableBusy()).onClick(() => this.startWearableScan())
           .accessibilityText('重新查找附近设备').id('device_search_refresh')
+      } else if (this.screen === 'shop-home') {
+        Button() { SymbolGlyph($r('sys.symbol.bag')).fontSize(24).fontColor([INK]) }
+          .width(48).height(48).backgroundColor(Color.Transparent).onClick(() => this.openCart())
+          .accessibilityText('购物车').id('shop_cart')
       } else if (this.screen === 'addresses') {
         Button() { SymbolGlyph($r('sys.symbol.plus')).fontSize(24).fontColor([INK]) }
           .width(48).height(48).backgroundColor(Color.Transparent).onClick(() => this.editAddress())
@@ -2561,14 +2755,325 @@ struct Index {
 
   @Builder
   ShopProductContent() {
-    if (this.selectedProduct.picture) {
-      ArticleImage({ source: this.selectedProduct.picture, description: this.selectedProduct.name })
+    if (this.commerceLoading) { LoadingProgress().width(40).height(40).color(RED).margin({ top: 100 }) }
+    if (this.commerceError && !this.purchaseSheet) { this.Notice({ message: this.commerceError, color: GOLD_SOFT }) }
+    if (!this.commerceLoading && !this.productDetail) {
+      Button('重新加载').height(56).backgroundColor(RED).onClick(() => this.openShopProduct(this.selectedProduct))
     }
-    Text(this.selectedProduct.name).fontSize(24).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-    Text(`¥${this.selectedProduct.price}`).fontSize(30).fontWeight(FontWeight.Bold).fontColor(RED).width('100%')
-    Text(this.selectedProduct.stock > 0 ? `库存 ${this.selectedProduct.stock}` : '暂时缺货').fontSize(15).fontColor(MUTED).width('100%')
-    Button('查看我的订单').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
-      .onClick(() => this.openOrders())
+    if (this.productDetail) {
+      if (this.productDetail.covers.length) {
+        Swiper() {
+          ForEach(this.productDetail.covers, (url: string) => {
+            Image(url).width('100%').height(350).objectFit(ImageFit.Cover).accessibilityText(this.productDetail?.name ?? '商品图片')
+          }, (url: string) => url)
+        }.width('100%').height(350).autoPlay(false).loop(false).indicator(this.productDetail.covers.length > 1)
+      } else {
+        Column() { SymbolGlyph($r('sys.symbol.bag')).fontSize(32).fontColor([OUTLINE]) }
+          .width('100%').height(350).justifyContent(FlexAlign.Center).backgroundColor('#F0F2F5')
+          .accessibilityText('暂无商品图片')
+      }
+      Column({ space: 14 }) {
+        Text(this.productDetail.name).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Row() {
+          Text(commerceMoney(this.purchaseSku()?.priceCents ?? this.productDetail.priceCents)).fontSize(24).fontWeight(FontWeight.Bold).fontColor('#914E00').layoutWeight(1)
+          if (this.productDetail.sales) { Text(`销量 ${this.productDetail.sales}`).fontSize(15).fontColor(MUTED) }
+        }.width('100%')
+        Flex({ wrap: FlexWrap.Wrap }) {
+          ForEach(['品质保障', '配送到家', '售后服务'], (label: string) => {
+            Row({ space: 4 }) {
+              SymbolGlyph($r('sys.symbol.checkmark_shield')).fontSize(16).fontColor([RED])
+              Text(label).fontSize(13).fontColor(INK)
+            }.padding({ left: 9, right: 9, top: 6, bottom: 6 }).margin({ right: 6, bottom: 6 }).backgroundColor(RED_SOFT).borderRadius(99)
+          })
+        }.width('100%')
+        if (this.productDetail.skus.length) {
+          Row({ space: 12 }) {
+            Column({ space: 4 }) {
+              Text('规格').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+              Text(this.purchaseSku()?.name ?? '请选择规格').fontSize(15).fontColor(INK).width('100%')
+            }.layoutWeight(1)
+            SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([RED])
+          }.width('100%').constraintSize({ minHeight: 80 }).padding(16).backgroundColor(SURFACE)
+            .border({ width: 1, color: LINE, radius: 18 }).onClick(() => this.showPurchase(false)).id('product_sku')
+        }
+      }.width('92%').padding(18).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+      Column({ space: 12 }) {
+        Text('商品详情').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        if (!this.productDetail.blocks.length) { Text('暂无详细介绍').fontSize(16).fontColor(MUTED).width('100%') }
+        ForEach(this.productDetail.blocks, (block: ArticleBlock) => {
+          if (block.kind === 'image') { ArticleImage({ source: block.url, description: block.text }) }
+          else if (block.kind === 'text') { Text(block.text).fontSize(16).fontColor(INK).lineHeight(25).width('100%') }
+          else { Text('图片暂不可用').fontSize(14).fontColor(MUTED) }
+        }, (block: ArticleBlock) => block.id)
+      }.width('92%').padding(18).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+    }
+  }
+
+  @Builder
+  PurchaseSheetContent() {
+    Column({ space: 18 }) {
+      Text('请选择规格').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      Flex({ wrap: FlexWrap.Wrap }) {
+        ForEach(this.productDetail?.skus ?? [], (sku: ShopSku, index: number) => {
+          Button(sku.name).fontSize(15).fontColor(INK).constraintSize({ minHeight: 44 }).type(ButtonType.Normal).borderRadius(10)
+            .backgroundColor(this.selectedSkuIndex === index ? GOLD_SOFT : SURFACE).border({ width: 1, color: OUTLINE, radius: 10 })
+            .margin({ right: 8, bottom: 8 }).enabled(!this.commerceBusy).onClick(() => {
+              this.selectedSkuIndex = index; this.purchaseQuantity = this.productDetail?.minBuy ?? 1; this.commerceError = '';
+            }).id(`sku_${sku.id}`)
+        }, (sku: ShopSku) => String(sku.id))
+      }.width('100%')
+      Row({ space: 10 }) {
+        Text((this.purchaseSku()?.stock ?? -1) < 0 ? '库存待确认' : `库存 ${this.purchaseSku()?.stock}`)
+          .fontSize(15).fontColor(INK).layoutWeight(1)
+        Button('−').width(44).height(44).fontSize(22).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE })
+          .enabled(!this.commerceBusy && this.purchaseQuantity > (this.productDetail?.minBuy ?? 1)).onClick(() => this.purchaseQuantity--).id('quantity_minus')
+        Text(String(this.purchaseQuantity)).fontSize(16).fontWeight(FontWeight.Bold).width(28).textAlign(TextAlign.Center)
+        Button('+').width(44).height(44).fontSize(22).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE })
+          .enabled(!this.commerceBusy && this.purchaseQuantity < Math.min(this.purchaseSku()?.stock ?? 0, 999)).onClick(() => this.purchaseQuantity++).id('quantity_plus')
+      }.width('100%')
+      if (this.commerceError) { this.Notice({ message: this.commerceError, color: GOLD_SOFT }) }
+      Button(this.commerceBusy ? '处理中…' : this.purchaseToCart ? '加入购物车' : '立即购买').width('100%').height(56)
+        .fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
+        .enabled(!this.commerceBusy && !purchaseError(this.productDetail, this.purchaseSku(), this.purchaseQuantity))
+        .onClick(() => this.purchaseSelected()).id('purchase_confirm')
+    }.width('100%').padding({ left: 20, right: 20, top: 20, bottom: 24 })
+  }
+
+  @Builder
+  CommerceLine($$: CommerceLineProps) {
+    Row({ space: 12 }) {
+      if ($$.line.picture) { Image($$.line.picture).width(78).height(78).objectFit(ImageFit.Cover).borderRadius(10) }
+      else { Column() { SymbolGlyph($r('sys.symbol.bag')).fontSize(24).fontColor([INK]) }
+        .width(78).height(78).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(10) }
+      Column({ space: 6 }) {
+        Text($$.line.name).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').maxLines(2)
+        Text($$.line.sku).fontSize(13).fontColor(MUTED).width('100%')
+        Row() {
+          Text(`${$$.line.totalPrice ? '小计 ' : ''}${commerceMoney($$.line.priceCents)}`).fontSize(16).fontWeight(FontWeight.Bold).fontColor(RED).layoutWeight(1)
+          Text($$.line.quantity > 0 ? `×${$$.line.quantity}` : '').fontSize(14).fontColor(MUTED)
+        }.width('100%')
+      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+    }.width('100%').alignItems(VerticalAlign.Top)
+  }
+
+  @Builder
+  CommerceStatus() {
+    if (this.commerceLoading) { LoadingProgress().width(40).height(40).color(RED) }
+    if (this.commerceError) { this.Notice({ message: this.commerceError, color: GOLD_SOFT }) }
+  }
+
+  @Builder
+  CartContent() {
+    this.CommerceStatus()
+    if (!this.commerceLoading && !this.commerceError && !this.cartLines.length) {
+      Column({ space: 16 }) {
+        SymbolGlyph($r('sys.symbol.bag')).fontSize(72).fontColor([OUTLINE])
+        Text('购物车还是空的').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK)
+        Text('去商城挑选适合您的健康设备吧').fontSize(16).fontColor(INK).textAlign(TextAlign.Center)
+        Button('返回商城').height(56).fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED)
+          .type(ButtonType.Normal).borderRadius(12).onClick(() => this.back())
+      }.width('100%').constraintSize({ minHeight: 620 }).justifyContent(FlexAlign.Center)
+    }
+    ForEach(this.cartLines, (line: ShopLine) => {
+      Column({ space: 12 }) {
+        Row({ space: 4 }) {
+          Checkbox().select(this.cartSelection.includes(line.skuId)).selectedColor(RED).enabled(!this.commerceBusy)
+            .onChange((selected: boolean) => this.toggleCart(line.skuId, selected)).accessibilityText(`选择${line.name}`)
+          Column() { this.CommerceLine({ line }) }.layoutWeight(1)
+        }.width('100%')
+        Row({ space: 8 }) {
+          Button('移出').fontSize(14).fontColor(MUTED).backgroundColor(Color.Transparent).height(44)
+            .enabled(!this.commerceBusy).onClick(() => this.changeCart(line, line.quantity, true))
+          Blank().layoutWeight(1)
+          Button('−').width(44).height(44).fontSize(20).fontColor(INK).backgroundColor(BG).enabled(!this.commerceBusy && line.quantity > 1)
+            .onClick(() => this.changeCart(line, line.quantity - 1))
+          Text(String(line.quantity)).fontSize(16).fontColor(INK).width(28).textAlign(TextAlign.Center)
+          Button('+').width(44).height(44).fontSize(20).fontColor(INK).backgroundColor(BG)
+            .enabled(!this.commerceBusy && line.quantity < 999 && (line.stock < 0 || line.quantity < line.stock))
+            .onClick(() => this.changeCart(line, line.quantity + 1))
+        }.width('100%')
+      }.width('100%').padding(14).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+    }, (line: ShopLine) => String(line.id))
+    if (this.cartLines.length || this.commerceError) {
+      Button('刷新购物车').height(48).fontColor(RED).backgroundColor(Color.Transparent)
+        .enabled(!this.commerceBusy).onClick(() => this.openCart())
+    }
+  }
+
+  @Builder
+  CheckoutContent() {
+    this.CommerceStatus()
+    if (this.checkoutPreview) {
+      Column() {
+        this.PageRow({ title: this.checkoutAddress ? `${this.checkoutAddress.name}  ${this.checkoutAddress.mobile}` : '请选择收货地址',
+          subtitle: this.checkoutAddress?.address ?? '', icon: $r('sys.symbol.map'),
+          action: () => { if (!this.commerceBusy && !this.checkoutAttempted) { this.selectingCheckoutAddress = true; this.openAddresses(); } }, id: 'checkout_address' })
+      }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+      Column({ space: 12 }) {
+        Text('商品信息').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        ForEach(this.checkoutPreview.products, (line: ShopLine) => { this.CommerceLine({ line }) })
+        TextInput({ text: this.checkoutMessage, placeholder: '留言' }).fontSize(16).height(56).maxLength(100)
+          .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
+          .enabled(!this.commerceBusy && !this.checkoutAttempted).onChange((value: string) => this.checkoutMessage = value).id('checkout_message')
+        Text(`${this.checkoutMessage.length}/100`).fontSize(13).fontColor(MUTED).textAlign(TextAlign.End).width('100%')
+      }.width('100%').padding(14).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+      Column({ space: 8 }) {
+        Text('积分抵扣').fontSize(14).fontColor(MUTED).width('100%')
+        TextInput({ text: this.checkoutPoints, placeholder: '0' }).fontSize(16).height(56).maxLength(12).type(InputType.NUMBER_DECIMAL)
+          .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
+          .enabled(!this.commerceBusy && !this.checkoutAttempted && this.checkoutPreview.pointsCents >= 0)
+          .onChange((value: string) => this.checkoutPoints = value).id('checkout_points')
+        Text(`可用积分：${this.checkoutPreview.pointsCents >= 0 ? (this.checkoutPreview.pointsCents / 100).toFixed(2) : '暂未读取'}`)
+          .fontSize(14).fontColor(MUTED).width('100%')
+      }.width('100%').padding(14).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+      Column({ space: 12 }) {
+        this.CommerceAmount({ label: '商品总额', amount: this.checkoutPreview.productCents })
+        this.CommerceAmount({ label: '快递费用', amount: this.checkoutPreview.shippingCents })
+      }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+      if (this.checkoutAttempted && !this.commerceBusy) {
+        this.Notice({ message: '请先核对我的订单，避免重复提交。' })
+        Button('查看我的订单').height(56).backgroundColor(RED).onClick(() => this.openOrders())
+      }
+    } else if (!this.commerceLoading) {
+      Button('重新加载').height(56).backgroundColor(RED).onClick(() => this.loadCheckout())
+    }
+  }
+
+  @Builder
+  CommerceAmount($$: CommerceAmountProps) {
+    Row({ space: 12 }) {
+      Text($$.label).fontSize(16).fontColor(INK).layoutWeight(1)
+      Text(commerceMoney($$.amount)).fontSize($$.emphasis ? 19 : 16).fontWeight(FontWeight.Bold).fontColor($$.emphasis ? RED : INK)
+    }.width('100%')
+  }
+
+  @Builder
+  OrderDetailContent() {
+    this.CommerceStatus()
+    if (this.orderDetail) {
+      Row({ space: 14 }) {
+        Column() { SymbolGlyph($r('sys.symbol.bag')).fontSize(26).fontColor([Color.White]) }
+          .width(50).height(50).justifyContent(FlexAlign.Center).backgroundColor('#2AFFFFFF').borderRadius(25)
+        Column({ space: 6 }) {
+          Text(orderHeading(this.orderDetail.order.status)).fontSize(22).fontWeight(FontWeight.Bold).fontColor(Color.White).width('100%')
+          Text(orderExplanation(this.orderDetail.order.status)).fontSize(15).fontColor('#E6FFFFFF').lineHeight(22).width('100%')
+        }.layoutWeight(1)
+      }.width('100%').padding(20).linearGradient({ angle: 90, colors: [['#9E1025', 0], [RED, 1]] }).borderRadius(22)
+      Row({ space: 14 }) {
+        SymbolGlyph($r('sys.symbol.map')).fontSize(24).fontColor([RED])
+        Column({ space: 8 }) {
+          Text(this.orderDetail.receiver).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text(this.orderDetail.address).fontSize(15).fontColor(MUTED).lineHeight(22).width('100%')
+        }.layoutWeight(1)
+      }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+      Column({ space: 14 }) {
+        ForEach(this.orderDetail.products, (line: ShopLine) => { this.CommerceLine({ line }) })
+      }.width('100%').padding(14).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+      Column({ space: 12 }) {
+        this.CommerceAmount({ label: '商品金额', amount: this.orderDetail.orderCents })
+        Divider().color(LINE)
+        this.CommerceAmount({ label: '实付款', amount: this.orderDetail.order.amountCents, emphasis: true })
+      }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+      Column({ space: 10 }) {
+        Text(`订单编号  ${this.orderDetail.order.number}`).fontSize(15).fontColor(INK).width('100%').copyOption(CopyOptions.InApp)
+        Text(`下单时间  ${this.orderDetail.createdAt}`).fontSize(15).fontColor(MUTED).width('100%')
+      }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End }) {
+        if (this.orderDetail.order.status > 0) {
+          Button('申请售后').height(48).fontSize(16).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE, radius: 12 })
+            .margin({ left: 8, bottom: 8 }).enabled(!this.commerceBusy).onClick(() => this.openInnerPage('shop-after-sales')).id('order_after_sales')
+        }
+        if (this.orderDetail.order.status >= 2) {
+          Button('查看物流').height(48).fontSize(16).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE, radius: 12 })
+            .margin({ left: 8, bottom: 8 }).enabled(!this.commerceBusy).onClick(() => this.openShipments()).id('order_express')
+        }
+        if (this.orderDetail.order.status === 2) {
+          Button('确认收货').height(48).fontSize(16).backgroundColor(RED).margin({ left: 8, bottom: 8 })
+            .enabled(!this.commerceBusy).onClick(() => this.confirmReceipt()).id('order_receipt')
+        }
+        if (this.orderDetail.order.status === 0 && this.orderDetail.order.amountCents > 0) {
+          Button('查看支付状态').height(56).fontSize(16).backgroundColor(RED).margin({ left: 8, bottom: 8 })
+            .onClick(() => { this.innerParents.set('shop-payment', 'shop-order-detail'); this.openPayment(this.orderDetail!.order); }).id('order_payment')
+        }
+      }.width('100%')
+    }
+    Button('刷新订单详情').height(48).fontColor(RED).backgroundColor(Color.Transparent)
+      .enabled(!this.commerceBusy && !this.commerceLoading).onClick(() => this.openCommerceOrder(this.commerceOrderId)).id('refresh_order_detail')
+  }
+
+  @Builder
+  ExpressContent() {
+    this.CommerceStatus()
+    if (!this.commerceLoading && !this.commerceError && !this.shipments.length) {
+      Column({ space: 20 }) {
+        SymbolGlyph($r('sys.symbol.bag')).fontSize(44).fontColor([INK])
+        Text('暂无物流信息').fontSize(16).fontColor(INK)
+        Button('重新加载').height(56).fontSize(16).backgroundColor(RED).onClick(() => this.openShipments())
+      }.width('100%').constraintSize({ minHeight: 620 }).justifyContent(FlexAlign.Center)
+    }
+    ForEach(this.shipments, (shipment: Shipment) => {
+      Column({ space: 14 }) {
+        Text(shipment.company).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(`快递单号：${shipment.number}`).fontSize(15).fontColor(INK).width('100%').copyOption(CopyOptions.InApp)
+        Divider().color(LINE)
+        ForEach(shipment.traces, (trace: ShipmentTrace) => {
+          Row({ space: 12 }) {
+            SymbolGlyph($r('sys.symbol.circle_fill')).fontSize(10).fontColor([RED])
+            Column({ space: 6 }) { Text(trace.remark).fontSize(16).fontColor(INK).width('100%'); Text(trace.time).fontSize(14).fontColor(MUTED).width('100%') }.layoutWeight(1)
+          }.width('100%')
+        })
+      }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+    })
+    if (this.commerceError || this.shipments.length) {
+      Button('刷新物流').height(48).fontColor(RED).backgroundColor(Color.Transparent).enabled(!this.commerceLoading).onClick(() => this.openShipments())
+    }
+  }
+
+  @Builder
+  AfterSalesContent() {
+    this.Notice({ message: '请选择需要售后的商品，并填写原因和申请金额。提交后可在订单列表查看处理状态。' })
+    if (this.orderDetail) {
+      Column({ space: 14 }) {
+        Text(`订单号 ${this.orderDetail.order.number}`).fontSize(14).fontColor(MUTED).width('100%')
+        Divider().color(LINE)
+        ForEach(this.orderDetail.products, (line: ShopLine) => {
+          this.CommerceLine({ line })
+          Row() { Blank().layoutWeight(1)
+            Button(line.applied ? '查看售后状态' : '申请售后').height(48).fontSize(16).fontColor(INK).backgroundColor(SURFACE)
+            .border({ width: 1, color: OUTLINE, radius: 12 }).onClick(() => this.openRefund(line)).id(`refund_line_${line.id}`)
+          }.width('100%')
+        })
+      }.width('100%').padding(14).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+    }
+  }
+
+  @Builder
+  RefundContent() {
+    if (this.refundLine) {
+      Column() { this.CommerceLine({ line: this.refundLine }) }.width('100%').padding(14).backgroundColor(SURFACE).borderRadius(18)
+      if (this.refundLine.applied) { this.Notice({ message: '该商品已经提交售后申请，请等待商城工作人员处理。', color: GOLD_SOFT }) }
+      else {
+        Column({ space: 6 }) {
+          Text('售后类型').fontSize(14).fontColor(MUTED).width('100%')
+          Select([{ value: '仅退款' }, { value: '退货退款' }]).selected(this.refundType).value(this.refundType === 0 ? '仅退款' : '退货退款')
+            .width('100%').font({ size: 16 }).backgroundColor(SURFACE).enabled(!this.commerceBusy).onSelect((index: number) => this.refundType = index)
+        }.width('100%').padding(12).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
+        TextInput({ text: this.refundAmount, placeholder: '申请金额' }).type(InputType.NUMBER_DECIMAL).fontSize(16).height(56).maxLength(12)
+          .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.commerceBusy)
+          .onChange((value: string) => this.refundAmount = value).id('refund_amount')
+        TextArea({ text: this.refundReason, placeholder: '售后原因，请说明遇到的问题' }).fontSize(16).height(140).maxLength(200)
+          .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.commerceBusy)
+          .onChange((value: string) => this.refundReason = value).id('refund_reason')
+        Text(`${this.refundReason.length}/200`).fontSize(13).fontColor(MUTED).textAlign(TextAlign.End).width('100%')
+        Button(this.commerceBusy ? '提交中…' : '提交申请').width('100%').height(56).fontSize(16).backgroundColor(RED)
+          .enabled(!this.commerceBusy && !this.refundAttempted).onClick(() => this.submitRefund()).id('refund_submit')
+        if (this.refundAttempted && !this.commerceBusy) {
+          Button('刷新订单确认结果').height(48).fontColor(RED).backgroundColor(Color.Transparent)
+            .onClick(() => { this.screen = 'shop-order-detail'; this.openCommerceOrder(this.commerceOrderId); })
+        }
+      }
+      if (this.commerceError) { this.Notice({ message: this.commerceError, color: GOLD_SOFT }) }
+    }
   }
 
   @Builder
@@ -2650,7 +3155,10 @@ struct Index {
         Button() { SymbolGlyph($r('sys.symbol.square_and_pencil')).fontSize(22).fontColor([RED]) }
           .width(48).height(48).backgroundColor(Color.Transparent).onClick(() => this.editAddress(address)).accessibilityText('编辑地址')
       }.width('100%').padding(15).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
-        .onClick(() => this.editAddress(address)).id(`edit_address_${address.id}`)
+        .onClick(() => {
+          if (this.selectingCheckoutAddress) { this.checkoutAddress = address; this.back(); }
+          else this.editAddress(address);
+        }).id(`edit_address_${address.id}`)
     }, (address: ShippingAddress) => address.id)
     Button('刷新地址').constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
       .enabled(!this.accountPageLoading).onClick(() => this.openAddresses())
@@ -2987,6 +3495,8 @@ struct Index {
           Text(this.orderStatus(order.status)).fontSize(15).fontColor(order.status === 0 ? RED : MUTED).layoutWeight(1)
           Text(this.money(order.amountCents)).fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK)
         }.width('100%')
+        Button('订单详情').width('100%').constraintSize({ minHeight: 48 }).fontColor(INK).backgroundColor(SURFACE)
+          .border({ width: 1, color: OUTLINE, radius: 12 }).onClick(() => this.openCommerceOrder(order.id)).id(`detail_order_${order.id}`)
         if (order.status === 0) {
           Button('去支付').width('100%').constraintSize({ minHeight: 48 }).backgroundColor(RED)
             .onClick(() => this.openPayment(order)).id(`pay_order_${order.id}`)
@@ -3562,6 +4072,18 @@ struct Index {
           this.ShopHomeContent()
         } else if (this.screen === 'shop-product') {
           this.ShopProductContent()
+        } else if (this.screen === 'shop-cart') {
+          this.CartContent()
+        } else if (this.screen === 'shop-checkout') {
+          this.CheckoutContent()
+        } else if (this.screen === 'shop-order-detail') {
+          this.OrderDetailContent()
+        } else if (this.screen === 'shop-express') {
+          this.ExpressContent()
+        } else if (this.screen === 'shop-after-sales') {
+          this.AfterSalesContent()
+        } else if (this.screen === 'shop-refund') {
+          this.RefundContent()
         } else if (this.screen === 'messages') {
           this.MessageContent()
         } else if (this.screen === 'shop-orders') {
@@ -3610,8 +4132,8 @@ struct Index {
             }
           }, (block: ArticleBlock) => `${this.selectedArticleId}-${block.id}-${block.url}`)
         }
-      }.width('100%').constraintSize({ maxWidth: 720 }).padding({ left: this.screen === 'about' ? 24 : 16,
-        right: this.screen === 'about' ? 24 : 16, top: 8, bottom: 24 })
+      }.width('100%').constraintSize({ maxWidth: 720 }).padding({ left: this.screen === 'shop-product' ? 0 : this.screen === 'about' ? 24 : 16,
+        right: this.screen === 'shop-product' ? 0 : this.screen === 'about' ? 24 : 16, top: this.screen === 'shop-product' ? 0 : 8, bottom: 24 })
     }.width('100%').layoutWeight(1).align(Alignment.Top).scrollBar(BarState.Off)
       if (this.screen === 'ai-chat') {
         Row({ space: 10 }) {
@@ -3624,6 +4146,38 @@ struct Index {
           }.width(48).height(48).borderRadius(24).backgroundColor(RED)
             .enabled(!this.aiBusy && this.aiInput.trim().length > 0).onClick(() => this.sendAiChat()).id('ai_send').accessibilityText('发送消息')
         }.width('100%').padding(12).backgroundColor(SURFACE)
+      } else if (this.screen === 'shop-product' && this.productDetail) {
+        Row({ space: 8 }) {
+          Button() { Column({ space: 2 }) {
+            SymbolGlyph($r('sys.symbol.house')).fontSize(23).fontColor([INK]); Text('首页').fontSize(11).fontColor(INK)
+          } }.width(44).height(52).backgroundColor(Color.Transparent).onClick(() => { this.screen = 'shop-home'; })
+          Button() { Column({ space: 2 }) {
+            SymbolGlyph($r('sys.symbol.phone')).fontSize(23).fontColor([INK]); Text('客服').fontSize(11).fontColor(INK)
+          } }.width(44).height(52).backgroundColor(Color.Transparent).onClick(() => this.openInnerPage('contact'))
+          Button('加入购物车').layoutWeight(1).height(48).fontSize(14).fontWeight(FontWeight.Bold).fontColor(INK).backgroundColor(SURFACE)
+            .type(ButtonType.Normal).border({ width: 1, color: OUTLINE, radius: 12 }).enabled(!this.commerceBusy)
+            .onClick(() => this.showPurchase(true)).id('product_add_cart')
+          Button('立即购买').layoutWeight(1).height(48).fontSize(14).fontWeight(FontWeight.Bold).backgroundColor(RED)
+            .type(ButtonType.Normal).borderRadius(12).enabled(!this.commerceBusy).onClick(() => this.showPurchase(false)).id('product_buy')
+        }.width('100%').padding({ left: 12, right: 12, top: 8, bottom: 10 }).backgroundColor(BG)
+          .bindSheet($$this.purchaseSheet, this.PurchaseSheetContent(), { height: SheetSize.FIT_CONTENT })
+      } else if (this.screen === 'shop-cart' && this.cartLines.length > 0 && !this.commerceLoading) {
+        Row({ space: 6 }) {
+          Checkbox().select(this.cartSelection.length === this.cartLines.length).selectedColor(RED).enabled(!this.commerceBusy)
+            .onChange((selected: boolean) => this.cartSelection = selected ? this.cartLines.map((line: ShopLine) => line.skuId) : []).id('cart_select_all')
+          Text('全选').fontSize(14).fontColor(INK)
+          Text(`合计 ${commerceMoney(this.cartTotal())}`).fontSize(16).fontWeight(FontWeight.Bold).fontColor(RED).layoutWeight(1)
+          Button(`结算（${this.cartChosen().length}）`).height(48).fontSize(14).backgroundColor(RED)
+            .enabled(!this.commerceBusy && this.cartChosen().length > 0 && this.cartTotal() >= 0)
+            .onClick(() => this.openCheckout(this.cartChosen().map((line: ShopLine): ShopSelection => { return { skuId: line.skuId, quantity: line.quantity }; }), true)).id('cart_checkout')
+        }.width('100%').padding(12).backgroundColor(SURFACE)
+      } else if (this.screen === 'shop-checkout' && this.checkoutPreview) {
+        Row({ space: 12 }) {
+          Text(`合计 ${commerceMoney(this.checkoutPreview.productCents + this.checkoutPreview.shippingCents)}`)
+            .fontSize(18).fontWeight(FontWeight.Bold).fontColor('#914E00').layoutWeight(1)
+          Button(this.commerceBusy ? '提交中…' : '提交订单').height(56).fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED)
+            .enabled(!this.commerceBusy && !this.checkoutAttempted).onClick(() => this.submitCommerceOrder()).id('checkout_submit')
+        }.width('100%').padding({ left: 18, right: 12, top: 9, bottom: 10 }).backgroundColor(BG)
       } else if (this.screen === 'shop-payment') {
         Column() {
           Button(this.paymentBusy ? '正在处理…' : `去支付  ${this.money(this.selectedOrder.amountCents)}`)
@@ -3644,7 +4198,7 @@ struct Index {
             .onClick(() => this.editAddress()).id('add_address')
         }.width('100%').padding(16)
       }
-    }.width('100%').height('100%')
+    }.width('100%').height('100%').backgroundColor(this.screen === 'shop-product' ? '#F6F4F2' : this.screen === 'shop-order-detail' ? '#F7F4F1' : BG)
   }
 
   build() {

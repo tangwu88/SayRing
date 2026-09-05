@@ -17,7 +17,7 @@ import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/app_theme.dart';
 import 'package:saydian_app/ui/pages.dart';
-import 'package:saydian_app/ui/prototype_pages.dart';
+import 'package:saydian_app/ui/prototype_pages.dart' hide AfterSalesPage;
 import 'package:saydian_app/ui/shop_pages.dart' as shop;
 
 void main() {
@@ -27,6 +27,13 @@ void main() {
     'capture iOS inner-page references without production writes',
     (tester) async {
       if (output.isEmpty) return;
+      const publicImages = bool.fromEnvironment('IOS_REFERENCE_PUBLIC_IMAGES');
+      if (publicImages) {
+        // Opt-in public product image capture only. API/account calls remain offline.
+        final previous = HttpOverrides.current;
+        HttpOverrides.global = null;
+        addTearDown(() => HttpOverrides.global = previous);
+      }
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
       await tester.runAsync(() async {
@@ -144,6 +151,44 @@ void main() {
         'sport-records': SportRecordsPage(controller: controller),
         'orders': OrdersPage(controller: controller, initialStatus: null),
         'shop': shop.ShopHomePage(controller: controller),
+        'shop-product': shop.ShopProductPage(
+          controller: controller,
+          productId: 1,
+        ),
+        'shop-cart': shop.ShoppingCartPage(controller: controller),
+        'shop-checkout': shop.ShopCheckoutPage(
+          controller: controller,
+          items: const [
+            {
+              'sku_id': 11,
+              'quantity': 1,
+              'product_name': '版式验证商品',
+              'price': '100.00',
+            },
+          ],
+        ),
+        'order-detail': OrderDetailPage(controller: controller, id: 1),
+        'order-express': shop.ShopExpressPage(
+          controller: controller,
+          orderId: 1,
+        ),
+        'after-sales': AfterSalesPage(
+          controller: controller,
+          order: const {
+            'id': 1,
+            'order_sn': 'REFERENCE-ONLY',
+            'order_status': 1,
+            'product': [
+              {
+                'id': 11,
+                'product_name': '版式验证商品',
+                'sku_name': '默认规格',
+                'product_money': '100.00',
+                'num': 1,
+              },
+            ],
+          },
+        ),
         'ai-chat': AiChatPage(controller: controller, app: 1),
         'articles': ArticleCategoryPage(controller: controller),
         'registration': RegistrationPage(controller: controller),
@@ -183,9 +228,12 @@ void main() {
           ),
         );
         await tester.pump();
-        if (page.key == 'address-edit') {
+        if (page.key == 'address-edit' ||
+            (page.key == 'shop-product' && publicImages)) {
           await tester.runAsync(
-            () => Future<void>.delayed(const Duration(milliseconds: 250)),
+            () => Future<void>.delayed(
+              Duration(milliseconds: publicImages ? 1200 : 250),
+            ),
           );
           await tester.pump();
         }
@@ -251,7 +299,68 @@ class _OfflineWatch extends Fake implements WearableBridge {
 }
 
 class _OfflineApi extends Fake
-    implements SaydianApi, SaydianArticleApi, SaydianShopApi {
+    implements
+        SaydianApi,
+        SaydianArticleApi,
+        SaydianShopApi,
+        SaydianShopCartApi {
+  @override
+  Future<Map<String, Object?>> getShopProduct(int id) async {
+    const source = String.fromEnvironment('IOS_REFERENCE_PRODUCT');
+    if (source.isNotEmpty) {
+      return (jsonDecode(File(source).readAsStringSync())
+              as Map<String, dynamic>)['data']
+          as Map<String, dynamic>;
+    }
+    return {
+      'id': 1,
+      'name': '版式验证商品',
+      'price': '100.00',
+      'sales': 0,
+      'sku': [
+        {'id': 11, 'name': '默认规格', 'price': '100.00', 'stock': 2},
+      ],
+      'intro': '仅用于离线界面核对',
+    };
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> getShopCartItems() async => [];
+  @override
+  Future<Map<String, Object?>> previewShopOrder({
+    required List<Map<String, int>> items,
+  }) async => {
+    'preview': {'product_money': '100.00', 'shipping_money': '0.00'},
+    'account': {'money1': '0.00'},
+    'products': [
+      {
+        'product_name': '版式验证商品',
+        'sku_name': '默认规格',
+        'product_money': '100.00',
+        'num': 1,
+      },
+    ],
+  };
+  @override
+  Future<Map<String, Object?>> getOrderDetail(int id) async => {
+    'id': 1,
+    'order_sn': 'REFERENCE-ONLY',
+    'order_status': 0,
+    'order_money': '100.00',
+    'pay_money': '100.00',
+    'created_at': '2026-09-06 00:00',
+    'product': [
+      {
+        'id': 11,
+        'product_name': '版式验证商品',
+        'sku_name': '默认规格',
+        'product_money': '100.00',
+        'num': 1,
+      },
+    ],
+  };
+  @override
+  Future<List<Map<String, Object?>>> getOrderExpress(int orderId) async => [];
   @override
   Future<Map<String, Object?>> getShopHome() async => {
     'items': [

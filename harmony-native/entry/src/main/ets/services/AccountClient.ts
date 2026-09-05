@@ -18,6 +18,9 @@ import { notificationUnreadCount, parseHarmonyPayment, parseShopOrder, parseShop
 import type { HarmonyPaymentRequest, PaymentProvider, PushIdentity, ShopOrder } from '../model/PushPaymentContracts';
 import { parseAiMessages, parseAiReply, parseShopHome } from '../model/ExperienceContracts';
 import type { AiChatMessage, ShopHome } from '../model/ExperienceContracts';
+import { parseProductDetail, parseCart, selectionFields, parseCheckout, checkoutError, commerceCents,
+  parseOrderDetail, parseShipments } from '../model/CommerceContracts';
+import type { ProductDetail, ShopLine, ShopSelection, CheckoutPreview, OrderDetail, Shipment } from '../model/CommerceContracts';
 
 export interface SessionStore {
   read(): Promise<Session | undefined>;
@@ -41,6 +44,7 @@ export class AccountClient {
   private refreshing: Promise<Session> | undefined = undefined;
   private careTargets: Map<number, number> = new Map();
   private shareSnapshots: Map<number, CareShareSettings> = new Map();
+  private shopWriteBusy: boolean = false;
 
   private clearCare(): void { this.careTargets.clear(); this.shareSnapshots.clear(); }
 
@@ -361,6 +365,126 @@ export class AccountClient {
   async shopHome(): Promise<ShopHome> {
     const response = await this.transport.request('/api/v1/pages?code=SHOP_HOME');
     return parseShopHome(response.data);
+  }
+
+  async shopProductDetail(id: number): Promise<ProductDetail> {
+    if (!Number.isSafeInteger(id) || id <= 0) throw new ApiError('商品编号无效');
+    return parseProductDetail((await this.transport.request(`/api/inv-shop/v1/product/product/view?id=${id}`)).data, id);
+  }
+
+  async shopCart(): Promise<ShopLine[]> {
+    return parseCart((await this.authorized('/api/inv-shop/v1/member/cart-item/index')).data);
+  }
+
+  async changeShopCart(skuId: number, quantity: number, action: 'add' | 'quantity' | 'delete'): Promise<ShopLine[]> {
+    selectionFields([{ skuId, quantity }]);
+    if (this.shopWriteBusy) throw new ApiError('正在更新，请稍候');
+    this.shopWriteBusy = true; const epoch = this.generation;
+    try {
+      const suffix = action === 'add' ? 'create' : action === 'quantity' ? 'update-num' : 'delete-ids';
+      const fields: FormField[] = action === 'delete' ? [{ name: 'sku_ids', value: String(skuId) }] :
+        [{ name: 'sku_id', value: String(skuId) }, { name: 'num', value: String(quantity) }];
+      await this.authorizedFields(`/api/inv-shop/v1/member/cart-item/${suffix}`, fields);
+      this.assertEpoch(epoch);
+      return await this.shopCart();
+    } finally { this.shopWriteBusy = false; }
+  }
+
+  private async checkoutFields(items: ShopSelection[]): Promise<FormField[]> {
+    const epoch = this.generation;
+    const cart = items.length > 1 ? await this.shopCart() : [];
+    this.assertEpoch(epoch); return selectionFields(items, cart);
+  }
+
+  async shopCheckout(items: ShopSelection[]): Promise<CheckoutPreview> {
+    const epoch = this.generation, fields = await this.checkoutFields(items); this.assertEpoch(epoch);
+    const query = fields.map((field: FormField) => `${field.name}=${encodeURIComponent(field.value)}`).join('&');
+    return parseCheckout((await this.authorized(`/api/inv-shop/v1/order/order/preview?${query}`)).data);
+  }
+
+  async createCommerceOrder(items: ShopSelection[], preview: CheckoutPreview, addressId: string,
+    points: string, message: string): Promise<number> {
+    const validation = checkoutError(preview, addressId, points, message);
+    if (validation) throw new ApiError(validation);
+    if (this.shopWriteBusy) throw new ApiError('正在提交，请勿重复操作');
+    this.shopWriteBusy = true; const epoch = this.generation;
+    try {
+      const latest = await this.shopCheckout(items); this.assertEpoch(epoch);
+      if (latest.productCents !== preview.productCents || latest.shippingCents !== preview.shippingCents) {
+        throw new ApiError('订单金额已变化，请返回重新确认');
+      }
+      const latestError = checkoutError(latest, addressId, points, message);
+      if (latestError) throw new ApiError(latestError);
+      const fields = await this.checkoutFields(items); this.assertEpoch(epoch);
+      const body: Record<string, Object> = { merchant_id: 0, is_channel: 0, address_id: Number(addressId),
+        buyer_message: message.trim(), shipping_type: 1, type: fields[0].value, data: fields[1].value,
+        point: commerceCents(points) / 100 };
+      const response = await this.authorized('/api/inv-shop/v1/order/order/create', JSON.stringify(body));
+      const data = response.data as Record<string, Object>;
+      const id = Number(data?.['id'] ?? data?.['order_id']);
+      if (!Number.isSafeInteger(id) || id <= 0) throw new ApiError('提交结果待确认，请先查看我的订单，勿重复提交');
+      return id;
+    } finally { this.shopWriteBusy = false; }
+  }
+
+  async commerceOrder(id: number): Promise<OrderDetail> {
+    if (!Number.isSafeInteger(id) || id <= 0) throw new ApiError('订单编号无效');
+    return parseOrderDetail((await this.authorized(`/api/inv-shop/v1/member/order/view?id=${id}`)).data, id);
+  }
+
+  async removeCreatedCartItems(orderId: number, items: ShopSelection[]): Promise<boolean> {
+    if (this.shopWriteBusy) return false;
+    this.shopWriteBusy = true; const epoch = this.generation;
+    try {
+      const order = await this.commerceOrder(orderId); this.assertEpoch(epoch);
+      // Never clear unrelated or changed cart rows, even after a successful create.
+      if (!items.length || items.some((item: ShopSelection) => !order.products.some((line: ShopLine) =>
+        line.skuId === item.skuId && line.quantity === item.quantity))) return false;
+      const cart = await this.shopCart(); this.assertEpoch(epoch);
+      let complete = true;
+      for (const item of items) {
+        const row = cart.find((line: ShopLine) => line.skuId === item.skuId);
+        if (!row) continue;
+        if (row.quantity !== item.quantity) { complete = false; continue; }
+        this.assertEpoch(epoch);
+        await this.authorizedFields('/api/inv-shop/v1/member/cart-item/delete-ids', [{ name: 'sku_ids', value: String(item.skuId) }]);
+        this.assertEpoch(epoch);
+      }
+      return complete;
+    } finally { this.shopWriteBusy = false; }
+  }
+
+  async shopShipments(id: number): Promise<Shipment[]> {
+    if (!Number.isSafeInteger(id) || id <= 0) throw new ApiError('订单编号无效');
+    return parseShipments((await this.authorized(`/api/inv-shop/v1/member/order-product-express/details?order_id=${id}`)).data);
+  }
+
+  async confirmShopReceipt(id: number): Promise<OrderDetail> {
+    if (this.shopWriteBusy) throw new ApiError('正在处理，请稍候');
+    this.shopWriteBusy = true; const epoch = this.generation;
+    try {
+      const latest = await this.commerceOrder(id); this.assertEpoch(epoch);
+      if (latest.order.status !== 2) throw new ApiError('订单状态已更新，请刷新');
+      await this.authorizedFields('/api/inv-shop/v1/member/order/take-delivery', [{ name: 'id', value: String(id) }]);
+      this.assertEpoch(epoch); return await this.commerceOrder(id);
+    } finally { this.shopWriteBusy = false; }
+  }
+
+  async applyShopRefund(orderId: number, lineId: number, type: number, amount: string, reason: string): Promise<OrderDetail> {
+    const cents = commerceCents(amount);
+    if (![1, 2].includes(type) || cents <= 0 || !reason.trim() || reason.trim().length > 200) throw new ApiError('请检查申请金额和售后原因');
+    if (this.shopWriteBusy) throw new ApiError('正在处理，请稍候');
+    this.shopWriteBusy = true; const epoch = this.generation;
+    try {
+      const latest = await this.commerceOrder(orderId); this.assertEpoch(epoch);
+      const item = latest.products.find((value: ShopLine) => value.id === lineId);
+      if (latest.order.status <= 0 || !item || item.applied || cents > latest.order.amountCents) throw new ApiError('该商品当前不可提交此售后申请，请刷新订单');
+      await this.authorizedFields('/api/inv-shop/v1/member/order-product/refund-apply', [
+        { name: 'id', value: String(lineId) }, { name: 'refund_type', value: String(type) },
+        { name: 'refund_require_money', value: (cents / 100).toFixed(2) }, { name: 'refund_reason', value: reason.trim() }
+      ]);
+      this.assertEpoch(epoch); return await this.commerceOrder(orderId);
+    } finally { this.shopWriteBusy = false; }
   }
 
   async aiMessages(): Promise<AiChatMessage[]> {
