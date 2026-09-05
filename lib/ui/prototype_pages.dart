@@ -588,7 +588,7 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
         children: [
           const FeatureStateCard(
             message: '设置健康数据上限提醒',
-            detail: '开关开启后，新测量值超过你设置的上限时，会在 APP 全局显示醒目提示。',
+            detail: '超过设定值时提醒。',
             icon: Icons.notifications_active_outlined,
             color: SaydianColors.orange,
           ),
@@ -703,12 +703,11 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
           else if (warnings.isEmpty &&
               widget.controller.healthWarningAlerts.isEmpty)
             FeatureStateCard(
-              message: '当前暂无健康预警',
-              detail:
+              message:
                   widget.controller.notificationStatus == '已加载' ||
                       widget.controller.notificationStatus == '暂无消息'
-                  ? '这里只显示设备或服务端明确上报的事件，不会根据普通测量值自行判断疾病。'
-                  : '${widget.controller.notificationStatus}。不会用普通测量值生成预警。',
+                  ? '暂无健康预警'
+                  : widget.controller.notificationStatus,
               icon: Icons.health_and_safety_outlined,
               color: SaydianColors.green,
             )
@@ -751,7 +750,7 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
                         ),
                         const SizedBox(height: 5),
                         Text(
-                          '${warning['content'] ?? warning['message'] ?? warning['created_at'] ?? '服务端已上报'}',
+                          '${warning['content'] ?? warning['message'] ?? warning['created_at'] ?? '健康预警'}',
                           maxLines: 4,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -1133,9 +1132,6 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                         : widget.controller.careInvitationStatus == '服务暂不可用'
                         ? '关爱邀请服务暂不可用'
                         : '暂无新的关爱邀请',
-                    detail: targeted != null || targetId != null
-                        ? '页面已根据服务端最新状态刷新，不会重复显示操作按钮。'
-                        : '收到邀请后，可在这里明确同意或拒绝。',
                     icon: Icons.mark_email_unread_outlined,
                   ),
                 ],
@@ -1765,7 +1761,6 @@ class _EcgMedicalSection extends StatelessWidget {
     if (values.isEmpty) {
       return const FeatureStateCard(
         message: '本次仅返回基础心电数据',
-        detail: '不同型号手表返回的医学指标数量不同，未返回的指标不会推算或补造。',
         icon: Icons.monitor_heart_outlined,
       );
     }
@@ -1856,7 +1851,6 @@ class _EcgRiskSection extends StatelessWidget {
     if (!hasAnalysis) {
       return const FeatureStateCard(
         message: '本次手表未返回风险指标',
-        detail: '风险分析只展示设备实际返回的数据，不根据单次波形自行诊断。',
         icon: Icons.health_and_safety_outlined,
       );
     }
@@ -2799,7 +2793,6 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 '表盘商城',
                 style: TextStyle(fontWeight: FontWeight.w800),
               ),
-              subtitle: const Text('浏览并下载适配当前手表的在线表盘'),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: busy || _openingWatchFaceMarket
                   ? null
@@ -2812,7 +2805,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             child: ListTile(
               leading: const Icon(Icons.info_outline_rounded),
               title: const Text('已安装表盘'),
-              subtitle: const Text('可读取和切换手表内已有表盘，更多表盘以当前手表支持情况为准。'),
+              subtitle: const Text('可切换手表内已有表盘'),
             ),
           ),
           const SizedBox(height: 12),
@@ -4290,7 +4283,6 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     if (settings.isEmpty && !warningSupported) {
       return FeatureStateCard(
         message: widget.controller.deviceSettingsStatus,
-        detail: '读取结果以当前连接手表实际支持的自动检测项目为准。',
         icon: Icons.monitor_heart_outlined,
         actionLabel: '重新读取',
         onAction: widget.controller.refreshDeviceSettings,
@@ -4531,7 +4523,6 @@ class _EcgWaveformCard extends StatelessWidget {
               SizedBox(height: 10),
               FeatureStateCard(
                 message: '手表未返回可用心电波形',
-                detail: '本次同步的心率、HRV 和 QT 等指标仍可查看；App 不会根据无效采样生成波形。',
                 icon: Icons.monitor_heart_outlined,
               ),
             ],
@@ -4549,8 +4540,8 @@ class _EcgWaveformCard extends StatelessWidget {
               Text('心电波形', style: TextStyle(fontWeight: FontWeight.w800)),
               SizedBox(height: 10),
               FeatureStateCard(
-                message: '该记录未保存有效的波形增益信息',
-                detail: '平均心率和 HRV 等结果仍可查看；请使用当前版本重新测量心电，以生成经过设备增益校准的波形。',
+                message: '本次波形无法显示',
+                detail: '请重新测量心电。',
                 icon: Icons.monitor_heart_outlined,
               ),
             ],
@@ -5240,7 +5231,6 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
                 ListTile(
                   leading: const Icon(Icons.system_update_alt_rounded),
                   title: const Text('检查更新'),
-                  subtitle: const Text('检查是否有新版本'),
                   trailing: _checking
                       ? const SizedBox.square(
                           dimension: 22,

@@ -10,6 +10,63 @@ import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 
 void main() {
+  test(
+    'iOS WeChat exchanges code without prematurely persisting a session',
+    () async {
+      final vault = MemorySessionVault();
+      final api = SaydianApiClient(
+        vault,
+        client: MockClient((request) async {
+          expect(request.url.path, '/api/v1/site/wechat-login');
+          expect(request.method, 'POST');
+          expect(request.body, contains('name="platform"\r\n\r\nios'));
+          expect(request.body, contains('name="group"\r\n\r\napp'));
+          expect(request.body, contains('one-time-code'));
+          expect(request.body.toLowerCase(), isNot(contains('secret')));
+          return http.Response(
+            '{"code":200,"data":{"access_token":"test-token","member":{"id":17}}}',
+            200,
+          );
+        }),
+      );
+      final session = await api.loginWithWechat(
+        code: 'one-time-code',
+        state: 'sd_1788569000000_0123456789abcdef',
+      );
+      expect(session.memberId, '17');
+      expect(await vault.readSession(), isNull);
+    },
+  );
+
+  test(
+    'WeChat rejects missing identity, malformed and unavailable backend responses',
+    () async {
+      for (final response in [
+        http.Response('{"code":200,"data":{"access_token":"test-token"}}', 200),
+        http.Response(
+          '请用微信打开',
+          200,
+          headers: {'content-type': 'text/plain; charset=utf-8'},
+        ),
+        http.Response('{"code":404,"message":"not found"}', 404),
+      ]) {
+        final vault = MemorySessionVault();
+        final api = SaydianApiClient(
+          vault,
+          client: MockClient((_) async => response),
+        );
+        await expectLater(
+          api.loginWithWechat(
+            code: 'one-time-code',
+            state: 'sd_1788569000000_0123456789abcdef',
+          ),
+          throwsA(isA<ApiException>()),
+        );
+        expect(await vault.readSession(), isNull);
+      }
+    },
+  );
+
   test('care member list uses the mini-program member endpoint', () async {
     final vault = MemorySessionVault()
       ..session = Session(

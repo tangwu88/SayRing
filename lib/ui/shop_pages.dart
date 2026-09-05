@@ -1211,7 +1211,7 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
           title: Text(partialFailure.isEmpty ? '订单已提交' : '部分订单已提交'),
           content: Text(
             partialFailure.isEmpty
-                ? '已生成 ${orderIds.length} 个订单。商城服务暂不支持合并订单，请在订单中心逐单支付。'
+                ? '已生成 ${orderIds.length} 个订单，请分别支付。'
                 : '已生成 ${orderIds.length} 个订单；其余商品提交失败：$partialFailure。已成功的商品已从购物车移除。',
           ),
           actions: [

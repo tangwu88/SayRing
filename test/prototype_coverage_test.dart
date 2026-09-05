@@ -475,7 +475,17 @@ void main() {
     expect(find.text('隐私政策'), findsOneWidget);
     expect(find.text('用户协议'), findsOneWidget);
     expect(find.text('检查更新'), findsOneWidget);
-    expect(find.text('检查是否有新版本'), findsOneWidget);
+    expect(
+      tester
+          .widget<ListTile>(
+            find.ancestor(
+              of: find.text('检查更新'),
+              matching: find.byType(ListTile),
+            ),
+          )
+          .onTap,
+      isNotNull,
+    );
 
     await tester.pumpWidget(const MaterialApp(home: CustomerServicePage()));
     await tester.pumpAndSettle();

@@ -61,6 +61,21 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
+  Future<void> _wechatLogin() async {
+    if (widget.controller.isWechatLoginInProgress) {
+      widget.controller.cancelWechatLogin();
+      return;
+    }
+    if (!_accepted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先同意用户协议与隐私政策')));
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    await widget.controller.loginWithWechat(privacyConsentGranted: true);
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
@@ -83,6 +98,7 @@ class _LoginPageState extends State<LoginPage> {
                     SizedBox(height: compactLayout ? 32 : 64),
                     TextField(
                       controller: _account,
+                      enabled: !controller.isBusy,
                       keyboardType: TextInputType.phone,
                       autofillHints: const [AutofillHints.username],
                       decoration: InputDecoration(
@@ -102,6 +118,7 @@ class _LoginPageState extends State<LoginPage> {
                     const SizedBox(height: 14),
                     TextField(
                       controller: _password,
+                      enabled: !controller.isBusy,
                       obscureText: _obscure,
                       autofillHints: const [AutofillHints.password],
                       decoration: InputDecoration(
@@ -169,7 +186,9 @@ class _LoginPageState extends State<LoginPage> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      child: controller.isBusy
+                      child:
+                          controller.isBusy &&
+                              !controller.isWechatLoginInProgress
                           ? const SizedBox.square(
                               dimension: 22,
                               child: CircularProgressIndicator(
@@ -202,7 +221,39 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       child: const Text('注册账户'),
                     ),
-                    if (kDebugMode) ...[
+                    if (!kIsWeb &&
+                        defaultTargetPlatform == TargetPlatform.iOS) ...[
+                      const SizedBox(height: 12),
+                      Center(
+                        child: FractionallySizedBox(
+                          widthFactor: 0.6,
+                          child: OutlinedButton(
+                            key: const Key('wechat-login'),
+                            onPressed:
+                                controller.isBusy &&
+                                    !controller.canCancelWechatLogin
+                                ? null
+                                : _wechatLogin,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF07883E),
+                              minimumSize: const Size.fromHeight(48),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 10,
+                              ),
+                            ),
+                            child: Text(
+                              controller.isWechatLoginInProgress
+                                  ? controller.canCancelWechatLogin
+                                        ? '取消微信登录'
+                                        : '正在登录'
+                                  : '微信授权登录',
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ] else if (kDebugMode) ...[
                       const SizedBox(height: 20),
                       TextButton.icon(
                         onPressed: controller.enterPreview,
@@ -1077,7 +1128,7 @@ class _DeviceHero extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   device == null
-                      ? '连接后同步真实健康数据'
+                      ? '连接后同步健康数据'
                       : '${device.model ?? '赛电设备'} · ${controller.syncStatus}',
                   style: const TextStyle(
                     color: SaydianColors.muted,
@@ -1262,6 +1313,7 @@ class _MetricCard extends StatelessWidget {
                 controller: controller,
                 metric: metric,
                 color: chartColor,
+                showEmptyLabel: false,
               ),
             ],
           ),
@@ -6591,6 +6643,7 @@ class _CareEcgRecordCard extends StatelessWidget {
             const SizedBox(height: 12),
             if (usableWaveform)
               Container(
+                key: const Key('care-ecg-waveform'),
                 height: 150,
                 width: double.infinity,
                 clipBehavior: Clip.antiAlias,
@@ -6604,7 +6657,7 @@ class _CareEcgRecordCard extends StatelessWidget {
               )
             else
               const _InlineNotice(
-                message: '服务端未返回带校准信息的可用心电波形，仅展示已有客观指标。',
+                message: '暂无可用心电波形',
                 icon: Icons.monitor_heart_outlined,
                 color: SaydianColors.orange,
               ),

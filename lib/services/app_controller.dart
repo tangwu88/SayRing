@@ -26,6 +26,8 @@ import 'secure_vault.dart';
 import 'sync_service.dart';
 import 'wearable_bridge.dart';
 import 'wearable_bootstrap.dart';
+import 'wechat_auth_bridge.dart';
+import 'user_message.dart';
 
 enum PushDeviceRegistrationState {
   idle,
@@ -55,9 +57,11 @@ class AppController extends ChangeNotifier {
     this._healthStore,
     this._wearable, {
     AppPaymentBridge? paymentBridge,
+    WechatAuthBridge? wechatAuthBridge,
     AppNotificationService? notificationService,
     List<Duration>? pushRegistrationRetryDelays,
   }) : _paymentBridge = paymentBridge ?? const MethodChannelAppPaymentBridge(),
+       _wechatAuthBridge = wechatAuthBridge ?? MethodChannelWechatAuthBridge(),
        _notificationService =
            notificationService ?? const DisabledAppNotificationService(),
        _pushRegistrationRetryDelays = List.unmodifiable(
@@ -89,6 +93,11 @@ class AppController extends ChangeNotifier {
   final HealthStore _healthStore;
   final WearableBridge _wearable;
   final AppPaymentBridge _paymentBridge;
+  final WechatAuthBridge _wechatAuthBridge;
+  int _wechatLoginGeneration = 0;
+  bool isWechatLoginInProgress = false;
+  bool get canCancelWechatLogin =>
+      isWechatLoginInProgress && !_accountTransitioning;
   final AppNotificationService _notificationService;
   final List<Duration> _pushRegistrationRetryDelays;
   final HealthSyncService _syncService;
@@ -562,6 +571,7 @@ class AppController extends ChangeNotifier {
     String password, {
     bool privacyConsentGranted = false,
   }) async {
+    if (isBusy) return false;
     if (username.trim().isEmpty || password.isEmpty) {
       errorMessage = '请输入账号和密码';
       notifyListeners();
@@ -590,6 +600,104 @@ class AppController extends ChangeNotifier {
         _accountTransitioning = false;
       }
     });
+  }
+
+  Future<bool> loginWithWechat({required bool privacyConsentGranted}) async {
+    if (isBusy || _disposed) return false;
+    if (!privacyConsentGranted) {
+      errorMessage = '请先同意用户协议与隐私政策';
+      notifyListeners();
+      return false;
+    }
+    final api = _api;
+    if (api is! SaydianWechatAuthApi) {
+      errorMessage = '微信登录暂不可用，请使用手机号登录';
+      notifyListeners();
+      return false;
+    }
+    final generation = ++_wechatLoginGeneration;
+    bool isCurrent() => !_disposed && generation == _wechatLoginGeneration;
+    isBusy = true;
+    isWechatLoginInProgress = true;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      await _vault.writePrivacyConsentGranted(true);
+      if (!isCurrent()) return false;
+      _privacyConsentGranted = true;
+      final authorization = await _wechatAuthBridge.authorize();
+      if (authorization == null || !isCurrent()) return false;
+      final authenticated = await (api as SaydianWechatAuthApi).loginWithWechat(
+        code: authorization.code,
+        state: authorization.state,
+      );
+      if (!isCurrent()) return false;
+      _accountTransitioning = true;
+      await _drainCloudSync();
+      if (!isCurrent()) return false;
+      await _vault.writeSession(authenticated);
+      if (!isCurrent()) return false;
+      session = authenticated;
+      await _prepareAuthenticatedNotificationSession(
+        privacyConsentGranted: true,
+        canContinue: isCurrent,
+      );
+      if (!isCurrent()) return false;
+      isPreviewMode = false;
+      await refreshCare();
+      if (!isCurrent()) return false;
+      await refreshCareInvitations();
+      if (!isCurrent()) return false;
+      await _refreshRemoteNotificationUnreadCount();
+      if (!isCurrent()) return false;
+      await refreshMemberProfile();
+      if (!isCurrent()) return false;
+      await refreshActivityGoals();
+      if (!isCurrent()) return false;
+      unawaited(refreshHealthWarningCloudState());
+      _careInvitationPollBackoffIndex = 0;
+      _scheduleCareInvitationPoll(const Duration(seconds: 30));
+      return true;
+    } on PlatformException catch (error) {
+      if (isCurrent()) {
+        errorMessage = switch (error.code) {
+          'WECHAT_NOT_INSTALLED' => '请先安装微信',
+          'WECHAT_UNSUPPORTED' => '请更新微信后重试',
+          'WECHAT_AUTH_DENIED' => '未同意微信授权',
+          'WECHAT_AUTH_TIMEOUT' => '微信授权已超时，请重试',
+          'WECHAT_AUTH_CONFIG_MISSING' => '微信登录暂不可用，请使用手机号登录',
+          _ => '微信登录失败，请重试',
+        };
+      }
+      return false;
+    } on ApiException catch (error) {
+      if (isCurrent()) {
+        errorMessage = error.statusCode == 404 || error.statusCode == 405
+            ? '微信登录暂不可用，请使用手机号登录'
+            : _apiErrorMessage(error, fallback: '微信登录失败，请重试');
+      }
+      return false;
+    } catch (_) {
+      if (isCurrent()) errorMessage = '微信登录暂不可用，请使用手机号登录';
+      return false;
+    } finally {
+      if (isCurrent()) {
+        _accountTransitioning = false;
+        isBusy = false;
+        isWechatLoginInProgress = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  void cancelWechatLogin({bool force = false}) {
+    if (!isWechatLoginInProgress || (!force && !canCancelWechatLogin)) return;
+    ++_wechatLoginGeneration;
+    isWechatLoginInProgress = false;
+    isBusy = false;
+    _accountTransitioning = false;
+    unawaited(_wechatAuthBridge.cancel());
+    if (!_disposed) notifyListeners();
   }
 
   Future<bool> sendSmsCode({
@@ -723,10 +831,13 @@ class AppController extends ChangeNotifier {
 
   Future<void> _prepareAuthenticatedNotificationSession({
     required bool privacyConsentGranted,
+    bool Function()? canContinue,
   }) async {
     await _ensureStableSessionOwnerKey();
+    if (canContinue?.call() == false) return;
     _privacyConsentGranted = privacyConsentGranted;
     await _vault.writePrivacyConsentGranted(privacyConsentGranted);
+    if (canContinue?.call() == false) return;
     final generation = _advanceSessionGeneration(session);
     await _switchHealthOwnerAndLoad(session, expectedGeneration: generation);
     if (!_isCurrentSessionGeneration(generation)) return;
@@ -753,6 +864,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    cancelWechatLogin(force: true);
     isBusy = true;
     _accountTransitioning = true;
     notifyListeners();
@@ -2291,7 +2403,7 @@ class AppController extends ChangeNotifier {
         ? _api as SaydianProfileUploadApi
         : null;
     if (uploadApi == null) {
-      errorMessage = '头像上传接口暂未配置';
+      errorMessage = '头像暂时无法上传，请稍后重试';
       notifyListeners();
       return null;
     }
@@ -3448,9 +3560,7 @@ class AppController extends ChangeNotifier {
       errorMessage = _shopPaymentErrorMessage(error);
       return null;
     } on PlatformException catch (error) {
-      errorMessage = error.message?.trim().isNotEmpty == true
-          ? error.message
-          : '无法调起支付客户端，请确认已安装对应应用';
+      errorMessage = userFacingMessage(error.message, fallback: '暂时无法支付，请稍后重试');
       return null;
     } finally {
       isBusy = false;
@@ -3466,9 +3576,9 @@ class AppController extends ChangeNotifier {
       return '支付服务暂不可用，请稍后重试';
     }
     if (message.contains('授权有误') || message.contains('配置')) {
-      return '支付服务配置异常，请稍后重试';
+      return '支付暂不可用，请稍后重试';
     }
-    return _apiErrorMessage(error, fallback: '支付参数生成失败，请稍后重试');
+    return _apiErrorMessage(error, fallback: '支付暂不可用，请稍后重试');
   }
 
   Future<AppPaymentResult?> takeWechatPaymentResult() async {
@@ -3712,21 +3822,7 @@ class AppController extends ChangeNotifier {
     if (error is FeatureNotConfiguredException) {
       return '此功能暂时无法使用，请稍后再试';
     }
-    final message = error.message.trim();
-    final normalized = message.toLowerCase();
-    if (normalized.contains('network') ||
-        normalized.contains('socket') ||
-        normalized.contains('timeout') ||
-        message.contains('网络')) {
-      return '网络不可用，请检查后重试';
-    }
-    if (message.contains('接口未配置') ||
-        normalized.contains('token') ||
-        normalized.contains('http') ||
-        normalized.contains('api')) {
-      return fallback;
-    }
-    return message.isEmpty ? fallback : message;
+    return userFacingMessage(error.message, fallback: fallback);
   }
 
   bool _isMeasurementErrorCode(String code) {
@@ -3795,7 +3891,7 @@ class AppController extends ChangeNotifier {
     };
     if (mappedMessage != null) return mappedMessage;
     if (nativeMessage != null && nativeMessage.isNotEmpty) {
-      return nativeMessage;
+      return userFacingMessage(nativeMessage, fallback: fallback);
     }
     return fallback;
   }
@@ -4275,6 +4371,8 @@ class AppController extends ChangeNotifier {
 
   @override
   void dispose() {
+    ++_wechatLoginGeneration;
+    if (isWechatLoginInProgress) unawaited(_wechatAuthBridge.cancel());
     _disposed = true;
     _wearableRestoreGeneration++;
     _measurementTimeout?.cancel();

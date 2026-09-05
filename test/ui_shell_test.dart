@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/feature_models.dart';
@@ -16,6 +17,31 @@ import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
 
 void main() {
+  testWidgets('home mini chart does not duplicate its parent empty status', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HealthMetricMiniChart(
+          controller: controller,
+          metric: HealthMetric.heartRate,
+          color: Colors.red,
+          showEmptyLabel: false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(Text), findsNothing);
+    expect(find.byType(LineChart), findsNothing);
+  });
+
   testWidgets('three-tab health shell exposes the redesigned home flows', (
     tester,
   ) async {
@@ -1150,8 +1176,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('手表未返回可用心电波形'), findsOneWidget);
-    expect(find.textContaining('不会根据无效采样生成波形'), findsOneWidget);
-    expect(find.text('该记录未保存有效的波形增益信息'), findsNothing);
+    expect(find.byType(LineChart), findsNothing);
   });
 
   testWidgets('health record detail honors the stored measurement timezone', (
@@ -1928,7 +1953,7 @@ void main() {
       expect(find.text('372'), findsOneWidget);
       expect(find.text('HRV'), findsOneWidget);
       expect(find.text('52'), findsOneWidget);
-      expect(find.textContaining('未返回带校准信息'), findsOneWidget);
+      expect(find.byKey(const Key('care-ecg-waveform')), findsNothing);
       expect(find.text('samples'), findsNothing);
       expect(find.text('rawVersion'), findsNothing);
       expect(tester.takeException(), isNull);

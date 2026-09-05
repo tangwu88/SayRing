@@ -1435,8 +1435,10 @@ void main() {
 
       expect(unavailable.errorMessage, '支付服务暂不可用，请稍后重试');
 
+      final bridge = _RecordingPaymentBridge();
       final misconfigured = _authenticatedController(
         api: _PaymentFailureApi(const ApiException('微信授权有误')),
+        paymentBridge: bridge,
       );
       addTearDown(misconfigured.dispose);
 
@@ -1446,7 +1448,10 @@ void main() {
         money: 199,
       );
 
-      expect(misconfigured.errorMessage, '支付服务配置异常，请稍后重试');
+      expect(misconfigured.errorMessage, contains('重试'));
+      expect(misconfigured.errorMessage, isNot(contains('配置')));
+      expect(bridge.wechatParameters, isNull);
+      expect(misconfigured.isBusy, isFalse);
     },
   );
 

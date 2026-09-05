@@ -208,11 +208,20 @@ abstract interface class SaydianFeedbackApi {
   });
 }
 
+abstract interface class SaydianWechatAuthApi {
+  /// Exchange only. The controller persists the session after its epoch check.
+  Future<Session> loginWithWechat({
+    required String code,
+    required String state,
+  });
+}
+
 class SaydianApiClient
     implements
         SaydianApi,
         SaydianFileApi,
         SaydianSmsAuthApi,
+        SaydianWechatAuthApi,
         SaydianArticleApi,
         SaydianShopApi,
         SaydianShopCartApi,
@@ -251,6 +260,24 @@ class SaydianApiClient
     {'username': username, 'password': password, 'group': 'app'},
     accountKey: _stableLoginAccountKey(username),
   );
+
+  @override
+  Future<Session> loginWithWechat({
+    required String code,
+    required String state,
+  }) {
+    if (code.trim().isEmpty ||
+        code.length > 1024 ||
+        !RegExp(r'^sd_[0-9]{13}_[A-Za-z0-9-]{16,64}$').hasMatch(state)) {
+      throw const ApiException('微信授权已失效，请重试');
+    }
+    return _authenticate(
+      '/api/v1/site/wechat-login',
+      {'code': code.trim(), 'state': state, 'group': 'app', 'platform': 'ios'},
+      persistSession: false,
+      requireMemberId: true,
+    );
+  }
 
   @override
   Future<Session> register(String mobile, String password) => _authenticate(
@@ -337,6 +364,8 @@ class SaydianApiClient
     Session? fallback,
     String? accountKey,
     Session? expectedSession,
+    bool persistSession = true,
+    bool requireMemberId = false,
   }) async {
     final request = http.MultipartRequest('POST', _uri(path))
       ..fields.addAll(fields);
@@ -369,6 +398,12 @@ class SaydianApiClient
     if (session.accessToken.isEmpty) {
       throw const ApiException('登录响应缺少 access_token');
     }
+    if (requireMemberId &&
+        (session.memberId.trim().isEmpty ||
+            {'0', 'null', 'undefined'}.contains(session.memberId.trim()))) {
+      throw const ApiException('微信登录失败，请重试', code: 'AUTH_IDENTITY_MISSING');
+    }
+    if (!persistSession) return session;
     if (expectedSession == null) {
       await _vault.writeSession(session);
     } else {

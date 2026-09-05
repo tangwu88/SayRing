@@ -484,12 +484,26 @@ void main() {
       );
       addTearDown(controller.dispose);
       await controller.initialize();
+      final settled = Completer<void>();
+      void observeFailure() {
+        if (controller.pushDeviceRegistrationState ==
+                PushDeviceRegistrationState.failed &&
+            !settled.isCompleted) {
+          settled.complete();
+        }
+      }
+
+      controller.addListener(observeFailure);
       await controller.login(
         '13000000000',
         'test-only-password',
         privacyConsentGranted: true,
       );
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+      try {
+        await settled.future.timeout(const Duration(seconds: 5));
+      } finally {
+        controller.removeListener(observeFailure);
+      }
 
       expect(api.registerCount, 3);
       expect(
