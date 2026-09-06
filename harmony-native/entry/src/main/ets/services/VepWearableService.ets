@@ -1512,6 +1512,14 @@ export class VepWearableService {
     } catch {}
   }
 
+  async savedSportRecords(): Promise<HealthRecord[]> {
+    const session = this.accountSession;
+    if (!validHealthOwner(session.ownerId)) return [];
+    const records = await wearableHealthStore.loadSportRecords(session.ownerId);
+    if (!sameHealthSession(session, this.accountSession)) throw new Error('账号已变化，请重新打开运动记录');
+    return records.map(normalizeLegacyDistanceRecord);
+  }
+
   async healthRange(deviceKey: string, metric: WearableMetricKey, start: number, end: number): Promise<HealthRecord[]> {
     if (!deviceKey || deviceKey !== this.snapshot.deviceKey || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
       throw new Error('设备或日期已变更，请重新选择');

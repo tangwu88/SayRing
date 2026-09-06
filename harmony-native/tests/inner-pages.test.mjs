@@ -89,6 +89,41 @@ test('profile 404, offline and wrong identity cannot become save success',async(
   const wrong=await clientWith(async path=>response(path.endsWith('/my')?{id:2}:{}));
   await assert.rejects(wrong.saveProfile(profile));
 });
+for (const [field, ignored, label] of [
+  ['nickname','旧昵称','昵称'], ['gender',2,'性别'], ['birthday','1991-05-21','生日'],
+  ['height',170,'身高'], ['weight',60,'体重'], ['head_portrait','/attachment/old.png','头像']
+]) test(`profile save rejects an acknowledged but ignored ${field}`,async()=>{
+  const calls=[];
+  const client=await clientWith(async(path,fields)=>{
+    calls.push({path,fields});
+    return response(path.endsWith('/my')?{id:1,...profile,head_portrait:'/attachment/avatar.png',[field]:ignored}:{});
+  });
+  await assert.rejects(client.saveProfile(profile,'https://app.saidian.cc/attachment/avatar.png'),error=>
+    error.message.includes('未全部保存')&&error.message.includes(label));
+  assert.equal(calls.length,2); // No automatic overwrite/retry using the incomplete readback.
+});
+test('profile numeric equivalents and relative avatar pass without rewriting unsubmitted fields',async()=>{
+  const calls=[];
+  const returned={id:1,...profile,gender:'1',height:172,weight:65.5,mobile:'10000000002',head_portrait:'/attachment/avatar.png'};
+  const client=await clientWith(async(path,fields)=>{calls.push({path,fields});return response(path.endsWith('/my')?returned:{});});
+  assert.equal(await client.saveProfile({...profile,nickname:' 合成昵称 '}),returned);
+  assert.equal(calls[0].fields.some(field=>['head_portrait','mobile'].includes(field.name)),false);
+  await client.saveProfile(profile,'https://app.saidian.cc/attachment/avatar.png');
+});
+test('profile absent or malformed fields are never treated as saved numeric zero',async()=>{
+  for(const value of [undefined,null,'',false,'not-a-number']){
+    const client=await clientWith(async path=>response(path.endsWith('/my')?{id:1,...profile,gender:value}:{}));
+    await assert.rejects(client.saveProfile({...profile,gender:0}),/性别/);
+  }
+});
+test('profile verification compares the sent snapshot even if the caller edits its draft while waiting',async()=>{
+  let release;
+  const gate=new Promise(resolve=>{release=resolve;});
+  const draft={...profile};
+  const client=await clientWith(async path=>{if(path.endsWith('/save'))await gate;return response(path.endsWith('/my')?{id:1,...profile}:{});});
+  const saving=client.saveProfile(draft);draft.nickname='后来编辑';draft.height='180';release();
+  assert.equal((await saving).nickname,profile.nickname);
+});
 test('feedback only reports success after the server returns a stable id',async()=>{
   const client=await clientWith(async(path,fields)=>{assert.equal(path,'/api/v1/member/feedback');assert.equal(fields.find(f=>f.name==='type').value,'设备连接');return response({id:7});});
   assert.equal(await client.submitFeedback('设备连接','合成反馈内容',''),'7');

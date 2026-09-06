@@ -5,7 +5,7 @@ import {
 } from '../model/Contracts';
 import type { Envelope, Session, FormField, MemberProfile, Article, UploadFile } from '../model/Contracts';
 import { profileImageUrl } from '../model/Contracts';
-import { profileDraftError, feedbackError } from '../model/DisplayPreferences';
+import { profileDraftError, profileSaveMismatches, feedbackError } from '../model/DisplayPreferences';
 import type { ProfileDraft } from '../model/DisplayPreferences';
 import { parseAddresses, parseInbox, parseArticleCategories } from '../model/AccountPageContracts';
 import type { ShippingAddress, InboxMessage, ArticleCategory } from '../model/AccountPageContracts';
@@ -367,6 +367,8 @@ export class AccountClient {
     this.assertEpoch(epoch);
     const profile = await this.profile();
     this.assertEpoch(epoch);
+    const mismatches = profileSaveMismatches(fields, profile);
+    if (mismatches.length) throw new ApiError(`个人资料未全部保存，请核对${mismatches.join('、')}后重试`);
     return profile;
   }
 
@@ -647,29 +649,16 @@ export class AccountClient {
     const spec = CARE_METRICS.find((item: CareMetricSpec) => item.key === key);
     if (!spec) throw new ApiError('不支持此健康项目');
     const query = `selectmember=${memberId}&date=${chinaDaySeconds(day)}`;
-    let typedError: ApiError | undefined = undefined;
     try {
       const response = await this.authorized(`${spec.endpoint}?${query}${spec.type ? `&type=${spec.type}` : ''}`);
       this.assertEpoch(epoch);
-      const result = parseCareMetric(spec, response.data, day);
-      if (result.state === 'ready' || !spec.type) return result;
-    } catch (error) {
-      this.assertEpoch(epoch);
-      if (error instanceof ApiError && error.status === 401) throw error;
-      typedError = error instanceof ApiError ? error : new ApiError('成员数据读取失败');
-      if (typedError.status === 403) return careMetricState(spec, 'unauthorized', '对方尚未授权此项目');
-      if (!spec.type || typedError.status === 0) return careMetricState(spec, 'unavailable', typedError.message);
-    }
-    // Confirmed legacy fallback: same member/date and only the selected metric's whitelisted fields.
-    // A 403 is never bypassed using another endpoint.
-    try {
-      const response = await this.authorized(`${spec.endpoint}?${query}`);
-      this.assertEpoch(epoch);
-      return parseCareMetric(spec, response.data, day, false);
+      // Only the selected metric endpoint is authoritative, including an empty response.
+      return parseCareMetric(spec, response.data, day);
     } catch (error) {
       this.assertEpoch(epoch);
       if (error instanceof ApiError && error.status === 401) throw error;
       if (error instanceof ApiError && error.status === 403) return careMetricState(spec, 'unauthorized', '对方尚未授权此项目');
+      if (error instanceof ApiError && error.status === 0) return careMetricState(spec, 'unavailable', error.message);
       return careMetricState(spec, 'unavailable', '该项服务暂不可用，请稍后重试');
     }
   }
@@ -677,42 +666,10 @@ export class AccountClient {
   async careMetrics(relationId: number, memberId: number, day: string): Promise<CareMetric[]> {
     const epoch = this.generation;
     if (this.careTargets.get(relationId) !== memberId) throw new ApiError('成员关系已变化，请返回列表重新读取');
-    const query = `selectmember=${memberId}&date=${chinaDaySeconds(day)}`;
-    let sharedDailyRows: Object | undefined = undefined;
-    try {
-      const response = await this.authorized(`/api/v1/member/daily-date/preview?${query}`);
-      this.assertEpoch(epoch);
-      sharedDailyRows = response.data;
-    } catch (error) {
-      this.assertEpoch(epoch);
-      if (error instanceof ApiError && error.status === 401) throw error;
-      // Per-metric reads below remain authoritative. A failed aggregate read
-      // must not turn an authorized metric into a fabricated empty result.
-    }
-    const read = async (spec: CareMetricSpec): Promise<CareMetric> => {
-      if (!spec.type) return this.careMetric(relationId, memberId, spec.key, day);
-      try {
-        const response = await this.authorized(`${spec.endpoint}?${query}&type=${spec.type}`);
-        this.assertEpoch(epoch);
-        const typed = parseCareMetric(spec, response.data, day);
-        if (typed.state === 'ready' || sharedDailyRows === undefined) return typed;
-        return parseCareMetric(spec, sharedDailyRows, day, false);
-      } catch (error) {
-        this.assertEpoch(epoch);
-        if (error instanceof ApiError && error.status === 401) throw error;
-        if (error instanceof ApiError && error.status === 403) {
-          return careMetricState(spec, 'unauthorized', '对方尚未授权此项目');
-        }
-        if (sharedDailyRows !== undefined) {
-          try { return parseCareMetric(spec, sharedDailyRows, day, false); }
-          catch { /* The typed failure remains visible when the shared payload is malformed. */ }
-        }
-        return careMetricState(spec, 'unavailable', '该项服务暂不可用，请稍后重试');
-      }
-    };
     const metrics: CareMetric[] = [];
     for (let index = 0; index < CARE_METRICS.length; index += 3) {
-      const batch = await Promise.all(CARE_METRICS.slice(index, index + 3).map(read));
+      const batch = await Promise.all(CARE_METRICS.slice(index, index + 3).map((spec: CareMetricSpec) =>
+        this.careMetric(relationId, memberId, spec.key, day)));
       this.assertEpoch(epoch);
       metrics.push(...batch);
     }

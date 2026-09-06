@@ -22,6 +22,7 @@ import {
   latestMetricRecord, wearableIdentifierText, WEARABLE_SCAN_TIMEOUT_MS
 } from '../model/WearableContracts';
 import { vepWearable, WearableServiceListener } from '../services/VepWearableService';
+import { sameHealthSession } from '../model/HealthUpload';
 import { AiChatMessage, AppUpdateInfo, ShopCategory, ShopHome, ShopProduct } from '../model/ExperienceContracts';
 import { appUpdateService, HARMONY_VERSION_CODE, HARMONY_VERSION_NAME } from '../services/AppUpdateService';
 import { WECHAT_AUTH_RESULT_KEY, parseWechatAuthResult } from '../model/WechatAuthContracts';
@@ -215,6 +216,10 @@ struct Index {
   @State private wearableMessage: string = '尚未连接手表';
   @State private wearableSnapshot: WearableSnapshot = emptyWearableSnapshot();
   @State private wearableMeasurement: MeasurementState = emptyMeasurement();
+  @State private localSportRecords: HealthRecord[] = [];
+  @State private sportLoading: boolean = false;
+  @State private sportError: string = '';
+  private sportGeneration: number = 0;
   @State private selectedWearableMetric: WearableMetricKey = 'heart';
   @State private trendPeriod: TrendPeriod = 'day';
   @State private trendDay: string = localDateKey();
@@ -319,6 +324,7 @@ struct Index {
     this.consumeNotificationRoute(); this.consumeWechatAuthResult();
     if (!this.guest) vepWearable.synchronizeCloud();
     if (this.screen === 'permissions') this.refreshPermissions();
+    if (this.screen === 'sport-records') this.loadSportRecords();
   }
   aboutToDisappear(): void {
     ++this.pageGeneration; ++this.contentGeneration; ++this.careGeneration;
@@ -620,16 +626,26 @@ struct Index {
       birthday: this.editBirthday, height: this.editHeight, weight: this.editWeight };
     this.formMessage = profileDraftError(draft);
     if (this.formMessage) return;
+    const session = saydianApi.healthSession(), generation = this.contentGeneration;
+    const current = (): boolean => generation === this.contentGeneration && sameHealthSession(session, saydianApi.healthSession());
     this.formBusy = true;
     try {
       const avatar = this.editAvatarUri ? await saydianApi.uploadProfileImage({ uri: this.editAvatarUri,
         fileName: 'avatar', maxBytes: 6 * 1024 * 1024 }) : '';
-      this.profile = await saydianApi.saveProfile(draft, avatar);
+      if (!current()) return;
+      const profile = await saydianApi.saveProfile(draft, avatar);
+      if (!current()) return;
+      this.profile = profile;
       this.displayName = profileName(this.profile);
       this.editAvatarUri = '';
       this.formMessage = '个人资料已保存';
-    } catch (error) { this.formMessage = this.accountFormFailure(error as Error); }
-    finally { this.formBusy = false; }
+    } catch (error) { if (current()) this.formMessage = this.accountFormFailure(error as Error); }
+    finally {
+      if (current()) this.formBusy = false;
+      else if (generation === this.contentGeneration && !saydianApi.healthSession().ownerId) {
+        this.formMessage = this.accountFormFailure(new ApiError('登录已失效，请重新登录', 401) as Error);
+      }
+    }
   }
 
   private async submitFeedback(): Promise<void> {
@@ -656,6 +672,7 @@ struct Index {
     this.resetMobile = ''; this.resetCode = ''; this.resetPassword = ''; this.resetConfirmation = '';
     this.editNickname = ''; this.editBirthday = ''; this.editHeight = ''; this.editWeight = ''; this.editAvatarUri = '';
     this.avatarPicking = false;
+    this.formBusy = false; this.clearSportRecords(); this.selectedHealthRecord = undefined;
     this.feedbackContent = ''; this.feedbackContact = ''; this.innerParents.clear();
   }
 
@@ -855,6 +872,40 @@ struct Index {
   private wearableBusy(): boolean {
     return this.wearablePhase === 'connecting' || this.wearablePhase === 'authenticating' ||
       this.wearablePhase === 'syncing' || this.wearablePhase === 'disconnecting';
+  }
+
+  private clearSportRecords(): void {
+    ++this.sportGeneration;
+    this.localSportRecords = []; this.sportLoading = false; this.sportError = '';
+  }
+
+  private openSportRecords(): void {
+    this.screen = 'sport-records';
+    this.loadSportRecords();
+  }
+
+  private async loadSportRecords(): Promise<void> {
+    if (this.guest) { this.clearSportRecords(); return; }
+    const generation = ++this.sportGeneration, page = this.pageGeneration;
+    const session = saydianApi.healthSession();
+    const current = (): boolean => generation === this.sportGeneration && page === this.pageGeneration &&
+      sameHealthSession(session, saydianApi.healthSession());
+    this.sportLoading = true; this.sportError = '';
+    try {
+      const records = await vepWearable.savedSportRecords();
+      if (current()) this.localSportRecords = records;
+    } catch { if (current()) this.sportError = '运动记录读取失败，请重试'; }
+    finally { if (current()) this.sportLoading = false; }
+  }
+
+  private async syncSportRecords(): Promise<void> {
+    if (!this.wearableSnapshot.connected || !this.wearableCapability('sport') || this.wearableBusy() || this.wearableMeasurement.running) return;
+    const session = saydianApi.healthSession(), page = this.pageGeneration;
+    const current = (): boolean => page === this.pageGeneration && sameHealthSession(session, saydianApi.healthSession());
+    const synced = await vepWearable.syncHistory();
+    if (!current()) return;
+    await this.loadSportRecords();
+    if (current() && !synced) this.sportError = '同步未完成，已保存的记录仍可查看';
   }
 
   private wearableCapability(metric: WearableMetricKey): boolean {
@@ -1715,6 +1766,7 @@ struct Index {
     this.registerCode = '';
     this.clearCareState();
     this.clearInboxState(); this.addresses = []; this.innerParents.clear();
+    this.clearSportRecords(); this.selectedHealthRecord = undefined;
     this.profile = {};
     this.profileError = '';
     this.logoutFailed = false;
@@ -2435,12 +2487,12 @@ struct Index {
             .width(34).height(34).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(11)
           Column({ space: 3 }) {
             Text('运动记录').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-            Text(this.wearableSnapshot.connected ? this.wearableLatest('sport') : '连接手表后读取运动记录')
+            Text(this.wearableSnapshot.connected ? this.wearableLatest('sport') : '查看已保存的运动记录')
               .fontSize(13).fontColor(MUTED).width('100%').maxLines(2)
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([RED])
         }.width('100%').constraintSize({ minHeight: 72 }).padding({ left: 12, right: 12, top: 10, bottom: 10 })
-          .backgroundColor(RED_SOFT).borderRadius(17).onClick(() => this.screen = 'sport-records')
+          .backgroundColor(RED_SOFT).borderRadius(17).onClick(() => this.openSportRecords())
           .accessibilityText('查看运动记录')
       }.width('100%').padding({ left: 14, right: 14, top: 14, bottom: 12 }).backgroundColor(SURFACE)
         .borderRadius(22).border({ width: 1, color: '#18D20B27' }).shadow({ radius: 12, color: CARD_SHADOW, offsetY: 4 })
@@ -3183,34 +3235,41 @@ struct Index {
   @Builder
   SportRecordContent() {
     if (!this.wearableSnapshot.connected) {
-      Text('请先连接手表后读取运动记录').fontSize(16).fontColor(MUTED).textAlign(TextAlign.Center)
-        .width('100%').margin({ top: 160 })
-      Button('添加设备').constraintSize({ minHeight: 48 }).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
-        .onClick(() => this.openDeviceSearch()).id('sport_go_device')
+      this.Notice({ message: '连接手表可同步新记录，已有记录可离线查看。' })
     } else if (!this.wearableCapability('sport')) {
-      this.Notice({ message: '当前手表暂不支持读取运动记录。' })
-    } else {
-      Row({ space: 10 }) {
-        Button('同步近三天').layoutWeight(1).constraintSize({ minHeight: 50 }).backgroundColor(RED)
-          .type(ButtonType.Normal).borderRadius(14).enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
-          .onClick(() => vepWearable.syncHistory())
+      this.Notice({ message: '当前手表不支持同步运动记录，已有记录仍可查看。' })
+    }
+    Row({ space: 10 }) {
+      Button('同步近三天').layoutWeight(1).constraintSize({ minHeight: 50 }).backgroundColor(RED)
+        .type(ButtonType.Normal).borderRadius(14).enabled(this.wearableSnapshot.connected && this.wearableCapability('sport') &&
+          !this.wearableBusy() && !this.wearableMeasurement.running)
+        .onClick(() => this.syncSportRecords())
+      if (this.wearableSnapshot.connected) {
         Button('查看设备').layoutWeight(1).constraintSize({ minHeight: 50 }).fontColor(RED).backgroundColor(SURFACE)
           .type(ButtonType.Normal).borderRadius(14).border({ width: 1, color: LINE })
           .onClick(() => { this.screen = 'home'; this.selectHomeTab(1); })
-      }.width('100%')
-      if (this.wearableMetricRecords('sport').length === 0) {
-        this.Notice({ message: '暂无运动记录。连接手表并同步后可在这里查看。' })
+      } else {
+        Button('添加设备').layoutWeight(1).constraintSize({ minHeight: 50 }).fontColor(RED).backgroundColor(SURFACE)
+          .type(ButtonType.Normal).borderRadius(14).border({ width: 1, color: LINE })
+          .onClick(() => this.openDeviceSearch()).id('sport_go_device')
       }
-      ForEach(this.wearableMetricRecords('sport'), (record: HealthRecord) => {
-        Column({ space: 8 }) {
-          Text(this.wearableRecordTime(record.timestamp)).fontSize(14).fontColor(MUTED).width('100%')
-          Text(this.displayRecord(record)).fontSize(18).fontColor(INK).lineHeight(26).width('100%')
-          Text(record.source === 'watch_history' ? '来源：手表历史' : '来源：App 记录')
-            .fontSize(13).fontColor(MUTED).width('100%')
-        }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(16).border({ width: 1, color: LINE })
-          .onClick(() => this.openRecord(record))
-      }, (record: HealthRecord) => record.id)
+    }.width('100%')
+    if (this.sportLoading) { LoadingProgress().width(36).height(36).color(RED) }
+    if (this.sportError) { this.Notice({ message: this.sportError }) }
+    else if (!this.sportLoading && this.localSportRecords.length === 0) {
+      this.Notice({ message: '暂无运动记录，连接手表并同步后可查看。' })
     }
+    Button('刷新本机记录').fontColor(RED).backgroundColor(Color.Transparent).constraintSize({ minHeight: 48 })
+      .enabled(!this.sportLoading).onClick(() => this.loadSportRecords())
+    ForEach(this.localSportRecords, (record: HealthRecord) => {
+      Column({ space: 8 }) {
+        Text(this.wearableRecordTime(record.timestamp)).fontSize(14).fontColor(MUTED).width('100%')
+        Text(this.displayRecord(record)).fontSize(18).fontColor(INK).lineHeight(26).width('100%')
+        Text(record.source === 'watch_history' ? '来源：手表历史' : '来源：App 记录')
+          .fontSize(13).fontColor(MUTED).width('100%')
+      }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(16).border({ width: 1, color: LINE })
+        .onClick(() => this.openRecord(record))
+    }, (record: HealthRecord) => record.id)
   }
 
   @Builder

@@ -5,7 +5,7 @@ registerHooks({resolve(specifier, context, next) {
   return next(specifier.startsWith('.') && context.parentURL?.endsWith('.ts') && !/\.[a-z]+$/.test(specifier) ? specifier+'.ts' : specifier, context);
 }});
 const {AccountClient} = await import('../entry/src/main/ets/services/AccountClient.ts');
-const {ApiError} = await import('../entry/src/main/ets/model/Contracts.ts');
+const {ApiError,decodeEnvelope} = await import('../entry/src/main/ets/model/Contracts.ts');
 const {parseCareMembers,parseCareInvitations,parseCareSettings,careSettingsBody,careMobileValidation,
   chinaDay,chinaDaySeconds,shiftChinaDay,CARE_METRICS,parseCareMetric,careMetricLatest,careRecordText} = await import('../entry/src/main/ets/model/CareContracts.ts');
 const day='2026-08-27', now=Date.UTC(2026,8,4,10), metric=key=>CARE_METRICS.find(item=>item.key===key);
@@ -174,11 +174,12 @@ test('403 never falls back to an endpoint that could bypass sharing restrictions
   let reads=0;const {client}=await clientWith(async path=>{if(path.endsWith('/my'))return envelope([member]);reads++;throw new ApiError('no permission',403)});
   await client.careMembers();assert.equal((await client.careMetric(59,87,'heart',day)).state,'unauthorized');assert.equal(reads,1);
 });
-test('typed endpoint failure can use whitelisted same-member raw fallback',async()=>{
-  const {client}=await clientWith(async path=>{if(path.endsWith('/my'))return envelope([member]);if(path.includes('type='))throw new ApiError('missing',500);return envelope([{time:'08:00',pulseReat:'[68]'}])});
-  await client.careMembers();assert.equal((await client.careMetric(59,87,'heart',day)).records[0].fields[0].value,68);
+test('typed endpoint failure cannot use same-member raw fallback',async()=>{
+  const paths=[];const {client}=await clientWith(async path=>{paths.push(path);if(path.endsWith('/my'))return envelope([member]);if(path.includes('type='))throw new ApiError('missing',500);return envelope([{time:'08:00',pulseReat:'[68]'}])});
+  await client.careMembers();const result=await client.careMetric(59,87,'heart',day);
+  assert.equal(result.state,'unavailable');assert.deepEqual(result.records,[]);assert.equal(paths.length,2);
 });
-test('care overview reads the shared day once, exposes every metric state and never bypasses a 403',async()=>{
+test('care overview only uses each metric response, without preloading shared raw day data',async()=>{
   let rawReads=0;
   const {client}=await clientWith(async path=>{
     if(path.endsWith('/my'))return envelope([member]);
@@ -194,11 +195,72 @@ test('care overview reads the shared day once, exposes every metric state and ne
   await client.careMembers();
   const metrics=await client.careMetrics(59,87,day);
   assert.equal(metrics.length,CARE_METRICS.length);
-  assert.equal(metrics.find(item=>item.key==='heart').records[0].fields[0].value,68);
-  assert.equal(metrics.find(item=>item.key==='glucose').records[0].fields[0].value,6.2);
+  assert.equal(metrics.find(item=>item.key==='heart').state,'unavailable');
+  assert.deepEqual(metrics.find(item=>item.key==='heart').records,[]);
+  assert.equal(metrics.find(item=>item.key==='glucose').state,'empty');
+  assert.deepEqual(metrics.find(item=>item.key==='glucose').records,[]);
   assert.equal(metrics.find(item=>item.key==='oxygen').state,'unauthorized');
   assert.equal(metrics.find(item=>item.key==='ecg').state,'empty');
-  assert.equal(rawReads,1);
+  assert.equal(rawReads,0);
+});
+for(const mode of ['single','overview'])for(const scenario of ['empty','empty-chart','404','500','403','offline','timeout'])
+test(`${mode} care ${scenario} never resurrects aggregate HRV or makes extra raw requests`,async()=>{
+  const paths=[];
+  const {client,vault}=await clientWith(async path=>{
+    paths.push(path);
+    if(path.endsWith('/my'))return envelope([member]);
+    if(path.includes('/daily-date/preview')&&!path.includes('type='))return envelope([{time:'08:00',HRVData:99}]);
+    if(path.includes('type=HRV')){
+      if(scenario==='empty')return envelope([]);
+      if(scenario==='empty-chart')return envelope({categories:[],series:[]});
+      if(['offline','timeout'].includes(scenario))throw new ApiError('网络连接失败或超时，请检查网络后重试',0);
+      throw new ApiError('synthetic response',Number(scenario));
+    }
+    return envelope([]);
+  });
+  await client.careMembers();
+  const result=mode==='single'?await client.careMetric(59,87,'hrv',day):(await client.careMetrics(59,87,day)).find(item=>item.key==='hrv');
+  assert.equal(result.state,scenario.startsWith('empty')?'empty':scenario==='403'?'unauthorized':'unavailable');
+  assert.deepEqual(result.records,[]);assert.ok(vault.value);
+  assert.equal(paths.some(path=>path.includes('/daily-date/preview')&&!path.includes('type=')),false);
+  assert.equal(paths.length,mode==='single'?2:CARE_METRICS.length+1);
+});
+for(const mode of ['single','overview'])test(`${mode} care preserves successful typed values and member/date without an aggregate read`,async()=>{
+  const paths=[];
+  const {client}=await clientWith(async path=>{
+    paths.push(path);
+    if(path.endsWith('/my'))return envelope([member]);
+    assert.ok(path.includes('selectmember=87'));assert.ok(path.includes('date=1787760000'));
+    if(path.includes('type=HRV'))return envelope([{time:'08:00',HRVData:55}]);
+    if(path.includes('/e-c-g/preview'))return envelope([{time:'08:00',data:{aveHeart:72,aveQT:380}}]);
+    return envelope([]);
+  });
+  await client.careMembers();
+  const metrics=mode==='single'?[await client.careMetric(59,87,'hrv',day)]:await client.careMetrics(59,87,day);
+  const hrv=metrics.find(item=>item.key==='hrv');assert.equal(hrv.state,'ready');assert.equal(hrv.records[0].fields[0].value,55);
+  if(mode==='overview')assert.equal(metrics.find(item=>item.key==='ecg').state,'ready');
+  assert.equal(paths.length,mode==='single'?2:CARE_METRICS.length+1);
+  assert.equal(paths.some(path=>path.includes('/daily-date/preview')&&!path.includes('type=')),false);
+});
+for(const mode of ['single','overview'])test(`${mode} care final 401 fails and clears login, without a raw fallback`,async()=>{
+  const paths=[];const {client,vault}=await clientWith(async path=>{
+    paths.push(path);if(path.endsWith('/my'))return envelope([member]);throw new ApiError('expired',401);
+  });
+  await client.careMembers();
+  await assert.rejects(mode==='single'?client.careMetric(59,87,'hrv',day):client.careMetrics(59,87,day));
+  assert.equal(vault.value,undefined);
+  assert.equal(paths.some(path=>path.includes('/daily-date/preview')&&!path.includes('type=')),false);
+});
+test('production envelope rejects business 403 even when an old successful row accompanies it',async()=>{
+  for(const code of [403,'403']){
+    let reads=0;
+    const {client}=await clientWith(async path=>{
+      if(path.endsWith('/my'))return envelope([member]);reads++;
+      return decodeEnvelope(JSON.stringify({code,message:'not shared',data:[{time:'08:00',HRVData:99}]}),200);
+    });
+    await client.careMembers();const result=await client.careMetric(59,87,'hrv',day);
+    assert.equal(result.state,'unauthorized');assert.deepEqual(result.records,[]);assert.equal(reads,1);
+  }
 });
 test('invitation response is explicit JSON and a handled invitation cannot be repeated',async()=>{
   let writes=0,status=0;const {client}=await clientWith(async(path,fields,session,json)=>{

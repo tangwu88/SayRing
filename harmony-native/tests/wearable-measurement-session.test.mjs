@@ -57,6 +57,7 @@ function sdk() {
 }
 function setup() {
   saved.length = 0;
+  globalThis.__wearableTestDependencies.wearableHealthStore.loadSportRecords = async () => [];
   currentSDK = sdk();
   const service = new VepWearableService();
   service.accountSession = { ownerId: 'ownerA', generation: 1 };
@@ -72,6 +73,39 @@ function connect(service, key) {
     capabilities: { ...contracts.emptyWearableSnapshot().capabilities, heart: true, oxygen: true, ecg: true } };
 }
 async function settle() { for (let i = 0; i < 8; i++) await Promise.resolve(); }
+
+test('saved sport history remains readable after disconnect and same-owner cold restart without SDK access', async () => {
+  const { service, native } = setup();
+  const rows = [{ id: 'sport-old', deviceKey: 'watchOld', metric: 'sport', timestamp: 1,
+    source: 'watch_history', values: [{ name: '距离', value: 2, unit: 'km' }], samples: [], sampleFrequency: 0 }];
+  const owners = [];
+  globalThis.__wearableTestDependencies.wearableHealthStore.loadSportRecords = async owner => { owners.push(owner); return rows; };
+  await service.disconnect();
+  assert.equal(service.snapshot.connected, false);
+  assert.deepEqual(await service.savedSportRecords(), rows);
+  const restarted = new VepWearableService();
+  restarted.accountSession = { ownerId: 'ownerA', generation: 50 };
+  assert.deepEqual(await restarted.savedSportRecords(), rows);
+  assert.deepEqual(owners, ['ownerA', 'ownerA']);
+  assert.equal(native.disconnects, 1);
+});
+test('saved sport read refuses account-switch and same-owner relogin late results', async () => {
+  for (const ownerId of ['ownerB', 'ownerA']) {
+    const { service } = setup();
+    const read = deferred();
+    globalThis.__wearableTestDependencies.wearableHealthStore.loadSportRecords = () => read.promise;
+    const loading = service.savedSportRecords();
+    service.accountSession = { ownerId, generation: 2 };
+    read.resolve([{ id: 'old-owner-private' }]);
+    await assert.rejects(loading, /账号已变化/);
+  }
+});
+test('signed-out sport history never queries the database', async () => {
+  const { service } = setup();
+  service.accountSession = { ownerId: '', generation: 2 };
+  globalThis.__wearableTestDependencies.wearableHealthStore.loadSportRecords = () => { throw new Error('must not query'); };
+  assert.deepEqual(await service.savedSportRecords(), []);
+});
 
 test('old stop after account switch neither saves A values under B nor releases B operation', async () => {
   const { service, native } = setup();

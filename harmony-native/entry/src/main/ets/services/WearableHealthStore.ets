@@ -43,6 +43,11 @@ export class WearableHealthStore {
       .and().equalTo('device_key', deviceKey).and().equalTo('metric', metric)
       .and().between('recorded_at', Math.round(start), Math.round(end)).orderByDesc('recorded_at'));
   }
+  async loadSportRecords(owner: string): Promise<HealthRecord[]> {
+    if (!validHealthOwner(owner)) return [];
+    return this.records(new relationalStore.RdbPredicates(OWNED_HEALTH_TABLE).equalTo('owner_id', owner)
+      .and().equalTo('metric', 'sport').orderByDesc('recorded_at'));
+  }
   async pending(owner: string): Promise<HealthRecord[]> {
     if (!validHealthOwner(owner)) return [];
     const records = await this.records(new relationalStore.RdbPredicates(OWNED_HEALTH_TABLE).equalTo('owner_id', owner)

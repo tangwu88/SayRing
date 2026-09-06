@@ -1,5 +1,7 @@
 import type { HealthValue } from './WearableContracts';
 import { chinaDay, chinaDaySeconds } from './CareContracts';
+import { profileImageUrl } from './Contracts';
+import type { FormField, MemberProfile } from './Contracts';
 
 export interface DisplayUnits { distance: 'km' | 'mi'; temperature: 'c' | 'f'; }
 
@@ -36,6 +38,26 @@ export function profileDraftError(draft: ProfileDraft): string {
   if (!draft.height.trim() || !Number.isFinite(Number(draft.height)) || Number(draft.height) < 30 || Number(draft.height) > 250) return '请填写有效身高（30～250 cm）';
   if (!draft.weight.trim() || !Number.isFinite(Number(draft.weight)) || Number(draft.weight) < 2 || Number(draft.weight) > 300) return '请填写有效体重（2～300 kg）';
   return '';
+}
+
+export function profileSaveMismatches(fields: FormField[], profile: MemberProfile): string[] {
+  const values: Record<string, string | number | undefined> = { nickname: profile.nickname, gender: profile.gender,
+    birthday: profile.birthday, height: profile.height, weight: profile.weight, head_portrait: profile.head_portrait };
+  const labels: Record<string, string> = { nickname: '昵称', gender: '性别', birthday: '生日', height: '身高',
+    weight: '体重', head_portrait: '头像' };
+  return fields.filter((field: FormField) => {
+    const value = values[field.name];
+    // Missing fields are not zero, and an unsubmitted field is never compared or written back.
+    if ((typeof value !== 'string' && typeof value !== 'number') || String(value).trim() === '') return true;
+    if (['gender', 'height', 'weight'].includes(field.name)) {
+      return !Number.isFinite(Number(value)) || Number(value) !== Number(field.value);
+    }
+    if (field.name === 'head_portrait') {
+      try { return profileImageUrl({ url: String(value) }) !== profileImageUrl({ url: field.value }); }
+      catch { return true; }
+    }
+    return String(value).trim() !== field.value;
+  }).map((field: FormField) => labels[field.name]);
 }
 
 export const FEEDBACK_TYPES: string[] = ['功能建议', '设备连接', '数据问题', '商城订单'];
