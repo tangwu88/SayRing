@@ -6,7 +6,7 @@ registerHooks({ resolve(specifier, context, next) {
   return next(specifier.startsWith('.') && context.parentURL?.endsWith('.ts') && !/\.[a-z]+$/.test(specifier) ? `${specifier}.ts` : specifier, context);
 } });
 const { defaultDisplayUnits, parseDisplayUnits, displayHealthValue, profileDraftError, feedbackError } = await import('../entry/src/main/ets/model/DisplayPreferences.ts');
-const { parseAddresses, parseInbox, orderStatusLabel, orderMatchesFilter, messageTime } = await import('../entry/src/main/ets/model/AccountPageContracts.ts');
+const { parseAddresses, parseInbox, orderStatusLabel, orderMatchesFilter, messageTime, messageCopy } = await import('../entry/src/main/ets/model/AccountPageContracts.ts');
 const { AccountClient } = await import('../entry/src/main/ets/services/AccountClient.ts');
 const { emptyAddressDraft, parseRegions, addressRegionChoices, selectAddressRegion, addressValidation } = await import('../entry/src/main/ets/model/AddressForm.ts');
 const { ApiError } = await import('../entry/src/main/ets/model/Contracts.ts');
@@ -101,6 +101,8 @@ test('inbox uses authenticated member type 2 and excludes malformed responses',a
   assert.equal(parseInbox([{id:1,title:'关爱请求',is_read:'0',event_type:'care_invitation'},{id:1}]).length,1);
   const values=parseInbox([{id:1,title:'<b>消息</b>',content:'通知',is_read:'1',kind:'health_warning'}]);
   assert.equal(values[0].title,'消息');assert.equal(values[0].read,true);assert.equal(values[0].kind,'health_warning');
+  assert.equal(messageCopy('您好，下单成功!#order_sn#请注意查收'),'您好，下单成功!请注意查收');
+  assert.equal(parseInbox([{id:2,title:'#title#',content:'  通知  #missing_value#  请查收  '}])[0].title,'系统消息');
 });
 test('notification timestamps use readable local dates in seconds or milliseconds',()=>{
   const value=new Date(2026,8,6,15,4).getTime();

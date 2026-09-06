@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 
 test('all root scroll surfaces remain top aligned while loading content',()=>{
   const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
-  const scrolls=(source.match(/Scroll\(\)/g)||[]).length;
+  const scrolls=(source.match(/Scroll\([^)]*\)/g)||[]).length;
   assert.ok(scrolls>=4);
   assert.equal((source.match(/align\(Alignment.Top\)/g)||[]).length,scrolls);
 });
@@ -214,6 +214,37 @@ test('disconnected health cards do not repeat the same empty-state line',()=>{
   assert.ok(cards.includes("'连接手表后可查看支持的健康数据'"));
   assert.ok(cards.includes('ForEach(this.visibleWearableMetrics()'));
   assert.equal(cards.includes("this.wearableSnapshot.connected ? '当前手表不支持' : '暂无记录'"),false);
+  assert.equal(cards.includes("已记录' : '暂无数据"),false,
+    'An empty metric must have one clear empty state instead of a second status badge');
+});
+
+test('home tabs reset the shared scroll position and connected metadata stays readable',()=>{
+  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const selector=source.slice(source.indexOf('private selectHomeTab('),source.indexOf('private signalText('));
+  assert.ok(source.includes('private homeScroller: Scroller = new Scroller()'));
+  assert.ok(source.includes('Scroll(this.homeScroller)'));
+  assert.ok(selector.includes('this.homeScroller.scrollEdge(Edge.Top)'));
+  assert.ok(source.includes('this.selectHomeTab(index);'));
+  const device=source.slice(source.indexOf('DeviceHome()'),source.indexOf('DeviceSearchContent()'));
+  assert.ok(device.includes("Text('已连接')"));
+  assert.ok(device.includes('Text(this.wearableSyncTime())'));
+  assert.equal(device.includes('`已连接 · ${this.wearableSyncTime()}`'),false);
+});
+
+test('notification settings expose the actual service state without implementation copy',()=>{
+  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const permissions=source.slice(source.indexOf('PermissionContent()'),source.indexOf('MessageContent()'));
+  assert.ok(permissions.includes('Text(this.pushStatus)'));
+  assert.ok(permissions.includes("id('check_push_service')"));
+  assert.ok(permissions.includes('this.connectPush(true)'));
+  assert.doesNotMatch(permissions,/Server key|Push Kit|registration[_ ]?id|AppKey/);
+});
+
+test('payment order number owns a full row instead of orphan-wrapping its final digits',()=>{
+  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const payment=source.slice(source.indexOf('PaymentContent()'),source.indexOf('WearableMetricContent()'));
+  assert.match(payment,/Text\(this\.selectedOrder\.number\)[\s\S]*?\.width\('100%'\)[\s\S]*?\.maxLines\(1\)/);
+  assert.ok(payment.includes('.copyOption(CopyOptions.InApp)'));
 });
 
 test('login and primary surfaces exclude decorative or internal helper copy',()=>{

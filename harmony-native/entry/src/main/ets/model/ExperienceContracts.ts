@@ -148,7 +148,7 @@ export function parseAiReply(data: Object | undefined): AiChatMessage {
 export function parseAppUpdateManifest(body: string, currentBuild: number): AppUpdateInfo {
   let root: Record<string, Object>;
   try { root = object(JSON.parse(body) as Object); }
-  catch { throw new ApiError('在线更新清单格式异常'); }
+  catch { throw new ApiError('更新信息暂时不可用，请稍后重试'); }
   const schema = integer(root['schema_version']);
   const platform = text(root['platform'], 40).toLowerCase();
   const channel = text(root['channel'], 40).toLowerCase();
@@ -161,7 +161,7 @@ export function parseAppUpdateManifest(body: string, currentBuild: number): AppU
   if (schema !== 1 || platform !== 'harmony' || channel !== 'production' || !latestVersion ||
     latestBuild <= 0 || minimumSupportedBuild <= 0 || minimumSupportedBuild > latestBuild ||
     destinationType !== 'harmony_appgallery') {
-    throw new ApiError('在线更新清单与当前鸿蒙版不匹配');
+    throw new ApiError('更新信息暂时不可用，请稍后重试');
   }
   if (!/^https:\/\/appgallery\.huawei\.com\/[A-Za-z0-9_./?=&%+:-]+$/.test(destinationUrl) ||
     destinationUrl.includes('..')) throw new ApiError('在线更新地址不安全');

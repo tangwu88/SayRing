@@ -94,7 +94,7 @@ export class HarmonyPushService {
     catch (error) { throw error as Error; }
     const registrationId = await this.waitForRegistrationId();
     if (!installationId || !registrationId) {
-      throw new ApiError('未取得鸿蒙推送标识；请核对正式包名、Push Kit 和极光 Server key 配置');
+      throw new ApiError('暂时无法开启系统通知，请稍后重试');
     }
     this.identity = { installationId: installationId, registrationId: registrationId };
     return { installationId: installationId, registrationId: registrationId };

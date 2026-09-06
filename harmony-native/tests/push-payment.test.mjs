@@ -103,7 +103,7 @@ test('legacy Android provider payloads never enter Harmony PaymentKit', () => {
 test('payment failures distinguish official provider outcomes', () => {
   assert.match(paymentErrorMessage(1022830000), /取消/);
   assert.match(paymentErrorMessage(1014900000), /取消/);
-  assert.match(paymentErrorMessage(1022830002), /参数/);
+  assert.match(paymentErrorMessage(1022830002), /支付信息暂时不可用/);
   assert.match(paymentErrorMessage(801), /不支持/);
   assert.match(paymentErrorMessage(1001930001), /失败/);
   assert.match(paymentErrorMessage(1001930002), /已处理/);

@@ -38,6 +38,10 @@ function text(raw: Object | undefined): string {
   return typeof raw === 'string' || typeof raw === 'number' ? String(raw).replace(/<[^>]*>/g, '').trim() : '';
 }
 
+export function messageCopy(raw: Object | undefined): string {
+  return text(raw).replace(/#[A-Za-z][A-Za-z0-9_]{0,63}#/g, '').replace(/[ \t]{2,}/g, ' ').trim();
+}
+
 export function messageTime(raw: Object | undefined): string {
   const value = text(raw);
   if (!/^\d+(\.\d+)?$/.test(value)) return value.slice(0, 80);
@@ -78,7 +82,8 @@ export function parseInbox(data: Object | undefined): InboxMessage[] {
     const row = object(raw);
     const id = Number(row['id']);
     if (!Number.isSafeInteger(id) || id <= 0) throw new ApiError('消息信息不完整');
-    return { id, title: text(row['title'] ?? row['name']) || '系统消息', content: text(row['content'] ?? row['message']),
+    return { id, title: messageCopy(row['title'] ?? row['name']) || '系统消息',
+      content: messageCopy(row['content'] ?? row['message']),
       createdAt: messageTime(row['created_at'] ?? row['createdAt']),
       read: row['is_read'] === true || row['is_read'] === 1 || row['is_read'] === '1',
       kind: text(row['kind'] ?? row['event_type']) };

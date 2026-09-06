@@ -57,7 +57,7 @@ test('Harmony update manifest is strict and only opens AppGallery', () => {
   assert.equal(info.hasUpdate, true);
   assert.equal(info.required, true);
   assert.throws(() => parseAppUpdateManifest(valid.replace('appgallery.huawei.com', 'evil.invalid'), 4), /不安全/);
-  assert.throws(() => parseAppUpdateManifest(valid.replace('"harmony"', '"android"'), 4), /不匹配/);
+  assert.throws(() => parseAppUpdateManifest(valid.replace('"harmony"', '"android"'), 4), /更新信息暂时不可用/);
 });
 
 test('Harmony home and profile follow the iOS functional information architecture', () => {

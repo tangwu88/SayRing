@@ -161,7 +161,7 @@ struct Index {
   @State private careUpdatedAt: string = '';
   @State private notificationCount: number = -1;
   @State private pushBusy: boolean = false;
-  @State private pushStatus: string = '尚未检查鸿蒙推送';
+  @State private pushStatus: string = '尚未检查通知状态';
   @State private orders: ShopOrder[] = [];
   @State private orderFilter: number = 99;
   @State private orderLoading: boolean = false;
@@ -243,6 +243,7 @@ struct Index {
   private smsTimer: number = -1;
   private innerParents: Map<string, string> = new Map();
   private scanCountdownController: TextTimerController = new TextTimerController();
+  private homeScroller: Scroller = new Scroller();
   private readonly wearableMetrics: WearableMetricSpec[] = [
     { key: 'activity', title: '活动' }, { key: 'sleep', title: '睡眠' },
     { key: 'heart', title: '心率' }, { key: 'pressure', title: '血压' },
@@ -743,6 +744,13 @@ struct Index {
     return this.wearableSnapshot.syncedAt > 0 ? `最近同步 ${this.wearableRecordTime(this.wearableSnapshot.syncedAt)}` : '尚未同步健康数据';
   }
 
+  private selectHomeTab(index: number): void {
+    if (index < 0 || index > 2) return;
+    try { this.homeScroller.scrollEdge(Edge.Top); } catch {}
+    this.tab = index;
+    if (index === 2) this.refreshCareSummary();
+  }
+
   private signalText(rssi: number): string {
     if (rssi === 0) return '已连接';
     if (rssi >= -60) return `强 ${rssi}`;
@@ -1097,7 +1105,7 @@ struct Index {
   private async startPayment(): Promise<void> {
     if (this.paymentBusy || this.selectedOrder.id <= 0) return;
     if (!canIUse('SystemCapability.Payment.ThirdPaymentService')) {
-      this.paymentMessage = '当前设备未安装或不支持鸿蒙三方支付服务';
+      this.paymentMessage = '当前手机暂时无法使用该支付方式';
       return;
     }
     const orderId = this.selectedOrder.id;
@@ -2070,10 +2078,10 @@ struct Index {
                 Column() { this.WearableMetricIcon(metric.key) }
                   .width(30).height(30).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(15)
                 Text(metric.title).fontSize(15).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).maxLines(2)
-                Text(this.wearableMetricRecords(metric.key).length > 0 ? '已记录' : '暂无数据')
-                  .fontSize(11).fontWeight(FontWeight.Bold).fontColor(this.wearableMetricRecords(metric.key).length > 0 ? GREEN : MUTED)
-                  .padding({ left: 7, right: 7, top: 2, bottom: 2 })
-                  .backgroundColor(this.wearableMetricRecords(metric.key).length > 0 ? '#E7F7E6' : '#F2EFED').borderRadius(9)
+                if (this.wearableMetricRecords(metric.key).length > 0) {
+                  Text('已记录').fontSize(11).fontWeight(FontWeight.Bold).fontColor(GREEN)
+                    .padding({ left: 7, right: 7, top: 2, bottom: 2 }).backgroundColor('#E7F7E6').borderRadius(9)
+                }
               }.width('100%')
               Text(this.wearableLatest(metric.key)).fontSize(17).lineHeight(23).fontWeight(FontWeight.Bold)
                 .fontColor(INK).width('100%').maxLines(2)
@@ -2130,7 +2138,7 @@ struct Index {
               Row({ space: 6 }) {
                 Text('Vep').fontSize(12).fontWeight(FontWeight.Bold).fontColor(BLUE)
                   .padding({ left: 8, right: 8, top: 3, bottom: 3 }).backgroundColor(BLUE_SOFT).borderRadius(10)
-                Text(`已连接 · ${this.wearableSyncTime()}`).fontSize(13).fontColor(GREEN).layoutWeight(1).maxLines(1)
+                Text('已连接').fontSize(13).fontColor(GREEN).layoutWeight(1).maxLines(1)
               }.width('100%')
             }.layoutWeight(1).alignItems(HorizontalAlign.Start)
             Column({ space: 3 }) {
@@ -2139,6 +2147,8 @@ struct Index {
               Text('电量').fontSize(11).fontColor(MUTED)
             }.alignItems(HorizontalAlign.End)
           }.width('100%').alignItems(VerticalAlign.Center)
+          Text(this.wearableSyncTime()).fontSize(13).fontColor(GREEN).width('100%').maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
           if (this.wearableSnapshot.model || this.wearableSnapshot.firmware) {
             Text(`型号 ${this.wearableSnapshot.model || '未知'} · 固件 ${this.wearableSnapshot.firmware || '未知'}`)
               .fontSize(13).fontColor(MUTED).width('100%').maxLines(2)
@@ -2462,7 +2472,7 @@ struct Index {
             Text('设备').fontSize(12).fontColor(MUTED)
           }.layoutWeight(1).constraintSize({ minHeight: 86 }).justifyContent(FlexAlign.Center)
             .backgroundColor(SURFACE).borderRadius(17).border({ width: 1, color: LINE })
-            .shadow({ radius: 8, color: CARD_SHADOW, offsetY: 3 }).onClick(() => this.tab = 1)
+            .shadow({ radius: 8, color: CARD_SHADOW, offsetY: 3 }).onClick(() => this.selectHomeTab(1))
             .id('profile_stat_device').accessibilityText(`设备，${this.wearableSnapshot.connected ? '在线' : '未连接'}`)
           Column({ space: 4 }) {
             SymbolGlyph($r('sys.symbol.heart_fill')).fontSize(23).fontColor([RED])
@@ -2572,7 +2582,8 @@ struct Index {
               .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(14)
             Text('权限管理').fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
           }.layoutWeight(1).constraintSize({ minHeight: 82 }).justifyContent(FlexAlign.Center)
-            .onClick(() => { this.screen = 'permissions'; this.refreshPermissions(); }).id('mine_permissions').accessibilityText('权限管理')
+            .onClick(() => { this.screen = 'permissions'; this.refreshPermissions(); this.connectPush(false); })
+            .id('mine_permissions').accessibilityText('权限管理')
           Column({ space: 7 }) {
             Column() { SymbolGlyph($r('sys.symbol.questionmark_circle')).fontSize(23).fontColor(['#C98716']) }
               .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(GOLD_SOFT).borderRadius(14)
@@ -2610,7 +2621,7 @@ struct Index {
         }.width('100%').height(54).padding({ left: 12, right: 12 }).backgroundColor(SURFACE)
           .border({ width: { bottom: 1 }, color: LINE }).id('section-titlebar')
       }
-      Scroll() {
+      Scroll(this.homeScroller) {
         Column() {
           if (this.tab === 0) { this.HealthHome() }
           else if (this.tab === 1) { this.DeviceHome() }
@@ -2632,8 +2643,7 @@ struct Index {
           }.layoutWeight(1).constraintSize({ minHeight: 62 }).justifyContent(FlexAlign.Center)
             .backgroundColor(SURFACE)
             .onClick(() => {
-              this.tab = index;
-              if (index === 2) this.refreshCareSummary();
+              this.selectHomeTab(index);
             }).id(`tab_${index}`)
             .accessibilityText(title).accessibilityDescription(this.tab === index ? '当前页' : '切换页面')
         })
@@ -2696,7 +2706,7 @@ struct Index {
           .onClick(() => vepWearable.syncHistory())
         Button('查看设备').layoutWeight(1).constraintSize({ minHeight: 50 }).fontColor(RED).backgroundColor(SURFACE)
           .type(ButtonType.Normal).borderRadius(14).border({ width: 1, color: LINE })
-          .onClick(() => { this.screen = 'home'; this.tab = 1; })
+          .onClick(() => { this.screen = 'home'; this.selectHomeTab(1); })
       }.width('100%')
       if (this.wearableMetricRecords('sport').length === 0) {
         this.Notice({ message: '暂无运动记录。连接手表并同步后可在这里查看。' })
@@ -3519,6 +3529,22 @@ struct Index {
         if (index < this.permissionRows.length - 1) { Divider().color(LINE).margin({ left: 56 }) }
       }, (item: PermissionRow) => item.key)
     }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+    Column({ space: 10 }) {
+      Row({ space: 10 }) {
+        Column() {
+          SymbolGlyph($r('sys.symbol.bell')).fontSize(23).fontColor([BLUE])
+        }.width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(13)
+        Column({ space: 3 }) {
+          Text('消息通知').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text(this.pushStatus).fontSize(14).fontColor(MUTED).lineHeight(21).width('100%')
+        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+        if (this.pushBusy) { LoadingProgress().width(24).height(24).color(RED) }
+      }.width('100%')
+      Button(this.pushBusy ? '检查中…' : '检查通知服务').width('100%').constraintSize({ minHeight: 48 })
+        .fontSize(16).fontWeight(FontWeight.Bold).fontColor(RED).backgroundColor(Color.Transparent)
+        .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: LINE }).enabled(!this.pushBusy)
+        .onClick(() => this.connectPush(true)).id('check_push_service')
+    }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
     Button('刷新权限状态').width('100%').constraintSize({ minHeight: 56 }).fontSize(16).fontWeight(FontWeight.Bold)
       .fontColor(INK).backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12)
       .border({ width: 1, color: OUTLINE }).onClick(() => this.refreshPermissions())
@@ -3554,7 +3580,7 @@ struct Index {
       .enabled(!this.inboxLoading).onClick(() => this.refreshInbox()).id('refresh_unread')
     Row({ space: 8 }) {
       Button('通知设置').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
-        .onClick(() => { this.openInnerPage('permissions'); this.refreshPermissions(); }).id('enable_push')
+        .onClick(() => { this.openInnerPage('permissions'); this.refreshPermissions(); this.connectPush(false); }).id('enable_push')
       Button('关爱邀请').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
         .onClick(async () => { await this.openCare(); if (!this.guest) this.screen = 'care-invitations'; }).id('message_care_invitations')
     }.width('100%')
@@ -3608,11 +3634,11 @@ struct Index {
       if (this.selectedOrder.summary) {
         Text(this.selectedOrder.summary).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').maxLines(2)
       }
-      Row({ space: 12 }) {
-        Text('订单号').fontSize(15).fontColor(MUTED).width(76)
-        Text(this.selectedOrder.number).fontSize(15).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
-          .maxLines(2).textAlign(TextAlign.End)
-      }.width('100%')
+      Column({ space: 5 }) {
+        Text('订单号').fontSize(15).fontColor(MUTED).width('100%')
+        Text(this.selectedOrder.number).fontSize(15).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).copyOption(CopyOptions.InApp)
+      }.width('100%').alignItems(HorizontalAlign.Start)
       Divider().color(LINE).margin({ top: 2, bottom: 2 })
       Row() {
         Text('订单总额').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)

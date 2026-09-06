@@ -181,7 +181,7 @@ export function parseHarmonyPayment(provider: PaymentProvider, data: Object | un
 
 export function paymentErrorMessage(code: number): string {
   if (code === 1022830000 || code === 1001930000 || code === 1014900000) return '已取消支付';
-  if (code === 1022830002 || code === 401) return '支付参数无效，请刷新订单后重试';
+  if (code === 1022830002 || code === 401) return '支付信息暂时不可用，请刷新订单后重试';
   if (code === 801) return '当前设备或系统版本不支持该支付方式';
   if (code === 1001930001 || code === 1014900001) return '支付失败，请确认订单状态后重试';
   if (code === 1001930002 || code === 1014900002) return '交易已处理，请刷新订单状态';
