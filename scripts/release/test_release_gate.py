@@ -163,7 +163,17 @@ class ReleaseGateTest(unittest.TestCase):
                         package="cc.saidian.app"
                         android:versionName="0.2.1"
                         android:versionCode="24">
-                      <application>
+                      <uses-feature android:name="android.hardware.camera"
+                          android:required="false" />
+                      <uses-feature android:name="android.hardware.camera.any"
+                          android:required="false" />
+                      <uses-feature android:name="android.hardware.camera.autofocus"
+                          android:required="false" />
+                      <application android:allowBackup="false"
+                          android:fullBackupContent="false"
+                          android:usesCleartextTraffic="false"
+                          android:networkSecurityConfig="@xml/network_security_config"
+                          android:dataExtractionRules="@xml/data_extraction_rules">
                         <meta-data android:name="JPUSH_APPKEY"
                             android:value="0123456789abcdef01234567" />
                         <meta-data android:name="JPUSH_CHANNEL"
@@ -202,7 +212,17 @@ class ReleaseGateTest(unittest.TestCase):
                         android:versionName="0.2.1"
                         android:versionCode="24">
                       <uses-permission android:name="android.permission.READ_PHONE_STATE" />
-                      <application>
+                      <uses-feature android:name="android.hardware.camera"
+                          android:required="false" />
+                      <uses-feature android:name="android.hardware.camera.any"
+                          android:required="false" />
+                      <uses-feature android:name="android.hardware.camera.autofocus"
+                          android:required="false" />
+                      <application android:allowBackup="false"
+                          android:fullBackupContent="false"
+                          android:usesCleartextTraffic="false"
+                          android:networkSecurityConfig="@xml/network_security_config"
+                          android:dataExtractionRules="@xml/data_extraction_rules">
                         <meta-data android:name="JPUSH_APPKEY"
                             android:value="0123456789abcdef01234567" />
                         <meta-data android:name="JPUSH_CHANNEL"
@@ -228,6 +248,63 @@ class ReleaseGateTest(unittest.TestCase):
                 with self.assertRaisesRegex(gate.GateError, "forbidden permission"):
                     gate.apk_manifest_command(args)
 
+    def test_apk_manifest_rejects_unsafe_backup_and_exported_vendor_component(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "AndroidManifest.xml"
+            manifest.write_text(
+                textwrap.dedent(
+                    f'''\
+                    <manifest xmlns:android="{gate.ANDROID_NS}"
+                        package="cc.saidian.app"
+                        android:versionName="0.2.1"
+                        android:versionCode="24">
+                      <uses-feature android:name="android.hardware.camera"
+                          android:required="false" />
+                      <uses-feature android:name="android.hardware.camera.any"
+                          android:required="false" />
+                      <uses-feature android:name="android.hardware.camera.autofocus"
+                          android:required="false" />
+                      <application android:allowBackup="true"
+                          android:fullBackupContent="false"
+                          android:usesCleartextTraffic="false"
+                          android:networkSecurityConfig="@xml/network_security_config"
+                          android:dataExtractionRules="@xml/data_extraction_rules">
+                        <service
+                            android:name="com.yucheng.ycbtsdk.upgrade.utils.DfuService"
+                            android:exported="true" />
+                        <meta-data android:name="JPUSH_APPKEY"
+                            android:value="0123456789abcdef01234567" />
+                        <meta-data android:name="JPUSH_CHANNEL"
+                            android:value="production" />
+                      </application>
+                    </manifest>
+                    '''
+                ),
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                xml=str(manifest),
+                expected_package="cc.saidian.app",
+                expected_version="0.2.1",
+                expected_build=24,
+            )
+            environment = {
+                "JPUSH_APP_KEY": "0123456789abcdef01234567",
+                "JPUSH_CHANNEL": "production",
+                "JPUSH_VENDOR_CHANNELS": "none",
+            }
+            with mock.patch.dict(os.environ, environment, clear=True):
+                with self.assertRaisesRegex(gate.GateError, "allowBackup"):
+                    gate.apk_manifest_command(args)
+
+                text = manifest.read_text(encoding="utf-8")
+                manifest.write_text(
+                    text.replace('android:allowBackup="true"', 'android:allowBackup="false"'),
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(gate.GateError, "exposes internal component"):
+                    gate.apk_manifest_command(args)
+
     def test_apk_manifest_uses_final_vivo_and_honor_metadata_names(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             manifest = Path(directory) / "AndroidManifest.xml"
@@ -238,7 +315,17 @@ class ReleaseGateTest(unittest.TestCase):
                         package="cc.saidian.app"
                         android:versionName="0.2.1"
                         android:versionCode="24">
-                      <application>
+                      <uses-feature android:name="android.hardware.camera"
+                          android:required="false" />
+                      <uses-feature android:name="android.hardware.camera.any"
+                          android:required="false" />
+                      <uses-feature android:name="android.hardware.camera.autofocus"
+                          android:required="false" />
+                      <application android:allowBackup="false"
+                          android:fullBackupContent="false"
+                          android:usesCleartextTraffic="false"
+                          android:networkSecurityConfig="@xml/network_security_config"
+                          android:dataExtractionRules="@xml/data_extraction_rules">
                         <meta-data android:name="JPUSH_APPKEY"
                             android:value="test-jpush-app-key" />
                         <meta-data android:name="JPUSH_CHANNEL"

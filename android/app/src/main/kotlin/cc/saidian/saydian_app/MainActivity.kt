@@ -313,9 +313,24 @@ class MainActivity : FlutterActivity() {
                 result.error("BLUETOOTH_ENABLE_IN_PROGRESS", "正在等待开启蓝牙", null)
                 return
             }
+            // BLUETOOTH_CONNECT can be revoked while the app is running. Check it
+            // again immediately before creating the system enable request so the
+            // permission race cannot crash the activity on Android 12 and later.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                pendingPermissionCall = call to result
+                ActivityCompat.requestPermissions(this, requiredBlePermissions(), BLE_PERMISSION_REQUEST)
+                return
+            }
             pendingBluetoothCall = call to result
             try {
                 startActivityForResult(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE), BLE_ENABLE_REQUEST)
+            } catch (error: SecurityException) {
+                pendingBluetoothCall = null
+                Log.w("SaidianMain", "Bluetooth permission changed before enable request", error)
+                result.error("BLUETOOTH_PERMISSION_REQUIRED", "请允许附近设备权限后再试", null)
             } catch (error: Throwable) {
                 pendingBluetoothCall = null
                 Log.w("SaidianMain", "Unable to open Bluetooth settings", error)
@@ -451,8 +466,19 @@ class MainActivity : FlutterActivity() {
         }
 
     private fun isBluetoothEnabled(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return false
+        }
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
-        return bluetoothManager?.adapter?.isEnabled == true
+        return try {
+            bluetoothManager?.adapter?.isEnabled == true
+        } catch (error: SecurityException) {
+            Log.w("SaidianMain", "Bluetooth permission changed while reading adapter state", error)
+            false
+        }
     }
 
     private fun isLocationServiceEnabled(): Boolean {

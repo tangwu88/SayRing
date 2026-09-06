@@ -16,7 +16,7 @@
         tools:targetApi="s" />
     <uses-permission
         android:name="android.permission.BLUETOOTH_ADVERTISE"
-        tools:targetApi="s" />
+        tools:node="remove" />
     <uses-permission
         android:name="android.permission.BLUETOOTH_CONNECT"
         tools:targetApi="s" />
@@ -32,6 +32,13 @@
         tools:node="remove" />
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.RECORD_AUDIO"
         tools:node="remove" />
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
@@ -43,14 +50,31 @@
     <uses-feature
         android:name="android.bluetooth.le"
         android:required="true" />
+    <!-- Camera access is used only for optional user actions such as changing
+         an avatar; devices without a camera must remain installable. -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false"
+        tools:replace="android:required" />
 
     <application
         android:label="Saydian赛电"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
         android:enableOnBackInvokedCallback="true"
-        tools:replace="android:label">
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:usesCleartextTraffic="false"
+        tools:replace="android:label,android:allowBackup,android:dataExtractionRules,android:networkSecurityConfig,android:usesCleartextTraffic">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -84,6 +108,20 @@
             android:name="com.inuker.bluetooth.library.BluetoothService"
             android:enabled="true"
             android:exported="false" />
+        <!-- Vendor services and receivers are app-internal. Their library
+             manifests expose them by default, which is unnecessary here. -->
+        <service
+            android:name="com.yucheng.ycbtsdk.upgrade.utils.DfuService"
+            android:exported="false"
+            tools:replace="android:exported" />
+        <service
+            android:name="org.eclipse.paho.android.service.MqttService"
+            android:exported="false"
+            tools:replace="android:exported" />
+        <receiver
+            android:name="no.nordicsemi.android.support.v18.scanner.PendingIntentReceiver"
+            android:exported="false"
+            tools:replace="android:exported" />
         <service
             android:name=".SaidianNotificationListener"
             android:exported="true"
