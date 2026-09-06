@@ -1,11 +1,68 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/services/wearable_routing.dart';
 
 void main() {
+  test(
+    'production router forwards Vep native market and download only',
+    () async {
+      final vep = _NativeMarketBridge();
+      final yuc = _NativeMarketBridge(name: 'W8', id: 'fixture-yuc');
+      final bridge = RoutedWearableBridge(
+        veepoo: vep,
+        yucheng: yuc,
+        preferenceStore: _MemoryTransportPreference(),
+      );
+      await bridge.scanDevices();
+      await bridge.connect('veepoo:fixture-watch', profile: _profile);
+      expect(await bridge.getNativeWatchFaceCatalog(), isEmpty);
+      expect(
+        (await bridge.downloadNativeWatchFace('fixture-dial')).catalogId,
+        'fixture-dial',
+      );
+      expect(vep.catalogCalls, 1);
+      await bridge.connect('yucheng:fixture-yuc', profile: _profile);
+      await expectLater(
+        bridge.getNativeWatchFaceCatalog(),
+        throwsA(isA<PlatformException>()),
+      );
+      expect(yuc.catalogCalls, 0);
+    },
+  );
+
+  test(
+    'late native market result is rejected after same-SDK reconnect',
+    () async {
+      final vep = _NativeMarketBridge()
+        ..pending = Completer<List<NativeWatchFaceCatalogItem>>();
+      final bridge = RoutedWearableBridge(
+        veepoo: vep,
+        yucheng: _FakeWearableBridge(scanned: const []),
+        preferenceStore: _MemoryTransportPreference(),
+      );
+      await bridge.scanDevices();
+      await bridge.connect('veepoo:fixture-watch', profile: _profile);
+      final result = bridge.getNativeWatchFaceCatalog();
+      final rejected = expectLater(
+        result,
+        throwsA(
+          isA<PlatformException>().having(
+            (error) => error.code,
+            'code',
+            'DEVICE_CHANGED',
+          ),
+        ),
+      );
+      await bridge.connect('veepoo:fixture-watch', profile: _profile);
+      vep.pending!.complete([]);
+      await rejected;
+    },
+  );
+
   test('routes every device name containing W8 to Yucheng', () {
     expect(YuchengDeviceClassifier.matches('W8'), isTrue);
     expect(YuchengDeviceClassifier.matches('w8s'), isTrue);
@@ -349,4 +406,30 @@ class _MemoryTransportPreference implements WearableTransportPreferenceStore {
   Future<void> clear() async {
     value = null;
   }
+}
+
+class _NativeMarketBridge extends _FakeWearableBridge
+    implements WearableNativeWatchFaceBridge {
+  _NativeMarketBridge({String name = 'W9S', String id = 'fixture-watch'})
+    : super(
+        scanned: [DeviceInfo(id: id, name: name)],
+      );
+
+  int catalogCalls = 0;
+  Completer<List<NativeWatchFaceCatalogItem>>? pending;
+
+  @override
+  Future<List<NativeWatchFaceCatalogItem>> getNativeWatchFaceCatalog() async {
+    catalogCalls++;
+    return pending?.future ?? Future.value([]);
+  }
+
+  @override
+  Future<NativeWatchFaceDownload> downloadNativeWatchFace(
+    String catalogId,
+  ) async => NativeWatchFaceDownload(
+    catalogId: catalogId,
+    filePath: '/fixture.bin',
+    fileLength: 32,
+  );
 }

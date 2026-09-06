@@ -83,6 +83,7 @@ class RoutedWearableBridge
         WearableBridge,
         WearableDeviceDetailsBridge,
         WearableWatchFaceProfileBridge,
+        WearableNativeWatchFaceBridge,
         WearableAutoMeasureIntervalBridge,
         WearableSportPauseBridge,
         WearableConnectionRecoveryBridge {
@@ -108,6 +109,7 @@ class RoutedWearableBridge
       StreamController<WearableEvent>.broadcast();
   final List<StreamSubscription<WearableEvent>> _subscriptions = [];
   WearableTransport? _activeTransport;
+  int _connectionGeneration = 0;
 
   WearableBridge get _activeBridge {
     final transport = _activeTransport;
@@ -205,6 +207,7 @@ class RoutedWearableBridge
       );
     }
 
+    final generation = ++_connectionGeneration;
     _activeTransport = device.transport;
     try {
       await _activeBridge.connect(device.nativeIdentifier, profile: profile);
@@ -214,13 +217,14 @@ class RoutedWearableBridge
         // A preference write is not part of the authenticated BLE boundary.
       }
     } catch (_) {
-      _activeTransport = null;
+      if (generation == _connectionGeneration) _activeTransport = null;
       rethrow;
     }
   }
 
   @override
   Future<void> disconnect() async {
+    ++_connectionGeneration;
     final transport = _activeTransport;
     if (transport == null) return;
     try {
@@ -239,6 +243,7 @@ class RoutedWearableBridge
   Future<DeviceInfo?> restoreConnection({
     required WearableUserProfile profile,
   }) async {
+    final generation = ++_connectionGeneration;
     WearableTransport? preferred;
     try {
       preferred = await _preferenceStore.read();
@@ -254,6 +259,7 @@ class RoutedWearableBridge
       try {
         final details = await (bridge as WearableConnectionRecoveryBridge)
             .restoreConnection(profile: profile);
+        if (generation != _connectionGeneration) return null;
         if (details == null) continue;
         _activeTransport = entry.key;
         return RoutedDevice.fromDevice(entry.key, details).display;
@@ -284,6 +290,47 @@ class RoutedWearableBridge
     final bridge = _activeBridge;
     if (bridge is! WearableWatchFaceProfileBridge) return const {};
     return (bridge as WearableWatchFaceProfileBridge).getWatchFaceProfile();
+  }
+
+  WearableNativeWatchFaceBridge get _nativeWatchFaceBridge {
+    final bridge = _activeBridge;
+    if (_activeTransport != WearableTransport.veepoo ||
+        bridge is! WearableNativeWatchFaceBridge) {
+      throw PlatformException(
+        code: 'WATCH_FACE_MARKET_UNSUPPORTED',
+        message: '当前手表暂不支持在线表盘',
+      );
+    }
+    return bridge as WearableNativeWatchFaceBridge;
+  }
+
+  void _requireCurrentConnection(int generation) {
+    if (generation != _connectionGeneration || _activeTransport == null) {
+      throw PlatformException(
+        code: 'DEVICE_CHANGED',
+        message: '设备连接已变化，请重新打开表盘商城',
+      );
+    }
+  }
+
+  @override
+  Future<List<NativeWatchFaceCatalogItem>> getNativeWatchFaceCatalog() async {
+    final generation = _connectionGeneration;
+    final result = await _nativeWatchFaceBridge.getNativeWatchFaceCatalog();
+    _requireCurrentConnection(generation);
+    return result;
+  }
+
+  @override
+  Future<NativeWatchFaceDownload> downloadNativeWatchFace(
+    String catalogId,
+  ) async {
+    final generation = _connectionGeneration;
+    final result = await _nativeWatchFaceBridge.downloadNativeWatchFace(
+      catalogId,
+    );
+    _requireCurrentConnection(generation);
+    return result;
   }
 
   @override
@@ -430,6 +477,9 @@ class RoutedWearableBridge
       return;
     }
     if (transport == _activeTransport) {
+      if (event.type == 'disconnected' || event.type == 'reconnected') {
+        ++_connectionGeneration;
+      }
       if (event.type == 'deviceDetails' ||
           event.type == 'reconnected' ||
           event.type == 'disconnected' ||

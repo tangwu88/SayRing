@@ -1,0 +1,16 @@
+[
+  {"name":"current server care invitation","payload":{"eventId":"fixture-care-18","type":"care_invitation","deepLink":"/care/invitations/18"},"type":"care_invitation","eventId":"fixture-care-18","entityId":"18"},
+  {"name":"legacy care invitation","payload":{"schema_version":1,"event_id":"fixture-care-18","event_type":"care_invitation","entity_id":"18"},"type":"care_invitation","eventId":"fixture-care-18","entityId":"18"},
+  {"name":"server warning","payload":{"eventId":"fixture-alert-22","type":"health_warning","deepLink":"/health/alerts/22"},"type":"health_warning","eventId":"fixture-alert-22","entityId":"22"},
+  {"name":"legacy warning alias","payload":{"event_id":"fixture-alert-22","event_type":"health_alert","entity_id":"22"},"type":"health_warning","eventId":"fixture-alert-22","entityId":"22"},
+  {"name":"discard unrelated private fields","payload":{"eventId":"fixture-care-18","type":"care_invitation","deepLink":"/care/invitations/18","token":"synthetic-not-a-token","health":{"heart":70}},"type":"care_invitation","eventId":"fixture-care-18","entityId":"18"},
+  {"name":"external route","payload":{"eventId":"fixture-18","type":"care_invitation","deepLink":"https://example.invalid/care/invitations/18"},"rejected":true},
+  {"name":"conflicting types","payload":{"eventId":"fixture-18","event_type":"health_warning","type":"care_invitation","deepLink":"/care/invitations/18"},"rejected":true},
+  {"name":"conflicting entity","payload":{"eventId":"fixture-18","type":"care_invitation","entity_id":"19","deepLink":"/care/invitations/18"},"rejected":true},
+  {"name":"conflicting event IDs","payload":{"eventId":"fixture-18","event_id":"fixture-19","type":"care_invitation","deepLink":"/care/invitations/18"},"rejected":true},
+  {"name":"route type mismatch","payload":{"eventId":"fixture-18","type":"health_warning","deepLink":"/care/invitations/18"},"rejected":true},
+  {"name":"unknown version","payload":{"schema_version":2,"eventId":"fixture-18","type":"care_invitation","deepLink":"/care/invitations/18"},"rejected":true},
+  {"name":"encoded path traversal","payload":{"eventId":"fixture-18","type":"care_invitation","deepLink":"/care/invitations/%2e%2e"},"rejected":true},
+  {"name":"query string not business route","payload":{"eventId":"fixture-18","type":"care_invitation","deepLink":"/care/invitations/18?next=https://example.invalid"},"rejected":true},
+  {"name":"invalid entity","payload":{"event_id":"fixture-18","event_type":"care_invitation","entity_id":"../account"},"rejected":true}
+]

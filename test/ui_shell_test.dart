@@ -1281,6 +1281,8 @@ void main() {
         wearable,
       );
       await controller.initialize();
+      await controller.connectDevice(const DeviceInfo(id: 'W9S', name: 'W9S'));
+      await Future<void>.delayed(Duration.zero);
       addTearDown(() async {
         controller.dispose();
         await wearable.close();
@@ -1358,7 +1360,7 @@ void main() {
             unit: '%',
             measuredAt: DateTime.now().toUtc(),
             timezone: '+08:00',
-            deviceId: 'W9S',
+            deviceId: 'watch-1',
             firmwareVersion: '00.20.01',
             quality: 'good',
             source: MeasurementSource.wearable,

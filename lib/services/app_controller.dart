@@ -126,6 +126,11 @@ class AppController extends ChangeNotifier {
   int _deviceSyncGeneration = 0;
   int _wearableRestoreGeneration = 0;
   Future<void>? _wearableRestoreInFlight;
+  Future<void>? _wearableConnectInFlight;
+  bool _wearableAccountRecoveryAllowed = true;
+  bool _wearableNeedsDisconnect = false;
+  String _activeHealthOwner = 'anonymous';
+  ({DeviceInfo device, int generation})? _accountWearableResume;
   DeviceInfo? _latestDeviceDetails;
   String? _deviceSyncErrorMessage;
   Future<void>? _deviceSettingsRefresh;
@@ -304,6 +309,7 @@ class AppController extends ChangeNotifier {
 
   int _advanceSessionGeneration(Session? value) {
     _sessionGeneration++;
+    _activeHealthOwner = _healthOwnerFor(value);
     _careInvitationRefresh = null;
     _pushRegistration = null;
     _pushRegistrationRetryTimer?.cancel();
@@ -597,7 +603,7 @@ class AppController extends ChangeNotifier {
         _careInvitationPollBackoffIndex = 0;
         _scheduleCareInvitationPoll(const Duration(seconds: 30));
       } finally {
-        _accountTransitioning = false;
+        await _finishAccountTransition();
       }
     });
   }
@@ -682,7 +688,7 @@ class AppController extends ChangeNotifier {
       return false;
     } finally {
       if (isCurrent()) {
-        _accountTransitioning = false;
+        await _finishAccountTransition();
         isBusy = false;
         isWechatLoginInProgress = false;
         notifyListeners();
@@ -775,7 +781,7 @@ class AppController extends ChangeNotifier {
         _careInvitationPollBackoffIndex = 0;
         _scheduleCareInvitationPoll(const Duration(seconds: 30));
       } finally {
-        _accountTransitioning = false;
+        await _finishAccountTransition();
       }
     });
   }
@@ -824,7 +830,7 @@ class AppController extends ChangeNotifier {
         _careInvitationPollBackoffIndex = 0;
         _scheduleCareInvitationPoll(const Duration(seconds: 30));
       } finally {
-        _accountTransitioning = false;
+        await _finishAccountTransition();
       }
     });
   }
@@ -838,9 +844,20 @@ class AppController extends ChangeNotifier {
     _privacyConsentGranted = privacyConsentGranted;
     await _vault.writePrivacyConsentGranted(privacyConsentGranted);
     if (canContinue?.call() == false) return;
+    final previousDevice = connectedDevice;
+    final sameOwner =
+        session != null && _activeHealthOwner == _healthOwnerFor(session);
+    final disconnected = await _pauseWearableForAccountTransition();
+    if (canContinue?.call() == false) return;
     final generation = _advanceSessionGeneration(session);
-    await _switchHealthOwnerAndLoad(session, expectedGeneration: generation);
+    final storageReady = await _switchHealthOwnerAndLoad(
+      session,
+      expectedGeneration: generation,
+    );
     if (!_isCurrentSessionGeneration(generation)) return;
+    if (storageReady && sameOwner && previousDevice != null && disconnected) {
+      _accountWearableResume = (device: previousDevice, generation: generation);
+    }
     if (!privacyConsentGranted || session == null) {
       notificationPermissionEnabled = false;
       await _notificationService.deactivate();
@@ -857,6 +874,61 @@ class AppController extends ChangeNotifier {
     if (_notificationStorageReady) await _refreshNotificationInboxState();
   }
 
+  Future<bool> _pauseWearableForAccountTransition() async {
+    _accountWearableResume = null;
+    _wearableAccountRecoveryAllowed = false;
+    final hasNativeSession =
+        connectedDevice != null ||
+        _wearableConnectInFlight != null ||
+        _wearableRestoreInFlight != null ||
+        deviceState != DeviceConnectionState.disconnected ||
+        _wearableNeedsDisconnect;
+    _connectedDeviceSessionGeneration = null;
+    _invalidateDeviceSync();
+    final metric = _activeMeasurementMetric;
+    _measurementTimeout?.cancel();
+    _measurementTimeout = null;
+    _activeMeasurementMetric = null;
+    _activeMeasurementSessionGeneration = null;
+    measurementSamples = const [];
+    measurementProgress = 0;
+    if (!hasNativeSession) return true;
+    _wearableNeedsDisconnect = true;
+    if (metric != null) {
+      try {
+        await _wearable
+            .stopMeasurement(metric)
+            .timeout(const Duration(seconds: 5));
+      } catch (_) {
+        // Disconnect below remains required even when stopping a measurement fails.
+      }
+    }
+    try {
+      await disconnectDevice();
+      // A connect/authentication callback may finish after native disconnect.
+      // Drain it before opening another account or reconnecting the same owner.
+      await _wearableConnectInFlight;
+      return true;
+    } catch (_) {
+      sdkStatus = '请在设备页重新连接手表';
+      return false;
+    }
+  }
+
+  Future<void> _finishAccountTransition() async {
+    final resume = _accountWearableResume;
+    _accountWearableResume = null;
+    _accountTransitioning = false;
+    if (resume == null ||
+        session == null ||
+        !_isCurrentSessionGeneration(resume.generation)) {
+      return;
+    }
+    // Same-owner reauthentication is an explicit fresh native connection, not
+    // reassignment of the old connection generation. Other accounts must select a watch.
+    await connectDevice(resume.device);
+  }
+
   void enterPreview() {
     isPreviewMode = true;
     errorMessage = null;
@@ -869,6 +941,7 @@ class AppController extends ChangeNotifier {
     _accountTransitioning = true;
     notifyListeners();
     try {
+      await _pauseWearableForAccountTransition();
       await _drainCloudSync();
       if (session != null) {
         await _unregisterPushDevice();
@@ -927,6 +1000,7 @@ class AppController extends ChangeNotifier {
       final notificationInboxToClear = _notificationInboxService;
       await _unregisterPushDevice();
       await _api.deleteAccount();
+      await _pauseWearableForAccountTransition();
       await _vault.writePrivacyConsentGranted(false);
       session = null;
       _privacyConsentGranted = false;
@@ -1027,12 +1101,34 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> connectDevice(DeviceInfo device) async {
+    if (_disposed ||
+        _accountTransitioning ||
+        _wearableConnectInFlight != null) {
+      return;
+    }
+    final connecting = _connectDevice(device);
+    _wearableConnectInFlight = connecting;
+    try {
+      await connecting;
+    } finally {
+      if (identical(_wearableConnectInFlight, connecting)) {
+        _wearableConnectInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _connectDevice(DeviceInfo device) async {
     final sessionGeneration = _sessionGeneration;
+    bool isCurrent() =>
+        !_accountTransitioning &&
+        _isCurrentSessionGeneration(sessionGeneration);
     errorMessage = null;
     _invalidateDeviceSync();
     _latestDeviceDetails = null;
     try {
+      if (_wearableNeedsDisconnect) await disconnectDevice();
       await _cancelPendingWearableRestore();
+      if (!isCurrent()) return;
       if (deviceState == DeviceConnectionState.error) {
         deviceMachine.transition(DeviceConnectionState.disconnected);
       }
@@ -1055,16 +1151,15 @@ class AppController extends ChangeNotifier {
           targetSteps: stepGoal,
         ),
       );
-      if (!_isCurrentSessionGeneration(sessionGeneration)) {
-        unawaited(_wearable.disconnect().catchError((_) {}));
-        return;
-      }
+      if (!isCurrent()) return;
+      _wearableAccountRecoveryAllowed = true;
       _connectedDeviceSessionGeneration = sessionGeneration;
       connectedDevice = _mergeDeviceDetails(device);
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.loading;
       deviceMachine.transition(DeviceConnectionState.authenticating);
       await refreshDeviceCapabilities(announceFailure: false);
+      if (!isCurrent() || connectedDevice?.id != device.id) return;
       deviceMachine.transition(DeviceConnectionState.syncing);
       syncStatus = '正在同步设备数据';
       deviceMachine.transition(DeviceConnectionState.ready);
@@ -1072,11 +1167,13 @@ class AppController extends ChangeNotifier {
       // background follow-up and must not keep the add-device page spinning.
       unawaited(_syncInitialDeviceData(device.id));
     } on WearableSdkNotConfigured catch (_) {
+      if (!isCurrent()) return;
       deviceCapabilityState = DeviceCapabilityState.disconnected;
       sdkStatus = '设备连接服务暂时不可用';
       errorMessage = '此功能暂时无法使用，请稍后再试';
       deviceMachine.transition(DeviceConnectionState.error);
     } on PlatformException catch (error) {
+      if (!isCurrent()) return;
       if (error.code == 'CONNECT_CANCELLED') {
         errorMessage = null;
         if (deviceState != DeviceConnectionState.disconnected) {
@@ -1088,6 +1185,7 @@ class AppController extends ChangeNotifier {
         deviceMachine.transition(DeviceConnectionState.error);
       }
     } catch (_) {
+      if (!isCurrent()) return;
       deviceCapabilityState = DeviceCapabilityState.disconnected;
       errorMessage = '连接失败，请将手表靠近手机后重试';
       deviceMachine.transition(DeviceConnectionState.error);
@@ -1103,25 +1201,30 @@ class AppController extends ChangeNotifier {
       return false;
     }
     final deviceId = connectedDevice!.id;
+    final generation = _sessionGeneration;
+    bool isCurrent() =>
+        !_accountTransitioning &&
+        _isCurrentSessionGeneration(generation) &&
+        connectedDevice?.id == deviceId;
     capabilities = null;
     deviceCapabilityState = DeviceCapabilityState.loading;
     notifyListeners();
     try {
       final reported = await _wearable.getCapabilities();
-      if (_disposed || connectedDevice?.id != deviceId) return false;
+      if (!isCurrent()) return false;
       capabilities = reported;
       deviceCapabilityState = DeviceCapabilityState.ready;
       notifyListeners();
       return true;
     } on PlatformException catch (error) {
-      if (_disposed || connectedDevice?.id != deviceId) return false;
+      if (!isCurrent()) return false;
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.unavailable;
       if (announceFailure) {
         errorMessage = _wearableErrorMessage(error, fallback: '暂时无法读取此手表的功能');
       }
     } catch (_) {
-      if (_disposed || connectedDevice?.id != deviceId) return false;
+      if (!isCurrent()) return false;
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.unavailable;
       if (announceFailure) errorMessage = '暂时无法读取此手表的功能';
@@ -1153,7 +1256,11 @@ class AppController extends ChangeNotifier {
   }
 
   Future<bool> _syncDeviceData(String deviceId, {required bool initial}) async {
-    if (connectedDevice?.id != deviceId || isDeviceSyncing) return false;
+    if (_accountTransitioning ||
+        connectedDevice?.id != deviceId ||
+        isDeviceSyncing) {
+      return false;
+    }
     final sessionGeneration = _sessionGeneration;
     _connectedDeviceSessionGeneration ??= sessionGeneration;
     if (_connectedDeviceSessionGeneration != sessionGeneration) return false;
@@ -1219,6 +1326,7 @@ class AppController extends ChangeNotifier {
     int sessionGeneration,
   ) =>
       !_disposed &&
+      !_accountTransitioning &&
       _deviceSyncGeneration == generation &&
       _isCurrentSessionGeneration(sessionGeneration) &&
       _connectedDeviceSessionGeneration == sessionGeneration &&
@@ -1243,6 +1351,7 @@ class AppController extends ChangeNotifier {
     _invalidateDeviceSync();
     try {
       await _wearable.disconnect();
+      _wearableNeedsDisconnect = false;
     } finally {
       connectedDevice = null;
       _connectedDeviceSessionGeneration = null;
@@ -1252,11 +1361,7 @@ class AppController extends ChangeNotifier {
       deviceFeatureData = const {};
       deviceFeatureBusy = const {};
       if (deviceState != DeviceConnectionState.disconnected) {
-        if (deviceState == DeviceConnectionState.error) {
-          deviceMachine.transition(DeviceConnectionState.disconnected);
-        } else {
-          deviceMachine.transition(DeviceConnectionState.disconnected);
-        }
+        deviceMachine.transition(DeviceConnectionState.disconnected);
       }
       notifyListeners();
     }
@@ -1906,6 +2011,8 @@ class AppController extends ChangeNotifier {
 
   Future<void> restoreWearableConnection() async {
     if (_disposed ||
+        _accountTransitioning ||
+        !_wearableAccountRecoveryAllowed ||
         connectedDevice != null ||
         deviceState != DeviceConnectionState.disconnected) {
       return;
@@ -3916,7 +4023,12 @@ class AppController extends ChangeNotifier {
   }
 
   void _handleWearableEvent(WearableEvent event) {
-    if (_disposed) return;
+    if (_disposed || _accountTransitioning) return;
+    if (!_wearableAccountRecoveryAllowed &&
+        event.type != 'scanDevice' &&
+        !(_wearableConnectInFlight != null && event.type == 'deviceDetails')) {
+      return;
+    }
     if (event.type == 'scanDevice') {
       final device = DeviceInfo.fromMap(event.payload);
       _upsertScannedDevice(device);
@@ -3945,14 +4057,17 @@ class AppController extends ChangeNotifier {
     } else if (event.type == 'healthRecord') {
       final eventGeneration =
           _activeMeasurementSessionGeneration ??
-          _connectedDeviceSessionGeneration ??
-          (connectedDevice == null ? _sessionGeneration : null);
-      if (eventGeneration == null ||
+          _connectedDeviceSessionGeneration;
+      if (connectedDevice == null ||
+          eventGeneration == null ||
           !_isCurrentSessionGeneration(eventGeneration)) {
         return;
       }
       try {
         var record = HealthRecord.fromJson(event.payload);
+        String nativeId(String id) =>
+            id.replaceFirst(RegExp(r'^(veepoo|yucheng):'), '').toLowerCase();
+        if (nativeId(record.deviceId) != nativeId(connectedDevice!.id)) return;
         if (_activeMeasurementMetric == record.metric &&
             record.origin == MeasurementOrigin.watchHistory) {
           record = record.copyWith(origin: MeasurementOrigin.appMeasurement);
@@ -4125,6 +4240,11 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _restoreReconnectedDevice(Map<String, Object?> payload) async {
+    if (_disposed ||
+        _accountTransitioning ||
+        !_wearableAccountRecoveryAllowed) {
+      return;
+    }
     final sessionGeneration = _sessionGeneration;
     final device = DeviceInfo.fromMap(payload);
     if (device.id.trim().isEmpty ||
@@ -4143,6 +4263,8 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.authenticating);
       await refreshDeviceCapabilities(announceFailure: false);
       if (!_isCurrentSessionGeneration(sessionGeneration) ||
+          _accountTransitioning ||
+          !_wearableAccountRecoveryAllowed ||
           connectedDevice?.id != device.id) {
         return;
       }
