@@ -100,13 +100,27 @@ export function trendSummary(records: HealthRecord[], previous: HealthRecord[], 
     average, change: prior === undefined ? undefined : average - prior };
 }
 
-export function chartPoints(series: TrendSeries, window: TrendWindow, min: number, max: number, width: number): number[][] {
+// Match the iOS chart: samples are spread by their display order so nearby
+// measurements remain readable, while each TrendPoint keeps its real time.
+export function spreadChartX(index: number, count: number, width: number): number {
   const safeWidth = Math.max(1, width);
+  if (count <= 1) return safeWidth / 2;
+  const safeIndex = Math.max(0, Math.min(count - 1, index));
+  return safeIndex / (count - 1) * safeWidth;
+}
+
+export function spreadChartPoints(series: TrendSeries, min: number, max: number, width: number): number[][] {
   const span = Math.max(1, max - min);
-  return series.points.map((point: TrendPoint) => [
-    (point.time - window.start) / (window.end - window.start) * safeWidth,
+  return series.points.map((point: TrendPoint, index: number) => [
+    spreadChartX(index, series.points.length, width),
     144 - (point.value - min) / span * 128
   ]);
+}
+
+export function spreadChartIndex(x: number, width: number, count: number): number {
+  if (count <= 1) return 0;
+  const ratio = Math.max(0, Math.min(1, x / Math.max(1, width)));
+  return Math.max(0, Math.min(count - 1, Math.round(ratio * (count - 1))));
 }
 
 // Plot only real samples, retaining first/last and local peaks. Statistics and

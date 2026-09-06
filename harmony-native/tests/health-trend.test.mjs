@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 registerHooks({ resolve(specifier,context,next){return next(specifier.startsWith('.')&&context.parentURL?.endsWith('.ts')&&!/\.[a-z]+$/.test(specifier)?specifier+'.ts':specifier,context);} });
-const { trendWindow,shiftTrendDay,trendRecords,trendFieldNames,trendSeries,trendSummary,chartPoints,plotSeries,waveformPoints,localDateKey }=await import('../entry/src/main/ets/model/HealthTrend.ts');
+const { trendWindow,shiftTrendDay,trendRecords,trendFieldNames,trendSeries,trendSummary,spreadChartX,spreadChartPoints,spreadChartIndex,plotSeries,waveformPoints,localDateKey }=await import('../entry/src/main/ets/model/HealthTrend.ts');
 const units={distance:'km',temperature:'c'};
 const value=(name,value,unit='BPM')=>({name,value,unit});
 const record=(id,day,values,metric='heart',deviceKey='test-device')=>({id,deviceKey,metric,timestamp:new Date(`${day}T12:00:00`).getTime(),source:'watch_history',values,samples:[],sampleFrequency:0});
@@ -55,10 +55,20 @@ test('ECG has no invented average and a constant real waveform remains constant'
   assert.deepEqual(waveformPoints([5,5,5],100),[[0,112],[50,112],[100,112]]);
   assert.deepEqual(waveformPoints([],100),[]);assert.deepEqual(waveformPoints([1,NaN],100),[]);
 });
-test('chart position uses measurement time rather than equal-spaced record index',()=>{
-  const window=trendWindow('2026-09-06','day');
-  const points=chartPoints({name:'x',unit:'',points:[{time:window.start,value:10,recordId:'a'},{time:window.start+(window.end-window.start)/4,value:20,recordId:'b'}]},window,10,20,200);
-  assert.deepEqual(points,[[0,144],[50,16]]);
+test('display chart spreads nearby real samples and keeps a single sample visible',()=>{
+  const start=new Date(2026,8,6,10,25).getTime();
+  const series={name:'收缩压',unit:'mmHg',points:[
+    {time:start,value:121,recordId:'a'},{time:start+5*60*1000,value:127,recordId:'b'}
+  ]};
+  assert.deepEqual(spreadChartPoints(series,121,127,240),[[0,144],[240,16]]);
+  assert.equal(spreadChartX(0,1,240),120);
+  assert.deepEqual(spreadChartPoints({...series,points:series.points.slice(0,1)},121,127,240),[[120,144]]);
+});
+test('display chart touch selects and clamps the nearest visible sample',()=>{
+  assert.equal(spreadChartIndex(-10,240,2),0);
+  assert.equal(spreadChartIndex(180,240,3),2);
+  assert.equal(spreadChartIndex(300,240,3),2);
+  assert.equal(spreadChartIndex(50,240,1),0);
 });
 test('sleep stages are not collapsed into unrelated metrics',()=>{
   const records=[record('s','2026-09-06',[value('总睡眠',420,'分钟'),value('深睡',120,'分钟'),value('浅睡',270,'分钟'),value('清醒',30,'分钟')],'sleep')];

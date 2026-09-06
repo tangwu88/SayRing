@@ -37,7 +37,8 @@ import { AddressDraft, RegionCatalog, RegionChoice, emptyAddressDraft, copyAddre
   addressRegionChoices, selectAddressRegion, addressValidation } from '../model/AddressForm';
 import { PermissionRow, readPermissionRows, openPermissionSetting } from '../services/PermissionPresentation';
 import { TrendPeriod, TrendPoint, TrendWindow, TrendSeries, TrendSummary, localDateKey, trendWindow, shiftTrendDay,
-  trendRecords, trendFieldNames, trendSeries, trendSummary, chartPoints, plotSeries, waveformPoints } from '../model/HealthTrend';
+  trendRecords, trendFieldNames, trendSeries, trendSummary, spreadChartX, spreadChartPoints, spreadChartIndex,
+  plotSeries, waveformPoints } from '../model/HealthTrend';
 
 const RED: string = '#D20B27';
 const RED_DARK: string = '#980018';
@@ -708,8 +709,26 @@ struct Index {
     const values = this.chartNames().map((name: string) => this.seriesSummary(name).max).filter((value: number) => Number.isFinite(value));
     return values.length ? Math.max(...values) : 1;
   }
+  private plottedSeries(name: string): TrendSeries { return plotSeries(this.currentSeries(name)); }
   private seriesPoints(name: string): number[][] {
-    return chartPoints(plotSeries(this.currentSeries(name)), this.currentTrendWindow(), this.chartMinimum(), this.chartMaximum(), this.trendChartWidth);
+    return spreadChartPoints(this.plottedSeries(name), this.chartMinimum(), this.chartMaximum(), this.trendChartWidth);
+  }
+  private chartTimeline(): TrendPoint[] {
+    const name = this.chartNames()[0] ?? '';
+    return name ? this.plottedSeries(name).points : [];
+  }
+  private trendPointLabel(point: TrendPoint): string {
+    const date = new Date(point.time);
+    const pad = (value: number): string => value < 10 ? `0${value}` : `${value}`;
+    return this.trendPeriod === 'day' ? `${pad(date.getHours())}:${pad(date.getMinutes())}` : `${date.getMonth() + 1}/${date.getDate()}`;
+  }
+  private chartStartLabel(): string {
+    const points = this.chartTimeline();
+    return points.length ? this.trendPointLabel(points[0]) : '--';
+  }
+  private chartEndLabel(): string {
+    const points = this.chartTimeline();
+    return points.length > 1 ? this.trendPointLabel(points[points.length - 1]) : '';
   }
   private selectTrendPeriod(period: TrendPeriod): void { this.trendPeriod = period; this.loadTrendData(); }
   private moveTrend(direction: number): void {
@@ -722,11 +741,14 @@ struct Index {
       onDateAccept: (date: Date) => { this.trendDay = localDateKey(date.getTime()); this.loadTrendData(); } });
   }
   private inspectTrend(x: number): void {
-    const time = this.currentTrendWindow().start + Math.max(0, Math.min(1, x / this.trendChartWidth)) *
-      (this.currentTrendWindow().end - this.currentTrendWindow().start);
+    const points = this.chartTimeline();
+    if (!points.length) return;
+    const point = points[spreadChartIndex(x, this.trendChartWidth, points.length)];
     const records = this.currentTrendRecords();
     if (!records.length) return;
-    const nearest = records.reduce((a: HealthRecord, b: HealthRecord) => Math.abs(a.timestamp - time) < Math.abs(b.timestamp - time) ? a : b);
+    const exact = records.find((record: HealthRecord) => record.id === point.recordId);
+    const nearest = exact ?? records.reduce((a: HealthRecord, b: HealthRecord) =>
+      Math.abs(a.timestamp - point.time) < Math.abs(b.timestamp - point.time) ? a : b);
     this.trendReadout = `${this.wearableRecordTime(nearest.timestamp)} · ${this.displayRecord(nearest)}`;
   }
   private openRecord(record: HealthRecord): void {
@@ -3804,16 +3826,20 @@ struct Index {
         } else {
           Column({ space: 8 }) {
             Row() {
+              Text('趋势图').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+              Text(`${this.chartTimeline().length} 个数据点`).fontSize(13).fontColor(MUTED)
+            }.width('100%')
+            Row() {
               Text(displayNumber(this.chartMaximum())).fontSize(12).fontColor(MUTED).layoutWeight(1)
               Text(this.trendPeriod === 'day' ? '触摸图表查看记录' : '按日汇总 · 触摸查看记录').fontSize(12).fontColor(MUTED)
             }.width('100%')
             Stack({ alignContent: Alignment.TopStart }) {
               ForEach(this.chartNames(), (name: string, seriesIndex: number) => {
                 if (this.selectedWearableMetric === 'activity') {
-                  ForEach(plotSeries(this.currentSeries(name)).points, (point: TrendPoint) => {
+                  ForEach(this.plottedSeries(name).points, (point: TrendPoint, pointIndex: number) => {
                     Column().width(8).height(Math.max(1, point.value / Math.max(1, this.chartMaximum()) * 128))
                       .backgroundColor(RED).position({ x: Math.min(this.trendChartWidth - 8,
-                        (point.time - this.currentTrendWindow().start) / (this.currentTrendWindow().end - this.currentTrendWindow().start) * this.trendChartWidth),
+                        spreadChartX(pointIndex, this.plottedSeries(name).points.length, this.trendChartWidth)),
                         y: 144 - Math.max(1, point.value / Math.max(1, this.chartMaximum()) * 128) })
                   })
                 } else {
@@ -3827,10 +3853,14 @@ struct Index {
                 }
               }, (name: string) => name)
             }.width('100%').height(160).onAreaChange((oldArea: Area, area: Area) => this.trendChartWidth = Number(area.width))
-              .onTouch((event: TouchEvent) => { if (event.touches.length) this.inspectTrend(event.touches[0].x); }).id('health_trend_chart')
+              .onTouch((event: TouchEvent) => {
+                if ((event.type === TouchType.Down || event.type === TouchType.Move) && event.touches.length) {
+                  this.inspectTrend(event.touches[0].x);
+                }
+              }).id('health_trend_chart')
             Row() {
-              Text(this.trendPeriod === 'day' ? '0:00' : localDateKey(this.currentTrendWindow().start).slice(5)).fontSize(12).fontColor(MUTED).layoutWeight(1)
-              Text(this.trendPeriod === 'day' ? '24:00' : localDateKey(this.currentTrendWindow().end - 1).slice(5)).fontSize(12).fontColor(MUTED)
+              Text(this.chartStartLabel()).fontSize(12).fontColor(MUTED).layoutWeight(1)
+              Text(this.chartEndLabel()).fontSize(12).fontColor(MUTED)
             }.width('100%')
             if (this.selectedWearableMetric === 'pressure') {
               Row({ space: 16 }) { Text('收缩压').fontSize(13).fontColor(RED); Text('舒张压').fontSize(13).fontColor(BLUE) }.width('100%')
