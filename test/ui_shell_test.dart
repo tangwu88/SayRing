@@ -1862,6 +1862,66 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('care metric detail keeps the API-normalized latest reading', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: CareMetricDetailPage(
+          day: DateTime(2026, 8, 30),
+          item: const {
+            'title': '心率',
+            'latest': 75,
+            'records': [
+              {'time': '20:15', 'pulseReat': 75},
+              {'time': '08:10', 'pulseReat': 68},
+            ],
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('最近  75 次/分'), findsOneWidget);
+    expect(find.text('最近  68 次/分'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('care pressure detail keeps the normalized latest pair', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: CareMetricDetailPage(
+          day: DateTime(2026, 8, 30),
+          item: const {
+            'title': '血压',
+            'latest': '128/82',
+            'records': [
+              {
+                'time': '21:30',
+                'bloodPressureHigh': 128,
+                'bloodPressureLow': 82,
+              },
+              {
+                'time': '07:30',
+                'bloodPressureHigh': 118,
+                'bloodPressureLow': 76,
+              },
+            ],
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('最近  128/82 mmHg'), findsOneWidget);
+    expect(find.text('最近  118/76 mmHg'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('care history labels authorized activity as selected-day data', (
     tester,
   ) async {

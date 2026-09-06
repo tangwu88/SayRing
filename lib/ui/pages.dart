@@ -6396,7 +6396,11 @@ class CareMetricDetailPage extends StatelessWidget {
                 ).isNotEmpty,
               )
               .toList(growable: false);
-    final summary = _careMetricDaySummary(title, records);
+    final summary = _careMetricDaySummary(
+      title,
+      records,
+      normalizedLatest: item['latest'],
+    );
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: ListView(
@@ -7001,8 +7005,9 @@ num? _carePositiveDisplayNumber(
 
 Map<String, String> _careMetricDaySummary(
   String title,
-  List<Map<String, Object?>> records,
-) {
+  List<Map<String, Object?>> records, {
+  Object? normalizedLatest,
+}) {
   final result = <String, String>{'记录数': '${records.length} 条'};
   if (title == '心电' || title == '身体成分' || title == '血液成分') {
     return result;
@@ -7015,7 +7020,9 @@ Map<String, String> _careMetricDaySummary(
     if (values.isEmpty) return result;
     String pair(num high, num low) =>
         '${_careFormatNumber(high)}/${_careFormatNumber(low)} mmHg';
-    result['最近'] = pair(values.last.$1, values.last.$2);
+    final latest = _careMetricPressurePair({'bloodPressure': normalizedLatest});
+    final displayedLatest = latest ?? values.last;
+    result['最近'] = pair(displayedLatest.$1, displayedLatest.$2);
     result['平均'] = pair(
       values.map((value) => value.$1).reduce((a, b) => a + b) / values.length,
       values.map((value) => value.$2).reduce((a, b) => a + b) / values.length,
@@ -7056,7 +7063,9 @@ Map<String, String> _careMetricDaySummary(
   String format(num value) => unit.isEmpty
       ? _careFormatNumber(value)
       : '${_careFormatNumber(value)} $unit';
-  result['最近'] = format(values.last);
+  result['最近'] = format(
+    _carePositiveDisplayNumber(normalizedLatest) ?? values.last,
+  );
   result['平均'] = format(values.reduce((a, b) => a + b) / values.length);
   result['最高'] = format(values.reduce(math.max));
   result['最低'] = format(values.reduce(math.min));
