@@ -7,10 +7,12 @@ import { isPaymentCallbackExpected, setPaymentCallbackExpected } from '../servic
 import { LogLevel, VPBleSDK } from '@veepoo/vpble-sdk';
 import { vepWearable } from '../services/VepWearableService';
 import { initializeWechatAuthState, wechatAuth } from '../services/WechatAuthService';
+import { careNotifications } from '../services/CareNotificationService';
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want): void {
     initializeNotificationNavigation();
+    careNotifications.attachContext(this.context);
     initializeWechatAuthState();
     wechatAuth.attachContext(this.context);
     wechatAuth.handleWant(want);
@@ -29,13 +31,14 @@ export default class EntryAbility extends UIAbility {
     if (!isPaymentCallbackExpected()) return;
     try {
       const paymentModule = await import('../services/HarmonyPaymentService');
-      paymentModule.handleHarmonyPaymentCallback(want);
+      await paymentModule.handleHarmonyPaymentCallback(want);
     } catch {
       setPaymentCallbackExpected(false);
     }
   }
 
   onWindowStageCreate(stage: window.WindowStage): void {
+    careNotifications.attachContext(this.context);
     wechatAuth.attachContext(this.context);
     VPBleSDK.getInstance().init({
       context: this.context,
@@ -53,6 +56,10 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageDestroy(): void {
+    careNotifications.shutdown();
     vepWearable.shutdown();
   }
+
+  onForeground(): void { careNotifications.setForeground(true); }
+  onBackground(): void { careNotifications.setForeground(false); }
 }

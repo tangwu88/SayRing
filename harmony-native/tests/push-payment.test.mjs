@@ -41,8 +41,8 @@ test('invalid push identifiers and control bytes are rejected', () => {
 
 test('push failures stay actionable without exposing integration details', () => {
   assert.match(pushErrorMessage(1001500001), /暂时不可用/);
-  assert.match(pushErrorMessage(1000900010), /应用身份/);
-  assert.match(pushErrorMessage(1000900012), /Push Kit/);
+  assert.match(pushErrorMessage(1000900010), /暂时不可用/);
+  assert.match(pushErrorMessage(1000900012), /暂时不可用/);
   assert.match(pushErrorMessage(1000900014), /设备/);
   assert.match(pushErrorMessage(1600004), /权限/);
   assert.match(pushErrorMessage(1000900011), /网络/);

@@ -58,20 +58,22 @@ test('release identity stays aligned with the confirmed AGC HarmonyOS app',()=>{
 test('optional PaymentKit is not loaded during cold start',()=>{
   const page=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const ability=readFileSync(new URL('../entry/src/main/ets/entryability/EntryAbility.ets',import.meta.url),'utf8');
+  const router=readFileSync(new URL('../entry/src/main/ets/services/HarmonyPaymentService.ets',import.meta.url),'utf8');
   const startPayment=page.slice(page.indexOf('private async startPayment()'),page.indexOf('private money('));
   assert.equal(page.includes("import { harmonyPayment } from '../services/HarmonyPaymentService'"),false);
   assert.equal(ability.includes("import { handleHarmonyPaymentCallback } from '../services/HarmonyPaymentService'"),false);
-  assert.ok(startPayment.includes("canIUse('SystemCapability.Payment.ThirdPaymentService')"));
-  assert.ok(startPayment.indexOf("canIUse('SystemCapability.Payment.ThirdPaymentService')") <
+  assert.ok(startPayment.includes('canStartHarmonyPayment(this.selectedProvider)'));
+  assert.ok(startPayment.indexOf('canStartHarmonyPayment(this.selectedProvider)') <
     startPayment.indexOf('saydianApi.harmonyPayment'));
-  assert.ok(startPayment.indexOf('saydianApi.harmonyPayment') <
-    startPayment.indexOf("await import('../services/HarmonyPaymentService')"));
+  assert.equal(router.includes("from '@kit.PaymentKit'"), false);
+  assert.ok(router.indexOf("canIUse('SystemCapability.Payment.ThirdPaymentService')") <
+    router.indexOf("await import('./ThirdPaymentService')"));
   assert.ok(ability.includes("await import('../services/HarmonyPaymentService')"));
 });
 
 test('payment flow times out safely and always rechecks the server order',()=>{
   const page=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
-  const service=readFileSync(new URL('../entry/src/main/ets/services/HarmonyPaymentService.ets',import.meta.url),'utf8');
+  const service=readFileSync(new URL('../entry/src/main/ets/services/ThirdPaymentService.ets',import.meta.url),'utf8');
   const startPayment=page.slice(page.indexOf('private async startPayment()'),page.indexOf('private money('));
   const back=page.slice(page.indexOf('private back()'),page.indexOf('onBackPress()'));
   const heading=page.slice(page.indexOf('Heading()'),page.indexOf('private careHeading()'));
@@ -81,7 +83,7 @@ test('payment flow times out safely and always rechecks the server order',()=>{
   assert.ok(service.includes('await withPaymentTimeout(client.pay(request.payInfo))'));
   assert.ok(service.includes('finally'));
   assert.ok(back.includes('this.careBusy || this.paymentBusy'));
-  assert.ok(heading.includes('.enabled(!this.careBusy && !this.paymentBusy && !this.formBusy && !this.commerceBusy)'));
+  assert.ok(heading.includes('.enabled(!this.careBusy && !this.paymentBusy && !this.formBusy && !this.commerceBusy && !this.deviceSettingsWriting)'));
   const provider=page.slice(page.indexOf('private selectPaymentProvider('),page.indexOf('private async startPayment()'));
   assert.ok(provider.includes("this.paymentMessage = ''"));
   assert.ok(page.includes("this.selectPaymentProvider('wechat')"));
@@ -196,6 +198,8 @@ test('launcher identity uses the requested name and a high-resolution brand icon
   assert.equal(icon.subarray(1,4).toString(),'PNG');
   assert.equal(icon.readUInt32BE(16),1024);
   assert.equal(icon.readUInt32BE(20),1024);
+  const iosMaster=readFileSync(new URL('../../ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png',import.meta.url));
+  assert.deepEqual(icon,iosMaster,'Harmony must keep the approved iOS master geometry and original red');
 });
 
 test('login offers registration and WeChat authorization instead of guest browsing',()=>{
@@ -251,7 +255,7 @@ test('login and primary surfaces exclude decorative or internal helper copy',()=
   const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const login=source.slice(source.indexOf('  Login() {'),source.indexOf('  Registration() {'));
   const wechat=login.slice(login.indexOf("Button(this.busy ? '正在打开微信…'"),login.indexOf('  Registration()'));
-  assert.ok(wechat.includes(".width('60%')"));
+  assert.ok(wechat.includes(".width(this.singleColumn() ? '100%' : '60%')"));
   assert.ok(login.includes("}.width('100%').justifyContent(FlexAlign.Center)"));
   for(const copy of [
     '欢迎来到赛电',

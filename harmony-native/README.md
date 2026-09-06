@@ -14,7 +14,7 @@ Git 保存范围和发布边界见 [2026-09-04 开发检查点](docs/GIT-CHECKPO
 
 本机目录：`/Users/saydian/DevEcoStudioProjects/SaydianHarmony/harmony-native`。必须使用英文路径，中文路径会被构建器拒绝。
 
-本机使用官方 HarmonyOS 7.0 SDK。最低 API 23，因为本版网络安全策略需要禁用重定向。
+本机使用官方 HarmonyOS 7.0 SDK，兼容目标为 HarmonyOS 5/API 12。低版本认证请求使用 RCP 显式禁用重定向，保留安全边界；最低版本声明仍须对应系统真机验收。
 
 ```sh
 ohpm install --all
@@ -24,7 +24,7 @@ node --test tests/*.test.mjs
 
 `DEVECO_SDK_HOME` 应指向官方 SDK 根目录，Node 使用 DevEco 随附版本。签名配置仅在本机配置，不提交证书、密码、Token 或私钥。
 
-当前配置省略 `compileSdkVersion`，由 IDE 自带 SDK 编译；目标 `26.0.0`，最低 `6.1.0(23)`。不要把系统镜像版本字符串直接写入 SDK 配置。
+当前配置省略 `compileSdkVersion`，由 IDE 自带 SDK 编译；目标 `26.0.0`，最低 `5.0.0(12)`。支付宝支付保留系统能力门禁，微信支持官方 PayReq；签名参数缺失时不假装可用。
 
 ohpm 工程元数据 1.0.0 是构建工具要求，不是 App 正式版本。签名配置只允许保存在本机，不提交证书、Profile、密码、Token 或私钥。
 

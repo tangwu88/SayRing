@@ -24,6 +24,9 @@ import {
 } from '../model/WearableContracts';
 import { StoredWearableBinding, wearableHealthStore } from './WearableHealthStore';
 import { DiscoveryPacketCache, knownWearableName } from '../model/WearableDiscovery';
+import { HealthOwnerSession, HealthSyncResult, recordWithinOwnership, sameHealthSession, validHealthOwner } from '../model/HealthUpload';
+import { HealthUploadService } from './HealthUploadService';
+import { saydianApi } from './SaydianApi';
 
 interface ConnectionEvent {
   oldState: ConnectionState;
@@ -35,11 +38,30 @@ interface BodyCompositionProgressData {
   lead: number;
 }
 
+interface MeasurementSession {
+  owner: HealthOwnerSession;
+  connection: number;
+  generation: number;
+  ecgWearConfirmed: boolean;
+}
+
+interface MeasurementListeners {
+  heart: (data: HeartRateMeasurement) => void;
+  pressure: (data: BloodPressureResult) => void;
+  oxygen: (data: SpO2Result) => void;
+  temperature: (data: BodyTempMeasurement) => void;
+  glucose: (data: BloodSugarResult) => void;
+  blood: (data: BloodComponentsResult) => void;
+  body: (data: BodyCompPushEvent) => void;
+  ecg: (data: EcgPushEvent) => void;
+}
+
 export interface WearableServiceListener {
   onDevices?: (devices: WearableDevice[]) => void;
   onPhase?: (phase: WearableConnectionPhase, message: string) => void;
   onSnapshot?: (snapshot: WearableSnapshot) => void;
   onMeasurement?: (measurement: MeasurementState) => void;
+  onCloudSync?: (result: HealthSyncResult) => void;
 }
 
 export class VepWearableService {
@@ -63,21 +85,138 @@ export class VepWearableService {
   private userDisconnect: boolean = false;
   private eventsAttached: boolean = false;
   private busyOperation: string = '';
+  private operationGeneration: number = 0;
   private snapshot: WearableSnapshot = emptyWearableSnapshot();
   private measurement: MeasurementState = emptyMeasurement();
   private measurementStopping: boolean = false;
+  private measurementGeneration: number = 0;
+  private measurementSession: MeasurementSession | undefined = undefined;
+  private measurementListeners: MeasurementListeners | undefined = undefined;
+  private measurementStartInFlight: Promise<boolean> | undefined = undefined;
+  private measurementStopInFlight: Promise<void> | undefined = undefined;
+  private deviceCommandInFlight: Promise<void> | undefined = undefined;
+  private accountTeardown: Promise<void> = Promise.resolve();
+  private accountTeardownPending: boolean = false;
+  private accountTeardownFailed: boolean = false;
   private lastValidMeasurementValues: HealthValue[] = [];
   private sdk: VPBleSDK = VPBleSDK.getInstance();
   private lastBinding: StoredWearableBinding | undefined = undefined;
-  private storageReady: boolean = false;
   private restoreConnectPending: boolean = false;
   private dialFiles: Map<string, DeviceDialFile> = new Map();
   private originalDial: DeviceDialFile | null = null;
+  private accountSession: HealthOwnerSession = { ownerId: '', generation: -1 };
+  private ownershipSince: number = Number.MAX_SAFE_INTEGER;
+  private healthUploader: HealthUploadService = new HealthUploadService(wearableHealthStore, saydianApi);
 
   attachContext(context: common.UIAbilityContext): void {
     this.context = context;
     this.attachEvents();
+    saydianApi.observeHealthSession((session: HealthOwnerSession) => this.updateAccountSession(session));
     this.initializeStorage();
+  }
+
+  private updateAccountSession(session: HealthOwnerSession): void {
+    if (session.ownerId === this.accountSession.ownerId && session.generation === this.accountSession.generation) return;
+    const metric = this.measurement.running ? this.measurement.metric : undefined;
+    const pendingStart = this.measurementStartInFlight, pendingStop = this.measurementStopInFlight;
+    const pendingCommand = this.deviceCommandInFlight;
+    this.accountSession = session;
+    ++this.connectionGeneration;
+    this.cancelReconnect(); this.stopScan();
+    this.userDisconnect = true;
+    this.invalidateMeasurementSession();
+    this.measurement = emptyMeasurement(); this.measurementStopping = false;
+    this.lastValidMeasurementValues = [];
+    this.connectedKey = ''; this.lastDevice = null; this.lastBinding = undefined;
+    this.ownershipSince = Number.MAX_SAFE_INTEGER;
+    this.snapshot = emptyWearableSnapshot(); this.busyOperation = '切换账号';
+    this.emitSnapshot(); this.emitMeasurement();
+    this.accountTeardownPending = true;
+    this.accountTeardown = this.accountTeardown.catch(() => {}).then(async () => {
+      let failed = false;
+      try {
+        if (metric && !pendingStop) {
+          try { await this.withTimeout(this.requestMeasurementStop(metric), WEARABLE_MEASUREMENT_STOP_TIMEOUT_MS, '结束测量超时'); }
+          catch { /* Native disconnect is still mandatory. */ }
+        }
+        this.disconnectNativeForAccount();
+        const settling: Promise<void>[] = [];
+        if (pendingStart) settling.push(pendingStart.then(() => {}, () => {}));
+        if (pendingStop) settling.push(pendingStop.catch(() => {}));
+        if (pendingCommand) settling.push(pendingCommand);
+        await this.withTimeout(Promise.all(settling), 5000, '旧测量指令尚未结束');
+        await this.waitForNativeDisconnect();
+      } catch { failed = true; }
+      if (!sameHealthSession(session, this.accountSession)) return;
+      this.accountTeardownFailed = failed;
+      this.accountTeardownPending = false;
+      if (this.busyOperation === '切换账号') this.busyOperation = '';
+      if (failed) {
+        this.snapshot.message = '旧手表连接尚未结束，请关闭再开启蓝牙后重试';
+        this.emitSnapshot();
+      } else this.initializeStorage();
+    });
+  }
+
+  private async waitForNativeDisconnect(): Promise<void> {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const state = this.sdk.getState();
+      if (state === ConnectionState.DISCONNECTED || state === ConnectionState.READY ||
+        state === ConnectionState.UNINITIALIZED) return;
+      await this.delay(100);
+    }
+    throw new Error('旧手表连接尚未结束');
+  }
+
+  private disconnectNativeForAccount(): void {
+    const state = this.sdk.getState();
+    if (state !== ConnectionState.UNINITIALIZED && state !== ConnectionState.READY &&
+      state !== ConnectionState.DISCONNECTED) this.sdk.disconnect();
+  }
+
+  private async accountWearableReady(): Promise<boolean> {
+    const session = this.accountSession;
+    let pending: Promise<void>;
+    do { pending = this.accountTeardown; await pending; } while (pending !== this.accountTeardown);
+    if (!sameHealthSession(session, this.accountSession)) return false;
+    // SDK methods can send a second packet after an internal await. A timeout is
+    // not cancellation: keep the unresolved command until it actually settles.
+    if (!this.snapshot.connected) {
+      try {
+        while (this.deviceCommandInFlight) {
+          await this.withTimeout(this.deviceCommandInFlight, 5000, '旧手表指令尚未结束');
+          if (!sameHealthSession(session, this.accountSession)) return false;
+        }
+      } catch {
+        this.emitPhase('error', '旧手表操作尚未结束，请稍后重试');
+        return false;
+      }
+    }
+    if (this.accountTeardownFailed) {
+      // A manual retry may succeed after Bluetooth released the prior session.
+      try {
+        this.disconnectNativeForAccount();
+        await this.waitForNativeDisconnect();
+        await this.withTimeout(Promise.all([
+          this.measurementStartInFlight?.then(() => {}, () => {}) ?? Promise.resolve(),
+          this.measurementStopInFlight?.catch(() => {}) ?? Promise.resolve()
+        ]), 5000, '旧测量指令尚未结束');
+        if (!sameHealthSession(session, this.accountSession)) return false;
+        this.accountTeardownFailed = false;
+      } catch {
+        this.emitPhase('error', '旧手表连接尚未结束，请关闭再开启蓝牙后重试');
+        return false;
+      }
+    }
+    return !this.accountTeardownPending;
+  }
+
+  async synchronizeCloud(): Promise<HealthSyncResult> {
+    const session = this.accountSession, generation = this.connectionGeneration;
+    const current = (): boolean => sameHealthSession(session, this.accountSession) && generation === this.connectionGeneration;
+    const result = await this.healthUploader.synchronize(current);
+    if (current()) this.listener?.onCloudSync?.(result);
+    return result;
   }
 
   setListener(listener: WearableServiceListener): void {
@@ -110,6 +249,8 @@ export class VepWearableService {
   }
 
   async startScan(): Promise<boolean> {
+    const session = this.accountSession;
+    if (!await this.accountWearableReady() || !sameHealthSession(session, this.accountSession)) return false;
     if (this.busyOperation && this.busyOperation !== 'scan') {
       if (this.busyOperation !== '连接手表') {
         this.emitPhase('error', `正在${this.busyOperation}，请稍后再扫描`);
@@ -193,6 +334,11 @@ export class VepWearableService {
   }
 
   async connect(deviceKey: string, isRetry: boolean = false): Promise<boolean> {
+    const requestedSession = this.accountSession;
+    if (!await this.accountWearableReady() || !sameHealthSession(requestedSession, this.accountSession)) return false;
+    if (!validHealthOwner(this.accountSession.ownerId)) {
+      this.emitPhase('error', '请先登录再连接手表'); return false;
+    }
     const descriptor = this.devices.find((item: WearableDevice) => item.key === deviceKey);
     if (!descriptor) {
       this.emitPhase('error', '该设备已离开扫描范围，请重新扫描');
@@ -229,6 +375,7 @@ export class VepWearableService {
     this.busyOperation = '连接手表';
     this.userDisconnect = false;
     const generation = ++this.connectionGeneration;
+    const session = this.accountSession;
     if (this.snapshot.connected && this.connectedKey !== deviceKey) {
       this.userDisconnect = true;
       try { this.sdk.disconnect(); } catch {}
@@ -251,12 +398,19 @@ export class VepWearableService {
       // Device metadata and feature flags are available locally. Battery is a
       // separate BLE command and must not make a valid connection fail.
       await this.refreshConnectedDeviceInternal(generation, descriptor, false);
+      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration) || !sameHealthSession(session, this.accountSession)) return false;
+      const current = (): boolean => generation === this.connectionGeneration && sameHealthSession(session, this.accountSession);
+      const ownedSince = await wearableHealthStore.claimDevice(session.ownerId, deviceKey, Date.now(), isRetry, current);
+      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration) || !sameHealthSession(session, this.accountSession)) return false;
+      this.ownershipSince = ownedSince;
       await this.loadStoredRecords(this.connectedKey);
+      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return false;
       const mac = normalizeMac(this.snapshot.mac);
       if (mac) {
         this.lastBinding = { provider: 'Vep', name: this.snapshot.deviceName, mac: mac, updatedAt: Date.now() };
-        await wearableHealthStore.saveBinding(this.lastBinding);
+        await wearableHealthStore.saveBinding(session.ownerId, this.lastBinding, current);
       }
+      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return false;
       this.emitPhase('connected', `已连接 ${this.snapshot.deviceName}`);
       this.emitSnapshot();
       // Avoid colliding with the SDK's JL directory/watchface initialization.
@@ -281,88 +435,82 @@ export class VepWearableService {
     this.userDisconnect = true;
     this.cancelReconnect();
     this.stopScan();
-    ++this.connectionGeneration;
+    const generation = ++this.connectionGeneration;
     this.busyOperation = '断开连接';
     this.emitPhase('disconnecting', '正在断开手表…');
     await this.cancelMeasurement(true);
-    try { this.sdk.disconnect(); } catch {}
+    if (generation !== this.connectionGeneration) return;
+    this.invalidateMeasurementSession();
+    this.measurement = emptyMeasurement(); this.measurementStopping = false;
+    let disconnected = false;
+    try { this.sdk.disconnect(); await this.waitForNativeDisconnect(); disconnected = true; } catch {}
+    if (generation !== this.connectionGeneration) return;
+    this.accountTeardownFailed = !disconnected;
     this.connectedKey = '';
     this.snapshot = emptyWearableSnapshot();
     this.busyOperation = '';
+    if (!disconnected) this.snapshot.message = '尚未确认手表已断开，请关闭再开启蓝牙后重试';
     this.emitSnapshot();
-    this.emitPhase('idle', '已断开手表');
+    this.emitMeasurement();
+    this.emitPhase(disconnected ? 'idle' : 'error', disconnected ? '已断开手表' : this.snapshot.message);
   }
 
   async refresh(): Promise<boolean> {
-    if (!this.ensureConnected() || !this.beginOperation('刷新设备')) return false;
-    const generation = this.connectionGeneration;
-    try {
-      await this.refreshConnectedDeviceInternal(generation);
+    return this.runConnectedOperation('刷新设备', async (current: () => void): Promise<boolean> => {
+      await this.refreshConnectedDeviceInternal(this.connectionGeneration);
+      current();
       this.emitPhase('connected', '设备信息已刷新');
       return true;
-    } catch (error) {
-      this.emitPhase('error', this.bluetoothError(error as Error, '刷新设备失败'));
-      return false;
-    } finally { this.endOperation(); }
+    });
   }
 
   async syncHistory(): Promise<boolean> {
-    if (!this.ensureConnected() || !this.beginOperation('同步健康数据')) return false;
-    const generation = this.connectionGeneration;
-    this.emitPhase('syncing', '正在同步近三天手表数据…');
-    try {
+    return this.runConnectedOperation('同步健康数据', async (current: () => void): Promise<boolean> => {
+      const generation = this.connectionGeneration;
+      this.emitPhase('syncing', '正在同步近三天手表数据…');
       await this.syncHistoryInternal(generation, [HealthQueryDay.TODAY,
         HealthQueryDay.YESTERDAY, HealthQueryDay.DAY_BEFORE_YESTERDAY]);
-      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return false;
+      current();
       this.snapshot.syncedAt = Date.now();
       this.snapshot.message = '手表历史数据已同步';
-      await wearableHealthStore.saveRecords(this.snapshot.records);
+      await this.saveCurrentRecords(this.snapshot.records);
+      current();
+      this.synchronizeCloud();
       this.emitSnapshot();
       this.emitPhase('connected', '同步完成');
       return true;
-    } catch (error) {
-      this.snapshot.message = this.bluetoothError(error as Error, '同步失败');
-      this.emitSnapshot();
-      this.emitPhase('error', this.snapshot.message);
-      return false;
-    } finally { this.endOperation(); }
+    });
   }
 
   async findDevice(): Promise<boolean> {
-    if (!this.ensureConnected() || !this.snapshot.capabilities.findDevice || !this.beginOperation('查找设备')) return false;
-    try {
+    if (!this.snapshot.capabilities.findDevice) return false;
+    return this.runConnectedOperation('查找设备', async (current: () => void): Promise<boolean> => {
       const result = await this.sdk.deviceControlService.findDevice(true);
+      current();
       const ok = result.success;
       this.emitPhase(ok ? 'connected' : 'error', ok ? '已向手表发送查找提示' :
         (result.errorMessage ?? '手表不支持查找设备'));
       return ok;
-    } catch (error) {
-      this.emitPhase('error', this.bluetoothError(error as Error, '查找设备失败'));
-      return false;
-    } finally { this.endOperation(); }
+    });
   }
 
   async syncTime(): Promise<boolean> {
-    if (!this.ensureConnected() || !this.beginOperation('同步时间')) return false;
-    try {
+    return this.runConnectedOperation('同步时间', async (current: () => void): Promise<boolean> => {
       const result = await this.sdk.deviceControlService.syncTimeNow(new Date());
+      current();
       this.emitPhase(result.success ? 'connected' : 'error', result.success ? '手表时间已同步' :
         (result.errorMessage ?? '时间同步失败'));
       return result.success;
-    } catch (error) {
-      this.emitPhase('error', this.bluetoothError(error as Error, '时间同步失败'));
-      return false;
-    } finally { this.endOperation(); }
+    });
   }
 
   async readDeviceConfiguration(): Promise<boolean> {
-    if (!this.ensureConnected() || !this.beginOperation('读取设备设置')) return false;
-    const generation = this.connectionGeneration;
-    const settings = emptyDeviceSettings();
-    let successes = 0;
-    try {
+    return this.runConnectedOperation('读取设备设置', async (current: () => void): Promise<boolean> => {
+      const settings = emptyDeviceSettings();
+      let successes = 0;
       try {
         const result = await this.sdk.configService.getSwitchConfig();
+        current();
         if (result.success && result.data) {
           settings.unitSystem = result.data.unitSystem === 1 ? '公制' : result.data.unitSystem === 2 ? '英制' : '未返回';
           settings.timeFormat = result.data.timeFormat === 1 ? '24 小时' : result.data.timeFormat === 2 ? '12 小时' : '未返回';
@@ -370,18 +518,22 @@ export class VepWearableService {
           ++successes;
         }
       } catch {}
+      current();
       if (this.snapshot.capabilities.notification) {
         try {
           const result = await this.sdk.configService.getMsgSwitchConfig();
+          current();
           if (result.success && result.data) {
             settings.messageReminder = this.messageReminderText(result.data);
             ++successes;
           }
         } catch {}
       } else { settings.messageReminder = '设备不支持'; }
+      current();
       if (this.snapshot.capabilities.sedentaryReminder) {
         try {
           const result = await this.sdk.reminderService.getSedentaryReminder();
+          current();
           if (result.success && result.data) {
             settings.sedentaryReminder = result.data.enabled ?
               `已开启 · ${result.data.startTime}-${result.data.endTime} · ${result.data.intervalMinutes} 分钟` : '已关闭';
@@ -389,9 +541,11 @@ export class VepWearableService {
           }
         } catch {}
       } else { settings.sedentaryReminder = '设备不支持'; }
+      current();
       if (this.snapshot.capabilities.alarm) {
         try {
           const result = await this.sdk.alarmClockService.readAll();
+          current();
           if (result.success && result.data) {
             settings.alarms = result.data.map((item: AlarmClockItem) =>
               `${item.enabled ? '开' : '关'} · ${item.time}${item.labels ? ` · ${item.labels}` : ''}`);
@@ -399,23 +553,23 @@ export class VepWearableService {
           }
         } catch {}
       }
-      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return false;
+      current();
       settings.loadedAt = successes > 0 ? Date.now() : 0;
       this.snapshot.settings = settings;
       this.snapshot.message = successes > 0 ? '已读取手表实际设置' : '手表未返回可读取的设置';
       this.emitSnapshot();
       this.emitPhase(successes > 0 ? 'connected' : 'error', this.snapshot.message);
       return successes > 0;
-    } finally { this.endOperation(); }
+    });
   }
 
   async readDials(): Promise<boolean> {
-    if (!this.ensureConnected() || !this.snapshot.capabilities.dial || !this.beginOperation('读取表盘')) return false;
-    const generation = this.connectionGeneration;
-    try {
+    if (!this.snapshot.capabilities.dial) return false;
+    return this.runConnectedOperation('读取表盘', async (current: () => void): Promise<boolean> => {
       const listResult = await this.sdk.dialService.getDialFileList();
+      current();
       const currentResult = await this.sdk.dialService.getCurrentDial();
-      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return false;
+      current();
       if (!listResult.success || !listResult.list) {
         this.emitPhase('error', listResult.errorMessage ?? '手表未返回可用表盘');
         return false;
@@ -443,29 +597,26 @@ export class VepWearableService {
       this.emitSnapshot();
       this.emitPhase(dials.length > 0 ? 'connected' : 'error', this.snapshot.message);
       return dials.length > 0;
-    } catch (error) {
-      this.emitPhase('error', this.bluetoothError(error as Error, '读取表盘失败'));
-      return false;
-    } finally { this.endOperation(); }
+    });
   }
 
   async setExistingDial(dialKey: string): Promise<boolean> {
-    if (!this.ensureConnected() || !this.snapshot.capabilities.dial || !this.beginOperation('切换表盘')) return false;
-    const generation = this.connectionGeneration;
-    const dial = this.dialFiles.get(dialKey);
-    if (!dial) {
-      this.endOperation();
-      this.emitPhase('error', '表盘列表已过期，请重新读取');
-      return false;
-    }
-    try {
+    if (!this.snapshot.capabilities.dial) return false;
+    return this.runConnectedOperation('切换表盘', async (current: () => void): Promise<boolean> => {
+      const dial = this.dialFiles.get(dialKey);
+      if (!dial) {
+        this.emitPhase('error', '表盘列表已过期，请重新读取');
+        return false;
+      }
       const setOk = await this.sdk.dialService.setUsingDial(dial);
-      if (!setOk || !isCurrentConnectionGeneration(generation, this.connectionGeneration)) {
+      current();
+      if (!setOk) {
         this.emitPhase('error', '手表未确认表盘切换');
         return false;
       }
-      const current = await this.sdk.dialService.getCurrentDial();
-      const confirmed = current.success && current.dial && this.dialKey(current.dial) === dialKey;
+      const readback = await this.sdk.dialService.getCurrentDial();
+      current();
+      const confirmed = readback.success && readback.dial && this.dialKey(readback.dial) === dialKey;
       if (!confirmed) {
         this.emitPhase('error', '表盘已发送，但重读未确认生效');
         return false;
@@ -477,10 +628,7 @@ export class VepWearableService {
       this.emitSnapshot();
       this.emitPhase('connected', this.snapshot.message);
       return true;
-    } catch (error) {
-      this.emitPhase('error', this.bluetoothError(error as Error, '表盘切换失败'));
-      return false;
-    } finally { this.endOperation(); }
+    });
   }
 
   async restoreOriginalDial(): Promise<boolean> {
@@ -492,6 +640,14 @@ export class VepWearableService {
   }
 
   async startMeasurement(metric: WearableMetricKey): Promise<boolean> {
+    if (this.measurementStartInFlight || this.accountTeardownPending || this.accountTeardownFailed) return false;
+    const pending = this.startMeasurementInternal(metric);
+    this.measurementStartInFlight = pending;
+    try { return await pending; }
+    finally { if (this.measurementStartInFlight === pending) this.measurementStartInFlight = undefined; }
+  }
+
+  private async startMeasurementInternal(metric: WearableMetricKey): Promise<boolean> {
     if (!this.ensureConnected() || !this.supportsMetric(metric)) {
       this.emitPhase('error', '当前手表不支持该测量项目');
       return false;
@@ -501,6 +657,11 @@ export class VepWearableService {
       return false;
     }
     if (!this.beginOperation('手动测量')) return false;
+    this.invalidateMeasurementSession();
+    const session: MeasurementSession = { owner: this.accountSession, connection: this.connectionGeneration,
+      generation: this.measurementGeneration, ecgWearConfirmed: false };
+    this.measurementSession = session;
+    this.attachMeasurementEvents(session);
     this.measurement = emptyMeasurement();
     this.measurement.metric = metric;
     this.measurement.running = true;
@@ -513,14 +674,17 @@ export class VepWearableService {
       let errorMessage = '';
       if (metric === 'heart') {
         const r = await this.sdk.heartRateService.startMeasurement(HeartRateBrightness.HIGH);
+        if (!this.isCurrentMeasurement(session)) return false;
         success = r.success; errorMessage = r.errorMessage ?? '';
         if (r.data) this.onHeartRate(r.data);
       } else if (metric === 'pressure') {
         const r = await this.sdk.bloodPressureService.startMeasurement(false);
+        if (!this.isCurrentMeasurement(session)) return false;
         success = r.success; errorMessage = r.errorMessage ?? '';
         if (r.data) this.onBloodPressure(r);
       } else if (metric === 'oxygen') {
         const r = await this.sdk.bloodOxygenService.startMeasurement();
+        if (!this.isCurrentMeasurement(session)) return false;
         success = r.success; errorMessage = r.errorMessage ?? '';
         if (r.data) this.onOxygen(r);
         // The official Harmony SDK exposes blood oxygen as a one-shot read.
@@ -534,21 +698,26 @@ export class VepWearableService {
         }
       } else if (metric === 'temperature') {
         const r = await this.sdk.bodyTemperatureService.startMeasurement();
+        if (!this.isCurrentMeasurement(session)) return false;
         success = r.success; errorMessage = r.errorMessage ?? '';
         if (r.data) this.onBodyTemperature(r.data);
       } else if (metric === 'glucose') {
         const r = await this.sdk.bloodSugarService.startMeasurement(false);
+        if (!this.isCurrentMeasurement(session)) return false;
         success = r.success; errorMessage = r.errorMessage ?? '';
         if (r.data) this.onBloodSugar(r);
       } else if (metric === 'bloodComponents') {
         const r = await this.sdk.bloodComponentsService.startMeasurement(false);
+        if (!this.isCurrentMeasurement(session)) return false;
         success = r.success; errorMessage = r.errorMessage ?? '';
         if (r.data) this.onBloodComponents(r);
       } else if (metric === 'bodyComposition') {
         const r = await this.sdk.bodyCompositionService.startMeasurement();
+        if (!this.isCurrentMeasurement(session)) return false;
         success = r.success; errorMessage = r.errorMessage ?? '';
       } else if (metric === 'ecg') {
         const r = await this.sdk.ecgService.startMeasurement();
+        if (!this.isCurrentMeasurement(session)) return false;
         success = r.success; errorMessage = r.errorMessage ?? '';
       }
       if (!this.measurement.running && this.measurement.metric === metric) {
@@ -565,7 +734,7 @@ export class VepWearableService {
     } catch (error) {
       // A bounded user stop may settle before the vendor start promise. Ignore
       // that late rejection so it cannot overwrite the already-finished UI.
-      if (!this.measurement.running || this.measurement.metric !== metric) return false;
+      if (!this.isCurrentMeasurement(session) || !this.measurement.running || this.measurement.metric !== metric) return false;
       this.measurement.running = false;
       this.measurement.status = this.bluetoothError(error as Error, '启动测量失败');
       this.endOperation();
@@ -583,6 +752,7 @@ export class VepWearableService {
     this.cancelReconnect();
     this.userDisconnect = true;
     ++this.connectionGeneration;
+    this.invalidateMeasurementSession();
     try { this.sdk.disconnect(); } catch {}
     this.detachEvents();
     this.listener = null;
@@ -703,33 +873,68 @@ export class VepWearableService {
     if (this.eventsAttached) return;
     this.eventsAttached = true;
     this.sdk.on(SDKEventType.CONNECTION_STATE_CHANGED, this.onConnectionState);
-    this.sdk.heartRateService.onHeartRatePush(this.onHeartRate);
-    this.sdk.bloodPressureService.onBloodPressurePush(this.onBloodPressure);
-    this.sdk.bloodOxygenService.onSpO2Push(this.onOxygen);
-    this.sdk.bodyTemperatureService.onBodyTempPush(this.onBodyTemperature);
-    this.sdk.bloodSugarService.onBloodSugarPush(this.onBloodSugar);
-    this.sdk.bloodComponentsService.onBloodComponentsPush(this.onBloodComponents);
-    this.sdk.bodyCompositionService.onBodyCompPush(this.onBodyComposition);
-    this.sdk.ecgService.onEcgPush(this.onEcg);
   }
 
   private detachEvents(): void {
     if (!this.eventsAttached) return;
     this.eventsAttached = false;
     this.sdk.off(SDKEventType.CONNECTION_STATE_CHANGED, this.onConnectionState);
-    this.sdk.heartRateService.offHeartRatePush(this.onHeartRate);
-    this.sdk.bloodPressureService.offBloodPressurePush(this.onBloodPressure);
-    this.sdk.bloodOxygenService.offSpO2Push(this.onOxygen);
-    this.sdk.bodyTemperatureService.offBodyTempPush(this.onBodyTemperature);
-    this.sdk.bloodSugarService.offBloodSugarPush(this.onBloodSugar);
-    this.sdk.bloodComponentsService.offBloodComponentsPush(this.onBloodComponents);
-    this.sdk.bodyCompositionService.offBodyCompPush(this.onBodyComposition);
-    this.sdk.ecgService.offEcgPush(this.onEcg);
+    this.detachMeasurementEvents();
+  }
+
+  private isCurrentMeasurement(session: MeasurementSession | undefined): boolean {
+    return session !== undefined && session.generation === this.measurementGeneration &&
+      session.connection === this.connectionGeneration && sameHealthSession(session.owner, this.accountSession) &&
+      !this.accountTeardownPending && !this.accountTeardownFailed;
+  }
+
+  private invalidateMeasurementSession(): void {
+    ++this.measurementGeneration;
+    this.measurementSession = undefined;
+    this.detachMeasurementEvents();
+  }
+
+  private attachMeasurementEvents(session: MeasurementSession): void {
+    const listeners: MeasurementListeners = {
+      heart: (data: HeartRateMeasurement) => { if (this.isCurrentMeasurement(session)) this.onHeartRate(data); },
+      pressure: (data: BloodPressureResult) => { if (this.isCurrentMeasurement(session)) this.onBloodPressure(data); },
+      oxygen: (data: SpO2Result) => { if (this.isCurrentMeasurement(session)) this.onOxygen(data); },
+      temperature: (data: BodyTempMeasurement) => { if (this.isCurrentMeasurement(session)) this.onBodyTemperature(data); },
+      glucose: (data: BloodSugarResult) => { if (this.isCurrentMeasurement(session)) this.onBloodSugar(data); },
+      blood: (data: BloodComponentsResult) => { if (this.isCurrentMeasurement(session)) this.onBloodComponents(data); },
+      body: (data: BodyCompPushEvent) => { if (this.isCurrentMeasurement(session)) this.onBodyComposition(data); },
+      ecg: (data: EcgPushEvent) => { if (this.isCurrentMeasurement(session)) this.onEcg(data); }
+    };
+    this.measurementListeners = listeners;
+    this.sdk.heartRateService.onHeartRatePush(listeners.heart);
+    this.sdk.bloodPressureService.onBloodPressurePush(listeners.pressure);
+    this.sdk.bloodOxygenService.onSpO2Push(listeners.oxygen);
+    this.sdk.bodyTemperatureService.onBodyTempPush(listeners.temperature);
+    this.sdk.bloodSugarService.onBloodSugarPush(listeners.glucose);
+    this.sdk.bloodComponentsService.onBloodComponentsPush(listeners.blood);
+    this.sdk.bodyCompositionService.onBodyCompPush(listeners.body);
+    this.sdk.ecgService.onEcgPush(listeners.ecg);
+  }
+
+  private detachMeasurementEvents(): void {
+    const listeners = this.measurementListeners;
+    if (!listeners) return;
+    this.measurementListeners = undefined;
+    this.sdk.heartRateService.offHeartRatePush(listeners.heart);
+    this.sdk.bloodPressureService.offBloodPressurePush(listeners.pressure);
+    this.sdk.bloodOxygenService.offSpO2Push(listeners.oxygen);
+    this.sdk.bodyTemperatureService.offBodyTempPush(listeners.temperature);
+    this.sdk.bloodSugarService.offBloodSugarPush(listeners.glucose);
+    this.sdk.bloodComponentsService.offBloodComponentsPush(listeners.blood);
+    this.sdk.bodyCompositionService.offBodyCompPush(listeners.body);
+    this.sdk.ecgService.offEcgPush(listeners.ecg);
   }
 
   private onConnectionState = (payload: ESObject): void => {
     const event = payload as ConnectionEvent;
     if (event.newState === ConnectionState.DISCONNECTED && !this.userDisconnect && this.lastDevice) {
+      ++this.connectionGeneration;
+      this.invalidateMeasurementSession();
       if (this.measurement.running) {
         const metric = this.measurement.metric;
         this.measurement.running = false;
@@ -787,7 +992,7 @@ export class VepWearableService {
       deviceKey: this.connectedKey,
       deviceName: device.deviceName || fallback?.name || '赛电手表',
       mac: normalizeMac(device.mac || fallback?.mac || ''),
-      model: device.modelName || device.deviceFullVersion || '',
+      model: device.modelName || '',
       firmware: device.firmwareVersion || device.deviceVersion || '',
       capabilities: capabilities,
       battery: emptyBattery(),
@@ -811,15 +1016,17 @@ export class VepWearableService {
         console.warn(`[SaydianWearable] battery read skipped: ${(error as Error).message}`);
       }
     }
-    this.emitSnapshot();
+    if (isCurrentConnectionGeneration(generation, this.connectionGeneration)) this.emitSnapshot();
   }
 
   private async syncHistoryInternal(generation: number, days: HealthQueryDay[], includeAdvanced: boolean = true): Promise<void> {
     for (const day of days) {
       if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
       const health = await this.sdk.healthService.getHealthData(day, 1);
+      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
       if (health.success && health.data) this.addDailyHealth(day, health.data);
       const sleep = await this.sdk.healthService.getSleepData(day);
+      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
       if (sleep.success && sleep.data) {
         sleep.data.forEach((segment) => {
           const values: HealthValue[] = [];
@@ -880,22 +1087,26 @@ export class VepWearableService {
     if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
     if (this.snapshot.capabilities.ecg) {
       const idResult = await this.sdk.ecgService.getSavedId();
+      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
       if (idResult.success && idResult.id && idResult.id > 0) {
         const history = await this.sdk.ecgService.getHistory(idResult.id);
+        if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
         if (history.success && history.data) this.addEcgHistory(history.data);
       }
     }
     if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
     if (this.snapshot.capabilities.bodyComposition) {
       const ids = await this.sdk.bodyCompositionService.getSavedIds();
+      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
       if (ids.success && ids.data) {
         for (const item of ids.data) {
           const history = await this.sdk.bodyCompositionService.getHistory(item.id);
+          if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
           if (history.success && history.data) {
             const values = this.bodyCompositionValues(history.data.data);
             const timestamp = Date.parse(history.data.dateTime.replace(' ', 'T'));
             if (values.length > 0) this.addRecord(this.makeRecord('bodyComposition',
-              Number.isFinite(timestamp) ? timestamp : Date.now(), values));
+              Number.isFinite(timestamp) ? timestamp : 0, values));
           }
         }
       }
@@ -903,6 +1114,7 @@ export class VepWearableService {
     if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
     if (this.snapshot.capabilities.sport) {
       const crcResult = await this.sdk.sportService.readModeCrc();
+      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
       const crc = crcResult.data;
       if (crcResult.success && crc) {
         const slots: SportDataSlot[] = [];
@@ -911,6 +1123,7 @@ export class VepWearableService {
         if (crc.crc2 > 0) slots.push(SportDataSlot.CRC2);
         for (const slot of slots) {
           const result = await this.sdk.sportService.readData(slot);
+          if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
           if (result.success && result.data) {
             const values: HealthValue[] = [];
             this.pushValue(values, healthValue('步数', result.data.allStep, '步'));
@@ -918,7 +1131,7 @@ export class VepWearableService {
             this.pushValue(values, healthValue('热量', result.data.allCalorie, 'kcal'));
             const timestamp = Date.parse(result.data.startTime.replace(' ', 'T'));
             if (values.length > 0) this.addRecord(this.makeRecord('sport',
-              Number.isFinite(timestamp) ? timestamp : Date.now(), values));
+              Number.isFinite(timestamp) ? timestamp : 0, values));
           } else if (result.success && result.dataA704?.motionData) {
             const motion = result.dataA704.motionData;
             const values: HealthValue[] = [];
@@ -927,7 +1140,7 @@ export class VepWearableService {
             this.pushValue(values, healthValue('热量', motion.allCalorie, 'kcal'));
             const timestamp = Date.parse(motion.startTime.replace(' ', 'T'));
             if (values.length > 0) this.addRecord(this.makeRecord('sport',
-              Number.isFinite(timestamp) ? timestamp : Date.now(), values));
+              Number.isFinite(timestamp) ? timestamp : 0, values));
           }
         }
       }
@@ -944,7 +1157,7 @@ export class VepWearableService {
     const samples: number[] = [];
     data.waveformArray.forEach((second) => samples.push(...second.waveform));
     const timestamp = Date.parse(data.dateTime.replace(' ', 'T'));
-    const record = this.makeRecord('ecg', Number.isFinite(timestamp) ? timestamp : Date.now(), values);
+    const record = this.makeRecord('ecg', Number.isFinite(timestamp) ? timestamp : 0, values);
     record.samples = samples;
     record.sampleFrequency = data.sampleFrequency;
     this.addRecord(record);
@@ -1039,25 +1252,40 @@ export class VepWearableService {
   };
 
   private onEcg = (event: EcgPushEvent): void => {
-    if (this.measurement.metric !== 'ecg' || !this.measurement.running) return;
+    if (this.measurement.metric !== 'ecg' || !this.measurement.running || this.measurementStopping) return;
+    const session = this.measurementSession;
+    if (!session) return;
     if (event.kind === EcgPushEventKind.INSTRUCTION) {
       const data = event.data as EcgInstruction;
       this.measurement.sampleFrequency = data.samplingFreq;
-      this.measurement.status = `心电电极已连接，采样率 ${data.samplingFreq} Hz`;
+      this.measurement.status = '请保持佩戴并持续接触心电电极';
     } else if (event.kind === EcgPushEventKind.WAVEFORM) {
       const data = event.data as EcgWaveformData;
       this.measurement.samples = this.measurement.samples.concat(data.samples).slice(-60000);
-      this.measurement.status = `已收到 ${this.measurement.samples.length} 个真实心电采样点`;
+      this.measurement.status = '正在采集心电信号，请保持佩戴';
     } else if (event.kind === EcgPushEventKind.PROGRESS) {
       const data = event.data as EcgSecondMeasurement;
+      // Veepoo ECG transport: wear=0 is confirmed, wear=1 is lead failure.
+      // Other codes are unknown, not a medical assessment or proof of contact.
+      session.ecgWearConfirmed = data.wearStatus === 0;
+      if (data.wearStatus === 1) {
+        this.measurement.values = [];
+        this.cancelEcgWithGuidance('请调整佩戴并持续接触电极后重试');
+        return;
+      }
       this.measurement.progress = Math.max(0, Math.min(100, data.progress));
-      this.measurement.values = this.validValues([
-        healthValue('心率', data.hrPerMinute, 'BPM'), healthValue('HRV', data.hrv, 'ms'), healthValue('QT', data.qtc, 'ms')]);
-      this.measurement.status = `心电测量 ${this.measurement.progress}% · ${this.measurement.samples.length} 点`;
+      this.measurement.values = session.ecgWearConfirmed ? this.validValues([
+        healthValue('心率', data.hrPerMinute, 'BPM'), this.ecgHrvValue(data.hrv), healthValue('QT', data.qtc, 'ms')]) : [];
+      this.measurement.status = session.ecgWearConfirmed ? `心电测量 ${this.measurement.progress}%` :
+        '请保持佩戴并接触电极，等待有效读数';
     } else if (event.kind === EcgPushEventKind.RESULT) {
+      if (!session.ecgWearConfirmed) {
+        this.cancelEcgWithGuidance('未确认有效佩戴，请调整后重新测量');
+        return;
+      }
       const data = event.data as EcgDiagnosis;
       this.measurement.values = this.validValues([
-        healthValue('心率', data.heartRate, 'BPM'), healthValue('HRV', data.hrv, 'ms'),
+        healthValue('心率', data.heartRate, 'BPM'), this.ecgHrvValue(data.hrv),
         healthValue('QT', data.qtc, 'ms'), healthValue('SDNN', data.sdnn, 'ms'), healthValue('RMSSD', data.rmssd, 'ms')]);
       this.measurement.progress = 100;
       this.completeMeasurement();
@@ -1066,13 +1294,39 @@ export class VepWearableService {
     this.emitMeasurement();
   };
 
+  private ecgHrvValue(value: number): HealthValue | undefined {
+    // 255 is Veepoo's ECG HRV invalid marker, not a clinical upper limit.
+    return value === 255 ? undefined : healthValue('HRV', value, 'ms');
+  }
+
+  private async cancelEcgWithGuidance(message: string): Promise<void> {
+    const measurement = this.measurement, session = this.measurementSession;
+    await this.cancelMeasurement(false);
+    // Cancellation invalidates its session. Identity plus owner/connection checks
+    // prevent this late completion from replacing a new measurement or account UI.
+    if (this.measurement !== measurement || this.measurement.running || !session ||
+      session.connection !== this.connectionGeneration || !sameHealthSession(session.owner, this.accountSession)) return;
+    this.measurement.status = message;
+    this.emitMeasurement();
+  }
+
   private async cancelMeasurement(shutdown: boolean): Promise<void> {
+    if (this.measurementStopInFlight) { await this.measurementStopInFlight; return; }
+    const pending = this.cancelMeasurementInternal(shutdown);
+    this.measurementStopInFlight = pending;
+    try { await pending; }
+    finally { if (this.measurementStopInFlight === pending) this.measurementStopInFlight = undefined; }
+  }
+
+  private async cancelMeasurementInternal(shutdown: boolean): Promise<void> {
+    const session = this.measurementSession;
     if (!this.measurement.running || !this.measurement.metric) {
       if (this.busyOperation === '手动测量') this.endOperation();
       return;
     }
     if (this.measurementStopping) return;
     this.measurementStopping = true;
+    this.detachMeasurementEvents();
     const metric = this.measurement.metric;
     const values = retainedMeasurementValues(this.measurement.values, this.lastValidMeasurementValues);
     if (!shutdown) {
@@ -1082,6 +1336,7 @@ export class VepWearableService {
     try {
       await this.withTimeout(this.requestMeasurementStop(metric), WEARABLE_MEASUREMENT_STOP_TIMEOUT_MS, '结束测量超时');
     } catch {}
+    if (!this.isCurrentMeasurement(session)) return;
     this.measurement.running = false;
     if (metric === 'ecg') {
       this.measurement.values = [];
@@ -1096,6 +1351,7 @@ export class VepWearableService {
       this.measurement.status = shutdown ? '' : '已取消测量，未收到有效读数';
     }
     this.measurementStopping = false;
+    this.invalidateMeasurementSession();
     this.endOperation();
     this.emitMeasurement();
   }
@@ -1113,6 +1369,7 @@ export class VepWearableService {
 
   private completeMeasurement(): void {
     if (!this.measurement.running || !this.measurement.metric) return;
+    this.detachMeasurementEvents();
     this.measurement.running = false;
     this.measurement.progress = 100;
     this.measurement.status = `${this.metricName(this.measurement.metric)}测量完成`;
@@ -1192,7 +1449,7 @@ export class VepWearableService {
 
   private makeRecord(metric: WearableMetricKey, timestamp: number, values: HealthValue[],
     source: 'watch_history' | 'app_measurement' = 'watch_history'): HealthRecord {
-    const time = Number.isFinite(timestamp) && timestamp > 0 ? Math.round(timestamp) : Date.now();
+    const time = Number.isFinite(timestamp) && timestamp > 0 ? Math.round(timestamp) : 0;
     return {
       id: `${this.connectedKey}|${metric}|${time}|${source}`,
       deviceKey: this.connectedKey,
@@ -1206,6 +1463,8 @@ export class VepWearableService {
   }
 
   private addRecord(record: HealthRecord): void {
+    if (!this.snapshot.connected || !validHealthOwner(this.accountSession.ownerId) || record.deviceKey !== this.connectedKey ||
+      !recordWithinOwnership(record, this.ownershipSince, Date.now())) return;
     const map: Map<string, HealthRecord> = new Map();
     this.snapshot.records.forEach((item: HealthRecord) => map.set(item.id, item));
     map.set(record.id, record);
@@ -1213,25 +1472,31 @@ export class VepWearableService {
   }
 
   private initializeStorage(): void {
-    if (!this.context || this.storageReady) return;
-    this.storageReady = true;
+    if (!this.context) return;
+    const session = this.accountSession;
     wearableHealthStore.open(this.context).then(async () => {
-      this.lastBinding = await wearableHealthStore.loadBinding();
+      if (!sameHealthSession(session, this.accountSession)) return;
+      const binding = await wearableHealthStore.loadBinding(session.ownerId);
+      if (!sameHealthSession(session, this.accountSession)) return;
+      this.lastBinding = binding;
+      this.synchronizeCloud();
       if (this.lastBinding?.provider === 'Vep' && !this.snapshot.connected && !this.scanning && !this.busyOperation) {
         setTimeout(() => {
-          if (!this.snapshot.connected && !this.scanning && !this.busyOperation) this.startScan();
+          if (sameHealthSession(session, this.accountSession) && !this.snapshot.connected && !this.scanning && !this.busyOperation) this.startScan();
         }, 800);
       }
     }).catch(() => {
-      this.storageReady = false;
+      if (!sameHealthSession(session, this.accountSession)) return;
       this.snapshot.message = '本机加密健康数据库暂不可用，本次数据仅保留到 App 关闭前';
       this.emitSnapshot();
     });
   }
 
   private async loadStoredRecords(deviceKey: string): Promise<void> {
+    const session = this.accountSession, generation = this.connectionGeneration;
     try {
-      const stored = await wearableHealthStore.loadRecent(deviceKey);
+      const stored = await wearableHealthStore.loadRecent(session.ownerId, deviceKey);
+      if (!sameHealthSession(session, this.accountSession) || generation !== this.connectionGeneration) return;
       const records: Map<string, HealthRecord> = new Map();
       const repaired: HealthRecord[] = [];
       this.snapshot.records.forEach((item: HealthRecord) => records.set(item.id, item));
@@ -1242,7 +1507,7 @@ export class VepWearableService {
       });
       this.snapshot.records = Array.from(records.values())
         .sort((a: HealthRecord, b: HealthRecord) => b.timestamp - a.timestamp);
-      if (repaired.length > 0) await wearableHealthStore.saveRecords(repaired);
+      if (repaired.length > 0) await this.saveCurrentRecords(repaired);
       this.emitSnapshot();
     } catch {}
   }
@@ -1252,7 +1517,9 @@ export class VepWearableService {
       throw new Error('设备或日期已变更，请重新选择');
     }
     const generation = this.connectionGeneration;
-    const records = await wearableHealthStore.loadRange(deviceKey, metric, start, end - 1);
+    const session = this.accountSession;
+    const records = await wearableHealthStore.loadRange(session.ownerId, deviceKey, metric, start, end - 1);
+    if (!sameHealthSession(session, this.accountSession)) throw new Error('账号已变化，请重新选择');
     if (generation !== this.connectionGeneration || deviceKey !== this.snapshot.deviceKey) throw new Error('设备已变更，请重新选择');
     const result: Map<string, HealthRecord> = new Map();
     records.forEach((record: HealthRecord) => result.set(record.id, record));
@@ -1262,10 +1529,20 @@ export class VepWearableService {
   }
 
   private persistRecords(records: HealthRecord[]): void {
-    wearableHealthStore.saveRecords(records).catch(() => {
+    const session = this.accountSession;
+    this.saveCurrentRecords(records).then(() => this.synchronizeCloud()).catch(() => {
+      if (!sameHealthSession(session, this.accountSession)) return;
       this.snapshot.message = '测量完成，但本机加密保存失败';
       this.emitSnapshot();
     });
+  }
+
+  private async saveCurrentRecords(records: HealthRecord[]): Promise<void> {
+    const session = this.accountSession, generation = this.connectionGeneration;
+    const current = (): boolean => sameHealthSession(session, this.accountSession) && generation === this.connectionGeneration;
+    const owned = records.filter((record: HealthRecord) => record.deviceKey === this.connectedKey &&
+      recordWithinOwnership(record, this.ownershipSince, Date.now()));
+    await wearableHealthStore.saveRecords(session.ownerId, owned, current);
   }
 
   private tryRestoreConnection(): void {
@@ -1283,21 +1560,23 @@ export class VepWearableService {
   private async postConnectInitialize(generation: number): Promise<void> {
     if (!isCurrentConnectionGeneration(generation, this.connectionGeneration) || !this.snapshot.connected ||
       this.busyOperation || this.measurement.running) return;
-    this.busyOperation = '连接后初始化';
-    this.emitPhase('syncing', '正在读取电量并同步今日手表数据…');
-    console.info(`[SaydianWearable] delayed post-connect initialization started generation=${generation}`);
     try {
-      await this.refreshConnectedDeviceInternal(generation);
-      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
-      // Automatic sync is intentionally limited to stable daily/sleep data.
-      // ECG/body composition/sports history remain available via manual sync.
-      await this.syncHistoryInternal(generation, [HealthQueryDay.TODAY], false);
-      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
-      this.snapshot.syncedAt = Date.now();
-      this.snapshot.message = '今日手表数据已自动同步';
-      await wearableHealthStore.saveRecords(this.snapshot.records);
-      this.emitSnapshot();
-      this.emitPhase('connected', '今日数据同步完成');
+      await this.runDeviceCommand('连接后初始化', async (current: () => void): Promise<void> => {
+        this.emitPhase('syncing', '正在读取电量并同步今日手表数据…');
+        console.info(`[SaydianWearable] delayed post-connect initialization started generation=${generation}`);
+        await this.refreshConnectedDeviceInternal(generation);
+        current();
+        // Advanced history remains a manual action; no nested public command locks.
+        await this.syncHistoryInternal(generation, [HealthQueryDay.TODAY], false);
+        current();
+        this.snapshot.syncedAt = Date.now();
+        this.snapshot.message = '今日手表数据已自动同步';
+        await this.saveCurrentRecords(this.snapshot.records);
+        current();
+        this.synchronizeCloud();
+        this.emitSnapshot();
+        this.emitPhase('connected', '今日数据同步完成');
+      });
     } catch (error) {
       if (isCurrentConnectionGeneration(generation, this.connectionGeneration)) {
         // Post-connect reads are optional. A failed read must not disconnect a
@@ -1306,7 +1585,7 @@ export class VepWearableService {
         this.emitSnapshot();
         this.emitPhase('connected', this.snapshot.message);
       }
-    } finally { this.endOperation(); }
+    }
   }
 
   private automaticHealthText(config: DeviceSwitchConfig): string {
@@ -1373,12 +1652,50 @@ export class VepWearableService {
   }
 
   private beginOperation(name: string): boolean {
-    if (this.busyOperation) {
-      this.emitPhase('error', `正在${this.busyOperation}，请完成后再操作`);
+    if (this.accountTeardownPending || this.accountTeardownFailed) {
+      this.emitPhase('error', '请等待旧手表连接结束后重试'); return false;
+    }
+    if (this.busyOperation || this.deviceCommandInFlight) {
+      this.emitPhase('error', this.busyOperation ? `正在${this.busyOperation}，请完成后再操作` : '旧手表操作尚未结束，请稍后重试');
       return false;
     }
     this.busyOperation = name;
+    ++this.operationGeneration;
     return true;
+  }
+
+  private async runConnectedOperation(name: string, operation: (current: () => void) => Promise<boolean>): Promise<boolean> {
+    const connection = this.connectionGeneration, session = this.accountSession;
+    try { return await this.runDeviceCommand(name, operation); }
+    catch (error) {
+      if (connection === this.connectionGeneration && sameHealthSession(session, this.accountSession)) {
+        this.emitPhase('error', this.bluetoothError(error as Error, `${name}失败`));
+      }
+      return false;
+    }
+  }
+
+  async runDeviceCommand<T>(name: string, operation: (assertCurrent: () => void) => Promise<T>): Promise<T> {
+    if (this.deviceCommandInFlight || !this.ensureConnected() || !this.beginOperation(name)) {
+      throw new Error('请连接手表并等待当前操作完成');
+    }
+    const connection = this.connectionGeneration, session = this.accountSession, generation = this.operationGeneration;
+    const assertCurrent = (): void => {
+      if (connection !== this.connectionGeneration || !sameHealthSession(session, this.accountSession) ||
+        generation !== this.operationGeneration || !this.snapshot.connected || this.accountTeardownPending) {
+        throw new Error('账号或手表已变化，请重新操作');
+      }
+    };
+    const result = Promise.resolve().then(async (): Promise<T> => {
+      assertCurrent(); const value = await operation(assertCurrent); assertCurrent(); return value;
+    });
+    const settling = result.then(() => {}, () => {});
+    this.deviceCommandInFlight = settling;
+    try { return await result; }
+    finally {
+      if (this.deviceCommandInFlight === settling) this.deviceCommandInFlight = undefined;
+      if (connection === this.connectionGeneration && generation === this.operationGeneration) this.endOperation();
+    }
   }
 
   private endOperation(): void {

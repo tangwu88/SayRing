@@ -2,6 +2,7 @@ import { asset } from '@kit.AssetStoreKit';
 import { common, Want } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
 import * as wxopensdk from '@tencent/wechat_open_sdk';
+import { wechatPayment } from './WechatPaymentService';
 import {
   WECHAT_APP_ID, WECHAT_AUTH_RESULT_KEY, WechatAuthResult, buildWechatState,
   isFreshWechatState, wechatAuthErrorMessage
@@ -56,6 +57,7 @@ class WechatAuthService implements wxopensdk.WXApiEventHandler {
   onReq(_request: wxopensdk.BaseReq): void {}
 
   onResp(response: wxopensdk.BaseResp): void {
+    if (response instanceof wxopensdk.PayResp) { wechatPayment.handleResponse(response); return; }
     if (!(response instanceof wxopensdk.SendAuthResp)) return;
     this.consumeResponse(response);
   }

@@ -22,6 +22,8 @@ import type { AiChatMessage, ShopHome } from '../model/ExperienceContracts';
 import { parseProductDetail, parseCart, selectionFields, parseCheckout, checkoutError, commerceCents,
   parseOrderDetail, parseShipments } from '../model/CommerceContracts';
 import type { ProductDetail, ShopLine, ShopSelection, CheckoutPreview, OrderDetail, Shipment } from '../model/CommerceContracts';
+import type { HealthOwnerSession, HealthUploadRequest } from '../model/HealthUpload';
+import { assertHealthUploadAccepted, sameHealthSession } from '../model/HealthUpload';
 
 export interface SessionStore {
   read(): Promise<Session | undefined>;
@@ -45,10 +47,13 @@ export class AccountClient {
   private vaultQueue: Promise<void> = Promise.resolve();
   private refreshing: Promise<Session> | undefined = undefined;
   private careTargets: Map<number, number> = new Map();
+  private careMemberReadGeneration: number = 0;
   private shareSnapshots: Map<number, CareShareSettings> = new Map();
   private shopWriteBusy: boolean = false;
+  private healthSessionListener: ((session: HealthOwnerSession) => void) | undefined = undefined;
+  private sessionListeners: Set<(session: HealthOwnerSession) => void> = new Set();
 
-  private clearCare(): void { this.careTargets.clear(); this.shareSnapshots.clear(); }
+  private clearCare(): void { ++this.careMemberReadGeneration; this.careTargets.clear(); this.shareSnapshots.clear(); }
 
   constructor(transport: ApiTransport, vault: SessionStore, now: () => number = () => Date.now()) {
     this.transport = transport;
@@ -57,6 +62,29 @@ export class AccountClient {
   }
 
   current(): Session | undefined { return this.session ? validateStoredSession(this.session) : undefined; }
+  healthSession(): HealthOwnerSession { return { ownerId: this.session?.memberId ?? '', generation: this.generation }; }
+  observeHealthSession(listener: (session: HealthOwnerSession) => void): void {
+    this.healthSessionListener = listener; this.notifyHealthSession();
+  }
+  observeSession(listener: (session: HealthOwnerSession) => void): () => void {
+    this.sessionListeners.add(listener);
+    try { listener(this.healthSession()); } catch { /* An optional UI observer cannot invalidate a valid login. */ }
+    return () => { this.sessionListeners.delete(listener); };
+  }
+  private notifyHealthSession(): void {
+    this.healthSessionListener?.(this.healthSession());
+    this.sessionListeners.forEach((listener) => { try { listener(this.healthSession()); } catch {} });
+  }
+  async uploadHealthRequest(request: HealthUploadRequest, session: HealthOwnerSession): Promise<void> {
+    if (!sameHealthSession(session, this.healthSession())) throw new ApiError('账号已变化，已暂停上传');
+    if (!['/api/v1/member/daily-date', '/api/v1/member/jrjk', '/api/v1/member/e-c-g',
+      '/api/v1/member/bodycomposition', '/api/v1/member/bloodcomposition'].includes(request.path)) {
+      throw new ApiError('不支持的健康上传项目');
+    }
+    const response = await this.authorized(request.path, request.body);
+    if (!sameHealthSession(session, this.healthSession())) throw new ApiError('账号已变化，已暂停上传');
+    assertHealthUploadAccepted(response.data, request.recordIds);
+  }
   private assertEpoch(epoch: number): void {
     if (epoch !== this.generation) throw new ApiError('已忽略旧账号请求');
   }
@@ -69,6 +97,7 @@ export class AccountClient {
     const stored = await reading;
     if (epoch !== this.generation || this.blockRestore) return this.current();
     this.session = stored ? validateStoredSession(stored) : undefined;
+    this.notifyHealthSession();
     if (!this.session) return undefined;
     try { return await this.ensureSession(); }
     catch (error) {
@@ -87,6 +116,7 @@ export class AccountClient {
     if (epoch !== this.generation) return;
     ++this.generation;
     this.session = undefined;
+    this.notifyHealthSession();
     this.blockRestore = true;
     this.refreshing = undefined;
     this.clearCare();
@@ -103,11 +133,13 @@ export class AccountClient {
     await pending;
     this.assertEpoch(epoch);
     this.session = session;
+    this.notifyHealthSession();
   }
 
   private async authenticate(path: string, fields: FormField[]): Promise<Session> {
     const epoch = ++this.generation;
     this.session = undefined;
+    this.notifyHealthSession();
     this.blockRestore = true;
     this.refreshing = undefined;
     this.clearCare();
@@ -198,6 +230,7 @@ export class AccountClient {
   async logout(): Promise<void> {
     ++this.generation;
     this.session = undefined;
+    this.notifyHealthSession();
     this.blockRestore = true;
     this.refreshing = undefined;
     this.clearCare();
@@ -536,8 +569,10 @@ export class AccountClient {
 
   async careMembers(): Promise<CareMember[]> {
     const epoch = this.generation;
+    const readGeneration = ++this.careMemberReadGeneration;
     const response = await this.authorized('/api/v1/member/care/my');
     this.assertEpoch(epoch);
+    if (readGeneration !== this.careMemberReadGeneration) throw new ApiError('关爱成员已刷新，请重新查看');
     const members = parseCareMembers(response.data, this.session?.memberId ?? '');
     this.careTargets.clear();
     members.forEach((member: CareMember) => this.careTargets.set(member.relationId, member.memberId));

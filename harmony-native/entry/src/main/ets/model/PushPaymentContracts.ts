@@ -1,5 +1,6 @@
 import { ApiError } from './Contracts';
 import type { FormField } from './Contracts';
+import { normalizeNotificationPayload } from './NotificationPayload';
 
 export type PaymentProvider = 'wechat' | 'alipay';
 
@@ -63,8 +64,7 @@ export function pushRegistrationFields(identity: PushIdentity, version: string):
 
 export function pushErrorMessage(code: number): string {
   if (code === 1001500001) return '通知服务暂时不可用，请稍后重试';
-  if (code === 1000900010) return '当前安装包与华为正式应用身份不一致';
-  if (code === 1000900012) return '华为 Push Kit 尚未为当前应用开通';
+  if (code === 1000900010 || code === 1000900012) return '通知服务暂时不可用，请稍后重试';
   if (code === 1000900014 || code === 801) return '当前设备不支持鸿蒙推送能力';
   if (code === 1000900011) return '网络不可用，暂时无法获取推送标识';
   if (code === 1600004) return '系统通知权限未开启';
@@ -72,16 +72,7 @@ export function pushErrorMessage(code: number): string {
 }
 
 export function notificationRoute(parameters: Object | undefined): string {
-  const values = object(parameters);
-  const event = text(values['event_type'], 80).toLowerCase();
-  const route = text(values['route'], 120).toLowerCase();
-  if (event === 'care_invitation' || route === 'care-invitations' || route === '/care/invitations') {
-    return 'care-invitations';
-  }
-  if (event === 'health_alert' || route === 'health-alerts' || route === '/health/alerts') {
-    return 'health-alerts';
-  }
-  return '';
+  return normalizeNotificationPayload(parameters)?.route ?? '';
 }
 
 export function notificationUnreadCount(data: Object | undefined): number {

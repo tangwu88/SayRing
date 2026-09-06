@@ -3,6 +3,11 @@ import { ApiError, stableIdentity } from './Contracts';
 // Only these normalized values reach ArkUI. Raw account rows/tokens are never retained.
 export interface CareMember { relationId: number; memberId: number; name: string; mobile: string; }
 export interface CareInvitation { id: number; inviterId: number; name: string; mobile: string; state: string; }
+
+export function careInvitationFallback(inviterId: number): string { return `邀请人 #${inviterId}`; }
+export function careInvitationNeedsConfirmation(invitation: CareInvitation): boolean {
+  return invitation.name === careInvitationFallback(invitation.inviterId) && !invitation.mobile;
+}
 export interface CareOption { key: string; label: string; }
 export interface CareShareSettings { enabled: string[]; unknown: string[]; }
 export interface CareMetricSpec { key: string; title: string; endpoint: string; type: string; unit: string; }
@@ -106,7 +111,7 @@ export function parseCareInvitations(data: Object | undefined, ownId: string): C
       const parsed = object(candidate);
       if (!careId(member['id']) && careId(parsed['id'] ?? parsed['member_id']) === inviterId) member = parsed;
     });
-    result.push({ id: id, inviterId: inviterId, name: text(member['nickname']) || '关爱邀请人',
+    result.push({ id: id, inviterId: inviterId, name: text(member['nickname']) || careInvitationFallback(inviterId),
       mobile: text(member['mobile'], 32), state: state });
   });
   return result;

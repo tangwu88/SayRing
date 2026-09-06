@@ -159,11 +159,14 @@ test('a direct device choice supersedes a pending automatic reconnect', () => {
 
 test('wearable records use encrypted indexed range storage without a global save cap', () => {
   const source = readFileSync(new URL('../entry/src/main/ets/services/WearableHealthStore.ets', import.meta.url), 'utf8');
+  const schema = readFileSync(new URL('../entry/src/main/ets/model/HealthUpload.ts', import.meta.url), 'utf8');
   assert.match(source, /securityLevel:\s*relationalStore\.SecurityLevel\.S3/);
   assert.match(source, /encrypt:\s*true/);
-  assert.match(source, /idx_wearable_metric_time/);
+  assert.match(schema, /idx_owned_health_range.*owner_id, device_key, metric, recorded_at/);
+  assert.match(source, /equalTo\('owner_id', owner\)/);
   assert.match(source, /between\('recorded_at'/);
-  assert.match(source, /for \(let offset = 0; offset < records\.length;/);
+  assert.match(source, /for \(const record of records\)/);
+  assert.doesNotMatch(source, /batchInsertWithConflictResolution/);
   assert.doesNotMatch(source, /records\.slice\(0,\s*MAX_LOADED_RECORDS\)/);
 });
 

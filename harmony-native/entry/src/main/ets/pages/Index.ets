@@ -2,17 +2,20 @@ import { ApiError, MemberProfile, Article, ArticleBlock, Session, loginValidatio
   canSubmitLogin, profileName, profileField, articleBlocks } from '../model/Contracts';
 import { saydianApi } from '../services/SaydianApi';
 import { ArticleImage } from '../components/ArticleImage';
-import { CareMember, CareInvitation, CareShareSettings, CareMetric, CareMetricSpec, CareRecord, CareOption,
-  CARE_METRICS, chinaDay, chinaDaySeconds, shiftChinaDay, careMetricLatest, careRecordText,
+import { CareMember, CareInvitation, CareShareSettings, CareMetric, CareRecord, CareField, CareOption,
+  chinaDay, chinaDaySeconds, shiftChinaDay, careMetricLatest, careRecordText, careInvitationFallback, careInvitationNeedsConfirmation,
   careGroupOptions, toggleCareGroup } from '../model/CareContracts';
-import { common } from '@kit.AbilityKit';
+import { common, Configuration } from '@kit.AbilityKit';
+import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
 import { pushErrorMessage, paymentErrorMessage } from '../model/PushPaymentContracts';
 import type { PaymentProvider, ShopOrder } from '../model/PushPaymentContracts';
 import { isPaymentTimeout } from '../model/PaymentWatchdog';
 import { harmonyPush } from '../services/HarmonyPushService';
-import { PENDING_NOTIFICATION_ROUTE } from '../services/NotificationNavigation';
+import { CARE_ARRIVAL_REVISION, NOTIFICATION_REVISION, PENDING_NOTIFICATION_ROUTE, notificationMatchesOwner } from '../services/NotificationNavigation';
+import { careNotifications } from '../services/CareNotificationService';
+import { careInboxUnread, mergeCareInbox } from '../model/ForegroundCareNotifications';
 import {
   HealthRecord, HealthValue, MeasurementState, WearableConnectionPhase, WearableDevice, WearableDial, WearableMetricKey,
   WearableSnapshot, batteryText, emptyMeasurement, emptyWearableSnapshot, healthRecordText,
@@ -39,6 +42,11 @@ import { PermissionRow, readPermissionRows, openPermissionSetting } from '../ser
 import { TrendPeriod, TrendPoint, TrendWindow, TrendSeries, TrendSummary, localDateKey, trendWindow, shiftTrendDay,
   trendRecords, trendFieldNames, trendSeries, trendSummary, spreadChartX, spreadChartPoints, spreadChartIndex,
   plotSeries, waveformPoints } from '../model/HealthTrend';
+import { SummaryLabel, pageLayout, controlHeight, careDaySummary, waveformPageCount, waveformPageLabel } from '../model/PagePresentation';
+import { dialRenderKey, deviceRenderKey } from '../model/DeviceRenderKeys';
+import { vepDeviceSettings } from '../services/VepDeviceSettingsAdapter';
+import { WatchAlarm, WatchUnitField, WatchUnits, alarmDraftError, alarmRepeatText, copyWatchAlarm,
+  emptyWatchUnits, newWatchAlarm, refreshSummaryOnSettingsReturn, supportedWatchUnit, watchUnitChoiceLabel } from '../model/DeviceSettingsTransactions';
 
 const RED: string = '#D20B27';
 const RED_DARK: string = '#980018';
@@ -66,6 +74,9 @@ interface WearableMetricSpec { key: WearableMetricKey; title: string; }
 interface PageRowOptions { title: string; subtitle?: string; icon: Resource; action: () => void; id?: string; }
 interface StateCardOptions { title: string; detail?: string; icon?: Resource; green?: boolean; }
 interface CareGroupView { daily: boolean; }
+interface DeviceActionOptions { title: string; icon: Resource; color: string; background: string; action: () => void; id: string; }
+interface WatchUnitOptions { title: string; field: WatchUnitField; value: number; }
+interface DialRowProps { dial: WearableDial; index: number; }
 
 @Entry
 @Component
@@ -73,10 +84,18 @@ struct Index {
   @StorageLink(PENDING_NOTIFICATION_ROUTE)
   @Watch('pendingNotificationChanged')
   private pendingNotificationRoute: string = '';
+  @StorageLink(NOTIFICATION_REVISION)
+  @Watch('notificationArrived')
+  private notificationRevision: number = 0;
+  @StorageLink(CARE_ARRIVAL_REVISION)
+  @Watch('careInvitationArrived')
+  private careArrivalRevision: number = 0;
   @StorageLink(WECHAT_AUTH_RESULT_KEY)
   @Watch('wechatAuthChanged')
   private wechatAuthResult: string = '';
   @State private screen: string = 'login';
+  @State private pageWidth: number = 390;
+  @State private systemFontScale: number = 1;
   @State private tab: number = 0;
   @State private account: string = '';
   @State private password: string = '';
@@ -120,6 +139,10 @@ struct Index {
   @State private accountPageLoading: boolean = false;
   @State private accountPageError: string = '';
   @State private inbox: InboxMessage[] = [];
+  private serverInbox: InboxMessage[] = [];
+  private serverUnread: number | undefined = undefined;
+  private inboxGeneration: number = 0;
+  private unreadGeneration: number = 0;
   @State private inboxLoading: boolean = false;
   @State private inboxError: string = '';
   @State private permissionRows: PermissionRow[] = [];
@@ -158,6 +181,22 @@ struct Index {
   @State private careMetricKey: string = 'heart';
   @State private careMetricData: CareMetric = { key: 'heart', title: '心率', unit: '', state: 'empty', message: '', records: [] };
   @State private careRecordLimit: number = 30;
+  @State private selectedCareRecord: CareRecord | undefined = undefined;
+  @State private careWaveformSegment: number = 0;
+  @State private recordChartWidth: number = 280;
+  @State private dialBusy: boolean = false;
+  @State private dialMessage: string = '';
+  @State private settingsBusy: boolean = false;
+  @State private settingsMessage: string = '';
+  @State private watchUnits: WatchUnits = emptyWatchUnits();
+  @State private watchAlarms: WatchAlarm[] = [];
+  @State private deviceEditorBusy: boolean = false;
+  @State private deviceSettingsWriting: boolean = false;
+  @State private deviceEditorLoaded: boolean = false;
+  @State private deviceEditorMessage: string = '';
+  @State private watchAlarmDraft: WatchAlarm = newWatchAlarm();
+  private watchAlarmOriginal: WatchAlarm | undefined = undefined;
+  private deviceEditorGeneration: number = 0;
   @State private careOverview: CareMetric[] = [];
   @State private careUpdatedAt: string = '';
   @State private notificationCount: number = -1;
@@ -233,7 +272,7 @@ struct Index {
   @State private updateInfo: AppUpdateInfo = { latestVersion: '', latestBuild: 0,
     minimumSupportedBuild: 0, releaseNotes: '', destinationUrl: '', hasUpdate: false, required: false };
   private careGeneration: number = 0;
-  private previousScreen: string = 'login';
+  private environmentCallbackId: number = -1;
   private previousTab: number = 0;
   private pageGeneration: number = 0;
   private contentGeneration: number = 0;
@@ -261,6 +300,14 @@ struct Index {
   ];
 
   aboutToAppear(): void {
+    this.refreshLayoutScale();
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+    this.environmentCallbackId = this.uiContext().getApplicationContext().on('environment', {
+      onConfigurationUpdated: (configuration: Configuration) => {
+        this.systemFontScale = pageLayout(this.pageWidth, configuration.fontSizeScale ?? 1).fontScale;
+      },
+      onMemoryLevel: () => {}
+    });
     this.bindWearable();
     wechatAuth.attachContext(this.uiContext());
     this.restoreLogin();
@@ -268,16 +315,36 @@ struct Index {
     this.loadDisplayPreferences();
   }
   onPageShow(): void {
+    this.refreshLayoutScale();
     this.consumeNotificationRoute(); this.consumeWechatAuthResult();
+    if (!this.guest) vepWearable.synchronizeCloud();
     if (this.screen === 'permissions') this.refreshPermissions();
   }
   aboutToDisappear(): void {
     ++this.pageGeneration; ++this.contentGeneration; ++this.careGeneration;
     this.clearSmsCountdown();
     vepWearable.clearListener();
+    if (this.environmentCallbackId >= 0) {
+      this.uiContext().getApplicationContext().off('environment', this.environmentCallbackId).catch(() => {});
+      this.environmentCallbackId = -1;
+    }
   }
 
   private pendingNotificationChanged(): void { this.consumeNotificationRoute(); }
+  private careInvitationArrived(): void {
+    if (this.guest || this.restoring || !careNotifications.isForeground()) return;
+    this.getUIContext().getPromptAction().showToast({ message: '收到新的关爱邀请，可在消息中查看' });
+  }
+  private notificationArrived(): void {
+    if (this.guest || this.restoring || !careNotifications.isForeground()) return;
+    this.updateLocalInbox();
+    this.refreshInbox();
+    if (['care', 'care-invitations', 'care-sharing'].includes(this.screen) && !this.careLoading) {
+      this.refreshCare();
+    } else {
+      this.refreshCareSummary(true);
+    }
+  }
   private wechatAuthChanged(): void { this.consumeWechatAuthResult(); }
 
   private clearCareState(): void {
@@ -292,7 +359,15 @@ struct Index {
     this.careSelectedInviter = { id: 0, inviterId: 0, name: '', mobile: '', state: '' };
     this.careLoading = false; this.careBusy = false;
     this.careOverview = []; this.careUpdatedAt = '';
+    this.selectedCareRecord = undefined; this.careWaveformSegment = 0;
   }
+
+  private refreshLayoutScale(): void {
+    this.systemFontScale = pageLayout(this.pageWidth, this.uiContext().config.fontSizeScale ?? 1).fontScale;
+  }
+
+  private singleColumn(): boolean { return pageLayout(this.pageWidth, this.systemFontScale).singleColumn; }
+  private controlHeight(minimum: number = 48): number { return controlHeight(minimum, this.systemFontScale); }
 
   private uiContext(): common.UIAbilityContext {
     return this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -318,10 +393,190 @@ struct Index {
   }
 
   private openInnerPage(next: string): void {
+    if (next === this.screen) return;
     ++this.contentGeneration;
     this.innerParents.set(next, this.screen);
     this.formMessage = '';
     this.screen = next;
+  }
+
+  private openPasswordReset(): void {
+    this.clearSmsCountdown();
+    this.resetMobile = this.guest ? this.account.trim() : this.profile.mobile ?? '';
+    this.resetCode = ''; this.resetPassword = ''; this.resetConfirmation = '';
+    this.openInnerPage('reset-password');
+  }
+
+  private openCareRecord(record: CareRecord): void {
+    this.selectedCareRecord = record;
+    this.careWaveformSegment = 0;
+    this.openInnerPage('care-record');
+  }
+
+  private async openDials(): Promise<void> {
+    if (!this.wearableSnapshot.connected || !this.wearableSnapshot.capabilities.dial) return;
+    this.openInnerPage('device-dials');
+    await this.refreshDials();
+  }
+
+  private async refreshDials(): Promise<void> {
+    if (this.dialBusy || this.wearableBusy() || this.wearableMeasurement.running) return;
+    const deviceKey = this.wearableSnapshot.deviceKey;
+    this.dialBusy = true; this.dialMessage = '';
+    try {
+      const success = await vepWearable.readDials();
+      if (this.wearableSnapshot.deviceKey === deviceKey && !success) this.dialMessage = this.wearableMessage || '暂时无法读取表盘，请重试';
+    } finally { this.dialBusy = false; }
+  }
+
+  private async selectExistingDial(dial: WearableDial): Promise<void> {
+    if (this.dialBusy || dial.selected || this.wearableBusy() || this.wearableMeasurement.running) return;
+    const deviceKey = this.wearableSnapshot.deviceKey;
+    if (!await this.confirmCommerce('使用此表盘？', '切换后，手表将显示所选表盘。', '使用') || deviceKey !== this.wearableSnapshot.deviceKey) return;
+    this.dialBusy = true; this.dialMessage = '';
+    try {
+      const success = await vepWearable.setExistingDial(dial.key);
+      if (deviceKey === this.wearableSnapshot.deviceKey) this.dialMessage = success ? '已切换表盘' : this.wearableMessage;
+    } finally { this.dialBusy = false; }
+  }
+
+  private async openDeviceSettings(): Promise<void> {
+    this.openInnerPage('device-settings');
+    await this.refreshDeviceSettings();
+  }
+
+  private async refreshDeviceSettings(): Promise<boolean> {
+    if (this.settingsBusy || this.wearableBusy() || this.wearableMeasurement.running) return false;
+    const deviceKey = this.wearableSnapshot.deviceKey;
+    this.settingsBusy = true; this.settingsMessage = '';
+    try {
+      const success = await vepWearable.readDeviceConfiguration();
+      if (deviceKey === this.wearableSnapshot.deviceKey && !success) this.settingsMessage = this.wearableMessage || '暂时无法读取，请重试';
+      return success && deviceKey === this.wearableSnapshot.deviceKey;
+    } catch (error) {
+      if (deviceKey === this.wearableSnapshot.deviceKey) this.settingsMessage = (error as Error).message || '暂时无法读取，请重试';
+      return false;
+    } finally { this.settingsBusy = false; }
+  }
+
+  private clearDeviceEditor(): void {
+    ++this.deviceEditorGeneration;
+    this.watchUnits = emptyWatchUnits(); this.watchAlarms = [];
+    this.deviceEditorLoaded = false; this.deviceEditorBusy = false; this.deviceSettingsWriting = false;
+    this.deviceEditorMessage = ''; this.watchAlarmDraft = newWatchAlarm(); this.watchAlarmOriginal = undefined;
+  }
+
+  private async openWatchSettings(page: string): Promise<void> {
+    if (this.deviceEditorBusy || !this.wearableSnapshot.connected) return;
+    this.clearDeviceEditor(); this.openInnerPage(page);
+    await this.refreshWatchSettings();
+  }
+
+  private async refreshWatchSettings(): Promise<void> {
+    if (this.deviceEditorBusy || !this.wearableSnapshot.connected) return;
+    const generation = ++this.deviceEditorGeneration;
+    this.deviceEditorBusy = true; this.deviceEditorLoaded = false; this.deviceEditorMessage = '';
+    try {
+      if (this.screen === 'device-units') {
+        const units = await vepDeviceSettings.readUnits();
+        if (generation === this.deviceEditorGeneration) this.watchUnits = units;
+      } else {
+        const alarms = await vepDeviceSettings.readAlarms();
+        if (generation === this.deviceEditorGeneration) this.watchAlarms = alarms;
+      }
+      if (generation === this.deviceEditorGeneration) this.deviceEditorLoaded = true;
+    } catch (error) {
+      if (generation === this.deviceEditorGeneration) this.deviceEditorMessage = (error as Error).message || '暂时无法读取，请重试';
+    } finally { if (generation === this.deviceEditorGeneration) this.deviceEditorBusy = false; }
+  }
+
+  private async setWatchUnit(field: WatchUnitField, value: number): Promise<void> {
+    if (this.deviceEditorBusy || !this.deviceEditorLoaded) return;
+    const expected = this.watchUnits[field];
+    if (!supportedWatchUnit(expected) || expected === value) return;
+    const generation = this.deviceEditorGeneration;
+    this.deviceEditorBusy = true; this.deviceSettingsWriting = true; this.deviceEditorMessage = '';
+    try {
+      const units = await vepDeviceSettings.setUnit(field, value, expected);
+      if (generation === this.deviceEditorGeneration) {
+        this.watchUnits = units; this.deviceEditorMessage = '已保存到手表';
+      }
+    } catch (error) {
+      if (generation === this.deviceEditorGeneration) {
+        this.deviceEditorLoaded = false; this.deviceEditorMessage = (error as Error).message || '保存结果未确认，请重新读取';
+      }
+    } finally {
+      if (generation === this.deviceEditorGeneration) { this.deviceEditorBusy = false; this.deviceSettingsWriting = false; }
+    }
+  }
+
+  private editWatchAlarm(alarm?: WatchAlarm): void {
+    if (this.deviceEditorBusy || !this.deviceEditorLoaded) return;
+    this.watchAlarmOriginal = alarm ? copyWatchAlarm(alarm) : undefined;
+    this.watchAlarmDraft = alarm ? copyWatchAlarm(alarm) : newWatchAlarm();
+    this.deviceEditorMessage = ''; this.openInnerPage('device-alarm-edit');
+  }
+
+  private pickWatchAlarmTime(): void {
+    if (this.deviceEditorBusy) return;
+    const generation = this.deviceEditorGeneration;
+    const parts = this.watchAlarmDraft.time.split(':');
+    const selected = new Date(); selected.setHours(Number(parts[0]), Number(parts[1]), 0, 0);
+    TimePickerDialog.show({ selected: selected, useMilitaryTime: true,
+      onAccept: (result: TimePickerResult) => {
+        if (generation !== this.deviceEditorGeneration || this.screen !== 'device-alarm-edit' || this.deviceEditorBusy) return;
+        const draft = copyWatchAlarm(this.watchAlarmDraft);
+        draft.time = `${String(result.hour ?? 0).padStart(2, '0')}:${String(result.minute ?? 0).padStart(2, '0')}`;
+        this.watchAlarmDraft = draft;
+      } });
+  }
+
+  private changeAlarmDraft(field: string, value: string): void {
+    const draft = copyWatchAlarm(this.watchAlarmDraft);
+    if (field === 'label') draft.label = value;
+    else if (field === 'enabled') draft.enabled = value === 'true';
+    else { const index = Number(field); if (index >= 0 && index < 7) draft.days[index] = !draft.days[index]; }
+    this.watchAlarmDraft = draft;
+  }
+
+  private async saveAlarmDraft(): Promise<void> {
+    if (this.deviceEditorBusy || !this.deviceEditorLoaded) return;
+    const draft = copyWatchAlarm(this.watchAlarmDraft); draft.label = draft.label.trim();
+    this.deviceEditorMessage = alarmDraftError(draft);
+    if (this.deviceEditorMessage) return;
+    await this.writeWatchAlarm(draft, this.watchAlarmOriginal, false, true);
+  }
+
+  private async toggleWatchAlarm(alarm: WatchAlarm, enabled: boolean): Promise<void> {
+    const updated = copyWatchAlarm(alarm); updated.enabled = enabled;
+    await this.writeWatchAlarm(updated, alarm);
+  }
+
+  private async removeWatchAlarm(alarm: WatchAlarm): Promise<void> {
+    if (this.deviceEditorBusy || !this.deviceEditorLoaded) return;
+    const generation = this.deviceEditorGeneration;
+    if (!await this.confirmCommerce('删除闹钟', '确定删除这个闹钟吗？', '删除') || generation !== this.deviceEditorGeneration) return;
+    await this.writeWatchAlarm(alarm, alarm, true);
+  }
+
+  private async writeWatchAlarm(draft: WatchAlarm, expected?: WatchAlarm, remove: boolean = false, closeEditor: boolean = false): Promise<void> {
+    if (this.deviceEditorBusy || !this.deviceEditorLoaded) return;
+    const generation = this.deviceEditorGeneration;
+    this.deviceEditorBusy = true; this.deviceSettingsWriting = true; this.deviceEditorMessage = '';
+    try {
+      const alarms = remove ? await vepDeviceSettings.deleteAlarm(draft) : await vepDeviceSettings.setAlarm(draft, expected);
+      if (generation === this.deviceEditorGeneration) {
+        this.watchAlarms = alarms;
+        if (closeEditor) { this.innerParents.delete('device-alarm-edit'); this.screen = 'device-alarms'; }
+        this.deviceEditorMessage = remove ? '闹钟已删除' : '闹钟已保存';
+      }
+    } catch (error) {
+      if (generation === this.deviceEditorGeneration) {
+        this.deviceEditorLoaded = false; this.deviceEditorMessage = (error as Error).message || '保存结果未确认，请重新读取';
+      }
+    } finally {
+      if (generation === this.deviceEditorGeneration) { this.deviceEditorBusy = false; this.deviceSettingsWriting = false; }
+    }
   }
 
   private openProfileEditor(): void {
@@ -395,7 +650,7 @@ struct Index {
     this.checkoutAddress = undefined; this.checkoutMessage = ''; this.checkoutPoints = '0';
     this.orderDetail = undefined; this.shipments = []; this.refundLine = undefined; this.refundReason = '';
     this.commerceError = ''; this.selectingCheckoutAddress = false; this.purchaseSheet = false;
-    this.inbox = []; this.addresses = []; this.inboxError = ''; this.accountPageError = '';
+    this.clearInboxState(); this.addresses = []; this.accountPageError = '';
     this.addressDraft = emptyAddressDraft();
     ++this.orderGeneration; this.orders = []; this.orderLoading = false; this.paymentMessage = '';
     this.resetMobile = ''; this.resetCode = ''; this.resetPassword = ''; this.resetConfirmation = '';
@@ -482,19 +737,43 @@ struct Index {
 
   private async refreshInbox(): Promise<void> {
     if (this.inboxLoading || this.guest) return;
-    const accountId = saydianApi.current()?.memberId;
+    const session = saydianApi.healthSession();
+    const epoch = ++this.inboxGeneration;
     this.inboxLoading = true; this.inboxError = '';
+    this.updateLocalInbox();
     try {
       const values = await saydianApi.inbox();
-      if (accountId === saydianApi.current()?.memberId) this.inbox = values;
-    } catch (error) { if (accountId === saydianApi.current()?.memberId) this.inboxError = (error as Error).message; }
-    finally { this.inboxLoading = false; }
-    this.refreshNotificationCount();
+      if (epoch === this.inboxGeneration && session.generation === saydianApi.healthSession().generation) {
+        this.serverInbox = values; this.updateLocalInbox();
+      }
+    } catch (error) {
+      if (epoch === this.inboxGeneration && session.generation === saydianApi.healthSession().generation) {
+        this.inboxError = '部分消息暂未更新，请稍后重试';
+        if (error instanceof ApiError && error.status === 401) this.accountFormFailure(error as Error);
+      }
+    } finally { if (epoch === this.inboxGeneration) this.inboxLoading = false; }
+    if (epoch === this.inboxGeneration) this.refreshNotificationCount();
+  }
+
+  private clearInboxState(): void {
+    ++this.inboxGeneration; ++this.unreadGeneration;
+    this.inbox = []; this.serverInbox = []; this.serverUnread = undefined; this.inboxError = ''; this.inboxLoading = false;
+    this.notificationCount = -1;
+  }
+
+  private updateLocalInbox(): void {
+    if (this.guest) return;
+    const local = careNotifications.currentInbox();
+    this.inbox = mergeCareInbox(this.serverInbox, local);
+    this.notificationCount = careInboxUnread(this.serverUnread, this.serverInbox, local);
   }
 
   private async openInboxMessage(message: InboxMessage): Promise<void> {
     if (message.kind === 'care_invitation') {
-      this.readInvitationMessage(message.id);
+      if (message.source === 'local') {
+        try { await careNotifications.markRead(-message.id); this.updateLocalInbox(); }
+        catch { this.inboxError = '消息已读状态暂未保存，请稍后重试'; }
+      } else { this.readInvitationMessage(message.id); }
       await this.openCare(); if (!this.guest) this.screen = 'care-invitations'; return;
     }
     this.showFeature(message.title, message.content || '暂无消息内容');
@@ -558,6 +837,9 @@ struct Index {
         this.wearableMessage = message;
       },
       onSnapshot: (snapshot: WearableSnapshot) => {
+        if (snapshot.deviceKey !== this.wearableSnapshot.deviceKey || (!snapshot.connected && this.wearableSnapshot.connected)) {
+          this.clearDeviceEditor();
+        }
         this.wearableSnapshot = snapshot;
         if (this.screen === 'wearable-metric') this.loadTrendData();
         if (snapshot.connected && this.screen === 'device-search') {
@@ -636,7 +918,6 @@ struct Index {
   }
 
   private openDeviceSearch(): void {
-    this.previousScreen = 'home';
     this.previousTab = this.tab;
     this.screen = 'device-search';
     if (!this.wearableBusy() && !vepWearable.isScanning()) this.startWearableScan();
@@ -656,7 +937,6 @@ struct Index {
     this.selectedWearableMetric = metric;
     this.trendDay = localDateKey(); this.trendPeriod = 'day'; this.trendField = '';
     this.trendData = []; this.trendReadout = ''; this.allTrendRecords = false;
-    this.previousScreen = 'home';
     this.screen = 'wearable-metric';
     this.loadTrendData();
   }
@@ -806,12 +1086,16 @@ struct Index {
 
   private async refreshNotificationCount(): Promise<void> {
     if (this.guest) { this.notificationCount = -1; return; }
+    const session = saydianApi.healthSession();
+    const epoch = ++this.unreadGeneration;
     try {
       const count = await saydianApi.notificationUnread();
-      this.notificationCount = count === undefined ? -1 : count;
+      if (epoch !== this.unreadGeneration || session.generation !== saydianApi.healthSession().generation) return;
+      this.serverUnread = count; this.updateLocalInbox();
     } catch (error) {
+      if (epoch !== this.unreadGeneration || session.generation !== saydianApi.healthSession().generation) return;
       if (error instanceof ApiError && error.status === 401) this.careFailure(error as Error);
-      this.notificationCount = -1;
+      this.updateLocalInbox();
     }
   }
 
@@ -826,7 +1110,7 @@ struct Index {
         await harmonyPush.requestNotificationPermission(this.uiContext());
         enabled = await harmonyPush.notificationEnabled();
       }
-      if (!enabled) { this.pushStatus = '系统通知未开启；应用内消息仍可手动刷新'; return; }
+      if (!enabled) { this.pushStatus = '系统通知未开启；打开 App 时仍可收到邀请提醒'; return; }
       const identity = await harmonyPush.getIdentity(this.uiContext());
       const registered = await saydianApi.registerPushDevice(identity,
         `${HARMONY_VERSION_NAME}+${HARMONY_VERSION_CODE}`);
@@ -849,6 +1133,7 @@ struct Index {
   private async openMessages(): Promise<void> {
     if (this.guest) { this.showFeature('消息', '请先登录赛电账号，再查看关爱邀请和健康预警。'); return; }
     this.screen = 'messages';
+    careNotifications.refresh();
     await this.refreshInbox();
     await this.connectPush(false);
   }
@@ -857,11 +1142,20 @@ struct Index {
     const route = this.pendingNotificationRoute;
     if (!route || this.guest || this.restoring) return;
     this.pendingNotificationRoute = '';
+    if (!notificationMatchesOwner(saydianApi.current()?.memberId ?? '')) return;
     if (route === 'care-invitations') {
       await this.openCare();
-      if (!this.guest) this.screen = 'care-invitations';
+      if (!this.guest) {
+        this.screen = 'care-invitations';
+        for (const invitation of this.careInvitations) {
+          try { await careNotifications.markRead(invitation.id); } catch {}
+        }
+        this.updateLocalInbox();
+      }
     } else if (route === 'health-alerts') {
       this.openHealthAlerts();
+    } else if (route === 'messages') {
+      await this.openMessages();
     }
   }
 
@@ -878,13 +1172,11 @@ struct Index {
   }
 
   private openHealthAlerts(): void {
-    this.previousScreen = 'home';
     this.screen = 'health-alerts';
     this.refreshInbox();
   }
 
   private async openShop(): Promise<void> {
-    this.previousScreen = 'home';
     this.screen = 'shop-home';
     this.shopLoading = true; this.shopError = ''; this.shopHome = { bannerUrl: '', categories: [] };
     try {
@@ -1052,7 +1344,7 @@ struct Index {
 
   private async openAiChat(): Promise<void> {
     if (this.guest) { this.showFeature('AI 健康管家', '请先登录赛电账号，再向 AI 健康管家提问。'); return; }
-    this.previousScreen = 'home'; this.screen = 'ai-chat'; this.aiBusy = true; this.aiError = '';
+    this.openInnerPage('ai-chat'); this.aiBusy = true; this.aiError = '';
     try {
       this.aiMessages = await saydianApi.aiMessages();
       const withSession = this.aiMessages.find((item: AiChatMessage) => item.sessionId.length > 0);
@@ -1126,18 +1418,19 @@ struct Index {
 
   private async startPayment(): Promise<void> {
     if (this.paymentBusy || this.selectedOrder.id <= 0) return;
-    if (!canIUse('SystemCapability.Payment.ThirdPaymentService')) {
-      this.paymentMessage = '当前手机暂时无法使用该支付方式';
-      return;
-    }
     const orderId = this.selectedOrder.id;
     let outcomeMessage: string = '';
     let clientReturned: boolean = false;
     let clientTimedOut: boolean = false;
     this.paymentBusy = true; this.paymentMessage = '正在核对订单…';
     try {
-      const request = await saydianApi.harmonyPayment(this.selectedProvider, this.selectedOrder);
       const paymentModule = await import('../services/HarmonyPaymentService');
+      if (!paymentModule.canStartHarmonyPayment(this.selectedProvider)) {
+        this.paymentMessage = this.selectedProvider === 'wechat' ? '请先安装微信后再支付' : '当前手机暂时无法使用支付宝支付';
+        this.paymentBusy = false;
+        return;
+      }
+      const request = await saydianApi.harmonyPayment(this.selectedProvider, this.selectedOrder);
       await paymentModule.harmonyPayment.start(this.uiContext(), request);
       clientReturned = true;
       outcomeMessage = '支付流程已返回';
@@ -1213,32 +1506,30 @@ struct Index {
     await Promise.all([this.readCareMembers(epoch), this.readCareInvitations(epoch)]);
     if (epoch === this.careGeneration) {
       this.careLoading = false;
-      this.careSummaryUpdatedAt = Date.now();
     }
   }
 
   private async refreshCareSummary(force: boolean = false): Promise<void> {
     if (this.guest || (!force && Date.now() - this.careSummaryUpdatedAt < 60000)) return;
+    await this.readCareMembers(this.careGeneration);
+  }
+
+  private async readCareMembers(epoch: number): Promise<void> {
     const generation = ++this.careSummaryGeneration;
     const memberId = saydianApi.current()?.memberId ?? '';
     try {
       const members = await saydianApi.careMembers();
-      if (generation !== this.careSummaryGeneration || memberId !== (saydianApi.current()?.memberId ?? '')) return;
+      if (epoch !== this.careGeneration || generation !== this.careSummaryGeneration ||
+        memberId !== (saydianApi.current()?.memberId ?? '')) return;
       this.careMembers = members;
       this.careMemberError = '';
       this.careSummaryUpdatedAt = Date.now();
     } catch (error) {
-      if (generation !== this.careSummaryGeneration || memberId !== (saydianApi.current()?.memberId ?? '')) return;
+      if (epoch !== this.careGeneration || generation !== this.careSummaryGeneration ||
+        memberId !== (saydianApi.current()?.memberId ?? '')) return;
       if (error instanceof ApiError && error.status === 401) this.careFailure(error as Error);
       else this.careMemberError = this.careFailure(error as Error);
     }
-  }
-
-  private async readCareMembers(epoch: number): Promise<void> {
-    try {
-      const members = await saydianApi.careMembers();
-      if (epoch === this.careGeneration) this.careMembers = members;
-    } catch (error) { if (epoch === this.careGeneration) this.careMemberError = this.careFailure(error as Error); }
   }
 
   private async readCareInvitations(epoch: number): Promise<void> {
@@ -1408,6 +1699,7 @@ struct Index {
         this.restoring = false;
         if (!this.guest) {
           this.refreshNotificationCount();
+          this.updateLocalInbox();
           this.refreshCareSummary(true);
           this.connectPush(false);
           this.consumeNotificationRoute();
@@ -1422,7 +1714,7 @@ struct Index {
     this.registerConfirmation = '';
     this.registerCode = '';
     this.clearCareState();
-    this.inbox = []; this.inboxError = ''; this.addresses = []; this.innerParents.clear();
+    this.clearInboxState(); this.addresses = []; this.innerParents.clear();
     this.profile = {};
     this.profileError = '';
     this.logoutFailed = false;
@@ -1434,6 +1726,7 @@ struct Index {
   }
 
   private startAuthenticatedServices(): void {
+    this.updateLocalInbox();
     this.refreshNotificationCount();
     this.refreshCareSummary(true);
     this.connectPush(false);
@@ -1612,6 +1905,7 @@ struct Index {
   private async signOut(): Promise<void> {
     if (this.busy) return;
     this.busy = true;
+    careNotifications.beginSignOut();
     ++this.pageGeneration;
     this.clearCareState();
     this.clearAccountForms();
@@ -1639,21 +1933,19 @@ struct Index {
   }
 
   private showFeature(title: string, message: string): void {
-    this.previousScreen = this.screen;
     this.detailTitle = title;
     this.detailBody = message;
-    this.screen = 'feature';
+    this.openInnerPage('feature');
   }
 
   private async openArticle(id: string, title: string, agreement: boolean): Promise<void> {
-    if (this.screen !== 'article') this.previousScreen = this.screen;
+    this.openInnerPage('article');
     this.selectedArticleId = id;
     this.selectedAgreement = agreement;
     this.articleTitle = title;
     this.articleContent = [];
     this.articleError = '';
     this.articleLoading = true;
-    this.screen = 'article';
     const epoch = ++this.contentGeneration;
     try {
       const article = await saydianApi.article(id, agreement);
@@ -1684,12 +1976,14 @@ struct Index {
   }
 
   private back(): void {
-    if (this.careBusy || this.paymentBusy || this.formBusy || this.commerceBusy) return;
+    if (this.careBusy || this.paymentBusy || this.formBusy || this.commerceBusy || this.deviceSettingsWriting) return;
+    if (this.screen === 'device-units' || this.screen === 'device-alarms') this.clearDeviceEditor();
     if (this.purchaseSheet) { this.purchaseSheet = false; return; }
     if (this.screen === 'addresses') this.selectingCheckoutAddress = false;
     this.commerceError = ''; this.commerceLoading = false;
     ++this.contentGeneration;
     if (this.screen === 'address-edit') { this.addressDraft = emptyAddressDraft(); this.regionsLoading = false; }
+    if (this.screen === 'care-record') { this.selectedCareRecord = undefined; this.careWaveformSegment = 0; }
     if (this.screen === 'reset-password') {
       this.clearSmsCountdown(); this.resetCode = ''; this.resetPassword = ''; this.resetConfirmation = '';
     }
@@ -1697,7 +1991,16 @@ struct Index {
     if (this.screen === 'shop-payment' && parent === 'shop-order-detail') {
       this.innerParents.delete(this.screen); this.screen = parent; this.openCommerceOrder(this.commerceOrderId); return;
     }
-    if (parent) { this.innerParents.delete(this.screen); this.screen = parent; this.formMessage = ''; return; }
+    if (parent) {
+      const from = this.screen;
+      this.innerParents.delete(this.screen); this.screen = parent; this.formMessage = '';
+      refreshSummaryOnSettingsReturn(from, parent, async (): Promise<boolean> => {
+        // Hide the former snapshot even if another SDK operation currently blocks a read.
+        this.settingsMessage = '请重新读取最新设备设置';
+        return this.refreshDeviceSettings();
+      });
+      return;
+    }
     if (this.screen === 'register') {
       this.clearSmsCountdown();
       this.registerError = '';
@@ -1725,7 +2028,7 @@ struct Index {
       else this.screen = 'care';
       return;
     }
-    if (this.screen === 'article' || this.screen === 'feature') this.screen = this.previousScreen;
+    if (this.screen === 'article' || this.screen === 'feature') this.screen = this.guest ? 'login' : 'home';
     else if (this.screen === 'articles') this.screen = 'home';
   }
 
@@ -1736,7 +2039,7 @@ struct Index {
       this.screen === 'sport-records' || this.screen === 'ai-chat' || this.screen === 'wearable-metric' ||
       this.screen === 'device-search' || this.screen === 'about' || this.screen === 'contact' ||
       this.screen === 'help' || this.screen === 'permissions' || this.screen === 'account' ||
-      this.screen === 'unit-settings' ||
+      this.screen === 'unit-settings' || this.screen.startsWith('device-') ||
       this.screen.startsWith('shop-') || this.screen.startsWith('care')) {
       this.back();
       return true;
@@ -1791,10 +2094,12 @@ struct Index {
     Row() {
       Button() {
         SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(24).fontColor([INK])
-      }.backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12).width(48).height(48)
-        .enabled(!this.careBusy && !this.paymentBusy && !this.formBusy && !this.commerceBusy).onClick(() => this.back()).accessibilityText('返回上一页')
-      Text(this.screen === 'health-record' ? '记录详情' : this.screen === 'profile-edit' ? '个人资料' : this.screen === 'addresses' ? '收货地址' :
-        this.screen === 'address-edit' ? (this.addressDraft.id ? '编辑地址' : '新增地址') : this.screen === 'reset-password' ? '重置密码' :
+      }.backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12).width(48).height(this.controlHeight(48))
+        .enabled(!this.careBusy && !this.paymentBusy && !this.formBusy && !this.commerceBusy && !this.deviceSettingsWriting).onClick(() => this.back()).accessibilityText('返回上一页')
+      Text(this.screen === 'health-record' ? '记录详情' : this.screen === 'device-dials' ? '表盘中心' : this.screen === 'device-settings' ? '设备设置' :
+        this.screen === 'device-units' ? '手表单位' : this.screen === 'device-alarms' ? '闹钟' : this.screen === 'device-alarm-edit' ?
+          (this.watchAlarmDraft.id < 0 ? '添加闹钟' : '编辑闹钟') : this.screen === 'profile-edit' ? '个人资料' : this.screen === 'addresses' ? '收货地址' :
+        this.screen === 'address-edit' ? (this.addressDraft.id ? '编辑地址' : '新增地址') : this.screen === 'reset-password' ? '找回密码' :
         this.screen.startsWith('care') ? this.careHeading() : this.screen === 'messages' ? '消息' :
         this.screen === 'health-alerts' ? '健康预警' : this.screen === 'health-all' ? '全部健康数据' :
           this.screen === 'sport-records' ? '运动与记录' : this.screen === 'ai-chat' ? 'AI 健康管家' :
@@ -1814,16 +2119,16 @@ struct Index {
       if (this.screen === 'device-search') {
         Button() {
           SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(23).fontColor([INK])
-        }.backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12).width(48).height(48)
+        }.backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12).width(48).height(this.controlHeight(48))
           .enabled(!this.wearableBusy()).onClick(() => this.startWearableScan())
           .accessibilityText('重新查找附近设备').id('device_search_refresh')
       } else if (this.screen === 'shop-home') {
         Button() { SymbolGlyph($r('sys.symbol.bag')).fontSize(24).fontColor([INK]) }
-          .width(48).height(48).backgroundColor(Color.Transparent).onClick(() => this.openCart())
+          .width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).onClick(() => this.openCart())
           .accessibilityText('购物车').id('shop_cart')
       } else if (this.screen === 'addresses') {
         Button() { SymbolGlyph($r('sys.symbol.plus')).fontSize(24).fontColor([INK]) }
-          .width(48).height(48).backgroundColor(Color.Transparent).onClick(() => this.editAddress())
+          .width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).onClick(() => this.editAddress())
           .accessibilityText('新增地址').id('add_address_header')
       } else {
         Blank().width(48)
@@ -1838,6 +2143,7 @@ struct Index {
     if (this.screen === 'care-add') return '添加关爱成员';
     if (this.screen === 'care-member') return this.careSelectedMember.name || '成员健康数据';
     if (this.screen === 'care-metric') return this.careMetricData.title;
+    if (this.screen === 'care-record') return this.careMetricData.key === 'ecg' ? '心电详情' : '记录详情';
     return '远程关爱';
   }
 
@@ -1879,23 +2185,23 @@ struct Index {
         Row({ space: 10 }) {
           SymbolGlyph($r('sys.symbol.phone')).fontSize(22).fontColor([MUTED]).margin({ left: 15 })
           TextInput({ placeholder: '手机号 / 账号', text: this.account }).type(InputType.Normal)
-            .layoutWeight(1).height(54).fontSize(17).backgroundColor(Color.Transparent)
+            .layoutWeight(1).height(this.controlHeight(54)).fontSize(17).backgroundColor(Color.Transparent)
             .maxLength(128).enabled(canSubmitLogin(this.busy, this.restoring))
             .onChange((value: string) => this.account = value).id('login_account').accessibilityText('手机号或账号')
-        }.width('100%').height(56).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
+        }.width('100%').height(this.controlHeight(56)).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
         Row({ space: 10 }) {
           SymbolGlyph($r('sys.symbol.lock')).fontSize(22).fontColor([MUTED]).margin({ left: 15 })
           TextInput({ placeholder: '密码', text: this.password }).type(InputType.Password)
-            .layoutWeight(1).height(54).fontSize(17).backgroundColor(Color.Transparent)
+            .layoutWeight(1).height(this.controlHeight(54)).fontSize(17).backgroundColor(Color.Transparent)
             .maxLength(256).enabled(canSubmitLogin(this.busy, this.restoring))
             .onChange((value: string) => this.password = value)
             .onSubmit(() => this.submitLogin()).id('login_password').accessibilityText('密码')
-        }.width('100%').height(56).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
+        }.width('100%').height(this.controlHeight(56)).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
         Row() {
           Blank()
-          Button('忘记密码？').height(48).fontSize(16).fontWeight(FontWeight.Medium).fontColor(INK)
+          Button('忘记密码？').height(this.controlHeight(48)).fontSize(16).fontWeight(FontWeight.Medium).fontColor(INK)
             .backgroundColor(Color.Transparent).enabled(!this.busy && !this.restoring)
-            .onClick(() => this.showFeature('找回密码', '请使用注册手机号验证身份后重设密码。'))
+            .onClick(() => this.openPasswordReset()).id('forgot_password')
         }.width('100%')
         if (this.error) { this.Notice({ message: this.error, color: '#FFF0E9' }) }
         Row() {
@@ -1905,9 +2211,9 @@ struct Index {
           Column({ space: 0 }) {
             Text('我已阅读并同意').fontSize(13).fontColor(MUTED).width('100%')
             Flex({ wrap: FlexWrap.Wrap }) {
-              Button('用户协议').height(48).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
+              Button('用户协议').height(this.controlHeight(48)).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
                 .enabled(canSubmitLogin(this.busy, this.restoring)).onClick(() => this.openArticle('2', '用户协议', true))
-              Button('隐私政策').height(48).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
+              Button('隐私政策').height(this.controlHeight(48)).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
                 .enabled(canSubmitLogin(this.busy, this.restoring)).onClick(() => this.openArticle('3', '隐私政策', true))
             }
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
@@ -1917,15 +2223,15 @@ struct Index {
             .fontColor(RED).backgroundColor(Color.White).enabled(!this.busy)
             .onClick(() => this.signOut()).id('retry_logout')
         }
-        Button(this.busy ? '正在登录…' : '登录').width('100%').height(50).fontSize(17)
+        Button(this.busy ? '正在登录…' : '登录').width('100%').height(this.controlHeight(50)).fontSize(17)
           .fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(10)
           .enabled(!this.busy && !this.restoring)
           .onClick(() => this.submitLogin()).id('login_submit')
-        Button('注册账户').width('100%').height(48).fontSize(16).fontColor(INK)
+        Button('注册账户').width('100%').height(this.controlHeight(48)).fontSize(16).fontColor(INK)
           .fontWeight(FontWeight.Medium).backgroundColor(Color.Transparent).enabled(!this.busy && !this.restoring)
           .onClick(() => this.openRegistration()).id('open_registration')
         Row() {
-          Button(this.busy ? '正在打开微信…' : '微信授权登录').width('60%').height(48).fontSize(16)
+          Button(this.busy ? '正在打开微信…' : '微信授权登录').width(this.singleColumn() ? '100%' : '60%').height(this.controlHeight(48)).fontSize(16)
             .fontWeight(FontWeight.Medium).fontColor('#07883E').backgroundColor(Color.Transparent)
             .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: '#07883E' })
             .enabled(!this.busy && !this.restoring)
@@ -1943,37 +2249,38 @@ struct Index {
         Row() {
           Button() {
             SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(24).fontColor([INK])
-          }.width(48).height(48).backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12)
+          }.width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12)
             .onClick(() => this.back()).accessibilityText('返回登录')
           Text('注册').fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).textAlign(TextAlign.Center)
           Blank().width(48)
-        }.width('100%').height(56)
+        }.width('100%').height(this.controlHeight(56))
         Image($r('app.media.brand_lockup')).width(154).height(76).objectFit(ImageFit.Contain)
           .accessibilityText('赛电 SAYDIAN').margin({ top: 12, bottom: 16 })
         TextInput({ placeholder: '手机号', text: this.registerMobile }).type(InputType.PhoneNumber)
-          .height(56).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
+          .height(this.controlHeight(56)).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
           .border({ width: 1, color: OUTLINE }).maxLength(11).enabled(!this.busy && !this.smsBusy)
           .onChange((value: string) => this.registerMobile = value).id('register_mobile')
           .accessibilityText('注册手机号')
-        Row({ space: 10 }) {
+        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
           TextInput({ placeholder: '短信验证码', text: this.registerCode }).type(InputType.Number)
-            .layoutWeight(1).height(56).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
+            .width(this.singleColumn() ? '100%' : '58%').height(this.controlHeight(56)).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
             .border({ width: 1, color: OUTLINE }).maxLength(6).enabled(!this.busy)
             .onChange((value: string) => this.registerCode = value).id('register_code')
             .accessibilityText('短信验证码')
           Button(this.smsBusy ? '发送中…' : this.smsCountdown > 0 ? `${this.smsCountdown}s` : '获取验证码')
-            .width(118).height(56).fontSize(14).fontColor(INK).backgroundColor(SURFACE)
+            .width(this.singleColumn() ? '100%' : '38%').height(this.controlHeight(56)).fontSize(14).fontColor(INK).backgroundColor(SURFACE)
+            .margin({ top: this.singleColumn() ? 8 : 0 })
             .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE })
             .enabled(!this.busy && !this.smsBusy && this.smsCountdown === 0)
             .onClick(() => this.sendRegistrationCode()).id('register_send_code')
         }.width('100%')
         TextInput({ placeholder: '设置密码（至少 6 位）', text: this.registerPassword }).type(InputType.Password)
-          .height(56).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
+          .height(this.controlHeight(56)).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
           .border({ width: 1, color: OUTLINE }).maxLength(256).enabled(!this.busy)
           .onChange((value: string) => this.registerPassword = value).id('register_password')
           .accessibilityText('设置密码')
         TextInput({ placeholder: '再次输入密码', text: this.registerConfirmation }).type(InputType.Password)
-          .height(56).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
+          .height(this.controlHeight(56)).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
           .border({ width: 1, color: OUTLINE }).maxLength(256).enabled(!this.busy)
           .onChange((value: string) => this.registerConfirmation = value).id('register_confirmation')
           .onSubmit(() => this.submitRegistration()).accessibilityText('确认密码')
@@ -1984,18 +2291,18 @@ struct Index {
           Column({ space: 0 }) {
             Text('我已阅读并同意').fontSize(13).fontColor(MUTED).width('100%')
             Flex({ wrap: FlexWrap.Wrap }) {
-              Button('用户协议').height(48).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
+              Button('用户协议').height(this.controlHeight(48)).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
                 .enabled(!this.busy).onClick(() => this.openArticle('2', '用户协议', true))
-              Button('隐私政策').height(48).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
+              Button('隐私政策').height(this.controlHeight(48)).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
                 .enabled(!this.busy).onClick(() => this.openArticle('3', '隐私政策', true))
             }
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         }.width('100%').alignItems(VerticalAlign.Top)
         if (this.registerError) { this.Notice({ message: this.registerError, color: '#FFF0E9' }) }
-        Button(this.busy ? '正在注册…' : '注册').width('100%').height(56).fontSize(17)
+        Button(this.busy ? '正在注册…' : '注册').width('100%').height(this.controlHeight(56)).fontSize(17)
           .fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
           .enabled(!this.busy && !this.restoring).onClick(() => this.submitRegistration()).id('register_submit')
-        Button('已有账号，返回登录').width('100%').height(48).fontSize(16).fontColor(INK)
+        Button('已有账号，返回登录').width('100%').height(this.controlHeight(48)).fontSize(16).fontColor(INK)
           .backgroundColor(Color.Transparent).enabled(!this.busy)
           .onClick(() => { this.clearSmsCountdown(); this.registerError = ''; this.screen = 'login'; })
           .id('register_back_login')
@@ -2020,7 +2327,7 @@ struct Index {
         Stack({ alignContent: Alignment.TopEnd }) {
           Button() {
             SymbolGlyph($r('sys.symbol.bell')).fontSize(27).fontColor([INK])
-          }.width(48).height(48).backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12)
+          }.width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12)
             .onClick(() => this.openMessages()).id('open_messages')
             .accessibilityText(this.notificationCount > 0 ? `消息，${this.notificationCount} 条未读` : '消息')
           if (this.notificationCount > 0) {
@@ -2038,51 +2345,51 @@ struct Index {
           Text('AI健康管家').fontSize(19).fontWeight(FontWeight.Bold).fontColor('#9E1025').width('100%')
           Text('我是您的健康管家，\n有任何健康问题都可以向我提问。')
             .fontSize(12).lineHeight(15).fontColor(INK).width('100%')
-          Button('马上提问').fontSize(14.5).fontWeight(FontWeight.Bold).height(44).backgroundColor(RED)
+          Button('马上提问').fontSize(14.5).fontWeight(FontWeight.Bold).height(this.controlHeight(44)).backgroundColor(RED)
             .type(ButtonType.Capsule).width('100%').onClick(() => this.openAiChat()).id('open_ai_chat')
         }.width('64%').padding({ left: 4, right: 13, top: 7, bottom: 7 }).alignItems(HorizontalAlign.Start)
       }.width('100%').constraintSize({ minHeight: 140 }).borderRadius(20).backgroundColor('#FDF7F3')
         .border({ width: 1.2, color: '#66D20B27' }).clip(true)
 
-      Row() {
+      Flex({ wrap: FlexWrap.Wrap }) {
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.person_badge_heart')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor('#E84358').borderRadius(14)
           Text('远程关爱').fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.layoutWeight(1).padding({ top: 3, bottom: 3 }).onClick(() => this.openCare()).id('family_care')
+        }.width(this.singleColumn() ? '100%' : '25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openCare()).id('family_care')
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.book')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor('#D5A03D').borderRadius(14)
           Text('健康百科').fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.layoutWeight(1).padding({ top: 3, bottom: 3 }).onClick(() => this.openArticles()).id('health_articles')
+        }.width(this.singleColumn() ? '100%' : '25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openArticles()).id('health_articles')
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.exclamationmark_shield_fill')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor('#EF6E78').borderRadius(14)
           Text('健康预警').fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.layoutWeight(1).padding({ top: 3, bottom: 3 }).onClick(() => this.openHealthAlerts()).id('health_alerts')
+        }.width(this.singleColumn() ? '100%' : '25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openHealthAlerts()).id('health_alerts')
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.bag_fill')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor('#D99C2B').borderRadius(14)
           Text('赛电商城').fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.layoutWeight(1).padding({ top: 3, bottom: 3 }).onClick(() => this.openShop()).id('health_shop')
+        }.width(this.singleColumn() ? '100%' : '25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openShop()).id('health_shop')
       }.width('100%').padding({ left: 6, right: 6, top: 10, bottom: 10 }).backgroundColor(SURFACE).borderRadius(18)
         .shadow({ radius: 9, color: CARD_SHADOW, offsetY: 3 })
 
       if (this.profileError) { this.Notice({ message: this.profileError, color: '#FFF0E9' }) }
-      Row() {
+      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
         Row({ space: 7 }) {
           Text('健康数据').fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK)
           SymbolGlyph($r('sys.symbol.calendar')).fontSize(19).fontColor([MUTED])
           Text(this.todayText()).fontSize(14).fontColor(MUTED)
-        }.layoutWeight(1)
+        }.width(this.singleColumn() ? '100%' : '68%')
         Button() {
           Row({ space: 2 }) {
             Text('全部数据').fontSize(14).fontWeight(FontWeight.Bold).fontColor(RED)
             SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([RED])
           }
-        }.height(48).backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(10)
+        }.width(this.singleColumn() ? '100%' : '32%').height(this.controlHeight(48)).backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(10)
           .onClick(() => this.screen = 'health-all').id('health_all')
-      }.width('100%').alignItems(VerticalAlign.Center)
+      }.width('100%')
 
       if (this.visibleWearableMetrics().length === 0) {
         Row({ space: 7 }) {
@@ -2112,7 +2419,7 @@ struct Index {
                 Polyline({ width: 132, height: 34 }).points(this.metricMiniChartPoints(metric.key))
                   .fillOpacity(0).stroke(TECH_BLUE).strokeWidth(2).width('100%').height(34)
               }
-            }.width('48%').constraintSize({ minHeight: 142 }).padding({ left: 10, right: 10, top: 9, bottom: 8 })
+            }.width(this.singleColumn() ? '100%' : '48%').constraintSize({ minHeight: 142 }).padding({ left: 10, right: 10, top: 9, bottom: 8 })
               .margin({ bottom: 12 }).backgroundColor(SURFACE).borderRadius(18)
               .shadow({ radius: 9, color: CARD_SHADOW, offsetY: 3 })
               .onClick(() => this.openWearableMetric(metric.key))
@@ -2139,6 +2446,18 @@ struct Index {
         .borderRadius(22).border({ width: 1, color: '#18D20B27' }).shadow({ radius: 12, color: CARD_SHADOW, offsetY: 4 })
       this.Notice({ message: '测量结果仅供健康管理参考，如有不适请咨询专业医务人员。', color: GREEN_SOFT })
     }.width('100%').padding({ left: 16, right: 16, top: 10, bottom: 24 })
+  }
+
+  @Builder
+  DeviceAction($$: DeviceActionOptions) {
+    Row({ space: 10 }) {
+      Column() { SymbolGlyph($$.icon).fontSize(23).fontColor([$$.color]) }
+        .width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor($$.background).borderRadius(13)
+      Text($$.title).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+    }.width(this.singleColumn() ? '100%' : '48%').constraintSize({ minHeight: 78 }).padding(12).margin({ bottom: 12 })
+      .backgroundColor(SURFACE).borderRadius(16).border({ width: 1, color: LINE })
+      .enabled(!this.wearableBusy() && !this.wearableMeasurement.running).onClick(() => $$.action())
+      .id($$.id).accessibilityText($$.title)
   }
 
   @Builder
@@ -2206,113 +2525,22 @@ struct Index {
           }.width('100%').constraintSize({ minHeight: 76 }).padding({ left: 13, right: 13, top: 11, bottom: 11 })
             .backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
             .enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
-            .onClick(() => vepWearable.readDials()).id('wearable_read_dials').accessibilityText('表盘中心')
+            .onClick(() => this.openDials()).id('wearable_read_dials').accessibilityText('表盘中心')
         }
 
         Text('设备功能').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-        Column({ space: 12 }) {
-          Row({ space: 10 }) {
-            Row({ space: 10 }) {
-              Column() {
-                SymbolGlyph($r('sys.symbol.clock_arrow_2_circlepath')).fontSize(23).fontColor([RED])
-              }.width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(13)
-              Column({ space: 3 }) {
-                Text('同步时间').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-              }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-            }.layoutWeight(1).constraintSize({ minHeight: 78 }).padding(12).backgroundColor(SURFACE)
-              .borderRadius(16).border({ width: 1, color: LINE }).enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
-              .onClick(() => vepWearable.syncTime()).id('wearable_sync_time').accessibilityText('同步时间')
-            if (this.wearableSnapshot.capabilities.findDevice) {
-              Row({ space: 10 }) {
-                Column() {
-                  SymbolGlyph($r('sys.symbol.bell_badge_local')).fontSize(23).fontColor([BLUE])
-                }.width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(13)
-                Column({ space: 3 }) {
-                  Text('查找手表').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-              }.layoutWeight(1).constraintSize({ minHeight: 78 }).padding(12).backgroundColor(SURFACE)
-                .borderRadius(16).border({ width: 1, color: LINE }).enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
-                .onClick(() => vepWearable.findDevice()).id('wearable_find').accessibilityText('查找手表')
-            } else {
-              Row({ space: 10 }) {
-                Column() {
-                  SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(23).fontColor([BLUE])
-                }.width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(13)
-                Column({ space: 3 }) {
-                  Text('刷新信息').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-              }.layoutWeight(1).constraintSize({ minHeight: 78 }).padding(12).backgroundColor(SURFACE)
-                .borderRadius(16).border({ width: 1, color: LINE }).enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
-                .onClick(() => vepWearable.refresh()).id('wearable_refresh_fallback').accessibilityText('刷新设备信息')
-            }
-          }.width('100%')
-          Row({ space: 10 }) {
-            Row({ space: 10 }) {
-              Column() {
-                SymbolGlyph($r('sys.symbol.info_circle')).fontSize(23).fontColor([GREEN])
-              }.width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor(GREEN_SOFT).borderRadius(13)
-              Column({ space: 3 }) {
-                Text('设备信息').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-              }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-            }.layoutWeight(1).constraintSize({ minHeight: 78 }).padding(12).backgroundColor(SURFACE)
-              .borderRadius(16).border({ width: 1, color: LINE }).enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
-              .onClick(() => vepWearable.refresh()).id('wearable_refresh').accessibilityText('刷新设备信息')
-            Row({ space: 10 }) {
-              Column() {
-                SymbolGlyph($r('sys.symbol.gearshape')).fontSize(23).fontColor(['#C98716'])
-              }.width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor(GOLD_SOFT).borderRadius(13)
-              Column({ space: 3 }) {
-                Text('设备设置').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-              }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-            }.layoutWeight(1).constraintSize({ minHeight: 78 }).padding(12).backgroundColor(SURFACE)
-              .borderRadius(16).border({ width: 1, color: LINE }).enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
-              .onClick(() => vepWearable.readDeviceConfiguration()).id('wearable_read_settings')
-              .accessibilityText('读取设备设置')
-          }.width('100%')
+        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+          this.DeviceAction({ title: '同步时间', icon: $r('sys.symbol.clock_arrow_2_circlepath'), color: RED, background: RED_SOFT,
+            action: () => vepWearable.syncTime(), id: 'wearable_sync_time' })
+          if (this.wearableSnapshot.capabilities.findDevice) {
+            this.DeviceAction({ title: '查找手表', icon: $r('sys.symbol.bell_badge_local'), color: BLUE, background: BLUE_SOFT,
+              action: () => vepWearable.findDevice(), id: 'wearable_find' })
+          }
+          this.DeviceAction({ title: '设备信息', icon: $r('sys.symbol.info_circle'), color: GREEN, background: GREEN_SOFT,
+            action: () => vepWearable.refresh(), id: 'wearable_refresh' })
+          this.DeviceAction({ title: '设备设置', icon: $r('sys.symbol.gearshape'), color: '#C98716', background: GOLD_SOFT,
+            action: () => this.openDeviceSettings(), id: 'wearable_read_settings' })
         }.width('100%')
-
-        if (this.wearableSnapshot.settings.loadedAt > 0) {
-          Column({ space: 8 }) {
-            Text('手表实际设置').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-            Text(`单位 ${this.wearableSnapshot.settings.unitSystem} · 时制 ${this.wearableSnapshot.settings.timeFormat}`)
-              .fontSize(15).fontColor(INK).width('100%')
-            Text(`自动健康：${this.wearableSnapshot.settings.automaticHealth}`).fontSize(14).fontColor(MUTED).width('100%')
-            Text(`久坐提醒：${this.wearableSnapshot.settings.sedentaryReminder}`).fontSize(14).fontColor(MUTED).width('100%')
-            Text(`消息提醒：${this.wearableSnapshot.settings.messageReminder}`).fontSize(14).fontColor(MUTED).width('100%')
-            Text(this.wearableSnapshot.settings.alarms.length > 0 ?
-              `闹钟：${this.wearableSnapshot.settings.alarms.join('\n')}` : '闹钟：无已读取记录')
-              .fontSize(14).fontColor(MUTED).lineHeight(22).width('100%')
-          }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
-        }
-
-        if (this.wearableSnapshot.dials.length > 0) {
-          Column({ space: 10 }) {
-            Row() {
-              Text('手表内表盘').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
-              if (this.wearableSnapshot.originalDialKey &&
-                this.wearableSnapshot.currentDialKey !== this.wearableSnapshot.originalDialKey) {
-                Button('恢复原表盘').height(48).fontColor(RED).backgroundColor(RED_SOFT)
-                  .type(ButtonType.Normal).borderRadius(12)
-                  .enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
-                  .onClick(() => vepWearable.restoreOriginalDial()).id('wearable_restore_dial')
-              }
-            }.width('100%')
-            ForEach(this.wearableSnapshot.dials, (dial: WearableDial) => {
-              Row({ space: 10 }) {
-                Column({ space: 4 }) {
-                  Text(dial.fileName || '未命名表盘').fontSize(16).fontWeight(FontWeight.Medium)
-                    .fontColor(INK).maxLines(2).width('100%')
-                  Text(dial.selected ? '当前使用' : '手表内已安装').fontSize(13)
-                    .fontColor(dial.selected ? RED : MUTED).width('100%')
-                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-                Button(dial.selected ? '使用中' : '切换').height(48).fontColor(dial.selected ? MUTED : RED)
-                  .backgroundColor(dial.selected ? '#F0F1F3' : RED_SOFT).type(ButtonType.Normal).borderRadius(12)
-                  .enabled(!dial.selected && !this.wearableBusy() && !this.wearableMeasurement.running)
-                  .onClick(() => vepWearable.setExistingDial(dial.key))
-              }.width('100%').padding(12).backgroundColor('#F8F9FB').borderRadius(14)
-            }, (dial: WearableDial) => dial.key)
-          }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
-        }
 
         Column({ space: 0 }) {
           Row({ space: 12 }) {
@@ -2369,6 +2597,246 @@ struct Index {
       }
       this.Notice({ message: '连接或同步时，请让手表保持电量充足并靠近手机。', color: BLUE_SOFT })
     }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 24 })
+  }
+
+  @Builder
+  InstalledDialAction($$: DialRowProps) {
+    if ($$.dial.selected) {
+      Row() { SymbolGlyph($r('sys.symbol.checkmark_circle_fill')).fontSize(24).fontColor([GREEN]) }
+        .width(48).height(this.controlHeight()).justifyContent(FlexAlign.Center).accessibilityText('当前使用')
+    } else {
+      Button('使用').constraintSize({ minWidth: 48 }).height(this.controlHeight()).fontSize(16).fontColor(RED)
+        .backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12)
+        .enabled(!this.dialBusy && !this.wearableBusy() && !this.wearableMeasurement.running)
+        .onClick(() => this.selectExistingDial($$.dial)).id(`dial_select_${$$.index}`)
+        .accessibilityText(`使用表盘 ${$$.index + 1}`)
+    }
+  }
+
+  @Builder
+  InstalledDialRow($$: DialRowProps) {
+    Column({ space: 4 }) {
+      Row({ space: 14 }) {
+        Column() {
+          Text('预览\n暂不可用').fontSize(11).fontWeight(FontWeight.Medium).fontColor(MUTED).textAlign(TextAlign.Center)
+        }.width(Math.max(62, 44 * this.systemFontScale)).height(Math.max(62, 44 * this.systemFontScale))
+          .justifyContent(FlexAlign.Center).backgroundColor('#F0F2F5').borderRadius(17)
+          .accessibilityText(`表盘 ${$$.index + 1} 预览暂不可用`)
+        Column({ space: 4 }) {
+          Text(`表盘 ${$$.index + 1}`).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text($$.dial.selected ? '当前使用' : '已安装').fontSize(14).fontColor($$.dial.selected ? GREEN : MUTED).width('100%')
+        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+        if (!this.singleColumn()) { this.InstalledDialAction({ dial: $$.dial, index: $$.index }) }
+      }.width('100%').constraintSize({ minHeight: 72 })
+      if (this.singleColumn()) {
+        Row() { this.InstalledDialAction({ dial: $$.dial, index: $$.index }) }
+          .width('100%').justifyContent(FlexAlign.End)
+      }
+    }.width('100%').padding({ left: 16, right: 12, top: 8, bottom: 8 }).id(`installed_dial_row_${$$.index}`)
+  }
+
+  @Builder
+  InstalledDialsContent() {
+    if (!this.wearableSnapshot.connected) {
+      this.StateCard({ title: '手表已断开', detail: '连接手表后可查看和切换表盘。', icon: $r('sys.symbol.watch') })
+      Button('添加设备').width('100%').height(this.controlHeight()).backgroundColor(RED)
+        .onClick(() => this.openDeviceSearch()).id('dials_connect')
+    } else if (!this.wearableSnapshot.capabilities.dial) {
+      this.StateCard({ title: '当前手表不支持此功能', icon: $r('sys.symbol.watch') })
+    } else {
+      Row({ space: 14 }) {
+        SymbolGlyph($r('sys.symbol.info_circle')).fontSize(26).fontColor([RED])
+        Column({ space: 4 }) {
+          Text('已安装表盘').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text(this.wearableSnapshot.deviceName).fontSize(14).fontColor(MUTED).width('100%')
+          Text('可切换手表内已有表盘').fontSize(14).fontColor(MUTED).width('100%')
+        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+      }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+      Text('手表中的表盘').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      if (this.dialBusy) { LoadingProgress().width(32).height(32).color(RED) }
+      if (this.dialMessage) { this.Notice({ message: this.dialMessage }) }
+      if (!this.dialBusy && this.wearableSnapshot.dials.length === 0) {
+        this.StateCard({ title: '暂无可用表盘', detail: '请让手表靠近手机后重新读取。', icon: $r('sys.symbol.watch') })
+      }
+      if (this.wearableSnapshot.dials.length > 0) {
+        Column() {
+          ForEach(this.wearableSnapshot.dials, (dial: WearableDial, index: number) => {
+            this.InstalledDialRow({ dial: dial, index: index })
+            if (index < this.wearableSnapshot.dials.length - 1) {
+              Row() { Blank().width(92); Divider().color(LINE).layoutWeight(1) }.width('100%')
+            }
+          }, (dial: WearableDial, index: number) => dialRenderKey(dial, index))
+        }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+      }
+      Button(this.dialBusy ? '读取中…' : '刷新手表表盘').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED)
+        .backgroundColor(Color.Transparent).enabled(!this.dialBusy && !this.wearableBusy() && !this.wearableMeasurement.running)
+        .onClick(() => this.refreshDials()).id('dials_refresh')
+      if (this.wearableSnapshot.originalDialKey && this.wearableSnapshot.currentDialKey !== this.wearableSnapshot.originalDialKey) {
+        Button('恢复原表盘').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
+          .enabled(!this.dialBusy && !this.wearableBusy() && !this.wearableMeasurement.running)
+          .onClick(() => vepWearable.restoreOriginalDial()).id('wearable_restore_dial')
+      }
+    }
+  }
+
+  @Builder
+  DeviceSettingsContent() {
+    if (!this.wearableSnapshot.connected) {
+      this.StateCard({ title: '手表已断开', detail: '重新连接后查看设备设置。', icon: $r('sys.symbol.watch') })
+    } else {
+      Text(this.wearableSnapshot.deviceName).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      this.PageRow({ title: '手表单位', subtitle: '公英制、温度单位', icon: $r('sys.symbol.gearshape'),
+        action: () => this.openWatchSettings('device-units'), id: 'settings_units' })
+      if (this.wearableSnapshot.capabilities.alarm) {
+        this.PageRow({ title: '闹钟', subtitle: '时间、重复与提醒名称', icon: $r('sys.symbol.clock'),
+          action: () => this.openWatchSettings('device-alarms'), id: 'settings_alarms' })
+      }
+      if (this.wearableSnapshot.settings.loadedAt > 0 && !this.settingsBusy && !this.settingsMessage) {
+        Column({ space: 14 }) {
+          Text(`单位：${this.wearableSnapshot.settings.unitSystem}`).fontSize(16).fontColor(INK).width('100%')
+          Divider().color(LINE)
+          Text(`时制：${this.wearableSnapshot.settings.timeFormat}`).fontSize(16).fontColor(INK).width('100%')
+          Divider().color(LINE)
+          Text(`自动健康：${this.wearableSnapshot.settings.automaticHealth}`).fontSize(16).fontColor(INK).width('100%')
+          if (this.wearableSnapshot.capabilities.sedentaryReminder) {
+            Divider().color(LINE)
+            Text(`久坐提醒：${this.wearableSnapshot.settings.sedentaryReminder}`).fontSize(16).fontColor(INK).width('100%')
+          }
+          if (this.wearableSnapshot.capabilities.notification) {
+            Divider().color(LINE)
+            Text(`消息提醒：${this.wearableSnapshot.settings.messageReminder}`).fontSize(16).fontColor(INK).width('100%')
+          }
+          if (this.wearableSnapshot.capabilities.alarm) {
+            Divider().color(LINE)
+            Text(this.wearableSnapshot.settings.alarms.length > 0 ? `闹钟：${this.wearableSnapshot.settings.alarms.join('\n')}` : '暂无闹钟')
+              .fontSize(16).fontColor(INK).width('100%')
+          }
+        }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+        Text('其他设置可在手表上查看和调整。').fontSize(14).fontColor(MUTED).width('100%')
+      } else { this.StateCard({ title: this.settingsBusy ? '正在读取设备设置' : '暂未读取到设备设置', icon: $r('sys.symbol.gearshape') }) }
+      if (this.settingsMessage) { this.Notice({ message: this.settingsMessage }) }
+      Button(this.settingsBusy ? '读取中…' : '重新读取').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
+        .enabled(!this.settingsBusy && !this.wearableBusy() && !this.wearableMeasurement.running).onClick(() => this.refreshDeviceSettings())
+        .id('settings_refresh')
+      Button('同步时间').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
+        .enabled(!this.wearableBusy() && !this.wearableMeasurement.running).onClick(() => vepWearable.syncTime()).id('settings_sync_time')
+    }
+  }
+
+  @Builder
+  WatchUnitCard($$: WatchUnitOptions) {
+    if (supportedWatchUnit($$.value)) {
+      Column({ space: 12 }) {
+        Text($$.title).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Button(watchUnitChoiceLabel($$.field, 1)).width('100%').height(this.controlHeight())
+          .fontSize(16).fontColor($$.value === 1 ? RED : INK).backgroundColor($$.value === 1 ? RED_SOFT : SURFACE_ALT)
+          .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: $$.value === 1 ? RED : LINE })
+          .enabled(!this.deviceEditorBusy && this.deviceEditorLoaded).onClick(() => this.setWatchUnit($$.field, 1))
+          .accessibilityText(`${watchUnitChoiceLabel($$.field, 1)}${$$.value === 1 ? '，当前使用' : ''}`).id(`watch_unit_${$$.field}_1`)
+        Button(watchUnitChoiceLabel($$.field, 2)).width('100%').height(this.controlHeight())
+          .fontSize(16).fontColor($$.value === 2 ? RED : INK).backgroundColor($$.value === 2 ? RED_SOFT : SURFACE_ALT)
+          .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: $$.value === 2 ? RED : LINE })
+          .enabled(!this.deviceEditorBusy && this.deviceEditorLoaded).onClick(() => this.setWatchUnit($$.field, 2))
+          .accessibilityText(`${watchUnitChoiceLabel($$.field, 2)}${$$.value === 2 ? '，当前使用' : ''}`).id(`watch_unit_${$$.field}_2`)
+      }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+    }
+  }
+
+  @Builder
+  WatchSettingsContent() {
+    if (!this.wearableSnapshot.connected) {
+      this.StateCard({ title: '手表已断开', detail: '重新连接后再查看或调整。', icon: $r('sys.symbol.watch') })
+    } else if (this.screen !== 'device-units' && !this.wearableSnapshot.capabilities.alarm) {
+      this.StateCard({ title: '当前手表不支持闹钟管理', icon: $r('sys.symbol.clock') })
+    } else {
+      if (this.deviceEditorBusy) { LoadingProgress().width(32).height(32).color(RED) }
+      if (this.deviceEditorMessage) { this.Notice({ message: this.deviceEditorMessage }) }
+      if (this.screen === 'device-units') {
+        this.WatchUnitCard({ title: '距离单位', field: 'unitSystem', value: this.watchUnits.unitSystem })
+        this.WatchUnitCard({ title: '温度单位', field: 'tempUnit', value: this.watchUnits.tempUnit })
+        this.WatchUnitCard({ title: '时间格式', field: 'timeFormat', value: this.watchUnits.timeFormat })
+        if (this.deviceEditorLoaded && !supportedWatchUnit(this.watchUnits.unitSystem) &&
+          !supportedWatchUnit(this.watchUnits.tempUnit) && !supportedWatchUnit(this.watchUnits.timeFormat)) {
+          this.StateCard({ title: '当前手表没有可调整的单位', icon: $r('sys.symbol.gearshape') })
+        }
+        Text('此处修改手表显示单位，不改变已有健康记录。').fontSize(14).fontColor(MUTED).width('100%')
+      } else if (this.screen === 'device-alarm-edit') {
+        this.WatchAlarmEditor()
+      } else {
+        if (this.deviceEditorLoaded && this.watchAlarms.length === 0) {
+          this.StateCard({ title: '手表中还没有闹钟', icon: $r('sys.symbol.clock') })
+        }
+        ForEach(this.watchAlarms, (alarm: WatchAlarm) => {
+          Column({ space: 12 }) {
+            Row({ space: 12 }) {
+              Column({ space: 5 }) {
+                Text(alarm.time).fontSize(28).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                if (alarm.label) { Text(alarm.label).fontSize(16).fontColor(INK).width('100%') }
+                Text(alarmRepeatText(alarm.days)).fontSize(14).fontColor(MUTED).width('100%')
+              }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+              Toggle({ type: ToggleType.Switch, isOn: alarm.enabled }).selectedColor(RED)
+                .enabled(!this.deviceEditorBusy && this.deviceEditorLoaded).onChange((enabled: boolean) => this.toggleWatchAlarm(alarm, enabled))
+                .accessibilityText(`${alarm.time}闹钟${alarm.enabled ? '已开启' : '已关闭'}`).id(`alarm_toggle_${alarm.id}`)
+            }.width('100%')
+            Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+              Button('编辑').width(this.singleColumn() ? '100%' : '48%').height(this.controlHeight()).fontSize(16)
+                .fontColor(RED).backgroundColor(RED_SOFT).enabled(!this.deviceEditorBusy && this.deviceEditorLoaded)
+                .onClick(() => this.editWatchAlarm(alarm)).id(`alarm_edit_${alarm.id}`)
+              Button('删除').width(this.singleColumn() ? '100%' : '48%').height(this.controlHeight()).fontSize(16)
+                .fontColor(RED).backgroundColor(Color.Transparent).enabled(!this.deviceEditorBusy && this.deviceEditorLoaded)
+                .onClick(() => this.removeWatchAlarm(alarm)).id(`alarm_delete_${alarm.id}`)
+            }.width('100%')
+          }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+        }, (alarm: WatchAlarm) => JSON.stringify(alarm))
+        Button('添加闹钟').width('100%').height(this.controlHeight()).fontSize(16).backgroundColor(RED)
+          .enabled(!this.deviceEditorBusy && this.deviceEditorLoaded).onClick(() => this.editWatchAlarm()).id('alarm_add')
+      }
+      if (this.screen !== 'device-alarm-edit') {
+        Button(this.deviceEditorBusy ? '读取中…' : '重新读取').width('100%').height(this.controlHeight()).fontSize(16)
+          .fontColor(RED).backgroundColor(Color.Transparent).enabled(!this.deviceEditorBusy)
+          .onClick(() => this.refreshWatchSettings()).id('watch_settings_refresh')
+      } else if (!this.deviceEditorLoaded) {
+        Button('返回闹钟列表重新读取').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
+          .enabled(!this.deviceEditorBusy).onClick(() => {
+            this.innerParents.delete('device-alarm-edit'); this.screen = 'device-alarms'; this.refreshWatchSettings();
+          }).id('alarm_retry_list')
+      }
+    }
+  }
+
+  @Builder
+  WatchAlarmEditor() {
+    Column({ space: 16 }) {
+      Button(this.watchAlarmDraft.time).width('100%').height(this.controlHeight(60)).fontSize(28).fontWeight(FontWeight.Bold)
+        .fontColor(INK).backgroundColor(SURFACE_ALT).type(ButtonType.Normal).borderRadius(12)
+        .enabled(!this.deviceEditorBusy).onClick(() => this.pickWatchAlarmTime()).id('alarm_time')
+      Row() {
+        Text('启用闹钟').fontSize(16).fontColor(INK).layoutWeight(1)
+        Toggle({ type: ToggleType.Switch, isOn: this.watchAlarmDraft.enabled }).selectedColor(RED)
+          .enabled(!this.deviceEditorBusy).onChange((enabled: boolean) => this.changeAlarmDraft('enabled', String(enabled)))
+          .accessibilityText('启用闹钟').id('alarm_enabled')
+      }.width('100%').constraintSize({ minHeight: 48 })
+      TextInput({ text: this.watchAlarmDraft.label, placeholder: '提醒名称，例如起床' }).fontSize(16)
+        .height(this.controlHeight(56)).width('100%').maxLength(21).backgroundColor(SURFACE_ALT).borderRadius(12)
+        .enabled(!this.deviceEditorBusy).onChange((value: string) => this.changeAlarmDraft('label', value)).id('alarm_label')
+      if (alarmDraftError(this.watchAlarmDraft)) {
+        Text(alarmDraftError(this.watchAlarmDraft)).fontSize(14).fontColor(RED_DARK).width('100%')
+      }
+      Text('重复').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+        ForEach(['周一', '周二', '周三', '周四', '周五', '周六', '周日'], (day: string, index: number) => {
+          Button(day).width(this.singleColumn() ? '100%' : '30%').height(this.controlHeight()).fontSize(16)
+            .fontColor(this.watchAlarmDraft.days[index] ? RED : INK)
+            .backgroundColor(this.watchAlarmDraft.days[index] ? RED_SOFT : SURFACE_ALT).margin({ bottom: 8 })
+            .enabled(!this.deviceEditorBusy).onClick(() => this.changeAlarmDraft(String(index), ''))
+            .accessibilityText(`${day}${this.watchAlarmDraft.days[index] ? '，已选择' : '，未选择'}`).id(`alarm_day_${index}`)
+        })
+      }.width('100%')
+      Text(alarmRepeatText(this.watchAlarmDraft.days)).fontSize(14).fontColor(MUTED).width('100%')
+      Button(this.deviceSettingsWriting ? '保存中…' : '保存').width('100%').height(this.controlHeight(56)).fontSize(16).backgroundColor(RED)
+        .enabled(!this.deviceEditorBusy && this.deviceEditorLoaded && !alarmDraftError(this.watchAlarmDraft))
+        .onClick(() => this.saveAlarmDraft()).id('alarm_save')
+    }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
   }
 
   @Builder
@@ -2444,7 +2912,7 @@ struct Index {
         .enabled(device.provider === 'Vep' && !this.wearableBusy())
         .onClick(() => vepWearable.connect(device.key))
         .accessibilityText(`${device.name}，${device.provider}，${this.signalText(device.rssi)}`)
-    }, (device: WearableDevice) => device.key)
+    }, (device: WearableDevice) => deviceRenderKey(device))
 
     Row({ space: 7 }) {
       SymbolGlyph($r('sys.symbol.bag')).fontSize(18).fontColor([RED])
@@ -2481,7 +2949,7 @@ struct Index {
           this.openProfileEditor();
         }).id('mine-profile-card').accessibilityText(this.guest ? '登录赛电账号' : '编辑个人资料')
       if (this.guest) {
-        Button('登录赛电账号').width('100%').height(50).backgroundColor(RED)
+        Button('登录赛电账号').width('100%').height(this.controlHeight(50)).backgroundColor(RED)
           .type(ButtonType.Normal).borderRadius(14)
           .onClick(() => { this.error = ''; this.screen = 'login'; }).id('go_login')
       } else {
@@ -2640,7 +3108,7 @@ struct Index {
           Text(this.tab === 1 ? '设备' : '我的').fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK)
             .layoutWeight(1).textAlign(TextAlign.Center)
           Blank().width(52)
-        }.width('100%').height(54).padding({ left: 12, right: 12 }).backgroundColor(SURFACE)
+        }.width('100%').height(this.controlHeight(54)).padding({ left: 12, right: 12 }).backgroundColor(SURFACE)
           .border({ width: { bottom: 1 }, color: LINE }).id('section-titlebar')
       }
       Scroll(this.homeScroller) {
@@ -2783,7 +3251,7 @@ struct Index {
             .backgroundColor(RED).type(ButtonType.Normal).borderRadius(12).onClick(() => this.openShop()).id('shop_refresh')
         }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center).padding(20)
       } else {
-        TextInput({ text: this.shopKeyword, placeholder: '搜索商品' }).fontSize(16).height(60)
+        TextInput({ text: this.shopKeyword, placeholder: '搜索商品' }).fontSize(16).height(this.controlHeight(60))
           .padding({ left: 20, right: 20 }).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
           .maxLength(80).onChange((value: string) => this.shopKeyword = value).margin({ left: 14, right: 14, top: 8, bottom: 10 })
           .id('shop_search')
@@ -2845,7 +3313,7 @@ struct Index {
     if (this.commerceLoading) { LoadingProgress().width(40).height(40).color(RED).margin({ top: 100 }) }
     if (this.commerceError && !this.purchaseSheet) { this.Notice({ message: this.commerceError, color: GOLD_SOFT }) }
     if (!this.commerceLoading && !this.productDetail) {
-      Button('重新加载').height(56).backgroundColor(RED).onClick(() => this.openShopProduct(this.selectedProduct))
+      Button('重新加载').height(this.controlHeight(56)).backgroundColor(RED).onClick(() => this.openShopProduct(this.selectedProduct))
     }
     if (this.productDetail) {
       if (this.productDetail.covers.length) {
@@ -2902,7 +3370,7 @@ struct Index {
       Text('请选择规格').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
       Flex({ wrap: FlexWrap.Wrap }) {
         ForEach(this.productDetail?.skus ?? [], (sku: ShopSku, index: number) => {
-          Button(sku.name).fontSize(15).fontColor(INK).constraintSize({ minHeight: 44 }).type(ButtonType.Normal).borderRadius(10)
+          Button(sku.name).fontSize(15).fontColor(INK).constraintSize({ minHeight: 48 }).type(ButtonType.Normal).borderRadius(10)
             .backgroundColor(this.selectedSkuIndex === index ? GOLD_SOFT : SURFACE).border({ width: 1, color: OUTLINE, radius: 10 })
             .margin({ right: 8, bottom: 8 }).enabled(!this.commerceBusy).onClick(() => {
               this.selectedSkuIndex = index; this.purchaseQuantity = this.productDetail?.minBuy ?? 1; this.commerceError = '';
@@ -2912,14 +3380,14 @@ struct Index {
       Row({ space: 10 }) {
         Text((this.purchaseSku()?.stock ?? -1) < 0 ? '库存待确认' : `库存 ${this.purchaseSku()?.stock}`)
           .fontSize(15).fontColor(INK).layoutWeight(1)
-        Button('−').width(44).height(44).fontSize(22).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE })
+        Button('−').width(48).height(this.controlHeight(44)).fontSize(22).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE })
           .enabled(!this.commerceBusy && this.purchaseQuantity > (this.productDetail?.minBuy ?? 1)).onClick(() => this.purchaseQuantity--).id('quantity_minus')
         Text(String(this.purchaseQuantity)).fontSize(16).fontWeight(FontWeight.Bold).width(28).textAlign(TextAlign.Center)
-        Button('+').width(44).height(44).fontSize(22).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE })
+        Button('+').width(48).height(this.controlHeight(44)).fontSize(22).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE })
           .enabled(!this.commerceBusy && this.purchaseQuantity < Math.min(this.purchaseSku()?.stock ?? 0, 999)).onClick(() => this.purchaseQuantity++).id('quantity_plus')
       }.width('100%')
       if (this.commerceError) { this.Notice({ message: this.commerceError, color: GOLD_SOFT }) }
-      Button(this.commerceBusy ? '处理中…' : this.purchaseToCart ? '加入购物车' : '立即购买').width('100%').height(56)
+      Button(this.commerceBusy ? '处理中…' : this.purchaseToCart ? '加入购物车' : '立即购买').width('100%').height(this.controlHeight(56))
         .fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
         .enabled(!this.commerceBusy && !purchaseError(this.productDetail, this.purchaseSku(), this.purchaseQuantity))
         .onClick(() => this.purchaseSelected()).id('purchase_confirm')
@@ -2957,7 +3425,7 @@ struct Index {
         SymbolGlyph($r('sys.symbol.bag')).fontSize(72).fontColor([OUTLINE])
         Text('购物车还是空的').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK)
         Text('去商城挑选适合您的健康设备吧').fontSize(16).fontColor(INK).textAlign(TextAlign.Center)
-        Button('返回商城').height(56).fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED)
+        Button('返回商城').height(this.controlHeight(56)).fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED)
           .type(ButtonType.Normal).borderRadius(12).onClick(() => this.back())
       }.width('100%').constraintSize({ minHeight: 620 }).justifyContent(FlexAlign.Center)
     }
@@ -2969,20 +3437,20 @@ struct Index {
           Column() { this.CommerceLine({ line }) }.layoutWeight(1)
         }.width('100%')
         Row({ space: 8 }) {
-          Button('移出').fontSize(14).fontColor(MUTED).backgroundColor(Color.Transparent).height(44)
+          Button('移出').fontSize(14).fontColor(MUTED).backgroundColor(Color.Transparent).height(this.controlHeight(44))
             .enabled(!this.commerceBusy).onClick(() => this.changeCart(line, line.quantity, true))
           Blank().layoutWeight(1)
-          Button('−').width(44).height(44).fontSize(20).fontColor(INK).backgroundColor(BG).enabled(!this.commerceBusy && line.quantity > 1)
+          Button('−').width(48).height(this.controlHeight(44)).fontSize(20).fontColor(INK).backgroundColor(BG).enabled(!this.commerceBusy && line.quantity > 1)
             .onClick(() => this.changeCart(line, line.quantity - 1))
           Text(String(line.quantity)).fontSize(16).fontColor(INK).width(28).textAlign(TextAlign.Center)
-          Button('+').width(44).height(44).fontSize(20).fontColor(INK).backgroundColor(BG)
+          Button('+').width(48).height(this.controlHeight(44)).fontSize(20).fontColor(INK).backgroundColor(BG)
             .enabled(!this.commerceBusy && line.quantity < 999 && (line.stock < 0 || line.quantity < line.stock))
             .onClick(() => this.changeCart(line, line.quantity + 1))
         }.width('100%')
       }.width('100%').padding(14).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
     }, (line: ShopLine) => String(line.id))
     if (this.cartLines.length || this.commerceError) {
-      Button('刷新购物车').height(48).fontColor(RED).backgroundColor(Color.Transparent)
+      Button('刷新购物车').height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent)
         .enabled(!this.commerceBusy).onClick(() => this.openCart())
     }
   }
@@ -2999,14 +3467,14 @@ struct Index {
       Column({ space: 12 }) {
         Text('商品信息').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
         ForEach(this.checkoutPreview.products, (line: ShopLine) => { this.CommerceLine({ line }) })
-        TextInput({ text: this.checkoutMessage, placeholder: '留言' }).fontSize(16).height(56).maxLength(100)
+        TextInput({ text: this.checkoutMessage, placeholder: '留言' }).fontSize(16).height(this.controlHeight(56)).maxLength(100)
           .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
           .enabled(!this.commerceBusy && !this.checkoutAttempted).onChange((value: string) => this.checkoutMessage = value).id('checkout_message')
         Text(`${this.checkoutMessage.length}/100`).fontSize(13).fontColor(MUTED).textAlign(TextAlign.End).width('100%')
       }.width('100%').padding(14).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
       Column({ space: 8 }) {
         Text('积分抵扣').fontSize(14).fontColor(MUTED).width('100%')
-        TextInput({ text: this.checkoutPoints, placeholder: '0' }).fontSize(16).height(56).maxLength(12).type(InputType.NUMBER_DECIMAL)
+        TextInput({ text: this.checkoutPoints, placeholder: '0' }).fontSize(16).height(this.controlHeight(56)).maxLength(12).type(InputType.NUMBER_DECIMAL)
           .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
           .enabled(!this.commerceBusy && !this.checkoutAttempted && this.checkoutPreview.pointsCents >= 0)
           .onChange((value: string) => this.checkoutPoints = value).id('checkout_points')
@@ -3019,10 +3487,10 @@ struct Index {
       }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
       if (this.checkoutAttempted && !this.commerceBusy) {
         this.Notice({ message: '请先核对我的订单，避免重复提交。' })
-        Button('查看我的订单').height(56).backgroundColor(RED).onClick(() => this.openOrders())
+        Button('查看我的订单').height(this.controlHeight(56)).backgroundColor(RED).onClick(() => this.openOrders())
       }
     } else if (!this.commerceLoading) {
-      Button('重新加载').height(56).backgroundColor(RED).onClick(() => this.loadCheckout())
+      Button('重新加载').height(this.controlHeight(56)).backgroundColor(RED).onClick(() => this.loadCheckout())
     }
   }
 
@@ -3067,24 +3535,24 @@ struct Index {
       }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
       Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End }) {
         if (this.orderDetail.order.status > 0) {
-          Button('申请售后').height(48).fontSize(16).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE, radius: 12 })
+          Button('申请售后').height(this.controlHeight(48)).fontSize(16).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE, radius: 12 })
             .margin({ left: 8, bottom: 8 }).enabled(!this.commerceBusy).onClick(() => this.openInnerPage('shop-after-sales')).id('order_after_sales')
         }
         if (this.orderDetail.order.status >= 2) {
-          Button('查看物流').height(48).fontSize(16).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE, radius: 12 })
+          Button('查看物流').height(this.controlHeight(48)).fontSize(16).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE, radius: 12 })
             .margin({ left: 8, bottom: 8 }).enabled(!this.commerceBusy).onClick(() => this.openShipments()).id('order_express')
         }
         if (this.orderDetail.order.status === 2) {
-          Button('确认收货').height(48).fontSize(16).backgroundColor(RED).margin({ left: 8, bottom: 8 })
+          Button('确认收货').height(this.controlHeight(48)).fontSize(16).backgroundColor(RED).margin({ left: 8, bottom: 8 })
             .enabled(!this.commerceBusy).onClick(() => this.confirmReceipt()).id('order_receipt')
         }
         if (this.orderDetail.order.status === 0 && this.orderDetail.order.amountCents > 0) {
-          Button('查看支付状态').height(56).fontSize(16).backgroundColor(RED).margin({ left: 8, bottom: 8 })
+          Button('查看支付状态').height(this.controlHeight(56)).fontSize(16).backgroundColor(RED).margin({ left: 8, bottom: 8 })
             .onClick(() => { this.innerParents.set('shop-payment', 'shop-order-detail'); this.openPayment(this.orderDetail!.order); }).id('order_payment')
         }
       }.width('100%')
     }
-    Button('刷新订单详情').height(48).fontColor(RED).backgroundColor(Color.Transparent)
+    Button('刷新订单详情').height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent)
       .enabled(!this.commerceBusy && !this.commerceLoading).onClick(() => this.openCommerceOrder(this.commerceOrderId)).id('refresh_order_detail')
   }
 
@@ -3095,7 +3563,7 @@ struct Index {
       Column({ space: 20 }) {
         SymbolGlyph($r('sys.symbol.bag')).fontSize(44).fontColor([INK])
         Text('暂无物流信息').fontSize(16).fontColor(INK)
-        Button('重新加载').height(56).fontSize(16).backgroundColor(RED).onClick(() => this.openShipments())
+        Button('重新加载').height(this.controlHeight(56)).fontSize(16).backgroundColor(RED).onClick(() => this.openShipments())
       }.width('100%').constraintSize({ minHeight: 620 }).justifyContent(FlexAlign.Center)
     }
     ForEach(this.shipments, (shipment: Shipment) => {
@@ -3112,7 +3580,7 @@ struct Index {
       }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
     })
     if (this.commerceError || this.shipments.length) {
-      Button('刷新物流').height(48).fontColor(RED).backgroundColor(Color.Transparent).enabled(!this.commerceLoading).onClick(() => this.openShipments())
+      Button('刷新物流').height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent).enabled(!this.commerceLoading).onClick(() => this.openShipments())
     }
   }
 
@@ -3126,7 +3594,7 @@ struct Index {
         ForEach(this.orderDetail.products, (line: ShopLine) => {
           this.CommerceLine({ line })
           Row() { Blank().layoutWeight(1)
-            Button(line.applied ? '查看售后状态' : '申请售后').height(48).fontSize(16).fontColor(INK).backgroundColor(SURFACE)
+            Button(line.applied ? '查看售后状态' : '申请售后').height(this.controlHeight(48)).fontSize(16).fontColor(INK).backgroundColor(SURFACE)
             .border({ width: 1, color: OUTLINE, radius: 12 }).onClick(() => this.openRefund(line)).id(`refund_line_${line.id}`)
           }.width('100%')
         })
@@ -3145,17 +3613,17 @@ struct Index {
           Select([{ value: '仅退款' }, { value: '退货退款' }]).selected(this.refundType).value(this.refundType === 0 ? '仅退款' : '退货退款')
             .width('100%').font({ size: 16 }).backgroundColor(SURFACE).enabled(!this.commerceBusy).onSelect((index: number) => this.refundType = index)
         }.width('100%').padding(12).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
-        TextInput({ text: this.refundAmount, placeholder: '申请金额' }).type(InputType.NUMBER_DECIMAL).fontSize(16).height(56).maxLength(12)
+        TextInput({ text: this.refundAmount, placeholder: '申请金额' }).type(InputType.NUMBER_DECIMAL).fontSize(16).height(this.controlHeight(56)).maxLength(12)
           .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.commerceBusy)
           .onChange((value: string) => this.refundAmount = value).id('refund_amount')
         TextArea({ text: this.refundReason, placeholder: '售后原因，请说明遇到的问题' }).fontSize(16).height(140).maxLength(200)
           .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.commerceBusy)
           .onChange((value: string) => this.refundReason = value).id('refund_reason')
         Text(`${this.refundReason.length}/200`).fontSize(13).fontColor(MUTED).textAlign(TextAlign.End).width('100%')
-        Button(this.commerceBusy ? '提交中…' : '提交申请').width('100%').height(56).fontSize(16).backgroundColor(RED)
+        Button(this.commerceBusy ? '提交中…' : '提交申请').width('100%').height(this.controlHeight(56)).fontSize(16).backgroundColor(RED)
           .enabled(!this.commerceBusy && !this.refundAttempted).onClick(() => this.submitRefund()).id('refund_submit')
         if (this.refundAttempted && !this.commerceBusy) {
-          Button('刷新订单确认结果').height(48).fontColor(RED).backgroundColor(Color.Transparent)
+          Button('刷新订单确认结果').height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent)
             .onClick(() => { this.screen = 'shop-order-detail'; this.openCommerceOrder(this.commerceOrderId); })
         }
       }
@@ -3206,7 +3674,7 @@ struct Index {
           action: () => this.openAddresses(), id: 'account_addresses' })
         Divider().color(LINE).margin({ left: 56 })
         this.PageRow({ title: '重置密码', subtitle: '验证手机号后重新设置登录密码', icon: $r('sys.symbol.lock'),
-          action: () => { this.resetMobile = this.profile.mobile ?? ''; this.openInnerPage('reset-password'); } })
+          action: () => this.openPasswordReset() })
         Divider().color(LINE).margin({ left: 56 })
         this.PageRow({ title: '隐私协议', icon: $r('sys.symbol.lock_shield'),
           action: () => this.openArticle('3', '隐私协议', true) })
@@ -3240,7 +3708,7 @@ struct Index {
           Text(address.address).fontSize(14).fontColor(MUTED).lineHeight(22).width('100%')
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         Button() { SymbolGlyph($r('sys.symbol.square_and_pencil')).fontSize(22).fontColor([RED]) }
-          .width(48).height(48).backgroundColor(Color.Transparent).onClick(() => this.editAddress(address)).accessibilityText('编辑地址')
+          .width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).onClick(() => this.editAddress(address)).accessibilityText('编辑地址')
       }.width('100%').padding(15).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
         .onClick(() => {
           if (this.selectingCheckoutAddress) { this.checkoutAddress = address; this.back(); }
@@ -3254,17 +3722,17 @@ struct Index {
   @Builder
   AddressEditContent() {
     if (this.regionsLoading) { LoadingProgress().width(40).height(40).color(RED) }
-    TextInput({ text: this.addressDraft.name, placeholder: '收货人' }).height(56).fontSize(16).maxLength(60)
+    TextInput({ text: this.addressDraft.name, placeholder: '收货人' }).height(this.controlHeight(56)).fontSize(16).maxLength(60)
       .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
       .onChange((value: string) => this.editAddressText('name', value)).id('address_name')
-    TextInput({ text: this.addressDraft.mobile, placeholder: '手机号' }).height(56).fontSize(16).type(InputType.PhoneNumber).maxLength(11)
+    TextInput({ text: this.addressDraft.mobile, placeholder: '手机号' }).height(this.controlHeight(56)).fontSize(16).type(InputType.PhoneNumber).maxLength(11)
       .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
       .onChange((value: string) => this.editAddressText('mobile', value)).id('address_mobile')
     ForEach([0, 1, 2], (level: number) => {
       Stack({ alignContent: Alignment.TopStart }) {
         Select(this.addressChoices(level).map((item: RegionChoice): SelectOption => { return { value: item.name }; }))
           .selected(this.addressRegionIndex(level)).value(this.addressChoices(level)[this.addressRegionIndex(level)]?.name ?? '')
-          .font({ size: 16 }).height(56).width('100%').backgroundColor(SURFACE).borderRadius(12)
+          .font({ size: 16 }).height(this.controlHeight(56)).width('100%').backgroundColor(SURFACE).borderRadius(12)
           .border({ width: 1, color: OUTLINE }).enabled(!this.formBusy && !this.regionsLoading && this.addressChoices(level).length > 0)
           .onSelect((index: number) => {
             const item = this.addressChoices(level)[index];
@@ -3274,7 +3742,7 @@ struct Index {
           .fontSize(this.addressRegionIndex(level) < 0 ? 16 : 12).fontColor(MUTED)
           .backgroundColor(this.addressRegionIndex(level) < 0 ? Color.Transparent : SURFACE).padding({ left: 4, right: 4 })
           .position({ x: 12, y: this.addressRegionIndex(level) < 0 ? 17 : -7 }).hitTestBehavior(HitTestMode.None)
-      }.width('100%').height(56).margin({ top: 4 })
+      }.width('100%').height(this.controlHeight(56)).margin({ top: 4 })
     })
     TextArea({ text: this.addressDraft.details, placeholder: '详细地址' }).height(108).fontSize(16).maxLength(300)
       .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
@@ -3294,29 +3762,47 @@ struct Index {
 
   @Builder
   PasswordResetContent() {
-    Text('重置登录密码').fontSize(24).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({ top: 20 })
-    Text('验证手机号后，设置新的登录密码').fontSize(16).fontColor(MUTED).width('100%').margin({ bottom: 12 })
-    TextInput({ text: this.resetMobile, placeholder: '手机号' }).type(InputType.PhoneNumber).height(56).fontSize(16)
+    Column({ space: 24 }) {
+      SymbolGlyph($r('sys.symbol.lock')).fontSize(54).fontColor([BLUE]).margin({ top: 26, bottom: 8 })
+      Text('验证手机号').fontSize(24).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').textAlign(TextAlign.Center)
+      Text('输入注册手机号，验证通过后可重新设置密码。').fontSize(16).fontColor(MUTED).width('100%')
+        .textAlign(TextAlign.Center).margin({ bottom: 18 })
+    }.width('100%')
+    TextInput({ text: this.resetMobile, placeholder: '手机号' }).type(InputType.PhoneNumber).height(this.controlHeight(56)).fontSize(16)
       .maxLength(11).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
       .onChange((value: string) => this.resetMobile = value).id('reset_mobile')
-    Row({ space: 10 }) {
-      TextInput({ text: this.resetCode, placeholder: '短信验证码' }).type(InputType.Number).height(56).fontSize(16)
-        .layoutWeight(1).maxLength(8).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
+    Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+      TextInput({ text: this.resetCode, placeholder: '短信验证码' }).type(InputType.Number).height(this.controlHeight(56)).fontSize(16)
+        .width(this.singleColumn() ? '100%' : '58%').maxLength(8).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
         .enabled(!this.formBusy).onChange((value: string) => this.resetCode = value).id('reset_code')
       Button(this.smsBusy ? '发送中…' : this.smsCountdown > 0 ? `${this.smsCountdown}s` : '获取验证码')
-        .constraintSize({ minHeight: 56 }).fontSize(14).fontColor(RED).backgroundColor(GOLD_SOFT).type(ButtonType.Normal).borderRadius(12)
+        .width(this.singleColumn() ? '100%' : '38%').height(this.controlHeight(56)).fontSize(14).fontColor(INK).backgroundColor(SURFACE)
+        .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE }).margin({ top: this.singleColumn() ? 8 : 0 })
         .enabled(!this.smsBusy && !this.formBusy && this.smsCountdown === 0).onClick(() => this.sendResetCode())
     }.width('100%')
-    TextInput({ text: this.resetPassword, placeholder: '新密码' }).type(InputType.Password).height(56).fontSize(16)
+    TextInput({ text: this.resetPassword, placeholder: '新密码' }).type(InputType.Password).height(this.controlHeight(56)).fontSize(16)
       .maxLength(64).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
       .onChange((value: string) => this.resetPassword = value).id('reset_password')
-    TextInput({ text: this.resetConfirmation, placeholder: '确认新密码' }).type(InputType.Password).height(56).fontSize(16)
+    Text('至少 6 位').fontSize(13).fontColor(MUTED).width('100%').padding({ left: 16 })
+    TextInput({ text: this.resetConfirmation, placeholder: '确认新密码' }).type(InputType.Password).height(this.controlHeight(56)).fontSize(16)
       .maxLength(64).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
       .onChange((value: string) => this.resetConfirmation = value).id('reset_confirmation')
     if (this.formMessage) { this.Notice({ message: this.formMessage, color: GOLD_SOFT }) }
     Button(this.formBusy ? '正在提交…' : '重置密码').width('100%').constraintSize({ minHeight: 56 }).fontSize(16)
       .fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
       .enabled(!this.formBusy).onClick(() => this.submitResetPassword()).id('submit_reset')
+  }
+
+  @Builder
+  ProfileInput(label: string, value: string, fieldId: string, numeric: boolean, change: (value: string) => void) {
+    Column({ space: 4 }) {
+      Text(label).fontSize(13).fontColor(MUTED).width('100%')
+      TextInput({ text: value, placeholder: `请输入${label}` }).fontSize(16).height(this.controlHeight(48))
+        .type(numeric ? InputType.NUMBER_DECIMAL : InputType.Normal).maxLength(numeric ? 6 : 30)
+        .padding(0).backgroundColor(Color.Transparent).borderRadius(0)
+        .enabled(!this.formBusy).onChange(change).id(fieldId).accessibilityText(label)
+    }.width('100%').padding({ left: 16, right: 16, top: 10, bottom: 10 })
+      .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
   }
 
   @Builder
@@ -3341,51 +3827,42 @@ struct Index {
         .fontSize(14).fontColor(MUTED).textAlign(TextAlign.Center)
     }.width('100%').margin({ top: 8, bottom: 8 })
 
-    Text('基本信息').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-    Column({ space: 0 }) {
-      Row({ space: 16 }) {
-        Text('注册手机号').fontSize(16).fontColor(INK).layoutWeight(1)
-        Text(profileField(this.profile.mobile)).fontSize(16).fontColor(MUTED)
-      }.width('100%').constraintSize({ minHeight: 60 }).padding({ left: 16, right: 16 })
-        .id('profile_registered_mobile').accessibilityText(`注册手机号：${profileField(this.profile.mobile)}`)
-      Divider().color(LINE).margin({ left: 16 })
-      Column({ space: 4 }) {
-        Text('昵称').fontSize(13).fontColor(MUTED).width('100%')
-        TextInput({ text: this.editNickname, placeholder: '请输入昵称' }).fontSize(16).height(42).maxLength(30)
-          .padding(0).backgroundColor(Color.Transparent).enabled(!this.formBusy)
-          .onChange((value: string) => this.editNickname = value).id('profile_nickname')
-      }.width('100%').padding({ left: 16, right: 16, top: 9, bottom: 7 })
-      Divider().color(LINE).margin({ left: 16 })
-      Row({ space: 16 }) {
-        Text('性别').fontSize(16).fontColor(INK).layoutWeight(1)
-        Select([{ value: '未设置' }, { value: '男' }, { value: '女' }]).selected(this.editGender)
-          .value(['未设置', '男', '女'][this.editGender]).font({ size: 16 }).backgroundColor(Color.Transparent)
-          .enabled(!this.formBusy).onSelect((index: number) => this.editGender = index).id('profile_gender')
-      }.width('100%').constraintSize({ minHeight: 60 }).padding({ left: 16, right: 12 })
-      Divider().color(LINE).margin({ left: 16 })
-      Row() {
-        Text('出生日期').fontSize(16).fontColor(INK).layoutWeight(1)
-        Text(this.editBirthday || '请选择').fontSize(16).fontColor(this.editBirthday ? INK : MUTED)
-        SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(17).fontColor([MUTED]).margin({ left: 8 })
-      }.width('100%').constraintSize({ minHeight: 60 }).padding({ left: 16, right: 16 })
-        .enabled(!this.formBusy).onClick(() => this.chooseBirthday()).id('profile_birthday')
-      Divider().color(LINE).margin({ left: 16 })
-      Row({ space: 10 }) {
-        Text('身高').fontSize(16).fontColor(INK).width(58)
-        TextInput({ text: this.editHeight, placeholder: '请输入' }).fontSize(16).height(52).type(InputType.NUMBER_DECIMAL)
-          .maxLength(6).textAlign(TextAlign.End).padding(0).backgroundColor(Color.Transparent).layoutWeight(1)
-          .enabled(!this.formBusy).onChange((value: string) => this.editHeight = value).id('profile_height')
-        Text('cm').fontSize(15).fontColor(MUTED)
-      }.width('100%').constraintSize({ minHeight: 60 }).padding({ left: 16, right: 16 })
-      Divider().color(LINE).margin({ left: 16 })
-      Row({ space: 10 }) {
-        Text('体重').fontSize(16).fontColor(INK).width(58)
-        TextInput({ text: this.editWeight, placeholder: '请输入' }).fontSize(16).height(52).type(InputType.NUMBER_DECIMAL)
-          .maxLength(6).textAlign(TextAlign.End).padding(0).backgroundColor(Color.Transparent).layoutWeight(1)
-          .enabled(!this.formBusy).onChange((value: string) => this.editWeight = value).id('profile_weight')
-        Text('kg').fontSize(15).fontColor(MUTED)
-      }.width('100%').constraintSize({ minHeight: 60 }).padding({ left: 16, right: 16 })
-    }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE }).clip(true)
+    if (this.profileError) {
+      this.Notice({ message: this.profileError, color: GOLD_SOFT })
+      Button('重新读取').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
+        .enabled(!this.profileLoading && !this.formBusy).onClick(async () => { await this.refreshProfile(); if (!this.profileError) this.openProfileEditor(); })
+        .id('profile_retry')
+    }
+    Column({ space: 6 }) {
+      Text('注册手机号').fontSize(13).fontColor(MUTED).width('100%')
+      Row({ space: 12 }) {
+        Text(profileField(this.profile.mobile)).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+        SymbolGlyph($r('sys.symbol.lock')).fontSize(22).fontColor([INK])
+      }.width('100%')
+    }.width('100%').constraintSize({ minHeight: this.controlHeight(60) }).padding(16)
+      .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
+      .id('profile_registered_mobile').accessibilityText(`注册手机号：${profileField(this.profile.mobile)}`)
+
+    this.ProfileInput('昵称', this.editNickname, 'profile_nickname', false, (value: string) => this.editNickname = value)
+    Column({ space: 4 }) {
+      Text('性别').fontSize(13).fontColor(MUTED).width('100%')
+      Select([{ value: '未设置' }, { value: '男' }, { value: '女' }]).selected(this.editGender)
+        .value(['未设置', '男', '女'][this.editGender]).font({ size: 17 }).width('100%').backgroundColor(Color.Transparent)
+        .enabled(!this.formBusy).onSelect((index: number) => this.editGender = index).id('profile_gender')
+    }.width('100%').constraintSize({ minHeight: this.controlHeight(60) }).padding({ left: 16, right: 12, top: 10, bottom: 10 })
+      .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
+    Column({ space: 6 }) {
+      Text('出生日期').fontSize(13).fontColor(MUTED).width('100%')
+      Row({ space: 12 }) {
+        Text(this.editBirthday || '请选择出生日期').fontSize(16).fontColor(this.editBirthday ? INK : MUTED).layoutWeight(1)
+        SymbolGlyph($r('sys.symbol.calendar')).fontSize(23).fontColor([INK])
+      }.width('100%')
+    }.width('100%').constraintSize({ minHeight: this.controlHeight(60) }).padding(16)
+      .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
+      .enabled(!this.formBusy).onClick(() => this.chooseBirthday()).id('profile_birthday')
+      .accessibilityText(`出生日期：${this.editBirthday || '未设置'}`)
+    this.ProfileInput('身高（cm）', this.editHeight, 'profile_height', true, (value: string) => this.editHeight = value)
+    this.ProfileInput('体重（kg）', this.editWeight, 'profile_weight', true, (value: string) => this.editWeight = value)
 
     this.Notice({ message: '保存后，资料会同步到当前账号。' })
     if (this.formMessage) {
@@ -3494,19 +3971,19 @@ struct Index {
     Stack({ alignContent: Alignment.TopStart }) {
       Select(FEEDBACK_TYPES.map((value: string): SelectOption => { return { value }; }))
         .selected(this.feedbackType).value(FEEDBACK_TYPES[this.feedbackType]).font({ size: 16 })
-        .width('100%').height(60).padding({ left: 8, right: 8 }).backgroundColor(SURFACE)
+        .width('100%').height(this.controlHeight(60)).padding({ left: 8, right: 8 }).backgroundColor(SURFACE)
         .borderRadius(12).border({ width: 1, color: OUTLINE }).onSelect((index: number) => this.feedbackType = index)
         .enabled(!this.formBusy).id('feedback_type')
       Text('问题类型').fontSize(12).fontColor(MUTED).padding({ left: 4, right: 4 }).backgroundColor(BG)
         .position({ x: 16, y: -8 })
-    }.width('100%').height(60)
+    }.width('100%').height(this.controlHeight(60))
     TextArea({ text: this.feedbackContent, placeholder: '问题说明' }).fontSize(16).height(164)
       .padding(20).maxLength(500).backgroundColor(SURFACE).borderRadius(12)
       .border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
       .onChange((value: string) => this.feedbackContent = value).id('feedback_content')
     Text(`${this.feedbackContent.length}/500`).fontSize(14).fontColor(MUTED).width('100%').textAlign(TextAlign.End)
       .padding({ right: 20 }).margin({ top: -10 })
-    TextInput({ text: this.feedbackContact, placeholder: '联系方式（选填）' }).fontSize(16).height(60).maxLength(100).padding(20)
+    TextInput({ text: this.feedbackContact, placeholder: '联系方式（选填）' }).fontSize(16).height(this.controlHeight(60)).maxLength(100).padding(20)
       .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
       .onChange((value: string) => this.feedbackContact = value).id('feedback_contact')
     if (this.formMessage) { this.Notice({ message: this.formMessage, color: this.formMessage.includes('已提交') ? GREEN_SOFT : '#FFF0E9' }) }
@@ -3577,6 +4054,7 @@ struct Index {
   MessageContent() {
     if (this.inboxLoading) { LoadingProgress().width(40).height(40).color(RED) }
     if (this.inboxError) { this.Notice({ message: this.inboxError, color: '#FFF0E9' }) }
+    if (careNotifications.failureMessage()) { this.Notice({ message: careNotifications.failureMessage(), color: '#FFF0E9' }) }
     if (!this.inboxLoading && !this.inboxError && this.inbox.length === 0) {
       Text('暂无消息').fontSize(16).fontColor(MUTED).width('100%').textAlign(TextAlign.Center).margin({ top: 180, bottom: 100 })
     }
@@ -3596,10 +4074,10 @@ struct Index {
         SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([RED])
       }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
         .onClick(() => this.openInboxMessage(message)).id(`inbox_${message.id}`)
-    }, (message: InboxMessage) => String(message.id))
+    }, (message: InboxMessage) => JSON.stringify(message))
     Button('刷新消息').width('100%').constraintSize({ minHeight: 48 }).fontColor(INK).backgroundColor(SURFACE)
       .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE })
-      .enabled(!this.inboxLoading).onClick(() => this.refreshInbox()).id('refresh_unread')
+      .enabled(!this.inboxLoading).onClick(() => { careNotifications.refresh(); this.refreshInbox(); }).id('refresh_unread')
     Row({ space: 8 }) {
       Button('通知设置').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
         .onClick(() => { this.openInnerPage('permissions'); this.refreshPermissions(); this.connectPush(false); }).id('enable_push')
@@ -3614,7 +4092,7 @@ struct Index {
       Row({ space: 8 }) {
         ForEach([99, 0, 1, 2, 3, -1], (filter: number) => {
           Button(filter === 99 ? '全部' : filter === -1 ? '售后' : this.orderStatus(filter))
-            .fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).constraintSize({ minHeight: 44 })
+            .fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).constraintSize({ minHeight: 48 })
             .backgroundColor(this.orderFilter === filter ? GOLD_SOFT : SURFACE).type(ButtonType.Normal).borderRadius(10)
             .border({ width: 1, color: this.orderFilter === filter ? GOLD_SOFT : LINE })
             .onClick(() => this.openOrders(filter)).id(`order_filter_${filter}`)
@@ -3721,7 +4199,7 @@ struct Index {
     Row() {
       ForEach(['day', 'week', 'month'], (period: string) => {
         Button(period === 'day' ? '日' : period === 'week' ? '周' : '月').layoutWeight(1)
-          .constraintSize({ minHeight: 40 }).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK)
+          .constraintSize({ minHeight: 48 }).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK)
           .backgroundColor(this.trendPeriod === period ? GOLD_SOFT : Color.Transparent).type(ButtonType.Normal)
           .border({ width: 0.5, color: OUTLINE }).borderRadius(0)
           .onClick(() => this.selectTrendPeriod(period === 'month' ? 'month' : period === 'week' ? 'week' : 'day')).id(`trend_period_${period}`)
@@ -3729,7 +4207,7 @@ struct Index {
     }.width('100%').borderRadius(24).border({ width: 1, color: OUTLINE }).clip(true)
     Row({ space: 4 }) {
       Button() { SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(20).fontColor([INK]) }
-        .width(44).height(48).backgroundColor(Color.Transparent).onClick(() => this.moveTrend(-1)).accessibilityText('上一周期').id('trend_previous')
+        .width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).onClick(() => this.moveTrend(-1)).accessibilityText('上一周期').id('trend_previous')
       Button() {
         Row({ space: 8 }) {
           SymbolGlyph($r('sys.symbol.calendar')).fontSize(20).fontColor([INK])
@@ -3739,7 +4217,7 @@ struct Index {
       }.layoutWeight(1).constraintSize({ minHeight: 56 }).padding({ left: 12, right: 12 }).backgroundColor(Color.Transparent)
         .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE }).onClick(() => this.pickTrendDate()).id('trend_calendar')
       Button() { SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([INK]) }
-        .width(44).height(48).backgroundColor(Color.Transparent).onClick(() => this.moveTrend(1))
+        .width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).onClick(() => this.moveTrend(1))
         .enabled(this.currentTrendWindow().end <= Date.now()).accessibilityText('下一周期').id('trend_next')
     }.width('100%')
     if (this.wearableSnapshot.connected && this.wearableCapability(this.selectedWearableMetric)) {
@@ -3773,7 +4251,7 @@ struct Index {
           Scroll() {
             Row({ space: 8 }) {
               ForEach(this.currentTrendNames(), (name: string) => {
-                Button(name).fontSize(14).constraintSize({ minHeight: 44 }).fontColor(this.primaryTrendName() === name ? Color.White : INK)
+                Button(name).fontSize(14).constraintSize({ minHeight: 48 }).fontColor(this.primaryTrendName() === name ? Color.White : INK)
                   .backgroundColor(this.primaryTrendName() === name ? RED : SURFACE).type(ButtonType.Normal).borderRadius(10)
                   .onClick(() => { this.trendField = name; this.trendReadout = ''; }).id(`trend_field_${name}`)
               }, (name: string) => name)
@@ -3786,23 +4264,23 @@ struct Index {
               Text(name).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
               Text(this.seriesSummary(name).unit).fontSize(14).fontColor(MUTED)
             }.width('100%')
-            Row({ space: 8 }) {
+            Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
               Column({ space: 4 }) {
                 Text(displayNumber(this.seriesSummary(name).max)).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK)
                 Text('最大').fontSize(12).fontColor(MUTED)
-              }.layoutWeight(1)
+              }.width(this.singleColumn() ? '100%' : '24%').padding({ top: 4, bottom: 4 })
               Column({ space: 4 }) {
                 Text(displayNumber(this.seriesSummary(name).min)).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK)
                 Text('最小').fontSize(12).fontColor(MUTED)
-              }.layoutWeight(1)
+              }.width(this.singleColumn() ? '100%' : '24%').padding({ top: 4, bottom: 4 })
               Column({ space: 4 }) {
                 Text(displayNumber(this.seriesSummary(name).average)).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK)
                 Text('平均').fontSize(12).fontColor(MUTED)
-              }.layoutWeight(1)
+              }.width(this.singleColumn() ? '100%' : '24%').padding({ top: 4, bottom: 4 })
               Column({ space: 4 }) {
                 Text(String(this.seriesSummary(name).count)).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK)
                 Text(this.selectedWearableMetric === 'activity' ? '有记录天数' : '记录').fontSize(12).fontColor(MUTED)
-              }.layoutWeight(1)
+              }.width(this.singleColumn() ? '100%' : '24%').padding({ top: 4, bottom: 4 })
             }.width('100%')
             if (this.seriesSummary(name).change !== undefined) {
               Text(`较上一周期平均值变化 ${displayNumber(this.seriesSummary(name).change ?? NaN)}${this.seriesSummary(name).unit}`)
@@ -3917,16 +4395,17 @@ struct Index {
         Text(this.displayRecord(this.selectedHealthRecord)).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).lineHeight(30).width('100%')
         Text(this.selectedHealthRecord.source === 'watch_history' ? '来源：手表历史' : '来源：App 测量').fontSize(14).fontColor(MUTED).width('100%')
         if (this.selectedHealthRecord.samples.length > 1) {
-          Polyline({ width: 280, height: 160 }).points(waveformPoints(this.selectedHealthRecord.samples.slice(this.waveformSegment * 1000, (this.waveformSegment + 1) * 1000), 280))
+          Polyline({ width: this.recordChartWidth, height: 160 }).points(waveformPoints(this.selectedHealthRecord.samples.slice(this.waveformSegment * 1000, (this.waveformSegment + 1) * 1000), this.recordChartWidth))
             .fillOpacity(0).stroke(RED).strokeWidth(1.5).width('100%').height(160)
-          Text(`${this.selectedHealthRecord.samples.length} 个波形点${this.selectedHealthRecord.sampleFrequency > 0 ? ' · ' + this.selectedHealthRecord.sampleFrequency + ' Hz' : ''}`)
-            .fontSize(13).fontColor(MUTED).width('100%')
+            .onAreaChange((oldArea: Area, area: Area) => this.recordChartWidth = Number(area.width))
+          Text(waveformPageLabel(this.selectedHealthRecord.samples.length, this.waveformSegment, this.selectedHealthRecord.sampleFrequency))
+            .fontSize(14).fontColor(MUTED).width('100%').textAlign(TextAlign.Center)
           if (this.selectedHealthRecord.samples.length > 1000) {
             Row({ space: 8 }) {
-              Button('上一段').layoutWeight(1).constraintSize({ minHeight: 44 }).fontColor(RED).backgroundColor(Color.Transparent)
+              Button('上一段').layoutWeight(1).height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
                 .enabled(this.waveformSegment > 0).onClick(() => this.waveformSegment--)
               Text(`${this.waveformSegment + 1}/${Math.ceil(this.selectedHealthRecord.samples.length / 1000)}`).fontSize(14).fontColor(MUTED)
-              Button('下一段').layoutWeight(1).constraintSize({ minHeight: 44 }).fontColor(RED).backgroundColor(Color.Transparent)
+              Button('下一段').layoutWeight(1).height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
                 .enabled((this.waveformSegment + 1) * 1000 < this.selectedHealthRecord.samples.length).onClick(() => this.waveformSegment++)
             }.width('100%').accessibilityText('逐段查看完整心电波形')
           }
@@ -3939,7 +4418,7 @@ struct Index {
   CareDateControls() {
     Row({ space: 4 }) {
       Button() { SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(20).fontColor([INK]) }
-        .width(44).height(52).backgroundColor(Color.Transparent).enabled(!this.careLoading)
+        .width(48).height(this.controlHeight(52)).backgroundColor(Color.Transparent).enabled(!this.careLoading)
         .onClick(() => { this.careDateInput = shiftChinaDay(this.careDay, -1); this.refreshCareDate(); })
         .accessibilityText('前一天').id('care_previous_day')
       Button() {
@@ -3947,10 +4426,10 @@ struct Index {
           SymbolGlyph($r('sys.symbol.calendar')).fontSize(19).fontColor([RED])
           Text(this.careDay.replace('-', '年').replace('-', '月') + '日').fontSize(16).fontWeight(FontWeight.Bold).fontColor(RED)
         }
-      }.layoutWeight(1).height(52).backgroundColor(Color.Transparent).enabled(!this.careLoading)
+      }.layoutWeight(1).height(this.controlHeight(52)).backgroundColor(Color.Transparent).enabled(!this.careLoading)
         .onClick(() => this.pickCareDate()).id('care_calendar')
       Button() { SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([INK]) }
-        .width(44).height(52).backgroundColor(Color.Transparent).enabled(!this.careLoading && this.careDay < chinaDay())
+        .width(48).height(this.controlHeight(52)).backgroundColor(Color.Transparent).enabled(!this.careLoading && this.careDay < chinaDay())
         .onClick(() => { this.careDateInput = shiftChinaDay(this.careDay, 1); this.refreshCareDate(); })
         .accessibilityText('后一天').id('care_next_day')
     }.width('100%').padding(4).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
@@ -3979,6 +4458,63 @@ struct Index {
   }
 
   @Builder
+  CareSummaryContent() {
+    if (careDaySummary(this.careMetricData).length > 0) {
+      Column({ space: 12 }) {
+        Text('当日摘要').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text('仅汇总所选日期的有效记录').fontSize(13).fontColor(MUTED).width('100%')
+        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+          ForEach(careDaySummary(this.careMetricData), (item: SummaryLabel) => {
+            Column({ space: 5 }) {
+              Text(item.label).fontSize(13).fontColor(MUTED).width('100%')
+              Text(item.value).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            }.width(this.singleColumn() ? '100%' : '48%').padding(12).margin({ bottom: 8 }).backgroundColor(BLUE_SOFT).borderRadius(12)
+          }, (item: SummaryLabel) => item.label)
+        }.width('100%')
+      }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE }).id('care_day_summary')
+    }
+  }
+
+  @Builder
+  CareRecordContent() {
+    if (this.selectedCareRecord) {
+      Column({ space: 14 }) {
+        Text(this.selectedCareRecord.time).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        ForEach(this.selectedCareRecord.fields, (field: CareField) => {
+          Flex({ direction: this.singleColumn() ? FlexDirection.Column : FlexDirection.Row }) {
+            Text(field.label).fontSize(16).fontColor(MUTED).width(this.singleColumn() ? '100%' : '36%')
+            Text(`${displayNumber(field.value)} ${field.unit}`).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK)
+              .width(this.singleColumn() ? '100%' : '64%')
+          }.width('100%').padding({ top: 4, bottom: 4 })
+        }, (field: CareField) => field.label)
+        if (this.selectedCareRecord.samples.length > 1) {
+          Text('心电波形').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Polyline({ width: this.recordChartWidth, height: 160 })
+            .points(waveformPoints(this.selectedCareRecord.samples.slice(this.careWaveformSegment * 1000, (this.careWaveformSegment + 1) * 1000), this.recordChartWidth))
+            .fillOpacity(0).stroke(RED).strokeWidth(1.5).width('100%').height(160)
+            .onAreaChange((oldArea: Area, area: Area) => this.recordChartWidth = Number(area.width)).id('care_record_waveform')
+          Text(waveformPageLabel(this.selectedCareRecord.samples.length, this.careWaveformSegment, this.selectedCareRecord.frequency))
+            .fontSize(14).fontColor(MUTED).width('100%').textAlign(TextAlign.Center)
+          if (this.selectedCareRecord.samples.length > 1000) {
+            Row({ space: 8 }) {
+              Button('上一段').layoutWeight(1).height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
+                .enabled(this.careWaveformSegment > 0).onClick(() => this.careWaveformSegment--).id('care_waveform_previous')
+              Text(`${this.careWaveformSegment + 1}/${waveformPageCount(this.selectedCareRecord.samples.length)}`)
+                .fontSize(14).fontColor(MUTED)
+              Button('下一段').layoutWeight(1).height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
+                .enabled((this.careWaveformSegment + 1) * 1000 < this.selectedCareRecord.samples.length)
+                .onClick(() => this.careWaveformSegment++).id('care_waveform_next')
+            }.width('100%').accessibilityText('逐段查看完整心电波形')
+          }
+        } else if (this.careMetricData.key === 'ecg') {
+          this.Notice({ message: '本条记录未包含可用心电波形' })
+        }
+        Text('来源：关爱成员授权共享').fontSize(13).fontColor(MUTED).width('100%')
+      }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+    } else { this.StateCard({ title: '记录暂不可用' }) }
+  }
+
+  @Builder
   CareContent() {
     if (this.careLoading) { LoadingProgress().width(40).height(40).color(RED) }
     if (this.careMessage) { this.Notice({ message: this.careMessage, color: '#FFF0E9' }) }
@@ -3992,7 +4528,7 @@ struct Index {
             .fontSize(14).lineHeight(21).fontColor('#FFE4E9').width('100%')
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         Button() { SymbolGlyph($r('sys.symbol.person_badge_plus')).fontSize(25).fontColor([RED]) }
-          .width(48).height(48).backgroundColor(SURFACE).borderRadius(24).enabled(!this.careLoading)
+          .width(48).height(this.controlHeight(48)).backgroundColor(SURFACE).borderRadius(24).enabled(!this.careLoading)
           .onClick(() => { this.careMessage = ''; this.screen = 'care-add'; }).accessibilityText('添加关爱成员').id('care_add')
       }.width('100%').padding(20).linearGradient({ angle: 135,
         colors: [['#A51125', 0.0], ['#D72D42', 1.0]] }).borderRadius(22)
@@ -4051,7 +4587,7 @@ struct Index {
     } else if (this.screen === 'care-add') {
       this.Notice({ message: '邀请只向您填写的账号发送。对方接受后，还需要主动选择共享项目。' })
       TextInput({ placeholder: '请输入家人手机号', text: this.careMobile }).type(InputType.PhoneNumber)
-        .fontSize(18).height(56).maxLength(20).enabled(!this.careBusy).backgroundColor(Color.White)
+        .fontSize(18).height(this.controlHeight(56)).maxLength(20).enabled(!this.careBusy).backgroundColor(Color.White)
         .onChange((value: string) => this.careMobile = value).id('care_mobile')
       Button(this.careBusy ? '正在提交…' : '发送关爱邀请').width('100%').constraintSize({ minHeight: 52 })
         .backgroundColor(RED).enabled(!this.careBusy && this.careMobile.trim().length > 0).onClick(() => this.sendCareInvitation())
@@ -4061,19 +4597,36 @@ struct Index {
         this.StateCard({ title: '暂无新的关爱邀请', detail: '收到家人的关爱请求后，会显示在这里。', icon: $r('sys.symbol.envelope') })
       }
       ForEach(this.pendingInvitations(), (invite: CareInvitation) => {
-        Column({ space: 14 }) {
-          Text(invite.name).fontSize(20).fontWeight(FontWeight.Bold).width('100%')
-          if (invite.mobile) { Text(invite.mobile).fontSize(14).fontColor(MUTED).width('100%') }
+        Column({ space: 12 }) {
+          Flex({ direction: this.singleColumn() ? FlexDirection.Column : FlexDirection.Row, alignItems: ItemAlign.Start }) {
+            Column() { SymbolGlyph($r('sys.symbol.person_fill')).fontSize(28).fontColor([RED]) }
+              .width(50).height(50).backgroundColor(RED_SOFT).borderRadius(25).justifyContent(FlexAlign.Center)
+              .margin({ right: this.singleColumn() ? 0 : 12, bottom: this.singleColumn() ? 8 : 0 }).accessibilityLevel('no')
+            Column({ space: 5 }) {
+              Text(invite.name).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+              if (invite.mobile) { Text(invite.mobile).fontSize(14).fontColor(MUTED).width('100%') }
+              else if (invite.name !== careInvitationFallback(invite.inviterId)) {
+                Text(careInvitationFallback(invite.inviterId)).fontSize(14).fontColor(MUTED).width('100%')
+              }
+              if (careInvitationNeedsConfirmation(invite)) {
+                Text('请确认邀请人后再接受').fontSize(14).fontColor(MUTED).width('100%')
+              }
+            }.width(this.singleColumn() ? '100%' : undefined).layoutWeight(this.singleColumn() ? 0 : 1)
+          }.width('100%')
           Text('同意邀请不会自动开启健康数据共享。').fontSize(14).fontColor(MUTED).width('100%')
-          Row({ space: 12 }) {
-            Button('拒绝').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(INK).backgroundColor(SURFACE)
+          Flex({ direction: this.singleColumn() ? FlexDirection.Column : FlexDirection.Row, justifyContent: FlexAlign.SpaceBetween }) {
+            Button('拒绝').width(this.singleColumn() ? '100%' : '48%').constraintSize({ minHeight: this.controlHeight(48) })
+              .fontSize(16).fontColor(INK).backgroundColor(SURFACE).margin({ bottom: this.singleColumn() ? 10 : 0 })
               .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE })
               .enabled(!this.careBusy).onClick(() => this.respondInvitation(invite.id, false))
-            Button('同意').layoutWeight(1).constraintSize({ minHeight: 48 }).backgroundColor(RED)
+              .accessibilityText(`拒绝${invite.name}的关爱邀请`).id(`care_invitation_reject_${invite.id}`)
+            Button('同意').width(this.singleColumn() ? '100%' : '48%').constraintSize({ minHeight: this.controlHeight(48) })
+              .fontSize(16).backgroundColor(RED)
               .type(ButtonType.Normal).borderRadius(12).enabled(!this.careBusy).onClick(() => this.respondInvitation(invite.id, true))
+              .accessibilityText(`同意${invite.name}的关爱邀请`).id(`care_invitation_accept_${invite.id}`)
           }.width('100%')
-        }.width('100%').padding(18).borderRadius(18).backgroundColor(Color.White)
-      }, (invite: CareInvitation) => String(invite.id))
+        }.width('100%').padding(18).borderRadius(18).backgroundColor(Color.White).id(`care_invitation_${invite.id}`)
+      }, (invite: CareInvitation) => JSON.stringify(invite))
       Button('刷新邀请状态').width('100%').constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.White)
         .enabled(!this.careLoading && !this.careBusy).onClick(() => this.refreshCare())
     } else if (this.screen === 'care-sharing') {
@@ -4106,7 +4659,7 @@ struct Index {
       Row() {
         Blank().layoutWeight(1)
         Button(this.careLoading ? '正在读取…' : this.careUpdatedAt ? `更新于 ${this.careUpdatedAt}` : '刷新数据')
-          .constraintSize({ minHeight: 44 }).fontSize(14).fontColor(MUTED).backgroundColor(Color.Transparent)
+          .constraintSize({ minHeight: 48 }).fontSize(14).fontColor(MUTED).backgroundColor(Color.Transparent)
           .enabled(!this.careLoading).onClick(() => this.loadCareOverview()).id('care_member_refresh')
       }.width('100%')
       if (!this.careLoading && this.careOverview.length > 0) {
@@ -4141,6 +4694,7 @@ struct Index {
     } else if (this.screen === 'care-metric') {
       this.CareDateControls()
       if (!this.careLoading && !this.careMessage) {
+        this.CareSummaryContent()
         if (this.careMetricData.records.length === 0) {
           this.Notice({ message: this.careMetricData.message || '当日暂无记录', color: GOLD_SOFT })
         }
@@ -4151,11 +4705,11 @@ struct Index {
             if (record.samples.length > 1) {
               Polyline({ width: 280, height: 160 }).points(waveformPoints(record.samples.slice(0, 1000), 280))
                 .fillOpacity(0).stroke(RED).strokeWidth(1.5).width('100%').height(160)
-              Text(`波形预览：前 ${Math.min(1000, record.samples.length)} / ${record.samples.length} 个真实采样点`)
-                .fontSize(13).fontColor(MUTED).lineHeight(20).width('100%')
+              Text('查看完整心电波形').fontSize(14).fontColor(RED).width('100%')
             }
             Text('来源：关爱成员授权共享').fontSize(13).fontColor(MUTED).width('100%')
           }.width('100%').padding(18).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+            .onClick(() => this.openCareRecord(record)).id(`care_record_${record.id}`)
         }, (record: CareRecord) => record.id)
         if (this.careRecordLimit < this.careMetricData.records.length) {
           Button('显示更多记录').width('100%').constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
@@ -4164,6 +4718,8 @@ struct Index {
       }
       Button('刷新记录').width('100%').constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
         .enabled(!this.careLoading).onClick(() => this.loadCareMetric())
+    } else if (this.screen === 'care-record') {
+      this.CareRecordContent()
     }
   }
 
@@ -4174,7 +4730,7 @@ struct Index {
       Scroll() {
         Row({ space: 8 }) {
           ForEach(this.articleCategories.length ? this.articleCategories : [{ id: 0, title: '全部' }], (category: ArticleCategory) => {
-            Button(category.title).constraintSize({ minHeight: 44 }).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK)
+            Button(category.title).constraintSize({ minHeight: 48 }).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK)
               .type(ButtonType.Normal).borderRadius(10).backgroundColor(this.articleCategoryId === category.id ? GOLD_SOFT : SURFACE)
               .border({ width: this.articleCategoryId === category.id ? 0 : 1, color: OUTLINE }).padding({ left: 16, right: 16 })
               .enabled(!this.listLoading).onClick(() => { this.articleCategoryId = category.id; this.openArticles(); })
@@ -4218,6 +4774,12 @@ struct Index {
           }
         } else if (this.screen === 'device-search') {
           this.DeviceSearchContent()
+        } else if (this.screen === 'device-dials') {
+          this.InstalledDialsContent()
+        } else if (this.screen === 'device-settings') {
+          this.DeviceSettingsContent()
+        } else if (this.screen === 'device-units' || this.screen === 'device-alarms' || this.screen === 'device-alarm-edit') {
+          this.WatchSettingsContent()
         } else if (this.screen === 'wearable-metric') {
           this.WearableMetricContent()
         } else if (this.screen === 'health-record') {
@@ -4294,32 +4856,32 @@ struct Index {
             }
           }, (block: ArticleBlock) => `${this.selectedArticleId}-${block.id}-${block.url}`)
         }
-      }.width('100%').constraintSize({ maxWidth: 720 }).padding({ left: this.screen === 'shop-product' ? 0 : this.screen === 'about' ? 24 : 16,
-        right: this.screen === 'shop-product' ? 0 : this.screen === 'about' ? 24 : 16, top: this.screen === 'shop-product' ? 0 : 8, bottom: 24 })
+      }.width('100%').constraintSize({ maxWidth: 720 }).padding({ left: this.screen === 'shop-product' ? 0 : this.screen === 'about' || this.screen === 'reset-password' ? 24 : 16,
+        right: this.screen === 'shop-product' ? 0 : this.screen === 'about' || this.screen === 'reset-password' ? 24 : 16, top: this.screen === 'shop-product' ? 0 : 8, bottom: 24 })
     }.width('100%').layoutWeight(1).align(Alignment.Top).scrollBar(BarState.Off)
       if (this.screen === 'ai-chat') {
         Row({ space: 10 }) {
-          TextInput({ placeholder: '请输入消息…', text: this.aiInput }).fontSize(16).height(56).maxLength(2000)
+          TextInput({ placeholder: '请输入消息…', text: this.aiInput }).fontSize(16).height(this.controlHeight(56)).maxLength(2000)
             .layoutWeight(1).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
             .enabled(!this.aiBusy).onChange((value: string) => this.aiInput = value).onSubmit(() => this.sendAiChat()).id('ai_input')
           Button() {
             if (this.aiBusy) { LoadingProgress().width(24).height(24).color(Color.White) }
             else { SymbolGlyph($r('sys.symbol.paperplane')).fontSize(24).fontColor([Color.White]) }
-          }.width(48).height(48).borderRadius(24).backgroundColor(RED)
+          }.width(48).height(this.controlHeight(48)).borderRadius(24).backgroundColor(RED)
             .enabled(!this.aiBusy && this.aiInput.trim().length > 0).onClick(() => this.sendAiChat()).id('ai_send').accessibilityText('发送消息')
         }.width('100%').padding(12).backgroundColor(SURFACE)
       } else if (this.screen === 'shop-product' && this.productDetail) {
         Row({ space: 8 }) {
           Button() { Column({ space: 2 }) {
             SymbolGlyph($r('sys.symbol.house')).fontSize(23).fontColor([INK]); Text('首页').fontSize(11).fontColor(INK)
-          } }.width(44).height(52).backgroundColor(Color.Transparent).onClick(() => { this.screen = 'shop-home'; })
+          } }.width(48).height(this.controlHeight(52)).backgroundColor(Color.Transparent).onClick(() => { this.screen = 'shop-home'; })
           Button() { Column({ space: 2 }) {
             SymbolGlyph($r('sys.symbol.phone')).fontSize(23).fontColor([INK]); Text('客服').fontSize(11).fontColor(INK)
-          } }.width(44).height(52).backgroundColor(Color.Transparent).onClick(() => this.openInnerPage('contact'))
-          Button('加入购物车').layoutWeight(1).height(48).fontSize(14).fontWeight(FontWeight.Bold).fontColor(INK).backgroundColor(SURFACE)
+          } }.width(48).height(this.controlHeight(52)).backgroundColor(Color.Transparent).onClick(() => this.openInnerPage('contact'))
+          Button('加入购物车').layoutWeight(1).height(this.controlHeight(48)).fontSize(14).fontWeight(FontWeight.Bold).fontColor(INK).backgroundColor(SURFACE)
             .type(ButtonType.Normal).border({ width: 1, color: OUTLINE, radius: 12 }).enabled(!this.commerceBusy)
             .onClick(() => this.showPurchase(true)).id('product_add_cart')
-          Button('立即购买').layoutWeight(1).height(48).fontSize(14).fontWeight(FontWeight.Bold).backgroundColor(RED)
+          Button('立即购买').layoutWeight(1).height(this.controlHeight(48)).fontSize(14).fontWeight(FontWeight.Bold).backgroundColor(RED)
             .type(ButtonType.Normal).borderRadius(12).enabled(!this.commerceBusy).onClick(() => this.showPurchase(false)).id('product_buy')
         }.width('100%').padding({ left: 12, right: 12, top: 8, bottom: 10 }).backgroundColor(BG)
           .bindSheet($$this.purchaseSheet, this.PurchaseSheetContent(), { height: SheetSize.FIT_CONTENT })
@@ -4329,7 +4891,7 @@ struct Index {
             .onChange((selected: boolean) => this.cartSelection = selected ? this.cartLines.map((line: ShopLine) => line.skuId) : []).id('cart_select_all')
           Text('全选').fontSize(14).fontColor(INK)
           Text(`合计 ${commerceMoney(this.cartTotal())}`).fontSize(16).fontWeight(FontWeight.Bold).fontColor(RED).layoutWeight(1)
-          Button(`结算（${this.cartChosen().length}）`).height(48).fontSize(14).backgroundColor(RED)
+          Button(`结算（${this.cartChosen().length}）`).height(this.controlHeight(48)).fontSize(14).backgroundColor(RED)
             .enabled(!this.commerceBusy && this.cartChosen().length > 0 && this.cartTotal() >= 0)
             .onClick(() => this.openCheckout(this.cartChosen().map((line: ShopLine): ShopSelection => { return { skuId: line.skuId, quantity: line.quantity }; }), true)).id('cart_checkout')
         }.width('100%').padding(12).backgroundColor(SURFACE)
@@ -4337,7 +4899,7 @@ struct Index {
         Row({ space: 12 }) {
           Text(`合计 ${commerceMoney(this.checkoutPreview.productCents + this.checkoutPreview.shippingCents)}`)
             .fontSize(18).fontWeight(FontWeight.Bold).fontColor('#914E00').layoutWeight(1)
-          Button(this.commerceBusy ? '提交中…' : '提交订单').height(56).fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED)
+          Button(this.commerceBusy ? '提交中…' : '提交订单').height(this.controlHeight(56)).fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED)
             .enabled(!this.commerceBusy && !this.checkoutAttempted).onClick(() => this.submitCommerceOrder()).id('checkout_submit')
         }.width('100%').padding({ left: 18, right: 12, top: 9, bottom: 10 }).backgroundColor(BG)
       } else if (this.screen === 'shop-payment') {
@@ -4356,7 +4918,7 @@ struct Index {
               SymbolGlyph($r('sys.symbol.plus')).fontSize(22).fontColor([RED_DARK])
               Text('新增地址').fontSize(16).fontWeight(FontWeight.Bold).fontColor(RED_DARK)
             }.padding({ left: 20, right: 20 })
-          }.height(56).type(ButtonType.Normal).borderRadius(16).backgroundColor(RED_SOFT)
+          }.height(this.controlHeight(56)).type(ButtonType.Normal).borderRadius(16).backgroundColor(RED_SOFT)
             .onClick(() => this.editAddress()).id('add_address')
         }.width('100%').padding(16)
       }
@@ -4371,5 +4933,9 @@ struct Index {
       else if (this.screen === 'shop-home') { this.ShopHomeContent() }
       else { this.ContentPage() }
     }.width('100%').height('100%').backgroundColor(BG)
+      .onAreaChange((oldArea: Area, area: Area) => {
+        this.pageWidth = Number(area.width);
+        this.refreshLayoutScale();
+      })
   }
 }

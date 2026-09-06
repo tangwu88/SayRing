@@ -2,7 +2,8 @@ import { ApiError } from './Contracts';
 import type { AddressDraft } from './AddressForm';
 
 export interface ShippingAddress { id: string; name: string; mobile: string; address: string; isDefault: boolean; draft: AddressDraft; }
-export interface InboxMessage { id: number; title: string; content: string; createdAt: string; read: boolean; kind: string; }
+export interface InboxMessage { id: number; title: string; content: string; createdAt: string; read: boolean; kind: string;
+  entityId?: string; source?: string; }
 export interface ArticleCategory { id: number; title: string; }
 
 export function orderStatusLabel(status: number): string {
@@ -86,6 +87,7 @@ export function parseInbox(data: Object | undefined): InboxMessage[] {
       content: messageCopy(row['content'] ?? row['message']),
       createdAt: messageTime(row['created_at'] ?? row['createdAt']),
       read: row['is_read'] === true || row['is_read'] === 1 || row['is_read'] === '1',
-      kind: text(row['kind'] ?? row['event_type']) };
+      kind: text(row['kind'] ?? row['event_type']) === 'care_invitation_created' ? 'care_invitation' : text(row['kind'] ?? row['event_type']),
+      entityId: text(row['entity_id'] ?? row['invitation_id']) };
   }).filter((row: InboxMessage) => { if (seen.has(row.id)) return false; seen.add(row.id); return true; });
 }

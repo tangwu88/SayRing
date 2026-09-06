@@ -1,6 +1,7 @@
 import { http } from '@kit.NetworkKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
+import { deviceInfo } from '@kit.BasicServicesKit';
 import { API_BASE, ApiError, Envelope, Session, FormField, UploadFile, decodeEnvelope, buildMultipart } from '../model/Contracts';
 import { AccountClient, ApiTransport } from './AccountClient';
 import { SessionVault } from './SessionVault';
@@ -27,6 +28,12 @@ class NativeHttpTransport implements ApiTransport {
     if (fields) headers['Content-Type'] = `multipart/form-data; boundary=${boundary}`;
     if (jsonBody !== undefined) headers['Content-Type'] = 'application/json';
     try {
+      if (deviceInfo.sdkApiVersion < 23) {
+        const legacy = await import('./LegacySafeHttp');
+        const response = await legacy.legacySafeHttp(`${API_BASE}${path}`, requestMethod, headers,
+          fields ? buildMultipart(fields, boundary) : jsonBody ?? '', 15000);
+        return decodeEnvelope(response.result, response.responseCode);
+      }
       const response = await client.request(`${API_BASE}${path}`, {
         method: requestMethod === 'DELETE' ? http.RequestMethod.DELETE :
           requestMethod === 'PUT' ? http.RequestMethod.PUT :
@@ -80,6 +87,14 @@ class NativeHttpTransport implements ApiTransport {
     body.set(prefix, 0); body.set(bytes, prefix.length); body.set(suffix, prefix.length + bytes.length);
     const client = http.createHttp();
     try {
+      if (deviceInfo.sdkApiVersion < 23) {
+        const legacy = await import('./LegacySafeHttp');
+        const response = await legacy.legacySafeHttp(`${API_BASE}${path}`, 'POST', {
+          'Accept': 'application/json', 'Authorization': `Bearer ${session.accessToken}`,
+          'token': session.accessToken, 'Content-Type': `multipart/form-data; boundary=${boundary}`
+        }, body.buffer, 30000);
+        return decodeEnvelope(response.result, response.responseCode);
+      }
       const response = await client.request(`${API_BASE}${path}`, {
         method: http.RequestMethod.POST,
         header: { 'Accept': 'application/json', 'Authorization': `Bearer ${session.accessToken}`,

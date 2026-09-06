@@ -20,6 +20,16 @@ async function clientWith(request){
     async read(){return this.value},async write(value){this.value=value},async clear(){this.value=undefined}};
   const client=new AccountClient({request},vault,()=>now);await client.restore();return{client,vault};
 }
+test('notification session observer coexists with health ownership and cannot break login/logout',async()=>{
+  const {client}=await clientWith(async path=>path.includes('login')?auth(2):envelope([]));
+  const health=[],notify=[];client.observeHealthSession(session=>health.push(session));
+  const stop=client.observeSession(session=>notify.push(session));
+  client.observeSession(()=>{throw new Error('optional callback failed')});
+  await client.login('10000000002','123456');
+  assert.equal(client.current().memberId,'2');assert.equal(health.at(-1).ownerId,'2');assert.equal(notify.at(-1).ownerId,'2');
+  await client.logout();assert.equal(health.at(-1).ownerId,'');assert.equal(notify.at(-1).ownerId,'');
+  const length=notify.length;stop();await client.login('10000000002','123456');assert.equal(notify.length,length);
+});
 test('care relation and observed member IDs remain distinct and sensitive fields are dropped',()=>{
   const result=parseCareMembers([member,member,{...member,id:60,to_member_id:1}], '1');
   assert.deepEqual(result,[{relationId:59,memberId:87,name:'合成家人',mobile:'10000000002'}]);
@@ -42,7 +52,7 @@ test('incoming invitations exclude outgoing and self; pending badge and actionab
   assert.equal(parseCareInvitations([invite(),invite(1)],'1')[0].state,'other');
 });
 test('recipient nested as inviter is never exposed; matched alternative inviter is used',()=>{
-  assert.equal(parseCareInvitations([{...invite(),member:{id:1,nickname:'自己'}}],'1')[0].name,'关爱邀请人');
+  assert.equal(parseCareInvitations([{...invite(),member:{id:1,nickname:'自己'}}],'1')[0].name,'邀请人 #87');
   assert.equal(parseCareInvitations([{...invite(),member:{id:1},inviter:{id:87,nickname:'正确邀请人'}}],'1')[0].name,'正确邀请人');
 });
 test('sharing defaults off and preserves unknown historical options',()=>{
@@ -117,6 +127,48 @@ test('care request identity uses selected member rather than relation ID and pre
   await client.careMembers();await client.careMetric(59,87,'heart',day);
   assert.ok(paths[1].includes('selectmember=87'));assert.ok(paths[1].includes('date=1787760000'));assert.ok(paths[1].includes('type=pulseReat'));
   await assert.rejects(client.careMetric(59,59,'heart',day),/成员关系/);
+});
+test('late empty care response cannot clear a newer relation used to read member data',async()=>{
+  const requests=[];
+  const {client}=await clientWith(async path=>{
+    if(!path.endsWith('/my'))return envelope([]);
+    const pending=deferred();requests.push(pending);return pending.promise;
+  });
+  const old=client.careMembers();const ignored=assert.rejects(old,/已刷新/);await tick();
+  const latest=client.careMembers();await tick();
+  requests[1].resolve(envelope([member]));assert.equal((await latest).length,1);
+  requests[0].resolve(envelope([]));await ignored;
+  assert.equal((await client.careMetric(59,87,'heart',day)).state,'empty');
+});
+test('late populated care response cannot restore a relation removed by latest empty data',async()=>{
+  const requests=[];
+  const {client}=await clientWith(async()=>{const pending=deferred();requests.push(pending);return pending.promise});
+  const old=client.careMembers();const ignored=assert.rejects(old,/已刷新/);await tick();
+  const latest=client.careMembers();await tick();
+  requests[1].resolve(envelope([]));assert.deepEqual(await latest,[]);
+  requests[0].resolve(envelope([member]));await ignored;
+  await assert.rejects(client.careMetric(59,87,'heart',day),/成员关系/);
+});
+test('clearing care invalidates in-flight mapping reads even without changing the login generation',async()=>{
+  const pending=deferred();const {client}=await clientWith(async()=>pending.promise);
+  const reading=client.careMembers();const ignored=assert.rejects(reading,/已刷新/);await tick();
+  client.clearCare();
+  pending.resolve(envelope([member]));await ignored;
+  await assert.rejects(client.careMetric(59,87,'heart',day),/成员关系/);
+});
+test('account switch rejects old care mapping while new account relations remain readable',async()=>{
+  const pending=deferred();let reads=0;
+  const {client}=await clientWith(async path=>{
+    if(path.endsWith('/login'))return auth(2);
+    if(path.endsWith('/my'))return ++reads===1?pending.promise:envelope([member]);
+    return envelope([]);
+  });
+  const old=client.careMembers();const ignored=assert.rejects(old,/旧账号/);await tick();
+  await client.login('10000000002','synthetic-password');
+  await client.careMembers();
+  pending.resolve(envelope([]));await ignored;
+  assert.equal(client.current().memberId,'2');
+  assert.equal((await client.careMetric(59,87,'heart',day)).state,'empty');
 });
 test('403 never falls back to an endpoint that could bypass sharing restrictions',async()=>{
   let reads=0;const {client}=await clientWith(async path=>{if(path.endsWith('/my'))return envelope([member]);reads++;throw new ApiError('no permission',403)});

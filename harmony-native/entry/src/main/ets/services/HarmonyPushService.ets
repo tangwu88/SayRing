@@ -2,9 +2,10 @@ import { AAID } from '@kit.PushKit';
 import { notificationManager } from '@kit.NotificationKit';
 import type { common } from '@kit.AbilityKit';
 import type { Want } from '@kit.AbilityKit';
-import { CallBackMsg, JPushInterface } from '@jg/push';
+import { CallBackMsg, JPushInterface, JMessage, JCustomMessage, JMessageExtra } from '@jg/push';
 import { ApiError } from '../model/Contracts';
 import type { PushIdentity } from '../model/PushPaymentContracts';
+import { captureNotificationEvent, clearNotificationSession } from './NotificationNavigation';
 
 const JPUSH_APP_KEY: string = '47c3665ef1c664f3ad815112';
 const JPUSH_CHANNEL: string = 'saydian_harmony';
@@ -19,6 +20,13 @@ class SaydianPushCallback extends CallBackMsg {
   onRegister(registrationId: string): void {
     registrationIdFromCallback = registrationId.trim();
   }
+  onArrivedMessage(message: JMessage): void { captureNotificationEvent(message.extras, false); }
+  onUnShowMessage(message: JMessage): void { captureNotificationEvent(message.extras, false); }
+  onCustomMessage(message: JCustomMessage): void { captureNotificationEvent(message.extras, false); }
+  onJMessageExtra(message: JMessageExtra): void {
+    captureNotificationEvent(message.extras ?? message.extraData, false);
+  }
+  onClickMessage(message: JMessage): void { captureNotificationEvent(message.extras, true); }
 }
 
 function configureJPush(context: common.ApplicationContext): void {
@@ -50,7 +58,10 @@ export function prepareJPush(context: common.AbilityStageContext): void {
 
 export async function captureJPushClick(want: Want, context: common.ApplicationContext): Promise<void> {
   configureJPush(context);
-  try { await JPushInterface.setClickWant(want, context); } catch {}
+  try {
+    const message = await JPushInterface.setClickWant(want, context);
+    if (message) captureNotificationEvent(message.extras, true);
+  } catch {}
 }
 
 export class HarmonyPushService {
@@ -109,6 +120,7 @@ export class HarmonyPushService {
     try { JPushInterface.stopPush(); } finally {
       this.identity = undefined;
       registrationIdFromCallback = '';
+      clearNotificationSession();
     }
   }
 }

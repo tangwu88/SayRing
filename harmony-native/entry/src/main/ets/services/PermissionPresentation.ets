@@ -1,5 +1,6 @@
 import { abilityAccessCtrl, bundleManager, common, Permissions } from '@kit.AbilityKit';
 import { notificationManager } from '@kit.NotificationKit';
+import { deviceInfo } from '@kit.BasicServicesKit';
 
 export interface PermissionRow { key: string; title: string; status: string; enabled: boolean; }
 
@@ -18,7 +19,20 @@ export async function readPermissionRows(): Promise<PermissionRow[]> {
 }
 
 export async function openPermissionSetting(context: common.UIAbilityContext, key: string): Promise<void> {
-  if (key === 'notifications') { await notificationManager.openNotificationSettings(context); return; }
+  if (key === 'notifications') {
+    if (deviceInfo.sdkApiVersion >= 13) {
+      try { await notificationManager.openNotificationSettings(context); return; } catch {}
+    }
+    try {
+      await context.startAbility({
+        action: 'action.settings.app.info',
+        parameters: { settingsParamBundleName: context.applicationInfo.name }
+      });
+    } catch {
+      throw new Error('请在系统设置中打开赛电的通知权限');
+    }
+    return;
+  }
   const permissions: Permissions[] = key === 'bluetooth' ? ['ohos.permission.ACCESS_BLUETOOTH'] :
     ['ohos.permission.APPROXIMATELY_LOCATION', 'ohos.permission.LOCATION'];
   const manager = abilityAccessCtrl.createAtManager();
