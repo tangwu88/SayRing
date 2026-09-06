@@ -138,6 +138,16 @@ export const WEARABLE_CONNECT_TIMEOUT_MS: number = 45000;
 // reports a successful connection. Health commands must wait for that window.
 export const WEARABLE_AUTO_SYNC_DELAY_MS: number = 12000;
 export const WEARABLE_RECONNECT_DELAYS_MS: number[] = [2000, 5000, 10000];
+// A vendor stop acknowledgement must never keep the UI in a measuring state.
+export const WEARABLE_MEASUREMENT_STOP_TIMEOUT_MS: number = 3500;
+
+export function isOneShotMeasurementMetric(metric: WearableMetricKey): boolean {
+  return metric === 'oxygen';
+}
+
+export function retainedMeasurementValues(current: HealthValue[], previous: HealthValue[]): HealthValue[] {
+  return (current.length > 0 ? current : previous).slice();
+}
 
 export function cleanDeviceName(value: string): string {
   const name = typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]/g, '').replace(/\s+/g, ' ').trim() : '';
@@ -261,6 +271,49 @@ export function boundedHealthValue(name: string, value: number, unit: string,
   if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || minimum > maximum ||
     !Number.isFinite(value) || value < minimum || value > maximum) return undefined;
   return { name: name.slice(0, 40), value: value, unit: unit.slice(0, 20) };
+}
+
+function roundedKilometers(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+// The current Harmony SDK exposes the daily distance as metres on ET488,
+// while an older vendor sample labels the same field as kilometres. Use the
+// step count to accept an already-normalized kilometre value without dividing
+// it a second time. More than 10 metres per step is not a plausible daily
+// walking/running distance and therefore identifies the metre representation.
+export function activityDistanceKilometers(value: number, steps: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  const safeSteps = Number.isFinite(steps) && steps > 0 ? steps : 0;
+  const rawLooksLikeMeters = safeSteps > 0 && value > Math.max(0.05, safeSteps * 0.01);
+  return roundedKilometers(rawLooksLikeMeters ? value / 1000 : value);
+}
+
+// Sport history uses metre-based protocol fields (allDistance), matching the
+// iOS bridge and the vendor's real-time Harmony sample.
+export function sportDistanceKilometers(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return roundedKilometers(value / 1000);
+}
+
+// Repair records written by the first Harmony build, which stored metre values
+// with a km label. This is deliberately conservative and idempotent so a valid
+// kilometre record is never divided again on the next app launch.
+export function normalizeLegacyDistanceRecord(record: HealthRecord): HealthRecord {
+  if (record.metric !== 'activity' && record.metric !== 'sport') return record;
+  const distanceIndex = record.values.findIndex((item: HealthValue) =>
+    item.name === '距离' && ['km', '公里', '千米'].includes(item.unit));
+  if (distanceIndex < 0) return record;
+  const distance = record.values[distanceIndex];
+  const steps = record.values.find((item: HealthValue) => item.name === '步数')?.value ?? 0;
+  let normalized = activityDistanceKilometers(distance.value, steps);
+  if (record.metric === 'sport' && steps <= 0 && distance.value > 300) {
+    normalized = sportDistanceKilometers(distance.value);
+  }
+  if (normalized <= 0 || normalized === distance.value) return record;
+  const values = record.values.slice();
+  values[distanceIndex] = { name: distance.name, value: normalized, unit: 'km' };
+  return { ...record, values: values };
 }
 
 export function latestMetricRecord(records: HealthRecord[], metric: WearableMetricKey): HealthRecord | undefined {

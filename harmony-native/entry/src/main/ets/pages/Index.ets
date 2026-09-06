@@ -2704,7 +2704,7 @@ struct Index {
       ForEach(this.wearableMetricRecords('sport'), (record: HealthRecord) => {
         Column({ space: 8 }) {
           Text(this.wearableRecordTime(record.timestamp)).fontSize(14).fontColor(MUTED).width('100%')
-          Text(healthRecordText(record)).fontSize(18).fontColor(INK).lineHeight(26).width('100%')
+          Text(this.displayRecord(record)).fontSize(18).fontColor(INK).lineHeight(26).width('100%')
           Text(record.source === 'watch_history' ? '来源：手表历史' : '来源：App 记录')
             .fontSize(13).fontColor(MUTED).width('100%')
         }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(16).border({ width: 1, color: LINE })

@@ -13,11 +13,14 @@ import {
 import {
   BatteryState, HealthRecord, HealthValue, MeasurementState, WearableCapabilities,
   WearableConnectionPhase, WearableDevice, WearableDeviceSettings, WearableDial, WearableMetricKey, WearableSnapshot,
-  WEARABLE_AUTO_SYNC_DELAY_MS, WEARABLE_CONNECT_TIMEOUT_MS, WEARABLE_RECONNECT_DELAYS_MS, WEARABLE_SCAN_TIMEOUT_MS,
+  WEARABLE_AUTO_SYNC_DELAY_MS, WEARABLE_CONNECT_TIMEOUT_MS, WEARABLE_MEASUREMENT_STOP_TIMEOUT_MS,
+  WEARABLE_RECONNECT_DELAYS_MS, WEARABLE_SCAN_TIMEOUT_MS,
   capabilitiesFromFeatureList,
   boundedHealthValue, createWearableDevice, emptyBattery, emptyDeviceSettings, emptyMeasurement,
-  emptyWearableSnapshot, healthValue,
-  isCurrentConnectionGeneration, mergeWearableDevices, normalizeMac, wearableProviderForName
+  emptyWearableSnapshot, healthValue, activityDistanceKilometers, sportDistanceKilometers,
+  isCurrentConnectionGeneration, isOneShotMeasurementMetric, mergeWearableDevices, normalizeLegacyDistanceRecord, normalizeMac,
+  retainedMeasurementValues,
+  wearableProviderForName
 } from '../model/WearableContracts';
 import { StoredWearableBinding, wearableHealthStore } from './WearableHealthStore';
 import { DiscoveryPacketCache, knownWearableName } from '../model/WearableDiscovery';
@@ -62,6 +65,8 @@ export class VepWearableService {
   private busyOperation: string = '';
   private snapshot: WearableSnapshot = emptyWearableSnapshot();
   private measurement: MeasurementState = emptyMeasurement();
+  private measurementStopping: boolean = false;
+  private lastValidMeasurementValues: HealthValue[] = [];
   private sdk: VPBleSDK = VPBleSDK.getInstance();
   private lastBinding: StoredWearableBinding | undefined = undefined;
   private storageReady: boolean = false;
@@ -499,6 +504,8 @@ export class VepWearableService {
     this.measurement = emptyMeasurement();
     this.measurement.metric = metric;
     this.measurement.running = true;
+    this.measurementStopping = false;
+    this.lastValidMeasurementValues = [];
     this.measurement.status = `正在测量${this.metricName(metric)}…`;
     this.emitMeasurement();
     try {
@@ -516,6 +523,15 @@ export class VepWearableService {
         const r = await this.sdk.bloodOxygenService.startMeasurement();
         success = r.success; errorMessage = r.errorMessage ?? '';
         if (r.data) this.onOxygen(r);
+        // The official Harmony SDK exposes blood oxygen as a one-shot read.
+        // A successful response without a valid value must still release the
+        // command queue instead of leaving the page in an endless measuring state.
+        if (success && isOneShotMeasurementMetric(metric) && this.measurement.running &&
+          this.measurement.metric === metric) {
+          this.measurement.running = false;
+          this.measurement.status = '本次未收到有效血氧读数，请正确佩戴后重试';
+          this.endOperation();
+        }
       } else if (metric === 'temperature') {
         const r = await this.sdk.bodyTemperatureService.startMeasurement();
         success = r.success; errorMessage = r.errorMessage ?? '';
@@ -535,6 +551,10 @@ export class VepWearableService {
         const r = await this.sdk.ecgService.startMeasurement();
         success = r.success; errorMessage = r.errorMessage ?? '';
       }
+      if (!this.measurement.running && this.measurement.metric === metric) {
+        this.emitMeasurement();
+        return success;
+      }
       if (!success) {
         this.measurement.running = false;
         this.measurement.status = errorMessage || '手表未接受测量指令';
@@ -543,6 +563,9 @@ export class VepWearableService {
       this.emitMeasurement();
       return success;
     } catch (error) {
+      // A bounded user stop may settle before the vendor start promise. Ignore
+      // that late rejection so it cannot overwrite the already-finished UI.
+      if (!this.measurement.running || this.measurement.metric !== metric) return false;
       this.measurement.running = false;
       this.measurement.status = this.bluetoothError(error as Error, '启动测量失败');
       this.endOperation();
@@ -819,7 +842,8 @@ export class VepWearableService {
   private addDailyHealth(day: HealthQueryDay, data: HealthData): void {
     const activityValues: HealthValue[] = [];
     this.pushValue(activityValues, healthValue('步数', data.sportSummary.totalSteps, '步'));
-    this.pushValue(activityValues, healthValue('距离', data.sportSummary.totalDistance, 'km'));
+    this.pushValue(activityValues, healthValue('距离',
+      activityDistanceKilometers(data.sportSummary.totalDistance, data.sportSummary.totalSteps), 'km'));
     this.pushValue(activityValues, healthValue('热量', data.sportSummary.totalCalories, 'kcal'));
     if (activityValues.length > 0) this.addRecord(this.makeRecord('activity', this.dayStart(day) + 86399000, activityValues));
 
@@ -890,7 +914,7 @@ export class VepWearableService {
           if (result.success && result.data) {
             const values: HealthValue[] = [];
             this.pushValue(values, healthValue('步数', result.data.allStep, '步'));
-            this.pushValue(values, healthValue('距离', result.data.allDistance, 'km'));
+            this.pushValue(values, healthValue('距离', sportDistanceKilometers(result.data.allDistance), 'km'));
             this.pushValue(values, healthValue('热量', result.data.allCalorie, 'kcal'));
             const timestamp = Date.parse(result.data.startTime.replace(' ', 'T'));
             if (values.length > 0) this.addRecord(this.makeRecord('sport',
@@ -899,7 +923,7 @@ export class VepWearableService {
             const motion = result.dataA704.motionData;
             const values: HealthValue[] = [];
             this.pushValue(values, healthValue('步数', motion.allStep, '步'));
-            this.pushValue(values, healthValue('距离', motion.allDistance, 'km'));
+            this.pushValue(values, healthValue('距离', sportDistanceKilometers(motion.allDistance), 'km'));
             this.pushValue(values, healthValue('热量', motion.allCalorie, 'kcal'));
             const timestamp = Date.parse(motion.startTime.replace(' ', 'T'));
             if (values.length > 0) this.addRecord(this.makeRecord('sport',
@@ -1047,17 +1071,16 @@ export class VepWearableService {
       if (this.busyOperation === '手动测量') this.endOperation();
       return;
     }
+    if (this.measurementStopping) return;
+    this.measurementStopping = true;
     const metric = this.measurement.metric;
-    const values = this.measurement.values.slice();
+    const values = retainedMeasurementValues(this.measurement.values, this.lastValidMeasurementValues);
+    if (!shutdown) {
+      this.measurement.status = '正在结束测量…';
+      this.emitMeasurement();
+    }
     try {
-      if (metric === 'heart') await this.sdk.heartRateService.stopMeasurement();
-      else if (metric === 'pressure') await this.sdk.bloodPressureService.stopMeasurement();
-      else if (metric === 'oxygen') await this.sdk.bloodOxygenService.stopMeasurement();
-      else if (metric === 'temperature') await this.sdk.bodyTemperatureService.stopMeasurement();
-      else if (metric === 'glucose') await this.sdk.bloodSugarService.stopMeasurement();
-      else if (metric === 'bloodComponents') await this.sdk.bloodComponentsService.stopMeasurement();
-      else if (metric === 'bodyComposition') await this.sdk.bodyCompositionService.stopMeasurement();
-      else if (metric === 'ecg') await this.sdk.ecgService.stopMeasurement();
+      await this.withTimeout(this.requestMeasurementStop(metric), WEARABLE_MEASUREMENT_STOP_TIMEOUT_MS, '结束测量超时');
     } catch {}
     this.measurement.running = false;
     if (metric === 'ecg') {
@@ -1066,13 +1089,26 @@ export class VepWearableService {
       this.measurement.sampleFrequency = 0;
       this.measurement.status = shutdown ? '' : '已取消心电测量，未保存未完成波形';
     } else if (values.length > 0 && !shutdown) {
+      this.measurement.values = values;
       this.measurement.status = '测量已结束，已保留手表实时读数';
       this.addMeasurementRecord();
     } else {
       this.measurement.status = shutdown ? '' : '已取消测量，未收到有效读数';
     }
+    this.measurementStopping = false;
     this.endOperation();
     this.emitMeasurement();
+  }
+
+  private async requestMeasurementStop(metric: WearableMetricKey): Promise<void> {
+    if (metric === 'heart') await this.sdk.heartRateService.stopMeasurement();
+    else if (metric === 'pressure') await this.sdk.bloodPressureService.stopMeasurement();
+    else if (metric === 'oxygen') await this.sdk.bloodOxygenService.stopMeasurement();
+    else if (metric === 'temperature') await this.sdk.bodyTemperatureService.stopMeasurement();
+    else if (metric === 'glucose') await this.sdk.bloodSugarService.stopMeasurement();
+    else if (metric === 'bloodComponents') await this.sdk.bloodComponentsService.stopMeasurement();
+    else if (metric === 'bodyComposition') await this.sdk.bodyCompositionService.stopMeasurement();
+    else if (metric === 'ecg') await this.sdk.ecgService.stopMeasurement();
   }
 
   private completeMeasurement(): void {
@@ -1197,10 +1233,16 @@ export class VepWearableService {
     try {
       const stored = await wearableHealthStore.loadRecent(deviceKey);
       const records: Map<string, HealthRecord> = new Map();
+      const repaired: HealthRecord[] = [];
       this.snapshot.records.forEach((item: HealthRecord) => records.set(item.id, item));
-      stored.forEach((item: HealthRecord) => records.set(item.id, item));
+      stored.forEach((item: HealthRecord) => {
+        const normalized = normalizeLegacyDistanceRecord(item);
+        if (normalized !== item) repaired.push(normalized);
+        records.set(normalized.id, normalized);
+      });
       this.snapshot.records = Array.from(records.values())
         .sort((a: HealthRecord, b: HealthRecord) => b.timestamp - a.timestamp);
+      if (repaired.length > 0) await wearableHealthStore.saveRecords(repaired);
       this.emitSnapshot();
     } catch {}
   }
@@ -1364,6 +1406,9 @@ export class VepWearableService {
   }
 
   private emitMeasurement(): void {
+    if (this.measurement.running && this.measurement.values.length > 0) {
+      this.lastValidMeasurementValues = this.measurement.values.slice();
+    }
     this.listener?.onMeasurement?.(this.copyMeasurement());
   }
 

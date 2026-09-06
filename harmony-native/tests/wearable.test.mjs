@@ -2,10 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  batteryText, boundedHealthValue, capabilitiesFromFeatureList, cleanDeviceName, createWearableDevice,
+  activityDistanceKilometers, batteryText, boundedHealthValue, capabilitiesFromFeatureList, cleanDeviceName,
+  createWearableDevice,
   healthRecordText, healthValue, isCurrentConnectionGeneration, mergeWearableDevices,
-  normalizeMac, wearableIdentifierText, wearableProviderForName, WEARABLE_AUTO_SYNC_DELAY_MS,
-  WEARABLE_CONNECT_TIMEOUT_MS, WEARABLE_SCAN_TIMEOUT_MS,
+  isOneShotMeasurementMetric, normalizeLegacyDistanceRecord, normalizeMac, retainedMeasurementValues,
+  sportDistanceKilometers, wearableIdentifierText,
+  wearableProviderForName, WEARABLE_AUTO_SYNC_DELAY_MS,
+  WEARABLE_CONNECT_TIMEOUT_MS, WEARABLE_MEASUREMENT_STOP_TIMEOUT_MS, WEARABLE_SCAN_TIMEOUT_MS,
 } from '../entry/src/main/ets/model/WearableContracts.ts';
 
 test('all names containing W8 are classified as Yuc while Vep names remain Vep', () => {
@@ -77,6 +80,23 @@ test('health records reject non-positive sentinel values and keep named compound
   '真实心电波形 3 点');
 });
 
+test('Harmony wearable distance is normalized once from metres to kilometres', () => {
+  assert.equal(activityDistanceKilometers(1582, 1892), 1.582);
+  assert.equal(activityDistanceKilometers(1.582, 1892), 1.582);
+  assert.equal(sportDistanceKilometers(6000), 6);
+  assert.equal(sportDistanceKilometers(0), 0);
+  const legacy = {
+    id: 'activity', deviceKey: 'vep:et488', metric: 'activity', timestamp: 1,
+    source: 'watch_history', values: [
+      { name: '步数', value: 1892, unit: '步' },
+      { name: '距离', value: 1582, unit: 'km' },
+    ], samples: [], sampleFrequency: 0,
+  };
+  const repaired = normalizeLegacyDistanceRecord(legacy);
+  assert.equal(repaired.values[1].value, 1.582);
+  assert.equal(normalizeLegacyDistanceRecord(repaired), repaired);
+});
+
 test('late callbacks cannot update a newer connection generation', () => {
   assert.equal(isCurrentConnectionGeneration(4, 4), true);
   assert.equal(isCurrentConnectionGeneration(3, 4), false);
@@ -86,6 +106,25 @@ test('late callbacks cannot update a newer connection generation', () => {
 test('W9 secondary authentication is not cut off by the former 20 second timeout', () => {
   assert.equal(WEARABLE_CONNECT_TIMEOUT_MS, 45000);
   assert.equal(WEARABLE_AUTO_SYNC_DELAY_MS, 12000);
+});
+
+test('one-shot blood oxygen and all manual stop paths have a bounded UI lifetime', () => {
+  assert.equal(isOneShotMeasurementMetric('oxygen'), true);
+  for (const metric of ['heart', 'pressure', 'temperature', 'glucose', 'bloodComponents',
+    'bodyComposition', 'ecg']) assert.equal(isOneShotMeasurementMetric(metric), false);
+  assert.equal(WEARABLE_MEASUREMENT_STOP_TIMEOUT_MS, 3500);
+  const service = readFileSync(new URL('../entry/src/main/ets/services/VepWearableService.ets', import.meta.url), 'utf8');
+  assert.match(service, /this\.withTimeout\(this\.requestMeasurementStop\(metric\), WEARABLE_MEASUREMENT_STOP_TIMEOUT_MS/);
+  assert.match(service, /this\.measurement\.status = '本次未收到有效血氧读数，请正确佩戴后重试'/);
+  assert.match(service, /if \(this\.measurementStopping\) return/);
+});
+
+test('manual stop retains the last valid watch values when the final vendor frame is empty', () => {
+  const valid = [{ name: '体温', value: 35.6, unit: '°C' }, { name: '体表温度', value: 29.7, unit: '°C' }];
+  assert.deepEqual(retainedMeasurementValues([], valid), valid);
+  assert.notEqual(retainedMeasurementValues([], valid), valid);
+  const latest = [{ name: '体温', value: 35.8, unit: '°C' }];
+  assert.deepEqual(retainedMeasurementValues(latest, valid), latest);
 });
 
 test('scan timeout is bounded and stale timeout callbacks cannot stop a newer scan', () => {

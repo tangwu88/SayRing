@@ -2,7 +2,7 @@
 
 ArkTS + ArkUI，独立于已有 Flutter/Android/iOS 工程。当前范围包含账号、苹果版同构的主要页面、远程关爱、消息推送客户端、商城订单、鸿蒙三方支付客户端，以及 Veepoo 手表的扫描、连接、健康同步、测量、设备设置和表盘控制。
 
-最新发行候选版本为 0.1.3（6），已对齐 AGC 应用身份 `cc.saidian.app.hm`（APP ID `6917615560681044373`）。本轮在华为 nova 14 上完成 iOS 同构界面覆盖安装与逐页真机比对；最新鸿蒙 UTC 与 Asia/Shanghai 各 143 项契约测试通过。实际范围和边界见 [iOS 对齐设计 QA](design-qa.md) 与 [Vep 手表 QA](docs/WEARABLE-UI-QA-20260905.md)。
+最新发行候选版本为 0.1.3（7），已对齐 AGC 应用身份 `cc.saidian.app.hm`（APP ID `6917615560681044373`）。本轮在华为 nova 14＋W9S 上完成设备连接、同步、测量、重连与 iOS 同构界面回归；最新鸿蒙 UTC 与 Asia/Shanghai 各 207 项契约测试通过。实际范围和边界见 [本轮 Vep 真机验收](../docs/IMPLEMENTATION-LOG-20260906-HARMONY-ET488-FULL-QA.md) 与 [正式发布阻断清单](docs/RELEASE-BLOCKERS-0.1.3.md)。
 
 当前源码已生成正式 Release 证书和发布 Profile 签名的 APP/HAP，官方签名工具确认 `type=release`、包名一致且完整性通过。真机上保留的仍是开发签名测试版；开发签名与发布签名不可直接覆盖，不能为了验证发行包而删除用户数据。
 
@@ -54,7 +54,7 @@ Yucheng 原生鸿蒙 SDK、关爱双账号后台即时推送、服务端健康�
 
 构建方式：`hvigorw --mode project -p product=default -p buildMode=release assembleApp --no-daemon`。
 
-本轮 iOS 界面对齐后的 0.1.3（6）正式签名候选产物位于 `build/releases/0.1.3-6-ios-ui-20260906/`；0.1.3（5）微信登录候选及更早产物作为历史版本保留，不覆盖。
+本轮 W9S 设备整改后的 0.1.3（7）正式签名候选产物位于 `build/releases/0.1.3-7-w9s-qa-20260906/`；0.1.3（6）iOS 界面对齐候选及更早产物作为历史版本保留，不覆盖。
 该目录包含用于 AppGallery Connect 的正式签名 APP、受控安装验证用 HAP、SHA-256 和边界说明；私钥、证书密码、极光 Server key 与支付密钥均不进入产物或 Git。
 
 正式 APP 与独立 HAP 分别完成签名校验，发布 Profile 均为 `release`、APL 为 `normal`，版本和包名一致。上线结论仍以 [正式发布阻断清单](docs/RELEASE-BLOCKERS-0.1.3.md) 为准，不能把“已签名”写成“业务已上线”。
