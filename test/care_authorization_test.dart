@@ -30,6 +30,153 @@ http.Response _success(Object data) => http.Response(
 );
 
 void main() {
+  for (final scenario in [
+    (name: 'empty list', response: _success([]), state: 'empty'),
+    (
+      name: 'empty chart',
+      response: _success({'categories': [], 'series': []}),
+      state: 'empty',
+    ),
+    (
+      name: 'business 500',
+      response: http.Response('{"code":500,"message":"unavailable"}', 200),
+      state: 'unavailable',
+    ),
+    (
+      name: 'HTTP 500',
+      response: http.Response('{"code":500,"message":"unavailable"}', 500),
+      state: 'unavailable',
+    ),
+    (
+      name: 'HTTP 404',
+      response: http.Response('{"code":404,"message":"unavailable"}', 404),
+      state: 'unavailable',
+    ),
+    (
+      name: 'ready',
+      response: _success([
+        {'time': '08:00', 'HRVData': 47},
+      ]),
+      state: 'ready',
+    ),
+  ]) {
+    test(
+      'care HRV ${scenario.name} never recovers aggregate readings',
+      () async {
+        var untypedDailyRequests = 0;
+        final api = SaydianApiClient(
+          _vault(),
+          baseUri: Uri.parse('https://example.invalid'),
+          client: MockClient((request) async {
+            if (request.url.path == '/api/v1/member/care/preview') {
+              expect(request.url.queryParameters['id'], '59');
+              return _success({
+                'jrjk': [
+                  {'title': '步数', 'value': 192},
+                ],
+                'daily': [
+                  {
+                    'title': 'HRV',
+                    'latest': 91,
+                    'records': [
+                      {'time': '08:00', 'HRVData': 91},
+                    ],
+                  },
+                  {'title': 'HRV', 'latest': 93},
+                  {'title': 'hrv', 'latest': 94},
+                  {'title': '心率变异性', 'latest': 95},
+                  {'title': '未接通健康项目', 'latest': 96},
+                ],
+              });
+            }
+            if (request.url.path == '/api/v1/member/daily-date/preview') {
+              expect(request.url.queryParameters['selectmember'], '87');
+              expect(request.url.queryParameters['date'], '1787760000');
+              final type = request.url.queryParameters['type'];
+              if (type == null) {
+                untypedDailyRequests++;
+                return _success([
+                  {'time': '08:00', 'HRVData': 91},
+                ]);
+              }
+              if (type == 'HRV') return scenario.response;
+              if (type == 'BloodGlucose') {
+                return _success([
+                  {'time': '08:00', 'bloodGlucose': 5.8},
+                ]);
+              }
+            }
+            return _success([]);
+          }),
+        );
+
+        final preview = await api.getCareMemberPreview(
+          id: 59,
+          memberId: 87,
+          day: '2026-08-27',
+        );
+        final daily = (preview['daily'] as List).cast<Map>();
+        expect(daily.map((item) => item['title']), [
+          '心率',
+          '血压',
+          '血糖',
+          '血氧',
+          '体温',
+          'HRV',
+          '睡眠',
+          '心电',
+          '身体成分',
+          '血液成分',
+        ]);
+        final hrv = daily.singleWhere((item) => item['title'] == 'HRV');
+        expect(hrv['state'], scenario.state);
+        if (scenario.state == 'ready') {
+          expect(hrv['latest'], 47);
+          expect(hrv['records'], hasLength(1));
+        } else {
+          expect(hrv['records'], isEmpty);
+          for (final key in ['latest', 'min', 'max', 'avg']) {
+            expect(hrv.containsKey(key), isFalse);
+          }
+          expect(hrv['tips'], isNot(contains('未授权')));
+        }
+        expect(untypedDailyRequests, 0);
+        expect(
+          daily.singleWhere((item) => item['title'] == '血糖')['state'],
+          'ready',
+        );
+        expect((preview['jrjk'] as List).single, {'title': '步数', 'value': 192});
+      },
+    );
+  }
+
+  test(
+    'care without a known target never exposes aggregate health items',
+    () async {
+      final requests = <String>[];
+      final api = SaydianApiClient(
+        _vault(),
+        baseUri: Uri.parse('https://example.invalid'),
+        client: MockClient((request) async {
+          requests.add(request.url.path);
+          return _success({
+            'jrjk': [
+              {'title': '步数', 'value': 192},
+            ],
+            'daily': [
+              {'title': 'HRV', 'latest': 91},
+              {'title': 'hrv', 'latest': 93},
+            ],
+          });
+        }),
+      );
+      final preview = await api.getCareMemberPreview(id: 59, day: '2026-08-27');
+      expect(preview['daily'], isEmpty);
+      expect((preview['jrjk'] as List).single, {'title': '步数', 'value': 192});
+      expect(requests, ['/api/v1/member/care/preview']);
+    },
+  );
+
   for (final staleRows in [false, true]) {
     for (final httpStatus in [200, 403]) {
       for (final businessCode in <Object>[403, '403']) {
@@ -42,22 +189,16 @@ void main() {
               client: MockClient((request) async {
                 if (request.url.path == '/api/v1/member/care/preview') {
                   return _success({
-                    'daily': [
-                      {'title': '心率', 'latest': 88},
-                    ],
+                    'daily': staleRows
+                        ? [
+                            {'title': '心率', 'latest': 88},
+                          ]
+                        : [],
                   });
                 }
                 if (request.url.path == '/api/v1/member/daily-date/preview') {
                   final type = request.url.queryParameters['type'];
-                  if (type == null) {
-                    return _success(
-                      staleRows
-                          ? [
-                              {'time': '08:00', 'pulseReat': 88},
-                            ]
-                          : [],
-                    );
-                  }
+                  expect(type, isNotNull);
                   if (type == 'pulseReat') {
                     return http.Response(
                       jsonEncode({
@@ -101,7 +242,7 @@ void main() {
 
   for (final failure in ['401', 'string401', 'timeout', 'offline']) {
     test(
-      'care $failure remains a failure even when shared raw rows exist',
+      'care $failure remains a failure even when the care summary has readings',
       () async {
         var detailRequests = 0;
         final api = SaydianApiClient(
@@ -109,13 +250,13 @@ void main() {
           baseUri: Uri.parse('https://example.invalid'),
           client: MockClient((request) async {
             if (request.url.path == '/api/v1/member/care/preview') {
-              return _success({});
+              return _success({
+                'daily': [
+                  {'title': '心率', 'latest': 88},
+                ],
+              });
             }
-            if (!request.url.queryParameters.containsKey('type')) {
-              return _success([
-                {'time': '08:00', 'pulseReat': 88},
-              ]);
-            }
+            expect(request.url.queryParameters['type'], isNotNull);
             detailRequests++;
             if (failure == 'timeout') {
               throw TimeoutException('synthetic timeout');

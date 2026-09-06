@@ -222,7 +222,7 @@ void main() {
           'sleep',
         ]),
       );
-      expect(requestedPaths, hasLength(13));
+      expect(requestedPaths, hasLength(12));
     },
   );
 
@@ -325,7 +325,7 @@ void main() {
   });
 
   test(
-    'care metrics fall back to shared raw daily rows when chart APIs fail',
+    'care metric failures require backend repair instead of raw daily fallback',
     () async {
       var rawDailyRequests = 0;
       final client = MockClient((request) async {
@@ -348,21 +348,7 @@ void main() {
         if (type == null) {
           rawDailyRequests += 1;
           return http.Response(
-            r'''{"code":200,"data":[
-              {"time":"08:00","pulseReat":"[68]",
-               "bloodPressure":"{\"bloodPressureHigh\":118,\"bloodPressureLow\":76}",
-               "bloodGlucose":5.8,
-               "bloodOxygen":"{\"oxygens\":[97,0,0]}",
-               "bodyTemperature":"{\"bodyTemperature\":36.5}",
-               "HRVData":"[51]",
-               "sleepData":"{\"allSleepTime\":420}"},
-              {"time":"20:00","pulseReat":"[75]",
-               "bloodPressure":"{\"bloodPressureHigh\":128,\"bloodPressureLow\":82}",
-               "bloodGlucose":7.2,
-               "bloodOxygen":"{\"oxygens\":[98,0,0]}",
-               "bodyTemperature":"{\"bodyTemperature\":36.8}",
-               "HRVData":"[57]"}
-            ]}''',
+            '{"code":200,"data":[{"time":"08:00","pulseReat":[68],"HRVData":[51]}]}',
             200,
             headers: {'content-type': 'application/json; charset=utf-8'},
           );
@@ -398,26 +384,22 @@ void main() {
       );
       final daily = (preview['daily'] as List).cast<Map>();
 
-      expect(rawDailyRequests, 1);
-      expect(daily.singleWhere((item) => item['title'] == '心率')['latest'], 75);
-      expect(
-        daily.singleWhere((item) => item['title'] == '血压')['latest'],
-        '128/82',
-      );
-      expect(daily.singleWhere((item) => item['title'] == '血糖')['latest'], 7.2);
-      expect(daily.singleWhere((item) => item['title'] == '血氧')['latest'], 98);
-      expect(
-        daily.singleWhere((item) => item['title'] == '体温')['latest'],
-        36.8,
-      );
-      expect(daily.singleWhere((item) => item['title'] == 'HRV')['latest'], 57);
-      expect(daily.singleWhere((item) => item['title'] == '睡眠')['latest'], 420);
-      for (final title in const ['心率', '血压', '血糖', '血氧', '体温', 'HRV', '睡眠']) {
+      expect(rawDailyRequests, 0);
+      for (final title in const ['心率', '血压', '体温', 'HRV']) {
+        final item = daily.singleWhere((item) => item['title'] == title);
+        expect(item['state'], 'unavailable', reason: title);
+        expect(item['tips'], contains('服务暂不可用'));
+      }
+      for (final title in const ['血糖', '血氧', '睡眠', '心电', '身体成分', '血液成分']) {
         expect(
           daily.singleWhere((item) => item['title'] == title)['state'],
-          'ready',
+          'empty',
           reason: title,
         );
+      }
+      for (final item in daily) {
+        expect(item['records'], isEmpty);
+        expect(item.containsKey('latest'), isFalse);
       }
     },
   );

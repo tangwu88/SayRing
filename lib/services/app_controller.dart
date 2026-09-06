@@ -3519,13 +3519,24 @@ class AppController extends ChangeNotifier {
     DateTime? day,
     int? memberId,
   }) async {
+    final generation = _sessionGeneration;
+    if (_accountTransitioning) return const {};
     try {
-      return await _api.getCareMemberPreview(
+      final value = await _api.getCareMemberPreview(
         id: id,
         day: formatCareCalendarDay(day),
         memberId: memberId,
       );
+      if (!_isCurrentSessionGeneration(generation) || _accountTransitioning) {
+        return const {};
+      }
+      return value;
     } on ApiException catch (error) {
+      if (!_isCurrentSessionGeneration(generation) ||
+          _accountTransitioning ||
+          error.code == 'STALE_CARE_SESSION') {
+        return const {};
+      }
       final message = _apiErrorMessage(error, fallback: '对方数据暂时无法读取');
       errorMessage = message;
       notifyListeners();

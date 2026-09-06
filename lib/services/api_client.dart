@@ -1935,56 +1935,82 @@ class SaydianApiClient
     required String day,
     int? memberId,
   }) async {
+    final owner = _stableSessionAccountKey(await _requiredSession());
     Map<String, Object?> aggregate = const {};
     ApiException? aggregateError;
     try {
-      final response = await _authorizedGet('/api/v1/member/care/preview', {
-        'id': '$id',
-        'day': day,
-      });
+      final response = await _authorizedCareGet(
+        owner,
+        '/api/v1/member/care/preview',
+        {'id': '$id', 'day': day},
+      );
       aggregate = _data(_decode(response));
     } on ApiException catch (error) {
+      if (error.code == 'STALE_CARE_SESSION') rethrow;
       aggregateError = error;
     }
     final targetMemberId = memberId ?? _careMemberIds[id];
     if (targetMemberId == null) {
       if (aggregateError != null) throw aggregateError;
-      return aggregate;
+      return _mergeCarePreview(aggregate, const []);
     }
     final detail = await _getCareMemberHealthDetails(
+      owner: owner,
       memberId: targetMemberId,
       day: day,
     );
     if (aggregate.isEmpty && detail.isEmpty && aggregateError != null) {
       throw aggregateError;
     }
+    await _checkCareRequestOwner(owner);
     return _mergeCarePreview(aggregate, detail);
   }
 
+  Future<void> _checkCareRequestOwner(String owner) async {
+    final current = await _vault.readSession();
+    if (current == null || _stableSessionAccountKey(current) != owner) {
+      throw const ApiException('账号已变化，请重新查看', code: 'STALE_CARE_SESSION');
+    }
+  }
+
+  Future<http.Response> _authorizedCareGet(
+    String owner,
+    String path,
+    Map<String, String> query,
+  ) async {
+    try {
+      final response = await _withAuthorizationRetry((session) async {
+        // Check the actual request session, not only a prior vault snapshot.
+        // Token refresh for the same owner remains valid.
+        if (_stableSessionAccountKey(session) != owner) {
+          throw const ApiException('账号已变化，请重新查看', code: 'STALE_CARE_SESSION');
+        }
+        final response = await _performRequest(
+          () => _client.get(
+            _uri(path, query),
+            headers: _authorizationHeaders(session),
+          ),
+        );
+        // Reject a stale 401 before the shared retry helper refreshes its token.
+        await _checkCareRequestOwner(owner);
+        return response;
+      });
+      await _checkCareRequestOwner(owner);
+      return response;
+    } catch (_) {
+      await _checkCareRequestOwner(owner);
+      rethrow;
+    }
+  }
+
   Future<List<Map<String, Object?>>> _getCareMemberHealthDetails({
+    required String owner,
     required int memberId,
     required String day,
   }) async {
     final chinaDayStart = _chinaDayStartEpochSeconds(day);
     if (chinaDayStart == null) return const [];
     final date = '$chinaDayStart';
-    Object? sharedDailyRows;
-    var sharedDailyRowsAvailable = false;
-    try {
-      final response = await _authorizedGet(
-        '/api/v1/member/daily-date/preview',
-        {'selectmember': '$memberId', 'date': date},
-      );
-      final payload = _decode(response);
-      sharedDailyRows = payload['data'];
-      sharedDailyRowsAvailable = true;
-    } on ApiException catch (error) {
-      if (error.statusCode == 401 ||
-          error.code == 'NETWORK_TIMEOUT' ||
-          error.code == 'NETWORK_UNAVAILABLE') {
-        rethrow;
-      }
-    }
     const specs =
         <({String title, String endpoint, String? type, String unit})>[
           (
@@ -2051,38 +2077,30 @@ class SaydianApiClient
     final result = <Map<String, Object?>>[];
     for (final spec in specs) {
       try {
-        final response = await _authorizedGet(spec.endpoint, {
+        final response = await _authorizedCareGet(owner, spec.endpoint, {
           'selectmember': '$memberId',
           if (spec.type != null) 'type': spec.type!,
           'date': date,
         });
         final payload = _decode(response);
-        final normalized = _normalizeCareMetric(
-          title: spec.title,
-          type: spec.type ?? spec.endpoint,
-          unit: spec.unit,
-          raw: payload['data'],
-        );
+        // Each endpoint is authoritative for its metric. The legacy untyped
+        // daily table has no verified per-metric permission guarantee.
         result.add(
-          spec.endpoint == '/api/v1/member/daily-date/preview' &&
-                  normalized['state'] != 'ready' &&
-                  sharedDailyRowsAvailable
-              ? _normalizeCareRawFallback(
-                  title: spec.title,
-                  type: spec.type ?? spec.endpoint,
-                  unit: spec.unit,
-                  raw: sharedDailyRows,
-                )
-              : normalized,
+          _normalizeCareMetric(
+            title: spec.title,
+            type: spec.type ?? spec.endpoint,
+            unit: spec.unit,
+            raw: payload['data'],
+          ),
         );
       } on ApiException catch (error) {
-        if (error.statusCode == 401 ||
+        if (error.code == 'STALE_CARE_SESSION' ||
+            error.statusCode == 401 ||
             error.code == 'NETWORK_TIMEOUT' ||
             error.code == 'NETWORK_UNAVAILABLE') {
           rethrow;
         }
-        // A metric-specific denial is authoritative even when the earlier
-        // aggregate request succeeded. Never recover revoked data from it.
+        // An explicit denial is distinct from empty or unavailable data.
         if (error.statusCode == 403) {
           result.add(<String, Object?>{
             'title': spec.title,
@@ -2092,18 +2110,6 @@ class SaydianApiClient
             'tips': '对方未授权此项目',
             'records': const <Object?>[],
           });
-          continue;
-        }
-        if (spec.endpoint == '/api/v1/member/daily-date/preview' &&
-            sharedDailyRowsAvailable) {
-          result.add(
-            _normalizeCareRawFallback(
-              title: spec.title,
-              type: spec.type ?? spec.endpoint,
-              unit: spec.unit,
-              raw: sharedDailyRows,
-            ),
-          );
           continue;
         }
         result.add(<String, Object?>{
@@ -2220,22 +2226,6 @@ class SaydianApiClient
       'min': ?minimum,
       'avg': ?average,
     };
-  }
-
-  Map<String, Object?> _normalizeCareRawFallback({
-    required String title,
-    required String type,
-    required String unit,
-    required Object? raw,
-  }) {
-    final normalized = _normalizeCareMetric(
-      title: title,
-      type: type,
-      unit: unit,
-      raw: raw,
-    );
-    if (normalized['state'] == 'ready') return normalized;
-    return <String, Object?>{...normalized, 'tips': '对方当日没有可共享的该项记录'};
   }
 
   Map<String, Object?> _decodeCareRawRecord(Map<Object?, Object?> row) =>
@@ -2600,22 +2590,6 @@ class SaydianApiClient
     Map<String, Object?> aggregate,
     List<Map<String, Object?>> detail,
   ) {
-    final existing = aggregate['daily'] is List
-        ? (aggregate['daily'] as List)
-              .whereType<Map>()
-              .map((row) => row.map((key, value) => MapEntry('$key', value)))
-              .toList()
-        : <Map<String, Object?>>[];
-    final byTitle = <String, Map<String, Object?>>{
-      for (final item in detail) '${item['title'] ?? ''}': item,
-    };
-    final merged = <Map<String, Object?>>[];
-    for (final item in existing) {
-      final title = '${item['title'] ?? ''}';
-      final details = byTitle.remove(title);
-      merged.add(details ?? item);
-    }
-    merged.addAll(byTitle.values);
     final today = aggregate['jrjk'] is List
         ? (aggregate['jrjk'] as List)
               .whereType<Map>()
@@ -2629,7 +2603,9 @@ class SaydianApiClient
       ...aggregate,
       'fallback': aggregate.isEmpty && detail.isNotEmpty,
       'jrjk': today,
-      'daily': merged,
+      // Health cards only come from supported, metric-specific endpoints.
+      // Unknown aliases or duplicate aggregate cards cannot bypass that result.
+      'daily': detail,
     };
   }
 
