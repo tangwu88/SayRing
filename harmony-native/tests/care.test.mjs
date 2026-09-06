@@ -126,6 +126,28 @@ test('typed endpoint failure can use whitelisted same-member raw fallback',async
   const {client}=await clientWith(async path=>{if(path.endsWith('/my'))return envelope([member]);if(path.includes('type='))throw new ApiError('missing',500);return envelope([{time:'08:00',pulseReat:'[68]'}])});
   await client.careMembers();assert.equal((await client.careMetric(59,87,'heart',day)).records[0].fields[0].value,68);
 });
+test('care overview reads the shared day once, exposes every metric state and never bypasses a 403',async()=>{
+  let rawReads=0;
+  const {client}=await clientWith(async path=>{
+    if(path.endsWith('/my'))return envelope([member]);
+    if(path.includes('/daily-date/preview')&&!path.includes('type=')){
+      rawReads++;
+      return envelope([{time:'08:00',pulseReat:68,bloodGlucose:6.2,bloodOxygen:99}]);
+    }
+    if(path.includes('type=pulseReat'))throw new ApiError('typed unavailable',500);
+    if(path.includes('type=BloodGlucose'))return envelope([]);
+    if(path.includes('/daily-date/preview'))throw new ApiError('not shared',403);
+    return envelope([]);
+  });
+  await client.careMembers();
+  const metrics=await client.careMetrics(59,87,day);
+  assert.equal(metrics.length,CARE_METRICS.length);
+  assert.equal(metrics.find(item=>item.key==='heart').records[0].fields[0].value,68);
+  assert.equal(metrics.find(item=>item.key==='glucose').records[0].fields[0].value,6.2);
+  assert.equal(metrics.find(item=>item.key==='oxygen').state,'unauthorized');
+  assert.equal(metrics.find(item=>item.key==='ecg').state,'empty');
+  assert.equal(rawReads,1);
+});
 test('invitation response is explicit JSON and a handled invitation cannot be repeated',async()=>{
   let writes=0,status=0;const {client}=await clientWith(async(path,fields,session,json)=>{
     if(path.endsWith('/save')){writes++;assert.deepEqual(JSON.parse(json),{id:19,examine_status:2});status=2;return envelope({})}return envelope([invite(status)]);

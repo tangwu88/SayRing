@@ -368,6 +368,8 @@ void main() {
     expect(field(const Key('profile-birthday')).controller?.text, '1990-01-02');
     expect(field(const Key('profile-height')).controller?.text, '168');
     expect(field(const Key('profile-weight')).controller?.text, '62');
+    expect(find.byKey(const Key('profile-registered-mobile')), findsOneWidget);
+    expect(find.text('13800138000'), findsOneWidget);
 
     await tester.enterText(find.byKey(const Key('profile-nickname')), '保存后的昵称');
     await tester.scrollUntilVisible(
@@ -553,6 +555,7 @@ class _ProfileApi extends _NoopApi {
   @override
   Future<Map<String, Object?>> getMemberProfile() async => const {
     'nickname': '服务端昵称',
+    'mobile': '13800138000',
     'birthday': '1990-01-02',
     'height': '168',
     'weight': '62',

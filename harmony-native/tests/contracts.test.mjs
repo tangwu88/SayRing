@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   API_BASE, ApiError, decodeEnvelope, loginValidation, expirationMillis, parseSession,
-  buildMultipart, profileName, profileField, articleText, safeMessage, canSubmitLogin,
+  buildMultipart, profileImageUrl, profileName, profileField, articleText, safeMessage, canSubmitLogin,
   registrationValidation, wechatAuthorizationValidation,
 } from '../entry/src/main/ets/model/Contracts.ts';
 
@@ -112,6 +112,13 @@ test('multipart matches existing native app contract and preserves special chara
 test('multipart names and boundary cannot inject headers', () => {
   assert.throws(() => buildMultipart([{ name: 'x"\r\nInjected', value: 'test' }], '----TestBoundary'));
   assert.throws(() => buildMultipart([], 'bad\r\nBoundary'));
+});
+test('profile image upload accepts only a bounded HTTPS or same-origin path', () => {
+  assert.equal(profileImageUrl({ path: '/attachment/avatar/test.png' }), 'https://app.saidian.cc/attachment/avatar/test.png');
+  assert.equal(profileImageUrl({ url: 'https://cdn.example.invalid/avatar/a.webp' }), 'https://cdn.example.invalid/avatar/a.webp');
+  for (const data of [{}, { url: 'http://example.invalid/a.png' }, { path: '/../secret' }, { url: 'javascript:bad' }]) {
+    assert.throws(() => profileImageUrl(data), /头像/);
+  }
 });
 test('article content is plain text, not active scripts', () => {
   assert.equal(articleText('<script>alert(1)</script><p>第一段</p><p>第二段 &amp; 内容</p>'), '第一段\n第二段 & 内容');

@@ -25,6 +25,7 @@ import { WECHAT_AUTH_RESULT_KEY, parseWechatAuthResult } from '../model/WechatAu
 import { wechatAuth } from '../services/WechatAuthService';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { call } from '@kit.TelephonyKit';
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { DisplayUnits, ProfileDraft, FEEDBACK_TYPES, defaultDisplayUnits, displayHealthValue,
   displayNumber, feedbackError, profileDraftError } from '../model/DisplayPreferences';
 import { displayPreferenceStore } from '../services/DisplayPreferenceStore';
@@ -104,6 +105,8 @@ struct Index {
   @State private editBirthday: string = '';
   @State private editHeight: string = '';
   @State private editWeight: string = '';
+  @State private editAvatarUri: string = '';
+  @State private avatarPicking: boolean = false;
   @State private feedbackType: number = 0;
   @State private feedbackContent: string = '';
   @State private feedbackContact: string = '';
@@ -233,6 +236,8 @@ struct Index {
   private previousTab: number = 0;
   private pageGeneration: number = 0;
   private contentGeneration: number = 0;
+  private careSummaryGeneration: number = 0;
+  private careSummaryUpdatedAt: number = 0;
   private selectedArticleId: string = '';
   private selectedAgreement: boolean = false;
   private smsTimer: number = -1;
@@ -275,6 +280,8 @@ struct Index {
 
   private clearCareState(): void {
     ++this.careGeneration;
+    ++this.careSummaryGeneration;
+    this.careSummaryUpdatedAt = 0;
     this.careMembers = []; this.careInvitations = []; this.careMobile = '';
     this.careSettings = { enabled: [], unknown: [] }; this.careSettingsReady = false;
     this.careMetricData = { key: 'heart', title: '心率', unit: '', state: 'empty', message: '', records: [] };
@@ -321,7 +328,25 @@ struct Index {
     this.editBirthday = this.profile.birthday ?? '';
     this.editHeight = this.profile.height === undefined ? '' : String(this.profile.height);
     this.editWeight = this.profile.weight === undefined ? '' : String(this.profile.weight);
+    this.editAvatarUri = '';
     this.openInnerPage('profile-edit');
+  }
+
+  private async pickProfileAvatar(): Promise<void> {
+    if (this.avatarPicking || this.formBusy) return;
+    this.avatarPicking = true;
+    try {
+      const options = new photoAccessHelper.PhotoSelectOptions();
+      options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
+      options.maxSelectNumber = 1;
+      options.isEditSupported = true;
+      const selected = await new photoAccessHelper.PhotoViewPicker().select(options);
+      const uri = selected.photoUris.length ? selected.photoUris[0].trim() : '';
+      if (uri) { this.editAvatarUri = uri; this.formMessage = ''; }
+    } catch (error) {
+      const code = Number((error as BusinessError).code ?? 0);
+      if (code !== 201) this.formMessage = '无法读取照片，请重新选择';
+    } finally { this.avatarPicking = false; }
   }
 
   private chooseBirthday(): void {
@@ -340,8 +365,11 @@ struct Index {
     if (this.formMessage) return;
     this.formBusy = true;
     try {
-      this.profile = await saydianApi.saveProfile(draft);
+      const avatar = this.editAvatarUri ? await saydianApi.uploadProfileImage({ uri: this.editAvatarUri,
+        fileName: 'avatar', maxBytes: 6 * 1024 * 1024 }) : '';
+      this.profile = await saydianApi.saveProfile(draft, avatar);
       this.displayName = profileName(this.profile);
+      this.editAvatarUri = '';
       this.formMessage = '个人资料已保存';
     } catch (error) { this.formMessage = this.accountFormFailure(error as Error); }
     finally { this.formBusy = false; }
@@ -369,7 +397,8 @@ struct Index {
     this.addressDraft = emptyAddressDraft();
     ++this.orderGeneration; this.orders = []; this.orderLoading = false; this.paymentMessage = '';
     this.resetMobile = ''; this.resetCode = ''; this.resetPassword = ''; this.resetConfirmation = '';
-    this.editNickname = ''; this.editBirthday = ''; this.editHeight = ''; this.editWeight = '';
+    this.editNickname = ''; this.editBirthday = ''; this.editHeight = ''; this.editWeight = ''; this.editAvatarUri = '';
+    this.avatarPicking = false;
     this.feedbackContent = ''; this.feedbackContact = ''; this.innerParents.clear();
   }
 
@@ -1149,10 +1178,30 @@ struct Index {
   private async refreshCare(): Promise<void> {
     if (this.careBusy) return;
     const epoch = ++this.careGeneration;
-    this.careLoading = true; this.careMembers = []; this.careInvitations = [];
+    this.careLoading = true;
     this.careMemberError = ''; this.careInvitationError = '';
     await Promise.all([this.readCareMembers(epoch), this.readCareInvitations(epoch)]);
-    if (epoch === this.careGeneration) this.careLoading = false;
+    if (epoch === this.careGeneration) {
+      this.careLoading = false;
+      this.careSummaryUpdatedAt = Date.now();
+    }
+  }
+
+  private async refreshCareSummary(force: boolean = false): Promise<void> {
+    if (this.guest || (!force && Date.now() - this.careSummaryUpdatedAt < 60000)) return;
+    const generation = ++this.careSummaryGeneration;
+    const memberId = saydianApi.current()?.memberId ?? '';
+    try {
+      const members = await saydianApi.careMembers();
+      if (generation !== this.careSummaryGeneration || memberId !== (saydianApi.current()?.memberId ?? '')) return;
+      this.careMembers = members;
+      this.careMemberError = '';
+      this.careSummaryUpdatedAt = Date.now();
+    } catch (error) {
+      if (generation !== this.careSummaryGeneration || memberId !== (saydianApi.current()?.memberId ?? '')) return;
+      if (error instanceof ApiError && error.status === 401) this.careFailure(error as Error);
+      else this.careMemberError = this.careFailure(error as Error);
+    }
   }
 
   private async readCareMembers(epoch: number): Promise<void> {
@@ -1270,13 +1319,8 @@ struct Index {
       if (this.careDateInput > chinaDay()) throw new ApiError('不能查看未来日期');
       this.careDay = this.careDateInput;
       const member = this.careSelectedMember, day = this.careDay;
-      const data: CareMetric[] = [];
-      for (let index = 0; index < CARE_METRICS.length; index += 3) {
-        const batch = await Promise.all(CARE_METRICS.slice(index, index + 3).map((spec: CareMetricSpec): Promise<CareMetric> =>
-          saydianApi.careMetric(member.relationId, member.memberId, spec.key, day)));
-        if (epoch !== this.careGeneration) return;
-        data.push(...batch);
-      }
+      const data = await saydianApi.careMetrics(member.relationId, member.memberId, day);
+      if (epoch !== this.careGeneration) return;
       this.careOverview = data;
       const now = new Date();
       this.careUpdatedAt = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
@@ -1334,6 +1378,7 @@ struct Index {
         this.restoring = false;
         if (!this.guest) {
           this.refreshNotificationCount();
+          this.refreshCareSummary(true);
           this.connectPush(false);
           this.consumeNotificationRoute();
         }
@@ -1360,6 +1405,7 @@ struct Index {
 
   private startAuthenticatedServices(): void {
     this.refreshNotificationCount();
+    this.refreshCareSummary(true);
     this.connectPush(false);
     this.consumeNotificationRoute();
   }
@@ -2333,7 +2379,9 @@ struct Index {
         }.width(104).height(104).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(52)
         Text(this.wearablePhase === 'scanning' ? '正在查找手表' : '暂未发现设备')
           .fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK)
-        Text('让手表保持亮屏并靠近手机').fontSize(13).fontColor(MUTED)
+        Text(this.wearablePhase === 'scanning' ? '让手表保持亮屏并靠近手机' :
+          (this.wearableMessage.includes('未收到') ? this.wearableMessage : '打开手表配对页，并确认未被其他手机占用'))
+          .fontSize(13).fontColor(MUTED).lineHeight(20).textAlign(TextAlign.Center).width('100%')
       }.width('100%').padding({ top: 42, bottom: 42 })
     }
     ForEach(this.wearableDevices, (device: WearableDevice) => {
@@ -2377,7 +2425,12 @@ struct Index {
   MineHome() {
     Column({ space: 12 }) {
       Row({ space: 14 }) {
-        Image($r('app.media.app_icon')).width(66).height(66).borderRadius(33).accessibilityText('赛电头像')
+        if (!this.guest && this.profile.head_portrait) {
+          Image(this.profile.head_portrait).width(66).height(66).objectFit(ImageFit.Cover).borderRadius(33)
+            .accessibilityText('个人头像')
+        } else {
+          Image($r('app.media.app_icon')).width(66).height(66).borderRadius(33).accessibilityText('赛电头像')
+        }
         Column({ space: 5 }) {
           Text(this.guest ? '暂未登录' : this.displayName).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK)
             .width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -2393,9 +2446,8 @@ struct Index {
         .border({ width: 1, color: '#F6C9D2' }).shadow({ radius: 12, color: CARD_SHADOW, offsetY: 4 })
         .onClick(() => {
           if (this.guest) { this.error = ''; this.screen = 'login'; return; }
-          this.showFeature('个人资料',
-            `昵称：${profileName(this.profile) || this.displayName}\n生日：${profileField(this.profile.birthday)}\n身高：${profileField(this.profile.height, ' cm')}\n体重：${profileField(this.profile.weight, ' kg')}`);
-        }).id('mine-profile-card').accessibilityText(this.guest ? '登录赛电账号' : '查看个人资料')
+          this.openProfileEditor();
+        }).id('mine-profile-card').accessibilityText(this.guest ? '登录赛电账号' : '编辑个人资料')
       if (this.guest) {
         Button('登录赛电账号').width('100%').height(50).backgroundColor(RED)
           .type(ButtonType.Normal).borderRadius(14)
@@ -2579,7 +2631,10 @@ struct Index {
               .fontColor(this.tab === index ? RED : MUTED)
           }.layoutWeight(1).constraintSize({ minHeight: 62 }).justifyContent(FlexAlign.Center)
             .backgroundColor(SURFACE)
-            .onClick(() => this.tab = index).id(`tab_${index}`)
+            .onClick(() => {
+              this.tab = index;
+              if (index === 2) this.refreshCareSummary();
+            }).id(`tab_${index}`)
             .accessibilityText(title).accessibilityDescription(this.tab === index ? '当前页' : '切换页面')
         })
       }.width('100%').padding({ left: 12, right: 12, top: 6, bottom: 8 })
@@ -3112,7 +3167,7 @@ struct Index {
         .type(ButtonType.Normal).borderRadius(12).onClick(() => this.screen = 'login')
     } else {
       Column({ space: 0 }) {
-        this.PageRow({ title: '个人资料', subtitle: '昵称、性别、生日、身高和体重', icon: $r('sys.symbol.person'),
+        this.PageRow({ title: '个人资料', subtitle: '注册手机号和基础资料', icon: $r('sys.symbol.person'),
           action: () => this.openProfileEditor(), id: 'edit_profile' })
         Divider().color(LINE).margin({ left: 56 })
         this.PageRow({ title: '收货地址', subtitle: '查看账号中的收货地址', icon: $r('sys.symbol.map'),
@@ -3234,40 +3289,79 @@ struct Index {
 
   @Builder
   ProfileEditorContent() {
-    Column() {
-      if (this.profile.head_portrait) {
-        Image(this.profile.head_portrait).width(90).height(90).objectFit(ImageFit.Cover).borderRadius(45)
-      } else {
-        Column() { SymbolGlyph($r('sys.symbol.person_fill')).fontSize(42).fontColor([Color.White]) }
-          .width(90).height(90).justifyContent(FlexAlign.Center).backgroundColor(RED).borderRadius(45)
-      }
-    }.width('100%').margin({ top: 8, bottom: 16 }).accessibilityText('当前账号头像')
-    TextInput({ text: this.editNickname, placeholder: '昵称' }).fontSize(16).height(60).maxLength(30)
-      .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
-      .onChange((value: string) => this.editNickname = value).id('profile_nickname')
-    Column({ space: 2 }) {
-      Text('性别').fontSize(12).fontColor(MUTED).width('100%')
-      Select([{ value: '未设置' }, { value: '男' }, { value: '女' }]).selected(this.editGender)
-        .value(['未设置', '男', '女'][this.editGender]).width('100%').font({ size: 16 }).backgroundColor(SURFACE)
-        .enabled(!this.formBusy).onSelect((index: number) => this.editGender = index).id('profile_gender')
-    }.width('100%').padding({ left: 16, right: 16, top: 6, bottom: 6 }).backgroundColor(SURFACE).borderRadius(12)
-      .border({ width: 1, color: OUTLINE })
-    Row() {
-      Text(this.editBirthday || '出生日期').fontSize(16).fontColor(this.editBirthday ? INK : MUTED).layoutWeight(1)
-      SymbolGlyph($r('sys.symbol.calendar')).fontSize(22).fontColor([INK])
-    }.width('100%').constraintSize({ minHeight: 60 }).padding(16).backgroundColor(SURFACE).borderRadius(12)
-      .border({ width: 1, color: OUTLINE }).enabled(!this.formBusy).onClick(() => this.chooseBirthday()).id('profile_birthday')
-    TextInput({ text: this.editHeight, placeholder: '身高（cm）' }).fontSize(16).height(60).type(InputType.NUMBER_DECIMAL)
-      .maxLength(6).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
-      .onChange((value: string) => this.editHeight = value).id('profile_height')
-    TextInput({ text: this.editWeight, placeholder: '体重（kg）' }).fontSize(16).height(60).type(InputType.NUMBER_DECIMAL)
-      .maxLength(6).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
-      .onChange((value: string) => this.editWeight = value).id('profile_weight')
-    this.Notice({ message: '点击保存后，个人资料将同步到账号。' })
-    if (this.formMessage) { this.Notice({ message: this.formMessage, color: this.formMessage.includes('已保存') ? GREEN_SOFT : '#FFF0E9' }) }
+    Column({ space: 8 }) {
+      Stack({ alignContent: Alignment.BottomEnd }) {
+        if (this.editAvatarUri || this.profile.head_portrait) {
+          Image(this.editAvatarUri || this.profile.head_portrait).width(94).height(94).objectFit(ImageFit.Cover).borderRadius(47)
+            .border({ width: 1, color: LINE })
+        } else {
+          Column() { SymbolGlyph($r('sys.symbol.person_fill')).fontSize(42).fontColor([Color.White]) }
+            .width(94).height(94).justifyContent(FlexAlign.Center).backgroundColor(RED).borderRadius(47)
+        }
+        Column() {
+          if (this.avatarPicking) { LoadingProgress().width(18).height(18).color(Color.White) }
+          else { SymbolGlyph($r('sys.symbol.camera_fill')).fontSize(17).fontColor([Color.White]) }
+        }.width(32).height(32).justifyContent(FlexAlign.Center).backgroundColor(RED).borderRadius(16)
+          .border({ width: 2, color: SURFACE })
+      }.width(100).height(100).onClick(() => this.pickProfileAvatar()).id('profile_avatar_picker')
+        .accessibilityText('更换头像')
+      Text(this.editAvatarUri ? '已选择新头像，保存后生效' : '点击头像更换照片')
+        .fontSize(14).fontColor(MUTED).textAlign(TextAlign.Center)
+    }.width('100%').margin({ top: 8, bottom: 8 })
+
+    Text('基本信息').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+    Column({ space: 0 }) {
+      Row({ space: 16 }) {
+        Text('注册手机号').fontSize(16).fontColor(INK).layoutWeight(1)
+        Text(profileField(this.profile.mobile)).fontSize(16).fontColor(MUTED)
+      }.width('100%').constraintSize({ minHeight: 60 }).padding({ left: 16, right: 16 })
+        .id('profile_registered_mobile').accessibilityText(`注册手机号：${profileField(this.profile.mobile)}`)
+      Divider().color(LINE).margin({ left: 16 })
+      Column({ space: 4 }) {
+        Text('昵称').fontSize(13).fontColor(MUTED).width('100%')
+        TextInput({ text: this.editNickname, placeholder: '请输入昵称' }).fontSize(16).height(42).maxLength(30)
+          .padding(0).backgroundColor(Color.Transparent).enabled(!this.formBusy)
+          .onChange((value: string) => this.editNickname = value).id('profile_nickname')
+      }.width('100%').padding({ left: 16, right: 16, top: 9, bottom: 7 })
+      Divider().color(LINE).margin({ left: 16 })
+      Row({ space: 16 }) {
+        Text('性别').fontSize(16).fontColor(INK).layoutWeight(1)
+        Select([{ value: '未设置' }, { value: '男' }, { value: '女' }]).selected(this.editGender)
+          .value(['未设置', '男', '女'][this.editGender]).font({ size: 16 }).backgroundColor(Color.Transparent)
+          .enabled(!this.formBusy).onSelect((index: number) => this.editGender = index).id('profile_gender')
+      }.width('100%').constraintSize({ minHeight: 60 }).padding({ left: 16, right: 12 })
+      Divider().color(LINE).margin({ left: 16 })
+      Row() {
+        Text('出生日期').fontSize(16).fontColor(INK).layoutWeight(1)
+        Text(this.editBirthday || '请选择').fontSize(16).fontColor(this.editBirthday ? INK : MUTED)
+        SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(17).fontColor([MUTED]).margin({ left: 8 })
+      }.width('100%').constraintSize({ minHeight: 60 }).padding({ left: 16, right: 16 })
+        .enabled(!this.formBusy).onClick(() => this.chooseBirthday()).id('profile_birthday')
+      Divider().color(LINE).margin({ left: 16 })
+      Row({ space: 10 }) {
+        Text('身高').fontSize(16).fontColor(INK).width(58)
+        TextInput({ text: this.editHeight, placeholder: '请输入' }).fontSize(16).height(52).type(InputType.NUMBER_DECIMAL)
+          .maxLength(6).textAlign(TextAlign.End).padding(0).backgroundColor(Color.Transparent).layoutWeight(1)
+          .enabled(!this.formBusy).onChange((value: string) => this.editHeight = value).id('profile_height')
+        Text('cm').fontSize(15).fontColor(MUTED)
+      }.width('100%').constraintSize({ minHeight: 60 }).padding({ left: 16, right: 16 })
+      Divider().color(LINE).margin({ left: 16 })
+      Row({ space: 10 }) {
+        Text('体重').fontSize(16).fontColor(INK).width(58)
+        TextInput({ text: this.editWeight, placeholder: '请输入' }).fontSize(16).height(52).type(InputType.NUMBER_DECIMAL)
+          .maxLength(6).textAlign(TextAlign.End).padding(0).backgroundColor(Color.Transparent).layoutWeight(1)
+          .enabled(!this.formBusy).onChange((value: string) => this.editWeight = value).id('profile_weight')
+        Text('kg').fontSize(15).fontColor(MUTED)
+      }.width('100%').constraintSize({ minHeight: 60 }).padding({ left: 16, right: 16 })
+    }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE }).clip(true)
+
+    this.Notice({ message: '保存后，资料会同步到当前账号。' })
+    if (this.formMessage) {
+      this.Notice({ message: this.formMessage, color: this.formMessage.includes('已保存') ? GREEN_SOFT : '#FFF0E9' })
+    }
     Button(this.formBusy ? '正在保存…' : '保存资料').width('100%').constraintSize({ minHeight: 56 }).fontSize(16)
-      .fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
-      .enabled(!this.formBusy).onClick(() => this.saveProfileDraft()).id('save_profile')
+      .fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(14)
+      .enabled(!this.formBusy && !this.avatarPicking).onClick(() => this.saveProfileDraft()).id('save_profile')
   }
 
   @Builder
@@ -3959,23 +4053,35 @@ struct Index {
           .constraintSize({ minHeight: 44 }).fontSize(14).fontColor(MUTED).backgroundColor(Color.Transparent)
           .enabled(!this.careLoading).onClick(() => this.loadCareOverview()).id('care_member_refresh')
       }.width('100%')
-      if (!this.careLoading && !this.careMessage && !this.careOverview.some((metric: CareMetric) => metric.state === 'ready')) {
-        this.Notice({ message: '当前日期暂无可查看的共享数据，请确认对方已授权并同步。', color: GOLD_SOFT })
+      if (!this.careLoading && this.careOverview.length > 0) {
+        Text(`可查看 ${this.careOverview.filter((metric: CareMetric) => metric.state === 'ready').length} 项 · ` +
+          `暂无记录 ${this.careOverview.filter((metric: CareMetric) => metric.state === 'empty').length} 项 · ` +
+          `未授权 ${this.careOverview.filter((metric: CareMetric) => metric.state === 'unauthorized').length} 项`)
+          .fontSize(14).fontColor(MUTED).width('100%').textAlign(TextAlign.Center)
       }
-      ForEach(this.careOverview.filter((metric: CareMetric) => metric.state === 'ready'), (metric: CareMetric) => {
-        Column({ space: 12 }) {
-          Row() {
-            Text(metric.title).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
-            SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([RED])
-          }.width('100%')
-          Text(careMetricLatest(metric)).fontSize(16).fontColor(INK).lineHeight(24).width('100%')
-          Text(`${metric.records.length} 条记录`).fontSize(13).fontColor(MUTED).width('100%')
-        }.width('100%').padding(20).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
-          .onClick(() => this.openCareMetric(metric)).id(`care_metric_${metric.key}`)
+      ForEach(this.careOverview, (metric: CareMetric) => {
+        Row({ space: 14 }) {
+          Column() {
+            SymbolGlyph(metric.state === 'ready' ? $r('sys.symbol.heart_fill') :
+              metric.state === 'unauthorized' ? $r('sys.symbol.lock_shield') : $r('sys.symbol.info_circle'))
+              .fontSize(23).fontColor([metric.state === 'ready' ? RED : metric.state === 'unauthorized' ? MUTED : BLUE])
+          }.width(46).height(46).justifyContent(FlexAlign.Center)
+            .backgroundColor(metric.state === 'ready' ? RED_SOFT : metric.state === 'unauthorized' ? SURFACE_ALT : BLUE_SOFT)
+            .borderRadius(14)
+          Column({ space: 5 }) {
+            Text(metric.title).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text(metric.state === 'ready' ? careMetricLatest(metric) : metric.state === 'unauthorized' ? '对方未授权此项目' :
+              metric.state === 'empty' ? '当日暂无记录' : '服务暂不可用，可刷新重试')
+              .fontSize(14).fontColor(metric.state === 'ready' ? INK : MUTED).lineHeight(21).width('100%').maxLines(2)
+            if (metric.state === 'ready') {
+              Text(`${metric.records.length} 条共享记录`).fontSize(13).fontColor(MUTED).width('100%')
+            }
+          }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+          SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
+        }.width('100%').constraintSize({ minHeight: 88 }).padding(14).backgroundColor(SURFACE).borderRadius(18)
+          .border({ width: 1, color: LINE }).onClick(() => this.openCareMetric(metric)).id(`care_metric_${metric.key}`)
+          .accessibilityText(`${metric.title}，${metric.state === 'ready' ? metric.records.length + ' 条记录' : metric.message}`)
       }, (metric: CareMetric) => metric.key)
-      if (!this.careLoading && this.careOverview.some((metric: CareMetric) => metric.state === 'unavailable' || metric.state === 'error')) {
-        this.Notice({ message: '部分项目暂未读取成功，可刷新重试。', color: GOLD_SOFT })
-      }
     } else if (this.screen === 'care-metric') {
       this.CareDateControls()
       if (!this.careLoading && !this.careMessage) {

@@ -3,7 +3,8 @@ import {
   validateStoredSession, parseProfile, parseArticles, parseArticle, loginValidation,
   registrationValidation, wechatAuthorizationValidation
 } from '../model/Contracts';
-import type { Envelope, Session, FormField, MemberProfile, Article } from '../model/Contracts';
+import type { Envelope, Session, FormField, MemberProfile, Article, UploadFile } from '../model/Contracts';
+import { profileImageUrl } from '../model/Contracts';
 import { profileDraftError, feedbackError } from '../model/DisplayPreferences';
 import type { ProfileDraft } from '../model/DisplayPreferences';
 import { parseAddresses, parseInbox, parseArticleCategories } from '../model/AccountPageContracts';
@@ -30,6 +31,7 @@ export interface SessionStore {
 export interface ApiTransport {
   request(path: string, fields?: FormField[], session?: Session, jsonBody?: string,
     method?: 'GET' | 'POST' | 'PUT' | 'DELETE'): Promise<Envelope>;
+  upload?(path: string, file: UploadFile, session: Session): Promise<Envelope>;
 }
 
 // This is the production coordinator, also exercised by host tests with synthetic stores/transports.
@@ -268,6 +270,30 @@ export class AccountClient {
     return await this.authorizedRequest(path, fields, undefined, 'POST');
   }
 
+  private async authorizedUpload(path: string, file: UploadFile): Promise<Envelope> {
+    const epoch = this.generation;
+    if (!this.transport.upload) throw new ApiError('头像上传暂时不可用，请稍后重试');
+    try {
+      let session = await this.ensureSession();
+      this.assertEpoch(epoch);
+      let response: Envelope;
+      try { response = await this.transport.upload(path, file, session); }
+      catch (error) {
+        this.assertEpoch(epoch);
+        if (!(error instanceof ApiError) || error.status !== 401) throw error as Error;
+        session = await this.ensureSession(session.accessToken);
+        this.assertEpoch(epoch);
+        response = await this.transport.upload(path, file, session);
+      }
+      this.assertEpoch(epoch);
+      return response;
+    } catch (error) {
+      this.assertEpoch(epoch);
+      if (error instanceof ApiError && error.status === 401) await this.invalidate(epoch);
+      throw error as Error;
+    }
+  }
+
   async profile(): Promise<MemberProfile> {
     const epoch = this.generation;
     const response = await this.authorized('/api/v1/member/member/my');
@@ -289,15 +315,22 @@ export class AccountClient {
     }
   }
 
-  async saveProfile(draft: ProfileDraft): Promise<MemberProfile> {
+  async uploadProfileImage(file: UploadFile): Promise<string> {
+    if (!file.uri.trim() || file.maxBytes <= 0 || file.maxBytes > 6 * 1024 * 1024) throw new ApiError('请选择有效头像图片');
+    return profileImageUrl((await this.authorizedUpload('/api/v1/file/images', file)).data);
+  }
+
+  async saveProfile(draft: ProfileDraft, headPortrait: string = ''): Promise<MemberProfile> {
     const error = profileDraftError(draft);
     if (error) throw new ApiError(error);
     const epoch = this.generation;
-    await this.authorizedFields('/api/v1/member/member/save', [
+    const fields: FormField[] = [
       { name: 'nickname', value: draft.nickname.trim() }, { name: 'gender', value: String(draft.gender) },
       { name: 'birthday', value: draft.birthday }, { name: 'height', value: String(Number(draft.height)) },
       { name: 'weight', value: String(Number(draft.weight)) }
-    ]);
+    ];
+    if (headPortrait.trim()) fields.push({ name: 'head_portrait', value: headPortrait.trim() });
+    await this.authorizedFields('/api/v1/member/member/save', fields);
     this.assertEpoch(epoch);
     const profile = await this.profile();
     this.assertEpoch(epoch);
@@ -604,6 +637,51 @@ export class AccountClient {
       if (error instanceof ApiError && error.status === 403) return careMetricState(spec, 'unauthorized', '对方尚未授权此项目');
       return careMetricState(spec, 'unavailable', '该项服务暂不可用，请稍后重试');
     }
+  }
+
+  async careMetrics(relationId: number, memberId: number, day: string): Promise<CareMetric[]> {
+    const epoch = this.generation;
+    if (this.careTargets.get(relationId) !== memberId) throw new ApiError('成员关系已变化，请返回列表重新读取');
+    const query = `selectmember=${memberId}&date=${chinaDaySeconds(day)}`;
+    let sharedDailyRows: Object | undefined = undefined;
+    try {
+      const response = await this.authorized(`/api/v1/member/daily-date/preview?${query}`);
+      this.assertEpoch(epoch);
+      sharedDailyRows = response.data;
+    } catch (error) {
+      this.assertEpoch(epoch);
+      if (error instanceof ApiError && error.status === 401) throw error;
+      // Per-metric reads below remain authoritative. A failed aggregate read
+      // must not turn an authorized metric into a fabricated empty result.
+    }
+    const read = async (spec: CareMetricSpec): Promise<CareMetric> => {
+      if (!spec.type) return this.careMetric(relationId, memberId, spec.key, day);
+      try {
+        const response = await this.authorized(`${spec.endpoint}?${query}&type=${spec.type}`);
+        this.assertEpoch(epoch);
+        const typed = parseCareMetric(spec, response.data, day);
+        if (typed.state === 'ready' || sharedDailyRows === undefined) return typed;
+        return parseCareMetric(spec, sharedDailyRows, day, false);
+      } catch (error) {
+        this.assertEpoch(epoch);
+        if (error instanceof ApiError && error.status === 401) throw error;
+        if (error instanceof ApiError && error.status === 403) {
+          return careMetricState(spec, 'unauthorized', '对方尚未授权此项目');
+        }
+        if (sharedDailyRows !== undefined) {
+          try { return parseCareMetric(spec, sharedDailyRows, day, false); }
+          catch { /* The typed failure remains visible when the shared payload is malformed. */ }
+        }
+        return careMetricState(spec, 'unavailable', '该项服务暂不可用，请稍后重试');
+      }
+    };
+    const metrics: CareMetric[] = [];
+    for (let index = 0; index < CARE_METRICS.length; index += 3) {
+      const batch = await Promise.all(CARE_METRICS.slice(index, index + 3).map(read));
+      this.assertEpoch(epoch);
+      metrics.push(...batch);
+    }
+    return metrics;
   }
 
   async articles(): Promise<Article[]> {

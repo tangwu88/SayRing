@@ -1,5 +1,5 @@
 import { abilityAccessCtrl, common, Permissions } from '@kit.AbilityKit';
-import { ble, connection } from '@kit.ConnectivityKit';
+import { ble, connection, hid } from '@kit.ConnectivityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import {
   AlarmClockItem, BatteryInfo, BleDevice, BloodComponentsResult, BloodPressureResult, BloodSugarResult,
@@ -49,6 +49,8 @@ export class VepWearableService {
   private scanObservedIds: Set<string> = new Set();
   private scanning: boolean = false;
   private scanTimer: number = -1;
+  private systemConnectedTimer: number = -1;
+  private hidProfile: hid.HidHostProfile = hid.createHidHostProfile();
   private scanGeneration: number = 0;
   private reconnectTimer: number = -1;
   private reconnectAttempt: number = 0;
@@ -136,23 +138,27 @@ export class VepWearableService {
         matchMode: ble.MatchMode.MATCH_MODE_AGGRESSIVE
       };
       try {
-        // Empty filter object provides the generic discovery needed to label W8/Yuc devices.
-        ble.startBLEScan([{}], options);
+        // The official SDK demo uses its service UUIDs. The final generic
+        // filter keeps W8/Yuc visible without classifying unrelated devices.
+        const filters: ble.ScanFilter[] = this.sdk.getScanFilterUUIDs()
+          .map((uuid: string): ble.ScanFilter => ({ serviceUuid: uuid }));
+        filters.push({});
+        ble.startBLEScan(filters, options);
       } catch {
         // Some Harmony builds reject a generic filter. Vep discovery must still remain available.
         ble.startBLEScan([{ manufactureId: 0xF8F8 }, { name: 'ET488' },
           { name: 'SD-Watch-W9' }, { name: 'SD-Watch-W9S' }, { name: 'SD-WATCH-W9S' }], options);
-        this.mergeConnectedW8Devices();
       }
       this.scanning = true;
       this.busyOperation = 'scan';
+      this.startSystemConnectedCheck();
       this.emitPhase('scanning', '正在扫描附近手表…');
       this.scanTimer = setTimeout(() => {
         if (scanGeneration !== this.scanGeneration || !this.scanning) return;
         // Do not clear the timer that is currently executing. The generation
         // guard prevents a late timeout from stopping a newer scan.
         this.scanTimer = -1;
-        this.stopScan('扫描已完成');
+        this.stopScan(this.devices.length ? '扫描已完成' : '未收到手表配对信号，请打开手表配对页后重试');
       }, WEARABLE_SCAN_TIMEOUT_MS);
       return true;
     } catch (error) {
@@ -165,6 +171,7 @@ export class VepWearableService {
 
   stopScan(message: string = ''): void {
     ++this.scanGeneration;
+    this.stopSystemConnectedCheck();
     if (this.scanTimer !== -1) {
       clearTimeout(this.scanTimer);
       this.scanTimer = -1;
@@ -571,8 +578,19 @@ export class VepWearableService {
         connectable: packet.connectable, data: new Uint8Array(packet.data).buffer };
     });
     let vepResults: BleDevice[] = [];
-    try { vepResults = this.sdk.processScanResults(normalized); }
-    catch { /* An unrecognized advertisement must not discard the rest of the batch. */ }
+    try {
+      // Keep the official SDK's input contract intact. ScanResult may contain
+      // platform fields that are lost when a new object is reconstructed.
+      vepResults = this.sdk.processScanResults(results);
+    } catch { /* An unrecognized advertisement must not discard the rest of the batch. */ }
+    try {
+      // Some watches split their name and manufacturer payload across packets.
+      // The merged packet is only a second chance and never replaces a result
+      // that the official parser already recognized from the original input.
+      this.sdk.processScanResults(normalized).forEach((device: BleDevice) => {
+        if (!vepResults.some((item: BleDevice) => item.deviceId === device.deviceId)) vepResults.push(device);
+      });
+    } catch {}
     vepResults.forEach((device: BleDevice) => {
       if (wearableProviderForName(device.deviceName) === 'Yuc') return;
       const descriptor = createWearableDevice('Vep', device.deviceName, device.deviceId,
@@ -604,20 +622,44 @@ export class VepWearableService {
     }
   };
 
-  private mergeConnectedW8Devices(): void {
+  private startSystemConnectedCheck(): void {
+    this.stopSystemConnectedCheck();
+    this.mergeSystemConnectedDevices();
+    this.systemConnectedTimer = setInterval(() => this.mergeSystemConnectedDevices(), 500);
+  }
+
+  private stopSystemConnectedCheck(): void {
+    if (this.systemConnectedTimer === -1) return;
+    clearInterval(this.systemConnectedTimer);
+    this.systemConnectedTimer = -1;
+  }
+
+  private mergeSystemConnectedDevices(): void {
     try {
-      const connected = ble.getConnectedBLEDevices();
+      const connected = [...this.hidProfile.getConnectedDevices(), ...ble.getConnectedBLEDevices()];
+      const seen: Set<string> = new Set();
       const incoming: WearableDevice[] = [];
       connected.forEach((deviceId: string) => {
+        if (seen.has(deviceId)) return;
+        seen.add(deviceId);
         try {
           const name = connection.getRemoteDeviceName(deviceId);
-          if (wearableProviderForName(name) !== 'Yuc') return;
-          const descriptor = createWearableDevice('Yuc', name, deviceId, '', 0, true);
-          if (descriptor) incoming.push(descriptor);
+          const provider = knownWearableName(name);
+          if (!provider) return;
+          const descriptor = createWearableDevice(provider, name, deviceId, '', 0, true);
+          if (!descriptor) return;
+          incoming.push(descriptor);
+          if (provider === 'Vep') {
+            this.vepDevices.set(descriptor.key, { deviceId: deviceId, deviceName: name,
+              mac: '', rssi: 0, connectable: true });
+          }
         } catch {}
       });
-      this.devices = mergeWearableDevices(this.devices, incoming);
-      this.emitDevices();
+      if (incoming.length > 0) {
+        this.devices = mergeWearableDevices(this.devices, incoming);
+        this.emitDevices();
+        this.tryRestoreConnection();
+      }
     } catch {}
   }
 

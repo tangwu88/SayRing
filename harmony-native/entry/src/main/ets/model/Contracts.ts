@@ -45,6 +45,7 @@ export interface ArticleBlock { id: string; kind: string; text: string; url: str
 
 export interface ArticleCollection { list?: Article[]; }
 export interface FormField { name: string; value: string; }
+export interface UploadFile { uri: string; fileName: string; maxBytes: number; }
 
 export class ApiError extends Error {
   status: number;
@@ -226,6 +227,17 @@ export function buildMultipart(fields: FormField[], boundary: string): string {
     if (!/^[a-z_]+$/.test(field.name)) throw new ApiError('请求字段异常');
     return `--${boundary}\r\nContent-Disposition: form-data; name="${field.name}"\r\n\r\n${field.value}\r\n`;
   }).join('') + `--${boundary}--\r\n`;
+}
+
+export function profileImageUrl(data: Object | undefined): string {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new ApiError('头像上传结果异常');
+  const payload = data as Record<string, Object>;
+  const raw = typeof payload['url'] === 'string' ? payload['url'].trim() :
+    typeof payload['path'] === 'string' ? payload['path'].trim() : '';
+  if (!raw || /[\x00-\x1f\x7f]/.test(raw) || raw.includes('..')) throw new ApiError('头像上传失败，请稍后重试');
+  if (raw.startsWith('/')) return `${API_BASE}${raw}`;
+  if (/^https:\/\/[A-Za-z0-9.-]+(?::\d+)?\/[A-Za-z0-9_./?=&%+-]+$/.test(raw)) return raw;
+  throw new ApiError('头像上传结果异常');
 }
 
 export function articleText(content: string | undefined): string {

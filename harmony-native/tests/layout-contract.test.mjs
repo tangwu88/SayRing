@@ -169,6 +169,19 @@ test('device and mine pages follow the iOS information hierarchy without droppin
   assert.ok(home.includes(".id('section-titlebar')"));
   assert.equal(home.includes('.backgroundColor(this.tab === index ? RED_SOFT : SURFACE)'),false,
     'Bottom navigation should not use the oversized selected pill removed from the iOS layout');
+  assert.match(mine,/mine-profile-card[\s\S]*openProfileEditor\(\)|openProfileEditor\(\)[\s\S]*mine-profile-card/,
+    'The main profile card must open the editable profile rather than a static feature page');
+});
+
+test('care summary refresh and member page use the same list while all metric states stay visible',()=>{
+  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  assert.match(source,/startAuthenticatedServices\(\)[\s\S]*refreshCareSummary\(true\)/);
+  assert.match(source,/if \(index === 2\) this\.refreshCareSummary\(\)/);
+  const careStart=source.lastIndexOf("} else if (this.screen === 'care-member') {");
+  const care=source.slice(careStart,source.indexOf("} else if (this.screen === 'care-metric') {",careStart));
+  assert.match(care,/ForEach\(this\.careOverview,/);
+  assert.doesNotMatch(care,/ForEach\(this\.careOverview\.filter/);
+  for(const label of ['当日暂无记录','对方未授权此项目','服务暂不可用'])assert.ok(care.includes(label));
 });
 
 test('launcher identity uses the requested name and a high-resolution brand icon',()=>{

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createWearableDevice, mergeWearableDevices } from '../entry/src/main/ets/model/WearableContracts.ts';
 import { advertisedName, knownWearableName, mergeAdvertisement, DiscoveryPacketCache }
   from '../entry/src/main/ets/model/WearableDiscovery.ts';
@@ -56,4 +57,12 @@ test('a verified MAC enriches the same transport row without duplicates or later
   assert.equal(enriched.length,1);assert.equal(enriched[0].mac,'11:22:33:44:55:66');
   const later=mergeWearableDevices(enriched,[{...fallback,rssi:-45}]);
   assert.equal(later.length,1);assert.equal(later[0].mac,parsed.mac);assert.equal(later[0].rssi,-45);
+});
+test('native discovery follows official UUID filters and merges system-connected HID watches', () => {
+  const source=readFileSync(new URL('../entry/src/main/ets/services/VepWearableService.ets',import.meta.url),'utf8');
+  assert.match(source,/getScanFilterUUIDs\(\)/);
+  assert.match(source,/processScanResults\(results\)/);
+  assert.match(source,/hid\.createHidHostProfile\(\)/);
+  assert.match(source,/hidProfile\.getConnectedDevices\(\)/);
+  assert.match(source,/knownWearableName\(name\)/);
 });

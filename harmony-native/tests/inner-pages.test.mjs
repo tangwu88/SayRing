@@ -12,10 +12,10 @@ const { emptyAddressDraft, parseRegions, addressRegionChoices, selectAddressRegi
 const { ApiError } = await import('../entry/src/main/ets/model/Contracts.ts');
 const { careGroupOptions, toggleCareGroup } = await import('../entry/src/main/ets/model/CareContracts.ts');
 const now=Date.now(), response=data=>({code:200,data});
-async function clientWith(request) {
+async function clientWith(request, upload) {
   const vault={value:{accessToken:'synthetic',refreshToken:'synthetic-refresh',expiresAt:now+3600000,memberId:'1',displayName:'合成账号'},
     async read(){return this.value},async write(value){this.value=value},async clear(){this.value=undefined}};
-  const client=new AccountClient({request},vault,()=>now);await client.restore();return client;
+  const client=new AccountClient(upload?{request,upload}:{request},vault,()=>now);await client.restore();return client;
 }
 const profile={nickname:'合成昵称',gender:1,birthday:'1990-05-21',height:'172.0',weight:'65.5'};
 test('display units convert copies only and tolerate unknown stored preferences',()=>{
@@ -54,12 +54,32 @@ test('feedback form validates category, length and optional contact',()=>{
   assert.ok(feedbackError('数据问题','合成反馈内容','x'.repeat(101)));
 });
 test('profile save follows iOS form contract and rereads the same account',async()=>{
-  const calls=[];const client=await clientWith(async(path,fields)=>{calls.push({path,fields});return response(path.endsWith('/my')?{id:1,...profile}:{});});
+  const calls=[];const client=await clientWith(async(path,fields)=>{calls.push({path,fields});return response(path.endsWith('/my')?{id:1,mobile:'13800138000',...profile}:{});});
   const value=await client.saveProfile(profile);
   assert.equal(value.nickname,profile.nickname);
+  assert.equal(value.mobile,'13800138000');
   assert.equal(calls[0].path,'/api/v1/member/member/save');
   assert.deepEqual(Object.fromEntries(calls[0].fields.map(f=>[f.name,f.value])),{...profile,gender:'1',height:'172'});
+  assert.equal(calls[0].fields.some(field=>field.name==='mobile'),false);
   assert.equal(calls[1].path,'/api/v1/member/member/my');
+});
+test('profile avatar uploads first and only the returned URL is saved',async()=>{
+  const calls=[];
+  const client=await clientWith(async(path,fields)=>{
+    calls.push({path,fields});
+    return response(path.endsWith('/my')?{id:1,head_portrait:'https://app.saidian.cc/attachment/avatar.png',...profile}:{});
+  },async(path,file,session)=>{
+    calls.push({path,file,memberId:session.memberId});
+    return response({path:'/attachment/avatar.png'});
+  });
+  const avatar=await client.uploadProfileImage({uri:'file://synthetic-avatar',fileName:'avatar',maxBytes:6*1024*1024});
+  assert.equal(avatar,'https://app.saidian.cc/attachment/avatar.png');
+  await client.saveProfile(profile,avatar);
+  assert.equal(calls[0].path,'/api/v1/file/images');
+  assert.equal(calls[0].memberId,'1');
+  const saved=Object.fromEntries(calls[1].fields.map(field=>[field.name,field.value]));
+  assert.equal(saved.head_portrait,avatar);
+  assert.equal(saved.mobile,undefined);
 });
 test('profile 404, offline and wrong identity cannot become save success',async()=>{
   for(const status of [0,404,405]){
@@ -162,4 +182,16 @@ test('native inner pages keep operational forms, routes and fixed payment footer
   const messageOpen=source.slice(source.indexOf('private async openInboxMessage('),source.indexOf('private async refreshPermissions('));
   assert.match(messageOpen,/this\.readInvitationMessage\(message\.id\)/);
   assert.match(messageOpen,/await saydianApi\.readInboxMessage\(id\)/);
+});
+test('member profile shows the registered mobile without making it editable',()=>{
+  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const profile=source.slice(source.indexOf('  ProfileEditorContent()'),source.indexOf('  UnitSettingsContent()'));
+  const account=source.slice(source.indexOf('  AccountContent()'),source.indexOf('  AddressContent()'));
+  assert.match(profile,/Text\('注册手机号'\)/);
+  assert.match(profile,/profile_registered_mobile/);
+  assert.match(profile,/profileField\(this\.profile\.mobile\)/);
+  assert.doesNotMatch(profile,/TextInput\(\{ text: this\.profile\.mobile/);
+  assert.match(account,/注册手机号和基础资料/);
+  assert.match(profile,/profile_avatar_picker/);
+  assert.match(profile,/pickProfileAvatar\(\)/);
 });

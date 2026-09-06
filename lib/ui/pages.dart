@@ -9282,7 +9282,7 @@ class AccountSettingsPage extends StatelessWidget {
                   ),
                   leading: const Icon(Icons.person_outline_rounded),
                   title: const Text('个人资料'),
-                  subtitle: const Text('昵称、性别、生日、身高和体重'),
+                  subtitle: const Text('注册手机号和基础资料'),
                   trailing: const Icon(Icons.chevron_right_rounded),
                 ),
                 const Divider(indent: 56),
@@ -9466,6 +9466,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
   late final TextEditingController _weight;
   late int _gender;
   late String _avatarUrl;
+  late String _registeredMobile;
   Uint8List? _avatarBytes;
   String? _avatarFilePath;
   bool _isPickingAvatar = false;
@@ -9483,6 +9484,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
     _weight = TextEditingController(text: '${profile['weight'] ?? ''}');
     _gender = int.tryParse('${profile['gender'] ?? 1}') ?? 1;
     _avatarUrl = '${profile['head_portrait'] ?? ''}'.trim();
+    _registeredMobile = _mobileFromProfile(profile);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_loadLatestProfile());
     });
@@ -9496,6 +9498,9 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
     _weight.dispose();
     super.dispose();
   }
+
+  String _mobileFromProfile(Map<String, Object?> profile) =>
+      '${profile['mobile'] ?? ''}'.trim();
 
   Future<void> _selectBirthday() async {
     final initial = DateTime.tryParse(_birthday.text) ?? DateTime(1990);
@@ -9526,6 +9531,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
         _profileLoadError = widget.controller.errorMessage ?? '个人资料读取失败，请稍后重试';
         return;
       }
+      _registeredMobile = _mobileFromProfile(profile);
       if (_profileEdited) return;
       _nickname.text = '${profile['nickname'] ?? ''}';
       _birthday.text = '${profile['birthday'] ?? ''}';
@@ -9698,6 +9704,23 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
             ),
           ],
           const SizedBox(height: 22),
+          Semantics(
+            label: _registeredMobile.isEmpty
+                ? '注册手机号，未获取'
+                : '注册手机号，$_registeredMobile',
+            child: InputDecorator(
+              key: const Key('profile-registered-mobile'),
+              decoration: const InputDecoration(
+                labelText: '注册手机号',
+                suffixIcon: Icon(Icons.lock_outline_rounded),
+              ),
+              child: Text(
+                _registeredMobile.isEmpty ? '未获取' : _registeredMobile,
+                style: const TextStyle(color: SaydianColors.ink, fontSize: 16),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           TextField(
             key: const Key('profile-nickname'),
             controller: _nickname,
