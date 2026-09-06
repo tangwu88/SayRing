@@ -33,6 +33,38 @@ XCODE_RELEASE_GATE = HERE / "validate_xcode_release.sh"
 
 
 class ReleaseGateTest(unittest.TestCase):
+    def test_apk_numeric_resources_must_resolve_uniquely_from_actual_table(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            resources = Path(directory) / "resources.txt"
+            resources.write_text(
+                "    resource 0x7f100003 xml/network_security_config\n"
+                "    resource 0x7f100000 xml/data_extraction_rules\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                gate.resolve_apk_resource("@ref/0x7f100003", str(resources)),
+                "@xml/network_security_config",
+            )
+            self.assertEqual(
+                gate.resolve_apk_resource("@ref/0x7f100000", str(resources)),
+                "@xml/data_extraction_rules",
+            )
+            for reference, table in [
+                ("@ref/0x7f100003", None),
+                ("@ref/0x7f100004", str(resources)),
+                ("@ref/../malformed", str(resources)),
+            ]:
+                with self.subTest(reference=reference, table=table):
+                    with self.assertRaises(gate.GateError):
+                        gate.resolve_apk_resource(reference, table)
+            resources.write_text(
+                "resource 0x7f100003 xml/network_security_config\n"
+                "resource 0x7f100003 xml/untrusted_rules\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(gate.GateError, "ambiguous"):
+                gate.resolve_apk_resource("@ref/0x7f100003", str(resources))
+
     def test_metadata_requires_version_and_build_to_increase(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -199,6 +231,18 @@ class ReleaseGateTest(unittest.TestCase):
                 gate.apk_manifest_command(args)
                 args.expected_build = 25
                 with self.assertRaises(gate.GateError):
+                    gate.apk_manifest_command(args)
+                args.expected_build = 24
+                manifest.write_text(
+                    manifest.read_text(encoding="utf-8").replace(
+                        "<application ",
+                        '<uses-feature android:name="android.bluetooth.le" '
+                        'android:required="true" /><application ',
+                        1,
+                    ),
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(gate.GateError, "invalid Bluetooth feature"):
                     gate.apk_manifest_command(args)
 
     def test_apk_manifest_rejects_forbidden_permissions(self) -> None:

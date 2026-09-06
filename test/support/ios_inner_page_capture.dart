@@ -10,6 +10,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/local_health_store.dart';
@@ -27,6 +28,16 @@ void main() {
     'capture iOS inner-page references without production writes',
     (tester) async {
       if (output.isEmpty) return;
+      const captureImages = bool.fromEnvironment(
+        'IOS_REFERENCE_CAPTURE',
+        defaultValue: true,
+      );
+      const interactions = bool.fromEnvironment('IOS_REFERENCE_INTERACTIONS');
+      const pageFilter = String.fromEnvironment('IOS_REFERENCE_PAGE');
+      const fontScale = String.fromEnvironment(
+        'IOS_REFERENCE_TEXT_SCALE',
+        defaultValue: '1',
+      );
       const publicImages = bool.fromEnvironment('IOS_REFERENCE_PUBLIC_IMAGES');
       if (publicImages) {
         // Opt-in public product image capture only. API/account calls remain offline.
@@ -193,6 +204,10 @@ void main() {
         'articles': ArticleCategoryPage(controller: controller),
         'registration': RegistrationPage(controller: controller),
         'password': PasswordRecoveryPage(controller: controller),
+        'watchfaces': DeviceFeaturePage(
+          controller: controller,
+          feature: DeviceFeature.watchFaces,
+        ),
       };
       const permissions = MethodChannel(
         'flutter.baseflow.com/permissions/methods',
@@ -201,7 +216,21 @@ void main() {
         permissions,
         (call) async => call.method == 'requestPermissions' ? <int, int>{} : 0,
       );
+      final layoutFailures = <String>[];
       for (final page in pages.entries) {
+        if (pageFilter.isNotEmpty && page.key != pageFilter) continue;
+        if (page.key == 'watchfaces') {
+          // Explicit offline installed-dial fixture, no live transport or pictures.
+          controller.connectedDevice = const DeviceInfo(
+            id: 'visual-watch',
+            name: 'SD-WATCH-W9S',
+          );
+          controller.capabilities = const DeviceCapabilities(
+            metrics: {},
+            features: {DeviceFeature.watchFaces},
+            integratedFeatures: {DeviceFeature.watchFaces},
+          );
+        }
         final key = GlobalKey();
         final theme = buildSaydianTheme();
         await tester.pumpWidget(
@@ -209,6 +238,12 @@ void main() {
             key: key,
             child: MaterialApp(
               debugShowCheckedModeBanner: false,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(
+                  textScaler: TextScaler.linear(double.parse(fontScale)),
+                ),
+                child: child!,
+              ),
               theme: theme.copyWith(
                 textTheme: theme.textTheme.apply(
                   fontFamily: 'Reference Chinese',
@@ -238,7 +273,10 @@ void main() {
           await tester.pump();
         }
         await tester.pump(const Duration(seconds: 1));
-        expect(tester.takeException(), isNull, reason: page.key);
+        final layoutError = tester.takeException();
+        if (layoutError != null) {
+          layoutFailures.add('${page.key}: $layoutError');
+        }
         // Widget tests force unthemed text to Ahem. Change only the capture's
         // render font fallback; keep every production weight/size/line height.
         for (final element in find.byType(RichText).evaluate()) {
@@ -250,18 +288,43 @@ void main() {
         await tester.pump();
         final boundary =
             key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
-        await tester.runAsync(() async {
-          final screenshot = await boundary.toImage(
-            pixelRatio: double.parse(ratio),
+        if (captureImages) {
+          await tester.runAsync(() async {
+            final screenshot = await boundary.toImage(
+              pixelRatio: double.parse(ratio),
+            );
+            final data = await screenshot.toByteData(
+              format: ui.ImageByteFormat.png,
+            );
+            await File(
+              '$output/${page.key}.png',
+            ).writeAsBytes(data!.buffer.asUint8List());
+            screenshot.dispose();
+          });
+        }
+        if (interactions && page.key == 'shop-product') {
+          // Open the existing selector only; never confirm purchase or create an order.
+          await tester.tap(find.text('立即购买').last);
+          await tester.pump(const Duration(milliseconds: 500));
+          final error = tester.takeException();
+          if (error != null) {
+            layoutFailures.add('shop-product-selector: $error');
+          }
+          expect(find.text('请选择规格'), findsOneWidget);
+        }
+        if (interactions && page.key == 'ai-chat') {
+          tester.view.viewInsets = const FakeViewPadding(bottom: 220);
+          await tester.tap(find.byKey(const Key('ai-message-input')));
+          await tester.enterText(
+            find.byKey(const Key('ai-message-input')),
+            '版式验证\n仅输入，不发送\n第三行\n第四行',
           );
-          final data = await screenshot.toByteData(
-            format: ui.ImageByteFormat.png,
-          );
-          await File(
-            '$output/${page.key}.png',
-          ).writeAsBytes(data!.buffer.asUint8List());
-          screenshot.dispose();
-        });
+          await tester.pump();
+          final error = tester.takeException();
+          if (error != null) layoutFailures.add('ai-chat-keyboard: $error');
+          expect(find.byIcon(Icons.send_rounded).hitTestable(), findsOneWidget);
+          tester.view.resetViewInsets();
+        }
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump();
       }
@@ -270,6 +333,7 @@ void main() {
         null,
       );
       debugDefaultTargetPlatformOverride = null;
+      expect(layoutFailures, isEmpty, reason: layoutFailures.join('\n'));
     },
     timeout: const Timeout(Duration(minutes: 4)),
   );
@@ -296,6 +360,20 @@ class _OfflineWatch extends Fake implements WearableBridge {
   Stream<WearableEvent> get events => const Stream.empty();
   @override
   Future<List<SportRecord>> readSportRecords() async => [];
+  @override
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async =>
+      {
+        'onlineMarketSupported': false,
+        'items': List.generate(
+          9,
+          (index) => {
+            'id': index,
+            'name': '表盘 ${index + 1}',
+            'isCurrent': index == 2,
+            'status': '已安装',
+          },
+        ),
+      };
 }
 
 class _OfflineApi extends Fake

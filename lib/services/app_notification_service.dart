@@ -431,6 +431,13 @@ final class JPushAppNotificationService implements AppNotificationService {
     required bool systemAlreadyPresented,
   }) {
     final normalized = normalizeJPushPayload(raw);
+    if (kDebugMode) {
+      debugPrint(
+        '[push-callback] opened=${identical(target, _opened)} '
+        'kind=$deliveryKind parsed=${normalized != null} '
+        'type=${normalized?['event_type'] ?? 'unsupported'}',
+      );
+    }
     if (normalized != null && !target.isClosed) {
       // These fields are set after normalizing untrusted extras so the server
       // cannot suppress or duplicate the client-side system notification.

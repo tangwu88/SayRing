@@ -1191,7 +1191,7 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                                         ? mobile
                                         : inviterId.isNotEmpty
                                         ? '邀请人账号 ID：$inviterId'
-                                        : '邀请人手机号暂未返回',
+                                        : '邀请人信息暂不可用',
                                     style: const TextStyle(
                                       color: SaydianColors.muted,
                                       fontSize: 14,
@@ -1205,7 +1205,7 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                         if (nickname.isEmpty && mobile.isEmpty) ...[
                           const SizedBox(height: 8),
                           const Text(
-                            '服务器暂未返回邀请人的公开头像、昵称和手机号，已避免错误显示为当前账号。',
+                            '请确认邀请人后再接受',
                             style: TextStyle(
                               color: SaydianColors.muted,
                               fontSize: 12,

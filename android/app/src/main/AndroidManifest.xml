@@ -49,7 +49,7 @@
         android:required="true" />
     <uses-feature
         android:name="android.bluetooth.le"
-        android:required="true" />
+        tools:node="remove" />
     <!-- Camera access is used only for optional user actions such as changing
          an avatar; devices without a camera must remain installable. -->
     <uses-feature

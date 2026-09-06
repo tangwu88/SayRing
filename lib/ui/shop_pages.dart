@@ -553,7 +553,11 @@ class _ShopProductPageState extends State<ShopProductPage> {
                               ),
                             ),
                             const SizedBox(height: 10),
-                            Row(
+                            Wrap(
+                              alignment: WrapAlignment.spaceBetween,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 16,
+                              runSpacing: 6,
                               children: [
                                 Text(
                                   '¥${_money(_selectedSku?['price'] ?? _product['price'])}',
@@ -563,7 +567,6 @@ class _ShopProductPageState extends State<ShopProductPage> {
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),
-                                const Spacer(),
                                 Text(
                                   '销量 ${_product['sales'] ?? 0}',
                                   style: const TextStyle(
@@ -645,16 +648,18 @@ class _ShopProductPageState extends State<ShopProductPage> {
               maintainBottomViewPadding: true,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-                child: Row(
-                  children: [
-                    _ShopBottomAction(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final stacked =
+                        constraints.maxWidth < 336 ||
+                        MediaQuery.textScalerOf(context).scale(14) > 18.2;
+                    final home = _ShopBottomAction(
                       tooltip: '商城首页',
                       label: '首页',
                       icon: Icons.home_rounded,
                       onTap: () => Navigator.pop(context),
-                    ),
-                    const SizedBox(width: 4),
-                    _ShopBottomAction(
+                    );
+                    final support = _ShopBottomAction(
                       tooltip: '客服',
                       label: '客服',
                       icon: Icons.support_agent_rounded,
@@ -666,36 +671,74 @@ class _ShopProductPageState extends State<ShopProductPage> {
                           builder: (_) => const CustomerServicePage(),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 7),
-                          minimumSize: const Size(0, 48),
+                    );
+                    final purchaseButtons = Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 12,
+                              ),
+                              minimumSize: const Size(0, 48),
+                            ),
+                            onPressed: () =>
+                                _showPurchaseSheet(addToCart: true),
+                            child: Text(
+                              stacked &&
+                                      MediaQuery.textScalerOf(
+                                            context,
+                                          ).scale(14) >
+                                          18.2
+                                  ? '加入\n购物车'
+                                  : '加入购物车',
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
                         ),
-                        onPressed: () => _showPurchaseSheet(addToCart: true),
-                        child: const FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text('加入购物车', maxLines: 1, softWrap: false),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 12,
+                              ),
+                              minimumSize: const Size(0, 48),
+                            ),
+                            onPressed: () => _showPurchaseSheet(),
+                            child: const Text(
+                              '立即购买',
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 7),
-                          minimumSize: const Size(0, 48),
-                        ),
-                        onPressed: () => _showPurchaseSheet(),
-                        child: const FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text('立即购买', maxLines: 1, softWrap: false),
-                        ),
-                      ),
-                    ),
-                  ],
+                      ],
+                    );
+                    if (stacked) {
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [home, support],
+                          ),
+                          const SizedBox(height: 8),
+                          purchaseButtons,
+                        ],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        home,
+                        const SizedBox(width: 4),
+                        support,
+                        const SizedBox(width: 8),
+                        Expanded(child: purchaseButtons),
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
@@ -723,10 +766,11 @@ class _ShopBottomAction extends StatelessWidget {
     child: InkResponse(
       onTap: onTap,
       radius: 28,
-      child: SizedBox(
-        width: 48,
-        height: 52,
+      child: Container(
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 52),
+        padding: const EdgeInsets.symmetric(vertical: 4),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(icon, size: 23, color: SaydianColors.ink),
@@ -2126,6 +2170,8 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     key: ValueKey('province-$_provinceCode'),
+                    isExpanded: true,
+                    itemHeight: null,
                     initialValue: _provinceCode,
                     decoration: const InputDecoration(labelText: '省/自治区'),
                     items: _provinces.entries
@@ -2145,6 +2191,8 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     key: ValueKey('city-$_provinceCode-$_cityCode'),
+                    isExpanded: true,
+                    itemHeight: null,
                     initialValue: _cityCode,
                     decoration: const InputDecoration(labelText: '城市'),
                     items: _availableCities.entries
@@ -2165,6 +2213,8 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     key: ValueKey('area-$_cityCode-$_areaCode'),
+                    isExpanded: true,
+                    itemHeight: null,
                     initialValue: _areaCode,
                     decoration: const InputDecoration(labelText: '区/县'),
                     items: _availableAreas.entries

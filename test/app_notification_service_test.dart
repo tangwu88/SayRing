@@ -87,6 +87,42 @@ void main() {
     );
   });
 
+  test('native notification logs only debug callback readiness', () {
+    final source = File(
+      'third_party/jpush_flutter/android/src/main/java/'
+      'com/jiguang/jpush/JPushHelper.java',
+    ).readAsStringSync();
+    final helperStart = source.indexOf(
+      'private void logNotificationCallback(String type)',
+    );
+    final helperEnd = source.indexOf('\n    public void ', helperStart);
+    expect(helperStart, greaterThanOrEqualTo(0));
+    expect(helperEnd, greaterThan(helperStart));
+    final helper = source.substring(helperStart, helperEnd);
+    final logCalls = RegExp(
+      r'Log\.[a-z]+\([^;]*;',
+      dotAll: true,
+    ).allMatches(source).map((match) => match.group(0)!).toList();
+
+    expect(logCalls, hasLength(1));
+    expect(helper, contains('ApplicationInfo.FLAG_DEBUGGABLE) != 0'));
+    expect(helper, contains(logCalls.single));
+    expect(
+      logCalls.single.replaceAll(RegExp(r'\s+'), ' '),
+      'Log.i("SaydianPush", "callback=" + type + " dart_ready=" + dartIsReady '
+      '+ " channel_ready=" + (channel != null));',
+    );
+    expect(
+      RegExp(
+        r'logNotificationCallback\(([^)]*)\);',
+      ).allMatches(source).map((match) => match.group(1)),
+      ['"open"', '"receive"'],
+    );
+    expect(source, isNot(contains('printStackTrace(')));
+    expect(source, isNot(contains('System.out.')));
+    expect(source, isNot(contains('System.err.')));
+  });
+
   test('registration id has a short bounded timeout', () async {
     final jpush = _FakeJPush(registrationId: Completer<String>().future);
     final service = JPushAppNotificationService(

@@ -31,7 +31,6 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
 
 public class JPushHelper {
-    private static String TAG = "| JPUSH | Flutter | Android | ";
 //    private List<Map<String, Object>> openNotificationCache = new ArrayList<>();
 //    private List<Map<String, Object>> openMessageCache = new ArrayList<>();
     private List<CachedMessage> calBackMessageCache = new ArrayList<>();
@@ -130,13 +129,11 @@ public class JPushHelper {
         JPushHelper.getInstance().getHandler().post(new Runnable() {
             @Override
             public void run() {
-                Log.d(TAG, "dispatchNotification");
                 invokeMethod(null,null);
             }
         });
 
 //        if (channel == null) {
-//            Log.d(TAG, "the channel is null");
 //            return;
 //        }
 //        List<Object> tempList = new ArrayList<Object>();
@@ -175,7 +172,6 @@ public class JPushHelper {
             tempList.clear();
             List<Result> resultList = getRidCache;
             for (Result res : resultList) {
-                Log.d(TAG, "scheduleCache rid = " + rid);
                 res.success(rid);
                 tempList.add(res);
             }
@@ -185,7 +181,6 @@ public class JPushHelper {
     }
 
     public void transmitVoipMessage(VoipDataMessage voipDataMessage) {
-        Log.d(TAG, "transmitVoipMessage " + "voipDataMessage=" + voipDataMessage);
         Map<String, Object> msg = new HashMap<>();
         msg.put("messageId", voipDataMessage.getMessageId());
         msg.put("extraData", voipDataMessage.getExtraData());
@@ -194,18 +189,14 @@ public class JPushHelper {
     }
 
     public void transmitMessageReceive(CustomMessage customMessage) {
-        Log.d(TAG, "transmitMessageReceive " + "customMessage=" + customMessage);
         Map<String, Object> msg = new HashMap<>();
         msg.put("message", customMessage.message);
         msg.put("alert", customMessage.title);
         msg.put("extras", getExtras(customMessage));
 //        openMessageCache.add(msg);
-//        Log.d(TAG, "transmitMessageReceive msg=" + msg);
 //        if (channel == null) {
-//            Log.d(TAG, "the instance is null");
 //            return;
 //        }
-//        Log.d(TAG, "instance.dartIsReady =" + dartIsReady);
 //        if (dartIsReady) {
             invokeMethod("onReceiveMessage", msg);
 //            openMessageCache.remove(msg);
@@ -226,7 +217,7 @@ public class JPushHelper {
     }
 
     public void transmitNotificationOpen(NotificationMessage notificationMessage) {
-        Log.d(TAG, "transmitNotificationOpen notificationMessage=" + notificationMessage);
+        logNotificationCallback("open");
         Map<String, Object> notification = new HashMap<>();
         notification.put("title", notificationMessage.notificationTitle);
         notification.put("alert", notificationMessage.notificationContent);
@@ -235,13 +226,10 @@ public class JPushHelper {
         if (1 == notificationMessage.notificationType) {
             openApp();
         }
-//        Log.d(TAG, "transmitNotificationOpen notification=" + notification);
 //
 //        if (channel == null) {
-//            Log.d(TAG, "the channel is null");
 //            return;
 //        }
-//        Log.d(TAG, "instance.dartIsReady =" + dartIsReady);
 //        if (dartIsReady) {
             invokeMethod("onOpenNotification", notification);
 //            openNotificationCache.remove(notification);
@@ -249,22 +237,27 @@ public class JPushHelper {
     }
 
     public void transmitNotificationReceive(NotificationMessage notificationMessage) {
-        Log.d(TAG, "transmitNotificationReceive notificationMessage=" + notificationMessage);
-//        Log.d(TAG, "transmitNotificationReceive " + "title=" + title + "alert=" + alert + "extras=" + extras);
+        logNotificationCallback("receive");
 //        if (channel == null) {
-//            Log.d(TAG, "the channel is null");
 //            return;
 //        }
         Map<String, Object> notification = new HashMap<>();
         notification.put("title", notificationMessage.notificationTitle);
         notification.put("alert", notificationMessage.notificationContent);
         notification.put("extras", getExtras(notificationMessage));
-        Log.d(TAG, "transmitNotificationReceive notification=" + notification);
         invokeMethod("onReceiveNotification", notification);
     }
 
+    private void logNotificationCallback(String type) {
+        Context context = mContext.get();
+        if (context != null && (context.getApplicationInfo().flags &
+                android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+            Log.i("SaydianPush", "callback=" + type + " dart_ready=" + dartIsReady
+                    + " channel_ready=" + (channel != null));
+        }
+    }
+
     public void onCommandResult(CmdMessage cmdMessage) {
-        Log.d(TAG, "[onCommandResult] message:" + cmdMessage);
 
         // 处理 getPushStatus 的回调 (cmd == 2003)
         if (cmdMessage != null && cmdMessage.cmd == 2003) {
@@ -305,7 +298,6 @@ public class JPushHelper {
         }
 
 //        if (channel == null) {
-//            Log.d(TAG, "the channel is null");
 //            return;
 //        }
         Map<String, Object> notification = new HashMap<>();
@@ -317,9 +309,7 @@ public class JPushHelper {
     }
 
     public void onNotifyMessageUnShow(NotificationMessage notificationMessage) {
-        Log.d(TAG, "[onNotifyMessageUnShow] message:" + notificationMessage);
 //        if (channel == null) {
-//            Log.d(TAG, "the channel is null");
 //            return;
 //        }
         Map<String, Object> notification = new HashMap<>();
@@ -330,9 +320,7 @@ public class JPushHelper {
     }
 
     public void onConnected(boolean isConnected) {
-        Log.d(TAG, "[onConnected] :" + isConnected);
 //        if (channel == null) {
-//            Log.d(TAG, "the channel is null");
 //            return;
 //        }
         Map<String, Object> results = new HashMap<>();
@@ -341,9 +329,7 @@ public class JPushHelper {
     }
 
     public void onInAppMessageShow(NotificationMessage notificationMessage) {
-        Log.d(TAG, "[onInAppMessageShow] :" + notificationMessage);
 //        if (channel == null) {
-//            Log.d(TAG, "the channel is null");
 //            return;
 //        }
         Map<String, Object> notification = new HashMap<>();
@@ -357,9 +343,7 @@ public class JPushHelper {
     }
 
     public void onInAppMessageClick(NotificationMessage notificationMessage) {
-        Log.d(TAG, "[onInAppMessageClick] :" + notificationMessage);
 //        if (channel == null) {
-//            Log.d(TAG, "the channel is null");
 //            return;
 //        }
         Map<String, Object> notification = new HashMap<>();
@@ -373,7 +357,6 @@ public class JPushHelper {
     }
 
     public void onNotifyButtonClick(NotificationCustomButton notificationCustomButton) {
-        Log.d(TAG, "[onNotifyButtonClick] :" + notificationCustomButton);
         Map<String, Object> notification = new HashMap<>();
         notification.put("msgId", notificationCustomButton.a);
         notification.put("platform", notificationCustomButton.b);
@@ -422,7 +405,6 @@ public class JPushHelper {
                 extras.put(JPushInterface.EXTRA_NOTIFICATION_LARGET_ICON, notificationMessage.notificationLargeIcon);
             }
         } catch (Throwable e) {
-            Log.e(TAG, "[onNotifyMessageUnShow] e:" + e.getMessage());
         }
         return extras;
     }
@@ -482,7 +464,6 @@ public class JPushHelper {
 
 
     public void transmitReceiveRegistrationId(String rId) {
-        Log.d(TAG, "transmitReceiveRegistrationId： " + rId);
         jpushDidinit = true;
         dispatchNotification();
         dispatchRid(rId);
@@ -490,15 +471,12 @@ public class JPushHelper {
 
     // 主线程再返回数据
     public void runMainThread(final Map<String, Object> map, final Result result, final String method) {
-        Log.d(TAG, "runMainThread:" + "map = " + map + ",method =" + method);
         getHandler().post(new Runnable() {
             @Override
             public void run() {
                 if (result == null && method != null) {
                     if (null != channel) {
                         invokeMethod(method, map);
-                    } else {
-                        Log.d(TAG, "channel is null do nothing");
                     }
                 } else {
                     result.success(map);
@@ -515,19 +493,13 @@ public class JPushHelper {
      */
     private void invokeMethod(String method, Map<String, Object> msg) {
         if (!dartIsReady) {
-            Log.d(TAG, "dartIsReady false: " + method);
             if (method != null) {
                 calBackMessageCache.add(new CachedMessage(method, msg));
-            } else {
-                Log.d(TAG, "skip cache because method is null");
             }
             return;
         } else if (channel == null) {
-            Log.d(TAG, "channel is null, cannot invoke " + method);
             if (method != null) {
                 calBackMessageCache.add(new CachedMessage(method, msg));
-            } else {
-                Log.d(TAG, "skip cache because method is null");
             }
             return;
         }
@@ -536,10 +508,8 @@ public class JPushHelper {
         if (!calBackMessageCache.isEmpty()) {
             for (CachedMessage c : calBackMessageCache) {
                 if (c.getMethod() == null) {
-                    Log.w(TAG, "skip invoking cached message because method is null, data=" + c.getData());
                     continue;
                 }
-                Log.d(TAG, "method:" + c.getMethod() + ",data:" + c.getData());
                 channel.invokeMethod(c.getMethod(), c.getData());
             }
             calBackMessageCache.clear();
@@ -547,10 +517,8 @@ public class JPushHelper {
 
         // 当前调用：若method为null直接返回
         if (method == null) {
-            Log.d(TAG, "skip current invoke because method is null");
             return;
         }
-        Log.d(TAG, "method:" + method + ",msg:" + msg);
         channel.invokeMethod(method, msg);
     }
 

@@ -1745,20 +1745,13 @@ class SaydianApiClient
   bool _isOptionalNotificationEndpointUnavailableResponse(
     http.Response response,
   ) {
-    if (_isOptionalNotificationEndpointUnavailable(response.statusCode)) {
-      return true;
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return _isOptionalNotificationEndpointUnavailable(response.statusCode);
     }
     try {
       final payload = jsonDecode(response.body);
       if (payload is! Map) return false;
-      final rawCode = payload['code'];
-      final code = switch (rawCode) {
-        int value => value,
-        num value when value.isFinite && value == value.toInt() =>
-          value.toInt(),
-        String value => int.tryParse(value.trim()),
-        _ => null,
-      };
+      final code = _responseBusinessCode(payload['code']);
       return _isOptionalNotificationEndpointUnavailable(code);
     } on FormatException {
       return false;
@@ -1793,10 +1786,12 @@ class SaydianApiClient
   }
 
   bool _isUnauthorizedResponse(http.Response response) {
-    if (response.statusCode == 401) return true;
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return response.statusCode == 401;
+    }
     try {
       final payload = jsonDecode(response.body);
-      return payload is Map && payload['code'] is num && payload['code'] == 401;
+      return payload is Map && _responseBusinessCode(payload['code']) == 401;
     } on FormatException {
       return false;
     }
@@ -1866,21 +1861,38 @@ class SaydianApiClient
       throw ApiException('服务器响应格式不正确', statusCode: response.statusCode);
     }
     final payload = decoded.map((key, value) => MapEntry('$key', value));
-    final code = payload['code'];
-    final businessStatus = code is num && code >= 400 && code < 600
-        ? code.toInt()
+    final rawCode = payload['code'];
+    final code = _responseBusinessCode(rawCode);
+    final httpFailed = response.statusCode < 200 || response.statusCode >= 300;
+    final businessStatus = httpFailed
+        ? response.statusCode
+        : code != null && code >= 400 && code < 600
+        ? code
         : response.statusCode;
-    if (response.statusCode < 200 ||
-        response.statusCode >= 300 ||
-        (code is num && code.toInt() != 200)) {
+    if (httpFailed || (code != null && code != 200)) {
       throw ApiException(
         '${payload['message'] ?? '请求失败'}',
         statusCode: businessStatus,
-        code: code,
+        code: rawCode,
+      );
+    }
+    if (payload.containsKey('code') && code == null) {
+      throw ApiException(
+        '服务器响应状态格式不正确',
+        statusCode: response.statusCode,
+        code: rawCode,
       );
     }
     return payload;
   }
+
+  int? _responseBusinessCode(Object? value) => switch (value) {
+    int number => number,
+    num number when number.isFinite && number == number.toInt() =>
+      number.toInt(),
+    String text when RegExp(r'^[0-9]+$').hasMatch(text) => int.tryParse(text),
+    _ => null,
+  };
 
   Map<String, Object?> _data(Map<String, Object?> payload) {
     final data = payload['data'];
@@ -2069,6 +2081,19 @@ class SaydianApiClient
             error.code == 'NETWORK_UNAVAILABLE') {
           rethrow;
         }
+        // A metric-specific denial is authoritative even when the earlier
+        // aggregate request succeeded. Never recover revoked data from it.
+        if (error.statusCode == 403) {
+          result.add(<String, Object?>{
+            'title': spec.title,
+            'metricType': spec.type ?? spec.endpoint,
+            'unit': spec.unit,
+            'state': 'unauthorized',
+            'tips': '对方未授权此项目',
+            'records': const <Object?>[],
+          });
+          continue;
+        }
         if (spec.endpoint == '/api/v1/member/daily-date/preview' &&
             sharedDailyRowsAvailable) {
           result.add(
@@ -2086,9 +2111,7 @@ class SaydianApiClient
           'metricType': spec.type ?? spec.endpoint,
           'unit': spec.unit,
           'state': 'unavailable',
-          'tips': error.statusCode == 403
-              ? '${spec.title}未获共享授权'
-              : '${spec.title}服务暂不可用，请稍后重试',
+          'tips': '${spec.title}服务暂不可用，请稍后重试',
           'records': const <Object?>[],
         });
       }

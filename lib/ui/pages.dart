@@ -3764,14 +3764,23 @@ class _AiChatPageState extends State<AiChatPage> {
           children: [
             Expanded(
               child: widget.controller.aiMessages.isEmpty
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(28),
-                        child: FeatureStateCard(
-                          message: '您好，我是 AI 健康管家',
-                          detail: '可以向我咨询日常健康管理问题，回答仅供参考，不能替代医生诊断。',
-                          icon: Icons.health_and_safety_outlined,
-                          color: SaydianColors.brandRed,
+                  ? LayoutBuilder(
+                      builder: (context, constraints) => SingleChildScrollView(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minHeight: constraints.maxHeight,
+                          ),
+                          child: const Padding(
+                            padding: EdgeInsets.all(28),
+                            child: Center(
+                              child: FeatureStateCard(
+                                message: '您好，我是 AI 健康管家',
+                                detail: '可以向我咨询日常健康管理问题，回答仅供参考，不能替代医生诊断。',
+                                icon: Icons.health_and_safety_outlined,
+                                color: SaydianColors.brandRed,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     )
@@ -3893,7 +3902,12 @@ class _AiChatPageState extends State<AiChatPage> {
                         controller: _input,
                         focusNode: _inputFocus,
                         minLines: 1,
-                        maxLines: 4,
+                        maxLines:
+                            MediaQuery.sizeOf(context).height -
+                                    MediaQuery.viewInsetsOf(context).bottom <
+                                430
+                            ? 2
+                            : 4,
                         textInputAction: TextInputAction.send,
                         onSubmitted: (_) => _send(),
                         decoration: const InputDecoration(hintText: '请输入消息…'),
@@ -5654,6 +5668,7 @@ class _CarePageState extends State<CarePage> {
                     ),
                   ),
                   IconButton.filled(
+                    tooltip: '添加关爱',
                     onPressed:
                         controller.session == null || controller.isPreviewMode
                         ? null
@@ -6276,8 +6291,13 @@ class _CareDailyCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = '${item['title'] ?? '健康详情'}';
-    final tips = '${item['tips'] ?? item['tip'] ?? ''}'.trim();
-    final summary = _careSummary(item);
+    final unauthorized = item['state'] == 'unauthorized';
+    final tips = unauthorized
+        ? '对方未授权此项目'
+        : '${item['tips'] ?? item['tip'] ?? ''}'.trim();
+    final summary = unauthorized
+        ? const <String, String>{}
+        : _careSummary(item);
     final unavailable = item['state'] == 'unavailable';
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -6298,10 +6318,14 @@ class _CareDailyCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
-                      unavailable
+                      unauthorized
+                          ? Icons.lock_outline
+                          : unavailable
                           ? Icons.cloud_off_outlined
                           : Icons.monitor_heart_outlined,
-                      color: unavailable
+                      color: unauthorized
+                          ? SaydianColors.muted
+                          : unavailable
                           ? SaydianColors.orange
                           : SaydianColors.brandRed,
                     ),
@@ -6376,9 +6400,10 @@ class CareMetricDetailPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = '${item['title'] ?? '健康数据'}';
     final state = '${item['state'] ?? ''}';
-    final tips = '${item['tips'] ?? ''}'.trim();
+    final unauthorized = state == 'unauthorized';
+    final tips = unauthorized ? '对方未授权此项目' : '${item['tips'] ?? ''}'.trim();
     final metricUnit = '${item['unit'] ?? ''}'.trim();
-    final rawRecords = item['records'];
+    final rawRecords = unauthorized ? const <Object?>[] : item['records'];
     final allRecords = rawRecords is List
         ? rawRecords
               .whereType<Map>()
@@ -6421,7 +6446,9 @@ class CareMetricDetailPage extends StatelessWidget {
           if (records.isEmpty)
             _InlineNotice(
               message: tips.isNotEmpty ? tips : '这一天没有可展示的明细记录。',
-              icon: state == 'unavailable'
+              icon: unauthorized
+                  ? Icons.lock_outline
+                  : state == 'unavailable'
                   ? Icons.cloud_off_outlined
                   : Icons.event_busy_outlined,
               color: SaydianColors.orange,

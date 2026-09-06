@@ -309,6 +309,40 @@ void main() {
     },
   );
 
+  testWidgets(
+    'care invite without public profile uses concise identity guidance',
+    (tester) async {
+      final controller = _authenticatedController(
+        api: _PrivateCareInvitationApi(),
+      );
+      addTearDown(controller.dispose);
+      await tester.binding.setSurfaceSize(const Size(320, 568));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: CareInvitationsPage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('请确认邀请人后再接受'), findsOneWidget);
+      expect(find.text('邀请人账号 ID：81'), findsOneWidget);
+      expect(find.text('QA 用户'), findsNothing);
+      expect(find.text('13600136000'), findsNothing);
+      expect(find.textContaining('服务器'), findsNothing);
+      expect(find.textContaining('当前账号'), findsNothing);
+      expect(find.widgetWithText(FilledButton, '同意'), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, '拒绝'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('device scan and connection uses the wearable flow', (
     tester,
   ) async {
@@ -1314,8 +1348,8 @@ void main() {
 
     await tester.tap(find.text('远程关爱'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('添加关爱'));
-    await tester.tap(find.text('添加关爱'));
+    await tester.ensureVisible(find.byTooltip('添加关爱'));
+    await tester.tap(find.byTooltip('添加关爱'));
     await tester.pumpAndSettle();
     expect(find.widgetWithText(AlertDialog, '添加关爱'), findsOneWidget);
 
@@ -1957,6 +1991,18 @@ class _MixedCareInvitationApi extends _QaApi implements SaydianCareApi {
     required int id,
     required bool accepted,
   }) async {}
+}
+
+class _PrivateCareInvitationApi extends _MixedCareInvitationApi {
+  @override
+  Future<List<Map<String, Object?>>> getCareInvitations() async => const [
+    {
+      'id': 11,
+      'examine_status': 0,
+      'inviter_id': 81,
+      'member': <String, Object?>{},
+    },
+  ];
 }
 
 class _CarePreviewFailureApi extends _QaApi {

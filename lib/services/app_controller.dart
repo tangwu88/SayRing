@@ -220,6 +220,7 @@ class AppController extends ChangeNotifier {
   HealthWarningSettings healthWarningSettings = const HealthWarningSettings();
   List<HealthWarningAlert> healthWarningAlerts = const [];
   HealthWarningAlert? activeHealthWarningAlert;
+  NotificationEvent? activeCareInvitationAlert;
 
   bool get isAuthenticated => session != null;
   DeviceConnectionState get deviceState => deviceMachine.state;
@@ -341,6 +342,7 @@ class AppController extends ChangeNotifier {
     sportRecords = const [];
     healthWarningAlerts = const [];
     activeHealthWarningAlert = null;
+    activeCareInvitationAlert = null;
     activeSport = null;
     sportPaused = false;
     liveSportData = const {};
@@ -2370,6 +2372,16 @@ class AppController extends ChangeNotifier {
             .whereType<String>()
             .toSet(),
         previouslyPendingIds: previousPendingIds,
+        processedIds: careInvitations
+            .where((invitation) {
+              final status =
+                  '${invitation['examine_status'] ?? invitation['examineStatus'] ?? ''}'
+                      .trim();
+              return status == '1' || status == '2';
+            })
+            .map(_careInvitationId)
+            .whereType<String>()
+            .toSet(),
         expectedGeneration: generation,
       );
       await _ingestNewCareInvitations(
@@ -2679,6 +2691,7 @@ class AppController extends ChangeNotifier {
     _appIsForeground = foreground;
     if (!foreground) {
       _careInvitationPollTimer?.cancel();
+      dismissCareInvitationAlert();
       return;
     }
     _scheduleCareInvitationPoll(const Duration(seconds: 30));
@@ -2720,17 +2733,39 @@ class AppController extends ChangeNotifier {
     return value;
   }
 
+  void dismissCareInvitationAlert() {
+    if (activeCareInvitationAlert == null) return;
+    activeCareInvitationAlert = null;
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<void> openCareInvitationAlert() async {
+    final event = activeCareInvitationAlert;
+    if (session == null || event == null) return;
+    final generation = _sessionGeneration;
+    await markNotificationEventRead(event.eventId);
+    if (!_isCurrentSessionGeneration(generation)) return;
+    pendingNotificationRoute = const NotificationRouteService().resolve(event);
+    notifyListeners();
+  }
+
   Future<void> markNotificationEventRead(String eventId) async {
     if (!_notificationStorageReady) return;
+    final generation = _sessionGeneration;
+    final inbox = _notificationInboxService;
     final remoteEventId = notificationInboxEvents
         .where((event) => event.eventId == eventId)
         .map((event) => event.remoteEventId)
         .whereType<String>()
         .firstOrNull;
-    await _notificationInboxService.markRead(eventId);
+    await inbox.markRead(eventId);
+    if (!_isCurrentSessionGeneration(generation)) return;
     await _refreshNotificationInboxState();
     unawaited(
-      _markRemoteNotificationEventReadBestEffort(remoteEventId ?? eventId),
+      _markRemoteNotificationEventReadBestEffort(
+        remoteEventId ?? eventId,
+        expectedGeneration: generation,
+      ),
     );
   }
 
@@ -3066,7 +3101,11 @@ class AppController extends ChangeNotifier {
     final notificationApi = _api is SaydianNotificationApi
         ? _api as SaydianNotificationApi
         : null;
-    if (session == null || notificationApi == null) return;
+    if (session == null ||
+        notificationApi == null ||
+        !_isCurrentSessionGeneration(generation)) {
+      return;
+    }
     try {
       final marked = await notificationApi.markNotificationEventRead(
         eventId: eventId,
@@ -3106,7 +3145,12 @@ class AppController extends ChangeNotifier {
               !identical(repository, _notificationInboxRepository)) {
             return;
           }
-          if (event.source != NotificationEventSource.device && !event.isRead) {
+          // The legacy unread endpoint does not include care invitations.
+          // Only an explicit read or the invitation's real status may clear
+          // those events; an aggregate zero is not an acknowledgement.
+          if (event.source != NotificationEventSource.device &&
+              event.type != NotificationEventType.careInvitation &&
+              !event.isRead) {
             await repository.markRead(eventId: event.eventId, readAt: readAt);
           }
         }
@@ -3133,6 +3177,13 @@ class AppController extends ChangeNotifier {
       return;
     }
     notificationInboxEvents = events;
+    final activeCareEventId = activeCareInvitationAlert?.eventId;
+    if (activeCareEventId != null &&
+        !events.any(
+          (event) => event.eventId == activeCareEventId && !event.isRead,
+        )) {
+      activeCareInvitationAlert = null;
+    }
     final localDeviceHealthUnread = notificationInboxEvents
         .where(
           (event) =>
@@ -3148,7 +3199,12 @@ class AppController extends ChangeNotifier {
         )
         .length;
     final remoteUnread = remoteNotificationUnreadCount;
-    final serverUnread = remoteUnread ?? localServerMirrorUnread;
+    // Aggregate counts have no IDs with which to calculate an exact union.
+    // Keep known unread events as a floor, without summing duplicate mirrors.
+    final serverUnread =
+        remoteUnread == null || remoteUnread < localServerMirrorUnread
+        ? localServerMirrorUnread
+        : remoteUnread;
     notificationUnreadCount = localDeviceHealthUnread + serverUnread;
     unawaited(_notificationService.setBadge(notificationUnreadCount));
     if (!_disposed) notifyListeners();
@@ -3207,6 +3263,12 @@ class AppController extends ChangeNotifier {
       // authoritative refresh, otherwise a cached zero would hide the badge.
       remoteNotificationUnreadCount = null;
     }
+    if (isNew &&
+        _appIsForeground &&
+        !event.isRead &&
+        event.type == NotificationEventType.careInvitation) {
+      activeCareInvitationAlert = event;
+    }
     await _refreshNotificationInboxState();
     if (!_isCurrentSessionGeneration(expectedGeneration)) return null;
     if (isNew && showLocalNotification) {
@@ -3241,6 +3303,12 @@ class AppController extends ChangeNotifier {
     final normalizedPayload = Map<String, Object?>.from(payload);
     if ('${normalizedPayload['event_id'] ?? ''}'.trim().isEmpty) return;
     final parsed = NotificationEvent.tryParse(normalizedPayload);
+    if (kDebugMode) {
+      debugPrint(
+        '[push-route] opened=$opened parsed=${parsed != null} '
+        'authenticated=${session != null}',
+      );
+    }
     if (parsed != null &&
         parsed.type == NotificationEventType.careInvitation &&
         parsed.entityId != null) {
@@ -3317,6 +3385,7 @@ class AppController extends ChangeNotifier {
   Future<void> _reconcileCareInvitationEvents(
     Set<String> pendingIds, {
     required Set<String> previouslyPendingIds,
+    required Set<String> processedIds,
     required int expectedGeneration,
   }) async {
     if (!_notificationStorageReady ||
@@ -3334,7 +3403,8 @@ class AppController extends ChangeNotifier {
       if (event.type != NotificationEventType.careInvitation ||
           event.isRead ||
           event.entityId == null ||
-          !previouslyPendingIds.contains(event.entityId) ||
+          (!previouslyPendingIds.contains(event.entityId) &&
+              !processedIds.contains(event.entityId)) ||
           (event.entityId != null && pendingIds.contains(event.entityId))) {
         continue;
       }

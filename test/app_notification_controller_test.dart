@@ -1,16 +1,20 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:saydian_app/app.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/app_notification_service.dart';
+import 'package:saydian_app/services/app_update_service.dart';
 import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/notification_route_service.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
+import 'package:saydian_app/ui/prototype_pages.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -198,7 +202,7 @@ void main() {
   );
 
   test(
-    'processed care invitations and authoritative zero unread clear mirrors',
+    'care unread survives a remote zero until explicitly read or processed',
     () async {
       final api = _NotificationApi()
         ..careInvitations = [
@@ -262,9 +266,285 @@ void main() {
             .where((event) => event.eventId == 'care-invitation-20')
             .single
             .isRead,
-        isTrue,
+        isFalse,
       );
+      expect(controller.notificationUnreadCount, 1);
+      expect(controller.activeCareInvitationAlert?.entityId, '20');
+      await controller.markNotificationEventRead('care-invitation-20');
       expect(controller.notificationUnreadCount, 0);
+      expect(controller.activeCareInvitationAlert, isNull);
+    },
+  );
+
+  testWidgets('foreground poll preserves unread despite legacy zero count', (
+    tester,
+  ) async {
+    final api = _NotificationApi();
+    final notifications = _FakeNotificationService();
+    final controller = AppController(
+      MemorySessionVault(),
+      api,
+      MemoryHealthStore(),
+      _NotificationWearable(),
+      notificationService: notifications,
+    );
+    await controller.initialize();
+    await controller.login('13000000000', 'test-only-password');
+    api.careInvitations = const [
+      {'id': 71, 'examine_status': 0},
+      {'id': 72, 'examine_status': 0},
+    ];
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pump();
+
+    expect(controller.remoteNotificationUnreadCount, 0);
+    expect(controller.pendingCareInvitations, hasLength(2));
+    expect(controller.notificationInboxEvents, hasLength(2));
+    expect(
+      controller.notificationInboxEvents.every((event) => !event.isRead),
+      isTrue,
+    );
+    expect(controller.notificationUnreadCount, 2);
+    expect(controller.activeCareInvitationAlert?.entityId, '72');
+    expect(notifications.careInvitationShows, 2);
+
+    controller.dismissCareInvitationAlert();
+    notifications.receive(_carePayload('72', eventId: 'remote-72'));
+    notifications.receive(_carePayload('72', eventId: 'remote-72-retry'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 30));
+
+    expect(controller.notificationInboxEvents, hasLength(2));
+    expect(controller.notificationUnreadCount, 2);
+    expect(controller.activeCareInvitationAlert, isNull);
+    expect(notifications.careInvitationShows, 2);
+
+    await controller.markNotificationEventRead('care-invitation-71');
+    expect(controller.notificationUnreadCount, 1);
+    api.careInvitations = const [
+      {'id': 71, 'examine_status': 0},
+      {'id': 72, 'examine_status': 1},
+    ];
+    await tester.pump(const Duration(seconds: 30));
+    await tester.pump();
+    expect(controller.notificationUnreadCount, 0);
+    expect(
+      controller.notificationInboxEvents.every((event) => event.isRead),
+      isTrue,
+    );
+    controller.dispose();
+  });
+
+  test(
+    'care unread and foreground alert stay scoped to their account',
+    () async {
+      final api = _NotificationApi()
+        ..careInvitations = const [
+          {'id': 73, 'examine_status': 0},
+        ];
+      final notifications = _FakeNotificationService();
+      final controller = AppController(
+        MemorySessionVault(),
+        api,
+        MemoryHealthStore(),
+        _NotificationWearable(),
+        notificationService: notifications,
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      await controller.login('13000000000', 'test-only-password');
+      expect(controller.notificationUnreadCount, 1);
+      expect(controller.activeCareInvitationAlert?.entityId, '73');
+
+      api.careInvitations = const [];
+      await controller.login('13100000000', 'test-only-password');
+      expect(controller.activeCareInvitationAlert, isNull);
+      expect(controller.notificationInboxEvents, isEmpty);
+      expect(controller.notificationUnreadCount, 0);
+      await controller.openCareInvitationAlert();
+      expect(controller.pendingNotificationRoute, isNull);
+
+      api.careInvitations = const [
+        {'id': 73, 'examine_status': 0},
+      ];
+      await controller.login('13000000000', 'test-only-password');
+      expect(controller.notificationUnreadCount, 1);
+      expect(controller.notificationInboxEvents.single.isRead, isFalse);
+      expect(controller.activeCareInvitationAlert, isNull);
+      expect(notifications.careInvitationShows, 1);
+      await controller.markNotificationEventRead('care-invitation-73');
+      await controller.refreshNotifications();
+      expect(controller.notificationUnreadCount, 0);
+    },
+  );
+
+  testWidgets(
+    'care banner is generic, dismissible and opens actual invitation',
+    (tester) async {
+      tester.view.physicalSize = const Size(375, 812);
+      tester.view.devicePixelRatio = 1;
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final api = _NotificationApi();
+      final notifications = _FakeNotificationService()
+        ..permissionRequested = true;
+      final controller = AppController(
+        MemorySessionVault(),
+        api,
+        MemoryHealthStore(),
+        _NotificationWearable(),
+        notificationService: notifications,
+      );
+      await controller.initialize();
+      await controller.login('13000000000', 'test-only-password');
+      await tester.pumpWidget(
+        SaydianApp(
+          controller: controller,
+          updateCheckStore: _NoPendingUpdateStore(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      api.careInvitations = const [
+        {'id': 74, 'examine_status': 0},
+      ];
+      await controller.refreshCareInvitations();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('global-care-invitation')), findsOneWidget);
+      expect(find.text('收到新的关爱请求'), findsOneWidget);
+      expect(notifications.careInvitationShows, 1);
+
+      await tester.tap(find.byKey(const Key('dismiss-care-invitation')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('global-care-invitation')), findsNothing);
+      expect(controller.notificationUnreadCount, 1);
+      notifications.receive(_carePayload('74'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('global-care-invitation')), findsNothing);
+      expect(notifications.careInvitationShows, 1);
+
+      api.careInvitations = const [
+        {'id': 74, 'examine_status': 0},
+        {'id': 75, 'examine_status': 0},
+      ];
+      await controller.refreshCareInvitations();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('open-care-invitation')));
+      await tester.pumpAndSettle();
+      expect(find.byType(CareInvitationsPage), findsOneWidget);
+      expect(
+        tester
+            .widget<CareInvitationsPage>(find.byType(CareInvitationsPage))
+            .targetInvitationId,
+        '75',
+      );
+      expect(find.byKey(const Key('global-care-invitation')), findsNothing);
+      expect(controller.notificationUnreadCount, 1);
+      expect(controller.pendingCareInvitations, hasLength(2));
+      expect(notifications.careInvitationShows, 2);
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+  );
+
+  test('background care is persisted without a foreground banner', () async {
+    final api = _NotificationApi();
+    final notifications = _FakeNotificationService();
+    final controller = AppController(
+      MemorySessionVault(),
+      api,
+      MemoryHealthStore(),
+      _NotificationWearable(),
+      notificationService: notifications,
+    );
+    addTearDown(controller.dispose);
+    await controller.initialize();
+    await controller.login('13000000000', 'test-only-password');
+    controller.setAppForeground(false);
+    notifications.receive(_carePayload('76'));
+    await _drainEvents();
+    expect(controller.activeCareInvitationAlert, isNull);
+    expect(controller.notificationInboxEvents.single.isRead, isFalse);
+    expect(controller.notificationUnreadCount, 1);
+    controller.setAppForeground(true);
+    await controller.refreshNotifications();
+    expect(controller.notificationUnreadCount, 1);
+    expect(controller.activeCareInvitationAlert, isNull);
+  });
+
+  testWidgets(
+    'notification click still opens an already read processed invitation',
+    (tester) async {
+      final api = _NotificationApi()
+        ..careInvitations = const [
+          {'id': 68, 'examine_status': 1},
+        ];
+      final notifications = _FakeNotificationService()
+        ..permissionRequested = true;
+      final controller = AppController(
+        MemorySessionVault(),
+        api,
+        MemoryHealthStore(),
+        _NotificationWearable(),
+        notificationService: notifications,
+      );
+      await controller.initialize();
+      await controller.login('13000000000', 'test-only-password');
+      await tester.pumpWidget(
+        SaydianApp(
+          controller: controller,
+          updateCheckStore: _NoPendingUpdateStore(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final payload = _carePayload('68', eventId: 'qa-processed-care');
+      notifications.receive(payload);
+      await tester.pumpAndSettle();
+      expect(controller.notificationInboxEvents.single.isRead, isTrue);
+      expect(find.byType(CareInvitationsPage), findsNothing);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      notifications.open(payload);
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.byType(CareInvitationsPage), findsOneWidget);
+      expect(find.text('该关爱邀请已处理'), findsOneWidget);
+      expect(find.text('同意并授权'), findsNothing);
+      expect(controller.pendingCareInvitations, isEmpty);
+      expect(controller.notificationInboxEvents, hasLength(1));
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+  );
+
+  test(
+    'relogin reconciles an explicitly processed persisted invitation',
+    () async {
+      final api = _NotificationApi()
+        ..careInvitations = const [
+          {'id': 78, 'examine_status': 0},
+        ];
+      final controller = AppController(
+        MemorySessionVault(),
+        api,
+        MemoryHealthStore(),
+        _NotificationWearable(),
+        notificationService: _FakeNotificationService(),
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      await controller.login('13000000000', 'test-only-password');
+      expect(controller.notificationUnreadCount, 1);
+      await controller.logout();
+      api.careInvitations = const [
+        {'id': 78, 'examine_status': 1},
+      ];
+      await controller.login('13000000000', 'test-only-password');
+      expect(controller.notificationUnreadCount, 0);
+      expect(controller.notificationInboxEvents.single.isRead, isTrue);
+      expect(controller.activeCareInvitationAlert, isNull);
     },
   );
 
@@ -1002,6 +1282,27 @@ void _mockPackageInfo() {
     buildNumber: '1',
     buildSignature: '',
   );
+}
+
+Map<String, Object?> _carePayload(String id, {String? eventId}) => {
+  'schema_version': 1,
+  'event_id': eventId ?? 'remote-$id',
+  'event_type': 'care_invitation',
+  'entity_id': id,
+  'created_at': '2026-08-29T08:00:00Z',
+  '_delivery_kind': 'data',
+  '_system_already_presented': false,
+};
+
+class _NoPendingUpdateStore implements AppUpdateCheckStore {
+  @override
+  Future<AppUpdateInfo?> readRequiredUpdate() async => null;
+  @override
+  Future<void> writeRequiredUpdate(AppUpdateInfo? value) async {}
+  @override
+  Future<DateTime?> readLastSuccessfulCheck() async => DateTime.now();
+  @override
+  Future<void> writeLastSuccessfulCheck(DateTime value) async {}
 }
 
 class _FakeNotificationService implements AppNotificationService {
