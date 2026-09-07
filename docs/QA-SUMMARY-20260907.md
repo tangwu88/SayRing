@@ -2,7 +2,7 @@
 
 ## 结论
 
-本轮客户端修复已生成三端验证包，正在按用户要求上传 GitHub QA 预发布。苹果 r6 已同签名覆盖并独立打开；鸿蒙真机仍为 r11，最新同源 r12 尚未安装；安卓已装 r5，重新连接授权后一度可读，但 USB 再次掉线，r6 尚未安装。**当前不能正式发行，也不是全功能、全部机型验收通过。**
+本轮三端验证包已上传 [GitHub QA 预发布](https://github.com/saydian88-cmyk/saydianapp/releases/tag/qa-20260907-r6)，7 个附件的远端大小与 SHA-256 均一致。苹果 r6 已覆盖并独立打开；鸿蒙仍为 r11、同源 r12 未装；安卓已装 r5，重新授权后 USB 再次掉线，r6 未装。**不是正式发行或全部功能/机型验收通过。**
 
 开发分支为 `codex/harmony-native-login-home`。GitHub 所有者重新授权成功，工作流 `d18542d` 已于 07:49 推送；r6 共享保存修复 `d072cce` 也已推送。CI 仍未执行任何步骤，未同步 main；实际 QA 发布提交和下载链接以发布记录为准。
 
@@ -34,7 +34,7 @@
 - Android r6：首轮原生极光配置缺失已拒收并隔离；补齐后重建的两包签名、原生及 Dart 配置、双 ARM、ZIP 和 ARM64 ELF 16 KB 静态检查通过。真实依赖报告确认固定极光例外；不把静态对齐等同 16 KB 真机运行。P40 未卸载或清数据。
 - 发布脚本 22/22、工作流本地静态检查通过；远端任务未启动不能算通过。所有历史失败及未覆盖项保留。
 
-验证包入口：[三端包说明](../artifacts/three-platform-20260907/README-QA.md)。原版本及校验文件保留，未发布到商店或生产更新渠道。
+验证包入口：[GitHub 下载](https://github.com/saydian88-cmyk/saydianapp/releases/tag/qa-20260907-r6) · [安装说明](release/QA-RELEASE-20260907-R6.md) · [上传校验记录](release/QA-UPLOAD-20260907-R6.md)。原版本及校验文件保留，未发布到商店或生产更新渠道。
 
 细节：[逐页矩阵](THREE-PLATFORM-PAGE-MATRIX-20260906.md) · [系统与签名](COMPATIBILITY-AND-SIGNING-20260907.md) · [完整实施日志](IMPLEMENTATION-LOG-20260906-THREE-PLATFORM-QA.md) · [服务器与发布阻断](release/PRODUCTION-RELEASE-BLOCKERS.md)。
 
