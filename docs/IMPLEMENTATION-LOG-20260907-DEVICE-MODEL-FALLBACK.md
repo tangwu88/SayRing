@@ -25,4 +25,8 @@
 
 ## 真机边界
 
-检查时 `hdc list targets` 返回空列表，因此本轮未把新 HAP 覆盖安装到鸿蒙手机，不能把编译结果写成真机显示已通过。设备重新接入后，只需检查 `SD-Watch-W9S` 且 SDK 型号为空时是否显示“型号 W9S”。
+鸿蒙 nova 14 已覆盖安装 `0.1.4 (9)`，安装后账号与设备绑定保留，App 冷启动成功且进程保持存活。
+
+W9S 自动恢复为 Vep 已连接状态；设备页真机确认 `SD-Watch-W9S` 在 SDK 型号为空时显示“型号 W9S”，同时真实 MAC、电量、固件和最近同步时间可见，手表 BLE 未断开。
+
+电脑到手机的 HDC USB 通道期间出现间歇性 `Offline`／“communication channel is being established”，重新连接后可继续截图与查询；App 进程持续存在，日志未发现本应用崩溃、panic 或 fatal。该现象记录为 USB 调试通道不稳定，不误记为手表断连。
