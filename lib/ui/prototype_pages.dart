@@ -944,14 +944,47 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
   bool _loading = true;
   bool _saving = false;
   String? _error;
+  late final int _sessionGeneration;
+  int _requestGeneration = 0;
+  bool _sessionChanged = false;
+
+  bool get _sessionCurrent =>
+      !_sessionChanged &&
+      widget.controller.isCareShareSessionCurrent(_sessionGeneration);
+
+  bool get _canEdit =>
+      _sessionCurrent && !_loading && !_saving && _error == null;
 
   @override
   void initState() {
     super.initState();
+    _sessionGeneration = widget.controller.careShareSessionGeneration;
+    widget.controller.addListener(_onSessionChanged);
     unawaited(_load());
   }
 
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onSessionChanged);
+    super.dispose();
+  }
+
+  void _onSessionChanged() {
+    if (!mounted || _sessionChanged || _sessionCurrent) return;
+    setState(() {
+      _sessionChanged = true;
+      _requestGeneration++;
+      _loading = false;
+      _saving = false;
+    });
+  }
+
+  bool _isCurrentRequest(int generation) =>
+      mounted && _sessionCurrent && _requestGeneration == generation;
+
   Future<void> _load() async {
+    if (!_sessionCurrent || _saving) return;
+    final generation = ++_requestGeneration;
     setState(() {
       _loading = true;
       _error = null;
@@ -960,21 +993,22 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
       final values = await widget.controller.loadCareShareSettings(
         memberId: widget.memberId,
       );
-      if (!mounted) return;
+      if (!_isCurrentRequest(generation)) return;
       setState(() {
         _enabled = values;
         _loading = false;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!_isCurrentRequest(generation)) return;
       setState(() {
-        _error = '共享设置服务暂不可用';
+        _error = '共享设置读取失败，请重新读取';
         _loading = false;
       });
     }
   }
 
   void _setGroup(Iterable<String> keys, bool enabled) {
+    if (!_canEdit) return;
     setState(() {
       final values = {..._enabled};
       enabled ? values.addAll(keys) : values.removeAll(keys);
@@ -983,16 +1017,23 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
   }
 
   Future<void> _save() async {
+    if (!_canEdit) return;
+    final generation = ++_requestGeneration;
     setState(() => _saving = true);
     final succeeded = await widget.controller.saveCareShareSettings(
       memberId: widget.memberId,
       settings: _enabled,
     );
-    if (!mounted) return;
-    setState(() => _saving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(succeeded ? '共享设置已保存' : '保存失败，请稍后重试')),
-    );
+    if (!mounted || !_isCurrentRequest(generation)) return;
+    setState(() {
+      _saving = false;
+      _error = succeeded ? null : '保存未确认，请重新读取后重试';
+    });
+    if (succeeded) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('共享设置已保存')));
+    }
   }
 
   @override
@@ -1001,14 +1042,22 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
         '${widget.member['nickname'] ?? widget.member['mobile'] ?? '关爱成员'}';
     return Scaffold(
       appBar: AppBar(title: const Text('共享数据管理')),
-      body: _loading
+      body: !_sessionCurrent
+          ? const Padding(
+              padding: EdgeInsets.all(16),
+              child: FeatureStateCard(
+                message: '账号已变化，请返回后重新查看',
+                icon: Icons.person_outline,
+              ),
+            )
+          : _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
                 FeatureStateCard(
                   message: name,
-                  detail: '只有已开启的项目会共享；关闭后保存即可撤销。',
+                  detail: '仅共享已开启的项目，更改后请保存',
                   icon: Icons.privacy_tip_outlined,
                   color: SaydianColors.green,
                 ),
@@ -1016,7 +1065,6 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
                   const SizedBox(height: 12),
                   FeatureStateCard(
                     message: _error!,
-                    detail: '当前不会更改任何授权项目。',
                     icon: Icons.cloud_off_outlined,
                   ),
                 ],
@@ -1026,7 +1074,7 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
                 _permissionGroup('健康数据', _healthKeys),
                 const SizedBox(height: 18),
                 FilledButton.icon(
-                  onPressed: _saving || _error != null ? null : _save,
+                  onPressed: _canEdit ? _save : null,
                   icon: _saving
                       ? const SizedBox.square(
                           dimension: 18,
@@ -1034,6 +1082,12 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
                         )
                       : const Icon(Icons.save_outlined),
                   label: Text(_saving ? '保存中' : '保存共享设置'),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: _saving ? null : _load,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重新读取共享设置'),
                 ),
               ],
             ),
@@ -1051,7 +1105,9 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
             trailing: TextButton(
-              onPressed: () => _setGroup(values.keys, !allEnabled),
+              onPressed: _canEdit
+                  ? () => _setGroup(values.keys, !allEnabled)
+                  : null,
               child: Text(allEnabled ? '全部关闭' : '全选'),
             ),
           ),
@@ -1060,7 +1116,9 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
             SwitchListTile(
               title: Text(entry.value),
               value: _enabled.contains(entry.key),
-              onChanged: (enabled) => _setGroup([entry.key], enabled),
+              onChanged: _canEdit
+                  ? (enabled) => _setGroup([entry.key], enabled)
+                  : null,
             ),
           ],
         ],

@@ -142,6 +142,7 @@ class AppController extends ChangeNotifier {
   Timer? _pushRegistrationRetryTimer;
   int _pushRegistrationRetryAttempt = 0;
   int _sessionGeneration = 0;
+  int? _careShareSaveGeneration;
   int? _connectedDeviceSessionGeneration;
   int? _activeMeasurementSessionGeneration;
   String _notificationOwnerId = 'anonymous';
@@ -2412,32 +2413,84 @@ class AppController extends ChangeNotifier {
     await refreshCare();
   });
 
+  int get careShareSessionGeneration => _sessionGeneration;
+
+  bool isCareShareSessionCurrent(int generation) =>
+      _isCurrentSessionGeneration(generation) &&
+      !_accountTransitioning &&
+      session != null;
+
   Future<Set<String>> loadCareShareSettings({
     required int memberId,
     int type = 0,
   }) async {
+    final generation = _sessionGeneration;
+    if (!isCareShareSessionCurrent(generation)) {
+      throw const ApiException('账号已变化，请重新查看', code: 'STALE_CARE_SESSION');
+    }
     final careApi = _api is SaydianCareApi ? _api as SaydianCareApi : null;
     if (careApi == null) {
       throw const FeatureNotConfiguredException('共享设置暂时无法使用，请稍后再试');
     }
-    return careApi.getCareShareSettings(type: type, memberId: memberId);
+    try {
+      final values = await careApi.getCareShareSettings(
+        type: type,
+        memberId: memberId,
+      );
+      if (!isCareShareSessionCurrent(generation)) {
+        throw const ApiException('账号已变化，请重新查看', code: 'STALE_CARE_SESSION');
+      }
+      return values;
+    } catch (_) {
+      if (!isCareShareSessionCurrent(generation)) {
+        throw const ApiException('账号已变化，请重新查看', code: 'STALE_CARE_SESSION');
+      }
+      rethrow;
+    }
   }
 
   Future<bool> saveCareShareSettings({
     required int memberId,
     required Set<String> settings,
     int type = 0,
-  }) => _guard(() async {
-    final careApi = _api is SaydianCareApi ? _api as SaydianCareApi : null;
-    if (careApi == null) {
-      throw const FeatureNotConfiguredException('共享设置暂时无法使用，请稍后再试');
+  }) async {
+    final generation = _sessionGeneration;
+    if (!isCareShareSessionCurrent(generation) ||
+        _careShareSaveGeneration == generation) {
+      return false;
     }
-    await careApi.saveCareShareSettings(
-      type: type,
-      memberId: memberId,
-      settings: settings,
-    );
-  });
+    final submitted = Set<String>.unmodifiable(settings);
+    _careShareSaveGeneration = generation;
+    isBusy = true;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      final careApi = _api is SaydianCareApi ? _api as SaydianCareApi : null;
+      if (careApi == null) {
+        throw const FeatureNotConfiguredException('共享设置暂时无法使用，请稍后再试');
+      }
+      await careApi.saveCareShareSettings(
+        type: type,
+        memberId: memberId,
+        settings: submitted,
+      );
+      return isCareShareSessionCurrent(generation);
+    } catch (error) {
+      if (isCareShareSessionCurrent(generation)) {
+        errorMessage = error is ApiException
+            ? _apiErrorMessage(error, fallback: '保存未确认，请重新读取后重试')
+            : '保存未确认，请重新读取后重试';
+      }
+      return false;
+    } finally {
+      if (isCareShareSessionCurrent(generation) &&
+          _careShareSaveGeneration == generation) {
+        _careShareSaveGeneration = null;
+        isBusy = false;
+        notifyListeners();
+      }
+    }
+  }
 
   Future<bool> addCare(String mobile) => _guard(() async {
     final normalized = mobile.trim();

@@ -1939,7 +1939,7 @@ class SaydianApiClient
     Map<String, Object?> aggregate = const {};
     ApiException? aggregateError;
     try {
-      final response = await _authorizedCareGet(
+      final response = await _authorizedCareRequest(
         owner,
         '/api/v1/member/care/preview',
         {'id': '$id', 'day': day},
@@ -1973,11 +1973,12 @@ class SaydianApiClient
     }
   }
 
-  Future<http.Response> _authorizedCareGet(
+  Future<http.Response> _authorizedCareRequest(
     String owner,
     String path,
-    Map<String, String> query,
-  ) async {
+    Map<String, String> query, {
+    Map<String, Object?>? body,
+  }) async {
     try {
       final response = await _withAuthorizationRetry((session) async {
         // Check the actual request session, not only a prior vault snapshot.
@@ -1986,10 +1987,19 @@ class SaydianApiClient
           throw const ApiException('账号已变化，请重新查看', code: 'STALE_CARE_SESSION');
         }
         final response = await _performRequest(
-          () => _client.get(
-            _uri(path, query),
-            headers: _authorizationHeaders(session),
-          ),
+          () => body == null
+              ? _client.get(
+                  _uri(path, query),
+                  headers: _authorizationHeaders(session),
+                )
+              : _client.post(
+                  _uri(path, query),
+                  headers: {
+                    ..._authorizationHeaders(session),
+                    'Content-Type': 'application/json',
+                  },
+                  body: jsonEncode(body),
+                ),
         );
         // Reject a stale 401 before the shared retry helper refreshes its token.
         await _checkCareRequestOwner(owner);
@@ -2077,7 +2087,7 @@ class SaydianApiClient
     final result = <Map<String, Object?>>[];
     for (final spec in specs) {
       try {
-        final response = await _authorizedCareGet(owner, spec.endpoint, {
+        final response = await _authorizedCareRequest(owner, spec.endpoint, {
           'selectmember': '$memberId',
           if (spec.type != null) 'type': spec.type!,
           'date': date,
@@ -2698,7 +2708,17 @@ class SaydianApiClient
     required int type,
     required int memberId,
   }) async {
-    final response = await _authorizedGet(
+    final owner = _stableSessionAccountKey(await _requiredSession());
+    return _readCareShareSettings(owner, type: type, memberId: memberId);
+  }
+
+  Future<Set<String>> _readCareShareSettings(
+    String owner, {
+    required int type,
+    required int memberId,
+  }) async {
+    final response = await _authorizedCareRequest(
+      owner,
       '/api/v1/member/care-setting/preview',
       {'type': '$type', 'to_member_id': '$memberId'},
     );
@@ -2709,10 +2729,17 @@ class SaydianApiClient
       try {
         decoded = jsonDecode(raw);
       } on FormatException {
-        decoded = const <Object?>[];
+        throw const ApiException(
+          '共享设置读取失败，请重新读取',
+          code: 'INVALID_CARE_SETTINGS',
+        );
       }
     }
-    return decoded is List ? decoded.map((value) => '$value').toSet() : {};
+    if (decoded is! List ||
+        decoded.any((value) => value is! String || value.trim().isEmpty)) {
+      throw const ApiException('共享设置读取失败，请重新读取', code: 'INVALID_CARE_SETTINGS');
+    }
+    return decoded.cast<String>().toSet();
   }
 
   @override
@@ -2721,12 +2748,40 @@ class SaydianApiClient
     required int memberId,
     required Set<String> settings,
   }) async {
-    final response = await _authorizedPostJson('/api/v1/member/care-setting', {
-      'type': type,
-      'to_member_id': memberId,
-      'setting': settings.toList()..sort(),
-    });
+    final submitted = Set<String>.unmodifiable(settings);
+    final owner = _stableSessionAccountKey(await _requiredSession());
+    final response = await _authorizedCareRequest(
+      owner,
+      '/api/v1/member/care-setting',
+      const {},
+      body: {
+        'type': type,
+        'to_member_id': memberId,
+        'setting': submitted.toList()..sort(),
+      },
+    );
     _decode(response);
+    Set<String> verified;
+    try {
+      verified = await _readCareShareSettings(
+        owner,
+        type: type,
+        memberId: memberId,
+      );
+    } on ApiException catch (error) {
+      if (error.code == 'STALE_CARE_SESSION') rethrow;
+      throw ApiException(
+        '保存未确认，请重新读取后重试',
+        statusCode: error.statusCode,
+        code: 'CARE_SETTINGS_UNCONFIRMED',
+      );
+    }
+    if (!setEquals(submitted, verified)) {
+      throw const ApiException(
+        '保存未确认，请重新读取后重试',
+        code: 'CARE_SETTINGS_UNCONFIRMED',
+      );
+    }
   }
 }
 

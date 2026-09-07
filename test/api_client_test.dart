@@ -1647,14 +1647,24 @@ void main() {
   });
 
   test('care share settings save a stable sorted JSON list', () async {
+    var reads = 0;
     final client = MockClient((request) async {
+      if (request.method == 'GET') {
+        expect(request.url.path, '/api/v1/member/care-setting/preview');
+        expect(request.url.queryParameters, {'type': '2', 'to_member_id': '7'});
+        reads++;
+        return http.Response(
+          '{"code":200,"data":{"setting":["heartReat","HRV"]}}',
+          200,
+        );
+      }
       expect(request.method, 'POST');
       expect(request.url.path, '/api/v1/member/care-setting');
       expect(request.headers['content-type'], contains('application/json'));
       expect(jsonDecode(request.body), {
         'type': 2,
         'to_member_id': 7,
-        'setting': ['heart_rate', 'sleep'],
+        'setting': ['HRV', 'heartReat'],
       });
       return http.Response('{"code":200,"data":{}}', 200);
     });
@@ -1667,8 +1677,9 @@ void main() {
     await api.saveCareShareSettings(
       type: 2,
       memberId: 7,
-      settings: {'sleep', 'heart_rate'},
+      settings: {'heartReat', 'HRV'},
     );
+    expect(reads, 1);
   });
 
   test('SMS authentication uses the confirmed RageFrame contracts', () async {
