@@ -1,23 +1,28 @@
 import { abilityAccessCtrl, common, Permissions } from '@kit.AbilityKit';
 import { ble, connection, hid } from '@kit.ConnectivityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { geoLocationManager } from '@kit.LocationKit';
 import {
   AlarmClockItem, BatteryInfo, BleDevice, BloodComponentsResult, BloodPressureResult, BloodSugarResult,
   BodyCompPushEvent, BodyCompPushEventKind, BodyCompositionMeasurement, BodyTempMeasurement,
   ConnectionState, DailyFiveData, DeviceDialFile, DeviceSwitchConfig, EcgDiagnosis, EcgHistoryData,
   EcgInstruction, EcgPushEvent,
   EcgPushEventKind, EcgSecondMeasurement, EcgWaveformData, HealthData, HealthQueryDay,
-  HeartRateBrightness, HeartRateMeasurement, MsgSwitchConfig, SDKEventType, SpO2Result, SportDataSlot,
+  HeartRateBrightness, HeartRateMeasurement, MsgSwitchConfig, SDKEventType, SpO2Result,
+  SportControlCode, SportControlPushEvent, SportControlRecord, SportDataSlot,
+  SportModeControl, SportModePushEvent, SportModePushKind,
   VPBleSDK
 } from '@veepoo/vpble-sdk';
 import {
-  BatteryState, HealthRecord, HealthValue, MeasurementState, WearableCapabilities,
+  BatteryState, HealthRecord, HealthValue, MeasurementState, SportRoutePoint, SportSessionState, WearableCapabilities,
   WearableConnectionPhase, WearableDevice, WearableDeviceSettings, WearableDial, WearableMetricKey, WearableSnapshot,
+  WearableSportMode,
   WEARABLE_AUTO_SYNC_DELAY_MS, WEARABLE_CONNECT_TIMEOUT_MS, WEARABLE_MEASUREMENT_STOP_TIMEOUT_MS,
   WEARABLE_RECONNECT_DELAYS_MS, WEARABLE_SCAN_TIMEOUT_MS,
   capabilitiesFromFeatureList,
-  boundedHealthValue, createWearableDevice, emptyBattery, emptyDeviceSettings, emptyMeasurement,
-  emptyWearableSnapshot, healthValue, activityDistanceKilometers, sportDistanceKilometers,
+  appendSportRoutePoint, boundedHealthValue, createWearableDevice, emptyBattery, emptyDeviceSettings, emptyMeasurement,
+  emptySportSession, emptyWearableSnapshot, healthValue, activityDistanceKilometers, routeDistanceKilometers,
+  sportCapabilityFromFeatureList, sportDistanceKilometers, sportModeFromProtocolValue, sportModeLabel, sportModeProtocolValue,
   isCurrentConnectionGeneration, isOneShotMeasurementMetric, mergeWearableDevices, normalizeLegacyDistanceRecord, normalizeMac,
   retainedMeasurementValues,
   wearableProviderForName
@@ -61,6 +66,7 @@ export interface WearableServiceListener {
   onPhase?: (phase: WearableConnectionPhase, message: string) => void;
   onSnapshot?: (snapshot: WearableSnapshot) => void;
   onMeasurement?: (measurement: MeasurementState) => void;
+  onSportSession?: (session: SportSessionState) => void;
   onCloudSync?: (result: HealthSyncResult) => void;
 }
 
@@ -94,6 +100,11 @@ export class VepWearableService {
   private measurementListeners: MeasurementListeners | undefined = undefined;
   private measurementStartInFlight: Promise<boolean> | undefined = undefined;
   private measurementStopInFlight: Promise<void> | undefined = undefined;
+  private sportSession: SportSessionState = emptySportSession();
+  private sportCommandInFlight: Promise<void> | undefined = undefined;
+  private sportSessionGeneration: number = 0;
+  private sportSaved: boolean = false;
+  private locationListener: ((location: geoLocationManager.Location) => void) | undefined = undefined;
   private deviceCommandInFlight: Promise<void> | undefined = undefined;
   private accountTeardown: Promise<void> = Promise.resolve();
   private accountTeardownPending: boolean = false;
@@ -120,6 +131,9 @@ export class VepWearableService {
     const metric = this.measurement.running ? this.measurement.metric : undefined;
     const pendingStart = this.measurementStartInFlight, pendingStop = this.measurementStopInFlight;
     const pendingCommand = this.deviceCommandInFlight;
+    this.finishSportSession(false, '账号已切换，本次运动已结束');
+    ++this.sportSessionGeneration;
+    this.sportSession = emptySportSession(); this.sportSaved = false;
     this.accountSession = session;
     ++this.connectionGeneration;
     this.cancelReconnect(); this.stopScan();
@@ -130,7 +144,7 @@ export class VepWearableService {
     this.connectedKey = ''; this.lastDevice = null; this.lastBinding = undefined;
     this.ownershipSince = Number.MAX_SAFE_INTEGER;
     this.snapshot = emptyWearableSnapshot(); this.busyOperation = '切换账号';
-    this.emitSnapshot(); this.emitMeasurement();
+    this.emitSnapshot(); this.emitMeasurement(); this.emitSportSession();
     this.accountTeardownPending = true;
     this.accountTeardown = this.accountTeardown.catch(() => {}).then(async () => {
       let failed = false;
@@ -224,6 +238,7 @@ export class VepWearableService {
     this.emitDevices();
     this.emitSnapshot();
     this.emitMeasurement();
+    this.emitSportSession();
     this.emitPhase(this.snapshot.connected ? 'connected' : 'idle',
       this.snapshot.connected ? `已连接 ${this.snapshot.deviceName}` : '尚未连接手表');
   }
@@ -246,6 +261,10 @@ export class VepWearableService {
 
   currentMeasurement(): MeasurementState {
     return this.copyMeasurement();
+  }
+
+  currentSportSession(): SportSessionState {
+    return this.copySportSession();
   }
 
   async startScan(): Promise<boolean> {
@@ -435,6 +454,10 @@ export class VepWearableService {
     this.userDisconnect = true;
     this.cancelReconnect();
     this.stopScan();
+    if (this.sportActive()) {
+      const stopped = await this.stopSport();
+      if (!stopped && this.sportActive()) this.finishSportSession(true, '连接已断开，已保留断开前的真实运动数据');
+    }
     const generation = ++this.connectionGeneration;
     this.busyOperation = '断开连接';
     this.emitPhase('disconnecting', '正在断开手表…');
@@ -448,10 +471,12 @@ export class VepWearableService {
     this.accountTeardownFailed = !disconnected;
     this.connectedKey = '';
     this.snapshot = emptyWearableSnapshot();
+    this.sportSession = emptySportSession();
     this.busyOperation = '';
     if (!disconnected) this.snapshot.message = '尚未确认手表已断开，请关闭再开启蓝牙后重试';
     this.emitSnapshot();
     this.emitMeasurement();
+    this.emitSportSession();
     this.emitPhase(disconnected ? 'idle' : 'error', disconnected ? '已断开手表' : this.snapshot.message);
   }
 
@@ -747,10 +772,281 @@ export class VepWearableService {
     await this.cancelMeasurement(false);
   }
 
+  async startSport(mode: WearableSportMode): Promise<boolean> {
+    if (this.sportActive() || this.sportCommandInFlight) return false;
+    if (!this.snapshot.sportCapability.modes.includes(mode)) {
+      this.emitPhase('error', '当前手表未开放由 App 开启此运动');
+      return false;
+    }
+    const generation = ++this.sportSessionGeneration;
+    this.sportSaved = false;
+    this.sportSession = emptySportSession(`正在开启${sportModeLabel(mode)}…`);
+    this.sportSession.phase = 'starting';
+    this.sportSession.mode = mode;
+    this.emitSportSession();
+    await this.startLocationTracking(generation);
+    if (generation !== this.sportSessionGeneration) return false;
+    this.sportSession.startedAt = Date.now();
+    this.sportSession.observedAt = this.sportSession.startedAt;
+    const success = await this.sendSportControl('开始运动', mode, SportControlCode.START);
+    if (generation !== this.sportSessionGeneration) return false;
+    if (!success) {
+      this.stopLocationTracking();
+      this.sportSession.phase = 'error';
+      this.sportSession.status = '手表未能开始运动，请确认手表处于可操作状态';
+      this.emitSportSession();
+      return false;
+    }
+    if (generation === this.sportSessionGeneration && this.sportSession.phase === 'starting') {
+      this.sportSession.phase = 'running';
+      this.sportSession.status = `${sportModeLabel(mode)}进行中`;
+      this.sportSession.observedAt = Date.now();
+      this.emitSportSession();
+    }
+    return true;
+  }
+
+  async pauseSport(): Promise<boolean> {
+    if (this.sportSession.phase !== 'running' || !this.snapshot.sportCapability.supportsPause) return false;
+    const generation = this.sportSessionGeneration;
+    this.captureSportWallTime();
+    const success = await this.sendSportControl('暂停运动', this.sportSession.mode as WearableSportMode, SportControlCode.PAUSE);
+    if (generation !== this.sportSessionGeneration) return false;
+    if (success && this.sportSession.phase === 'running') {
+      this.sportSession.phase = 'paused';
+      this.sportSession.status = '运动已暂停';
+      this.sportSession.observedAt = Date.now();
+      this.emitSportSession();
+    }
+    return success;
+  }
+
+  async resumeSport(): Promise<boolean> {
+    if (this.sportSession.phase !== 'paused' || !this.snapshot.sportCapability.supportsPause) return false;
+    const generation = this.sportSessionGeneration;
+    const success = await this.sendSportControl('继续运动', this.sportSession.mode as WearableSportMode, SportControlCode.RESUME);
+    if (generation !== this.sportSessionGeneration) return false;
+    if (success && this.sportSession.phase === 'paused') {
+      this.sportSession.phase = 'running';
+      this.sportSession.status = '运动已继续';
+      this.sportSession.observedAt = Date.now();
+      this.emitSportSession();
+    }
+    return success;
+  }
+
+  async stopSport(): Promise<boolean> {
+    if (!this.sportActive() || this.sportCommandInFlight) return false;
+    const generation = this.sportSessionGeneration;
+    this.captureSportWallTime();
+    const previousPhase = this.sportSession.phase === 'paused' ? 'paused' : 'running';
+    this.sportSession.phase = 'stopping';
+    this.sportSession.status = '正在结束并保存运动…';
+    this.emitSportSession();
+    const mode = this.sportSession.mode as WearableSportMode;
+    const success = await this.sendSportControl('结束运动', mode, SportControlCode.STOP);
+    if (generation !== this.sportSessionGeneration) return false;
+    if (!success) {
+      this.sportSession.phase = previousPhase;
+      this.sportSession.status = '手表未确认结束，请在手表端结束后再刷新记录';
+      this.emitSportSession();
+      return false;
+    }
+    this.finishSportSession(true, '运动已结束并保存');
+    return true;
+  }
+
+  private async sendSportControl(name: string, mode: WearableSportMode, code: SportControlCode): Promise<boolean> {
+    if (this.sportCommandInFlight) return false;
+    const operation = this.runConnectedOperation(name, async (current: () => void): Promise<boolean> => {
+      if (this.snapshot.sportCapability.protocol === 'mode') {
+        const control = code === SportControlCode.START ? SportModeControl.OPEN : SportModeControl.CLOSE;
+        const result = await this.sdk.sportService.setMode(control, sportModeProtocolValue(mode));
+        current();
+        if (!result.success) throw new Error(result.errorMessage || `${name}失败`);
+        return true;
+      }
+      const result = await this.sdk.sportService.setControl(sportModeProtocolValue(mode), code);
+      current();
+      if (!result.success) throw new Error(result.errorMessage || `${name}失败`);
+      this.applySportControlRecords(result.data ?? []);
+      return true;
+    });
+    const settling = operation.then(() => {}, () => {});
+    this.sportCommandInFlight = settling;
+    try { return await operation; }
+    finally { if (this.sportCommandInFlight === settling) this.sportCommandInFlight = undefined; }
+  }
+
+  private onSportControlPush = (event: SportControlPushEvent): void => {
+    if (!this.snapshot.connected || !event.data || event.data.length === 0) return;
+    const latest = event.data[event.data.length - 1];
+    const mode = sportModeFromProtocolValue(latest.motionType);
+    if (!this.sportActive() && latest.code === SportControlCode.START && mode &&
+      this.snapshot.sportCapability.modes.includes(mode)) {
+      const generation = ++this.sportSessionGeneration;
+      this.sportSaved = false;
+      this.sportSession = emptySportSession(`${sportModeLabel(mode)}已从手表开始`);
+      this.sportSession.phase = 'running';
+      this.sportSession.mode = mode;
+      this.sportSession.startedAt = Date.now();
+      this.startLocationTracking(generation);
+    }
+    if (!this.sportActive()) return;
+    if (mode && mode !== this.sportSession.mode) return;
+    this.applySportControlRecords(event.data);
+    if (latest.code === SportControlCode.STOP) this.finishSportSession(true, '运动已在手表端结束并保存');
+  };
+
+  private onSportModePush = (event: SportModePushEvent): void => {
+    if (!this.snapshot.connected || !event.data) return;
+    const mode = sportModeFromProtocolValue(event.data.type);
+    if (event.data.kind === SportModePushKind.OPEN && !this.sportActive() && mode &&
+      this.snapshot.sportCapability.modes.includes(mode)) {
+      const generation = ++this.sportSessionGeneration;
+      this.sportSaved = false;
+      this.sportSession = emptySportSession(`${sportModeLabel(mode)}已从手表开始`);
+      this.sportSession.phase = 'running';
+      this.sportSession.mode = mode;
+      this.sportSession.startedAt = Date.now();
+      this.sportSession.observedAt = this.sportSession.startedAt;
+      this.startLocationTracking(generation);
+      this.emitSportSession();
+    } else if (event.data.kind === SportModePushKind.CLOSE && this.sportActive() &&
+      (!mode || mode === this.sportSession.mode)) {
+      this.finishSportSession(true, '运动已在手表端结束并保存');
+    }
+  };
+
+  private applySportControlRecords(records: SportControlRecord[]): void {
+    if (!this.sportActive() || records.length === 0) return;
+    records.forEach((record: SportControlRecord) => {
+      const returnedMode = sportModeFromProtocolValue(record.motionType);
+      if (returnedMode && returnedMode !== this.sportSession.mode) return;
+      if (record.code === SportControlCode.PAUSE) this.sportSession.phase = 'paused';
+      else if (record.code === SportControlCode.RESUME || record.code === SportControlCode.START) this.sportSession.phase = 'running';
+      this.sportSession.durationSeconds = Math.max(this.sportSession.durationSeconds,
+        Number.isFinite(record.motionTimes) ? Math.max(0, Math.round(record.motionTimes)) : 0);
+      this.sportSession.distanceKm = Math.max(this.sportSession.distanceKm, sportDistanceKilometers(record.motionDistance));
+      if (Number.isFinite(record.calorie) && record.calorie > 0) this.sportSession.calories = record.calorie;
+      if (Number.isFinite(record.heartRate) && record.heartRate >= 20 && record.heartRate <= 240) this.sportSession.heartRate = record.heartRate;
+      this.sportSession.observedAt = Date.now();
+    });
+    this.sportSession.status = this.sportSession.phase === 'paused' ? '运动已暂停' :
+      `${sportModeLabel(this.sportSession.mode)}进行中`;
+    this.emitSportSession();
+  }
+
+  private sportActive(): boolean {
+    return ['starting', 'running', 'paused', 'stopping'].includes(this.sportSession.phase);
+  }
+
+  private captureSportWallTime(): void {
+    if (this.sportSession.phase !== 'running' || this.sportSession.observedAt <= 0) return;
+    const now = Date.now();
+    this.sportSession.durationSeconds += Math.max(0, Math.floor((now - this.sportSession.observedAt) / 1000));
+    this.sportSession.observedAt = now;
+  }
+
+  private finishSportSession(save: boolean, status: string): void {
+    this.captureSportWallTime();
+    this.stopLocationTracking();
+    if (!this.sportActive()) return;
+    const finishedAt = Date.now();
+    if (this.sportSession.durationSeconds <= 0 && this.sportSession.startedAt > 0) {
+      this.sportSession.durationSeconds = Math.max(1, Math.round((finishedAt - this.sportSession.startedAt) / 1000));
+    }
+    this.sportSession.routeDistanceKm = routeDistanceKilometers(this.sportSession.route);
+    this.sportSession.phase = save ? 'completed' : 'error';
+    this.sportSession.observedAt = finishedAt;
+    this.sportSession.status = status;
+    if (save && !this.sportSaved && this.sportSession.mode && this.connectedKey && validHealthOwner(this.accountSession.ownerId)) {
+      const values: HealthValue[] = [];
+      this.pushValue(values, healthValue('时长', this.sportSession.durationSeconds, '秒'));
+      if (this.sportSession.distanceKm > 0) this.pushValue(values, healthValue('距离', this.sportSession.distanceKm, 'km'));
+      else this.pushValue(values, healthValue('轨迹距离', this.sportSession.routeDistanceKm, 'km'));
+      this.pushValue(values, healthValue('热量', this.sportSession.calories, 'kcal'));
+      this.pushValue(values, boundedHealthValue('心率', this.sportSession.heartRate, 'BPM', 20, 240));
+      const record = this.makeRecord('sport', this.sportSession.startedAt, values, 'app_measurement');
+      record.sport = {
+        mode: this.sportSession.mode,
+        durationSeconds: this.sportSession.durationSeconds,
+        distanceKm: this.sportSession.distanceKm,
+        routeDistanceKm: this.sportSession.routeDistanceKm,
+        steps: this.sportSession.steps,
+        calories: this.sportSession.calories,
+        heartRate: this.sportSession.heartRate,
+        route: this.sportSession.route.slice()
+      };
+      this.sportSaved = true;
+      this.addRecord(record);
+      this.persistSportRecord(record);
+    }
+    this.emitSportSession();
+    this.emitSnapshot();
+  }
+
+  private persistSportRecord(record: HealthRecord): void {
+    const session = this.accountSession;
+    const generation = this.sportSessionGeneration;
+    if (!recordWithinOwnership(record, this.ownershipSince, Date.now())) return;
+    wearableHealthStore.saveRecords(session.ownerId, [record],
+      (): boolean => sameHealthSession(session, this.accountSession)).catch(() => {
+      if (!sameHealthSession(session, this.accountSession) || generation !== this.sportSessionGeneration) return;
+      this.sportSession.status = '运动已结束，但本机保存失败，请重试同步';
+      this.emitSportSession();
+    });
+  }
+
+  private async startLocationTracking(generation: number): Promise<void> {
+    this.stopLocationTracking();
+    if (!await this.requestPermissions() || generation !== this.sportSessionGeneration || !this.sportActive()) {
+      if (generation === this.sportSessionGeneration) {
+        this.sportSession.locationStatus = '未获得定位权限，仍会记录手表运动数据';
+        this.emitSportSession();
+      }
+      return;
+    }
+    const connection = this.connectionGeneration;
+    this.locationListener = (location: geoLocationManager.Location): void => {
+      if (generation !== this.sportSessionGeneration || connection !== this.connectionGeneration || !this.sportActive()) return;
+      const point: SportRoutePoint = {
+        latitude: location.latitude, longitude: location.longitude,
+        timestamp: location.timeStamp > 0 ? location.timeStamp : Date.now(), accuracy: location.accuracy
+      };
+      const route = appendSportRoutePoint(this.sportSession.route, point);
+      if (route === this.sportSession.route) return;
+      this.sportSession.route = route;
+      this.sportSession.routeDistanceKm = routeDistanceKilometers(route);
+      this.sportSession.locationStatus = route.length > 1 ? '正在记录手机前台轨迹' : '已获取位置，等待形成轨迹';
+      this.emitSportSession();
+    };
+    try {
+      const request: geoLocationManager.LocationRequest = {
+        priority: geoLocationManager.LocationRequestPriority.ACCURACY,
+        scenario: geoLocationManager.LocationRequestScenario.TRAJECTORY_TRACKING,
+        timeInterval: 3, distanceInterval: 3, maxAccuracy: 80
+      };
+      geoLocationManager.on('locationChange', request, this.locationListener);
+      this.sportSession.locationStatus = '正在等待定位';
+    } catch {
+      this.locationListener = undefined;
+      this.sportSession.locationStatus = '定位服务暂不可用，仍会记录手表运动数据';
+    }
+    this.emitSportSession();
+  }
+
+  private stopLocationTracking(): void {
+    if (!this.locationListener) return;
+    try { geoLocationManager.off('locationChange', this.locationListener); } catch {}
+    this.locationListener = undefined;
+  }
+
   shutdown(): void {
     this.stopScan();
     this.cancelReconnect();
     this.userDisconnect = true;
+    this.finishSportSession(true, 'App 已关闭，运动记录已保留');
     ++this.connectionGeneration;
     this.invalidateMeasurementSession();
     try { this.sdk.disconnect(); } catch {}
@@ -873,12 +1169,16 @@ export class VepWearableService {
     if (this.eventsAttached) return;
     this.eventsAttached = true;
     this.sdk.on(SDKEventType.CONNECTION_STATE_CHANGED, this.onConnectionState);
+    this.sdk.sportService.onControlPush(this.onSportControlPush);
+    this.sdk.sportService.onModePush(this.onSportModePush);
   }
 
   private detachEvents(): void {
     if (!this.eventsAttached) return;
     this.eventsAttached = false;
     this.sdk.off(SDKEventType.CONNECTION_STATE_CHANGED, this.onConnectionState);
+    this.sdk.sportService.offControlPush(this.onSportControlPush);
+    this.sdk.sportService.offModePush(this.onSportModePush);
     this.detachMeasurementEvents();
   }
 
@@ -933,6 +1233,7 @@ export class VepWearableService {
   private onConnectionState = (payload: ESObject): void => {
     const event = payload as ConnectionEvent;
     if (event.newState === ConnectionState.DISCONNECTED && !this.userDisconnect && this.lastDevice) {
+      this.finishSportSession(true, '手表断开，已保留断开前的真实运动数据');
       ++this.connectionGeneration;
       this.invalidateMeasurementSession();
       if (this.measurement.running) {
@@ -950,6 +1251,7 @@ export class VepWearableService {
       this.snapshot.battery = emptyBattery();
       this.snapshot.message = '手表连接已中断';
       this.emitSnapshot();
+      this.emitSportSession();
       this.scheduleReconnect();
     }
   };
@@ -982,6 +1284,9 @@ export class VepWearableService {
       throw new Error('设备连接状态已变化');
     }
     const capabilities: WearableCapabilities = capabilitiesFromFeatureList(device.featureList ?? undefined);
+    const sportCapability = sportCapabilityFromFeatureList(device.featureList ?? undefined);
+    console.info(`[SaydianWearable] sport modes=${device.featureList?.sportModeCount ?? 0} ` +
+      `type=${device.featureList?.sportModeType ?? 0} realtime=${device.featureList?.daSportControl ?? 0}`);
     const sameDevice = this.snapshot.deviceKey === this.connectedKey;
     if (!sameDevice) {
       this.dialFiles.clear();
@@ -995,6 +1300,7 @@ export class VepWearableService {
       model: device.modelName || '',
       firmware: device.firmwareVersion || device.deviceVersion || '',
       capabilities: capabilities,
+      sportCapability: sportCapability,
       battery: emptyBattery(),
       records: sameDevice ? this.snapshot.records : [],
       settings: sameDevice ? this.snapshot.settings : emptyDeviceSettings(),
@@ -1129,18 +1435,52 @@ export class VepWearableService {
             this.pushValue(values, healthValue('步数', result.data.allStep, '步'));
             this.pushValue(values, healthValue('距离', sportDistanceKilometers(result.data.allDistance), 'km'));
             this.pushValue(values, healthValue('热量', result.data.allCalorie, 'kcal'));
+            this.pushValue(values, healthValue('时长', result.data.allMotion, '秒'));
             const timestamp = Date.parse(result.data.startTime.replace(' ', 'T'));
-            if (values.length > 0) this.addRecord(this.makeRecord('sport',
-              Number.isFinite(timestamp) ? timestamp : 0, values));
+            if (values.length > 0) {
+              const record = this.makeRecord('sport', Number.isFinite(timestamp) ? timestamp : 0, values);
+              record.sport = {
+                mode: sportModeFromProtocolValue(result.data.motionType),
+                durationSeconds: Math.max(0, Math.round(result.data.allMotion)),
+                distanceKm: sportDistanceKilometers(result.data.allDistance), routeDistanceKm: 0,
+                steps: Math.max(0, Math.round(result.data.allStep)), calories: Math.max(0, result.data.allCalorie),
+                heartRate: 0, route: []
+              };
+              this.addRecord(record);
+            }
           } else if (result.success && result.dataA704?.motionData) {
             const motion = result.dataA704.motionData;
             const values: HealthValue[] = [];
             this.pushValue(values, healthValue('步数', motion.allStep, '步'));
             this.pushValue(values, healthValue('距离', sportDistanceKilometers(motion.allDistance), 'km'));
             this.pushValue(values, healthValue('热量', motion.allCalorie, 'kcal'));
+            this.pushValue(values, healthValue('时长', motion.allDuration, '秒'));
+            this.pushValue(values, boundedHealthValue('平均心率', motion.aveHeartRate, 'BPM', 20, 240));
             const timestamp = Date.parse(motion.startTime.replace(' ', 'T'));
-            if (values.length > 0) this.addRecord(this.makeRecord('sport',
-              Number.isFinite(timestamp) ? timestamp : 0, values));
+            if (values.length > 0) {
+              const startedAt = Number.isFinite(timestamp) ? timestamp : 0;
+              const route: SportRoutePoint[] = [];
+              result.dataA704.list.forEach((sample, index: number) => {
+                if (Number.isFinite(sample.latitude) && Number.isFinite(sample.longitude) &&
+                  Math.abs(sample.latitude ?? 0) <= 90 && Math.abs(sample.longitude ?? 0) <= 180 &&
+                  sample.latitude !== 0 && sample.longitude !== 0) {
+                  route.push({ latitude: sample.latitude ?? 0, longitude: sample.longitude ?? 0,
+                    timestamp: startedAt > 0 ? startedAt + index : index + 1, accuracy: 0 });
+                }
+              });
+              const record = this.makeRecord('sport', startedAt, values);
+              record.sport = {
+                // The SDK exposes module/data protocol fields here, but does not
+                // document either as the user-facing sport type. Keep it unknown.
+                mode: '',
+                durationSeconds: Math.max(0, Math.round(motion.allDuration)),
+                distanceKm: sportDistanceKilometers(motion.allDistance), routeDistanceKm: routeDistanceKilometers(route),
+                steps: Math.max(0, Math.round(motion.allStep)), calories: Math.max(0, motion.allCalorie),
+                heartRate: motion.aveHeartRate >= 20 && motion.aveHeartRate <= 240 ? motion.aveHeartRate : 0,
+                route: route
+              };
+              this.addRecord(record);
+            }
           }
         }
       }
@@ -1567,7 +1907,7 @@ export class VepWearableService {
 
   private async postConnectInitialize(generation: number): Promise<void> {
     if (!isCurrentConnectionGeneration(generation, this.connectionGeneration) || !this.snapshot.connected ||
-      this.busyOperation || this.measurement.running) return;
+      this.busyOperation || this.measurement.running || this.sportActive()) return;
     try {
       await this.runDeviceCommand('连接后初始化', async (current: () => void): Promise<void> => {
         this.emitPhase('syncing', '正在读取电量并同步今日手表数据…');
@@ -1663,6 +2003,11 @@ export class VepWearableService {
     if (this.accountTeardownPending || this.accountTeardownFailed) {
       this.emitPhase('error', '请等待旧手表连接结束后重试'); return false;
     }
+    const sportControl = ['开始运动', '暂停运动', '继续运动', '结束运动'].includes(name);
+    if (this.sportActive() && !sportControl) {
+      this.emitPhase('error', '运动进行中，请先结束运动再操作手表');
+      return false;
+    }
     if (this.busyOperation || this.deviceCommandInFlight) {
       this.emitPhase('error', this.busyOperation ? `正在${this.busyOperation}，请完成后再操作` : '旧手表操作尚未结束，请稍后重试');
       return false;
@@ -1737,6 +2082,10 @@ export class VepWearableService {
     this.listener?.onMeasurement?.(this.copyMeasurement());
   }
 
+  private emitSportSession(): void {
+    this.listener?.onSportSession?.(this.copySportSession());
+  }
+
   private copySnapshot(): WearableSnapshot {
     return {
       connected: this.snapshot.connected,
@@ -1746,6 +2095,11 @@ export class VepWearableService {
       model: this.snapshot.model,
       firmware: this.snapshot.firmware,
       capabilities: this.snapshot.capabilities,
+      sportCapability: {
+        modes: this.snapshot.sportCapability.modes.slice(),
+        supportsPause: this.snapshot.sportCapability.supportsPause,
+        protocol: this.snapshot.sportCapability.protocol
+      },
       battery: this.snapshot.battery,
       records: this.snapshot.records.slice(),
       settings: {
@@ -1774,6 +2128,24 @@ export class VepWearableService {
       values: this.measurement.values.slice(),
       samples: this.measurement.samples.slice(),
       sampleFrequency: this.measurement.sampleFrequency
+    };
+  }
+
+  private copySportSession(): SportSessionState {
+    return {
+      phase: this.sportSession.phase,
+      mode: this.sportSession.mode,
+      startedAt: this.sportSession.startedAt,
+      observedAt: this.sportSession.observedAt,
+      durationSeconds: this.sportSession.durationSeconds,
+      distanceKm: this.sportSession.distanceKm,
+      routeDistanceKm: this.sportSession.routeDistanceKm,
+      steps: this.sportSession.steps,
+      calories: this.sportSession.calories,
+      heartRate: this.sportSession.heartRate,
+      route: this.sportSession.route.slice(),
+      locationStatus: this.sportSession.locationStatus,
+      status: this.sportSession.status
     };
   }
 

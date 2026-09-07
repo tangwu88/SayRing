@@ -17,9 +17,10 @@ import { CARE_ARRIVAL_REVISION, NOTIFICATION_REVISION, PENDING_NOTIFICATION_ROUT
 import { careNotifications } from '../services/CareNotificationService';
 import { careInboxUnread, mergeCareInbox } from '../model/ForegroundCareNotifications';
 import {
-  HealthRecord, HealthValue, MeasurementState, WearableConnectionPhase, WearableDevice, WearableDial, WearableMetricKey,
-  WearableSnapshot, batteryText, emptyMeasurement, emptyWearableSnapshot, healthRecordText,
-  latestMetricRecord, wearableIdentifierText, WEARABLE_SCAN_TIMEOUT_MS
+  HealthRecord, HealthValue, MeasurementState, SportSessionState, WearableConnectionPhase, WearableDevice, WearableDial,
+  WearableMetricKey, WearableSnapshot, WearableSportMode, batteryText, emptyMeasurement, emptySportSession,
+  emptyWearableSnapshot, healthRecordText, latestMetricRecord, sportModeLabel, sportRoutePolyline,
+  wearableIdentifierText, WEARABLE_SCAN_TIMEOUT_MS
 } from '../model/WearableContracts';
 import { vepWearable, WearableServiceListener } from '../services/VepWearableService';
 import { sameHealthSession } from '../model/HealthUpload';
@@ -219,7 +220,13 @@ struct Index {
   @State private localSportRecords: HealthRecord[] = [];
   @State private sportLoading: boolean = false;
   @State private sportError: string = '';
+  @State private sportSession: SportSessionState = emptySportSession();
+  @State private selectedSportMode: WearableSportMode = 'running';
+  @State private sportActionBusy: boolean = false;
+  @State private sportClock: number = 0;
+  @State private sportRouteWidth: number = 280;
   private sportGeneration: number = 0;
+  private sportTimer: number = -1;
   @State private selectedWearableMetric: WearableMetricKey = 'heart';
   @State private trendPeriod: TrendPeriod = 'day';
   @State private trendDay: string = localDateKey();
@@ -321,6 +328,7 @@ struct Index {
   }
   onPageShow(): void {
     this.refreshLayoutScale();
+    if (this.sportActive()) this.startSportClock();
     this.consumeNotificationRoute(); this.consumeWechatAuthResult();
     if (!this.guest) vepWearable.synchronizeCloud();
     if (this.screen === 'permissions') this.refreshPermissions();
@@ -329,6 +337,7 @@ struct Index {
   aboutToDisappear(): void {
     ++this.pageGeneration; ++this.contentGeneration; ++this.careGeneration;
     this.clearSmsCountdown();
+    this.stopSportClock();
     vepWearable.clearListener();
     if (this.environmentCallbackId >= 0) {
       this.uiContext().getApplicationContext().off('environment', this.environmentCallbackId).catch(() => {});
@@ -426,7 +435,7 @@ struct Index {
   }
 
   private async refreshDials(): Promise<void> {
-    if (this.dialBusy || this.wearableBusy() || this.wearableMeasurement.running) return;
+    if (this.dialBusy || this.wearableBusy() || this.wearableMeasurement.running || this.sportActive()) return;
     const deviceKey = this.wearableSnapshot.deviceKey;
     this.dialBusy = true; this.dialMessage = '';
     try {
@@ -436,7 +445,7 @@ struct Index {
   }
 
   private async selectExistingDial(dial: WearableDial): Promise<void> {
-    if (this.dialBusy || dial.selected || this.wearableBusy() || this.wearableMeasurement.running) return;
+    if (this.dialBusy || dial.selected || this.wearableBusy() || this.wearableMeasurement.running || this.sportActive()) return;
     const deviceKey = this.wearableSnapshot.deviceKey;
     if (!await this.confirmCommerce('使用此表盘？', '切换后，手表将显示所选表盘。', '使用') || deviceKey !== this.wearableSnapshot.deviceKey) return;
     this.dialBusy = true; this.dialMessage = '';
@@ -452,7 +461,7 @@ struct Index {
   }
 
   private async refreshDeviceSettings(): Promise<boolean> {
-    if (this.settingsBusy || this.wearableBusy() || this.wearableMeasurement.running) return false;
+    if (this.settingsBusy || this.wearableBusy() || this.wearableMeasurement.running || this.sportActive()) return false;
     const deviceKey = this.wearableSnapshot.deviceKey;
     this.settingsBusy = true; this.settingsMessage = '';
     try {
@@ -864,7 +873,13 @@ struct Index {
           this.tab = 1;
         }
       },
-      onMeasurement: (measurement: MeasurementState) => this.wearableMeasurement = measurement
+      onMeasurement: (measurement: MeasurementState) => this.wearableMeasurement = measurement,
+      onSportSession: (session: SportSessionState) => {
+        const wasActive = this.sportActive();
+        this.sportSession = session;
+        if (this.sportActive()) this.startSportClock(); else this.stopSportClock();
+        if (wasActive && session.phase === 'completed' && this.screen === 'sport-records') this.loadSportRecords();
+      }
     };
     vepWearable.setListener(listener);
   }
@@ -899,13 +914,93 @@ struct Index {
   }
 
   private async syncSportRecords(): Promise<void> {
-    if (!this.wearableSnapshot.connected || !this.wearableCapability('sport') || this.wearableBusy() || this.wearableMeasurement.running) return;
+    if (!this.wearableSnapshot.connected || !this.wearableCapability('sport') || this.wearableBusy() ||
+      this.wearableMeasurement.running || this.sportActive()) return;
     const session = saydianApi.healthSession(), page = this.pageGeneration;
     const current = (): boolean => page === this.pageGeneration && sameHealthSession(session, saydianApi.healthSession());
     const synced = await vepWearable.syncHistory();
     if (!current()) return;
     await this.loadSportRecords();
     if (current() && !synced) this.sportError = '同步未完成，已保存的记录仍可查看';
+  }
+
+  private sportActive(): boolean {
+    return ['starting', 'running', 'paused', 'stopping'].includes(this.sportSession.phase);
+  }
+
+  private startSportClock(): void {
+    if (this.sportTimer !== -1) return;
+    this.sportClock = Date.now();
+    this.sportTimer = setInterval(() => this.sportClock = Date.now(), 1000);
+  }
+
+  private stopSportClock(): void {
+    if (this.sportTimer !== -1) clearInterval(this.sportTimer);
+    this.sportTimer = -1;
+  }
+
+  private sportElapsedSeconds(): number {
+    let seconds = this.sportSession.durationSeconds;
+    if (this.sportSession.phase === 'running' && this.sportSession.observedAt > 0) {
+      seconds += Math.max(0, Math.floor((this.sportClock - this.sportSession.observedAt) / 1000));
+    }
+    return Math.max(0, seconds);
+  }
+
+  private sportDurationText(seconds: number): string {
+    const value = Math.max(0, Math.round(seconds));
+    const hours = Math.floor(value / 3600).toString().padStart(2, '0');
+    const minutes = Math.floor(value % 3600 / 60).toString().padStart(2, '0');
+    const remainder = (value % 60).toString().padStart(2, '0');
+    return `${hours}:${minutes}:${remainder}`;
+  }
+
+  private sportModeIcon(mode: WearableSportMode): Resource {
+    if (mode === 'cycling') return $r('sys.symbol.bicycle');
+    if (mode === 'walking') return $r('sys.symbol.figure_walk');
+    if (mode === 'hiking') return $r('sys.symbol.shoe');
+    return $r('sys.symbol.figure_run');
+  }
+
+  private async startSport(mode: WearableSportMode): Promise<void> {
+    if (this.sportActionBusy || this.sportActive()) return;
+    this.sportActionBusy = true; this.sportError = '';
+    try {
+      const success = await vepWearable.startSport(mode);
+      if (!success) this.sportError = vepWearable.currentSportSession().status || '当前手表未能开始运动';
+    } finally { this.sportActionBusy = false; }
+  }
+
+  private async toggleSportPause(): Promise<void> {
+    if (this.sportActionBusy || !['running', 'paused'].includes(this.sportSession.phase)) return;
+    this.sportActionBusy = true; this.sportError = '';
+    try {
+      const success = this.sportSession.phase === 'paused' ? await vepWearable.resumeSport() : await vepWearable.pauseSport();
+      if (!success) this.sportError = '手表未确认运动状态，请稍后重试';
+    } finally { this.sportActionBusy = false; }
+  }
+
+  private async confirmStopSport(exitAfter: boolean = false): Promise<void> {
+    if (this.sportActionBusy || !this.sportActive()) return;
+    const confirmed = await this.confirmCommerce('结束本次运动？', '结束后将保存手表返回的数据和已记录的前台轨迹。', '结束运动');
+    if (!confirmed || !this.sportActive()) return;
+    this.sportActionBusy = true; this.sportError = '';
+    try {
+      const success = await vepWearable.stopSport();
+      if (!success) this.sportError = vepWearable.currentSportSession().status || '手表未确认结束运动';
+      else {
+        await this.loadSportRecords();
+        if (exitAfter) this.screen = 'home';
+      }
+    } finally { this.sportActionBusy = false; }
+  }
+
+  private sportRecordMode(record: HealthRecord): string {
+    return sportModeLabel(record.sport?.mode ?? '');
+  }
+
+  private sportRecordIconMode(record: HealthRecord): WearableSportMode {
+    return record.sport?.mode || 'running';
   }
 
   private wearableCapability(metric: WearableMetricKey): boolean {
@@ -2029,6 +2124,7 @@ struct Index {
 
   private back(): void {
     if (this.careBusy || this.paymentBusy || this.formBusy || this.commerceBusy || this.deviceSettingsWriting) return;
+    if (this.screen === 'sport-records' && this.sportActive()) { this.confirmStopSport(true); return; }
     if (this.screen === 'device-units' || this.screen === 'device-alarms') this.clearDeviceEditor();
     if (this.purchaseSheet) { this.purchaseSheet = false; return; }
     if (this.screen === 'addresses') this.selectingCheckoutAddress = false;
@@ -2147,7 +2243,7 @@ struct Index {
       Button() {
         SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(24).fontColor([INK])
       }.backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12).width(48).height(this.controlHeight(48))
-        .enabled(!this.careBusy && !this.paymentBusy && !this.formBusy && !this.commerceBusy && !this.deviceSettingsWriting).onClick(() => this.back()).accessibilityText('返回上一页')
+        .enabled(!this.careBusy && !this.paymentBusy && !this.formBusy && !this.commerceBusy && !this.deviceSettingsWriting && !this.sportActionBusy).onClick(() => this.back()).accessibilityText('返回上一页')
       Text(this.screen === 'health-record' ? '记录详情' : this.screen === 'device-dials' ? '表盘中心' : this.screen === 'device-settings' ? '设备设置' :
         this.screen === 'device-units' ? '手表单位' : this.screen === 'device-alarms' ? '闹钟' : this.screen === 'device-alarm-edit' ?
           (this.watchAlarmDraft.id < 0 ? '添加闹钟' : '编辑闹钟') : this.screen === 'profile-edit' ? '个人资料' : this.screen === 'addresses' ? '收货地址' :
@@ -2508,7 +2604,7 @@ struct Index {
       Text($$.title).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
     }.width(this.singleColumn() ? '100%' : '48%').constraintSize({ minHeight: 78 }).padding(12).margin({ bottom: 12 })
       .backgroundColor(SURFACE).borderRadius(16).border({ width: 1, color: LINE })
-      .enabled(!this.wearableBusy() && !this.wearableMeasurement.running).onClick(() => $$.action())
+      .enabled(!this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive()).onClick(() => $$.action())
       .id($$.id).accessibilityText($$.title)
   }
 
@@ -2550,11 +2646,11 @@ struct Index {
             Button(this.wearablePhase === 'syncing' ? '正在同步…' : '同步数据').layoutWeight(1)
               .constraintSize({ minHeight: 48 }).backgroundColor(RED)
               .type(ButtonType.Normal).borderRadius(14)
-              .enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
+              .enabled(!this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
               .onClick(() => vepWearable.syncHistory()).id('wearable_sync')
             Button('断开连接').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(INK)
               .backgroundColor(SURFACE).type(ButtonType.Normal).borderRadius(14).border({ width: 1, color: LINE })
-              .enabled(!this.wearableBusy()).onClick(() => vepWearable.disconnect()).id('wearable_disconnect')
+              .enabled(!this.wearableBusy() && !this.sportActive()).onClick(() => vepWearable.disconnect()).id('wearable_disconnect')
           }.width('100%')
         }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(20)
           .border({ width: 1, color: LINE }).shadow({ radius: 12, color: CARD_SHADOW, offsetY: 4 })
@@ -2576,7 +2672,7 @@ struct Index {
             SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
           }.width('100%').constraintSize({ minHeight: 76 }).padding({ left: 13, right: 13, top: 11, bottom: 11 })
             .backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
-            .enabled(!this.wearableBusy() && !this.wearableMeasurement.running)
+            .enabled(!this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
             .onClick(() => this.openDials()).id('wearable_read_dials').accessibilityText('表盘中心')
         }
 
@@ -2659,7 +2755,7 @@ struct Index {
     } else {
       Button('使用').constraintSize({ minWidth: 48 }).height(this.controlHeight()).fontSize(16).fontColor(RED)
         .backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12)
-        .enabled(!this.dialBusy && !this.wearableBusy() && !this.wearableMeasurement.running)
+        .enabled(!this.dialBusy && !this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
         .onClick(() => this.selectExistingDial($$.dial)).id(`dial_select_${$$.index}`)
         .accessibilityText(`使用表盘 ${$$.index + 1}`)
     }
@@ -2721,11 +2817,11 @@ struct Index {
         }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
       }
       Button(this.dialBusy ? '读取中…' : '刷新手表表盘').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED)
-        .backgroundColor(Color.Transparent).enabled(!this.dialBusy && !this.wearableBusy() && !this.wearableMeasurement.running)
+        .backgroundColor(Color.Transparent).enabled(!this.dialBusy && !this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
         .onClick(() => this.refreshDials()).id('dials_refresh')
       if (this.wearableSnapshot.originalDialKey && this.wearableSnapshot.currentDialKey !== this.wearableSnapshot.originalDialKey) {
         Button('恢复原表盘').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
-          .enabled(!this.dialBusy && !this.wearableBusy() && !this.wearableMeasurement.running)
+          .enabled(!this.dialBusy && !this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
           .onClick(() => vepWearable.restoreOriginalDial()).id('wearable_restore_dial')
       }
     }
@@ -2768,10 +2864,10 @@ struct Index {
       } else { this.StateCard({ title: this.settingsBusy ? '正在读取设备设置' : '暂未读取到设备设置', icon: $r('sys.symbol.gearshape') }) }
       if (this.settingsMessage) { this.Notice({ message: this.settingsMessage }) }
       Button(this.settingsBusy ? '读取中…' : '重新读取').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
-        .enabled(!this.settingsBusy && !this.wearableBusy() && !this.wearableMeasurement.running).onClick(() => this.refreshDeviceSettings())
+        .enabled(!this.settingsBusy && !this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive()).onClick(() => this.refreshDeviceSettings())
         .id('settings_refresh')
       Button('同步时间').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
-        .enabled(!this.wearableBusy() && !this.wearableMeasurement.running).onClick(() => vepWearable.syncTime()).id('settings_sync_time')
+        .enabled(!this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive()).onClick(() => vepWearable.syncTime()).id('settings_sync_time')
     }
   }
 
@@ -3234,19 +3330,82 @@ struct Index {
 
   @Builder
   SportRecordContent() {
+    Text('开始今日运动').fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
     if (!this.wearableSnapshot.connected) {
-      this.Notice({ message: '连接手表可同步新记录，已有记录可离线查看。' })
+      this.Notice({ message: '连接手表后可开始运动和同步记录，已有记录仍可离线查看。' })
     } else if (!this.wearableCapability('sport')) {
       this.Notice({ message: '当前手表不支持同步运动记录，已有记录仍可查看。' })
+    } else if (this.wearableSnapshot.sportCapability.modes.length === 0) {
+      this.Notice({ message: '当前手表支持运动历史，但未开放由 App 开始运动；可直接在手表上开始。' })
     }
+    if (this.sportActive()) {
+      Column({ space: 14 }) {
+        Row({ space: 12 }) {
+          Column() { SymbolGlyph(this.sportModeIcon(this.sportSession.mode as WearableSportMode)).fontSize(30).fontColor([RED]) }
+            .width(52).height(52).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(16)
+          Column({ space: 4 }) {
+            Text(sportModeLabel(this.sportSession.mode)).fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text(this.sportSession.status).fontSize(14).fontColor(this.sportSession.phase === 'paused' ? GOLD : GREEN).width('100%')
+          }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+        }.width('100%')
+        Text(this.sportDurationText(this.sportElapsedSeconds())).fontSize(38).fontWeight(FontWeight.Bold).fontColor(INK)
+          .fontFamily('HarmonyOS Sans').width('100%').textAlign(TextAlign.Center)
+        Row() {
+          this.SportLiveValue('手表距离', this.sportSession.distanceKm > 0 ? `${this.sportSession.distanceKm.toFixed(2)} km` : '--')
+          this.SportLiveValue('热量', this.sportSession.calories > 0 ? `${Math.round(this.sportSession.calories)} kcal` : '--')
+          this.SportLiveValue('心率', this.sportSession.heartRate > 0 ? `${Math.round(this.sportSession.heartRate)} BPM` : '--')
+        }.width('100%')
+        if (this.sportSession.route.length > 1) {
+          Column({ space: 8 }) {
+            Text('手机前台轨迹').fontSize(15).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Polyline({ width: this.sportRouteWidth, height: 150 })
+              .points(sportRoutePolyline(this.sportSession.route, this.sportRouteWidth, 150))
+              .fillOpacity(0).stroke(RED).strokeWidth(3).width('100%').height(150)
+              .onAreaChange((oldArea: Area, area: Area) => this.sportRouteWidth = Number(area.width))
+            Text(`轨迹距离 ${this.sportSession.routeDistanceKm.toFixed(2)} km · ${this.sportSession.route.length} 个定位点`)
+              .fontSize(13).fontColor(MUTED).width('100%')
+          }.width('100%').padding(12).backgroundColor(SURFACE_ALT).borderRadius(14)
+        }
+        if (this.sportSession.locationStatus) {
+          Text(this.sportSession.locationStatus).fontSize(13).fontColor(MUTED).width('100%')
+        }
+        Row({ space: 10 }) {
+          if (this.wearableSnapshot.sportCapability.supportsPause) {
+            Button(this.sportSession.phase === 'paused' ? '继续' : '暂停').layoutWeight(1)
+              .constraintSize({ minHeight: 52 }).backgroundColor(SURFACE).fontColor(INK).type(ButtonType.Normal)
+              .borderRadius(14).border({ width: 1, color: OUTLINE }).enabled(!this.sportActionBusy &&
+                ['running', 'paused'].includes(this.sportSession.phase)).onClick(() => this.toggleSportPause())
+          }
+          Button('结束运动').layoutWeight(1).constraintSize({ minHeight: 52 }).backgroundColor(RED)
+            .type(ButtonType.Normal).borderRadius(14).enabled(!this.sportActionBusy && this.sportActive())
+            .onClick(() => this.confirmStopSport())
+        }.width('100%')
+      }.width('100%').padding(18).backgroundColor(SURFACE).borderRadius(20).border({ width: 1, color: '#33D20B27' })
+    } else if (this.wearableSnapshot.connected && this.wearableSnapshot.sportCapability.modes.length > 0) {
+      if (this.sportSession.phase === 'completed') {
+        this.Notice({ message: this.sportSession.status, color: GREEN_SOFT })
+      } else if (this.sportSession.phase === 'error' && this.sportSession.status) {
+        this.Notice({ message: this.sportSession.status, color: '#FFF0E9' })
+      }
+      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+        ForEach(this.wearableSnapshot.sportCapability.modes, (mode: WearableSportMode) => {
+          this.SportModeCard(mode)
+        }, (mode: WearableSportMode) => mode)
+      }.width('100%')
+      Button(`开始${sportModeLabel(this.selectedSportMode)}`).width('100%').constraintSize({ minHeight: 54 })
+        .backgroundColor(RED).type(ButtonType.Normal).borderRadius(15).enabled(!this.sportActionBusy &&
+          !this.wearableBusy() && !this.wearableMeasurement.running).onClick(() => this.startSport(this.selectedSportMode))
+    }
+    Text('运动记录').fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({ top: 8 })
     Row({ space: 10 }) {
       Button('同步近三天').layoutWeight(1).constraintSize({ minHeight: 50 }).backgroundColor(RED)
         .type(ButtonType.Normal).borderRadius(14).enabled(this.wearableSnapshot.connected && this.wearableCapability('sport') &&
-          !this.wearableBusy() && !this.wearableMeasurement.running)
+          !this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
         .onClick(() => this.syncSportRecords())
       if (this.wearableSnapshot.connected) {
         Button('查看设备').layoutWeight(1).constraintSize({ minHeight: 50 }).fontColor(RED).backgroundColor(SURFACE)
           .type(ButtonType.Normal).borderRadius(14).border({ width: 1, color: LINE })
+          .enabled(!this.sportActive())
           .onClick(() => { this.screen = 'home'; this.selectHomeTab(1); })
       } else {
         Button('添加设备').layoutWeight(1).constraintSize({ minHeight: 50 }).fontColor(RED).backgroundColor(SURFACE)
@@ -3257,19 +3416,56 @@ struct Index {
     if (this.sportLoading) { LoadingProgress().width(36).height(36).color(RED) }
     if (this.sportError) { this.Notice({ message: this.sportError }) }
     else if (!this.sportLoading && this.localSportRecords.length === 0) {
-      this.Notice({ message: '暂无运动记录，连接手表并同步后可查看。' })
+      this.StateCard({ title: '暂无运动记录', detail: '完成一次运动或连接手表同步后，可在这里查看。',
+        icon: $r('sys.symbol.clock_arrow_2_circlepath'), green: true })
     }
     Button('刷新本机记录').fontColor(RED).backgroundColor(Color.Transparent).constraintSize({ minHeight: 48 })
       .enabled(!this.sportLoading).onClick(() => this.loadSportRecords())
     ForEach(this.localSportRecords, (record: HealthRecord) => {
-      Column({ space: 8 }) {
-        Text(this.wearableRecordTime(record.timestamp)).fontSize(14).fontColor(MUTED).width('100%')
-        Text(this.displayRecord(record)).fontSize(18).fontColor(INK).lineHeight(26).width('100%')
-        Text(record.source === 'watch_history' ? '来源：手表历史' : '来源：App 记录')
-          .fontSize(13).fontColor(MUTED).width('100%')
+      Row({ space: 12 }) {
+        Column() { SymbolGlyph(this.sportModeIcon(this.sportRecordIconMode(record))).fontSize(25).fontColor([RED]) }
+          .width(48).height(48).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(14)
+        Column({ space: 6 }) {
+          Row() {
+            Text(this.sportRecordMode(record)).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+            Text(this.wearableRecordTime(record.timestamp)).fontSize(12).fontColor(MUTED)
+          }.width('100%')
+          Text(this.displayRecord(record)).fontSize(14).fontColor(MUTED).lineHeight(22).maxLines(2).width('100%')
+          Text(record.source === 'watch_history' ? '手表历史' : 'App 运动')
+            .fontSize(12).fontColor(GREEN).width('100%')
+        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+        SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
       }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(16).border({ width: 1, color: LINE })
         .onClick(() => this.openRecord(record))
     }, (record: HealthRecord) => record.id)
+  }
+
+  @Builder
+  SportModeCard(mode: WearableSportMode) {
+    Column({ space: 8 }) {
+      Row() {
+        SymbolGlyph(this.sportModeIcon(mode)).fontSize(25).fontColor([this.selectedSportMode === mode ? RED : MUTED])
+        Blank()
+        if (this.selectedSportMode === mode) {
+          SymbolGlyph($r('sys.symbol.checkmark_circle_fill')).fontSize(20).fontColor([RED])
+        }
+      }.width('100%')
+      Text(sportModeLabel(mode)).fontSize(15).fontWeight(FontWeight.Medium).maxLines(1).width('100%')
+        .fontColor(this.selectedSportMode === mode ? RED_DARK : INK)
+    }.width(this.singleColumn() ? '100%' : '48%').constraintSize({ minHeight: 78 })
+      .padding({ left: 14, right: 12, top: 11, bottom: 10 })
+      .backgroundColor(this.selectedSportMode === mode ? RED_SOFT : SURFACE).borderRadius(15)
+      .border({ width: 1, color: this.selectedSportMode === mode ? '#66D20B27' : LINE })
+      .margin({ bottom: 10 }).onClick(() => this.selectedSportMode = mode)
+      .accessibilityText(`${sportModeLabel(mode)}${this.selectedSportMode === mode ? '，已选择' : ''}`)
+  }
+
+  @Builder
+  SportLiveValue(label: string, value: string) {
+    Column({ space: 5 }) {
+      Text(value).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(1)
+      Text(label).fontSize(12).fontColor(MUTED)
+    }.layoutWeight(1).alignItems(HorizontalAlign.Center)
   }
 
   @Builder
@@ -4284,7 +4480,7 @@ struct Index {
         Button(this.wearableMeasurement.running && this.wearableMeasurement.metric === this.selectedWearableMetric ? '结束测量' : '手动测量')
           .width('100%').constraintSize({ minHeight: 56 }).fontSize(16).fontWeight(FontWeight.Bold)
           .backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
-          .enabled(!this.wearableBusy() && (!this.wearableMeasurement.running || this.wearableMeasurement.metric === this.selectedWearableMetric))
+          .enabled(!this.sportActive() && !this.wearableBusy() && (!this.wearableMeasurement.running || this.wearableMeasurement.metric === this.selectedWearableMetric))
           .onClick(() => this.wearableMeasurement.running ? vepWearable.stopMeasurement() : vepWearable.startMeasurement(this.selectedWearableMetric))
           .id('trend_measure')
       }
@@ -4440,7 +4636,7 @@ struct Index {
     if (this.wearableSnapshot.connected && this.wearableCapability(this.selectedWearableMetric)) {
       Button('同步手表数据').width('100%').constraintSize({ minHeight: 48 }).fontColor(INK).backgroundColor(Color.Transparent)
         .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE })
-        .enabled(!this.wearableBusy() && !this.wearableMeasurement.running).onClick(() => vepWearable.syncHistory())
+        .enabled(!this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive()).onClick(() => vepWearable.syncHistory())
     }
     this.StateCard({ title: '趋势仅作日常健康参考', detail: '单次和阶段变化可能受佩戴、运动及环境影响，不替代医疗诊断。', green: true,
       icon: $r('sys.symbol.lock_shield') })
@@ -4450,9 +4646,36 @@ struct Index {
   HealthRecordContent() {
     if (this.selectedHealthRecord) {
       Column({ space: 14 }) {
+        if (this.selectedHealthRecord.metric === 'sport') {
+          Row({ space: 12 }) {
+            Column() { SymbolGlyph(this.sportModeIcon(this.sportRecordIconMode(this.selectedHealthRecord))).fontSize(28).fontColor([RED]) }
+              .width(52).height(52).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(16)
+            Column({ space: 4 }) {
+              Text(this.sportRecordMode(this.selectedHealthRecord)).fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+              if (this.selectedHealthRecord.sport && this.selectedHealthRecord.sport.durationSeconds > 0) {
+                Text(this.sportDurationText(this.selectedHealthRecord.sport.durationSeconds)).fontSize(15).fontColor(MUTED).width('100%')
+              }
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+          }.width('100%')
+        }
         Text(this.wearableRecordTime(this.selectedHealthRecord.timestamp)).fontSize(16).fontColor(MUTED).width('100%')
         Text(this.displayRecord(this.selectedHealthRecord)).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).lineHeight(30).width('100%')
-        Text(this.selectedHealthRecord.source === 'watch_history' ? '来源：手表历史' : '来源：App 测量').fontSize(14).fontColor(MUTED).width('100%')
+        Text(this.selectedHealthRecord.source === 'watch_history' ? '来源：手表历史' :
+          this.selectedHealthRecord.metric === 'sport' ? '来源：App 运动' : '来源：App 测量').fontSize(14).fontColor(MUTED).width('100%')
+        if (this.selectedHealthRecord.metric === 'sport' && this.selectedHealthRecord.sport &&
+          this.selectedHealthRecord.sport.route.length > 1) {
+          Column({ space: 8 }) {
+            Text('运动轨迹').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Polyline({ width: this.sportRouteWidth, height: 180 })
+              .points(sportRoutePolyline(this.selectedHealthRecord.sport.route, this.sportRouteWidth, 180))
+              .fillOpacity(0).stroke(RED).strokeWidth(3).width('100%').height(180)
+              .onAreaChange((oldArea: Area, area: Area) => this.sportRouteWidth = Number(area.width))
+            Text(`真实轨迹形状 · ${this.selectedHealthRecord.sport.route.length} 个定位点`)
+              .fontSize(13).fontColor(MUTED).width('100%')
+          }.width('100%').padding(12).backgroundColor(SURFACE_ALT).borderRadius(14)
+        } else if (this.selectedHealthRecord.metric === 'sport') {
+          this.Notice({ message: '该记录没有手机前台轨迹，仍保留手表运动数据。', color: GOLD_SOFT })
+        }
         if (this.selectedHealthRecord.samples.length > 1) {
           Polyline({ width: this.recordChartWidth, height: 160 }).points(waveformPoints(this.selectedHealthRecord.samples.slice(this.waveformSegment * 1000, (this.waveformSegment + 1) * 1000), this.recordChartWidth))
             .fillOpacity(0).stroke(RED).strokeWidth(1.5).width('100%').height(160)

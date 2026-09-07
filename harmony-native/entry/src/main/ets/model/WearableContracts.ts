@@ -6,6 +6,9 @@ export type WearableConnectionPhase = 'idle' | 'permission' | 'scanning' | 'conn
 export type WearableMetricKey = 'activity' | 'sleep' | 'heart' | 'pressure' | 'oxygen' |
   'temperature' | 'glucose' | 'hrv' | 'ecg' | 'bodyComposition' | 'bloodComponents' | 'sport';
 export type WearableRecordSource = 'watch_history' | 'app_measurement';
+export type WearableSportMode = 'running' | 'walking' | 'cycling' | 'hiking';
+export type WearableSportControlProtocol = 'none' | 'mode' | 'realtime';
+export type WearableSportPhase = 'idle' | 'starting' | 'running' | 'paused' | 'stopping' | 'completed' | 'error';
 
 export interface WearableDevice {
   key: string;
@@ -50,6 +53,8 @@ export interface WearableFeatureWire {
   bodyComposition?: number;
   bloodComposition?: number;
   sportModeCount?: number;
+  sportModeType?: number;
+  daSportControl?: number;
   newAlarm?: number;
   healthReminder?: number;
   messageNotifyPackets?: number;
@@ -57,6 +62,38 @@ export interface WearableFeatureWire {
   uiStyleCount?: number;
   moreWatchfaceCount?: number;
   customWatchfaceCount?: number;
+}
+
+export interface WearableSportCapability {
+  modes: WearableSportMode[];
+  supportsPause: boolean;
+  protocol: WearableSportControlProtocol;
+}
+
+export interface SportRoutePoint {
+  latitude: number;
+  longitude: number;
+  timestamp: number;
+  accuracy: number;
+}
+
+export interface SportRecordDetails {
+  mode: WearableSportMode | '';
+  durationSeconds: number;
+  distanceKm: number;
+  routeDistanceKm: number;
+  steps: number;
+  calories: number;
+  heartRate: number;
+  route: SportRoutePoint[];
+}
+
+export interface SportSessionState extends SportRecordDetails {
+  phase: WearableSportPhase;
+  startedAt: number;
+  observedAt: number;
+  locationStatus: string;
+  status: string;
 }
 
 export interface BatteryState {
@@ -84,6 +121,7 @@ export interface HealthRecord {
   values: HealthValue[];
   samples: number[];
   sampleFrequency: number;
+  sport?: SportRecordDetails;
 }
 
 export interface WearableDeviceSettings {
@@ -112,6 +150,7 @@ export interface WearableSnapshot {
   model: string;
   firmware: string;
   capabilities: WearableCapabilities;
+  sportCapability: WearableSportCapability;
   battery: BatteryState;
   records: HealthRecord[];
   settings: WearableDeviceSettings;
@@ -222,6 +261,97 @@ export function emptyCapabilities(): WearableCapabilities {
     bloodComponents: false, sport: false, alarm: false, sedentaryReminder: false,
     notification: false, findDevice: false, dial: false
   };
+}
+
+export function emptySportCapability(): WearableSportCapability {
+  return { modes: [], supportsPause: false, protocol: 'none' };
+}
+
+export function sportCapabilityFromFeatureList(feature?: WearableFeatureWire): WearableSportCapability {
+  if (!feature || (feature.sportModeCount ?? 0) <= 0) return emptySportCapability();
+  const multipleModes = (feature.sportModeType ?? 0) > 0;
+  const availableModes: WearableSportMode[] = ['running', 'walking', 'cycling', 'hiking'];
+  const modeCount = Math.min(availableModes.length, Math.max(1, feature.sportModeCount ?? 1));
+  return {
+    modes: multipleModes ? availableModes.slice(0, modeCount) : ['running'],
+    supportsPause: (feature.daSportControl ?? 0) > 0,
+    protocol: (feature.daSportControl ?? 0) > 0 ? 'realtime' : 'mode'
+  };
+}
+
+export function sportModeProtocolValue(mode: WearableSportMode): number {
+  if (mode === 'walking') return 2;
+  if (mode === 'hiking') return 5;
+  if (mode === 'cycling') return 7;
+  return 1;
+}
+
+export function sportModeFromProtocolValue(value: number): WearableSportMode | '' {
+  if (value === 1) return 'running';
+  if (value === 2) return 'walking';
+  if (value === 5) return 'hiking';
+  if (value === 7) return 'cycling';
+  return '';
+}
+
+export function sportModeLabel(mode: WearableSportMode | ''): string {
+  if (mode === 'running') return '户外跑步';
+  if (mode === 'walking') return '户外步行';
+  if (mode === 'cycling') return '户外骑行';
+  if (mode === 'hiking') return '徒步';
+  return '运动';
+}
+
+export function emptySportSession(status: string = ''): SportSessionState {
+  return {
+    phase: 'idle', mode: '', startedAt: 0, observedAt: 0, durationSeconds: 0,
+    distanceKm: 0, routeDistanceKm: 0, steps: 0, calories: 0, heartRate: 0,
+    route: [], locationStatus: '', status: status
+  };
+}
+
+function radians(value: number): number { return value * Math.PI / 180; }
+
+export function routeDistanceKilometers(points: SportRoutePoint[]): number {
+  if (points.length < 2) return 0;
+  let metres = 0;
+  for (let index = 1; index < points.length; ++index) {
+    const previous = points[index - 1], current = points[index];
+    const latitude = radians(current.latitude - previous.latitude);
+    const longitude = radians(current.longitude - previous.longitude);
+    const a = Math.sin(latitude / 2) ** 2 + Math.cos(radians(previous.latitude)) *
+      Math.cos(radians(current.latitude)) * Math.sin(longitude / 2) ** 2;
+    metres += 12742000 * Math.asin(Math.min(1, Math.sqrt(a)));
+  }
+  return Math.round(metres) / 1000;
+}
+
+export function appendSportRoutePoint(points: SportRoutePoint[], point: SportRoutePoint): SportRoutePoint[] {
+  if (!Number.isFinite(point.latitude) || !Number.isFinite(point.longitude) ||
+    Math.abs(point.latitude) > 90 || Math.abs(point.longitude) > 180 ||
+    !Number.isFinite(point.timestamp) || point.timestamp <= 0 ||
+    !Number.isFinite(point.accuracy) || point.accuracy <= 0 || point.accuracy > 80) return points;
+  const previous = points[points.length - 1];
+  if (previous && point.timestamp <= previous.timestamp) return points;
+  if (previous) {
+    const segment = routeDistanceKilometers([previous, point]);
+    if (segment < 0.003 || segment > 0.5) return points;
+  }
+  return [...points.slice(-1999), point];
+}
+
+export function sportRoutePolyline(points: SportRoutePoint[], width: number, height: number): number[][] {
+  if (points.length < 2) return [];
+  const longitude = points.map((point: SportRoutePoint) => point.longitude);
+  const latitude = points.map((point: SportRoutePoint) => point.latitude);
+  const minX = Math.min(...longitude), maxX = Math.max(...longitude);
+  const minY = Math.min(...latitude), maxY = Math.max(...latitude);
+  const safeWidth = Math.max(40, width), safeHeight = Math.max(40, height), padding = 12;
+  const spanX = Math.max(0.000001, maxX - minX), spanY = Math.max(0.000001, maxY - minY);
+  return points.map((point: SportRoutePoint): number[] => [
+    padding + (point.longitude - minX) / spanX * (safeWidth - padding * 2),
+    padding + (maxY - point.latitude) / spanY * (safeHeight - padding * 2)
+  ]);
 }
 
 export function capabilitiesFromFeatureList(feature?: WearableFeatureWire): WearableCapabilities {
@@ -350,7 +480,7 @@ export function formatHealthNumber(value: number): string {
 export function emptyWearableSnapshot(): WearableSnapshot {
   return {
     connected: false, deviceKey: '', deviceName: '', mac: '', model: '', firmware: '',
-    capabilities: emptyCapabilities(), battery: emptyBattery(), records: [], settings: emptyDeviceSettings(),
+    capabilities: emptyCapabilities(), sportCapability: emptySportCapability(), battery: emptyBattery(), records: [], settings: emptyDeviceSettings(),
     dials: [], currentDialKey: '', originalDialKey: '', syncedAt: 0, message: ''
   };
 }

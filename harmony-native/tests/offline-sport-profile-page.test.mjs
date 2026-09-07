@@ -29,7 +29,7 @@ function fixture(){
   const page=new Page();
   Object.assign(page,{screen:'home',guest:false,sportGeneration:0,pageGeneration:1,contentGeneration:1,
     localSportRecords:[],sportLoading:false,sportError:'',wearableSnapshot:{connected:false},
-    wearableCapability:()=>true,wearableBusy:()=>false,wearableMeasurement:{running:false},
+    wearableCapability:()=>true,wearableBusy:()=>false,sportActive:()=>false,wearableMeasurement:{running:false},
     innerParents:new Map(),formBusy:false,formMessage:'',editNickname:'合成名字',editGender:0,editBirthday:'1990-01-01',
     editHeight:'172',editWeight:'65',editAvatarUri:'',profile:{id:'ownerA',nickname:'旧名字'},
     accountFormFailure(error){if(error.status===401){this.formBusy=false;this.screen='login';}return error.message;}});
@@ -96,11 +96,13 @@ test('profile session expiry exits the stale form rather than leaving a permanen
   const {page,api,session}=fixture();api.saveProfile=async()=>{session.ownerId='';session.generation++;throw new ApiError('expired',401);};
   await page.saveProfileDraft();assert.equal(page.formBusy,false);assert.equal(page.screen,'login');assert.match(page.formMessage,/登录已失效/);
 });
-test('sport builder uses independent saved rows, real detail navigation and no fake live/GPS action',()=>{
+test('sport builder keeps saved rows and exposes only the real service-backed live controls',()=>{
   const builder=source.slice(source.indexOf('  SportRecordContent()'),source.indexOf('  HealthAlertContent()'));
   assert.match(builder,/ForEach\(this\.localSportRecords/);
   assert.match(builder,/\.onClick\(\(\) => this\.openRecord\(record\)\)/);
-  assert.doesNotMatch(builder,/wearableMetricRecords\('sport'\)|开始运动|GPS|实时轨迹/);
+  assert.match(builder,/startSport\(this\.selectedSportMode\)|toggleSportPause\(\)|confirmStopSport\(\)/);
+  assert.match(builder,/sportRoutePolyline\(this\.sportSession\.route/);
+  assert.doesNotMatch(builder,/wearableMetricRecords\('sport'\)|模拟运动|测试轨迹/);
   const disconnectedBranch=builder.slice(builder.indexOf('if (!this.wearableSnapshot.connected)'),builder.indexOf('} else if'));
   assert.doesNotMatch(disconnectedBranch,/ForEach|return|margin\(\{ top: 160/);
 });

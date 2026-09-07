@@ -2,7 +2,7 @@
 
 ArkTS + ArkUI，独立于已有 Flutter/Android/iOS 工程。当前范围包含账号、苹果版同构的主要页面、远程关爱、消息推送客户端、商城订单、鸿蒙三方支付客户端，以及 Veepoo 手表的扫描、连接、健康同步、测量、设备设置和表盘控制。
 
-最新发行候选版本为 0.1.3（7），已对齐 AGC 应用身份 `cc.saidian.app.hm`（APP ID `6917615560681044373`）。本轮在华为 nova 14＋W9S 上完成设备连接、同步、测量、重连与 iOS 同构界面回归；最新鸿蒙 UTC 与 Asia/Shanghai 各 211 项契约测试通过。实际范围和边界见 [本轮 Vep 真机验收](../docs/IMPLEMENTATION-LOG-20260906-HARMONY-ET488-FULL-QA.md)、[健康趋势图复查](docs/HEALTH-TREND-QA-20260906.md) 与 [正式发布阻断清单](docs/RELEASE-BLOCKERS-0.1.3.md)。
+最新验证版本为 0.1.4（8），已对齐 AGC 应用身份 `cc.saidian.app.hm`（APP ID `6917615560681044373`）。本轮在华为 nova 14＋W9S 上补齐运动模式、启停、前台轨迹、本机记录和详情；最新鸿蒙 UTC 与 Asia/Shanghai 各 428 项契约测试通过。实际范围和边界见 [鸿蒙运动完整闭环](../docs/IMPLEMENTATION-LOG-20260907-HARMONY-SPORT-PARITY.md)、[本轮 Vep 真机验收](../docs/IMPLEMENTATION-LOG-20260906-HARMONY-ET488-FULL-QA.md) 与 [正式发布阻断清单](docs/RELEASE-BLOCKERS-0.1.3.md)。
 
 当前源码已生成正式 Release 证书和发布 Profile 签名的 APP/HAP，官方签名工具确认 `type=release`、包名一致且完整性通过。真机上保留的仍是开发签名测试版；开发签名与发布签名不可直接覆盖，不能为了验证发行包而删除用户数据。
 
@@ -38,6 +38,7 @@ ohpm 工程元数据 1.0.0 是构建工具要求，不是 App 正式版本。签
 - 消息未读数、通知权限、极光鸿蒙标识登记及关爱/健康预警白名单路由；极光普通通知已验证前台、后台和点击唤醒，业务通知仍依赖服务端事件发送。
 - 商城真实订单列表、支付前再次读取订单金额与状态、服务端支付参数解析、微信/支付宝选择及结果回查；App 不在本机生成签名。
 - 官方 Veepoo 鸿蒙 SDK：Vep 扫描、连接、认证、自动重连、真实电量、健康历史、手动测量、真实心电采样、本地加密记录、设备设置、查找设备及手表内表盘读取/切换/恢复。
+- 运动与记录：按设备实报模式提供手表启停、可用时暂停/继续、手表实时值、手机前台真实轨迹、退出保护、本机加密记录和记录详情。
 - 名称中含 `W8` 的设备固定标记为 `Yuc`；在 Yucheng 没有原生鸿蒙 SDK 前只发现和识别，不进入虚假连接状态。
 
 ## 待适配或外部阻断
@@ -54,7 +55,7 @@ Yucheng 原生鸿蒙 SDK、关爱双账号后台即时推送、服务端健康�
 
 构建方式：`hvigorw --mode project -p product=default -p buildMode=release assembleApp --no-daemon`。
 
-本轮 W9S 设备整改后的 0.1.3（7）正式签名候选产物位于 `build/releases/0.1.3-7-w9s-qa-20260906/`；0.1.3（6）iOS 界面对齐候选及更早产物作为历史版本保留，不覆盖。
+本轮运动整改后的 0.1.4（8）开发签名验证包位于 `build/releases/0.1.4-8-sport-qa-20260907/`；0.1.3 及更早产物作为历史版本保留，不覆盖。
 该目录包含用于 AppGallery Connect 的正式签名 APP、受控安装验证用 HAP、SHA-256 和边界说明；私钥、证书密码、极光 Server key 与支付密钥均不进入产物或 Git。
 
 正式 APP 与独立 HAP 分别完成签名校验，发布 Profile 均为 `release`、APL 为 `normal`，版本和包名一致。上线结论仍以 [正式发布阻断清单](docs/RELEASE-BLOCKERS-0.1.3.md) 为准，不能把“已签名”写成“业务已上线”。
