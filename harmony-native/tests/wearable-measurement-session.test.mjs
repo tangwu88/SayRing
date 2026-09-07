@@ -10,7 +10,7 @@ import * as ownership from '../entry/src/main/ets/model/HealthUpload.ts';
 const serviceURL = new URL('../entry/src/main/ets/services/VepWearableService.ets', import.meta.url).href;
 registerHooks({ load(url, context, next) {
   if (url !== serviceURL) return next(url, context);
-  const source = readFileSync(new URL(url), 'utf8').replace(/^import[\s\S]*?;\n/gm, '');
+  const source = readFileSync(new URL(url), 'utf8').replace(/^import[\s\S]*?;\r?\n/gm, '');
   return { format: 'module', shortCircuit: true, source: stripTypeScriptTypes(
     `const { ${Object.keys(globalThis.__wearableTestDependencies).join(',')} } = globalThis.__wearableTestDependencies;\n${source}`) };
 } });
@@ -66,10 +66,11 @@ function setup() {
 }
 function connect(service, key) {
   service.sdk.state = ConnectionState.CONNECTED;
+  service.activeProvider = 'Vep';
   service.connectedKey = key;
   service.connectionGeneration++;
   service.ownershipSince = Date.now() - 1000;
-  service.snapshot = { ...contracts.emptyWearableSnapshot(), connected: true, deviceKey: key,
+  service.snapshot = { ...contracts.emptyWearableSnapshot(), provider: 'Vep', connected: true, deviceKey: key,
     capabilities: { ...contracts.emptyWearableSnapshot().capabilities, heart: true, oxygen: true, ecg: true } };
 }
 async function settle() { for (let i = 0; i < 8; i++) await Promise.resolve(); }

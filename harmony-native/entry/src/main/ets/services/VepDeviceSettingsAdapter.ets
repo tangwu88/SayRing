@@ -41,11 +41,11 @@ class VepSettingsPort implements DeviceSettingsPort {
 export class VepDeviceSettingsAdapter {
   async readUnits(): Promise<WatchUnits> {
     return vepWearable.runDeviceCommand('读取手表单位', async (current: AssertDeviceSession): Promise<WatchUnits> =>
-      readWatchUnits(new VepSettingsPort(VPBleSDK.getInstance()), current));
+      { this.requireVep(); return readWatchUnits(new VepSettingsPort(VPBleSDK.getInstance()), current); });
   }
   async setUnit(field: WatchUnitField, value: number, expected: number): Promise<WatchUnits> {
     return vepWearable.runDeviceCommand('保存手表单位', async (current: AssertDeviceSession): Promise<WatchUnits> =>
-      saveWatchUnit(new VepSettingsPort(VPBleSDK.getInstance()), current, field, value, expected));
+      { this.requireVep(); return saveWatchUnit(new VepSettingsPort(VPBleSDK.getInstance()), current, field, value, expected); });
   }
   async readAlarms(): Promise<WatchAlarm[]> {
     return vepWearable.runDeviceCommand('读取闹钟', async (current: AssertDeviceSession): Promise<WatchAlarm[]> => {
@@ -63,7 +63,12 @@ export class VepDeviceSettingsAdapter {
     });
   }
   private requireAlarm(): void {
+    if (vepWearable.currentSnapshot().provider !== 'Vep') throw new Error('W8 手表暂不支持此项设置');
     if (!vepWearable.currentSnapshot().capabilities.alarm) throw new Error('当前手表不支持闹钟管理');
+  }
+
+  private requireVep(): void {
+    if (vepWearable.currentSnapshot().provider !== 'Vep') throw new Error('W8 手表暂不支持此项设置');
   }
 }
 export const vepDeviceSettings: VepDeviceSettingsAdapter = new VepDeviceSettingsAdapter();

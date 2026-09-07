@@ -13,7 +13,7 @@ globalThis.__unitSafetyDependencies = {
   AlarmClockControl: { SET: 1 },
   VPBleSDK: { getInstance: () => native },
   vepWearable: {
-    currentSnapshot: () => ({ capabilities: { alarm: true } }),
+    currentSnapshot: () => ({ provider: 'Vep', capabilities: { alarm: true } }),
     async runDeviceCommand(_name, operation) {
       const generation = currentGeneration;
       const current = () => { if (generation !== currentGeneration) throw new Error('账号或手表已变化'); };
@@ -23,7 +23,7 @@ globalThis.__unitSafetyDependencies = {
 };
 registerHooks({ load(url, context, next) {
   if (url !== sourceURL) return next(url, context);
-  const source = readFileSync(new URL(url), 'utf8').replace(/^import[\s\S]*?;\n/gm, '');
+  const source = readFileSync(new URL(url), 'utf8').replace(/^import[\s\S]*?;\r?\n/gm, '');
   return { format: 'module', shortCircuit: true, source: stripTypeScriptTypes(
     `const { ${Object.keys(globalThis.__unitSafetyDependencies).join(',')} } = globalThis.__unitSafetyDependencies;\n${source}`) };
 } });

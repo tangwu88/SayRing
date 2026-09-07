@@ -97,9 +97,9 @@ test('cancel and failed launch settle without a payment success and release the 
   globalThis.wechatPaymentFixture.installed = true;
 });
 
-test('API 12 remains the app target minimum and notification settings has an older-system fallback', () => {
+test('W8 SDK raises the app minimum to API 17 while notification settings keeps its older-system fallback', () => {
   const build = JSON.parse(readFileSync(new URL('../build-profile.json5', import.meta.url), 'utf8'));
-  assert.equal(build.app.products[0].compatibleSdkVersion, '5.0.0(12)');
+  assert.equal(build.app.products[0].compatibleSdkVersion, '5.0.5(17)');
   const source = readFileSync(new URL('../entry/src/main/ets/services/PermissionPresentation.ets', import.meta.url), 'utf8');
   assert.ok(source.indexOf('deviceInfo.sdkApiVersion >= 13') < source.indexOf('notificationManager.openNotificationSettings'));
   assert.ok(source.includes("action: 'action.settings.app.info'"));

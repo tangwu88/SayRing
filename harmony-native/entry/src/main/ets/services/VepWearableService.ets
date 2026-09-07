@@ -15,8 +15,8 @@ import {
 } from '@veepoo/vpble-sdk';
 import {
   BatteryState, HealthRecord, HealthValue, MeasurementState, SportRoutePoint, SportSessionState, WearableCapabilities,
-  WearableConnectionPhase, WearableDevice, WearableDeviceSettings, WearableDial, WearableMetricKey, WearableSnapshot,
-  WearableSportMode,
+  WearableConnectionPhase, WearableDevice, WearableDeviceSettings, WearableDial, WearableMetricKey, WearableProvider,
+  WearableSnapshot, WearableSportMode,
   WEARABLE_AUTO_SYNC_DELAY_MS, WEARABLE_CONNECT_TIMEOUT_MS, WEARABLE_MEASUREMENT_STOP_TIMEOUT_MS,
   WEARABLE_RECONNECT_DELAYS_MS, WEARABLE_SCAN_TIMEOUT_MS,
   capabilitiesFromFeatureList,
@@ -32,6 +32,8 @@ import { DiscoveryPacketCache, knownWearableName } from '../model/WearableDiscov
 import { HealthOwnerSession, HealthSyncResult, recordWithinOwnership, sameHealthSession, validHealthOwner } from '../model/HealthUpload';
 import { HealthUploadService } from './HealthUploadService';
 import { saydianApi } from './SaydianApi';
+import { YucSportTelemetry, YucWearableAdapter } from './YucWearableAdapter';
+import { YucRealtimeHealth, yucCapabilitiesFromFlags, yucSportCapabilityFromFlags } from '../model/YucWearableContracts';
 
 interface ConnectionEvent {
   oldState: ConnectionState;
@@ -75,6 +77,7 @@ export class VepWearableService {
   private listener: WearableServiceListener | null = null;
   private devices: WearableDevice[] = [];
   private vepDevices: Map<string, BleDevice> = new Map();
+  private yucDevices: Map<string, ble.ScanResult> = new Map();
   private scanPackets: DiscoveryPacketCache = new DiscoveryPacketCache();
   private scanObserved: number = 0;
   private scanObservedIds: Set<string> = new Set();
@@ -87,6 +90,7 @@ export class VepWearableService {
   private reconnectAttempt: number = 0;
   private connectionGeneration: number = 0;
   private connectedKey: string = '';
+  private activeProvider: WearableProvider | '' = '';
   private lastDevice: BleDevice | null = null;
   private userDisconnect: boolean = false;
   private eventsAttached: boolean = false;
@@ -118,10 +122,18 @@ export class VepWearableService {
   private accountSession: HealthOwnerSession = { ownerId: '', generation: -1 };
   private ownershipSince: number = Number.MAX_SAFE_INTEGER;
   private healthUploader: HealthUploadService = new HealthUploadService(wearableHealthStore, saydianApi);
+  private yucAdapter: YucWearableAdapter | null = null;
 
   attachContext(context: common.UIAbilityContext): void {
     this.context = context;
     this.attachEvents();
+    this.yuc().attachContext(context, {
+      onState: (state: number): void => this.onYucState(state),
+      onBattery: (level: number, state: number): void => this.onYucBattery(level, state),
+      onRealtime: (data: YucRealtimeHealth): void => this.onYucRealtime(data),
+      onMeasurementEnd: (metric: WearableMetricKey): void => this.onYucMeasurementEnd(metric),
+      onSport: (data: YucSportTelemetry): void => this.onYucSport(data)
+    });
     saydianApi.observeHealthSession((session: HealthOwnerSession) => this.updateAccountSession(session));
     this.initializeStorage();
   }
@@ -153,7 +165,7 @@ export class VepWearableService {
           try { await this.withTimeout(this.requestMeasurementStop(metric), WEARABLE_MEASUREMENT_STOP_TIMEOUT_MS, '结束测量超时'); }
           catch { /* Native disconnect is still mandatory. */ }
         }
-        this.disconnectNativeForAccount();
+        await this.disconnectNativeForAccount();
         const settling: Promise<void>[] = [];
         if (pendingStart) settling.push(pendingStart.then(() => {}, () => {}));
         if (pendingStop) settling.push(pendingStop.catch(() => {}));
@@ -163,6 +175,7 @@ export class VepWearableService {
       } catch { failed = true; }
       if (!sameHealthSession(session, this.accountSession)) return;
       this.accountTeardownFailed = failed;
+      this.activeProvider = '';
       this.accountTeardownPending = false;
       if (this.busyOperation === '切换账号') this.busyOperation = '';
       if (failed) {
@@ -173,6 +186,13 @@ export class VepWearableService {
   }
 
   private async waitForNativeDisconnect(): Promise<void> {
+    if (this.activeProvider === 'Yuc') {
+      for (let attempt = 0; attempt < 50; attempt++) {
+        if (!this.yuc().isReady()) return;
+        await this.delay(100);
+      }
+      throw new Error('旧 W8 手表连接尚未结束');
+    }
     for (let attempt = 0; attempt < 50; attempt++) {
       const state = this.sdk.getState();
       if (state === ConnectionState.DISCONNECTED || state === ConnectionState.READY ||
@@ -182,7 +202,11 @@ export class VepWearableService {
     throw new Error('旧手表连接尚未结束');
   }
 
-  private disconnectNativeForAccount(): void {
+  private async disconnectNativeForAccount(): Promise<void> {
+    if (this.activeProvider === 'Yuc') {
+      await this.yuc().disconnect(false);
+      return;
+    }
     const state = this.sdk.getState();
     if (state !== ConnectionState.UNINITIALIZED && state !== ConnectionState.READY &&
       state !== ConnectionState.DISCONNECTED) this.sdk.disconnect();
@@ -209,7 +233,7 @@ export class VepWearableService {
     if (this.accountTeardownFailed) {
       // A manual retry may succeed after Bluetooth released the prior session.
       try {
-        this.disconnectNativeForAccount();
+        await this.disconnectNativeForAccount();
         await this.waitForNativeDisconnect();
         await this.withTimeout(Promise.all([
           this.measurementStartInFlight?.then(() => {}, () => {}) ?? Promise.resolve(),
@@ -279,7 +303,10 @@ export class VepWearableService {
       ++this.connectionGeneration;
       this.cancelReconnect();
       this.userDisconnect = true;
-      try { this.sdk.disconnect(); } catch {}
+      try {
+        if (this.activeProvider === 'Yuc') await this.yuc().disconnect(false);
+        else this.sdk.disconnect();
+      } catch {}
       this.busyOperation = '';
       await this.delay(500);
       this.userDisconnect = false;
@@ -292,6 +319,7 @@ export class VepWearableService {
     const scanGeneration = ++this.scanGeneration;
     this.devices = [];
     this.vepDevices.clear();
+    this.yucDevices.clear();
     this.scanPackets.clear();
     this.scanObserved = 0; this.scanObservedIds.clear();
     this.emitDevices();
@@ -364,8 +392,7 @@ export class VepWearableService {
       return false;
     }
     if (descriptor.provider === 'Yuc') {
-      this.emitPhase('error', '当前 W8 系列暂不支持连接');
-      return false;
+      return this.connectYuc(descriptor, isRetry);
     }
     const target = this.vepDevices.get(deviceKey);
     if (!target) {
@@ -384,7 +411,10 @@ export class VepWearableService {
       ++this.connectionGeneration;
       this.cancelReconnect();
       this.userDisconnect = true;
-      try { this.sdk.disconnect(); } catch {}
+      try {
+        if (this.activeProvider === 'Yuc') await this.yuc().disconnect(false);
+        else this.sdk.disconnect();
+      } catch {}
       this.busyOperation = '';
       await this.delay(500);
     }
@@ -397,10 +427,14 @@ export class VepWearableService {
     const session = this.accountSession;
     if (this.snapshot.connected && this.connectedKey !== deviceKey) {
       this.userDisconnect = true;
-      try { this.sdk.disconnect(); } catch {}
+      try {
+        if (this.activeProvider === 'Yuc') await this.yuc().disconnect(false);
+        else this.sdk.disconnect();
+      } catch {}
       await this.delay(300);
       this.userDisconnect = false;
     }
+    this.activeProvider = 'Vep';
     this.connectedKey = deviceKey;
     this.lastDevice = target;
     this.emitPhase('connecting', `正在连接 ${descriptor.name}…`);
@@ -450,6 +484,88 @@ export class VepWearableService {
     }
   }
 
+  private async connectYuc(descriptor: WearableDevice, isRetry: boolean): Promise<boolean> {
+    const target = this.yucDevices.get(descriptor.key);
+    if (!target) {
+      this.emitPhase('error', '该 W8 设备的连接信息已失效，请重新扫描');
+      return false;
+    }
+    if (this.busyOperation && this.busyOperation !== 'scan') {
+      const replacesPendingConnection = !isRetry && this.busyOperation === '连接手表' &&
+        !!this.connectedKey && this.connectedKey !== descriptor.key;
+      if (!replacesPendingConnection) {
+        this.emitPhase('error', `正在${this.busyOperation}，请稍后再连接`);
+        return false;
+      }
+      ++this.connectionGeneration;
+      this.cancelReconnect();
+      this.userDisconnect = true;
+      try {
+        if (this.activeProvider === 'Yuc') await this.yuc().disconnect(false);
+        else this.sdk.disconnect();
+      } catch {}
+      this.busyOperation = '';
+      await this.delay(500);
+    }
+    this.stopScan();
+    this.cancelReconnect();
+    if (!isRetry) this.reconnectAttempt = 0;
+    this.busyOperation = '连接手表';
+    this.userDisconnect = false;
+    const generation = ++this.connectionGeneration;
+    const session = this.accountSession;
+    if (this.snapshot.connected && this.connectedKey !== descriptor.key) {
+      this.userDisconnect = true;
+      try {
+        if (this.activeProvider === 'Yuc') await this.yuc().disconnect(false);
+        else this.sdk.disconnect();
+      } catch {}
+      await this.delay(300);
+      this.userDisconnect = false;
+    }
+    this.activeProvider = 'Yuc';
+    this.connectedKey = descriptor.key;
+    this.lastDevice = null;
+    this.emitPhase('connecting', `正在连接 ${descriptor.name}…`);
+    try {
+      this.emitPhase('authenticating', '正在建立 W8 蓝牙通道并完成设备认证…');
+      await this.yuc().connect(target);
+      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return false;
+      await this.refreshYucDeviceInternal(generation, descriptor, true);
+      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration) ||
+        !sameHealthSession(session, this.accountSession)) return false;
+      const current = (): boolean => generation === this.connectionGeneration &&
+        sameHealthSession(session, this.accountSession);
+      const ownedSince = await wearableHealthStore.claimDevice(session.ownerId, descriptor.key,
+        Date.now(), isRetry, current);
+      if (!current()) return false;
+      this.ownershipSince = ownedSince;
+      await this.loadStoredRecords(this.connectedKey);
+      if (!current()) return false;
+      const mac = normalizeMac(this.snapshot.mac);
+      if (mac) {
+        this.lastBinding = { provider: 'Yuc', name: this.snapshot.deviceName, mac: mac, updatedAt: Date.now() };
+        await wearableHealthStore.saveBinding(session.ownerId, this.lastBinding, current);
+      }
+      if (!current()) return false;
+      this.emitSnapshot();
+      this.emitPhase('connected', `已连接 ${this.snapshot.deviceName}`);
+      setTimeout(() => this.postConnectInitialize(generation), 3000);
+      return true;
+    } catch (error) {
+      if (isCurrentConnectionGeneration(generation, this.connectionGeneration)) {
+        try { await this.yuc().disconnect(false); } catch {}
+        this.snapshot = emptyWearableSnapshot();
+        this.snapshot.message = this.bluetoothError(error as Error, '连接 W8 失败');
+        this.emitSnapshot();
+        this.emitPhase('error', this.snapshot.message);
+      }
+      return false;
+    } finally {
+      if (isCurrentConnectionGeneration(generation, this.connectionGeneration)) this.busyOperation = '';
+    }
+  }
+
   async disconnect(): Promise<void> {
     this.userDisconnect = true;
     this.cancelReconnect();
@@ -466,10 +582,15 @@ export class VepWearableService {
     this.invalidateMeasurementSession();
     this.measurement = emptyMeasurement(); this.measurementStopping = false;
     let disconnected = false;
-    try { this.sdk.disconnect(); await this.waitForNativeDisconnect(); disconnected = true; } catch {}
+    try {
+      if (this.activeProvider === 'Yuc') await this.yuc().disconnect(true);
+      else { this.sdk.disconnect(); await this.waitForNativeDisconnect(); }
+      disconnected = true;
+    } catch {}
     if (generation !== this.connectionGeneration) return;
     this.accountTeardownFailed = !disconnected;
     this.connectedKey = '';
+    this.activeProvider = '';
     this.snapshot = emptyWearableSnapshot();
     this.sportSession = emptySportSession();
     this.busyOperation = '';
@@ -510,6 +631,12 @@ export class VepWearableService {
   async findDevice(): Promise<boolean> {
     if (!this.snapshot.capabilities.findDevice) return false;
     return this.runConnectedOperation('查找设备', async (current: () => void): Promise<boolean> => {
+      if (this.activeProvider === 'Yuc') {
+        await this.yuc().findDevice();
+        current();
+        this.emitPhase('connected', '已向 W8 手表发送查找提示');
+        return true;
+      }
       const result = await this.sdk.deviceControlService.findDevice(true);
       current();
       const ok = result.success;
@@ -521,6 +648,12 @@ export class VepWearableService {
 
   async syncTime(): Promise<boolean> {
     return this.runConnectedOperation('同步时间', async (current: () => void): Promise<boolean> => {
+      if (this.activeProvider === 'Yuc') {
+        await this.yuc().syncTime();
+        current();
+        this.emitPhase('connected', 'W8 手表时间已同步');
+        return true;
+      }
       const result = await this.sdk.deviceControlService.syncTimeNow(new Date());
       current();
       this.emitPhase(result.success ? 'connected' : 'error', result.success ? '手表时间已同步' :
@@ -531,6 +664,21 @@ export class VepWearableService {
 
   async readDeviceConfiguration(): Promise<boolean> {
     return this.runConnectedOperation('读取设备设置', async (current: () => void): Promise<boolean> => {
+      if (this.activeProvider === 'Yuc') {
+        current();
+        const settings = emptyDeviceSettings();
+        settings.loadedAt = Date.now();
+        settings.unitSystem = '由手表端管理';
+        settings.timeFormat = '已随手机时间同步';
+        settings.automaticHealth = '请在健康监测页设置';
+        settings.sedentaryReminder = this.snapshot.capabilities.sedentaryReminder ? 'W8 SDK 暂未开放读取' : '设备不支持';
+        settings.messageReminder = this.snapshot.capabilities.notification ? 'W8 SDK 暂未开放读取' : '设备不支持';
+        this.snapshot.settings = settings;
+        this.snapshot.message = '已读取 W8 当前可用设置';
+        this.emitSnapshot();
+        this.emitPhase('connected', this.snapshot.message);
+        return true;
+      }
       const settings = emptyDeviceSettings();
       let successes = 0;
       try {
@@ -677,7 +825,7 @@ export class VepWearableService {
       this.emitPhase('error', '当前手表不支持该测量项目');
       return false;
     }
-    if (metric === 'hrv' || metric === 'activity' || metric === 'sleep' || metric === 'sport') {
+    if ((metric === 'hrv' && this.activeProvider !== 'Yuc') || metric === 'activity' || metric === 'sleep' || metric === 'sport') {
       this.emitPhase('error', '该项目仅支持同步历史数据');
       return false;
     }
@@ -686,7 +834,7 @@ export class VepWearableService {
     const session: MeasurementSession = { owner: this.accountSession, connection: this.connectionGeneration,
       generation: this.measurementGeneration, ecgWearConfirmed: false };
     this.measurementSession = session;
-    this.attachMeasurementEvents(session);
+    if (this.activeProvider === 'Vep') this.attachMeasurementEvents(session);
     this.measurement = emptyMeasurement();
     this.measurement.metric = metric;
     this.measurement.running = true;
@@ -697,7 +845,13 @@ export class VepWearableService {
     try {
       let success = false;
       let errorMessage = '';
-      if (metric === 'heart') {
+      if (this.activeProvider === 'Yuc') {
+        await this.yuc().startMeasurement(metric);
+        if (!this.isCurrentMeasurement(session)) return false;
+        success = true;
+        this.measurement.status = metric === 'ecg' ? '请正确佩戴，并持续接触心电电极' :
+          `W8 正在测量${this.metricName(metric)}，请保持佩戴和静止`;
+      } else if (metric === 'heart') {
         const r = await this.sdk.heartRateService.startMeasurement(HeartRateBrightness.HIGH);
         if (!this.isCurrentMeasurement(session)) return false;
         success = r.success; errorMessage = r.errorMessage ?? '';
@@ -859,6 +1013,11 @@ export class VepWearableService {
   private async sendSportControl(name: string, mode: WearableSportMode, code: SportControlCode): Promise<boolean> {
     if (this.sportCommandInFlight) return false;
     const operation = this.runConnectedOperation(name, async (current: () => void): Promise<boolean> => {
+      if (this.activeProvider === 'Yuc') {
+        await this.yuc().sport(Number(code), mode);
+        current();
+        return true;
+      }
       if (this.snapshot.sportCapability.protocol === 'mode') {
         const control = code === SportControlCode.START ? SportModeControl.OPEN : SportModeControl.CLOSE;
         const result = await this.sdk.sportService.setMode(control, sportModeProtocolValue(mode));
@@ -1049,8 +1208,12 @@ export class VepWearableService {
     this.finishSportSession(true, 'App 已关闭，运动记录已保留');
     ++this.connectionGeneration;
     this.invalidateMeasurementSession();
-    try { this.sdk.disconnect(); } catch {}
+    try {
+      if (this.activeProvider === 'Yuc') this.yuc().disconnect(false).catch(() => {});
+      else this.sdk.disconnect();
+    } catch {}
     this.detachEvents();
+    this.yucAdapter?.shutdown();
     this.listener = null;
   }
 
@@ -1093,8 +1256,10 @@ export class VepWearableService {
       const provider = knownWearableName(result.deviceName);
       if (!provider || vepResults.some((device: BleDevice) =>
         device.deviceId === result.deviceId && provider === 'Vep')) return;
+      const raw = results.find((item: ble.ScanResult) => item.deviceId === result.deviceId) ?? result;
+      const mac = provider === 'Yuc' ? this.yuc().macFromScan(raw) : '';
       const descriptor = createWearableDevice(provider, result.deviceName, result.deviceId,
-        '', result.rssi, result.connectable);
+        mac, result.rssi, result.connectable);
       if (!descriptor) return;
       incoming.push(descriptor);
       if (provider === 'Vep') {
@@ -1102,6 +1267,8 @@ export class VepWearableService {
         // the Harmony transport address into the hardware MAC field.
         this.vepDevices.set(descriptor.key, { deviceId: result.deviceId,
           deviceName: result.deviceName, mac: '', rssi: result.rssi, connectable: result.connectable });
+      } else {
+        this.yucDevices.set(descriptor.key, raw);
       }
     });
     if (incoming.length > 0) {
@@ -1231,6 +1398,7 @@ export class VepWearableService {
   }
 
   private onConnectionState = (payload: ESObject): void => {
+    if (this.activeProvider !== 'Vep') return;
     const event = payload as ConnectionEvent;
     if (event.newState === ConnectionState.DISCONNECTED && !this.userDisconnect && this.lastDevice) {
       this.finishSportSession(true, '手表断开，已保留断开前的真实运动数据');
@@ -1256,8 +1424,138 @@ export class VepWearableService {
     }
   };
 
+  private onYucState(state: number): void {
+    console.info(`[SaydianWearable] W8 state=${state}`);
+    if (this.yuc().isReady()) {
+      this.tryAdoptYucConnection();
+      return;
+    }
+    if (this.activeProvider !== 'Yuc' || !this.snapshot.connected || this.userDisconnect) return;
+    this.finishSportSession(true, 'W8 手表断开，已保留断开前的真实运动数据');
+    const generation = ++this.connectionGeneration;
+    this.invalidateMeasurementSession();
+    if (this.measurement.running) {
+      this.measurement.running = false;
+      this.measurement.values = [];
+      this.measurement.samples = [];
+      this.measurement.sampleFrequency = 0;
+      this.measurement.status = '测量因蓝牙中断已取消，未保存不完整结果';
+      this.emitMeasurement();
+    }
+    this.busyOperation = '';
+    this.snapshot.connected = false;
+    this.snapshot.battery = emptyBattery();
+    this.snapshot.message = 'W8 连接中断，正在自动重连';
+    this.emitSnapshot();
+    this.emitSportSession();
+    this.emitPhase('connecting', this.snapshot.message);
+    setTimeout(() => {
+      if (generation === this.connectionGeneration && !this.snapshot.connected && !this.scanning &&
+        !this.userDisconnect && this.activeProvider === 'Yuc') this.startScan();
+    }, 10000);
+  }
+
+  private onYucBattery(level: number, state: number): void {
+    if (this.activeProvider !== 'Yuc' || !this.snapshot.connected || level < 0 || level > 100) return;
+    this.snapshot.battery = { available: true, hasPercentage: true, level: level, levelGrade: 0,
+      charging: state === 1, lowBattery: level <= 15, updatedAt: Date.now() };
+    this.emitSnapshot();
+  }
+
+  private onYucRealtime(data: YucRealtimeHealth): void {
+    if (this.activeProvider !== 'Yuc' || !this.measurement.running || !this.measurement.metric) return;
+    const metric = this.measurement.metric;
+    if (data.metric !== metric) return;
+    const values: HealthValue[] = [];
+    data.values.forEach((item) => {
+      const value = healthValue(item.name, item.value, item.unit);
+      if (value) values.push(value);
+    });
+    if (values.length > 0) this.measurement.values = values;
+    if (metric === 'ecg' && data.samples.length > 0) {
+      this.measurement.samples = this.measurement.samples.concat(data.samples).slice(-60000);
+      if (data.sampleFrequency > 0) this.measurement.sampleFrequency = data.sampleFrequency;
+    }
+    this.measurement.progress = Math.min(95, Math.max(5, this.measurement.progress + 2));
+    this.measurement.status = metric === 'ecg' ? '正在采集 W8 真实心电波形，请持续接触电极' :
+      `正在接收 W8 ${this.metricName(metric)}读数`;
+    this.emitMeasurement();
+  }
+
+  private onYucMeasurementEnd(metric: WearableMetricKey): void {
+    const session = this.measurementSession;
+    if (!this.isCurrentMeasurement(session) || !this.measurement.running || this.measurement.metric !== metric) return;
+    const finish = (record?: HealthRecord): void => {
+      if (!this.isCurrentMeasurement(session) || !this.measurement.running || this.measurement.metric !== metric) return;
+      if (this.measurement.values.length === 0 && record) this.measurement.values = record.values.slice();
+      if ((metric === 'ecg' && this.measurement.samples.length > 1) || this.measurement.values.length > 0) {
+        this.completeMeasurement();
+      } else {
+        this.measurement.running = false;
+        this.measurement.progress = 0;
+        this.measurement.status = 'W8 未返回有效读数，请正确佩戴并保持静止后重试';
+        this.endOperation();
+        this.emitMeasurement();
+      }
+    };
+    if (metric !== 'ecg' && this.measurement.values.length === 0) {
+      this.yuc().latestMetric(this.connectedKey, metric).then((record?: HealthRecord) => finish(record))
+        .catch(() => finish());
+    } else finish();
+  }
+
+  private onYucSport(data: YucSportTelemetry): void {
+    if (this.activeProvider !== 'Yuc' || !this.sportActive()) return;
+    this.sportSession.steps = Math.max(this.sportSession.steps, Math.round(data.steps));
+    this.sportSession.distanceKm = Math.max(this.sportSession.distanceKm, data.distanceMeters / 1000);
+    this.sportSession.calories = Math.max(this.sportSession.calories, data.calories);
+    this.sportSession.durationSeconds = Math.max(this.sportSession.durationSeconds, Math.round(data.durationSeconds));
+    if (data.heartRate >= 20 && data.heartRate <= 240) this.sportSession.heartRate = data.heartRate;
+    this.sportSession.observedAt = Date.now();
+    this.sportSession.status = `${sportModeLabel(this.sportSession.mode as WearableSportMode)}数据同步中`;
+    this.emitSportSession();
+  }
+
+  private tryAdoptYucConnection(): void {
+    if (!this.yuc().isReady() || this.restoreConnectPending || this.snapshot.connected || this.busyOperation ||
+      this.lastBinding?.provider !== 'Yuc' || !validHealthOwner(this.accountSession.ownerId)) return;
+    const binding = this.lastBinding;
+    const descriptor = createWearableDevice('Yuc', binding.name, `sdk-reconnect-${binding.mac}`,
+      binding.mac, 0, true);
+    if (!descriptor) return;
+    this.restoreConnectPending = true;
+    const session = this.accountSession;
+    const generation = ++this.connectionGeneration;
+    this.activeProvider = 'Yuc';
+    this.connectedKey = descriptor.key;
+    this.busyOperation = '恢复 W8 连接';
+    this.refreshYucDeviceInternal(generation, descriptor, true).then(async (): Promise<void> => {
+      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration) ||
+        !sameHealthSession(session, this.accountSession)) return;
+      const current = (): boolean => generation === this.connectionGeneration &&
+        sameHealthSession(session, this.accountSession);
+      this.ownershipSince = await wearableHealthStore.claimDevice(session.ownerId, descriptor.key,
+        Date.now(), true, current);
+      if (!current()) return;
+      await this.loadStoredRecords(descriptor.key);
+      if (!current()) return;
+      this.emitPhase('connected', `已自动恢复 ${this.snapshot.deviceName}`);
+      setTimeout(() => this.postConnectInitialize(generation), 3000);
+    }).catch((error: Error) => {
+      if (generation === this.connectionGeneration) {
+        this.snapshot = emptyWearableSnapshot();
+        this.snapshot.message = this.bluetoothError(error, '恢复 W8 连接失败');
+        this.emitSnapshot();
+        this.emitPhase('error', this.snapshot.message);
+      }
+    }).finally(() => {
+      if (generation === this.connectionGeneration) this.busyOperation = '';
+      this.restoreConnectPending = false;
+    });
+  }
+
   private scheduleReconnect(): void {
-    if (this.reconnectTimer !== -1 || this.userDisconnect) return;
+    if (this.activeProvider !== 'Vep' || this.reconnectTimer !== -1 || this.userDisconnect) return;
     if (!this.lastDevice || this.reconnectAttempt >= WEARABLE_RECONNECT_DELAYS_MS.length) {
       this.emitPhase('error', '自动重连未成功，请确认手表未被其他手机占用后手动重连');
       return;
@@ -1279,6 +1577,10 @@ export class VepWearableService {
 
   private async refreshConnectedDeviceInternal(generation: number, fallback?: WearableDevice,
     includeBattery: boolean = true): Promise<void> {
+    if (this.activeProvider === 'Yuc') {
+      await this.refreshYucDeviceInternal(generation, fallback, includeBattery);
+      return;
+    }
     const device = this.sdk.getConnectedDevice();
     if (!device || !isCurrentConnectionGeneration(generation, this.connectionGeneration)) {
       throw new Error('设备连接状态已变化');
@@ -1293,6 +1595,7 @@ export class VepWearableService {
       this.originalDial = null;
     }
     this.snapshot = {
+      provider: 'Vep',
       connected: true,
       deviceKey: this.connectedKey,
       deviceName: device.deviceName || fallback?.name || '赛电手表',
@@ -1325,7 +1628,58 @@ export class VepWearableService {
     if (isCurrentConnectionGeneration(generation, this.connectionGeneration)) this.emitSnapshot();
   }
 
+  private async refreshYucDeviceInternal(generation: number, fallback?: WearableDevice,
+    includeBattery: boolean = true): Promise<void> {
+    if (!this.yuc().isReady() || !isCurrentConnectionGeneration(generation, this.connectionGeneration)) {
+      throw new Error('W8 设备连接状态已变化');
+    }
+    const flags = this.yuc().featureFlags();
+    const capabilities: WearableCapabilities = yucCapabilitiesFromFlags(flags);
+    const sportCapability = yucSportCapabilityFromFlags(flags);
+    const sameDevice = this.snapshot.deviceKey === this.connectedKey;
+    let mac = fallback?.mac || this.lastBinding?.mac || '';
+    let model = 'W8 系列';
+    let firmware = '';
+    let battery = sameDevice ? this.snapshot.battery : emptyBattery();
+    try {
+      const metadata = await this.yuc().metadata();
+      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
+      mac = metadata.mac || mac;
+      model = metadata.model || model;
+      firmware = metadata.firmware || firmware;
+      if (includeBattery && metadata.batteryLevel >= 0 && metadata.batteryLevel <= 100) {
+        battery = { available: true, hasPercentage: true, level: metadata.batteryLevel,
+          levelGrade: 0, charging: metadata.batteryState === 1, lowBattery: metadata.batteryLevel <= 15,
+          updatedAt: Date.now() };
+      }
+    } catch (error) {
+      console.warn(`[SaydianWearable] W8 metadata read skipped: ${(error as Error).message}`);
+    }
+    if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
+    this.snapshot = {
+      provider: 'Yuc', connected: true, deviceKey: this.connectedKey,
+      deviceName: fallback?.name || this.lastBinding?.name || '赛电 W8 手表',
+      mac: normalizeMac(mac), model: model, firmware: firmware,
+      capabilities: capabilities, sportCapability: sportCapability, battery: battery,
+      records: sameDevice ? this.snapshot.records : [],
+      settings: sameDevice ? this.snapshot.settings : emptyDeviceSettings(),
+      dials: [], currentDialKey: '', originalDialKey: '',
+      syncedAt: sameDevice ? this.snapshot.syncedAt : 0,
+      message: 'W8 设备已认证'
+    };
+    this.emitSnapshot();
+  }
+
   private async syncHistoryInternal(generation: number, days: HealthQueryDay[], includeAdvanced: boolean = true): Promise<void> {
+    if (this.activeProvider === 'Yuc') {
+      const records = await this.yuc().readHistory(this.connectedKey, includeAdvanced);
+      if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
+      records.forEach((record: HealthRecord) => this.addRecord(record));
+      this.snapshot.records = this.snapshot.records.slice()
+        .sort((a: HealthRecord, b: HealthRecord) => b.timestamp - a.timestamp);
+      this.emitSnapshot();
+      return;
+    }
     for (const day of days) {
       if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
       const health = await this.sdk.healthService.getHealthData(day, 1);
@@ -1697,7 +2051,8 @@ export class VepWearableService {
   }
 
   private async requestMeasurementStop(metric: WearableMetricKey): Promise<void> {
-    if (metric === 'heart') await this.sdk.heartRateService.stopMeasurement();
+    if (this.activeProvider === 'Yuc') await this.yuc().stopMeasurement(metric);
+    else if (metric === 'heart') await this.sdk.heartRateService.stopMeasurement();
     else if (metric === 'pressure') await this.sdk.bloodPressureService.stopMeasurement();
     else if (metric === 'oxygen') await this.sdk.bloodOxygenService.stopMeasurement();
     else if (metric === 'temperature') await this.sdk.bodyTemperatureService.stopMeasurement();
@@ -1820,7 +2175,8 @@ export class VepWearableService {
       if (!sameHealthSession(session, this.accountSession)) return;
       this.lastBinding = binding;
       this.synchronizeCloud();
-      if (this.lastBinding?.provider === 'Vep' && !this.snapshot.connected && !this.scanning && !this.busyOperation) {
+      this.tryAdoptYucConnection();
+      if (this.lastBinding && !this.snapshot.connected && !this.scanning && !this.busyOperation) {
         setTimeout(() => {
           if (sameHealthSession(session, this.accountSession) && !this.snapshot.connected && !this.scanning && !this.busyOperation) this.startScan();
         }, 800);
@@ -1894,10 +2250,10 @@ export class VepWearableService {
   }
 
   private tryRestoreConnection(): void {
-    if (!this.lastBinding || this.lastBinding.provider !== 'Vep' || this.restoreConnectPending ||
+    if (!this.lastBinding || this.restoreConnectPending ||
       this.snapshot.connected || this.busyOperation !== 'scan') return;
     const match = this.devices.find((item: WearableDevice) =>
-      item.provider === 'Vep' && !!item.mac && item.mac === this.lastBinding?.mac);
+      item.provider === this.lastBinding?.provider && !!item.mac && item.mac === this.lastBinding?.mac);
     if (!match) return;
     this.restoreConnectPending = true;
     setTimeout(() => {
@@ -2056,8 +2412,10 @@ export class VepWearableService {
   }
 
   private ensureConnected(): boolean {
-    if (!this.snapshot.connected || this.sdk.getState() !== ConnectionState.CONNECTED) {
-      this.emitPhase('error', '请先连接 Vep 手表');
+    const nativeConnected = this.activeProvider === 'Yuc' ? this.yuc().isReady() :
+      this.sdk.getState() === ConnectionState.CONNECTED;
+    if (!this.snapshot.connected || !nativeConnected) {
+      this.emitPhase('error', '请先连接手表');
       return false;
     }
     return true;
@@ -2088,6 +2446,7 @@ export class VepWearableService {
 
   private copySnapshot(): WearableSnapshot {
     return {
+      provider: this.snapshot.provider,
       connected: this.snapshot.connected,
       deviceKey: this.snapshot.deviceKey,
       deviceName: this.snapshot.deviceName,
@@ -2163,6 +2522,11 @@ export class VepWearableService {
 
   private delay(milliseconds: number): Promise<void> {
     return new Promise<void>((resolve: () => void) => setTimeout(resolve, milliseconds));
+  }
+
+  private yuc(): YucWearableAdapter {
+    if (!this.yucAdapter) this.yucAdapter = new YucWearableAdapter();
+    return this.yucAdapter;
   }
 
   private withTimeout<T>(operation: Promise<T>, milliseconds: number, message: string): Promise<T> {

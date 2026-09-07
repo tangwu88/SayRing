@@ -281,7 +281,9 @@ test('device search and profile shortcuts match the iOS navigation hierarchy',()
     assert.ok(source.includes(marker),`Missing device search contract: ${marker}`);
   }
   assert.ok(search.includes('wearableIdentifierText(device)'));
-  assert.ok(search.includes("device.provider === 'Vep' ? '连接' : '暂不支持'"));
+  assert.ok(search.includes("device.provider === 'Yuc' ? 'W8' : 'Vep'"));
+  assert.ok(search.includes("Text('连接')"));
+  assert.equal(search.includes("Text('暂不支持')"),false,'Both W8 and W9 discovery rows must be connectable');
   const mineStart=source.indexOf('MineHome()');
   const mine=source.slice(mineStart,source.indexOf('\n  Home() {',mineStart));
   for(const marker of ['AI提问','单位设置','mine_account','mine_units']) assert.ok(mine.includes(marker));

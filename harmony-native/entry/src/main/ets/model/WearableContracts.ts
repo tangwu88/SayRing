@@ -143,6 +143,7 @@ export interface WearableDial {
 }
 
 export interface WearableSnapshot {
+  provider: WearableProvider | '';
   connected: boolean;
   deviceKey: string;
   deviceName: string;
@@ -489,7 +490,7 @@ export function formatHealthNumber(value: number): string {
 
 export function emptyWearableSnapshot(): WearableSnapshot {
   return {
-    connected: false, deviceKey: '', deviceName: '', mac: '', model: '', firmware: '',
+    provider: '', connected: false, deviceKey: '', deviceName: '', mac: '', model: '', firmware: '',
     capabilities: emptyCapabilities(), sportCapability: emptySportCapability(), battery: emptyBattery(), records: [], settings: emptyDeviceSettings(),
     dials: [], currentDialKey: '', originalDialKey: '', syncedAt: 0, message: ''
   };

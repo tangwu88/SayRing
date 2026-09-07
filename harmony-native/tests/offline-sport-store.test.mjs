@@ -16,7 +16,7 @@ globalThis.__sportStoreDependencies={...model,relationalStore:{RdbPredicates:Pre
 const storeURL=new URL('../entry/src/main/ets/services/WearableHealthStore.ets',import.meta.url).href;
 registerHooks({ load(url,context,next) {
   if(url!==storeURL)return next(url,context);
-  const source=readFileSync(new URL(url),'utf8').replace(/^import[\s\S]*?;\n/gm,'');
+  const source=readFileSync(new URL(url),'utf8').replace(/^import[\s\S]*?;\r?\n/gm,'');
   return {format:'module',shortCircuit:true,source:stripTypeScriptTypes(
     `const {${Object.keys(globalThis.__sportStoreDependencies).join(',')}}=globalThis.__sportStoreDependencies;\n${source}`)};
 }});
