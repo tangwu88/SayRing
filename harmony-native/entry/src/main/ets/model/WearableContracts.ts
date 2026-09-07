@@ -193,6 +193,16 @@ export function cleanDeviceName(value: string): string {
   return name ? name.slice(0, 80) : '未知设备';
 }
 
+export function wearableModelText(model: string, deviceName: string): string {
+  const verifiedModel = typeof model === 'string' ? model.trim() : '';
+  if (verifiedModel) return verifiedModel.slice(0, 80);
+  const name = cleanDeviceName(deviceName);
+  const separator = name.lastIndexOf('-');
+  if (separator < 0) return '未知';
+  const suffix = name.slice(separator + 1).trim();
+  return suffix ? suffix.slice(0, 80) : '未知';
+}
+
 export function wearableProviderForName(value: string): WearableProvider {
   return /W8/i.test(cleanDeviceName(value)) ? 'Yuc' : 'Vep';
 }

@@ -1129,7 +1129,7 @@ class _DeviceHero extends StatelessWidget {
                 Text(
                   device == null
                       ? '连接后同步健康数据'
-                      : '${device.model ?? '赛电设备'} · ${controller.syncStatus}',
+                      : '${device.displayModel} · ${controller.syncStatus}',
                   style: const TextStyle(
                     color: SaydianColors.muted,
                     fontSize: 12,
@@ -5081,7 +5081,7 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                     const Divider(indent: 16),
                     ListTile(
                       title: const Text('设备型号'),
-                      trailing: Text(device?.model ?? '--'),
+                      trailing: Text(device?.displayModel ?? '--'),
                     ),
                     const Divider(indent: 16),
                     ListTile(

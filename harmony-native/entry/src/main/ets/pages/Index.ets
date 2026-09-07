@@ -20,7 +20,7 @@ import {
   HealthRecord, HealthValue, MeasurementState, SportSessionState, WearableConnectionPhase, WearableDevice, WearableDial,
   WearableMetricKey, WearableSnapshot, WearableSportMode, batteryText, emptyMeasurement, emptySportSession,
   emptyWearableSnapshot, healthRecordText, latestMetricRecord, sportModeLabel, sportRoutePolyline,
-  wearableIdentifierText, WEARABLE_SCAN_TIMEOUT_MS
+  wearableIdentifierText, wearableModelText, WEARABLE_SCAN_TIMEOUT_MS
 } from '../model/WearableContracts';
 import { vepWearable, WearableServiceListener } from '../services/VepWearableService';
 import { sameHealthSession } from '../model/HealthUpload';
@@ -2638,10 +2638,8 @@ struct Index {
           }.width('100%').alignItems(VerticalAlign.Center)
           Text(this.wearableSyncTime()).fontSize(13).fontColor(GREEN).width('100%').maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
-          if (this.wearableSnapshot.model || this.wearableSnapshot.firmware) {
-            Text(`型号 ${this.wearableSnapshot.model || '未知'} · 固件 ${this.wearableSnapshot.firmware || '未知'}`)
-              .fontSize(13).fontColor(MUTED).width('100%').maxLines(2)
-          }
+          Text(`型号 ${wearableModelText(this.wearableSnapshot.model, this.wearableSnapshot.deviceName)} · 固件 ${this.wearableSnapshot.firmware || '未知'}`)
+            .fontSize(13).fontColor(MUTED).width('100%').maxLines(2)
           Row({ space: 10 }) {
             Button(this.wearablePhase === 'syncing' ? '正在同步…' : '同步数据').layoutWeight(1)
               .constraintSize({ minHeight: 48 }).backgroundColor(RED)
@@ -2701,7 +2699,7 @@ struct Index {
             SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
           }.width('100%').constraintSize({ minHeight: 66 }).padding({ left: 12, right: 12, top: 9, bottom: 9 })
             .onClick(() => this.showFeature('关于设备',
-              `设备：${this.wearableSnapshot.deviceName}\nMAC：${this.wearableSnapshot.mac || '未提供'}\n型号：${this.wearableSnapshot.model || '未知'}\n固件：${this.wearableSnapshot.firmware || '未知'}`))
+              `设备：${this.wearableSnapshot.deviceName}\nMAC：${this.wearableSnapshot.mac || '未提供'}\n型号：${wearableModelText(this.wearableSnapshot.model, this.wearableSnapshot.deviceName)}\n固件：${this.wearableSnapshot.firmware || '未知'}`))
           Divider().color(LINE).margin({ left: 54 })
           Row({ space: 12 }) {
             Column() {

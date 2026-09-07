@@ -408,6 +408,15 @@ class DeviceInfo {
     return id.substring(id.indexOf(':') + 1);
   }
 
+  String get displayModel {
+    final reportedModel = model?.trim() ?? '';
+    if (reportedModel.isNotEmpty) return reportedModel;
+    final separator = name.lastIndexOf('-');
+    if (separator < 0) return '--';
+    final suffix = name.substring(separator + 1).trim();
+    return suffix.isEmpty ? '--' : suffix;
+  }
+
   String? get macAddress {
     for (final candidate in [hardwareAddress, nativeId]) {
       final value = candidate?.trim() ?? '';

@@ -2,7 +2,7 @@
   "app": {
     "bundleName": "cc.saidian.app.hm",
     "vendor": "SAYDIAN",
-    "versionCode": 8,
+    "versionCode": 9,
     "versionName": "0.1.4",
     "configuration": "$profile:configuration",
     "icon": "$media:app_icon_v3",

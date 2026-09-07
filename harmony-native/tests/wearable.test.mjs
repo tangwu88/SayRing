@@ -7,7 +7,7 @@ import {
   healthRecordText, healthValue, isCurrentConnectionGeneration, mergeWearableDevices,
   isOneShotMeasurementMetric, normalizeLegacyDistanceRecord, normalizeMac, retainedMeasurementValues,
   sportDistanceKilometers, wearableIdentifierText,
-  wearableProviderForName, WEARABLE_AUTO_SYNC_DELAY_MS,
+  wearableModelText, wearableProviderForName, WEARABLE_AUTO_SYNC_DELAY_MS,
   WEARABLE_CONNECT_TIMEOUT_MS, WEARABLE_MEASUREMENT_STOP_TIMEOUT_MS, WEARABLE_SCAN_TIMEOUT_MS,
 } from '../entry/src/main/ets/model/WearableContracts.ts';
 
@@ -23,6 +23,14 @@ test('all names containing W8 are classified as Yuc while Vep names remain Vep',
 test('device names remove control bytes and do not allow blank labels', () => {
   assert.equal(cleanDeviceName('  SD\u0000-Watch\n-W9S  '), 'SD-Watch-W9S');
   assert.equal(cleanDeviceName(' \n '), '未知设备');
+});
+
+test('missing device model falls back to the final Bluetooth name segment', () => {
+  assert.equal(wearableModelText('VP-900', 'SD-Watch-W9S'), 'VP-900');
+  assert.equal(wearableModelText('', 'SD-Watch-W9S'), 'W9S');
+  assert.equal(wearableModelText(' ', 'SD-Watch-W9'), 'W9');
+  assert.equal(wearableModelText('', 'ET488'), '未知');
+  assert.equal(wearableModelText('', 'SD-Watch-'), '未知');
 });
 
 test('only verified six-byte addresses are presented as MAC', () => {
