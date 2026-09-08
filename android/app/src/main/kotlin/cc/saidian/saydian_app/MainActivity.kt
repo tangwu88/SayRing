@@ -315,6 +315,10 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun prepareCall(call: MethodCall, result: MethodChannel.Result) {
+        if (call.method == "restoreConnection") {
+            prepareSilentRestoreCall(call, result)
+            return
+        }
         if (call.method !in BLE_PERMISSION_METHODS) {
             dispatch(call, result)
             return
@@ -359,6 +363,29 @@ class MainActivity : FlutterActivity() {
             !isLocationServiceEnabled()
         ) {
             result.error("LOCATION_SERVICE_DISABLED", "请开启手机定位后再查找手表", null)
+            return
+        }
+        dispatch(call, result)
+    }
+
+    /**
+     * Automatic connection recovery runs during app startup/resume. It must
+     * never open a runtime-permission or Bluetooth-enable dialog because the
+     * user has not actively entered the device connection flow. A later
+     * explicit scan/connect action goes through [prepareCall] and may request
+     * the permissions it needs at that point.
+     */
+    private fun prepareSilentRestoreCall(call: MethodCall, result: MethodChannel.Result) {
+        if (!hasBlePermissions()) {
+            result.error("BLE_PERMISSION_REQUIRED", "请在设备页连接手表", null)
+            return
+        }
+        if (!isBluetoothEnabled()) {
+            result.error("BLUETOOTH_DISABLED", "请在设备页开启蓝牙并连接手表", null)
+            return
+        }
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.R && !isLocationServiceEnabled()) {
+            result.error("LOCATION_SERVICE_DISABLED", "请在设备页开启定位后连接手表", null)
             return
         }
         dispatch(call, result)
@@ -794,7 +821,6 @@ class MainActivity : FlutterActivity() {
             setOf(
                 "scanDevices",
                 "connect",
-                "restoreConnection",
                 "getDeviceDetails",
                 "getWatchFaceProfile",
                 "startSport",

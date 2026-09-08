@@ -88,4 +88,27 @@ void main() {
       );
     }
   });
+
+  test('automatic Android wearable restore never opens permission UI', () {
+    final source = File(
+      'android/app/src/main/kotlin/cc/saidian/saydian_app/MainActivity.kt',
+    ).readAsStringSync();
+    final prepareStart = source.indexOf('private fun prepareSilentRestoreCall');
+    final prepareEnd = source.indexOf('private fun dispatch', prepareStart);
+
+    expect(prepareStart, greaterThanOrEqualTo(0));
+    expect(prepareEnd, greaterThan(prepareStart));
+    final restoreBlock = source.substring(prepareStart, prepareEnd);
+    expect(restoreBlock, contains('hasBlePermissions()'));
+    expect(restoreBlock, contains('isBluetoothEnabled()'));
+    expect(restoreBlock, contains('dispatch(call, result)'));
+    expect(restoreBlock, isNot(contains('ActivityCompat.requestPermissions')));
+    expect(restoreBlock, isNot(contains('ACTION_REQUEST_ENABLE')));
+
+    final permissionMethods = RegExp(
+      r'private val BLE_PERMISSION_METHODS\s*=\s*setOf\(([\s\S]*?)\n\s*\)',
+    ).firstMatch(source);
+    expect(permissionMethods, isNotNull);
+    expect(permissionMethods!.group(1), isNot(contains('restoreConnection')));
+  });
 }

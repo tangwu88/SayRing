@@ -2015,6 +2015,7 @@ class AppController extends ChangeNotifier {
   Future<void> restoreWearableConnection() async {
     if (_disposed ||
         _accountTransitioning ||
+        !_privacyConsentGranted ||
         !_wearableAccountRecoveryAllowed ||
         connectedDevice != null ||
         deviceState != DeviceConnectionState.disconnected) {
