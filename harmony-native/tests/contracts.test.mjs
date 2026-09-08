@@ -105,6 +105,7 @@ test('refresh safely retains omitted identity and refresh token', () => {
 });
 test('profile missing values are not health zeros', () => {
   assert.equal(profileName({ nickname: ' ', username: 'fallback' }), 'fallback');
+  assert.equal(profileName({ nickname: '\x7f', username: 'safe-name' }), 'safe-name');
   assert.equal(profileField(undefined, ' kg'), '未填写');
   assert.equal(profileField('', ' kg'), '未填写');
   assert.equal(profileField(62, ' kg'), '62 kg');

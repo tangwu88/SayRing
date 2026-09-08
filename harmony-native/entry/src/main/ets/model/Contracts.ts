@@ -190,8 +190,10 @@ export function parseProfile(data: Object | undefined, memberId: string): Member
 
 export function profileName(profile?: MemberProfile): string {
   if (!profile || typeof profile !== 'object') return '';
-  return (typeof profile.nickname === 'string' && profile.nickname.trim()) ||
-    (typeof profile.username === 'string' && profile.username.trim()) || '';
+  const nickname = typeof profile.nickname === 'string' ? profile.nickname.trim() : '';
+  if (nickname && !/[\x00-\x1f\x7f]/.test(nickname)) return nickname;
+  const username = typeof profile.username === 'string' ? profile.username.trim() : '';
+  return username && !/[\x00-\x1f\x7f]/.test(username) ? username : '';
 }
 
 export function profileField(value: number | string | undefined, suffix: string = ''): string {

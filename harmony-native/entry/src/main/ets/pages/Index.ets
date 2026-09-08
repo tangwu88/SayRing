@@ -595,7 +595,7 @@ struct Index {
   }
 
   private openProfileEditor(): void {
-    this.editNickname = this.profile.nickname ?? this.displayName;
+    this.editNickname = profileName(this.profile) || this.displayName || '赛电用户';
     this.editGender = [1, 2].includes(Number(this.profile.gender)) ? Number(this.profile.gender) : 0;
     this.editBirthday = this.profile.birthday ?? '';
     this.editHeight = this.profile.height === undefined ? '' : String(this.profile.height);
@@ -1914,7 +1914,7 @@ struct Index {
     this.error = '';
     const epoch = ++this.pageGeneration;
     try {
-      const session = await saydianApi.loginWithWechat(result.openId);
+      const session = await saydianApi.loginWithWechat(result.code, result.state, result.openId);
       if (epoch !== this.pageGeneration) return;
       this.acceptAuthenticatedSession(session);
     } catch (error) {

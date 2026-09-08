@@ -76,10 +76,6 @@ class WechatAuthService implements wxopensdk.WXApiEventHandler {
       this.publish({ status: 'error', code: '', state: '', openId: '', message: '微信授权已失效，请重新登录' });
       return;
     }
-    if (!openId) {
-      this.publish({ status: 'error', code: '', state: '', openId: '', message: '微信未返回登录信息，请更新微信后重试' });
-      return;
-    }
     this.publish({ status: 'success', code: code, state: state, openId: openId, message: '' });
   }
 
