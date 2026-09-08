@@ -389,6 +389,60 @@ void main() {
     expect(api.savedNickname, '保存后的昵称');
   });
 
+  testWidgets('profile editor handles an unset gender from WeChat login', (
+    tester,
+  ) async {
+    final api = _ProfileApi(gender: '0');
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            api,
+            MemoryHealthStore(),
+            _NoopWearable(),
+          )
+          ..session = Session(
+            accessToken: 'wechat-profile-token',
+            refreshToken: 'wechat-profile-refresh',
+            expiresAt: DateTime(2030),
+            memberId: 'wechat-profile-member',
+            displayName: '微信用户',
+          )
+          ..memberProfile = const {
+            'nickname': '微信用户',
+            'birthday': '1990-01-02',
+            'height': '168',
+            'weight': '62',
+            'gender': 0,
+          };
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: ProfileEditPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('未设置'), findsOneWidget);
+
+    await tester.tap(find.byType(DropdownButtonFormField<int>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('男').last);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('profile-save')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('profile-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.savedGender, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('health alarm is visible above every app page until dismissed', (
     tester,
   ) async {
@@ -549,16 +603,20 @@ class _WechatBridge implements WechatAuthBridge {
 }
 
 class _ProfileApi extends _NoopApi {
+  _ProfileApi({this.gender = '2'});
+
+  final String gender;
   String? savedNickname;
+  int? savedGender;
 
   @override
-  Future<Map<String, Object?>> getMemberProfile() async => const {
+  Future<Map<String, Object?>> getMemberProfile() async => {
     'nickname': '服务端昵称',
     'mobile': '13800138000',
     'birthday': '1990-01-02',
     'height': '168',
     'weight': '62',
-    'gender': '2',
+    'gender': gender,
   };
 
   @override
@@ -571,6 +629,7 @@ class _ProfileApi extends _NoopApi {
     String? headPortrait,
   }) async {
     savedNickname = nickname;
+    savedGender = gender;
   }
 }
 

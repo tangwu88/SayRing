@@ -7,8 +7,10 @@
 - App 现在只向 `POST /api/v1/site/app-wechat-login` 提交 `code`，不提交
   `openid`、`unionid`、昵称、头像、`state`、平台或任何密钥。
 - 无效测试 `code` 返回业务码 422 和 `invalid code`，证明服务端已进入微信兑换流程。
-- 真机有效 `code` 已到达服务端，但服务端随后返回业务码 500；阻断点为
-  `SiteController.php:100` 使用了未定义的类常量 `CLIENT_WECHAT_APP`。
+- 服务端已修复 `CLIENT_WECHAT_APP` 未定义异常。真机有效 `code` 登录成功，
+  App 可进入首页并读取会员资料，强制结束进程后登录状态仍然保留。
+- 微信新用户可能返回 `gender=0`（未设置）。个人资料页现已兼容该状态，
+  不再触发 `DropdownButton` 断言红屏；用户选择性别并补全资料后可正常保存。
 
 ## 前端修改
 
@@ -24,13 +26,13 @@
 - `flutter analyze`：通过，0 问题。
 - Android Debug APK：编译、覆盖安装成功。
 - 真机：HUAWEI JAD-AL00，微信回调 `errorCode=0` 且 `hasCode=true`。
+- 真机个人资料回归：进入页面、选择性别、填写生日/身高/体重、保存和重新读取均成功。
+- 微信未设置性别组件回归测试：通过；`flutter analyze`：0 问题。
 - AppSecret、微信授权码和用户身份值均未写入源码、测试记录或正式日志。
 
-## 服务端待处理
+## 已关闭的服务端阻断
 
-请检查 `/api/v1/site/app-wechat-login` 的 `SiteController.php` 第 100 行：
+此前 `/api/v1/site/app-wechat-login` 的 `SiteController.php` 第 100 行引用未定义的
+`CLIENT_WECHAT_APP`，导致有效授权码返回业务码 500。2026-09-08 真机复测已确认该问题关闭。
 
-1. 改用项目中已定义的登录客户端类型常量，或补充合法的 APP 微信客户端类型；
-2. 不要引用不存在的 `CLIENT_WECHAT_APP`；
-3. 修复后，有效 `code` 应返回 App 的 `access_token`、`refresh_token` 和 `member`；
-4. 生产响应不得返回 PHP 文件路径和异常堆栈。
+服务端仍应确保生产响应不返回 PHP 文件路径和异常堆栈。

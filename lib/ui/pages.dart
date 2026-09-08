@@ -9512,6 +9512,11 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
   bool _profileEdited = false;
   String? _profileLoadError;
 
+  int _profileGender(Object? rawValue) {
+    final value = int.tryParse('${rawValue ?? ''}');
+    return value == 1 || value == 2 ? value! : 0;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -9520,7 +9525,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
     _birthday = TextEditingController(text: '${profile['birthday'] ?? ''}');
     _height = TextEditingController(text: '${profile['height'] ?? ''}');
     _weight = TextEditingController(text: '${profile['weight'] ?? ''}');
-    _gender = int.tryParse('${profile['gender'] ?? 1}') ?? 1;
+    _gender = _profileGender(profile['gender']);
     _avatarUrl = '${profile['head_portrait'] ?? ''}'.trim();
     _registeredMobile = _mobileFromProfile(profile);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -9575,7 +9580,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
       _birthday.text = '${profile['birthday'] ?? ''}';
       _height.text = '${profile['height'] ?? ''}';
       _weight.text = '${profile['weight'] ?? ''}';
-      _gender = int.tryParse('${profile['gender'] ?? 1}') ?? 1;
+      _gender = _profileGender(profile['gender']);
       if (_avatarFilePath == null) {
         _avatarUrl = '${profile['head_portrait'] ?? ''}'.trim();
       }
@@ -9627,6 +9632,12 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
 
   Future<void> _save() async {
     if (_isPickingAvatar) return;
+    if (_gender != 1 && _gender != 2) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请选择性别')));
+      return;
+    }
     final height = double.tryParse(_height.text);
     final weight = double.tryParse(_weight.text);
     if (_nickname.text.trim().isEmpty ||
@@ -9768,9 +9779,11 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<int>(
+            key: ValueKey('profile-gender-$_gender'),
             initialValue: _gender,
             decoration: const InputDecoration(labelText: '性别'),
             items: const [
+              DropdownMenuItem(value: 0, child: Text('未设置')),
               DropdownMenuItem(value: 1, child: Text('男')),
               DropdownMenuItem(value: 2, child: Text('女')),
             ],
