@@ -1914,7 +1914,7 @@ struct Index {
     this.error = '';
     const epoch = ++this.pageGeneration;
     try {
-      const session = await saydianApi.loginWithWechat(result.code, result.state);
+      const session = await saydianApi.loginWithWechat(result.openId);
       if (epoch !== this.pageGeneration) return;
       this.acceptAuthenticatedSession(session);
     } catch (error) {

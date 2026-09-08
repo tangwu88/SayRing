@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   API_BASE, ApiError, decodeEnvelope, loginValidation, expirationMillis, parseSession,
   buildMultipart, profileImageUrl, profileName, profileField, articleText, safeMessage, canSubmitLogin,
-  registrationValidation, wechatAuthorizationValidation,
+  registrationValidation, wechatAuthorizationValidation, wechatOpenIdValidation,
 } from '../entry/src/main/ets/model/Contracts.ts';
 
 const now = Date.UTC(2026, 8, 4, 8);
@@ -41,6 +41,12 @@ test('native WeChat callback accepts only bounded one-time codes and signed stat
   assert.equal(wechatAuthorizationValidation('temporary-code', state), '');
   assert.match(wechatAuthorizationValidation('bad code', state), /授权信息/);
   assert.match(wechatAuthorizationValidation('temporary-code', 'bad-state'), /授权状态/);
+});
+test('deployed WeChat login contract accepts only a bounded callback OpenID', () => {
+  assert.equal(wechatOpenIdValidation(' wx-open-id-0123456789 '), '');
+  assert.match(wechatOpenIdValidation(''), /用户标识/);
+  assert.match(wechatOpenIdValidation('bad open id'), /用户标识/);
+  assert.match(wechatOpenIdValidation('x'.repeat(129)), /用户标识/);
 });
 test('HTTP and business errors are both enforced', () => {
   assert.throws(() => decodeEnvelope('{"code":401,"message":"请登录"}', 200), (e) => e instanceof ApiError && e.status === 401);

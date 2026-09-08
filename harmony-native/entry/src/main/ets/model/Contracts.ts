@@ -88,6 +88,14 @@ export function wechatAuthorizationValidation(code: string, state: string): stri
   return '';
 }
 
+export function wechatOpenIdValidation(openId: string): string {
+  const normalized = openId.trim();
+  if (normalized.length < 6 || normalized.length > 128 || /[\s\x00-\x1f\x7f]/.test(normalized)) {
+    return '微信用户标识无效，请重新授权';
+  }
+  return '';
+}
+
 export function canSubmitLogin(busy: boolean, restoring: boolean): boolean {
   return !busy && !restoring;
 }

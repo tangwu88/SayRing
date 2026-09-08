@@ -27,9 +27,12 @@ test('authorization state is unpredictable shaped, exact-match and expires', () 
 });
 
 test('callback result parser rejects malformed or oversized values', () => {
-  const valid = { status: 'success', code: 'temporary-code', state: buildWechatState(now, nonce), message: '' };
+  const valid = { status: 'success', code: 'temporary-code', state: buildWechatState(now, nonce),
+    openId: 'wx-open-id-0123456789', message: '' };
   assert.deepEqual(parseWechatAuthResult(JSON.stringify(valid)), valid);
-  for (const value of ['', 'null', '[]', '{bad', JSON.stringify({ ...valid, code: 8 }), 'x'.repeat(4097)]) {
+  for (const value of ['', 'null', '[]', '{bad', JSON.stringify({ ...valid, code: 8 }),
+    JSON.stringify({ ...valid, openId: undefined }), JSON.stringify({ ...valid, openId: 'x'.repeat(129) }),
+    'x'.repeat(4097)]) {
     assert.equal(parseWechatAuthResult(value), undefined);
   }
 });

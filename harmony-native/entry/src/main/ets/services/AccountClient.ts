@@ -1,7 +1,7 @@
 import {
   ApiError, parseSession,
   validateStoredSession, parseProfile, parseArticles, parseArticle, loginValidation,
-  registrationValidation, wechatAuthorizationValidation
+  registrationValidation, wechatOpenIdValidation
 } from '../model/Contracts';
 import type { Envelope, Session, FormField, MemberProfile, Article, UploadFile } from '../model/Contracts';
 import { profileImageUrl } from '../model/Contracts';
@@ -182,15 +182,14 @@ export class AccountClient {
     ]);
   }
 
-  async loginWithWechat(code: string, state: string): Promise<Session> {
-    const validation = wechatAuthorizationValidation(code, state);
+  async loginWithWechat(openId: string): Promise<Session> {
+    const validation = wechatOpenIdValidation(openId);
     if (validation) throw new ApiError(validation);
-    // The client submits only WeChat's one-time code; confidential credentials remain server-side.
-    return await this.authenticate('/api/v1/site/wechat-login', [
-      { name: 'code', value: code.trim() }, { name: 'state', value: state.trim() },
-      { name: 'group', value: 'app' }, { name: 'platform', value: 'harmony' },
-      { name: 'consent_version', value: 'harmony-native-legal-v1' },
-      { name: 'consent_accepted', value: '1' }
+    // Match the deployed service contract exactly. WeChat does not expose the optional profile
+    // fields in this callback, so they remain empty instead of being fabricated in the client.
+    return await this.authenticate('/api/v1/site/app-wechat-login', [
+      { name: 'unionid', value: '' }, { name: 'openid', value: openId.trim() },
+      { name: 'sex', value: '' }, { name: 'nickname', value: '' }, { name: 'headimgurl', value: '' }
     ]);
   }
 

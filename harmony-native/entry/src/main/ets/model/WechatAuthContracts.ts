@@ -6,6 +6,7 @@ export interface WechatAuthResult {
   status: 'success' | 'error';
   code: string;
   state: string;
+  openId: string;
   message: string;
 }
 
@@ -29,9 +30,16 @@ export function parseWechatAuthResult(value: string): WechatAuthResult | undefin
     const parsed = JSON.parse(value) as WechatAuthResult;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
       (parsed.status !== 'success' && parsed.status !== 'error') ||
-      typeof parsed.code !== 'string' || typeof parsed.state !== 'string' || typeof parsed.message !== 'string' ||
-      parsed.code.length > 1024 || parsed.state.length > 256 || parsed.message.length > 160) return undefined;
-    return { status: parsed.status, code: parsed.code, state: parsed.state, message: parsed.message };
+      typeof parsed.code !== 'string' || typeof parsed.state !== 'string' || typeof parsed.openId !== 'string' ||
+      typeof parsed.message !== 'string' || parsed.code.length > 1024 || parsed.state.length > 256 ||
+      parsed.openId.length > 128 || parsed.message.length > 160) return undefined;
+    return {
+      status: parsed.status,
+      code: parsed.code,
+      state: parsed.state,
+      openId: parsed.openId,
+      message: parsed.message
+    };
   } catch { return undefined; }
 }
 

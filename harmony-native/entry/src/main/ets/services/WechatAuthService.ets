@@ -66,16 +66,21 @@ class WechatAuthService implements wxopensdk.WXApiEventHandler {
     const pending = await this.readState();
     await this.clearState();
     if (response.errCode !== wxopensdk.ErrCode.ERR_OK) {
-      this.publish({ status: 'error', code: '', state: '', message: wechatAuthErrorMessage(response.errCode) });
+      this.publish({ status: 'error', code: '', state: '', openId: '', message: wechatAuthErrorMessage(response.errCode) });
       return;
     }
     const state = response.state?.trim() ?? '';
     const code = response.code?.trim() ?? '';
+    const openId = response.openId?.trim() ?? '';
     if (!pending || pending.expiresAt < Date.now() || !isFreshWechatState(state, pending.value, Date.now()) || !code) {
-      this.publish({ status: 'error', code: '', state: '', message: '微信授权已失效，请重新登录' });
+      this.publish({ status: 'error', code: '', state: '', openId: '', message: '微信授权已失效，请重新登录' });
       return;
     }
-    this.publish({ status: 'success', code: code, state: state, message: '' });
+    if (!openId) {
+      this.publish({ status: 'error', code: '', state: '', openId: '', message: '微信未返回登录信息，请更新微信后重试' });
+      return;
+    }
+    this.publish({ status: 'success', code: code, state: state, openId: openId, message: '' });
   }
 
   private publish(result: WechatAuthResult): void {

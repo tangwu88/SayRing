@@ -44,21 +44,19 @@ test('SMS registration uses the confirmed contract and stores only the resulting
   });
   assert.equal(store.writes,1);assert.equal('password' in store.value,false);
 });
-test('WeChat login exchanges only the one-time callback data and never a client secret',async()=>{
-  const state='sd_1788569000000_01234567-89ab-cdef-0123456789ab';let call;
+test('WeChat login follows the deployed five-field app contract and never sends a client secret',async()=>{
+  let call;
   const {client,store}=make(undefined,async(path,fields)=>{call={path,fields};return auth();});
-  await client.loginWithWechat(' temporary-code ',state);
-  assert.equal(call.path,'/api/v1/site/wechat-login');
-  assert.deepEqual(call.fields,[{name:'code',value:'temporary-code'},{name:'state',value:state},
-    {name:'group',value:'app'},{name:'platform',value:'harmony'},
-    {name:'consent_version',value:'harmony-native-legal-v1'},{name:'consent_accepted',value:'1'}]);
+  await client.loginWithWechat(' wx-open-id-0123456789 ');
+  assert.equal(call.path,'/api/v1/site/app-wechat-login');
+  assert.deepEqual(call.fields,[{name:'unionid',value:''},{name:'openid',value:'wx-open-id-0123456789'},
+    {name:'sex',value:''},{name:'nickname',value:''},{name:'headimgurl',value:''}]);
   assert.equal(call.fields.some(item=>/secret/i.test(item.name)),false);
   assert.equal(store.writes,1);
 });
 test('failed WeChat account switch cannot restore the previous account',async()=>{
-  const state='sd_1788569000000_01234567-89ab-cdef-0123456789ab';
   const {client,store}=make(session(),async()=>{throw new ApiError('fixture unavailable',404);});await client.restore();
-  await assert.rejects(client.loginWithWechat('temporary-code',state));
+  await assert.rejects(client.loginWithWechat('wx-open-id-0123456789'));
   assert.equal(client.current(),undefined);assert.equal(store.value,undefined);
 });
 test('failed account switch cannot restore previous account',async()=>{

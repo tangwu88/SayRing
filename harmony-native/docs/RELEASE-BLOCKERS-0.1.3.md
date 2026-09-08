@@ -14,7 +14,7 @@
 | P1 | 隐私/上架材料 | 新 SDK 合并网络状态与广告标识同意权限 | 更新隐私披露、用途说明、备案与应用市场权限清单并完成法务审核 |
 | P1 | 在线升级 | 客户端已接严格生产清单与 AppGallery 白名单；线上清单当前未配置 | 发布正式 AppGallery 产品页和 `app-update.json` 后验收普通/强制更新 |
 | P1 | 完整手表矩阵 | W9S 主要链路已通过；W8 鸿蒙 SDK 2.1.5 已完成双 SDK 接入、编译、安装和扫描回归，但现场无 W8 广播，真实连接/同步/测量尚未验收；W9/ET488/完整 ECG 仍未完成 | 使用可广播 W8 补测连接、同步、测量、运动和 30 分钟稳定性，并补测 W9、ET488 与佩戴 ECG |
-| P0 | 微信原生登录服务端合约 | 客户端已用官方 SDK 拉起微信并校验 state；旧 `/wechat-login` 当前业务 404，新 `/app-wechat-login` 要求客户端自报 OpenID/UnionID/用户资料，只提交官方回调的 code/state 时业务 500 且泄露调用栈 | 新接口改为接收一次性 code，并由服务端使用安全保存的密钥兑换、校验 OpenID/UnionID；收敛错误响应后，客户端再切换地址并完成真机闭环 |
+| P0 | 微信原生登录服务端合约 | 客户端已按产品方要求切换 `/app-wechat-login`，采用 SDK 回调 `openId` 并提交文档五字段；双时区 433/433 与 ArkTS 构建通过。nova 14 可拉起微信，但微信端报 `empty scopes`，尚无回调或服务端请求；服务端仍信任客户端自报身份 | 核对微信开放平台 Harmony 登录权限与应用身份，先完成真机登录闭环；正式发布前新接口仍应接收一次性 code，并由服务端使用安全保存的密钥兑换、校验 OpenID/UnionID 及收敛异常响应 |
 
 ## 服务端接口待确认
 
@@ -24,7 +24,7 @@
 - 关爱邀请、健康预警事务写入 Outbox；负载只携带事件 ID、类型、实体 ID 和白名单路由。
 - `/api/v1/pay`：按服务端当前订单金额和状态签名，返回 Harmony ThirdPayClient 所需参数。
 - 支付回调幂等验签并更新订单；客户端返回或第三方 App 返回不能直接视为成功。
-- `POST /api/v1/site/app-wechat-login`：必须只信任服务端用一次性 code 从微信兑换并验证的 OpenID/UnionID；不能把客户端自报的 `openid/unionid/nickname/headimgurl` 作为登录凭证。异常响应不得暴露服务端目录和调用栈。详见 `WECHAT-LOGIN-API-QA-20260908.md`。
+- `POST /api/v1/site/app-wechat-login`：客户端已按现行五字段兼容接入；正式发布前服务端仍必须改为用一次性 code 从微信兑换并验证 OpenID/UnionID，不能长期把客户端自报资料作为登录凭证。异常响应不得暴露服务端目录和调用栈。详见 `WECHAT-LOGIN-API-QA-20260908.md`。
 
 ## 正式签名门禁
 
