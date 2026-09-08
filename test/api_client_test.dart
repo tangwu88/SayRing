@@ -11,17 +11,19 @@ import 'package:saydian_app/services/secure_vault.dart';
 
 void main() {
   test(
-    'iOS WeChat exchanges code without prematurely persisting a session',
+    'App WeChat follows the deployed identity contract without persisting early',
     () async {
       final vault = MemorySessionVault();
       final api = SaydianApiClient(
         vault,
         client: MockClient((request) async {
-          expect(request.url.path, '/api/v1/site/wechat-login');
+          expect(request.url.path, '/api/v1/site/app-wechat-login');
           expect(request.method, 'POST');
-          expect(request.body, contains('name="platform"\r\n\r\nios'));
-          expect(request.body, contains('name="group"\r\n\r\napp'));
-          expect(request.body, contains('one-time-code'));
+          expect(request.body, contains('name="openid"\r\n\r\nwechat-open-id'));
+          for (final field in ['unionid', 'sex', 'nickname', 'headimgurl']) {
+            expect(request.body, contains('name="$field"'));
+          }
+          expect(request.body, isNot(contains('one-time-code')));
           expect(request.body.toLowerCase(), isNot(contains('secret')));
           return http.Response(
             '{"code":200,"data":{"access_token":"test-token","member":{"id":17}}}',
@@ -32,6 +34,7 @@ void main() {
       final session = await api.loginWithWechat(
         code: 'one-time-code',
         state: 'sd_1788569000000_0123456789abcdef',
+        openId: 'wechat-open-id',
       );
       expect(session.memberId, '17');
       expect(await vault.readSession(), isNull);
@@ -59,6 +62,7 @@ void main() {
           api.loginWithWechat(
             code: 'one-time-code',
             state: 'sd_1788569000000_0123456789abcdef',
+            openId: 'wechat-open-id',
           ),
           throwsA(isA<ApiException>()),
         );

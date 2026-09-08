@@ -222,7 +222,9 @@ class _LoginPageState extends State<LoginPage> {
                       child: const Text('注册账户'),
                     ),
                     if (!kIsWeb &&
-                        defaultTargetPlatform == TargetPlatform.iOS) ...[
+                        (defaultTargetPlatform == TargetPlatform.iOS ||
+                            defaultTargetPlatform ==
+                                TargetPlatform.android)) ...[
                       const SizedBox(height: 12),
                       Center(
                         child: FractionallySizedBox(

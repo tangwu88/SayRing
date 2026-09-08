@@ -43,7 +43,11 @@ void main() {
       );
       controller.cancelWechatLogin();
       auth.result.complete(
-        const WechatAuthorization(code: 'late-code', state: 'state'),
+        const WechatAuthorization(
+          code: 'late-code',
+          state: 'state',
+          openId: 'late-open-id',
+        ),
       );
       expect(await pending, isFalse);
       expect(api.calls, 0);
@@ -70,7 +74,11 @@ void main() {
       final pending = controller.loginWithWechat(privacyConsentGranted: true);
       await auth.started.future;
       auth.result.complete(
-        const WechatAuthorization(code: 'code', state: 'state'),
+        const WechatAuthorization(
+          code: 'code',
+          state: 'state',
+          openId: 'wechat-open-id',
+        ),
       );
       await api.started.future;
       expect(controller.session, isNull);
@@ -101,7 +109,11 @@ void main() {
       final pending = controller.loginWithWechat(privacyConsentGranted: true);
       await auth.started.future;
       auth.result.complete(
-        const WechatAuthorization(code: 'code', state: 'state'),
+        const WechatAuthorization(
+          code: 'code',
+          state: 'state',
+          openId: 'wechat-open-id',
+        ),
       );
       await api.started.future;
       controller.cancelWechatLogin();
@@ -112,62 +124,64 @@ void main() {
     },
   );
 
-  for (final width in [320.0, 375.0, 430.0]) {
-    testWidgets(
-      'iOS WeChat consent and cancel work at width $width with large text',
-      (tester) async {
-        await tester.binding.setSurfaceSize(Size(width, 812));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
-        final api = _WechatApi();
-        final auth = _WechatBridge();
-        final controller = AppController(
-          MemorySessionVault(),
-          api,
-          MemoryHealthStore(),
-          _NoopWearable(),
-          wechatAuthBridge: auth,
-        );
-        addTearDown(controller.dispose);
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: buildSaydianTheme(),
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(
-                context,
-              ).copyWith(textScaler: const TextScaler.linear(1.5)),
-              child: child!,
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    for (final width in [320.0, 375.0, 430.0]) {
+      testWidgets(
+        '${platform.name} WeChat consent and cancel work at width $width with large text',
+        (tester) async {
+          await tester.binding.setSurfaceSize(Size(width, 812));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
+          final api = _WechatApi();
+          final auth = _WechatBridge();
+          final controller = AppController(
+            MemorySessionVault(),
+            api,
+            MemoryHealthStore(),
+            _NoopWearable(),
+            wechatAuthBridge: auth,
+          );
+          addTearDown(controller.dispose);
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: buildSaydianTheme(),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: const TextScaler.linear(1.5)),
+                child: child!,
+              ),
+              home: ListenableBuilder(
+                listenable: controller,
+                builder: (_, _) => LoginPage(controller: controller),
+              ),
             ),
-            home: ListenableBuilder(
-              listenable: controller,
-              builder: (_, _) => LoginPage(controller: controller),
-            ),
-          ),
-        );
-        final button = find.byKey(const Key('wechat-login'));
-        expect(find.text('快速体验'), findsNothing);
-        await tester.ensureVisible(button);
-        await tester.tap(button);
-        await tester.pump();
-        expect(auth.calls, 0);
-        await tester.ensureVisible(find.byType(Checkbox));
-        await tester.tap(find.byType(Checkbox));
-        await tester.pump();
-        await tester.ensureVisible(button);
-        await tester.tap(button);
-        await tester.pump();
-        expect(auth.calls, 1);
-        expect(controller.isWechatLoginInProgress, isTrue);
-        await tester.tap(button);
-        await tester.pump();
-        auth.result.complete(null);
-        await tester.pumpAndSettle();
-        expect(controller.isBusy, isFalse);
-        expect(controller.session, isNull);
-        expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
-        expect(tester.takeException(), isNull);
-      },
-      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
-    );
+          );
+          final button = find.byKey(const Key('wechat-login'));
+          expect(find.text('快速体验'), findsNothing);
+          await tester.ensureVisible(button);
+          await tester.tap(button);
+          await tester.pump();
+          expect(auth.calls, 0);
+          await tester.ensureVisible(find.byType(Checkbox));
+          await tester.tap(find.byType(Checkbox));
+          await tester.pump();
+          await tester.ensureVisible(button);
+          await tester.tap(button);
+          await tester.pump();
+          expect(auth.calls, 1);
+          expect(controller.isWechatLoginInProgress, isTrue);
+          await tester.tap(button);
+          await tester.pump();
+          auth.result.complete(null);
+          await tester.pumpAndSettle();
+          expect(controller.isBusy, isFalse);
+          expect(controller.session, isNull);
+          expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
+          expect(tester.takeException(), isNull);
+        },
+        variant: TargetPlatformVariant.only(platform),
+      );
+    }
   }
 
   testWidgets('login page renders the required account and privacy controls', (
@@ -527,6 +541,7 @@ class _WechatApi extends _NoopApi implements SaydianWechatAuthApi {
   Future<Session> loginWithWechat({
     required String code,
     required String state,
+    required String openId,
   }) {
     calls++;
     started.complete();
