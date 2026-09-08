@@ -17,17 +17,12 @@ void main() {
       expect(call.method, 'authorizeWechat');
       final state = (call.arguments as Map)['state'] as String;
       states.add(state);
-      return {
-        'code': 'one-time-code',
-        'state': state,
-        'openId': 'wechat-open-id',
-      };
+      return {'code': 'one-time-code', 'state': state};
     });
     final bridge = MethodChannelWechatAuthBridge();
     final first = await bridge.authorize();
     final second = await bridge.authorize();
     expect(first!.code, 'one-time-code');
-    expect(first.openId, 'wechat-open-id');
     expect(first.state, states.first);
     expect(second!.state, isNot(first.state));
   });
@@ -35,11 +30,7 @@ void main() {
   test('foreign response cannot authenticate', () async {
     messenger.setMockMethodCallHandler(
       channel,
-      (_) async => {
-        'code': 'code',
-        'state': 'foreign',
-        'openId': 'wechat-open-id',
-      },
+      (_) async => {'code': 'code', 'state': 'foreign'},
     );
     await expectLater(
       MethodChannelWechatAuthBridge().authorize(),
@@ -64,14 +55,10 @@ void main() {
     expect(await MethodChannelWechatAuthBridge().authorize(), isNull);
   });
 
-  test('missing WeChat identity cannot authenticate', () async {
+  test('missing one-time code cannot authenticate', () async {
     messenger.setMockMethodCallHandler(
       channel,
-      (call) async => {
-        'code': 'one-time-code',
-        'state': (call.arguments as Map)['state'],
-        'openId': '',
-      },
+      (call) async => {'code': '', 'state': (call.arguments as Map)['state']},
     );
     await expectLater(
       MethodChannelWechatAuthBridge().authorize(),
@@ -79,7 +66,7 @@ void main() {
         isA<PlatformException>().having(
           (e) => e.code,
           'code',
-          'WECHAT_AUTH_IDENTITY_MISSING',
+          'WECHAT_AUTH_INVALID',
         ),
       ),
     );
@@ -100,11 +87,7 @@ void main() {
       final state = await started.future;
       await expectLater(bridge.authorize(), throwsA(isA<PlatformException>()));
       await bridge.cancel();
-      pending.complete({
-        'state': state,
-        'code': 'late-code',
-        'openId': 'late-open-id',
-      });
+      pending.complete({'state': state, 'code': 'late-code'});
       expect(await first, isNull);
     },
   );

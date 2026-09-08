@@ -638,8 +638,6 @@ class AppController extends ChangeNotifier {
       if (authorization == null || !isCurrent()) return false;
       final authenticated = await (api as SaydianWechatAuthApi).loginWithWechat(
         code: authorization.code,
-        state: authorization.state,
-        openId: authorization.openId,
       );
       if (!isCurrent()) return false;
       _accountTransitioning = true;
@@ -675,7 +673,6 @@ class AppController extends ChangeNotifier {
           'WECHAT_UNSUPPORTED' => '请更新微信后重试',
           'WECHAT_AUTH_DENIED' => '未同意微信授权',
           'WECHAT_AUTH_TIMEOUT' => '微信授权已超时，请重试',
-          'WECHAT_AUTH_IDENTITY_MISSING' => '微信授权成功，但服务端登录接口暂未适配，请使用手机号登录',
           'WECHAT_AUTH_SEND_FAILED' => '无法调起微信，请稍后重试',
           'WECHAT_AUTH_CONFIG_MISSING' => '微信登录暂不可用，请使用手机号登录',
           _ => '微信登录失败，请重试',

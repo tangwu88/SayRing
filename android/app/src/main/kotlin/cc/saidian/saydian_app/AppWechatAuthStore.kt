@@ -6,7 +6,6 @@ data class WechatAuthCallback(
     val errorCode: Int,
     val code: String,
     val state: String,
-    val openId: String,
     val completedAt: Long,
 )
 
@@ -47,14 +46,12 @@ object AppWechatAuthStore {
         errorCode: Int,
         code: String?,
         state: String?,
-        openId: String?,
     ) {
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             .edit()
             .putInt(RESULT_ERROR_CODE, errorCode)
             .putString(RESULT_CODE, code.orEmpty().take(1024))
             .putString(RESULT_STATE, state.orEmpty().take(256))
-            .putString(RESULT_OPEN_ID, openId.orEmpty().take(128))
             .putLong(RESULT_TIME, System.currentTimeMillis())
             .apply()
     }
@@ -67,7 +64,6 @@ object AppWechatAuthStore {
                 errorCode = preferences.getInt(RESULT_ERROR_CODE, -1),
                 code = preferences.getString(RESULT_CODE, "").orEmpty(),
                 state = preferences.getString(RESULT_STATE, "").orEmpty(),
-                openId = preferences.getString(RESULT_OPEN_ID, "").orEmpty(),
                 completedAt = preferences.getLong(RESULT_TIME, 0L),
             )
         clearWechatResult(context)

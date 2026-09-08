@@ -4,15 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 class WechatAuthorization {
-  const WechatAuthorization({
-    required this.code,
-    required this.state,
-    required this.openId,
-  });
+  const WechatAuthorization({required this.code, required this.state});
 
   final String code;
   final String state;
-  final String openId;
 }
 
 abstract interface class WechatAuthBridge {
@@ -52,18 +47,7 @@ class MethodChannelWechatAuthBridge implements WechatAuthBridge {
       if (code is! String || code.trim().isEmpty || code.length > 1024) {
         throw PlatformException(code: 'WECHAT_AUTH_INVALID');
       }
-      final openId = response?['openId'];
-      if (openId is! String ||
-          openId.trim().isEmpty ||
-          openId.length > 128 ||
-          RegExp(r'\s').hasMatch(openId)) {
-        throw PlatformException(code: 'WECHAT_AUTH_IDENTITY_MISSING');
-      }
-      return WechatAuthorization(
-        code: code.trim(),
-        state: state,
-        openId: openId.trim(),
-      );
+      return WechatAuthorization(code: code.trim(), state: state);
     } on TimeoutException {
       await cancel();
       throw PlatformException(code: 'WECHAT_AUTH_TIMEOUT');

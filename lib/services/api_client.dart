@@ -210,11 +210,7 @@ abstract interface class SaydianFeedbackApi {
 
 abstract interface class SaydianWechatAuthApi {
   /// Exchange only. The controller persists the session after its epoch check.
-  Future<Session> loginWithWechat({
-    required String code,
-    required String state,
-    required String openId,
-  });
+  Future<Session> loginWithWechat({required String code});
 }
 
 class SaydianApiClient
@@ -263,28 +259,13 @@ class SaydianApiClient
   );
 
   @override
-  Future<Session> loginWithWechat({
-    required String code,
-    required String state,
-    required String openId,
-  }) {
-    if (code.trim().isEmpty ||
-        code.length > 1024 ||
-        !RegExp(r'^sd_[0-9]{13}_[A-Za-z0-9-]{16,64}$').hasMatch(state) ||
-        openId.trim().isEmpty ||
-        openId.length > 128 ||
-        RegExp(r'\s').hasMatch(openId)) {
+  Future<Session> loginWithWechat({required String code}) {
+    if (code.trim().isEmpty || code.length > 1024) {
       throw const ApiException('微信授权已失效，请重试');
     }
     return _authenticate(
       '/api/v1/site/app-wechat-login',
-      {
-        'unionid': '',
-        'openid': openId.trim(),
-        'sex': '',
-        'nickname': '',
-        'headimgurl': '',
-      },
+      {'code': code.trim()},
       persistSession: false,
       requireMemberId: true,
     );

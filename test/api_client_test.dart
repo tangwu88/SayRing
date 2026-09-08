@@ -11,7 +11,7 @@ import 'package:saydian_app/services/secure_vault.dart';
 
 void main() {
   test(
-    'App WeChat follows the deployed identity contract without persisting early',
+    'App WeChat sends only the one-time code without persisting early',
     () async {
       final vault = MemorySessionVault();
       final api = SaydianApiClient(
@@ -19,11 +19,18 @@ void main() {
         client: MockClient((request) async {
           expect(request.url.path, '/api/v1/site/app-wechat-login');
           expect(request.method, 'POST');
-          expect(request.body, contains('name="openid"\r\n\r\nwechat-open-id'));
-          for (final field in ['unionid', 'sex', 'nickname', 'headimgurl']) {
-            expect(request.body, contains('name="$field"'));
+          expect(request.body, contains('name="code"\r\n\r\none-time-code'));
+          for (final field in [
+            'openid',
+            'unionid',
+            'sex',
+            'nickname',
+            'headimgurl',
+            'platform',
+            'state',
+          ]) {
+            expect(request.body, isNot(contains('name="$field"')));
           }
-          expect(request.body, isNot(contains('one-time-code')));
           expect(request.body.toLowerCase(), isNot(contains('secret')));
           return http.Response(
             '{"code":200,"data":{"access_token":"test-token","member":{"id":17}}}',
@@ -31,45 +38,34 @@ void main() {
           );
         }),
       );
-      final session = await api.loginWithWechat(
-        code: 'one-time-code',
-        state: 'sd_1788569000000_0123456789abcdef',
-        openId: 'wechat-open-id',
-      );
+      final session = await api.loginWithWechat(code: 'one-time-code');
       expect(session.memberId, '17');
       expect(await vault.readSession(), isNull);
     },
   );
 
-  test(
-    'WeChat rejects missing identity, malformed and unavailable backend responses',
-    () async {
-      for (final response in [
-        http.Response('{"code":200,"data":{"access_token":"test-token"}}', 200),
-        http.Response(
-          '请用微信打开',
-          200,
-          headers: {'content-type': 'text/plain; charset=utf-8'},
-        ),
-        http.Response('{"code":404,"message":"not found"}', 404),
-      ]) {
-        final vault = MemorySessionVault();
-        final api = SaydianApiClient(
-          vault,
-          client: MockClient((_) async => response),
-        );
-        await expectLater(
-          api.loginWithWechat(
-            code: 'one-time-code',
-            state: 'sd_1788569000000_0123456789abcdef',
-            openId: 'wechat-open-id',
-          ),
-          throwsA(isA<ApiException>()),
-        );
-        expect(await vault.readSession(), isNull);
-      }
-    },
-  );
+  test('WeChat rejects malformed and unavailable backend responses', () async {
+    for (final response in [
+      http.Response('{"code":200,"data":{"access_token":"test-token"}}', 200),
+      http.Response(
+        '请用微信打开',
+        200,
+        headers: {'content-type': 'text/plain; charset=utf-8'},
+      ),
+      http.Response('{"code":404,"message":"not found"}', 404),
+    ]) {
+      final vault = MemorySessionVault();
+      final api = SaydianApiClient(
+        vault,
+        client: MockClient((_) async => response),
+      );
+      await expectLater(
+        api.loginWithWechat(code: 'one-time-code'),
+        throwsA(isA<ApiException>()),
+      );
+      expect(await vault.readSession(), isNull);
+    }
+  });
 
   test('care member list uses the mini-program member endpoint', () async {
     final vault = MemorySessionVault()

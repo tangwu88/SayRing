@@ -31,7 +31,6 @@ class WXEntryActivity : Activity(), IWXAPIEventHandler {
                 BaseResp.ErrCode.ERR_COMM,
                 null,
                 null,
-                null,
             )
             finish()
             return
@@ -41,7 +40,6 @@ class WXEntryActivity : Activity(), IWXAPIEventHandler {
             AppWechatAuthStore.saveWechatResult(
                 this,
                 BaseResp.ErrCode.ERR_COMM,
-                null,
                 null,
                 null,
             )
@@ -56,14 +54,13 @@ class WXEntryActivity : Activity(), IWXAPIEventHandler {
         Log.i(
             "SaidianWechatAuth",
             "callback errorCode=${auth?.errCode ?: resp?.errCode ?: BaseResp.ErrCode.ERR_COMM} " +
-                "hasCode=${!auth?.code.isNullOrBlank()} hasOpenId=${!auth?.openId.isNullOrBlank()}",
+                "hasCode=${!auth?.code.isNullOrBlank()}",
         )
         AppWechatAuthStore.saveWechatResult(
             this,
             auth?.errCode ?: resp?.errCode ?: BaseResp.ErrCode.ERR_COMM,
             auth?.code,
             auth?.state,
-            auth?.openId,
         )
         finish()
     }

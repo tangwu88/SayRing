@@ -657,8 +657,7 @@ class MainActivity : FlutterActivity() {
         val callback = AppWechatAuthStore.takeWechatResult(this) ?: return
         Log.i(
             "SaidianWechatAuth",
-            "deliver callback errorCode=${callback.errorCode} " +
-                "hasCode=${callback.code.isNotBlank()} hasOpenId=${callback.openId.isNotBlank()}",
+            "deliver callback errorCode=${callback.errorCode} hasCode=${callback.code.isNotBlank()}",
         )
         val expectedState = pendingWechatAuthState.orEmpty()
         val now = System.currentTimeMillis()
@@ -672,14 +671,11 @@ class MainActivity : FlutterActivity() {
             BaseResp.ErrCode.ERR_OK -> {
                 if (callback.state != expectedState ||
                     callback.code.isBlank() ||
-                    callback.code.length > 1024 ||
-                    callback.openId.isBlank() ||
-                    callback.openId.length > 128 ||
-                    callback.openId.any(Char::isWhitespace)
+                    callback.code.length > 1024
                 ) {
                     failWechatAuthorization(
-                        "WECHAT_AUTH_IDENTITY_MISSING",
-                        "微信授权成功，但服务端登录接口暂未适配，请使用手机号登录",
+                        "WECHAT_AUTH_INVALID",
+                        "微信授权已失效，请重试",
                     )
                     return
                 }
@@ -687,7 +683,6 @@ class MainActivity : FlutterActivity() {
                     mapOf(
                         "code" to callback.code,
                         "state" to callback.state,
-                        "openId" to callback.openId,
                     ),
                 )
             }

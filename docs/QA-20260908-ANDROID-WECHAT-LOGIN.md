@@ -1,5 +1,10 @@
 # Android 微信授权登录真机联调记录（2026-09-08）
 
+> 后续状态已更新：服务端已改为只接收一次性 `code`，前端同步完成契约调整。
+> 最新真机结论和服务端阻断点请以
+> [`QA-20260908-ANDROID-WECHAT-CODE-LOGIN.md`](QA-20260908-ANDROID-WECHAT-CODE-LOGIN.md)
+> 为准；本文保留作为首次联调历史。
+
 ## 修改前基线
 
 - 仓库：`E:\saydian\harmony_latest`

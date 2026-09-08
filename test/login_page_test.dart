@@ -43,11 +43,7 @@ void main() {
       );
       controller.cancelWechatLogin();
       auth.result.complete(
-        const WechatAuthorization(
-          code: 'late-code',
-          state: 'state',
-          openId: 'late-open-id',
-        ),
+        const WechatAuthorization(code: 'late-code', state: 'state'),
       );
       expect(await pending, isFalse);
       expect(api.calls, 0);
@@ -74,11 +70,7 @@ void main() {
       final pending = controller.loginWithWechat(privacyConsentGranted: true);
       await auth.started.future;
       auth.result.complete(
-        const WechatAuthorization(
-          code: 'code',
-          state: 'state',
-          openId: 'wechat-open-id',
-        ),
+        const WechatAuthorization(code: 'code', state: 'state'),
       );
       await api.started.future;
       expect(controller.session, isNull);
@@ -109,11 +101,7 @@ void main() {
       final pending = controller.loginWithWechat(privacyConsentGranted: true);
       await auth.started.future;
       auth.result.complete(
-        const WechatAuthorization(
-          code: 'code',
-          state: 'state',
-          openId: 'wechat-open-id',
-        ),
+        const WechatAuthorization(code: 'code', state: 'state'),
       );
       await api.started.future;
       controller.cancelWechatLogin();
@@ -538,11 +526,7 @@ class _WechatApi extends _NoopApi implements SaydianWechatAuthApi {
   final started = Completer<void>();
   int calls = 0;
   @override
-  Future<Session> loginWithWechat({
-    required String code,
-    required String state,
-    required String openId,
-  }) {
+  Future<Session> loginWithWechat({required String code}) {
     calls++;
     started.complete();
     return result.future;
