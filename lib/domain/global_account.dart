@@ -61,6 +61,7 @@ class GlobalAuthCapabilities {
     required this.sms,
     required this.smsCountries,
     required this.supportedLocales,
+    this.verificationRequired = true,
     this.consentVersion,
     this.legal = const {},
     this.recoveryEmail = false,
@@ -70,6 +71,7 @@ class GlobalAuthCapabilities {
   final bool sms;
   final Set<String> smsCountries;
   final List<String> supportedLocales;
+  final bool verificationRequired;
   final String? consentVersion;
   final Map<String, String> legal;
   final bool recoveryEmail;
@@ -84,6 +86,7 @@ class GlobalAuthCapabilities {
     return GlobalAuthCapabilities(
       email: methods['email'] == true,
       sms: methods['sms'] == true,
+      verificationRequired: methods['verificationRequired'] != false,
       recoveryEmail:
           data['recovery'] is Map && (data['recovery'] as Map)['email'] == true,
       recoverySms:
@@ -109,7 +112,8 @@ class GlobalAuthCapabilities {
         AccountChannel.email => recovery ? recoveryEmail : email,
         AccountChannel.sms =>
           (recovery ? recoverySms : sms) &&
-              smsCountries.contains(identity.country),
+              (!recovery && !verificationRequired ||
+                  smsCountries.contains(identity.country)),
       };
 }
 

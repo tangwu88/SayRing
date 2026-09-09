@@ -51,7 +51,11 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
   bool _obscured = true;
 
   AppLocalizations get l => AppLocalizations.of(context)!;
-  bool get _verificationMode => _mode != _AuthMode.signIn;
+  bool get _accountSetupMode => _mode != _AuthMode.signIn;
+  bool get _codeRequired =>
+      _mode == _AuthMode.reset ||
+      (_mode == _AuthMode.signUp &&
+          (_capabilities?.verificationRequired ?? true));
 
   @override
   void initState() {
@@ -126,6 +130,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
     'expired' => l.codeExpired,
     'rate' => l.tooManyAttempts,
     'login' => l.loginFailed,
+    'account' => l.accountAlreadyExists,
     _ => l.serviceUnavailable,
   };
 
@@ -139,7 +144,8 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
         return 'code';
       }
       if (error.code == 'invalid_credentials') return 'login';
-      if (error.statusCode == 401) return _verificationMode ? 'code' : 'login';
+      if (error.code == 'account_exists') return 'account';
+      if (error.statusCode == 401) return _codeRequired ? 'code' : 'login';
       if (error.statusCode == 410) return 'expired';
       if (error.code == 'NETWORK_TIMEOUT' ||
           error.code == 'NETWORK_UNAVAILABLE') {
@@ -220,6 +226,14 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
               identity.identifier,
               _password.text,
               privacyConsentGranted: _accepted,
+            )
+          : _mode == _AuthMode.signUp && !_codeRequired
+          ? await widget.controller.registerGlobalWithoutVerification(
+              identity: identity,
+              password: _password.text,
+              locale: _locale,
+              privacyConsentGranted: _accepted,
+              consentVersion: _capabilities?.consentVersion,
             )
           : await widget.controller.completeGlobalVerification(
               challenge: _challenge!,
@@ -340,7 +354,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                     icon: const Icon(Icons.refresh),
                     label: Text(l.retry),
                   ),
-                if (_verificationMode && !_loading && !canRegister)
+                if (_accountSetupMode && !_loading && !canRegister)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 16),
                     child: Text(l.registrationUnavailable),
@@ -384,7 +398,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                                   context: context,
                                   showPhoneCode: true,
                                   countryFilter:
-                                      _verificationMode &&
+                                      _codeRequired &&
                                           (_capabilities
                                                   ?.smsCountries
                                                   .isNotEmpty ??
@@ -434,7 +448,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                           }
                         },
                       ),
-                      if (_verificationMode) ...[
+                      if (_codeRequired) ...[
                         const SizedBox(height: 12),
                         TextFormField(
                           key: const Key('auth-code'),
@@ -475,7 +489,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                         enabled: !_busy,
                         obscureText: _obscured,
                         autofillHints: [
-                          _verificationMode
+                          _accountSetupMode
                               ? AutofillHints.newPassword
                               : AutofillHints.password,
                         ],
@@ -496,13 +510,13 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                         ),
                         validator: (value) => (value?.isEmpty ?? true)
                             ? l.enterPassword
-                            : _verificationMode &&
+                            : _accountSetupMode &&
                                   (value!.length < 8 ||
                                       utf8.encode(value).length > 72)
                             ? l.passwordRequirement
                             : null,
                       ),
-                      if (_verificationMode) ...[
+                      if (_accountSetupMode) ...[
                         const SizedBox(height: 12),
                         TextFormField(
                           key: const Key('auth-confirm-password'),
@@ -561,7 +575,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                         ),
                       FilledButton(
                         key: const Key('auth-submit'),
-                        onPressed: _busy || (_verificationMode && !canRegister)
+                        onPressed: _busy || (_accountSetupMode && !canRegister)
                             ? null
                             : _submit,
                         child: Text(_busy ? l.pleaseWait : title),

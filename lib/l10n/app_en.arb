@@ -410,6 +410,7 @@
   "privacyPolicy": "Privacy Policy",
   "registrationUnavailable": "Registration is temporarily unavailable. Please try again later.",
   "loginFailed": "Could not sign in. Please check your details and try again.",
+  "accountAlreadyExists": "This account already exists. Sign in instead.",
   "networkUnavailable": "Check your internet connection and try again",
   "serviceUnavailable": "This feature is temporarily unavailable. Please try again later.",
   "accountCreated": "Your account is ready",

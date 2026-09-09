@@ -29,9 +29,18 @@ Session session([String id = 'member-a']) => Session(
   displayName: 'Test',
   accountKey: 'global:member:$id',
 );
-Map<String, Object?> capabilities({bool email = true, bool sms = true}) => {
+Map<String, Object?> capabilities({
+  bool email = true,
+  bool sms = true,
+  bool verificationRequired = true,
+}) => {
   'realm': 'global',
-  'registration': {'email': email, 'sms': sms},
+  'registration': {
+    'email': email,
+    'sms': sms,
+    'verificationRequired': verificationRequired,
+  },
+  'recovery': {'email': true, 'sms': true},
   'smsCountries': ['US', 'GB'],
   'supportedLocales': GlobalEnvironment.locales,
   'consentVersion': 'reviewed-test-v1',
@@ -137,6 +146,20 @@ void main() {
         }),
         throwsFormatException,
       );
+      final temporary = GlobalAuthCapabilities.fromJson(
+        capabilities(verificationRequired: false),
+      );
+      expect(
+        temporary.permits(GlobalAccountIdentity.phone('+4915123456789')),
+        isTrue,
+      );
+      expect(
+        temporary.permits(
+          GlobalAccountIdentity.phone('+4915123456789'),
+          recovery: true,
+        ),
+        isFalse,
+      );
     });
   });
   group('environment', () {
@@ -180,6 +203,38 @@ void main() {
       final range = globalLocalDayRange(DateTime(2026, 3, 8, 12));
       expect(range.from, DateTime(2026, 3, 8).toUtc());
       expect(range.to, DateTime(2026, 3, 9).toUtc());
+    });
+    test('local HTTP API is accepted only by an explicit non-product flag', () {
+      expect(
+        GlobalEnvironment.validateOrigin(
+          'http://10.0.2.2:8082',
+          allowLocalDebug: true,
+          isProduct: false,
+        ).origin,
+        'http://10.0.2.2:8082',
+      );
+      for (final input in [
+        'http://10.0.2.2:8082/path',
+        'http://192.168.1.3:8082',
+        'http://10.0.2.2',
+      ]) {
+        expect(
+          () => GlobalEnvironment.validateOrigin(
+            input,
+            allowLocalDebug: true,
+            isProduct: false,
+          ),
+          throwsArgumentError,
+        );
+      }
+      expect(
+        () => GlobalEnvironment.validateOrigin(
+          'http://10.0.2.2:8082',
+          allowLocalDebug: true,
+          isProduct: true,
+        ),
+        throwsArgumentError,
+      );
     });
   });
   group('global auth', () {
@@ -255,62 +310,100 @@ void main() {
       );
       expect(calls, 1);
     });
+    test('capability contract is loaded from the global API', () async {
+      final requests = <Uri>[];
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault(),
+        locale: () => 'de',
+        client: MockClient((request) async {
+          requests.add(request.url);
+          return ok(capabilities(verificationRequired: false));
+        }),
+      );
+      final available = await api.getAuthCapabilities();
+      expect(available.email, isTrue);
+      expect(available.sms, isTrue);
+      expect(available.verificationRequired, isFalse);
+      expect(requests.single.path, endsWith('/auth/capabilities'));
+      expect(requests.single.queryParameters['locale'], 'de');
+    });
+    test('verification routes keep purpose, code and consent bound', () async {
+      final requests = <http.Request>[];
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault(),
+        client: MockClient((request) async {
+          requests.add(request);
+          if (request.url.path.endsWith('/verification-code')) {
+            return ok({
+              'challengeId': 'challenge-1',
+              'expiresIn': 300,
+              'retryAfter': 60,
+              'maskedIdentifier': 'a***@example.com',
+            });
+          }
+          return ok(sessionData());
+        }),
+      );
+      final challenge = await api.requestVerification(
+        identity: GlobalAccountIdentity.email('a@example.com'),
+        purpose: 'register',
+        locale: 'en',
+      );
+      expect(challenge.id, 'challenge-1');
+      expect(jsonDecode(requests.first.body), {
+        'channel': 'email',
+        'identifier': 'a@example.com',
+        'purpose': 'register',
+        'locale': 'en',
+      });
+      await api.completeVerification(
+        challengeId: challenge.id,
+        code: '123456',
+        password: 'test-password',
+        resetPassword: false,
+        locale: 'en',
+        consentVersion: 'reviewed-test-v1',
+      );
+      expect(requests.last.url.path, endsWith('/auth/register-with-code'));
+      expect(jsonDecode(requests.last.body), {
+        'challengeId': 'challenge-1',
+        'code': '123456',
+        'password': 'test-password',
+        'locale': 'en',
+        'consentVersion': 'reviewed-test-v1',
+      });
+    });
     test(
-      'missing deployed capability contract fails closed without a request',
+      'temporary registration sends no code and stores the global session',
       () async {
-        final requests = <Uri>[];
+        final vault = MemorySessionVault();
+        late http.Request request;
         final api = GlobalSaydianApiClient(
-          MemorySessionVault(),
-          client: MockClient((request) async {
-            requests.add(request.url);
-            return ok(capabilities());
-          }),
-        );
-        final available = await api.getAuthCapabilities();
-        expect(available.email, isFalse);
-        expect(available.sms, isFalse);
-        await expectLater(
-          api.requestVerification(
-            identity: GlobalAccountIdentity.email('a@example.com'),
-            purpose: 'register',
-            locale: 'en',
-          ),
-          throwsA(isA<FeatureNotConfiguredException>()),
-        );
-        expect(requests, isEmpty);
-      },
-    );
-    test(
-      'removed verification routes are never called or treated as available',
-      () async {
-        final paths = <String>[];
-        final api = GlobalSaydianApiClient(
-          MemorySessionVault(),
-          client: MockClient((request) async {
-            paths.add(request.url.path);
+          vault,
+          client: MockClient((value) async {
+            request = value;
             return ok(sessionData());
           }),
         );
-        await expectLater(
-          api.requestVerification(
-            identity: GlobalAccountIdentity.email('a@example.com'),
-            purpose: 'register',
-            locale: 'en',
+        final result = await api.registerWithoutVerification(
+          identity: GlobalAccountIdentity.phone(
+            '(202) 555-0123',
+            country: 'US',
           ),
-          throwsA(isA<FeatureNotConfiguredException>()),
+          password: 'test-password',
+          locale: 'en',
+          consentVersion: 'reviewed-test-v1',
         );
-        await expectLater(
-          api.completeVerification(
-            challengeId: 'unused-client-challenge',
-            code: '123456',
-            password: 'test-password',
-            resetPassword: false,
-            locale: 'en',
-            consentVersion: 'reviewed-test-v1',
-          ),
-          throwsA(isA<FeatureNotConfiguredException>()),
-        );
-        expect(paths, isEmpty);
+        expect(request.url.path, endsWith('/auth/register'));
+        expect(jsonDecode(request.body), {
+          'channel': 'sms',
+          'identifier': '+12025550123',
+          'password': 'test-password',
+          'locale': 'en',
+          'consentVersion': 'reviewed-test-v1',
+        });
+        expect(result.memberId, 'uuid-member-α');
+        expect((await vault.readSession())?.memberId, result.memberId);
       },
     );
     test('phone login uses the reviewed mobile field', () async {
@@ -363,6 +456,70 @@ void main() {
         expect(vault.session, isNull);
       },
     );
+  });
+  group('global V2 compatibility', () {
+    test(
+      'notification list and read use V2 without legacy ID guessing',
+      () async {
+        final vault = MemorySessionVault()..session = session();
+        final requests = <http.Request>[];
+        final api = GlobalSaydianApiClient(
+          vault,
+          client: MockClient((request) async {
+            requests.add(request);
+            if (request.url.path.endsWith('/read')) return ok({'read': true});
+            return ok({
+              'items': [
+                {
+                  'id': 'notice-uuid',
+                  'eventId': 'care-event-1',
+                  'type': 'care_invitation',
+                  'title': 'Care request',
+                  'body': 'Review the request.',
+                  'deepLink': '/care/invitations/relation-1',
+                  'createdAt': '2026-09-09T01:00:00Z',
+                  'readAt': null,
+                },
+              ],
+            });
+          }),
+        );
+        final rows = await api.getNotifications(page: 2);
+        expect(requests.single.url.path, endsWith('/notifications'));
+        expect(requests.single.url.queryParameters, {
+          'page': '2',
+          'pageSize': '30',
+        });
+        expect(rows.single['event_id'], 'care-event-1');
+        expect(rows.single['entity_id'], 'relation-1');
+        expect(rows.single['content'], 'Review the request.');
+        expect(rows.single['is_read'], isFalse);
+        expect(rows.single['_localNotification'], isTrue);
+        expect(rows.single['id'], isNegative);
+        expect(
+          await api.markNotificationEventRead(eventId: 'care-event-1'),
+          isTrue,
+        );
+        expect(requests.last.url.path, endsWith('/care-event-1/read'));
+        expect(requests.last.method, 'POST');
+        expect(requests.last.headers['Authorization'], startsWith('Bearer '));
+      },
+    );
+
+    test('shop home uses V2 and unmigrated legacy calls fail closed', () async {
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault(),
+        client: MockClient((request) async {
+          expect(request.url.path, endsWith('/commerce/home'));
+          return ok({'banners': [], 'categories': [], 'featured': []});
+        }),
+      );
+      expect((await api.getShopHome())['featured'], isEmpty);
+      await expectLater(
+        api.getShopProduct(12),
+        throwsA(isA<FeatureNotConfiguredException>()),
+      );
+    });
   });
   test(
     'global care keeps UUIDs and asks only for a calendar day in UTC',

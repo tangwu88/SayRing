@@ -1327,6 +1327,9 @@ class AppLocalizationsFr extends AppLocalizations {
       'Connexion impossible. Vérifiez vos informations et réessayez.';
 
   @override
+  String get accountAlreadyExists => 'Ce compte existe déjà. Connectez-vous.';
+
+  @override
   String get networkUnavailable => 'Vérifiez votre connexion et réessayez';
 
   @override

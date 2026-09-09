@@ -1249,6 +1249,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get loginFailed => 'ログインできませんでした。入力内容を確認して再試行してください。';
 
   @override
+  String get accountAlreadyExists => 'このアカウントは登録済みです。ログインしてください。';
+
+  @override
   String get networkUnavailable => 'インターネット接続を確認して再試行してください';
 
   @override

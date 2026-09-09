@@ -404,6 +404,7 @@
   "privacyPolicy": "Datenschutzrichtlinie",
   "registrationUnavailable": "Registrierung derzeit nicht verfügbar. Bitte später erneut versuchen.",
   "loginFailed": "Anmeldung fehlgeschlagen. Bitte Angaben prüfen und erneut versuchen.",
+  "accountAlreadyExists": "Dieses Konto besteht bereits. Bitte anmelden.",
   "networkUnavailable": "Internetverbindung prüfen und erneut versuchen",
   "serviceUnavailable": "Diese Funktion ist vorübergehend nicht verfügbar. Bitte später erneut versuchen.",
   "accountCreated": "Ihr Konto ist bereit",

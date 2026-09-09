@@ -404,6 +404,7 @@
   "privacyPolicy": "隐私政策",
   "registrationUnavailable": "注册暂时无法使用，请稍后再试",
   "loginFailed": "登录失败，请检查账号信息后重试",
+  "accountAlreadyExists": "此账号已注册，请直接登录",
   "networkUnavailable": "网络不可用，请检查后重试",
   "serviceUnavailable": "此功能暂时无法使用，请稍后再试",
   "accountCreated": "账号已创建",

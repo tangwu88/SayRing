@@ -151,6 +151,46 @@ class AppController extends ChangeNotifier {
     locale: locale,
   );
 
+  Future<bool> registerGlobalWithoutVerification({
+    required GlobalAccountIdentity identity,
+    required String password,
+    required String locale,
+    required bool privacyConsentGranted,
+    String? consentVersion,
+  }) async {
+    if (isBusy ||
+        !privacyConsentGranted ||
+        consentVersion == null ||
+        consentVersion.isEmpty) {
+      return false;
+    }
+    return _guard(() async {
+      _accountTransitioning = true;
+      try {
+        await _drainCloudSync();
+        session = await (_api as GlobalAccountApi).registerWithoutVerification(
+          identity: identity,
+          password: password,
+          locale: locale,
+          consentVersion: consentVersion,
+        );
+        await _prepareAuthenticatedNotificationSession(
+          privacyConsentGranted: privacyConsentGranted,
+        );
+        isPreviewMode = false;
+        await refreshMemberProfile();
+        await refreshActivityGoals();
+        await refreshCare();
+        await refreshCareInvitations();
+        await _refreshRemoteNotificationUnreadCount();
+        _careInvitationPollBackoffIndex = 0;
+        _scheduleCareInvitationPoll(const Duration(seconds: 30));
+      } finally {
+        await _finishAccountTransition();
+      }
+    });
+  }
+
   Future<bool> completeGlobalVerification({
     required VerificationChallenge challenge,
     required String code,

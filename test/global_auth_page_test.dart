@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:saydian_app/domain/global_account.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
@@ -12,6 +13,43 @@ import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/global_auth_page.dart';
 
 class NoWatch extends Fake implements WearableBridge {}
+
+class NoCodeController extends Fake implements AppController {
+  GlobalAccountIdentity? registeredIdentity;
+  String? registeredPassword;
+  String? registeredConsent;
+
+  @override
+  Future<GlobalAuthCapabilities>
+  globalAuthCapabilities() async => const GlobalAuthCapabilities(
+    email: true,
+    sms: true,
+    verificationRequired: false,
+    smsCountries: {},
+    supportedLocales: ['en'],
+    consentVersion: 'reviewed-test-v1',
+    legal: {
+      'userAgreement':
+          '/api/saydian-app/v2/content/legal/user_agreement?version=reviewed-test-v1&locale=en',
+      'privacyPolicy':
+          '/api/saydian-app/v2/content/legal/privacy_policy?version=reviewed-test-v1&locale=en',
+    },
+  );
+
+  @override
+  Future<bool> registerGlobalWithoutVerification({
+    required GlobalAccountIdentity identity,
+    required String password,
+    required String locale,
+    required bool privacyConsentGranted,
+    String? consentVersion,
+  }) async {
+    registeredIdentity = identity;
+    registeredPassword = password;
+    registeredConsent = consentVersion;
+    return privacyConsentGranted;
+  }
+}
 
 Widget host(AppController controller, {bool reset = false, double scale = 1}) =>
     MaterialApp(
@@ -45,7 +83,11 @@ void main() {
               'code': 200,
               'data': {
                 'realm': 'global',
-                'registration': {'email': false, 'sms': false},
+                'registration': {
+                  'email': false,
+                  'sms': false,
+                  'verificationRequired': true,
+                },
                 'supportedLocales': ['en'],
                 'smsCountries': [],
               },
@@ -81,7 +123,11 @@ void main() {
             'code': 200,
             'data': {
               'realm': 'global',
-              'registration': {'email': false, 'sms': false},
+              'registration': {
+                'email': false,
+                'sms': false,
+                'verificationRequired': true,
+              },
               'smsCountries': [],
             },
           }),
@@ -120,8 +166,61 @@ void main() {
       await tester.tap(codeButton);
       await tester.pumpAndSettle();
     }
-    expect(calls, isEmpty);
+    expect(calls, [endsWith('/auth/capabilities')]);
     expect(vault.session, isNull);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('temporary registration asks for no verification code', (
+    tester,
+  ) async {
+    final controller = NoCodeController();
+    await tester.pumpWidget(host(controller));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('auth-toggle-mode')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('auth-toggle-mode')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('auth-code')), findsNothing);
+    expect(find.text('Send code'), findsNothing);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('auth-contact')),
+      -250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.enterText(
+      find.byKey(const Key('auth-contact')),
+      'qa@example.com',
+    );
+    await tester.enterText(
+      find.byKey(const Key('auth-password')),
+      'Synthetic123',
+    );
+    await tester.enterText(
+      find.byKey(const Key('auth-confirm-password')),
+      'Synthetic123',
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('auth-consent')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byType(Checkbox));
+    await tester.pump();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('auth-submit')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('auth-submit')));
+    await tester.pumpAndSettle();
+
+    expect(controller.registeredIdentity?.identifier, 'qa@example.com');
+    expect(controller.registeredPassword, 'Synthetic123');
+    expect(controller.registeredConsent, 'reviewed-test-v1');
     expect(tester.takeException(), isNull);
   });
   testWidgets('reset entry is the same international verified-contact form', (

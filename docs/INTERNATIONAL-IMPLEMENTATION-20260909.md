@@ -54,6 +54,8 @@
 
 ## Implementation groups
 
+The subsequent temporary verification-free registration implementation, isolated API/database UI test, failures and cleanup are recorded separately in [INTERNATIONAL-UNVERIFIED-REGISTRATION-20260909.md](INTERNATIONAL-UNVERIFIED-REGISTRATION-20260909.md). That record supersedes the earlier “registration unavailable” emulator state only for an explicitly enabled isolated global server; production remains unavailable until separately deployed and accepted.
+
 - Identity/configuration: independent package IDs, no domestic production automation or service credentials, isolated update URLs. Expected: side-by-side installation, no domestic traffic.
 - Authentication: verified email or E.164 phone, server capability gates, shared V2 contract and stable string account IDs. Preserve refresh single-flight and account-generation protections.
 - Localization: default English, eight explicit locales, persisted selection, native permission resources. No automatic watch-language writes.

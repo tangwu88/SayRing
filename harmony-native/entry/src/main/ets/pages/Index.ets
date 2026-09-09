@@ -36,7 +36,8 @@ import { displayPreferenceStore } from '../services/DisplayPreferenceStore';
 import { APP_LOCALES, APP_LANGUAGE_NAMES, appText, formatAppText } from '../model/GlobalLocale';
 import { appLocaleStore } from '../services/AppLocaleStore';
 import { AuthChannel, GlobalAuthCapabilities, PHONE_COUNTRIES, PhoneCountry,
-  emptyAuthCapabilities, globalRegistrationValidation, normalizeIdentifier, validGlobalPassword } from '../model/GlobalAuth';
+  emptyAuthCapabilities, globalRegistrationValidation, globalUnverifiedRegistrationValidation,
+  normalizeIdentifier, validGlobalPassword } from '../model/GlobalAuth';
 import { GLOBAL_WECHAT_ENABLED, GLOBAL_PUSH_ENABLED } from '../model/GlobalConfiguration';
 import { GlobalHealthReport, GlobalReportProfile, GlobalReportEligibility, GlobalAnalysisDocument,
   reportGenerationBlock } from '../model/GlobalHealthReports';
@@ -133,6 +134,7 @@ struct Index {
   @State private accepted: boolean = false;
   @State private registerMobile: string = '';
   @State private registerCode: string = '';
+  @State private registerChallengeId: string = '';
   @State private registerPassword: string = '';
   @State private registerConfirmation: string = '';
   @State private registerAccepted: boolean = false;
@@ -180,6 +182,7 @@ struct Index {
   @State private permissionError: string = '';
   @State private resetMobile: string = '';
   @State private resetCode: string = '';
+  @State private resetChallengeId: string = '';
   @State private resetPassword: string = '';
   @State private resetConfirmation: string = '';
   @State private displayName: string = '';
@@ -478,6 +481,9 @@ struct Index {
       if (previousVersion && previousVersion !== this.capabilities.consentVersion) {
         this.accepted = false; this.registerAccepted = false;
       }
+      if (!this.capabilities.registration.verificationRequired) {
+        this.registerChallengeId = ''; this.registerCode = ''; this.clearSmsCountdown();
+      }
       if (!this.capabilities.smsCountries.includes(this.authCountry) && this.phoneChoices().length) {
         this.authCountry = this.phoneChoices()[0].code;
       }
@@ -487,6 +493,8 @@ struct Index {
   }
 
   private phoneChoices(): PhoneCountry[] {
+    if (this.screen !== 'reset-password' &&
+      (this.screen !== 'register' || !this.capabilities.registration.verificationRequired)) return PHONE_COUNTRIES;
     return PHONE_COUNTRIES.filter(country => this.capabilities.smsCountries.includes(country.code));
   }
 
@@ -596,7 +604,7 @@ struct Index {
   private openPasswordReset(): void {
     this.clearSmsCountdown();
     this.resetMobile = this.guest ? this.account.trim() : this.profile.mobile ?? '';
-    this.resetCode = ''; this.resetPassword = ''; this.resetConfirmation = '';
+    this.resetChallengeId = ''; this.resetCode = ''; this.resetPassword = ''; this.resetConfirmation = '';
     this.openInnerPage('reset-password');
   }
 
@@ -1162,7 +1170,7 @@ struct Index {
     this.clearInboxState(); this.addresses = []; this.accountPageError = '';
     this.addressDraft = emptyAddressDraft();
     ++this.orderGeneration; this.orders = []; this.orderLoading = false; this.paymentMessage = '';
-    this.resetMobile = ''; this.resetCode = ''; this.resetPassword = ''; this.resetConfirmation = '';
+    this.resetMobile = ''; this.resetChallengeId = ''; this.resetCode = ''; this.resetPassword = ''; this.resetConfirmation = '';
     this.editNickname = ''; this.editBirthday = ''; this.editHeight = ''; this.editWeight = ''; this.editAvatarUri = '';
     this.avatarPicking = false;
     this.formBusy = false; this.clearSportRecords(); this.selectedHealthRecord = undefined;
@@ -1312,6 +1320,7 @@ struct Index {
     try {
       const challenge = await saydianApi.sendVerificationCode(this.authChannel,
         this.accountIdentifier(this.resetMobile), 'reset_password', this.appLocale, this.authCountry);
+      this.resetChallengeId = challenge.challengeId;
       this.beginSmsCountdown(challenge.retryAfter); this.formMessage = 'code_sent';
     }
     catch (error) { this.formMessage = (error as Error).message; }
@@ -1326,8 +1335,8 @@ struct Index {
     this.formBusy = true;
     try {
       const session = await saydianApi.resetGlobalPassword(this.authChannel, this.accountIdentifier(this.resetMobile),
-        this.resetCode, this.resetPassword, this.resetConfirmation);
-      this.resetCode = ''; this.resetPassword = ''; this.resetConfirmation = ''; this.clearSmsCountdown();
+        this.resetChallengeId, this.resetCode, this.resetPassword, this.resetConfirmation);
+      this.resetChallengeId = ''; this.resetCode = ''; this.resetPassword = ''; this.resetConfirmation = ''; this.clearSmsCountdown();
       this.innerParents.clear(); this.acceptAuthenticatedSession(session); this.startAuthenticatedServices();
     } catch (error) {
       this.formMessage = (error as Error).message;
@@ -2351,6 +2360,7 @@ struct Index {
     this.password = '';
     this.registerPassword = '';
     this.registerConfirmation = '';
+    this.registerChallengeId = '';
     this.registerCode = '';
     this.clearCareState();
     this.clearInboxState(); this.addresses = []; this.innerParents.clear();
@@ -2452,6 +2462,7 @@ struct Index {
     this.registerError = '';
     this.registerMobile = '';
     this.registerCode = '';
+    this.registerChallengeId = '';
     this.registerPassword = '';
     this.registerConfirmation = '';
     this.registerAccepted = false;
@@ -2481,6 +2492,7 @@ struct Index {
     try {
       const challenge = await saydianApi.sendVerificationCode(this.authChannel,
         this.accountIdentifier(this.registerMobile), 'register', this.appLocale, this.authCountry);
+      this.registerChallengeId = challenge.challengeId;
       this.beginSmsCountdown(challenge.retryAfter);
       this.registerError = 'code_sent';
     } catch (error) { this.registerError = (error as Error).message; }
@@ -2489,14 +2501,22 @@ struct Index {
 
   private async submitRegistration(): Promise<void> {
     if (this.busy || this.restoring) return;
-    this.registerError = globalRegistrationValidation(this.accountIdentifier(this.registerMobile), this.authChannel, this.registerCode,
-      this.registerPassword, this.registerConfirmation, this.registerAccepted);
+    this.registerError = this.capabilities.registration.verificationRequired ?
+      globalRegistrationValidation(this.accountIdentifier(this.registerMobile), this.authChannel, this.registerCode,
+        this.registerPassword, this.registerConfirmation, this.registerAccepted) :
+      globalUnverifiedRegistrationValidation(this.accountIdentifier(this.registerMobile), this.authChannel,
+        this.registerPassword, this.registerConfirmation, this.registerAccepted);
     if (this.registerError) return;
     this.busy = true;
     const epoch = ++this.pageGeneration;
     try {
-      const session = await saydianApi.registerGlobal(this.authChannel, this.accountIdentifier(this.registerMobile), this.registerCode,
-        this.registerPassword, this.registerConfirmation, this.registerAccepted, this.appLocale, this.capabilities.consentVersion);
+      const session = this.capabilities.registration.verificationRequired ?
+        await saydianApi.registerGlobal(this.authChannel, this.accountIdentifier(this.registerMobile), this.registerChallengeId,
+          this.registerCode, this.registerPassword, this.registerConfirmation, this.registerAccepted,
+          this.appLocale, this.capabilities.consentVersion) :
+        await saydianApi.registerGlobalWithoutVerification(this.authChannel, this.accountIdentifier(this.registerMobile),
+          this.registerPassword, this.registerConfirmation, this.registerAccepted,
+          this.appLocale, this.capabilities.consentVersion);
       if (epoch !== this.pageGeneration) return;
       this.clearSmsCountdown();
       this.account = this.registerMobile.trim();
@@ -2840,21 +2860,24 @@ struct Index {
         .fontColor(this.authChannel === 'email' ? Color.White : INK)
         .backgroundColor(this.authChannel === 'email' ? RED : SURFACE)
         .enabled(!this.busy && !this.smsBusy && !this.formBusy)
-        .onClick(() => { this.authChannel = 'email'; this.clearSmsCountdown(); this.registerCode = ''; this.resetCode = ''; })
+        .onClick(() => { this.authChannel = 'email'; this.clearSmsCountdown(); this.registerChallengeId = '';
+          this.resetChallengeId = ''; this.registerCode = ''; this.resetCode = ''; })
         .id('auth_email')
       Button(this.tr('phone')).layoutWeight(1).height(this.controlHeight(48))
         .fontColor(this.authChannel === 'sms' ? Color.White : INK)
         .backgroundColor(this.authChannel === 'sms' ? RED : SURFACE)
         .enabled(!this.busy && !this.smsBusy && !this.formBusy)
-        .onClick(() => { this.authChannel = 'sms'; this.clearSmsCountdown(); this.registerCode = ''; this.resetCode = ''; })
+        .onClick(() => { this.authChannel = 'sms'; this.clearSmsCountdown(); this.registerChallengeId = '';
+          this.resetChallengeId = ''; this.registerCode = ''; this.resetCode = ''; })
         .id('auth_phone')
     }.width('100%')
     if (this.authChannel === 'sms') {
-      Select(PHONE_COUNTRIES.map((country: PhoneCountry): SelectOption => { return { value: `${country.name} ${country.dialCode}` }; }))
-        .selected(PHONE_COUNTRIES.findIndex((country: PhoneCountry) => country.code === this.authCountry))
-        .value(PHONE_COUNTRIES.find((country: PhoneCountry) => country.code === this.authCountry)?.name ?? this.tr('country'))
+      Select(this.phoneChoices().map((country: PhoneCountry): SelectOption => { return { value: `${country.name} ${country.dialCode}` }; }))
+        .selected(this.phoneChoices().findIndex((country: PhoneCountry) => country.code === this.authCountry))
+        .value(this.phoneChoices().find((country: PhoneCountry) => country.code === this.authCountry)?.name ?? this.tr('country'))
         .font({ size: 15 }).width('100%').enabled(!this.busy && !this.smsBusy && !this.formBusy)
-        .onSelect((index: number) => { this.authCountry = PHONE_COUNTRIES[index].code; this.clearSmsCountdown(); this.registerCode = ''; this.resetCode = ''; })
+        .onSelect((index: number) => { this.authCountry = this.phoneChoices()[index].code; this.clearSmsCountdown();
+          this.registerChallengeId = ''; this.resetChallengeId = ''; this.registerCode = ''; this.resetCode = ''; })
         .id('auth_country')
     }
   }
@@ -2946,9 +2969,10 @@ struct Index {
         TextInput({ placeholder: this.tr(this.authChannel === 'email' ? 'email' : 'phone'), text: this.registerMobile }).type(InputType.Normal)
           .height(this.controlHeight(56)).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
           .border({ width: 1, color: OUTLINE }).maxLength(254).enabled(!this.busy && !this.smsBusy)
-          .onChange((value: string) => this.registerMobile = value).id('register_mobile')
+          .onChange((value: string) => { this.registerMobile = value; this.registerChallengeId = ''; this.registerCode = ''; }).id('register_mobile')
           .accessibilityText(this.tr('注册手机号'))
-        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+        if (this.capabilities.registration.verificationRequired) {
+          Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
           TextInput({ placeholder: this.tr('短信验证码'), text: this.registerCode }).type(InputType.Number)
             .width(this.singleColumn() ? '100%' : '58%').height(this.controlHeight(56)).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
             .border({ width: 1, color: OUTLINE }).maxLength(6).enabled(!this.busy)
@@ -2960,7 +2984,8 @@ struct Index {
             .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE })
             .enabled(!this.busy && !this.smsBusy && this.smsCountdown === 0 && !this.authCapabilitiesBusy && this.capabilities.registration[this.authChannel])
             .onClick(() => this.sendRegistrationCode()).id('register_send_code')
-        }.width('100%')
+          }.width('100%')
+        }
         if (!this.authCapabilitiesBusy && !this.capabilities.registration[this.authChannel]) {
           this.Notice({ message: 'channel_unavailable', color: GOLD_SOFT })
           Button(this.tr('retry')).onClick(() => this.loadAuthCapabilities()).id('retry_auth_capabilities')
@@ -2992,7 +3017,8 @@ struct Index {
         if (this.registerError) { this.Notice({ message: this.registerError, color: '#FFF0E9' }) }
         Button(this.tr(this.busy ? '正在注册…' : '注册')).width('100%').height(this.controlHeight(56)).fontSize(17)
           .fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
-          .enabled(!this.busy && !this.restoring).onClick(() => this.submitRegistration()).id('register_submit')
+          .enabled(!this.busy && !this.restoring && !this.authCapabilitiesBusy &&
+            this.capabilities.registration[this.authChannel]).onClick(() => this.submitRegistration()).id('register_submit')
         Button(this.tr('已有账号，返回登录')).width('100%').height(this.controlHeight(48)).fontSize(16).fontColor(INK)
           .backgroundColor(Color.Transparent).enabled(!this.busy)
           .onClick(() => { this.clearSmsCountdown(); this.registerError = ''; this.screen = 'login'; })
@@ -5017,7 +5043,7 @@ struct Index {
     }.width('100%')
     TextInput({ text: this.resetMobile, placeholder: this.tr(this.authChannel === 'email' ? 'email' : 'phone') }).type(InputType.Normal).height(this.controlHeight(56)).fontSize(16)
       .maxLength(254).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
-      .onChange((value: string) => this.resetMobile = value).id('reset_mobile')
+      .onChange((value: string) => { this.resetMobile = value; this.resetChallengeId = ''; this.resetCode = ''; }).id('reset_mobile')
     Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
       TextInput({ text: this.resetCode, placeholder: this.tr('短信验证码') }).type(InputType.Number).height(this.controlHeight(56)).fontSize(16)
         .width(this.singleColumn() ? '100%' : '58%').maxLength(8).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })

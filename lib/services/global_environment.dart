@@ -19,15 +19,35 @@ abstract final class GlobalEnvironment {
       'SAYDIAN_API_BASE_URL',
       defaultValue: origin,
     );
+    return validateOrigin(
+      raw,
+      allowLocalDebug: const bool.fromEnvironment(
+        'SAYDIAN_ALLOW_LOCAL_DEBUG_API',
+      ),
+      isProduct: const bool.fromEnvironment('dart.vm.product'),
+    );
+  }
+
+  static Uri validateOrigin(
+    String raw, {
+    required bool allowLocalDebug,
+    required bool isProduct,
+  }) {
     final uri = Uri.parse(raw);
-    if (uri.scheme != 'https' ||
+    final localDebug =
+        !isProduct &&
+        allowLocalDebug &&
+        uri.scheme == 'http' &&
+        {'10.0.2.2', '127.0.0.1', 'localhost'}.contains(uri.host) &&
+        uri.hasPort;
+    final production = uri.scheme == 'https' && uri.host == 'app.saydian.cn';
+    if ((!production && !localDebug) ||
         uri.userInfo.isNotEmpty ||
         uri.hasQuery ||
         uri.hasFragment ||
-        uri.host != 'app.saydian.cn' ||
         (uri.path != '' && uri.path != '/')) {
       throw ArgumentError(
-        'SAYDIAN_API_BASE_URL must be https://app.saydian.cn',
+        'SAYDIAN_API_BASE_URL must use the approved production origin',
       );
     }
     return uri;

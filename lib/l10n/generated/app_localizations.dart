@@ -2486,6 +2486,12 @@ abstract class AppLocalizations {
   /// **'Could not sign in. Please check your details and try again.'**
   String get loginFailed;
 
+  /// No description provided for @accountAlreadyExists.
+  ///
+  /// In en, this message translates to:
+  /// **'This account already exists. Sign in instead.'**
+  String get accountAlreadyExists;
+
   /// No description provided for @networkUnavailable.
   ///
   /// In en, this message translates to:

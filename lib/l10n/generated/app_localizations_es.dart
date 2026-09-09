@@ -1321,6 +1321,9 @@ class AppLocalizationsEs extends AppLocalizations {
       'No se pudo iniciar sesión. Comprueba tus datos e inténtalo de nuevo.';
 
   @override
+  String get accountAlreadyExists => 'Esta cuenta ya existe. Inicia sesión.';
+
+  @override
   String get networkUnavailable => 'Comprueba tu conexión e inténtalo de nuevo';
 
   @override

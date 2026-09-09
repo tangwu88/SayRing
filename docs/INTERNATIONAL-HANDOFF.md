@@ -4,7 +4,7 @@
 
 1. `git status --short --branch` and `git remote -v`.
 2. `git fetch --prune origin`; only if clean, `git pull --ff-only origin main`. Never discard another colleague's work. Use an explicit checkpoint before merging remote changes.
-3. Read [implementation/test history](INTERNATIONAL-IMPLEMENTATION-20260909.md), [Flutter localization record](INTERNATIONAL-L10N-20260909.md), and the Harmony international record. Record subsequent changes and tests in Git as well.
+3. Read [temporary verification-free registration](INTERNATIONAL-UNVERIFIED-REGISTRATION-20260909.md), [implementation/test history](INTERNATIONAL-IMPLEMENTATION-20260909.md), [Flutter localization record](INTERNATIONAL-L10N-20260909.md), and the Harmony international record. Record subsequent changes and tests in Git as well.
 
 App workspace: `F:/xcodeplace/saydian-app-global`. Remote: `https://github.com/tangwu88/saydian-app-global` (Private). Preserved domestic history via `upstream`; do not use that remote for international pushes.
 
@@ -29,8 +29,8 @@ Do not copy domestic `.env`, signing material, push secrets, account sessions, p
 ## API contract highlights
 
 - Password login follows the deployed reviewed shape: normalized email uses `username`, E.164 phone uses `mobile`, plus `password`; UUID member IDs remain strings. Session refresh is single-flight and cannot overwrite a different signed-in account.
-- The deployed API center currently has no `auth/capabilities`, email registration, international SMS-country allowlist or challenge-based verification routes. Email/SMS registration and recovery therefore stay fail-closed and make no request. Do not re-enable them merely because domestic-style `sms-code` and `register-with-sms` routes exist.
-- Registration remains blocked until reviewed terms/privacy, a current `consentVersion`, provider readiness and the international realm/country contract are published. Health analysis separately requires the reviewed `health_ai_analysis` document/version. Missing legal content never silently authorizes consent or push.
+- The global server feature branch defines `auth/capabilities`, challenge-based verification and a temporary `/auth/register` route. The App hides registration codes only when the server explicitly returns `registration.verificationRequired=false`; a missing capability response still fails closed. The deployed production API has not yet been verified to contain this branch.
+- Temporary verification-free registration still requires reviewed terms/privacy and the exact current `consentVersion`, and stores a null email/mobile verification timestamp. Recovery remains provider-bound, and verified-contact commerce guards remain closed. The server deployment template keeps `GLOBAL_UNVERIFIED_REGISTRATION_ENABLED=false`; never enable it in the domestic/shared database. Health analysis separately requires the reviewed `health_ai_analysis` document/version.
 - Global care uses relationship UUIDs, email/E.164 invitations, explicit per-metric sharing and revocation. Local calendar day endpoints become UTC instants; no forced Beijing-day conversion.
 - Global encyclopedia uses V2 UUIDs and language parameters. AI messages preserve the user's text and pass current language. Server article/PDF/report translations require separately supplied content; local UI translations are not that content.
 - Updates require an explicit global realm and matching package ID, HTTPS and SHA-256 for direct packages under `/global/down/files/`. Real TestFlight/App Store targets only when actually provided. A missing manifest is unavailable, not evidence of latest-version acceptance.

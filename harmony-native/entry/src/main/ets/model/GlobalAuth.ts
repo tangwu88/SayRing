@@ -5,7 +5,7 @@ export type AuthChannel = 'email' | 'sms';
 export type VerificationPurpose = 'register' | 'reset_password';
 export interface GlobalAuthCapabilities {
   realm: string; defaultLocale: string; supportedLocales: string[];
-  registration: { email: boolean; sms: boolean }; smsCountries: string[];
+  registration: { email: boolean; sms: boolean; verificationRequired: boolean }; smsCountries: string[];
   recovery: { email: boolean; sms: boolean };
   verification: { codeLength: number; expiresIn: number; retryAfter: number };
   consentVersion: string;
@@ -48,18 +48,20 @@ export const PHONE_COUNTRIES: PhoneCountry[] = [
 
 export function emptyAuthCapabilities(): GlobalAuthCapabilities {
   return { realm: 'global', defaultLocale: 'en', supportedLocales: [],
-    registration: { email: false, sms: false }, recovery: { email: false, sms: false }, smsCountries: [], consentVersion: '',
+    registration: { email: false, sms: false, verificationRequired: true }, recovery: { email: false, sms: false }, smsCountries: [], consentVersion: '',
     verification: { codeLength: 6, expiresIn: 300, retryAfter: 60 } };
 }
 export function parseAuthCapabilities(data: Object | undefined): GlobalAuthCapabilities {
   const value = data as GlobalAuthCapabilities;
   if (!value || value.realm !== 'global' || !value.registration ||
     typeof value.registration.email !== 'boolean' || typeof value.registration.sms !== 'boolean' ||
+    typeof value.registration.verificationRequired !== 'boolean' ||
     !Array.isArray(value.smsCountries) || !Array.isArray(value.supportedLocales) ||
     !value.verification || value.verification.codeLength !== 6) throw new ApiError('auth_unavailable', 503);
   return { realm: 'global', defaultLocale: 'en', supportedLocales: [...value.supportedLocales],
     registration: { email: value.registration.email && !!value.consentVersion && !!value.legal,
-      sms: value.registration.sms && !!value.consentVersion && !!value.legal },
+      sms: value.registration.sms && !!value.consentVersion && !!value.legal,
+      verificationRequired: value.registration.verificationRequired },
     recovery: { email: value.recovery?.email === true, sms: value.recovery?.sms === true },
     consentVersion: typeof value.consentVersion === 'string' ? value.consentVersion : '',
     legal: value.legal,
@@ -93,6 +95,14 @@ export function globalRegistrationValidation(identifier: string, channel: AuthCh
   if (!accepted) return 'accept_terms';
   try { normalizeIdentifier(channel, identifier); } catch (error) { return (error as Error).message; }
   if (!/^\d{6}$/.test(code.trim())) return 'invalid_code';
+  if (!validGlobalPassword(password)) return 'password_length';
+  if (password !== confirmation) return 'password_mismatch';
+  return '';
+}
+export function globalUnverifiedRegistrationValidation(identifier: string, channel: AuthChannel,
+  password: string, confirmation: string, accepted: boolean): string {
+  if (!accepted) return 'accept_terms';
+  try { normalizeIdentifier(channel, identifier); } catch (error) { return (error as Error).message; }
   if (!validGlobalPassword(password)) return 'password_length';
   if (password !== confirmation) return 'password_mismatch';
   return '';

@@ -404,6 +404,7 @@
   "privacyPolicy": "プライバシーポリシー",
   "registrationUnavailable": "現在、新規登録をご利用いただけません。後でもう一度お試しください。",
   "loginFailed": "ログインできませんでした。入力内容を確認して再試行してください。",
+  "accountAlreadyExists": "このアカウントは登録済みです。ログインしてください。",
   "networkUnavailable": "インターネット接続を確認して再試行してください",
   "serviceUnavailable": "現在、この機能をご利用いただけません。後でもう一度お試しください。",
   "accountCreated": "アカウントを作成しました",

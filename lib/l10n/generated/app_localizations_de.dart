@@ -1321,6 +1321,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Anmeldung fehlgeschlagen. Bitte Angaben prüfen und erneut versuchen.';
 
   @override
+  String get accountAlreadyExists =>
+      'Dieses Konto besteht bereits. Bitte anmelden.';
+
+  @override
   String get networkUnavailable =>
       'Internetverbindung prüfen und erneut versuchen';
 

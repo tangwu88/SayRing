@@ -1308,6 +1308,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'Could not sign in. Please check your details and try again.';
 
   @override
+  String get accountAlreadyExists =>
+      'This account already exists. Sign in instead.';
+
+  @override
   String get networkUnavailable =>
       'Check your internet connection and try again';
 

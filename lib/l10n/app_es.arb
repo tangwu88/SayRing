@@ -404,6 +404,7 @@
   "privacyPolicy": "Política de privacidad",
   "registrationUnavailable": "El registro no está disponible temporalmente. Inténtalo más tarde.",
   "loginFailed": "No se pudo iniciar sesión. Comprueba tus datos e inténtalo de nuevo.",
+  "accountAlreadyExists": "Esta cuenta ya existe. Inicia sesión.",
   "networkUnavailable": "Comprueba tu conexión e inténtalo de nuevo",
   "serviceUnavailable": "Esta función no está disponible temporalmente. Inténtalo más tarde.",
   "accountCreated": "Tu cuenta está lista",

@@ -1254,6 +1254,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get loginFailed => '로그인하지 못했습니다. 입력 정보를 확인하고 다시 시도하세요.';
 
   @override
+  String get accountAlreadyExists => '이미 등록된 계정입니다. 로그인해 주세요.';
+
+  @override
   String get networkUnavailable => '인터넷 연결을 확인하고 다시 시도하세요';
 
   @override

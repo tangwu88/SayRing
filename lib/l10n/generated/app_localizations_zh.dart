@@ -1226,6 +1226,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get loginFailed => '登录失败，请检查账号信息后重试';
 
   @override
+  String get accountAlreadyExists => '此账号已注册，请直接登录';
+
+  @override
   String get networkUnavailable => '网络不可用，请检查后重试';
 
   @override
@@ -2772,6 +2775,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get loginFailed => '登录失败，请检查账号信息后重试';
 
   @override
+  String get accountAlreadyExists => '此账号已注册，请直接登录';
+
+  @override
   String get networkUnavailable => '网络不可用，请检查后重试';
 
   @override
@@ -4316,6 +4322,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get loginFailed => '登入失敗，請檢查帳號資訊後重試';
+
+  @override
+  String get accountAlreadyExists => '此帳號已註冊，請直接登入';
 
   @override
   String get networkUnavailable => '網路無法使用，請檢查後重試';

@@ -8,6 +8,13 @@ abstract interface class GlobalAccountApi {
     required String purpose,
     required String locale,
   });
+  Future<Session> registerWithoutVerification({
+    required GlobalAccountIdentity identity,
+    required String password,
+    required String locale,
+    required String consentVersion,
+    String? nickname,
+  });
   Future<Session> completeVerification({
     required String challengeId,
     required String code,
@@ -318,8 +325,15 @@ class GlobalSaydianApiClient extends SaydianApiClient
   }
 
   @override
-  Uri _uri(String path, [Map<String, String>? query]) =>
-      GlobalEnvironment.resolve(_baseUri, path, query);
+  Uri _uri(String path, [Map<String, String>? query]) {
+    try {
+      return GlobalEnvironment.resolve(_baseUri, path, query);
+    } on ArgumentError {
+      throw const FeatureNotConfiguredException(
+        'This feature is not yet available in this region.',
+      );
+    }
+  }
 
   @override
   Map<String, String> _authorizationHeaders(Session session) => {
@@ -522,6 +536,75 @@ class GlobalSaydianApiClient extends SaydianApiClient
   }
 
   @override
+  Future<List<Map<String, Object?>>> getNotifications({int page = 1}) async {
+    if (page < 1) {
+      throw const ApiException(
+        'Unable to load messages. Please try again.',
+        code: 'INVALID_PAGE',
+      );
+    }
+    final rows = _list(
+      _decode(
+        await _authorizedGet('/api/saydian-app/v2/notifications', {
+          'page': '$page',
+          'pageSize': '30',
+        }),
+      ),
+    );
+    return rows.map(_globalNotification).toList(growable: false);
+  }
+
+  Map<String, Object?> _globalNotification(Map<String, Object?> row) {
+    final remoteId = '${row['id'] ?? ''}'.trim();
+    final eventId = '${row['eventId'] ?? remoteId}'.trim();
+    final type = '${row['type'] ?? 'system'}'.trim().toLowerCase();
+    final createdAt = '${row['createdAt'] ?? ''}'.trim();
+    if (remoteId.isEmpty || eventId.isEmpty || createdAt.isEmpty) {
+      throw const ApiException(
+        'Unable to read this message. Please try again.',
+        code: 'INVALID_NOTIFICATION_RESPONSE',
+      );
+    }
+    final deepLink = '${row['deepLink'] ?? ''}'.trim();
+    final route = RegExp(
+      r'^/(?:care/invitations|health/(?:alerts|warnings))/([A-Za-z0-9._:-]+)$',
+    ).firstMatch(deepLink);
+    return <String, Object?>{
+      ...row,
+      // The imported detail API accepts only numeric legacy IDs. Keep the V2
+      // response as the detail source instead of inventing a UUID-to-int API.
+      'id': -((remoteId.hashCode & 0x3fffffff) + 1),
+      '_localNotification': true,
+      '_eventType': switch (type) {
+        'care_invitation' => 'careInvitation',
+        'health_warning' => 'healthWarning',
+        _ => 'system',
+      },
+      'event_id': eventId,
+      'remote_event_id': eventId,
+      'entity_id': ?route?.group(1),
+      'content': row['body'],
+      'created_at': createdAt,
+      'is_read': row['readAt'] != null,
+      'kind': type,
+    };
+  }
+
+  @override
+  Future<bool> markNotificationEventRead({required String eventId}) async {
+    final normalized = _validatedNotificationEventId(eventId);
+    final data = _data(
+      _decode(
+        await _authorizedPostJson(
+          '/api/saydian-app/v2/notifications/${Uri.encodeComponent(normalized)}/read',
+          const <String, Object?>{},
+        ),
+      ),
+    );
+    return data['read'] == true;
+  }
+
+  @override
   Future<Session> loginWithWechat({required String code}) => Future.error(
     const FeatureNotConfiguredException(
       'Sign in with your email address or phone number.',
@@ -551,6 +634,9 @@ class GlobalSaydianApiClient extends SaydianApiClient
     ),
   );
 
+  @override
+  Future<Map<String, Object?>> getShopHome() => _globalPublic('commerce/home');
+
   Future<Map<String, Object?>> _globalPublic(
     String path, [
     Map<String, Object?>? body,
@@ -570,13 +656,10 @@ class GlobalSaydianApiClient extends SaydianApiClient
 
   @override
   Future<GlobalAuthCapabilities> getAuthCapabilities() async =>
-      const GlobalAuthCapabilities(
-        email: false,
-        sms: false,
-        recoveryEmail: false,
-        recoverySms: false,
-        smsCountries: <String>{},
-        supportedLocales: GlobalEnvironment.locales,
+      GlobalAuthCapabilities.fromJson(
+        await _globalPublic(
+          'auth/capabilities?locale=${Uri.encodeQueryComponent(_locale())}',
+        ),
       );
 
   @override
@@ -603,10 +686,29 @@ class GlobalSaydianApiClient extends SaydianApiClient
         code: 'INVALID_PURPOSE',
       );
     }
-    throw const FeatureNotConfiguredException(
-      'Verification is not available for this contact yet.',
+    return VerificationChallenge.fromJson(
+      await _globalPublic('auth/verification-code', {
+        ...identity.toJson(),
+        'purpose': purpose,
+        'locale': locale,
+      }),
     );
   }
+
+  @override
+  Future<Session> registerWithoutVerification({
+    required GlobalAccountIdentity identity,
+    required String password,
+    required String locale,
+    required String consentVersion,
+    String? nickname,
+  }) => _globalAuthenticate('auth/register', {
+    ...identity.toJson(),
+    'password': password,
+    'locale': locale,
+    'consentVersion': consentVersion,
+    if (nickname?.trim().isNotEmpty == true) 'nickname': nickname!.trim(),
+  });
 
   @override
   Future<Session> login(String username, String password) async {
@@ -662,10 +764,18 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String locale,
     String? nickname,
     String? consentVersion,
-  }) => Future.error(
-    const FeatureNotConfiguredException(
-      'Verification is not available for this contact yet.',
-    ),
+  }) => _globalAuthenticate(
+    resetPassword ? 'auth/reset-password' : 'auth/register-with-code',
+    {
+      'challengeId': challengeId,
+      'code': code,
+      'password': password,
+      if (!resetPassword) ...{
+        'locale': locale,
+        'consentVersion': consentVersion ?? '',
+        if (nickname?.trim().isNotEmpty == true) 'nickname': nickname!.trim(),
+      },
+    },
   );
 
   Future<Session> _globalAuthenticate(
