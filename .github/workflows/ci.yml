@@ -29,6 +29,8 @@ jobs:
         run: node --test harmony-native/tests/*.test.mjs
       - name: Check Android vendor log privacy controls
         run: node --test tool/test_native_log_privacy.mjs
+      - name: Check international authentication smoke boundaries
+        run: node --test tool/global_auth_smoke.test.mjs
 
   quality:
     runs-on: ubuntu-latest
