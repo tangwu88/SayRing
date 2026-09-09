@@ -30,6 +30,11 @@
         "name": "ohos.permission.LOCATION",
         "reason": "$string:reason_location",
         "usedScene": { "abilities": ["EntryAbility"], "when": "inuse" }
+      },
+      {
+        "name": "ohos.permission.CAMERA",
+        "reason": "$string:reason_camera",
+        "usedScene": { "abilities": ["EntryAbility"], "when": "inuse" }
       }
     ],
     "abilities": [{

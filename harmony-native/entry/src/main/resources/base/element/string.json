@@ -2,6 +2,7 @@
   "string": [
     { "name": "module_desc", "value": "赛电原生鸿蒙健康与手表管理" },
     { "name": "reason_bluetooth", "value": "用于扫描、连接赛电手表并同步健康数据" },
-    { "name": "reason_location", "value": "鸿蒙系统在扫描附近蓝牙设备时需要位置权限" }
+    { "name": "reason_location", "value": "鸿蒙系统在扫描附近蓝牙设备时需要位置权限" },
+    { "name": "reason_camera", "value": "仅在使用手表遥控拍照时调用手机相机并保存照片" }
   ]
 }

@@ -64,3 +64,22 @@ test('W8 adapter does not falsely expose Vep-only feature transactions', () => {
   assert.match(adapter, /YCBTClient\.init\(context, false, false\)/,
     'the W8 SDK must not auto-reconnect a Vep-series watch from its vendor cache');
 });
+
+test('camera remote opens a real preview and saves captures only after an explicit user action', () => {
+  const page = readFileSync(new URL('../entry/src/main/ets/pages/Index.ets', import.meta.url), 'utf8');
+  const controller = readFileSync(new URL('../entry/src/main/ets/services/HarmonyCameraController.ets', import.meta.url), 'utf8');
+  const manifest = readFileSync(new URL('../entry/src/main/module.json5', import.meta.url), 'utf8');
+  const entryAbility = readFileSync(new URL('../entry/src/main/ets/entryability/EntryAbility.ets', import.meta.url), 'utf8');
+
+  assert.match(page, /XComponentType\.SURFACE/);
+  assert.match(page, /harmonyCamera\.start\(this\.uiContext\(\), this\.cameraSurfaceId\)/);
+  assert.match(page, /if \(captureRequested\) this\.captureCameraPhoto\(true\)/);
+  assert.match(page, /harmonyCamera\.capture\(\)/);
+  assert.match(controller, /camera\.getCameraManager\(context\)/);
+  assert.match(controller, /photoAssetAvailable/);
+  assert.match(controller, /saveCameraPhoto\(photoAccessHelper\.ImageFileType\.JPEG\)/);
+  assert.match(controller, /requestPermissionsFromUser\(context, permissions\)/);
+  assert.match(manifest, /ohos\.permission\.CAMERA/);
+  assert.doesNotMatch(entryAbility, /ohos\.permission\.CAMERA/,
+    'camera permission must not be requested during application startup');
+});
