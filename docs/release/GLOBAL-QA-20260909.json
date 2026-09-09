@@ -1,0 +1,51 @@
+{
+  "edition": "global",
+  "acceptance": "internal-partial-qa",
+  "applicationName": "Saydian",
+  "repository": "https://github.com/tangwu88/saydian-app-global",
+  "runtimeSourceCommit": "9f84b0333aea8d77837655c31ec7b8d788c9be48",
+  "integratedSourceCommit": "72159909de4c90c3c900ea370ce1dbc98c674818",
+  "ciRun": "https://github.com/tangwu88/saydian-app-global/actions/runs/34331730481",
+  "ciResult": "success-on-7215990",
+  "android": {
+    "file": "build/global-qa/Saydian-global-0.1.20+1002-qa.apk",
+    "applicationId": "cn.saydian.app.global",
+    "versionName": "0.1.20",
+    "versionCode": 1002,
+    "bytes": 68190604,
+    "sha256": "a3169fe4c897da4222d603189d9003fe0cd08e326dd4ae5df42bf07978c1ab66",
+    "minimumSdk": 26,
+    "abis": ["armeabi-v7a", "arm64-v8a"],
+    "signing": "Android Debug certificate - internal QA only",
+    "publicDownloadUrl": null,
+    "physicalDeviceAccepted": false
+  },
+  "ios": {
+    "bundleId": "cn.saydian.app.global",
+    "noCodesignDebugProfileRelease": "passed-on-7215990",
+    "runnerTests": "compiled-not-executed",
+    "signedIpa": null,
+    "physicalDeviceAccepted": false
+  },
+  "harmony": {
+    "bundleId": "cn.saydian.app.global.hm",
+    "hostTestsPassed": 481,
+    "hapBuild": "not-verified-sdk-unavailable",
+    "physicalDeviceAccepted": false
+  },
+  "server": {
+    "branch": "codex/global-api-foundation",
+    "commit": "af7a77a4b7470ed6a786802ad99f8721abd26646",
+    "apiBase": "https://app.saydian.cn/global/api/saydian-app/v2",
+    "deploymentAccepted": false,
+    "capabilitiesHttpStatusObserved": 404,
+    "realOtpDeliveryAccepted": false,
+    "realPaymentAccepted": false
+  },
+  "remainingSourceWork": [
+    "Full V2 commerce, international addresses and remaining compatibility routes",
+    "Harmony canonical V2 health cloud upload; old V1 uploader must stay blocked",
+    "Remaining dynamic UI translations and eight-language review"
+  ],
+  "handoff": "docs/INTERNATIONAL-HANDOFF.md"
+}

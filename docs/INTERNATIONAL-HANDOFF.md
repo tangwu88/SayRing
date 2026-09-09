@@ -38,7 +38,7 @@ Do not copy domestic `.env`, signing material, push secrets, account sessions, p
 
 ## Reproducible local checks
 
-Use Flutter `D:/Dev/Flutter/3.44.9`, JDK `F:/Codex/home/tools/jdk17`, Android SDK `F:/Codex/home/tools/android-sdk`, Gradle cache `D:/Dev/Gradle`. Enter the **global** workspace, not the domestic environment script's hard-coded directory.
+Use Flutter `D:/Dev/Flutter/3.44.9`, JDK `F:/Codex/home/tools/jdk17`, Android SDK `F:/Codex/home/tools/android-sdk`, Gradle cache `D:/Dev/Gradle`. Enter the **global** workspace and use its own `tool/handoff` scripts; these resolve their checkout dynamically. The checked-in `config/dev.json.example` uses only the global root/update endpoint and leaves unconfigured weather credentials empty.
 
 ```powershell
 $env:JAVA_HOME='F:/Codex/home/tools/jdk17'
@@ -67,7 +67,7 @@ Flutter CI retains static/unit checks plus Android and macOS no-codesign jobs; f
 - All-screen localization is not complete: Flutter has 499 ARB keys across eight languages; the targeted reachable static-copy inventory is covered, but nested/dynamic messages and model-derived values remain. Harmony has 574 semantic rows, with 272 untranslated rows falling back to English after camera merge. Report/PDF and stored push/body translations still require completion and linguistic review. First-launch English and resource availability alone do not prove eight-language acceptance.
 - Harmony canonical V2 cloud health synchronization is not complete. The old minute-aggregating V1 uploader is explicitly blocked for the global build; records remain locally pending and must not be reported as uploaded. Do not enable it by removing the guard.
 - ECG waveforms require an explicitly known sample rate and confirmed V2 artifact storage. Unrepresentable waveforms must remain pending, never silently discarded as uploaded.
-- Actual iPhone/macOS build/signature, Harmony SDK/HAP compilation, physical phones and two different watch firmware/model tests. Do not reuse domestic historical screenshots/builds as international acceptance.
+- Actual iPhone/signature, Harmony SDK/HAP compilation, physical phones and two different watch firmware/model tests. International macOS CI no-codesign compilation has passed (see below), but it is not signed IPA or real-device acceptance. Do not reuse domestic historical screenshots/builds as international acceptance.
 - Public downloads, paid production transactions, app-store submissions and TestFlight publication require separate accepted channels. This task has not performed them.
 
 ## Verified source checkpoints
@@ -75,9 +75,12 @@ Flutter CI retains static/unit checks plus Android and macOS no-codesign jobs; f
 - International App foundation checkpoint: `9f84b03` (retains integrated domestic history, not a release-complete declaration). Latest upstream Harmony camera merge and package results follow in the command-level log.
 - Server source and tests pushed to `tangwu88/saydianserver`, branch `codex/global-api-foundation`, commit `af7a77a4b7470ed6a786802ad99f8721abd26646`. Do not merge into production main without the isolated deployment review.
 - Before camera merge: Flutter 628/628, analyzer clean, Android native 15/15, Harmony 477/477 host tests; server 499 passed / 4 DB skipped. Windows cannot run seven imported POSIX release-helper tests. CI and platform build results must be checked independently.
+- Final local media-isolation regression: Flutter **630/630**, analyzer clean, format **118 files / 0 changes**. Final Harmony host count **481/481**. The media tests, documentation and dev configuration example do not alter packaged runtime inputs.
+- [First CI run on source 7215990](https://github.com/tangwu88/saydian-app-global/actions/runs/34331730481): **SUCCESS, 33m40s total**. Quality passed in 7m31s, including both Flutter timezones and all Linux release helpers; both Harmony timezone jobs passed. Android passed in **25m14s** (Debug, Release QA and native unit tests). iOS passed in **15m27s** on macOS 26/Xcode 26.5: Debug/Profile/Release no-codesign plus RunnerTests `build-for-testing`. XCTest compile only; no executed XCTest, IPA or iPhone acceptance. Final record/example/media-test changes leave runtime/workflow inputs unchanged and have separate 630-test local evidence; their delivery commit skips redundant CI, not validation of new runtime code.
 
 ## Internal Android QA package
 
+- Machine-readable package identity, source provenance and acceptance gates: [GLOBAL-QA-20260909.json](release/GLOBAL-QA-20260909.json). This is an internal handoff manifest, not a live App update response or publication approval.
 - File: `build/global-qa/Saydian-global-0.1.20+1002-qa.apk` (68,190,604 bytes, ignored by Git).
 - SHA-256: `a3169fe4c897da4222d603189d9003fe0cd08e326dd4ae5df42bf07978c1ab66`.
 - Package: `cn.saydian.app.global`; label `Saydian`; version `0.1.20+1002`; Android 8+/two ARM ABIs. Both Debug and Release QA compile; Release is debug-signed, not an app-store package.
