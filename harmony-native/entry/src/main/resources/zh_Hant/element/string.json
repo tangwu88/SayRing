@@ -1,0 +1,8 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "Saydian健康與手錶管理" },
+    { "name": "reason_bluetooth", "value": "搜尋並連接手錶，同步健康紀錄" },
+    { "name": "reason_location", "value": "搜尋附近手錶，並在運動時記錄路線" },
+    { "name": "reason_camera", "value": "僅在開啟手錶遙控拍照時使用手機相機並儲存照片" }
+  ]
+}

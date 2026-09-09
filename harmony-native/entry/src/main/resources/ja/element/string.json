@@ -1,0 +1,8 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "Saydianの健康と時計の管理" },
+    { "name": "reason_bluetooth", "value": "時計を検索して接続し、健康記録を同期します" },
+    { "name": "reason_location", "value": "近くの時計を検索し、運動中のルートを記録します" },
+    { "name": "reason_camera", "value": "時計のリモート撮影を開始した場合のみ、スマートフォンのカメラを使用して写真を保存します" }
+  ]
+}

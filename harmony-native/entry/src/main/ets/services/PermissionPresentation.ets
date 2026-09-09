@@ -10,10 +10,12 @@ export async function readPermissionRows(): Promise<PermissionRow[]> {
   const tokenId = info.appInfo.accessTokenId;
   const bluetooth = manager.checkAccessTokenSync(tokenId, 'ohos.permission.ACCESS_BLUETOOTH') === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED;
   const location = manager.checkAccessTokenSync(tokenId, 'ohos.permission.APPROXIMATELY_LOCATION') === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED;
+  const camera = manager.checkAccessTokenSync(tokenId, 'ohos.permission.CAMERA') === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED;
   const notifications = await notificationManager.isNotificationEnabled();
   return [
     { key: 'bluetooth', title: '蓝牙', status: bluetooth ? '已允许' : '未允许', enabled: bluetooth },
     { key: 'location', title: '位置', status: location ? '已允许' : '未允许', enabled: location },
+    { key: 'camera', title: '相机', status: camera ? '已允许' : '按需使用', enabled: camera },
     { key: 'notifications', title: '通知', status: notifications ? '已允许' : '未允许', enabled: notifications }
   ];
 }
@@ -34,7 +36,7 @@ export async function openPermissionSetting(context: common.UIAbilityContext, ke
     return;
   }
   const permissions: Permissions[] = key === 'bluetooth' ? ['ohos.permission.ACCESS_BLUETOOTH'] :
-    ['ohos.permission.APPROXIMATELY_LOCATION', 'ohos.permission.LOCATION'];
+    key === 'camera' ? ['ohos.permission.CAMERA'] : ['ohos.permission.APPROXIMATELY_LOCATION', 'ohos.permission.LOCATION'];
   const manager = abilityAccessCtrl.createAtManager();
   const result = await manager.requestPermissionsFromUser(context, permissions);
   if (result.authResults.some((state: number) => state !== abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED)) {

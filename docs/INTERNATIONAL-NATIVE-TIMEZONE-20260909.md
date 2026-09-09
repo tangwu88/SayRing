@@ -17,4 +17,5 @@
 ## Verification
 
 - Pending: parent task runs Android unit/build gates after this source group freezes. Windows cannot execute Xcode/iOS tests; these are not reported as passed.
+- Parent verification update: `./gradlew.bat :app:testDebugUnitTest` passed all 15 tests, including all three `WearableRecordTimezoneTest` cases (0 failures/errors). Android Release build is recorded in the parent implementation log; iOS tests remain unexecuted locally.
 - The pure tests do not establish real-device historical date interpretation or the user's timezone at original measurement while travelling. Without that historic location context no timezone is inferred or backfilled.

@@ -64,9 +64,23 @@ Flutter CI retains static/unit checks plus Android and macOS no-codesign jobs; f
 - Real deployment of isolated global API/Worker/DB/Redis/storage, migrations and gateway tests. Current local server work is source/scaffold verification only.
 - Real reviewed legal documents, authorized email/SMS testing and enabled countries; no contact information or real sending credential was supplied in this task.
 - International catalog price books, tax/shipping/inventory coordination and payment rails are not implemented/accepted. Checkout remains disabled, not CNY with a new currency symbol. Full global commerce/address/order UI and remaining compatibility routes need contract migration.
-- All-screen localization is not complete: see exact Flutter/Harmony records. Long health/device copy, dynamic messages, report/PDF and stored push/body translations still require completion and linguistic review. First-launch English and resource availability alone do not prove eight-language acceptance.
+- All-screen localization is not complete: Flutter has 499 ARB keys across eight languages; the targeted reachable static-copy inventory is covered, but nested/dynamic messages and model-derived values remain. Harmony has 574 semantic rows, with 272 untranslated rows falling back to English after camera merge. Report/PDF and stored push/body translations still require completion and linguistic review. First-launch English and resource availability alone do not prove eight-language acceptance.
+- Harmony canonical V2 cloud health synchronization is not complete. The old minute-aggregating V1 uploader is explicitly blocked for the global build; records remain locally pending and must not be reported as uploaded. Do not enable it by removing the guard.
 - ECG waveforms require an explicitly known sample rate and confirmed V2 artifact storage. Unrepresentable waveforms must remain pending, never silently discarded as uploaded.
 - Actual iPhone/macOS build/signature, Harmony SDK/HAP compilation, physical phones and two different watch firmware/model tests. Do not reuse domestic historical screenshots/builds as international acceptance.
 - Public downloads, paid production transactions, app-store submissions and TestFlight publication require separate accepted channels. This task has not performed them.
 
-The following sections are updated after final checks; consult the command-level record for current pass/fail counts and package hashes.
+## Verified source checkpoints
+
+- International App foundation checkpoint: `9f84b03` (retains integrated domestic history, not a release-complete declaration). Latest upstream Harmony camera merge and package results follow in the command-level log.
+- Server source and tests pushed to `tangwu88/saydianserver`, branch `codex/global-api-foundation`, commit `af7a77a4b7470ed6a786802ad99f8721abd26646`. Do not merge into production main without the isolated deployment review.
+- Before camera merge: Flutter 628/628, analyzer clean, Android native 15/15, Harmony 477/477 host tests; server 499 passed / 4 DB skipped. Windows cannot run seven imported POSIX release-helper tests. CI and platform build results must be checked independently.
+
+## Internal Android QA package
+
+- File: `build/global-qa/Saydian-global-0.1.20+1002-qa.apk` (68,190,604 bytes, ignored by Git).
+- SHA-256: `a3169fe4c897da4222d603189d9003fe0cd08e326dd4ae5df42bf07978c1ab66`.
+- Package: `cn.saydian.app.global`; label `Saydian`; version `0.1.20+1002`; Android 8+/two ARM ABIs. Both Debug and Release QA compile; Release is debug-signed, not an app-store package.
+- Latest Harmony camera merge host tests: 481/481. No HAP/iOS binary has been supplied.
+- No phone is currently visible to ADB. Installation coexistence and watch tests remain pending. Before handing a copied APK to QA, verify this hash; never point the domestic download page at it.
+- The global server is not yet deployed (capabilities HTTP 404); this APK is for isolated UI/device QA, not proof of working online registration or commerce. Supply reviewed legal text and separately approved provider/deployment configuration before live onboarding tests.

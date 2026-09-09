@@ -57,6 +57,7 @@ import { vepDeviceSettings } from '../services/VepDeviceSettingsAdapter';
 import { WatchAlarm, WatchUnitField, WatchUnits, alarmDraftError, alarmRepeatText, copyWatchAlarm,
   emptyWatchUnits, newWatchAlarm, refreshSummaryOnSettingsReturn, supportedWatchUnit, watchUnitChoiceLabel } from '../model/DeviceSettingsTransactions';
 import { vepDeviceFeatures } from '../services/VepDeviceFeatureAdapter';
+import { harmonyCamera } from '../services/HarmonyCameraController';
 import { WatchAssessmentSetting, WatchAutoMeasureSetting, WatchContact, WatchDeviceFeatureKey,
   WatchDeviceFeatureSpec, WatchNotificationSetting, WatchPhoneState, WatchPhotoDialProfile, WatchReminder,
   WatchScreenSetting, WatchWeatherSetting, WatchWorldClock, emptyPhoneState, emptyPhotoDialProfile,
@@ -247,6 +248,11 @@ struct Index {
   @State private photoDialProgress: number = 0;
   @State private cameraRemoteEnabled: boolean = false;
   @State private cameraRemoteMessage: string = '';
+  @State private cameraReady: boolean = false;
+  @State private cameraCapturing: boolean = false;
+  @State private cameraLastPhotoUri: string = '';
+  private cameraSurfaceId: string = '';
+  private cameraController: XComponentController = new XComponentController();
   private deviceFeatureGeneration: number = 0;
   @State private careOverview: CareMetric[] = [];
   @State private careUpdatedAt: string = '';
@@ -670,13 +676,15 @@ struct Index {
     ++this.deviceFeatureGeneration;
     if (this.cameraRemoteEnabled) vepDeviceFeatures.setCameraRemote(false).catch(() => {});
     vepDeviceFeatures.setCameraListener(undefined);
+    harmonyCamera.stop().catch(() => {});
     this.deviceFeatureBusy = false; this.deviceFeatureWriting = false; this.deviceFeatureLoaded = false;
     this.deviceFeatureMessage = ''; this.watchPhoneState = emptyPhoneState(); this.watchContacts = [];
     this.watchContactDraft = { id: 0, name: '', phone: '', sos: false }; this.watchNotifications = [];
     this.watchWeather = { enabled: false, celsius: true }; this.watchWorldClocks = []; this.watchReminders = [];
     this.watchAutoMeasures = []; this.watchAssessments = []; this.watchScreen = emptyScreenSetting();
     this.watchPhotoDial = emptyPhotoDialProfile(); this.photoDialUri = ''; this.photoDialProgress = 0;
-    this.cameraRemoteEnabled = false; this.cameraRemoteMessage = '';
+    this.cameraRemoteEnabled = false; this.cameraRemoteMessage = ''; this.cameraReady = false;
+    this.cameraCapturing = false; this.cameraLastPhotoUri = ''; this.cameraSurfaceId = '';
   }
 
   private async openDeviceFeature(feature: WatchDeviceFeatureKey): Promise<void> {
@@ -695,9 +703,9 @@ struct Index {
       else if (feature === 'camera') {
         vepDeviceFeatures.setCameraListener((captureRequested: boolean, message: string) => {
           if (generation !== this.deviceFeatureGeneration || this.screen !== 'device-feature') return;
-          this.cameraRemoteMessage = captureRequested ? '手表已发出拍照指令' : message;
+          if (captureRequested) this.captureCameraPhoto(true); else this.cameraRemoteMessage = message;
         });
-        this.cameraRemoteMessage = '点击开启后，可在手表相机页面发送遥控拍照指令';
+        this.cameraRemoteMessage = '点击开启后显示实时画面，可在手表相机页面遥控拍照';
       } else if (feature === 'phoneCalls') this.watchPhoneState = await vepDeviceFeatures.readPhoneState();
       else if (feature === 'contacts') this.watchContacts = await vepDeviceFeatures.readContacts();
       else if (feature === 'notifications') this.watchNotifications = await vepDeviceFeatures.readNotifications();
@@ -857,10 +865,57 @@ struct Index {
   }
 
   private setCameraRemote(enabled: boolean): void {
+    const generation = this.deviceFeatureGeneration, deviceKey = this.wearableSnapshot.deviceKey;
     this.writeDeviceFeature(async (): Promise<void> => {
-      await vepDeviceFeatures.setCameraRemote(enabled); this.cameraRemoteEnabled = enabled;
-      this.cameraRemoteMessage = enabled ? '相机遥控已开启，请在手表上点击拍照' : '相机遥控已关闭';
+      if (enabled) {
+        await harmonyCamera.start(this.uiContext(), this.cameraSurfaceId);
+        if (generation !== this.deviceFeatureGeneration || deviceKey !== this.wearableSnapshot.deviceKey ||
+          this.screen !== 'device-feature' || this.selectedDeviceFeature !== 'camera') {
+          await harmonyCamera.stop();
+          throw new Error('相机操作已取消');
+        }
+        try { await vepDeviceFeatures.setCameraRemote(true); }
+        catch (error) { await harmonyCamera.stop(); throw error as Error; }
+        this.cameraReady = true; this.cameraRemoteEnabled = true;
+        this.cameraRemoteMessage = '相机遥控已开启，请在手表上点击拍照';
+      } else {
+        await vepDeviceFeatures.setCameraRemote(false);
+        await harmonyCamera.stop();
+        this.cameraReady = false; this.cameraRemoteEnabled = false; this.cameraCapturing = false;
+        this.cameraRemoteMessage = '相机遥控已关闭';
+      }
     }, enabled ? '相机遥控已开启' : '相机遥控已关闭');
+  }
+
+  private cameraSurfaceLoaded(): void {
+    this.cameraSurfaceId = this.cameraController.getXComponentSurfaceId();
+    try { this.cameraController.setXComponentSurfaceRotation({ lock: true }); } catch {}
+  }
+
+  private cameraSurfaceDestroyed(): void {
+    this.cameraSurfaceId = ''; this.cameraReady = false; this.cameraCapturing = false;
+    harmonyCamera.stop().catch(() => {});
+  }
+
+  private async captureCameraPhoto(fromWatch: boolean): Promise<void> {
+    if (!this.cameraRemoteEnabled || !this.cameraReady || this.cameraCapturing) {
+      if (fromWatch && !this.cameraCapturing) this.cameraRemoteMessage = '手机相机尚未准备好，请重新开启相机遥控';
+      return;
+    }
+    const generation = this.deviceFeatureGeneration;
+    this.cameraCapturing = true;
+    this.cameraRemoteMessage = fromWatch ? '已收到手表指令，正在拍照并保存…' : '正在拍照并保存…';
+    try {
+      const uri = await harmonyCamera.capture();
+      if (generation !== this.deviceFeatureGeneration || this.screen !== 'device-feature') return;
+      this.cameraLastPhotoUri = uri; this.cameraRemoteMessage = '照片已保存到手机图库';
+    } catch (error) {
+      if (generation === this.deviceFeatureGeneration && this.screen === 'device-feature') {
+        this.cameraRemoteMessage = (error as Error).message || '拍照保存失败，请重试';
+      }
+    } finally {
+      if (generation === this.deviceFeatureGeneration) this.cameraCapturing = false;
+    }
   }
 
   private async pickPhotoDial(): Promise<void> {
@@ -3387,15 +3442,51 @@ struct Index {
               icon: $r('sys.symbol.camera_fill') })
           }
         } else if (this.selectedDeviceFeature === 'camera') {
-          this.Notice({ message: '相机遥控会让手表进入拍照控制状态。本页面保持打开时，可接收手表的拍照按键事件。' })
-          Column() {
-            SymbolGlyph($r('sys.symbol.camera_fill')).fontSize(62).fontColor([this.cameraRemoteEnabled ? RED : MUTED])
-          }.width('100%').height(220).justifyContent(FlexAlign.Center).backgroundColor('#EEF1F5').borderRadius(18)
+          this.Notice({ message: '仅在点击开启后申请相机权限。本页面保持打开时，手表拍照键会直接拍摄并保存到手机图库。' })
+          Stack() {
+            XComponent({ id: 'saydian_camera_preview', type: XComponentType.SURFACE, controller: this.cameraController })
+              .width('100%').height('100%').backgroundColor('#111318')
+              .onLoad(() => this.cameraSurfaceLoaded()).onDestroy(() => this.cameraSurfaceDestroyed())
+            if (!this.cameraRemoteEnabled) {
+              Column({ space: 12 }) {
+                SymbolGlyph($r('sys.symbol.camera_fill')).fontSize(62).fontColor([Color.White])
+                Text(this.tr('开启后显示实时取景')).fontSize(17).fontColor(Color.White)
+              }.width('100%').height('100%').justifyContent(FlexAlign.Center).backgroundColor('#99111318')
+            }
+            if (this.cameraCapturing) {
+              Column({ space: 10 }) {
+                LoadingProgress().width(38).height(38).color(Color.White)
+                Text(this.tr('正在保存照片…')).fontSize(15).fontColor(Color.White)
+              }.width('100%').height('100%').justifyContent(FlexAlign.Center).backgroundColor('#77111318')
+            }
+          }.width('100%').aspectRatio(0.75).backgroundColor('#111318').borderRadius(18).clip(true)
           Text(this.tr(this.cameraRemoteMessage || '相机遥控尚未开启')).fontSize(16).fontColor(INK).width('100%').textAlign(TextAlign.Center)
-          Button(this.tr(this.cameraRemoteEnabled ? '关闭相机遥控' : '开启相机遥控')).width('100%').height(this.controlHeight(56))
-            .fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.cameraRemoteEnabled ? RED : Color.White)
-            .backgroundColor(this.cameraRemoteEnabled ? RED_SOFT : RED).type(ButtonType.Normal).borderRadius(14)
-            .enabled(!this.deviceFeatureBusy).onClick(() => this.setCameraRemote(!this.cameraRemoteEnabled)).id('camera_remote_toggle')
+          if (this.cameraLastPhotoUri) {
+            Row({ space: 12 }) {
+              Image(this.cameraLastPhotoUri).width(82).height(82).objectFit(ImageFit.Cover).borderRadius(12)
+                .accessibilityText(this.tr('最近拍摄并保存的照片'))
+              Column({ space: 5 }) {
+                Text(this.tr('最近拍摄')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                Text(this.tr('已保存到手机图库')).fontSize(14).fontColor(GREEN).width('100%')
+              }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            }.width('100%').padding(12).backgroundColor(SURFACE).borderRadius(16).border({ width: 1, color: LINE })
+          }
+          if (this.cameraRemoteEnabled) {
+            Row({ space: 10 }) {
+              Button(this.tr(this.cameraCapturing ? '正在拍照…' : '手机拍照')).layoutWeight(1).height(this.controlHeight(56))
+                .fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(14)
+                .enabled(!this.deviceFeatureBusy && !this.cameraCapturing).onClick(() => this.captureCameraPhoto(false))
+                .id('camera_local_capture')
+              Button(this.tr('关闭遥控')).layoutWeight(1).height(this.controlHeight(56)).fontSize(16).fontWeight(FontWeight.Bold)
+                .fontColor(RED).backgroundColor(RED_SOFT).type(ButtonType.Normal).borderRadius(14)
+                .enabled(!this.deviceFeatureBusy && !this.cameraCapturing).onClick(() => this.setCameraRemote(false))
+                .id('camera_remote_close')
+            }.width('100%')
+          } else {
+            Button(this.tr('开启相机遥控')).width('100%').height(this.controlHeight(56)).fontSize(16).fontWeight(FontWeight.Bold)
+              .backgroundColor(RED).type(ButtonType.Normal).borderRadius(14).enabled(!this.deviceFeatureBusy)
+              .onClick(() => this.setCameraRemote(true)).id('camera_remote_toggle')
+          }
         } else if (this.selectedDeviceFeature === 'phoneCalls') {
           Column({ space: 12 }) {
             Text(this.tr(this.watchPhoneState.connected ? '蓝牙通话已连接' : '蓝牙通话未连接')).fontSize(20).fontWeight(FontWeight.Bold)

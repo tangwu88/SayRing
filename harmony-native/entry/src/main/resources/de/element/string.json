@@ -1,0 +1,8 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "Saydian Wellness- und Uhrenverwaltung" },
+    { "name": "reason_bluetooth", "value": "Uhr suchen und verbinden, um Gesundheitsdaten zu synchronisieren" },
+    { "name": "reason_location", "value": "Uhren in der Nähe suchen und beim Training die Route aufzeichnen" },
+    { "name": "reason_camera", "value": "Telefonkamera nutzen und Fotos speichern, nur wenn Sie die Kamera-Fernsteuerung starten" }
+  ]
+}

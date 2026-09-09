@@ -1,0 +1,8 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "Saydian : bien-être et gestion de montre" },
+    { "name": "reason_bluetooth", "value": "Rechercher et connecter la montre pour synchroniser les données de santé" },
+    { "name": "reason_location", "value": "Rechercher des montres à proximité et enregistrer le parcours pendant le sport" },
+    { "name": "reason_camera", "value": "Utiliser la caméra et enregistrer des photos uniquement lorsque vous activez la prise de vue à distance" }
+  ]
+}

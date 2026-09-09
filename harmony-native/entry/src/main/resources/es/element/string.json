@@ -1,0 +1,8 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "Saydian: bienestar y gestión del reloj" },
+    { "name": "reason_bluetooth", "value": "Buscar y conectar el reloj para sincronizar los registros de salud" },
+    { "name": "reason_location", "value": "Buscar relojes cercanos y registrar la ruta durante el ejercicio" },
+    { "name": "reason_camera", "value": "Usar la cámara y guardar fotos solo al activar la fotografía remota desde el reloj" }
+  ]
+}
