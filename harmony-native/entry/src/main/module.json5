@@ -8,7 +8,7 @@
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",
-    "querySchemes": ["weixin", "wxopensdk"],
+    "querySchemes": ["weixin", "wxopensdk", "https"],
     "srcEntry": "./ets/abilitystage/EntryAbilityStage.ets",
     "metadata": [{
       "name": "client_id",

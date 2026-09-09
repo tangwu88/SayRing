@@ -5,16 +5,18 @@ import { deviceInfo } from '@kit.BasicServicesKit';
 import { API_BASE, ApiError, Envelope, Session, FormField, UploadFile, decodeEnvelope, buildMultipart } from '../model/Contracts';
 import { AccountClient, ApiTransport } from './AccountClient';
 import { SessionVault } from './SessionVault';
+import { apiReadTimeout } from '../model/RequestPolicy';
 
 interface ImageKind { mime: string; extension: string; }
 
 class NativeHttpTransport implements ApiTransport {
   async request(path: string, fields?: FormField[], session?: Session, jsonBody?: string,
-    method?: 'GET' | 'POST' | 'PUT' | 'DELETE'): Promise<Envelope> {
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE', readTimeoutMs?: number): Promise<Envelope> {
     // Fixed HTTPS origin; credentials never reach configurable hosts or redirects.
     if (!path.startsWith('/api/') || path.includes('://')) throw new ApiError('请求地址不正确');
     if (fields && jsonBody !== undefined) throw new ApiError('请求格式不正确');
     const requestMethod = method ?? (fields || jsonBody !== undefined ? 'POST' : 'GET');
+    const timeoutMs = apiReadTimeout(readTimeoutMs);
     if ((requestMethod === 'GET' || requestMethod === 'DELETE') && (fields || jsonBody !== undefined)) {
       throw new ApiError('请求格式不正确');
     }
@@ -31,7 +33,7 @@ class NativeHttpTransport implements ApiTransport {
       if (deviceInfo.sdkApiVersion < 23) {
         const legacy = await import('./LegacySafeHttp');
         const response = await legacy.legacySafeHttp(`${API_BASE}${path}`, requestMethod, headers,
-          fields ? buildMultipart(fields, boundary) : jsonBody ?? '', 15000);
+          fields ? buildMultipart(fields, boundary) : jsonBody ?? '', timeoutMs);
         return decodeEnvelope(response.result, response.responseCode);
       }
       const response = await client.request(`${API_BASE}${path}`, {
@@ -42,7 +44,7 @@ class NativeHttpTransport implements ApiTransport {
         extraData: fields ? buildMultipart(fields, boundary) : jsonBody ?? '',
         expectDataType: http.HttpDataType.STRING,
         connectTimeout: 15000,
-        readTimeout: 15000,
+        readTimeout: timeoutMs,
         maxRedirects: 0,
         maxLimit: 2 * 1024 * 1024,
         usingCache: false

@@ -1,4 +1,6 @@
-export const PAYMENT_CLIENT_TIMEOUT_MS: number = 30000;
+// Paying often includes biometric confirmation or switching to the provider app.
+// Keep a watchdog for lost callbacks, but never abandon a normal user flow after 30 seconds.
+export const PAYMENT_CLIENT_TIMEOUT_MS: number = 5 * 60 * 1000;
 export const PAYMENT_TIMEOUT_MESSAGE: string = '支付客户端响应超时，已停止等待';
 
 export function withPaymentTimeout<T>(operation: Promise<T>,

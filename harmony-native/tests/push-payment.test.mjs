@@ -90,14 +90,28 @@ test('explicit Harmony payInfo is preferred and must be valid JSON', () => {
   assert.throws(() => parseHarmonyPayment('wechat', { third_app_id: 'wx-fixture', pay_info: 'not-json' }));
 });
 
-test('legacy Android provider payloads never enter Harmony PaymentKit', () => {
+test('server provider payloads are normalized for official Harmony payment SDKs', () => {
   const wechat = { config: {
     appid: 'wx-fixture', partnerid: 'partner', prepayid: 'prepay', package: 'Sign=WXPay',
     noncestr: 'nonce', timestamp: '123456', sign: 'server-signature'
   } };
-  const alipay = { config: 'app_id=20260001&biz_content=fixture&sign=server-signature' };
-  assert.throws(() => parseHarmonyPayment('wechat', wechat), /暂时无法发起支付/);
-  assert.throws(() => parseHarmonyPayment('alipay', alipay), /暂时无法发起支付/);
+  const orderInfo = 'alipay_sdk=alipay-sdk&app_id=20260001&biz_content=%7B%22out_trade_no%22%3A%22ORDER-99%22%7D' +
+    '&charset=utf-8&format=json&method=alipay.trade.app.pay&sign=server-signature&sign_type=RSA2&timestamp=2026-09-09&version=1.0';
+  const alipay = { config: { config: orderInfo }, payStatus: false };
+  const wechatRequest = parseHarmonyPayment('wechat', wechat);
+  assert.equal(wechatRequest.thirdAppId, 'wx-fixture');
+  assert.equal(JSON.parse(wechatRequest.payInfo).prepayid, 'prepay');
+  assert.deepEqual(parseHarmonyPayment('alipay', alipay), {
+    provider: 'alipay', thirdAppId: '20260001', payInfo: orderInfo
+  });
+  assert.throws(() => parseHarmonyPayment('alipay', { config: 'app_id=20260001&sign=unsigned' }), /支付宝/);
+});
+
+test('WeChat preparation failures expose an actionable channel message', () => {
+  assert.throws(() => parseHarmonyPayment('wechat', { config: {
+    appid: 'wx-fixture', return_code: 'SUCCESS', result_code: 'FAIL', err_code: 'NOAUTH',
+    err_code_des: 'provider detail'
+  } }), /商户权限尚未开通/);
 });
 
 test('payment failures distinguish official provider outcomes', () => {

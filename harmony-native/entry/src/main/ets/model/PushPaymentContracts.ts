@@ -149,22 +149,89 @@ function nestedCandidates(data: Object | undefined): Record<string, Object>[] {
   const values: Record<string, Object>[] = [root];
   ['payment', 'payment_params', 'wechat', 'alipay', 'config', 'harmony'].forEach((key: string) => {
     const item = object(root[key]);
-    if (Object.keys(item).length > 0) values.push(item);
+    if (Object.keys(item).length > 0) {
+      values.push(item);
+      ['payment', 'payment_params', 'wechat', 'alipay', 'config', 'harmony'].forEach((nestedKey: string) => {
+        const nested = object(item[nestedKey]);
+        if (Object.keys(nested).length > 0) values.push(nested);
+      });
+    }
   });
   return values;
 }
 
+function jsonObjectText(value: Object | undefined): string {
+  if (typeof value === 'string') {
+    const normalized = text(value, 16384);
+    if (!normalized) return '';
+    try {
+      const parsed = JSON.parse(normalized) as Object;
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? normalized : '';
+    } catch { return ''; }
+  }
+  const data = object(value);
+  if (Object.keys(data).length === 0) return '';
+  try {
+    const serialized = JSON.stringify(data);
+    return serialized.length <= 16384 ? serialized : '';
+  } catch { return ''; }
+}
+
+function queryValue(query: string, name: string): string {
+  const prefix = `${name}=`;
+  const part = query.split('&').find((item: string) => item.startsWith(prefix));
+  if (!part) return '';
+  const raw = part.slice(prefix.length).replace(/\+/g, '%20');
+  try { return decodeURIComponent(raw).trim(); }
+  catch { return ''; }
+}
+
+function alipayOrderInfo(candidate: Record<string, Object>): string {
+  const raw = text(candidate['pay_info'] ?? candidate['payInfo'] ?? candidate['order_info'] ??
+    candidate['orderInfo'] ?? candidate['config'], 16384);
+  if (!raw || /[\x00-\x1f\x7f]/.test(raw)) return '';
+  const appId = queryValue(raw, 'app_id');
+  const method = queryValue(raw, 'method');
+  const content = queryValue(raw, 'biz_content');
+  const sign = queryValue(raw, 'sign');
+  const signType = queryValue(raw, 'sign_type');
+  if (!/^[A-Za-z0-9._-]{6,128}$/.test(appId) || method !== 'alipay.trade.app.pay' ||
+    !content || !sign || !signType) return '';
+  return raw;
+}
+
+function wechatPreparationError(candidate: Record<string, Object>): string {
+  const returnCode = text(candidate['return_code'] ?? candidate['returnCode'], 40).toUpperCase();
+  const resultCode = text(candidate['result_code'] ?? candidate['resultCode'], 40).toUpperCase();
+  const errorCode = text(candidate['err_code'] ?? candidate['errCode'], 80).toUpperCase();
+  if (returnCode !== 'FAIL' && resultCode !== 'FAIL' && !errorCode) return '';
+  if (errorCode === 'NOAUTH') return '微信支付商户权限尚未开通，请选择支付宝或稍后重试';
+  return '微信支付下单失败，请稍后重试或选择支付宝';
+}
+
 export function parseHarmonyPayment(provider: PaymentProvider, data: Object | undefined): HarmonyPaymentRequest {
   const candidates = nestedCandidates(data);
+  if (provider === 'alipay') {
+    for (const candidate of candidates) {
+      const orderInfo = alipayOrderInfo(candidate);
+      if (orderInfo) {
+        return { provider: provider, thirdAppId: queryValue(orderInfo, 'app_id'), payInfo: orderInfo };
+      }
+    }
+    throw new ApiError('支付宝支付参数暂时不可用，请稍后重试');
+  }
   for (const candidate of candidates) {
-    const explicitPayInfo = text(candidate['pay_info'] ?? candidate['payInfo'], 16384);
+    const preparationError = wechatPreparationError(candidate);
+    if (preparationError) throw new ApiError(preparationError);
+    const explicitPayInfo = jsonObjectText(candidate['pay_info'] ?? candidate['payInfo']);
     const explicitAppId = text(candidate['third_app_id'] ?? candidate['thirdAppId'] ?? candidate['appid'] ?? candidate['app_id'], 256);
     if (explicitPayInfo && explicitAppId) {
-      try {
-        const parsed = JSON.parse(explicitPayInfo) as Object;
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
-      } catch { continue; }
       return { provider: provider, thirdAppId: explicitAppId, payInfo: explicitPayInfo };
+    }
+    const prepayId = text(candidate['prepayId'] ?? candidate['prepayid'] ?? candidate['prepay_id'], 256);
+    if (explicitAppId && prepayId) {
+      const payInfo = jsonObjectText(candidate);
+      if (payInfo) return { provider: provider, thirdAppId: explicitAppId, payInfo: payInfo };
     }
   }
   throw new ApiError('暂时无法发起支付，请稍后重试');

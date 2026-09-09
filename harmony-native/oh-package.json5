@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "赛电原生鸿蒙首版：登录与首页。",
   "dependencies": {
+    "@cashier_alipay/cashiersdk": "15.8.43",
     "@jg/push": "1.4.2",
     "@tencent/wechat_open_sdk": "1.0.21"
   },

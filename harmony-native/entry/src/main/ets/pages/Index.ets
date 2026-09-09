@@ -24,7 +24,8 @@ import {
 } from '../model/WearableContracts';
 import { vepWearable, WearableServiceListener } from '../services/VepWearableService';
 import { sameHealthSession } from '../model/HealthUpload';
-import { AiChatMessage, AppUpdateInfo, ShopCategory, ShopHome, ShopProduct } from '../model/ExperienceContracts';
+import { AI_USER_MESSAGE_MAX_LENGTH, AiChatMessage, AppUpdateInfo, ShopCategory, ShopHome,
+  ShopProduct } from '../model/ExperienceContracts';
 import { appUpdateService, HARMONY_VERSION_CODE, HARMONY_VERSION_NAME } from '../services/AppUpdateService';
 import { WECHAT_AUTH_RESULT_KEY, parseWechatAuthResult } from '../model/WechatAuthContracts';
 import { wechatAuth } from '../services/WechatAuthService';
@@ -296,6 +297,7 @@ struct Index {
   private innerParents: Map<string, string> = new Map();
   private scanCountdownController: TextTimerController = new TextTimerController();
   private homeScroller: Scroller = new Scroller();
+  private contentScroller: Scroller = new Scroller();
   private readonly wearableMetrics: WearableMetricSpec[] = [
     { key: 'activity', title: '活动' }, { key: 'sleep', title: '睡眠' },
     { key: 'heart', title: '心率' }, { key: 'pressure', title: '血压' },
@@ -1495,6 +1497,7 @@ struct Index {
       this.aiMessages = await saydianApi.aiMessages();
       const withSession = this.aiMessages.find((item: AiChatMessage) => item.sessionId.length > 0);
       this.aiSessionId = withSession?.sessionId ?? '';
+      this.scrollAiToLatest();
     } catch (error) { this.aiError = this.careFailure(error as Error); }
     finally { this.aiBusy = false; }
   }
@@ -1506,16 +1509,26 @@ struct Index {
     const pending: AiChatMessage = { id: `local-${Date.now()}`, text: message, mine: true,
       sessionId: this.aiSessionId, failed: false };
     this.aiMessages = [...this.aiMessages, pending];
+    this.aiInput = '';
+    this.scrollAiToLatest();
     try {
       const reply = await saydianApi.sendAiMessage(message, this.aiSessionId);
       if (reply.sessionId) this.aiSessionId = reply.sessionId;
       this.aiMessages = [...this.aiMessages, reply];
-      this.aiInput = '';
+      this.scrollAiToLatest();
     } catch (error) {
       pending.failed = true;
       this.aiMessages = this.aiMessages.map((item: AiChatMessage) => item.id === pending.id ? pending : item);
+      this.aiInput = message;
       this.aiError = this.careFailure(error as Error);
     } finally { this.aiBusy = false; }
+  }
+
+  private scrollAiToLatest(): void {
+    setTimeout(() => {
+      if (this.screen !== 'ai-chat') return;
+      try { this.contentScroller.scrollEdge(Edge.Bottom); } catch {}
+    }, 60);
   }
 
   private async checkOnlineUpdate(): Promise<void> {
@@ -3912,6 +3925,15 @@ struct Index {
         if (!message.mine) { Blank().layoutWeight(1) }
       }.width('100%')
     }, (message: AiChatMessage) => message.id)
+    if (this.aiBusy && this.aiMessages.length > 0) {
+      Row() {
+        Row({ space: 10 }) {
+          LoadingProgress().width(22).height(22).color(RED)
+          Text('AI 正在思考，请耐心等待…').fontSize(15).fontColor(MUTED)
+        }.padding(14).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+        Blank().layoutWeight(1)
+      }.width('100%')
+    }
   }
 
   @Builder
@@ -5046,7 +5068,7 @@ struct Index {
       Column() { this.Heading() }
         .width('100%').constraintSize({ maxWidth: 720 }).padding({ left: 4, right: 4 })
         .backgroundColor(BG)
-    Scroll() {
+    Scroll(this.contentScroller) {
       Column({ space: 14 }) {
         if (this.screen === 'feature') {
           this.Notice({ message: this.detailBody })
@@ -5143,7 +5165,8 @@ struct Index {
     }.width('100%').layoutWeight(1).align(Alignment.Top).scrollBar(BarState.Off)
       if (this.screen === 'ai-chat') {
         Row({ space: 10 }) {
-          TextInput({ placeholder: '请输入消息…', text: this.aiInput }).fontSize(16).height(this.controlHeight(56)).maxLength(2000)
+          TextInput({ placeholder: '请输入消息…', text: this.aiInput }).fontSize(16).height(this.controlHeight(56))
+            .maxLength(AI_USER_MESSAGE_MAX_LENGTH)
             .layoutWeight(1).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
             .enabled(!this.aiBusy).onChange((value: string) => this.aiInput = value).onSubmit(() => this.sendAiChat()).id('ai_input')
           Button() {

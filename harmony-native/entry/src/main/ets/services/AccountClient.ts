@@ -17,13 +17,15 @@ import type { CareMember, CareInvitation, CareShareSettings, CareMetric, CareMet
 import { notificationUnreadCount, parseHarmonyPayment, parseShopOrder, parseShopOrders,
   paymentFields, pushRegistrationFields } from '../model/PushPaymentContracts';
 import type { HarmonyPaymentRequest, PaymentProvider, PushIdentity, ShopOrder } from '../model/PushPaymentContracts';
-import { parseAiMessages, parseAiReply, parseShopHome } from '../model/ExperienceContracts';
+import { AI_USER_MESSAGE_MAX_LENGTH, aiConciseRetryMessage, parseAiMessages, parseAiReply,
+  parseShopHome } from '../model/ExperienceContracts';
 import type { AiChatMessage, ShopHome } from '../model/ExperienceContracts';
 import { parseProductDetail, parseCart, selectionFields, parseCheckout, checkoutError, commerceCents,
   parseOrderDetail, parseShipments } from '../model/CommerceContracts';
 import type { ProductDetail, ShopLine, ShopSelection, CheckoutPreview, OrderDetail, Shipment } from '../model/CommerceContracts';
 import type { HealthOwnerSession, HealthUploadRequest } from '../model/HealthUpload';
 import { assertHealthUploadAccepted, sameHealthSession } from '../model/HealthUpload';
+import { AI_API_READ_TIMEOUT_MS } from '../model/RequestPolicy';
 
 export interface SessionStore {
   read(): Promise<Session | undefined>;
@@ -32,7 +34,7 @@ export interface SessionStore {
 }
 export interface ApiTransport {
   request(path: string, fields?: FormField[], session?: Session, jsonBody?: string,
-    method?: 'GET' | 'POST' | 'PUT' | 'DELETE'): Promise<Envelope>;
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE', readTimeoutMs?: number): Promise<Envelope>;
   upload?(path: string, file: UploadFile, session: Session): Promise<Envelope>;
 }
 
@@ -271,13 +273,13 @@ export class AccountClient {
   }
 
   private async authorizedRequest(path: string, fields?: FormField[], jsonBody?: string,
-    method?: 'GET' | 'POST' | 'PUT' | 'DELETE'): Promise<Envelope> {
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE', readTimeoutMs?: number): Promise<Envelope> {
     const epoch = this.generation;
     try {
       let session = await this.ensureSession();
       this.assertEpoch(epoch);
       let response: Envelope;
-      try { response = await this.transport.request(path, fields, session, jsonBody, method); }
+      try { response = await this.transport.request(path, fields, session, jsonBody, method, readTimeoutMs); }
       catch (error) {
         this.assertEpoch(epoch);
         if (error instanceof ApiError) {
@@ -285,7 +287,7 @@ export class AccountClient {
         } else { throw new ApiError('请求失败，请稍后重试'); }
         session = await this.ensureSession(session.accessToken);
         this.assertEpoch(epoch);
-        response = await this.transport.request(path, fields, session, jsonBody, method);
+        response = await this.transport.request(path, fields, session, jsonBody, method, readTimeoutMs);
       }
       this.assertEpoch(epoch);
       return response;
@@ -296,8 +298,8 @@ export class AccountClient {
     }
   }
 
-  private async authorized(path: string, jsonBody?: string): Promise<Envelope> {
-    return await this.authorizedRequest(path, undefined, jsonBody, jsonBody === undefined ? 'GET' : 'POST');
+  private async authorized(path: string, jsonBody?: string, readTimeoutMs?: number): Promise<Envelope> {
+    return await this.authorizedRequest(path, undefined, jsonBody, jsonBody === undefined ? 'GET' : 'POST', readTimeoutMs);
   }
 
   private async authorizedFields(path: string, fields: FormField[]): Promise<Envelope> {
@@ -563,11 +565,30 @@ export class AccountClient {
 
   async sendAiMessage(message: string, sessionId: string = ''): Promise<AiChatMessage> {
     const normalized = message.trim();
-    if (!normalized || normalized.length > 2000) throw new ApiError('请输入 1~2000 字的问题');
+    if (!normalized || normalized.length > AI_USER_MESSAGE_MAX_LENGTH) {
+      throw new ApiError(`请输入 1~${AI_USER_MESSAGE_MAX_LENGTH} 字的问题`);
+    }
     const body: Record<string, Object> = { app: 1, message: normalized };
     if (sessionId) body['session_id'] = sessionId;
-    const response = await this.authorized('/api/rf-article/chat/create', JSON.stringify(body));
-    return parseAiReply(response.data);
+    try {
+      const response = await this.authorized('/api/rf-article/chat/create', JSON.stringify(body), AI_API_READ_TIMEOUT_MS);
+      return parseAiReply(response.data);
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 422) throw error as Error;
+      // The current service stores questions and answers in a 200-character field. A long generated
+      // answer is returned as 422 after inference, so retry once in a fresh session with a concise-answer
+      // instruction. The original question remains unchanged in the UI and history parser.
+      const retryBody: Record<string, Object> = { app: 1, message: aiConciseRetryMessage(normalized) };
+      try {
+        const retry = await this.authorized('/api/rf-article/chat/create', JSON.stringify(retryBody), AI_API_READ_TIMEOUT_MS);
+        return parseAiReply(retry.data);
+      } catch (retryError) {
+        if (retryError instanceof ApiError && retryError.status === 422) {
+          throw new ApiError('AI 服务暂未返回有效回答，请稍后重试', 503);
+        }
+        throw retryError as Error;
+      }
+    }
   }
 
   async careMembers(): Promise<CareMember[]> {

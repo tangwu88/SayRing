@@ -6,12 +6,18 @@ import { nativeWechatPayment } from '../model/WechatPaymentContracts';
 import { wechatPayment } from './WechatPaymentService';
 
 export function canStartHarmonyPayment(provider: PaymentProvider): boolean {
+  if (provider === 'alipay') return true;
   return (provider === 'wechat' && wechatPayment.isAvailable()) ||
     canIUse('SystemCapability.Payment.ThirdPaymentService');
 }
 
 export class HarmonyPaymentService {
   async start(context: common.UIAbilityContext, request: HarmonyPaymentRequest): Promise<void> {
+    if (request.provider === 'alipay') {
+      const service = await import('./AlipayPaymentService');
+      await service.startAlipayPayment(request);
+      return;
+    }
     const native = nativeWechatPayment(request, WECHAT_APP_ID);
     if (native) { await wechatPayment.start(context, native); return; }
     if (!canIUse('SystemCapability.Payment.ThirdPaymentService')) {

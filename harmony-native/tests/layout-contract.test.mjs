@@ -207,7 +207,7 @@ test('login offers registration and WeChat authorization instead of guest browsi
   for(const marker of ['微信授权登录','注册账户','register_submit','register_send_code'])assert.ok(source.includes(marker));
   assert.equal(source.includes('先浏览首页'),false);
   const manifest=JSON.parse(readFileSync(new URL('../entry/src/main/module.json5',import.meta.url),'utf8')).module;
-  assert.deepEqual(manifest.querySchemes,['weixin','wxopensdk']);
+  assert.deepEqual(manifest.querySchemes,['weixin','wxopensdk','https']);
   assert.ok(manifest.abilities[0].skills[0].actions.includes('wxentity.action.open'));
 });
 

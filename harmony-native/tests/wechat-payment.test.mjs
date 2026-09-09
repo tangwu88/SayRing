@@ -20,7 +20,8 @@ const stubs = {
     export const WXAPIFactory={createWXAPI:()=>({
       isWXAppInstalled:()=>globalThis.wechatPaymentFixture.installed,
       sendReq:(_context,request)=>{globalThis.wechatPaymentFixture.requests.push(request);return globalThis.wechatPaymentFixture.sent;}
-    })};`
+    })};`,
+  '@cashier_alipay/cashiersdk': `export class Pay {pay(){return Promise.resolve(new Map([['resultStatus','6001']]))}}`
 };
 registerHooks({
   resolve(specifier, context, next) {
@@ -105,15 +106,15 @@ test('W8 SDK raises the app minimum to API 17 while notification settings keeps 
   assert.ok(source.includes("action: 'action.settings.app.info'"));
 });
 
-test('API 12 WeChat uses signed PayReq while Alipay and opaque ThirdPay stay capability-gated', async () => {
+test('API 12 uses signed WeChat PayReq and the bundled Alipay cashier while opaque ThirdPay stays gated', async () => {
   assert.equal(canStartHarmonyPayment('wechat'), true);
-  assert.equal(canStartHarmonyPayment('alipay'), false);
+  assert.equal(canStartHarmonyPayment('alipay'), true);
   const payment = { ...request({ ...signed, appId: WECHAT_APP_ID }), thirdAppId: WECHAT_APP_ID };
   const started = harmonyPayment.start({}, payment);
   const active = globalThis.wechatPaymentFixture.requests.at(-1);
   wechatPayment.handleResponse({ errCode: 0, transaction: active.transaction });
   await started;
-  await assert.rejects(harmonyPayment.start({}, { ...payment, provider: 'alipay' }), /暂不支持支付宝/);
+  await assert.rejects(harmonyPayment.start({}, { ...payment, provider: 'alipay', payInfo: 'server-signed-order' }), /已取消/);
   await assert.rejects(harmonyPayment.start({}, { ...payment, payInfo: '{"opaque":true}' }), /暂时不可用/);
 });
 
