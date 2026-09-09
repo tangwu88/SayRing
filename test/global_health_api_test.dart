@@ -118,7 +118,7 @@ void main() {
       await api.uploadHealthBatch(batch);
       expect(
         requests.first.url.path,
-        '/global/api/saydian-app/v2/health/records/batch',
+        '/api/saydian-app/v2/health/records/batch',
       );
       expect(
         requests.first.headers['Idempotency-Key'],
@@ -310,10 +310,7 @@ void main() {
       final api = GlobalSaydianApiClient(
         MemorySessionVault()..session = _session(),
         client: MockClient((request) async {
-          expect(
-            request.url.path,
-            '/global/api/saydian-app/v2/health/warning-rules',
-          );
+          expect(request.url.path, '/api/saydian-app/v2/health/warning-rules');
           return _ok([
             _rule('heart_rate', high: 133),
             _rule('blood_pressure', high: 146, secondary: 94),
@@ -402,10 +399,7 @@ void main() {
       final api = GlobalSaydianApiClient(
         MemorySessionVault()..session = _session(),
         client: MockClient((request) async {
-          expect(
-            request.url.path,
-            '/global/api/saydian-app/v2/health/warnings',
-          );
+          expect(request.url.path, '/api/saydian-app/v2/health/warnings');
           return _ok({
             'items': [
               {

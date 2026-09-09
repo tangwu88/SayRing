@@ -39,7 +39,7 @@ GlobalAppUpdateService service(
   client: MockClient((request) async {
     expect(
       request.url.toString(),
-      'https://app.saydian.cn/global/api/saydian-app/v2/support/app-update',
+      'https://app.saydian.cn/api/saydian-app/v2/support/app-update',
     );
     expect(request.followRedirects, isFalse);
     return http.Response(jsonEncode({'code': 200, 'data': data}), 200);

@@ -1,8 +1,7 @@
-/// First-party global endpoints. Paths never fall back to the domestic origin.
+/// First-party App V2 endpoints. Paths never fall back to legacy API routes.
 abstract final class GlobalEnvironment {
   static const origin = 'https://app.saydian.cn';
-  static const prefix = '/global';
-  static const apiPrefix = '/global/api/saydian-app/v2';
+  static const apiPrefix = '/api/saydian-app/v2';
   static const locales = [
     'en',
     'zh-Hans',
@@ -48,14 +47,21 @@ abstract final class GlobalEnvironment {
         relative.pathSegments.contains('..')) {
       throw ArgumentError('Only relative first-party paths are accepted');
     }
-    final globalPath = path.startsWith('$prefix/')
-        ? path
-        : '$prefix/${path.replaceFirst(RegExp(r'^/+'), '')}';
-    final result = origin.resolve(globalPath).replace(queryParameters: query);
-    if (!result.path.startsWith('$prefix/')) {
-      throw ArgumentError('Global path required');
+    final normalizedPath = '/${relative.path.replaceFirst(RegExp(r'^/+'), '')}';
+    if (normalizedPath != apiPrefix &&
+        !normalizedPath.startsWith('$apiPrefix/')) {
+      throw ArgumentError('App V2 API path required');
     }
-    return result;
+    final normalized = relative.replace(path: normalizedPath);
+    final result = origin.resolveUri(normalized);
+    final resolved = query == null
+        ? result
+        : result.replace(queryParameters: query);
+    if (resolved.path != apiPrefix &&
+        !resolved.path.startsWith('$apiPrefix/')) {
+      throw ArgumentError('App V2 API path required');
+    }
+    return resolved;
   }
 
   static String media(String input) {
@@ -63,11 +69,17 @@ abstract final class GlobalEnvironment {
     if (uri == null || input.trim().isEmpty) return '';
     if (uri.hasScheme || uri.hasAuthority) {
       if ({'sd.cc', 'app.saidian.cc'}.contains(uri.host)) return '';
-      if (uri.host == 'app.saydian.cn' && !uri.path.startsWith('$prefix/')) {
+      if (uri.host == 'app.saydian.cn' &&
+          uri.path != apiPrefix &&
+          !uri.path.startsWith('$apiPrefix/')) {
         return '';
       }
       return uri.scheme == 'https' ? uri.toString() : '';
     }
-    return resolve(Uri.parse(origin), input.trim()).toString();
+    try {
+      return resolve(Uri.parse(origin), input.trim()).toString();
+    } on ArgumentError {
+      return '';
+    }
   }
 }

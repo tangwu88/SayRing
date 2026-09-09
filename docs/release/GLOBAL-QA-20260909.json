@@ -36,7 +36,11 @@
   "server": {
     "branch": "codex/global-api-foundation",
     "commit": "af7a77a4b7470ed6a786802ad99f8721abd26646",
-    "apiBase": "https://app.saydian.cn/global/api/saydian-app/v2",
+    "apiBase": "https://app.saydian.cn/api/saydian-app/v2",
+    "publishedRouteDigest": "cf4fe5941faf",
+    "serviceRevision": "795e66bd69c64295a00c2b3e42c52a290c8f56eb",
+    "readOnlyConnectivityAccepted": true,
+    "independentGlobalRealmAccepted": false,
     "deploymentAccepted": false,
     "capabilitiesHttpStatusObserved": 404,
     "realOtpDeliveryAccepted": false,

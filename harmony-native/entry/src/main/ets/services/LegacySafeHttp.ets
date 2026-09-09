@@ -7,7 +7,7 @@ export interface SafeHttpResponse { result: string; responseCode: number; }
 
 // PDF download stays binary and uses the same redirect protection on API 17+.
 export async function safeReportPdfHttp(url: string, headers: Record<string, string>): Promise<ArrayBuffer> {
-  if (!new RegExp(`^${API_BASE.replace(/\./g, '\\.')}\/global\/api\/saydian-app\/v2\/health\/reports\/[0-9a-f-]{36}\/export$`, 'i').test(url)) {
+  if (!new RegExp(`^${API_BASE.replace(/\./g, '\\.')}\/api\/saydian-app\/v2\/health\/reports\/[0-9a-f-]{36}\/export$`, 'i').test(url)) {
     throw new ApiError('reports_export_failed');
   }
   const client = rcp.createSession({ requestConfiguration: {
@@ -39,7 +39,7 @@ export async function safeReportPdfHttp(url: string, headers: Record<string, str
 // since API 11, and a bounded streaming destination since API 12.
 export async function legacySafeHttp(url: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   headers: Record<string, string>, body: string | ArrayBuffer, readTimeout: number): Promise<SafeHttpResponse> {
-  if (!url.startsWith(`${API_BASE}/global/api/`)) throw new ApiError('请求地址不正确');
+  if (!url.startsWith(`${API_BASE}/api/saydian-app/v2/`)) throw new ApiError('请求地址不正确');
   const client = rcp.createSession({ requestConfiguration: {
     transfer: { autoRedirect: false, timeout: { connectMs: 15000, transferMs: readTimeout } }
   } });

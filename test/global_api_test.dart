@@ -140,23 +140,20 @@ void main() {
     });
   });
   group('environment', () {
-    test('all first-party paths and media are global with query preserved', () {
+    test('all first-party paths stay inside App V2 with query preserved', () {
       final origin = Uri.parse(GlobalEnvironment.origin);
       expect(
         GlobalEnvironment.resolve(
           origin,
           '/api/saydian-app/v2/auth/capabilities?locale=de',
         ).toString(),
-        'https://app.saydian.cn/global/api/saydian-app/v2/auth/capabilities?locale=de',
+        'https://app.saydian.cn/api/saydian-app/v2/auth/capabilities?locale=de',
       );
       expect(
-        GlobalEnvironment.resolve(origin, '/global/api/test').path,
-        '/global/api/test',
+        GlobalEnvironment.media('/api/saydian-app/v2/files/avatar.jpg'),
+        'https://app.saydian.cn/api/saydian-app/v2/files/avatar.jpg',
       );
-      expect(
-        GlobalEnvironment.media('/files/avatar.jpg'),
-        'https://app.saydian.cn/global/files/avatar.jpg',
-      );
+      expect(GlobalEnvironment.media('/files/avatar.jpg'), '');
       expect(GlobalEnvironment.media('https://app.saidian.cc/avatar.jpg'), '');
       expect(
         GlobalEnvironment.media('https://app.saydian.cn/down/domestic.apk'),
@@ -172,6 +169,10 @@ void main() {
       );
       expect(
         () => GlobalEnvironment.resolve(origin, '/global/../api'),
+        throwsArgumentError,
+      );
+      expect(
+        () => GlobalEnvironment.resolve(origin, '/global/api/test'),
         throwsArgumentError,
       );
     });
@@ -198,8 +199,7 @@ void main() {
             expect(request.headers['token'], isNull);
             expect(request.headers['Accept-Language'], 'de');
             expect(jsonDecode(request.body), {
-              'channel': 'email',
-              'identifier': 'a+care@example.com',
+              'username': 'a+care@example.com',
               'password': 'password-test',
             });
             return ok(sessionData());
@@ -256,14 +256,39 @@ void main() {
       expect(calls, 1);
     });
     test(
-      'provider disabled makes no send request and never fabricates challenge',
+      'missing deployed capability contract fails closed without a request',
       () async {
         final requests = <Uri>[];
         final api = GlobalSaydianApiClient(
           MemorySessionVault(),
           client: MockClient((request) async {
             requests.add(request.url);
-            return ok(capabilities(email: false));
+            return ok(capabilities());
+          }),
+        );
+        final available = await api.getAuthCapabilities();
+        expect(available.email, isFalse);
+        expect(available.sms, isFalse);
+        await expectLater(
+          api.requestVerification(
+            identity: GlobalAccountIdentity.email('a@example.com'),
+            purpose: 'register',
+            locale: 'en',
+          ),
+          throwsA(isA<FeatureNotConfiguredException>()),
+        );
+        expect(requests, isEmpty);
+      },
+    );
+    test(
+      'removed verification routes are never called or treated as available',
+      () async {
+        final paths = <String>[];
+        final api = GlobalSaydianApiClient(
+          MemorySessionVault(),
+          client: MockClient((request) async {
+            paths.add(request.url.path);
+            return ok(sessionData());
           }),
         );
         await expectLater(
@@ -274,54 +299,33 @@ void main() {
           ),
           throwsA(isA<FeatureNotConfiguredException>()),
         );
-        expect(requests.single.path, endsWith('/auth/capabilities'));
+        await expectLater(
+          api.completeVerification(
+            challengeId: 'unused-client-challenge',
+            code: '123456',
+            password: 'test-password',
+            resetPassword: false,
+            locale: 'en',
+            consentVersion: 'reviewed-test-v1',
+          ),
+          throwsA(isA<FeatureNotConfiguredException>()),
+        );
+        expect(paths, isEmpty);
       },
     );
-    test(
-      'challenge is purpose-bound and completes only with reviewed consent version',
-      () async {
-        final paths = <String>[];
-        final api = GlobalSaydianApiClient(
-          MemorySessionVault(),
-          client: MockClient((request) async {
-            paths.add(request.url.path);
-            if (request.url.path.endsWith('/capabilities')) {
-              return ok(capabilities());
-            }
-            final body = jsonDecode(request.body) as Map;
-            if (request.url.path.endsWith('/verification-code')) {
-              expect(body['purpose'], 'register');
-              expect(body['identifier'], 'a@example.com');
-              return ok({
-                'challengeId': 'challenge-uuid',
-                'expiresIn': 300,
-                'retryAfter': 60,
-                'maskedIdentifier': 'a***@example.com',
-              });
-            }
-            expect(body['consentVersion'], 'reviewed-test-v1');
-            expect(body['challengeId'], 'challenge-uuid');
-            expect(body.containsKey('identifier'), isFalse);
-            return ok(sessionData());
-          }),
-        );
-        final challenge = await api.requestVerification(
-          identity: GlobalAccountIdentity.email('a@example.com'),
-          purpose: 'register',
-          locale: 'en',
-        );
-        expect(challenge.retryAfter, 60);
-        await api.completeVerification(
-          challengeId: challenge.id,
-          code: '123456',
-          password: 'test-password',
-          resetPassword: false,
-          locale: 'en',
-          consentVersion: 'reviewed-test-v1',
-        );
-        expect(paths.last, endsWith('/auth/register-with-code'));
-      },
-    );
+    test('phone login uses the reviewed mobile field', () async {
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault(),
+        client: MockClient((request) async {
+          expect(jsonDecode(request.body), {
+            'mobile': '+12025550123',
+            'password': 'password-test',
+          });
+          return ok(sessionData());
+        }),
+      );
+      await api.login('+1 202 555 0123', 'password-test');
+    });
     test(
       'reset uses global purpose and refresh cannot restore a signed-out account',
       () async {

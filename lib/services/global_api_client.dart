@@ -41,8 +41,8 @@ abstract interface class GlobalContentApi {
   Future<Map<String, Object?>> getGlobalArticle(String id);
 }
 
-/// International transport. The inherited compatibility DTO adapter remains
-/// isolated below /global; no domestic endpoint or credential fallback exists.
+/// International transport. Only the deployed App V2 route family is accepted;
+/// no legacy endpoint or credential fallback exists.
 class GlobalSaydianApiClient extends SaydianApiClient
     with GlobalHealthApi
     implements GlobalAccountApi, GlobalCareApi, GlobalContentApi {
@@ -570,10 +570,13 @@ class GlobalSaydianApiClient extends SaydianApiClient
 
   @override
   Future<GlobalAuthCapabilities> getAuthCapabilities() async =>
-      GlobalAuthCapabilities.fromJson(
-        await _globalPublic(
-          'auth/capabilities?locale=${Uri.encodeQueryComponent(_locale())}',
-        ),
+      const GlobalAuthCapabilities(
+        email: false,
+        sms: false,
+        recoveryEmail: false,
+        recoverySms: false,
+        smsCountries: <String>{},
+        supportedLocales: GlobalEnvironment.locales,
       );
 
   @override
@@ -600,21 +603,8 @@ class GlobalSaydianApiClient extends SaydianApiClient
         code: 'INVALID_PURPOSE',
       );
     }
-    final capabilities = await getAuthCapabilities();
-    if (!capabilities.permits(
-      identity,
-      recovery: purpose == 'reset_password',
-    )) {
-      throw const FeatureNotConfiguredException(
-        'Verification is not available for this contact yet.',
-      );
-    }
-    return VerificationChallenge.fromJson(
-      await _globalPublic('auth/verification-code', {
-        ...identity.toJson(),
-        'purpose': purpose,
-        'locale': locale,
-      }),
+    throw const FeatureNotConfiguredException(
+      'Verification is not available for this contact yet.',
     );
   }
 
@@ -622,7 +612,10 @@ class GlobalSaydianApiClient extends SaydianApiClient
   Future<Session> login(String username, String password) async {
     final identity = GlobalAccountIdentity.parse(username);
     return _globalAuthenticate('auth/login', {
-      ...identity.toJson(),
+      if (identity.channel == AccountChannel.email)
+        'username': identity.identifier
+      else
+        'mobile': identity.identifier,
       'password': password,
     });
   }
@@ -669,16 +662,10 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String locale,
     String? nickname,
     String? consentVersion,
-  }) => _globalAuthenticate(
-    resetPassword ? 'auth/reset-password' : 'auth/register-with-code',
-    {
-      'challengeId': challengeId,
-      'code': code,
-      'password': password,
-      if (!resetPassword) 'consentVersion': consentVersion,
-      if (!resetPassword && nickname != null) 'nickname': nickname,
-      'locale': locale,
-    },
+  }) => Future.error(
+    const FeatureNotConfiguredException(
+      'Verification is not available for this contact yet.',
+    ),
   );
 
   Future<Session> _globalAuthenticate(
@@ -746,7 +733,14 @@ class GlobalSaydianApiClient extends SaydianApiClient
   Future<void> logout() async {
     try {
       _decode(
-        await _authorizedPostJson('/api/saydian-app/v2/auth/logout', const {}),
+        await _withAuthorizationRetry(
+          (session) => _performRequest(
+            () => _client.post(
+              _uri('/api/saydian-app/v2/auth/logout'),
+              headers: _authorizationHeaders(session),
+            ),
+          ),
+        ),
       );
     } finally {
       await _vault.clearSession();
@@ -775,7 +769,8 @@ class _GlobalHttpClient extends http.BaseClient {
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     if (request.url.origin != origin.origin ||
         request.url.userInfo.isNotEmpty ||
-        !request.url.path.startsWith('/global/')) {
+        (request.url.path != GlobalEnvironment.apiPrefix &&
+            !request.url.path.startsWith('${GlobalEnvironment.apiPrefix}/'))) {
       throw const ApiException(
         'This service is not available.',
         code: 'GLOBAL_ENDPOINT_REJECTED',

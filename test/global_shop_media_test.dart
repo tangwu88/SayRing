@@ -6,15 +6,15 @@ import 'package:saydian_app/ui/shop_pages.dart';
 
 const _blockedMedia = [
   'http://sd.cc/watch.jpg',
-  'https://sd.cc/watch.jpg',
   'https://app.saidian.cc/watch.jpg',
-  'https://app.saydian.cn/files/domestic-watch.jpg',
+  '/files/relative-watch.jpg',
+  'https://app.saydian.cn/global/files/watch.jpg',
 ];
 const _allowedMedia = {
-  '/files/relative-watch.jpg':
-      'https://app.saydian.cn/global/files/relative-watch.jpg',
-  'https://app.saydian.cn/global/files/watch.jpg':
-      'https://app.saydian.cn/global/files/watch.jpg',
+  '/api/saydian-app/v2/files/relative-watch.jpg':
+      'https://app.saydian.cn/api/saydian-app/v2/files/relative-watch.jpg',
+  'https://app.saydian.cn/api/saydian-app/v2/files/watch.jpg':
+      'https://app.saydian.cn/api/saydian-app/v2/files/watch.jpg',
   'https://cdn.example.invalid/watch.jpg':
       'https://cdn.example.invalid/watch.jpg',
 };
@@ -95,7 +95,7 @@ void _expectOnlyAllowedMedia(List<String> urls) {
     expect(uri.scheme, 'https');
     expect({'sd.cc', 'app.saidian.cc'}, isNot(contains(uri.host)));
     if (uri.host == 'app.saydian.cn') {
-      expect(uri.path, startsWith('/global/'));
+      expect(uri.path, startsWith('/api/saydian-app/v2/'));
     }
   }
 }

@@ -27,7 +27,7 @@ import type { HealthOwnerSession, HealthUploadRequest } from '../model/HealthUpl
 import { assertHealthUploadAccepted, sameHealthSession } from '../model/HealthUpload';
 import { AI_API_READ_TIMEOUT_MS } from '../model/RequestPolicy';
 import { globalApiPath } from '../model/GlobalConfiguration';
-import { normalizeIdentifier, parseAuthCapabilities, parseVerificationChallenge, parseGlobalSession,
+import { normalizeIdentifier, emptyAuthCapabilities, parseGlobalSession,
   globalRegistrationValidation, parseGlobalProfile, validGlobalPassword } from '../model/GlobalAuth';
 import type { AuthChannel, GlobalAuthCapabilities, VerificationChallenge, VerificationPurpose } from '../model/GlobalAuth';
 import { globalReportId, parseGlobalHealthReport, parseGlobalHealthReports, parseGlobalReportContent,
@@ -52,7 +52,6 @@ export class AccountClient {
   private transport: ApiTransport;
   private now: () => number;
   private globalAuth: boolean;
-  private verification: Map<string, VerificationChallenge> = new Map();
   private session: Session | undefined = undefined;
   private generation: number = 0;
   private blockRestore: boolean = false;
@@ -176,7 +175,7 @@ export class AccountClient {
       const identifier = normalizeIdentifier(channel, account);
       if (!validGlobalPassword(password)) throw new ApiError('password_length', 422);
       return this.authenticate(globalApiPath('/auth/login'), undefined,
-        JSON.stringify({ channel, identifier, password }));
+        JSON.stringify(channel === 'email' ? { username: identifier, password } : { mobile: identifier, password }));
     }
     const validation = loginValidation(account, password, true);
     if (validation) throw new ApiError(validation);
@@ -187,7 +186,7 @@ export class AccountClient {
   }
 
   async authCapabilities(locale: string = 'en'): Promise<GlobalAuthCapabilities> {
-    return parseAuthCapabilities((await this.transport.request(globalApiPath(`/auth/capabilities?locale=${encodeURIComponent(locale)}`))).data);
+    return emptyAuthCapabilities();
   }
 
   async healthReports(): Promise<GlobalHealthReport[]> {
@@ -303,51 +302,22 @@ export class AccountClient {
 
   async sendVerificationCode(channel: AuthChannel, rawIdentifier: string, purpose: VerificationPurpose,
     locale: string = 'en', country: string = ''): Promise<VerificationChallenge> {
-    const identifier = normalizeIdentifier(channel, rawIdentifier);
-    const capabilities = await this.authCapabilities(locale);
-    if (!(purpose === 'reset_password' ? capabilities.recovery[channel] : capabilities.registration[channel])) {
-      throw new ApiError('channel_unavailable', 503);
-    }
-    if (channel === 'sms' && (!country || !capabilities.smsCountries.includes(country))) {
-      throw new ApiError('country_unavailable', 422);
-    }
-    const response = await this.transport.request(globalApiPath('/auth/verification-code'), undefined,
-      undefined, JSON.stringify({ channel, identifier, purpose, locale }));
-    const challenge = parseVerificationChallenge(response.data);
-    this.verification.set(`${purpose}:${channel}:${identifier}`, challenge);
-    return challenge;
+    normalizeIdentifier(channel, rawIdentifier);
+    throw new ApiError('channel_unavailable', 503);
   }
 
   async registerGlobal(channel: AuthChannel, rawIdentifier: string, code: string, password: string,
     confirmation: string, accepted: boolean, locale: string = 'en', consentVersion: string = ''): Promise<Session> {
     const validation = globalRegistrationValidation(rawIdentifier, channel, code, password, confirmation, accepted);
     if (validation) throw new ApiError(validation, 422);
-    const identifier = normalizeIdentifier(channel, rawIdentifier);
-    const key = `register:${channel}:${identifier}`;
-    const challenge = this.verification.get(key);
-    if (!challenge) throw new ApiError('request_code_first', 422);
-    const capabilities = await this.authCapabilities(locale);
-    if (!consentVersion || consentVersion !== capabilities.consentVersion || !capabilities.legal) {
-      throw new ApiError('consent_outdated', 409);
-    }
-    const session = await this.authenticate(globalApiPath('/auth/register-with-code'), undefined,
-      JSON.stringify({ challengeId: challenge.challengeId, code: code.trim(), password,
-        consentVersion, locale }));
-    this.verification.delete(key);
-    return session;
+    throw new ApiError('channel_unavailable', 503);
   }
 
   async resetGlobalPassword(channel: AuthChannel, rawIdentifier: string, code: string, password: string,
     confirmation: string): Promise<Session> {
     const validation = globalRegistrationValidation(rawIdentifier, channel, code, password, confirmation, true);
     if (validation) throw new ApiError(validation, 422);
-    const key = `reset_password:${channel}:${normalizeIdentifier(channel, rawIdentifier)}`;
-    const challenge = this.verification.get(key);
-    if (!challenge) throw new ApiError('request_code_first', 422);
-    const session = await this.authenticate(globalApiPath('/auth/reset-password'), undefined,
-      JSON.stringify({ challengeId: challenge.challengeId, code: code.trim(), password }));
-    this.verification.delete(key);
-    return session;
+    throw new ApiError('channel_unavailable', 503);
   }
 
   async sendSmsCode(mobile: string, usage: 'register' | 'reset' = 'register'): Promise<void> {

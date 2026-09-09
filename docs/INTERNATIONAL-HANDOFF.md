@@ -18,7 +18,7 @@ Server workspace: `F:/xcodeplace/saydian-server-global`, branch `codex/global-ap
 | Android application ID / iOS bundle ID | `cn.saydian.app.global` |
 | Native Harmony bundle | `cn.saydian.app.global.hm` |
 | First-party root | `https://app.saydian.cn` |
-| Fixed global API gateway prefix | `/global/api/saydian-app/v2` |
+| Deployed App V2 prefix | `/api/saydian-app/v2` |
 | Secure storage prefix | `saydian.global` (separate app sandbox as well) |
 | Flutter health database | `saydian_global_health_v1.db` |
 | First-launch locale | English; persistent manual selection |
@@ -28,9 +28,9 @@ Do not copy domestic `.env`, signing material, push secrets, account sessions, p
 
 ## API contract highlights
 
-- Password login: explicit `channel:email|sms`, normalized `identifier`, `password`; UUID member IDs remain strings. Global session uses access/refresh tokens and ISO UTC expiry. Refresh is single-flight and cannot overwrite a different signed-in account.
-- Capabilities distinguish registration from recovery. Email/SMS verification is disabled without a verified real provider; SMS countries are an explicit allowlist. Codes use a challenge ID, purpose, expiry, cooldown and one-use server protection; no successful fake sending.
-- Registration requires reviewed terms/privacy with returned `consentVersion`. Health analysis separately requires the reviewed `health_ai_analysis` document/version. Missing legal content blocks new consent, not ordinary password login; it never silently authorizes push.
+- Password login follows the deployed reviewed shape: normalized email uses `username`, E.164 phone uses `mobile`, plus `password`; UUID member IDs remain strings. Session refresh is single-flight and cannot overwrite a different signed-in account.
+- The deployed API center currently has no `auth/capabilities`, email registration, international SMS-country allowlist or challenge-based verification routes. Email/SMS registration and recovery therefore stay fail-closed and make no request. Do not re-enable them merely because domestic-style `sms-code` and `register-with-sms` routes exist.
+- Registration remains blocked until reviewed terms/privacy, a current `consentVersion`, provider readiness and the international realm/country contract are published. Health analysis separately requires the reviewed `health_ai_analysis` document/version. Missing legal content never silently authorizes consent or push.
 - Global care uses relationship UUIDs, email/E.164 invitations, explicit per-metric sharing and revocation. Local calendar day endpoints become UTC instants; no forced Beijing-day conversion.
 - Global encyclopedia uses V2 UUIDs and language parameters. AI messages preserve the user's text and pass current language. Server article/PDF/report translations require separately supplied content; local UI translations are not that content.
 - Updates require an explicit global realm and matching package ID, HTTPS and SHA-256 for direct packages under `/global/down/files/`. Real TestFlight/App Store targets only when actually provided. A missing manifest is unavailable, not evidence of latest-version acceptance.
@@ -38,7 +38,7 @@ Do not copy domestic `.env`, signing material, push secrets, account sessions, p
 
 ## Reproducible local checks
 
-Use Flutter `D:/Dev/Flutter/3.44.9`, JDK `F:/Codex/home/tools/jdk17`, Android SDK `F:/Codex/home/tools/android-sdk`, Gradle cache `D:/Dev/Gradle`. Enter the **global** workspace and use its own `tool/handoff` scripts; these resolve their checkout dynamically. The checked-in `config/dev.json.example` uses only the global root/update endpoint and leaves unconfigured weather credentials empty.
+Use Flutter `D:/Dev/Flutter/3.44.9`, JDK `F:/Codex/home/tools/jdk17`, Android SDK `D:/Dev/Android/Sdk`, Gradle cache `D:/Dev/Gradle`. Enter the **global** workspace and use its own `tool/handoff` scripts; these resolve their checkout dynamically. The checked-in `config/dev.json.example` uses only the App V2 root/update endpoint and leaves unconfigured weather credentials empty.
 
 ```powershell
 $env:JAVA_HOME='F:/Codex/home/tools/jdk17'
@@ -67,7 +67,7 @@ The physical QA variants remain ARM-only. For the local `Saidian_API_36` x86_64 
 $env:SAIDIAN_EMULATOR_DEBUG='true'
 flutter run -d emulator-5554 --debug `
   --dart-define=SAYDIAN_API_BASE_URL=https://app.saydian.cn `
-  --dart-define=SAYDIAN_UPDATE_MANIFEST_URL=https://app.saydian.cn/global/api/saydian-app/v2/support/app-update `
+  --dart-define=SAYDIAN_UPDATE_MANIFEST_URL=https://app.saydian.cn/api/saydian-app/v2/support/app-update `
   --dart-define=QWEATHER_API_KEY=
 ```
 
@@ -75,7 +75,7 @@ The Gradle gate rejects this switch for Release builds. The emulator validates F
 
 ## Remaining release gates — do not mark complete
 
-- Real deployment of isolated global API/Worker/DB/Redis/storage, migrations and gateway tests. Current local server work is source/scaffold verification only.
+- The deployed `/api/saydian-app/v2` read endpoints are reachable, but isolation of international API/Worker/DB/Redis/storage and rejection of domestic credentials/data are not accepted. The live update response is domestic and is deliberately rejected by the global package parser.
 - Real reviewed legal documents, authorized email/SMS testing and enabled countries; no contact information or real sending credential was supplied in this task.
 - International catalog price books, tax/shipping/inventory coordination and payment rails are not implemented/accepted. Checkout remains disabled, not CNY with a new currency symbol. Full global commerce/address/order UI and remaining compatibility routes need contract migration.
 - All-screen localization is not complete: Flutter has 499 ARB keys across eight languages; the targeted reachable static-copy inventory is covered, but nested/dynamic messages and model-derived values remain. Harmony has 574 semantic rows, with 272 untranslated rows falling back to English after camera merge. Report/PDF and stored push/body translations still require completion and linguistic review. First-launch English and resource availability alone do not prove eight-language acceptance.
@@ -100,4 +100,4 @@ The Gradle gate rejects this switch for Release builds. The emulator validates F
 - Package: `cn.saydian.app.global`; label `Saydian`; version `0.1.20+1002`; Android 8+/two ARM ABIs. Both Debug and Release QA compile; Release is debug-signed, not an app-store package.
 - Latest Harmony camera merge host tests: 481/481. No HAP/iOS binary has been supplied.
 - No phone is currently visible to ADB. Installation coexistence and watch tests remain pending. Before handing a copied APK to QA, verify this hash; never point the domestic download page at it.
-- The global server is not yet deployed (capabilities HTTP 404); this APK is for isolated UI/device QA, not proof of working online registration or commerce. Supply reviewed legal text and separately approved provider/deployment configuration before live onboarding tests.
+- App V2 routes are deployed, but `auth/capabilities` remains HTTP 404 and the independent international account realm has not been accepted. This APK is for UI/device QA, not proof of working online registration, account isolation or commerce. Supply reviewed legal text and separately approved provider/realm configuration before live onboarding tests.

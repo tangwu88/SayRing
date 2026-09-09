@@ -120,7 +120,7 @@ void main() {
       await tester.tap(codeButton);
       await tester.pumpAndSettle();
     }
-    expect(calls.every((path) => path.endsWith('/auth/capabilities')), isTrue);
+    expect(calls, isEmpty);
     expect(vault.session, isNull);
     expect(tester.takeException(), isNull);
   });
