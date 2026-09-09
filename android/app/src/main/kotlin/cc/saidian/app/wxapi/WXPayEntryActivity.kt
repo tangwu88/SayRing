@@ -1,4 +1,4 @@
-package cc.saidian.app.wxapi
+package cn.saydian.app.global.wxapi
 
 import android.app.Activity
 import android.content.Intent

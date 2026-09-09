@@ -22,7 +22,7 @@ class WechatAuthService implements wxopensdk.WXApiEventHandler {
 
   attachContext(context: common.UIAbilityContext): void {
     this.context = context;
-    if (!this.api) this.api = wxopensdk.WXAPIFactory.createWXAPI(WECHAT_APP_ID, context);
+    if (WECHAT_APP_ID && !this.api) this.api = wxopensdk.WXAPIFactory.createWXAPI(WECHAT_APP_ID, context);
   }
 
   async start(): Promise<WechatAuthStartResult> {

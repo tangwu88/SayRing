@@ -1,4 +1,4 @@
-import { ApiError, MemberProfile, Article, ArticleBlock, Session, loginValidation, registrationValidation,
+import { ApiError, MemberProfile, Article, ArticleBlock, Session,
   canSubmitLogin, profileName, profileField, articleBlocks } from '../model/Contracts';
 import { saydianApi } from '../services/SaydianApi';
 import { ArticleImage } from '../components/ArticleImage';
@@ -29,12 +29,18 @@ import { AI_USER_MESSAGE_MAX_LENGTH, AiChatMessage, AppUpdateInfo, ShopCategory,
 import { appUpdateService, HARMONY_VERSION_CODE, HARMONY_VERSION_NAME } from '../services/AppUpdateService';
 import { WECHAT_AUTH_RESULT_KEY, parseWechatAuthResult } from '../model/WechatAuthContracts';
 import { wechatAuth } from '../services/WechatAuthService';
-import { pasteboard } from '@kit.BasicServicesKit';
-import { call } from '@kit.TelephonyKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { DisplayUnits, ProfileDraft, FEEDBACK_TYPES, defaultDisplayUnits, displayHealthValue,
   displayNumber, feedbackError, profileDraftError } from '../model/DisplayPreferences';
 import { displayPreferenceStore } from '../services/DisplayPreferenceStore';
+import { APP_LOCALES, APP_LANGUAGE_NAMES, appText, formatAppText } from '../model/GlobalLocale';
+import { appLocaleStore } from '../services/AppLocaleStore';
+import { AuthChannel, GlobalAuthCapabilities, PHONE_COUNTRIES, PhoneCountry,
+  emptyAuthCapabilities, globalRegistrationValidation, normalizeIdentifier, validGlobalPassword } from '../model/GlobalAuth';
+import { GLOBAL_WECHAT_ENABLED, GLOBAL_PUSH_ENABLED } from '../model/GlobalConfiguration';
+import { GlobalHealthReport, GlobalReportProfile, GlobalReportEligibility, GlobalAnalysisDocument,
+  reportGenerationBlock } from '../model/GlobalHealthReports';
+import { saveReportPdf } from '../services/ReportPdfExport';
 import { ShippingAddress, InboxMessage, ArticleCategory, orderStatusLabel, orderMatchesFilter } from '../model/AccountPageContracts';
 import { ProductDetail, ShopSku, ShopLine, ShopSelection, CheckoutPreview, OrderDetail, Shipment, ShipmentTrace,
   commerceMoney, commerceCents, purchaseError, checkoutError, orderHeading, orderExplanation } from '../model/CommerceContracts';
@@ -107,6 +113,21 @@ struct Index {
   @State private systemFontScale: number = 1;
   @State private tab: number = 0;
   @State private account: string = '';
+  @State private appLocale: string = 'en';
+  @State private authChannel: AuthChannel = 'email';
+  @State private authCountry: string = 'US';
+  @State private capabilities: GlobalAuthCapabilities = emptyAuthCapabilities();
+  @State private authCapabilitiesBusy: boolean = true;
+  @State private globalReports: GlobalHealthReport[] = [];
+  @State private globalReportParagraphs: string[] = [];
+  @State private globalReportsBusy: boolean = false;
+  @State private globalReportsError: string = '';
+  private globalReportsGeneration: number = 0;
+  @State private globalReportProfile: GlobalReportProfile | undefined = undefined;
+  @State private globalReportEligibility: GlobalReportEligibility | undefined = undefined;
+  @State private globalAnalysisParagraphs: string[] = [];
+  @State private globalAnalysisDocument: GlobalAnalysisDocument | undefined = undefined;
+  @State private globalAnalysisAccepted: boolean = false;
   @State private password: string = '';
   @State private accepted: boolean = false;
   @State private registerMobile: string = '';
@@ -359,6 +380,7 @@ struct Index {
     this.restoreLogin();
     this.consumeWechatAuthResult();
     this.loadDisplayPreferences();
+    this.loadAppLocale();
   }
   onPageShow(): void {
     this.refreshLayoutScale();
@@ -421,6 +443,121 @@ struct Index {
 
   private uiContext(): common.UIAbilityContext {
     return this.getUIContext().getHostContext() as common.UIAbilityContext;
+  }
+
+  private tr(message: string): string { return appText(message, this.appLocale); }
+
+  private async loadAppLocale(): Promise<void> {
+    try { this.appLocale = await appLocaleStore.read(this.uiContext()); }
+    catch { this.appLocale = 'en'; }
+    await this.loadAuthCapabilities();
+  }
+
+  private async changeAppLocale(index: number): Promise<void> {
+    const next = APP_LOCALES[index];
+    if (!next || next === this.appLocale) return;
+    try {
+      await appLocaleStore.save(next); this.appLocale = next;
+      this.accepted = false; this.registerAccepted = false;
+      await this.loadAuthCapabilities();
+    }
+    catch { this.error = 'Settings could not be saved. Please retry.'; }
+  }
+
+  private async loadAuthCapabilities(): Promise<void> {
+    this.authCapabilitiesBusy = true;
+    try {
+      const previousVersion = this.capabilities.consentVersion;
+      this.capabilities = await saydianApi.authCapabilities(this.appLocale);
+      if (previousVersion && previousVersion !== this.capabilities.consentVersion) {
+        this.accepted = false; this.registerAccepted = false;
+      }
+      if (!this.capabilities.smsCountries.includes(this.authCountry) && this.phoneChoices().length) {
+        this.authCountry = this.phoneChoices()[0].code;
+      }
+    }
+    catch { this.capabilities = emptyAuthCapabilities(); }
+    finally { this.authCapabilitiesBusy = false; }
+  }
+
+  private phoneChoices(): PhoneCountry[] {
+    return PHONE_COUNTRIES.filter(country => this.capabilities.smsCountries.includes(country.code));
+  }
+
+  private async openGlobalReports(): Promise<void> {
+    if (this.guest) { this.screen = 'login'; return; }
+    if (this.screen !== 'health-reports') this.openInnerPage('health-reports');
+    const epoch = this.pageGeneration, owner = saydianApi.current()?.memberId, request = ++this.globalReportsGeneration;
+    this.globalReportsBusy = true; this.globalReportsError = ''; this.globalReports = []; this.globalReportParagraphs = [];
+    this.globalReportProfile = undefined; this.globalReportEligibility = undefined;
+    this.globalAnalysisParagraphs = []; this.globalAnalysisDocument = undefined; this.globalAnalysisAccepted = false;
+    try {
+      const reports = await saydianApi.healthReports();
+      if (request === this.globalReportsGeneration && epoch === this.pageGeneration && owner === saydianApi.current()?.memberId && this.screen === 'health-reports') this.globalReports = reports;
+      const profile = await saydianApi.reportProfile(), eligibility = await saydianApi.reportEligibility();
+      if (request === this.globalReportsGeneration && epoch === this.pageGeneration && owner === saydianApi.current()?.memberId && this.screen === 'health-reports') {
+        this.globalReportProfile = profile; this.globalReportEligibility = eligibility;
+      }
+    } catch (error) {
+      if (request === this.globalReportsGeneration && epoch === this.pageGeneration && this.screen === 'health-reports') this.globalReportsError = this.accountFormFailure(error as Error);
+    } finally { if (request === this.globalReportsGeneration && epoch === this.pageGeneration) this.globalReportsBusy = false; }
+  }
+
+  private async openGlobalReport(report: GlobalHealthReport): Promise<void> {
+    if (this.globalReportsBusy || report.status !== 'ready') return;
+    const epoch = this.pageGeneration, owner = saydianApi.current()?.memberId, request = ++this.globalReportsGeneration;
+    this.globalReportsBusy = true; this.globalReportsError = ''; this.globalReportParagraphs = [];
+    try {
+      const paragraphs = await saydianApi.healthReportContent(report.id);
+      if (request === this.globalReportsGeneration && epoch === this.pageGeneration && owner === saydianApi.current()?.memberId && this.screen === 'health-reports') this.globalReportParagraphs = paragraphs;
+    } catch (error) {
+      if (request === this.globalReportsGeneration && epoch === this.pageGeneration && this.screen === 'health-reports') this.globalReportsError = this.accountFormFailure(error as Error);
+    } finally { if (request === this.globalReportsGeneration && epoch === this.pageGeneration) this.globalReportsBusy = false; }
+  }
+
+  private async globalReportAction(action: 'read' | 'grant' | 'revoke' | 'generate' | 'export', id: string = ''): Promise<void> {
+    if (this.globalReportsBusy) return;
+    const epoch = this.pageGeneration, session = saydianApi.healthSession(), request = ++this.globalReportsGeneration;
+    const active = (): boolean => request === this.globalReportsGeneration && epoch === this.pageGeneration &&
+      sameHealthSession(session, saydianApi.healthSession()) && this.screen === 'health-reports';
+    this.globalReportsBusy = true; this.globalReportsError = '';
+    try {
+      if (action === 'read') {
+        this.globalAnalysisDocument = undefined; this.globalAnalysisAccepted = false; this.globalAnalysisParagraphs = [];
+        const document = this.globalReportProfile?.document;
+        if (!document) throw new ApiError('legal_unavailable');
+        const article = await saydianApi.analysisNotice(document);
+        const paragraphs = articleBlocks(article.content).filter((block: ArticleBlock) => block.kind === 'text').map((block: ArticleBlock) => block.text);
+        if (!paragraphs.length) throw new ApiError('legal_unavailable');
+        if (active()) { this.globalAnalysisDocument = document; this.globalAnalysisParagraphs = paragraphs; }
+      } else if (action === 'export') {
+        const bytes = await saydianApi.exportHealthReport(id);
+        if (!active()) return;
+        const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+        const saved = await saveReportPdf(context, id, bytes, active);
+        if (active() && saved) this.getUIContext().getPromptAction().showToast({ message: this.tr('reports_saved') });
+      } else {
+        if (action === 'grant') {
+          if (!this.globalAnalysisAccepted || !this.globalAnalysisDocument || !this.globalAnalysisParagraphs.length) throw new ApiError('reports_consent_required');
+          await saydianApi.setReportConsent(true, this.globalAnalysisDocument);
+        } else if (action === 'revoke') {
+          const choice = await this.getUIContext().getPromptAction().showDialog({ title: this.tr('reports_withdraw'),
+            message: this.tr('reports_withdraw_notice'), buttons: [{ text: this.tr('cancel'), color: MUTED },
+              { text: this.tr('reports_withdraw'), color: RED }] });
+          if (choice.index !== 1 || !active()) return;
+          await saydianApi.setReportConsent(false);
+        } else { await saydianApi.generateHealthReport(id); }
+        if (active()) await this.openGlobalReports();
+      }
+    } catch (error) {
+      if (active()) this.globalReportsError = this.accountFormFailure(error as Error);
+    } finally { if (request === this.globalReportsGeneration && epoch === this.pageGeneration) this.globalReportsBusy = false; }
+  }
+
+  private accountIdentifier(value: string): string {
+    if (this.authChannel === 'email' || value.trim().startsWith('+')) return value.trim();
+    const country = PHONE_COUNTRIES.find(country => country.code === this.authCountry);
+    return `${country?.dialCode ?? ''}${value.trim()}`;
   }
 
   private async loadDisplayPreferences(): Promise<void> {
@@ -959,6 +1096,10 @@ struct Index {
 
   private clearAccountForms(): void {
     ++this.contentGeneration;
+    ++this.globalReportsGeneration;
+    this.globalReports = []; this.globalReportParagraphs = []; this.globalReportsError = ''; this.globalReportsBusy = false;
+    this.globalReportProfile = undefined; this.globalReportEligibility = undefined;
+    this.globalAnalysisParagraphs = []; this.globalAnalysisDocument = undefined; this.globalAnalysisAccepted = false;
     this.cartLines = []; this.cartSelection = []; this.checkoutItems = []; this.checkoutPreview = undefined;
     this.checkoutAddress = undefined; this.checkoutMessage = ''; this.checkoutPoints = '0';
     this.orderDetail = undefined; this.shipments = []; this.refundLine = undefined; this.refundReason = '';
@@ -981,15 +1122,6 @@ struct Index {
     return error.message || '操作未完成，请稍后重试';
   }
 
-  private async contactSupport(phone: boolean): Promise<void> {
-    try {
-      if (phone) { await call.makeCall(this.uiContext(), '4006386738'); }
-      else {
-        await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, '赛电'));
-        this.contactMessage = '已复制公众号名称，请在微信中搜索“赛电”';
-      }
-    } catch { this.contactMessage = phone ? '暂时无法打开拨号页面，可长按号码复制' : '复制失败，请长按公众号名称复制'; }
-  }
 
   private async openAddresses(): Promise<void> {
     if (this.screen !== 'addresses') this.openInnerPage('addresses');
@@ -1122,18 +1254,24 @@ struct Index {
   private async sendResetCode(): Promise<void> {
     if (this.smsBusy || this.smsCountdown > 0) return;
     this.smsBusy = true; this.formMessage = '';
-    try { await saydianApi.sendSmsCode(this.resetMobile, 'reset'); this.beginSmsCountdown(); this.formMessage = '验证码已发送'; }
+    try {
+      const challenge = await saydianApi.sendVerificationCode(this.authChannel,
+        this.accountIdentifier(this.resetMobile), 'reset_password', this.appLocale, this.authCountry);
+      this.beginSmsCountdown(challenge.retryAfter); this.formMessage = 'code_sent';
+    }
     catch (error) { this.formMessage = (error as Error).message; }
     finally { this.smsBusy = false; }
   }
 
   private async submitResetPassword(): Promise<void> {
     if (this.formBusy) return;
-    this.formMessage = registrationValidation(this.resetMobile, this.resetCode, this.resetPassword, this.resetConfirmation, true);
+    this.formMessage = globalRegistrationValidation(this.accountIdentifier(this.resetMobile), this.authChannel,
+      this.resetCode, this.resetPassword, this.resetConfirmation, true);
     if (this.formMessage) return;
     this.formBusy = true;
     try {
-      const session = await saydianApi.resetPassword(this.resetMobile, this.resetCode, this.resetPassword, this.resetConfirmation);
+      const session = await saydianApi.resetGlobalPassword(this.authChannel, this.accountIdentifier(this.resetMobile),
+        this.resetCode, this.resetPassword, this.resetConfirmation);
       this.resetCode = ''; this.resetPassword = ''; this.resetConfirmation = ''; this.clearSmsCountdown();
       this.innerParents.clear(); this.acceptAuthenticatedSession(session); this.startAuthenticatedServices();
     } catch (error) {
@@ -1535,6 +1673,7 @@ struct Index {
 
   private async connectPush(requestPermission: boolean): Promise<void> {
     if (this.pushBusy) return;
+    if (!GLOBAL_PUSH_ENABLED) { this.pushStatus = 'serviceUnavailable'; return; }
     if (this.guest) { this.pushStatus = '请先登录赛电账号，再开启消息推送'; return; }
     this.pushBusy = true;
     this.pushStatus = '正在检查系统通知与推送身份…';
@@ -2233,12 +2372,14 @@ struct Index {
 
   private async submitLogin(): Promise<void> {
     if (!canSubmitLogin(this.busy, this.restoring)) return;
-    this.error = loginValidation(this.account, this.password, this.accepted);
+    this.error = !this.accepted ? 'accept_terms' : !validGlobalPassword(this.password) ? 'password_length' : '';
+    try { normalizeIdentifier(this.authChannel, this.accountIdentifier(this.account)); }
+    catch (error) { this.error = (error as Error).message; }
     if (this.error) return;
     this.busy = true;
     const epoch = ++this.pageGeneration;
     try {
-      const session = await saydianApi.login(this.account, this.password);
+      const session = await saydianApi.login(this.accountIdentifier(this.account), this.password);
       if (epoch !== this.pageGeneration) return;
       this.acceptAuthenticatedSession(session);
     } catch (error) {
@@ -2269,9 +2410,9 @@ struct Index {
     this.smsCountdown = 0;
   }
 
-  private beginSmsCountdown(): void {
+  private beginSmsCountdown(seconds: number = 60): void {
     this.clearSmsCountdown();
-    this.smsCountdown = 60;
+    this.smsCountdown = seconds;
     this.smsTimer = setInterval(() => {
       if (this.smsCountdown <= 1) this.clearSmsCountdown();
       else this.smsCountdown--;
@@ -2280,29 +2421,27 @@ struct Index {
 
   private async sendRegistrationCode(): Promise<void> {
     if (this.smsBusy || this.busy || this.smsCountdown > 0) return;
-    if (!/^1\d{10}$/.test(this.registerMobile.trim())) {
-      this.registerError = '请输入正确的中国大陆手机号';
-      return;
-    }
     this.smsBusy = true;
     this.registerError = '';
     try {
-      await saydianApi.sendSmsCode(this.registerMobile, 'register');
-      this.beginSmsCountdown();
+      const challenge = await saydianApi.sendVerificationCode(this.authChannel,
+        this.accountIdentifier(this.registerMobile), 'register', this.appLocale, this.authCountry);
+      this.beginSmsCountdown(challenge.retryAfter);
+      this.registerError = 'code_sent';
     } catch (error) { this.registerError = (error as Error).message; }
     finally { this.smsBusy = false; }
   }
 
   private async submitRegistration(): Promise<void> {
     if (this.busy || this.restoring) return;
-    this.registerError = registrationValidation(this.registerMobile, this.registerCode,
+    this.registerError = globalRegistrationValidation(this.accountIdentifier(this.registerMobile), this.authChannel, this.registerCode,
       this.registerPassword, this.registerConfirmation, this.registerAccepted);
     if (this.registerError) return;
     this.busy = true;
     const epoch = ++this.pageGeneration;
     try {
-      const session = await saydianApi.registerWithSms(this.registerMobile, this.registerCode,
-        this.registerPassword, this.registerConfirmation, this.registerAccepted);
+      const session = await saydianApi.registerGlobal(this.authChannel, this.accountIdentifier(this.registerMobile), this.registerCode,
+        this.registerPassword, this.registerConfirmation, this.registerAccepted, this.appLocale, this.capabilities.consentVersion);
       if (epoch !== this.pageGeneration) return;
       this.clearSmsCountdown();
       this.account = this.registerMobile.trim();
@@ -2394,7 +2533,8 @@ struct Index {
     this.articleLoading = true;
     const epoch = ++this.contentGeneration;
     try {
-      const article = await saydianApi.article(id, agreement);
+      if (agreement) await this.loadAuthCapabilities();
+      const article = agreement ? await saydianApi.globalLegal(id === '3', this.appLocale) : await saydianApi.article(id, false);
       if (epoch !== this.contentGeneration) return;
       this.articleTitle = article.title || title;
       this.articleContent = articleBlocks(article.content || article.description);
@@ -2501,13 +2641,13 @@ struct Index {
     Row({ space: 16 }) {
       SymbolGlyph($$.icon).fontSize(24).fontColor([RED]).width(24)
       Column({ space: 4 }) {
-        Text($$.title).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-        if ($$.subtitle) { Text($$.subtitle).fontSize(14).fontColor(INK).lineHeight(21).width('100%') }
+        Text(this.tr($$.title)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        if ($$.subtitle) { Text(this.tr($$.subtitle)).fontSize(14).fontColor(INK).lineHeight(21).width('100%') }
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([RED])
     }.width('100%').constraintSize({ minHeight: $$.subtitle ? 80 : 64 })
       .padding({ left: 16, right: 16, top: 12, bottom: 12 }).onClick(() => $$.action())
-      .id($$.id ?? '').accessibilityText(`${$$.title}${$$.subtitle ? '，' + $$.subtitle : ''}`)
+      .id($$.id ?? '').accessibilityText(this.tr(`${$$.title}${$$.subtitle ? '，' + $$.subtitle : ''}`))
   }
 
   @Builder
@@ -2515,8 +2655,8 @@ struct Index {
     Column({ space: 16 }) {
       Column() { SymbolGlyph($$.icon ?? $r('sys.symbol.info_circle')).fontSize(28).fontColor([$$.green ? GREEN : BLUE]) }
         .width(54).height(54).justifyContent(FlexAlign.Center).backgroundColor($$.green ? GREEN_SOFT : BLUE_SOFT).borderRadius(16)
-      Text($$.title).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').textAlign(TextAlign.Center)
-      if ($$.detail) { Text($$.detail).fontSize(16).lineHeight(24).fontColor(MUTED).width('100%').textAlign(TextAlign.Center) }
+      Text(this.tr($$.title)).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').textAlign(TextAlign.Center)
+      if ($$.detail) { Text(this.tr($$.detail)).fontSize(16).lineHeight(24).fontColor(MUTED).width('100%').textAlign(TextAlign.Center) }
     }.width('100%').padding(20).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
   }
 
@@ -2529,7 +2669,7 @@ struct Index {
         SymbolGlyph($r('sys.symbol.info_circle')).fontSize(22)
           .fontColor([$$.color === GREEN_SOFT ? GREEN : $$.color === GOLD_SOFT ? GOLD : BLUE])
       }
-      Text($$.message).fontSize(16).fontColor($$.color === GREEN_SOFT ? GREEN :
+      Text(this.tr($$.message)).fontSize(16).fontColor($$.color === GREEN_SOFT ? GREEN :
         $$.color === GOLD_SOFT ? GOLD : $$.color === '#FFF0E9' ? RED_DARK : BLUE)
         .lineHeight(24).layoutWeight(1)
     }.width('100%').padding(12)
@@ -2545,8 +2685,8 @@ struct Index {
         SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(24).fontColor([INK])
       }.backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12).width(48).height(this.controlHeight(48))
         .enabled(!this.careBusy && !this.paymentBusy && !this.formBusy && !this.commerceBusy && !this.deviceSettingsWriting &&
-          !this.deviceFeatureWriting && !this.sportActionBusy).onClick(() => this.back()).accessibilityText('返回上一页')
-      Text(this.screen === 'health-record' ? '记录详情' : this.screen === 'device-dials' ? '表盘中心' :
+          !this.deviceFeatureWriting && !this.sportActionBusy).onClick(() => this.back()).accessibilityText(this.tr('返回上一页'))
+      Text(this.tr(this.screen === 'health-reports' ? 'reports' : this.screen === 'health-record' ? '记录详情' : this.screen === 'device-dials' ? '表盘中心' :
         this.screen === 'device-feature' ? this.deviceFeatureSpec().title : this.screen === 'device-settings' ? '设备设置' :
         this.screen === 'device-units' ? '手表单位' : this.screen === 'device-alarms' ? '闹钟' : this.screen === 'device-alarm-edit' ?
           (this.watchAlarmDraft.id < 0 ? '添加闹钟' : '编辑闹钟') : this.screen === 'profile-edit' ? '个人资料' : this.screen === 'addresses' ? '收货地址' :
@@ -2564,7 +2704,7 @@ struct Index {
                   this.screen === 'help' ? '帮助与反馈' : this.screen === 'permissions' ? '权限管理' :
                     this.screen === 'account' ? '账号设置' : this.screen === 'unit-settings' ? '单位设置' :
           this.screen === 'wearable-metric' ? `${this.wearableMetricTitle(this.selectedWearableMetric)}分析` :
-            this.screen === 'articles' ? '健康百科' : this.screen === 'article' ? this.articleTitle : this.detailTitle)
+            this.screen === 'articles' ? '健康百科' : this.screen === 'article' ? this.articleTitle : this.detailTitle))
         .fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).maxLines(2)
         .textAlign(TextAlign.Center)
       if (this.screen === 'device-search') {
@@ -2572,15 +2712,15 @@ struct Index {
           SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(23).fontColor([INK])
         }.backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12).width(48).height(this.controlHeight(48))
           .enabled(!this.wearableBusy()).onClick(() => this.startWearableScan())
-          .accessibilityText('重新查找附近设备').id('device_search_refresh')
+          .accessibilityText(this.tr('重新查找附近设备')).id('device_search_refresh')
       } else if (this.screen === 'shop-home') {
         Button() { SymbolGlyph($r('sys.symbol.bag')).fontSize(24).fontColor([INK]) }
           .width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).onClick(() => this.openCart())
-          .accessibilityText('购物车').id('shop_cart')
+          .accessibilityText(this.tr('购物车')).id('shop_cart')
       } else if (this.screen === 'addresses') {
         Button() { SymbolGlyph($r('sys.symbol.plus')).fontSize(24).fontColor([INK]) }
           .width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).onClick(() => this.editAddress())
-          .accessibilityText('新增地址').id('add_address_header')
+          .accessibilityText(this.tr('新增地址')).id('add_address_header')
       } else {
         Blank().width(48)
       }
@@ -2628,29 +2768,68 @@ struct Index {
   }
 
   @Builder
+  LanguagePicker() {
+    Row({ space: 10 }) {
+      Text(this.tr('language')).fontSize(14).fontColor(MUTED)
+      Select(APP_LANGUAGE_NAMES.map((name: string): SelectOption => { return { value: name }; }))
+        .selected(APP_LOCALES.indexOf(this.appLocale)).value(APP_LANGUAGE_NAMES[APP_LOCALES.indexOf(this.appLocale)])
+        .font({ size: 15 }).layoutWeight(1).onSelect((index: number) => this.changeAppLocale(index))
+        .id('global_language')
+    }.width('100%').constraintSize({ minHeight: 48 })
+  }
+
+  @Builder
+  AuthMethodSelector() {
+    Row({ space: 8 }) {
+      Button(this.tr('email')).layoutWeight(1).height(this.controlHeight(48))
+        .fontColor(this.authChannel === 'email' ? Color.White : INK)
+        .backgroundColor(this.authChannel === 'email' ? RED : SURFACE)
+        .enabled(!this.busy && !this.smsBusy && !this.formBusy)
+        .onClick(() => { this.authChannel = 'email'; this.clearSmsCountdown(); this.registerCode = ''; this.resetCode = ''; })
+        .id('auth_email')
+      Button(this.tr('phone')).layoutWeight(1).height(this.controlHeight(48))
+        .fontColor(this.authChannel === 'sms' ? Color.White : INK)
+        .backgroundColor(this.authChannel === 'sms' ? RED : SURFACE)
+        .enabled(!this.busy && !this.smsBusy && !this.formBusy)
+        .onClick(() => { this.authChannel = 'sms'; this.clearSmsCountdown(); this.registerCode = ''; this.resetCode = ''; })
+        .id('auth_phone')
+    }.width('100%')
+    if (this.authChannel === 'sms') {
+      Select(PHONE_COUNTRIES.map((country: PhoneCountry): SelectOption => { return { value: `${country.name} ${country.dialCode}` }; }))
+        .selected(PHONE_COUNTRIES.findIndex((country: PhoneCountry) => country.code === this.authCountry))
+        .value(PHONE_COUNTRIES.find((country: PhoneCountry) => country.code === this.authCountry)?.name ?? this.tr('country'))
+        .font({ size: 15 }).width('100%').enabled(!this.busy && !this.smsBusy && !this.formBusy)
+        .onSelect((index: number) => { this.authCountry = PHONE_COUNTRIES[index].code; this.clearSmsCountdown(); this.registerCode = ''; this.resetCode = ''; })
+        .id('auth_country')
+    }
+  }
+
+  @Builder
   Login() {
     Scroll() {
       Column({ space: 14 }) {
+        this.LanguagePicker()
         Image($r('app.media.brand_lockup')).width(190).height(92).objectFit(ImageFit.Contain)
-          .accessibilityText('赛电 SAYDIAN').margin({ top: 72, bottom: 42 })
+          .accessibilityText(this.tr('Saydian')).margin({ top: 18, bottom: 22 })
+        this.AuthMethodSelector()
         Row({ space: 10 }) {
           SymbolGlyph($r('sys.symbol.phone')).fontSize(22).fontColor([MUTED]).margin({ left: 15 })
-          TextInput({ placeholder: '手机号 / 账号', text: this.account }).type(InputType.Normal)
+          TextInput({ placeholder: this.tr(this.authChannel === 'email' ? 'email' : 'phone'), text: this.account }).type(InputType.Normal)
             .layoutWeight(1).height(this.controlHeight(54)).fontSize(17).backgroundColor(Color.Transparent)
             .maxLength(128).enabled(canSubmitLogin(this.busy, this.restoring))
-            .onChange((value: string) => this.account = value).id('login_account').accessibilityText('手机号或账号')
+            .onChange((value: string) => this.account = value).id('login_account').accessibilityText(this.tr('手机号或账号'))
         }.width('100%').height(this.controlHeight(56)).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
         Row({ space: 10 }) {
           SymbolGlyph($r('sys.symbol.lock')).fontSize(22).fontColor([MUTED]).margin({ left: 15 })
-          TextInput({ placeholder: '密码', text: this.password }).type(InputType.Password)
+          TextInput({ placeholder: this.tr('密码'), text: this.password }).type(InputType.Password)
             .layoutWeight(1).height(this.controlHeight(54)).fontSize(17).backgroundColor(Color.Transparent)
             .maxLength(256).enabled(canSubmitLogin(this.busy, this.restoring))
             .onChange((value: string) => this.password = value)
-            .onSubmit(() => this.submitLogin()).id('login_password').accessibilityText('密码')
+            .onSubmit(() => this.submitLogin()).id('login_password').accessibilityText(this.tr('密码'))
         }.width('100%').height(this.controlHeight(56)).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
         Row() {
           Blank()
-          Button('忘记密码？').height(this.controlHeight(48)).fontSize(16).fontWeight(FontWeight.Medium).fontColor(INK)
+          Button(this.tr('忘记密码？')).height(this.controlHeight(48)).fontSize(16).fontWeight(FontWeight.Medium).fontColor(INK)
             .backgroundColor(Color.Transparent).enabled(!this.busy && !this.restoring)
             .onClick(() => this.openPasswordReset()).id('forgot_password')
         }.width('100%')
@@ -2658,36 +2837,36 @@ struct Index {
         Row() {
           Checkbox({ name: 'agreement' }).select(this.accepted).enabled(canSubmitLogin(this.busy, this.restoring))
             .selectedColor(RED).onChange((value: boolean) => this.accepted = value)
-            .id('login_agreement').accessibilityText('同意用户协议与隐私政策')
+            .id('login_agreement').accessibilityText(this.tr('同意用户协议与隐私政策'))
           Column({ space: 0 }) {
-            Text('我已阅读并同意').fontSize(13).fontColor(MUTED).width('100%')
+            Text(this.tr('我已阅读并同意')).fontSize(13).fontColor(MUTED).width('100%')
             Flex({ wrap: FlexWrap.Wrap }) {
-              Button('用户协议').height(this.controlHeight(48)).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
+              Button(this.tr('用户协议')).height(this.controlHeight(48)).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
                 .enabled(canSubmitLogin(this.busy, this.restoring)).onClick(() => this.openArticle('2', '用户协议', true))
-              Button('隐私政策').height(this.controlHeight(48)).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
+              Button(this.tr('隐私政策')).height(this.controlHeight(48)).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
                 .enabled(canSubmitLogin(this.busy, this.restoring)).onClick(() => this.openArticle('3', '隐私政策', true))
             }
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         }.width('100%').alignItems(VerticalAlign.Top)
         if (this.logoutFailed) {
-          Button('重试清除本机登录状态').width('100%').constraintSize({ minHeight: 50 })
+          Button(this.tr('重试清除本机登录状态')).width('100%').constraintSize({ minHeight: 50 })
             .fontColor(RED).backgroundColor(Color.White).enabled(!this.busy)
             .onClick(() => this.signOut()).id('retry_logout')
         }
-        Button(this.busy ? '正在登录…' : '登录').width('100%').height(this.controlHeight(50)).fontSize(17)
+        Button(this.tr(this.busy ? '正在登录…' : '登录')).width('100%').height(this.controlHeight(50)).fontSize(17)
           .fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(10)
           .enabled(!this.busy && !this.restoring)
           .onClick(() => this.submitLogin()).id('login_submit')
-        Button('注册账户').width('100%').height(this.controlHeight(48)).fontSize(16).fontColor(INK)
+        Button(this.tr('注册账户')).width('100%').height(this.controlHeight(48)).fontSize(16).fontColor(INK)
           .fontWeight(FontWeight.Medium).backgroundColor(Color.Transparent).enabled(!this.busy && !this.restoring)
           .onClick(() => this.openRegistration()).id('open_registration')
-        Row() {
-          Button(this.busy ? '正在打开微信…' : '微信授权登录').width(this.singleColumn() ? '100%' : '60%').height(this.controlHeight(48)).fontSize(16)
+        if (GLOBAL_WECHAT_ENABLED) { Row() {
+          Button(this.tr(this.busy ? '正在打开微信…' : '微信授权登录')).width(this.singleColumn() ? '100%' : '60%').height(this.controlHeight(48)).fontSize(16)
             .fontWeight(FontWeight.Medium).fontColor('#07883E').backgroundColor(Color.Transparent)
             .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: '#07883E' })
             .enabled(!this.busy && !this.restoring)
-            .onClick(() => this.startWechatLogin()).id('wechat_login').accessibilityText('使用微信授权登录')
-        }.width('100%').justifyContent(FlexAlign.Center)
+            .onClick(() => this.startWechatLogin()).id('wechat_login').accessibilityText(this.tr('使用微信授权登录'))
+        }.width('100%').justifyContent(FlexAlign.Center) }
       }.width('100%').constraintSize({ maxWidth: 427 }).padding({ left: 26, right: 26, bottom: 32 })
     }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Off)
       .linearGradient({ angle: 180, colors: [['#FFF1F3', 0.0], ['#F5F7FA', 0.5], ['#EAF1FF', 1.0]] })
@@ -2697,63 +2876,69 @@ struct Index {
   Registration() {
     Scroll() {
       Column({ space: 12 }) {
+        this.LanguagePicker()
         Row() {
           Button() {
             SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(24).fontColor([INK])
           }.width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12)
-            .onClick(() => this.back()).accessibilityText('返回登录')
-          Text('注册').fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).textAlign(TextAlign.Center)
+            .onClick(() => this.back()).accessibilityText(this.tr('返回登录'))
+          Text(this.tr('注册')).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).textAlign(TextAlign.Center)
           Blank().width(48)
         }.width('100%').height(this.controlHeight(56))
         Image($r('app.media.brand_lockup')).width(154).height(76).objectFit(ImageFit.Contain)
-          .accessibilityText('赛电 SAYDIAN').margin({ top: 12, bottom: 16 })
-        TextInput({ placeholder: '手机号', text: this.registerMobile }).type(InputType.PhoneNumber)
+          .accessibilityText(this.tr('赛电 SAYDIAN')).margin({ top: 12, bottom: 16 })
+        this.AuthMethodSelector()
+        TextInput({ placeholder: this.tr(this.authChannel === 'email' ? 'email' : 'phone'), text: this.registerMobile }).type(InputType.Normal)
           .height(this.controlHeight(56)).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
-          .border({ width: 1, color: OUTLINE }).maxLength(11).enabled(!this.busy && !this.smsBusy)
+          .border({ width: 1, color: OUTLINE }).maxLength(254).enabled(!this.busy && !this.smsBusy)
           .onChange((value: string) => this.registerMobile = value).id('register_mobile')
-          .accessibilityText('注册手机号')
+          .accessibilityText(this.tr('注册手机号'))
         Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
-          TextInput({ placeholder: '短信验证码', text: this.registerCode }).type(InputType.Number)
+          TextInput({ placeholder: this.tr('短信验证码'), text: this.registerCode }).type(InputType.Number)
             .width(this.singleColumn() ? '100%' : '58%').height(this.controlHeight(56)).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
             .border({ width: 1, color: OUTLINE }).maxLength(6).enabled(!this.busy)
             .onChange((value: string) => this.registerCode = value).id('register_code')
-            .accessibilityText('短信验证码')
-          Button(this.smsBusy ? '发送中…' : this.smsCountdown > 0 ? `${this.smsCountdown}s` : '获取验证码')
+            .accessibilityText(this.tr('短信验证码'))
+          Button(this.tr(this.smsBusy ? '发送中…' : this.smsCountdown > 0 ? `${this.smsCountdown}s` : '获取验证码'))
             .width(this.singleColumn() ? '100%' : '38%').height(this.controlHeight(56)).fontSize(14).fontColor(INK).backgroundColor(SURFACE)
             .margin({ top: this.singleColumn() ? 8 : 0 })
             .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE })
-            .enabled(!this.busy && !this.smsBusy && this.smsCountdown === 0)
+            .enabled(!this.busy && !this.smsBusy && this.smsCountdown === 0 && !this.authCapabilitiesBusy && this.capabilities.registration[this.authChannel])
             .onClick(() => this.sendRegistrationCode()).id('register_send_code')
         }.width('100%')
-        TextInput({ placeholder: '设置密码（至少 6 位）', text: this.registerPassword }).type(InputType.Password)
+        if (!this.authCapabilitiesBusy && !this.capabilities.registration[this.authChannel]) {
+          this.Notice({ message: 'channel_unavailable', color: GOLD_SOFT })
+          Button(this.tr('retry')).onClick(() => this.loadAuthCapabilities()).id('retry_auth_capabilities')
+        }
+        TextInput({ placeholder: this.tr('new_password'), text: this.registerPassword }).type(InputType.Password)
           .height(this.controlHeight(56)).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
           .border({ width: 1, color: OUTLINE }).maxLength(256).enabled(!this.busy)
           .onChange((value: string) => this.registerPassword = value).id('register_password')
-          .accessibilityText('设置密码')
-        TextInput({ placeholder: '再次输入密码', text: this.registerConfirmation }).type(InputType.Password)
+          .accessibilityText(this.tr('设置密码'))
+        TextInput({ placeholder: this.tr('再次输入密码'), text: this.registerConfirmation }).type(InputType.Password)
           .height(this.controlHeight(56)).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
           .border({ width: 1, color: OUTLINE }).maxLength(256).enabled(!this.busy)
           .onChange((value: string) => this.registerConfirmation = value).id('register_confirmation')
-          .onSubmit(() => this.submitRegistration()).accessibilityText('确认密码')
+          .onSubmit(() => this.submitRegistration()).accessibilityText(this.tr('确认密码'))
         Row() {
           Checkbox({ name: 'register-agreement' }).select(this.registerAccepted).enabled(!this.busy)
             .selectedColor(RED).onChange((value: boolean) => this.registerAccepted = value)
-            .id('register_agreement').accessibilityText('同意用户协议与隐私政策')
+            .id('register_agreement').accessibilityText(this.tr('同意用户协议与隐私政策'))
           Column({ space: 0 }) {
-            Text('我已阅读并同意').fontSize(13).fontColor(MUTED).width('100%')
+            Text(this.tr('我已阅读并同意')).fontSize(13).fontColor(MUTED).width('100%')
             Flex({ wrap: FlexWrap.Wrap }) {
-              Button('用户协议').height(this.controlHeight(48)).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
+              Button(this.tr('用户协议')).height(this.controlHeight(48)).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
                 .enabled(!this.busy).onClick(() => this.openArticle('2', '用户协议', true))
-              Button('隐私政策').height(this.controlHeight(48)).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
+              Button(this.tr('隐私政策')).height(this.controlHeight(48)).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
                 .enabled(!this.busy).onClick(() => this.openArticle('3', '隐私政策', true))
             }
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         }.width('100%').alignItems(VerticalAlign.Top)
         if (this.registerError) { this.Notice({ message: this.registerError, color: '#FFF0E9' }) }
-        Button(this.busy ? '正在注册…' : '注册').width('100%').height(this.controlHeight(56)).fontSize(17)
+        Button(this.tr(this.busy ? '正在注册…' : '注册')).width('100%').height(this.controlHeight(56)).fontSize(17)
           .fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
           .enabled(!this.busy && !this.restoring).onClick(() => this.submitRegistration()).id('register_submit')
-        Button('已有账号，返回登录').width('100%').height(this.controlHeight(48)).fontSize(16).fontColor(INK)
+        Button(this.tr('已有账号，返回登录')).width('100%').height(this.controlHeight(48)).fontSize(16).fontColor(INK)
           .backgroundColor(Color.Transparent).enabled(!this.busy)
           .onClick(() => { this.clearSmsCountdown(); this.registerError = ''; this.screen = 'login'; })
           .id('register_back_login')
@@ -2767,22 +2952,22 @@ struct Index {
     Column({ space: 12 }) {
       Row({ space: 11 }) {
         Column() {
-          Image($r('app.media.app_icon')).width(46).height(46).borderRadius(23).accessibilityText('赛电')
+          Image($r('app.media.app_icon')).width(46).height(46).borderRadius(23).accessibilityText(this.tr('赛电'))
         }.width(50).height(50).justifyContent(FlexAlign.Center).backgroundColor(SURFACE).borderRadius(25)
         Column({ space: 2 }) {
-          Text(`你好，${this.guest ? '赛电用户' : this.displayName}`)
+          Text(formatAppText('welcome', { name: this.guest ? this.tr('defaultUser') : this.displayName }, this.appLocale))
             .fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-          Text('今天也要保持好状态').fontSize(13).fontColor(MUTED).width('100%')
+          Text(this.tr('今天也要保持好状态')).fontSize(13).fontColor(MUTED).width('100%')
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         Stack({ alignContent: Alignment.TopEnd }) {
           Button() {
             SymbolGlyph($r('sys.symbol.bell')).fontSize(27).fontColor([INK])
           }.width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12)
             .onClick(() => this.openMessages()).id('open_messages')
-            .accessibilityText(this.notificationCount > 0 ? `消息，${this.notificationCount} 条未读` : '消息')
+            .accessibilityText(this.tr(this.notificationCount > 0 ? `消息，${this.notificationCount} 条未读` : '消息'))
           if (this.notificationCount > 0) {
-            Text(this.notificationCount > 99 ? '99+' : `${this.notificationCount}`)
+            Text(this.tr(this.notificationCount > 99 ? '99+' : `${this.notificationCount}`))
               .fontSize(10).fontWeight(FontWeight.Bold).fontColor(Color.White)
               .padding({ left: 5, right: 5, top: 1, bottom: 1 }).backgroundColor(RED).borderRadius(8)
           }
@@ -2791,12 +2976,12 @@ struct Index {
 
       Row() {
         Image($r('app.media.health_doctor')).width('36%').height(140).objectFit(ImageFit.Cover)
-          .accessibilityText('赛电健康管家形象')
+          .accessibilityText(this.tr('赛电健康管家形象'))
         Column({ space: 4 }) {
-          Text('AI健康管家').fontSize(19).fontWeight(FontWeight.Bold).fontColor('#9E1025').width('100%')
-          Text('我是您的健康管家，\n有任何健康问题都可以向我提问。')
+          Text(this.tr('AI健康管家')).fontSize(19).fontWeight(FontWeight.Bold).fontColor('#9E1025').width('100%')
+          Text(this.tr('我是您的健康管家，\n有任何健康问题都可以向我提问。'))
             .fontSize(12).lineHeight(15).fontColor(INK).width('100%')
-          Button('马上提问').fontSize(14.5).fontWeight(FontWeight.Bold).height(this.controlHeight(44)).backgroundColor(RED)
+          Button(this.tr('马上提问')).fontSize(14.5).fontWeight(FontWeight.Bold).height(this.controlHeight(44)).backgroundColor(RED)
             .type(ButtonType.Capsule).width('100%').onClick(() => this.openAiChat()).id('open_ai_chat')
         }.width('64%').padding({ left: 4, right: 13, top: 7, bottom: 7 }).alignItems(HorizontalAlign.Start)
       }.width('100%').constraintSize({ minHeight: 140 }).borderRadius(20).backgroundColor('#FDF7F3')
@@ -2806,22 +2991,22 @@ struct Index {
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.person_badge_heart')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor('#E84358').borderRadius(14)
-          Text('远程关爱').fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
+          Text(this.tr('远程关爱')).fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
         }.width(this.singleColumn() ? '100%' : '25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openCare()).id('family_care')
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.book')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor('#D5A03D').borderRadius(14)
-          Text('健康百科').fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
+          Text(this.tr('健康百科')).fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
         }.width(this.singleColumn() ? '100%' : '25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openArticles()).id('health_articles')
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.exclamationmark_shield_fill')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor('#EF6E78').borderRadius(14)
-          Text('健康预警').fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
+          Text(this.tr('健康预警')).fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
         }.width(this.singleColumn() ? '100%' : '25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openHealthAlerts()).id('health_alerts')
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.bag_fill')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor('#D99C2B').borderRadius(14)
-          Text('赛电商城').fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
+          Text(this.tr('赛电商城')).fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
         }.width(this.singleColumn() ? '100%' : '25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openShop()).id('health_shop')
       }.width('100%').padding({ left: 6, right: 6, top: 10, bottom: 10 }).backgroundColor(SURFACE).borderRadius(18)
         .shadow({ radius: 9, color: CARD_SHADOW, offsetY: 3 })
@@ -2829,13 +3014,13 @@ struct Index {
       if (this.profileError) { this.Notice({ message: this.profileError, color: '#FFF0E9' }) }
       Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
         Row({ space: 7 }) {
-          Text('健康数据').fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK)
+          Text(this.tr('健康数据')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK)
           SymbolGlyph($r('sys.symbol.calendar')).fontSize(19).fontColor([MUTED])
           Text(this.todayText()).fontSize(14).fontColor(MUTED)
         }.width(this.singleColumn() ? '100%' : '68%')
         Button() {
           Row({ space: 2 }) {
-            Text('全部数据').fontSize(14).fontWeight(FontWeight.Bold).fontColor(RED)
+            Text(this.tr('全部数据')).fontSize(14).fontWeight(FontWeight.Bold).fontColor(RED)
             SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([RED])
           }
         }.width(this.singleColumn() ? '100%' : '32%').height(this.controlHeight(48)).backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(10)
@@ -2845,7 +3030,7 @@ struct Index {
       if (this.visibleWearableMetrics().length === 0) {
         Row({ space: 7 }) {
           SymbolGlyph($r('sys.symbol.watch')).fontSize(17).fontColor([BLUE])
-          Text(this.wearableSnapshot.connected ? '暂无可显示的健康数据' : '连接手表后可查看支持的健康数据')
+          Text(this.tr(this.wearableSnapshot.connected ? '暂无可显示的健康数据' : '连接手表后可查看支持的健康数据'))
             .fontSize(15).fontWeight(FontWeight.Medium).fontColor(BLUE).textAlign(TextAlign.Center).layoutWeight(1)
         }.width('100%').padding({ left: 10, right: 10, top: 12, bottom: 12 }).backgroundColor(BLUE_SOFT)
           .borderRadius(10).border({ width: 1, color: '#3D2467A6' })
@@ -2857,9 +3042,9 @@ struct Index {
               Row({ space: 6 }) {
                 Column() { this.WearableMetricIcon(metric.key) }
                   .width(30).height(30).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(15)
-                Text(metric.title).fontSize(15).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).maxLines(2)
+                Text(this.tr(metric.title)).fontSize(15).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).maxLines(2)
                 if (this.wearableMetricRecords(metric.key).length > 0) {
-                  Text('已记录').fontSize(11).fontWeight(FontWeight.Bold).fontColor(GREEN)
+                  Text(this.tr('已记录')).fontSize(11).fontWeight(FontWeight.Bold).fontColor(GREEN)
                     .padding({ left: 7, right: 7, top: 2, bottom: 2 }).backgroundColor('#E7F7E6').borderRadius(9)
                 }
               }.width('100%')
@@ -2879,20 +3064,20 @@ struct Index {
         }.width('100%')
       }
 
-      Text('运动与记录').fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({ top: 6 })
+      Text(this.tr('运动与记录')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({ top: 6 })
       Column() {
         Row({ space: 10 }) {
           Column() { SymbolGlyph($r('sys.symbol.clock_arrow_2_circlepath')).fontSize(20).fontColor([RED]) }
             .width(34).height(34).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(11)
           Column({ space: 3 }) {
-            Text('运动记录').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text(this.tr('运动记录')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
             Text(this.wearableSnapshot.connected ? this.wearableLatest('sport') : '查看已保存的运动记录')
               .fontSize(13).fontColor(MUTED).width('100%').maxLines(2)
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([RED])
         }.width('100%').constraintSize({ minHeight: 72 }).padding({ left: 12, right: 12, top: 10, bottom: 10 })
           .backgroundColor(RED_SOFT).borderRadius(17).onClick(() => this.openSportRecords())
-          .accessibilityText('查看运动记录')
+          .accessibilityText(this.tr('查看运动记录'))
       }.width('100%').padding({ left: 14, right: 14, top: 14, bottom: 12 }).backgroundColor(SURFACE)
         .borderRadius(22).border({ width: 1, color: '#18D20B27' }).shadow({ radius: 12, color: CARD_SHADOW, offsetY: 4 })
       this.Notice({ message: '测量结果仅供健康管理参考，如有不适请咨询专业医务人员。', color: GREEN_SOFT })
@@ -2904,11 +3089,11 @@ struct Index {
     Row({ space: 10 }) {
       Column() { SymbolGlyph($$.icon).fontSize(23).fontColor([$$.color]) }
         .width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor($$.background).borderRadius(13)
-      Text($$.title).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+      Text(this.tr($$.title)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
     }.width(this.singleColumn() ? '100%' : '48%').constraintSize({ minHeight: 78 }).padding(12).margin({ bottom: 12 })
       .backgroundColor(SURFACE).borderRadius(16).border({ width: 1, color: LINE })
       .enabled(!this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive()).onClick(() => $$.action())
-      .id($$.id).accessibilityText($$.title)
+      .id($$.id).accessibilityText(this.tr($$.title))
   }
 
   @Builder
@@ -2920,25 +3105,25 @@ struct Index {
             Column() {
               SymbolGlyph($r('sys.symbol.watch_fill')).fontSize(31).fontColor([Color.White])
             }.width(56).height(56).justifyContent(FlexAlign.Center).backgroundColor('#171B2B').borderRadius(28)
-              .accessibilityText('已连接手表')
+              .accessibilityText(this.tr('已连接手表'))
             Column({ space: 5 }) {
-              Text(this.wearableSnapshot.deviceName).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK)
+              Text(this.tr(this.wearableSnapshot.deviceName)).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK)
                 .width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text(this.wearableSnapshot.mac ? `MAC · ${this.wearableSnapshot.mac}` : '设备标识暂不可用')
+              Text(this.tr(this.wearableSnapshot.mac ? `MAC · ${this.wearableSnapshot.mac}` : '设备标识暂不可用'))
                 .fontSize(13).fontColor(MUTED).width('100%').maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
               Row({ space: 6 }) {
-                Text(this.wearableSnapshot.provider === 'Yuc' ? 'W8' : 'Vep').fontSize(12).fontWeight(FontWeight.Bold)
+                Text(this.tr(this.wearableSnapshot.provider === 'Yuc' ? 'W8' : 'Vep')).fontSize(12).fontWeight(FontWeight.Bold)
                   .fontColor(this.wearableSnapshot.provider === 'Yuc' ? GREEN : BLUE)
                   .padding({ left: 8, right: 8, top: 3, bottom: 3 })
                   .backgroundColor(this.wearableSnapshot.provider === 'Yuc' ? GREEN_SOFT : BLUE_SOFT).borderRadius(10)
-                Text('已连接').fontSize(13).fontColor(GREEN).layoutWeight(1).maxLines(1)
+                Text(this.tr('已连接')).fontSize(13).fontColor(GREEN).layoutWeight(1).maxLines(1)
               }.width('100%')
             }.layoutWeight(1).alignItems(HorizontalAlign.Start)
             Column({ space: 3 }) {
               Text(batteryText(this.wearableSnapshot.battery)).fontSize(15).fontWeight(FontWeight.Bold)
                 .fontColor(this.wearableSnapshot.battery.lowBattery ? RED : GREEN)
-              Text('电量').fontSize(11).fontColor(MUTED)
+              Text(this.tr('电量')).fontSize(11).fontColor(MUTED)
             }.alignItems(HorizontalAlign.End)
           }.width('100%').alignItems(VerticalAlign.Center)
           Text(this.wearableSyncTime()).fontSize(13).fontColor(GREEN).width('100%').maxLines(1)
@@ -2946,12 +3131,12 @@ struct Index {
           Text(`型号 ${wearableModelText(this.wearableSnapshot.model, this.wearableSnapshot.deviceName)} · 固件 ${this.wearableSnapshot.firmware || '未知'}`)
             .fontSize(13).fontColor(MUTED).width('100%').maxLines(2)
           Row({ space: 10 }) {
-            Button(this.wearablePhase === 'syncing' ? '正在同步…' : '同步数据').layoutWeight(1)
+            Button(this.tr(this.wearablePhase === 'syncing' ? '正在同步…' : '同步数据')).layoutWeight(1)
               .constraintSize({ minHeight: 48 }).backgroundColor(RED)
               .type(ButtonType.Normal).borderRadius(14)
               .enabled(!this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
               .onClick(() => vepWearable.syncHistory()).id('wearable_sync')
-            Button('断开连接').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(INK)
+            Button(this.tr('断开连接')).layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(INK)
               .backgroundColor(SURFACE).type(ButtonType.Normal).borderRadius(14).border({ width: 1, color: LINE })
               .enabled(!this.wearableBusy() && !this.sportActive()).onClick(() => vepWearable.disconnect()).id('wearable_disconnect')
           }.width('100%')
@@ -2963,7 +3148,7 @@ struct Index {
           color: this.wearablePhase === 'error' || this.wearablePhase === 'permission' ? '#FFF0E9' : GREEN_SOFT })
 
         if (this.wearableSnapshot.capabilities.dial || this.wearableSnapshot.capabilities.photoDial) {
-          Text('表盘与个性化').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text(this.tr('表盘与个性化')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
           Column({ space: 0 }) {
             if (this.wearableSnapshot.capabilities.dial) {
               Row({ space: 12 }) {
@@ -2971,13 +3156,13 @@ struct Index {
                   SymbolGlyph($r('sys.symbol.watch_badge_card')).fontSize(25).fontColor([RED])
                 }.width(46).height(46).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(14)
                 Column({ space: 3 }) {
-                  Text('表盘中心').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-                  Text('查看并切换手表内表盘').fontSize(13).fontColor(MUTED).width('100%')
+                  Text(this.tr('表盘中心')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                  Text(this.tr('查看并切换手表内表盘')).fontSize(13).fontColor(MUTED).width('100%')
                 }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                 SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
               }.width('100%').constraintSize({ minHeight: 76 }).padding({ left: 13, right: 13, top: 11, bottom: 11 })
                 .enabled(!this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
-                .onClick(() => this.openDials()).id('wearable_read_dials').accessibilityText('表盘中心')
+                .onClick(() => this.openDials()).id('wearable_read_dials').accessibilityText(this.tr('表盘中心'))
             }
             if (this.wearableSnapshot.capabilities.dial && this.wearableSnapshot.capabilities.photoDial) {
               Divider().color(LINE).margin({ left: 58 })
@@ -2987,20 +3172,20 @@ struct Index {
                 Column() { SymbolGlyph($r('sys.symbol.camera_fill')).fontSize(25).fontColor([BLUE]) }
                   .width(46).height(46).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(14)
                 Column({ space: 3 }) {
-                  Text('照片表盘').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-                  Text('选择照片并按手表尺寸制作').fontSize(13).fontColor(MUTED).width('100%')
+                  Text(this.tr('照片表盘')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                  Text(this.tr('选择照片并按手表尺寸制作')).fontSize(13).fontColor(MUTED).width('100%')
                 }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                 SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
               }.width('100%').constraintSize({ minHeight: 76 }).padding({ left: 13, right: 13, top: 11, bottom: 11 })
                 .enabled(!this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
-                .onClick(() => this.openDeviceFeature('photoDial')).id('wearable_photo_dial').accessibilityText('照片表盘')
+                .onClick(() => this.openDeviceFeature('photoDial')).id('wearable_photo_dial').accessibilityText(this.tr('照片表盘'))
             }
           }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
         }
 
         if (visibleWatchDeviceFeatures(this.wearableSnapshot.capabilities)
           .filter((item: WatchDeviceFeatureSpec) => item.key !== 'photoDial').length > 0) {
-          Text('常用功能').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text(this.tr('常用功能')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
           Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
             ForEach(visibleWatchDeviceFeatures(this.wearableSnapshot.capabilities)
               .filter((item: WatchDeviceFeatureSpec) => item.key !== 'photoDial'), (feature: WatchDeviceFeatureSpec) => {
@@ -3010,7 +3195,7 @@ struct Index {
           }.width('100%')
         }
 
-        Text('设备功能').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(this.tr('设备功能')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
         Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
           this.DeviceAction({ title: '同步时间', icon: $r('sys.symbol.clock_arrow_2_circlepath'), color: RED, background: RED_SOFT,
             action: () => vepWearable.syncTime(), id: 'wearable_sync_time' })
@@ -3030,7 +3215,7 @@ struct Index {
               SymbolGlyph($r('sys.symbol.info_circle')).fontSize(22).fontColor([BLUE])
             }.width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(13)
             Column({ space: 3 }) {
-              Text('关于设备').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+              Text(this.tr('关于设备')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
             }.layoutWeight(1).alignItems(HorizontalAlign.Start)
             SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
           }.width('100%').constraintSize({ minHeight: 66 }).padding({ left: 12, right: 12, top: 9, bottom: 9 })
@@ -3042,7 +3227,7 @@ struct Index {
               SymbolGlyph($r('sys.symbol.questionmark_circle')).fontSize(22).fontColor(['#C98716'])
             }.width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor(GOLD_SOFT).borderRadius(13)
             Column({ space: 3 }) {
-              Text('连接说明').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+              Text(this.tr('连接说明')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
             }.layoutWeight(1).alignItems(HorizontalAlign.Start)
             SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
           }.width('100%').constraintSize({ minHeight: 66 }).padding({ left: 12, right: 12, top: 9, bottom: 9 })
@@ -3054,10 +3239,10 @@ struct Index {
           Column() {
             SymbolGlyph($r('sys.symbol.watch')).fontSize(62).fontColor([TECH_BLUE])
           }.width(118).height(118).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(59)
-          Text('添加智能设备').fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK)
-          Text('请开启手机蓝牙并将手表靠近手机').fontSize(13).fontColor(MUTED)
+          Text(this.tr('添加智能设备')).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK)
+          Text(this.tr('请开启手机蓝牙并将手表靠近手机')).fontSize(13).fontColor(MUTED)
             .textAlign(TextAlign.Center).lineHeight(20)
-          Button('开始查找').width('100%').constraintSize({ minHeight: 50 }).backgroundColor(RED)
+          Button(this.tr('开始查找')).width('100%').constraintSize({ minHeight: 50 }).backgroundColor(RED)
             .type(ButtonType.Normal).borderRadius(14).enabled(!this.wearableBusy())
             .onClick(() => this.openDeviceSearch()).id('wearable_scan')
         }.width('100%').padding({ left: 24, right: 24, top: 28, bottom: 24 }).backgroundColor(SURFACE)
@@ -3068,8 +3253,8 @@ struct Index {
             SymbolGlyph($r('sys.symbol.questionmark_circle')).fontSize(22).fontColor([BLUE])
           }.width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(13)
           Column({ space: 3 }) {
-            Text('连接说明').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-            Text('手表保持亮屏、靠近手机，并确认未被其他手机占用').fontSize(13).fontColor(MUTED)
+            Text(this.tr('连接说明')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text(this.tr('手表保持亮屏、靠近手机，并确认未被其他手机占用')).fontSize(13).fontColor(MUTED)
               .width('100%').maxLines(2)
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
@@ -3085,13 +3270,13 @@ struct Index {
   InstalledDialAction($$: DialRowProps) {
     if ($$.dial.selected) {
       Row() { SymbolGlyph($r('sys.symbol.checkmark_circle_fill')).fontSize(24).fontColor([GREEN]) }
-        .width(48).height(this.controlHeight()).justifyContent(FlexAlign.Center).accessibilityText('当前使用')
+        .width(48).height(this.controlHeight()).justifyContent(FlexAlign.Center).accessibilityText(this.tr('当前使用'))
     } else {
-      Button('使用').constraintSize({ minWidth: 48 }).height(this.controlHeight()).fontSize(16).fontColor(RED)
+      Button(this.tr('使用')).constraintSize({ minWidth: 48 }).height(this.controlHeight()).fontSize(16).fontColor(RED)
         .backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12)
         .enabled(!this.dialBusy && !this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
         .onClick(() => this.selectExistingDial($$.dial)).id(`dial_select_${$$.index}`)
-        .accessibilityText(`使用表盘 ${$$.index + 1}`)
+        .accessibilityText(this.tr(`使用表盘 ${$$.index + 1}`))
     }
   }
 
@@ -3100,13 +3285,13 @@ struct Index {
     Column({ space: 4 }) {
       Row({ space: 14 }) {
         Column() {
-          Text('预览\n暂不可用').fontSize(11).fontWeight(FontWeight.Medium).fontColor(MUTED).textAlign(TextAlign.Center)
+          Text(this.tr('预览\n暂不可用')).fontSize(11).fontWeight(FontWeight.Medium).fontColor(MUTED).textAlign(TextAlign.Center)
         }.width(Math.max(62, 44 * this.systemFontScale)).height(Math.max(62, 44 * this.systemFontScale))
           .justifyContent(FlexAlign.Center).backgroundColor('#F0F2F5').borderRadius(17)
-          .accessibilityText(`表盘 ${$$.index + 1} 预览暂不可用`)
+          .accessibilityText(this.tr(`表盘 ${$$.index + 1} 预览暂不可用`))
         Column({ space: 4 }) {
-          Text(`表盘 ${$$.index + 1}`).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-          Text($$.dial.selected ? '当前使用' : '已安装').fontSize(14).fontColor($$.dial.selected ? GREEN : MUTED).width('100%')
+          Text(this.tr(`表盘 ${$$.index + 1}`)).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text(this.tr($$.dial.selected ? '当前使用' : '已安装')).fontSize(14).fontColor($$.dial.selected ? GREEN : MUTED).width('100%')
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         if (!this.singleColumn()) { this.InstalledDialAction({ dial: $$.dial, index: $$.index }) }
       }.width('100%').constraintSize({ minHeight: 72 })
@@ -3121,7 +3306,7 @@ struct Index {
   InstalledDialsContent() {
     if (!this.wearableSnapshot.connected) {
       this.StateCard({ title: '手表已断开', detail: '连接手表后可查看和切换表盘。', icon: $r('sys.symbol.watch') })
-      Button('添加设备').width('100%').height(this.controlHeight()).backgroundColor(RED)
+      Button(this.tr('添加设备')).width('100%').height(this.controlHeight()).backgroundColor(RED)
         .onClick(() => this.openDeviceSearch()).id('dials_connect')
     } else if (!this.wearableSnapshot.capabilities.dial) {
       this.StateCard({ title: '当前手表不支持此功能', icon: $r('sys.symbol.watch') })
@@ -3129,12 +3314,12 @@ struct Index {
       Row({ space: 14 }) {
         SymbolGlyph($r('sys.symbol.info_circle')).fontSize(26).fontColor([RED])
         Column({ space: 4 }) {
-          Text('已安装表盘').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-          Text(this.wearableSnapshot.deviceName).fontSize(14).fontColor(MUTED).width('100%')
-          Text('可切换手表内已有表盘').fontSize(14).fontColor(MUTED).width('100%')
+          Text(this.tr('已安装表盘')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text(this.tr(this.wearableSnapshot.deviceName)).fontSize(14).fontColor(MUTED).width('100%')
+          Text(this.tr('可切换手表内已有表盘')).fontSize(14).fontColor(MUTED).width('100%')
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
-      Text('手表中的表盘').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      Text(this.tr('手表中的表盘')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
       if (this.dialBusy) { LoadingProgress().width(32).height(32).color(RED) }
       if (this.dialMessage) { this.Notice({ message: this.dialMessage }) }
       if (!this.dialBusy && this.wearableSnapshot.dials.length === 0) {
@@ -3150,11 +3335,11 @@ struct Index {
           }, (dial: WearableDial, index: number) => dialRenderKey(dial, index))
         }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
       }
-      Button(this.dialBusy ? '读取中…' : '刷新手表表盘').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED)
+      Button(this.tr(this.dialBusy ? '读取中…' : '刷新手表表盘')).width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED)
         .backgroundColor(Color.Transparent).enabled(!this.dialBusy && !this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
         .onClick(() => this.refreshDials()).id('dials_refresh')
       if (this.wearableSnapshot.originalDialKey && this.wearableSnapshot.currentDialKey !== this.wearableSnapshot.originalDialKey) {
-        Button('恢复原表盘').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
+        Button(this.tr('恢复原表盘')).width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
           .enabled(!this.dialBusy && !this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
           .onClick(() => vepWearable.restoreOriginalDial()).id('wearable_restore_dial')
       }
@@ -3183,17 +3368,17 @@ struct Index {
             this.Notice({ message: `将按手表实际分辨率 ${this.watchPhotoDial.width} × ${this.watchPhotoDial.height} 制作，传输时请保持设备靠近。` })
             if (this.photoDialUri) {
               Image(this.photoDialUri).width('100%').height(260).objectFit(ImageFit.Contain).backgroundColor('#111318')
-                .borderRadius(18).accessibilityText('已选择的照片表盘预览')
+                .borderRadius(18).accessibilityText(this.tr('已选择的照片表盘预览'))
             }
-            Button(this.photoDialUri ? '重新选择照片' : '选择照片').width('100%').height(this.controlHeight(56))
+            Button(this.tr(this.photoDialUri ? '重新选择照片' : '选择照片')).width('100%').height(this.controlHeight(56))
               .fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).backgroundColor(SURFACE)
               .type(ButtonType.Normal).borderRadius(14).border({ width: 1, color: OUTLINE })
               .enabled(!this.deviceFeatureBusy).onClick(() => this.pickPhotoDial()).id('photo_dial_pick')
             if (this.photoDialProgress > 0) {
               Progress({ value: this.photoDialProgress, total: 100, type: ProgressType.Linear }).width('100%').color(RED)
-              Text(`安装进度 ${this.photoDialProgress}%`).fontSize(15).fontColor(MUTED).width('100%').textAlign(TextAlign.Center)
+              Text(this.tr(`安装进度 ${this.photoDialProgress}%`)).fontSize(15).fontColor(MUTED).width('100%').textAlign(TextAlign.Center)
             }
-            Button(this.deviceFeatureWriting ? '正在安装…' : '安装到手表').width('100%').height(this.controlHeight(56))
+            Button(this.tr(this.deviceFeatureWriting ? '正在安装…' : '安装到手表')).width('100%').height(this.controlHeight(56))
               .fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(14)
               .enabled(!this.deviceFeatureBusy && this.photoDialUri.length > 0).onClick(() => this.installPhotoDial())
               .id('photo_dial_install')
@@ -3206,30 +3391,30 @@ struct Index {
           Column() {
             SymbolGlyph($r('sys.symbol.camera_fill')).fontSize(62).fontColor([this.cameraRemoteEnabled ? RED : MUTED])
           }.width('100%').height(220).justifyContent(FlexAlign.Center).backgroundColor('#EEF1F5').borderRadius(18)
-          Text(this.cameraRemoteMessage || '相机遥控尚未开启').fontSize(16).fontColor(INK).width('100%').textAlign(TextAlign.Center)
-          Button(this.cameraRemoteEnabled ? '关闭相机遥控' : '开启相机遥控').width('100%').height(this.controlHeight(56))
+          Text(this.tr(this.cameraRemoteMessage || '相机遥控尚未开启')).fontSize(16).fontColor(INK).width('100%').textAlign(TextAlign.Center)
+          Button(this.tr(this.cameraRemoteEnabled ? '关闭相机遥控' : '开启相机遥控')).width('100%').height(this.controlHeight(56))
             .fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.cameraRemoteEnabled ? RED : Color.White)
             .backgroundColor(this.cameraRemoteEnabled ? RED_SOFT : RED).type(ButtonType.Normal).borderRadius(14)
             .enabled(!this.deviceFeatureBusy).onClick(() => this.setCameraRemote(!this.cameraRemoteEnabled)).id('camera_remote_toggle')
         } else if (this.selectedDeviceFeature === 'phoneCalls') {
           Column({ space: 12 }) {
-            Text(this.watchPhoneState.connected ? '蓝牙通话已连接' : '蓝牙通话未连接').fontSize(20).fontWeight(FontWeight.Bold)
+            Text(this.tr(this.watchPhoneState.connected ? '蓝牙通话已连接' : '蓝牙通话未连接')).fontSize(20).fontWeight(FontWeight.Bold)
               .fontColor(this.watchPhoneState.connected ? GREEN : INK).width('100%')
-            Text(`手表通话开关：${this.watchPhoneState.enabled ? '开启' : '关闭'}`).fontSize(16).fontColor(INK).width('100%')
-            Text(`设备配对状态：${this.watchPhoneState.paired ? '已配对' : '未配对'}`).fontSize(16).fontColor(INK).width('100%')
-            Text(`媒体音频：${this.watchPhoneState.multimediaEnabled ? '开启' : '关闭'}`).fontSize(16).fontColor(INK).width('100%')
+            Text(this.tr(`手表通话开关：${this.watchPhoneState.enabled ? '开启' : '关闭'}`)).fontSize(16).fontColor(INK).width('100%')
+            Text(this.tr(`设备配对状态：${this.watchPhoneState.paired ? '已配对' : '未配对'}`)).fontSize(16).fontColor(INK).width('100%')
+            Text(this.tr(`媒体音频：${this.watchPhoneState.multimediaEnabled ? '开启' : '关闭'}`)).fontSize(16).fontColor(INK).width('100%')
           }.width('100%').padding(18).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
-          Button(this.watchPhoneState.connected ? '重新读取连接状态' : '连接手表通话蓝牙').width('100%').height(this.controlHeight(56))
+          Button(this.tr(this.watchPhoneState.connected ? '重新读取连接状态' : '连接手表通话蓝牙')).width('100%').height(this.controlHeight(56))
             .fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(14)
             .enabled(!this.deviceFeatureBusy).onClick(() => this.watchPhoneState.connected ? this.refreshDeviceFeature() : this.connectWatchPhone())
             .id('watch_phone_connect')
         } else if (this.selectedDeviceFeature === 'contacts') {
           Column({ space: 12 }) {
-            Text(this.watchContactDraft.id > 0 ? '编辑联系人' : '添加联系人').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-            TextInput({ text: this.watchContactDraft.name, placeholder: '姓名' }).height(this.controlHeight(52)).fontSize(17).maxLength(20)
+            Text(this.tr(this.watchContactDraft.id > 0 ? '编辑联系人' : '添加联系人')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            TextInput({ text: this.watchContactDraft.name, placeholder: this.tr('姓名') }).height(this.controlHeight(52)).fontSize(17).maxLength(20)
               .backgroundColor(SURFACE_ALT).borderRadius(12).enabled(!this.deviceFeatureBusy)
               .onChange((value: string) => this.changeContactDraft('name', value)).id('watch_contact_name')
-            TextInput({ text: this.watchContactDraft.phone, placeholder: '电话号码' }).height(this.controlHeight(52)).fontSize(17)
+            TextInput({ text: this.watchContactDraft.phone, placeholder: this.tr('电话号码') }).height(this.controlHeight(52)).fontSize(17)
               .type(InputType.PhoneNumber).maxLength(20).backgroundColor(SURFACE_ALT).borderRadius(12).enabled(!this.deviceFeatureBusy)
               .onChange((value: string) => this.changeContactDraft('phone', value)).id('watch_contact_phone')
             if (watchContactError(this.watchContactDraft) && (this.watchContactDraft.name || this.watchContactDraft.phone)) {
@@ -3237,10 +3422,10 @@ struct Index {
             }
             Row({ space: 10 }) {
               if (this.watchContactDraft.id > 0) {
-                Button('取消编辑').layoutWeight(1).height(this.controlHeight()).fontSize(16).fontColor(INK).backgroundColor(SURFACE_ALT)
+                Button(this.tr('取消编辑')).layoutWeight(1).height(this.controlHeight()).fontSize(16).fontColor(INK).backgroundColor(SURFACE_ALT)
                   .enabled(!this.deviceFeatureBusy).onClick(() => this.editWatchContact()).id('watch_contact_cancel')
               }
-              Button(this.watchContactDraft.id > 0 ? '保存修改' : '添加到手表').layoutWeight(1).height(this.controlHeight())
+              Button(this.tr(this.watchContactDraft.id > 0 ? '保存修改' : '添加到手表')).layoutWeight(1).height(this.controlHeight())
                 .fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED).enabled(!this.deviceFeatureBusy && !watchContactError(this.watchContactDraft))
                 .onClick(() => this.saveWatchContact()).id('watch_contact_save')
             }.width('100%')
@@ -3255,22 +3440,22 @@ struct Index {
                   .width(46).height(46).justifyContent(FlexAlign.Center).backgroundColor(contact.sos ? RED_SOFT : BLUE_SOFT).borderRadius(23)
                 Column({ space: 4 }) {
                   Row({ space: 7 }) {
-                    Text(contact.name).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(1)
+                    Text(this.tr(contact.name)).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(1)
                     if (contact.sos) {
-                      Text('当前 SOS').fontSize(12).fontWeight(FontWeight.Bold).fontColor(RED)
+                      Text(this.tr('当前 SOS')).fontSize(12).fontWeight(FontWeight.Bold).fontColor(RED)
                         .padding({ left: 7, right: 7, top: 3, bottom: 3 }).backgroundColor(RED_SOFT).borderRadius(10)
                     }
                   }.width('100%')
-                  Text(contact.phone).fontSize(15).fontColor(MUTED).width('100%')
+                  Text(this.tr(contact.phone)).fontSize(15).fontColor(MUTED).width('100%')
                 }.layoutWeight(1).alignItems(HorizontalAlign.Start)
               }.width('100%')
               Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
-                Button('编辑').width(this.singleColumn() ? '100%' : '31%').height(this.controlHeight()).fontColor(INK).backgroundColor(SURFACE_ALT)
+                Button(this.tr('编辑')).width(this.singleColumn() ? '100%' : '31%').height(this.controlHeight()).fontColor(INK).backgroundColor(SURFACE_ALT)
                   .enabled(!this.deviceFeatureBusy).onClick(() => this.editWatchContact(contact)).id(`watch_contact_edit_${contact.id}`)
-                Button(contact.sos ? '已是 SOS' : '设为 SOS').width(this.singleColumn() ? '100%' : '36%').height(this.controlHeight())
+                Button(this.tr(contact.sos ? '已是 SOS' : '设为 SOS')).width(this.singleColumn() ? '100%' : '36%').height(this.controlHeight())
                   .fontColor(contact.sos ? GREEN : RED).backgroundColor(contact.sos ? GREEN_SOFT : RED_SOFT)
                   .enabled(!this.deviceFeatureBusy && !contact.sos).onClick(() => this.setWatchSos(contact)).id(`watch_contact_sos_${contact.id}`)
-                Button('删除').width(this.singleColumn() ? '100%' : '27%').height(this.controlHeight()).fontColor(RED)
+                Button(this.tr('删除')).width(this.singleColumn() ? '100%' : '27%').height(this.controlHeight()).fontColor(RED)
                   .backgroundColor(Color.Transparent).enabled(!this.deviceFeatureBusy).onClick(() => this.deleteWatchContact(contact))
                   .id(`watch_contact_delete_${contact.id}`)
               }.width('100%')
@@ -3283,10 +3468,10 @@ struct Index {
           Column() {
             ForEach(this.watchNotifications, (item: WatchNotificationSetting, index: number) => {
               Row({ space: 12 }) {
-                Text(item.label).fontSize(17).fontWeight(FontWeight.Medium).fontColor(INK).layoutWeight(1)
+                Text(this.tr(item.label)).fontSize(17).fontWeight(FontWeight.Medium).fontColor(INK).layoutWeight(1)
                 Toggle({ type: ToggleType.Switch, isOn: item.enabled }).selectedColor(RED).enabled(!this.deviceFeatureBusy)
                   .onChange((enabled: boolean) => this.setWatchNotification(item, enabled))
-                  .accessibilityText(`${item.label}${item.enabled ? '已开启' : '已关闭'}`).id(`watch_notification_${item.key}`)
+                  .accessibilityText(this.tr(`${item.label}${item.enabled ? '已开启' : '已关闭'}`)).id(`watch_notification_${item.key}`)
               }.width('100%').constraintSize({ minHeight: 62 }).padding({ left: 16, right: 12 })
               if (index < this.watchNotifications.length - 1) { Divider().color(LINE).margin({ left: 16 }) }
             }, (item: WatchNotificationSetting) => `${item.key}-${item.enabled}`)
@@ -3295,20 +3480,20 @@ struct Index {
           Column({ space: 8 }) {
             Row() {
               Column({ space: 4 }) {
-                Text('手表天气').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-                Text('开启后同步天气信息到手表').fontSize(14).fontColor(MUTED).width('100%')
+                Text(this.tr('手表天气')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                Text(this.tr('开启后同步天气信息到手表')).fontSize(14).fontColor(MUTED).width('100%')
               }.layoutWeight(1).alignItems(HorizontalAlign.Start)
               Toggle({ type: ToggleType.Switch, isOn: this.watchWeather.enabled }).selectedColor(RED)
                 .enabled(!this.deviceFeatureBusy).onChange((enabled: boolean) => this.saveWatchWeather(enabled, this.watchWeather.celsius))
                 .id('watch_weather_enabled')
             }.width('100%').constraintSize({ minHeight: 68 }).padding(16)
             Divider().color(LINE)
-            Text('温度单位').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').padding({ left: 16, right: 16, top: 8 })
+            Text(this.tr('温度单位')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').padding({ left: 16, right: 16, top: 8 })
             Row({ space: 10 }) {
-              Button('摄氏度 ℃').layoutWeight(1).height(this.controlHeight()).fontColor(this.watchWeather.celsius ? RED : INK)
+              Button(this.tr('摄氏度 ℃')).layoutWeight(1).height(this.controlHeight()).fontColor(this.watchWeather.celsius ? RED : INK)
                 .backgroundColor(this.watchWeather.celsius ? RED_SOFT : SURFACE_ALT).enabled(!this.deviceFeatureBusy)
                 .onClick(() => this.saveWatchWeather(this.watchWeather.enabled, true)).id('watch_weather_celsius')
-              Button('华氏度 ℉').layoutWeight(1).height(this.controlHeight()).fontColor(!this.watchWeather.celsius ? RED : INK)
+              Button(this.tr('华氏度 ℉')).layoutWeight(1).height(this.controlHeight()).fontColor(!this.watchWeather.celsius ? RED : INK)
                 .backgroundColor(!this.watchWeather.celsius ? RED_SOFT : SURFACE_ALT).enabled(!this.deviceFeatureBusy)
                 .onClick(() => this.saveWatchWeather(this.watchWeather.enabled, false)).id('watch_weather_fahrenheit')
             }.width('100%').padding({ left: 16, right: 16, bottom: 16 })
@@ -3320,14 +3505,14 @@ struct Index {
           ForEach(this.watchWorldClocks, (clock: WatchWorldClock) => {
             Row({ space: 12 }) {
               Column({ space: 4 }) {
-                Text(clock.city).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                Text(this.tr(clock.city)).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
                 Text(this.watchWorldClockOffset(clock.utcOffsetMinutes)).fontSize(14).fontColor(MUTED).width('100%')
               }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-              Button('删除').height(this.controlHeight()).fontColor(RED).backgroundColor(RED_SOFT).enabled(!this.deviceFeatureBusy)
+              Button(this.tr('删除')).height(this.controlHeight()).fontColor(RED).backgroundColor(RED_SOFT).enabled(!this.deviceFeatureBusy)
                 .onClick(() => this.deleteWatchWorldClock(clock)).id(`watch_clock_delete_${clock.id}`)
             }.width('100%').constraintSize({ minHeight: 74 }).padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
           }, (clock: WatchWorldClock) => `${clock.id}-${clock.city}-${clock.utcOffsetMinutes}`)
-          Text('添加城市').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text(this.tr('添加城市')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
           Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
             ForEach(this.worldClockPresets, (preset: WorldClockPreset) => {
               Button(`${preset.city}\n${this.watchWorldClockOffset(preset.utcOffsetMinutes)}`).width(this.singleColumn() ? '100%' : '48%')
@@ -3345,18 +3530,18 @@ struct Index {
             Column({ space: 12 }) {
               Row() {
                 Column({ space: 4 }) {
-                  Text(item.label).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-                  Text(`${item.startTime} - ${item.endTime}`).fontSize(14).fontColor(MUTED).width('100%')
+                  Text(this.tr(item.label)).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                  Text(this.tr(`${item.startTime} - ${item.endTime}`)).fontSize(14).fontColor(MUTED).width('100%')
                 }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                 Toggle({ type: ToggleType.Switch, isOn: item.enabled }).selectedColor(RED).enabled(!this.deviceFeatureBusy)
                   .onChange((enabled: boolean) => this.setWatchReminder(item, enabled)).id(`watch_reminder_toggle_${item.id}`)
               }.width('100%')
               Row({ space: 10 }) {
-                Button('−').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                Button(this.tr('−')).width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
                   .enabled(!this.deviceFeatureBusy && item.intervalMinutes > 15)
                   .onClick(() => this.setWatchReminder(item, item.enabled, -15)).id(`watch_reminder_less_${item.id}`)
-                Text(`每 ${item.intervalMinutes} 分钟`).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).textAlign(TextAlign.Center)
-                Button('+').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                Text(this.tr(`每 ${item.intervalMinutes} 分钟`)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).textAlign(TextAlign.Center)
+                Button(this.tr('+')).width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
                   .enabled(!this.deviceFeatureBusy && item.intervalMinutes < 240)
                   .onClick(() => this.setWatchReminder(item, item.enabled, 15)).id(`watch_reminder_more_${item.id}`)
               }.width('100%')
@@ -3371,8 +3556,8 @@ struct Index {
             Column({ space: 12 }) {
               Row() {
                 Column({ space: 4 }) {
-                  Text(item.label).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-                  Text(item.timeSlotModifiable ? `${item.startTime} - ${item.endTime}` : '全天按手表规则监测')
+                  Text(this.tr(item.label)).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                  Text(this.tr(item.timeSlotModifiable ? `${item.startTime} - ${item.endTime}` : '全天按手表规则监测'))
                     .fontSize(14).fontColor(MUTED).width('100%')
                 }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                 Toggle({ type: ToggleType.Switch, isOn: item.enabled }).selectedColor(RED).enabled(!this.deviceFeatureBusy)
@@ -3380,16 +3565,16 @@ struct Index {
               }.width('100%')
               if (item.intervalModifiable) {
                 Row({ space: 10 }) {
-                  Button('−').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                  Button(this.tr('−')).width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
                     .enabled(!this.deviceFeatureBusy && item.intervalMinutes > item.minimumIntervalMinutes)
                     .onClick(() => this.setWatchAutoMeasure(item, item.enabled, -1)).id(`watch_auto_less_${item.feature}`)
-                  Text(`每 ${item.intervalMinutes} 分钟`).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).textAlign(TextAlign.Center)
-                  Button('+').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                  Text(this.tr(`每 ${item.intervalMinutes} 分钟`)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).textAlign(TextAlign.Center)
+                  Button(this.tr('+')).width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
                     .enabled(!this.deviceFeatureBusy && item.intervalMinutes < 1440)
                     .onClick(() => this.setWatchAutoMeasure(item, item.enabled, 1)).id(`watch_auto_more_${item.feature}`)
                 }.width('100%')
               } else {
-                Text(`监测间隔由手表固定为 ${item.intervalMinutes} 分钟`).fontSize(14).fontColor(MUTED).width('100%')
+                Text(this.tr(`监测间隔由手表固定为 ${item.intervalMinutes} 分钟`)).fontSize(14).fontColor(MUTED).width('100%')
               }
             }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
           }, (item: WatchAutoMeasureSetting) => `${item.feature}-${item.enabled}-${item.intervalMinutes}`)
@@ -3400,7 +3585,7 @@ struct Index {
           Column() {
             ForEach(this.watchAssessments, (item: WatchAssessmentSetting, index: number) => {
               Row({ space: 12 }) {
-                Text(item.label).fontSize(17).fontWeight(FontWeight.Medium).fontColor(INK).layoutWeight(1)
+                Text(this.tr(item.label)).fontSize(17).fontWeight(FontWeight.Medium).fontColor(INK).layoutWeight(1)
                 Toggle({ type: ToggleType.Switch, isOn: item.enabled }).selectedColor(RED).enabled(!this.deviceFeatureBusy)
                   .onChange((enabled: boolean) => this.setWatchAssessment(item, enabled)).id(`watch_assessment_${item.dataType}`)
               }.width('100%').constraintSize({ minHeight: 62 }).padding({ left: 16, right: 12 })
@@ -3410,15 +3595,15 @@ struct Index {
         } else if (this.selectedDeviceFeature === 'screenDisplay') {
           if (this.watchScreen.durationSupported) {
             Column({ space: 12 }) {
-              Text('亮屏时长').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+              Text(this.tr('亮屏时长')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
               Row({ space: 10 }) {
-                Button('−').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                Button(this.tr('−')).width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
                   .enabled(!this.deviceFeatureBusy && this.watchScreen.durationSeconds > 1)
                   .onClick(() => this.saveWatchScreen(this.nextWatchScreen(
                     Math.max(1, this.watchScreen.durationSeconds - 1)))).id('watch_screen_duration_less')
-                Text(`${this.watchScreen.durationSeconds} 秒`).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK)
+                Text(this.tr(`${this.watchScreen.durationSeconds} 秒`)).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK)
                   .layoutWeight(1).textAlign(TextAlign.Center)
-                Button('+').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                Button(this.tr('+')).width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
                   .enabled(!this.deviceFeatureBusy && this.watchScreen.durationSeconds < 120)
                   .onClick(() => this.saveWatchScreen(this.nextWatchScreen(
                     Math.min(120, this.watchScreen.durationSeconds + 1)))).id('watch_screen_duration_more')
@@ -3429,8 +3614,8 @@ struct Index {
             Column({ space: 12 }) {
               Row() {
                 Column({ space: 4 }) {
-                  Text('抬腕亮屏').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-                  Text(`${this.watchScreen.raiseToWakeStartTime} - ${this.watchScreen.raiseToWakeEndTime}`)
+                  Text(this.tr('抬腕亮屏')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                  Text(this.tr(`${this.watchScreen.raiseToWakeStartTime} - ${this.watchScreen.raiseToWakeEndTime}`))
                     .fontSize(14).fontColor(MUTED).width('100%')
                 }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                 Toggle({ type: ToggleType.Switch, isOn: this.watchScreen.raiseToWakeEnabled }).selectedColor(RED)
@@ -3438,13 +3623,13 @@ struct Index {
                     this.saveWatchScreen(this.nextWatchScreen(undefined, enabled))).id('watch_raise_to_wake')
               }.width('100%')
               Row({ space: 10 }) {
-                Button('−').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                Button(this.tr('−')).width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
                   .enabled(!this.deviceFeatureBusy && this.watchScreen.raiseToWakeLevel > 1)
                   .onClick(() => this.saveWatchScreen(this.nextWatchScreen(undefined, undefined,
                     Math.max(1, this.watchScreen.raiseToWakeLevel - 1)))).id('watch_raise_level_less')
-                Text(`灵敏度 ${this.watchScreen.raiseToWakeLevel}`).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK)
+                Text(this.tr(`灵敏度 ${this.watchScreen.raiseToWakeLevel}`)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK)
                   .layoutWeight(1).textAlign(TextAlign.Center)
-                Button('+').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                Button(this.tr('+')).width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
                   .enabled(!this.deviceFeatureBusy && this.watchScreen.raiseToWakeLevel < 10)
                   .onClick(() => this.saveWatchScreen(this.nextWatchScreen(undefined, undefined,
                     Math.min(10, this.watchScreen.raiseToWakeLevel + 1)))).id('watch_raise_level_more')
@@ -3456,7 +3641,7 @@ struct Index {
           }
         }
       }
-      Button(this.deviceFeatureBusy ? '读取中…' : '重新读取手表设置').width('100%').height(this.controlHeight())
+      Button(this.tr(this.deviceFeatureBusy ? '读取中…' : '重新读取手表设置')).width('100%').height(this.controlHeight())
         .fontSize(16).fontColor(RED).backgroundColor(Color.Transparent).enabled(!this.deviceFeatureBusy)
         .onClick(() => this.refreshDeviceFeature()).id('device_feature_refresh')
     }
@@ -3467,7 +3652,7 @@ struct Index {
     if (!this.wearableSnapshot.connected) {
       this.StateCard({ title: '手表已断开', detail: '重新连接后查看设备设置。', icon: $r('sys.symbol.watch') })
     } else {
-      Text(this.wearableSnapshot.deviceName).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      Text(this.tr(this.wearableSnapshot.deviceName)).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
       this.PageRow({ title: '手表单位', subtitle: '公英制、温度单位', icon: $r('sys.symbol.gearshape'),
         action: () => this.openWatchSettings('device-units'), id: 'settings_units' })
       if (this.wearableSnapshot.capabilities.alarm) {
@@ -3476,18 +3661,18 @@ struct Index {
       }
       if (this.wearableSnapshot.settings.loadedAt > 0 && !this.settingsBusy && !this.settingsMessage) {
         Column({ space: 14 }) {
-          Text(`单位：${this.wearableSnapshot.settings.unitSystem}`).fontSize(16).fontColor(INK).width('100%')
+          Text(this.tr(`单位：${this.wearableSnapshot.settings.unitSystem}`)).fontSize(16).fontColor(INK).width('100%')
           Divider().color(LINE)
-          Text(`时制：${this.wearableSnapshot.settings.timeFormat}`).fontSize(16).fontColor(INK).width('100%')
+          Text(this.tr(`时制：${this.wearableSnapshot.settings.timeFormat}`)).fontSize(16).fontColor(INK).width('100%')
           Divider().color(LINE)
-          Text(`自动健康：${this.wearableSnapshot.settings.automaticHealth}`).fontSize(16).fontColor(INK).width('100%')
+          Text(this.tr(`自动健康：${this.wearableSnapshot.settings.automaticHealth}`)).fontSize(16).fontColor(INK).width('100%')
           if (this.wearableSnapshot.capabilities.sedentaryReminder) {
             Divider().color(LINE)
-            Text(`久坐提醒：${this.wearableSnapshot.settings.sedentaryReminder}`).fontSize(16).fontColor(INK).width('100%')
+            Text(this.tr(`久坐提醒：${this.wearableSnapshot.settings.sedentaryReminder}`)).fontSize(16).fontColor(INK).width('100%')
           }
           if (this.wearableSnapshot.capabilities.notification) {
             Divider().color(LINE)
-            Text(`消息提醒：${this.wearableSnapshot.settings.messageReminder}`).fontSize(16).fontColor(INK).width('100%')
+            Text(this.tr(`消息提醒：${this.wearableSnapshot.settings.messageReminder}`)).fontSize(16).fontColor(INK).width('100%')
           }
           if (this.wearableSnapshot.capabilities.alarm) {
             Divider().color(LINE)
@@ -3495,13 +3680,13 @@ struct Index {
               .fontSize(16).fontColor(INK).width('100%')
           }
         }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
-        Text('其他设置可在手表上查看和调整。').fontSize(14).fontColor(MUTED).width('100%')
+        Text(this.tr('其他设置可在手表上查看和调整。')).fontSize(14).fontColor(MUTED).width('100%')
       } else { this.StateCard({ title: this.settingsBusy ? '正在读取设备设置' : '暂未读取到设备设置', icon: $r('sys.symbol.gearshape') }) }
       if (this.settingsMessage) { this.Notice({ message: this.settingsMessage }) }
-      Button(this.settingsBusy ? '读取中…' : '重新读取').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
+      Button(this.tr(this.settingsBusy ? '读取中…' : '重新读取')).width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
         .enabled(!this.settingsBusy && !this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive()).onClick(() => this.refreshDeviceSettings())
         .id('settings_refresh')
-      Button('同步时间').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
+      Button(this.tr('同步时间')).width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
         .enabled(!this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive()).onClick(() => vepWearable.syncTime()).id('settings_sync_time')
     }
   }
@@ -3510,7 +3695,7 @@ struct Index {
   WatchUnitCard($$: WatchUnitOptions) {
     if (supportedWatchUnit($$.value)) {
       Column({ space: 12 }) {
-        Text($$.title).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(this.tr($$.title)).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
         Button(watchUnitChoiceLabel($$.field, 1)).width('100%').height(this.controlHeight())
           .fontSize(16).fontColor($$.value === 1 ? RED : INK).backgroundColor($$.value === 1 ? RED_SOFT : SURFACE_ALT)
           .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: $$.value === 1 ? RED : LINE })
@@ -3542,7 +3727,7 @@ struct Index {
           !supportedWatchUnit(this.watchUnits.tempUnit) && !supportedWatchUnit(this.watchUnits.timeFormat)) {
           this.StateCard({ title: '当前手表没有可调整的单位', icon: $r('sys.symbol.gearshape') })
         }
-        Text('此处修改手表显示单位，不改变已有健康记录。').fontSize(14).fontColor(MUTED).width('100%')
+        Text(this.tr('此处修改手表显示单位，不改变已有健康记录。')).fontSize(14).fontColor(MUTED).width('100%')
       } else if (this.screen === 'device-alarm-edit') {
         this.WatchAlarmEditor()
       } else {
@@ -3553,33 +3738,33 @@ struct Index {
           Column({ space: 12 }) {
             Row({ space: 12 }) {
               Column({ space: 5 }) {
-                Text(alarm.time).fontSize(28).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-                if (alarm.label) { Text(alarm.label).fontSize(16).fontColor(INK).width('100%') }
+                Text(this.tr(alarm.time)).fontSize(28).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                if (alarm.label) { Text(this.tr(alarm.label)).fontSize(16).fontColor(INK).width('100%') }
                 Text(alarmRepeatText(alarm.days)).fontSize(14).fontColor(MUTED).width('100%')
               }.layoutWeight(1).alignItems(HorizontalAlign.Start)
               Toggle({ type: ToggleType.Switch, isOn: alarm.enabled }).selectedColor(RED)
                 .enabled(!this.deviceEditorBusy && this.deviceEditorLoaded).onChange((enabled: boolean) => this.toggleWatchAlarm(alarm, enabled))
-                .accessibilityText(`${alarm.time}闹钟${alarm.enabled ? '已开启' : '已关闭'}`).id(`alarm_toggle_${alarm.id}`)
+                .accessibilityText(this.tr(`${alarm.time}闹钟${alarm.enabled ? '已开启' : '已关闭'}`)).id(`alarm_toggle_${alarm.id}`)
             }.width('100%')
             Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
-              Button('编辑').width(this.singleColumn() ? '100%' : '48%').height(this.controlHeight()).fontSize(16)
+              Button(this.tr('编辑')).width(this.singleColumn() ? '100%' : '48%').height(this.controlHeight()).fontSize(16)
                 .fontColor(RED).backgroundColor(RED_SOFT).enabled(!this.deviceEditorBusy && this.deviceEditorLoaded)
                 .onClick(() => this.editWatchAlarm(alarm)).id(`alarm_edit_${alarm.id}`)
-              Button('删除').width(this.singleColumn() ? '100%' : '48%').height(this.controlHeight()).fontSize(16)
+              Button(this.tr('删除')).width(this.singleColumn() ? '100%' : '48%').height(this.controlHeight()).fontSize(16)
                 .fontColor(RED).backgroundColor(Color.Transparent).enabled(!this.deviceEditorBusy && this.deviceEditorLoaded)
                 .onClick(() => this.removeWatchAlarm(alarm)).id(`alarm_delete_${alarm.id}`)
             }.width('100%')
           }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
         }, (alarm: WatchAlarm) => JSON.stringify(alarm))
-        Button('添加闹钟').width('100%').height(this.controlHeight()).fontSize(16).backgroundColor(RED)
+        Button(this.tr('添加闹钟')).width('100%').height(this.controlHeight()).fontSize(16).backgroundColor(RED)
           .enabled(!this.deviceEditorBusy && this.deviceEditorLoaded).onClick(() => this.editWatchAlarm()).id('alarm_add')
       }
       if (this.screen !== 'device-alarm-edit') {
-        Button(this.deviceEditorBusy ? '读取中…' : '重新读取').width('100%').height(this.controlHeight()).fontSize(16)
+        Button(this.tr(this.deviceEditorBusy ? '读取中…' : '重新读取')).width('100%').height(this.controlHeight()).fontSize(16)
           .fontColor(RED).backgroundColor(Color.Transparent).enabled(!this.deviceEditorBusy)
           .onClick(() => this.refreshWatchSettings()).id('watch_settings_refresh')
       } else if (!this.deviceEditorLoaded) {
-        Button('返回闹钟列表重新读取').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
+        Button(this.tr('返回闹钟列表重新读取')).width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
           .enabled(!this.deviceEditorBusy).onClick(() => {
             this.innerParents.delete('device-alarm-edit'); this.screen = 'device-alarms'; this.refreshWatchSettings();
           }).id('alarm_retry_list')
@@ -3590,33 +3775,33 @@ struct Index {
   @Builder
   WatchAlarmEditor() {
     Column({ space: 16 }) {
-      Button(this.watchAlarmDraft.time).width('100%').height(this.controlHeight(60)).fontSize(28).fontWeight(FontWeight.Bold)
+      Button(this.tr(this.watchAlarmDraft.time)).width('100%').height(this.controlHeight(60)).fontSize(28).fontWeight(FontWeight.Bold)
         .fontColor(INK).backgroundColor(SURFACE_ALT).type(ButtonType.Normal).borderRadius(12)
         .enabled(!this.deviceEditorBusy).onClick(() => this.pickWatchAlarmTime()).id('alarm_time')
       Row() {
-        Text('启用闹钟').fontSize(16).fontColor(INK).layoutWeight(1)
+        Text(this.tr('启用闹钟')).fontSize(16).fontColor(INK).layoutWeight(1)
         Toggle({ type: ToggleType.Switch, isOn: this.watchAlarmDraft.enabled }).selectedColor(RED)
           .enabled(!this.deviceEditorBusy).onChange((enabled: boolean) => this.changeAlarmDraft('enabled', String(enabled)))
-          .accessibilityText('启用闹钟').id('alarm_enabled')
+          .accessibilityText(this.tr('启用闹钟')).id('alarm_enabled')
       }.width('100%').constraintSize({ minHeight: 48 })
-      TextInput({ text: this.watchAlarmDraft.label, placeholder: '提醒名称，例如起床' }).fontSize(16)
+      TextInput({ text: this.watchAlarmDraft.label, placeholder: this.tr('提醒名称，例如起床') }).fontSize(16)
         .height(this.controlHeight(56)).width('100%').maxLength(21).backgroundColor(SURFACE_ALT).borderRadius(12)
         .enabled(!this.deviceEditorBusy).onChange((value: string) => this.changeAlarmDraft('label', value)).id('alarm_label')
       if (alarmDraftError(this.watchAlarmDraft)) {
         Text(alarmDraftError(this.watchAlarmDraft)).fontSize(14).fontColor(RED_DARK).width('100%')
       }
-      Text('重复').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      Text(this.tr('重复')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
       Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
         ForEach(['周一', '周二', '周三', '周四', '周五', '周六', '周日'], (day: string, index: number) => {
-          Button(day).width(this.singleColumn() ? '100%' : '30%').height(this.controlHeight()).fontSize(16)
+          Button(this.tr(day)).width(this.singleColumn() ? '100%' : '30%').height(this.controlHeight()).fontSize(16)
             .fontColor(this.watchAlarmDraft.days[index] ? RED : INK)
             .backgroundColor(this.watchAlarmDraft.days[index] ? RED_SOFT : SURFACE_ALT).margin({ bottom: 8 })
             .enabled(!this.deviceEditorBusy).onClick(() => this.changeAlarmDraft(String(index), ''))
-            .accessibilityText(`${day}${this.watchAlarmDraft.days[index] ? '，已选择' : '，未选择'}`).id(`alarm_day_${index}`)
+            .accessibilityText(this.tr(`${day}${this.watchAlarmDraft.days[index] ? '，已选择' : '，未选择'}`)).id(`alarm_day_${index}`)
         })
       }.width('100%')
       Text(alarmRepeatText(this.watchAlarmDraft.days)).fontSize(14).fontColor(MUTED).width('100%')
-      Button(this.deviceSettingsWriting ? '保存中…' : '保存').width('100%').height(this.controlHeight(56)).fontSize(16).backgroundColor(RED)
+      Button(this.tr(this.deviceSettingsWriting ? '保存中…' : '保存')).width('100%').height(this.controlHeight(56)).fontSize(16).backgroundColor(RED)
         .enabled(!this.deviceEditorBusy && this.deviceEditorLoaded && !alarmDraftError(this.watchAlarmDraft))
         .onClick(() => this.saveAlarmDraft()).id('alarm_save')
     }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
@@ -3625,8 +3810,8 @@ struct Index {
   @Builder
   DeviceSearchContent() {
     Column({ space: 5 }) {
-      Text('已发现设备').fontSize(26).fontWeight(FontWeight.Bold).fontColor(INK)
-      Text('请选择需要连接的手表').fontSize(15).fontColor(MUTED)
+      Text(this.tr('已发现设备')).fontSize(26).fontWeight(FontWeight.Bold).fontColor(INK)
+      Text(this.tr('请选择需要连接的手表')).fontSize(15).fontColor(MUTED)
     }.width('100%').padding({ top: 8, bottom: 10 })
 
     if (this.wearablePhase === 'error' || this.wearablePhase === 'permission') {
@@ -3635,7 +3820,7 @@ struct Index {
     if (this.wearablePhase === 'scanning') {
       Row({ space: 8 }) {
         LoadingProgress().width(18).height(18).color(TECH_BLUE)
-        Text('正在搜索附近设备').fontSize(13).fontColor(MUTED)
+        Text(this.tr('正在搜索附近设备')).fontSize(13).fontColor(MUTED)
         TextTimer({ isCountDown: true, count: WEARABLE_SCAN_TIMEOUT_MS,
           controller: this.scanCountdownController }).format('ss').fontSize(13).fontColor(MUTED)
           .onAppear(() => {
@@ -3652,7 +3837,7 @@ struct Index {
           .onDisAppear(() => {
             try { this.scanCountdownController.pause(); } catch {}
           })
-        Text('秒').fontSize(13).fontColor(MUTED)
+        Text(this.tr('秒')).fontSize(13).fontColor(MUTED)
       }.width('100%').justifyContent(FlexAlign.Center).padding({ bottom: 4 })
     }
     if (this.wearableDevices.length === 0) {
@@ -3660,7 +3845,7 @@ struct Index {
         Column() {
           SymbolGlyph($r('sys.symbol.dot_radiowaves_left_and_right')).fontSize(48).fontColor([TECH_BLUE])
         }.width(104).height(104).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(52)
-        Text(this.wearablePhase === 'scanning' ? '正在查找手表' : '暂未发现设备')
+        Text(this.tr(this.wearablePhase === 'scanning' ? '正在查找手表' : '暂未发现设备'))
           .fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK)
         Text(this.wearablePhase === 'scanning' ? '让手表保持亮屏并靠近手机' :
           (this.wearableMessage.includes('未收到') ? this.wearableMessage : '打开手表配对页，并确认未被其他手机占用'))
@@ -3674,9 +3859,9 @@ struct Index {
         }.width(52).height(52).justifyContent(FlexAlign.Center).backgroundColor(INK).borderRadius(15)
         Column({ space: 6 }) {
           Row({ space: 7 }) {
-            Text(device.name).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+            Text(this.tr(device.name)).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
               .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-            Text(device.provider === 'Yuc' ? 'W8' : 'Vep').fontSize(12).fontWeight(FontWeight.Bold)
+            Text(this.tr(device.provider === 'Yuc' ? 'W8' : 'Vep')).fontSize(12).fontWeight(FontWeight.Bold)
               .fontColor(device.provider === 'Vep' ? TECH_BLUE : GREEN)
               .padding({ left: 8, right: 8, top: 3, bottom: 3 })
               .backgroundColor(device.provider === 'Vep' ? BLUE_SOFT : GREEN_SOFT).borderRadius(10)
@@ -3686,7 +3871,7 @@ struct Index {
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         Column({ space: 6 }) {
           Text(this.signalText(device.rssi)).fontSize(12).fontColor(MUTED)
-          Text('连接').fontSize(15).fontWeight(FontWeight.Bold)
+          Text(this.tr('连接')).fontSize(15).fontWeight(FontWeight.Bold)
             .fontColor(device.provider === 'Vep' ? TECH_BLUE : GREEN)
         }.alignItems(HorizontalAlign.End)
       }.width('100%').constraintSize({ minHeight: 86 }).padding({ left: 14, right: 14, top: 12, bottom: 12 })
@@ -3699,9 +3884,9 @@ struct Index {
 
     Row({ space: 7 }) {
       SymbolGlyph($r('sys.symbol.bag')).fontSize(18).fontColor([RED])
-      Text('没有设备？去赛电商城看看').fontSize(15).fontWeight(FontWeight.Bold).fontColor(RED)
+      Text(this.tr('没有设备？去赛电商城看看')).fontSize(15).fontWeight(FontWeight.Bold).fontColor(RED)
     }.width('100%').height(52).justifyContent(FlexAlign.Center).onClick(() => this.openShop())
-      .id('device_search_shop').accessibilityText('前往赛电商城')
+      .id('device_search_shop').accessibilityText(this.tr('前往赛电商城'))
   }
 
   @Builder
@@ -3710,15 +3895,15 @@ struct Index {
       Row({ space: 14 }) {
         if (!this.guest && this.profile.head_portrait) {
           Image(this.profile.head_portrait).width(66).height(66).objectFit(ImageFit.Cover).borderRadius(33)
-            .accessibilityText('个人头像')
+            .accessibilityText(this.tr('个人头像'))
         } else {
-          Image($r('app.media.app_icon')).width(66).height(66).borderRadius(33).accessibilityText('赛电头像')
+          Image($r('app.media.app_icon')).width(66).height(66).borderRadius(33).accessibilityText(this.tr('赛电头像'))
         }
         Column({ space: 5 }) {
-          Text(this.guest ? '暂未登录' : this.displayName).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK)
+          Text(this.guest ? this.tr('暂未登录') : this.displayName).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK)
             .width('100%').maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
           if (!this.guest) {
-            Text(`会员 ID：${profileField(this.profile.id)}`).fontSize(14).fontColor(MUTED).width('100%')
+            Text(formatAppText('memberId', { id: profileField(this.profile.id) }, this.appLocale)).fontSize(14).fontColor(MUTED).width('100%')
           }
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         Column() {
@@ -3730,9 +3915,9 @@ struct Index {
         .onClick(() => {
           if (this.guest) { this.error = ''; this.screen = 'login'; return; }
           this.openProfileEditor();
-        }).id('mine-profile-card').accessibilityText(this.guest ? '登录赛电账号' : '编辑个人资料')
+        }).id('mine-profile-card').accessibilityText(this.tr(this.guest ? '登录赛电账号' : '编辑个人资料'))
       if (this.guest) {
-        Button('登录赛电账号').width('100%').height(this.controlHeight(50)).backgroundColor(RED)
+        Button(this.tr('登录赛电账号')).width('100%').height(this.controlHeight(50)).backgroundColor(RED)
           .type(ButtonType.Normal).borderRadius(14)
           .onClick(() => { this.error = ''; this.screen = 'login'; }).id('go_login')
       } else {
@@ -3740,37 +3925,37 @@ struct Index {
           Column({ space: 4 }) {
             SymbolGlyph($r('sys.symbol.watch')).fontSize(23)
               .fontColor([this.wearableSnapshot.connected ? GREEN : MUTED])
-            Text(this.wearableSnapshot.connected ? '在线' : '未连接').fontSize(14).fontWeight(FontWeight.Bold)
+            Text(this.tr(this.wearableSnapshot.connected ? '在线' : '未连接')).fontSize(14).fontWeight(FontWeight.Bold)
               .fontColor(this.wearableSnapshot.connected ? GREEN : MUTED).maxLines(1)
-            Text('设备').fontSize(12).fontColor(MUTED)
+            Text(this.tr('设备')).fontSize(12).fontColor(MUTED)
           }.layoutWeight(1).constraintSize({ minHeight: 86 }).justifyContent(FlexAlign.Center)
             .backgroundColor(SURFACE).borderRadius(17).border({ width: 1, color: LINE })
             .shadow({ radius: 8, color: CARD_SHADOW, offsetY: 3 }).onClick(() => this.selectHomeTab(1))
-            .id('profile_stat_device').accessibilityText(`设备，${this.wearableSnapshot.connected ? '在线' : '未连接'}`)
+            .id('profile_stat_device').accessibilityText(this.tr(`设备，${this.wearableSnapshot.connected ? '在线' : '未连接'}`))
           Column({ space: 4 }) {
             SymbolGlyph($r('sys.symbol.heart_fill')).fontSize(23).fontColor([RED])
-            Text(`${this.wearableSnapshot.records.length} 条`).fontSize(14).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(1)
-            Text('健康记录').fontSize(12).fontColor(MUTED).maxLines(1)
+            Text(formatAppText('recordCount', { count: String(this.wearableSnapshot.records.length) }, this.appLocale)).fontSize(14).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(1)
+            Text(this.tr('健康记录')).fontSize(12).fontColor(MUTED).maxLines(1)
           }.layoutWeight(1).constraintSize({ minHeight: 86 }).justifyContent(FlexAlign.Center)
             .backgroundColor(SURFACE).borderRadius(17).border({ width: 1, color: LINE })
             .shadow({ radius: 8, color: CARD_SHADOW, offsetY: 3 }).onClick(() => this.screen = 'health-all')
-            .id('profile_stat_health').accessibilityText(`健康记录，${this.wearableSnapshot.records.length} 条`)
+            .id('profile_stat_health').accessibilityText(this.tr(`健康记录，${this.wearableSnapshot.records.length} 条`))
           Column({ space: 4 }) {
             SymbolGlyph($r('sys.symbol.person_badge_heart')).fontSize(23).fontColor([BLUE])
-            Text(`${this.careMembers.length} 人`).fontSize(14).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(1)
-            Text('关爱成员').fontSize(12).fontColor(MUTED).maxLines(1)
+            Text(formatAppText('memberCount', { count: String(this.careMembers.length) }, this.appLocale)).fontSize(14).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(1)
+            Text(this.tr('关爱成员')).fontSize(12).fontColor(MUTED).maxLines(1)
           }.layoutWeight(1).constraintSize({ minHeight: 86 }).justifyContent(FlexAlign.Center)
             .backgroundColor(SURFACE).borderRadius(17).border({ width: 1, color: LINE })
             .shadow({ radius: 8, color: CARD_SHADOW, offsetY: 3 }).onClick(() => this.openCare())
-            .id('profile_stat_care').accessibilityText(`关爱成员，${this.careMembers.length} 人`)
+            .id('profile_stat_care').accessibilityText(this.tr(`关爱成员，${this.careMembers.length} 人`))
         }.width('100%')
       }
 
       Column({ space: 4 }) {
         Row() {
-          Text('我的订单').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+          Text(this.tr('我的订单')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
           Row({ space: 2 }) {
-            Text('全部').fontSize(14).fontColor(RED)
+            Text(this.tr('全部')).fontSize(14).fontColor(RED)
             SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(15).fontColor([RED])
           }.constraintSize({ minHeight: 48 }).padding({ left: 10 }).onClick(() => this.openOrders())
         }.width('100%')
@@ -3778,24 +3963,24 @@ struct Index {
         Row({ space: 2 }) {
           Column({ space: 7 }) {
             SymbolGlyph($r('sys.symbol.wallet')).fontSize(26).fontColor([INK])
-            Text('待支付').fontSize(13).fontColor(INK)
+            Text(this.tr('待支付')).fontSize(13).fontColor(INK)
           }.layoutWeight(1).constraintSize({ minHeight: 68 }).justifyContent(FlexAlign.Center)
-            .borderRadius(13).onClick(() => this.openOrders(0)).accessibilityText('查看待支付订单').id('mine_orders_unpaid')
+            .borderRadius(13).onClick(() => this.openOrders(0)).accessibilityText(this.tr('查看待支付订单')).id('mine_orders_unpaid')
           Column({ space: 7 }) {
             SymbolGlyph($r('sys.symbol.archivebox')).fontSize(26).fontColor([INK])
-            Text('待发货').fontSize(13).fontColor(INK)
+            Text(this.tr('待发货')).fontSize(13).fontColor(INK)
           }.layoutWeight(1).constraintSize({ minHeight: 68 }).justifyContent(FlexAlign.Center)
-            .borderRadius(13).onClick(() => this.openOrders(1)).accessibilityText('查看待发货订单').id('mine_orders_delivery')
+            .borderRadius(13).onClick(() => this.openOrders(1)).accessibilityText(this.tr('查看待发货订单')).id('mine_orders_delivery')
           Column({ space: 7 }) {
             SymbolGlyph($r('sys.symbol.truck_box_fill')).fontSize(26).fontColor([INK])
-            Text('待收货').fontSize(13).fontColor(INK)
+            Text(this.tr('待收货')).fontSize(13).fontColor(INK)
           }.layoutWeight(1).constraintSize({ minHeight: 68 }).justifyContent(FlexAlign.Center)
-            .borderRadius(13).onClick(() => this.openOrders(2)).accessibilityText('查看待收货订单').id('mine_orders_receipt')
+            .borderRadius(13).onClick(() => this.openOrders(2)).accessibilityText(this.tr('查看待收货订单')).id('mine_orders_receipt')
           Column({ space: 7 }) {
             SymbolGlyph($r('sys.symbol.headphones')).fontSize(26).fontColor([INK])
-            Text('售后').fontSize(13).fontColor(INK)
+            Text(this.tr('售后')).fontSize(13).fontColor(INK)
           }.layoutWeight(1).constraintSize({ minHeight: 68 }).justifyContent(FlexAlign.Center)
-            .borderRadius(13).onClick(() => this.openOrders(-1)).accessibilityText('查看售后订单').id('mine_orders_refund')
+            .borderRadius(13).onClick(() => this.openOrders(-1)).accessibilityText(this.tr('查看售后订单')).id('mine_orders_refund')
         }.width('100%')
       }.width('100%').padding({ left: 14, right: 14, top: 8, bottom: 10 }).backgroundColor(SURFACE)
         .borderRadius(20).border({ width: 1, color: LINE }).id('mine-orders-card')
@@ -3807,11 +3992,11 @@ struct Index {
               SymbolGlyph($r('sys.symbol.watch')).fontSize(23).fontColor([RED])
             }.width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(14)
             Column({ space: 3 }) {
-              Text('添加设备').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+              Text(this.tr('添加设备')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
             }.layoutWeight(1).alignItems(HorizontalAlign.Start)
             SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
           }.width('100%').constraintSize({ minHeight: 70 }).padding({ left: 12, right: 12, top: 10, bottom: 10 })
-            .onClick(() => this.openDeviceSearch()).id('mine_add_device').accessibilityText('添加设备')
+            .onClick(() => this.openDeviceSearch()).id('mine_add_device').accessibilityText(this.tr('添加设备'))
           Divider().color(LINE).margin({ left: 58 })
         }
         Row({ space: 12 }) {
@@ -3819,8 +4004,8 @@ struct Index {
             SymbolGlyph($r('sys.symbol.message')).fontSize(23).fontColor([GOLD])
           }.width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(GOLD_SOFT).borderRadius(14)
           Column({ space: 3 }) {
-            Text('AI提问').fontSize(17).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
-            Text('向 AI 健康管家咨询健康问题').fontSize(13).fontColor(MUTED).width('100%')
+            Text(this.tr('AI提问')).fontSize(17).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
+            Text(this.tr('向 AI 健康管家咨询健康问题')).fontSize(13).fontColor(MUTED).width('100%')
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
         }.width('100%').constraintSize({ minHeight: 70 }).padding({ left: 12, right: 12, top: 10, bottom: 10 })
@@ -3831,8 +4016,8 @@ struct Index {
             SymbolGlyph($r('sys.symbol.ruler')).fontSize(23).fontColor([BLUE])
           }.width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(14)
           Column({ space: 3 }) {
-            Text('单位设置').fontSize(17).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
-            Text('选择距离和温度的显示单位').fontSize(13).fontColor(MUTED).width('100%')
+            Text(this.tr('单位设置')).fontSize(17).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
+            Text(this.tr('选择距离和温度的显示单位')).fontSize(13).fontColor(MUTED).width('100%')
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
         }.width('100%').constraintSize({ minHeight: 70 }).padding({ left: 12, right: 12, top: 10, bottom: 10 })
@@ -3841,40 +4026,40 @@ struct Index {
         .id('mine-quick-card')
 
       Column({ space: 6 }) {
-        Text('我的服务').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(this.tr('我的服务')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
           .padding({ left: 8, bottom: 6 })
         Row({ space: 2 }) {
           Column({ space: 7 }) {
             Column() { SymbolGlyph($r('sys.symbol.person_badge_gearshape')).fontSize(23).fontColor([RED]) }
               .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(14)
-            Text('账号设置').fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
+            Text(this.tr('账号设置')).fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
           }.layoutWeight(1).constraintSize({ minHeight: 82 }).justifyContent(FlexAlign.Center)
-            .onClick(() => this.screen = 'account').id('mine_account').accessibilityText('账号设置')
+            .onClick(() => this.screen = 'account').id('mine_account').accessibilityText(this.tr('账号设置'))
           Column({ space: 7 }) {
             Column() { SymbolGlyph($r('sys.symbol.lock_shield')).fontSize(23).fontColor([BLUE]) }
               .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(14)
-            Text('权限管理').fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
+            Text(this.tr('权限管理')).fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
           }.layoutWeight(1).constraintSize({ minHeight: 82 }).justifyContent(FlexAlign.Center)
             .onClick(() => { this.screen = 'permissions'; this.refreshPermissions(); this.connectPush(false); })
-            .id('mine_permissions').accessibilityText('权限管理')
+            .id('mine_permissions').accessibilityText(this.tr('权限管理'))
           Column({ space: 7 }) {
             Column() { SymbolGlyph($r('sys.symbol.questionmark_circle')).fontSize(23).fontColor(['#C98716']) }
               .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(GOLD_SOFT).borderRadius(14)
-            Text('帮助反馈').fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
+            Text(this.tr('帮助反馈')).fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
           }.layoutWeight(1).constraintSize({ minHeight: 82 }).justifyContent(FlexAlign.Center)
-            .onClick(() => this.screen = 'help').id('mine_help').accessibilityText('帮助反馈')
+            .onClick(() => this.screen = 'help').id('mine_help').accessibilityText(this.tr('帮助反馈'))
           Column({ space: 7 }) {
             Column() { SymbolGlyph($r('sys.symbol.headphones')).fontSize(23).fontColor([GREEN]) }
               .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(GREEN_SOFT).borderRadius(14)
-            Text('联系客服').fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
+            Text(this.tr('联系客服')).fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
           }.layoutWeight(1).constraintSize({ minHeight: 82 }).justifyContent(FlexAlign.Center)
-            .onClick(() => this.screen = 'contact').id('mine_contact').accessibilityText('联系客服')
+            .onClick(() => this.screen = 'contact').id('mine_contact').accessibilityText(this.tr('联系客服'))
           Column({ space: 7 }) {
             Column() { SymbolGlyph($r('sys.symbol.info_circle')).fontSize(23).fontColor([RED]) }
               .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(14)
-            Text('关于我们').fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
+            Text(this.tr('关于我们')).fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
           }.layoutWeight(1).constraintSize({ minHeight: 82 }).justifyContent(FlexAlign.Center)
-            .onClick(() => this.screen = 'about').id('mine_about').accessibilityText('关于我们')
+            .onClick(() => this.screen = 'about').id('mine_about').accessibilityText(this.tr('关于我们'))
         }.width('100%')
       }.width('100%').padding({ left: 8, right: 8, top: 14, bottom: 8 }).backgroundColor(SURFACE)
         .borderRadius(20).border({ width: 1, color: LINE }).id('mine-services-card')
@@ -3888,7 +4073,7 @@ struct Index {
       if (this.tab !== 0) {
         Row() {
           Blank().width(52)
-          Text(this.tab === 1 ? '设备' : '我的').fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK)
+          Text(this.tr(this.tab === 1 ? '设备' : '我的')).fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK)
             .layoutWeight(1).textAlign(TextAlign.Center)
           Blank().width(52)
         }.width('100%').height(this.controlHeight(54)).padding({ left: 12, right: 12 }).backgroundColor(SURFACE)
@@ -3911,14 +4096,14 @@ struct Index {
             } else {
               SymbolGlyph($r('sys.symbol.person')).fontSize(23).fontColor([this.tab === index ? RED : MUTED])
             }
-            Text(title).fontSize(14).fontWeight(this.tab === index ? FontWeight.Bold : FontWeight.Normal)
+            Text(this.tr(title)).fontSize(14).fontWeight(this.tab === index ? FontWeight.Bold : FontWeight.Normal)
               .fontColor(this.tab === index ? RED : MUTED)
           }.layoutWeight(1).constraintSize({ minHeight: 62 }).justifyContent(FlexAlign.Center)
             .backgroundColor(SURFACE)
             .onClick(() => {
               this.selectHomeTab(index);
             }).id(`tab_${index}`)
-            .accessibilityText(title).accessibilityDescription(this.tab === index ? '当前页' : '切换页面')
+            .accessibilityText(this.tr(title)).accessibilityDescription(this.tab === index ? '当前页' : '切换页面')
         })
       }.width('100%').padding({ left: 12, right: 12, top: 6, bottom: 8 })
         .backgroundColor(SURFACE).border({ width: { top: 1 }, color: LINE })
@@ -3929,8 +4114,8 @@ struct Index {
   HealthAllContent() {
     Row({ space: 14 }) {
       Column({ space: 6 }) {
-        Text('健康数据总览').fontSize(19).fontWeight(FontWeight.Bold).fontColor(Color.White).width('100%')
-        Text('点击指标查看详情与历史趋势').fontSize(12).fontColor('#99FFFFFF').width('100%')
+        Text(this.tr('健康数据总览')).fontSize(19).fontWeight(FontWeight.Bold).fontColor(Color.White).width('100%')
+        Text(this.tr('点击指标查看详情与历史趋势')).fontSize(12).fontColor('#99FFFFFF').width('100%')
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       Column() {
         SymbolGlyph($r('sys.symbol.waveform_path_ecg_heart')).fontSize(30).fontColor([GREEN])
@@ -3940,7 +4125,7 @@ struct Index {
     if (this.visibleWearableMetrics().length === 0) {
       Row({ space: 7 }) {
         SymbolGlyph($r('sys.symbol.watch')).fontSize(17).fontColor([BLUE])
-        Text(this.wearableSnapshot.connected ? '暂无可显示的健康数据' : '连接手表后可查看支持的健康数据')
+        Text(this.tr(this.wearableSnapshot.connected ? '暂无可显示的健康数据' : '连接手表后可查看支持的健康数据'))
           .fontSize(14).fontColor(BLUE).layoutWeight(1)
       }.width('100%').padding(12).backgroundColor(BLUE_SOFT).borderRadius(10)
         .border({ width: 1, color: '#3D2467A6' })
@@ -3951,7 +4136,7 @@ struct Index {
         Column() { this.WearableMetricIcon(metric.key) }
           .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(13)
         Column({ space: 4 }) {
-          Text(metric.title).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text(this.tr(metric.title)).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
           Text(this.wearableLatest(metric.key)).fontSize(13).fontColor(MUTED).lineHeight(20).maxLines(2).width('100%')
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(19).fontColor([MUTED])
@@ -3965,7 +4150,7 @@ struct Index {
 
   @Builder
   SportRecordContent() {
-    Text('开始今日运动').fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+    Text(this.tr('开始今日运动')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
     if (!this.wearableSnapshot.connected) {
       this.Notice({ message: '连接手表后可开始运动和同步记录，已有记录仍可离线查看。' })
     } else if (!this.wearableCapability('sport')) {
@@ -3980,7 +4165,7 @@ struct Index {
             .width(52).height(52).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(16)
           Column({ space: 4 }) {
             Text(sportModeLabel(this.sportSession.mode)).fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-            Text(this.sportSession.status).fontSize(14).fontColor(this.sportSession.phase === 'paused' ? GOLD : GREEN).width('100%')
+            Text(this.tr(this.sportSession.status)).fontSize(14).fontColor(this.sportSession.phase === 'paused' ? GOLD : GREEN).width('100%')
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         }.width('100%')
         Text(this.sportDurationText(this.sportElapsedSeconds())).fontSize(38).fontWeight(FontWeight.Bold).fontColor(INK)
@@ -3992,7 +4177,7 @@ struct Index {
         }.width('100%')
         if (this.sportSession.route.length > 1) {
           Column({ space: 8 }) {
-            Text('手机前台轨迹').fontSize(15).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text(this.tr('手机前台轨迹')).fontSize(15).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
             Polyline({ width: this.sportRouteWidth, height: 150 })
               .points(sportRoutePolyline(this.sportSession.route, this.sportRouteWidth, 150))
               .fillOpacity(0).stroke(RED).strokeWidth(3).width('100%').height(150)
@@ -4002,16 +4187,16 @@ struct Index {
           }.width('100%').padding(12).backgroundColor(SURFACE_ALT).borderRadius(14)
         }
         if (this.sportSession.locationStatus) {
-          Text(this.sportSession.locationStatus).fontSize(13).fontColor(MUTED).width('100%')
+          Text(this.tr(this.sportSession.locationStatus)).fontSize(13).fontColor(MUTED).width('100%')
         }
         Row({ space: 10 }) {
           if (this.wearableSnapshot.sportCapability.supportsPause) {
-            Button(this.sportSession.phase === 'paused' ? '继续' : '暂停').layoutWeight(1)
+            Button(this.tr(this.sportSession.phase === 'paused' ? '继续' : '暂停')).layoutWeight(1)
               .constraintSize({ minHeight: 52 }).backgroundColor(SURFACE).fontColor(INK).type(ButtonType.Normal)
               .borderRadius(14).border({ width: 1, color: OUTLINE }).enabled(!this.sportActionBusy &&
                 ['running', 'paused'].includes(this.sportSession.phase)).onClick(() => this.toggleSportPause())
           }
-          Button('结束运动').layoutWeight(1).constraintSize({ minHeight: 52 }).backgroundColor(RED)
+          Button(this.tr('结束运动')).layoutWeight(1).constraintSize({ minHeight: 52 }).backgroundColor(RED)
             .type(ButtonType.Normal).borderRadius(14).enabled(!this.sportActionBusy && this.sportActive())
             .onClick(() => this.confirmStopSport())
         }.width('100%')
@@ -4031,19 +4216,19 @@ struct Index {
         .backgroundColor(RED).type(ButtonType.Normal).borderRadius(15).enabled(!this.sportActionBusy &&
           !this.wearableBusy() && !this.wearableMeasurement.running).onClick(() => this.startSport(this.selectedSportMode))
     }
-    Text('运动记录').fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({ top: 8 })
+    Text(this.tr('运动记录')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({ top: 8 })
     Row({ space: 10 }) {
-      Button('同步近三天').layoutWeight(1).constraintSize({ minHeight: 50 }).backgroundColor(RED)
+      Button(this.tr('同步近三天')).layoutWeight(1).constraintSize({ minHeight: 50 }).backgroundColor(RED)
         .type(ButtonType.Normal).borderRadius(14).enabled(this.wearableSnapshot.connected && this.wearableCapability('sport') &&
           !this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
         .onClick(() => this.syncSportRecords())
       if (this.wearableSnapshot.connected) {
-        Button('查看设备').layoutWeight(1).constraintSize({ minHeight: 50 }).fontColor(RED).backgroundColor(SURFACE)
+        Button(this.tr('查看设备')).layoutWeight(1).constraintSize({ minHeight: 50 }).fontColor(RED).backgroundColor(SURFACE)
           .type(ButtonType.Normal).borderRadius(14).border({ width: 1, color: LINE })
           .enabled(!this.sportActive())
           .onClick(() => { this.screen = 'home'; this.selectHomeTab(1); })
       } else {
-        Button('添加设备').layoutWeight(1).constraintSize({ minHeight: 50 }).fontColor(RED).backgroundColor(SURFACE)
+        Button(this.tr('添加设备')).layoutWeight(1).constraintSize({ minHeight: 50 }).fontColor(RED).backgroundColor(SURFACE)
           .type(ButtonType.Normal).borderRadius(14).border({ width: 1, color: LINE })
           .onClick(() => this.openDeviceSearch()).id('sport_go_device')
       }
@@ -4054,7 +4239,7 @@ struct Index {
       this.StateCard({ title: '暂无运动记录', detail: '完成一次运动或连接手表同步后，可在这里查看。',
         icon: $r('sys.symbol.clock_arrow_2_circlepath'), green: true })
     }
-    Button('刷新本机记录').fontColor(RED).backgroundColor(Color.Transparent).constraintSize({ minHeight: 48 })
+    Button(this.tr('刷新本机记录')).fontColor(RED).backgroundColor(Color.Transparent).constraintSize({ minHeight: 48 })
       .enabled(!this.sportLoading).onClick(() => this.loadSportRecords())
     ForEach(this.localSportRecords, (record: HealthRecord) => {
       Row({ space: 12 }) {
@@ -4066,7 +4251,7 @@ struct Index {
             Text(this.wearableRecordTime(record.timestamp)).fontSize(12).fontColor(MUTED)
           }.width('100%')
           Text(this.displayRecord(record)).fontSize(14).fontColor(MUTED).lineHeight(22).maxLines(2).width('100%')
-          Text(record.source === 'watch_history' ? '手表历史' : 'App 运动')
+          Text(this.tr(record.source === 'watch_history' ? '手表历史' : 'App 运动'))
             .fontSize(12).fontColor(GREEN).width('100%')
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
@@ -4098,14 +4283,14 @@ struct Index {
   @Builder
   SportLiveValue(label: string, value: string) {
     Column({ space: 5 }) {
-      Text(value).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(1)
-      Text(label).fontSize(12).fontColor(MUTED)
+      Text(this.tr(value)).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(1)
+      Text(this.tr(label)).fontSize(12).fontColor(MUTED)
     }.layoutWeight(1).alignItems(HorizontalAlign.Center)
   }
 
   @Builder
   HealthAlertContent() {
-    Text('预警记录').fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+    Text(this.tr('预警记录')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
     if (this.inboxLoading) { LoadingProgress().width(40).height(40).color(RED) }
     if (this.inboxError) { this.Notice({ message: this.inboxError, color: '#FFF0E9' }) }
     else if (!this.inboxLoading && this.healthWarnings().length === 0) {
@@ -4121,7 +4306,7 @@ struct Index {
     }, (message: InboxMessage) => String(message.id))
     this.StateCard({ title: '健康预警仅作健康管理提醒', detail: '如有不适，请及时咨询专业医务人员。这里只展示已收到的健康预警。', green: true,
       icon: $r('sys.symbol.lock_shield') })
-    Button('刷新预警记录').width('100%').constraintSize({ minHeight: 56 }).fontColor(INK).backgroundColor(Color.Transparent)
+    Button(this.tr('刷新预警记录')).width('100%').constraintSize({ minHeight: 56 }).fontColor(INK).backgroundColor(Color.Transparent)
       .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE })
       .enabled(!this.inboxLoading).onClick(() => this.refreshInbox())
   }
@@ -4136,24 +4321,24 @@ struct Index {
       } else if (this.shopError || !this.shopHome.categories.length) {
         Column({ space: 20 }) {
           SymbolGlyph($r('sys.symbol.bag')).fontSize(44).fontColor([INK])
-          Text(this.shopError || '当前暂无商品').fontSize(16).fontColor(INK).lineHeight(24).textAlign(TextAlign.Center).width('100%')
-          Button('重新加载').constraintSize({ minHeight: 56 }).fontSize(16).fontWeight(FontWeight.Bold)
+          Text(this.tr(this.shopError || '当前暂无商品')).fontSize(16).fontColor(INK).lineHeight(24).textAlign(TextAlign.Center).width('100%')
+          Button(this.tr('重新加载')).constraintSize({ minHeight: 56 }).fontSize(16).fontWeight(FontWeight.Bold)
             .backgroundColor(RED).type(ButtonType.Normal).borderRadius(12).onClick(() => this.openShop()).id('shop_refresh')
         }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center).padding(20)
       } else {
-        TextInput({ text: this.shopKeyword, placeholder: '搜索商品' }).fontSize(16).height(this.controlHeight(60))
+        TextInput({ text: this.shopKeyword, placeholder: this.tr('搜索商品') }).fontSize(16).height(this.controlHeight(60))
           .padding({ left: 20, right: 20 }).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
           .maxLength(80).onChange((value: string) => this.shopKeyword = value).margin({ left: 14, right: 14, top: 8, bottom: 10 })
           .id('shop_search')
         if (this.shopHome.bannerUrl) {
           Image(this.shopHome.bannerUrl).height(102).width('92%').objectFit(ImageFit.Cover).borderRadius(16)
-            .margin({ bottom: 10 }).accessibilityText('赛电商城横幅')
+            .margin({ bottom: 10 }).accessibilityText(this.tr('赛电商城横幅'))
         }
         Row({ space: 0 }) {
           Scroll() {
             Column({ space: 0 }) {
               ForEach(this.shopHome.categories, (category: ShopCategory, index: number) => {
-                Text(category.name).fontSize(16).fontWeight(this.shopCategoryIndex === index ? FontWeight.Bold : FontWeight.Medium)
+                Text(this.tr(category.name)).fontSize(16).fontWeight(this.shopCategoryIndex === index ? FontWeight.Bold : FontWeight.Medium)
                   .fontColor(this.shopCategoryIndex === index ? RED : INK).width('100%').constraintSize({ minHeight: 64 })
                   .textAlign(TextAlign.Center).padding({ left: 10, right: 10, top: 12, bottom: 12 })
                   .backgroundColor(this.shopCategoryIndex === index ? SURFACE : Color.Transparent)
@@ -4171,28 +4356,28 @@ struct Index {
               ForEach(this.filteredShopProducts(), (product: ShopProduct) => {
                 Row({ space: 0 }) {
                   if (product.picture) {
-                    Image(product.picture).width(96).height(104).objectFit(ImageFit.Contain).backgroundColor(SURFACE_ALT).accessibilityText(product.name)
+                    Image(product.picture).width(96).height(104).objectFit(ImageFit.Contain).backgroundColor(SURFACE_ALT).accessibilityText(this.tr(product.name))
                   } else {
                     Column() { SymbolGlyph($r('sys.symbol.bag')).fontSize(24).fontColor([OUTLINE]) }
-                      .width(96).height(104).backgroundColor('#F0F1F5').justifyContent(FlexAlign.Center).accessibilityText('暂无商品图片')
+                      .width(96).height(104).backgroundColor('#F0F1F5').justifyContent(FlexAlign.Center).accessibilityText(this.tr('暂无商品图片'))
                   }
                   Column({ space: 8 }) {
-                    Text(product.name).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').maxLines(2)
-                    Text(product.stock > 0 ? `库存 ${product.stock}` : '暂时缺货').fontSize(13).fontColor(MUTED).width('100%')
-                    Text(`¥${product.price}`).fontSize(18).fontWeight(FontWeight.Bold).fontColor('#914D00').width('100%')
+                    Text(this.tr(product.name)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').maxLines(2)
+                    Text(this.tr(product.stock > 0 ? `库存 ${product.stock}` : '暂时缺货')).fontSize(13).fontColor(MUTED).width('100%')
+                    Text(this.tr(`¥${product.price}`)).fontSize(18).fontWeight(FontWeight.Bold).fontColor('#914D00').width('100%')
                   }.layoutWeight(1).padding(12).alignItems(HorizontalAlign.Start)
                 }.width('100%').constraintSize({ minHeight: 104 }).backgroundColor(SURFACE).borderRadius(18)
                   .border({ width: 1, color: LINE }).clip(true).onClick(() => this.openShopProduct(product))
-                  .accessibilityText(`${product.name}，${product.price} 元`)
+                  .accessibilityText(this.tr(`${product.name}，${product.price} 元`))
               }, (product: ShopProduct) => String(product.id))
             }.width('100%').padding({ left: 12, right: 14, top: 4, bottom: 24 })
           }.layoutWeight(1).height('100%').align(Alignment.Top).scrollBar(BarState.Off)
         }.width('100%').layoutWeight(1).alignItems(VerticalAlign.Top)
       }
       Row({ space: 12 }) {
-        Button('我的订单').layoutWeight(1).constraintSize({ minHeight: 48 }).fontSize(16).fontColor(RED).backgroundColor(SURFACE)
+        Button(this.tr('我的订单')).layoutWeight(1).constraintSize({ minHeight: 48 }).fontSize(16).fontColor(RED).backgroundColor(SURFACE)
           .onClick(() => this.openOrders()).id('shop_orders')
-        Button('刷新商城').layoutWeight(1).constraintSize({ minHeight: 48 }).fontSize(16).fontColor(INK).backgroundColor(SURFACE)
+        Button(this.tr('刷新商城')).layoutWeight(1).constraintSize({ minHeight: 48 }).fontSize(16).fontColor(INK).backgroundColor(SURFACE)
           .enabled(!this.shopLoading).onClick(() => this.openShop())
       }.width('100%').padding(8).backgroundColor(SURFACE)
     }.width('100%').height('100%')
@@ -4203,38 +4388,38 @@ struct Index {
     if (this.commerceLoading) { LoadingProgress().width(40).height(40).color(RED).margin({ top: 100 }) }
     if (this.commerceError && !this.purchaseSheet) { this.Notice({ message: this.commerceError, color: GOLD_SOFT }) }
     if (!this.commerceLoading && !this.productDetail) {
-      Button('重新加载').height(this.controlHeight(56)).backgroundColor(RED).onClick(() => this.openShopProduct(this.selectedProduct))
+      Button(this.tr('重新加载')).height(this.controlHeight(56)).backgroundColor(RED).onClick(() => this.openShopProduct(this.selectedProduct))
     }
     if (this.productDetail) {
       if (this.productDetail.covers.length) {
         Swiper() {
           ForEach(this.productDetail.covers, (url: string) => {
-            Image(url).width('100%').height(350).objectFit(ImageFit.Cover).accessibilityText(this.productDetail?.name ?? '商品图片')
+            Image(url).width('100%').height(350).objectFit(ImageFit.Cover).accessibilityText(this.tr(this.productDetail?.name ?? '商品图片'))
           }, (url: string) => url)
         }.width('100%').height(350).autoPlay(false).loop(false).indicator(this.productDetail.covers.length > 1)
       } else {
         Column() { SymbolGlyph($r('sys.symbol.bag')).fontSize(32).fontColor([OUTLINE]) }
           .width('100%').height(350).justifyContent(FlexAlign.Center).backgroundColor('#F0F2F5')
-          .accessibilityText('暂无商品图片')
+          .accessibilityText(this.tr('暂无商品图片'))
       }
       Column({ space: 14 }) {
-        Text(this.productDetail.name).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(this.tr(this.productDetail.name)).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
         Row() {
           Text(commerceMoney(this.purchaseSku()?.priceCents ?? this.productDetail.priceCents)).fontSize(24).fontWeight(FontWeight.Bold).fontColor('#914E00').layoutWeight(1)
-          if (this.productDetail.sales) { Text(`销量 ${this.productDetail.sales}`).fontSize(15).fontColor(MUTED) }
+          if (this.productDetail.sales) { Text(this.tr(`销量 ${this.productDetail.sales}`)).fontSize(15).fontColor(MUTED) }
         }.width('100%')
         Flex({ wrap: FlexWrap.Wrap }) {
           ForEach(['品质保障', '配送到家', '售后服务'], (label: string) => {
             Row({ space: 4 }) {
               SymbolGlyph($r('sys.symbol.checkmark_shield')).fontSize(16).fontColor([RED])
-              Text(label).fontSize(13).fontColor(INK)
+              Text(this.tr(label)).fontSize(13).fontColor(INK)
             }.padding({ left: 9, right: 9, top: 6, bottom: 6 }).margin({ right: 6, bottom: 6 }).backgroundColor(RED_SOFT).borderRadius(99)
           })
         }.width('100%')
         if (this.productDetail.skus.length) {
           Row({ space: 12 }) {
             Column({ space: 4 }) {
-              Text('规格').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+              Text(this.tr('规格')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
               Text(this.purchaseSku()?.name ?? '请选择规格').fontSize(15).fontColor(INK).width('100%')
             }.layoutWeight(1)
             SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([RED])
@@ -4243,12 +4428,12 @@ struct Index {
         }
       }.width('92%').padding(18).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
       Column({ space: 12 }) {
-        Text('商品详情').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-        if (!this.productDetail.blocks.length) { Text('暂无详细介绍').fontSize(16).fontColor(MUTED).width('100%') }
+        Text(this.tr('商品详情')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        if (!this.productDetail.blocks.length) { Text(this.tr('暂无详细介绍')).fontSize(16).fontColor(MUTED).width('100%') }
         ForEach(this.productDetail.blocks, (block: ArticleBlock) => {
           if (block.kind === 'image') { ArticleImage({ source: block.url, description: block.text }) }
           else if (block.kind === 'text') { Text(block.text).fontSize(16).fontColor(INK).lineHeight(25).width('100%') }
-          else { Text('图片暂不可用').fontSize(14).fontColor(MUTED) }
+          else { Text(this.tr('图片暂不可用')).fontSize(14).fontColor(MUTED) }
         }, (block: ArticleBlock) => block.id)
       }.width('92%').padding(18).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
     }
@@ -4257,10 +4442,10 @@ struct Index {
   @Builder
   PurchaseSheetContent() {
     Column({ space: 18 }) {
-      Text('请选择规格').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      Text(this.tr('请选择规格')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
       Flex({ wrap: FlexWrap.Wrap }) {
         ForEach(this.productDetail?.skus ?? [], (sku: ShopSku, index: number) => {
-          Button(sku.name).fontSize(15).fontColor(INK).constraintSize({ minHeight: 48 }).type(ButtonType.Normal).borderRadius(10)
+          Button(this.tr(sku.name)).fontSize(15).fontColor(INK).constraintSize({ minHeight: 48 }).type(ButtonType.Normal).borderRadius(10)
             .backgroundColor(this.selectedSkuIndex === index ? GOLD_SOFT : SURFACE).border({ width: 1, color: OUTLINE, radius: 10 })
             .margin({ right: 8, bottom: 8 }).enabled(!this.commerceBusy).onClick(() => {
               this.selectedSkuIndex = index; this.purchaseQuantity = this.productDetail?.minBuy ?? 1; this.commerceError = '';
@@ -4270,14 +4455,14 @@ struct Index {
       Row({ space: 10 }) {
         Text((this.purchaseSku()?.stock ?? -1) < 0 ? '库存待确认' : `库存 ${this.purchaseSku()?.stock}`)
           .fontSize(15).fontColor(INK).layoutWeight(1)
-        Button('−').width(48).height(this.controlHeight(44)).fontSize(22).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE })
+        Button(this.tr('−')).width(48).height(this.controlHeight(44)).fontSize(22).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE })
           .enabled(!this.commerceBusy && this.purchaseQuantity > (this.productDetail?.minBuy ?? 1)).onClick(() => this.purchaseQuantity--).id('quantity_minus')
         Text(String(this.purchaseQuantity)).fontSize(16).fontWeight(FontWeight.Bold).width(28).textAlign(TextAlign.Center)
-        Button('+').width(48).height(this.controlHeight(44)).fontSize(22).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE })
+        Button(this.tr('+')).width(48).height(this.controlHeight(44)).fontSize(22).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE })
           .enabled(!this.commerceBusy && this.purchaseQuantity < Math.min(this.purchaseSku()?.stock ?? 0, 999)).onClick(() => this.purchaseQuantity++).id('quantity_plus')
       }.width('100%')
       if (this.commerceError) { this.Notice({ message: this.commerceError, color: GOLD_SOFT }) }
-      Button(this.commerceBusy ? '处理中…' : this.purchaseToCart ? '加入购物车' : '立即购买').width('100%').height(this.controlHeight(56))
+      Button(this.tr(this.commerceBusy ? '处理中…' : this.purchaseToCart ? '加入购物车' : '立即购买')).width('100%').height(this.controlHeight(56))
         .fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
         .enabled(!this.commerceBusy && !purchaseError(this.productDetail, this.purchaseSku(), this.purchaseQuantity))
         .onClick(() => this.purchaseSelected()).id('purchase_confirm')
@@ -4291,11 +4476,11 @@ struct Index {
       else { Column() { SymbolGlyph($r('sys.symbol.bag')).fontSize(24).fontColor([INK]) }
         .width(78).height(78).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(10) }
       Column({ space: 6 }) {
-        Text($$.line.name).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').maxLines(2)
-        Text($$.line.sku).fontSize(13).fontColor(MUTED).width('100%')
+        Text(this.tr($$.line.name)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').maxLines(2)
+        Text(this.tr($$.line.sku)).fontSize(13).fontColor(MUTED).width('100%')
         Row() {
           Text(`${$$.line.totalPrice ? '小计 ' : ''}${commerceMoney($$.line.priceCents)}`).fontSize(16).fontWeight(FontWeight.Bold).fontColor(RED).layoutWeight(1)
-          Text($$.line.quantity > 0 ? `×${$$.line.quantity}` : '').fontSize(14).fontColor(MUTED)
+          Text(this.tr($$.line.quantity > 0 ? `×${$$.line.quantity}` : '')).fontSize(14).fontColor(MUTED)
         }.width('100%')
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
     }.width('100%').alignItems(VerticalAlign.Top)
@@ -4313,9 +4498,9 @@ struct Index {
     if (!this.commerceLoading && !this.commerceError && !this.cartLines.length) {
       Column({ space: 16 }) {
         SymbolGlyph($r('sys.symbol.bag')).fontSize(72).fontColor([OUTLINE])
-        Text('购物车还是空的').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK)
-        Text('去商城挑选适合您的健康设备吧').fontSize(16).fontColor(INK).textAlign(TextAlign.Center)
-        Button('返回商城').height(this.controlHeight(56)).fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED)
+        Text(this.tr('购物车还是空的')).fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK)
+        Text(this.tr('去商城挑选适合您的健康设备吧')).fontSize(16).fontColor(INK).textAlign(TextAlign.Center)
+        Button(this.tr('返回商城')).height(this.controlHeight(56)).fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED)
           .type(ButtonType.Normal).borderRadius(12).onClick(() => this.back())
       }.width('100%').constraintSize({ minHeight: 620 }).justifyContent(FlexAlign.Center)
     }
@@ -4323,24 +4508,24 @@ struct Index {
       Column({ space: 12 }) {
         Row({ space: 4 }) {
           Checkbox().select(this.cartSelection.includes(line.skuId)).selectedColor(RED).enabled(!this.commerceBusy)
-            .onChange((selected: boolean) => this.toggleCart(line.skuId, selected)).accessibilityText(`选择${line.name}`)
+            .onChange((selected: boolean) => this.toggleCart(line.skuId, selected)).accessibilityText(this.tr(`选择${line.name}`))
           Column() { this.CommerceLine({ line }) }.layoutWeight(1)
         }.width('100%')
         Row({ space: 8 }) {
-          Button('移出').fontSize(14).fontColor(MUTED).backgroundColor(Color.Transparent).height(this.controlHeight(44))
+          Button(this.tr('移出')).fontSize(14).fontColor(MUTED).backgroundColor(Color.Transparent).height(this.controlHeight(44))
             .enabled(!this.commerceBusy).onClick(() => this.changeCart(line, line.quantity, true))
           Blank().layoutWeight(1)
-          Button('−').width(48).height(this.controlHeight(44)).fontSize(20).fontColor(INK).backgroundColor(BG).enabled(!this.commerceBusy && line.quantity > 1)
+          Button(this.tr('−')).width(48).height(this.controlHeight(44)).fontSize(20).fontColor(INK).backgroundColor(BG).enabled(!this.commerceBusy && line.quantity > 1)
             .onClick(() => this.changeCart(line, line.quantity - 1))
           Text(String(line.quantity)).fontSize(16).fontColor(INK).width(28).textAlign(TextAlign.Center)
-          Button('+').width(48).height(this.controlHeight(44)).fontSize(20).fontColor(INK).backgroundColor(BG)
+          Button(this.tr('+')).width(48).height(this.controlHeight(44)).fontSize(20).fontColor(INK).backgroundColor(BG)
             .enabled(!this.commerceBusy && line.quantity < 999 && (line.stock < 0 || line.quantity < line.stock))
             .onClick(() => this.changeCart(line, line.quantity + 1))
         }.width('100%')
       }.width('100%').padding(14).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
     }, (line: ShopLine) => String(line.id))
     if (this.cartLines.length || this.commerceError) {
-      Button('刷新购物车').height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent)
+      Button(this.tr('刷新购物车')).height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent)
         .enabled(!this.commerceBusy).onClick(() => this.openCart())
     }
   }
@@ -4355,16 +4540,16 @@ struct Index {
           action: () => { if (!this.commerceBusy && !this.checkoutAttempted) { this.selectingCheckoutAddress = true; this.openAddresses(); } }, id: 'checkout_address' })
       }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
       Column({ space: 12 }) {
-        Text('商品信息').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(this.tr('商品信息')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
         ForEach(this.checkoutPreview.products, (line: ShopLine) => { this.CommerceLine({ line }) })
-        TextInput({ text: this.checkoutMessage, placeholder: '留言' }).fontSize(16).height(this.controlHeight(56)).maxLength(100)
+        TextInput({ text: this.checkoutMessage, placeholder: this.tr('留言') }).fontSize(16).height(this.controlHeight(56)).maxLength(100)
           .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
           .enabled(!this.commerceBusy && !this.checkoutAttempted).onChange((value: string) => this.checkoutMessage = value).id('checkout_message')
-        Text(`${this.checkoutMessage.length}/100`).fontSize(13).fontColor(MUTED).textAlign(TextAlign.End).width('100%')
+        Text(this.tr(`${this.checkoutMessage.length}/100`)).fontSize(13).fontColor(MUTED).textAlign(TextAlign.End).width('100%')
       }.width('100%').padding(14).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
       Column({ space: 8 }) {
-        Text('积分抵扣').fontSize(14).fontColor(MUTED).width('100%')
-        TextInput({ text: this.checkoutPoints, placeholder: '0' }).fontSize(16).height(this.controlHeight(56)).maxLength(12).type(InputType.NUMBER_DECIMAL)
+        Text(this.tr('积分抵扣')).fontSize(14).fontColor(MUTED).width('100%')
+        TextInput({ text: this.checkoutPoints, placeholder: this.tr('0') }).fontSize(16).height(this.controlHeight(56)).maxLength(12).type(InputType.NUMBER_DECIMAL)
           .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
           .enabled(!this.commerceBusy && !this.checkoutAttempted && this.checkoutPreview.pointsCents >= 0)
           .onChange((value: string) => this.checkoutPoints = value).id('checkout_points')
@@ -4377,17 +4562,17 @@ struct Index {
       }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
       if (this.checkoutAttempted && !this.commerceBusy) {
         this.Notice({ message: '请先核对我的订单，避免重复提交。' })
-        Button('查看我的订单').height(this.controlHeight(56)).backgroundColor(RED).onClick(() => this.openOrders())
+        Button(this.tr('查看我的订单')).height(this.controlHeight(56)).backgroundColor(RED).onClick(() => this.openOrders())
       }
     } else if (!this.commerceLoading) {
-      Button('重新加载').height(this.controlHeight(56)).backgroundColor(RED).onClick(() => this.loadCheckout())
+      Button(this.tr('重新加载')).height(this.controlHeight(56)).backgroundColor(RED).onClick(() => this.loadCheckout())
     }
   }
 
   @Builder
   CommerceAmount($$: CommerceAmountProps) {
     Row({ space: 12 }) {
-      Text($$.label).fontSize(16).fontColor(INK).layoutWeight(1)
+      Text(this.tr($$.label)).fontSize(16).fontColor(INK).layoutWeight(1)
       Text(commerceMoney($$.amount)).fontSize($$.emphasis ? 19 : 16).fontWeight(FontWeight.Bold).fontColor($$.emphasis ? RED : INK)
     }.width('100%')
   }
@@ -4407,8 +4592,8 @@ struct Index {
       Row({ space: 14 }) {
         SymbolGlyph($r('sys.symbol.map')).fontSize(24).fontColor([RED])
         Column({ space: 8 }) {
-          Text(this.orderDetail.receiver).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-          Text(this.orderDetail.address).fontSize(15).fontColor(MUTED).lineHeight(22).width('100%')
+          Text(this.tr(this.orderDetail.receiver)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text(this.tr(this.orderDetail.address)).fontSize(15).fontColor(MUTED).lineHeight(22).width('100%')
         }.layoutWeight(1)
       }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
       Column({ space: 14 }) {
@@ -4420,29 +4605,29 @@ struct Index {
         this.CommerceAmount({ label: '实付款', amount: this.orderDetail.order.amountCents, emphasis: true })
       }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
       Column({ space: 10 }) {
-        Text(`订单编号  ${this.orderDetail.order.number}`).fontSize(15).fontColor(INK).width('100%').copyOption(CopyOptions.InApp)
-        Text(`下单时间  ${this.orderDetail.createdAt}`).fontSize(15).fontColor(MUTED).width('100%')
+        Text(this.tr(`订单编号  ${this.orderDetail.order.number}`)).fontSize(15).fontColor(INK).width('100%').copyOption(CopyOptions.InApp)
+        Text(this.tr(`下单时间  ${this.orderDetail.createdAt}`)).fontSize(15).fontColor(MUTED).width('100%')
       }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
       Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End }) {
         if (this.orderDetail.order.status > 0) {
-          Button('申请售后').height(this.controlHeight(48)).fontSize(16).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE, radius: 12 })
+          Button(this.tr('申请售后')).height(this.controlHeight(48)).fontSize(16).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE, radius: 12 })
             .margin({ left: 8, bottom: 8 }).enabled(!this.commerceBusy).onClick(() => this.openInnerPage('shop-after-sales')).id('order_after_sales')
         }
         if (this.orderDetail.order.status >= 2) {
-          Button('查看物流').height(this.controlHeight(48)).fontSize(16).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE, radius: 12 })
+          Button(this.tr('查看物流')).height(this.controlHeight(48)).fontSize(16).fontColor(INK).backgroundColor(SURFACE).border({ width: 1, color: OUTLINE, radius: 12 })
             .margin({ left: 8, bottom: 8 }).enabled(!this.commerceBusy).onClick(() => this.openShipments()).id('order_express')
         }
         if (this.orderDetail.order.status === 2) {
-          Button('确认收货').height(this.controlHeight(48)).fontSize(16).backgroundColor(RED).margin({ left: 8, bottom: 8 })
+          Button(this.tr('确认收货')).height(this.controlHeight(48)).fontSize(16).backgroundColor(RED).margin({ left: 8, bottom: 8 })
             .enabled(!this.commerceBusy).onClick(() => this.confirmReceipt()).id('order_receipt')
         }
         if (this.orderDetail.order.status === 0 && this.orderDetail.order.amountCents > 0) {
-          Button('查看支付状态').height(this.controlHeight(56)).fontSize(16).backgroundColor(RED).margin({ left: 8, bottom: 8 })
+          Button(this.tr('查看支付状态')).height(this.controlHeight(56)).fontSize(16).backgroundColor(RED).margin({ left: 8, bottom: 8 })
             .onClick(() => { this.innerParents.set('shop-payment', 'shop-order-detail'); this.openPayment(this.orderDetail!.order); }).id('order_payment')
         }
       }.width('100%')
     }
-    Button('刷新订单详情').height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent)
+    Button(this.tr('刷新订单详情')).height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent)
       .enabled(!this.commerceBusy && !this.commerceLoading).onClick(() => this.openCommerceOrder(this.commerceOrderId)).id('refresh_order_detail')
   }
 
@@ -4452,25 +4637,25 @@ struct Index {
     if (!this.commerceLoading && !this.commerceError && !this.shipments.length) {
       Column({ space: 20 }) {
         SymbolGlyph($r('sys.symbol.bag')).fontSize(44).fontColor([INK])
-        Text('暂无物流信息').fontSize(16).fontColor(INK)
-        Button('重新加载').height(this.controlHeight(56)).fontSize(16).backgroundColor(RED).onClick(() => this.openShipments())
+        Text(this.tr('暂无物流信息')).fontSize(16).fontColor(INK)
+        Button(this.tr('重新加载')).height(this.controlHeight(56)).fontSize(16).backgroundColor(RED).onClick(() => this.openShipments())
       }.width('100%').constraintSize({ minHeight: 620 }).justifyContent(FlexAlign.Center)
     }
     ForEach(this.shipments, (shipment: Shipment) => {
       Column({ space: 14 }) {
-        Text(shipment.company).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-        Text(`快递单号：${shipment.number}`).fontSize(15).fontColor(INK).width('100%').copyOption(CopyOptions.InApp)
+        Text(this.tr(shipment.company)).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(this.tr(`快递单号：${shipment.number}`)).fontSize(15).fontColor(INK).width('100%').copyOption(CopyOptions.InApp)
         Divider().color(LINE)
         ForEach(shipment.traces, (trace: ShipmentTrace) => {
           Row({ space: 12 }) {
             SymbolGlyph($r('sys.symbol.circle_fill')).fontSize(10).fontColor([RED])
-            Column({ space: 6 }) { Text(trace.remark).fontSize(16).fontColor(INK).width('100%'); Text(trace.time).fontSize(14).fontColor(MUTED).width('100%') }.layoutWeight(1)
+            Column({ space: 6 }) { Text(this.tr(trace.remark)).fontSize(16).fontColor(INK).width('100%'); Text(this.tr(trace.time)).fontSize(14).fontColor(MUTED).width('100%') }.layoutWeight(1)
           }.width('100%')
         })
       }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
     })
     if (this.commerceError || this.shipments.length) {
-      Button('刷新物流').height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent).enabled(!this.commerceLoading).onClick(() => this.openShipments())
+      Button(this.tr('刷新物流')).height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent).enabled(!this.commerceLoading).onClick(() => this.openShipments())
     }
   }
 
@@ -4479,12 +4664,12 @@ struct Index {
     this.Notice({ message: '请选择需要售后的商品，并填写原因和申请金额。提交后可在订单列表查看处理状态。' })
     if (this.orderDetail) {
       Column({ space: 14 }) {
-        Text(`订单号 ${this.orderDetail.order.number}`).fontSize(14).fontColor(MUTED).width('100%')
+        Text(this.tr(`订单号 ${this.orderDetail.order.number}`)).fontSize(14).fontColor(MUTED).width('100%')
         Divider().color(LINE)
         ForEach(this.orderDetail.products, (line: ShopLine) => {
           this.CommerceLine({ line })
           Row() { Blank().layoutWeight(1)
-            Button(line.applied ? '查看售后状态' : '申请售后').height(this.controlHeight(48)).fontSize(16).fontColor(INK).backgroundColor(SURFACE)
+            Button(this.tr(line.applied ? '查看售后状态' : '申请售后')).height(this.controlHeight(48)).fontSize(16).fontColor(INK).backgroundColor(SURFACE)
             .border({ width: 1, color: OUTLINE, radius: 12 }).onClick(() => this.openRefund(line)).id(`refund_line_${line.id}`)
           }.width('100%')
         })
@@ -4499,21 +4684,21 @@ struct Index {
       if (this.refundLine.applied) { this.Notice({ message: '该商品已经提交售后申请，请等待商城工作人员处理。', color: GOLD_SOFT }) }
       else {
         Column({ space: 6 }) {
-          Text('售后类型').fontSize(14).fontColor(MUTED).width('100%')
+          Text(this.tr('售后类型')).fontSize(14).fontColor(MUTED).width('100%')
           Select([{ value: '仅退款' }, { value: '退货退款' }]).selected(this.refundType).value(this.refundType === 0 ? '仅退款' : '退货退款')
             .width('100%').font({ size: 16 }).backgroundColor(SURFACE).enabled(!this.commerceBusy).onSelect((index: number) => this.refundType = index)
         }.width('100%').padding(12).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
-        TextInput({ text: this.refundAmount, placeholder: '申请金额' }).type(InputType.NUMBER_DECIMAL).fontSize(16).height(this.controlHeight(56)).maxLength(12)
+        TextInput({ text: this.refundAmount, placeholder: this.tr('申请金额') }).type(InputType.NUMBER_DECIMAL).fontSize(16).height(this.controlHeight(56)).maxLength(12)
           .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.commerceBusy)
           .onChange((value: string) => this.refundAmount = value).id('refund_amount')
-        TextArea({ text: this.refundReason, placeholder: '售后原因，请说明遇到的问题' }).fontSize(16).height(140).maxLength(200)
+        TextArea({ text: this.refundReason, placeholder: this.tr('售后原因，请说明遇到的问题') }).fontSize(16).height(140).maxLength(200)
           .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.commerceBusy)
           .onChange((value: string) => this.refundReason = value).id('refund_reason')
-        Text(`${this.refundReason.length}/200`).fontSize(13).fontColor(MUTED).textAlign(TextAlign.End).width('100%')
-        Button(this.commerceBusy ? '提交中…' : '提交申请').width('100%').height(this.controlHeight(56)).fontSize(16).backgroundColor(RED)
+        Text(this.tr(`${this.refundReason.length}/200`)).fontSize(13).fontColor(MUTED).textAlign(TextAlign.End).width('100%')
+        Button(this.tr(this.commerceBusy ? '提交中…' : '提交申请')).width('100%').height(this.controlHeight(56)).fontSize(16).backgroundColor(RED)
           .enabled(!this.commerceBusy && !this.refundAttempted).onClick(() => this.submitRefund()).id('refund_submit')
         if (this.refundAttempted && !this.commerceBusy) {
-          Button('刷新订单确认结果').height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent)
+          Button(this.tr('刷新订单确认结果')).height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent)
             .onClick(() => { this.screen = 'shop-order-detail'; this.openCommerceOrder(this.commerceOrderId); })
         }
       }
@@ -4527,8 +4712,8 @@ struct Index {
       Column({ space: 16 }) {
         Column() { SymbolGlyph($r('sys.symbol.lock_shield')).fontSize(28).fontColor([RED]) }
           .width(54).height(54).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(16)
-        Text('您好，我是 AI 健康管家').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').textAlign(TextAlign.Center)
-        Text('可以向我咨询日常健康管理问题，回答仅供参考，不能替代医生诊断。')
+        Text(this.tr('您好，我是 AI 健康管家')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').textAlign(TextAlign.Center)
+        Text(this.tr('可以向我咨询日常健康管理问题，回答仅供参考，不能替代医生诊断。'))
           .fontSize(16).lineHeight(24).fontColor(MUTED).width('100%').textAlign(TextAlign.Center)
       }.width('100%').constraintSize({ minHeight: 440 }).padding(20).margin({ top: 16 })
         .backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
@@ -4541,7 +4726,7 @@ struct Index {
         Column({ space: 5 }) {
           Text(message.text).fontSize(16).lineHeight(24).fontColor(message.mine ? Color.White : INK)
             .copyOption(CopyOptions.InApp).width('100%')
-          if (message.failed) { Text('发送失败，请检查网络后重试').fontSize(12).fontColor('#FFD7D7').width('100%') }
+          if (message.failed) { Text(this.tr('发送失败，请检查网络后重试')).fontSize(12).fontColor('#FFD7D7').width('100%') }
         }.width('78%').padding(14).backgroundColor(message.mine ? RED : SURFACE).borderRadius(18)
           .border({ width: 1, color: message.mine ? RED : LINE })
         if (!message.mine) { Blank().layoutWeight(1) }
@@ -4551,7 +4736,7 @@ struct Index {
       Row() {
         Row({ space: 10 }) {
           LoadingProgress().width(22).height(22).color(RED)
-          Text('AI 正在思考，请耐心等待…').fontSize(15).fontColor(MUTED)
+          Text(this.tr('AI 正在思考，请耐心等待…')).fontSize(15).fontColor(MUTED)
         }.padding(14).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
         Blank().layoutWeight(1)
       }.width('100%')
@@ -4559,10 +4744,83 @@ struct Index {
   }
 
   @Builder
+  GlobalReportsContent() {
+    this.Notice({ message: 'healthDisclaimer' })
+    if (this.globalReportsBusy) { LoadingProgress().width(36).height(36).color(RED) }
+    if (this.globalReportsError) { this.Notice({ message: this.globalReportsError }) }
+    Button(this.tr('reports_refresh')).width('100%').constraintSize({ minHeight: 48 }).enabled(!this.globalReportsBusy)
+      .onClick(() => this.openGlobalReports()).id('reports_refresh')
+    if (this.globalReportEligibility) {
+      Text(formatAppText('reports_data_days', { days: String(this.globalReportEligibility.distinctDays),
+        minimum: String(this.globalReportEligibility.minimumDistinctDays) }, this.appLocale)).fontSize(15).fontColor(INK).width('100%')
+    }
+    if (this.globalReportProfile?.consentVersion) {
+      Button(this.tr('reports_withdraw')).width('100%').constraintSize({ minHeight: 48 }).enabled(!this.globalReportsBusy)
+        .onClick(() => this.globalReportAction('revoke')).id('reports_withdraw')
+    } else if (this.globalReportProfile?.document) {
+      Button(this.tr('reports_read_notice')).width('100%').constraintSize({ minHeight: 48 }).enabled(!this.globalReportsBusy)
+        .onClick(() => this.globalReportAction('read')).id('reports_read_notice')
+    }
+    ForEach(this.globalAnalysisParagraphs, (paragraph: string, index: number) => {
+      Text(paragraph).fontSize(16).lineHeight(25).fontColor(INK).width('100%')
+    }, (paragraph: string, index: number) => String(index))
+    if (this.globalAnalysisDocument && this.globalAnalysisParagraphs.length > 0) {
+      Row({ space: 8 }) {
+        Checkbox().select(this.globalAnalysisAccepted).enabled(!this.globalReportsBusy)
+          .onChange((checked: boolean) => this.globalAnalysisAccepted = checked).id('reports_analysis_agreement')
+        Text(this.tr('reports_agree_notice')).fontSize(15).fontColor(INK).layoutWeight(1)
+      }.width('100%')
+      Button(this.tr('reports_agree')).width('100%').constraintSize({ minHeight: 48 })
+        .enabled(this.globalAnalysisAccepted && !this.globalReportsBusy).onClick(() => this.globalReportAction('grant')).id('reports_agree')
+    }
+    if (this.globalReportProfile && this.globalReportEligibility) {
+      if (reportGenerationBlock(this.globalReportProfile, this.globalReportEligibility)) {
+        this.Notice({ message: reportGenerationBlock(this.globalReportProfile, this.globalReportEligibility) })
+      }
+      Button(this.tr('reports_generate')).width('100%').constraintSize({ minHeight: 48 })
+        .enabled(!this.globalReportsBusy && !reportGenerationBlock(this.globalReportProfile, this.globalReportEligibility))
+        .onClick(() => this.globalReportAction('generate')).id('reports_generate')
+    }
+    if (!this.globalReportsBusy && !this.globalReportsError && !this.globalReports.length) {
+      this.StateCard({ title: 'reports_no_data' })
+    }
+    ForEach(this.globalReports, (report: GlobalHealthReport) => {
+      Column({ space: 8 }) {
+        Text(report.title || this.tr('reports')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(report.from.slice(0, 10) + ' – ' + report.to.slice(0, 10)).fontSize(14).fontColor(MUTED).width('100%')
+        if (report.summary) { Text(report.summary).fontSize(15).fontColor(INK).lineHeight(23).width('100%') }
+        if (report.aiGenerated) { Text(this.tr('reports_ai')).fontSize(13).fontColor(MUTED).width('100%') }
+        if (report.status === 'ready') {
+          Button(this.tr('reports_open')).width('100%').constraintSize({ minHeight: 48 }).enabled(!this.globalReportsBusy)
+            .onClick(() => this.openGlobalReport(report)).id('report_' + report.id)
+          Button(this.tr('reports_export')).width('100%').constraintSize({ minHeight: 48 }).enabled(!this.globalReportsBusy)
+            .onClick(() => this.globalReportAction('export', report.id)).id('report_export_' + report.id)
+        } else if (report.status === 'failed') {
+          Text(this.tr('reports_failed')).fontSize(14).fontColor(MUTED).width('100%')
+          Button(this.tr('retry')).width('100%').constraintSize({ minHeight: 48 })
+            .enabled(!this.globalReportsBusy && !reportGenerationBlock(this.globalReportProfile, this.globalReportEligibility, true))
+            .onClick(() => this.globalReportAction('generate', report.id)).id('report_retry_' + report.id)
+        } else if (report.status === 'awaiting_payment') {
+          Text(this.tr('reports_payment_unavailable')).fontSize(14).fontColor(MUTED).width('100%')
+        } else if (report.status === 'revoked') {
+          Text(this.tr('reports_revoked')).fontSize(14).fontColor(MUTED).width('100%')
+        } else { Text(this.tr('reports_pending')).fontSize(14).fontColor(MUTED).width('100%') }
+      }.padding(16).width('100%').backgroundColor(SURFACE).borderRadius(18)
+    }, (report: GlobalHealthReport) => report.id)
+    ForEach(this.globalReportParagraphs, (paragraph: string, index: number) => {
+      Text(paragraph).fontSize(16).lineHeight(25).fontColor(INK).width('100%').copyOption(CopyOptions.InApp)
+    }, (paragraph: string, index: number) => String(index))
+  }
+
+
+  @Builder
   AccountContent() {
+    this.LanguagePicker()
+    this.Notice({ message: 'language_note' })
+    this.PageRow({ title: 'reports', icon: $r('sys.symbol.doc'), action: () => this.openGlobalReports(), id: 'global_health_reports' })
     if (this.guest) {
       this.Notice({ message: '登录后可管理账号信息。' })
-      Button('前往登录').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
+      Button(this.tr('前往登录')).width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
         .type(ButtonType.Normal).borderRadius(12).onClick(() => this.screen = 'login')
     } else {
       Column({ space: 0 }) {
@@ -4579,7 +4837,7 @@ struct Index {
           action: () => this.openArticle('3', '隐私协议', true) })
       }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE }).clip(true)
       if (this.profileError) { this.Notice({ message: this.profileError, color: '#FFF0E9' }) }
-      Button(this.busy ? '正在退出…' : '退出登录').width('100%').constraintSize({ minHeight: 56 }).margin({ top: 6 })
+      Button(this.tr(this.busy ? '正在退出…' : '退出登录')).width('100%').constraintSize({ minHeight: 56 }).margin({ top: 6 })
         .fontSize(16).fontWeight(FontWeight.Bold)
         .backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
         .enabled(!this.busy).onClick(() => this.signOut()).id('logout')
@@ -4593,8 +4851,8 @@ struct Index {
     if (!this.accountPageLoading && !this.accountPageError && this.addresses.length === 0) {
       Column({ space: 20 }) {
         SymbolGlyph($r('sys.symbol.bag')).fontSize(44).fontColor([INK])
-        Text('暂无收货地址').fontSize(16).fontColor(INK)
-        Button('新增地址').constraintSize({ minHeight: 56 }).fontSize(16).fontWeight(FontWeight.Bold)
+        Text(this.tr('暂无收货地址')).fontSize(16).fontColor(INK)
+        Button(this.tr('新增地址')).constraintSize({ minHeight: 56 }).fontSize(16).fontWeight(FontWeight.Bold)
           .backgroundColor(RED).type(ButtonType.Normal).borderRadius(12).onClick(() => this.editAddress()).id('add_address_empty')
       }.width('100%').constraintSize({ minHeight: 530 }).justifyContent(FlexAlign.Center)
     }
@@ -4603,28 +4861,28 @@ struct Index {
         Column() { SymbolGlyph($r('sys.symbol.map')).fontSize(22).fontColor([RED]) }
           .width(40).height(40).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(20)
         Column({ space: 6 }) {
-          Text(`${address.name}  ${address.mobile}`).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-          Text(address.address).fontSize(14).fontColor(MUTED).lineHeight(22).width('100%')
+          Text(this.tr(`${address.name}  ${address.mobile}`)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text(this.tr(address.address)).fontSize(14).fontColor(MUTED).lineHeight(22).width('100%')
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         Button() { SymbolGlyph($r('sys.symbol.square_and_pencil')).fontSize(22).fontColor([RED]) }
-          .width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).onClick(() => this.editAddress(address)).accessibilityText('编辑地址')
+          .width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).onClick(() => this.editAddress(address)).accessibilityText(this.tr('编辑地址'))
       }.width('100%').padding(15).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
         .onClick(() => {
           if (this.selectingCheckoutAddress) { this.checkoutAddress = address; this.back(); }
           else this.editAddress(address);
         }).id(`edit_address_${address.id}`)
     }, (address: ShippingAddress) => address.id)
-    Button('刷新地址').constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
+    Button(this.tr('刷新地址')).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
       .enabled(!this.accountPageLoading).onClick(() => this.openAddresses())
   }
 
   @Builder
   AddressEditContent() {
     if (this.regionsLoading) { LoadingProgress().width(40).height(40).color(RED) }
-    TextInput({ text: this.addressDraft.name, placeholder: '收货人' }).height(this.controlHeight(56)).fontSize(16).maxLength(60)
+    TextInput({ text: this.addressDraft.name, placeholder: this.tr('收货人') }).height(this.controlHeight(56)).fontSize(16).maxLength(60)
       .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
       .onChange((value: string) => this.editAddressText('name', value)).id('address_name')
-    TextInput({ text: this.addressDraft.mobile, placeholder: '手机号' }).height(this.controlHeight(56)).fontSize(16).type(InputType.PhoneNumber).maxLength(11)
+    TextInput({ text: this.addressDraft.mobile, placeholder: this.tr('手机号') }).height(this.controlHeight(56)).fontSize(16).type(InputType.PhoneNumber).maxLength(11)
       .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
       .onChange((value: string) => this.editAddressText('mobile', value)).id('address_mobile')
     ForEach([0, 1, 2], (level: number) => {
@@ -4636,58 +4894,57 @@ struct Index {
           .onSelect((index: number) => {
             const item = this.addressChoices(level)[index];
             if (item) this.addressDraft = selectAddressRegion(this.addressDraft, level, item.code);
-          }).id(`address_region_${level}`).accessibilityText(level === 0 ? '省或自治区' : level === 1 ? '市' : '区或县')
-        Text(level === 0 ? '省/自治区' : level === 1 ? '城市' : '区/县')
+          }).id(`address_region_${level}`).accessibilityText(this.tr(level === 0 ? '省或自治区' : level === 1 ? '市' : '区或县'))
+        Text(this.tr(level === 0 ? '省/自治区' : level === 1 ? '城市' : '区/县'))
           .fontSize(this.addressRegionIndex(level) < 0 ? 16 : 12).fontColor(MUTED)
           .backgroundColor(this.addressRegionIndex(level) < 0 ? Color.Transparent : SURFACE).padding({ left: 4, right: 4 })
           .position({ x: 12, y: this.addressRegionIndex(level) < 0 ? 17 : -7 }).hitTestBehavior(HitTestMode.None)
       }.width('100%').height(this.controlHeight(56)).margin({ top: 4 })
     })
-    TextArea({ text: this.addressDraft.details, placeholder: '详细地址' }).height(108).fontSize(16).maxLength(300)
+    TextArea({ text: this.addressDraft.details, placeholder: this.tr('详细地址') }).height(108).fontSize(16).maxLength(300)
       .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
       .onChange((value: string) => this.editAddressText('details', value)).id('address_details')
     Row() {
-      Text('设为默认地址').fontSize(16).fontColor(INK).layoutWeight(1)
+      Text(this.tr('设为默认地址')).fontSize(16).fontColor(INK).layoutWeight(1)
       Toggle({ type: ToggleType.Switch, isOn: this.addressDraft.isDefault }).selectedColor(RED).enabled(!this.formBusy)
         .onChange((value: boolean) => {
           const draft = copyAddressDraft(this.addressDraft); draft.isDefault = value; this.addressDraft = draft;
         }).id('address_default')
     }.width('100%').constraintSize({ minHeight: 48 })
     if (this.formMessage) { this.Notice({ message: this.formMessage, color: GOLD_SOFT }) }
-    Button(this.formBusy ? '保存中…' : '保存地址').width('100%').constraintSize({ minHeight: 56 }).fontSize(16)
+    Button(this.tr(this.formBusy ? '保存中…' : '保存地址')).width('100%').constraintSize({ minHeight: 56 }).fontSize(16)
       .fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
       .enabled(!this.formBusy && !this.regionsLoading).onClick(() => this.saveAddress()).id('save_address')
   }
 
   @Builder
   PasswordResetContent() {
+    this.AuthMethodSelector()
     Column({ space: 24 }) {
       SymbolGlyph($r('sys.symbol.lock')).fontSize(54).fontColor([BLUE]).margin({ top: 26, bottom: 8 })
-      Text('验证手机号').fontSize(24).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').textAlign(TextAlign.Center)
-      Text('输入注册手机号，验证通过后可重新设置密码。').fontSize(16).fontColor(MUTED).width('100%')
-        .textAlign(TextAlign.Center).margin({ bottom: 18 })
+      Text(this.tr('reset_password')).fontSize(24).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').textAlign(TextAlign.Center)
     }.width('100%')
-    TextInput({ text: this.resetMobile, placeholder: '手机号' }).type(InputType.PhoneNumber).height(this.controlHeight(56)).fontSize(16)
-      .maxLength(11).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
+    TextInput({ text: this.resetMobile, placeholder: this.tr(this.authChannel === 'email' ? 'email' : 'phone') }).type(InputType.Normal).height(this.controlHeight(56)).fontSize(16)
+      .maxLength(254).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
       .onChange((value: string) => this.resetMobile = value).id('reset_mobile')
     Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
-      TextInput({ text: this.resetCode, placeholder: '短信验证码' }).type(InputType.Number).height(this.controlHeight(56)).fontSize(16)
+      TextInput({ text: this.resetCode, placeholder: this.tr('短信验证码') }).type(InputType.Number).height(this.controlHeight(56)).fontSize(16)
         .width(this.singleColumn() ? '100%' : '58%').maxLength(8).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
         .enabled(!this.formBusy).onChange((value: string) => this.resetCode = value).id('reset_code')
-      Button(this.smsBusy ? '发送中…' : this.smsCountdown > 0 ? `${this.smsCountdown}s` : '获取验证码')
+      Button(this.tr(this.smsBusy ? '发送中…' : this.smsCountdown > 0 ? `${this.smsCountdown}s` : '获取验证码'))
         .width(this.singleColumn() ? '100%' : '38%').height(this.controlHeight(56)).fontSize(14).fontColor(INK).backgroundColor(SURFACE)
         .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE }).margin({ top: this.singleColumn() ? 8 : 0 })
-        .enabled(!this.smsBusy && !this.formBusy && this.smsCountdown === 0).onClick(() => this.sendResetCode())
+        .enabled(!this.smsBusy && !this.formBusy && this.smsCountdown === 0 && !this.authCapabilitiesBusy && this.capabilities.recovery[this.authChannel]).onClick(() => this.sendResetCode())
     }.width('100%')
-    TextInput({ text: this.resetPassword, placeholder: '新密码' }).type(InputType.Password).height(this.controlHeight(56)).fontSize(16)
-      .maxLength(64).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
+    TextInput({ text: this.resetPassword, placeholder: this.tr('新密码') }).type(InputType.Password).height(this.controlHeight(56)).fontSize(16)
+      .maxLength(72).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
       .onChange((value: string) => this.resetPassword = value).id('reset_password')
-    Text('至少 6 位').fontSize(13).fontColor(MUTED).width('100%').padding({ left: 16 })
-    TextInput({ text: this.resetConfirmation, placeholder: '确认新密码' }).type(InputType.Password).height(this.controlHeight(56)).fontSize(16)
-      .maxLength(64).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
+    Text(this.tr('password_length')).fontSize(13).fontColor(MUTED).width('100%').padding({ left: 16 })
+    TextInput({ text: this.resetConfirmation, placeholder: this.tr('确认新密码') }).type(InputType.Password).height(this.controlHeight(56)).fontSize(16)
+      .maxLength(72).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
       .onChange((value: string) => this.resetConfirmation = value).id('reset_confirmation')
     if (this.formMessage) { this.Notice({ message: this.formMessage, color: GOLD_SOFT }) }
-    Button(this.formBusy ? '正在提交…' : '重置密码').width('100%').constraintSize({ minHeight: 56 }).fontSize(16)
+    Button(this.tr(this.formBusy ? '正在提交…' : '重置密码')).width('100%').constraintSize({ minHeight: 56 }).fontSize(16)
       .fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
       .enabled(!this.formBusy).onClick(() => this.submitResetPassword()).id('submit_reset')
   }
@@ -4695,11 +4952,11 @@ struct Index {
   @Builder
   ProfileInput(label: string, value: string, fieldId: string, numeric: boolean, change: (value: string) => void) {
     Column({ space: 4 }) {
-      Text(label).fontSize(13).fontColor(MUTED).width('100%')
+      Text(this.tr(label)).fontSize(13).fontColor(MUTED).width('100%')
       TextInput({ text: value, placeholder: `请输入${label}` }).fontSize(16).height(this.controlHeight(48))
         .type(numeric ? InputType.NUMBER_DECIMAL : InputType.Normal).maxLength(numeric ? 6 : 30)
         .padding(0).backgroundColor(Color.Transparent).borderRadius(0)
-        .enabled(!this.formBusy).onChange(change).id(fieldId).accessibilityText(label)
+        .enabled(!this.formBusy).onChange(change).id(fieldId).accessibilityText(this.tr(label))
     }.width('100%').padding({ left: 16, right: 16, top: 10, bottom: 10 })
       .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
   }
@@ -4721,45 +4978,45 @@ struct Index {
         }.width(32).height(32).justifyContent(FlexAlign.Center).backgroundColor(RED).borderRadius(16)
           .border({ width: 2, color: SURFACE })
       }.width(100).height(100).onClick(() => this.pickProfileAvatar()).id('profile_avatar_picker')
-        .accessibilityText('更换头像')
-      Text(this.editAvatarUri ? '已选择新头像，保存后生效' : '点击头像更换照片')
+        .accessibilityText(this.tr('更换头像'))
+      Text(this.tr(this.editAvatarUri ? '已选择新头像，保存后生效' : '点击头像更换照片'))
         .fontSize(14).fontColor(MUTED).textAlign(TextAlign.Center)
     }.width('100%').margin({ top: 8, bottom: 8 })
 
     if (this.profileError) {
       this.Notice({ message: this.profileError, color: GOLD_SOFT })
-      Button('重新读取').width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
+      Button(this.tr('重新读取')).width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
         .enabled(!this.profileLoading && !this.formBusy).onClick(async () => { await this.refreshProfile(); if (!this.profileError) this.openProfileEditor(); })
         .id('profile_retry')
     }
     Column({ space: 6 }) {
-      Text('注册手机号').fontSize(13).fontColor(MUTED).width('100%')
+      Text(this.tr('注册手机号')).fontSize(13).fontColor(MUTED).width('100%')
       Row({ space: 12 }) {
-        Text(profileField(this.profile.mobile)).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+        Text(profileField(this.profile.mobile || this.profile.username)).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
         SymbolGlyph($r('sys.symbol.lock')).fontSize(22).fontColor([INK])
       }.width('100%')
     }.width('100%').constraintSize({ minHeight: this.controlHeight(60) }).padding(16)
       .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
-      .id('profile_registered_mobile').accessibilityText(`注册手机号：${profileField(this.profile.mobile)}`)
+      .id('profile_registered_mobile').accessibilityText(this.tr('emailOrPhone') + ': ' + profileField(this.profile.mobile || this.profile.username))
 
     this.ProfileInput('昵称', this.editNickname, 'profile_nickname', false, (value: string) => this.editNickname = value)
     Column({ space: 4 }) {
-      Text('性别').fontSize(13).fontColor(MUTED).width('100%')
+      Text(this.tr('性别')).fontSize(13).fontColor(MUTED).width('100%')
       Select([{ value: '未设置' }, { value: '男' }, { value: '女' }]).selected(this.editGender)
         .value(['未设置', '男', '女'][this.editGender]).font({ size: 17 }).width('100%').backgroundColor(Color.Transparent)
         .enabled(!this.formBusy).onSelect((index: number) => this.editGender = index).id('profile_gender')
     }.width('100%').constraintSize({ minHeight: this.controlHeight(60) }).padding({ left: 16, right: 12, top: 10, bottom: 10 })
       .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
     Column({ space: 6 }) {
-      Text('出生日期').fontSize(13).fontColor(MUTED).width('100%')
+      Text(this.tr('出生日期')).fontSize(13).fontColor(MUTED).width('100%')
       Row({ space: 12 }) {
-        Text(this.editBirthday || '请选择出生日期').fontSize(16).fontColor(this.editBirthday ? INK : MUTED).layoutWeight(1)
+        Text(this.tr(this.editBirthday || '请选择出生日期')).fontSize(16).fontColor(this.editBirthday ? INK : MUTED).layoutWeight(1)
         SymbolGlyph($r('sys.symbol.calendar')).fontSize(23).fontColor([INK])
       }.width('100%')
     }.width('100%').constraintSize({ minHeight: this.controlHeight(60) }).padding(16)
       .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
       .enabled(!this.formBusy).onClick(() => this.chooseBirthday()).id('profile_birthday')
-      .accessibilityText(`出生日期：${this.editBirthday || '未设置'}`)
+      .accessibilityText(this.tr(`出生日期：${this.editBirthday || '未设置'}`))
     this.ProfileInput('身高（cm）', this.editHeight, 'profile_height', true, (value: string) => this.editHeight = value)
     this.ProfileInput('体重（kg）', this.editWeight, 'profile_weight', true, (value: string) => this.editWeight = value)
 
@@ -4767,7 +5024,7 @@ struct Index {
     if (this.formMessage) {
       this.Notice({ message: this.formMessage, color: this.formMessage.includes('已保存') ? GREEN_SOFT : '#FFF0E9' })
     }
-    Button(this.formBusy ? '正在保存…' : '保存资料').width('100%').constraintSize({ minHeight: 56 }).fontSize(16)
+    Button(this.tr(this.formBusy ? '正在保存…' : '保存资料')).width('100%').constraintSize({ minHeight: 56 }).fontSize(16)
       .fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(14)
       .enabled(!this.formBusy && !this.avatarPicking).onClick(() => this.saveProfileDraft()).id('save_profile')
   }
@@ -4780,10 +5037,10 @@ struct Index {
           Radio({ value: unit, group: 'distance', indicatorType: RadioIndicatorType.DOT }).checked(this.displayUnits.distance === unit)
             .radioStyle({ checkedBackgroundColor: RED, indicatorColor: RED, uncheckedBorderColor: INK }).onChange((checked: boolean) => {
               if (checked) this.setDisplayUnits(unit === 'mi' ? 'mi' : 'km', this.displayUnits.temperature);
-            }).accessibilityText(unit === 'km' ? '公里' : '英里').id(`distance_${unit}`)
+            }).accessibilityText(this.tr(unit === 'km' ? '公里' : '英里')).id(`distance_${unit}`)
           Column({ space: 3 }) {
-            Text(unit === 'km' ? '公里' : '英里').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-            Text(unit === 'km' ? '距离使用 km' : '距离使用 mi').fontSize(14).fontColor(INK).width('100%')
+            Text(this.tr(unit === 'km' ? '公里' : '英里')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text(this.tr(unit === 'km' ? '距离使用 km' : '距离使用 mi')).fontSize(14).fontColor(INK).width('100%')
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         }.width('100%').constraintSize({ minHeight: 80 }).padding({ left: 8, right: 16, top: 8, bottom: 8 })
           .onClick(() => this.setDisplayUnits(unit === 'mi' ? 'mi' : 'km', this.displayUnits.temperature))
@@ -4795,8 +5052,8 @@ struct Index {
           Radio({ value: unit, group: 'temperature', indicatorType: RadioIndicatorType.DOT }).checked(this.displayUnits.temperature === unit)
             .radioStyle({ checkedBackgroundColor: RED, indicatorColor: RED, uncheckedBorderColor: INK }).onChange((checked: boolean) => {
               if (checked) this.setDisplayUnits(this.displayUnits.distance, unit === 'f' ? 'f' : 'c');
-            }).accessibilityText(unit === 'c' ? '摄氏度' : '华氏度').id(`temperature_${unit}`)
-          Text(unit === 'c' ? '摄氏度（℃）' : '华氏度（℉）').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+            }).accessibilityText(this.tr(unit === 'c' ? '摄氏度' : '华氏度')).id(`temperature_${unit}`)
+          Text(this.tr(unit === 'c' ? '摄氏度（℃）' : '华氏度（℉）')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
         }.width('100%').constraintSize({ minHeight: 64 }).padding({ left: 8, right: 16, top: 8, bottom: 8 })
           .onClick(() => this.setDisplayUnits(this.displayUnits.distance, unit === 'f' ? 'f' : 'c'))
       })
@@ -4808,9 +5065,9 @@ struct Index {
   @Builder
   AboutContent() {
     Image($r('app.media.brand_lockup')).width(176).height(92).objectFit(ImageFit.Contain)
-      .accessibilityText('赛电 SAYDIAN').margin({ top: 24, bottom: 12 })
-    Text('赛电健康').fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').textAlign(TextAlign.Center)
-    Text('让健康数据更直观，让日常管理更轻松。').fontSize(16).lineHeight(24).fontColor(MUTED)
+      .accessibilityText(this.tr('赛电 SAYDIAN')).margin({ top: 24, bottom: 12 })
+    Text(this.tr('赛电健康')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').textAlign(TextAlign.Center)
+    Text(this.tr('让健康数据更直观，让日常管理更轻松。')).fontSize(16).lineHeight(24).fontColor(MUTED)
       .width('100%').textAlign(TextAlign.Center)
     Text(`V${HARMONY_VERSION_NAME} (${HARMONY_VERSION_CODE})`).fontSize(16).fontColor(MUTED).width('100%').textAlign(TextAlign.Center)
     Column({ space: 0 }) {
@@ -4826,7 +5083,7 @@ struct Index {
     }
     if (this.updateInfo.hasUpdate) {
       if (this.updateInfo.releaseNotes) { Text(this.updateInfo.releaseNotes).fontSize(15).fontColor(INK).lineHeight(24).width('100%') }
-      Button('前往华为应用市场更新').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
+      Button(this.tr('download_update')).width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
         .onClick(() => this.openUpdateDestination()).id('open_update')
     }
     this.StateCard({ title: '健康数据说明', detail: '测量结果仅供健康管理参考，不用于诊断或治疗。' })
@@ -4834,66 +5091,43 @@ struct Index {
 
   @Builder
   ContactContent() {
-    Column({ space: 0 }) {
-      Row({ space: 12 }) {
-        Column() { SymbolGlyph($r('sys.symbol.phone')).fontSize(22).fontColor([RED]) }
-          .width(40).height(40).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(20)
-        Column({ space: 3 }) {
-          Text('联系电话').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-          Text('4006386738').fontSize(14).fontColor(INK).width('100%').copyOption(CopyOptions.InApp)
-        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-        Button('拨打电话').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).backgroundColor(GOLD_SOFT)
-          .type(ButtonType.Normal).borderRadius(12).constraintSize({ minHeight: 56 }).padding({ left: 20, right: 20 })
-          .onClick(() => this.contactSupport(true)).id('contact_phone')
-      }.width('100%').constraintSize({ minHeight: 80 }).padding(16)
-      Divider().color(LINE).margin({ left: 68 })
-      Row({ space: 12 }) {
-        Column() { SymbolGlyph($r('sys.symbol.wechat')).fontSize(22).fontColor([RED]) }
-          .width(40).height(40).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(20)
-        Column({ space: 3 }) {
-          Text('公众号').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-          Text('赛电').fontSize(14).fontColor(INK).width('100%').copyOption(CopyOptions.InApp)
-        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-        Button('添加客服').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).backgroundColor(GOLD_SOFT)
-          .type(ButtonType.Normal).borderRadius(12).constraintSize({ minHeight: 56 }).padding({ left: 20, right: 20 })
-          .onClick(() => this.contactSupport(false)).id('contact_copy')
-      }.width('100%').constraintSize({ minHeight: 80 }).padding(16)
-    }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
-    if (this.contactMessage) { this.Notice({ message: this.contactMessage }) }
-    this.StateCard({ title: '联系前请准备设备型号和问题发生时间', detail: '请勿向非官方账号发送验证码、密码或完整健康记录。',
+    this.StateCard({ title: 'customerService', detail: 'global_support_unavailable', icon: $r('sys.symbol.message') })
+    Button(this.tr('feedback')).width('100%').constraintSize({ minHeight: 56 }).backgroundColor(RED)
+      .onClick(() => this.openInnerPage('help')).id('contact_feedback')
+    this.StateCard({ title: 'support_prepare', detail: 'support_privacy',
       icon: $r('sys.symbol.lock_shield') })
   }
 
   @Builder
   HelpContent() {
-    Text('问题反馈').fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({ bottom: 2 })
+    Text(this.tr('问题反馈')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({ bottom: 2 })
     Stack({ alignContent: Alignment.TopStart }) {
       Select(FEEDBACK_TYPES.map((value: string): SelectOption => { return { value }; }))
         .selected(this.feedbackType).value(FEEDBACK_TYPES[this.feedbackType]).font({ size: 16 })
         .width('100%').height(this.controlHeight(60)).padding({ left: 8, right: 8 }).backgroundColor(SURFACE)
         .borderRadius(12).border({ width: 1, color: OUTLINE }).onSelect((index: number) => this.feedbackType = index)
         .enabled(!this.formBusy).id('feedback_type')
-      Text('问题类型').fontSize(12).fontColor(MUTED).padding({ left: 4, right: 4 }).backgroundColor(BG)
+      Text(this.tr('问题类型')).fontSize(12).fontColor(MUTED).padding({ left: 4, right: 4 }).backgroundColor(BG)
         .position({ x: 16, y: -8 })
     }.width('100%').height(this.controlHeight(60))
-    TextArea({ text: this.feedbackContent, placeholder: '问题说明' }).fontSize(16).height(164)
+    TextArea({ text: this.feedbackContent, placeholder: this.tr('问题说明') }).fontSize(16).height(164)
       .padding(20).maxLength(500).backgroundColor(SURFACE).borderRadius(12)
       .border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
       .onChange((value: string) => this.feedbackContent = value).id('feedback_content')
-    Text(`${this.feedbackContent.length}/500`).fontSize(14).fontColor(MUTED).width('100%').textAlign(TextAlign.End)
+    Text(this.tr(`${this.feedbackContent.length}/500`)).fontSize(14).fontColor(MUTED).width('100%').textAlign(TextAlign.End)
       .padding({ right: 20 }).margin({ top: -10 })
-    TextInput({ text: this.feedbackContact, placeholder: '联系方式（选填）' }).fontSize(16).height(this.controlHeight(60)).maxLength(100).padding(20)
+    TextInput({ text: this.feedbackContact, placeholder: this.tr('联系方式（选填）') }).fontSize(16).height(this.controlHeight(60)).maxLength(100).padding(20)
       .backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE }).enabled(!this.formBusy)
       .onChange((value: string) => this.feedbackContact = value).id('feedback_contact')
     if (this.formMessage) { this.Notice({ message: this.formMessage, color: this.formMessage.includes('已提交') ? GREEN_SOFT : '#FFF0E9' }) }
-    Button(this.formBusy ? '正在提交…' : '提交反馈').width('100%').constraintSize({ minHeight: 56 })
+    Button(this.tr(this.formBusy ? '正在提交…' : '提交反馈')).width('100%').constraintSize({ minHeight: 56 })
       .fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
       .enabled(!this.formBusy).onClick(() => this.submitFeedback()).id('submit_feedback')
-    Text('常见问题').fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({ top: 14 })
+    Text(this.tr('常见问题')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({ top: 14 })
     Column({ space: 0 }) {
       ForEach(['如何连接手表？', '为什么健康数据暂时为空？'], (question: string, index: number) => {
         Row({ space: 12 }) {
-          Text(question).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+          Text(this.tr(question)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
           SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(18).fontColor([MUTED])
             .rotate({ angle: this.expandedFaq === index ? 180 : 0 })
         }.width('100%').constraintSize({ minHeight: 64 }).padding({ left: 16, right: 16 })
@@ -4910,7 +5144,7 @@ struct Index {
 
   @Builder
   PermissionContent() {
-    Text('App 系统权限').fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({ top: 16 })
+    Text(this.tr('App 系统权限')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({ top: 16 })
     if (this.permissionError) { this.Notice({ message: this.permissionError, color: '#FFF0E9' }) }
     Column() {
       ForEach(this.permissionRows, (item: PermissionRow, index: number) => {
@@ -4918,10 +5152,10 @@ struct Index {
           SymbolGlyph(item.enabled ? $r('sys.symbol.checkmark_circle') : $r('sys.symbol.info_circle'))
             .fontSize(24).fontColor([item.enabled ? GREEN : GOLD])
           Column({ space: 4 }) {
-            Text(item.title).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-            Text(item.status).fontSize(14).fontColor(INK).width('100%')
+            Text(this.tr(item.title)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text(this.tr(item.status)).fontSize(14).fontColor(INK).width('100%')
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-          Button('设置').fontSize(16).fontWeight(FontWeight.Bold).fontColor(RED).backgroundColor(Color.Transparent)
+          Button(this.tr('设置')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(RED).backgroundColor(Color.Transparent)
             .constraintSize({ minHeight: 48, minWidth: 48 }).onClick(() => this.setPermission(item.key)).id(`permission_${item.key}`)
         }.width('100%').constraintSize({ minHeight: 80 }).padding({ left: 16, right: 16, top: 12, bottom: 12 })
         if (index < this.permissionRows.length - 1) { Divider().color(LINE).margin({ left: 56 }) }
@@ -4933,17 +5167,17 @@ struct Index {
           SymbolGlyph($r('sys.symbol.bell')).fontSize(23).fontColor([BLUE])
         }.width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(13)
         Column({ space: 3 }) {
-          Text('消息通知').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-          Text(this.pushStatus).fontSize(14).fontColor(MUTED).lineHeight(21).width('100%')
+          Text(this.tr('消息通知')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text(this.tr(this.pushStatus)).fontSize(14).fontColor(MUTED).lineHeight(21).width('100%')
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         if (this.pushBusy) { LoadingProgress().width(24).height(24).color(RED) }
       }.width('100%')
-      Button(this.pushBusy ? '检查中…' : '检查通知服务').width('100%').constraintSize({ minHeight: 48 })
+      Button(this.tr(this.pushBusy ? '检查中…' : '检查通知服务')).width('100%').constraintSize({ minHeight: 48 })
         .fontSize(16).fontWeight(FontWeight.Bold).fontColor(RED).backgroundColor(Color.Transparent)
         .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: LINE }).enabled(!this.pushBusy)
         .onClick(() => this.connectPush(true)).id('check_push_service')
     }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
-    Button('刷新权限状态').width('100%').constraintSize({ minHeight: 56 }).fontSize(16).fontWeight(FontWeight.Bold)
+    Button(this.tr('刷新权限状态')).width('100%').constraintSize({ minHeight: 56 }).fontSize(16).fontWeight(FontWeight.Bold)
       .fontColor(INK).backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12)
       .border({ width: 1, color: OUTLINE }).onClick(() => this.refreshPermissions())
     this.Notice({ message: '仅在使用对应功能时申请权限。锁屏通知不显示具体健康数值。', color: GREEN_SOFT })
@@ -4955,7 +5189,7 @@ struct Index {
     if (this.inboxError) { this.Notice({ message: this.inboxError, color: '#FFF0E9' }) }
     if (careNotifications.failureMessage()) { this.Notice({ message: careNotifications.failureMessage(), color: '#FFF0E9' }) }
     if (!this.inboxLoading && !this.inboxError && this.inbox.length === 0) {
-      Text('暂无消息').fontSize(16).fontColor(MUTED).width('100%').textAlign(TextAlign.Center).margin({ top: 180, bottom: 100 })
+      Text(this.tr('暂无消息')).fontSize(16).fontColor(MUTED).width('100%').textAlign(TextAlign.Center).margin({ top: 180, bottom: 100 })
     }
     ForEach(this.inbox, (message: InboxMessage) => {
       Row({ space: 12 }) {
@@ -4965,7 +5199,7 @@ struct Index {
         Column({ space: 5 }) {
           Row() {
             Text(message.title).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).maxLines(2)
-            if (!message.read) { Column().width(8).height(8).borderRadius(4).backgroundColor(RED).accessibilityText('未读') }
+            if (!message.read) { Column().width(8).height(8).borderRadius(4).backgroundColor(RED).accessibilityText(this.tr('未读')) }
           }.width('100%')
           if (message.content) { Text(message.content).fontSize(14).fontColor(MUTED).lineHeight(21).maxLines(2).width('100%') }
           if (message.createdAt) { Text(message.createdAt).fontSize(12).fontColor(MUTED).width('100%') }
@@ -4974,13 +5208,13 @@ struct Index {
       }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
         .onClick(() => this.openInboxMessage(message)).id(`inbox_${message.id}`)
     }, (message: InboxMessage) => JSON.stringify(message))
-    Button('刷新消息').width('100%').constraintSize({ minHeight: 48 }).fontColor(INK).backgroundColor(SURFACE)
+    Button(this.tr('刷新消息')).width('100%').constraintSize({ minHeight: 48 }).fontColor(INK).backgroundColor(SURFACE)
       .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE })
       .enabled(!this.inboxLoading).onClick(() => { careNotifications.refresh(); this.refreshInbox(); }).id('refresh_unread')
     Row({ space: 8 }) {
-      Button('通知设置').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
+      Button(this.tr('通知设置')).layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
         .onClick(() => { this.openInnerPage('permissions'); this.refreshPermissions(); this.connectPush(false); }).id('enable_push')
-      Button('关爱邀请').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
+      Button(this.tr('关爱邀请')).layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
         .onClick(async () => { await this.openCare(); if (!this.guest) this.screen = 'care-invitations'; }).id('message_care_invitations')
     }.width('100%')
   }
@@ -5003,26 +5237,26 @@ struct Index {
     if (!this.orderLoading && !this.paymentMessage && this.visibleOrders().length === 0) {
       Column({ space: 20 }) {
         SymbolGlyph($r('sys.symbol.doc')).fontSize(60).fontColor([OUTLINE])
-        Text('暂无订单').fontSize(16).fontColor(MUTED)
+        Text(this.tr('暂无订单')).fontSize(16).fontColor(MUTED)
       }.width('100%').margin({ top: 100, bottom: 64 })
     }
     ForEach(this.visibleOrders(), (order: ShopOrder) => {
       Column({ space: 10 }) {
         Text(order.summary).fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').maxLines(2)
-        Text(`订单号：${order.number}`).fontSize(14).fontColor(MUTED).width('100%').maxLines(2)
+        Text(this.tr(`订单号：${order.number}`)).fontSize(14).fontColor(MUTED).width('100%').maxLines(2)
         Row() {
           Text(this.orderStatus(order.status)).fontSize(15).fontColor(order.status === 0 ? RED : MUTED).layoutWeight(1)
           Text(this.money(order.amountCents)).fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK)
         }.width('100%')
-        Button('订单详情').width('100%').constraintSize({ minHeight: 48 }).fontColor(INK).backgroundColor(SURFACE)
+        Button(this.tr('订单详情')).width('100%').constraintSize({ minHeight: 48 }).fontColor(INK).backgroundColor(SURFACE)
           .border({ width: 1, color: OUTLINE, radius: 12 }).onClick(() => this.openCommerceOrder(order.id)).id(`detail_order_${order.id}`)
         if (order.status === 0) {
-          Button('去支付').width('100%').constraintSize({ minHeight: 48 }).backgroundColor(RED)
+          Button(this.tr('去支付')).width('100%').constraintSize({ minHeight: 48 }).backgroundColor(RED)
             .onClick(() => this.openPayment(order)).id(`pay_order_${order.id}`)
         }
       }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
     }, (order: ShopOrder) => String(order.id))
-    Button(this.orderLoading ? '正在刷新…' : '刷新订单').width('100%').constraintSize({ minHeight: 48 })
+    Button(this.tr(this.orderLoading ? '正在刷新…' : '刷新订单')).width('100%').constraintSize({ minHeight: 48 })
       .fontColor(RED).backgroundColor(Color.White).enabled(!this.orderLoading)
       .onClick(() => this.openOrders()).id('refresh_orders')
   }
@@ -5034,24 +5268,24 @@ struct Index {
         Text(this.selectedOrder.summary).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').maxLines(2)
       }
       Column({ space: 5 }) {
-        Text('订单号').fontSize(15).fontColor(MUTED).width('100%')
+        Text(this.tr('订单号')).fontSize(15).fontColor(MUTED).width('100%')
         Text(this.selectedOrder.number).fontSize(15).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).copyOption(CopyOptions.InApp)
       }.width('100%').alignItems(HorizontalAlign.Start)
       Divider().color(LINE).margin({ top: 2, bottom: 2 })
       Row() {
-        Text('订单总额').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+        Text(this.tr('订单总额')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
         Text(this.money(this.selectedOrder.amountCents)).fontSize(24).fontWeight(FontWeight.Bold).fontColor(RED)
       }.width('100%')
     }.width('100%').padding(18).backgroundColor(SURFACE).borderRadius(20)
       .border({ width: 1, color: LINE }).shadow({ radius: 9, color: CARD_SHADOW, offsetY: 3 })
-    Text('选择支付方式').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({ top: 8 })
+    Text(this.tr('选择支付方式')).fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({ top: 8 })
     Row({ space: 13 }) {
       Column() { SymbolGlyph($r('sys.symbol.wechat')).fontSize(25).fontColor(['#07C160']) }
         .width(46).height(46).justifyContent(FlexAlign.Center).backgroundColor('#EAF9F0').borderRadius(14)
       Column({ space: 3 }) {
-        Text('微信支付').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-        Text('使用微信安全支付').fontSize(13).fontColor(MUTED).width('100%')
+        Text(this.tr('微信支付')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(this.tr('使用微信安全支付')).fontSize(13).fontColor(MUTED).width('100%')
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       Column() {
         if (this.selectedProvider === 'wechat') {
@@ -5068,8 +5302,8 @@ struct Index {
       Column() { SymbolGlyph($r('sys.symbol.wallet')).fontSize(25).fontColor(['#1677FF']) }
         .width(46).height(46).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(14)
       Column({ space: 3 }) {
-        Text('支付宝支付').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-        Text('使用支付宝安全支付').fontSize(13).fontColor(MUTED).width('100%')
+        Text(this.tr('支付宝支付')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(this.tr('使用支付宝安全支付')).fontSize(13).fontColor(MUTED).width('100%')
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       Column() {
         if (this.selectedProvider === 'alipay') {
@@ -5085,10 +5319,10 @@ struct Index {
     if (this.paymentMessage) {
       this.Notice({ message: this.paymentMessage, color: this.paymentMessage.includes('已更新') ? GREEN_SOFT : GOLD_SOFT })
     }
-    Button('刷新订单状态').width('100%').constraintSize({ minHeight: 50 }).fontColor(INK)
+    Button(this.tr('刷新订单状态')).width('100%').constraintSize({ minHeight: 50 }).fontColor(INK)
       .backgroundColor(SURFACE).type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE })
       .enabled(!this.paymentBusy).onClick(() => this.refreshSelectedOrder()).id('payment_refresh')
-    Button('查看我的订单').width('100%').constraintSize({ minHeight: 50 }).fontColor(INK)
+    Button(this.tr('查看我的订单')).width('100%').constraintSize({ minHeight: 50 }).fontColor(INK)
       .backgroundColor(SURFACE).type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE })
       .enabled(!this.paymentBusy).onClick(() => this.openOrders()).id('payment_return_orders')
   }
@@ -5097,7 +5331,7 @@ struct Index {
   WearableMetricContent() {
     Row() {
       ForEach(['day', 'week', 'month'], (period: string) => {
-        Button(period === 'day' ? '日' : period === 'week' ? '周' : '月').layoutWeight(1)
+        Button(this.tr(period === 'day' ? '日' : period === 'week' ? '周' : '月')).layoutWeight(1)
           .constraintSize({ minHeight: 48 }).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK)
           .backgroundColor(this.trendPeriod === period ? GOLD_SOFT : Color.Transparent).type(ButtonType.Normal)
           .border({ width: 0.5, color: OUTLINE }).borderRadius(0)
@@ -5106,7 +5340,7 @@ struct Index {
     }.width('100%').borderRadius(24).border({ width: 1, color: OUTLINE }).clip(true)
     Row({ space: 4 }) {
       Button() { SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(20).fontColor([INK]) }
-        .width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).onClick(() => this.moveTrend(-1)).accessibilityText('上一周期').id('trend_previous')
+        .width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).onClick(() => this.moveTrend(-1)).accessibilityText(this.tr('上一周期')).id('trend_previous')
       Button() {
         Row({ space: 8 }) {
           SymbolGlyph($r('sys.symbol.calendar')).fontSize(20).fontColor([INK])
@@ -5117,11 +5351,11 @@ struct Index {
         .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE }).onClick(() => this.pickTrendDate()).id('trend_calendar')
       Button() { SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([INK]) }
         .width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).onClick(() => this.moveTrend(1))
-        .enabled(this.currentTrendWindow().end <= Date.now()).accessibilityText('下一周期').id('trend_next')
+        .enabled(this.currentTrendWindow().end <= Date.now()).accessibilityText(this.tr('下一周期')).id('trend_next')
     }.width('100%')
     if (this.wearableSnapshot.connected && this.wearableCapability(this.selectedWearableMetric)) {
       if (this.wearableMetricMeasurable(this.selectedWearableMetric)) {
-        Button(this.wearableMeasurement.running && this.wearableMeasurement.metric === this.selectedWearableMetric ? '结束测量' : '手动测量')
+        Button(this.tr(this.wearableMeasurement.running && this.wearableMeasurement.metric === this.selectedWearableMetric ? '结束测量' : '手动测量'))
           .width('100%').constraintSize({ minHeight: 56 }).fontSize(16).fontWeight(FontWeight.Bold)
           .backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
           .enabled(!this.sportActive() && !this.wearableBusy() && (!this.wearableMeasurement.running || this.wearableMeasurement.metric === this.selectedWearableMetric))
@@ -5134,7 +5368,7 @@ struct Index {
           if (this.selectedWearableMetric === 'ecg' && this.wearableMeasurement.samples.length > 1) {
             Polyline({ width: 320, height: 120 }).points(this.ecgWaveformPoints())
               .fillOpacity(0).stroke(RED).strokeWidth(2).width('100%').height(120)
-            Text(`真实心电波形 ${this.wearableMeasurement.samples.length} 点`).fontSize(13).fontColor(MUTED).width('100%')
+            Text(this.tr(`真实心电波形 ${this.wearableMeasurement.samples.length} 点`)).fontSize(13).fontColor(MUTED).width('100%')
           }
         }.width('100%').padding(16).backgroundColor(RED_SOFT).borderRadius(18)
       }
@@ -5150,7 +5384,7 @@ struct Index {
           Scroll() {
             Row({ space: 8 }) {
               ForEach(this.currentTrendNames(), (name: string) => {
-                Button(name).fontSize(14).constraintSize({ minHeight: 48 }).fontColor(this.primaryTrendName() === name ? Color.White : INK)
+                Button(this.tr(name)).fontSize(14).constraintSize({ minHeight: 48 }).fontColor(this.primaryTrendName() === name ? Color.White : INK)
                   .backgroundColor(this.primaryTrendName() === name ? RED : SURFACE).type(ButtonType.Normal).borderRadius(10)
                   .onClick(() => { this.trendField = name; this.trendReadout = ''; }).id(`trend_field_${name}`)
               }, (name: string) => name)
@@ -5160,25 +5394,25 @@ struct Index {
         ForEach(this.displayedTrendNames(), (name: string) => {
           Column({ space: 10 }) {
             Row() {
-              Text(name).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+              Text(this.tr(name)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
               Text(this.seriesSummary(name).unit).fontSize(14).fontColor(MUTED)
             }.width('100%')
             Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
               Column({ space: 4 }) {
                 Text(displayNumber(this.seriesSummary(name).max)).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK)
-                Text('最大').fontSize(12).fontColor(MUTED)
+                Text(this.tr('最大')).fontSize(12).fontColor(MUTED)
               }.width(this.singleColumn() ? '100%' : '24%').padding({ top: 4, bottom: 4 })
               Column({ space: 4 }) {
                 Text(displayNumber(this.seriesSummary(name).min)).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK)
-                Text('最小').fontSize(12).fontColor(MUTED)
+                Text(this.tr('最小')).fontSize(12).fontColor(MUTED)
               }.width(this.singleColumn() ? '100%' : '24%').padding({ top: 4, bottom: 4 })
               Column({ space: 4 }) {
                 Text(displayNumber(this.seriesSummary(name).average)).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK)
-                Text('平均').fontSize(12).fontColor(MUTED)
+                Text(this.tr('平均')).fontSize(12).fontColor(MUTED)
               }.width(this.singleColumn() ? '100%' : '24%').padding({ top: 4, bottom: 4 })
               Column({ space: 4 }) {
                 Text(String(this.seriesSummary(name).count)).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK)
-                Text(this.selectedWearableMetric === 'activity' ? '有记录天数' : '记录').fontSize(12).fontColor(MUTED)
+                Text(this.tr(this.selectedWearableMetric === 'activity' ? '有记录天数' : '记录')).fontSize(12).fontColor(MUTED)
               }.width(this.singleColumn() ? '100%' : '24%').padding({ top: 4, bottom: 4 })
             }.width('100%')
             if (this.seriesSummary(name).change !== undefined) {
@@ -5194,7 +5428,7 @@ struct Index {
               Row({ space: 2 }) {
                 ForEach(record.values.filter(value => ['深睡', '浅睡', '清醒'].includes(value.name)), (value: HealthValue) => {
                   Column().height(24).backgroundColor(value.name === '深睡' ? '#6451A4' : value.name === '浅睡' ? '#AB9CD1' : '#E2C68A')
-                    .layoutWeight(Math.max(0.1, value.value)).accessibilityText(`${value.name} ${value.value} 分钟`)
+                    .layoutWeight(Math.max(0.1, value.value)).accessibilityText(this.tr(`${value.name} ${value.value} 分钟`))
                 })
               }.width('100%').borderRadius(6).clip(true)
               Text(this.displayRecord(record)).fontSize(14).fontColor(INK).lineHeight(22).width('100%')
@@ -5203,7 +5437,7 @@ struct Index {
         } else {
           Column({ space: 8 }) {
             Row() {
-              Text('趋势图').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+              Text(this.tr('趋势图')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
               Text(`${this.chartTimeline().length} 个数据点`).fontSize(13).fontColor(MUTED)
             }.width('100%')
             Row() {
@@ -5240,7 +5474,7 @@ struct Index {
               Text(this.chartEndLabel()).fontSize(12).fontColor(MUTED)
             }.width('100%')
             if (this.selectedWearableMetric === 'pressure') {
-              Row({ space: 16 }) { Text('收缩压').fontSize(13).fontColor(RED); Text('舒张压').fontSize(13).fontColor(BLUE) }.width('100%')
+              Row({ space: 16 }) { Text(this.tr('收缩压')).fontSize(13).fontColor(RED); Text(this.tr('舒张压')).fontSize(13).fontColor(BLUE) }.width('100%')
             }
             if (this.trendReadout) { Text(this.trendReadout).fontSize(14).lineHeight(22).fontColor(INK).width('100%') }
           }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
@@ -5249,7 +5483,7 @@ struct Index {
         }
       }
       Row() {
-        Text(this.allTrendRecords ? '全部记录' : '近期数据').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+        Text(this.tr(this.allTrendRecords ? '全部记录' : '近期数据')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
         Text(`${this.currentTrendRecords().length} 条`).fontSize(14).fontColor(MUTED)
       }.width('100%')
       ForEach(this.currentTrendRecords().slice().reverse().slice(this.allTrendRecords ? this.trendRecordPage * 50 : 0,
@@ -5258,27 +5492,27 @@ struct Index {
           Column({ space: 6 }) {
             Text(this.displayRecord(record)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).lineHeight(24).width('100%')
             Text(this.wearableRecordTime(record.timestamp)).fontSize(14).fontColor(MUTED).width('100%')
-            Text(record.source === 'watch_history' ? '手表历史' : 'App 测量').fontSize(12).fontColor(MUTED).width('100%')
+            Text(this.tr(record.source === 'watch_history' ? '手表历史' : 'App 测量')).fontSize(12).fontColor(MUTED).width('100%')
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([RED])
         }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE }).onClick(() => this.openRecord(record))
       }, (record: HealthRecord) => record.id)
       if (!this.allTrendRecords && this.currentTrendRecords().length > 6) {
-        Button('查看全部记录').width('100%').constraintSize({ minHeight: 48 }).backgroundColor(SURFACE).fontColor(RED)
+        Button(this.tr('查看全部记录')).width('100%').constraintSize({ minHeight: 48 }).backgroundColor(SURFACE).fontColor(RED)
           .type(ButtonType.Normal).borderRadius(12).onClick(() => this.allTrendRecords = true).id('all_trend_records')
       }
       if (this.allTrendRecords && this.currentTrendRecords().length > 50) {
         Row({ space: 8 }) {
-          Button('上一页').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(SURFACE)
+          Button(this.tr('上一页')).layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(SURFACE)
             .enabled(this.trendRecordPage > 0).onClick(() => this.trendRecordPage--).id('records_previous')
           Text(`${this.trendRecordPage + 1}/${Math.ceil(this.currentTrendRecords().length / 50)}`).fontSize(14).fontColor(MUTED)
-          Button('下一页').layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(SURFACE)
+          Button(this.tr('下一页')).layoutWeight(1).constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(SURFACE)
             .enabled((this.trendRecordPage + 1) * 50 < this.currentTrendRecords().length).onClick(() => this.trendRecordPage++).id('records_next')
         }.width('100%')
       }
     }
     if (this.wearableSnapshot.connected && this.wearableCapability(this.selectedWearableMetric)) {
-      Button('同步手表数据').width('100%').constraintSize({ minHeight: 48 }).fontColor(INK).backgroundColor(Color.Transparent)
+      Button(this.tr('同步手表数据')).width('100%').constraintSize({ minHeight: 48 }).fontColor(INK).backgroundColor(Color.Transparent)
         .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE })
         .enabled(!this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive()).onClick(() => vepWearable.syncHistory())
     }
@@ -5309,12 +5543,12 @@ struct Index {
         if (this.selectedHealthRecord.metric === 'sport' && this.selectedHealthRecord.sport &&
           this.selectedHealthRecord.sport.route.length > 1) {
           Column({ space: 8 }) {
-            Text('运动轨迹').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text(this.tr('运动轨迹')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
             Polyline({ width: this.sportRouteWidth, height: 180 })
               .points(sportRoutePolyline(this.selectedHealthRecord.sport.route, this.sportRouteWidth, 180))
               .fillOpacity(0).stroke(RED).strokeWidth(3).width('100%').height(180)
               .onAreaChange((oldArea: Area, area: Area) => this.sportRouteWidth = Number(area.width))
-            Text(`真实轨迹形状 · ${this.selectedHealthRecord.sport.route.length} 个定位点`)
+            Text(this.tr(`真实轨迹形状 · ${this.selectedHealthRecord.sport.route.length} 个定位点`))
               .fontSize(13).fontColor(MUTED).width('100%')
           }.width('100%').padding(12).backgroundColor(SURFACE_ALT).borderRadius(14)
         } else if (this.selectedHealthRecord.metric === 'sport') {
@@ -5328,12 +5562,12 @@ struct Index {
             .fontSize(14).fontColor(MUTED).width('100%').textAlign(TextAlign.Center)
           if (this.selectedHealthRecord.samples.length > 1000) {
             Row({ space: 8 }) {
-              Button('上一段').layoutWeight(1).height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
+              Button(this.tr('上一段')).layoutWeight(1).height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
                 .enabled(this.waveformSegment > 0).onClick(() => this.waveformSegment--)
               Text(`${this.waveformSegment + 1}/${Math.ceil(this.selectedHealthRecord.samples.length / 1000)}`).fontSize(14).fontColor(MUTED)
-              Button('下一段').layoutWeight(1).height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
+              Button(this.tr('下一段')).layoutWeight(1).height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
                 .enabled((this.waveformSegment + 1) * 1000 < this.selectedHealthRecord.samples.length).onClick(() => this.waveformSegment++)
-            }.width('100%').accessibilityText('逐段查看完整心电波形')
+            }.width('100%').accessibilityText(this.tr('逐段查看完整心电波形'))
           }
         }
       }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
@@ -5346,7 +5580,7 @@ struct Index {
       Button() { SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(20).fontColor([INK]) }
         .width(48).height(this.controlHeight(52)).backgroundColor(Color.Transparent).enabled(!this.careLoading)
         .onClick(() => { this.careDateInput = shiftChinaDay(this.careDay, -1); this.refreshCareDate(); })
-        .accessibilityText('前一天').id('care_previous_day')
+        .accessibilityText(this.tr('前一天')).id('care_previous_day')
       Button() {
         Row({ space: 8 }) {
           SymbolGlyph($r('sys.symbol.calendar')).fontSize(19).fontColor([RED])
@@ -5357,7 +5591,7 @@ struct Index {
       Button() { SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([INK]) }
         .width(48).height(this.controlHeight(52)).backgroundColor(Color.Transparent).enabled(!this.careLoading && this.careDay < chinaDay())
         .onClick(() => { this.careDateInput = shiftChinaDay(this.careDay, 1); this.refreshCareDate(); })
-        .accessibilityText('后一天').id('care_next_day')
+        .accessibilityText(this.tr('后一天')).id('care_next_day')
     }.width('100%').padding(4).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
   }
 
@@ -5365,7 +5599,7 @@ struct Index {
   CareSharingGroup($$: CareGroupView) {
     Column({ space: 0 }) {
       Row() {
-        Text($$.daily ? '每日数据' : '健康数据').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+        Text(this.tr($$.daily ? '每日数据' : '健康数据')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
         Button(careGroupOptions($$.daily).every((option: CareOption) => this.careSettings.enabled.includes(option.key)) ? '取消全选' : '全选')
           .fontSize(16).fontWeight(FontWeight.Bold).fontColor(RED).backgroundColor(Color.Transparent).constraintSize({ minHeight: 48 })
           .enabled(this.careSettingsReady && !this.careBusy && !this.careLoading)
@@ -5374,10 +5608,10 @@ struct Index {
       ForEach(careGroupOptions($$.daily), (option: CareOption) => {
         Divider().color(LINE).margin({ left: 16 })
         Row({ space: 12 }) {
-          Text(option.label).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+          Text(this.tr(option.label)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
           Toggle({ type: ToggleType.Switch, isOn: this.careSettings.enabled.includes(option.key) })
             .selectedColor(RED).enabled(this.careSettingsReady && !this.careBusy && !this.careLoading)
-            .onChange((enabled: boolean) => this.toggleCareSetting(option.key, enabled)).accessibilityText(`共享${option.label}`)
+            .onChange((enabled: boolean) => this.toggleCareSetting(option.key, enabled)).accessibilityText(this.tr(`共享${option.label}`))
         }.width('100%').constraintSize({ minHeight: 64 }).padding({ left: 16, right: 16 })
       }, (option: CareOption) => option.key)
     }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE }).clip(true)
@@ -5387,13 +5621,13 @@ struct Index {
   CareSummaryContent() {
     if (careDaySummary(this.careMetricData).length > 0) {
       Column({ space: 12 }) {
-        Text('当日摘要').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-        Text('仅汇总所选日期的有效记录').fontSize(13).fontColor(MUTED).width('100%')
+        Text(this.tr('当日摘要')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(this.tr('仅汇总所选日期的有效记录')).fontSize(13).fontColor(MUTED).width('100%')
         Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
           ForEach(careDaySummary(this.careMetricData), (item: SummaryLabel) => {
             Column({ space: 5 }) {
-              Text(item.label).fontSize(13).fontColor(MUTED).width('100%')
-              Text(item.value).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+              Text(this.tr(item.label)).fontSize(13).fontColor(MUTED).width('100%')
+              Text(this.tr(item.value)).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
             }.width(this.singleColumn() ? '100%' : '48%').padding(12).margin({ bottom: 8 }).backgroundColor(BLUE_SOFT).borderRadius(12)
           }, (item: SummaryLabel) => item.label)
         }.width('100%')
@@ -5408,13 +5642,13 @@ struct Index {
         Text(this.selectedCareRecord.time).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
         ForEach(this.selectedCareRecord.fields, (field: CareField) => {
           Flex({ direction: this.singleColumn() ? FlexDirection.Column : FlexDirection.Row }) {
-            Text(field.label).fontSize(16).fontColor(MUTED).width(this.singleColumn() ? '100%' : '36%')
+            Text(this.tr(field.label)).fontSize(16).fontColor(MUTED).width(this.singleColumn() ? '100%' : '36%')
             Text(`${displayNumber(field.value)} ${field.unit}`).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK)
               .width(this.singleColumn() ? '100%' : '64%')
           }.width('100%').padding({ top: 4, bottom: 4 })
         }, (field: CareField) => field.label)
         if (this.selectedCareRecord.samples.length > 1) {
-          Text('心电波形').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Text(this.tr('心电波形')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
           Polyline({ width: this.recordChartWidth, height: 160 })
             .points(waveformPoints(this.selectedCareRecord.samples.slice(this.careWaveformSegment * 1000, (this.careWaveformSegment + 1) * 1000), this.recordChartWidth))
             .fillOpacity(0).stroke(RED).strokeWidth(1.5).width('100%').height(160)
@@ -5423,19 +5657,19 @@ struct Index {
             .fontSize(14).fontColor(MUTED).width('100%').textAlign(TextAlign.Center)
           if (this.selectedCareRecord.samples.length > 1000) {
             Row({ space: 8 }) {
-              Button('上一段').layoutWeight(1).height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
+              Button(this.tr('上一段')).layoutWeight(1).height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
                 .enabled(this.careWaveformSegment > 0).onClick(() => this.careWaveformSegment--).id('care_waveform_previous')
               Text(`${this.careWaveformSegment + 1}/${waveformPageCount(this.selectedCareRecord.samples.length)}`)
                 .fontSize(14).fontColor(MUTED)
-              Button('下一段').layoutWeight(1).height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
+              Button(this.tr('下一段')).layoutWeight(1).height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(RED_SOFT)
                 .enabled((this.careWaveformSegment + 1) * 1000 < this.selectedCareRecord.samples.length)
                 .onClick(() => this.careWaveformSegment++).id('care_waveform_next')
-            }.width('100%').accessibilityText('逐段查看完整心电波形')
+            }.width('100%').accessibilityText(this.tr('逐段查看完整心电波形'))
           }
         } else if (this.careMetricData.key === 'ecg') {
           this.Notice({ message: '本条记录未包含可用心电波形' })
         }
-        Text('来源：关爱成员授权共享').fontSize(13).fontColor(MUTED).width('100%')
+        Text(this.tr('来源：关爱成员授权共享')).fontSize(13).fontColor(MUTED).width('100%')
       }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
     } else { this.StateCard({ title: '记录暂不可用' }) }
   }
@@ -5449,13 +5683,13 @@ struct Index {
         Column() { SymbolGlyph($r('sys.symbol.heart_fill')).fontSize(30).fontColor([Color.White]) }
           .width(58).height(58).justifyContent(FlexAlign.Center).backgroundColor('#38FFFFFF').borderRadius(29)
         Column({ space: 5 }) {
-          Text('守护家人健康').fontSize(19).fontWeight(FontWeight.Bold).fontColor(Color.White).width('100%')
-          Text(this.careMembers.length ? `已关爱 ${this.careMembers.length} 位家人` : '添加关爱成员后查看授权数据')
+          Text(this.tr('守护家人健康')).fontSize(19).fontWeight(FontWeight.Bold).fontColor(Color.White).width('100%')
+          Text(this.tr(this.careMembers.length ? `已关爱 ${this.careMembers.length} 位家人` : '添加关爱成员后查看授权数据'))
             .fontSize(14).lineHeight(21).fontColor('#FFE4E9').width('100%')
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         Button() { SymbolGlyph($r('sys.symbol.person_badge_plus')).fontSize(25).fontColor([RED]) }
           .width(48).height(this.controlHeight(48)).backgroundColor(SURFACE).borderRadius(24).enabled(!this.careLoading)
-          .onClick(() => { this.careMessage = ''; this.screen = 'care-add'; }).accessibilityText('添加关爱成员').id('care_add')
+          .onClick(() => { this.careMessage = ''; this.screen = 'care-add'; }).accessibilityText(this.tr('添加关爱成员')).id('care_add')
       }.width('100%').padding(20).linearGradient({ angle: 135,
         colors: [['#A51125', 0.0], ['#D72D42', 1.0]] }).borderRadius(22)
       Row({ space: 0 }) {
@@ -5463,8 +5697,8 @@ struct Index {
           Column() { SymbolGlyph($r('sys.symbol.person_badge_gearshape')).fontSize(22).fontColor([RED]) }
             .width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(13)
           Column({ space: 3 }) {
-            Text('共享管理').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-            Text('授权与隐私').fontSize(14).fontColor(MUTED).width('100%')
+            Text(this.tr('共享管理')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text(this.tr('授权与隐私')).fontSize(14).fontColor(MUTED).width('100%')
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         }.layoutWeight(1).constraintSize({ minHeight: 76 }).padding(14).enabled(!this.careLoading)
           .onClick(() => { this.careMessage = ''; this.screen = 'care-sharing'; }).id('care_sharing')
@@ -5473,23 +5707,23 @@ struct Index {
           Column() { SymbolGlyph($r('sys.symbol.envelope')).fontSize(22).fontColor([RED]) }
             .width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(13)
           Column({ space: 3 }) {
-            Text('关爱邀请').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text(this.tr('关爱邀请')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
             Text(this.careInvitationError ? '暂时无法读取' : this.pendingInvitations().length > 0 ?
               `${this.pendingInvitations().length} 条待处理` : '暂无新邀请').fontSize(14).fontColor(MUTED).width('100%')
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         }.layoutWeight(1).constraintSize({ minHeight: 76 }).padding(14).enabled(!this.careLoading)
           .onClick(() => { this.careMessage = ''; this.screen = 'care-invitations'; }).id('care_invitations')
       }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
-      Text('关爱成员').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      Text(this.tr('关爱成员')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
       if (this.careMemberError) { this.Notice({ message: this.careMemberError, color: '#FFF0E9' }) }
       else if (!this.careLoading && this.careMembers.length === 0) {
         Column({ space: 16 }) {
           Column() { SymbolGlyph($r('sys.symbol.person_2_fill')).fontSize(36).fontColor([RED]) }
             .width(78).height(78).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(39)
-          Text('暂无关爱成员').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK)
-          Text('通过手机号邀请家人，对方接受并授权后才会共享健康数据。').fontSize(14).lineHeight(22)
+          Text(this.tr('暂无关爱成员')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK)
+          Text(this.tr('通过手机号邀请家人，对方接受并授权后才会共享健康数据。')).fontSize(14).lineHeight(22)
             .fontColor(MUTED).textAlign(TextAlign.Center).width('100%')
-          Button('添加关爱').fontSize(16).fontWeight(FontWeight.Bold).constraintSize({ minHeight: 56 }).padding({ left: 24, right: 24 })
+          Button(this.tr('添加关爱')).fontSize(16).fontWeight(FontWeight.Bold).constraintSize({ minHeight: 56 }).padding({ left: 24, right: 24 })
             .backgroundColor(RED).type(ButtonType.Normal).borderRadius(12).onClick(() => this.screen = 'care-add')
         }.width('100%').padding(26).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
       }
@@ -5499,7 +5733,7 @@ struct Index {
             .width(48).height(48).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(24)
           Column({ space: 4 }) {
             Text(member.name).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-            Text(member.mobile || '查看已授权的健康记录').fontSize(13).fontColor(MUTED).width('100%')
+            Text(this.tr(member.mobile || '查看已授权的健康记录')).fontSize(13).fontColor(MUTED).width('100%')
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
         }.width('100%').constraintSize({ minHeight: 78 }).padding(14).backgroundColor(SURFACE).borderRadius(18)
@@ -5507,15 +5741,15 @@ struct Index {
           .id(`care_member_${member.relationId}`)
       }, (member: CareMember) => String(member.relationId))
       this.Notice({ message: '默认不共享任何数据；成员可按指标授权并随时撤销。', color: GREEN_SOFT })
-      Button('刷新关爱列表').width('100%').constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.White)
+      Button(this.tr('刷新关爱列表')).width('100%').constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.White)
         .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: LINE })
         .enabled(!this.careLoading).onClick(() => this.refreshCare())
     } else if (this.screen === 'care-add') {
       this.Notice({ message: '邀请只向您填写的账号发送。对方接受后，还需要主动选择共享项目。' })
-      TextInput({ placeholder: '请输入家人手机号', text: this.careMobile }).type(InputType.PhoneNumber)
+      TextInput({ placeholder: this.tr('请输入家人手机号'), text: this.careMobile }).type(InputType.PhoneNumber)
         .fontSize(18).height(this.controlHeight(56)).maxLength(20).enabled(!this.careBusy).backgroundColor(Color.White)
         .onChange((value: string) => this.careMobile = value).id('care_mobile')
-      Button(this.careBusy ? '正在提交…' : '发送关爱邀请').width('100%').constraintSize({ minHeight: 52 })
+      Button(this.tr(this.careBusy ? '正在提交…' : '发送关爱邀请')).width('100%').constraintSize({ minHeight: 52 })
         .backgroundColor(RED).enabled(!this.careBusy && this.careMobile.trim().length > 0).onClick(() => this.sendCareInvitation())
     } else if (this.screen === 'care-invitations') {
       if (this.careInvitationError) { this.Notice({ message: this.careInvitationError, color: '#FFF0E9' }) }
@@ -5535,25 +5769,25 @@ struct Index {
                 Text(careInvitationFallback(invite.inviterId)).fontSize(14).fontColor(MUTED).width('100%')
               }
               if (careInvitationNeedsConfirmation(invite)) {
-                Text('请确认邀请人后再接受').fontSize(14).fontColor(MUTED).width('100%')
+                Text(this.tr('请确认邀请人后再接受')).fontSize(14).fontColor(MUTED).width('100%')
               }
             }.width(this.singleColumn() ? '100%' : undefined).layoutWeight(this.singleColumn() ? 0 : 1)
           }.width('100%')
-          Text('同意邀请不会自动开启健康数据共享。').fontSize(14).fontColor(MUTED).width('100%')
+          Text(this.tr('同意邀请不会自动开启健康数据共享。')).fontSize(14).fontColor(MUTED).width('100%')
           Flex({ direction: this.singleColumn() ? FlexDirection.Column : FlexDirection.Row, justifyContent: FlexAlign.SpaceBetween }) {
-            Button('拒绝').width(this.singleColumn() ? '100%' : '48%').constraintSize({ minHeight: this.controlHeight(48) })
+            Button(this.tr('拒绝')).width(this.singleColumn() ? '100%' : '48%').constraintSize({ minHeight: this.controlHeight(48) })
               .fontSize(16).fontColor(INK).backgroundColor(SURFACE).margin({ bottom: this.singleColumn() ? 10 : 0 })
               .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: OUTLINE })
               .enabled(!this.careBusy).onClick(() => this.respondInvitation(invite.id, false))
-              .accessibilityText(`拒绝${invite.name}的关爱邀请`).id(`care_invitation_reject_${invite.id}`)
-            Button('同意').width(this.singleColumn() ? '100%' : '48%').constraintSize({ minHeight: this.controlHeight(48) })
+              .accessibilityText(this.tr(`拒绝${invite.name}的关爱邀请`)).id(`care_invitation_reject_${invite.id}`)
+            Button(this.tr('同意')).width(this.singleColumn() ? '100%' : '48%').constraintSize({ minHeight: this.controlHeight(48) })
               .fontSize(16).backgroundColor(RED)
               .type(ButtonType.Normal).borderRadius(12).enabled(!this.careBusy).onClick(() => this.respondInvitation(invite.id, true))
-              .accessibilityText(`同意${invite.name}的关爱邀请`).id(`care_invitation_accept_${invite.id}`)
+              .accessibilityText(this.tr(`同意${invite.name}的关爱邀请`)).id(`care_invitation_accept_${invite.id}`)
           }.width('100%')
         }.width('100%').padding(18).borderRadius(18).backgroundColor(Color.White).id(`care_invitation_${invite.id}`)
       }, (invite: CareInvitation) => JSON.stringify(invite))
-      Button('刷新邀请状态').width('100%').constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.White)
+      Button(this.tr('刷新邀请状态')).width('100%').constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.White)
         .enabled(!this.careLoading && !this.careBusy).onClick(() => this.refreshCare())
     } else if (this.screen === 'care-sharing') {
       this.Notice({ message: '这里管理哪些关爱人可以查看您的数据。只显示您已经同意的邀请。', color: GREEN_SOFT })
@@ -5562,7 +5796,7 @@ struct Index {
         this.StateCard({ title: '暂无共享对象', detail: '同意关爱邀请后，可在这里管理共享项目。', icon: $r('sys.symbol.lock_shield') })
       }
       ForEach(this.sharingTargets(), (invite: CareInvitation) => {
-        Button(`${invite.name}\n设置允许对方查看的项目`).width('100%').constraintSize({ minHeight: 76 })
+        Button(this.tr(`${invite.name}\n设置允许对方查看的项目`)).width('100%').constraintSize({ minHeight: 76 })
           .type(ButtonType.Normal).borderRadius(18).labelStyle({ maxLines: 8 })
           .padding(16).fontSize(17).fontColor(INK).backgroundColor(Color.White).onClick(() => this.openCareSettings(invite))
       }, (invite: CareInvitation) => String(invite.inviterId))
@@ -5575,16 +5809,16 @@ struct Index {
       if (this.careSettings.unknown.length) { this.Notice({ message: '其他已有共享设置将保持不变。' }) }
       this.CareSharingGroup({ daily: true })
       this.CareSharingGroup({ daily: false })
-      Button(this.careBusy ? '正在保存…' : '保存共享设置').width('100%').constraintSize({ minHeight: 56 })
+      Button(this.tr(this.careBusy ? '正在保存…' : '保存共享设置')).width('100%').constraintSize({ minHeight: 56 })
         .fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
         .enabled(this.careSettingsReady && !this.careBusy && !this.careLoading).onClick(() => this.saveCareSettings())
-      Button('重新读取共享设置').width('100%').constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
+      Button(this.tr('重新读取共享设置')).width('100%').constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
         .enabled(!this.careBusy && !this.careLoading).onClick(() => this.openCareSettings(this.careSelectedInviter))
     } else if (this.screen === 'care-member') {
       this.CareDateControls()
       Row() {
         Blank().layoutWeight(1)
-        Button(this.careLoading ? '正在读取…' : this.careUpdatedAt ? `更新于 ${this.careUpdatedAt}` : '刷新数据')
+        Button(this.tr(this.careLoading ? '正在读取…' : this.careUpdatedAt ? `更新于 ${this.careUpdatedAt}` : '刷新数据'))
           .constraintSize({ minHeight: 48 }).fontSize(14).fontColor(MUTED).backgroundColor(Color.Transparent)
           .enabled(!this.careLoading).onClick(() => this.loadCareOverview()).id('care_member_refresh')
       }.width('100%')
@@ -5604,18 +5838,18 @@ struct Index {
             .backgroundColor(metric.state === 'ready' ? RED_SOFT : metric.state === 'unauthorized' ? SURFACE_ALT : BLUE_SOFT)
             .borderRadius(14)
           Column({ space: 5 }) {
-            Text(metric.title).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            Text(this.tr(metric.title)).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
             Text(metric.state === 'ready' ? careMetricLatest(metric) : metric.state === 'unauthorized' ? '对方未授权此项目' :
               metric.state === 'empty' ? '当日暂无记录' : '服务暂不可用，可刷新重试')
               .fontSize(14).fontColor(metric.state === 'ready' ? INK : MUTED).lineHeight(21).width('100%').maxLines(2)
             if (metric.state === 'ready') {
-              Text(`${metric.records.length} 条共享记录`).fontSize(13).fontColor(MUTED).width('100%')
+              Text(this.tr(`${metric.records.length} 条共享记录`)).fontSize(13).fontColor(MUTED).width('100%')
             }
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
         }.width('100%').constraintSize({ minHeight: 88 }).padding(14).backgroundColor(SURFACE).borderRadius(18)
           .border({ width: 1, color: LINE }).onClick(() => this.openCareMetric(metric)).id(`care_metric_${metric.key}`)
-          .accessibilityText(`${metric.title}，${metric.state === 'ready' ? metric.records.length + ' 条记录' : metric.message}`)
+          .accessibilityText(this.tr(`${metric.title}，${metric.state === 'ready' ? metric.records.length + ' 条记录' : metric.message}`))
       }, (metric: CareMetric) => metric.key)
     } else if (this.screen === 'care-metric') {
       this.CareDateControls()
@@ -5631,18 +5865,18 @@ struct Index {
             if (record.samples.length > 1) {
               Polyline({ width: 280, height: 160 }).points(waveformPoints(record.samples.slice(0, 1000), 280))
                 .fillOpacity(0).stroke(RED).strokeWidth(1.5).width('100%').height(160)
-              Text('查看完整心电波形').fontSize(14).fontColor(RED).width('100%')
+              Text(this.tr('查看完整心电波形')).fontSize(14).fontColor(RED).width('100%')
             }
-            Text('来源：关爱成员授权共享').fontSize(13).fontColor(MUTED).width('100%')
+            Text(this.tr('来源：关爱成员授权共享')).fontSize(13).fontColor(MUTED).width('100%')
           }.width('100%').padding(18).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
             .onClick(() => this.openCareRecord(record)).id(`care_record_${record.id}`)
         }, (record: CareRecord) => record.id)
         if (this.careRecordLimit < this.careMetricData.records.length) {
-          Button('显示更多记录').width('100%').constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
+          Button(this.tr('显示更多记录')).width('100%').constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
             .onClick(() => this.careRecordLimit += 30)
         }
       }
-      Button('刷新记录').width('100%').constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
+      Button(this.tr('刷新记录')).width('100%').constraintSize({ minHeight: 48 }).fontColor(RED).backgroundColor(Color.Transparent)
         .enabled(!this.careLoading).onClick(() => this.loadCareMetric())
     } else if (this.screen === 'care-record') {
       this.CareRecordContent()
@@ -5652,11 +5886,11 @@ struct Index {
   @Builder
   ArticleListContent() {
     Column({ space: 10 }) {
-      Text('健康分类').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      Text(this.tr('健康分类')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
       Scroll() {
         Row({ space: 8 }) {
           ForEach(this.articleCategories.length ? this.articleCategories : [{ id: 0, title: '全部' }], (category: ArticleCategory) => {
-            Button(category.title).constraintSize({ minHeight: 48 }).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK)
+            Button(this.tr(category.title)).constraintSize({ minHeight: 48 }).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK)
               .type(ButtonType.Normal).borderRadius(10).backgroundColor(this.articleCategoryId === category.id ? GOLD_SOFT : SURFACE)
               .border({ width: this.articleCategoryId === category.id ? 0 : 1, color: OUTLINE }).padding({ left: 16, right: 16 })
               .enabled(!this.listLoading).onClick(() => { this.articleCategoryId = category.id; this.openArticles(); })
@@ -5668,16 +5902,16 @@ struct Index {
     if (this.listLoading) { LoadingProgress().width(40).height(40).color(RED) }
     else if (this.listError) {
       this.StateCard({ title: '健康百科加载失败', icon: $r('sys.symbol.cloud') })
-      Button('重新加载').constraintSize({ minHeight: 48 }).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
+      Button(this.tr('重新加载')).constraintSize({ minHeight: 48 }).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
         .onClick(() => this.openArticles())
     } else if (!this.articles.length) {
-      Text('该分类暂无百科内容').fontSize(16).fontColor(INK).textAlign(TextAlign.Center).width('100%').margin({ top: 160 })
+      Text(this.tr('该分类暂无百科内容')).fontSize(16).fontColor(INK).textAlign(TextAlign.Center).width('100%').margin({ top: 160 })
     }
     ForEach(this.articles, (item: Article) => {
       Row({ space: 16 }) {
         Column() { SymbolGlyph($r('sys.symbol.book')).fontSize(22).fontColor([GREEN]) }
           .width(40).height(40).justifyContent(FlexAlign.Center).backgroundColor(GREEN_SOFT).borderRadius(20)
-        Text(item.title || '健康百科').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).maxLines(2)
+        Text(this.tr(item.title || '健康百科')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).maxLines(2)
         SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
       }.width('100%').constraintSize({ minHeight: 72 }).padding(16).backgroundColor(SURFACE).borderRadius(18)
         .border({ width: 1, color: LINE }).onClick(() => this.openArticle(String(item.id ?? ''), item.title || '健康百科', false))
@@ -5695,7 +5929,7 @@ struct Index {
         if (this.screen === 'feature') {
           this.Notice({ message: this.detailBody })
           if (this.detailTitle === '远程关爱' && this.guest) {
-            Button('前往登录').width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
+            Button(this.tr('前往登录')).width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
               .onClick(() => { this.error = ''; this.screen = 'login'; })
           }
         } else if (this.screen === 'device-search') {
@@ -5712,6 +5946,8 @@ struct Index {
           this.WearableMetricContent()
         } else if (this.screen === 'health-record') {
           this.HealthRecordContent()
+        } else if (this.screen === 'health-reports') {
+          this.GlobalReportsContent()
         } else if (this.screen === 'health-all') {
           this.HealthAllContent()
         } else if (this.screen === 'sport-records') {
@@ -5770,7 +6006,7 @@ struct Index {
           if (this.articleLoading) { LoadingProgress().width(40).height(40).color(RED) }
           if (this.articleError) {
             this.Notice({ message: this.articleError, color: '#FFF0E9' })
-            Button('重新加载内容').constraintSize({ minHeight: 48 }).backgroundColor(RED)
+            Button(this.tr('重新加载内容')).constraintSize({ minHeight: 48 }).backgroundColor(RED)
               .onClick(() => this.openArticle(this.selectedArticleId, this.articleTitle, this.selectedAgreement))
               .id('retry_article')
           }
@@ -5789,7 +6025,7 @@ struct Index {
     }.width('100%').layoutWeight(1).align(Alignment.Top).scrollBar(BarState.Off)
       if (this.screen === 'ai-chat') {
         Row({ space: 10 }) {
-          TextInput({ placeholder: '请输入消息…', text: this.aiInput }).fontSize(16).height(this.controlHeight(56))
+          TextInput({ placeholder: this.tr('请输入消息…'), text: this.aiInput }).fontSize(16).height(this.controlHeight(56))
             .maxLength(AI_USER_MESSAGE_MAX_LENGTH)
             .layoutWeight(1).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
             .enabled(!this.aiBusy).onChange((value: string) => this.aiInput = value).onSubmit(() => this.sendAiChat()).id('ai_input')
@@ -5797,20 +6033,20 @@ struct Index {
             if (this.aiBusy) { LoadingProgress().width(24).height(24).color(Color.White) }
             else { SymbolGlyph($r('sys.symbol.paperplane')).fontSize(24).fontColor([Color.White]) }
           }.width(48).height(this.controlHeight(48)).borderRadius(24).backgroundColor(RED)
-            .enabled(!this.aiBusy && this.aiInput.trim().length > 0).onClick(() => this.sendAiChat()).id('ai_send').accessibilityText('发送消息')
+            .enabled(!this.aiBusy && this.aiInput.trim().length > 0).onClick(() => this.sendAiChat()).id('ai_send').accessibilityText(this.tr('发送消息'))
         }.width('100%').padding(12).backgroundColor(SURFACE)
       } else if (this.screen === 'shop-product' && this.productDetail) {
         Row({ space: 8 }) {
           Button() { Column({ space: 2 }) {
-            SymbolGlyph($r('sys.symbol.house')).fontSize(23).fontColor([INK]); Text('首页').fontSize(11).fontColor(INK)
+            SymbolGlyph($r('sys.symbol.house')).fontSize(23).fontColor([INK]); Text(this.tr('首页')).fontSize(11).fontColor(INK)
           } }.width(48).height(this.controlHeight(52)).backgroundColor(Color.Transparent).onClick(() => { this.screen = 'shop-home'; })
           Button() { Column({ space: 2 }) {
-            SymbolGlyph($r('sys.symbol.phone')).fontSize(23).fontColor([INK]); Text('客服').fontSize(11).fontColor(INK)
+            SymbolGlyph($r('sys.symbol.phone')).fontSize(23).fontColor([INK]); Text(this.tr('客服')).fontSize(11).fontColor(INK)
           } }.width(48).height(this.controlHeight(52)).backgroundColor(Color.Transparent).onClick(() => this.openInnerPage('contact'))
-          Button('加入购物车').layoutWeight(1).height(this.controlHeight(48)).fontSize(14).fontWeight(FontWeight.Bold).fontColor(INK).backgroundColor(SURFACE)
+          Button(this.tr('加入购物车')).layoutWeight(1).height(this.controlHeight(48)).fontSize(14).fontWeight(FontWeight.Bold).fontColor(INK).backgroundColor(SURFACE)
             .type(ButtonType.Normal).border({ width: 1, color: OUTLINE, radius: 12 }).enabled(!this.commerceBusy)
             .onClick(() => this.showPurchase(true)).id('product_add_cart')
-          Button('立即购买').layoutWeight(1).height(this.controlHeight(48)).fontSize(14).fontWeight(FontWeight.Bold).backgroundColor(RED)
+          Button(this.tr('立即购买')).layoutWeight(1).height(this.controlHeight(48)).fontSize(14).fontWeight(FontWeight.Bold).backgroundColor(RED)
             .type(ButtonType.Normal).borderRadius(12).enabled(!this.commerceBusy).onClick(() => this.showPurchase(false)).id('product_buy')
         }.width('100%').padding({ left: 12, right: 12, top: 8, bottom: 10 }).backgroundColor(BG)
           .bindSheet($$this.purchaseSheet, this.PurchaseSheetContent(), { height: SheetSize.FIT_CONTENT })
@@ -5818,7 +6054,7 @@ struct Index {
         Row({ space: 6 }) {
           Checkbox().select(this.cartSelection.length === this.cartLines.length).selectedColor(RED).enabled(!this.commerceBusy)
             .onChange((selected: boolean) => this.cartSelection = selected ? this.cartLines.map((line: ShopLine) => line.skuId) : []).id('cart_select_all')
-          Text('全选').fontSize(14).fontColor(INK)
+          Text(this.tr('全选')).fontSize(14).fontColor(INK)
           Text(`合计 ${commerceMoney(this.cartTotal())}`).fontSize(16).fontWeight(FontWeight.Bold).fontColor(RED).layoutWeight(1)
           Button(`结算（${this.cartChosen().length}）`).height(this.controlHeight(48)).fontSize(14).backgroundColor(RED)
             .enabled(!this.commerceBusy && this.cartChosen().length > 0 && this.cartTotal() >= 0)
@@ -5828,7 +6064,7 @@ struct Index {
         Row({ space: 12 }) {
           Text(`合计 ${commerceMoney(this.checkoutPreview.productCents + this.checkoutPreview.shippingCents)}`)
             .fontSize(18).fontWeight(FontWeight.Bold).fontColor('#914E00').layoutWeight(1)
-          Button(this.commerceBusy ? '提交中…' : '提交订单').height(this.controlHeight(56)).fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED)
+          Button(this.tr(this.commerceBusy ? '提交中…' : '提交订单')).height(this.controlHeight(56)).fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED)
             .enabled(!this.commerceBusy && !this.checkoutAttempted).onClick(() => this.submitCommerceOrder()).id('checkout_submit')
         }.width('100%').padding({ left: 18, right: 12, top: 9, bottom: 10 }).backgroundColor(BG)
       } else if (this.screen === 'shop-payment') {
@@ -5845,7 +6081,7 @@ struct Index {
           Button() {
             Row({ space: 10 }) {
               SymbolGlyph($r('sys.symbol.plus')).fontSize(22).fontColor([RED_DARK])
-              Text('新增地址').fontSize(16).fontWeight(FontWeight.Bold).fontColor(RED_DARK)
+              Text(this.tr('新增地址')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(RED_DARK)
             }.padding({ left: 20, right: 20 })
           }.height(this.controlHeight(56)).type(ButtonType.Normal).borderRadius(16).backgroundColor(RED_SOFT)
             .onClick(() => this.editAddress()).id('add_address')

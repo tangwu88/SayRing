@@ -1967,7 +1967,7 @@ void main() {
         _ => throw StateError('unexpected ${request.url}'),
       };
       return http.Response(
-        jsonEncode({'code': 'OK', 'message': 'ok', 'data': data}),
+        jsonEncode({'code': 200, 'message': 'OK', 'data': data}),
         200,
         headers: {'content-type': 'application/json'},
       );
@@ -2009,7 +2009,7 @@ void main() {
           'granted': true,
           'version': 'health-ai-analysis-v1',
         });
-        return http.Response('{"code":"OK","data":{"granted":true}}', 200);
+        return http.Response('{"code":200,"data":{"granted":true}}', 200);
       }
       if (index == 2 || index == 3) {
         expect(
@@ -2019,7 +2019,7 @@ void main() {
               : '/api/saydian-app/v2/health/reports/report-12345678/retry',
         );
         return http.Response(
-          '{"code":"OK","data":{"id":"report-12345678","status":"queued","dataCompleteness":{"validRecordCount":8,"distinctDays":3},"freePreview":{},"aiGenerated":false}}',
+          '{"code":200,"data":{"id":"report-12345678","status":"queued","dataCompleteness":{"validRecordCount":8,"distinctDays":3},"freePreview":{},"aiGenerated":false}}',
           200,
         );
       }
@@ -2029,7 +2029,7 @@ void main() {
           '/api/saydian-app/v2/health/reports/report-12345678/full',
         );
         return http.Response(
-          '{"code":"OK","data":{"id":"report-12345678","content":{"overview":"稳定"}}}',
+          '{"code":200,"data":{"id":"report-12345678","content":{"overview":"稳定"}}}',
           200,
           headers: {'content-type': 'application/json; charset=utf-8'},
         );
@@ -2056,7 +2056,7 @@ void main() {
           'idempotencyKey': 'health-test-key',
         });
         return http.Response(
-          '{"code":"OK","data":{"id":"payment-12345678","paymentNo":"PAY1","businessType":"health_report","businessId":"report-12345678","channel":"apple_iap","status":"pending","amountCents":990,"currency":"CNY","invoke":{"productId":"cc.saidian.report"}}}',
+          '{"code":200,"data":{"id":"payment-12345678","paymentNo":"PAY1","businessType":"health_report","businessId":"report-12345678","channel":"apple_iap","status":"pending","amountCents":990,"currency":"CNY","invoke":{"productId":"cc.saidian.report"}}}',
           200,
         );
       }
@@ -2066,7 +2066,7 @@ void main() {
           '/api/saydian-app/v2/billing/payments/payment-12345678',
         );
         return http.Response(
-          '{"code":"OK","data":{"id":"payment-12345678","paymentNo":"PAY1","businessType":"health_report","businessId":"report-12345678","channel":"apple_iap","status":"pending","amountCents":990,"currency":"CNY","invoke":null}}',
+          '{"code":200,"data":{"id":"payment-12345678","paymentNo":"PAY1","businessType":"health_report","businessId":"report-12345678","channel":"apple_iap","status":"pending","amountCents":990,"currency":"CNY","invoke":null}}',
           200,
         );
       }
@@ -2079,7 +2079,7 @@ void main() {
         'signedTransactionInfo': 'signed-jws',
       });
       return http.Response(
-        '{"code":"OK","data":{"id":"payment-12345678","paymentNo":"PAY1","businessType":"health_report","businessId":"report-12345678","channel":"apple_iap","status":"succeeded","amountCents":990,"currency":"CNY","invoke":null}}',
+        '{"code":200,"data":{"id":"payment-12345678","paymentNo":"PAY1","businessType":"health_report","businessId":"report-12345678","channel":"apple_iap","status":"succeeded","amountCents":990,"currency":"CNY","invoke":null}}',
         200,
       );
     });

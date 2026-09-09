@@ -1,0 +1,8 @@
+"CFBundleDisplayName" = "Saydian";
+"NSBluetoothAlwaysUsageDescription" = "Ihre Uhr verbinden und freigegebene Gesundheitsdaten synchronisieren.";
+"NSCameraUsageDescription" = "Fotos aufnehmen und Foto-Zifferblätter einstellen.";
+"NSContactsUsageDescription" = "Nur ausgewählte Kontakte mit Ihrer Uhr synchronisieren.";
+"NSLocationWhenInUseUsageDescription" = "Wetter für Ihre Stadt mit Ihrer Uhr synchronisieren.";
+"NSPhotoLibraryUsageDescription" = "Fotos für Ihr Zifferblatt auswählen.";
+"NSPhotoLibraryAddUsageDescription" = "Mit dem Kamera-Fernauslöser aufgenommene Fotos speichern.";
+"NSBluetoothPeripheralUsageDescription" = "Ihre Uhr verbinden und freigegebene Gesundheitsdaten synchronisieren.";

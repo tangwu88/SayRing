@@ -36,7 +36,7 @@ val jpushChannel =
 val wechatAppId =
     providers.gradleProperty("WECHAT_APP_ID")
         .orElse(providers.environmentVariable("WECHAT_APP_ID"))
-        .orElse("wxc9426c8d822c1302")
+        .orElse("")
         .get()
         .trim()
 fun releaseModeFlag(name: String): Boolean {
@@ -114,7 +114,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "cc.saidian.app"
+        applicationId = "cn.saydian.app.global"
         minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

@@ -71,7 +71,7 @@ export function safeSaydianAsset(value: Object | undefined): string {
   const source = text(value, 2048);
   if (!source) return '';
   const absolute = source.startsWith('/') ? `${API_BASE}${source}` : source;
-  if (!/^https:\/\/app\.saidian\.cc\/attachment\/[A-Za-z0-9_./%+-]+(?:\?[A-Za-z0-9_=&%+.-]+)?$/.test(absolute) ||
+  if (!/^https:\/\/app\.saydian\.cn\/attachment\/[A-Za-z0-9_./%+-]+(?:\?[A-Za-z0-9_=&%+.-]+)?$/.test(absolute) ||
     absolute.includes('..')) return '';
   return absolute;
 }

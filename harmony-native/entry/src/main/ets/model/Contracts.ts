@@ -1,5 +1,5 @@
 // Shared by ArkTS and host-side tests. No platform APIs or personal fixtures.
-export const API_BASE = 'https://app.saidian.cc';
+export const API_BASE = 'https://app.saydian.cn';
 
 export interface Envelope {
   code?: number | string;
@@ -117,7 +117,7 @@ export function decodeEnvelope(body: string, status: number): Envelope {
     throw new ApiError('服务器返回格式异常，请稍后重试', status);
   }
   const code = payload.code === undefined ? status : Number(payload.code);
-  if (status < 200 || status >= 300 || code !== 200) {
+  if (status < 200 || status >= 300 || code < 200 || code >= 300) {
     const businessStatus = status < 200 || status >= 300 ? status :
       code >= 400 && code < 600 ? code : status;
     const fallback = businessStatus === 401 ? '登录已失效，请重新登录' :

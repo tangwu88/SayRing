@@ -1,8 +1,9 @@
+import { readUiSource } from './support/localized-ui-source.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const source = readFileSync(new URL('../entry/src/main/ets/pages/Index.ets', import.meta.url), 'utf8');
+const source = readUiSource(new URL('../entry/src/main/ets/pages/Index.ets', import.meta.url), 'utf8');
 const input = source.slice(source.indexOf('  ProfileInput('), source.indexOf('  ProfileEditorContent('));
 const page = source.slice(source.indexOf('  ProfileEditorContent('), source.indexOf('  UnitSettingsContent('));
 

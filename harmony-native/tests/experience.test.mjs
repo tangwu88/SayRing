@@ -16,7 +16,7 @@ const { AccountClient } = await import('../entry/src/main/ets/services/AccountCl
 
 test('shop home uses only the real Saydian catalogue and attachment images', () => {
   const home = parseShopHome({ items: [
-    { type: 'swiper', data: { list: [{ url: 'https://app.saidian.cc/attachment/images/banner.png' }] } },
+    { type: 'swiper', data: { list: [{ url: 'https://app.saydian.cn/attachment/images/banner.png' }] } },
     { type: 'tabs', value: [
       { name: '血压手表', list: [
         { id: '2917', name: '测试商品', picture: '/attachment/images/watch.jpg', price: '200.00', stock: '99' },
@@ -25,10 +25,10 @@ test('shop home uses only the real Saydian catalogue and attachment images', () 
       { name: '运动手表', list: [] },
     ] },
   ] });
-  assert.equal(home.bannerUrl, 'https://app.saidian.cc/attachment/images/banner.png');
+  assert.equal(home.bannerUrl, 'https://app.saydian.cn/attachment/images/banner.png');
   assert.equal(home.categories.length, 2);
   assert.deepEqual(home.categories[0].products[0], {
-    id: 2917, name: '测试商品', picture: 'https://app.saidian.cc/attachment/images/watch.jpg', price: '200.00', stock: 99,
+    id: 2917, name: '测试商品', picture: 'https://app.saydian.cn/attachment/images/watch.jpg', price: '200.00', stock: 99,
   });
   assert.equal(home.categories[0].products.length, 1);
 });

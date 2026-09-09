@@ -1,4 +1,4 @@
-name: Android Production Release
+name: Domestic Android Production Release (reference only)
 
 on:
   push:

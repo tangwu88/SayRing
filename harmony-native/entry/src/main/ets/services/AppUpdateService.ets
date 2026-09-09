@@ -1,8 +1,10 @@
 import { http } from '@kit.NetworkKit';
-import { ApiError } from '../model/Contracts';
-import { AppUpdateInfo, parseAppUpdateManifest } from '../model/ExperienceContracts';
+import { ApiError, decodeEnvelope } from '../model/Contracts';
+import { AppUpdateInfo } from '../model/ExperienceContracts';
+import { parseGlobalUpdate } from '../model/GlobalUpdate';
+import { globalApiPath, internationalUrl } from '../model/GlobalConfiguration';
 
-const UPDATE_MANIFEST_URL: string = 'https://app.saidian.cc/app-update.json';
+const UPDATE_MANIFEST_URL: string = internationalUrl(globalApiPath('/support/app-update'));
 export const HARMONY_VERSION_NAME: string = '0.1.4';
 export const HARMONY_VERSION_CODE: number = 9;
 
@@ -24,7 +26,7 @@ export class AppUpdateService {
       if (response.responseCode < 200 || response.responseCode >= 300) {
         throw new ApiError('在线更新服务暂不可用', response.responseCode);
       }
-      return parseAppUpdateManifest(response.result as string, HARMONY_VERSION_CODE);
+      return parseGlobalUpdate(decodeEnvelope(response.result as string, response.responseCode).data, HARMONY_VERSION_CODE);
     } catch (error) {
       if (error instanceof ApiError) throw error;
       throw new ApiError('暂时无法检查更新，请稍后重试');

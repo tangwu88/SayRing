@@ -1,4 +1,4 @@
-name: iOS Ad Hoc Test IPA
+name: Domestic iOS Ad Hoc Test IPA (reference only)
 
 on:
   workflow_dispatch:

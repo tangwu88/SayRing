@@ -1,4 +1,5 @@
-export const WECHAT_APP_ID: string = 'wxc9426c8d822c1302';
+// Register an independent international application before enabling this channel.
+export const WECHAT_APP_ID: string = '';
 export const WECHAT_AUTH_RESULT_KEY: string = 'saydian.wechat.auth.result';
 export const WECHAT_AUTH_MAX_AGE_MS: number = 10 * 60 * 1000;
 

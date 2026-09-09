@@ -64,7 +64,7 @@
         tools:replace="android:required" />
 
     <application
-        android:label="Saydian赛电"
+        android:label="Saydian"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -98,13 +98,13 @@
             </intent-filter>
         </activity>
         <activity
-            android:name="cc.saidian.app.wxapi.WXPayEntryActivity"
+            android:name="cn.saydian.app.global.wxapi.WXPayEntryActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity
-            android:name="cc.saidian.app.wxapi.WXEntryActivity"
+            android:name="cn.saydian.app.global.wxapi.WXEntryActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:taskAffinity=""
@@ -131,7 +131,7 @@
         <service
             android:name=".SaidianNotificationListener"
             android:exported="true"
-            android:label="赛电手表消息提醒"
+            android:label="Saydian watch notifications"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />

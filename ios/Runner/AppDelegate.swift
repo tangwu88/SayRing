@@ -10,6 +10,15 @@ import UserNotifications
 import VeepooBleSDK
 #endif
 
+struct WearableRecordTimezone {
+  static func offset(at observedAt: Date, timeZone: TimeZone = .current) -> String {
+    let minutes = timeZone.secondsFromGMT(for: observedAt) / 60
+    let absoluteMinutes = abs(minutes)
+    let sign = minutes < 0 ? "-" : "+"
+    return String(format: "%@%02d:%02d", sign, absoluteMinutes / 60, absoluteMinutes % 60)
+  }
+}
+
 struct GalleryImagePayload: Equatable {
   static let maximumByteCount = 50 * 1024 * 1024
 
@@ -3195,7 +3204,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       "values": values,
       "unit": unit,
       "measuredAt": timestamp,
-      "timezone": Self.timezoneOffset(),
+      "timezone": Self.timezoneOffset(at: at),
       "deviceId": deviceID,
       "firmwareVersion": connected?.deviceVersion ?? "",
       "quality": "device_reported",
@@ -5169,9 +5178,8 @@ private final class VeepooWearableAdapter: WearableAdapter {
     return nil
   }
 
-  private static func timezoneOffset() -> String {
-    let seconds = TimeZone.current.secondsFromGMT()
-    return String(format: "%+03d:%02d", seconds / 3600, abs(seconds / 60) % 60)
+  private static func timezoneOffset(at observedAt: Date) -> String {
+    return WearableRecordTimezone.offset(at: observedAt)
   }
 
   private static let isoFormatter: ISO8601DateFormatter = {

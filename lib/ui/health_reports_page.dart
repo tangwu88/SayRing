@@ -1,7 +1,9 @@
+import '../l10n/global_locale_controller.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:html/parser.dart' as html;
 import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -25,6 +27,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
   HealthPaymentIntent? _pendingPayment;
   bool _loading = true;
   bool _working = false;
+  bool _consentRequestRunning = false;
   String? _error;
 
   @override
@@ -91,32 +94,133 @@ class _HealthProfilePageState extends State<HealthProfilePage>
   }
 
   Future<bool> _requestAnalysisConsent() async {
+    if (_consentRequestRunning) return false;
+    _consentRequestRunning = true;
+    try {
+      return await _showAnalysisConsent();
+    } finally {
+      _consentRequestRunning = false;
+    }
+  }
+
+  bool get _reviewedAnalysisAvailable {
+    if (!widget.controller.isGlobalEdition) return true;
+    final profile = _dashboard?.profile;
+    final version = profile?.analysisConsentAvailableVersion;
+    final document = profile?.analysisConsentDocument;
+    return version != null &&
+        version.isNotEmpty &&
+        document != null &&
+        document['version'] == version &&
+        '${document['path'] ?? ''}'.trim().isNotEmpty;
+  }
+
+  bool get _hasCurrentAnalysisConsent {
+    final profile = _dashboard?.profile;
+    return profile?.analysisConsentGranted == true &&
+        (!widget.controller.isGlobalEdition ||
+            (_reviewedAnalysisAvailable &&
+                profile?.analysisConsentVersion ==
+                    profile?.analysisConsentAvailableVersion));
+  }
+
+  Future<bool> _ensureGlobalAnalysisConsent() async {
+    if (!widget.controller.isGlobalEdition) return true;
+    if (!_reviewedAnalysisAvailable) {
+      _showMessage(context.l10n.analysisConsentUnavailable);
+      return false;
+    }
+    return _hasCurrentAnalysisConsent || await _requestAnalysisConsent();
+  }
+
+  Future<bool> _showAnalysisConsent() async {
+    final global = widget.controller.isGlobalEdition;
+    final profile = _dashboard?.profile;
+    final reviewedVersion = profile?.analysisConsentAvailableVersion;
+    String? reviewedText;
+    String? reviewedTitle;
+    if (global) {
+      if (!_reviewedAnalysisAvailable) {
+        _showMessage(context.l10n.analysisConsentUnavailable);
+        return false;
+      }
+      setState(() => _working = true);
+      try {
+        final metadata = profile!.analysisConsentDocument!;
+        final document = await widget.controller.globalLegalDocument(
+          '${metadata['path']}',
+        );
+        if (document['version'] != reviewedVersion) {
+          throw const FormatException('Reviewed analysis document changed');
+        }
+        if (metadata['locale'] != null &&
+            document['locale'] != metadata['locale']) {
+          throw const FormatException(
+            'Reviewed analysis document locale changed',
+          );
+        }
+        final parsed = html.parse(
+          '${document['contentHtml'] ?? ''}'.replaceAll(
+            RegExp(r'</p>|<br\s*/?>', caseSensitive: false),
+            '\n\n',
+          ),
+        );
+        for (final element in parsed.querySelectorAll(
+          'script,style,noscript,template',
+        )) {
+          element.remove();
+        }
+        reviewedText = parsed.documentElement?.text.trim();
+        if (reviewedText == null || reviewedText.isEmpty) {
+          throw const FormatException('Empty reviewed analysis document');
+        }
+        reviewedTitle = '${document['title'] ?? ''}'.trim();
+      } catch (error, stack) {
+        debugPrint(
+          'Health analysis document could not be loaded: $error\n$stack',
+        );
+        if (mounted) _showMessage(context.l10n.analysisConsentUnavailable);
+        return false;
+      } finally {
+        if (mounted) setState(() => _working = false);
+      }
+      if (!mounted) return false;
+    }
     var accepted = false;
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-          title: const Text('健康分析授权'),
+          title: Text(
+            reviewedTitle?.isNotEmpty == true
+                ? reviewedTitle!
+                : context.l10n.analysisConsent,
+          ),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  '为了生成详细报告，我们会分析你近30天的有效健康数据。分析结果仅用于日常健康管理参考，不用于诊断或治疗。',
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  '系统只向分析服务提供去除姓名、手机号和设备地址后的汇总信息。你可以随时在本页撤回授权。',
-                  style: TextStyle(fontSize: 13, color: SaydianColors.muted),
-                ),
+                if (global)
+                  SelectableText(reviewedText!)
+                else ...[
+                  const Text(
+                    '为了生成详细报告，我们会分析你近30天的有效健康数据。分析结果仅用于日常健康管理参考，不用于诊断或治疗。',
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    '系统只向分析服务提供去除姓名、手机号和设备地址后的汇总信息。你可以随时在本页撤回授权。',
+                    style: TextStyle(fontSize: 13, color: SaydianColors.muted),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 CheckboxListTile(
+                  key: const Key('health-analysis-consent-checkbox'),
                   value: accepted,
                   contentPadding: EdgeInsets.zero,
                   controlAffinity: ListTileControlAffinity.leading,
-                  title: const Text('我已阅读并同意上述健康分析说明'),
+                  title: Text(context.l10n.analysisReadAgree),
                   onChanged: (value) =>
                       setDialogState(() => accepted = value == true),
                 ),
@@ -126,13 +230,14 @@ class _HealthProfilePageState extends State<HealthProfilePage>
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('暂不授权'),
+              child: Text(context.l10n.notGrantNow),
             ),
             FilledButton(
+              key: const Key('health-analysis-consent-confirm'),
               onPressed: accepted
                   ? () => Navigator.pop(dialogContext, true)
                   : null,
-              child: const Text('同意并继续'),
+              child: Text(context.l10n.agreeContinue),
             ),
           ],
         ),
@@ -140,11 +245,14 @@ class _HealthProfilePageState extends State<HealthProfilePage>
     );
     if (confirmed != true) return false;
     try {
-      await widget.controller.setHealthAnalysisConsent(true);
+      await widget.controller.setHealthAnalysisConsent(
+        true,
+        version: global ? reviewedVersion : null,
+      );
       if (!mounted) return false;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('健康分析授权已保存')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.analysisConsentSaved)),
+      );
       await _load(quiet: true);
       return true;
     } catch (error) {
@@ -158,16 +266,16 @@ class _HealthProfilePageState extends State<HealthProfilePage>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('撤回健康分析授权？'),
-        content: const Text('撤回后不会再生成新的详细报告，已经生成且未退款的报告仍可查看。'),
+        title: Text(context.l10n.withdrawAnalysisConsent),
+        content: Text(context.l10n.withdrawAnalysisExplanation),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('取消'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('确认撤回'),
+            child: Text(context.l10n.confirmWithdraw),
           ),
         ],
       ),
@@ -176,7 +284,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
     await _run(() async {
       await widget.controller.setHealthAnalysisConsent(false);
       if (!mounted) return;
-      _showMessage('健康分析授权已撤回');
+      _showMessage(context.l10n.analysisConsentWithdrawn);
       await _load(quiet: true);
     });
   }
@@ -184,7 +292,9 @@ class _HealthProfilePageState extends State<HealthProfilePage>
   Future<void> _generateReport() async {
     final dashboard = _dashboard;
     if (dashboard == null || !dashboard.eligibility.eligible) return;
-    if (dashboard.eligibility.consentRequired &&
+    if (!await _ensureGlobalAnalysisConsent()) return;
+    if (!widget.controller.isGlobalEdition &&
+        dashboard.eligibility.consentRequired &&
         !await _requestAnalysisConsent()) {
       return;
     }
@@ -206,6 +316,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
   }
 
   Future<void> _retryReport(HealthReportSummary report) async {
+    if (!await _ensureGlobalAnalysisConsent()) return;
     await _run(() async {
       final retried = await widget.controller.retryHealthReport(report.id);
       if (!mounted) return;
@@ -219,6 +330,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
   }
 
   Future<void> _purchase(HealthReportSummary report) async {
+    if (!await _ensureGlobalAnalysisConsent()) return;
     final dashboard = _dashboard;
     if (dashboard == null || !dashboard.eligibility.eligible) {
       _showMessage('当前数据还不足，暂不能购买报告');
@@ -275,13 +387,13 @@ class _HealthProfilePageState extends State<HealthProfilePage>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  '选择报告方案',
+                Text(
+                  context.l10n.selectReportPlan,
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 6),
-                const Text(
-                  '明显异常提醒始终免费；付费内容为更完整的趋势整理与日常健康建议。',
+                Text(
+                  context.l10n.reportPaidContentHint,
                   style: TextStyle(color: SaydianColors.muted, fontSize: 13),
                 ),
                 const SizedBox(height: 14),
@@ -295,8 +407,8 @@ class _HealthProfilePageState extends State<HealthProfilePage>
                 ],
                 if (!isIos) ...[
                   const SizedBox(height: 6),
-                  const Text(
-                    '支付方式',
+                  Text(
+                    context.l10n.paymentMethod,
                     style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 8),
@@ -305,7 +417,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
                     children: [
                       ChoiceChip(
                         selected: provider == AppPaymentProvider.wechat,
-                        label: const Text('微信支付'),
+                        label: Text(context.l10n.wechatPayLabel),
                         avatar: const Icon(Icons.chat_rounded, size: 18),
                         onSelected: (_) => setSheetState(
                           () => provider = AppPaymentProvider.wechat,
@@ -313,7 +425,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
                       ),
                       ChoiceChip(
                         selected: provider == AppPaymentProvider.alipay,
-                        label: const Text('支付宝'),
+                        label: Text(context.l10n.alipayLabel),
                         avatar: const Icon(
                           Icons.account_balance_wallet_rounded,
                           size: 18,
@@ -335,8 +447,8 @@ class _HealthProfilePageState extends State<HealthProfilePage>
                   child: Text('确认支付 ${_price(selected)}'),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  '购买前请确认方案和价格。健康会员不会自动续费，未使用次数到期不结转。',
+                Text(
+                  context.l10n.reportPurchaseTerms,
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 12, color: SaydianColors.muted),
                 ),
@@ -413,7 +525,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('健康档案'),
+        title: Text(context.l10n.healthProfile),
         actions: [
           IconButton(
             tooltip: '刷新',
@@ -443,6 +555,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
                   _EligibilityCard(
                     eligibility: dashboard.eligibility,
                     working: _working,
+                    analysisAvailable: _reviewedAnalysisAvailable,
                     onGenerate: _generateReport,
                   ),
                   if (_pendingPayment case final payment?) ...[
@@ -457,16 +570,17 @@ class _HealthProfilePageState extends State<HealthProfilePage>
                   _AnalysisConsentCard(
                     granted: dashboard.profile.analysisConsentGranted,
                     working: _working,
+                    analysisAvailable: _reviewedAnalysisAvailable,
                     onGrant: _requestAnalysisConsent,
                     onWithdraw: _withdrawAnalysisConsent,
                   ),
                   const SizedBox(height: 20),
                   Row(
                     children: [
-                      const Expanded(
+                      Expanded(
                         child: Text(
-                          '历史报告',
-                          style: TextStyle(
+                          context.l10n.reportHistory,
+                          style: const TextStyle(
                             fontSize: 19,
                             fontWeight: FontWeight.w900,
                           ),
@@ -476,7 +590,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
                         TextButton(
                           key: const Key('health-report-restore'),
                           onPressed: _working ? null : _restoreApplePurchases,
-                          child: const Text('恢复购买'),
+                          child: Text(context.l10n.restorePurchases),
                         ),
                     ],
                   ),
@@ -487,7 +601,9 @@ class _HealthProfilePageState extends State<HealthProfilePage>
                     for (final report in dashboard.reports) ...[
                       _ReportCard(
                         report: report,
-                        canPurchase: dashboard.eligibility.eligible,
+                        canPurchase:
+                            dashboard.eligibility.eligible &&
+                            _reviewedAnalysisAvailable,
                         working: _working,
                         onOpen: () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
@@ -613,7 +729,7 @@ class _HealthReportDetailPageState extends State<HealthReportDetailPage> {
     final limitations = _strings(content['limitations']);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('详细健康报告'),
+        title: Text(context.l10n.detailedHealthReport),
         actions: [
           IconButton(
             key: const Key('health-report-share'),
@@ -847,11 +963,13 @@ class _EligibilityCard extends StatelessWidget {
   const _EligibilityCard({
     required this.eligibility,
     required this.working,
+    required this.analysisAvailable,
     required this.onGenerate,
   });
 
   final HealthReportEligibility eligibility;
   final bool working;
+  final bool analysisAvailable;
   final VoidCallback onGenerate;
 
   @override
@@ -888,15 +1006,15 @@ class _EligibilityCard extends StatelessWidget {
                 ),
               ),
             const SizedBox(height: 2),
-            const Text(
-              '数据不足时不会创建支付订单。请正常佩戴并同步手表数据后再试。',
+            Text(
+              context.l10n.reportInsufficientDataHint,
               style: TextStyle(fontSize: 13, color: SaydianColors.muted),
             ),
           ] else ...[
             const SizedBox(height: 14),
             FilledButton.icon(
               key: const Key('health-report-generate'),
-              onPressed: working ? null : onGenerate,
+              onPressed: working || !analysisAvailable ? null : onGenerate,
               icon: const Icon(Icons.auto_awesome_rounded),
               label: Text(
                 eligibility.availableCredits > 0
@@ -906,6 +1024,10 @@ class _EligibilityCard extends StatelessWidget {
                     : '生成详细报告',
               ),
             ),
+          ],
+          if (!analysisAvailable) ...[
+            const SizedBox(height: 10),
+            Text(context.l10n.analysisConsentUnavailable),
           ],
         ],
       ),
@@ -917,12 +1039,14 @@ class _AnalysisConsentCard extends StatelessWidget {
   const _AnalysisConsentCard({
     required this.granted,
     required this.working,
+    required this.analysisAvailable,
     required this.onGrant,
     required this.onWithdraw,
   });
 
   final bool granted;
   final bool working;
+  final bool analysisAvailable;
   final Future<bool> Function() onGrant;
   final VoidCallback onWithdraw;
 
@@ -932,15 +1056,26 @@ class _AnalysisConsentCard extends StatelessWidget {
       leading: Icon(
         granted ? Icons.verified_user_outlined : Icons.policy_outlined,
       ),
-      title: const Text('健康分析授权'),
-      subtitle: Text(granted ? '已授权，可随时撤回' : '生成详细报告前需要单独授权'),
+      title: Text(context.l10n.analysisConsent),
+      subtitle: Text(
+        granted
+            ? context.l10n.consentGrantedHint
+            : !analysisAvailable
+            ? context.l10n.analysisConsentUnavailable
+            : context.l10n.consentNeededHint,
+      ),
       trailing: TextButton(
-        onPressed: working
+        key: Key(
+          granted
+              ? 'health-analysis-consent-withdraw'
+              : 'health-analysis-consent-grant',
+        ),
+        onPressed: working || (!granted && !analysisAvailable)
             ? null
             : granted
             ? onWithdraw
             : () => unawaited(onGrant()),
-        child: Text(granted ? '撤回' : '查看'),
+        child: Text(granted ? context.l10n.withdraw : context.l10n.view),
       ),
     ),
   );
@@ -962,12 +1097,12 @@ class _PendingPaymentCard extends StatelessWidget {
     color: SaydianColors.techBlueSoft,
     child: ListTile(
       leading: const Icon(Icons.hourglass_top_rounded),
-      title: const Text('等待支付结果确认'),
-      subtitle: const Text('支付完成后返回本页刷新，我们核实结果后会更新可用权益。'),
+      title: Text(context.l10n.waitingPaymentConfirmation),
+      subtitle: Text(context.l10n.paymentReturnRefreshHint),
       trailing: TextButton(
         key: const Key('health-payment-refresh'),
         onPressed: working ? null : onRefresh,
-        child: const Text('刷新'),
+        child: Text(context.l10n.refresh),
       ),
     ),
   );
@@ -1035,8 +1170,8 @@ class _ReportCard extends StatelessWidget {
             if (report.status == HealthReportStatus.awaitingPayment &&
                 !canPurchase) ...[
               const SizedBox(height: 8),
-              const Text(
-                '当前数据还不足，暂不提供购买入口。',
+              Text(
+                context.l10n.reportPurchaseDataMissing,
                 style: TextStyle(fontSize: 13, color: SaydianColors.muted),
               ),
             ],
@@ -1350,7 +1485,7 @@ class _HealthReportError extends StatelessWidget {
           const SizedBox(height: 12),
           Text(message, textAlign: TextAlign.center),
           const SizedBox(height: 16),
-          FilledButton(onPressed: onRetry, child: const Text('重试')),
+          FilledButton(onPressed: onRetry, child: Text(context.l10n.retry)),
         ],
       ),
     ),

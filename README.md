@@ -1,4 +1,10 @@
-# Saydian 赛电 App
+# Saydian — International App
+
+This is the independent **private international edition** (`tangwu88/saydian-app-global`), not a replacement for the domestic App. Start with [International handoff](docs/INTERNATIONAL-HANDOFF.md) and [change/test record](docs/INTERNATIONAL-IMPLEMENTATION-20260909.md). The implementation is not yet accepted for public distribution; unavailable providers, incomplete localization and platform acceptance are listed explicitly.
+
+Only `https://app.saydian.cn/global` is the first-party global account environment. The domestic documentation retained below describes the imported baseline, **not international deployment authorization or completed international acceptance**.
+
+## Imported domestic baseline documentation
 
 赛电健康管理 App 的 Flutter 双端工程。Android 通过 Kotlin、iOS 通过
 Swift/Objective-C 适配 Veepoo SDK；Flutter 层共享页面、状态机、健康数据模型、

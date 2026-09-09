@@ -10,7 +10,7 @@ const now = Date.UTC(2026, 8, 5, 8);
 const nonce = '01234567-89ab-cdef-0123456789ab';
 
 test('public WeChat app identity is configured without a client credential', () => {
-  assert.equal(WECHAT_APP_ID, 'wxc9426c8d822c1302');
+  assert.equal(WECHAT_APP_ID, '');
   const service = readFileSync(new URL('../entry/src/main/ets/services/WechatAuthService.ets', import.meta.url), 'utf8');
   const client = readFileSync(new URL('../entry/src/main/ets/services/AccountClient.ts', import.meta.url), 'utf8');
   assert.ok(service.includes("from '@tencent/wechat_open_sdk'"));

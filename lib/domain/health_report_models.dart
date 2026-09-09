@@ -91,6 +91,8 @@ class HealthProfileSummary {
     required this.activeWarningCount,
     required this.analysisConsentGranted,
     required this.analysisConsentVersion,
+    this.analysisConsentAvailableVersion,
+    this.analysisConsentDocument,
   });
 
   final String memberId;
@@ -104,6 +106,8 @@ class HealthProfileSummary {
   final int activeWarningCount;
   final bool analysisConsentGranted;
   final String? analysisConsentVersion;
+  final String? analysisConsentAvailableVersion;
+  final Map<String, Object?>? analysisConsentDocument;
 
   factory HealthProfileSummary.fromMap(Map<String, Object?> map) {
     final period = _asMap(map['period']);
@@ -127,6 +131,10 @@ class HealthProfileSummary {
       activeWarningCount: _asInt(map['activeWarningCount']),
       analysisConsentGranted: consent['granted'] == true,
       analysisConsentVersion: _nonEmpty(consent['version']),
+      analysisConsentAvailableVersion: _nonEmpty(consent['availableVersion']),
+      analysisConsentDocument: consent['document'] is Map
+          ? _asMap(consent['document'])
+          : null,
     );
   }
 }

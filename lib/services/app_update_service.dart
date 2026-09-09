@@ -11,6 +11,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'global_environment.dart';
+
+part 'global_app_update_service.dart';
 
 class AppUpdateException implements Exception {
   const AppUpdateException(this.message);
@@ -29,6 +32,7 @@ class AppUpdatePersistenceException extends AppUpdateException {
 
 enum AppUpdateDestinationType {
   appStore('app_store'),
+  testFlight('testflight'),
   androidApk('android_apk'),
   androidStore('android_store');
 

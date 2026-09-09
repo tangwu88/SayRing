@@ -4,7 +4,7 @@ import { HealthRecord, WearableProvider } from '../model/WearableContracts';
 import { HEALTH_OWNER_SCHEMA, OWNED_HEALTH_TABLE, OWNED_BINDING_TABLE, DEVICE_CLAIM_TABLE,
   validHealthOwner, healthUploadSupported, isDailyUpload, ownershipStart, UPSERT_OWNED_HEALTH_SQL, MARK_HEALTH_UPLOADED_SQL } from '../model/HealthUpload';
 
-const STORE_NAME: string = 'saydian_wearable_health.db';
+const STORE_NAME: string = 'saydian_global_wearable_health.db';
 const MAX_LOADED_RECORDS: number = 2000;
 export interface StoredWearableBinding { provider: WearableProvider; name: string; mac: string; updatedAt: number; }
 

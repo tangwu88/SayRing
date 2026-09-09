@@ -1,0 +1,8 @@
+"CFBundleDisplayName" = "Saydian";
+"NSBluetoothAlwaysUsageDescription" = "Connect to your watch and sync health data you choose to share.";
+"NSCameraUsageDescription" = "Take photos and set photo watch faces.";
+"NSContactsUsageDescription" = "Sync only the contacts you select to your watch.";
+"NSLocationWhenInUseUsageDescription" = "Use your city to sync local weather to your watch.";
+"NSPhotoLibraryUsageDescription" = "Choose photos for your watch face.";
+"NSPhotoLibraryAddUsageDescription" = "Save photos taken with the camera remote.";
+"NSBluetoothPeripheralUsageDescription" = "Connect to your watch and sync health data you choose to share.";

@@ -4,10 +4,17 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart' as http_parser;
 
 import '../domain/models.dart';
+import '../domain/global_account.dart';
+import '../domain/global_care.dart';
 import '../domain/health_report_models.dart';
+import 'global_environment.dart';
 import 'secure_vault.dart';
+
+part 'global_api_client.dart';
+part 'global_health_api.dart';
 
 class ApiException implements Exception {
   const ApiException(this.message, {this.statusCode, this.code});

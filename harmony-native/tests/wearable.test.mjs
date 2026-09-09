@@ -1,3 +1,4 @@
+import { readUiSource } from './support/localized-ui-source.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -142,7 +143,7 @@ test('manual stop retains the last valid watch values when the final vendor fram
 test('scan timeout is bounded and stale timeout callbacks cannot stop a newer scan', () => {
   assert.equal(WEARABLE_SCAN_TIMEOUT_MS, 12000);
   const service = readFileSync(new URL('../entry/src/main/ets/services/VepWearableService.ets', import.meta.url), 'utf8');
-  const page = readFileSync(new URL('../entry/src/main/ets/pages/Index.ets', import.meta.url), 'utf8');
+  const page = readUiSource(new URL('../entry/src/main/ets/pages/Index.ets', import.meta.url), 'utf8');
   assert.match(service, /private scanGeneration: number = 0/);
   assert.match(service, /scanGeneration !== this\.scanGeneration \|\| !this\.scanning/);
   assert.match(service,

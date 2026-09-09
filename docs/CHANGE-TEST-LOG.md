@@ -12,6 +12,8 @@
 
 ## 最近记录
 
+- [2026-09-09 国际版实施与测试](INTERNATIONAL-IMPLEMENTATION-20260909.md) — 独立私有仓库、三端身份、隔离账号/V2健康同步、八语基础、真实协议与渠道门禁；所有失败、修复、尚未验收项保留。先读[国际版交接](INTERNATIONAL-HANDOFF.md)，不得按以下国内历史记录直接发布国际版。
+
 - [2026-09-08 Android 微信授权登录真机联调](QA-20260908-ANDROID-WECHAT-LOGIN.md) — 已补 Android 微信入口、原生授权回调和 App 登录接口契约；真机可到达微信授权成功回调，但当前服务端接口要求客户端直接提交 `openid`，与 Android SDK 实际仅返回一次性 `code` 不兼容，完整登录待服务端按 `code` 换取身份后复验。
 - [2026-09-07 三端设备型号展示回退](IMPLEMENTATION-LOG-20260907-DEVICE-MODEL-FALLBACK.md) — SDK 型号为空时仅在展示层取蓝牙名最后一个 `-` 后的非空内容；Flutter 双时区各 525、鸿蒙双时区各 429，Android/iOS/鸿蒙 Debug 编译通过。
 - [2026-09-07 鸿蒙运动与记录完整闭环](IMPLEMENTATION-LOG-20260907-HARMONY-SPORT-PARITY.md) — W9S 真实能力限制为跑步/步行/骑行，跑步启停、51 秒加密记录和详情真机通过；双时区各 428 项、Debug/Release 构建与验签通过。

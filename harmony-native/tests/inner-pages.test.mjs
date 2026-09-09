@@ -1,3 +1,4 @@
+import { readUiSource } from './support/localized-ui-source.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -67,13 +68,13 @@ test('profile avatar uploads first and only the returned URL is saved',async()=>
   const calls=[];
   const client=await clientWith(async(path,fields)=>{
     calls.push({path,fields});
-    return response(path.endsWith('/my')?{id:1,head_portrait:'https://app.saidian.cc/attachment/avatar.png',...profile}:{});
+    return response(path.endsWith('/my')?{id:1,head_portrait:'https://app.saydian.cn/attachment/avatar.png',...profile}:{});
   },async(path,file,session)=>{
     calls.push({path,file,memberId:session.memberId});
     return response({path:'/attachment/avatar.png'});
   });
   const avatar=await client.uploadProfileImage({uri:'file://synthetic-avatar',fileName:'avatar',maxBytes:6*1024*1024});
-  assert.equal(avatar,'https://app.saidian.cc/attachment/avatar.png');
+  assert.equal(avatar,'https://app.saydian.cn/attachment/avatar.png');
   await client.saveProfile(profile,avatar);
   assert.equal(calls[0].path,'/api/v1/file/images');
   assert.equal(calls[0].memberId,'1');
@@ -98,7 +99,7 @@ for (const [field, ignored, label] of [
     calls.push({path,fields});
     return response(path.endsWith('/my')?{id:1,...profile,head_portrait:'/attachment/avatar.png',[field]:ignored}:{});
   });
-  await assert.rejects(client.saveProfile(profile,'https://app.saidian.cc/attachment/avatar.png'),error=>
+  await assert.rejects(client.saveProfile(profile,'https://app.saydian.cn/attachment/avatar.png'),error=>
     error.message.includes('未全部保存')&&error.message.includes(label));
   assert.equal(calls.length,2); // No automatic overwrite/retry using the incomplete readback.
 });
@@ -108,7 +109,7 @@ test('profile numeric equivalents and relative avatar pass without rewriting uns
   const client=await clientWith(async(path,fields)=>{calls.push({path,fields});return response(path.endsWith('/my')?returned:{});});
   assert.equal(await client.saveProfile({...profile,nickname:' 合成昵称 '}),returned);
   assert.equal(calls[0].fields.some(field=>['head_portrait','mobile'].includes(field.name)),false);
-  await client.saveProfile(profile,'https://app.saidian.cc/attachment/avatar.png');
+  await client.saveProfile(profile,'https://app.saydian.cn/attachment/avatar.png');
 });
 test('profile absent or malformed fields are never treated as saved numeric zero',async()=>{
   for(const value of [undefined,null,'',false,'not-a-number']){
@@ -202,8 +203,8 @@ test('reset password validates before using the existing iOS endpoint',async()=>
   assert.equal(calls[0].path,'/api/v1/site/up-pwd');assert.equal(calls[0].fields.find(f=>f.name==='group').value,'app');
 });
 test('native inner pages keep operational forms, routes and fixed payment footer',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
-  for(const id of ['save_profile','profile_birthday','submit_feedback','contact_phone','contact_copy','submit_reset','account_addresses',
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  for(const id of ['save_profile','profile_birthday','submit_feedback','contact_feedback','submit_reset','account_addresses',
     'trend_calendar','trend_period_','health_trend_chart','all_trend_records','care_sharing','care_invitations'])assert.ok(source.includes(id),id);
   assert.equal((source.match(/id\('confirm_payment'\)/g)||[]).length,1);
   const alerts=source.slice(source.indexOf('  HealthAlertContent()'),source.indexOf('  ShopHomeContent()'));
@@ -221,12 +222,12 @@ test('native inner pages keep operational forms, routes and fixed payment footer
   assert.match(messageOpen,/await saydianApi\.readInboxMessage\(id\)/);
 });
 test('member profile shows the registered mobile without making it editable',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const profile=source.slice(source.indexOf('  ProfileEditorContent()'),source.indexOf('  UnitSettingsContent()'));
   const account=source.slice(source.indexOf('  AccountContent()'),source.indexOf('  AddressContent()'));
   assert.match(profile,/Text\('注册手机号'\)/);
   assert.match(profile,/profile_registered_mobile/);
-  assert.match(profile,/profileField\(this\.profile\.mobile\)/);
+  assert.match(profile,/profileField\(this\.profile\.mobile \|\| this\.profile\.username\)/);
   assert.doesNotMatch(profile,/TextInput\(\{ text: this\.profile\.mobile/);
   assert.match(account,/注册手机号和基础资料/);
   assert.match(profile,/profile_avatar_picker/);

@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:saydian_app/l10n/generated/app_localizations.dart';
+import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -20,6 +22,47 @@ import 'package:saydian_app/ui/app_update_gate_scope.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets(
+    'fast optional manifest waits for the localized startup Navigator',
+    (tester) async {
+      final controller = _authenticatedController();
+      final locale = GlobalLocaleController(
+        store: _TestLocaleStore(),
+        initialLocale: const Locale('de'),
+      );
+      final store = _UpdateGateStore(Future.value(null));
+      final manifest = jsonDecode(_mandatoryManifest()) as Map<String, dynamic>;
+      manifest['minimum_supported_build'] = 18;
+      manifest['release_notes'] = 'Optional localized release';
+      await tester.pumpWidget(
+        SaydianApp(
+          controller: controller,
+          localeController: locale,
+          updateService: _iosUpdateService(
+            MockClient((_) async => http.Response(jsonEncode(manifest), 200)),
+          ),
+          updateCheckStore: store,
+        ),
+      );
+      await tester.pumpAndSettle();
+      final dialog = find.byType(AlertDialog);
+      expect(dialog, findsOneWidget);
+      final labels = AppLocalizations.of(tester.element(dialog))!;
+      expect(labels.localeName, 'de');
+      expect(find.text(labels.updateReady), findsOneWidget);
+      expect(find.text('Optional localized release'), findsOneWidget);
+      expect(store.writtenRequired, isNull);
+      await tester.tap(find.text(labels.notNow));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(AppShell), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      locale.dispose();
+    },
+  );
 
   testWidgets(
     'pending notification route is not consumed before required gate restores',
@@ -165,7 +208,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('需要更新后继续使用'), findsNothing);
-    expect(find.text('发现新版本 V0.2.0'), findsOneWidget);
+    final dialog = find.byType(AlertDialog);
+    expect(dialog, findsOneWidget);
+    final labels = AppLocalizations.of(tester.element(dialog))!;
+    expect(find.text(labels.updateReady), findsOneWidget);
+    expect(find.text(labels.updateNow), findsOneWidget);
+    expect(find.text('已取消必要更新限制'), findsOneWidget);
     expect(store.writtenRequired, isNull);
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -321,6 +369,13 @@ String _mandatoryManifest() => jsonEncode({
     'url': 'https://apps.apple.com/cn/app/saydian/id1234567890',
   },
 });
+
+class _TestLocaleStore implements GlobalLocaleStore {
+  @override
+  Future<String?> read() async => null;
+  @override
+  Future<void> write(String value) async {}
+}
 
 class _UpdateGateStore implements AppUpdateCheckStore {
   _UpdateGateStore(this.requiredRead);

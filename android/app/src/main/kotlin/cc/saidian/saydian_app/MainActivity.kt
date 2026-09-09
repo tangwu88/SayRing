@@ -216,6 +216,15 @@ import java.util.TimeZone
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
+internal object WearableRecordTimezone {
+    fun offsetAt(observedAt: Date, timeZone: TimeZone = TimeZone.getDefault()): String {
+        val offset = timeZone.getOffset(observedAt.time) / 60000
+        val absoluteMinutes = kotlin.math.abs(offset)
+        val sign = if (offset < 0) "-" else "+"
+        return String.format(Locale.US, "%s%02d:%02d", sign, absoluteMinutes / 60, absoluteMinutes % 60)
+    }
+}
+
 class MainActivity : FlutterActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var adapter: VeepooWearableAdapter
@@ -8904,7 +8913,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             "values" to values,
             "unit" to unit,
             "measuredAt" to timestamp,
-            "timezone" to timezoneOffset(),
+            "timezone" to timezoneOffset(measuredAt),
             "deviceId" to connectedDeviceId,
             "firmwareVersion" to firmwareVersion,
             "quality" to "device_reported",
@@ -9377,10 +9386,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 timeZone = TimeZone.getTimeZone("UTC")
             }.format(date)
 
-        private fun timezoneOffset(): String {
-            val offset = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60000
-            return String.format(Locale.US, "%+03d:%02d", offset / 60, kotlin.math.abs(offset % 60))
-        }
+        private fun timezoneOffset(observedAt: Date): String = WearableRecordTimezone.offsetAt(observedAt)
 
         private fun dateAtNoon(value: String): Date =
             parseOriginTime(value, "12:00")

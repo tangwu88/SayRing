@@ -19,6 +19,7 @@ class WechatPaymentService {
   private pending?: PendingWechatPayment;
 
   isAvailable(): boolean {
+    if (!WECHAT_APP_ID) return false;
     try {
       if (!this.api) this.api = wxopensdk.WXAPIFactory.createWXAPI(WECHAT_APP_ID);
       return this.api.isWXAppInstalled();

@@ -1,3 +1,5 @@
+import '../l10n/global_locale_controller.dart';
+import '../services/global_environment.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -87,7 +89,7 @@ class _ShopHomePageState extends State<ShopHomePage> {
     return Scaffold(
       key: const Key('shop-page'),
       appBar: AppBar(
-        title: const Text('赛电商城'),
+        title: Text(context.l10n.shop),
         actions: [
           IconButton(
             tooltip: '购物车',
@@ -126,8 +128,8 @@ class _ShopHomePageState extends State<ShopHomePage> {
                   child: TextField(
                     key: const Key('shop-search'),
                     onChanged: (value) => setState(() => _keyword = value),
-                    decoration: const InputDecoration(
-                      hintText: '搜索商品',
+                    decoration: InputDecoration(
+                      hintText: context.l10n.searchProducts,
                       prefixIcon: Icon(Icons.search_rounded),
                     ),
                   ),
@@ -389,8 +391,8 @@ class _ShopProductPageState extends State<ShopProductPage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  '请选择规格',
+                Text(
+                  context.l10n.selectVariant,
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 14),
@@ -513,7 +515,7 @@ class _ShopProductPageState extends State<ShopProductPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('商品详情')),
+      appBar: AppBar(title: Text(context.l10n.productDetails)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _product.isEmpty
@@ -599,7 +601,7 @@ class _ShopProductPageState extends State<ShopProductPage> {
                               Card(
                                 child: ListTile(
                                   onTap: _showPurchaseSheet,
-                                  title: const Text('规格'),
+                                  title: Text(context.l10n.variant),
                                   subtitle: Text(
                                     '${_selectedSku?['name'] ?? '请选择规格'}',
                                   ),
@@ -623,8 +625,8 @@ class _ShopProductPageState extends State<ShopProductPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              '商品详情',
+                            Text(
+                              context.l10n.productDetails,
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w900,
@@ -708,8 +710,8 @@ class _ShopProductPageState extends State<ShopProductPage> {
                               minimumSize: const Size(0, 48),
                             ),
                             onPressed: () => _showPurchaseSheet(),
-                            child: const Text(
-                              '立即购买',
+                            child: Text(
+                              context.l10n.buyNow,
                               textAlign: TextAlign.center,
                             ),
                           ),
@@ -868,7 +870,7 @@ class _ShoppingCartPageState extends State<ShoppingCartPage> {
             if (items.isNotEmpty)
               TextButton(
                 onPressed: () => _confirmClear(context),
-                child: const Text('清空'),
+                child: Text(context.l10n.clear),
               ),
           ],
         ),
@@ -883,19 +885,19 @@ class _ShoppingCartPageState extends State<ShoppingCartPage> {
                       color: SaydianColors.outline,
                     ),
                     const SizedBox(height: 14),
-                    const Text(
-                      '购物车还是空的',
+                    Text(
+                      context.l10n.cartEmpty,
                       style: TextStyle(
                         fontSize: 19,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text('去商城挑选适合您的健康设备吧'),
+                    Text(context.l10n.visitStoreHint),
                     const SizedBox(height: 18),
                     FilledButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('返回商城'),
+                      child: Text(context.l10n.returnShop),
                     ),
                   ],
                 ),
@@ -954,7 +956,7 @@ class _ShoppingCartPageState extends State<ShoppingCartPage> {
                           });
                         },
                       ),
-                      const Text('全选'),
+                      Text(context.l10n.selectAll),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -983,7 +985,7 @@ class _ShoppingCartPageState extends State<ShoppingCartPage> {
                                   ),
                                 );
                               },
-                        child: const Text('去结算'),
+                        child: Text(context.l10n.checkout),
                       ),
                     ],
                   ),
@@ -997,16 +999,16 @@ class _ShoppingCartPageState extends State<ShoppingCartPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('清空购物车？'),
-        content: const Text('已加入的商品将全部移除。'),
+        title: Text(context.l10n.clearCart),
+        content: Text(context.l10n.clearCartHint),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('清空'),
+            child: Text(context.l10n.clear),
           ),
         ],
       ),
@@ -1261,7 +1263,7 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
           actions: [
             FilledButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('查看订单'),
+              child: Text(context.l10n.viewOrder),
             ),
           ],
         ),
@@ -1296,7 +1298,7 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       key: const Key('shop-checkout'),
-      appBar: AppBar(title: const Text('确认订单')),
+      appBar: AppBar(title: Text(context.l10n.confirmOrder)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _preview.isEmpty
@@ -1343,8 +1345,8 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          '商品信息',
+                        Text(
+                          context.l10n.productInfo,
                           style: TextStyle(fontWeight: FontWeight.w900),
                         ),
                         const SizedBox(height: 10),
@@ -1370,9 +1372,9 @@ class _ShopCheckoutPageState extends State<ShopCheckoutPage> {
                         TextField(
                           controller: _message,
                           maxLength: 100,
-                          decoration: const InputDecoration(
-                            labelText: '留言',
-                            hintText: '给商家留言',
+                          decoration: InputDecoration(
+                            labelText: context.l10n.orderNote,
+                            hintText: context.l10n.noteToSeller,
                           ),
                         ),
                       ],
@@ -1580,7 +1582,7 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
     final status = _asInt(_order['order_status']);
     return Scaffold(
       backgroundColor: const Color(0xFFF7F7F8),
-      appBar: AppBar(title: const Text('支付收银台')),
+      appBar: AppBar(title: Text(context.l10n.paymentCheckout)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
@@ -1619,8 +1621,8 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
                         ),
                         Row(
                           children: [
-                            const Text(
-                              '订单总额',
+                            Text(
+                              context.l10n.orderTotal,
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w800,
@@ -1643,8 +1645,8 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
                   ),
                   if (status == 0) ...[
                     const SizedBox(height: 24),
-                    const Text(
-                      '选择支付方式',
+                    Text(
+                      context.l10n.selectPayment,
                       style: TextStyle(
                         fontSize: 19,
                         fontWeight: FontWeight.w900,
@@ -1720,7 +1722,7 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
                   OutlinedButton.icon(
                     onPressed: _load,
                     icon: const Icon(Icons.refresh_rounded),
-                    label: const Text('刷新订单状态'),
+                    label: Text(context.l10n.refreshOrder),
                   ),
                   if (widget.ordersPageBuilder != null) ...[
                     const SizedBox(height: 8),
@@ -1730,12 +1732,12 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
                           builder: widget.ordersPageBuilder!,
                         ),
                       ),
-                      child: const Text('查看我的订单'),
+                      child: Text(context.l10n.viewMyOrders),
                     ),
                   ],
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('返回商品详情'),
+                    child: Text(context.l10n.backToProduct),
                   ),
                 ],
               ),
@@ -2008,7 +2010,7 @@ class _ShopAddressBookPageState extends State<ShopAddressBookPage> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _edit,
         icon: const Icon(Icons.add_rounded),
-        label: const Text('新增地址'),
+        label: Text(context.l10n.newAddress),
       ),
     );
   }
@@ -2153,7 +2155,9 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
                 children: [
                   TextFormField(
                     controller: _name,
-                    decoration: const InputDecoration(labelText: '收货人'),
+                    decoration: InputDecoration(
+                      labelText: context.l10n.recipient,
+                    ),
                     validator: (value) =>
                         value?.trim().isEmpty ?? true ? '请填写收货人' : null,
                   ),
@@ -2161,7 +2165,9 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
                   TextFormField(
                     controller: _mobile,
                     keyboardType: TextInputType.phone,
-                    decoration: const InputDecoration(labelText: '手机号'),
+                    decoration: InputDecoration(
+                      labelText: context.l10n.phoneNumber,
+                    ),
                     validator: (value) =>
                         RegExp(r'^1\d{10}$').hasMatch(value?.trim() ?? '')
                         ? null
@@ -2173,7 +2179,9 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
                     isExpanded: true,
                     itemHeight: null,
                     initialValue: _provinceCode,
-                    decoration: const InputDecoration(labelText: '省/自治区'),
+                    decoration: InputDecoration(
+                      labelText: context.l10n.province,
+                    ),
                     items: _provinces.entries
                         .map(
                           (entry) => DropdownMenuItem(
@@ -2194,7 +2202,7 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
                     isExpanded: true,
                     itemHeight: null,
                     initialValue: _cityCode,
-                    decoration: const InputDecoration(labelText: '城市'),
+                    decoration: InputDecoration(labelText: context.l10n.city),
                     items: _availableCities.entries
                         .map(
                           (entry) => DropdownMenuItem(
@@ -2216,7 +2224,9 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
                     isExpanded: true,
                     itemHeight: null,
                     initialValue: _areaCode,
-                    decoration: const InputDecoration(labelText: '区/县'),
+                    decoration: InputDecoration(
+                      labelText: context.l10n.district,
+                    ),
                     items: _availableAreas.entries
                         .map(
                           (entry) => DropdownMenuItem(
@@ -2233,7 +2243,9 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
                   TextFormField(
                     controller: _details,
                     maxLines: 3,
-                    decoration: const InputDecoration(labelText: '详细地址'),
+                    decoration: InputDecoration(
+                      labelText: context.l10n.streetAddress,
+                    ),
                     validator: (value) =>
                         value?.trim().isEmpty ?? true ? '请填写详细地址' : null,
                   ),
@@ -2242,7 +2254,7 @@ class _ShopAddressEditPageState extends State<ShopAddressEditPage> {
                     contentPadding: EdgeInsets.zero,
                     value: _isDefault,
                     onChanged: (value) => setState(() => _isDefault = value),
-                    title: const Text('设为默认地址'),
+                    title: Text(context.l10n.defaultAddress),
                   ),
                   const SizedBox(height: 18),
                   FilledButton(
@@ -2292,7 +2304,7 @@ class _ShopExpressPageState extends State<ShopExpressPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('物流信息')),
+      appBar: AppBar(title: Text(context.l10n.shippingInfo)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _shipments.isEmpty
@@ -2381,16 +2393,11 @@ List<String> _shopImageUrls(Object? raw) {
 }
 
 String _normalizeShopImageUrl(String value) {
-  final trimmed = value.trim().replaceAll('&amp;', '&');
-  if (trimmed.isEmpty) return '';
-  if (trimmed.startsWith('//')) return 'https:$trimmed';
-  if (trimmed.startsWith('/')) return 'https://app.saidian.cc$trimmed';
-  if (!RegExp(r'^https?://', caseSensitive: false).hasMatch(trimmed)) {
-    return 'https://app.saidian.cc/${trimmed.replaceFirst(RegExp(r'^/+'), '')}';
+  try {
+    return GlobalEnvironment.media(value.replaceAll('&amp;', '&'));
+  } on ArgumentError {
+    return '';
   }
-  return trimmed
-      .replaceFirst('http://sd.cc/', 'https://app.saidian.cc/')
-      .replaceFirst('https://sd.cc/', 'https://app.saidian.cc/');
 }
 
 List<Widget> _shopDetailContentWidgets(String raw) {

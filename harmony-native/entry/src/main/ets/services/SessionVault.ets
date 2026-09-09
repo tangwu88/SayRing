@@ -4,7 +4,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { Session, ApiError, validateStoredSession } from '../model/Contracts';
 
 export class SessionVault {
-  private alias: Uint8Array = new util.TextEncoder().encodeInto('saydian.harmony.session.v1');
+  private alias: Uint8Array = new util.TextEncoder().encodeInto('saydian.global.harmony.session.v1');
 
   async read(): Promise<Session | undefined> {
     const query: asset.AssetMap = new Map();

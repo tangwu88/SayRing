@@ -16,6 +16,9 @@ import '../domain/health_report_models.dart';
 import '../domain/health_record_validation.dart';
 import '../domain/health_record_dedup.dart';
 import '../domain/models.dart';
+import '../domain/global_account.dart';
+import '../domain/global_care.dart';
+import '../l10n/global_locale_controller.dart';
 import 'api_client.dart';
 import 'app_payment_bridge.dart';
 import 'app_notification_service.dart';
@@ -84,11 +87,14 @@ class AppController extends ChangeNotifier {
   }
 
   factory AppController.production() {
-    final vault = SecureSessionVault();
+    final vault = SecureSessionVault.global();
     return AppController(
       vault,
-      SaydianApiClient(vault),
-      EncryptedHealthStore(vault),
+      GlobalSaydianApiClient(
+        vault,
+        locale: () => GlobalLocaleController.instance.locale.toLanguageTag(),
+      ),
+      EncryptedHealthStore(vault, globalEdition: true),
       createProductionWearableBridge(),
       notificationService: JPushAppNotificationService(),
     );
@@ -96,6 +102,99 @@ class AppController extends ChangeNotifier {
 
   final SessionVault _vault;
   final SaydianApi _api;
+  bool get isGlobalEdition => _api is GlobalAccountApi;
+
+  /// Stable API classification only; raw response bodies never reach the UI.
+  ApiException? lastApiError;
+
+  Future<List<Map<String, Object?>>> loadGlobalArticleCategories() =>
+      (_api as GlobalContentApi).getGlobalArticleCategories();
+  Future<List<Map<String, Object?>>> loadGlobalArticles({
+    String? categoryId,
+    int page = 1,
+  }) => (_api as GlobalContentApi).getGlobalArticles(
+    categoryId: categoryId,
+    page: page,
+  );
+  Future<Map<String, Object?>> loadGlobalArticle(String id) =>
+      (_api as GlobalContentApi).getGlobalArticle(id);
+
+  Future<List<GlobalCareRelationship>> globalCareRelationships() =>
+      (_api as GlobalCareApi).globalCareRelationships();
+  Future<void> globalInviteCare(String identifier) =>
+      (_api as GlobalCareApi).globalInviteCare(identifier);
+  Future<void> globalRespondCare(String id, bool accepted) =>
+      (_api as GlobalCareApi).globalRespondCare(id, accepted);
+  Future<void> globalShareCare(String id, Set<String> metrics) =>
+      (_api as GlobalCareApi).globalShareCare(id, metrics);
+  Future<void> globalRevokeCare(String id) =>
+      (_api as GlobalCareApi).globalRevokeCare(id);
+  Future<List<Map<String, Object?>>> globalCareRecords(
+    String id,
+    String metric,
+    DateTime day,
+  ) => (_api as GlobalCareApi).globalCareRecords(id, metric, day);
+
+  Future<GlobalAuthCapabilities> globalAuthCapabilities() =>
+      (_api as GlobalAccountApi).getAuthCapabilities();
+
+  Future<Map<String, Object?>> globalLegalDocument(String path) =>
+      (_api as GlobalAccountApi).getGlobalLegalDocument(path);
+
+  Future<VerificationChallenge> requestGlobalVerification({
+    required GlobalAccountIdentity identity,
+    required String purpose,
+    required String locale,
+  }) => (_api as GlobalAccountApi).requestVerification(
+    identity: identity,
+    purpose: purpose,
+    locale: locale,
+  );
+
+  Future<bool> completeGlobalVerification({
+    required VerificationChallenge challenge,
+    required String code,
+    required String password,
+    required bool resetPassword,
+    required String locale,
+    required bool privacyConsentGranted,
+    String? consentVersion,
+  }) async {
+    if (isBusy ||
+        (!resetPassword && !privacyConsentGranted) ||
+        (!resetPassword &&
+            (consentVersion == null || consentVersion.isEmpty))) {
+      return false;
+    }
+    return _guard(() async {
+      _accountTransitioning = true;
+      try {
+        await _drainCloudSync();
+        session = await (_api as GlobalAccountApi).completeVerification(
+          challengeId: challenge.id,
+          code: code.trim(),
+          password: password,
+          resetPassword: resetPassword,
+          locale: locale,
+          consentVersion: consentVersion,
+        );
+        await _prepareAuthenticatedNotificationSession(
+          privacyConsentGranted: privacyConsentGranted,
+        );
+        isPreviewMode = false;
+        await refreshMemberProfile();
+        await refreshActivityGoals();
+        await refreshCare();
+        await refreshCareInvitations();
+        await _refreshRemoteNotificationUnreadCount();
+        _careInvitationPollBackoffIndex = 0;
+        _scheduleCareInvitationPoll(const Duration(seconds: 30));
+      } finally {
+        await _finishAccountTransition();
+      }
+    });
+  }
+
   final HealthStore _healthStore;
   final WearableBridge _wearable;
   final AppPaymentBridge _paymentBridge;
@@ -357,6 +456,10 @@ class AppController extends ChangeNotifier {
     careMembers = const [];
     careInvitations = const [];
     memberProfile = const {};
+    aiMessages = const [];
+    _aiSessionIds.clear();
+    orders = const [];
+    addresses = const [];
     notifications = const [];
     remoteNotificationUnreadCount = null;
     cloudSyncStatus = session == null ? '未登录，数据仅保存在本机' : '尚未上传';
@@ -521,7 +624,7 @@ class AppController extends ChangeNotifier {
             .readLegacyHealthMigrationHandled();
         if (!migrationHandled) {
           final persistedSession = session;
-          if (persistedSession != null) {
+          if (persistedSession != null && !isGlobalEdition) {
             // v5 and earlier had no account column. Only the account already
             // persisted when this migration is first observed may adopt those
             // records; a later login never inherits another user's history.
@@ -3606,7 +3709,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> refreshAiMessages({required int app}) async {
+    final generation = _sessionGeneration;
+    final owner = session;
     await Future<void>.delayed(Duration.zero);
+    if (!_isCurrentSessionGeneration(generation) || _accountTransitioning) {
+      return;
+    }
     if (session == null) {
       aiMessages = const [];
       errorMessage = '请先登录后使用 AI 管家';
@@ -3616,6 +3724,7 @@ class AppController extends ChangeNotifier {
     errorMessage = null;
     try {
       final messages = await _api.getAiMessages(app: app);
+      if (!_isCurrentAccountRequest(generation, owner)) return;
       if (messages.isNotEmpty) {
         final sessionId = '${messages.first['session_id'] ?? ''}';
         if (sessionId.isNotEmpty) _aiSessionIds[app] = sessionId;
@@ -3636,6 +3745,7 @@ class AppController extends ChangeNotifier {
           )
           .toList(growable: false);
     } on ApiException catch (error) {
+      if (!_isCurrentAccountRequest(generation, owner)) return;
       errorMessage = _apiErrorMessage(error, fallback: '暂时无法开始对话');
     }
     notifyListeners();
@@ -3646,7 +3756,9 @@ class AppController extends ChangeNotifier {
     required String message,
   }) async {
     final normalized = message.trim();
-    if (normalized.isEmpty) return false;
+    if (normalized.isEmpty || _accountTransitioning || isBusy) return false;
+    final generation = _sessionGeneration;
+    final owner = session;
     if (session == null) {
       errorMessage = '请先登录后使用 AI 管家';
       notifyListeners();
@@ -3664,11 +3776,13 @@ class AppController extends ChangeNotifier {
         message: normalized,
         sessionId: _aiSessionIds[app],
       );
+      if (!_isCurrentAccountRequest(generation, owner)) return false;
       aiMessages = [...aiMessages, reply];
       final sessionValue = reply['session_id']?.toString();
       if (sessionValue?.isNotEmpty ?? false) _aiSessionIds[app] = sessionValue!;
       return true;
     } on ApiException catch (error) {
+      if (!_isCurrentAccountRequest(generation, owner)) return false;
       errorMessage = _apiErrorMessage(error, fallback: '消息发送失败，请稍后重试');
       aiMessages = [
         ...aiMessages.take(aiMessages.length - 1),
@@ -3676,13 +3790,27 @@ class AppController extends ChangeNotifier {
       ];
       return false;
     } finally {
-      isBusy = false;
-      notifyListeners();
+      if (_isCurrentAccountRequest(generation, owner)) {
+        isBusy = false;
+        notifyListeners();
+      }
     }
   }
 
+  bool _isCurrentAccountRequest(int generation, Session? owner) =>
+      _isCurrentSessionGeneration(generation) &&
+      !_accountTransitioning &&
+      owner != null &&
+      session != null &&
+      _healthOwnerFor(owner) == _healthOwnerFor(session);
+
   Future<void> loadOrders(int? status) async {
+    final generation = _sessionGeneration;
+    final owner = session;
     await Future<void>.delayed(Duration.zero);
+    if (!_isCurrentSessionGeneration(generation) || _accountTransitioning) {
+      return;
+    }
     if (session == null) {
       orders = const [];
       orderStatus = '请先登录';
@@ -3692,9 +3820,12 @@ class AppController extends ChangeNotifier {
     orderStatus = '正在加载';
     notifyListeners();
     try {
-      orders = await _api.getOrders(status: status);
+      final loaded = await _api.getOrders(status: status);
+      if (!_isCurrentAccountRequest(generation, owner)) return;
+      orders = loaded;
       orderStatus = orders.isEmpty ? '暂无订单' : '已加载';
     } on ApiException catch (error) {
+      if (!_isCurrentAccountRequest(generation, owner)) return;
       orderStatus = _apiErrorMessage(error, fallback: '订单暂时无法加载');
     }
     notifyListeners();
@@ -3868,11 +3999,20 @@ class AppController extends ChangeNotifier {
     );
   }
 
-  Future<void> setHealthAnalysisConsent(bool granted) async {
+  Future<void> setHealthAnalysisConsent(bool granted, {String? version}) async {
     if (session == null) throw const ApiException('请先登录后管理健康分析授权');
+    if (isGlobalEdition &&
+        granted &&
+        (version == null || version.trim().isEmpty)) {
+      throw const FeatureNotConfiguredException(
+        'Health analysis is not available yet.',
+      );
+    }
     await _requiredHealthReportApi.setHealthAnalysisConsent(
       granted: granted,
-      version: 'health-ai-analysis-v1',
+      version: isGlobalEdition
+          ? (granted ? version! : '')
+          : 'health-ai-analysis-v1',
     );
   }
 
@@ -4374,11 +4514,13 @@ class AppController extends ChangeNotifier {
   Future<bool> _guard(Future<void> Function() operation) async {
     isBusy = true;
     errorMessage = null;
+    lastApiError = null;
     notifyListeners();
     try {
       await operation();
       return true;
     } on ApiException catch (error) {
+      lastApiError = error;
       errorMessage = _apiErrorMessage(error, fallback: '操作失败，请稍后重试');
       return false;
     } catch (_) {

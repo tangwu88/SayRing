@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Saydian赛电</string>
+	<string>Saydian</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Saydian赛电</string>
+	<string>Saydian</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -30,7 +30,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>cc.saidian.payment.wechat</string>
+			<string>cn.saydian.app.global.payment.wechat</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>$(SAIDIAN_WECHAT_APP_ID)</string>
@@ -40,7 +40,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>cc.saidian.payment.alipay</string>
+			<string>cn.saydian.app.global.payment.alipay</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>$(SAIDIAN_ALIPAY_URL_SCHEME)</string>
@@ -57,19 +57,19 @@
 		<string>alipayshare</string>
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>用于连接赛电智能手表并同步您主动授权的健康数据。</string>
+	<string>Connect to your watch and sync health data you choose to share.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>用于连接赛电智能手表并同步您主动授权的健康数据。</string>
+	<string>Connect to your watch and sync health data you choose to share.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>用于拍摄和设置手表照片表盘。</string>
+	<string>Take photos and set photo watch faces.</string>
 	<key>NSContactsUsageDescription</key>
-	<string>用于在您授权后将选定联系人同步到手表。</string>
+	<string>Sync only the contacts you select to your watch.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>用于获取所在城市并将天气同步到手表。</string>
+	<string>Use your city to sync local weather to your watch.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>用于选择并设置手表照片表盘。</string>
+	<string>Choose photos for your watch face.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>用于将相机遥控拍摄的照片保存到手机相册。</string>
+	<string>Save photos taken with the camera remote.</string>
 	<key>SaidianAlipayUrlScheme</key>
 	<string>$(SAIDIAN_ALIPAY_URL_SCHEME)</string>
 	<key>SaidianWechatAppId</key>

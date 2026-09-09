@@ -2,14 +2,22 @@ import { http } from '@kit.NetworkKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { deviceInfo } from '@kit.BasicServicesKit';
-import { API_BASE, ApiError, Envelope, Session, FormField, UploadFile, decodeEnvelope, buildMultipart } from '../model/Contracts';
+import { ApiError, Envelope, Session, FormField, UploadFile, decodeEnvelope, buildMultipart } from '../model/Contracts';
 import { AccountClient, ApiTransport } from './AccountClient';
 import { SessionVault } from './SessionVault';
 import { apiReadTimeout } from '../model/RequestPolicy';
+import { internationalUrl } from '../model/GlobalConfiguration';
+import { currentAppLocale } from '../model/GlobalLocale';
 
 interface ImageKind { mime: string; extension: string; }
 
 class NativeHttpTransport implements ApiTransport {
+  async download(path: string, session: Session): Promise<ArrayBuffer> {
+    const legacy = await import('./LegacySafeHttp');
+    return legacy.safeReportPdfHttp(internationalUrl(path), { 'Accept': 'application/pdf',
+      'Accept-Language': currentAppLocale(), 'Authorization': `Bearer ${session.accessToken}` });
+  }
+
   async request(path: string, fields?: FormField[], session?: Session, jsonBody?: string,
     method?: 'GET' | 'POST' | 'PUT' | 'DELETE', readTimeoutMs?: number): Promise<Envelope> {
     // Fixed HTTPS origin; credentials never reach configurable hosts or redirects.
@@ -21,10 +29,9 @@ class NativeHttpTransport implements ApiTransport {
       throw new ApiError('请求格式不正确');
     }
     const client = http.createHttp();
-    const headers: Record<string, string> = { 'Accept': 'application/json' };
+    const headers: Record<string, string> = { 'Accept': 'application/json', 'Accept-Language': currentAppLocale() };
     if (session) {
       headers['Authorization'] = `Bearer ${session.accessToken}`;
-      headers['token'] = session.accessToken;
     }
     const boundary = `----SaydianHarmony${Date.now()}${Math.floor(Math.random() * 1000000)}`;
     if (fields) headers['Content-Type'] = `multipart/form-data; boundary=${boundary}`;
@@ -32,11 +39,11 @@ class NativeHttpTransport implements ApiTransport {
     try {
       if (deviceInfo.sdkApiVersion < 23) {
         const legacy = await import('./LegacySafeHttp');
-        const response = await legacy.legacySafeHttp(`${API_BASE}${path}`, requestMethod, headers,
+        const response = await legacy.legacySafeHttp(internationalUrl(path), requestMethod, headers,
           fields ? buildMultipart(fields, boundary) : jsonBody ?? '', timeoutMs);
         return decodeEnvelope(response.result, response.responseCode);
       }
-      const response = await client.request(`${API_BASE}${path}`, {
+      const response = await client.request(internationalUrl(path), {
         method: requestMethod === 'DELETE' ? http.RequestMethod.DELETE :
           requestMethod === 'PUT' ? http.RequestMethod.PUT :
           requestMethod === 'POST' ? http.RequestMethod.POST : http.RequestMethod.GET,
@@ -91,16 +98,16 @@ class NativeHttpTransport implements ApiTransport {
     try {
       if (deviceInfo.sdkApiVersion < 23) {
         const legacy = await import('./LegacySafeHttp');
-        const response = await legacy.legacySafeHttp(`${API_BASE}${path}`, 'POST', {
-          'Accept': 'application/json', 'Authorization': `Bearer ${session.accessToken}`,
-          'token': session.accessToken, 'Content-Type': `multipart/form-data; boundary=${boundary}`
+        const response = await legacy.legacySafeHttp(internationalUrl(path), 'POST', {
+          'Accept': 'application/json', 'Accept-Language': currentAppLocale(), 'Authorization': `Bearer ${session.accessToken}`,
+          'Content-Type': `multipart/form-data; boundary=${boundary}`
         }, body.buffer, 30000);
         return decodeEnvelope(response.result, response.responseCode);
       }
-      const response = await client.request(`${API_BASE}${path}`, {
+      const response = await client.request(internationalUrl(path), {
         method: http.RequestMethod.POST,
-        header: { 'Accept': 'application/json', 'Authorization': `Bearer ${session.accessToken}`,
-          'token': session.accessToken, 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        header: { 'Accept': 'application/json', 'Accept-Language': currentAppLocale(), 'Authorization': `Bearer ${session.accessToken}`,
+          'Content-Type': `multipart/form-data; boundary=${boundary}` },
         extraData: body.buffer,
         expectDataType: http.HttpDataType.STRING,
         connectTimeout: 15000,
@@ -134,4 +141,4 @@ class NativeHttpTransport implements ApiTransport {
   }
 }
 
-export const saydianApi: AccountClient = new AccountClient(new NativeHttpTransport(), new SessionVault());
+export const saydianApi: AccountClient = new AccountClient(new NativeHttpTransport(), new SessionVault(), () => Date.now(), true);

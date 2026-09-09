@@ -11,7 +11,7 @@ const now = Date.UTC(2026, 8, 4, 8);
 const fixture = () => ({ code: 200, data: { access_token: 'synthetic-test-token', refresh_token: 'synthetic-refresh',
   expiration_time: 3600, member: { id: 'fixture-only', nickname: '测试夹具' } } });
 
-test('production endpoint is fixed HTTPS', () => assert.equal(API_BASE, 'https://app.saidian.cc'));
+test('production endpoint is fixed HTTPS', () => assert.equal(API_BASE, 'https://app.saydian.cn'));
 test('consent starts required before authentication', () => assert.match(loginValidation('fixture', 'x', false), /同意/));
 test('both button and keyboard must wait for session restoration and pending login', () => {
   assert.equal(canSubmitLogin(false, false), true);
@@ -121,7 +121,7 @@ test('multipart names and boundary cannot inject headers', () => {
   assert.throws(() => buildMultipart([], 'bad\r\nBoundary'));
 });
 test('profile image upload accepts only a bounded HTTPS or same-origin path', () => {
-  assert.equal(profileImageUrl({ path: '/attachment/avatar/test.png' }), 'https://app.saidian.cc/attachment/avatar/test.png');
+  assert.equal(profileImageUrl({ path: '/attachment/avatar/test.png' }), 'https://app.saydian.cn/attachment/avatar/test.png');
   assert.equal(profileImageUrl({ url: 'https://cdn.example.invalid/avatar/a.webp' }), 'https://cdn.example.invalid/avatar/a.webp');
   for (const data of [{}, { url: 'http://example.invalid/a.png' }, { path: '/../secret' }, { url: 'javascript:bad' }]) {
     assert.throws(() => profileImageUrl(data), /头像/);

@@ -1,3 +1,4 @@
+import '../l10n/global_locale_controller.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -216,16 +217,16 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('使用这个表盘？'),
-        content: const Text('下载后会传送到手表。传送期间请保持手表靠近手机，不要离开当前页面。'),
+        title: Text(context.l10n.useWatchFace),
+        content: Text(context.l10n.watchFaceDownloadHint),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('下载并使用'),
+            child: Text(context.l10n.downloadAndUse),
           ),
         ],
       ),
@@ -344,7 +345,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('表盘商城')),
+      appBar: AppBar(title: Text(context.l10n.watchFaceShop)),
       body: RefreshIndicator(
         onRefresh: () => _load(reset: true),
         child: CustomScrollView(
@@ -412,8 +413,8 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text(
-                                  '表盘未设置成功',
+                                Text(
+                                  context.l10n.watchFaceFailed,
                                   style: TextStyle(fontWeight: FontWeight.w800),
                                 ),
                                 const SizedBox(height: 4),
@@ -426,7 +427,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
                               onPressed: _installing == null
                                   ? () => _install(failed)
                                   : null,
-                              child: const Text('重试'),
+                              child: Text(context.l10n.retry),
                             ),
                         ],
                       ),
@@ -452,7 +453,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
                         const SizedBox(height: 14),
                         FilledButton(
                           onPressed: _loading ? null : () => _load(reset: true),
-                          child: const Text('重新加载'),
+                          child: Text(context.l10n.reload),
                         ),
                       ],
                     ),
@@ -525,8 +526,8 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
                                       style: const TextStyle(fontSize: 13),
                                     ),
                                   ] else
-                                    const Text(
-                                      '点击下载并使用',
+                                    Text(
+                                      context.l10n.downloadUseWatchFace,
                                       style: TextStyle(
                                         color: SaydianColors.brandRed,
                                         fontSize: 13,

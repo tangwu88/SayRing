@@ -26,6 +26,13 @@ import type { ProductDetail, ShopLine, ShopSelection, CheckoutPreview, OrderDeta
 import type { HealthOwnerSession, HealthUploadRequest } from '../model/HealthUpload';
 import { assertHealthUploadAccepted, sameHealthSession } from '../model/HealthUpload';
 import { AI_API_READ_TIMEOUT_MS } from '../model/RequestPolicy';
+import { globalApiPath } from '../model/GlobalConfiguration';
+import { normalizeIdentifier, parseAuthCapabilities, parseVerificationChallenge, parseGlobalSession,
+  globalRegistrationValidation, parseGlobalProfile, validGlobalPassword } from '../model/GlobalAuth';
+import type { AuthChannel, GlobalAuthCapabilities, VerificationChallenge, VerificationPurpose } from '../model/GlobalAuth';
+import { globalReportId, parseGlobalHealthReport, parseGlobalHealthReports, parseGlobalReportContent,
+  parseReportProfile, parseReportEligibility, reportGenerationBlock, validateReportPdf } from '../model/GlobalHealthReports';
+import type { GlobalHealthReport, GlobalReportProfile, GlobalReportEligibility, GlobalAnalysisDocument } from '../model/GlobalHealthReports';
 
 export interface SessionStore {
   read(): Promise<Session | undefined>;
@@ -36,6 +43,7 @@ export interface ApiTransport {
   request(path: string, fields?: FormField[], session?: Session, jsonBody?: string,
     method?: 'GET' | 'POST' | 'PUT' | 'DELETE', readTimeoutMs?: number): Promise<Envelope>;
   upload?(path: string, file: UploadFile, session: Session): Promise<Envelope>;
+  download?(path: string, session: Session): Promise<ArrayBuffer>;
 }
 
 // This is the production coordinator, also exercised by host tests with synthetic stores/transports.
@@ -43,6 +51,8 @@ export class AccountClient {
   private vault: SessionStore;
   private transport: ApiTransport;
   private now: () => number;
+  private globalAuth: boolean;
+  private verification: Map<string, VerificationChallenge> = new Map();
   private session: Session | undefined = undefined;
   private generation: number = 0;
   private blockRestore: boolean = false;
@@ -52,15 +62,17 @@ export class AccountClient {
   private careMemberReadGeneration: number = 0;
   private shareSnapshots: Map<number, CareShareSettings> = new Map();
   private shopWriteBusy: boolean = false;
+  private reportWriteBusy: boolean = false;
   private healthSessionListener: ((session: HealthOwnerSession) => void) | undefined = undefined;
   private sessionListeners: Set<(session: HealthOwnerSession) => void> = new Set();
 
   private clearCare(): void { ++this.careMemberReadGeneration; this.careTargets.clear(); this.shareSnapshots.clear(); }
 
-  constructor(transport: ApiTransport, vault: SessionStore, now: () => number = () => Date.now()) {
+  constructor(transport: ApiTransport, vault: SessionStore, now: () => number = () => Date.now(), globalAuth: boolean = false) {
     this.transport = transport;
     this.vault = vault;
     this.now = now;
+    this.globalAuth = globalAuth;
   }
 
   current(): Session | undefined { return this.session ? validateStoredSession(this.session) : undefined; }
@@ -78,6 +90,9 @@ export class AccountClient {
     this.sessionListeners.forEach((listener) => { try { listener(this.healthSession()); } catch {} });
   }
   async uploadHealthRequest(request: HealthUploadRequest, session: HealthOwnerSession): Promise<void> {
+    // The imported uploader groups V1 minute rows. Global V2 needs lossless per-record UUID mapping.
+    // Reject before transport/acknowledgement so the coordinator retains each local record as pending.
+    if (this.globalAuth) throw new ApiError('serviceUnavailable', 503);
     if (!sameHealthSession(session, this.healthSession())) throw new ApiError('账号已变化，已暂停上传');
     if (!['/api/v1/member/daily-date', '/api/v1/member/jrjk', '/api/v1/member/e-c-g',
       '/api/v1/member/bodycomposition', '/api/v1/member/bloodcomposition'].includes(request.path)) {
@@ -138,7 +153,7 @@ export class AccountClient {
     this.notifyHealthSession();
   }
 
-  private async authenticate(path: string, fields: FormField[]): Promise<Session> {
+  private async authenticate(path: string, fields?: FormField[], jsonBody?: string): Promise<Session> {
     const epoch = ++this.generation;
     this.session = undefined;
     this.notifyHealthSession();
@@ -148,14 +163,21 @@ export class AccountClient {
     // An unsuccessful account change must never restore the previous account.
     await this.clearVault();
     this.assertEpoch(epoch);
-    const payload = await this.transport.request(path, fields);
-    const session = parseSession(payload, this.now());
+    const payload = await this.transport.request(path, fields, undefined, jsonBody);
+    const session = this.globalAuth ? parseGlobalSession(payload, this.now()) : parseSession(payload, this.now());
     await this.persist(session, epoch);
     this.blockRestore = false;
     return validateStoredSession(session);
   }
 
   async login(account: string, password: string): Promise<Session> {
+    if (this.globalAuth) {
+      const channel: AuthChannel = account.includes('@') ? 'email' : 'sms';
+      const identifier = normalizeIdentifier(channel, account);
+      if (!validGlobalPassword(password)) throw new ApiError('password_length', 422);
+      return this.authenticate(globalApiPath('/auth/login'), undefined,
+        JSON.stringify({ channel, identifier, password }));
+    }
     const validation = loginValidation(account, password, true);
     if (validation) throw new ApiError(validation);
     return await this.authenticate('/api/v1/site/login', [
@@ -164,7 +186,176 @@ export class AccountClient {
     ]);
   }
 
+  async authCapabilities(locale: string = 'en'): Promise<GlobalAuthCapabilities> {
+    return parseAuthCapabilities((await this.transport.request(globalApiPath(`/auth/capabilities?locale=${encodeURIComponent(locale)}`))).data);
+  }
+
+  async healthReports(): Promise<GlobalHealthReport[]> {
+    return parseGlobalHealthReports((await this.authorized(globalApiPath('/health/reports'))).data);
+  }
+
+  async healthReportContent(id: string): Promise<string[]> {
+    return parseGlobalReportContent((await this.authorized(globalApiPath(`/health/reports/${globalReportId(id)}/full`))).data, id);
+  }
+
+  async reportProfile(): Promise<GlobalReportProfile> {
+    const epoch = this.generation, owner = this.current()?.memberId ?? '';
+    const response = await this.authorized(globalApiPath('/health/profile'));
+    this.assertEpoch(epoch);
+    return parseReportProfile(response.data, owner);
+  }
+
+  async reportEligibility(): Promise<GlobalReportEligibility> {
+    return parseReportEligibility((await this.authorized(globalApiPath('/health/reports/eligibility'))).data);
+  }
+
+  async analysisNotice(document: GlobalAnalysisDocument): Promise<Article> {
+    const epoch = this.generation, profile = await this.reportProfile();
+    this.assertEpoch(epoch);
+    if (!profile.document || document.version !== profile.document.version || document.path !== profile.document.path ||
+      document.locale !== profile.document.locale) throw new ApiError('reports_consent_required', 409);
+    const response = await this.authorized(document.path);
+    this.assertEpoch(epoch);
+    const data = response.data as Record<string, Object>;
+    if (!data || data['version'] !== document.version || typeof data['contentHtml'] !== 'string' ||
+      !String(data['contentHtml']).trim()) throw new ApiError('legal_unavailable', 503);
+    return { title: typeof data['title'] === 'string' ? String(data['title']) : '', content: String(data['contentHtml']) };
+  }
+
+  async setReportConsent(granted: boolean, document?: GlobalAnalysisDocument): Promise<void> {
+    if (this.reportWriteBusy) throw new ApiError('reports_pending');
+    this.reportWriteBusy = true;
+    const epoch = this.generation;
+    try {
+      if (granted) {
+        const profile = await this.reportProfile();
+        this.assertEpoch(epoch);
+        if (!document || !profile.document || document.version !== profile.availableVersion ||
+          document.path !== profile.document.path || document.locale !== profile.document.locale) throw new ApiError('reports_consent_required', 409);
+      }
+      await this.authorized(globalApiPath('/health/profile/analysis-consent'), JSON.stringify({ granted,
+        version: granted ? document!.version : '', locale: granted ? document!.locale : 'en' }));
+      this.assertEpoch(epoch);
+    } finally { this.reportWriteBusy = false; }
+  }
+
+  async generateHealthReport(retryId: string = ''): Promise<GlobalHealthReport> {
+    if (retryId) globalReportId(retryId);
+    if (this.reportWriteBusy) throw new ApiError('reports_pending');
+    this.reportWriteBusy = true;
+    const epoch = this.generation;
+    try {
+      const profile = await this.reportProfile(), eligibility = await this.reportEligibility();
+      this.assertEpoch(epoch);
+      const blocked = reportGenerationBlock(profile, eligibility, !!retryId);
+      if (blocked) throw new ApiError(blocked, 409);
+      if (retryId) {
+        const current = parseGlobalHealthReport((await this.authorized(globalApiPath(`/health/reports/${retryId}`))).data);
+        this.assertEpoch(epoch);
+        if (current.id !== retryId || current.status !== 'failed') throw new ApiError('reports_pending', 409);
+      }
+      const report = parseGlobalHealthReport((await this.authorized(globalApiPath(retryId ?
+        `/health/reports/${retryId}/retry` : '/health/reports'), '{}')).data);
+      this.assertEpoch(epoch);
+      if (retryId && report.id !== retryId) throw new ApiError('serviceUnavailable');
+      // An entitlement can change between eligibility and creation. Never initiate payment here.
+      if (report.status === 'awaiting_payment') throw new ApiError('reports_payment_unavailable', 409);
+      return report;
+    } finally { this.reportWriteBusy = false; }
+  }
+
+  async exportHealthReport(id: string): Promise<ArrayBuffer> {
+    const path = globalApiPath(`/health/reports/${globalReportId(id)}/export`), epoch = this.generation;
+    if (!this.transport.download) throw new ApiError('reports_export_failed', 503);
+    try {
+      let session = await this.ensureSession();
+      this.assertEpoch(epoch);
+      let bytes: ArrayBuffer;
+      try { bytes = await this.transport.download(path, session); }
+      catch (error) {
+        this.assertEpoch(epoch);
+        if (!(error instanceof ApiError) || error.status !== 401) throw error as Error;
+        session = await this.ensureSession(session.accessToken);
+        this.assertEpoch(epoch);
+        bytes = await this.transport.download(path, session);
+      }
+      this.assertEpoch(epoch);
+      return validateReportPdf(bytes);
+    } catch (error) {
+      this.assertEpoch(epoch);
+      if (error instanceof ApiError && error.status === 401) await this.invalidate(epoch);
+      throw error as Error;
+    }
+  }
+
+  async globalLegal(privacy: boolean, locale: string = 'en'): Promise<Article> {
+    const capabilities = await this.authCapabilities(locale);
+    const document = privacy ? capabilities.legal?.privacyPolicy : capabilities.legal?.userAgreement;
+    if (!document || document.version !== capabilities.consentVersion ||
+      !/^\/api\/saydian-app\/v2\/content\/legal\/(user_agreement|privacy_policy)\?/.test(document.path) ||
+      document.path.includes('..') || document.path.includes('://')) throw new ApiError('legal_unavailable', 503);
+    const response = await this.transport.request(document.path);
+    const data = response.data as Record<string, Object>;
+    if (!data || typeof data['contentHtml'] !== 'string' || !String(data['contentHtml']).trim() ||
+      data['version'] !== document.version) throw new ApiError('legal_unavailable', 503);
+    return { title: String(data['title'] ?? ''), content: String(data['contentHtml']) };
+  }
+
+  async sendVerificationCode(channel: AuthChannel, rawIdentifier: string, purpose: VerificationPurpose,
+    locale: string = 'en', country: string = ''): Promise<VerificationChallenge> {
+    const identifier = normalizeIdentifier(channel, rawIdentifier);
+    const capabilities = await this.authCapabilities(locale);
+    if (!(purpose === 'reset_password' ? capabilities.recovery[channel] : capabilities.registration[channel])) {
+      throw new ApiError('channel_unavailable', 503);
+    }
+    if (channel === 'sms' && (!country || !capabilities.smsCountries.includes(country))) {
+      throw new ApiError('country_unavailable', 422);
+    }
+    const response = await this.transport.request(globalApiPath('/auth/verification-code'), undefined,
+      undefined, JSON.stringify({ channel, identifier, purpose, locale }));
+    const challenge = parseVerificationChallenge(response.data);
+    this.verification.set(`${purpose}:${channel}:${identifier}`, challenge);
+    return challenge;
+  }
+
+  async registerGlobal(channel: AuthChannel, rawIdentifier: string, code: string, password: string,
+    confirmation: string, accepted: boolean, locale: string = 'en', consentVersion: string = ''): Promise<Session> {
+    const validation = globalRegistrationValidation(rawIdentifier, channel, code, password, confirmation, accepted);
+    if (validation) throw new ApiError(validation, 422);
+    const identifier = normalizeIdentifier(channel, rawIdentifier);
+    const key = `register:${channel}:${identifier}`;
+    const challenge = this.verification.get(key);
+    if (!challenge) throw new ApiError('request_code_first', 422);
+    const capabilities = await this.authCapabilities(locale);
+    if (!consentVersion || consentVersion !== capabilities.consentVersion || !capabilities.legal) {
+      throw new ApiError('consent_outdated', 409);
+    }
+    const session = await this.authenticate(globalApiPath('/auth/register-with-code'), undefined,
+      JSON.stringify({ challengeId: challenge.challengeId, code: code.trim(), password,
+        consentVersion, locale }));
+    this.verification.delete(key);
+    return session;
+  }
+
+  async resetGlobalPassword(channel: AuthChannel, rawIdentifier: string, code: string, password: string,
+    confirmation: string): Promise<Session> {
+    const validation = globalRegistrationValidation(rawIdentifier, channel, code, password, confirmation, true);
+    if (validation) throw new ApiError(validation, 422);
+    const key = `reset_password:${channel}:${normalizeIdentifier(channel, rawIdentifier)}`;
+    const challenge = this.verification.get(key);
+    if (!challenge) throw new ApiError('request_code_first', 422);
+    const session = await this.authenticate(globalApiPath('/auth/reset-password'), undefined,
+      JSON.stringify({ challengeId: challenge.challengeId, code: code.trim(), password }));
+    this.verification.delete(key);
+    return session;
+  }
+
   async sendSmsCode(mobile: string, usage: 'register' | 'reset' = 'register'): Promise<void> {
+    if (this.globalAuth) {
+      await this.sendVerificationCode(mobile.includes('@') ? 'email' : 'sms', mobile,
+        usage === 'reset' ? 'reset_password' : 'register');
+      return;
+    }
     const normalized = mobile.trim();
     if (!/^1\d{10}$/.test(normalized)) throw new ApiError('请输入正确的中国大陆手机号');
     await this.transport.request('/api/v1/site/sms-code', [
@@ -174,6 +365,8 @@ export class AccountClient {
 
   async registerWithSms(mobile: string, code: string, password: string,
     confirmation: string, accepted: boolean): Promise<Session> {
+    if (this.globalAuth) return this.registerGlobal(mobile.includes('@') ? 'email' : 'sms', mobile,
+      code, password, confirmation, accepted);
     const validation = registrationValidation(mobile, code, password, confirmation, accepted);
     if (validation) throw new ApiError(validation);
     const normalized = mobile.trim();
@@ -198,6 +391,8 @@ export class AccountClient {
   }
 
   async resetPassword(mobile: string, code: string, password: string, confirmation: string): Promise<Session> {
+    if (this.globalAuth) return this.resetGlobalPassword(mobile.includes('@') ? 'email' : 'sms', mobile,
+      code, password, confirmation);
     const validation = registrationValidation(mobile, code, password, confirmation, true);
     if (validation) throw new ApiError(validation);
     return await this.authenticate('/api/v1/site/up-pwd', [
@@ -263,11 +458,14 @@ export class AccountClient {
   }
 
   private async refresh(previous: Session, epoch: number): Promise<Session> {
-    const payload = await this.transport.request('/api/v1/site/refresh', [
+    const payload = this.globalAuth ? await this.transport.request(globalApiPath('/auth/refresh'),
+      undefined, undefined, JSON.stringify({ refreshToken: previous.refreshToken })) :
+      await this.transport.request('/api/v1/site/refresh', [
       { name: 'refresh_token', value: previous.refreshToken }, { name: 'group', value: 'app' }
     ]);
     this.assertEpoch(epoch);
-    const next = parseSession(payload, this.now(), previous);
+    const next = this.globalAuth ? parseGlobalSession(payload, this.now(), previous) :
+      parseSession(payload, this.now(), previous);
     await this.persist(next, epoch);
     return next;
   }
@@ -332,9 +530,10 @@ export class AccountClient {
 
   async profile(): Promise<MemberProfile> {
     const epoch = this.generation;
-    const response = await this.authorized('/api/v1/member/member/my');
+    const response = await this.authorized(this.globalAuth ? globalApiPath('/members/me') : '/api/v1/member/member/my');
     this.assertEpoch(epoch);
-    try { return parseProfile(response.data, this.session?.memberId ?? ''); }
+    try { return this.globalAuth ? parseGlobalProfile(response.data, this.session?.memberId ?? '') :
+      parseProfile(response.data, this.session?.memberId ?? ''); }
     catch (error) {
       if (error instanceof ApiError && error.status === 401) await this.invalidate(epoch);
       throw error as Error;
@@ -366,7 +565,14 @@ export class AccountClient {
       { name: 'weight', value: String(Number(draft.weight)) }
     ];
     if (headPortrait.trim()) fields.push({ name: 'head_portrait', value: headPortrait.trim() });
-    await this.authorizedFields('/api/v1/member/member/save', fields);
+    if (this.globalAuth) {
+      const body: Record<string, Object> = {
+        nickname: draft.nickname.trim(), gender: draft.gender === 1 ? 'male' : draft.gender === 2 ? 'female' : 'unspecified',
+        birthday: draft.birthday, heightCm: Number(draft.height), weightKg: Number(draft.weight)
+      };
+      if (headPortrait.trim()) body['avatarUrl'] = headPortrait.trim();
+      await this.authorizedRequest(globalApiPath('/members/me'), undefined, JSON.stringify(body), 'PUT');
+    } else { await this.authorizedFields('/api/v1/member/member/save', fields); }
     this.assertEpoch(epoch);
     const profile = await this.profile();
     this.assertEpoch(epoch);

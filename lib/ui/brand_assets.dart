@@ -7,11 +7,31 @@ class SaydianBrandLockup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Image.asset(
-      'assets/branding/saidian-brand-lockup.png',
-      width: width,
-      fit: BoxFit.contain,
-      semanticLabel: '赛电',
+    return Semantics(
+      label: 'Saydian',
+      excludeSemantics: true,
+      child: SizedBox(
+        width: width,
+        child: Row(
+          children: [
+            SaydianBrandMark(size: width * .28),
+            SizedBox(width: width * .06),
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  'Saydian',
+                  style: TextStyle(
+                    fontSize: width * .20,
+                    fontWeight: FontWeight.w800,
+                    color: const Color(0xFFCA0B27),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -28,7 +48,7 @@ class SaydianBrandMark extends StatelessWidget {
       width: size,
       height: size,
       fit: BoxFit.contain,
-      semanticLabel: '赛电',
+      semanticLabel: 'Saydian',
     );
   }
 }

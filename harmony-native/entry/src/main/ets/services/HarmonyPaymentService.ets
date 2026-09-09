@@ -4,8 +4,10 @@ import { ApiError } from '../model/Contracts';
 import { WECHAT_APP_ID } from '../model/WechatAuthContracts';
 import { nativeWechatPayment } from '../model/WechatPaymentContracts';
 import { wechatPayment } from './WechatPaymentService';
+import { GLOBAL_PAYMENTS_ENABLED } from '../model/GlobalConfiguration';
 
 export function canStartHarmonyPayment(provider: PaymentProvider): boolean {
+  if (!GLOBAL_PAYMENTS_ENABLED) return false;
   if (provider === 'alipay') return true;
   return (provider === 'wechat' && wechatPayment.isAvailable()) ||
     canIUse('SystemCapability.Payment.ThirdPaymentService');
@@ -13,6 +15,7 @@ export function canStartHarmonyPayment(provider: PaymentProvider): boolean {
 
 export class HarmonyPaymentService {
   async start(context: common.UIAbilityContext, request: HarmonyPaymentRequest): Promise<void> {
+    if (!GLOBAL_PAYMENTS_ENABLED) throw new ApiError('Payments are not available yet.', 503);
     if (request.provider === 'alipay') {
       const service = await import('./AlipayPaymentService');
       await service.startAlipayPayment(request);

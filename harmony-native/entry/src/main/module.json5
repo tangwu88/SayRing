@@ -10,10 +10,7 @@
     "pages": "$profile:main_pages",
     "querySchemes": ["weixin", "wxopensdk", "https"],
     "srcEntry": "./ets/abilitystage/EntryAbilityStage.ets",
-    "metadata": [{
-      "name": "client_id",
-      "value": "2031340074867668160"
-    }],
+    "metadata": [],
     "requestPermissions": [
       { "name": "ohos.permission.INTERNET" },
       {

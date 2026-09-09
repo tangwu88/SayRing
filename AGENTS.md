@@ -1,5 +1,14 @@
 # AGENTS.md
 
+## International edition boundary
+
+- This independent repository is `tangwu88/saydian-app-global` (Private). `origin` is international; `upstream` is the domestic read-only source. Never push international code to domestic `main` or re-enable domestic release automation.
+- Before changes: inspect branch/status, fetch `origin`, fast-forward only a clean current branch, read `docs/INTERNATIONAL-HANDOFF.md` plus the latest change/test records. Preserve other colleagues' work; checkpoint before safe integration.
+- First-party network and update requests must stay under `https://app.saydian.cn/global`; never fall back to domestic endpoints, copied credentials, database, storage or update packages. Identifiers are opaque strings.
+- Record every implementation/test round in Git, including exact commands, failures, correction, skipped checks and actual build evidence. Never equate a host-side contract test with a real device/SDK/provider acceptance.
+- Registration and health-analysis consent use reviewed, published international documents; do not invent versions. Provider, market and payment availability comes from server configuration, not UI assumptions. No real OTP delivery/payment without an authorized test destination and accepted channel.
+- Existing health values and device algorithms stay unchanged. Unknown values remain unknown; unconfirmed uploads remain pending, not successful.
+
 ## 项目角色
 
 你是本项目的高级全栈工程师，同时负责产品验收和测试。

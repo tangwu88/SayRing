@@ -1,3 +1,7 @@
+import '../l10n/global_locale_controller.dart';
+import '../l10n/ui_labels.dart';
+import 'global_care_page.dart';
+import 'global_auth_page.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -137,7 +141,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('注册')),
+      appBar: AppBar(title: Text(context.l10n.signUp)),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
@@ -148,7 +152,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
               key: const Key('registration-mobile'),
               controller: _mobile,
               keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(labelText: '手机号'),
+              decoration: InputDecoration(labelText: context.l10n.phoneNumber),
             ),
             const SizedBox(height: 12),
             Row(
@@ -160,8 +164,8 @@ class _RegistrationPageState extends State<RegistrationPage> {
                     controller: _code,
                     keyboardType: TextInputType.number,
                     maxLength: 6,
-                    decoration: const InputDecoration(
-                      labelText: '短信验证码',
+                    decoration: InputDecoration(
+                      labelText: context.l10n.smsCode,
                       counterText: '',
                     ),
                   ),
@@ -209,7 +213,9 @@ class _RegistrationPageState extends State<RegistrationPage> {
             TextField(
               controller: _confirmation,
               obscureText: _obscure,
-              decoration: const InputDecoration(labelText: '确认密码'),
+              decoration: InputDecoration(
+                labelText: context.l10n.confirmPassword,
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -239,7 +245,7 @@ class _RegistrationPageState extends State<RegistrationPage> {
                         color: Colors.white,
                       ),
                     )
-                  : const Text('注册'),
+                  : Text(context.l10n.signUp),
             ),
           ],
         ),
@@ -372,7 +378,7 @@ class _PasswordRecoveryPageState extends State<PasswordRecoveryPage> {
             key: const Key('password-recovery-mobile'),
             controller: _mobile,
             keyboardType: TextInputType.phone,
-            decoration: const InputDecoration(labelText: '手机号'),
+            decoration: InputDecoration(labelText: context.l10n.phoneNumber),
           ),
           const SizedBox(height: 12),
           Row(
@@ -384,8 +390,8 @@ class _PasswordRecoveryPageState extends State<PasswordRecoveryPage> {
                   controller: _code,
                   keyboardType: TextInputType.number,
                   maxLength: 6,
-                  decoration: const InputDecoration(
-                    labelText: '短信验证码',
+                  decoration: InputDecoration(
+                    labelText: context.l10n.smsCode,
                     counterText: '',
                   ),
                 ),
@@ -448,7 +454,7 @@ class _PasswordRecoveryPageState extends State<PasswordRecoveryPage> {
           FilledButton(
             key: const Key('password-recovery-submit'),
             onPressed: widget.controller?.isBusy == true ? null : _submit,
-            child: const Text('重置密码'),
+            child: Text(context.l10n.resetPassword),
           ),
         ],
       ),
@@ -582,13 +588,13 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
         .toList();
     final loading = widget.controller.notificationStatus == '正在加载';
     return Scaffold(
-      appBar: AppBar(title: const Text('健康预警')),
+      appBar: AppBar(title: Text(context.l10n.healthAlerts)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const FeatureStateCard(
-            message: '设置健康数据上限提醒',
-            detail: '超过设定值时提醒。',
+          FeatureStateCard(
+            message: context.l10n.setHealthUpperLimits,
+            detail: context.l10n.healthUpperLimitHint,
             icon: Icons.notifications_active_outlined,
             color: SaydianColors.orange,
           ),
@@ -603,14 +609,14 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
                     value: _heartRateEnabled,
                     onChanged: (value) =>
                         setState(() => _heartRateEnabled = value),
-                    title: const Text('心率报警'),
-                    subtitle: const Text('超过设定心率时提示'),
+                    title: Text(context.l10n.heartRateAlertLabel),
+                    subtitle: Text(context.l10n.heartRateAlertHint),
                     secondary: const Icon(Icons.favorite_rounded),
                   ),
                   if (_heartRateEnabled)
                     _WarningThresholdField(
                       key: const Key('warning-heart-rate-threshold'),
-                      label: '心率上限',
+                      label: context.l10n.heartRateUpperLimit,
                       controller: _heartRateUpper,
                       unit: 'bpm',
                     ),
@@ -620,21 +626,21 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
                     value: _bloodPressureEnabled,
                     onChanged: (value) =>
                         setState(() => _bloodPressureEnabled = value),
-                    title: const Text('血压报警'),
-                    subtitle: const Text('收缩压或舒张压超过设定值时提示'),
+                    title: Text(context.l10n.bloodPressureAlertLabel),
+                    subtitle: Text(context.l10n.bloodPressureAlertHint),
                     secondary: const Icon(Icons.bloodtype_outlined),
                   ),
                   if (_bloodPressureEnabled) ...[
                     _WarningThresholdField(
                       key: const Key('warning-systolic-threshold'),
-                      label: '收缩压上限',
+                      label: context.l10n.systolicUpperLimit,
                       controller: _systolicUpper,
                       unit: 'mmHg',
                     ),
                     const SizedBox(height: 10),
                     _WarningThresholdField(
                       key: const Key('warning-diastolic-threshold'),
-                      label: '舒张压上限',
+                      label: context.l10n.diastolicUpperLimit,
                       controller: _diastolicUpper,
                       unit: 'mmHg',
                     ),
@@ -645,14 +651,14 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
                     value: _temperatureEnabled,
                     onChanged: (value) =>
                         setState(() => _temperatureEnabled = value),
-                    title: const Text('体温报警'),
-                    subtitle: const Text('超过设定体温时提示'),
+                    title: Text(context.l10n.temperatureAlertLabel),
+                    subtitle: Text(context.l10n.temperatureAlertHint),
                     secondary: const Icon(Icons.thermostat_rounded),
                   ),
                   if (_temperatureEnabled)
                     _WarningThresholdField(
                       key: const Key('warning-temperature-threshold'),
-                      label: '体温上限',
+                      label: context.l10n.temperatureUpperLimit,
                       controller: _temperatureUpper,
                       unit: '℃',
                       decimal: true,
@@ -664,7 +670,7 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
                       key: const Key('warning-save'),
                       onPressed: _saveSettings,
                       icon: const Icon(Icons.save_outlined),
-                      label: const Text('保存预警设置'),
+                      label: Text(context.l10n.saveHealthAlerts),
                     ),
                   ),
                 ],
@@ -672,8 +678,8 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
             ),
           ),
           const SizedBox(height: 18),
-          const Text(
-            '预警记录',
+          Text(
+            context.l10n.healthAlertHistory,
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 10),
@@ -760,9 +766,9 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
                 ),
               ),
           const SizedBox(height: 14),
-          const FeatureStateCard(
-            message: '如有明显不适，请及时咨询专业医务人员',
-            detail: '手表测量结果用于日常健康管理参考。',
+          FeatureStateCard(
+            message: context.l10n.seekProfessionalCare,
+            detail: context.l10n.watchHealthReference,
             icon: Icons.medical_information_outlined,
           ),
         ],
@@ -1145,7 +1151,9 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(widget.controller.refreshCareInvitations());
+    if (!widget.controller.isGlobalEdition) {
+      unawaited(widget.controller.refreshCareInvitations());
+    }
   }
 
   Future<void> _respond(Map<String, Object?> invite, bool accepted) async {
@@ -1156,6 +1164,9 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.controller.isGlobalEdition) {
+      return GlobalCarePage(controller: widget.controller);
+    }
     return Scaffold(
       appBar: AppBar(title: const Text('关爱邀请')),
       body: ListenableBuilder(
@@ -1375,15 +1386,21 @@ class _HealthCalibrationPageState extends State<HealthCalibrationPage> {
   Widget build(BuildContext context) {
     final isBloodPressure = widget.metric == HealthMetric.bloodPressure;
     return Scaffold(
-      appBar: AppBar(title: Text('${widget.metric.label}校准')),
+      appBar: AppBar(
+        title: Text(
+          context.l10n.metricCalibration(
+            context.l10n.metricName(widget.metric),
+          ),
+        ),
+      ),
       body: Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            const FeatureStateCard(
-              message: '请使用刚刚由专业设备测得的数值',
-              detail: '校准值只适用于当前佩戴者。更换佩戴者后，请关闭或重新校准。',
+            FeatureStateCard(
+              message: context.l10n.calibrationReferenceHint,
+              detail: context.l10n.calibrationWearerHint,
               icon: Icons.verified_user_outlined,
               color: SaydianColors.info,
             ),
@@ -1395,8 +1412,8 @@ class _HealthCalibrationPageState extends State<HealthCalibrationPage> {
                   children: [
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('启用校准'),
-                      subtitle: const Text('关闭后恢复手表公共测量模式'),
+                      title: Text(context.l10n.enableCalibration),
+                      subtitle: Text(context.l10n.calibrationDisabledHint),
                       value: _enabled,
                       onChanged: _saving
                           ? null
@@ -1432,8 +1449,8 @@ class _HealthCalibrationPageState extends State<HealthCalibrationPage> {
                         controller: _secondary,
                         enabled: _enabled && !_saving,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: '舒张压（低压）',
+                        decoration: InputDecoration(
+                          labelText: context.l10n.diastolicLowerLabel,
                           suffixText: 'mmHg',
                         ),
                         validator: (value) {
@@ -1494,7 +1511,11 @@ class HealthRecordDetailPage extends StatelessWidget {
         '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
     final values = <MapEntry<String, num>>[...record.values.entries];
     return Scaffold(
-      appBar: AppBar(title: Text('${record.metric.label}详情')),
+      appBar: AppBar(
+        title: Text(
+          context.l10n.metricDetails(context.l10n.metricName(record.metric)),
+        ),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -1576,9 +1597,9 @@ class HealthRecordDetailPage extends StatelessWidget {
             },
           ),
           const SizedBox(height: 12),
-          const FeatureStateCard(
-            message: '查看长期趋势更有参考价值',
-            detail: '单次测量可能受佩戴方式、运动和环境影响；如有不适，请咨询专业医务人员。',
+          FeatureStateCard(
+            message: context.l10n.longTermTrendHint,
+            detail: context.l10n.measurementVariationHint,
             icon: Icons.health_and_safety_outlined,
             color: SaydianColors.green,
           ),
@@ -1612,7 +1633,7 @@ class _EcgRecordDetailPageState extends State<_EcgRecordDetailPage> {
   Widget build(BuildContext context) {
     final record = widget.record;
     return Scaffold(
-      appBar: AppBar(title: const Text('心电详情')),
+      appBar: AppBar(title: Text(context.l10n.ecgDetailTitle)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -1655,12 +1676,12 @@ class _EcgRecordDetailPageState extends State<_EcgRecordDetailPage> {
               ),
             ),
             icon: const Icon(Icons.description_outlined),
-            label: const Text('查看完整报告'),
+            label: Text(context.l10n.viewFullReport),
           ),
           const SizedBox(height: 12),
-          const FeatureStateCard(
-            message: '心电结果仅供健康管理参考',
-            detail: '单次测量会受到佩戴、运动和环境影响，不能代替医疗诊断。如有不适，请及时就医。',
+          FeatureStateCard(
+            message: context.l10n.ecgReferenceHint,
+            detail: context.l10n.ecgVariationSafety,
             icon: Icons.info_outline_rounded,
             color: SaydianColors.brandRed,
           ),
@@ -1817,8 +1838,8 @@ class _EcgMedicalSection extends StatelessWidget {
         .where((item) => record.values[item.$1] != null)
         .toList(growable: false);
     if (values.isEmpty) {
-      return const FeatureStateCard(
-        message: '本次仅返回基础心电数据',
+      return FeatureStateCard(
+        message: context.l10n.ecgBasicOnly,
         icon: Icons.monitor_heart_outlined,
       );
     }
@@ -1828,8 +1849,8 @@ class _EcgMedicalSection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '测量指标',
+            Text(
+              context.l10n.measurementIndicators,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 12),
@@ -1907,8 +1928,8 @@ class _EcgRiskSection extends StatelessWidget {
         (record.values['riskAnalysisAvailable'] ?? 0) > 0 ||
         values.any((item) => (record.values[item.$1] ?? 0) > 0);
     if (!hasAnalysis) {
-      return const FeatureStateCard(
-        message: '本次手表未返回风险指标',
+      return FeatureStateCard(
+        message: context.l10n.riskIndicatorsMissing,
         icon: Icons.health_and_safety_outlined,
       );
     }
@@ -1929,13 +1950,13 @@ class _EcgRiskSection extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '风险分析',
+            Text(
+              context.l10n.riskAnalysisTitle,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 6),
-            const Text(
-              '以下数值来自手表算法，仅作健康趋势参考。',
+            Text(
+              context.l10n.watchAlgorithmReference,
               style: TextStyle(color: SaydianColors.muted, height: 1.45),
             ),
             const SizedBox(height: 12),
@@ -2159,7 +2180,7 @@ class _EcgFullReportPageState extends State<_EcgFullReportPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('心电健康报告')),
+      appBar: AppBar(title: Text(context.l10n.ecgHealthReport)),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: RepaintBoundary(
@@ -2171,8 +2192,8 @@ class _EcgFullReportPageState extends State<_EcgFullReportPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text(
-                    '赛电 · 心电健康报告',
+                  Text(
+                    context.l10n.brandedEcgReport,
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
                   ),
@@ -2190,8 +2211,8 @@ class _EcgFullReportPageState extends State<_EcgFullReportPage> {
                   const SizedBox(height: 12),
                   _EcgRiskSection(record: widget.record),
                   const SizedBox(height: 12),
-                  const Text(
-                    '说明：本报告由手表测量数据生成，仅供健康管理参考，不能替代医生诊断。',
+                  Text(
+                    context.l10n.ecgReportSafety,
                     textAlign: TextAlign.center,
                     style: TextStyle(color: SaydianColors.muted, height: 1.5),
                   ),
@@ -2749,7 +2770,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           widget.feature,
         );
         return Scaffold(
-          appBar: AppBar(title: Text(widget.feature.label)),
+          appBar: AppBar(
+            title: Text(context.l10n.deviceFeatureName(widget.feature)),
+          ),
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
@@ -2847,8 +2870,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 color: SaydianColors.brandRed,
                 size: 34,
               ),
-              title: const Text(
-                '表盘商城',
+              title: Text(
+                context.l10n.watchFaceShop,
                 style: TextStyle(fontWeight: FontWeight.w800),
               ),
               trailing: const Icon(Icons.chevron_right_rounded),
@@ -2862,8 +2885,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           Card(
             child: ListTile(
               leading: const Icon(Icons.info_outline_rounded),
-              title: const Text('已安装表盘'),
-              subtitle: const Text('可切换手表内已有表盘'),
+              title: Text(context.l10n.installedWatchFaces),
+              subtitle: Text(context.l10n.switchInstalledWatchFace),
             ),
           ),
           const SizedBox(height: 12),
@@ -2912,7 +2935,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                                   onPressed: busy
                                       ? null
                                       : () => _switchWatchFace(faces[index]),
-                                  child: const Text('使用'),
+                                  child: Text(
+                                    context.l10n.useSelectedWatchFace,
+                                  ),
                                 ),
                         ),
                         if (index != faces.length - 1)
@@ -2928,7 +2953,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             child: OutlinedButton.icon(
               onPressed: busy ? null : _loadFeature,
               icon: const Icon(Icons.refresh_rounded),
-              label: const Text('刷新手表表盘'),
+              label: Text(context.l10n.refreshWatchFaces),
             ),
           ),
         ],
@@ -3028,16 +3053,16 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            '照片表盘',
+                          Text(
+                            context.l10n.photoWatchFace,
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w900,
                             ),
                           ),
                           const SizedBox(height: 8),
-                          const Text(
-                            '选择一张清晰照片，预览无误后再传送到手表。',
+                          Text(
+                            context.l10n.photoWatchFaceHint,
                             style: TextStyle(
                               color: SaydianColors.muted,
                               height: 1.5,
@@ -3069,8 +3094,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 const SizedBox(height: 16),
                 DropdownButtonFormField<int>(
                   initialValue: _dialTimePosition,
-                  decoration: const InputDecoration(
-                    labelText: '时间显示位置',
+                  decoration: InputDecoration(
+                    labelText: context.l10n.timeDisplayPosition,
                     prefixIcon: Icon(Icons.schedule_outlined),
                   ),
                   items: const [
@@ -3095,7 +3120,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                         ? null
                         : _uploadDialPhoto,
                     icon: const Icon(Icons.watch_rounded),
-                    label: const Text('传送并设为表盘'),
+                    label: Text(context.l10n.transferSetWatchFace),
                   ),
                 ),
               ],
@@ -3103,8 +3128,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           ),
         ),
         const SizedBox(height: 10),
-        const Text(
-          '传送时请保持手表靠近手机，并避免切换到其他页面。',
+        Text(
+          context.l10n.watchTransferKeepNear,
           textAlign: TextAlign.center,
           style: TextStyle(color: SaydianColors.muted, fontSize: 14),
         ),
@@ -3341,7 +3366,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                   ? Icons.volume_up_rounded
                   : Icons.volume_off_outlined,
             ),
-            title: const Text('通话与媒体声音'),
+            title: Text(context.l10n.callMediaAudio),
             subtitle: Text(
               _featureData['audioEnabled'] == true ? '手表媒体声音已连接' : '媒体声音尚未连接',
             ),
@@ -3473,7 +3498,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               ),
               const Divider(indent: 56),
               SwitchListTile(
-                title: const Text('使用摄氏度'),
+                title: Text(context.l10n.useCelsius),
                 subtitle: Text(
                   _featureData['useCelsius'] == true ? '温度显示为 ℃' : '温度显示为 ℉',
                 ),
@@ -3527,7 +3552,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                             ? null
                             : _chooseWeatherCity,
                         icon: const Icon(Icons.location_city_outlined),
-                        label: const Text('选择城市'),
+                        label: Text(context.l10n.selectCity),
                       ),
                     ),
                   ],
@@ -3636,7 +3661,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           child: FilledButton.icon(
             onPressed: busy ? null : () => _showAlarmEditor(),
             icon: const Icon(Icons.add_alarm_rounded),
-            label: const Text('添加闹钟'),
+            label: Text(context.l10n.addAlarm),
           ),
         ),
       ],
@@ -3706,7 +3731,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.schedule_rounded),
-                  title: const Text('提醒时间'),
+                  title: Text(context.l10n.alarmTime),
                   subtitle: Text(time.format(context)),
                   onTap: () async {
                     final selected = await showTimePicker(
@@ -3718,21 +3743,21 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 ),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('启用闹钟'),
+                  title: Text(context.l10n.enableAlarm),
                   value: enabled,
                   onChanged: (value) => setDialogState(() => enabled = value),
                 ),
                 TextFormField(
                   initialValue: label,
                   maxLength: 20,
-                  decoration: const InputDecoration(
-                    labelText: '提醒名称',
+                  decoration: InputDecoration(
+                    labelText: context.l10n.reminderName,
                     hintText: '例如：吃药、起床',
                   ),
                   onChanged: (value) => label = value.trim(),
                 ),
                 const SizedBox(height: 8),
-                const Text('重复'),
+                Text(context.l10n.repeat),
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 6,
@@ -3759,7 +3784,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('取消'),
+              child: Text(context.l10n.cancel),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(dialogContext, <String, Object?>{
@@ -3771,7 +3796,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 'label': label.isEmpty ? '闹钟' : label,
                 'repeatDays': repeatDays.toList()..sort(),
               }),
-              child: const Text('保存'),
+              child: Text(context.l10n.save),
             ),
           ],
         ),
@@ -3818,8 +3843,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               foregroundColor: Colors.white,
               child: Icon(Icons.sos_rounded),
             ),
-            title: const Text(
-              'SOS 紧急联系人',
+            title: Text(
+              context.l10n.emergencyContact,
               style: TextStyle(fontWeight: FontWeight.w900),
             ),
             subtitle: Text(
@@ -3966,13 +3991,13 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  '选择 SOS 紧急联系人',
+                Text(
+                  context.l10n.selectEmergencyContact,
                   style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 6),
-                const Text(
-                  '手表触发 SOS 后，会优先联系这里选择的人。建议选择最常联系的家人。',
+                Text(
+                  context.l10n.sosContactHint,
                   style: TextStyle(color: SaydianColors.muted, height: 1.5),
                 ),
                 const SizedBox(height: 16),
@@ -4030,7 +4055,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                       ? null
                       : () => Navigator.pop(sheetContext, picked),
                   icon: const Icon(Icons.sos_rounded),
-                  label: const Text('确认设为 SOS 联系人'),
+                  label: Text(context.l10n.confirmEmergencyContact),
                 ),
               ],
             ),
@@ -4117,10 +4142,10 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('添加世界时钟'),
+          title: Text(context.l10n.addWorldClock),
           content: DropdownButtonFormField<(String, int)>(
             initialValue: selected,
-            decoration: const InputDecoration(labelText: '城市'),
+            decoration: InputDecoration(labelText: context.l10n.city),
             items: [
               for (final city in cities)
                 DropdownMenuItem(
@@ -4135,7 +4160,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('取消'),
+              child: Text(context.l10n.cancel),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(dialogContext, <String, Object?>{
@@ -4144,7 +4169,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 'utcOffsetMinutes': selected.$2,
                 'enabled': true,
               }),
-              child: const Text('添加'),
+              child: Text(context.l10n.add),
             ),
           ],
         ),
@@ -4219,7 +4244,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             children: [
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('开始时间'),
+                title: Text(context.l10n.startTime),
                 trailing: Text(_minutesLabel(startMinutes)),
                 onTap: () async {
                   final time = await showTimePicker(
@@ -4238,7 +4263,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('结束时间'),
+                title: Text(context.l10n.endTime),
                 trailing: Text(_minutesLabel(endMinutes)),
                 onTap: () async {
                   final time = await showTimePicker(
@@ -4257,7 +4282,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               ),
               DropdownButtonFormField<int>(
                 initialValue: interval,
-                decoration: const InputDecoration(labelText: '提醒间隔'),
+                decoration: InputDecoration(
+                  labelText: context.l10n.reminderInterval,
+                ),
                 items: const [30, 45, 60, 90, 120]
                     .map(
                       (minutes) => DropdownMenuItem(
@@ -4274,7 +4301,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('取消'),
+              child: Text(context.l10n.cancel),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(dialogContext, <String, Object?>{
@@ -4283,7 +4310,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 'endMinutes': endMinutes,
                 'intervalMinutes': interval,
               }),
-              child: const Text('保存'),
+              child: Text(context.l10n.save),
             ),
           ],
         ),
@@ -4296,9 +4323,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     if (_featureData.isEmpty) return _loadingCard(busy, '辅助评估设置');
     final items = _items;
     if (items.isEmpty) {
-      return const FeatureStateCard(
-        message: '当前手表没有可设置的辅助评估',
-        detail: '不同型号支持的项目可能不同，请以手表实际显示为准。',
+      return FeatureStateCard(
+        message: context.l10n.noHealthAssessments,
+        detail: context.l10n.modelFeaturesVary,
         icon: Icons.assignment_turned_in_outlined,
       );
     }
@@ -4311,7 +4338,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 SwitchListTile(
                   secondary: const Icon(Icons.health_and_safety_outlined),
                   title: Text('${items[index]['label'] ?? '健康辅助功能'}'),
-                  subtitle: const Text('开启后由手表提供日常趋势参考'),
+                  subtitle: Text(context.l10n.assessmentEnabledHint),
                   value: items[index]['enabled'] == true,
                   onChanged: busy
                       ? null
@@ -4326,8 +4353,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           ),
         ),
         const SizedBox(height: 10),
-        const Text(
-          '辅助评估仅供日常健康管理参考，不用于诊断或治疗。',
+        Text(
+          context.l10n.assessmentSafety,
           textAlign: TextAlign.center,
           style: TextStyle(color: SaydianColors.muted, fontSize: 14),
         ),
@@ -4362,7 +4389,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 SwitchListTile(
                   secondary: const Icon(Icons.sensors_rounded),
                   title: Text(labels[entries[index].key] ?? entries[index].key),
-                  subtitle: const Text('开启后由手表按设备设定周期自动检测'),
+                  subtitle: Text(context.l10n.autoMonitorIntervalHint),
                   value: entries[index].value,
                   onChanged: (enabled) => widget.controller
                       .setAutoMeasureSetting(entries[index].key, enabled),
@@ -4381,8 +4408,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 Icons.warning_amber_rounded,
                 color: SaydianColors.orange,
               ),
-              title: const Text('手表心率预警'),
-              subtitle: const Text('持续超过阈值时由手表提醒'),
+              title: Text(context.l10n.watchHeartRateAlert),
+              subtitle: Text(context.l10n.sustainedLimitWatchAlert),
               trailing: DropdownButton<int>(
                 value: widget.controller.heartRateWarning,
                 items: [
@@ -4420,11 +4447,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('取消'),
+              child: Text(context.l10n.cancel),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('确定'),
+              child: Text(context.l10n.confirm),
             ),
           ],
         ),
@@ -4533,7 +4560,7 @@ class _DeviceFeatureHeader extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  feature.label,
+                  context.l10n.deviceFeatureName(feature),
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
@@ -4632,7 +4659,10 @@ class _EcgWaveformCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('心电波形', style: TextStyle(fontWeight: FontWeight.w800)),
+            Text(
+              context.l10n.ecgWaveformTitle,
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 4),
             Text(
               '共 ${durationSeconds.toStringAsFixed(1)} 秒 · 左右滑动查看完整记录',
@@ -4640,9 +4670,9 @@ class _EcgWaveformCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             if (!waveform.hasVariation)
-              const FeatureStateCard(
-                message: '本次未返回有效心电波形',
-                detail: '心率和 HRV 等结果仍可查看；下次测量时请持续接触手表电极。',
+              FeatureStateCard(
+                message: context.l10n.ecgWaveformMissing,
+                detail: context.l10n.ecgElectrodeHint,
                 icon: Icons.monitor_heart_outlined,
               )
             else
@@ -4782,8 +4812,8 @@ class _ScreenSettingsPanel extends StatelessWidget {
             if (value.brightnessSupported) ...[
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('自动调节亮度'),
-                subtitle: const Text('由手表根据时间自动调节'),
+                title: Text(context.l10n.autoBrightness),
+                subtitle: Text(context.l10n.screenAutoTimeHint),
                 value: value.automaticBrightness,
                 onChanged: busy
                     ? null
@@ -4862,8 +4892,8 @@ class _ScreenSettingsPanel extends StatelessWidget {
               const Divider(),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('抬腕亮屏'),
-                subtitle: const Text('抬起手腕时自动点亮屏幕'),
+                title: Text(context.l10n.raiseToWake),
+                subtitle: Text(context.l10n.raiseWristScreenHint),
                 value: value.raiseToWakeEnabled,
                 onChanged: busy
                     ? null
@@ -4874,7 +4904,7 @@ class _ScreenSettingsPanel extends StatelessWidget {
               if (value.raiseToWakeCustomTimeSupported) ...[
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('生效时间'),
+                  title: Text(context.l10n.activeTime),
                   subtitle: Text(
                     '${_timeLabel(value.raiseToWakeStartMinutes)}–${_timeLabel(value.raiseToWakeEndMinutes)}',
                   ),
@@ -4902,7 +4932,7 @@ class _ScreenSettingsPanel extends StatelessWidget {
               width: double.infinity,
               child: FilledButton(
                 onPressed: busy ? null : onSave,
-                child: const Text('保存设置'),
+                child: Text(context.l10n.saveSettings),
               ),
             ),
           ],
@@ -5001,7 +5031,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('帮助与反馈')),
+      appBar: AppBar(title: Text(context.l10n.helpFeedback)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -5014,7 +5044,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
           const SizedBox(height: 14),
           DropdownButtonFormField<String>(
             initialValue: _category,
-            decoration: const InputDecoration(labelText: '问题类型'),
+            decoration: InputDecoration(labelText: context.l10n.issueType),
             items: const [
               DropdownMenuItem(value: '功能建议', child: Text('功能建议')),
               DropdownMenuItem(value: '设备连接', child: Text('设备连接')),
@@ -5031,18 +5061,18 @@ class _FeedbackPageState extends State<FeedbackPage> {
             minLines: 5,
             maxLines: 8,
             maxLength: 500,
-            decoration: const InputDecoration(
-              labelText: '问题说明',
-              hintText: '请描述遇到的问题和出现步骤',
+            decoration: InputDecoration(
+              labelText: context.l10n.issueDescription,
+              hintText: context.l10n.describeIssue,
               alignLabelWithHint: true,
             ),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _contact,
-            decoration: const InputDecoration(
-              labelText: '联系方式（选填）',
-              hintText: '手机号或邮箱',
+            decoration: InputDecoration(
+              labelText: context.l10n.contactOptional,
+              hintText: context.l10n.phoneOrEmail,
             ),
           ),
           if (_result != null) ...[
@@ -5088,7 +5118,9 @@ class _FeedbackPageState extends State<FeedbackPage> {
 }
 
 class CustomerServicePage extends StatelessWidget {
-  const CustomerServicePage({super.key});
+  const CustomerServicePage({this.isGlobalEdition = false, super.key});
+
+  final bool isGlobalEdition;
 
   static const _phone = '4006386738';
   static const _officialAccount = '赛电';
@@ -5112,8 +5144,22 @@ class CustomerServicePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (isGlobalEdition) {
+      return Scaffold(
+        key: const Key('global-customer-service'),
+        appBar: AppBar(title: Text(context.l10n.customerService)),
+        body: Padding(
+          padding: const EdgeInsets.all(16),
+          child: FeatureStateCard(
+            message: context.l10n.serviceUnavailable,
+            detail: context.l10n.supportPrivacyWarning,
+            icon: Icons.support_agent,
+          ),
+        ),
+      );
+    }
     return Scaffold(
-      appBar: AppBar(title: const Text('联系客服')),
+      appBar: AppBar(title: Text(context.l10n.customerService)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -5124,11 +5170,11 @@ class CustomerServicePage extends StatelessWidget {
                   leading: const CircleAvatar(
                     child: Icon(Icons.phone_outlined),
                   ),
-                  title: const Text('联系电话'),
+                  title: Text(context.l10n.contactPhoneLabel),
                   subtitle: const Text(_phone),
                   trailing: FilledButton.tonal(
                     onPressed: () => _call(context),
-                    child: const Text('拨打电话'),
+                    child: Text(context.l10n.call),
                   ),
                 ),
                 const Divider(indent: 72, height: 1),
@@ -5136,20 +5182,20 @@ class CustomerServicePage extends StatelessWidget {
                   leading: const CircleAvatar(
                     child: Icon(Icons.wechat_rounded),
                   ),
-                  title: const Text('公众号'),
+                  title: Text(context.l10n.wechatOfficialAccount),
                   subtitle: const Text(_officialAccount),
                   trailing: FilledButton.tonal(
                     onPressed: () => _copyAccount(context),
-                    child: const Text('添加客服'),
+                    child: Text(context.l10n.addSupportContact),
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 16),
-          const FeatureStateCard(
-            message: '联系前请准备设备型号和问题发生时间',
-            detail: '请勿向非官方账号发送验证码、密码或完整健康记录。',
+          FeatureStateCard(
+            message: context.l10n.contactPreparationHint,
+            detail: context.l10n.supportPrivacyWarning,
             icon: Icons.privacy_tip_outlined,
           ),
         ],
@@ -5245,14 +5291,14 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('关于我们')),
+      appBar: AppBar(title: Text(context.l10n.aboutApp)),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(24, 38, 24, 24),
         children: [
           const Center(child: SaydianBrandLockup(width: 176)),
           const SizedBox(height: 26),
-          const Text(
-            '赛电健康',
+          Text(
+            context.l10n.brandHealthTitle,
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
           ),
@@ -5274,21 +5320,21 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
               children: [
                 ListTile(
                   leading: const Icon(Icons.privacy_tip_outlined),
-                  title: const Text('隐私政策'),
+                  title: Text(context.l10n.privacyPolicy),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () => _openLegal(3, '隐私政策'),
                 ),
                 const Divider(indent: 56, height: 1),
                 ListTile(
                   leading: const Icon(Icons.description_outlined),
-                  title: const Text('用户协议'),
+                  title: Text(context.l10n.termsOfService),
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () => _openLegal(2, '用户协议'),
                 ),
                 const Divider(indent: 56, height: 1),
                 ListTile(
                   leading: const Icon(Icons.system_update_alt_rounded),
-                  title: const Text('检查更新'),
+                  title: Text(context.l10n.checkUpdates),
                   trailing: _checking
                       ? const SizedBox.square(
                           dimension: 22,
@@ -5301,9 +5347,9 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
             ),
           ),
           const SizedBox(height: 18),
-          const FeatureStateCard(
-            message: '健康数据说明',
-            detail: '测量结果仅供健康管理参考，不用于诊断或治疗。',
+          FeatureStateCard(
+            message: context.l10n.healthDataExplanation,
+            detail: context.l10n.watchMeasurementSafety,
             icon: Icons.info_outline_rounded,
           ),
         ],
@@ -5389,7 +5435,7 @@ class SecurityCenterPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('账号与安全')),
+      appBar: AppBar(title: Text(context.l10n.accountAndSecurity)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -5397,22 +5443,31 @@ class SecurityCenterPage extends StatelessWidget {
             child: Column(
               children: [
                 ListTile(
+                  key: const Key('security-reset-password'),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) =>
-                          PasswordRecoveryPage(controller: controller),
+                      builder: (_) => controller.isGlobalEdition
+                          ? GlobalAuthPage(
+                              controller: controller,
+                              resetPassword: true,
+                            )
+                          : PasswordRecoveryPage(controller: controller),
                     ),
                   ),
                   leading: const Icon(Icons.password_rounded),
-                  title: const Text('重置密码'),
-                  subtitle: const Text('验证手机号后重新设置'),
+                  title: Text(context.l10n.resetPassword),
+                  subtitle: Text(
+                    controller.isGlobalEdition
+                        ? context.l10n.verifyContactToReset
+                        : '验证手机号后重新设置',
+                  ),
                   trailing: const Icon(Icons.chevron_right_rounded),
                 ),
                 const Divider(indent: 56),
-                const ListTile(
-                  leading: Icon(Icons.phonelink_lock_outlined),
-                  title: Text('登录保护'),
-                  subtitle: Text('此功能暂时无法使用，请稍后再试'),
+                ListTile(
+                  leading: const Icon(Icons.phonelink_lock_outlined),
+                  title: Text(context.l10n.loginProtectionTitle),
+                  subtitle: Text(context.l10n.serviceUnavailable),
                 ),
               ],
             ),
@@ -5429,7 +5484,7 @@ class ShoppingCartPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('购物车')),
+      appBar: AppBar(title: Text(context.l10n.cart)),
       body: const Padding(
         padding: EdgeInsets.all(16),
         child: FeatureStateCard(
@@ -5450,7 +5505,7 @@ class AfterSalesPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('申请售后')),
+      appBar: AppBar(title: Text(context.l10n.applyAfterSales)),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: FeatureStateCard(
@@ -5547,20 +5602,23 @@ class _CityInputDialogState extends State<_CityInputDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('选择城市'),
+    title: Text(context.l10n.selectCity),
     content: TextField(
       controller: _city,
       autofocus: true,
       textInputAction: TextInputAction.done,
-      decoration: const InputDecoration(labelText: '城市名称', hintText: '例如：深圳'),
+      decoration: InputDecoration(
+        labelText: context.l10n.cityNameLabel,
+        hintText: context.l10n.cityNameExample,
+      ),
       onSubmitted: (_) => _submit(),
     ),
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('取消'),
+        child: Text(context.l10n.cancel),
       ),
-      FilledButton(onPressed: _submit, child: const Text('确定')),
+      FilledButton(onPressed: _submit, child: Text(context.l10n.confirm)),
     ],
   );
 }
@@ -5596,7 +5654,7 @@ class _ContactEditorDialogState extends State<_ContactEditorDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('添加联系人'),
+    title: Text(context.l10n.addContact),
     content: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -5604,12 +5662,12 @@ class _ContactEditorDialogState extends State<_ContactEditorDialog> {
           controller: _name,
           autofocus: true,
           maxLength: 12,
-          decoration: const InputDecoration(labelText: '姓名'),
+          decoration: InputDecoration(labelText: context.l10n.contactName),
         ),
         TextField(
           controller: _phone,
           keyboardType: TextInputType.phone,
-          decoration: const InputDecoration(labelText: '电话号码'),
+          decoration: InputDecoration(labelText: context.l10n.contactPhone),
           onSubmitted: (_) => _submit(),
         ),
       ],
@@ -5617,9 +5675,9 @@ class _ContactEditorDialogState extends State<_ContactEditorDialog> {
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
-        child: const Text('取消'),
+        child: Text(context.l10n.cancel),
       ),
-      FilledButton(onPressed: _submit, child: const Text('保存')),
+      FilledButton(onPressed: _submit, child: Text(context.l10n.save)),
     ],
   );
 }

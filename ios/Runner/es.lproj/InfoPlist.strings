@@ -1,0 +1,8 @@
+"CFBundleDisplayName" = "Saydian";
+"NSBluetoothAlwaysUsageDescription" = "Conectar el reloj y sincronizar los datos de salud que autorice.";
+"NSCameraUsageDescription" = "Hacer fotos y configurar esferas con fotos.";
+"NSContactsUsageDescription" = "Sincronizar solo los contactos seleccionados con el reloj.";
+"NSLocationWhenInUseUsageDescription" = "Usar su ciudad para sincronizar el tiempo local con el reloj.";
+"NSPhotoLibraryUsageDescription" = "Elegir fotos para la esfera del reloj.";
+"NSPhotoLibraryAddUsageDescription" = "Guardar las fotos tomadas con el control remoto de la cámara.";
+"NSBluetoothPeripheralUsageDescription" = "Conectar el reloj y sincronizar los datos de salud que autorice.";

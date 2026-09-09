@@ -19,7 +19,7 @@ test('money is precise and missing values cannot become free products',()=>{
   assert.equal(commerceMoney(-1),'价格待确认');assert.equal(commerceMoney(1230),'¥12.30');
 });
 test('real product covers support JSON, arrays and objects, reject private and third party URLs',()=>{
-  assert.deepEqual(commerceImages('[{"url":"/attachment/a.jpg"},{"src":"/attachment/a.jpg"}]'),['https://app.saidian.cc/attachment/a.jpg']);
+  assert.deepEqual(commerceImages('[{"url":"/attachment/a.jpg"},{"src":"/attachment/a.jpg"}]'),['https://app.saydian.cn/attachment/a.jpg']);
   for(const v of ['https://other.test/a.jpg','/api/v1/member/my','/attachment/../token','javascript:alert(1)'])assert.deepEqual(commerceImages(v),[]);
 });
 test('product parsing and SKU selection preserve real prices and unknown stock',()=>{

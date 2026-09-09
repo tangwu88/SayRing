@@ -10,6 +10,9 @@ import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../domain/feature_models.dart';
+import '../l10n/global_locale_controller.dart';
+import '../l10n/ui_labels.dart';
+import '../services/global_environment.dart';
 import '../domain/ecg_waveform.dart';
 import '../domain/health_interpretation.dart';
 import '../domain/models.dart';
@@ -18,6 +21,8 @@ import '../services/device_watch_face_market_service.dart';
 import '../services/notification_models.dart';
 import 'app_theme.dart';
 import 'brand_assets.dart';
+import 'global_auth_page.dart';
+import 'global_care_page.dart';
 import 'health_reports_page.dart';
 import 'health_trend_page.dart';
 import 'prototype_pages.dart';
@@ -158,7 +163,7 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                                 ),
                               ),
-                        child: const Text('忘记密码？'),
+                        child: Text(context.l10n.forgotPassword),
                       ),
                     ),
                     if (controller.errorMessage != null) ...[
@@ -196,7 +201,7 @@ class _LoginPageState extends State<LoginPage> {
                                 color: Colors.white,
                               ),
                             )
-                          : const Text('登录'),
+                          : Text(context.l10n.signIn),
                     ),
                     const SizedBox(height: 20),
                     TextButton(
@@ -332,17 +337,17 @@ class _AgreementRow extends StatelessWidget {
           child: Wrap(
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const Text('我已阅读并同意', style: TextStyle(fontSize: 14)),
+              Text(context.l10n.agreeToTerms, style: TextStyle(fontSize: 14)),
               TextButton(
                 onPressed: () => onOpenAgreement(id: 2, title: '用户协议'),
                 style: linkStyle,
-                child: const Text('用户协议'),
+                child: Text(context.l10n.termsOfService),
               ),
               const Text('和', style: TextStyle(fontSize: 14)),
               TextButton(
                 onPressed: () => onOpenAgreement(id: 3, title: '隐私政策'),
                 style: linkStyle,
-                child: const Text('隐私政策'),
+                child: Text(context.l10n.privacyPolicy),
               ),
             ],
           ),
@@ -362,7 +367,6 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
-  static const _titles = ['', '设备', '我的'];
   String? _scheduledError;
 
   void _showPendingError(BuildContext context) {
@@ -394,7 +398,12 @@ class _AppShellState extends State<AppShell> {
     return Scaffold(
       appBar: selectedIndex == 0
           ? null
-          : AppBar(title: Text(_titles[selectedIndex]), actions: const []),
+          : AppBar(
+              title: Text(
+                selectedIndex == 1 ? context.l10n.device : context.l10n.profile,
+              ),
+              actions: const [],
+            ),
       body: IndexedStack(index: selectedIndex, children: pages),
       bottomNavigationBar: DecoratedBox(
         decoration: const BoxDecoration(
@@ -404,21 +413,21 @@ class _AppShellState extends State<AppShell> {
         child: NavigationBar(
           selectedIndex: selectedIndex,
           onDestinationSelected: controller.selectTab,
-          destinations: const [
+          destinations: [
             NavigationDestination(
-              icon: Icon(Icons.favorite_border_rounded),
-              selectedIcon: Icon(Icons.favorite_rounded),
-              label: '健康',
+              icon: const Icon(Icons.favorite_border_rounded),
+              selectedIcon: const Icon(Icons.favorite_rounded),
+              label: context.l10n.health,
             ),
             NavigationDestination(
-              icon: Icon(Icons.watch_outlined),
-              selectedIcon: Icon(Icons.watch_rounded),
-              label: '设备',
+              icon: const Icon(Icons.watch_outlined),
+              selectedIcon: const Icon(Icons.watch_rounded),
+              label: context.l10n.device,
             ),
             NavigationDestination(
-              icon: Icon(Icons.person_outline),
-              selectedIcon: Icon(Icons.person),
-              label: '我的',
+              icon: const Icon(Icons.person_outline),
+              selectedIcon: const Icon(Icons.person),
+              label: context.l10n.profile,
             ),
           ],
         ),
@@ -471,7 +480,7 @@ class DashboardPage extends StatelessWidget {
                     onCare: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
                         builder: (_) => Scaffold(
-                          appBar: AppBar(title: const Text('远程关爱')),
+                          appBar: AppBar(title: Text(context.l10n.remoteCare)),
                           body: CarePage(controller: controller),
                         ),
                       ),
@@ -507,9 +516,11 @@ class DashboardPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   _SectionTitle(
-                    title: '健康数据',
-                    subtitle: DateFormat('M月d日').format(DateTime.now()),
-                    actionLabel: '全部数据',
+                    title: context.l10n.healthData,
+                    subtitle: DateFormat.MMMd(
+                      context.l10n.localeName,
+                    ).format(DateTime.now()),
+                    actionLabel: context.l10n.allData,
                     onAction: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
                         settings: const RouteSettings(name: 'all-health-data'),
@@ -522,7 +533,9 @@ class DashboardPage extends StatelessWidget {
                   if (metrics.isEmpty)
                     _InlineNotice(
                       key: const Key('dashboard-health-empty-notice'),
-                      message: disconnected ? '连接手表后可查看支持的健康数据' : '暂无可显示的健康数据',
+                      message: disconnected
+                          ? context.l10n.connectWatchForData
+                          : context.l10n.noHealthData,
                       icon: Icons.watch_outlined,
                       color: SaydianColors.blue,
                       compact: true,
@@ -560,24 +573,27 @@ class DashboardPage extends StatelessWidget {
                       },
                     ),
                   const SizedBox(height: 18),
-                  const Text(
-                    '运动与记录',
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                  Text(
+                    context.l10n.workoutsAndRecords,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   _SportEntryPanel(controller: controller),
                 ]),
               ),
             ),
-            const SliverFillRemaining(
+            SliverFillRemaining(
               hasScrollBody: false,
               child: Padding(
-                padding: EdgeInsets.fromLTRB(16, 16, 16, 24),
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                 child: Align(
                   alignment: Alignment.bottomCenter,
                   child: _InlineNotice(
-                    key: Key('dashboard-health-notice'),
-                    message: '测量结果仅供健康管理参考，如有不适请咨询专业医务人员。',
+                    key: const Key('dashboard-health-notice'),
+                    message: context.l10n.healthDisclaimer,
                     icon: Icons.health_and_safety_outlined,
                     color: SaydianColors.green,
                     compact: true,
@@ -600,7 +616,7 @@ class _DashboardHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = controller.session?.displayName ?? '赛电用户';
+    final name = controller.session?.displayName ?? context.l10n.defaultUser;
     return Row(
       children: [
         Container(
@@ -619,7 +635,7 @@ class _DashboardHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '你好，$name',
+                context.l10n.welcome(name),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -628,9 +644,12 @@ class _DashboardHeader extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 2),
-              const Text(
-                '今天也要保持好状态',
-                style: TextStyle(color: SaydianColors.muted, fontSize: 13),
+              Text(
+                context.l10n.dailyGreeting,
+                style: const TextStyle(
+                  color: SaydianColors.muted,
+                  fontSize: 13,
+                ),
               ),
             ],
           ),
@@ -647,8 +666,10 @@ class _DashboardHeader extends StatelessWidget {
           backgroundColor: Color(0xFFD70B25),
           child: IconButton(
             tooltip: controller.notificationUnreadCount > 0
-                ? '消息，${controller.notificationUnreadCount} 条未读'
-                : '消息',
+                ? context.l10n.unreadMessages(
+                    controller.notificationUnreadCount,
+                  )
+                : context.l10n.messages,
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => NotificationsPage(controller: controller),
@@ -703,18 +724,18 @@ class _AiHealthAssistantCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Text(
-            'AI健康管家',
-            style: TextStyle(
+          Text(
+            context.l10n.aiAssistant,
+            style: const TextStyle(
               color: Color(0xFF9E1025),
               fontSize: 19,
               fontWeight: FontWeight.w900,
             ),
           ),
           const SizedBox(height: 3),
-          const Text(
-            '我是您的健康管家，\n有任何健康问题都可以向我提问。',
-            style: TextStyle(
+          Text(
+            context.l10n.aiAssistantIntro,
+            style: const TextStyle(
               color: SaydianColors.ink,
               fontSize: 12,
               height: 1.2,
@@ -735,9 +756,12 @@ class _AiHealthAssistantCard extends StatelessWidget {
               minimumSize: const Size.fromHeight(40),
               shape: const StadiumBorder(),
             ),
-            child: const Text(
-              '马上提问',
-              style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w900),
+            child: Text(
+              context.l10n.askNow,
+              style: const TextStyle(
+                fontSize: 14.5,
+                fontWeight: FontWeight.w900,
+              ),
             ),
           ),
         ],
@@ -831,7 +855,7 @@ class _TodayHealthOverview extends StatelessWidget {
                   TextButton.icon(
                     onPressed: onSetGoal,
                     icon: const Icon(Icons.track_changes_rounded, size: 18),
-                    label: const Text('目标'),
+                    label: Text(context.l10n.goals),
                   ),
                 ],
               ),
@@ -921,7 +945,7 @@ class _GoalProgressRow extends StatelessWidget {
         SizedBox(
           width: 34,
           child: Text(
-            metric.label,
+            context.l10n.metricName(metric),
             style: const TextStyle(fontWeight: FontWeight.w700),
           ),
         ),
@@ -979,7 +1003,7 @@ class _FeatureEntryGrid extends StatelessWidget {
           children: [
             Expanded(
               child: _FeatureEntry(
-                label: '远程关爱',
+                label: context.l10n.remoteCare,
                 icon: Icons.family_restroom_rounded,
                 color: const Color(0xFFE84358),
                 onTap: onCare,
@@ -987,7 +1011,7 @@ class _FeatureEntryGrid extends StatelessWidget {
             ),
             Expanded(
               child: _FeatureEntry(
-                label: '健康百科',
+                label: context.l10n.healthLibrary,
                 icon: Icons.menu_book_rounded,
                 color: const Color(0xFFD5A03D),
                 onTap: onEncyclopedia,
@@ -995,7 +1019,7 @@ class _FeatureEntryGrid extends StatelessWidget {
             ),
             Expanded(
               child: _FeatureEntry(
-                label: '健康预警',
+                label: context.l10n.healthAlerts,
                 icon: Icons.health_and_safety_rounded,
                 color: const Color(0xFFEF6E78),
                 onTap: onWarning,
@@ -1003,7 +1027,7 @@ class _FeatureEntryGrid extends StatelessWidget {
             ),
             Expanded(
               child: _FeatureEntry(
-                label: '赛电商城',
+                label: context.l10n.shop,
                 icon: Icons.shopping_bag_rounded,
                 color: const Color(0xFFD99C2B),
                 onTap: onMall,
@@ -1184,7 +1208,20 @@ class _MetricCard extends StatelessWidget {
     const iconColor = Color(0xFFE52E45);
     const chartColor = Color(0xFF4F89F7);
     final status = _homeMetricStatus(controller, record);
-    final needsAttention = !{'正常', '已记录', '暂无数据'}.contains(status);
+    final needsAttention = !{
+      _HomeMetricStatus.normal,
+      _HomeMetricStatus.recorded,
+      _HomeMetricStatus.noData,
+    }.contains(status);
+    final statusLabel = switch (status) {
+      _HomeMetricStatus.normal => context.l10n.statusNormal,
+      _HomeMetricStatus.recorded => context.l10n.statusRecorded,
+      _HomeMetricStatus.noData => context.l10n.noData,
+      _HomeMetricStatus.attention => context.l10n.statusAttention,
+      _HomeMetricStatus.outOfRange => context.l10n.statusOutOfRange,
+      _HomeMetricStatus.low => context.l10n.statusLow,
+      _HomeMetricStatus.high => context.l10n.statusHigh,
+    };
     final supportsManualMeasurement =
         controller.canMeasureHealthMetric(metric) &&
         const {
@@ -1235,7 +1272,7 @@ class _MetricCard extends StatelessWidget {
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      metric.label,
+                      context.l10n.metricName(metric),
                       maxLines: 2,
                       style: const TextStyle(
                         fontSize: 15,
@@ -1244,29 +1281,33 @@ class _MetricCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: record == null
-                          ? const Color(0xFFF2EFED)
-                          : needsAttention
-                          ? const Color(0xFFFFE7E5)
-                          : const Color(0xFFE7F7E6),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      status,
-                      style: TextStyle(
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
                         color: record == null
-                            ? SaydianColors.muted
+                            ? const Color(0xFFF2EFED)
                             : needsAttention
-                            ? const Color(0xFFC62828)
-                            : const Color(0xFF27852A),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
+                            ? const Color(0xFFFFE7E5)
+                            : const Color(0xFFE7F7E6),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        statusLabel,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: record == null
+                              ? SaydianColors.muted
+                              : needsAttention
+                              ? const Color(0xFFC62828)
+                              : const Color(0xFF27852A),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                   ),
@@ -1325,46 +1366,63 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
-String _homeMetricStatus(AppController controller, HealthRecord? record) {
-  if (record == null) return '暂无数据';
+enum _HomeMetricStatus {
+  normal,
+  recorded,
+  noData,
+  attention,
+  outOfRange,
+  low,
+  high,
+}
+
+_HomeMetricStatus _homeMetricStatus(
+  AppController controller,
+  HealthRecord? record,
+) {
+  if (record == null) return _HomeMetricStatus.noData;
   final quality = record.quality.toLowerCase();
   if (quality.contains('poor') ||
       quality.contains('warning') ||
       quality.contains('abnormal')) {
-    return '请关注';
+    return _HomeMetricStatus.attention;
   }
   final primary = record.values['value'];
   if (record.metric == HealthMetric.heartRate &&
       primary != null &&
       (primary < 60 || primary > 100)) {
-    return '超出参考范围';
+    return _HomeMetricStatus.outOfRange;
   }
   if (record.metric == HealthMetric.bloodOxygen &&
       primary != null &&
       primary < 95) {
-    return '偏低';
+    return _HomeMetricStatus.low;
   }
   if (record.metric == HealthMetric.bodyTemperature &&
       primary != null &&
       (primary < 36 || primary > 37.3)) {
-    return primary > 37.3 ? '偏高' : '偏低';
+    return primary > 37.3 ? _HomeMetricStatus.high : _HomeMetricStatus.low;
   }
   if (record.metric == HealthMetric.bloodPressure) {
     final systolic = record.values['systolic'];
     final diastolic = record.values['diastolic'];
     if (systolic != null && diastolic != null) {
-      if (systolic >= 140 || diastolic >= 90) return '偏高';
-      if (systolic < 90 || diastolic < 60) return '偏低';
+      if (systolic >= 140 || diastolic >= 90) return _HomeMetricStatus.high;
+      if (systolic < 90 || diastolic < 60) return _HomeMetricStatus.low;
     }
   }
   if (record.metric == HealthMetric.ecg) {
-    return (record.values['deviceAbnormalFlags'] ?? 0) > 0 ? '请关注' : '已记录';
+    return (record.values['deviceAbnormalFlags'] ?? 0) > 0
+        ? _HomeMetricStatus.attention
+        : _HomeMetricStatus.recorded;
   }
-  if (record.metric == HealthMetric.hrv) return '已记录';
+  if (record.metric == HealthMetric.hrv) return _HomeMetricStatus.recorded;
   final settings = controller.healthWarningSettings;
   if (record.metric == HealthMetric.heartRate && settings.heartRateEnabled) {
     final value = record.values['value'];
-    if (value != null && value > settings.heartRateUpper) return '请关注';
+    if (value != null && value > settings.heartRateUpper) {
+      return _HomeMetricStatus.attention;
+    }
   }
   if (record.metric == HealthMetric.bloodPressure &&
       settings.bloodPressureEnabled) {
@@ -1372,15 +1430,17 @@ String _homeMetricStatus(AppController controller, HealthRecord? record) {
     final diastolic = record.values['diastolic'];
     if ((systolic != null && systolic > settings.systolicUpper) ||
         (diastolic != null && diastolic > settings.diastolicUpper)) {
-      return '请关注';
+      return _HomeMetricStatus.attention;
     }
   }
   if (record.metric == HealthMetric.bodyTemperature &&
       settings.temperatureEnabled) {
     final value = record.values['value'];
-    if (value != null && value > settings.temperatureUpper) return '请关注';
+    if (value != null && value > settings.temperatureUpper) {
+      return _HomeMetricStatus.attention;
+    }
   }
-  return '正常';
+  return _HomeMetricStatus.normal;
 }
 
 class _SectionTitle extends StatelessWidget {
@@ -1590,7 +1650,7 @@ class HealthPage extends StatelessWidget {
                       title: Text(
                         '${calibrationMetrics[index] == HealthMetric.bloodPressure ? '血压' : '血糖'}校准',
                       ),
-                      subtitle: const Text('根据手表提示完成校准'),
+                      subtitle: Text(context.l10n.calibrateOnWatchHint),
                       trailing: const Icon(Icons.chevron_right_rounded),
                     ),
                   ],
@@ -1716,7 +1776,11 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                   _ => '请保持正确佩戴并静止，等待手表返回结果',
                 };
           return AlertDialog(
-            title: Text('${widget.metric.label}测量'),
+            title: Text(
+              context.l10n.metricMeasurement(
+                context.l10n.metricName(widget.metric),
+              ),
+            ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1814,8 +1878,8 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                         color: SaydianColors.brandGoldSoft,
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Text(
-                        '本次仅为静态监测，结果仅供参考，如需更加准确的数据，请通过手表气泵气囊式检测',
+                      child: Text(
+                        context.l10n.spotCheckCuffHint,
                         textAlign: TextAlign.center,
                         style: TextStyle(fontSize: 13, height: 1.45),
                       ),
@@ -1844,7 +1908,7 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
               if (failed)
                 FilledButton(
                   onPressed: _stopping ? null : _retry,
-                  child: const Text('重新测量'),
+                  child: Text(context.l10n.measureAgain),
                 ),
               TextButton(
                 onPressed: _stopping ? null : _finish,
@@ -1931,8 +1995,8 @@ class _SportEntryPanel extends StatelessWidget {
                     final width = constraints.maxWidth / columns;
                     final modes = controller.availableSportModes;
                     if (modes.isEmpty) {
-                      return const _InlineNotice(
-                        message: '当前手表未开放由 APP 启动的运动模式，请直接在手表上开始运动。',
+                      return _InlineNotice(
+                        message: context.l10n.workoutStartOnWatch,
                         icon: Icons.watch_rounded,
                         color: SaydianColors.orange,
                       );
@@ -1976,8 +2040,8 @@ class _SportEntryPanel extends StatelessWidget {
                 icon: Icons.history_rounded,
                 color: SaydianColors.brandRed,
               ),
-              title: const Text(
-                '运动记录',
+              title: Text(
+                context.l10n.workoutRecords,
                 style: TextStyle(
                   color: SaydianColors.ink,
                   fontWeight: FontWeight.w800,
@@ -2045,7 +2109,7 @@ class _SportEntry extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              mode.label,
+              context.l10n.sportModeName(mode),
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
             ),
@@ -2210,16 +2274,16 @@ class _SportSessionPageState extends State<SportSessionPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('结束当前运动？'),
-        content: const Text('离开前将先停止手表运动，并保存已记录的运动时长和轨迹。'),
+        title: Text(context.l10n.finishWorkoutConfirm),
+        content: Text(context.l10n.finishLeaveWorkoutHint),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('继续运动'),
+            child: Text(context.l10n.resumeWorkout),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('结束并离开'),
+            child: Text(context.l10n.finishAndLeave),
           ),
         ],
       ),
@@ -2312,7 +2376,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
         if (!didPop && active) unawaited(_confirmExit());
       },
       child: Scaffold(
-        appBar: AppBar(title: Text(widget.mode.label)),
+        appBar: AppBar(title: Text(context.l10n.sportModeName(widget.mode))),
         body: ListView(
           padding: const EdgeInsets.all(20),
           children: [
@@ -2347,9 +2411,15 @@ class _SportSessionPageState extends State<SportSessionPage> {
                   Text(
                     active
                         ? (paused
-                              ? '${widget.mode.label}已暂停'
-                              : '${widget.mode.label}进行中')
-                        : '准备开始${widget.mode.label}',
+                              ? context.l10n.workoutPaused(
+                                  context.l10n.sportModeName(widget.mode),
+                                )
+                              : context.l10n.workoutInProgress(
+                                  context.l10n.sportModeName(widget.mode),
+                                ))
+                        : context.l10n.workoutReady(
+                            context.l10n.sportModeName(widget.mode),
+                          ),
                     style: const TextStyle(color: Colors.white70),
                   ),
                 ],
@@ -2362,19 +2432,21 @@ class _SportSessionPageState extends State<SportSessionPage> {
                 runSpacing: 10,
                 children: [
                   _SportLiveMetric(
-                    label: '手表距离',
+                    label: context.l10n.watchDistance,
                     value: '${watchDistanceKm.toStringAsFixed(2)} km',
                   ),
                   _SportLiveMetric(
-                    label: '手表步数',
-                    value: '${(liveData['steps'] ?? 0).toInt()} 步',
+                    label: context.l10n.watchSteps,
+                    value: context.l10n.stepCount(
+                      (liveData['steps'] ?? 0).toInt(),
+                    ),
                   ),
                   _SportLiveMetric(
-                    label: '实时心率',
+                    label: context.l10n.liveHeartRate,
                     value: '${(liveData['heartRate'] ?? 0).toInt()} bpm',
                   ),
                   _SportLiveMetric(
-                    label: '手表热量',
+                    label: context.l10n.watchCalories,
                     value:
                         '${(liveData['calories'] ?? 0).toDouble().toStringAsFixed(1)} kcal',
                   ),
@@ -2384,7 +2456,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
             const SizedBox(height: 18),
             _InlineNotice(
               message: widget.controller.connectedDevice == null
-                  ? '请先在设备页连接手表，运动模式将由手表记录。'
+                  ? context.l10n.connectForWorkout
                   : '已连接 ${widget.controller.connectedDevice!.name}。$_locationStatus',
               icon: Icons.watch_rounded,
               color: SaydianColors.blue,
@@ -2413,7 +2485,11 @@ class _SportSessionPageState extends State<SportSessionPage> {
                     icon: Icon(
                       paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
                     ),
-                    label: Text(paused ? '继续运动' : '暂停运动'),
+                    label: Text(
+                      paused
+                          ? context.l10n.resumeWorkout
+                          : context.l10n.pauseWorkout,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -2441,12 +2517,18 @@ class _SportSessionPageState extends State<SportSessionPage> {
                     ),
                     label: Text(
                       _finalizingSport
-                          ? '正在保存'
+                          ? context.l10n.saving
                           : anotherSportActive
-                          ? '请先结束${widget.controller.activeSport!.label}'
+                          ? context.l10n.finishOtherWorkout(
+                              context.l10n.sportModeName(
+                                widget.controller.activeSport!,
+                              ),
+                            )
                           : active
-                          ? '结束运动'
-                          : '开始${widget.mode.label}',
+                          ? context.l10n.finishWorkout
+                          : context.l10n.startWorkout(
+                              context.l10n.sportModeName(widget.mode),
+                            ),
                     ),
                   ),
                 ),
@@ -2503,7 +2585,7 @@ class _SportRecordsPageState extends State<SportRecordsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('运动记录')),
+      appBar: AppBar(title: Text(context.l10n.workoutRecords)),
       body: ListenableBuilder(
         listenable: widget.controller,
         builder: (context, _) {
@@ -2574,7 +2656,7 @@ class _SportRecordTile extends StatelessWidget {
           child: Icon(Icons.route_rounded),
         ),
         title: Text(
-          record.mode.label,
+          context.l10n.sportModeName(record.mode),
           style: const TextStyle(fontWeight: FontWeight.w800),
         ),
         subtitle: Text(
@@ -2610,7 +2692,11 @@ class SportRecordDetailPage extends StatelessWidget {
         : record.distanceKm;
     final unit = controller.distanceUnit == '英里' ? '英里' : '公里';
     return Scaffold(
-      appBar: AppBar(title: Text('${record.mode.label}详情')),
+      appBar: AppBar(
+        title: Text(
+          context.l10n.workoutDetails(context.l10n.sportModeName(record.mode)),
+        ),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -2620,8 +2706,8 @@ class SportRecordDetailPage extends StatelessWidget {
               distanceKm: record.distanceKm,
             )
           else
-            const _InlineNotice(
-              message: '该记录没有手机前台轨迹，仍保留手表运动数据。',
+            _InlineNotice(
+              message: context.l10n.workoutRouteMissing,
               icon: Icons.route_outlined,
               color: SaydianColors.orange,
             ),
@@ -2630,41 +2716,41 @@ class SportRecordDetailPage extends StatelessWidget {
             child: Column(
               children: [
                 ListTile(
-                  title: const Text('运动时长'),
+                  title: Text(context.l10n.workoutDuration),
                   trailing: Text(
                     '${duration.inHours.toString().padLeft(2, '0')}:${duration.inMinutes.remainder(60).toString().padLeft(2, '0')}:${duration.inSeconds.remainder(60).toString().padLeft(2, '0')}',
                   ),
                 ),
                 const Divider(indent: 16),
                 ListTile(
-                  title: const Text('距离'),
+                  title: Text(context.l10n.distance),
                   trailing: Text('${distance.toStringAsFixed(2)} $unit'),
                 ),
                 if (record.calories > 0) ...[
                   const Divider(indent: 16),
                   ListTile(
-                    title: const Text('热量'),
+                    title: Text(context.l10n.calories),
                     trailing: Text('${record.calories.toStringAsFixed(1)} 千卡'),
                   ),
                 ],
                 if (record.steps > 0) ...[
                   const Divider(indent: 16),
                   ListTile(
-                    title: const Text('步数'),
+                    title: Text(context.l10n.steps),
                     trailing: Text('${record.steps} 步'),
                   ),
                 ],
                 if (record.heartRate > 0) ...[
                   const Divider(indent: 16),
                   ListTile(
-                    title: const Text('手表心率'),
+                    title: Text(context.l10n.workoutWatchHeartRate),
                     trailing: Text('${record.heartRate} bpm'),
                   ),
                 ],
                 if (record.startedAt != null) ...[
                   const Divider(indent: 16),
                   ListTile(
-                    title: const Text('开始时间'),
+                    title: Text(context.l10n.startTime),
                     trailing: Text(
                       DateFormat(
                         'yyyy-MM-dd HH:mm',
@@ -2882,7 +2968,7 @@ class _HealthRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      metric.label,
+                      context.l10n.metricName(metric),
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 4),
@@ -3123,7 +3209,7 @@ class AiPage extends StatelessWidget {
                 FilledButton.icon(
                   onPressed: () => _openChat(context, app: 1),
                   icon: const Icon(Icons.chat_bubble_outline_rounded),
-                  label: const Text('马上提问'),
+                  label: Text(context.l10n.askNow),
                 ),
               ],
             ),
@@ -3177,8 +3263,8 @@ class AiPage extends StatelessWidget {
           const SizedBox(height: 20),
           Row(
             children: [
-              const Text(
-                '健康百科',
+              Text(
+                context.l10n.healthLibrary,
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
               ),
               const Spacer(),
@@ -3239,6 +3325,144 @@ class AiPage extends StatelessWidget {
   }
 }
 
+/// International content uses opaque string IDs and the global content service.
+/// Language changes reload content instead of displaying the previous language
+/// as if the server had supplied a translation.
+class GlobalArticleLibraryPage extends StatefulWidget {
+  const GlobalArticleLibraryPage({required this.controller, super.key});
+
+  final AppController controller;
+
+  @override
+  State<GlobalArticleLibraryPage> createState() =>
+      _GlobalArticleLibraryPageState();
+}
+
+class _GlobalArticleLibraryPageState extends State<GlobalArticleLibraryPage> {
+  List<Map<String, Object?>> _categories = const [];
+  List<Map<String, Object?>> _articles = const [];
+  String? _selectedCategory;
+  String? _contentLocale;
+  int _generation = 0;
+  bool _loading = true;
+  bool _failed = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_contentLocale != context.l10n.localeName) {
+      _contentLocale = context.l10n.localeName;
+      _selectedCategory = null;
+      unawaited(_load());
+    }
+  }
+
+  Future<void> _load() async {
+    final generation = ++_generation;
+    setState(() {
+      _loading = true;
+      _failed = false;
+    });
+    try {
+      final results = await Future.wait([
+        widget.controller.loadGlobalArticleCategories(),
+        widget.controller.loadGlobalArticles(categoryId: _selectedCategory),
+      ]);
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _categories = results[0]
+            .where((item) => '${item['id'] ?? ''}'.trim().isNotEmpty)
+            .toList();
+        _articles = results[1]
+            .where((item) => '${item['id'] ?? ''}'.trim().isNotEmpty)
+            .toList();
+        _loading = false;
+      });
+    } catch (error, stack) {
+      debugPrint('Global article library load failed: $error\n$stack');
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _failed = true;
+        _loading = false;
+      });
+    }
+  }
+
+  void _select(String? category) {
+    if (_selectedCategory == category) return;
+    _selectedCategory = category;
+    unawaited(_load());
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    key: const Key('global-article-library'),
+    appBar: AppBar(title: Text(context.l10n.healthLibrary)),
+    body: _loading
+        ? const Center(child: CircularProgressIndicator())
+        : _failed
+        ? _ArticleLoadFailure(onRetry: _load)
+        : RefreshIndicator(
+            onRefresh: _load,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              children: [
+                if (_categories.isNotEmpty) ...[
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      ChoiceChip(
+                        key: const Key('global-article-category-all'),
+                        label: Text(context.l10n.all),
+                        selected: _selectedCategory == null,
+                        onSelected: (_) => _select(null),
+                      ),
+                      for (final category in _categories)
+                        ChoiceChip(
+                          key: ValueKey(
+                            'global-article-category-${category['id']}',
+                          ),
+                          label: Text(
+                            '${category['title'] ?? category['name'] ?? context.l10n.healthLibrary}',
+                          ),
+                          selected: _selectedCategory == '${category['id']}',
+                          onSelected: (_) => _select('${category['id']}'),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (_articles.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 64),
+                    child: Center(child: Text(context.l10n.articlesEmpty)),
+                  )
+                else
+                  for (final article in _articles) ...[
+                    Card(
+                      key: ValueKey('global-article-${article['id']}'),
+                      child: _ArticleTile(
+                        article: article,
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => ArticleDetailPage(
+                              controller: widget.controller,
+                              article: article,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+              ],
+            ),
+          ),
+  );
+}
+
 class ArticleCategoryPage extends StatefulWidget {
   const ArticleCategoryPage({required this.controller, super.key});
 
@@ -3257,7 +3481,7 @@ class _ArticleCategoryPageState extends State<ArticleCategoryPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(_load());
+    if (!widget.controller.isGlobalEdition) unawaited(_load());
   }
 
   Future<void> _load() async {
@@ -3292,9 +3516,12 @@ class _ArticleCategoryPageState extends State<ArticleCategoryPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.controller.isGlobalEdition) {
+      return GlobalArticleLibraryPage(controller: widget.controller);
+    }
     final error = widget.controller.articleCategoryLoadError;
     return Scaffold(
-      appBar: AppBar(title: const Text('健康百科')),
+      appBar: AppBar(title: Text(context.l10n.healthLibrary)),
       body: Column(
         key: const Key('article-category-page'),
         children: [
@@ -3319,7 +3546,7 @@ class _ArticleCategoryPageState extends State<ArticleCategoryPage> {
                     children: [
                       ChoiceChip(
                         key: const Key('article-category-all'),
-                        label: const Text('全部'),
+                        label: Text(context.l10n.all),
                         selected: _selectedCategoryId == null,
                         onSelected: (_) => _selectCategory(null),
                       ),
@@ -3415,7 +3642,7 @@ class _ArticleListPageState extends State<ArticleListPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(_load());
+    if (!widget.controller.isGlobalEdition) unawaited(_load());
   }
 
   Future<void> _load() async {
@@ -3432,6 +3659,9 @@ class _ArticleListPageState extends State<ArticleListPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.controller.isGlobalEdition) {
+      return GlobalArticleLibraryPage(controller: widget.controller);
+    }
     final error = widget.controller.articleListLoadError;
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
@@ -3484,13 +3714,13 @@ class _ArticleLoadFailure extends StatelessWidget {
           children: [
             const Icon(Icons.cloud_off_outlined, size: 44),
             const SizedBox(height: 12),
-            const Text('健康百科加载失败'),
+            Text(context.l10n.articlesUnavailable),
             const SizedBox(height: 12),
             OutlinedButton.icon(
               key: const Key('article-retry'),
               onPressed: onRetry,
               icon: const Icon(Icons.refresh_rounded),
-              label: const Text('重新加载'),
+              label: Text(context.l10n.reload),
             ),
           ],
         ),
@@ -3507,8 +3737,9 @@ class _ArticleTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = '${article['title'] ?? '健康百科'}';
-    final created = article['created_at'];
+    final title = '${article['title'] ?? context.l10n.healthLibrary}';
+    final created =
+        article['publishedAt'] ?? article['createdAt'] ?? article['created_at'];
     String date = '';
     if (created is num) {
       date = DateFormat(
@@ -3555,24 +3786,65 @@ class ArticleDetailPage extends StatefulWidget {
 
 class _ArticleDetailPageState extends State<ArticleDetailPage> {
   late Map<String, Object?> _article;
-  int? _articleId;
+  String? _articleId;
   bool _loading = false;
+  bool _globalLoadFailed = false;
+  int _loadGeneration = 0;
+  String? _contentLocale;
 
   @override
   void initState() {
     super.initState();
     _article = widget.article;
-    _articleId = int.tryParse('${widget.article['id'] ?? ''}');
-    if (_articleId != null) unawaited(_load());
+    final id = '${widget.article['id'] ?? ''}'.trim();
+    _articleId = id.isEmpty ? null : id;
+    if (!widget.controller.isGlobalEdition && _articleId != null) {
+      unawaited(_load());
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.controller.isGlobalEdition &&
+        _contentLocale != context.l10n.localeName) {
+      _contentLocale = context.l10n.localeName;
+      unawaited(_load());
+    }
   }
 
   Future<void> _load() async {
     final id = _articleId;
     if (id == null) return;
+    if (widget.controller.isGlobalEdition) {
+      final generation = ++_loadGeneration;
+      setState(() {
+        _loading = true;
+        _globalLoadFailed = false;
+      });
+      try {
+        final article = await widget.controller.loadGlobalArticle(id);
+        if (!mounted || generation != _loadGeneration) return;
+        setState(() {
+          _article = article;
+          _loading = false;
+        });
+      } catch (error, stack) {
+        debugPrint('Global article load failed: $error\n$stack');
+        if (!mounted || generation != _loadGeneration) return;
+        setState(() {
+          _loading = false;
+          _globalLoadFailed = true;
+        });
+      }
+      return;
+    }
+    final legacyId = int.tryParse(id);
+    if (legacyId == null) return;
     if (mounted) setState(() => _loading = true);
     final article = widget.singleArticle
-        ? await widget.controller.loadSingleArticle(id)
-        : await widget.controller.loadArticle(id);
+        ? await widget.controller.loadSingleArticle(legacyId)
+        : await widget.controller.loadArticle(legacyId);
     if (!mounted) return;
     setState(() {
       if (article.isNotEmpty) _article = article;
@@ -3582,14 +3854,17 @@ class _ArticleDetailPageState extends State<ArticleDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final title = '${_article['title'] ?? '健康百科'}';
-    final raw = '${_article['content'] ?? _article['description'] ?? ''}';
-    final error = widget.controller.articleDetailLoadError;
+    final title = '${_article['title'] ?? context.l10n.healthLibrary}';
+    final raw =
+        '${_article['contentHtml'] ?? _article['content'] ?? _article['description'] ?? ''}';
+    final hasError = widget.controller.isGlobalEdition
+        ? _globalLoadFailed
+        : widget.controller.articleDetailLoadError != null;
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : error != null
+          : hasError
           ? _ArticleLoadFailure(onRetry: _load)
           : ListView(
               padding: const EdgeInsets.all(20),
@@ -3603,19 +3878,19 @@ class _ArticleDetailPageState extends State<ArticleDetailPage> {
                 ),
                 const SizedBox(height: 16),
                 if (raw.trim().isEmpty)
-                  const Text(
-                    '文章详情暂未返回正文内容。',
-                    style: TextStyle(fontSize: 15, height: 1.75),
+                  Text(
+                    context.l10n.articleContentUnavailable,
+                    style: const TextStyle(fontSize: 15, height: 1.75),
                   )
                 else
-                  ..._articleContentWidgets(raw),
+                  ..._articleContentWidgets(context, raw),
               ],
             ),
     );
   }
 }
 
-List<Widget> _articleContentWidgets(String raw) {
+List<Widget> _articleContentWidgets(BuildContext context, String raw) {
   final imagePattern = RegExp(
     r'''<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>''',
     caseSensitive: false,
@@ -3653,7 +3928,7 @@ List<Widget> _articleContentWidgets(String raw) {
               height: 120,
               alignment: Alignment.center,
               color: const Color(0xFFF4F0ED),
-              child: const Text('图片暂时无法加载'),
+              child: Text(context.l10n.imageUnavailable),
             ),
           ),
         ),
@@ -3669,11 +3944,11 @@ List<Widget> _articleContentWidgets(String raw) {
 }
 
 String _normalizeArticleImageUrl(String source) {
-  final trimmed = source.trim();
-  if (trimmed.startsWith('/')) return 'https://app.saidian.cc$trimmed';
-  return trimmed
-      .replaceFirst('http://sd.cc/', 'https://app.saidian.cc/')
-      .replaceFirst('https://sd.cc/', 'https://app.saidian.cc/');
+  try {
+    return GlobalEnvironment.media(source.replaceAll('&amp;', '&'));
+  } on ArgumentError {
+    return '';
+  }
 }
 
 String _plainTextFromHtml(String raw) => raw
@@ -3841,8 +4116,8 @@ class _AiChatPageState extends State<AiChatPage> {
                               ),
                               if (failed) ...[
                                 const SizedBox(height: 5),
-                                const Text(
-                                  '发送失败，请检查网络后重试',
+                                Text(
+                                  context.l10n.messageSendFailed,
                                   style: TextStyle(
                                     color: Color(0xFFFFD7D7),
                                     fontSize: 12,
@@ -3912,7 +4187,9 @@ class _AiChatPageState extends State<AiChatPage> {
                             : 4,
                         textInputAction: TextInputAction.send,
                         onSubmitted: (_) => _send(),
-                        decoration: const InputDecoration(hintText: '请输入消息…'),
+                        decoration: InputDecoration(
+                          hintText: context.l10n.typeMessage,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 9),
@@ -4016,7 +4293,9 @@ class DevicePage extends StatelessWidget {
                           ),
                           const SizedBox(height: 5),
                           _ConnectionBadge(
-                            label: _deviceStateLabel(controller.deviceState),
+                            label: context.l10n.connectionState(
+                              controller.deviceState,
+                            ),
                           ),
                         ],
                       ),
@@ -4042,9 +4321,9 @@ class DevicePage extends StatelessWidget {
                         label: Text(
                           controller.isDeviceSyncing
                               ? controller.deviceSyncProgress <= 0.1
-                                    ? '正在读取数据'
-                                    : '同步中 ${(controller.deviceSyncProgress * 100).round()}%'
-                              : '同步数据',
+                                    ? context.l10n.readingData
+                                    : '${context.l10n.syncing} ${(controller.deviceSyncProgress * 100).round()}%'
+                              : context.l10n.syncData,
                         ),
                         style: FilledButton.styleFrom(
                           minimumSize: const Size.fromHeight(44),
@@ -4060,7 +4339,7 @@ class DevicePage extends StatelessWidget {
                           minimumSize: const Size.fromHeight(44),
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                         ),
-                        child: const Text('断开连接'),
+                        child: Text(context.l10n.disconnect),
                       ),
                     ),
                   ],
@@ -4092,15 +4371,21 @@ class DevicePage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  const Text(
-                    '添加智能设备',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                  Text(
+                    context.l10n.addSmartDevice,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
-                    '请开启手机蓝牙并将手表靠近手机',
+                  Text(
+                    context.l10n.watchNearbyHint,
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: SaydianColors.muted, fontSize: 13),
+                    style: const TextStyle(
+                      color: SaydianColors.muted,
+                      fontSize: 13,
+                    ),
                   ),
                   const SizedBox(height: 22),
                   SizedBox(
@@ -4113,7 +4398,7 @@ class DevicePage extends StatelessWidget {
                         ),
                       ),
                       icon: const Icon(Icons.radar_rounded),
-                      label: const Text('开始查找'),
+                      label: Text(context.l10n.startSearch),
                     ),
                   ),
                 ],
@@ -4125,15 +4410,15 @@ class DevicePage extends StatelessWidget {
         if (connected != null &&
             controller.deviceCapabilityState ==
                 DeviceCapabilityState.loading) ...[
-          const Card(
-            key: Key('device-capabilities-loading'),
+          Card(
+            key: const Key('device-capabilities-loading'),
             child: ListTile(
-              leading: SizedBox.square(
+              leading: const SizedBox.square(
                 dimension: 22,
                 child: CircularProgressIndicator(strokeWidth: 2.2),
               ),
-              title: Text('正在识别手表功能…'),
-              subtitle: Text('识别完成后只显示当前手表可用的功能'),
+              title: Text(context.l10n.readingCapabilities),
+              subtitle: Text(context.l10n.capabilitiesHint),
             ),
           ),
           const SizedBox(height: 12),
@@ -4145,12 +4430,12 @@ class DevicePage extends StatelessWidget {
             key: const Key('device-capabilities-unavailable'),
             child: ListTile(
               leading: const Icon(Icons.refresh_rounded),
-              title: const Text('暂时无法读取此手表的功能'),
-              subtitle: const Text('请保持手表靠近手机后重试'),
+              title: Text(context.l10n.capabilitiesFailed),
+              subtitle: Text(context.l10n.keepWatchNear),
               trailing: TextButton(
                 key: const Key('device-capabilities-retry'),
                 onPressed: controller.refreshDeviceCapabilities,
-                child: const Text('重试'),
+                child: Text(context.l10n.retry),
               ),
             ),
           ),
@@ -4164,9 +4449,9 @@ class DevicePage extends StatelessWidget {
             const SizedBox(height: 16),
           ],
           if (watchFaceFeatures.isNotEmpty) ...[
-            const Text(
-              '表盘与个性化',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+            Text(
+              context.l10n.personalizeWatch,
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 10),
             Row(
@@ -4189,9 +4474,9 @@ class DevicePage extends StatelessWidget {
             const SizedBox(height: 18),
           ],
           if (primaryFeatures.isNotEmpty) ...[
-            const Text(
-              '设备功能',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+            Text(
+              context.l10n.deviceFeatures,
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 10),
             GridView.builder(
@@ -4210,9 +4495,9 @@ class DevicePage extends StatelessWidget {
             const SizedBox(height: 12),
           ],
           if (watchFaceFeatures.isEmpty && primaryFeatures.isEmpty) ...[
-            const _InlineNotice(
-              key: Key('device-no-integrated-features'),
-              message: '此手表的其他设置请在手表上操作',
+            _InlineNotice(
+              key: const Key('device-no-integrated-features'),
+              message: context.l10n.useWatch,
               icon: Icons.watch_outlined,
               color: SaydianColors.blue,
               compact: true,
@@ -4232,8 +4517,8 @@ class DevicePage extends StatelessWidget {
                     ),
                   ),
                   leading: const Icon(Icons.info_outline_rounded),
-                  title: const Text('关于设备'),
-                  subtitle: const Text('查看设备信息'),
+                  title: Text(context.l10n.aboutDevice),
+                  subtitle: Text(context.l10n.deviceInfoHint),
                   trailing: const Icon(Icons.chevron_right_rounded),
                 ),
                 const Divider(indent: 56),
@@ -4242,26 +4527,22 @@ class DevicePage extends StatelessWidget {
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     settings: const RouteSettings(name: 'connection-help'),
-                    builder: (_) => const _InfoPage(
-                      title: '连接说明',
-                      message:
-                          '1. 打开手机蓝牙并允许查找附近设备。\n'
-                          '2. 将手表充电激活，并放在手机旁边。\n'
-                          '3. 点击“开始查找”，选择自己的手表。\n'
-                          '4. 如果手表弹出确认，请及时确认。',
+                    builder: (context) => _InfoPage(
+                      title: context.l10n.connectionHelp,
+                      message: context.l10n.connectionInstructions,
                     ),
                   ),
                 ),
                 leading: const Icon(Icons.help_outline_rounded),
-                title: const Text('连接说明'),
+                title: Text(context.l10n.connectionHelp),
                 trailing: const Icon(Icons.chevron_right_rounded),
               ),
             ],
           ),
         ),
         const SizedBox(height: 10),
-        const _InlineNotice(
-          message: '连接或同步时，请让手表保持电量充足并靠近手机。',
+        _InlineNotice(
+          message: context.l10n.syncNearbyHint,
           icon: Icons.info_outline_rounded,
           color: SaydianColors.blue,
           compact: true,
@@ -4320,12 +4601,14 @@ class DevicePage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      feature == DeviceFeature.contacts ? '联系人' : feature.label,
+                      context.l10n.deviceFeatureName(feature),
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      availability.isReady ? '点击进入' : availability.message,
+                      availability.isReady
+                          ? context.l10n.tapToOpen
+                          : availability.message,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -4396,17 +4679,6 @@ class DevicePage extends StatelessWidget {
     DeviceFeature.weather ||
     DeviceFeature.worldClock => const Color(0xFF0EA5E9),
     _ => SaydianColors.brandGoldDark,
-  };
-
-  String _deviceStateLabel(DeviceConnectionState state) => switch (state) {
-    DeviceConnectionState.disconnected => '未连接',
-    DeviceConnectionState.scanning => '正在搜索',
-    DeviceConnectionState.connecting => '连接中',
-    DeviceConnectionState.authenticating => '等待确认',
-    DeviceConnectionState.syncing => '正在同步',
-    DeviceConnectionState.ready => '已连接',
-    DeviceConnectionState.measuring => '测量中',
-    DeviceConnectionState.error => '需要处理',
   };
 }
 
@@ -4744,7 +5016,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage> {
           canPop: true,
           child: Scaffold(
             appBar: AppBar(
-              title: const Text('添加设备'),
+              title: Text(context.l10n.addDevice),
               actions: [
                 IconButton(
                   tooltip: '重新搜索',
@@ -4763,8 +5035,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage> {
                   : ListView(
                       padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
                       children: [
-                        const Text(
-                          '已发现设备',
+                        Text(
+                          context.l10n.devicesFound,
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 22,
@@ -4773,7 +5045,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage> {
                         ),
                         const SizedBox(height: 7),
                         Text(
-                          scanning ? '正在持续搜索，请将手表靠近手机' : '请选择需要连接的手表',
+                          scanning
+                              ? context.l10n.searchingHint
+                              : context.l10n.selectWatch,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: SaydianColors.muted,
@@ -4896,8 +5170,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage> {
                                               ),
                                             )
                                           else
-                                            const Text(
-                                              '连接',
+                                            Text(
+                                              context.l10n.connect,
                                               style: TextStyle(
                                                 color: SaydianColors.blue,
                                                 fontWeight: FontWeight.w800,
@@ -4936,8 +5210,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage> {
                   key: const Key('device-shop-entry'),
                   onPressed: connecting ? null : _openShop,
                   icon: const Icon(Icons.shopping_bag_outlined),
-                  label: const Text(
-                    '没有设备？去赛电商城看看',
+                  label: Text(
+                    context.l10n.noWatchShopHint,
                     style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ),
@@ -4999,17 +5273,17 @@ class _DeviceSearchEmpty extends StatelessWidget {
         ),
         const SizedBox(height: 28),
         Text(
-          scanning ? '正在搜索附近手表' : '未发现设备',
+          scanning ? context.l10n.searchingNearby : context.l10n.noDevices,
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
         ),
         const SizedBox(height: 10),
         Text(
           scanning
-              ? '请取出设备、充电激活，并将手表靠近手机'
+              ? context.l10n.activateWatch
               : (errorMessage?.trim().isNotEmpty ?? false)
               ? errorMessage!
-              : '请确认手表有电且未连接其他手机，然后重新搜索',
+              : context.l10n.checkWatchConnection,
           textAlign: TextAlign.center,
           style: const TextStyle(color: SaydianColors.muted, height: 1.5),
         ),
@@ -5021,11 +5295,11 @@ class _DeviceSearchEmpty extends StatelessWidget {
           FilledButton.icon(
             onPressed: onRetry,
             icon: const Icon(Icons.refresh_rounded),
-            label: const Text('重新搜索'),
+            label: Text(context.l10n.searchAgain),
           ),
           const SizedBox(height: 20),
-          const _InlineNotice(
-            message: '可尝试重新打开手机蓝牙、让手表靠近手机，或先在其他手机上断开该手表。',
+          _InlineNotice(
+            message: context.l10n.searchRecovery,
             icon: Icons.info_outline_rounded,
             color: SaydianColors.blue,
           ),
@@ -5054,7 +5328,7 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('关于设备')),
+      appBar: AppBar(title: Text(context.l10n.aboutDevice)),
       body: ListenableBuilder(
         listenable: widget.controller,
         builder: (context, _) {
@@ -5067,27 +5341,27 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                 child: Column(
                   children: [
                     ListTile(
-                      title: const Text('设备名称'),
+                      title: Text(context.l10n.deviceName),
                       trailing: Text(device?.name ?? '--'),
                     ),
                     const Divider(indent: 16),
                     ListTile(
-                      title: const Text('设备型号'),
+                      title: Text(context.l10n.deviceModel),
                       trailing: Text(device?.displayModel ?? '--'),
                     ),
                     const Divider(indent: 16),
                     ListTile(
-                      title: const Text('连接状态'),
+                      title: Text(context.l10n.connectionStatus),
                       trailing: Text(device == null ? '未连接' : '已连接'),
                     ),
                     const Divider(indent: 16),
                     ListTile(
-                      title: const Text('固件版本'),
+                      title: Text(context.l10n.firmwareVersion),
                       trailing: Text(device?.firmwareVersion ?? '--'),
                     ),
                     const Divider(indent: 16),
                     ListTile(
-                      title: const Text('手表电量'),
+                      title: Text(context.l10n.watchBattery),
                       subtitle: battery?.updatedAt == null
                           ? null
                           : Text(
@@ -5098,7 +5372,7 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                     if (battery != null) ...[
                       const Divider(indent: 16),
                       ListTile(
-                        title: const Text('充电状态'),
+                        title: Text(context.l10n.chargingStatus),
                         trailing: Text(battery.chargeState.label),
                       ),
                     ],
@@ -5201,7 +5475,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('消息')),
+      appBar: AppBar(title: Text(context.l10n.messages)),
       body: ListenableBuilder(
         listenable: widget.controller,
         builder: (context, _) {
@@ -5290,8 +5564,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                   child: ListTile(
                     leading: const Icon(Icons.notifications_off_outlined),
-                    title: const Text('系统通知未开启'),
-                    subtitle: const Text('应用内红点和消息仍可使用，开启后可及时收到关爱邀请与健康预警。'),
+                    title: Text(context.l10n.notificationsOff),
+                    subtitle: Text(context.l10n.notificationInAppHint),
                     trailing: PopupMenuButton<String>(
                       onSelected: (value) {
                         if (value == 'request') {
@@ -5445,7 +5719,7 @@ class _NotificationDetailPageState extends State<NotificationDetailPage> {
     final isHealthWarning = _value['kind'] == 'health_warning';
     final createdAt = '${_value['created_at'] ?? _value['createdAt'] ?? ''}';
     return Scaffold(
-      appBar: AppBar(title: const Text('消息详情')),
+      appBar: AppBar(title: Text(context.l10n.messageDetails)),
       backgroundColor: const Color(0xFFF7F4F1),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -5510,8 +5784,8 @@ class _NotificationDetailPageState extends State<NotificationDetailPage> {
           ),
           if (isHealthWarning) ...[
             const SizedBox(height: 12),
-            const _InlineNotice(
-              message: '健康预警用于及时提醒，不作为医疗诊断；如有明显不适，请及时就医。',
+            _InlineNotice(
+              message: context.l10n.healthAlertSafetyHint,
               icon: Icons.info_outline_rounded,
               color: SaydianColors.orange,
             ),
@@ -5576,6 +5850,9 @@ class _CarePageState extends State<CarePage> {
   @override
   void initState() {
     super.initState();
+    if (widget.controller.isGlobalEdition) {
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(widget.controller.refreshCare());
@@ -5584,206 +5861,218 @@ class _CarePageState extends State<CarePage> {
   }
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: widget.controller,
-    builder: (context, _) {
-      final controller = widget.controller;
-      final memberCount = controller.careMembers.length;
-      return RefreshIndicator(
-        onRefresh: () async {
-          await Future.wait([
-            controller.refreshCare(),
-            controller.refreshCareInvitations(),
-          ]);
-        },
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFA51125), Color(0xFFD72D42)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(22),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x2EA51125),
-                    blurRadius: 22,
-                    offset: Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: Row(
+  Widget build(BuildContext context) => widget.controller.isGlobalEdition
+      ? GlobalCarePage(controller: widget.controller)
+      : ListenableBuilder(
+          listenable: widget.controller,
+          builder: (context, _) {
+            final controller = widget.controller;
+            final memberCount = controller.careMembers.length;
+            return RefreshIndicator(
+              onRefresh: () async {
+                await Future.wait([
+                  controller.refreshCare(),
+                  controller.refreshCareInvitations(),
+                ]);
+              },
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                 children: [
                   Container(
-                    width: 58,
-                    height: 58,
-                    decoration: const BoxDecoration(
-                      color: Color(0x33FFFFFF),
-                      shape: BoxShape.circle,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFA51125), Color(0xFFD72D42)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(22),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x2EA51125),
+                          blurRadius: 22,
+                          offset: Offset(0, 10),
+                        ),
+                      ],
                     ),
-                    child: const Icon(
-                      Icons.favorite_rounded,
-                      color: Colors.white,
-                      size: 30,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
                       children: [
-                        const Text(
-                          '守护家人健康',
-                          style: TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.w900,
+                        Container(
+                          width: 58,
+                          height: 58,
+                          decoration: const BoxDecoration(
+                            color: Color(0x33FFFFFF),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.favorite_rounded,
                             color: Colors.white,
+                            size: 30,
                           ),
                         ),
-                        const SizedBox(height: 5),
-                        Text(
-                          memberCount == 0
-                              ? '添加关爱成员后查看授权数据'
-                              : '正在关爱 $memberCount 位家人',
-                          style: const TextStyle(
-                            color: Color(0xFFFFDCE1),
-                            fontSize: 14,
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                '守护家人健康',
+                                style: TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                memberCount == 0
+                                    ? '添加关爱成员后查看授权数据'
+                                    : '正在关爱 $memberCount 位家人',
+                                style: const TextStyle(
+                                  color: Color(0xFFFFDCE1),
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton.filled(
+                          tooltip: '添加关爱',
+                          onPressed:
+                              controller.session == null ||
+                                  controller.isPreviewMode
+                              ? null
+                              : () => _showAddCareDialog(context, controller),
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: SaydianColors.brandRed,
+                          ),
+                          icon: const Icon(Icons.person_add_alt_1_rounded),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Card(
+                    margin: EdgeInsets.zero,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _CareActionEntry(
+                            icon: Icons.manage_accounts_outlined,
+                            title: '共享管理',
+                            subtitle: '授权与隐私',
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                settings: const RouteSettings(
+                                  name: 'sharing-management',
+                                ),
+                                builder: (_) => SharingManagementPage(
+                                  controller: controller,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(
+                          height: 76,
+                          child: VerticalDivider(width: 1),
+                        ),
+                        Expanded(
+                          child: _CareActionEntry(
+                            icon: Icons.mark_email_unread_outlined,
+                            title: '关爱邀请',
+                            subtitle: controller.pendingCareInvitations.isEmpty
+                                ? controller.careInvitationStatus
+                                : '${controller.pendingCareInvitations.length} 条待处理',
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                settings: const RouteSettings(
+                                  name: 'care-invitations',
+                                ),
+                                builder: (_) =>
+                                    CareInvitationsPage(controller: controller),
+                              ),
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  IconButton.filled(
-                    tooltip: '添加关爱',
-                    onPressed:
-                        controller.session == null || controller.isPreviewMode
-                        ? null
-                        : () => _showAddCareDialog(context, controller),
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: SaydianColors.brandRed,
-                    ),
-                    icon: const Icon(Icons.person_add_alt_1_rounded),
+                  const SizedBox(height: 18),
+                  Text(
+                    context.l10n.careMembers,
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              margin: EdgeInsets.zero,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _CareActionEntry(
-                      icon: Icons.manage_accounts_outlined,
-                      title: '共享管理',
-                      subtitle: '授权与隐私',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          settings: const RouteSettings(
-                            name: 'sharing-management',
-                          ),
-                          builder: (_) =>
-                              SharingManagementPage(controller: controller),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 76, child: VerticalDivider(width: 1)),
-                  Expanded(
-                    child: _CareActionEntry(
-                      icon: Icons.mark_email_unread_outlined,
-                      title: '关爱邀请',
-                      subtitle: controller.pendingCareInvitations.isEmpty
-                          ? controller.careInvitationStatus
-                          : '${controller.pendingCareInvitations.length} 条待处理',
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          settings: const RouteSettings(
-                            name: 'care-invitations',
-                          ),
-                          builder: (_) =>
-                              CareInvitationsPage(controller: controller),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              '关爱成员',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 12),
-            if (controller.careMembers.isEmpty)
-              _CareMembersStateCard(
-                status: controller.careStatus,
-                errorMessage: controller.careErrorMessage,
-                isPreviewMode: controller.isPreviewMode,
-                canAdd: controller.session != null && !controller.isPreviewMode,
-                onRetry: () async {
-                  await Future.wait([
-                    controller.refreshCare(),
-                    controller.refreshCareInvitations(),
-                  ]);
-                },
-                onAdd: () => _showAddCareDialog(context, controller),
-              )
-            else
-              for (final member in controller.careMembers)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Card(
-                    child: ListTile(
-                      onTap: () {
-                        final id = int.tryParse('${member['id'] ?? ''}');
-                        if (id == null) return;
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => CareMemberPage(
-                              controller: controller,
-                              member: member,
-                              careId: id,
-                            ),
-                          ),
-                        );
+                  const SizedBox(height: 12),
+                  if (controller.careMembers.isEmpty)
+                    _CareMembersStateCard(
+                      status: controller.careStatus,
+                      errorMessage: controller.careErrorMessage,
+                      isPreviewMode: controller.isPreviewMode,
+                      canAdd:
+                          controller.session != null &&
+                          !controller.isPreviewMode,
+                      onRetry: () async {
+                        await Future.wait([
+                          controller.refreshCare(),
+                          controller.refreshCareInvitations(),
+                        ]);
                       },
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 15,
-                        vertical: 8,
+                      onAdd: () => _showAddCareDialog(context, controller),
+                    )
+                  else
+                    for (final member in controller.careMembers)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Card(
+                          child: ListTile(
+                            onTap: () {
+                              final id = int.tryParse('${member['id'] ?? ''}');
+                              if (id == null) return;
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => CareMemberPage(
+                                    controller: controller,
+                                    member: member,
+                                    careId: id,
+                                  ),
+                                ),
+                              );
+                            },
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 15,
+                              vertical: 8,
+                            ),
+                            leading: _MemberAvatar(
+                              imageUrl: '${member['head_portrait'] ?? ''}'
+                                  .trim(),
+                              size: 46,
+                            ),
+                            title: Text(
+                              '${member['nickname'] ?? member['mobile'] ?? '关爱成员'}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '${member['mobile'] ?? '手机号未提供'}\n点击查看实时健康数据',
+                            ),
+                            trailing: const Icon(Icons.chevron_right_rounded),
+                          ),
+                        ),
                       ),
-                      leading: _MemberAvatar(
-                        imageUrl: '${member['head_portrait'] ?? ''}'.trim(),
-                        size: 46,
-                      ),
-                      title: Text(
-                        '${member['nickname'] ?? member['mobile'] ?? '关爱成员'}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      subtitle: Text(
-                        '${member['mobile'] ?? '手机号未提供'}\n点击查看实时健康数据',
-                      ),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                    ),
+                  const SizedBox(height: 4),
+                  const _InlineNotice(
+                    message: '默认不共享任何数据；成员可按指标授权并随时撤销。',
+                    icon: Icons.privacy_tip_outlined,
+                    color: SaydianColors.green,
                   ),
-                ),
-            const SizedBox(height: 4),
-            const _InlineNotice(
-              message: '默认不共享任何数据；成员可按指标授权并随时撤销。',
-              icon: Icons.privacy_tip_outlined,
-              color: SaydianColors.green,
-            ),
-          ],
-        ),
-      );
-    },
-  );
+                ],
+              ),
+            );
+          },
+        );
 }
 
 class _CareMembersStateCard extends StatelessWidget {
@@ -5871,13 +6160,13 @@ class _CareMembersStateCard extends StatelessWidget {
                 OutlinedButton.icon(
                   onPressed: () => unawaited(onRetry()),
                   icon: const Icon(Icons.refresh_rounded),
-                  label: const Text('重新加载'),
+                  label: Text(context.l10n.reload),
                 )
               else
                 FilledButton.icon(
                   onPressed: canAdd ? onAdd : null,
                   icon: const Icon(Icons.person_add_alt_1),
-                  label: const Text('添加关爱'),
+                  label: Text(context.l10n.addCare),
                 ),
             ],
           ],
@@ -6474,7 +6763,10 @@ class _CareMetricDaySummaryCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('当日摘要', style: TextStyle(fontWeight: FontWeight.w900)),
+          Text(
+            context.l10n.dailySummary,
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
           const SizedBox(height: 3),
           const Text(
             '仅汇总当前所选日期的有效记录',
@@ -6618,8 +6910,8 @@ class _CareEcgRecordCard extends StatelessWidget {
                     style: const TextStyle(fontWeight: FontWeight.w900),
                   ),
                 ),
-                const Text(
-                  '远程成员数据',
+                Text(
+                  context.l10n.remoteMemberData,
                   style: TextStyle(
                     color: SaydianColors.techBlue,
                     fontSize: 12,
@@ -6677,8 +6969,8 @@ class _CareEcgRecordCard extends StatelessWidget {
                 ),
               )
             else
-              const _InlineNotice(
-                message: '暂无可用心电波形',
+              _InlineNotice(
+                message: context.l10n.ecgWaveformUnavailable,
                 icon: Icons.monitor_heart_outlined,
                 color: SaydianColors.orange,
               ),
@@ -7251,7 +7543,7 @@ class _AddCareDialogState extends State<_AddCareDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('添加关爱'),
+    title: Text(context.l10n.addCare),
     content: Form(
       key: _formKey,
       child: TextFormField(
@@ -7259,9 +7551,9 @@ class _AddCareDialogState extends State<_AddCareDialog> {
         autofocus: true,
         keyboardType: TextInputType.phone,
         textInputAction: TextInputAction.done,
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           labelText: '对方手机号',
-          hintText: '请输入手机号',
+          hintText: context.l10n.enterPhone,
         ),
         validator: (value) {
           final mobile = value?.trim() ?? '';
@@ -7279,9 +7571,9 @@ class _AddCareDialogState extends State<_AddCareDialog> {
     actions: [
       TextButton(
         onPressed: () => Navigator.of(context).pop(),
-        child: const Text('取消'),
+        child: Text(context.l10n.cancel),
       ),
-      FilledButton(onPressed: _submit, child: const Text('发送')),
+      FilledButton(onPressed: _submit, child: Text(context.l10n.send)),
     ],
   );
 }
@@ -7316,7 +7608,7 @@ class SettingsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final profile = controller.memberProfile;
     final name =
-        '${profile['nickname'] ?? controller.session?.displayName ?? (controller.isPreviewMode ? '体验用户' : '赛电用户')}';
+        '${profile['nickname'] ?? controller.session?.displayName ?? (controller.isPreviewMode ? '体验用户' : context.l10n.defaultUser)}';
     final memberId =
         '${profile['promo_code'] ?? controller.session?.memberId ?? '--'}';
     final avatarUrl = '${profile['head_portrait'] ?? ''}'.trim();
@@ -7324,6 +7616,17 @@ class SettingsPage extends StatelessWidget {
       key: const Key('my-page'),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
+        if (controller.isGlobalEdition)
+          Card(
+            child: ListTile(
+              key: const Key('settings-language'),
+              leading: const Icon(Icons.language),
+              title: Text(context.l10n.language),
+              subtitle: Text(GlobalLocaleScope.of(context).languageName),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => showGlobalLanguagePicker(context),
+            ),
+          ),
         if (controller.isPreviewMode) ...[
           Material(
             key: const Key('preview-login-prompt'),
@@ -7418,8 +7721,8 @@ class SettingsPage extends StatelessWidget {
                       const SizedBox(height: 5),
                       Text(
                         controller.session == null
-                            ? '登录后开启云端健康服务'
-                            : '会员 ID：$memberId',
+                            ? context.l10n.signInCloudHint
+                            : context.l10n.memberId(memberId),
                         style: const TextStyle(
                           color: SaydianColors.muted,
                           fontSize: 14,
@@ -7452,8 +7755,10 @@ class SettingsPage extends StatelessWidget {
               child: _ProfileStat(
                 key: const Key('profile-stat-device'),
                 icon: Icons.watch_outlined,
-                label: '设备',
-                value: controller.connectedDevice == null ? '未连接' : '在线',
+                label: context.l10n.device,
+                value: controller.connectedDevice == null
+                    ? context.l10n.notConnected
+                    : context.l10n.online,
                 color: controller.connectedDevice == null
                     ? SaydianColors.muted
                     : SaydianColors.green,
@@ -7465,12 +7770,17 @@ class SettingsPage extends StatelessWidget {
               child: _ProfileStat(
                 key: const Key('profile-stat-health-records'),
                 icon: Icons.monitor_heart_outlined,
-                label: '健康记录',
-                value: '${controller.healthRecords.length} 条',
+                label: context.l10n.healthRecords,
+                value: context.l10n.recordCount(
+                  controller.healthRecords.length,
+                ),
                 color: SaydianColors.brandRed,
                 onTap: () => _openPage(
                   context,
-                  AllHealthDataPage(controller: controller, title: '健康记录'),
+                  AllHealthDataPage(
+                    controller: controller,
+                    title: context.l10n.healthRecords,
+                  ),
                 ),
               ),
             ),
@@ -7479,13 +7789,13 @@ class SettingsPage extends StatelessWidget {
               child: _ProfileStat(
                 key: const Key('profile-stat-care-members'),
                 icon: Icons.family_restroom_rounded,
-                label: '关爱成员',
-                value: '${controller.careMembers.length} 人',
+                label: context.l10n.careMembers,
+                value: context.l10n.memberCount(controller.careMembers.length),
                 color: SaydianColors.techBlue,
                 onTap: () => _openPage(
                   context,
                   Scaffold(
-                    appBar: AppBar(title: const Text('远程关爱')),
+                    appBar: AppBar(title: Text(context.l10n.remoteCare)),
                     body: CarePage(controller: controller),
                   ),
                 ),
@@ -7506,9 +7816,9 @@ class SettingsPage extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(16, 15, 8, 8),
                 child: Row(
                   children: [
-                    const Text(
-                      '我的订单',
-                      style: TextStyle(
+                    Text(
+                      context.l10n.myOrders,
+                      style: const TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w900,
                       ),
@@ -7516,7 +7826,7 @@ class SettingsPage extends StatelessWidget {
                     const Spacer(),
                     TextButton(
                       onPressed: () => _openOrders(context, null),
-                      child: const Text('全部'),
+                      child: Text(context.l10n.all),
                     ),
                   ],
                 ),
@@ -7528,28 +7838,28 @@ class SettingsPage extends StatelessWidget {
                   children: [
                     Expanded(
                       child: _OrderEntry(
-                        label: '待支付',
+                        label: context.l10n.awaitingPayment,
                         icon: Icons.account_balance_wallet_outlined,
                         onTap: () => _openOrders(context, 0),
                       ),
                     ),
                     Expanded(
                       child: _OrderEntry(
-                        label: '待发货',
+                        label: context.l10n.awaitingShipment,
                         icon: Icons.inventory_2_outlined,
                         onTap: () => _openOrders(context, 1),
                       ),
                     ),
                     Expanded(
                       child: _OrderEntry(
-                        label: '待收货',
+                        label: context.l10n.awaitingDelivery,
                         icon: Icons.local_shipping_outlined,
                         onTap: () => _openOrders(context, 2),
                       ),
                     ),
                     Expanded(
                       child: _OrderEntry(
-                        label: '售后',
+                        label: context.l10n.afterSales,
                         icon: Icons.support_agent_rounded,
                         onTap: () => _openPage(
                           context,
@@ -7575,8 +7885,8 @@ class SettingsPage extends StatelessWidget {
               if (controller.connectedDevice == null) ...[
                 _MyQuickEntry(
                   key: const Key('my-add-device'),
-                  title: '添加设备',
-                  subtitle: '搜索并连接附近的赛电手表',
+                  title: context.l10n.addDevice,
+                  subtitle: context.l10n.searchNearbyWatch,
                   icon: Icons.watch_outlined,
                   color: SaydianColors.brandRed,
                   onTap: () => _openPage(
@@ -7588,8 +7898,8 @@ class SettingsPage extends StatelessWidget {
               ],
               _MyQuickEntry(
                 key: const Key('my-ai-question'),
-                title: 'AI提问',
-                subtitle: '向 AI 健康管家咨询健康问题',
+                title: context.l10n.aiQuestion,
+                subtitle: context.l10n.aiQuestionHint,
                 icon: Icons.chat_bubble_outline_rounded,
                 color: SaydianColors.brandGoldDark,
                 onTap: () => _openPage(
@@ -7599,8 +7909,8 @@ class SettingsPage extends StatelessWidget {
               ),
               const Divider(height: 1, indent: 72),
               _MyQuickEntry(
-                title: '单位设置',
-                subtitle: '设置距离、温度等数据单位',
+                title: context.l10n.unitSettings,
+                subtitle: context.l10n.unitSettingsHint,
                 icon: Icons.straighten_rounded,
                 color: SaydianColors.blue,
                 onTap: () => _openPage(
@@ -7622,13 +7932,13 @@ class SettingsPage extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(8, 16, 8, 14),
             child: Column(
               children: [
-                const Align(
+                Align(
                   alignment: Alignment.centerLeft,
                   child: Padding(
-                    padding: EdgeInsets.only(left: 8, bottom: 14),
+                    padding: const EdgeInsets.only(left: 8, bottom: 14),
                     child: Text(
-                      '我的服务',
-                      style: TextStyle(
+                      context.l10n.myServices,
+                      style: const TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w900,
                       ),
@@ -7850,17 +8160,17 @@ class _MyServicesGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final entries = <({String label, IconData icon, Widget page})>[
       (
-        label: '健康档案',
+        label: context.l10n.healthProfile,
         icon: Icons.assignment_ind_outlined,
         page: HealthProfilePage(controller: controller),
       ),
       (
-        label: '账号设置',
+        label: context.l10n.accountSettings,
         icon: Icons.manage_accounts_outlined,
         page: AccountSettingsPage(controller: controller),
       ),
       (
-        label: '权限管理',
+        label: context.l10n.permissions,
         icon: Icons.admin_panel_settings_outlined,
         page: PermissionManagementPage(controller: controller),
       ),
@@ -7870,12 +8180,12 @@ class _MyServicesGrid extends StatelessWidget {
         page: FeedbackPage(controller: controller),
       ),
       (
-        label: '联系客服',
+        label: context.l10n.customerService,
         icon: Icons.headset_mic_outlined,
-        page: const CustomerServicePage(),
+        page: CustomerServicePage(isGlobalEdition: controller.isGlobalEdition),
       ),
       (
-        label: '关于我们',
+        label: context.l10n.aboutApp,
         icon: Icons.info_outline_rounded,
         page: AboutSaydianPage(controller: controller),
       ),
@@ -8107,7 +8417,7 @@ class _AfterSalesPageState extends State<AfterSalesPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('售后服务')),
+    appBar: AppBar(title: Text(context.l10n.afterSalesService)),
     body: ListenableBuilder(
       listenable: widget.controller,
       builder: (context, _) {
@@ -8150,8 +8460,8 @@ class _AfterSalesPageState extends State<AfterSalesPage> {
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
           children: [
-            const _InlineNotice(
-              message: '请选择需要售后的商品，并填写原因和申请金额。提交后可在订单列表查看处理状态。',
+            _InlineNotice(
+              message: context.l10n.afterSalesApplyHint,
               icon: Icons.info_outline_rounded,
               color: SaydianColors.techBlue,
             ),
@@ -8297,7 +8607,7 @@ class _AfterSalesApplyPageState extends State<_AfterSalesApplyPage> {
   Widget build(BuildContext context) {
     final alreadyApplied = '${widget.product['is_customer'] ?? 0}' == '1';
     return Scaffold(
-      appBar: AppBar(title: const Text('申请售后')),
+      appBar: AppBar(title: Text(context.l10n.applyAfterSales)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -8312,15 +8622,17 @@ class _AfterSalesApplyPageState extends State<_AfterSalesApplyPage> {
           ),
           const SizedBox(height: 12),
           if (alreadyApplied)
-            const _InlineNotice(
-              message: '该商品已经提交售后申请，请等待商城工作人员处理。',
+            _InlineNotice(
+              message: context.l10n.afterSalesAlreadySubmitted,
               icon: Icons.schedule_rounded,
               color: SaydianColors.orange,
             )
           else ...[
             DropdownButtonFormField<int>(
               initialValue: _refundType,
-              decoration: const InputDecoration(labelText: '售后类型'),
+              decoration: InputDecoration(
+                labelText: context.l10n.afterSalesType,
+              ),
               items: const [
                 DropdownMenuItem(value: 1, child: Text('仅退款')),
                 DropdownMenuItem(value: 2, child: Text('退货退款')),
@@ -8333,7 +8645,9 @@ class _AfterSalesApplyPageState extends State<_AfterSalesApplyPage> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
-              decoration: const InputDecoration(labelText: '申请金额'),
+              decoration: InputDecoration(
+                labelText: context.l10n.requestedAmount,
+              ),
             ),
             const SizedBox(height: 14),
             TextField(
@@ -8341,9 +8655,9 @@ class _AfterSalesApplyPageState extends State<_AfterSalesApplyPage> {
               minLines: 3,
               maxLines: 5,
               maxLength: 200,
-              decoration: const InputDecoration(
-                labelText: '售后原因',
-                hintText: '请说明遇到的问题',
+              decoration: InputDecoration(
+                labelText: context.l10n.afterSalesReason,
+                hintText: context.l10n.describeProblem,
                 alignLabelWithHint: true,
               ),
             ),
@@ -8428,7 +8742,7 @@ class _OrdersPageState extends State<OrdersPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('我的订单')),
+      appBar: AppBar(title: Text(context.l10n.myOrders)),
       body: Column(
         children: [
           DecoratedBox(
@@ -8655,7 +8969,7 @@ class _OrderCard extends StatelessWidget {
                         fontSize: 14,
                       ),
                     ),
-                    const Text('实付款'),
+                    Text(context.l10n.amountPaid),
                     Text(
                       '¥${order['pay_money'] ?? '--'}',
                       style: const TextStyle(
@@ -8757,7 +9071,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
         '${_order['receiver_address'] ?? _order['address'] ?? '--'}';
     final orderNumber = '${_order['order_sn'] ?? widget.id}';
     return Scaffold(
-      appBar: AppBar(title: const Text('订单详情')),
+      appBar: AppBar(title: Text(context.l10n.orderDetails)),
       backgroundColor: const Color(0xFFF7F4F1),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -8767,8 +9081,8 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                 padding: const EdgeInsets.all(16),
                 children: [
                   if (_order.isEmpty)
-                    const _InlineNotice(
-                      message: '订单详情加载失败，请稍后重试。',
+                    _InlineNotice(
+                      message: context.l10n.orderDetailsLoadFailed,
                       icon: Icons.error_outline_rounded,
                       color: SaydianColors.orange,
                     )
@@ -8978,7 +9292,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                               ),
                             ),
                             icon: const Icon(Icons.support_agent_outlined),
-                            label: const Text('申请售后'),
+                            label: Text(context.l10n.applyAfterSales),
                           ),
                         if (status != null && status >= 2)
                           OutlinedButton.icon(
@@ -8991,14 +9305,14 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                               ),
                             ),
                             icon: const Icon(Icons.local_shipping_outlined),
-                            label: const Text('查看物流'),
+                            label: Text(context.l10n.viewShipping),
                           ),
                         if (status == 2)
                           FilledButton.icon(
                             key: const Key('confirm-order-receipt'),
                             onPressed: _confirmReceipt,
                             icon: const Icon(Icons.inventory_rounded),
-                            label: const Text('确认收货'),
+                            label: Text(context.l10n.confirmReceipt),
                           ),
                         if (status == 0)
                           FilledButton.icon(
@@ -9015,7 +9329,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                               ),
                             ),
                             icon: const Icon(Icons.payment_rounded),
-                            label: const Text('查看支付状态'),
+                            label: Text(context.l10n.checkPaymentStatus),
                           ),
                       ],
                     ),
@@ -9048,16 +9362,16 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('确认已经收到商品？'),
-        content: const Text('确认收货后订单将完成。如尚未收到商品，请不要确认。'),
+        title: Text(context.l10n.confirmItemReceived),
+        content: Text(context.l10n.confirmReceiptHint),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('暂不确认'),
+            child: Text(context.l10n.notConfirmYet),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('确认收货'),
+            child: Text(context.l10n.confirmReceipt),
           ),
         ],
       ),
@@ -9138,7 +9452,7 @@ class _UnitSettingsPageState extends State<UnitSettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('单位设置')),
+      appBar: AppBar(title: Text(context.l10n.unitSettings)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -9182,8 +9496,8 @@ class _UnitSettingsPageState extends State<UnitSettingsPage> {
             ),
           ),
           const SizedBox(height: 12),
-          const _InlineNotice(
-            message: '单位选择会立即生效。重新安装应用后可能需要再次设置。',
+          _InlineNotice(
+            message: context.l10n.unitChangesHint,
             icon: Icons.info_outline_rounded,
             color: SaydianColors.blue,
           ),
@@ -9258,31 +9572,37 @@ class _GoalSettingsPageState extends State<GoalSettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('目标设置')),
+      appBar: AppBar(title: Text(context.l10n.goalSettingsTitle)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           TextField(
             controller: _steps,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: '每日步数目标（步）'),
+            decoration: InputDecoration(
+              labelText: context.l10n.dailyStepGoalField,
+            ),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _distance,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: '每日距离目标（公里）'),
+            decoration: InputDecoration(
+              labelText: context.l10n.dailyDistanceGoalField,
+            ),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _calories,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: '每日热量目标（千卡）'),
+            decoration: InputDecoration(
+              labelText: context.l10n.dailyCalorieGoalField,
+            ),
           ),
           const SizedBox(height: 20),
           FilledButton(
             onPressed: widget.controller.isBusy ? null : _save,
-            child: const Text('保存目标'),
+            child: Text(context.l10n.saveGoals),
           ),
         ],
       ),
@@ -9298,7 +9618,7 @@ class AccountSettingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('账号设置')),
+      appBar: AppBar(title: Text(context.l10n.accountSettings)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -9312,8 +9632,12 @@ class AccountSettingsPage extends StatelessWidget {
                     ),
                   ),
                   leading: const Icon(Icons.person_outline_rounded),
-                  title: const Text('个人资料'),
-                  subtitle: const Text('注册手机号和基础资料'),
+                  title: Text(context.l10n.personalInfo),
+                  subtitle: Text(
+                    controller.isGlobalEdition
+                        ? context.l10n.emailOrPhone
+                        : '注册手机号和基础资料',
+                  ),
                   trailing: const Icon(Icons.chevron_right_rounded),
                 ),
                 const Divider(indent: 56),
@@ -9325,8 +9649,8 @@ class AccountSettingsPage extends StatelessWidget {
                     ),
                   ),
                   leading: const Icon(Icons.location_on_outlined),
-                  title: const Text('收货地址'),
-                  subtitle: const Text('查看账号中的收货地址'),
+                  title: Text(context.l10n.deliveryAddresses),
+                  subtitle: Text(context.l10n.viewAccountAddresses),
                   trailing: const Icon(Icons.chevron_right_rounded),
                 ),
                 const Divider(indent: 56),
@@ -9334,13 +9658,21 @@ class AccountSettingsPage extends StatelessWidget {
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       settings: const RouteSettings(name: 'reset-password'),
-                      builder: (_) =>
-                          PasswordRecoveryPage(controller: controller),
+                      builder: (_) => controller.isGlobalEdition
+                          ? GlobalAuthPage(
+                              controller: controller,
+                              resetPassword: true,
+                            )
+                          : PasswordRecoveryPage(controller: controller),
                     ),
                   ),
                   leading: const Icon(Icons.password_rounded),
-                  title: const Text('重置密码'),
-                  subtitle: const Text('验证手机号后重新设置登录密码'),
+                  title: Text(context.l10n.resetPassword),
+                  subtitle: Text(
+                    controller.isGlobalEdition
+                        ? context.l10n.emailOrPhone
+                        : '验证手机号后重新设置登录密码',
+                  ),
                   trailing: const Icon(Icons.chevron_right_rounded),
                 ),
                 const Divider(indent: 56),
@@ -9355,7 +9687,7 @@ class AccountSettingsPage extends StatelessWidget {
                     ),
                   ),
                   leading: const Icon(Icons.privacy_tip_outlined),
-                  title: const Text('隐私协议'),
+                  title: Text(context.l10n.privacyAgreement),
                   trailing: const Icon(Icons.chevron_right_rounded),
                 ),
               ],
@@ -9379,7 +9711,7 @@ class AccountSettingsPage extends StatelessWidget {
                 ? null
                 : () => _confirmDeleteAccount(context),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('注销账号'),
+            child: Text(context.l10n.deleteAccount),
           ),
         ],
       ),
@@ -9390,17 +9722,17 @@ class AccountSettingsPage extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('确认注销账号？'),
-        content: const Text('账号及相关数据删除成功后，本机会退出登录。'),
+        title: Text(context.l10n.confirmDeleteAccountTitle),
+        content: Text(context.l10n.deleteAccountHint),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('确认注销'),
+            child: Text(context.l10n.confirmDelete),
           ),
         ],
       ),
@@ -9428,7 +9760,7 @@ class _AddressPageState extends State<AddressPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('收货地址')),
+      appBar: AppBar(title: Text(context.l10n.deliveryAddresses)),
       body: ListenableBuilder(
         listenable: widget.controller,
         builder: (context, _) {
@@ -9535,8 +9867,15 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
     super.dispose();
   }
 
-  String _mobileFromProfile(Map<String, Object?> profile) =>
-      '${profile['mobile'] ?? ''}'.trim();
+  String _mobileFromProfile(Map<String, Object?> profile) {
+    if (widget.controller.isGlobalEdition) {
+      return [profile['emailMasked'], profile['phoneMasked']]
+          .whereType<String>()
+          .where((value) => value.trim().isNotEmpty)
+          .join(' · ');
+    }
+    return '${profile['mobile'] ?? ''}'.trim();
+  }
 
   Future<void> _selectBirthday() async {
     final initial = DateTime.tryParse(_birthday.text) ?? DateTime(1990);
@@ -9675,11 +10014,11 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
+            child: Text(context.l10n.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('退出'),
+            child: Text(context.l10n.exit),
           ),
         ],
       ),
@@ -9693,7 +10032,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('个人资料')),
+      appBar: AppBar(title: Text(context.l10n.personalInfo)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -9724,8 +10063,8 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
             const SizedBox(height: 14),
             const LinearProgressIndicator(),
             const SizedBox(height: 8),
-            const Text(
-              '正在读取个人资料…',
+            Text(
+              context.l10n.loadingProfile,
               textAlign: TextAlign.center,
               style: TextStyle(color: SaydianColors.muted),
             ),
@@ -9741,23 +10080,29 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
               child: TextButton.icon(
                 onPressed: _loadLatestProfile,
                 icon: const Icon(Icons.refresh_rounded),
-                label: const Text('重新读取'),
+                label: Text(context.l10n.readAgain),
               ),
             ),
           ],
           const SizedBox(height: 22),
           Semantics(
-            label: _registeredMobile.isEmpty
+            label: widget.controller.isGlobalEdition
+                ? '${context.l10n.emailOrPhone}, ${_registeredMobile.isEmpty ? '—' : _registeredMobile}'
+                : _registeredMobile.isEmpty
                 ? '注册手机号，未获取'
                 : '注册手机号，$_registeredMobile',
             child: InputDecorator(
               key: const Key('profile-registered-mobile'),
-              decoration: const InputDecoration(
-                labelText: '注册手机号',
-                suffixIcon: Icon(Icons.lock_outline_rounded),
+              decoration: InputDecoration(
+                labelText: widget.controller.isGlobalEdition
+                    ? context.l10n.emailOrPhone
+                    : '注册手机号',
+                suffixIcon: const Icon(Icons.lock_outline_rounded),
               ),
               child: Text(
-                _registeredMobile.isEmpty ? '未获取' : _registeredMobile,
+                _registeredMobile.isEmpty
+                    ? (widget.controller.isGlobalEdition ? '—' : '未获取')
+                    : _registeredMobile,
                 style: const TextStyle(color: SaydianColors.ink, fontSize: 16),
               ),
             ),
@@ -9768,13 +10113,13 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
             controller: _nickname,
             enabled: !_isLoadingProfile,
             onChanged: _markProfileEdited,
-            decoration: const InputDecoration(labelText: '昵称'),
+            decoration: InputDecoration(labelText: context.l10n.nickname),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<int>(
             key: ValueKey('profile-gender-$_gender'),
             initialValue: _gender,
-            decoration: const InputDecoration(labelText: '性别'),
+            decoration: InputDecoration(labelText: context.l10n.gender),
             items: const [
               DropdownMenuItem(value: 0, child: Text('未设置')),
               DropdownMenuItem(value: 1, child: Text('男')),
@@ -9794,8 +10139,8 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
             readOnly: true,
             enabled: !_isLoadingProfile,
             onTap: _isLoadingProfile ? null : _selectBirthday,
-            decoration: const InputDecoration(
-              labelText: '出生日期',
+            decoration: InputDecoration(
+              labelText: context.l10n.birthDate,
               suffixIcon: Icon(Icons.calendar_month_outlined),
             ),
           ),
@@ -9806,7 +10151,7 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
             enabled: !_isLoadingProfile,
             onChanged: _markProfileEdited,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: '身高（cm）'),
+            decoration: InputDecoration(labelText: context.l10n.heightCm),
           ),
           const SizedBox(height: 12),
           TextField(
@@ -9815,11 +10160,11 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
             enabled: !_isLoadingProfile,
             onChanged: _markProfileEdited,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: '体重（kg）'),
+            decoration: InputDecoration(labelText: context.l10n.weightKg),
           ),
           const SizedBox(height: 18),
-          const _InlineNotice(
-            message: '头像和个人资料会在点击保存后同步到账号，用于个人中心和远程关爱成员识别。',
+          _InlineNotice(
+            message: context.l10n.profileSaveExplanation,
             icon: Icons.privacy_tip_outlined,
             color: SaydianColors.blue,
           ),
@@ -9957,8 +10302,8 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
             if (widget.healthOnly) ..._healthMonitoringContent(),
             if (!widget.healthOnly) ...[
               const SizedBox(height: 20),
-              const Text(
-                'App 系统权限',
+              Text(
+                context.l10n.appPermissions,
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 8),
@@ -9983,7 +10328,7 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
                         ),
                         trailing: TextButton(
                           onPressed: () => _request(permission),
-                          child: const Text('设置'),
+                          child: Text(context.l10n.settings),
                         ),
                       ),
                       if (permission != _permissions.last)
@@ -9996,7 +10341,7 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
               OutlinedButton.icon(
                 onPressed: openAppSettings,
                 icon: const Icon(Icons.settings_outlined),
-                label: const Text('打开系统应用设置'),
+                label: Text(context.l10n.openSystemSettings),
               ),
             ],
           ],
@@ -10046,7 +10391,7 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
                   DropdownButton<int>(
                     key: ValueKey('device-health-interval-$type'),
                     value: interval.minutes > 0 ? interval.minutes : null,
-                    hint: const Text('请选择'),
+                    hint: Text(context.l10n.choose),
                     items: [
                       for (final minutes in interval.choices)
                         DropdownMenuItem(
@@ -10152,9 +10497,9 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
       ),
       const SizedBox(height: 8),
       if (controller.connectedDevice == null)
-        const FeatureStateCard(
-          message: '连接手表后使用',
-          detail: '连接后会显示当前手表可设置的健康检测项目。',
+        FeatureStateCard(
+          message: context.l10n.connectWatchToUse,
+          detail: context.l10n.monitoringHint,
           icon: Icons.watch_outlined,
         )
       else if (tiles.isEmpty)
@@ -10178,8 +10523,8 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
       Icons.warning_amber_rounded,
       color: SaydianColors.orange,
     ),
-    title: const Text('心率过高预警'),
-    subtitle: const Text('达到阈值后由手表提醒'),
+    title: Text(context.l10n.watchHighHeartRate),
+    subtitle: Text(context.l10n.watchThresholdHint),
     trailing: DropdownButton<int>(
       value: widget.controller.heartRateWarning,
       items: [

@@ -1,3 +1,5 @@
+import '../l10n/global_locale_controller.dart';
+import '../l10n/ui_labels.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -42,8 +44,8 @@ class HealthMetricMiniChart extends StatelessWidget {
             return const SizedBox.shrink();
           }
           if (snapshot.hasError) {
-            return const Text(
-              '趋势暂不可用',
+            return Text(
+              context.l10n.trendUnavailable,
               style: TextStyle(color: SaydianColors.muted),
             );
           }
@@ -283,7 +285,11 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
       HealthTrendPeriod.month => DateFormat('yyyy年M月').format(range.start),
     };
     return Scaffold(
-      appBar: AppBar(title: Text('${widget.metric.label}分析')),
+      appBar: AppBar(
+        title: Text(
+          context.l10n.metricAnalysis(context.l10n.metricName(widget.metric)),
+        ),
+      ),
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
@@ -396,8 +402,8 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
         if (widget.metric != HealthMetric.ecg) const SizedBox(height: 16),
         Row(
           children: [
-            const Text(
-              '近期数据',
+            Text(
+              context.l10n.recentData,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
             const Spacer(),
@@ -429,9 +435,9 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
           ),
       ],
       const SizedBox(height: 8),
-      const FeatureStateCard(
-        message: '趋势仅作日常健康参考',
-        detail: '单次和阶段变化可能受佩戴、运动及环境影响，不替代医疗诊断。',
+      FeatureStateCard(
+        message: context.l10n.trendReferenceOnly,
+        detail: context.l10n.trendVariationSafety,
         icon: Icons.health_and_safety_outlined,
         color: SaydianColors.green,
       ),
@@ -455,7 +461,9 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
                     children: [
                       Expanded(
                         child: Text(
-                          '${widget.metric.label}全部数据',
+                          context.l10n.metricAllData(
+                            context.l10n.metricName(widget.metric),
+                          ),
                           style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.w900,
@@ -922,7 +930,10 @@ class _MessageCard extends StatelessWidget {
             ],
             if (action != null) ...[
               const SizedBox(height: 12),
-              TextButton(onPressed: action, child: const Text('重新读取')),
+              TextButton(
+                onPressed: action,
+                child: Text(context.l10n.readAgain),
+              ),
             ],
           ],
         ),

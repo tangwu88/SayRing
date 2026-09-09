@@ -6,6 +6,26 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testHistoricalRecordUsesObservationDateTimezone() throws {
+    let formatter = ISO8601DateFormatter()
+    let zone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+    let winter = try XCTUnwrap(formatter.date(from: "2026-01-15T12:00:00Z"))
+    let summer = try XCTUnwrap(formatter.date(from: "2026-07-15T12:00:00Z"))
+    XCTAssertEqual(WearableRecordTimezone.offset(at: winter, timeZone: zone), "-05:00")
+    XCTAssertEqual(WearableRecordTimezone.offset(at: summer, timeZone: zone), "-04:00")
+  }
+
+  func testRecordTimezoneAcrossDaylightSavingBoundary() throws {
+    let formatter = ISO8601DateFormatter()
+    let zone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+    let before = try XCTUnwrap(formatter.date(from: "2026-03-08T06:59:59Z"))
+    let after = try XCTUnwrap(formatter.date(from: "2026-03-08T07:00:00Z"))
+    XCTAssertEqual(WearableRecordTimezone.offset(at: before, timeZone: zone), "-05:00")
+    XCTAssertEqual(WearableRecordTimezone.offset(at: after, timeZone: zone), "-04:00")
+    let fractional = try XCTUnwrap(TimeZone(secondsFromGMT: -1800))
+    XCTAssertEqual(WearableRecordTimezone.offset(at: after, timeZone: fractional), "-00:30")
+  }
+
   func testWechatAuthIgnoresForeignAndDuplicateCallbacks() {
     var state = IOSWechatAuthState()
     let nonce = "sd_1788569000000_0123456789abcdef"

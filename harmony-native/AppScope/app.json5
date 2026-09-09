@@ -1,6 +1,6 @@
 {
   "app": {
-    "bundleName": "cc.saidian.app.hm",
+    "bundleName": "cn.saydian.app.global.hm",
     "vendor": "SAYDIAN",
     "versionCode": 9,
     "versionName": "0.1.4",

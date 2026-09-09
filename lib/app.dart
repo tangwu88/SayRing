@@ -4,6 +4,10 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:country_picker/country_picker.dart';
+
+import 'l10n/generated/app_localizations.dart';
+import 'l10n/global_locale_controller.dart';
 
 import 'services/app_controller.dart';
 import 'services/notification_route_service.dart';
@@ -13,6 +17,7 @@ import 'ui/app_update_gate_scope.dart';
 import 'ui/brand_assets.dart';
 import 'ui/pages.dart';
 import 'ui/prototype_pages.dart';
+import 'ui/global_auth_page.dart';
 
 class DismissKeyboardOnBackgroundTap extends StatefulWidget {
   const DismissKeyboardOnBackgroundTap({required this.child, super.key});
@@ -128,6 +133,7 @@ class SaydianApp extends StatefulWidget {
     this.updateService,
     this.updateCheckStore,
     this.updateGateController,
+    this.localeController,
     super.key,
   });
 
@@ -135,6 +141,7 @@ class SaydianApp extends StatefulWidget {
   final AppUpdateService? updateService;
   final AppUpdateCheckStore? updateCheckStore;
   final AppUpdateGateController? updateGateController;
+  final GlobalLocaleController? localeController;
 
   @override
   State<SaydianApp> createState() => _SaydianAppState();
@@ -152,15 +159,36 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
   bool _updateCheckRunning = false;
   bool _notificationRouteRunning = false;
   bool _permissionPromptRunning = false;
+  late final GlobalLocaleController _localeController;
+  late final bool _ownsLocaleController;
 
   AppController get controller => widget.controller;
 
   @override
   void initState() {
     super.initState();
+    _ownsLocaleController =
+        widget.localeController == null && !controller.isGlobalEdition;
+    _localeController =
+        widget.localeController ??
+        (controller.isGlobalEdition
+            ? GlobalLocaleController.instance
+            : GlobalLocaleController(
+                initialLocale: const Locale.fromSubtags(
+                  languageCode: 'zh',
+                  scriptCode: 'Hans',
+                ),
+              ));
+    if (controller.isGlobalEdition || widget.localeController != null) {
+      unawaited(_localeController.load());
+    }
     WidgetsBinding.instance.addObserver(this);
     controller.addListener(_handleControllerState);
-    _updateService = widget.updateService ?? AppUpdateService();
+    _updateService =
+        widget.updateService ??
+        (controller.isGlobalEdition
+            ? GlobalAppUpdateService()
+            : AppUpdateService());
     _updateCoordinator = AppUpdateCoordinator(
       _updateService,
       store: widget.updateCheckStore,
@@ -271,16 +299,16 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
       final allowed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('开启赛电消息通知'),
-          content: const Text('用于提醒新的健康预警和关爱邀请。锁屏上不会显示具体健康数值，可随时在系统设置中关闭。'),
+          title: Text(dialogContext.l10n.enableNotifications),
+          content: Text(dialogContext.l10n.notificationExplanation),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('暂不开启'),
+              child: Text(dialogContext.l10n.notNow),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('允许通知'),
+              child: Text(dialogContext.l10n.allowNotifications),
             ),
           ],
         ),
@@ -334,7 +362,9 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
         final context = _navigatorKey.currentContext;
         if (context != null && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('当前已是最新版本 V${info.currentVersion}')),
+            SnackBar(
+              content: Text(context.l10n.latestVersion(info.currentVersion)),
+            ),
           );
         }
       }
@@ -353,19 +383,30 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
   }
 
   Future<void> _showOptionalUpdate(AppUpdateInfo info) async {
+    // Locale delegates may still be mounting the first Navigator when a fast
+    // manifest response arrives. Do not silently discard the optional update.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || !_requiredUpdateGateResolved || _requiredUpdate != null) {
+      return;
+    }
     final context = _navigatorKey.currentContext;
     if (context == null || !context.mounted) return;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(
-          info.title.isNotEmpty ? info.title : '发现新版本 V${info.latestVersion}',
+          info.title.isNotEmpty ? info.title : dialogContext.l10n.updateReady,
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('当前版本 V${info.currentVersion} · 构建 ${info.currentBuild}'),
+            Text(
+              dialogContext.l10n.versionBuild(
+                info.currentVersion,
+                info.currentBuild,
+              ),
+            ),
             if (info.releaseNotes.isNotEmpty) ...[
               const SizedBox(height: 12),
               Text(info.releaseNotes),
@@ -375,7 +416,7 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('稍后'),
+            child: Text(dialogContext.l10n.notNow),
           ),
           FilledButton(
             onPressed: () {
@@ -393,7 +434,7 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
                 ),
               );
             },
-            child: const Text('立即更新'),
+            child: Text(dialogContext.l10n.updateNow),
           ),
         ],
       ),
@@ -444,170 +485,185 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
     // polling must not outlive the app shell that owns the lifecycle observer.
     controller.setAppForeground(false);
     _updateGateController.detach(_manualUpdateCheck);
+    if (_ownsLocaleController) _localeController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      navigatorKey: _navigatorKey,
-      title: 'Saydian赛电',
-      debugShowCheckedModeBanner: false,
-      theme: buildSaydianTheme(),
-      locale: const Locale('zh', 'CN'),
-      supportedLocales: const [Locale('zh', 'CN')],
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      builder: (context, child) => DismissKeyboardOnBackgroundTap(
-        child: AppUpdateGateScope(
-          controller: _updateGateController,
-          child: ListenableBuilder(
-            listenable: controller,
-            builder: (context, _) {
-              final alert = controller.activeHealthWarningAlert;
-              final careAlert = controller.activeCareInvitationAlert;
-              return Stack(
-                children: [
-                  child ?? const SizedBox.shrink(),
-                  if (alert != null)
-                    Positioned(
-                      left: 12,
-                      right: 12,
-                      top: MediaQuery.paddingOf(context).top + 10,
-                      child: Material(
-                        key: const Key('global-health-warning'),
-                        elevation: 10,
-                        color: const Color(0xFFFFF1EE),
-                        borderRadius: BorderRadius.circular(16),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Padding(
-                                padding: EdgeInsets.only(top: 2),
-                                child: Icon(
-                                  Icons.warning_amber_rounded,
-                                  color: SaydianColors.danger,
-                                ),
+    return GlobalLocaleScope(
+      controller: _localeController,
+      child: ListenableBuilder(
+        listenable: _localeController,
+        builder: (context, _) => MaterialApp(
+          navigatorKey: _navigatorKey,
+          title: controller.isGlobalEdition ? 'Saydian' : 'Saydian赛电',
+          debugShowCheckedModeBanner: false,
+          theme: buildSaydianTheme(),
+          locale: _localeController.locale,
+          supportedLocales: GlobalLocaleController.supportedLocales,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            CountryLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          builder: (context, child) => DismissKeyboardOnBackgroundTap(
+            child: AppUpdateGateScope(
+              controller: _updateGateController,
+              child: ListenableBuilder(
+                listenable: controller,
+                builder: (context, _) {
+                  final alert = controller.activeHealthWarningAlert;
+                  final careAlert = controller.activeCareInvitationAlert;
+                  return Stack(
+                    children: [
+                      child ?? const SizedBox.shrink(),
+                      if (alert != null)
+                        Positioned(
+                          left: 12,
+                          right: 12,
+                          top: MediaQuery.paddingOf(context).top + 10,
+                          child: Material(
+                            key: const Key('global-health-warning'),
+                            elevation: 10,
+                            color: const Color(0xFFFFF1EE),
+                            borderRadius: BorderRadius.circular(16),
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 2),
+                                    child: Icon(
+                                      Icons.warning_amber_rounded,
+                                      color: SaydianColors.danger,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          alert.title,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                            color: SaydianColors.danger,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(alert.message),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          context.l10n.healthSafetyAdvice,
+                                          style: const TextStyle(fontSize: 13),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Semantics(
+                                    button: true,
+                                    label: context.l10n.dismissHealthAlert,
+                                    child: IconButton(
+                                      key: const Key('dismiss-health-warning'),
+                                      onPressed:
+                                          controller.dismissHealthWarningAlert,
+                                      icon: const Icon(Icons.close_rounded),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      alert.title,
+                            ),
+                          ),
+                        )
+                      else if (careAlert != null &&
+                          controller.isAuthenticated &&
+                          _requiredUpdateGateResolved &&
+                          _requiredUpdate == null)
+                        Positioned(
+                          left: 12,
+                          right: 12,
+                          top: MediaQuery.paddingOf(context).top + 10,
+                          child: Material(
+                            key: const Key('global-care-invitation'),
+                            elevation: 10,
+                            color: const Color(0xFFFFF1EE),
+                            borderRadius: BorderRadius.circular(16),
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.favorite_border_rounded,
+                                    color: SaydianColors.danger,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      context.l10n.newCareRequest,
                                       style: const TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                        color: SaydianColors.danger,
+                                        fontWeight: FontWeight.w700,
                                       ),
                                     ),
-                                    const SizedBox(height: 3),
-                                    Text(alert.message),
-                                    const SizedBox(height: 3),
-                                    const Text(
-                                      '请休息后复测；如有明显不适，请及时咨询医务人员。',
-                                      style: TextStyle(fontSize: 13),
+                                  ),
+                                  TextButton(
+                                    key: const Key('open-care-invitation'),
+                                    onPressed:
+                                        controller.openCareInvitationAlert,
+                                    child: Text(context.l10n.view),
+                                  ),
+                                  Semantics(
+                                    button: true,
+                                    label: context.l10n.dismissCareAlert,
+                                    child: IconButton(
+                                      key: const Key('dismiss-care-invitation'),
+                                      onPressed:
+                                          controller.dismissCareInvitationAlert,
+                                      icon: const Icon(Icons.close_rounded),
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
-                              Semantics(
-                                button: true,
-                                label: '关闭健康预警',
-                                child: IconButton(
-                                  key: const Key('dismiss-health-warning'),
-                                  onPressed:
-                                      controller.dismissHealthWarningAlert,
-                                  icon: const Icon(Icons.close_rounded),
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
                         ),
-                      ),
-                    )
-                  else if (careAlert != null &&
-                      controller.isAuthenticated &&
-                      _requiredUpdateGateResolved &&
-                      _requiredUpdate == null)
-                    Positioned(
-                      left: 12,
-                      right: 12,
-                      top: MediaQuery.paddingOf(context).top + 10,
-                      child: Material(
-                        key: const Key('global-care-invitation'),
-                        elevation: 10,
-                        color: const Color(0xFFFFF1EE),
-                        borderRadius: BorderRadius.circular(16),
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.favorite_border_rounded,
-                                color: SaydianColors.danger,
-                              ),
-                              const SizedBox(width: 10),
-                              const Expanded(
-                                child: Text(
-                                  '收到新的关爱请求',
-                                  style: TextStyle(fontWeight: FontWeight.w700),
-                                ),
-                              ),
-                              TextButton(
-                                key: const Key('open-care-invitation'),
-                                onPressed: controller.openCareInvitationAlert,
-                                child: const Text('查看'),
-                              ),
-                              Semantics(
-                                button: true,
-                                label: '关闭关爱提醒',
-                                child: IconButton(
-                                  key: const Key('dismiss-care-invitation'),
-                                  onPressed:
-                                      controller.dismissCareInvitationAlert,
-                                  icon: const Icon(Icons.close_rounded),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              );
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+          home: ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) {
+              if (!_requiredUpdateGateResolved) {
+                return const _BootPage();
+              }
+              if (_requiredUpdate case final info?) {
+                return _UpdateActionPage(
+                  info: info,
+                  service: _updateService,
+                  installer: _apkInstaller,
+                  required: true,
+                );
+              }
+              if (controller.isBooting) {
+                return const _BootPage();
+              }
+              if (!controller.isAuthenticated && !controller.isPreviewMode) {
+                return controller.isGlobalEdition
+                    ? GlobalAuthPage(controller: controller)
+                    : LoginPage(controller: controller);
+              }
+              return AppShell(controller: controller);
             },
           ),
         ),
-      ),
-      home: ListenableBuilder(
-        listenable: controller,
-        builder: (context, _) {
-          if (!_requiredUpdateGateResolved) {
-            return const _BootPage();
-          }
-          if (_requiredUpdate case final info?) {
-            return _UpdateActionPage(
-              info: info,
-              service: _updateService,
-              installer: _apkInstaller,
-              required: true,
-            );
-          }
-          if (controller.isBooting) {
-            return const _BootPage();
-          }
-          if (!controller.isAuthenticated && !controller.isPreviewMode) {
-            return LoginPage(controller: controller);
-          }
-          return AppShell(controller: controller);
-        },
       ),
     );
   }
@@ -663,7 +719,9 @@ class _UpdateActionPageState extends State<_UpdateActionPage> {
   @override
   Widget build(BuildContext context) {
     final body = Scaffold(
-      appBar: widget.required ? null : AppBar(title: const Text('在线更新')),
+      appBar: widget.required
+          ? null
+          : AppBar(title: Text(context.l10n.onlineUpdate)),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -686,8 +744,8 @@ class _UpdateActionPageState extends State<_UpdateActionPage> {
                     widget.info.title.isNotEmpty
                         ? widget.info.title
                         : widget.required
-                        ? '需要更新后继续使用'
-                        : '新版本已准备好',
+                        ? context.l10n.updateRequired
+                        : context.l10n.updateReady,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       fontSize: 24,
@@ -696,7 +754,10 @@ class _UpdateActionPageState extends State<_UpdateActionPage> {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'V${widget.info.latestVersion} · 构建 ${widget.info.latestBuild}',
+                    context.l10n.versionBuild(
+                      widget.info.latestVersion,
+                      widget.info.latestBuild,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                   if (widget.info.releaseNotes.isNotEmpty) ...[
@@ -710,7 +771,9 @@ class _UpdateActionPageState extends State<_UpdateActionPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      _progress < 1 ? '正在准备安全更新…' : '正在打开系统更新页面…',
+                      _progress < 1
+                          ? context.l10n.preparingUpdate
+                          : context.l10n.openingUpdate,
                       textAlign: TextAlign.center,
                     ),
                   ],
@@ -724,7 +787,7 @@ class _UpdateActionPageState extends State<_UpdateActionPage> {
                     if (_error!.contains('未知来源'))
                       TextButton(
                         onPressed: widget.installer.openUnknownSourcesSettings,
-                        child: const Text('前往系统设置授权'),
+                        child: Text(context.l10n.goToSettings),
                       ),
                   ],
                   const SizedBox(height: 24),
@@ -733,11 +796,14 @@ class _UpdateActionPageState extends State<_UpdateActionPage> {
                     child: Text(
                       widget.info.destinationType ==
                               AppUpdateDestinationType.appStore
-                          ? '前往 App Store 更新'
+                          ? context.l10n.updateAppStore
+                          : widget.info.destinationType ==
+                                AppUpdateDestinationType.testFlight
+                          ? context.l10n.openTestFlight
                           : widget.info.destinationType ==
                                 AppUpdateDestinationType.androidStore
-                          ? '前往应用商店更新'
-                          : '安全下载并安装',
+                          ? context.l10n.updateStore
+                          : context.l10n.downloadAndInstall,
                     ),
                   ),
                 ],
@@ -756,21 +822,21 @@ class _BootPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    return Scaffold(
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: saydianSoftGradient),
+        decoration: const BoxDecoration(gradient: saydianSoftGradient),
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _BootLogo(),
-              SizedBox(height: 26),
-              SizedBox.square(
+              const _BootLogo(),
+              const SizedBox(height: 26),
+              const SizedBox.square(
                 dimension: 22,
                 child: CircularProgressIndicator(strokeWidth: 2.4),
               ),
-              SizedBox(height: 14),
-              Text('正在为你准备…'),
+              const SizedBox(height: 14),
+              Text(context.l10n.gettingReady),
             ],
           ),
         ),

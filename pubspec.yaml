@@ -21,6 +21,10 @@ dependencies:
   http: ^1.6.0
   image_picker: ^1.2.3
   intl: ^0.20.2
+  phone_numbers_parser: ^9.0.26
+  country_picker: ^2.0.28
+  html: ^0.15.6
+  http_parser: ^4.1.2
   jpush_flutter: 3.5.1
   jpush_flutter_android: 1.0.2
   path: ^1.9.1
@@ -57,6 +61,7 @@ dependency_overrides:
     path: third_party/jpush_flutter_android
 
 flutter:
+  generate: true
   config:
     enable-swift-package-manager: false
   uses-material-design: true

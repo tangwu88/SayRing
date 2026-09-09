@@ -33,6 +33,14 @@ registerHooks({
     return next(specifier, context);
   },
   load(url, context, next) {
+    // Exercise the retained callback machinery with synthetic, test-only configuration.
+    // The independent production app is default-disabled (global-auth tests assert it).
+    if (url.endsWith('/WechatAuthContracts.ts') || url.endsWith('/GlobalConfiguration.ts')) {
+      const source = readFileSync(new URL(url), 'utf8')
+        .replace(/WECHAT_APP_ID: string = '[^']*'/, "WECHAT_APP_ID: string = 'wxfixture12345678'")
+        .replace('GLOBAL_PAYMENTS_ENABLED: boolean = false', 'GLOBAL_PAYMENTS_ENABLED: boolean = true');
+      return { format: 'module', source: stripTypeScriptTypes(source), shortCircuit: true };
+    }
     if (url.endsWith('.ets')) return { format: 'module', source: stripTypeScriptTypes(readFileSync(new URL(url), 'utf8')), shortCircuit: true };
     return next(url, context);
   }

@@ -7,8 +7,8 @@ import { ApiError } from '../model/Contracts';
 import type { PushIdentity } from '../model/PushPaymentContracts';
 import { captureNotificationEvent, clearNotificationSession } from './NotificationNavigation';
 
-const JPUSH_APP_KEY: string = '47c3665ef1c664f3ad815112';
-const JPUSH_CHANNEL: string = 'saydian_harmony';
+const JPUSH_APP_KEY: string = '';
+const JPUSH_CHANNEL: string = 'saydian_global_harmony';
 const REGISTRATION_TIMEOUT_MS: number = 15000;
 const REGISTRATION_RETRY_MS: number = 500;
 
@@ -48,6 +48,7 @@ function initializeJPush(context: common.UIAbilityContext | common.AbilityStageC
 }
 
 export function prepareJPush(context: common.AbilityStageContext): void {
+  if (!JPUSH_APP_KEY) return;
   configureJPush(context.getApplicationContext());
   // The HarmonyOS SDK requires initialization from AbilityStage after the
   // callback, app key and channel have been configured.
@@ -57,6 +58,7 @@ export function prepareJPush(context: common.AbilityStageContext): void {
 }
 
 export async function captureJPushClick(want: Want, context: common.ApplicationContext): Promise<void> {
+  if (!JPUSH_APP_KEY) return;
   configureJPush(context);
   try {
     const message = await JPushInterface.setClickWant(want, context);
@@ -94,6 +96,7 @@ export class HarmonyPushService {
   }
 
   async getIdentity(context: common.UIAbilityContext): Promise<PushIdentity> {
+    if (!JPUSH_APP_KEY) throw new ApiError('System notifications are not available yet.', 503);
     if (this.identity) return { installationId: this.identity.installationId, registrationId: this.identity.registrationId };
     const applicationContext = context.getApplicationContext();
     configureJPush(applicationContext);
@@ -117,7 +120,7 @@ export class HarmonyPushService {
   }
 
   async clearToken(): Promise<void> {
-    try { JPushInterface.stopPush(); } finally {
+    try { if (JPUSH_APP_KEY) JPushInterface.stopPush(); } finally {
       this.identity = undefined;
       registrationIdFromCallback = '';
       clearNotificationSession();

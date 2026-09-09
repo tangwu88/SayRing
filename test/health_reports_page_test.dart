@@ -278,6 +278,9 @@ class _HealthReportApi extends Fake
         'appId': 'wx-test',
         'partnerId': 'partner',
         'prepayId': 'prepay',
+        'nonceStr': 'test-only-nonce',
+        'timeStamp': '1788912000',
+        'sign': 'test-only-signature',
       },
       createdAt: DateTime(2026),
     );

@@ -27,17 +27,23 @@ abstract interface class SessionVault {
 
 class SecureSessionVault implements SessionVault {
   SecureSessionVault([FlutterSecureStorage? storage])
-    : _storage = storage ?? const FlutterSecureStorage();
+    : _global = false,
+      _storage = storage ?? const FlutterSecureStorage();
+  SecureSessionVault.global([FlutterSecureStorage? storage])
+    : _global = true,
+      _storage = storage ?? const FlutterSecureStorage();
 
-  static const _sessionKey = 'saydian.session.v1';
-  static const _privacyConsentKey = 'saydian.privacy-consent.v1';
-  static const _databaseKey = 'saydian.database.key.v1';
-  static const _healthWarningKey = 'saydian.health-warning.v1';
-  static const _shopCartKey = 'saydian.shop-cart.v1';
-  static const _pendingPushUnregisterKey =
-      'saydian.push.pending-unregister-installation.v1';
-  static const _legacyHealthMigrationHandledKey =
-      'saydian.health.legacy-migration-handled.v1';
+  final bool _global;
+  String get _prefix => _global ? 'saydian.global' : 'saydian';
+  String get _sessionKey => '$_prefix.session.v1';
+  String get _privacyConsentKey => '$_prefix.privacy-consent.v1';
+  String get _databaseKey => '$_prefix.database.key.v1';
+  String get _healthWarningKey => '$_prefix.health-warning.v1';
+  String get _shopCartKey => '$_prefix.shop-cart.v1';
+  String get _pendingPushUnregisterKey =>
+      '$_prefix.push.pending-unregister-installation.v1';
+  String get _legacyHealthMigrationHandledKey =>
+      '$_prefix.health.legacy-migration-handled.v1';
 
   final FlutterSecureStorage _storage;
   Future<void> _sessionMutationQueue = Future<void>.value();

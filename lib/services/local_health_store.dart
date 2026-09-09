@@ -110,10 +110,12 @@ class EncryptedHealthStore implements HealthStore, HealthStoreRecoveryStatus {
     this._databasePathProvider,
     this._databaseOpener = _openEncryptedHealthDatabase,
     this.fileOperations = const IoHealthStoreFileOperations(),
+    this.globalEdition = false,
     DateTime Function()? clock,
   }) : _clock = clock ?? DateTime.now;
 
   final SessionVault _vault;
+  final bool globalEdition;
   final Future<String> Function()? _databasePathProvider;
   final HealthDatabaseOpener _databaseOpener;
   final HealthStoreFileOperations fileOperations;
@@ -159,7 +161,9 @@ class EncryptedHealthStore implements HealthStore, HealthStoreRecoveryStatus {
     final file = configuredPath == null
         ? path.join(
             (await getApplicationSupportDirectory()).path,
-            'saydian_health_v1.db',
+            globalEdition
+                ? 'saydian_global_health_v1.db'
+                : 'saydian_health_v1.db',
           )
         : await configuredPath();
     final recoveryMarker = _recoveryMarkerPath(file);

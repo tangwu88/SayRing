@@ -1,16 +1,17 @@
+import { readUiSource } from './support/localized-ui-source.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 
 test('all root scroll surfaces remain top aligned while loading content',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const scrolls=(source.match(/Scroll\([^)]*\)/g)||[]).length;
   assert.ok(scrolls>=4);
   assert.equal((source.match(/align\(Alignment.Top\)/g)||[]).length,scrolls);
 });
 
 test('dynamic heading and notices are not passed as frozen scalar builder arguments',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   assert.ok(source.includes('Heading()'));
   assert.equal(source.includes('Heading(title: string)'),false);
   assert.ok(source.includes('Notice($$: NoticeOptions)'));
@@ -31,20 +32,20 @@ test('package metadata meets bundled build-tool rules without overstating the ap
     assert.match(pkg.version,/^[1-9]\d?(\.([1-9]?\d)){2}$/);
   }
   const app=JSON.parse(readFileSync(new URL('../AppScope/app.json5',import.meta.url),'utf8')).app;
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const updateSource=readFileSync(new URL('../entry/src/main/ets/services/AppUpdateService.ets',import.meta.url),'utf8');
   assert.ok(source.includes('V${HARMONY_VERSION_NAME} (${HARMONY_VERSION_CODE})'));
   assert.ok(updateSource.includes(`HARMONY_VERSION_NAME: string = '${app.versionName}'`));
   assert.ok(updateSource.includes(`HARMONY_VERSION_CODE: number = ${app.versionCode}`));
 });
 
-test('release identity stays aligned with the confirmed AGC HarmonyOS app',()=>{
+test('international identity is separate and does not reuse domestic AGC identity',()=>{
   const app=JSON.parse(readFileSync(new URL('../AppScope/app.json5',import.meta.url),'utf8')).app;
-  assert.equal(app.bundleName,'cc.saidian.app.hm');
+  assert.equal(app.bundleName,'cn.saydian.app.global.hm');
   assert.equal(app.bundleName.endsWith('.dev'),false);
   const module=JSON.parse(readFileSync(new URL('../entry/src/main/module.json5',import.meta.url),'utf8')).module;
   assert.equal(module.srcEntry,'./ets/abilitystage/EntryAbilityStage.ets');
-  assert.equal(module.metadata.find(item=>item.name==='client_id')?.value,'2031340074867668160');
+  assert.equal(module.metadata.find(item=>item.name==='client_id'),undefined);
   const stage=readFileSync(new URL('../entry/src/main/ets/abilitystage/EntryAbilityStage.ets',import.meta.url),'utf8');
   const push=readFileSync(new URL('../entry/src/main/ets/services/HarmonyPushService.ets',import.meta.url),'utf8');
   assert.ok(stage.includes('prepareJPush(this.context)'));
@@ -56,7 +57,7 @@ test('release identity stays aligned with the confirmed AGC HarmonyOS app',()=>{
 });
 
 test('optional PaymentKit is not loaded during cold start',()=>{
-  const page=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const page=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const ability=readFileSync(new URL('../entry/src/main/ets/entryability/EntryAbility.ets',import.meta.url),'utf8');
   const router=readFileSync(new URL('../entry/src/main/ets/services/HarmonyPaymentService.ets',import.meta.url),'utf8');
   const startPayment=page.slice(page.indexOf('private async startPayment()'),page.indexOf('private money('));
@@ -72,7 +73,7 @@ test('optional PaymentKit is not loaded during cold start',()=>{
 });
 
 test('payment flow times out safely and always rechecks the server order',()=>{
-  const page=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const page=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const service=readFileSync(new URL('../entry/src/main/ets/services/ThirdPaymentService.ets',import.meta.url),'utf8');
   const startPayment=page.slice(page.indexOf('private async startPayment()'),page.indexOf('private money('));
   const back=page.slice(page.indexOf('private back()'),page.indexOf('onBackPress()'));
@@ -92,18 +93,18 @@ test('payment flow times out safely and always rechecks the server order',()=>{
 });
 
 test('foreground notification changes trigger the whitelisted route consumer',()=>{
-  const page=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const page=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   assert.ok(page.includes("@Watch('pendingNotificationChanged')"));
   assert.ok(page.includes('private pendingNotificationChanged(): void { this.consumeNotificationRoute(); }'));
 });
 
 test('care session invalidation clears profile loading before presenting login again',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const handler=source.slice(source.indexOf('private careFailure('),source.indexOf('private async openCare('));
   for(const reset of ['this.profileLoading = false','this.profileError = \'\'','this.busy = false','this.restoring = false'])assert.ok(handler.includes(reset));
 });
 test('failed or remotely handled invitation refreshes actionable list rather than retaining old buttons',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const handler=source.slice(source.indexOf('private async respondInvitation('),source.indexOf('private async openCareSettings('));
   const failure=handler.slice(handler.indexOf('catch (error)'));
   assert.ok(failure.includes('this.careInvitations = []'));
@@ -111,7 +112,7 @@ test('failed or remotely handled invitation refreshes actionable list rather tha
 });
 
 test('care member and sharing cards preserve readable member details',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const member=source.slice(source.indexOf('ForEach(this.careMembers'),source.indexOf("Button('刷新关爱列表')"));
   assert.ok(member.includes('Text(member.name)'));
   assert.ok(member.includes("Text(member.mobile || '查看已授权的健康记录')"));
@@ -122,7 +123,7 @@ test('care member and sharing cards preserve readable member details',()=>{
 });
 
 test('visual system uses the current iOS Saydian palette and consistent surfaces',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   for(const token of [
     "const RED: string = '#D20B27'",
     "const INK: string = '#171B2B'",
@@ -140,7 +141,7 @@ test('visual system uses the current iOS Saydian palette and consistent surfaces
 });
 
 test('polished UI avoids text glyphs as fake icons and keeps minimum button targets',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   assert.equal(/Text\(['"`][^'"`]*[›◷✓][^'"`]*['"`]\)/.test(source),false);
   for(const match of source.matchAll(/Button\([^\n]*?\.height\((\d+)\)/g)) {
     assert.ok(Number(match[1])>=44,`Button height ${match[1]} is below the compact iOS-aligned touch target`);
@@ -148,14 +149,14 @@ test('polished UI avoids text glyphs as fake icons and keeps minimum button targ
 });
 
 test('shop thumbnails preserve product artwork instead of cropping it',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const productImage=source.slice(source.indexOf('Image(product.picture)'),source.indexOf('.accessibilityText(product.name)'));
   assert.ok(productImage.includes('objectFit(ImageFit.Contain)'));
   assert.ok(productImage.includes('backgroundColor(SURFACE_ALT)'));
 });
 
 test('device and mine pages follow the iOS information hierarchy without dropping actions',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const device=source.slice(source.indexOf('DeviceHome()'),source.indexOf('MineHome()'));
   const homeStart=source.indexOf('\n  Home() {',source.indexOf('MineHome()'));
   const mine=source.slice(source.indexOf('MineHome()'),homeStart);
@@ -177,7 +178,7 @@ test('device and mine pages follow the iOS information hierarchy without droppin
 });
 
 test('care summary refresh and member page use the same list while all metric states stay visible',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   assert.match(source,/startAuthenticatedServices\(\)[\s\S]*refreshCareSummary\(true\)/);
   assert.match(source,/if \(index === 2\) this\.refreshCareSummary\(\)/);
   const careStart=source.lastIndexOf("} else if (this.screen === 'care-member') {");
@@ -190,7 +191,7 @@ test('care summary refresh and member page use the same list while all metric st
 test('launcher identity uses the requested name and a high-resolution brand icon',()=>{
   const app=JSON.parse(readFileSync(new URL('../AppScope/app.json5',import.meta.url),'utf8')).app;
   const strings=JSON.parse(readFileSync(new URL('../AppScope/resources/base/element/string.json',import.meta.url),'utf8')).string;
-  assert.equal(strings.find(item=>item.name==='app_name')?.value,'SayDian赛电');
+  assert.equal(strings.find(item=>item.name==='app_name')?.value,'Saydian');
   assert.equal(app.icon,'$media:app_icon_v3');
   const module=JSON.parse(readFileSync(new URL('../entry/src/main/module.json5',import.meta.url),'utf8')).module;
   assert.equal(module.abilities[0].icon,'$media:app_icon_v3');
@@ -204,7 +205,7 @@ test('launcher identity uses the requested name and a high-resolution brand icon
 });
 
 test('login offers registration and WeChat authorization instead of guest browsing',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   for(const marker of ['微信授权登录','注册账户','register_submit','register_send_code'])assert.ok(source.includes(marker));
   assert.equal(source.includes('先浏览首页'),false);
   const manifest=JSON.parse(readFileSync(new URL('../entry/src/main/module.json5',import.meta.url),'utf8')).module;
@@ -213,7 +214,7 @@ test('login offers registration and WeChat authorization instead of guest browsi
 });
 
 test('disconnected health cards do not repeat the same empty-state line',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const cards=source.slice(source.indexOf('HealthHome()'),source.indexOf('DeviceHome()'));
   assert.ok(cards.includes('if (this.visibleWearableMetrics().length === 0)'));
   assert.ok(cards.includes("'连接手表后可查看支持的健康数据'"));
@@ -224,7 +225,7 @@ test('disconnected health cards do not repeat the same empty-state line',()=>{
 });
 
 test('home tabs reset the shared scroll position and connected metadata stays readable',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const selector=source.slice(source.indexOf('private selectHomeTab('),source.indexOf('private signalText('));
   assert.ok(source.includes('private homeScroller: Scroller = new Scroller()'));
   assert.ok(source.includes('Scroll(this.homeScroller)'));
@@ -237,7 +238,7 @@ test('home tabs reset the shared scroll position and connected metadata stays re
 });
 
 test('notification settings expose the actual service state without implementation copy',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const permissions=source.slice(source.indexOf('PermissionContent()'),source.indexOf('MessageContent()'));
   assert.ok(permissions.includes('Text(this.pushStatus)'));
   assert.ok(permissions.includes("id('check_push_service')"));
@@ -246,14 +247,14 @@ test('notification settings expose the actual service state without implementati
 });
 
 test('payment order number owns a full row instead of orphan-wrapping its final digits',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const payment=source.slice(source.indexOf('PaymentContent()'),source.indexOf('WearableMetricContent()'));
   assert.match(payment,/Text\(this\.selectedOrder\.number\)[\s\S]*?\.width\('100%'\)[\s\S]*?\.maxLines\(1\)/);
   assert.ok(payment.includes('.copyOption(CopyOptions.InApp)'));
 });
 
 test('login and primary surfaces exclude decorative or internal helper copy',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const login=source.slice(source.indexOf('  Login() {'),source.indexOf('  Registration() {'));
   const wechat=login.slice(login.indexOf("Button(this.busy ? '正在打开微信…'"),login.indexOf('  Registration()'));
   assert.ok(wechat.includes(".width(this.singleColumn() ? '100%' : '60%')"));
@@ -276,7 +277,7 @@ test('login and primary surfaces exclude decorative or internal helper copy',()=
 });
 
 test('device search and profile shortcuts match the iOS navigation hierarchy',()=>{
-  const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
+  const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const search=source.slice(source.indexOf('DeviceSearchContent()'),source.indexOf('MineHome()'));
   for(const marker of ['已发现设备','请选择需要连接的手表','device_search_refresh','device_search_shop']) {
     assert.ok(source.includes(marker),`Missing device search contract: ${marker}`);
