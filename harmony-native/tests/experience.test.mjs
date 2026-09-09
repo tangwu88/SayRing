@@ -7,8 +7,12 @@ registerHooks({ resolve(specifier, context, next) {
     `${specifier}.ts` : specifier, context);
 } });
 const {
+  AI_CONCISE_RETRY_PREFIX, AI_USER_MESSAGE_MAX_LENGTH, aiConciseRetryMessage,
   parseAiMessages, parseAiReply, parseAppUpdateManifest, parseShopHome, safeSaydianAsset,
 } = await import('../entry/src/main/ets/model/ExperienceContracts.ts');
+const { AI_API_READ_TIMEOUT_MS, DEFAULT_API_READ_TIMEOUT_MS, apiReadTimeout } =
+  await import('../entry/src/main/ets/model/RequestPolicy.ts');
+const { AccountClient } = await import('../entry/src/main/ets/services/AccountClient.ts');
 
 test('shop home uses only the real Saydian catalogue and attachment images', () => {
   const home = parseShopHome({ items: [
@@ -45,6 +49,56 @@ test('AI history is normalized, ordered oldest first, and reply cannot be blank'
   assert.equal(values[1].mine, false);
   assert.equal(parseAiReply({ content: '安全回复', my: 1 }).mine, false);
   assert.throws(() => parseAiReply({ message: ' ' }), /AI/);
+  assert.equal(parseAiMessages({ list: [
+    { id: 3, message: `${AI_CONCISE_RETRY_PREFIX}血压怎么测`, my: 1 },
+  ] })[0].text, '血压怎么测');
+});
+
+test('AI create waits on the long-request policy while ordinary APIs keep the short timeout', async () => {
+  const now = Date.UTC(2026, 8, 9, 3);
+  const calls = [];
+  const session = { accessToken: 'synthetic-access', refreshToken: 'synthetic-refresh',
+    expiresAt: now + 3600000, memberId: 'fixture-member', displayName: '测试账号' };
+  const store = { value: session, async read() { return this.value; }, async write(value) { this.value = value; },
+    async clear() { this.value = undefined; } };
+  const client = new AccountClient({ async request(...args) {
+    calls.push(args);
+    return { code: 200, data: { id: 2, message: '长请求已返回', session_id: 'session-a' } };
+  } }, store, () => now);
+  await client.restore();
+  const reply = await client.sendAiMessage('请分析今天的健康数据');
+  assert.equal(reply.text, '长请求已返回');
+  assert.equal(calls[0][0], '/api/rf-article/chat/create');
+  assert.equal(calls[0][5], AI_API_READ_TIMEOUT_MS);
+  assert.equal(AI_API_READ_TIMEOUT_MS, 300000);
+  assert.equal(apiReadTimeout(undefined), DEFAULT_API_READ_TIMEOUT_MS);
+  assert.equal(apiReadTimeout(1), DEFAULT_API_READ_TIMEOUT_MS);
+});
+
+test('AI retries a service 422 once with a concise answer request and a fresh session', async () => {
+  const now = Date.UTC(2026, 8, 9, 4);
+  const calls = [];
+  const session = { accessToken: 'synthetic-access', refreshToken: 'synthetic-refresh',
+    expiresAt: now + 3600000, memberId: 'fixture-member', displayName: '测试账号' };
+  const store = { value: session, async read() { return this.value; }, async write(value) { this.value = value; },
+    async clear() { this.value = undefined; } };
+  const { ApiError } = await import('../entry/src/main/ets/model/Contracts.ts');
+  const client = new AccountClient({ async request(...args) {
+    calls.push(args);
+    if (calls.length === 1) throw new ApiError('Data Validation Failed.', 422);
+    return { code: 200, data: { id: 9, message: '简短回答', session_id: 'session-new' } };
+  } }, store, () => now);
+  await client.restore();
+  const reply = await client.sendAiMessage('血压怎么测', 'session-stale');
+  assert.equal(reply.text, '简短回答');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0][5], AI_API_READ_TIMEOUT_MS);
+  assert.equal(calls[1][5], AI_API_READ_TIMEOUT_MS);
+  const retryBody = JSON.parse(calls[1][3]);
+  assert.equal(retryBody.message, aiConciseRetryMessage('血压怎么测'));
+  assert.equal(retryBody.session_id, undefined);
+  assert.ok(retryBody.message.length <= 200);
+  assert.equal(AI_USER_MESSAGE_MAX_LENGTH, 160);
 });
 
 test('Harmony update manifest is strict and only opens AppGallery', () => {
@@ -57,7 +111,7 @@ test('Harmony update manifest is strict and only opens AppGallery', () => {
   assert.equal(info.hasUpdate, true);
   assert.equal(info.required, true);
   assert.throws(() => parseAppUpdateManifest(valid.replace('appgallery.huawei.com', 'evil.invalid'), 4), /不安全/);
-  assert.throws(() => parseAppUpdateManifest(valid.replace('"harmony"', '"android"'), 4), /不匹配/);
+  assert.throws(() => parseAppUpdateManifest(valid.replace('"harmony"', '"android"'), 4), /更新信息暂时不可用/);
 });
 
 test('Harmony home and profile follow the iOS functional information architecture', () => {
@@ -66,12 +120,12 @@ test('Harmony home and profile follow the iOS functional information architectur
     '运动与记录', '我的订单', '权限管理', '帮助反馈', '联系客服', '关于我们', '检查更新']) {
     assert.ok(source.includes(label), `missing ${label}`);
   }
-  assert.doesNotMatch(source, /原生开发验证版|查看适配进度/);
-  assert.match(source, /商品规格、购物车和创建订单接口尚未完成原生适配/);
+  assert.doesNotMatch(source, /原生开发验证版|查看适配进度|原生适配|接口尚未|先浏览首页|模拟记录/);
+  assert.match(source, /AI 正在思考，请耐心等待/);
 });
 
 test('vendor dial channel error is localized instead of leaking JL terminology', () => {
   const source = readFileSync(new URL('../entry/src/main/ets/services/VepWearableService.ets', import.meta.url), 'utf8');
   assert.match(source, /JL RCSP service not available/);
-  assert.match(source, /当前手表未开放表盘读取通道/);
+  assert.match(source, /当前手表暂不支持表盘读取/);
 });

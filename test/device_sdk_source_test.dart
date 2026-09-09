@@ -63,6 +63,22 @@ void main() {
     expect(w9.name, 'SD-Watch-W9');
   });
 
+  test('missing model falls back to the final Bluetooth name segment', () {
+    const reported = DeviceInfo(
+      id: 'veepoo:1',
+      name: 'SD-Watch-W9S',
+      model: 'VP-900',
+    );
+    const inferred = DeviceInfo(id: 'veepoo:2', name: 'SD-Watch-W9S');
+    const emptySuffix = DeviceInfo(id: 'veepoo:3', name: 'SD-Watch-');
+    const noSeparator = DeviceInfo(id: 'veepoo:4', name: 'ET488');
+
+    expect(reported.displayModel, 'VP-900');
+    expect(inferred.displayModel, 'W9S');
+    expect(emptySuffix.displayModel, '--');
+    expect(noSeparator.displayModel, '--');
+  });
+
   test('manual measurement support is independent from synced metrics', () {
     final capabilities = DeviceCapabilities.fromMap({
       'metrics': ['heart_rate', 'hrv'],

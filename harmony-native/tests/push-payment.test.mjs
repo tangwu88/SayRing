@@ -26,11 +26,11 @@ function accountClient(request) {
 }
 
 test('Harmony push registration is explicit and contains no account data', () => {
-  assert.deepEqual(pushRegistrationFields({ installationId: 'fixture-installation-123', registrationId: 'fixture-registration-token-123' }, '0.1.3+5'), [
+  assert.deepEqual(pushRegistrationFields({ installationId: 'fixture-installation-123', registrationId: 'fixture-registration-token-123' }, '0.1.3+6'), [
     { name: 'installation_id', value: 'fixture-installation-123' },
     { name: 'registration_id', value: 'fixture-registration-token-123' },
     { name: 'platform', value: 'harmony' },
-    { name: 'version', value: '0.1.3+5' }
+    { name: 'version', value: '0.1.3+6' }
   ]);
 });
 
@@ -39,10 +39,10 @@ test('invalid push identifiers and control bytes are rejected', () => {
   assert.throws(() => pushRegistrationFields({ installationId: 'fixture-installation-123', registrationId: 'bad\nregistration-token' }, '0.1.3'));
 });
 
-test('push failures distinguish app identity rights, permission, device and network', () => {
-  assert.match(pushErrorMessage(1001500001), /签名指纹/);
-  assert.match(pushErrorMessage(1000900010), /应用身份/);
-  assert.match(pushErrorMessage(1000900012), /Push Kit/);
+test('push failures stay actionable without exposing integration details', () => {
+  assert.match(pushErrorMessage(1001500001), /暂时不可用/);
+  assert.match(pushErrorMessage(1000900010), /暂时不可用/);
+  assert.match(pushErrorMessage(1000900012), /暂时不可用/);
   assert.match(pushErrorMessage(1000900014), /设备/);
   assert.match(pushErrorMessage(1600004), /权限/);
   assert.match(pushErrorMessage(1000900011), /网络/);
@@ -90,20 +90,34 @@ test('explicit Harmony payInfo is preferred and must be valid JSON', () => {
   assert.throws(() => parseHarmonyPayment('wechat', { third_app_id: 'wx-fixture', pay_info: 'not-json' }));
 });
 
-test('legacy Android provider payloads never enter Harmony PaymentKit', () => {
+test('server provider payloads are normalized for official Harmony payment SDKs', () => {
   const wechat = { config: {
     appid: 'wx-fixture', partnerid: 'partner', prepayid: 'prepay', package: 'Sign=WXPay',
     noncestr: 'nonce', timestamp: '123456', sign: 'server-signature'
   } };
-  const alipay = { config: 'app_id=20260001&biz_content=fixture&sign=server-signature' };
-  assert.throws(() => parseHarmonyPayment('wechat', wechat), /鸿蒙微信支付参数/);
-  assert.throws(() => parseHarmonyPayment('alipay', alipay), /鸿蒙支付宝支付参数/);
+  const orderInfo = 'alipay_sdk=alipay-sdk&app_id=20260001&biz_content=%7B%22out_trade_no%22%3A%22ORDER-99%22%7D' +
+    '&charset=utf-8&format=json&method=alipay.trade.app.pay&sign=server-signature&sign_type=RSA2&timestamp=2026-09-09&version=1.0';
+  const alipay = { config: { config: orderInfo }, payStatus: false };
+  const wechatRequest = parseHarmonyPayment('wechat', wechat);
+  assert.equal(wechatRequest.thirdAppId, 'wx-fixture');
+  assert.equal(JSON.parse(wechatRequest.payInfo).prepayid, 'prepay');
+  assert.deepEqual(parseHarmonyPayment('alipay', alipay), {
+    provider: 'alipay', thirdAppId: '20260001', payInfo: orderInfo
+  });
+  assert.throws(() => parseHarmonyPayment('alipay', { config: 'app_id=20260001&sign=unsigned' }), /支付宝/);
+});
+
+test('WeChat preparation failures expose an actionable channel message', () => {
+  assert.throws(() => parseHarmonyPayment('wechat', { config: {
+    appid: 'wx-fixture', return_code: 'SUCCESS', result_code: 'FAIL', err_code: 'NOAUTH',
+    err_code_des: 'provider detail'
+  } }), /商户权限尚未开通/);
 });
 
 test('payment failures distinguish official provider outcomes', () => {
   assert.match(paymentErrorMessage(1022830000), /取消/);
   assert.match(paymentErrorMessage(1014900000), /取消/);
-  assert.match(paymentErrorMessage(1022830002), /参数/);
+  assert.match(paymentErrorMessage(1022830002), /支付信息暂时不可用/);
   assert.match(paymentErrorMessage(801), /不支持/);
   assert.match(paymentErrorMessage(1001930001), /失败/);
   assert.match(paymentErrorMessage(1001930002), /已处理/);
@@ -132,7 +146,7 @@ test('push device registration and removal use authenticated server methods', as
   });
   await client.restore();
   assert.equal(await client.registerPushDevice({ installationId: 'fixture-installation-123',
-    registrationId: 'fixture-registration-token-123' }, '0.1.3+5'), true);
+    registrationId: 'fixture-registration-token-123' }, '0.1.3+6'), true);
   assert.equal(await client.unregisterPushDevice('fixture-installation-123'), true);
   assert.deepEqual(calls.map(item => [item.path, item.method, item.token]), [
     ['/api/v1/member/push-devices', 'POST', 'synthetic-access'],

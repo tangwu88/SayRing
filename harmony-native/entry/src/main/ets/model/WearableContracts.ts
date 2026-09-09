@@ -6,6 +6,9 @@ export type WearableConnectionPhase = 'idle' | 'permission' | 'scanning' | 'conn
 export type WearableMetricKey = 'activity' | 'sleep' | 'heart' | 'pressure' | 'oxygen' |
   'temperature' | 'glucose' | 'hrv' | 'ecg' | 'bodyComposition' | 'bloodComponents' | 'sport';
 export type WearableRecordSource = 'watch_history' | 'app_measurement';
+export type WearableSportMode = 'running' | 'walking' | 'cycling' | 'hiking';
+export type WearableSportControlProtocol = 'none' | 'mode' | 'realtime';
+export type WearableSportPhase = 'idle' | 'starting' | 'running' | 'paused' | 'stopping' | 'completed' | 'error';
 
 export interface WearableDevice {
   key: string;
@@ -35,6 +38,16 @@ export interface WearableCapabilities {
   notification: boolean;
   findDevice: boolean;
   dial: boolean;
+  photoDial: boolean;
+  camera: boolean;
+  phoneCalls: boolean;
+  contacts: boolean;
+  weather: boolean;
+  worldClock: boolean;
+  healthReminder: boolean;
+  healthMonitoring: boolean;
+  healthAssessment: boolean;
+  screenDisplay: boolean;
 }
 
 export interface WearableFeatureWire {
@@ -50,6 +63,8 @@ export interface WearableFeatureWire {
   bodyComposition?: number;
   bloodComposition?: number;
   sportModeCount?: number;
+  sportModeType?: number;
+  daSportControl?: number;
   newAlarm?: number;
   healthReminder?: number;
   messageNotifyPackets?: number;
@@ -57,6 +72,50 @@ export interface WearableFeatureWire {
   uiStyleCount?: number;
   moreWatchfaceCount?: number;
   customWatchfaceCount?: number;
+  camera?: number;
+  wristScreen?: number;
+  screenBrightness?: number;
+  screenOnDuration?: number;
+  contactsType?: number;
+  weather?: number;
+  worldClock?: number;
+  b3AutoMeasure?: number;
+  healthAssessment?: number;
+  microCheckup?: number;
+  hidFunction?: number;
+  lteFunction?: number;
+}
+
+export interface WearableSportCapability {
+  modes: WearableSportMode[];
+  supportsPause: boolean;
+  protocol: WearableSportControlProtocol;
+}
+
+export interface SportRoutePoint {
+  latitude: number;
+  longitude: number;
+  timestamp: number;
+  accuracy: number;
+}
+
+export interface SportRecordDetails {
+  mode: WearableSportMode | '';
+  durationSeconds: number;
+  distanceKm: number;
+  routeDistanceKm: number;
+  steps: number;
+  calories: number;
+  heartRate: number;
+  route: SportRoutePoint[];
+}
+
+export interface SportSessionState extends SportRecordDetails {
+  phase: WearableSportPhase;
+  startedAt: number;
+  observedAt: number;
+  locationStatus: string;
+  status: string;
 }
 
 export interface BatteryState {
@@ -84,6 +143,7 @@ export interface HealthRecord {
   values: HealthValue[];
   samples: number[];
   sampleFrequency: number;
+  sport?: SportRecordDetails;
 }
 
 export interface WearableDeviceSettings {
@@ -105,6 +165,7 @@ export interface WearableDial {
 }
 
 export interface WearableSnapshot {
+  provider: WearableProvider | '';
   connected: boolean;
   deviceKey: string;
   deviceName: string;
@@ -112,6 +173,7 @@ export interface WearableSnapshot {
   model: string;
   firmware: string;
   capabilities: WearableCapabilities;
+  sportCapability: WearableSportCapability;
   battery: BatteryState;
   records: HealthRecord[];
   settings: WearableDeviceSettings;
@@ -138,10 +200,30 @@ export const WEARABLE_CONNECT_TIMEOUT_MS: number = 45000;
 // reports a successful connection. Health commands must wait for that window.
 export const WEARABLE_AUTO_SYNC_DELAY_MS: number = 12000;
 export const WEARABLE_RECONNECT_DELAYS_MS: number[] = [2000, 5000, 10000];
+// A vendor stop acknowledgement must never keep the UI in a measuring state.
+export const WEARABLE_MEASUREMENT_STOP_TIMEOUT_MS: number = 3500;
+
+export function isOneShotMeasurementMetric(metric: WearableMetricKey): boolean {
+  return metric === 'oxygen';
+}
+
+export function retainedMeasurementValues(current: HealthValue[], previous: HealthValue[]): HealthValue[] {
+  return (current.length > 0 ? current : previous).slice();
+}
 
 export function cleanDeviceName(value: string): string {
   const name = typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]/g, '').replace(/\s+/g, ' ').trim() : '';
   return name ? name.slice(0, 80) : '未知设备';
+}
+
+export function wearableModelText(model: string, deviceName: string): string {
+  const verifiedModel = typeof model === 'string' ? model.trim() : '';
+  if (verifiedModel) return verifiedModel.slice(0, 80);
+  const name = cleanDeviceName(deviceName);
+  const separator = name.lastIndexOf('-');
+  if (separator < 0) return '未知';
+  const suffix = name.slice(separator + 1).trim();
+  return suffix ? suffix.slice(0, 80) : '未知';
 }
 
 export function wearableProviderForName(value: string): WearableProvider {
@@ -180,10 +262,16 @@ export function mergeWearableDevices(current: WearableDevice[], incoming: Wearab
   const merged: Map<string, WearableDevice> = new Map();
   current.forEach((device: WearableDevice) => merged.set(device.key, device));
   incoming.forEach((device: WearableDevice) => {
-    const existing = merged.get(device.key);
-    if (!existing || device.rssi !== existing.rssi || device.name !== existing.name || device.connectable !== existing.connectable) {
-      merged.set(device.key, device);
-    }
+    const sameTransport = Array.from(merged.values()).find((item: WearableDevice) =>
+      item.provider === device.provider && item.transportId === device.transportId);
+    // A later SDK packet can add the real MAC. It must enrich the discovered
+    // transport, not add a second row; later name-only packets cannot erase it.
+    const mac = device.mac || sameTransport?.mac || '';
+    const next = createWearableDevice(device.provider, device.name, device.transportId,
+      mac, device.rssi, device.connectable);
+    if (!next) return;
+    if (sameTransport) merged.delete(sameTransport.key);
+    merged.set(next.key, next);
   });
   return Array.from(merged.values()).sort((a: WearableDevice, b: WearableDevice) => {
     if (a.provider !== b.provider) return a.provider === 'Vep' ? -1 : 1;
@@ -204,8 +292,102 @@ export function emptyCapabilities(): WearableCapabilities {
     activity: false, sleep: false, heart: false, pressure: false, oxygen: false,
     temperature: false, glucose: false, hrv: false, ecg: false, bodyComposition: false,
     bloodComponents: false, sport: false, alarm: false, sedentaryReminder: false,
-    notification: false, findDevice: false, dial: false
+    notification: false, findDevice: false, dial: false, photoDial: false,
+    camera: false, phoneCalls: false, contacts: false, weather: false,
+    worldClock: false, healthReminder: false, healthMonitoring: false,
+    healthAssessment: false, screenDisplay: false
   };
+}
+
+export function emptySportCapability(): WearableSportCapability {
+  return { modes: [], supportsPause: false, protocol: 'none' };
+}
+
+export function sportCapabilityFromFeatureList(feature?: WearableFeatureWire): WearableSportCapability {
+  if (!feature || (feature.sportModeCount ?? 0) <= 0) return emptySportCapability();
+  const multipleModes = (feature.sportModeType ?? 0) > 0;
+  const availableModes: WearableSportMode[] = ['running', 'walking', 'cycling', 'hiking'];
+  const modeCount = Math.min(availableModes.length, Math.max(1, feature.sportModeCount ?? 1));
+  return {
+    modes: multipleModes ? availableModes.slice(0, modeCount) : ['running'],
+    supportsPause: (feature.daSportControl ?? 0) > 0,
+    protocol: (feature.daSportControl ?? 0) > 0 ? 'realtime' : 'mode'
+  };
+}
+
+export function sportModeProtocolValue(mode: WearableSportMode): number {
+  if (mode === 'walking') return 2;
+  if (mode === 'hiking') return 5;
+  if (mode === 'cycling') return 7;
+  return 1;
+}
+
+export function sportModeFromProtocolValue(value: number): WearableSportMode | '' {
+  if (value === 1) return 'running';
+  if (value === 2) return 'walking';
+  if (value === 5) return 'hiking';
+  if (value === 7) return 'cycling';
+  return '';
+}
+
+export function sportModeLabel(mode: WearableSportMode | ''): string {
+  if (mode === 'running') return '户外跑步';
+  if (mode === 'walking') return '户外步行';
+  if (mode === 'cycling') return '户外骑行';
+  if (mode === 'hiking') return '徒步';
+  return '运动';
+}
+
+export function emptySportSession(status: string = ''): SportSessionState {
+  return {
+    phase: 'idle', mode: '', startedAt: 0, observedAt: 0, durationSeconds: 0,
+    distanceKm: 0, routeDistanceKm: 0, steps: 0, calories: 0, heartRate: 0,
+    route: [], locationStatus: '', status: status
+  };
+}
+
+function radians(value: number): number { return value * Math.PI / 180; }
+
+export function routeDistanceKilometers(points: SportRoutePoint[]): number {
+  if (points.length < 2) return 0;
+  let metres = 0;
+  for (let index = 1; index < points.length; ++index) {
+    const previous = points[index - 1], current = points[index];
+    const latitude = radians(current.latitude - previous.latitude);
+    const longitude = radians(current.longitude - previous.longitude);
+    const a = Math.sin(latitude / 2) ** 2 + Math.cos(radians(previous.latitude)) *
+      Math.cos(radians(current.latitude)) * Math.sin(longitude / 2) ** 2;
+    metres += 12742000 * Math.asin(Math.min(1, Math.sqrt(a)));
+  }
+  return Math.round(metres) / 1000;
+}
+
+export function appendSportRoutePoint(points: SportRoutePoint[], point: SportRoutePoint): SportRoutePoint[] {
+  if (!Number.isFinite(point.latitude) || !Number.isFinite(point.longitude) ||
+    Math.abs(point.latitude) > 90 || Math.abs(point.longitude) > 180 ||
+    !Number.isFinite(point.timestamp) || point.timestamp <= 0 ||
+    !Number.isFinite(point.accuracy) || point.accuracy <= 0 || point.accuracy > 80) return points;
+  const previous = points[points.length - 1];
+  if (previous && point.timestamp <= previous.timestamp) return points;
+  if (previous) {
+    const segment = routeDistanceKilometers([previous, point]);
+    if (segment < 0.003 || segment > 0.5) return points;
+  }
+  return [...points.slice(-1999), point];
+}
+
+export function sportRoutePolyline(points: SportRoutePoint[], width: number, height: number): number[][] {
+  if (points.length < 2) return [];
+  const longitude = points.map((point: SportRoutePoint) => point.longitude);
+  const latitude = points.map((point: SportRoutePoint) => point.latitude);
+  const minX = Math.min(...longitude), maxX = Math.max(...longitude);
+  const minY = Math.min(...latitude), maxY = Math.max(...latitude);
+  const safeWidth = Math.max(40, width), safeHeight = Math.max(40, height), padding = 12;
+  const spanX = Math.max(0.000001, maxX - minX), spanY = Math.max(0.000001, maxY - minY);
+  return points.map((point: SportRoutePoint): number[] => [
+    padding + (point.longitude - minX) / spanX * (safeWidth - padding * 2),
+    padding + (maxY - point.latitude) / spanY * (safeHeight - padding * 2)
+  ]);
 }
 
 export function capabilitiesFromFeatureList(feature?: WearableFeatureWire): WearableCapabilities {
@@ -229,7 +411,29 @@ export function capabilitiesFromFeatureList(feature?: WearableFeatureWire): Wear
     notification: (feature.messageNotifyPackets ?? 0) > 0,
     findDevice: (feature.findBand ?? 0) > 0,
     dial: (feature.uiStyleCount ?? 0) > 0 || (feature.moreWatchfaceCount ?? 0) > 0 ||
-      (feature.customWatchfaceCount ?? 0) > 0
+      (feature.customWatchfaceCount ?? 0) > 0,
+    photoDial: (feature.customWatchfaceCount ?? 0) > 0,
+    camera: (feature.camera ?? 0) > 0,
+    // The Harmony SDK does not expose Android's isSupportBTFunction flag.
+    // A positive HID/LTE/contact transport flag is the closest device-side
+    // capability signal; the BtService readback remains the final gate.
+    phoneCalls: (feature.hidFunction ?? 0) > 0 || (feature.lteFunction ?? 0) > 0 ||
+      (feature.contactsType ?? 0) > 0,
+    contacts: (feature.contactsType ?? 0) > 0,
+    weather: (feature.weather ?? 0) > 0,
+    worldClock: (feature.worldClock ?? 0) > 0,
+    healthReminder: (feature.healthReminder ?? 0) > 0,
+    // Older W9/W9S firmware can expose the individual health sensors while
+    // leaving the newer B3 aggregate flag unset. Keep the entry visible for
+    // those devices and let AutoMeasureService return the exact configurable
+    // items instead of incorrectly hiding the whole page.
+    healthMonitoring: (feature.b3AutoMeasure ?? 0) > 0 ||
+      (feature.heartRateFunction !== undefined && feature.heartRateFunction !== 1) ||
+      (feature.bloodPressure ?? 0) > 0 || (feature.bloodOxygen ?? 0) > 0 ||
+      (feature.bodyTemp ?? 0) > 0 || (feature.hrv ?? 0) > 0,
+    healthAssessment: (feature.healthAssessment ?? 0) > 0 || (feature.microCheckup ?? 0) > 0,
+    screenDisplay: (feature.screenBrightness ?? 0) > 0 || (feature.screenOnDuration ?? 0) > 0 ||
+      (feature.wristScreen ?? 0) > 0
   };
 }
 
@@ -255,6 +459,49 @@ export function boundedHealthValue(name: string, value: number, unit: string,
   if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || minimum > maximum ||
     !Number.isFinite(value) || value < minimum || value > maximum) return undefined;
   return { name: name.slice(0, 40), value: value, unit: unit.slice(0, 20) };
+}
+
+function roundedKilometers(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+// The current Harmony SDK exposes the daily distance as metres on ET488,
+// while an older vendor sample labels the same field as kilometres. Use the
+// step count to accept an already-normalized kilometre value without dividing
+// it a second time. More than 10 metres per step is not a plausible daily
+// walking/running distance and therefore identifies the metre representation.
+export function activityDistanceKilometers(value: number, steps: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  const safeSteps = Number.isFinite(steps) && steps > 0 ? steps : 0;
+  const rawLooksLikeMeters = safeSteps > 0 && value > Math.max(0.05, safeSteps * 0.01);
+  return roundedKilometers(rawLooksLikeMeters ? value / 1000 : value);
+}
+
+// Sport history uses metre-based protocol fields (allDistance), matching the
+// iOS bridge and the vendor's real-time Harmony sample.
+export function sportDistanceKilometers(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return roundedKilometers(value / 1000);
+}
+
+// Repair records written by the first Harmony build, which stored metre values
+// with a km label. This is deliberately conservative and idempotent so a valid
+// kilometre record is never divided again on the next app launch.
+export function normalizeLegacyDistanceRecord(record: HealthRecord): HealthRecord {
+  if (record.metric !== 'activity' && record.metric !== 'sport') return record;
+  const distanceIndex = record.values.findIndex((item: HealthValue) =>
+    item.name === '距离' && ['km', '公里', '千米'].includes(item.unit));
+  if (distanceIndex < 0) return record;
+  const distance = record.values[distanceIndex];
+  const steps = record.values.find((item: HealthValue) => item.name === '步数')?.value ?? 0;
+  let normalized = activityDistanceKilometers(distance.value, steps);
+  if (record.metric === 'sport' && steps <= 0 && distance.value > 300) {
+    normalized = sportDistanceKilometers(distance.value);
+  }
+  if (normalized <= 0 || normalized === distance.value) return record;
+  const values = record.values.slice();
+  values[distanceIndex] = { name: distance.name, value: normalized, unit: 'km' };
+  return { ...record, values: values };
 }
 
 export function latestMetricRecord(records: HealthRecord[], metric: WearableMetricKey): HealthRecord | undefined {
@@ -290,8 +537,8 @@ export function formatHealthNumber(value: number): string {
 
 export function emptyWearableSnapshot(): WearableSnapshot {
   return {
-    connected: false, deviceKey: '', deviceName: '', mac: '', model: '', firmware: '',
-    capabilities: emptyCapabilities(), battery: emptyBattery(), records: [], settings: emptyDeviceSettings(),
+    provider: '', connected: false, deviceKey: '', deviceName: '', mac: '', model: '', firmware: '',
+    capabilities: emptyCapabilities(), sportCapability: emptySportCapability(), battery: emptyBattery(), records: [], settings: emptyDeviceSettings(),
     dials: [], currentDialKey: '', originalDialKey: '', syncedAt: 0, message: ''
   };
 }

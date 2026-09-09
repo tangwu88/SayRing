@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../domain/feature_models.dart';
 import '../services/app_controller.dart';
 import '../services/device_watch_face_market_service.dart';
+import '../services/user_message.dart';
 import 'app_theme.dart';
 
 class WatchFaceLoadRequestGate {
@@ -162,7 +163,12 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
       });
     } on DeviceWatchFaceMarketException catch (error) {
       if (_isCurrentLoad(generation, requestedDeviceId, requestedFingerprint)) {
-        setState(() => _error = error.message);
+        setState(
+          () => _error = userFacingMessage(
+            error.message,
+            fallback: '表盘暂时无法加载，请重试',
+          ),
+        );
       }
     } catch (_) {
       if (_isCurrentLoad(generation, requestedDeviceId, requestedFingerprint)) {
@@ -307,13 +313,17 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
       ).showSnackBar(SnackBar(content: Text(resultMessage)));
     } on DeviceWatchFaceMarketException catch (error) {
       if (mounted) {
+        final message = userFacingMessage(
+          error.message,
+          fallback: '表盘设置失败，请重试',
+        );
         setState(() {
-          _installError = error.message;
+          _installError = message;
           _lastFailedInstall = item;
         });
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(error.message)));
+        ).showSnackBar(SnackBar(content: Text(message)));
       }
     } catch (_) {
       if (mounted) {

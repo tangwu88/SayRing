@@ -3,6 +3,11 @@ import { ApiError, stableIdentity } from './Contracts';
 // Only these normalized values reach ArkUI. Raw account rows/tokens are never retained.
 export interface CareMember { relationId: number; memberId: number; name: string; mobile: string; }
 export interface CareInvitation { id: number; inviterId: number; name: string; mobile: string; state: string; }
+
+export function careInvitationFallback(inviterId: number): string { return `邀请人 #${inviterId}`; }
+export function careInvitationNeedsConfirmation(invitation: CareInvitation): boolean {
+  return invitation.name === careInvitationFallback(invitation.inviterId) && !invitation.mobile;
+}
 export interface CareOption { key: string; label: string; }
 export interface CareShareSettings { enabled: string[]; unknown: string[]; }
 export interface CareMetricSpec { key: string; title: string; endpoint: string; type: string; unit: string; }
@@ -17,6 +22,17 @@ export const CARE_OPTIONS: CareOption[] = [
   { key: 'heartReat', label: '心率' }, { key: 'HRV', label: 'HRV' },
   { key: 'bodycomposition', label: '身体成分' }, { key: 'bloodcomposition', label: '血液成分' }
 ];
+
+export function careGroupOptions(daily: boolean): CareOption[] {
+  return daily ? CARE_OPTIONS.slice(0, 4) : CARE_OPTIONS.slice(4);
+}
+
+export function toggleCareGroup(settings: CareShareSettings, daily: boolean): CareShareSettings {
+  const keys = careGroupOptions(daily).map((option: CareOption) => option.key);
+  const all = keys.every((key: string) => settings.enabled.includes(key));
+  const enabled = settings.enabled.filter((key: string) => !keys.includes(key));
+  return { enabled: all ? enabled : [...enabled, ...keys], unknown: [...settings.unknown] };
+}
 const DAILY: string = '/api/v1/member/daily-date/preview';
 export const CARE_METRICS: CareMetricSpec[] = [
   { key: 'heart', title: '心率', endpoint: DAILY, type: 'pulseReat', unit: '次/分' },
@@ -95,7 +111,7 @@ export function parseCareInvitations(data: Object | undefined, ownId: string): C
       const parsed = object(candidate);
       if (!careId(member['id']) && careId(parsed['id'] ?? parsed['member_id']) === inviterId) member = parsed;
     });
-    result.push({ id: id, inviterId: inviterId, name: text(member['nickname']) || '关爱邀请人',
+    result.push({ id: id, inviterId: inviterId, name: text(member['nickname']) || careInvitationFallback(inviterId),
       mobile: text(member['mobile'], 32), state: state });
   });
   return result;
@@ -289,7 +305,7 @@ export function parseCareMetric(spec: CareMetricSpec, data: Object | undefined, 
   const payload = object(data);
   let rows: Object[] = Array.isArray(data) ? data as Object[] : Array.isArray(payload['list']) ? payload['list'] as Object[] :
     Array.isArray(payload['data']) ? payload['data'] as Object[] : chartRows(spec, payload);
-  if (rows.length > 3000) throw new ApiError('当日记录过多，请联系服务端分页支持');
+  if (rows.length > 3000) throw new ApiError('当日记录较多，暂时无法全部显示');
   const records: CareRecord[] = [];
   const seen: Set<string> = new Set();
   rows.forEach((raw: Object, index: number) => {

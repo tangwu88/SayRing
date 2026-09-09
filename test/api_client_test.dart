@@ -11,6 +11,63 @@ import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 
 void main() {
+  test(
+    'App WeChat sends only the one-time code without persisting early',
+    () async {
+      final vault = MemorySessionVault();
+      final api = SaydianApiClient(
+        vault,
+        client: MockClient((request) async {
+          expect(request.url.path, '/api/v1/site/app-wechat-login');
+          expect(request.method, 'POST');
+          expect(request.body, contains('name="code"\r\n\r\none-time-code'));
+          for (final field in [
+            'openid',
+            'unionid',
+            'sex',
+            'nickname',
+            'headimgurl',
+            'platform',
+            'state',
+          ]) {
+            expect(request.body, isNot(contains('name="$field"')));
+          }
+          expect(request.body.toLowerCase(), isNot(contains('secret')));
+          return http.Response(
+            '{"code":200,"data":{"access_token":"test-token","member":{"id":17}}}',
+            200,
+          );
+        }),
+      );
+      final session = await api.loginWithWechat(code: 'one-time-code');
+      expect(session.memberId, '17');
+      expect(await vault.readSession(), isNull);
+    },
+  );
+
+  test('WeChat rejects malformed and unavailable backend responses', () async {
+    for (final response in [
+      http.Response('{"code":200,"data":{"access_token":"test-token"}}', 200),
+      http.Response(
+        '请用微信打开',
+        200,
+        headers: {'content-type': 'text/plain; charset=utf-8'},
+      ),
+      http.Response('{"code":404,"message":"not found"}', 404),
+    ]) {
+      final vault = MemorySessionVault();
+      final api = SaydianApiClient(
+        vault,
+        client: MockClient((_) async => response),
+      );
+      await expectLater(
+        api.loginWithWechat(code: 'one-time-code'),
+        throwsA(isA<ApiException>()),
+      );
+      expect(await vault.readSession(), isNull);
+    }
+  });
+
   test('care member list uses the mini-program member endpoint', () async {
     final vault = MemorySessionVault()
       ..session = Session(
@@ -166,7 +223,7 @@ void main() {
           'sleep',
         ]),
       );
-      expect(requestedPaths, hasLength(13));
+      expect(requestedPaths, hasLength(12));
     },
   );
 
@@ -269,7 +326,7 @@ void main() {
   });
 
   test(
-    'care metrics fall back to shared raw daily rows when chart APIs fail',
+    'care metric failures require backend repair instead of raw daily fallback',
     () async {
       var rawDailyRequests = 0;
       final client = MockClient((request) async {
@@ -292,21 +349,7 @@ void main() {
         if (type == null) {
           rawDailyRequests += 1;
           return http.Response(
-            r'''{"code":200,"data":[
-              {"time":"08:00","pulseReat":"[68]",
-               "bloodPressure":"{\"bloodPressureHigh\":118,\"bloodPressureLow\":76}",
-               "bloodGlucose":5.8,
-               "bloodOxygen":"{\"oxygens\":[97,0,0]}",
-               "bodyTemperature":"{\"bodyTemperature\":36.5}",
-               "HRVData":"[51]",
-               "sleepData":"{\"allSleepTime\":420}"},
-              {"time":"20:00","pulseReat":"[75]",
-               "bloodPressure":"{\"bloodPressureHigh\":128,\"bloodPressureLow\":82}",
-               "bloodGlucose":7.2,
-               "bloodOxygen":"{\"oxygens\":[98,0,0]}",
-               "bodyTemperature":"{\"bodyTemperature\":36.8}",
-               "HRVData":"[57]"}
-            ]}''',
+            '{"code":200,"data":[{"time":"08:00","pulseReat":[68],"HRVData":[51]}]}',
             200,
             headers: {'content-type': 'application/json; charset=utf-8'},
           );
@@ -342,26 +385,22 @@ void main() {
       );
       final daily = (preview['daily'] as List).cast<Map>();
 
-      expect(rawDailyRequests, 1);
-      expect(daily.singleWhere((item) => item['title'] == '心率')['latest'], 75);
-      expect(
-        daily.singleWhere((item) => item['title'] == '血压')['latest'],
-        '128/82',
-      );
-      expect(daily.singleWhere((item) => item['title'] == '血糖')['latest'], 7.2);
-      expect(daily.singleWhere((item) => item['title'] == '血氧')['latest'], 98);
-      expect(
-        daily.singleWhere((item) => item['title'] == '体温')['latest'],
-        36.8,
-      );
-      expect(daily.singleWhere((item) => item['title'] == 'HRV')['latest'], 57);
-      expect(daily.singleWhere((item) => item['title'] == '睡眠')['latest'], 420);
-      for (final title in const ['心率', '血压', '血糖', '血氧', '体温', 'HRV', '睡眠']) {
+      expect(rawDailyRequests, 0);
+      for (final title in const ['心率', '血压', '体温', 'HRV']) {
+        final item = daily.singleWhere((item) => item['title'] == title);
+        expect(item['state'], 'unavailable', reason: title);
+        expect(item['tips'], contains('服务暂不可用'));
+      }
+      for (final title in const ['血糖', '血氧', '睡眠', '心电', '身体成分', '血液成分']) {
         expect(
           daily.singleWhere((item) => item['title'] == title)['state'],
-          'ready',
+          'empty',
           reason: title,
         );
+      }
+      for (final item in daily) {
+        expect(item['records'], isEmpty);
+        expect(item.containsKey('latest'), isFalse);
       }
     },
   );
@@ -1609,14 +1648,24 @@ void main() {
   });
 
   test('care share settings save a stable sorted JSON list', () async {
+    var reads = 0;
     final client = MockClient((request) async {
+      if (request.method == 'GET') {
+        expect(request.url.path, '/api/v1/member/care-setting/preview');
+        expect(request.url.queryParameters, {'type': '2', 'to_member_id': '7'});
+        reads++;
+        return http.Response(
+          '{"code":200,"data":{"setting":["heartReat","HRV"]}}',
+          200,
+        );
+      }
       expect(request.method, 'POST');
       expect(request.url.path, '/api/v1/member/care-setting');
       expect(request.headers['content-type'], contains('application/json'));
       expect(jsonDecode(request.body), {
         'type': 2,
         'to_member_id': 7,
-        'setting': ['heart_rate', 'sleep'],
+        'setting': ['HRV', 'heartReat'],
       });
       return http.Response('{"code":200,"data":{}}', 200);
     });
@@ -1629,8 +1678,9 @@ void main() {
     await api.saveCareShareSettings(
       type: 2,
       memberId: 7,
-      settings: {'sleep', 'heart_rate'},
+      settings: {'heartReat', 'HRV'},
     );
+    expect(reads, 1);
   });
 
   test('SMS authentication uses the confirmed RageFrame contracts', () async {

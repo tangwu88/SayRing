@@ -483,6 +483,14 @@ class AppUpdateService {
     if (!platformIsIos && type == AppUpdateDestinationType.appStore) {
       throw const AppUpdateException('Android 更新目标类型不正确');
     }
+    // `android_store` is an external landing page selected by the trusted
+    // backend version API. It is opened by the system browser/app market and
+    // may legitimately live on another HTTPS host. Keep the host allowlist for
+    // direct APK downloads, where a cross-origin change affects the binary we
+    // install on the device.
+    if (!platformIsIos && type == AppUpdateDestinationType.androidStore) {
+      return;
+    }
     final configuredHosts =
         _allowedDestinationHosts ?? _configuredAllowedHosts(endpointUri.host);
     if (!configuredHosts.contains(uri.host.toLowerCase())) {

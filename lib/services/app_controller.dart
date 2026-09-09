@@ -28,6 +28,8 @@ import 'storekit_purchase_bridge.dart';
 import 'sync_service.dart';
 import 'wearable_bridge.dart';
 import 'wearable_bootstrap.dart';
+import 'wechat_auth_bridge.dart';
+import 'user_message.dart';
 
 enum PushDeviceRegistrationState {
   idle,
@@ -58,12 +60,14 @@ class AppController extends ChangeNotifier {
     this._wearable, {
     AppPaymentBridge? paymentBridge,
     StoreKitPurchaseBridge? storeKitPurchaseBridge,
+    WechatAuthBridge? wechatAuthBridge,
     AppNotificationService? notificationService,
     List<Duration>? pushRegistrationRetryDelays,
   }) : _paymentBridge = paymentBridge ?? const MethodChannelAppPaymentBridge(),
        _storeKitPurchaseBridge =
            storeKitPurchaseBridge ??
            const MethodChannelStoreKitPurchaseBridge(),
+       _wechatAuthBridge = wechatAuthBridge ?? MethodChannelWechatAuthBridge(),
        _notificationService =
            notificationService ?? const DisabledAppNotificationService(),
        _pushRegistrationRetryDelays = List.unmodifiable(
@@ -96,6 +100,11 @@ class AppController extends ChangeNotifier {
   final WearableBridge _wearable;
   final AppPaymentBridge _paymentBridge;
   final StoreKitPurchaseBridge _storeKitPurchaseBridge;
+  final WechatAuthBridge _wechatAuthBridge;
+  int _wechatLoginGeneration = 0;
+  bool isWechatLoginInProgress = false;
+  bool get canCancelWechatLogin =>
+      isWechatLoginInProgress && !_accountTransitioning;
   final AppNotificationService _notificationService;
   final List<Duration> _pushRegistrationRetryDelays;
   final HealthSyncService _syncService;
@@ -124,6 +133,11 @@ class AppController extends ChangeNotifier {
   int _deviceSyncGeneration = 0;
   int _wearableRestoreGeneration = 0;
   Future<void>? _wearableRestoreInFlight;
+  Future<void>? _wearableConnectInFlight;
+  bool _wearableAccountRecoveryAllowed = true;
+  bool _wearableNeedsDisconnect = false;
+  String _activeHealthOwner = 'anonymous';
+  ({DeviceInfo device, int generation})? _accountWearableResume;
   DeviceInfo? _latestDeviceDetails;
   String? _deviceSyncErrorMessage;
   Future<void>? _deviceSettingsRefresh;
@@ -135,6 +149,7 @@ class AppController extends ChangeNotifier {
   Timer? _pushRegistrationRetryTimer;
   int _pushRegistrationRetryAttempt = 0;
   int _sessionGeneration = 0;
+  int? _careShareSaveGeneration;
   int? _connectedDeviceSessionGeneration;
   int? _activeMeasurementSessionGeneration;
   String _notificationOwnerId = 'anonymous';
@@ -213,6 +228,7 @@ class AppController extends ChangeNotifier {
   HealthWarningSettings healthWarningSettings = const HealthWarningSettings();
   List<HealthWarningAlert> healthWarningAlerts = const [];
   HealthWarningAlert? activeHealthWarningAlert;
+  NotificationEvent? activeCareInvitationAlert;
 
   bool get isAuthenticated => session != null;
   DeviceConnectionState get deviceState => deviceMachine.state;
@@ -302,6 +318,7 @@ class AppController extends ChangeNotifier {
 
   int _advanceSessionGeneration(Session? value) {
     _sessionGeneration++;
+    _activeHealthOwner = _healthOwnerFor(value);
     _careInvitationRefresh = null;
     _pushRegistration = null;
     _pushRegistrationRetryTimer?.cancel();
@@ -333,6 +350,7 @@ class AppController extends ChangeNotifier {
     sportRecords = const [];
     healthWarningAlerts = const [];
     activeHealthWarningAlert = null;
+    activeCareInvitationAlert = null;
     activeSport = null;
     sportPaused = false;
     liveSportData = const {};
@@ -569,6 +587,7 @@ class AppController extends ChangeNotifier {
     String password, {
     bool privacyConsentGranted = false,
   }) async {
+    if (isBusy) return false;
     if (username.trim().isEmpty || password.isEmpty) {
       errorMessage = '请输入账号和密码';
       notifyListeners();
@@ -594,9 +613,107 @@ class AppController extends ChangeNotifier {
         _careInvitationPollBackoffIndex = 0;
         _scheduleCareInvitationPoll(const Duration(seconds: 30));
       } finally {
-        _accountTransitioning = false;
+        await _finishAccountTransition();
       }
     });
+  }
+
+  Future<bool> loginWithWechat({required bool privacyConsentGranted}) async {
+    if (isBusy || _disposed) return false;
+    if (!privacyConsentGranted) {
+      errorMessage = '请先同意用户协议与隐私政策';
+      notifyListeners();
+      return false;
+    }
+    final api = _api;
+    if (api is! SaydianWechatAuthApi) {
+      errorMessage = '微信登录暂不可用，请使用手机号登录';
+      notifyListeners();
+      return false;
+    }
+    final generation = ++_wechatLoginGeneration;
+    bool isCurrent() => !_disposed && generation == _wechatLoginGeneration;
+    isBusy = true;
+    isWechatLoginInProgress = true;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      await _vault.writePrivacyConsentGranted(true);
+      if (!isCurrent()) return false;
+      _privacyConsentGranted = true;
+      final authorization = await _wechatAuthBridge.authorize();
+      if (authorization == null || !isCurrent()) return false;
+      final authenticated = await (api as SaydianWechatAuthApi).loginWithWechat(
+        code: authorization.code,
+      );
+      if (!isCurrent()) return false;
+      _accountTransitioning = true;
+      await _drainCloudSync();
+      if (!isCurrent()) return false;
+      await _vault.writeSession(authenticated);
+      if (!isCurrent()) return false;
+      session = authenticated;
+      await _prepareAuthenticatedNotificationSession(
+        privacyConsentGranted: true,
+        canContinue: isCurrent,
+      );
+      if (!isCurrent()) return false;
+      isPreviewMode = false;
+      await refreshCare();
+      if (!isCurrent()) return false;
+      await refreshCareInvitations();
+      if (!isCurrent()) return false;
+      await _refreshRemoteNotificationUnreadCount();
+      if (!isCurrent()) return false;
+      await refreshMemberProfile();
+      if (!isCurrent()) return false;
+      await refreshActivityGoals();
+      if (!isCurrent()) return false;
+      unawaited(refreshHealthWarningCloudState());
+      _careInvitationPollBackoffIndex = 0;
+      _scheduleCareInvitationPoll(const Duration(seconds: 30));
+      return true;
+    } on PlatformException catch (error) {
+      if (isCurrent()) {
+        errorMessage = switch (error.code) {
+          'WECHAT_NOT_INSTALLED' => '请先安装微信',
+          'WECHAT_UNSUPPORTED' => '请更新微信后重试',
+          'WECHAT_AUTH_DENIED' => '未同意微信授权',
+          'WECHAT_AUTH_TIMEOUT' => '微信授权已超时，请重试',
+          'WECHAT_AUTH_SEND_FAILED' => '无法调起微信，请稍后重试',
+          'WECHAT_AUTH_CONFIG_MISSING' => '微信登录暂不可用，请使用手机号登录',
+          _ => '微信登录失败，请重试',
+        };
+      }
+      return false;
+    } on ApiException catch (error) {
+      if (isCurrent()) {
+        errorMessage = error.statusCode == 404 || error.statusCode == 405
+            ? '微信登录暂不可用，请使用手机号登录'
+            : _apiErrorMessage(error, fallback: '微信登录失败，请重试');
+      }
+      return false;
+    } catch (_) {
+      if (isCurrent()) errorMessage = '微信登录暂不可用，请使用手机号登录';
+      return false;
+    } finally {
+      if (isCurrent()) {
+        await _finishAccountTransition();
+        isBusy = false;
+        isWechatLoginInProgress = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  void cancelWechatLogin({bool force = false}) {
+    if (!isWechatLoginInProgress || (!force && !canCancelWechatLogin)) return;
+    ++_wechatLoginGeneration;
+    isWechatLoginInProgress = false;
+    isBusy = false;
+    _accountTransitioning = false;
+    unawaited(_wechatAuthBridge.cancel());
+    if (!_disposed) notifyListeners();
   }
 
   Future<bool> sendSmsCode({
@@ -674,7 +791,7 @@ class AppController extends ChangeNotifier {
         _careInvitationPollBackoffIndex = 0;
         _scheduleCareInvitationPoll(const Duration(seconds: 30));
       } finally {
-        _accountTransitioning = false;
+        await _finishAccountTransition();
       }
     });
   }
@@ -723,20 +840,34 @@ class AppController extends ChangeNotifier {
         _careInvitationPollBackoffIndex = 0;
         _scheduleCareInvitationPoll(const Duration(seconds: 30));
       } finally {
-        _accountTransitioning = false;
+        await _finishAccountTransition();
       }
     });
   }
 
   Future<void> _prepareAuthenticatedNotificationSession({
     required bool privacyConsentGranted,
+    bool Function()? canContinue,
   }) async {
     await _ensureStableSessionOwnerKey();
+    if (canContinue?.call() == false) return;
     _privacyConsentGranted = privacyConsentGranted;
     await _vault.writePrivacyConsentGranted(privacyConsentGranted);
+    if (canContinue?.call() == false) return;
+    final previousDevice = connectedDevice;
+    final sameOwner =
+        session != null && _activeHealthOwner == _healthOwnerFor(session);
+    final disconnected = await _pauseWearableForAccountTransition();
+    if (canContinue?.call() == false) return;
     final generation = _advanceSessionGeneration(session);
-    await _switchHealthOwnerAndLoad(session, expectedGeneration: generation);
+    final storageReady = await _switchHealthOwnerAndLoad(
+      session,
+      expectedGeneration: generation,
+    );
     if (!_isCurrentSessionGeneration(generation)) return;
+    if (storageReady && sameOwner && previousDevice != null && disconnected) {
+      _accountWearableResume = (device: previousDevice, generation: generation);
+    }
     if (!privacyConsentGranted || session == null) {
       notificationPermissionEnabled = false;
       await _notificationService.deactivate();
@@ -753,6 +884,61 @@ class AppController extends ChangeNotifier {
     if (_notificationStorageReady) await _refreshNotificationInboxState();
   }
 
+  Future<bool> _pauseWearableForAccountTransition() async {
+    _accountWearableResume = null;
+    _wearableAccountRecoveryAllowed = false;
+    final hasNativeSession =
+        connectedDevice != null ||
+        _wearableConnectInFlight != null ||
+        _wearableRestoreInFlight != null ||
+        deviceState != DeviceConnectionState.disconnected ||
+        _wearableNeedsDisconnect;
+    _connectedDeviceSessionGeneration = null;
+    _invalidateDeviceSync();
+    final metric = _activeMeasurementMetric;
+    _measurementTimeout?.cancel();
+    _measurementTimeout = null;
+    _activeMeasurementMetric = null;
+    _activeMeasurementSessionGeneration = null;
+    measurementSamples = const [];
+    measurementProgress = 0;
+    if (!hasNativeSession) return true;
+    _wearableNeedsDisconnect = true;
+    if (metric != null) {
+      try {
+        await _wearable
+            .stopMeasurement(metric)
+            .timeout(const Duration(seconds: 5));
+      } catch (_) {
+        // Disconnect below remains required even when stopping a measurement fails.
+      }
+    }
+    try {
+      await disconnectDevice();
+      // A connect/authentication callback may finish after native disconnect.
+      // Drain it before opening another account or reconnecting the same owner.
+      await _wearableConnectInFlight;
+      return true;
+    } catch (_) {
+      sdkStatus = '请在设备页重新连接手表';
+      return false;
+    }
+  }
+
+  Future<void> _finishAccountTransition() async {
+    final resume = _accountWearableResume;
+    _accountWearableResume = null;
+    _accountTransitioning = false;
+    if (resume == null ||
+        session == null ||
+        !_isCurrentSessionGeneration(resume.generation)) {
+      return;
+    }
+    // Same-owner reauthentication is an explicit fresh native connection, not
+    // reassignment of the old connection generation. Other accounts must select a watch.
+    await connectDevice(resume.device);
+  }
+
   void enterPreview() {
     isPreviewMode = true;
     errorMessage = null;
@@ -760,10 +946,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    cancelWechatLogin(force: true);
     isBusy = true;
     _accountTransitioning = true;
     notifyListeners();
     try {
+      await _pauseWearableForAccountTransition();
       await _drainCloudSync();
       if (session != null) {
         await _unregisterPushDevice();
@@ -822,6 +1010,7 @@ class AppController extends ChangeNotifier {
       final notificationInboxToClear = _notificationInboxService;
       await _unregisterPushDevice();
       await _api.deleteAccount();
+      await _pauseWearableForAccountTransition();
       await _vault.writePrivacyConsentGranted(false);
       session = null;
       _privacyConsentGranted = false;
@@ -922,12 +1111,34 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> connectDevice(DeviceInfo device) async {
+    if (_disposed ||
+        _accountTransitioning ||
+        _wearableConnectInFlight != null) {
+      return;
+    }
+    final connecting = _connectDevice(device);
+    _wearableConnectInFlight = connecting;
+    try {
+      await connecting;
+    } finally {
+      if (identical(_wearableConnectInFlight, connecting)) {
+        _wearableConnectInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _connectDevice(DeviceInfo device) async {
     final sessionGeneration = _sessionGeneration;
+    bool isCurrent() =>
+        !_accountTransitioning &&
+        _isCurrentSessionGeneration(sessionGeneration);
     errorMessage = null;
     _invalidateDeviceSync();
     _latestDeviceDetails = null;
     try {
+      if (_wearableNeedsDisconnect) await disconnectDevice();
       await _cancelPendingWearableRestore();
+      if (!isCurrent()) return;
       if (deviceState == DeviceConnectionState.error) {
         deviceMachine.transition(DeviceConnectionState.disconnected);
       }
@@ -950,16 +1161,15 @@ class AppController extends ChangeNotifier {
           targetSteps: stepGoal,
         ),
       );
-      if (!_isCurrentSessionGeneration(sessionGeneration)) {
-        unawaited(_wearable.disconnect().catchError((_) {}));
-        return;
-      }
+      if (!isCurrent()) return;
+      _wearableAccountRecoveryAllowed = true;
       _connectedDeviceSessionGeneration = sessionGeneration;
       connectedDevice = _mergeDeviceDetails(device);
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.loading;
       deviceMachine.transition(DeviceConnectionState.authenticating);
       await refreshDeviceCapabilities(announceFailure: false);
+      if (!isCurrent() || connectedDevice?.id != device.id) return;
       deviceMachine.transition(DeviceConnectionState.syncing);
       syncStatus = '正在同步设备数据';
       deviceMachine.transition(DeviceConnectionState.ready);
@@ -967,11 +1177,13 @@ class AppController extends ChangeNotifier {
       // background follow-up and must not keep the add-device page spinning.
       unawaited(_syncInitialDeviceData(device.id));
     } on WearableSdkNotConfigured catch (_) {
+      if (!isCurrent()) return;
       deviceCapabilityState = DeviceCapabilityState.disconnected;
       sdkStatus = '设备连接服务暂时不可用';
       errorMessage = '此功能暂时无法使用，请稍后再试';
       deviceMachine.transition(DeviceConnectionState.error);
     } on PlatformException catch (error) {
+      if (!isCurrent()) return;
       if (error.code == 'CONNECT_CANCELLED') {
         errorMessage = null;
         if (deviceState != DeviceConnectionState.disconnected) {
@@ -983,6 +1195,7 @@ class AppController extends ChangeNotifier {
         deviceMachine.transition(DeviceConnectionState.error);
       }
     } catch (_) {
+      if (!isCurrent()) return;
       deviceCapabilityState = DeviceCapabilityState.disconnected;
       errorMessage = '连接失败，请将手表靠近手机后重试';
       deviceMachine.transition(DeviceConnectionState.error);
@@ -998,25 +1211,30 @@ class AppController extends ChangeNotifier {
       return false;
     }
     final deviceId = connectedDevice!.id;
+    final generation = _sessionGeneration;
+    bool isCurrent() =>
+        !_accountTransitioning &&
+        _isCurrentSessionGeneration(generation) &&
+        connectedDevice?.id == deviceId;
     capabilities = null;
     deviceCapabilityState = DeviceCapabilityState.loading;
     notifyListeners();
     try {
       final reported = await _wearable.getCapabilities();
-      if (_disposed || connectedDevice?.id != deviceId) return false;
+      if (!isCurrent()) return false;
       capabilities = reported;
       deviceCapabilityState = DeviceCapabilityState.ready;
       notifyListeners();
       return true;
     } on PlatformException catch (error) {
-      if (_disposed || connectedDevice?.id != deviceId) return false;
+      if (!isCurrent()) return false;
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.unavailable;
       if (announceFailure) {
         errorMessage = _wearableErrorMessage(error, fallback: '暂时无法读取此手表的功能');
       }
     } catch (_) {
-      if (_disposed || connectedDevice?.id != deviceId) return false;
+      if (!isCurrent()) return false;
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.unavailable;
       if (announceFailure) errorMessage = '暂时无法读取此手表的功能';
@@ -1048,7 +1266,11 @@ class AppController extends ChangeNotifier {
   }
 
   Future<bool> _syncDeviceData(String deviceId, {required bool initial}) async {
-    if (connectedDevice?.id != deviceId || isDeviceSyncing) return false;
+    if (_accountTransitioning ||
+        connectedDevice?.id != deviceId ||
+        isDeviceSyncing) {
+      return false;
+    }
     final sessionGeneration = _sessionGeneration;
     _connectedDeviceSessionGeneration ??= sessionGeneration;
     if (_connectedDeviceSessionGeneration != sessionGeneration) return false;
@@ -1114,6 +1336,7 @@ class AppController extends ChangeNotifier {
     int sessionGeneration,
   ) =>
       !_disposed &&
+      !_accountTransitioning &&
       _deviceSyncGeneration == generation &&
       _isCurrentSessionGeneration(sessionGeneration) &&
       _connectedDeviceSessionGeneration == sessionGeneration &&
@@ -1138,6 +1361,7 @@ class AppController extends ChangeNotifier {
     _invalidateDeviceSync();
     try {
       await _wearable.disconnect();
+      _wearableNeedsDisconnect = false;
     } finally {
       connectedDevice = null;
       _connectedDeviceSessionGeneration = null;
@@ -1147,11 +1371,7 @@ class AppController extends ChangeNotifier {
       deviceFeatureData = const {};
       deviceFeatureBusy = const {};
       if (deviceState != DeviceConnectionState.disconnected) {
-        if (deviceState == DeviceConnectionState.error) {
-          deviceMachine.transition(DeviceConnectionState.disconnected);
-        } else {
-          deviceMachine.transition(DeviceConnectionState.disconnected);
-        }
+        deviceMachine.transition(DeviceConnectionState.disconnected);
       }
       notifyListeners();
     }
@@ -1801,6 +2021,9 @@ class AppController extends ChangeNotifier {
 
   Future<void> restoreWearableConnection() async {
     if (_disposed ||
+        _accountTransitioning ||
+        !_privacyConsentGranted ||
+        !_wearableAccountRecoveryAllowed ||
         connectedDevice != null ||
         deviceState != DeviceConnectionState.disconnected) {
       return;
@@ -2158,6 +2381,16 @@ class AppController extends ChangeNotifier {
             .whereType<String>()
             .toSet(),
         previouslyPendingIds: previousPendingIds,
+        processedIds: careInvitations
+            .where((invitation) {
+              final status =
+                  '${invitation['examine_status'] ?? invitation['examineStatus'] ?? ''}'
+                      .trim();
+              return status == '1' || status == '2';
+            })
+            .map(_careInvitationId)
+            .whereType<String>()
+            .toSet(),
         expectedGeneration: generation,
       );
       await _ingestNewCareInvitations(
@@ -2188,32 +2421,84 @@ class AppController extends ChangeNotifier {
     await refreshCare();
   });
 
+  int get careShareSessionGeneration => _sessionGeneration;
+
+  bool isCareShareSessionCurrent(int generation) =>
+      _isCurrentSessionGeneration(generation) &&
+      !_accountTransitioning &&
+      session != null;
+
   Future<Set<String>> loadCareShareSettings({
     required int memberId,
     int type = 0,
   }) async {
+    final generation = _sessionGeneration;
+    if (!isCareShareSessionCurrent(generation)) {
+      throw const ApiException('账号已变化，请重新查看', code: 'STALE_CARE_SESSION');
+    }
     final careApi = _api is SaydianCareApi ? _api as SaydianCareApi : null;
     if (careApi == null) {
       throw const FeatureNotConfiguredException('共享设置暂时无法使用，请稍后再试');
     }
-    return careApi.getCareShareSettings(type: type, memberId: memberId);
+    try {
+      final values = await careApi.getCareShareSettings(
+        type: type,
+        memberId: memberId,
+      );
+      if (!isCareShareSessionCurrent(generation)) {
+        throw const ApiException('账号已变化，请重新查看', code: 'STALE_CARE_SESSION');
+      }
+      return values;
+    } catch (_) {
+      if (!isCareShareSessionCurrent(generation)) {
+        throw const ApiException('账号已变化，请重新查看', code: 'STALE_CARE_SESSION');
+      }
+      rethrow;
+    }
   }
 
   Future<bool> saveCareShareSettings({
     required int memberId,
     required Set<String> settings,
     int type = 0,
-  }) => _guard(() async {
-    final careApi = _api is SaydianCareApi ? _api as SaydianCareApi : null;
-    if (careApi == null) {
-      throw const FeatureNotConfiguredException('共享设置暂时无法使用，请稍后再试');
+  }) async {
+    final generation = _sessionGeneration;
+    if (!isCareShareSessionCurrent(generation) ||
+        _careShareSaveGeneration == generation) {
+      return false;
     }
-    await careApi.saveCareShareSettings(
-      type: type,
-      memberId: memberId,
-      settings: settings,
-    );
-  });
+    final submitted = Set<String>.unmodifiable(settings);
+    _careShareSaveGeneration = generation;
+    isBusy = true;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      final careApi = _api is SaydianCareApi ? _api as SaydianCareApi : null;
+      if (careApi == null) {
+        throw const FeatureNotConfiguredException('共享设置暂时无法使用，请稍后再试');
+      }
+      await careApi.saveCareShareSettings(
+        type: type,
+        memberId: memberId,
+        settings: submitted,
+      );
+      return isCareShareSessionCurrent(generation);
+    } catch (error) {
+      if (isCareShareSessionCurrent(generation)) {
+        errorMessage = error is ApiException
+            ? _apiErrorMessage(error, fallback: '保存未确认，请重新读取后重试')
+            : '保存未确认，请重新读取后重试';
+      }
+      return false;
+    } finally {
+      if (isCareShareSessionCurrent(generation) &&
+          _careShareSaveGeneration == generation) {
+        _careShareSaveGeneration = null;
+        isBusy = false;
+        notifyListeners();
+      }
+    }
+  }
 
   Future<bool> addCare(String mobile) => _guard(() async {
     final normalized = mobile.trim();
@@ -2298,7 +2583,7 @@ class AppController extends ChangeNotifier {
         ? _api as SaydianProfileUploadApi
         : null;
     if (uploadApi == null) {
-      errorMessage = '头像暂时无法上传，请稍后再试';
+      errorMessage = '头像暂时无法上传，请稍后重试';
       notifyListeners();
       return null;
     }
@@ -2467,6 +2752,7 @@ class AppController extends ChangeNotifier {
     _appIsForeground = foreground;
     if (!foreground) {
       _careInvitationPollTimer?.cancel();
+      dismissCareInvitationAlert();
       return;
     }
     _scheduleCareInvitationPoll(const Duration(seconds: 30));
@@ -2508,17 +2794,39 @@ class AppController extends ChangeNotifier {
     return value;
   }
 
+  void dismissCareInvitationAlert() {
+    if (activeCareInvitationAlert == null) return;
+    activeCareInvitationAlert = null;
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<void> openCareInvitationAlert() async {
+    final event = activeCareInvitationAlert;
+    if (session == null || event == null) return;
+    final generation = _sessionGeneration;
+    await markNotificationEventRead(event.eventId);
+    if (!_isCurrentSessionGeneration(generation)) return;
+    pendingNotificationRoute = const NotificationRouteService().resolve(event);
+    notifyListeners();
+  }
+
   Future<void> markNotificationEventRead(String eventId) async {
     if (!_notificationStorageReady) return;
+    final generation = _sessionGeneration;
+    final inbox = _notificationInboxService;
     final remoteEventId = notificationInboxEvents
         .where((event) => event.eventId == eventId)
         .map((event) => event.remoteEventId)
         .whereType<String>()
         .firstOrNull;
-    await _notificationInboxService.markRead(eventId);
+    await inbox.markRead(eventId);
+    if (!_isCurrentSessionGeneration(generation)) return;
     await _refreshNotificationInboxState();
     unawaited(
-      _markRemoteNotificationEventReadBestEffort(remoteEventId ?? eventId),
+      _markRemoteNotificationEventReadBestEffort(
+        remoteEventId ?? eventId,
+        expectedGeneration: generation,
+      ),
     );
   }
 
@@ -2854,7 +3162,11 @@ class AppController extends ChangeNotifier {
     final notificationApi = _api is SaydianNotificationApi
         ? _api as SaydianNotificationApi
         : null;
-    if (session == null || notificationApi == null) return;
+    if (session == null ||
+        notificationApi == null ||
+        !_isCurrentSessionGeneration(generation)) {
+      return;
+    }
     try {
       final marked = await notificationApi.markNotificationEventRead(
         eventId: eventId,
@@ -2894,7 +3206,12 @@ class AppController extends ChangeNotifier {
               !identical(repository, _notificationInboxRepository)) {
             return;
           }
-          if (event.source != NotificationEventSource.device && !event.isRead) {
+          // The legacy unread endpoint does not include care invitations.
+          // Only an explicit read or the invitation's real status may clear
+          // those events; an aggregate zero is not an acknowledgement.
+          if (event.source != NotificationEventSource.device &&
+              event.type != NotificationEventType.careInvitation &&
+              !event.isRead) {
             await repository.markRead(eventId: event.eventId, readAt: readAt);
           }
         }
@@ -2921,6 +3238,13 @@ class AppController extends ChangeNotifier {
       return;
     }
     notificationInboxEvents = events;
+    final activeCareEventId = activeCareInvitationAlert?.eventId;
+    if (activeCareEventId != null &&
+        !events.any(
+          (event) => event.eventId == activeCareEventId && !event.isRead,
+        )) {
+      activeCareInvitationAlert = null;
+    }
     final localDeviceHealthUnread = notificationInboxEvents
         .where(
           (event) =>
@@ -2936,7 +3260,12 @@ class AppController extends ChangeNotifier {
         )
         .length;
     final remoteUnread = remoteNotificationUnreadCount;
-    final serverUnread = remoteUnread ?? localServerMirrorUnread;
+    // Aggregate counts have no IDs with which to calculate an exact union.
+    // Keep known unread events as a floor, without summing duplicate mirrors.
+    final serverUnread =
+        remoteUnread == null || remoteUnread < localServerMirrorUnread
+        ? localServerMirrorUnread
+        : remoteUnread;
     notificationUnreadCount = localDeviceHealthUnread + serverUnread;
     unawaited(_notificationService.setBadge(notificationUnreadCount));
     if (!_disposed) notifyListeners();
@@ -2995,6 +3324,12 @@ class AppController extends ChangeNotifier {
       // authoritative refresh, otherwise a cached zero would hide the badge.
       remoteNotificationUnreadCount = null;
     }
+    if (isNew &&
+        _appIsForeground &&
+        !event.isRead &&
+        event.type == NotificationEventType.careInvitation) {
+      activeCareInvitationAlert = event;
+    }
     await _refreshNotificationInboxState();
     if (!_isCurrentSessionGeneration(expectedGeneration)) return null;
     if (isNew && showLocalNotification) {
@@ -3029,6 +3364,12 @@ class AppController extends ChangeNotifier {
     final normalizedPayload = Map<String, Object?>.from(payload);
     if ('${normalizedPayload['event_id'] ?? ''}'.trim().isEmpty) return;
     final parsed = NotificationEvent.tryParse(normalizedPayload);
+    if (kDebugMode) {
+      debugPrint(
+        '[push-route] opened=$opened parsed=${parsed != null} '
+        'authenticated=${session != null}',
+      );
+    }
     if (parsed != null &&
         parsed.type == NotificationEventType.careInvitation &&
         parsed.entityId != null) {
@@ -3105,6 +3446,7 @@ class AppController extends ChangeNotifier {
   Future<void> _reconcileCareInvitationEvents(
     Set<String> pendingIds, {
     required Set<String> previouslyPendingIds,
+    required Set<String> processedIds,
     required int expectedGeneration,
   }) async {
     if (!_notificationStorageReady ||
@@ -3122,7 +3464,8 @@ class AppController extends ChangeNotifier {
       if (event.type != NotificationEventType.careInvitation ||
           event.isRead ||
           event.entityId == null ||
-          !previouslyPendingIds.contains(event.entityId) ||
+          (!previouslyPendingIds.contains(event.entityId) &&
+              !processedIds.contains(event.entityId)) ||
           (event.entityId != null && pendingIds.contains(event.entityId))) {
         continue;
       }
@@ -3237,13 +3580,24 @@ class AppController extends ChangeNotifier {
     DateTime? day,
     int? memberId,
   }) async {
+    final generation = _sessionGeneration;
+    if (_accountTransitioning) return const {};
     try {
-      return await _api.getCareMemberPreview(
+      final value = await _api.getCareMemberPreview(
         id: id,
         day: formatCareCalendarDay(day),
         memberId: memberId,
       );
+      if (!_isCurrentSessionGeneration(generation) || _accountTransitioning) {
+        return const {};
+      }
+      return value;
     } on ApiException catch (error) {
+      if (!_isCurrentSessionGeneration(generation) ||
+          _accountTransitioning ||
+          error.code == 'STALE_CARE_SESSION') {
+        return const {};
+      }
       final message = _apiErrorMessage(error, fallback: '对方数据暂时无法读取');
       errorMessage = message;
       notifyListeners();
@@ -3457,9 +3811,7 @@ class AppController extends ChangeNotifier {
       errorMessage = _shopPaymentErrorMessage(error);
       return null;
     } on PlatformException catch (error) {
-      errorMessage = error.message?.trim().isNotEmpty == true
-          ? error.message
-          : '无法调起支付客户端，请确认已安装对应应用';
+      errorMessage = userFacingMessage(error.message, fallback: '暂时无法支付，请稍后重试');
       return null;
     } finally {
       isBusy = false;
@@ -3475,9 +3827,9 @@ class AppController extends ChangeNotifier {
       return '支付服务暂不可用，请稍后重试';
     }
     if (message.contains('授权有误') || message.contains('配置')) {
-      return '支付服务配置异常，请稍后重试';
+      return '支付暂不可用，请稍后重试';
     }
-    return _apiErrorMessage(error, fallback: '支付参数生成失败，请稍后重试');
+    return _apiErrorMessage(error, fallback: '支付暂不可用，请稍后重试');
   }
 
   Future<AppPaymentResult?> takeWechatPaymentResult() async {
@@ -3945,21 +4297,7 @@ class AppController extends ChangeNotifier {
     if (error is FeatureNotConfiguredException) {
       return '此功能暂时无法使用，请稍后再试';
     }
-    final message = error.message.trim();
-    final normalized = message.toLowerCase();
-    if (normalized.contains('network') ||
-        normalized.contains('socket') ||
-        normalized.contains('timeout') ||
-        message.contains('网络')) {
-      return '网络不可用，请检查后重试';
-    }
-    if (message.contains('接口未配置') ||
-        normalized.contains('token') ||
-        normalized.contains('http') ||
-        normalized.contains('api')) {
-      return fallback;
-    }
-    return message.isEmpty ? fallback : message;
+    return userFacingMessage(error.message, fallback: fallback);
   }
 
   bool _isMeasurementErrorCode(String code) {
@@ -4028,7 +4366,7 @@ class AppController extends ChangeNotifier {
     };
     if (mappedMessage != null) return mappedMessage;
     if (nativeMessage != null && nativeMessage.isNotEmpty) {
-      return nativeMessage;
+      return userFacingMessage(nativeMessage, fallback: fallback);
     }
     return fallback;
   }
@@ -4053,7 +4391,12 @@ class AppController extends ChangeNotifier {
   }
 
   void _handleWearableEvent(WearableEvent event) {
-    if (_disposed) return;
+    if (_disposed || _accountTransitioning) return;
+    if (!_wearableAccountRecoveryAllowed &&
+        event.type != 'scanDevice' &&
+        !(_wearableConnectInFlight != null && event.type == 'deviceDetails')) {
+      return;
+    }
     if (event.type == 'scanDevice') {
       final device = DeviceInfo.fromMap(event.payload);
       _upsertScannedDevice(device);
@@ -4082,14 +4425,17 @@ class AppController extends ChangeNotifier {
     } else if (event.type == 'healthRecord') {
       final eventGeneration =
           _activeMeasurementSessionGeneration ??
-          _connectedDeviceSessionGeneration ??
-          (connectedDevice == null ? _sessionGeneration : null);
-      if (eventGeneration == null ||
+          _connectedDeviceSessionGeneration;
+      if (connectedDevice == null ||
+          eventGeneration == null ||
           !_isCurrentSessionGeneration(eventGeneration)) {
         return;
       }
       try {
         var record = HealthRecord.fromJson(event.payload);
+        String nativeId(String id) =>
+            id.replaceFirst(RegExp(r'^(veepoo|yucheng):'), '').toLowerCase();
+        if (nativeId(record.deviceId) != nativeId(connectedDevice!.id)) return;
         if (_activeMeasurementMetric == record.metric &&
             record.origin == MeasurementOrigin.watchHistory) {
           record = record.copyWith(origin: MeasurementOrigin.appMeasurement);
@@ -4262,6 +4608,11 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _restoreReconnectedDevice(Map<String, Object?> payload) async {
+    if (_disposed ||
+        _accountTransitioning ||
+        !_wearableAccountRecoveryAllowed) {
+      return;
+    }
     final sessionGeneration = _sessionGeneration;
     final device = DeviceInfo.fromMap(payload);
     if (device.id.trim().isEmpty ||
@@ -4280,6 +4631,8 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.authenticating);
       await refreshDeviceCapabilities(announceFailure: false);
       if (!_isCurrentSessionGeneration(sessionGeneration) ||
+          _accountTransitioning ||
+          !_wearableAccountRecoveryAllowed ||
           connectedDevice?.id != device.id) {
         return;
       }
@@ -4508,6 +4861,8 @@ class AppController extends ChangeNotifier {
 
   @override
   void dispose() {
+    ++_wechatLoginGeneration;
+    if (isWechatLoginInProgress) unawaited(_wechatAuthBridge.cancel());
     _disposed = true;
     _wearableRestoreGeneration++;
     _measurementTimeout?.cancel();

@@ -4,6 +4,10 @@
   "description": "Saydian native HarmonyOS",
   "main": "",
   "dependencies": {
-    "@veepoo/vpble-sdk": "file:libs/veepoo-vpble-sdk-1.0.0.har"
+    "@jg/push": "1.4.2",
+    "@tencent/wechat_open_sdk": "1.0.21",
+    "@veepoo/vpble-sdk": "file:libs/veepoo-vpble-sdk-1.0.0.har",
+    "library": "file:libs/yucheng-product-sdk-2.1.5-saydian.har",
+    "pako": "2.1.0"
   }
 }

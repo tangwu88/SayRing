@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -207,6 +208,14 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
   }
 
   Future<void> _openPendingNotificationRoute() async {
+    if (kDebugMode && controller.pendingNotificationRoute != null) {
+      debugPrint(
+        '[push-navigation] queued=true running=$_notificationRouteRunning '
+        'gateResolved=$_requiredUpdateGateResolved '
+        'updateRequired=${_requiredUpdate != null} '
+        'authenticated=${controller.isAuthenticated}',
+      );
+    }
     if (_notificationRouteRunning ||
         !_requiredUpdateGateResolved ||
         _requiredUpdate != null ||
@@ -218,6 +227,11 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
     final intent = controller.consumePendingNotificationRoute();
     if (intent == null) return;
     _notificationRouteRunning = true;
+    if (kDebugMode) {
+      debugPrint(
+        '[push-navigation] consumed=true target=${intent.target.name}',
+      );
+    }
     try {
       final page = switch (intent.target) {
         NotificationRouteTarget.careInvitationReview => CareInvitationsPage(
@@ -454,6 +468,7 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
             listenable: controller,
             builder: (context, _) {
               final alert = controller.activeHealthWarningAlert;
+              final careAlert = controller.activeCareInvitationAlert;
               return Stack(
                 children: [
                   child ?? const SizedBox.shrink(),
@@ -509,6 +524,54 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
                                   key: const Key('dismiss-health-warning'),
                                   onPressed:
                                       controller.dismissHealthWarningAlert,
+                                  icon: const Icon(Icons.close_rounded),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    )
+                  else if (careAlert != null &&
+                      controller.isAuthenticated &&
+                      _requiredUpdateGateResolved &&
+                      _requiredUpdate == null)
+                    Positioned(
+                      left: 12,
+                      right: 12,
+                      top: MediaQuery.paddingOf(context).top + 10,
+                      child: Material(
+                        key: const Key('global-care-invitation'),
+                        elevation: 10,
+                        color: const Color(0xFFFFF1EE),
+                        borderRadius: BorderRadius.circular(16),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.favorite_border_rounded,
+                                color: SaydianColors.danger,
+                              ),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Text(
+                                  '收到新的关爱请求',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                              TextButton(
+                                key: const Key('open-care-invitation'),
+                                onPressed: controller.openCareInvitationAlert,
+                                child: const Text('查看'),
+                              ),
+                              Semantics(
+                                button: true,
+                                label: '关闭关爱提醒',
+                                child: IconButton(
+                                  key: const Key('dismiss-care-invitation'),
+                                  onPressed:
+                                      controller.dismissCareInvitationAlert,
                                   icon: const Icon(Icons.close_rounded),
                                 ),
                               ),

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/feature_models.dart';
@@ -16,6 +17,31 @@ import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
 
 void main() {
+  testWidgets('home mini chart does not duplicate its parent empty status', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HealthMetricMiniChart(
+          controller: controller,
+          metric: HealthMetric.heartRate,
+          color: Colors.red,
+          showEmptyLabel: false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(Text), findsNothing);
+    expect(find.byType(LineChart), findsNothing);
+  });
+
   testWidgets('three-tab health shell exposes the redesigned home flows', (
     tester,
   ) async {
@@ -1150,8 +1176,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('手表未返回可用心电波形'), findsOneWidget);
-    expect(find.textContaining('不会根据无效采样生成波形'), findsOneWidget);
-    expect(find.text('该记录未保存有效的波形增益信息'), findsNothing);
+    expect(find.byType(LineChart), findsNothing);
   });
 
   testWidgets('health record detail honors the stored measurement timezone', (
@@ -1256,6 +1281,8 @@ void main() {
         wearable,
       );
       await controller.initialize();
+      await controller.connectDevice(const DeviceInfo(id: 'W9S', name: 'W9S'));
+      await Future<void>.delayed(Duration.zero);
       addTearDown(() async {
         controller.dispose();
         await wearable.close();
@@ -1333,7 +1360,7 @@ void main() {
             unit: '%',
             measuredAt: DateTime.now().toUtc(),
             timezone: '+08:00',
-            deviceId: 'W9S',
+            deviceId: 'watch-1',
             firmwareVersion: '00.20.01',
             quality: 'good',
             source: MeasurementSource.wearable,
@@ -1837,6 +1864,66 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('care metric detail keeps the API-normalized latest reading', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: CareMetricDetailPage(
+          day: DateTime(2026, 8, 30),
+          item: const {
+            'title': '心率',
+            'latest': 75,
+            'records': [
+              {'time': '20:15', 'pulseReat': 75},
+              {'time': '08:10', 'pulseReat': 68},
+            ],
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('最近  75 次/分'), findsOneWidget);
+    expect(find.text('最近  68 次/分'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('care pressure detail keeps the normalized latest pair', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: CareMetricDetailPage(
+          day: DateTime(2026, 8, 30),
+          item: const {
+            'title': '血压',
+            'latest': '128/82',
+            'records': [
+              {
+                'time': '21:30',
+                'bloodPressureHigh': 128,
+                'bloodPressureLow': 82,
+              },
+              {
+                'time': '07:30',
+                'bloodPressureHigh': 118,
+                'bloodPressureLow': 76,
+              },
+            ],
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('最近  128/82 mmHg'), findsOneWidget);
+    expect(find.text('最近  118/76 mmHg'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('care history labels authorized activity as selected-day data', (
     tester,
   ) async {
@@ -1928,8 +2015,9 @@ void main() {
       expect(find.text('372'), findsOneWidget);
       expect(find.text('HRV'), findsOneWidget);
       expect(find.text('52'), findsOneWidget);
-      expect(find.textContaining('暂未获取可用的心电波形'), findsOneWidget);
+      expect(find.text('暂无可用心电波形'), findsOneWidget);
       expect(find.textContaining('服务端'), findsNothing);
+      expect(find.byKey(const Key('care-ecg-waveform')), findsNothing);
       expect(find.text('samples'), findsNothing);
       expect(find.text('rawVersion'), findsNothing);
       expect(tester.takeException(), isNull);

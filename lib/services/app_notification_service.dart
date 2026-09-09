@@ -8,6 +8,8 @@ import 'package:jpush_flutter/jpush_flutter.dart';
 import 'package:jpush_flutter/jpush_interface.dart';
 import 'package:uuid/uuid.dart';
 
+import 'notification_payload.dart';
+
 abstract interface class AppNotificationService {
   bool get isConfigured;
   bool get isActivated;
@@ -429,6 +431,13 @@ final class JPushAppNotificationService implements AppNotificationService {
     required bool systemAlreadyPresented,
   }) {
     final normalized = normalizeJPushPayload(raw);
+    if (kDebugMode) {
+      debugPrint(
+        '[push-callback] opened=${identical(target, _opened)} '
+        'kind=$deliveryKind parsed=${normalized != null} '
+        'type=${normalized?['event_type'] ?? 'unsupported'}',
+      );
+    }
     if (normalized != null && !target.isClosed) {
       // These fields are set after normalizing untrusted extras so the server
       // cannot suppress or duplicate the client-side system notification.
@@ -531,11 +540,10 @@ Map<String, Object?>? normalizeJPushPayload(Map<String, dynamic> raw) {
   final root = _stringMap(raw);
   final initial = _decodeMap(root['extras'] ?? root['extra']) ?? root;
   final source = _findBusinessPayload(initial) ?? initial;
-  final normalized = Map<String, Object?>.from(source);
-  if (!normalized.containsKey('created_at')) {
-    normalized['created_at'] = DateTime.now().toUtc().toIso8601String();
-  }
-  return normalized;
+  return normalizeNotificationBusinessPayload(
+    source,
+    receivedAt: DateTime.now(),
+  );
 }
 
 Map<String, Object?>? _findBusinessPayload(
@@ -545,6 +553,7 @@ Map<String, Object?>? _findBusinessPayload(
   if (depth > 4) return null;
   if (value.containsKey('event_type') ||
       value.containsKey('event_id') ||
+      value.containsKey('eventId') ||
       value.containsKey('schema_version')) {
     return value;
   }

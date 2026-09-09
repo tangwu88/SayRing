@@ -588,7 +588,7 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
         children: [
           const FeatureStateCard(
             message: '设置健康数据上限提醒',
-            detail: '开关开启后，新测量值超过你设置的上限时，会在 APP 全局显示醒目提示。',
+            detail: '超过设定值时提醒。',
             icon: Icons.notifications_active_outlined,
             color: SaydianColors.orange,
           ),
@@ -703,12 +703,11 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
           else if (warnings.isEmpty &&
               widget.controller.healthWarningAlerts.isEmpty)
             FeatureStateCard(
-              message: '当前暂无健康预警',
-              detail:
+              message:
                   widget.controller.notificationStatus == '已加载' ||
                       widget.controller.notificationStatus == '暂无消息'
-                  ? '这里只显示已确认的健康提醒，不会根据普通测量值自行判断疾病。'
-                  : '${widget.controller.notificationStatus}。不会用普通测量值生成预警。',
+                  ? '暂无健康预警'
+                  : widget.controller.notificationStatus,
               icon: Icons.health_and_safety_outlined,
               color: SaydianColors.green,
             )
@@ -751,7 +750,7 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
                         ),
                         const SizedBox(height: 5),
                         Text(
-                          '${warning['content'] ?? warning['message'] ?? warning['created_at'] ?? '已收到健康提醒'}',
+                          '${warning['content'] ?? warning['message'] ?? warning['created_at'] ?? '健康预警'}',
                           maxLines: 4,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -945,14 +944,47 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
   bool _loading = true;
   bool _saving = false;
   String? _error;
+  late final int _sessionGeneration;
+  int _requestGeneration = 0;
+  bool _sessionChanged = false;
+
+  bool get _sessionCurrent =>
+      !_sessionChanged &&
+      widget.controller.isCareShareSessionCurrent(_sessionGeneration);
+
+  bool get _canEdit =>
+      _sessionCurrent && !_loading && !_saving && _error == null;
 
   @override
   void initState() {
     super.initState();
+    _sessionGeneration = widget.controller.careShareSessionGeneration;
+    widget.controller.addListener(_onSessionChanged);
     unawaited(_load());
   }
 
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onSessionChanged);
+    super.dispose();
+  }
+
+  void _onSessionChanged() {
+    if (!mounted || _sessionChanged || _sessionCurrent) return;
+    setState(() {
+      _sessionChanged = true;
+      _requestGeneration++;
+      _loading = false;
+      _saving = false;
+    });
+  }
+
+  bool _isCurrentRequest(int generation) =>
+      mounted && _sessionCurrent && _requestGeneration == generation;
+
   Future<void> _load() async {
+    if (!_sessionCurrent || _saving) return;
+    final generation = ++_requestGeneration;
     setState(() {
       _loading = true;
       _error = null;
@@ -961,21 +993,22 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
       final values = await widget.controller.loadCareShareSettings(
         memberId: widget.memberId,
       );
-      if (!mounted) return;
+      if (!_isCurrentRequest(generation)) return;
       setState(() {
         _enabled = values;
         _loading = false;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!_isCurrentRequest(generation)) return;
       setState(() {
-        _error = '共享设置服务暂不可用';
+        _error = '共享设置读取失败，请重新读取';
         _loading = false;
       });
     }
   }
 
   void _setGroup(Iterable<String> keys, bool enabled) {
+    if (!_canEdit) return;
     setState(() {
       final values = {..._enabled};
       enabled ? values.addAll(keys) : values.removeAll(keys);
@@ -984,16 +1017,23 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
   }
 
   Future<void> _save() async {
+    if (!_canEdit) return;
+    final generation = ++_requestGeneration;
     setState(() => _saving = true);
     final succeeded = await widget.controller.saveCareShareSettings(
       memberId: widget.memberId,
       settings: _enabled,
     );
-    if (!mounted) return;
-    setState(() => _saving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(succeeded ? '共享设置已保存' : '保存失败，请稍后重试')),
-    );
+    if (!mounted || !_isCurrentRequest(generation)) return;
+    setState(() {
+      _saving = false;
+      _error = succeeded ? null : '保存未确认，请重新读取后重试';
+    });
+    if (succeeded) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('共享设置已保存')));
+    }
   }
 
   @override
@@ -1002,14 +1042,22 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
         '${widget.member['nickname'] ?? widget.member['mobile'] ?? '关爱成员'}';
     return Scaffold(
       appBar: AppBar(title: const Text('共享数据管理')),
-      body: _loading
+      body: !_sessionCurrent
+          ? const Padding(
+              padding: EdgeInsets.all(16),
+              child: FeatureStateCard(
+                message: '账号已变化，请返回后重新查看',
+                icon: Icons.person_outline,
+              ),
+            )
+          : _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
                 FeatureStateCard(
                   message: name,
-                  detail: '只有已开启的项目会共享；关闭后保存即可撤销。',
+                  detail: '仅共享已开启的项目，更改后请保存',
                   icon: Icons.privacy_tip_outlined,
                   color: SaydianColors.green,
                 ),
@@ -1017,7 +1065,6 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
                   const SizedBox(height: 12),
                   FeatureStateCard(
                     message: _error!,
-                    detail: '当前不会更改任何授权项目。',
                     icon: Icons.cloud_off_outlined,
                   ),
                 ],
@@ -1027,7 +1074,7 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
                 _permissionGroup('健康数据', _healthKeys),
                 const SizedBox(height: 18),
                 FilledButton.icon(
-                  onPressed: _saving || _error != null ? null : _save,
+                  onPressed: _canEdit ? _save : null,
                   icon: _saving
                       ? const SizedBox.square(
                           dimension: 18,
@@ -1035,6 +1082,12 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
                         )
                       : const Icon(Icons.save_outlined),
                   label: Text(_saving ? '保存中' : '保存共享设置'),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: _saving ? null : _load,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重新读取共享设置'),
                 ),
               ],
             ),
@@ -1052,7 +1105,9 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
             trailing: TextButton(
-              onPressed: () => _setGroup(values.keys, !allEnabled),
+              onPressed: _canEdit
+                  ? () => _setGroup(values.keys, !allEnabled)
+                  : null,
               child: Text(allEnabled ? '全部关闭' : '全选'),
             ),
           ),
@@ -1061,7 +1116,9 @@ class _CareShareSettingsPageState extends State<CareShareSettingsPage> {
             SwitchListTile(
               title: Text(entry.value),
               value: _enabled.contains(entry.key),
-              onChanged: (enabled) => _setGroup([entry.key], enabled),
+              onChanged: _canEdit
+                  ? (enabled) => _setGroup([entry.key], enabled)
+                  : null,
             ),
           ],
         ],
@@ -1133,9 +1190,6 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                         : widget.controller.careInvitationStatus == '服务暂不可用'
                         ? '关爱邀请服务暂不可用'
                         : '暂无新的关爱邀请',
-                    detail: targeted != null || targetId != null
-                        ? '页面已刷新为最新状态，不会重复显示操作按钮。'
-                        : '收到邀请后，可在这里明确同意或拒绝。',
                     icon: Icons.mark_email_unread_outlined,
                   ),
                 ],
@@ -1195,7 +1249,7 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                                         ? mobile
                                         : inviterId.isNotEmpty
                                         ? '邀请人账号 ID：$inviterId'
-                                        : '邀请人手机号暂未返回',
+                                        : '邀请人信息暂不可用',
                                     style: const TextStyle(
                                       color: SaydianColors.muted,
                                       fontSize: 14,
@@ -1209,7 +1263,7 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                         if (nickname.isEmpty && mobile.isEmpty) ...[
                           const SizedBox(height: 8),
                           const Text(
-                            '服务器暂未返回邀请人的公开头像、昵称和手机号，已避免错误显示为当前账号。',
+                            '请确认邀请人后再接受',
                             style: TextStyle(
                               color: SaydianColors.muted,
                               fontSize: 12,
@@ -1765,7 +1819,6 @@ class _EcgMedicalSection extends StatelessWidget {
     if (values.isEmpty) {
       return const FeatureStateCard(
         message: '本次仅返回基础心电数据',
-        detail: '不同型号手表返回的医学指标数量不同，未返回的指标不会推算或补造。',
         icon: Icons.monitor_heart_outlined,
       );
     }
@@ -1856,7 +1909,6 @@ class _EcgRiskSection extends StatelessWidget {
     if (!hasAnalysis) {
       return const FeatureStateCard(
         message: '本次手表未返回风险指标',
-        detail: '风险分析只展示设备实际返回的数据，不根据单次波形自行诊断。',
         icon: Icons.health_and_safety_outlined,
       );
     }
@@ -2799,7 +2851,6 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 '表盘商城',
                 style: TextStyle(fontWeight: FontWeight.w800),
               ),
-              subtitle: const Text('浏览并下载适配当前手表的在线表盘'),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: busy || _openingWatchFaceMarket
                   ? null
@@ -2812,7 +2863,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             child: ListTile(
               leading: const Icon(Icons.info_outline_rounded),
               title: const Text('已安装表盘'),
-              subtitle: const Text('可读取和切换手表内已有表盘，更多表盘以当前手表支持情况为准。'),
+              subtitle: const Text('可切换手表内已有表盘'),
             ),
           ),
           const SizedBox(height: 12),
@@ -4290,7 +4341,6 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     if (settings.isEmpty && !warningSupported) {
       return FeatureStateCard(
         message: widget.controller.deviceSettingsStatus,
-        detail: '读取结果以当前连接手表实际支持的自动检测项目为准。',
         icon: Icons.monitor_heart_outlined,
         actionLabel: '重新读取',
         onAction: widget.controller.refreshDeviceSettings,
@@ -4531,7 +4581,6 @@ class _EcgWaveformCard extends StatelessWidget {
               SizedBox(height: 10),
               FeatureStateCard(
                 message: '手表未返回可用心电波形',
-                detail: '本次同步的心率、HRV 和 QT 等指标仍可查看；App 不会根据无效采样生成波形。',
                 icon: Icons.monitor_heart_outlined,
               ),
             ],
@@ -4549,8 +4598,8 @@ class _EcgWaveformCard extends StatelessWidget {
               Text('心电波形', style: TextStyle(fontWeight: FontWeight.w800)),
               SizedBox(height: 10),
               FeatureStateCard(
-                message: '该记录未保存有效的波形增益信息',
-                detail: '平均心率和 HRV 等结果仍可查看；请使用当前版本重新测量心电，以生成经过设备增益校准的波形。',
+                message: '本次波形无法显示',
+                detail: '请重新测量心电。',
                 icon: Icons.monitor_heart_outlined,
               ),
             ],
@@ -5240,7 +5289,6 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
                 ListTile(
                   leading: const Icon(Icons.system_update_alt_rounded),
                   title: const Text('检查更新'),
-                  subtitle: const Text('检查是否有新版本'),
                   trailing: _checking
                       ? const SizedBox.square(
                           dimension: 22,

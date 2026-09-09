@@ -13,13 +13,32 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
+    'startup does not touch wearable recovery before privacy consent',
+    () async {
+      final wearable = _DelayedRecoveryWearable();
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        wearable,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.initialize();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(wearable.restoreStarted.isCompleted, isFalse);
+    },
+  );
+
+  test(
     'manual scan cancels a stale saved-device restore before selection',
     () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
       try {
         final wearable = _DelayedRecoveryWearable();
         final controller = AppController(
-          MemorySessionVault(),
+          MemorySessionVault()..privacyConsentGranted = true,
           _NoopApi(),
           MemoryHealthStore(),
           wearable,

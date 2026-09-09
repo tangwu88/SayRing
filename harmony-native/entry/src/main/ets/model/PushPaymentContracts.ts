@@ -1,5 +1,6 @@
 import { ApiError } from './Contracts';
 import type { FormField } from './Contracts';
+import { normalizeNotificationPayload } from './NotificationPayload';
 
 export type PaymentProvider = 'wechat' | 'alipay';
 
@@ -62,9 +63,8 @@ export function pushRegistrationFields(identity: PushIdentity, version: string):
 }
 
 export function pushErrorMessage(code: number): string {
-  if (code === 1001500001) return '当前安装包的客户端标识或签名指纹未生效';
-  if (code === 1000900010) return '当前安装包与华为正式应用身份不一致';
-  if (code === 1000900012) return '华为 Push Kit 尚未为当前应用开通';
+  if (code === 1001500001) return '通知服务暂时不可用，请稍后重试';
+  if (code === 1000900010 || code === 1000900012) return '通知服务暂时不可用，请稍后重试';
   if (code === 1000900014 || code === 801) return '当前设备不支持鸿蒙推送能力';
   if (code === 1000900011) return '网络不可用，暂时无法获取推送标识';
   if (code === 1600004) return '系统通知权限未开启';
@@ -72,16 +72,7 @@ export function pushErrorMessage(code: number): string {
 }
 
 export function notificationRoute(parameters: Object | undefined): string {
-  const values = object(parameters);
-  const event = text(values['event_type'], 80).toLowerCase();
-  const route = text(values['route'], 120).toLowerCase();
-  if (event === 'care_invitation' || route === 'care-invitations' || route === '/care/invitations') {
-    return 'care-invitations';
-  }
-  if (event === 'health_alert' || route === 'health-alerts' || route === '/health/alerts') {
-    return 'health-alerts';
-  }
-  return '';
+  return normalizeNotificationPayload(parameters)?.route ?? '';
 }
 
 export function notificationUnreadCount(data: Object | undefined): number {
@@ -158,30 +149,97 @@ function nestedCandidates(data: Object | undefined): Record<string, Object>[] {
   const values: Record<string, Object>[] = [root];
   ['payment', 'payment_params', 'wechat', 'alipay', 'config', 'harmony'].forEach((key: string) => {
     const item = object(root[key]);
-    if (Object.keys(item).length > 0) values.push(item);
+    if (Object.keys(item).length > 0) {
+      values.push(item);
+      ['payment', 'payment_params', 'wechat', 'alipay', 'config', 'harmony'].forEach((nestedKey: string) => {
+        const nested = object(item[nestedKey]);
+        if (Object.keys(nested).length > 0) values.push(nested);
+      });
+    }
   });
   return values;
 }
 
+function jsonObjectText(value: Object | undefined): string {
+  if (typeof value === 'string') {
+    const normalized = text(value, 16384);
+    if (!normalized) return '';
+    try {
+      const parsed = JSON.parse(normalized) as Object;
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? normalized : '';
+    } catch { return ''; }
+  }
+  const data = object(value);
+  if (Object.keys(data).length === 0) return '';
+  try {
+    const serialized = JSON.stringify(data);
+    return serialized.length <= 16384 ? serialized : '';
+  } catch { return ''; }
+}
+
+function queryValue(query: string, name: string): string {
+  const prefix = `${name}=`;
+  const part = query.split('&').find((item: string) => item.startsWith(prefix));
+  if (!part) return '';
+  const raw = part.slice(prefix.length).replace(/\+/g, '%20');
+  try { return decodeURIComponent(raw).trim(); }
+  catch { return ''; }
+}
+
+function alipayOrderInfo(candidate: Record<string, Object>): string {
+  const raw = text(candidate['pay_info'] ?? candidate['payInfo'] ?? candidate['order_info'] ??
+    candidate['orderInfo'] ?? candidate['config'], 16384);
+  if (!raw || /[\x00-\x1f\x7f]/.test(raw)) return '';
+  const appId = queryValue(raw, 'app_id');
+  const method = queryValue(raw, 'method');
+  const content = queryValue(raw, 'biz_content');
+  const sign = queryValue(raw, 'sign');
+  const signType = queryValue(raw, 'sign_type');
+  if (!/^[A-Za-z0-9._-]{6,128}$/.test(appId) || method !== 'alipay.trade.app.pay' ||
+    !content || !sign || !signType) return '';
+  return raw;
+}
+
+function wechatPreparationError(candidate: Record<string, Object>): string {
+  const returnCode = text(candidate['return_code'] ?? candidate['returnCode'], 40).toUpperCase();
+  const resultCode = text(candidate['result_code'] ?? candidate['resultCode'], 40).toUpperCase();
+  const errorCode = text(candidate['err_code'] ?? candidate['errCode'], 80).toUpperCase();
+  if (returnCode !== 'FAIL' && resultCode !== 'FAIL' && !errorCode) return '';
+  if (errorCode === 'NOAUTH') return '微信支付商户权限尚未开通，请选择支付宝或稍后重试';
+  return '微信支付下单失败，请稍后重试或选择支付宝';
+}
+
 export function parseHarmonyPayment(provider: PaymentProvider, data: Object | undefined): HarmonyPaymentRequest {
   const candidates = nestedCandidates(data);
+  if (provider === 'alipay') {
+    for (const candidate of candidates) {
+      const orderInfo = alipayOrderInfo(candidate);
+      if (orderInfo) {
+        return { provider: provider, thirdAppId: queryValue(orderInfo, 'app_id'), payInfo: orderInfo };
+      }
+    }
+    throw new ApiError('支付宝支付参数暂时不可用，请稍后重试');
+  }
   for (const candidate of candidates) {
-    const explicitPayInfo = text(candidate['pay_info'] ?? candidate['payInfo'], 16384);
+    const preparationError = wechatPreparationError(candidate);
+    if (preparationError) throw new ApiError(preparationError);
+    const explicitPayInfo = jsonObjectText(candidate['pay_info'] ?? candidate['payInfo']);
     const explicitAppId = text(candidate['third_app_id'] ?? candidate['thirdAppId'] ?? candidate['appid'] ?? candidate['app_id'], 256);
     if (explicitPayInfo && explicitAppId) {
-      try {
-        const parsed = JSON.parse(explicitPayInfo) as Object;
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
-      } catch { continue; }
       return { provider: provider, thirdAppId: explicitAppId, payInfo: explicitPayInfo };
     }
+    const prepayId = text(candidate['prepayId'] ?? candidate['prepayid'] ?? candidate['prepay_id'], 256);
+    if (explicitAppId && prepayId) {
+      const payInfo = jsonObjectText(candidate);
+      if (payInfo) return { provider: provider, thirdAppId: explicitAppId, payInfo: payInfo };
+    }
   }
-  throw new ApiError(provider === 'wechat' ? '后台未返回鸿蒙微信支付参数' : '后台未返回鸿蒙支付宝支付参数');
+  throw new ApiError('暂时无法发起支付，请稍后重试');
 }
 
 export function paymentErrorMessage(code: number): string {
   if (code === 1022830000 || code === 1001930000 || code === 1014900000) return '已取消支付';
-  if (code === 1022830002 || code === 401) return '支付参数无效，请刷新订单后重试';
+  if (code === 1022830002 || code === 401) return '支付信息暂时不可用，请刷新订单后重试';
   if (code === 801) return '当前设备或系统版本不支持该支付方式';
   if (code === 1001930001 || code === 1014900001) return '支付失败，请确认订单状态后重试';
   if (code === 1001930002 || code === 1014900002) return '交易已处理，请刷新订单状态';

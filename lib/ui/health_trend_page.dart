@@ -16,12 +16,14 @@ class HealthMetricMiniChart extends StatelessWidget {
     required this.controller,
     required this.metric,
     required this.color,
+    this.showEmptyLabel = true,
     super.key,
   });
 
   final AppController controller;
   final HealthMetric metric;
   final Color color;
+  final bool showEmptyLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -36,7 +38,19 @@ class HealthMetricMiniChart extends StatelessWidget {
           end: start.add(const Duration(days: 1)),
         ),
         builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const SizedBox.shrink();
+          }
+          if (snapshot.hasError) {
+            return const Text(
+              '趋势暂不可用',
+              style: TextStyle(color: SaydianColors.muted),
+            );
+          }
           final records = snapshot.data ?? const <HealthRecord>[];
+          if (records.isEmpty && !showEmptyLabel) {
+            return const SizedBox.shrink();
+          }
           if (records.length < 2) {
             return Align(
               alignment: Alignment.centerLeft,
@@ -368,11 +382,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
         const SizedBox(height: 12),
       ],
       if (data.records.isEmpty)
-        const _MessageCard(
-          icon: Icons.show_chart_rounded,
-          title: '该时间段暂无数据',
-          detail: '连接手表同步后，这里会展示真实趋势和统计。',
-        )
+        const _MessageCard(icon: Icons.show_chart_rounded, title: '该时间段暂无数据')
       else ...[
         _SummaryCard(
           metric: widget.metric,
@@ -883,13 +893,13 @@ class _MessageCard extends StatelessWidget {
   const _MessageCard({
     required this.icon,
     required this.title,
-    required this.detail,
+    this.detail,
     this.action,
   });
 
   final IconData icon;
   final String title;
-  final String detail;
+  final String? detail;
   final Future<void> Function()? action;
 
   @override
@@ -902,12 +912,14 @@ class _MessageCard extends StatelessWidget {
             Icon(icon, size: 36, color: SaydianColors.muted),
             const SizedBox(height: 10),
             Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 6),
-            Text(
-              detail,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: SaydianColors.muted, height: 1.5),
-            ),
+            if (detail != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                detail!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: SaydianColors.muted, height: 1.5),
+              ),
+            ],
             if (action != null) ...[
               const SizedBox(height: 12),
               TextButton(onPressed: action, child: const Text('重新读取')),

@@ -33,6 +33,12 @@ val jpushChannel =
         .orNull
         ?.trim()
         .orEmpty()
+val wechatAppId =
+    providers.gradleProperty("WECHAT_APP_ID")
+        .orElse(providers.environmentVariable("WECHAT_APP_ID"))
+        .orElse("wxc9426c8d822c1302")
+        .get()
+        .trim()
 fun releaseModeFlag(name: String): Boolean {
     val value = providers.environmentVariable(name).orNull?.trim()?.lowercase().orEmpty()
     return when (value) {
@@ -123,6 +129,7 @@ android {
         manifestPlaceholders["JPUSH_CHANNEL"] =
             jpushChannel.ifEmpty { "developer-disabled" }
         buildConfigField("boolean", "VEEPOO_SDK_PRESENT", hasCompleteVeepooSdk.toString())
+        buildConfigField("String", "WECHAT_APP_ID", "\"$wechatAppId\"")
     }
 
     buildFeatures {

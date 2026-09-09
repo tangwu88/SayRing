@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:saydian_app/app.dart';
 import 'package:saydian_app/services/app_controller.dart';
+import 'package:saydian_app/ui/pages.dart' show CareMemberPage;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -178,9 +179,32 @@ void main() {
     await tester.tap(find.byType(ListTile).first);
     await _pumpUntil(
       tester,
-      () => find.byType(CircularProgressIndicator).evaluate().isEmpty,
+      () =>
+          find.byType(CareMemberPage).evaluate().isNotEmpty &&
+          find
+              .descendant(
+                of: find.byType(CareMemberPage),
+                matching: find.byType(CircularProgressIndicator),
+              )
+              .evaluate()
+              .isEmpty,
       const Duration(seconds: 60),
     );
+    // The health section can be below the activity cards on a small screen.
+    if (find.text('健康详情').evaluate().isEmpty &&
+        find.textContaining('当前日期没有').evaluate().isEmpty) {
+      await tester.scrollUntilVisible(
+        find.text('健康详情'),
+        300,
+        scrollable: find
+            .descendant(
+              of: find.byType(CareMemberPage),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+        maxScrolls: 8,
+      );
+    }
     expect(
       find.text('健康详情').evaluate().isNotEmpty ||
           find.textContaining('当前日期没有').evaluate().isNotEmpty,

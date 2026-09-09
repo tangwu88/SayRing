@@ -779,6 +779,47 @@ private final class StoreKitPurchaseCoordinator {
   }
 }
 
+enum IOSWechatAuthOutcome: Equatable {
+  case authorized(code: String, state: String)
+  case cancelled(state: String)
+  case failed(code: String)
+}
+
+/// A single-use, time-bounded authorization. Unrelated/late callbacks are ignored.
+struct IOSWechatAuthState {
+  private(set) var state: String?
+  private var deadline = Date.distantPast
+
+  mutating func begin(_ value: String, now: Date = Date()) -> Bool {
+    guard state == nil,
+      value.range(of: "^sd_[0-9]{13}_[A-Za-z0-9-]{16,64}$", options: .regularExpression) != nil
+    else { return false }
+    state = value
+    deadline = now.addingTimeInterval(120)
+    return true
+  }
+
+  mutating func cancel(_ value: String) -> Bool {
+    guard state == value else { return false }
+    state = nil
+    return true
+  }
+
+  mutating func consume(
+    state returnedState: String?, code: String?, errorCode: Int32, now: Date = Date()
+  ) -> IOSWechatAuthOutcome? {
+    guard let expected = state, returnedState == expected else { return nil }
+    state = nil
+    guard now <= deadline else { return .failed(code: "WECHAT_AUTH_TIMEOUT") }
+    if errorCode == -2 { return .cancelled(state: expected) }
+    if errorCode == -4 { return .failed(code: "WECHAT_AUTH_DENIED") }
+    guard errorCode == 0, let code,
+      !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, code.count <= 1024
+    else { return .failed(code: "WECHAT_AUTH_INVALID") }
+    return .authorized(code: code, state: expected)
+  }
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, WXApiDelegate {
   private let wearableStreamHandler = WearableStreamHandler()
@@ -786,6 +827,10 @@ private final class StoreKitPurchaseCoordinator {
   private var methodChannel: FlutterMethodChannel?
   private var eventChannel: FlutterEventChannel?
   private var paymentChannel: FlutterMethodChannel?
+  private var authChannel: FlutterMethodChannel?
+  private var wechatAuthState = IOSWechatAuthState()
+  private var pendingWechatAuth: FlutterResult?
+  private var wechatAuthTimeout: DispatchWorkItem?
   private var pendingAlipayResult: FlutterResult?
   private var storeKitChannel: FlutterMethodChannel?
 
@@ -854,6 +899,16 @@ private final class StoreKitPurchaseCoordinator {
       self?.handleStoreKitCall(call, result: result)
     }
     storeKitChannel = storeKit
+
+    let auth = FlutterMethodChannel(
+      name: "cc.saidian/app_auth", binaryMessenger: registrar.messenger()
+    )
+    auth.setMethodCallHandler { [weak self] call, result in
+      DispatchQueue.main.async {
+        self?.handleAuthCall(call, result: result)
+      }
+    }
+    authChannel = auth
   }
 
   override func application(
@@ -897,6 +952,22 @@ private final class StoreKitPurchaseCoordinator {
   }
 
   func onResp(_ response: BaseResp) {
+    if let auth = response as? SendAuthResp {
+      DispatchQueue.main.async { [weak self] in
+        guard let self, let outcome = self.wechatAuthState.consume(
+          state: auth.state, code: auth.code, errorCode: auth.errCode
+        ) else { return }
+        switch outcome {
+        case .authorized(let code, let state):
+          self.completeWechatAuth(["code": code, "state": state])
+        case .cancelled(let state):
+          self.completeWechatAuth(["cancelled": true, "state": state])
+        case .failed(let code):
+          self.completeWechatAuth(FlutterError(code: code, message: "微信登录未完成，请重试", details: nil))
+        }
+      }
+      return
+    }
     guard response is PayResp else { return }
     let payload: [String: Any] = [
       "code": String(response.errCode),
@@ -906,6 +977,71 @@ private final class StoreKitPurchaseCoordinator {
     if let data = try? JSONSerialization.data(withJSONObject: payload) {
       UserDefaults.standard.set(data, forKey: Self.wechatResultDefaultsKey)
     }
+  }
+
+  private func handleAuthCall(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    let values = call.arguments as? [String: Any]
+    let state = values?["state"] as? String ?? ""
+    if call.method == "cancelWechatAuthorization" {
+      if wechatAuthState.cancel(state) {
+        completeWechatAuth(["cancelled": true, "state": state])
+      }
+      result(nil)
+      return
+    }
+    guard call.method == "authorizeWechat" else {
+      result(FlutterMethodNotImplemented)
+      return
+    }
+    guard pendingWechatAuth == nil else {
+      result(FlutterError(code: "WECHAT_AUTH_BUSY", message: "正在微信登录", details: nil))
+      return
+    }
+    guard WXApi.isWXAppInstalled() else {
+      result(FlutterError(code: "WECHAT_NOT_INSTALLED", message: "请先安装微信", details: nil))
+      return
+    }
+    guard WXApi.isWXAppSupport() else {
+      result(FlutterError(code: "WECHAT_UNSUPPORTED", message: "请更新微信后重试", details: nil))
+      return
+    }
+    guard !configuredWechatAppID.isEmpty,
+      let link = URL(string: configuredWechatUniversalLink),
+      link.scheme == "https", link.host != nil, link.query == nil, link.fragment == nil,
+      configuredWechatUniversalLink.hasSuffix("/"),
+      WXApi.registerApp(configuredWechatAppID, universalLink: configuredWechatUniversalLink)
+    else {
+      result(FlutterError(code: "WECHAT_AUTH_CONFIG_MISSING", message: "微信登录暂不可用，请使用手机号登录", details: nil))
+      return
+    }
+    guard wechatAuthState.begin(state) else {
+      result(FlutterError(code: "WECHAT_AUTH_INVALID", message: "请重新发起微信登录", details: nil))
+      return
+    }
+    pendingWechatAuth = result
+    let timeout = DispatchWorkItem { [weak self] in
+      guard let self, self.wechatAuthState.cancel(state) else { return }
+      self.completeWechatAuth(FlutterError(code: "WECHAT_AUTH_TIMEOUT", message: "微信授权已超时，请重试", details: nil))
+    }
+    wechatAuthTimeout = timeout
+    DispatchQueue.main.asyncAfter(deadline: .now() + 120, execute: timeout)
+    let request = SendAuthReq()
+    request.scope = "snsapi_userinfo"
+    request.state = state
+    WXApi.send(request) { [weak self] accepted in
+      DispatchQueue.main.async {
+        guard !accepted, let self, self.wechatAuthState.cancel(state) else { return }
+        self.completeWechatAuth(FlutterError(code: "WECHAT_AUTH_OPEN_FAILED", message: "无法打开微信，请重试", details: nil))
+      }
+    }
+  }
+
+  private func completeWechatAuth(_ value: Any?) {
+    wechatAuthTimeout?.cancel()
+    wechatAuthTimeout = nil
+    let completion = pendingWechatAuth
+    pendingWechatAuth = nil
+    completion?(value)
   }
 
   private func handlePaymentCall(

@@ -6,6 +6,38 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testWechatAuthIgnoresForeignAndDuplicateCallbacks() {
+    var state = IOSWechatAuthState()
+    let nonce = "sd_1788569000000_0123456789abcdef"
+    XCTAssertTrue(state.begin(nonce))
+    XCTAssertFalse(state.begin(nonce))
+    XCTAssertNil(state.consume(state: "foreign", code: "code", errorCode: 0))
+    XCTAssertEqual(state.consume(state: nonce, code: "code", errorCode: 0), .authorized(code: "code", state: nonce))
+    XCTAssertNil(state.consume(state: nonce, code: "code", errorCode: 0))
+  }
+
+  func testWechatAuthRejectsExpiredAndInvalidResults() {
+    var state = IOSWechatAuthState()
+    let nonce = "sd_1788569000000_0123456789abcdef"
+    let start = Date(timeIntervalSince1970: 1_788_569_000)
+    XCTAssertFalse(state.begin(""))
+    XCTAssertTrue(state.begin(nonce, now: start))
+    XCTAssertEqual(state.consume(state: nonce, code: "code", errorCode: 0, now: start.addingTimeInterval(121)), .failed(code: "WECHAT_AUTH_TIMEOUT"))
+    XCTAssertTrue(state.begin(nonce))
+    XCTAssertEqual(state.consume(state: nonce, code: "", errorCode: 0), .failed(code: "WECHAT_AUTH_INVALID"))
+  }
+
+  func testWechatAuthCancellationCannotConsumeAnotherRequest() {
+    var state = IOSWechatAuthState()
+    let nonce = "sd_1788569000000_0123456789abcdef"
+    XCTAssertTrue(state.begin(nonce))
+    XCTAssertFalse(state.cancel("foreign"))
+    XCTAssertEqual(state.consume(state: nonce, code: nil, errorCode: -2), .cancelled(state: nonce))
+    XCTAssertTrue(state.begin(nonce))
+    XCTAssertTrue(state.cancel(nonce))
+    XCTAssertNil(state.consume(state: nonce, code: "late-code", errorCode: 0))
+  }
+
   func testIOSWechatPaymentPayloadAcceptsBackendAliases() throws {
     let request = try XCTUnwrap(
       IOSPaymentPayloadMapper.wechatRequest([

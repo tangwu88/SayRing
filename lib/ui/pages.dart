@@ -61,6 +61,21 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
+  Future<void> _wechatLogin() async {
+    if (widget.controller.isWechatLoginInProgress) {
+      widget.controller.cancelWechatLogin();
+      return;
+    }
+    if (!_accepted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先同意用户协议与隐私政策')));
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    await widget.controller.loginWithWechat(privacyConsentGranted: true);
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
@@ -83,6 +98,7 @@ class _LoginPageState extends State<LoginPage> {
                     SizedBox(height: compactLayout ? 32 : 64),
                     TextField(
                       controller: _account,
+                      enabled: !controller.isBusy,
                       keyboardType: TextInputType.phone,
                       autofillHints: const [AutofillHints.username],
                       decoration: InputDecoration(
@@ -102,6 +118,7 @@ class _LoginPageState extends State<LoginPage> {
                     const SizedBox(height: 14),
                     TextField(
                       controller: _password,
+                      enabled: !controller.isBusy,
                       obscureText: _obscure,
                       autofillHints: const [AutofillHints.password],
                       decoration: InputDecoration(
@@ -169,7 +186,9 @@ class _LoginPageState extends State<LoginPage> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      child: controller.isBusy
+                      child:
+                          controller.isBusy &&
+                              !controller.isWechatLoginInProgress
                           ? const SizedBox.square(
                               dimension: 22,
                               child: CircularProgressIndicator(
@@ -202,7 +221,41 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       child: const Text('注册账户'),
                     ),
-                    if (kDebugMode) ...[
+                    if (!kIsWeb &&
+                        (defaultTargetPlatform == TargetPlatform.iOS ||
+                            defaultTargetPlatform ==
+                                TargetPlatform.android)) ...[
+                      const SizedBox(height: 12),
+                      Center(
+                        child: FractionallySizedBox(
+                          widthFactor: 0.6,
+                          child: OutlinedButton(
+                            key: const Key('wechat-login'),
+                            onPressed:
+                                controller.isBusy &&
+                                    !controller.canCancelWechatLogin
+                                ? null
+                                : _wechatLogin,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF07883E),
+                              minimumSize: const Size.fromHeight(48),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 10,
+                              ),
+                            ),
+                            child: Text(
+                              controller.isWechatLoginInProgress
+                                  ? controller.canCancelWechatLogin
+                                        ? '取消微信登录'
+                                        : '正在登录'
+                                  : '微信授权登录',
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ] else if (kDebugMode) ...[
                       const SizedBox(height: 20),
                       TextButton.icon(
                         onPressed: controller.enterPreview,
@@ -1077,8 +1130,8 @@ class _DeviceHero extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   device == null
-                      ? '连接后同步真实健康数据'
-                      : '${device.model ?? '赛电设备'} · ${controller.syncStatus}',
+                      ? '连接后同步健康数据'
+                      : '${device.displayModel} · ${controller.syncStatus}',
                   style: const TextStyle(
                     color: SaydianColors.muted,
                     fontSize: 12,
@@ -1262,6 +1315,7 @@ class _MetricCard extends StatelessWidget {
                 controller: controller,
                 metric: metric,
                 color: chartColor,
+                showEmptyLabel: false,
               ),
             ],
           ),
@@ -3712,14 +3766,23 @@ class _AiChatPageState extends State<AiChatPage> {
           children: [
             Expanded(
               child: widget.controller.aiMessages.isEmpty
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(28),
-                        child: FeatureStateCard(
-                          message: '您好，我是 AI 健康管家',
-                          detail: '可以向我咨询日常健康管理问题，回答仅供参考，不能替代医生诊断。',
-                          icon: Icons.health_and_safety_outlined,
-                          color: SaydianColors.brandRed,
+                  ? LayoutBuilder(
+                      builder: (context, constraints) => SingleChildScrollView(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minHeight: constraints.maxHeight,
+                          ),
+                          child: const Padding(
+                            padding: EdgeInsets.all(28),
+                            child: Center(
+                              child: FeatureStateCard(
+                                message: '您好，我是 AI 健康管家',
+                                detail: '可以向我咨询日常健康管理问题，回答仅供参考，不能替代医生诊断。',
+                                icon: Icons.health_and_safety_outlined,
+                                color: SaydianColors.brandRed,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     )
@@ -3841,7 +3904,12 @@ class _AiChatPageState extends State<AiChatPage> {
                         controller: _input,
                         focusNode: _inputFocus,
                         minLines: 1,
-                        maxLines: 4,
+                        maxLines:
+                            MediaQuery.sizeOf(context).height -
+                                    MediaQuery.viewInsetsOf(context).bottom <
+                                430
+                            ? 2
+                            : 4,
                         textInputAction: TextInputAction.send,
                         onSubmitted: (_) => _send(),
                         decoration: const InputDecoration(hintText: '请输入消息…'),
@@ -5005,7 +5073,7 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                     const Divider(indent: 16),
                     ListTile(
                       title: const Text('设备型号'),
-                      trailing: Text(device?.model ?? '--'),
+                      trailing: Text(device?.displayModel ?? '--'),
                     ),
                     const Divider(indent: 16),
                     ListTile(
@@ -5590,6 +5658,7 @@ class _CarePageState extends State<CarePage> {
                     ),
                   ),
                   IconButton.filled(
+                    tooltip: '添加关爱',
                     onPressed:
                         controller.session == null || controller.isPreviewMode
                         ? null
@@ -6212,8 +6281,13 @@ class _CareDailyCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final title = '${item['title'] ?? '健康详情'}';
-    final tips = '${item['tips'] ?? item['tip'] ?? ''}'.trim();
-    final summary = _careSummary(item);
+    final unauthorized = item['state'] == 'unauthorized';
+    final tips = unauthorized
+        ? '对方未授权此项目'
+        : '${item['tips'] ?? item['tip'] ?? ''}'.trim();
+    final summary = unauthorized
+        ? const <String, String>{}
+        : _careSummary(item);
     final unavailable = item['state'] == 'unavailable';
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -6234,10 +6308,14 @@ class _CareDailyCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
-                      unavailable
+                      unauthorized
+                          ? Icons.lock_outline
+                          : unavailable
                           ? Icons.cloud_off_outlined
                           : Icons.monitor_heart_outlined,
-                      color: unavailable
+                      color: unauthorized
+                          ? SaydianColors.muted
+                          : unavailable
                           ? SaydianColors.orange
                           : SaydianColors.brandRed,
                     ),
@@ -6312,9 +6390,10 @@ class CareMetricDetailPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = '${item['title'] ?? '健康数据'}';
     final state = '${item['state'] ?? ''}';
-    final tips = '${item['tips'] ?? ''}'.trim();
+    final unauthorized = state == 'unauthorized';
+    final tips = unauthorized ? '对方未授权此项目' : '${item['tips'] ?? ''}'.trim();
     final metricUnit = '${item['unit'] ?? ''}'.trim();
-    final rawRecords = item['records'];
+    final rawRecords = unauthorized ? const <Object?>[] : item['records'];
     final allRecords = rawRecords is List
         ? rawRecords
               .whereType<Map>()
@@ -6332,7 +6411,11 @@ class CareMetricDetailPage extends StatelessWidget {
                 ).isNotEmpty,
               )
               .toList(growable: false);
-    final summary = _careMetricDaySummary(title, records);
+    final summary = _careMetricDaySummary(
+      title,
+      records,
+      normalizedLatest: item['latest'],
+    );
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: ListView(
@@ -6353,7 +6436,9 @@ class CareMetricDetailPage extends StatelessWidget {
           if (records.isEmpty)
             _InlineNotice(
               message: tips.isNotEmpty ? tips : '这一天没有可展示的明细记录。',
-              icon: state == 'unavailable'
+              icon: unauthorized
+                  ? Icons.lock_outline
+                  : state == 'unavailable'
                   ? Icons.cloud_off_outlined
                   : Icons.event_busy_outlined,
               color: SaydianColors.orange,
@@ -6579,6 +6664,7 @@ class _CareEcgRecordCard extends StatelessWidget {
             const SizedBox(height: 12),
             if (usableWaveform)
               Container(
+                key: const Key('care-ecg-waveform'),
                 height: 150,
                 width: double.infinity,
                 clipBehavior: Clip.antiAlias,
@@ -6592,7 +6678,7 @@ class _CareEcgRecordCard extends StatelessWidget {
               )
             else
               const _InlineNotice(
-                message: '暂未获取可用的心电波形，仅展示已有健康指标。',
+                message: '暂无可用心电波形',
                 icon: Icons.monitor_heart_outlined,
                 color: SaydianColors.orange,
               ),
@@ -6936,8 +7022,9 @@ num? _carePositiveDisplayNumber(
 
 Map<String, String> _careMetricDaySummary(
   String title,
-  List<Map<String, Object?>> records,
-) {
+  List<Map<String, Object?>> records, {
+  Object? normalizedLatest,
+}) {
   final result = <String, String>{'记录数': '${records.length} 条'};
   if (title == '心电' || title == '身体成分' || title == '血液成分') {
     return result;
@@ -6950,7 +7037,9 @@ Map<String, String> _careMetricDaySummary(
     if (values.isEmpty) return result;
     String pair(num high, num low) =>
         '${_careFormatNumber(high)}/${_careFormatNumber(low)} mmHg';
-    result['最近'] = pair(values.last.$1, values.last.$2);
+    final latest = _careMetricPressurePair({'bloodPressure': normalizedLatest});
+    final displayedLatest = latest ?? values.last;
+    result['最近'] = pair(displayedLatest.$1, displayedLatest.$2);
     result['平均'] = pair(
       values.map((value) => value.$1).reduce((a, b) => a + b) / values.length,
       values.map((value) => value.$2).reduce((a, b) => a + b) / values.length,
@@ -6991,7 +7080,9 @@ Map<String, String> _careMetricDaySummary(
   String format(num value) => unit.isEmpty
       ? _careFormatNumber(value)
       : '${_careFormatNumber(value)} $unit';
-  result['最近'] = format(values.last);
+  result['最近'] = format(
+    _carePositiveDisplayNumber(normalizedLatest) ?? values.last,
+  );
   result['平均'] = format(values.reduce((a, b) => a + b) / values.length);
   result['最高'] = format(values.reduce(math.max));
   result['最低'] = format(values.reduce(math.min));
@@ -9222,7 +9313,7 @@ class AccountSettingsPage extends StatelessWidget {
                   ),
                   leading: const Icon(Icons.person_outline_rounded),
                   title: const Text('个人资料'),
-                  subtitle: const Text('昵称、性别、生日、身高和体重'),
+                  subtitle: const Text('注册手机号和基础资料'),
                   trailing: const Icon(Icons.chevron_right_rounded),
                 ),
                 const Divider(indent: 56),
@@ -9406,12 +9497,18 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
   late final TextEditingController _weight;
   late int _gender;
   late String _avatarUrl;
+  late String _registeredMobile;
   Uint8List? _avatarBytes;
   String? _avatarFilePath;
   bool _isPickingAvatar = false;
   bool _isLoadingProfile = false;
   bool _profileEdited = false;
   String? _profileLoadError;
+
+  int _profileGender(Object? rawValue) {
+    final value = int.tryParse('${rawValue ?? ''}');
+    return value == 1 || value == 2 ? value! : 0;
+  }
 
   @override
   void initState() {
@@ -9421,8 +9518,9 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
     _birthday = TextEditingController(text: '${profile['birthday'] ?? ''}');
     _height = TextEditingController(text: '${profile['height'] ?? ''}');
     _weight = TextEditingController(text: '${profile['weight'] ?? ''}');
-    _gender = int.tryParse('${profile['gender'] ?? 1}') ?? 1;
+    _gender = _profileGender(profile['gender']);
     _avatarUrl = '${profile['head_portrait'] ?? ''}'.trim();
+    _registeredMobile = _mobileFromProfile(profile);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_loadLatestProfile());
     });
@@ -9436,6 +9534,9 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
     _weight.dispose();
     super.dispose();
   }
+
+  String _mobileFromProfile(Map<String, Object?> profile) =>
+      '${profile['mobile'] ?? ''}'.trim();
 
   Future<void> _selectBirthday() async {
     final initial = DateTime.tryParse(_birthday.text) ?? DateTime(1990);
@@ -9466,12 +9567,13 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
         _profileLoadError = widget.controller.errorMessage ?? '个人资料读取失败，请稍后重试';
         return;
       }
+      _registeredMobile = _mobileFromProfile(profile);
       if (_profileEdited) return;
       _nickname.text = '${profile['nickname'] ?? ''}';
       _birthday.text = '${profile['birthday'] ?? ''}';
       _height.text = '${profile['height'] ?? ''}';
       _weight.text = '${profile['weight'] ?? ''}';
-      _gender = int.tryParse('${profile['gender'] ?? 1}') ?? 1;
+      _gender = _profileGender(profile['gender']);
       if (_avatarFilePath == null) {
         _avatarUrl = '${profile['head_portrait'] ?? ''}'.trim();
       }
@@ -9523,6 +9625,12 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
 
   Future<void> _save() async {
     if (_isPickingAvatar) return;
+    if (_gender != 1 && _gender != 2) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请选择性别')));
+      return;
+    }
     final height = double.tryParse(_height.text);
     final weight = double.tryParse(_weight.text);
     if (_nickname.text.trim().isEmpty ||
@@ -9638,6 +9746,23 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
             ),
           ],
           const SizedBox(height: 22),
+          Semantics(
+            label: _registeredMobile.isEmpty
+                ? '注册手机号，未获取'
+                : '注册手机号，$_registeredMobile',
+            child: InputDecorator(
+              key: const Key('profile-registered-mobile'),
+              decoration: const InputDecoration(
+                labelText: '注册手机号',
+                suffixIcon: Icon(Icons.lock_outline_rounded),
+              ),
+              child: Text(
+                _registeredMobile.isEmpty ? '未获取' : _registeredMobile,
+                style: const TextStyle(color: SaydianColors.ink, fontSize: 16),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
           TextField(
             key: const Key('profile-nickname'),
             controller: _nickname,
@@ -9647,9 +9772,11 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<int>(
+            key: ValueKey('profile-gender-$_gender'),
             initialValue: _gender,
             decoration: const InputDecoration(labelText: '性别'),
             items: const [
+              DropdownMenuItem(value: 0, child: Text('未设置')),
               DropdownMenuItem(value: 1, child: Text('男')),
               DropdownMenuItem(value: 2, child: Text('女')),
             ],

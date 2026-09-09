@@ -333,8 +333,10 @@ jobs:
             -type f -name apkanalyzer -perm -u+x | sort | tail -n 1)"
           test -x "$apkanalyzer"
           "$apkanalyzer" manifest print "$apk" > "$RUNNER_TEMP/apk-manifest.xml"
+          "$build_tools/aapt2" dump resources "$apk" > "$RUNNER_TEMP/apk-resources.txt"
           python3 scripts/release/release_gate.py apk-manifest \
             --xml "$RUNNER_TEMP/apk-manifest.xml" \
+            --resources "$RUNNER_TEMP/apk-resources.txt" \
             --expected-package "$PRODUCTION_PACKAGE" \
             --expected-version "${{ steps.release.outputs.version }}" \
             --expected-build "${{ steps.release.outputs.build }}"

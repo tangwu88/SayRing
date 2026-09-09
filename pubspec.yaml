@@ -1,7 +1,7 @@
 name: saydian_app
 description: "A new Flutter project."
 publish_to: 'none'
-version: 0.1.19+23
+version: 0.1.20+1002
 
 environment:
   sdk: ^3.12.2

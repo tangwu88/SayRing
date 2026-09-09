@@ -1,37 +1,38 @@
-import { thirdPaymentService } from '@kit.PaymentKit';
 import type { common, Want } from '@kit.AbilityKit';
-import type { HarmonyPaymentRequest } from '../model/PushPaymentContracts';
-import { withPaymentTimeout } from '../model/PaymentWatchdog';
-import { setPaymentCallbackExpected } from './PaymentLaunchState';
+import type { HarmonyPaymentRequest, PaymentProvider } from '../model/PushPaymentContracts';
+import { ApiError } from '../model/Contracts';
+import { WECHAT_APP_ID } from '../model/WechatAuthContracts';
+import { nativeWechatPayment } from '../model/WechatPaymentContracts';
+import { wechatPayment } from './WechatPaymentService';
 
-let activeClient: thirdPaymentService.ThirdPayClient | undefined = undefined;
+export function canStartHarmonyPayment(provider: PaymentProvider): boolean {
+  if (provider === 'alipay') return true;
+  return (provider === 'wechat' && wechatPayment.isAvailable()) ||
+    canIUse('SystemCapability.Payment.ThirdPaymentService');
+}
 
 export class HarmonyPaymentService {
   async start(context: common.UIAbilityContext, request: HarmonyPaymentRequest): Promise<void> {
-    const method = request.provider === 'wechat' ?
-      thirdPaymentService.PayMethod.WECHAT_PAY : thirdPaymentService.PayMethod.ALI_PAY;
-    const client = new thirdPaymentService.ThirdPayClient(context, method, request.thirdAppId);
-    activeClient = client;
-    setPaymentCallbackExpected(true);
-    try {
-      await withPaymentTimeout(client.pay(request.payInfo));
-    } finally {
-      if (activeClient === client) {
-        activeClient = undefined;
-        setPaymentCallbackExpected(false);
-      }
+    if (request.provider === 'alipay') {
+      const service = await import('./AlipayPaymentService');
+      await service.startAlipayPayment(request);
+      return;
     }
+    const native = nativeWechatPayment(request, WECHAT_APP_ID);
+    if (native) { await wechatPayment.start(context, native); return; }
+    if (!canIUse('SystemCapability.Payment.ThirdPaymentService')) {
+      throw new ApiError(request.provider === 'wechat' ?
+        '支付信息暂时不可用，请稍后重试' : '当前系统暂不支持支付宝支付');
+    }
+    const service = await import('./ThirdPaymentService');
+    await service.startThirdPayment(context, request);
   }
 }
 
-export function handleHarmonyPaymentCallback(want: Want): boolean {
-  if (!activeClient) return false;
-  try { return activeClient.handlePayCallback(want); }
-  catch { return false; }
-  finally {
-    activeClient = undefined;
-    setPaymentCallbackExpected(false);
-  }
+export async function handleHarmonyPaymentCallback(want: Want): Promise<boolean> {
+  if (!canIUse('SystemCapability.Payment.ThirdPaymentService')) return false;
+  const service = await import('./ThirdPaymentService');
+  return service.handleThirdPaymentCallback(want);
 }
 
 export const harmonyPayment: HarmonyPaymentService = new HarmonyPaymentService();

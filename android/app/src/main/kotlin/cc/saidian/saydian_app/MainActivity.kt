@@ -45,6 +45,8 @@ import com.jieli.jl_rcsp.interfaces.watch.OnWatchOpCallback
 import com.jieli.jl_rcsp.model.base.BaseError
 import com.alipay.sdk.app.PayTask
 import com.tencent.mm.opensdk.constants.Build as WechatBuild
+import com.tencent.mm.opensdk.modelbase.BaseResp
+import com.tencent.mm.opensdk.modelmsg.SendAuth
 import com.tencent.mm.opensdk.modelpay.PayReq
 import com.tencent.mm.opensdk.openapi.WXAPIFactory
 import com.veepoo.protocol.VPOperateManager
@@ -220,6 +222,9 @@ class MainActivity : FlutterActivity() {
     private var eventSink: EventChannel.EventSink? = null
     private var pendingPermissionCall: Pair<MethodCall, MethodChannel.Result>? = null
     private var pendingBluetoothCall: Pair<MethodCall, MethodChannel.Result>? = null
+    private var pendingWechatAuthResult: MethodChannel.Result? = null
+    private var pendingWechatAuthState: String? = null
+    private var pendingWechatAuthStartedAt = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -249,6 +254,12 @@ class MainActivity : FlutterActivity() {
         ).setMethodCallHandler { call, result ->
             handleUpdateMethod(call, result)
         }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            AUTH_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            handleAuthMethod(call, result)
+        }
         EventChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             EVENTS_CHANNEL,
@@ -267,6 +278,11 @@ class MainActivity : FlutterActivity() {
                 }
             },
         )
+    }
+
+    override fun onResume() {
+        super.onResume()
+        deliverPendingWechatAuthorization()
     }
 
     override fun onRequestPermissionsResult(
@@ -299,6 +315,10 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun prepareCall(call: MethodCall, result: MethodChannel.Result) {
+        if (call.method == "restoreConnection") {
+            prepareSilentRestoreCall(call, result)
+            return
+        }
         if (call.method !in BLE_PERMISSION_METHODS) {
             dispatch(call, result)
             return
@@ -313,9 +333,24 @@ class MainActivity : FlutterActivity() {
                 result.error("BLUETOOTH_ENABLE_IN_PROGRESS", "正在等待开启蓝牙", null)
                 return
             }
+            // BLUETOOTH_CONNECT can be revoked while the app is running. Check it
+            // again immediately before creating the system enable request so the
+            // permission race cannot crash the activity on Android 12 and later.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                pendingPermissionCall = call to result
+                ActivityCompat.requestPermissions(this, requiredBlePermissions(), BLE_PERMISSION_REQUEST)
+                return
+            }
             pendingBluetoothCall = call to result
             try {
                 startActivityForResult(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE), BLE_ENABLE_REQUEST)
+            } catch (error: SecurityException) {
+                pendingBluetoothCall = null
+                Log.w("SaidianMain", "Bluetooth permission changed before enable request", error)
+                result.error("BLUETOOTH_PERMISSION_REQUIRED", "请允许附近设备权限后再试", null)
             } catch (error: Throwable) {
                 pendingBluetoothCall = null
                 Log.w("SaidianMain", "Unable to open Bluetooth settings", error)
@@ -328,6 +363,29 @@ class MainActivity : FlutterActivity() {
             !isLocationServiceEnabled()
         ) {
             result.error("LOCATION_SERVICE_DISABLED", "请开启手机定位后再查找手表", null)
+            return
+        }
+        dispatch(call, result)
+    }
+
+    /**
+     * Automatic connection recovery runs during app startup/resume. It must
+     * never open a runtime-permission or Bluetooth-enable dialog because the
+     * user has not actively entered the device connection flow. A later
+     * explicit scan/connect action goes through [prepareCall] and may request
+     * the permissions it needs at that point.
+     */
+    private fun prepareSilentRestoreCall(call: MethodCall, result: MethodChannel.Result) {
+        if (!hasBlePermissions()) {
+            result.error("BLE_PERMISSION_REQUIRED", "请在设备页连接手表", null)
+            return
+        }
+        if (!isBluetoothEnabled()) {
+            result.error("BLUETOOTH_DISABLED", "请在设备页开启蓝牙并连接手表", null)
+            return
+        }
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.R && !isLocationServiceEnabled()) {
+            result.error("LOCATION_SERVICE_DISABLED", "请在设备页开启定位后连接手表", null)
             return
         }
         dispatch(call, result)
@@ -451,8 +509,19 @@ class MainActivity : FlutterActivity() {
         }
 
     private fun isBluetoothEnabled(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return false
+        }
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
-        return bluetoothManager?.adapter?.isEnabled == true
+        return try {
+            bluetoothManager?.adapter?.isEnabled == true
+        } catch (error: SecurityException) {
+            Log.w("SaidianMain", "Bluetooth permission changed while reading adapter state", error)
+            false
+        }
     }
 
     private fun isLocationServiceEnabled(): Boolean {
@@ -542,6 +611,136 @@ class MainActivity : FlutterActivity() {
         }.start()
     }
 
+    private fun handleAuthMethod(call: MethodCall, result: MethodChannel.Result) {
+        when (call.method) {
+            "authorizeWechat" -> startWechatAuthorization(call, result)
+            "cancelWechatAuthorization" -> {
+                val requestedState = call.argument<String>("state")?.trim().orEmpty()
+                val expectedState = pendingWechatAuthState
+                if (expectedState != null &&
+                    (requestedState.isEmpty() || requestedState == expectedState)
+                ) {
+                    AppWechatAuthStore.clearWechatResult(this)
+                    completeWechatAuthorization(
+                        mapOf("cancelled" to true, "state" to expectedState),
+                    )
+                }
+                result.success(null)
+            }
+            else -> result.notImplemented()
+        }
+    }
+
+    private fun startWechatAuthorization(call: MethodCall, result: MethodChannel.Result) {
+        if (pendingWechatAuthResult != null) {
+            result.error("WECHAT_AUTH_BUSY", "正在微信登录", null)
+            return
+        }
+        val state = call.argument<String>("state")?.trim().orEmpty()
+        if (!WECHAT_STATE_PATTERN.matches(state)) {
+            result.error("WECHAT_AUTH_INVALID", "请重新发起微信登录", null)
+            return
+        }
+        val appId = BuildConfig.WECHAT_APP_ID.trim()
+        if (!WECHAT_APP_ID_PATTERN.matches(appId)) {
+            result.error("WECHAT_AUTH_CONFIG_MISSING", "微信登录配置不完整", null)
+            return
+        }
+        val api = WXAPIFactory.createWXAPI(this, appId, true)
+        if (!api.registerApp(appId)) {
+            result.error("WECHAT_AUTH_CONFIG_MISSING", "微信应用注册失败", null)
+            return
+        }
+        if (!api.isWXAppInstalled) {
+            result.error("WECHAT_NOT_INSTALLED", "请先安装微信", null)
+            return
+        }
+        if (api.wxAppSupportAPI < WechatBuild.OPENID_SUPPORTED_SDK_INT) {
+            result.error("WECHAT_UNSUPPORTED", "请更新微信后重试", null)
+            return
+        }
+        AppWechatAuthStore.saveWechatAppId(this, appId)
+        AppWechatAuthStore.clearWechatResult(this)
+        pendingWechatAuthResult = result
+        pendingWechatAuthState = state
+        pendingWechatAuthStartedAt = System.currentTimeMillis()
+        val accepted =
+            runCatching {
+                api.sendReq(
+                    SendAuth.Req().apply {
+                        scope = "snsapi_userinfo"
+                        this.state = state
+                    },
+                )
+            }.getOrDefault(false)
+        Log.i("SaidianWechatAuth", "sendReq accepted=$accepted")
+        if (!accepted) {
+            failWechatAuthorization("WECHAT_AUTH_SEND_FAILED", "无法调起微信，请稍后重试")
+        }
+    }
+
+    private fun deliverPendingWechatAuthorization() {
+        if (pendingWechatAuthResult == null) return
+        val callback = AppWechatAuthStore.takeWechatResult(this) ?: return
+        Log.i(
+            "SaidianWechatAuth",
+            "deliver callback errorCode=${callback.errorCode} hasCode=${callback.code.isNotBlank()}",
+        )
+        val expectedState = pendingWechatAuthState.orEmpty()
+        val now = System.currentTimeMillis()
+        if (callback.completedAt < pendingWechatAuthStartedAt ||
+            now - callback.completedAt > WECHAT_AUTH_MAX_AGE_MS
+        ) {
+            failWechatAuthorization("WECHAT_AUTH_INVALID", "微信授权已失效，请重试")
+            return
+        }
+        when (callback.errorCode) {
+            BaseResp.ErrCode.ERR_OK -> {
+                if (callback.state != expectedState ||
+                    callback.code.isBlank() ||
+                    callback.code.length > 1024
+                ) {
+                    failWechatAuthorization(
+                        "WECHAT_AUTH_INVALID",
+                        "微信授权已失效，请重试",
+                    )
+                    return
+                }
+                completeWechatAuthorization(
+                    mapOf(
+                        "code" to callback.code,
+                        "state" to callback.state,
+                    ),
+                )
+            }
+            BaseResp.ErrCode.ERR_USER_CANCEL ->
+                completeWechatAuthorization(
+                    mapOf("cancelled" to true, "state" to expectedState),
+                )
+            BaseResp.ErrCode.ERR_AUTH_DENIED ->
+                failWechatAuthorization("WECHAT_AUTH_DENIED", "未同意微信授权")
+            BaseResp.ErrCode.ERR_UNSUPPORT ->
+                failWechatAuthorization("WECHAT_UNSUPPORTED", "请更新微信后重试")
+            else -> failWechatAuthorization("WECHAT_AUTH_FAILED", "微信登录失败，请重试")
+        }
+    }
+
+    private fun completeWechatAuthorization(value: Map<String, Any?>) {
+        val completion = pendingWechatAuthResult ?: return
+        pendingWechatAuthResult = null
+        pendingWechatAuthState = null
+        pendingWechatAuthStartedAt = 0L
+        completion.success(value)
+    }
+
+    private fun failWechatAuthorization(code: String, message: String) {
+        val completion = pendingWechatAuthResult ?: return
+        pendingWechatAuthResult = null
+        pendingWechatAuthState = null
+        pendingWechatAuthStartedAt = 0L
+        completion.error(code, message, null)
+    }
+
     override fun onDestroy() {
         if (::adapter.isInitialized) adapter.close(preserveConnection = true)
         super.onDestroy()
@@ -612,13 +811,16 @@ class MainActivity : FlutterActivity() {
         private const val EVENTS_CHANNEL = "cc.saidian/wearable_events"
         private const val PAYMENTS_CHANNEL = "cc.saidian/app_payments"
         private const val UPDATE_CHANNEL = "cc.saidian/app_update"
+        private const val AUTH_CHANNEL = "cc.saidian/app_auth"
+        private const val WECHAT_AUTH_MAX_AGE_MS = 2 * 60 * 1000L
+        private val WECHAT_STATE_PATTERN = Regex("^sd_[0-9]{13}_[A-Za-z0-9-]{16,64}$")
+        private val WECHAT_APP_ID_PATTERN = Regex("^wx[0-9a-fA-F]{16}$")
         private const val BLE_PERMISSION_REQUEST = 7001
         private const val BLE_ENABLE_REQUEST = 7002
         private val BLE_PERMISSION_METHODS =
             setOf(
                 "scanDevices",
                 "connect",
-                "restoreConnection",
                 "getDeviceDetails",
                 "getWatchFaceProfile",
                 "startSport",

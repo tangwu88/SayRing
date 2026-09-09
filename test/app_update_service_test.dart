@@ -150,17 +150,83 @@ void main() {
         targetPlatform: TargetPlatform.android,
         packageInfoLoader: () async => package('0.1.19', '23'),
         client: MockClient(
-          (_) async =>
-              jsonResponse(backendRelease(androidType: 0, force: 0, lowwer: 0)),
+          (_) async => jsonResponse(
+            backendRelease(
+              androidType: 0,
+              android: 'https://app.saydian.cn/down',
+              force: 0,
+              lowwer: 0,
+            ),
+          ),
         ),
       );
 
       final info = await service.check();
 
       expect(info.destinationType, AppUpdateDestinationType.androidStore);
+      expect(info.destinationUri, Uri.parse('https://app.saydian.cn/down'));
       expect(info.forceUpdate, isFalse);
     },
   );
+
+  test(
+    'backend external Android updates still reject non-HTTPS URLs',
+    () async {
+      final service = AppUpdateService(
+        endpointUri: Uri.parse('https://app.saidian.cc/api/v1/site/version'),
+        targetPlatform: TargetPlatform.android,
+        packageInfoLoader: () async => package('0.1.19', '23'),
+        client: MockClient(
+          (_) async => jsonResponse(
+            backendRelease(
+              androidType: 0,
+              android: 'http://app.saydian.cn/down',
+              force: 0,
+              lowwer: 0,
+            ),
+          ),
+        ),
+      );
+
+      await expectLater(
+        service.check(),
+        throwsA(
+          isA<AppUpdateException>().having(
+            (error) => error.message,
+            'message',
+            '更新地址必须使用 HTTPS',
+          ),
+        ),
+      );
+    },
+  );
+
+  test('backend APK downloads remain restricted to trusted hosts', () async {
+    final service = AppUpdateService(
+      endpointUri: Uri.parse('https://app.saidian.cc/api/v1/site/version'),
+      targetPlatform: TargetPlatform.android,
+      packageInfoLoader: () async => package('0.1.19', '23'),
+      client: MockClient(
+        (_) async => jsonResponse(
+          backendRelease(
+            androidType: 1,
+            android: 'https://downloads.invalid/Saydian.apk',
+          ),
+        ),
+      ),
+    );
+
+    await expectLater(
+      service.check(),
+      throwsA(
+        isA<AppUpdateException>().having(
+          (error) => error.message,
+          'message',
+          '更新地址不在允许的安全域名内',
+        ),
+      ),
+    );
+  });
 
   test(
     'backend business errors are surfaced without creating an update',

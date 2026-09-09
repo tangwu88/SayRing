@@ -45,6 +45,7 @@ export interface ArticleBlock { id: string; kind: string; text: string; url: str
 
 export interface ArticleCollection { list?: Article[]; }
 export interface FormField { name: string; value: string; }
+export interface UploadFile { uri: string; fileName: string; maxBytes: number; }
 
 export class ApiError extends Error {
   status: number;
@@ -61,6 +62,37 @@ export function loginValidation(account: string, password: string, accepted: boo
   if (account.trim().length > 128) return '账号长度不正确';
   if (password.length === 0) return '请输入密码';
   if (password.length > 256) return '密码长度不正确';
+  return '';
+}
+
+export function registrationValidation(mobile: string, code: string, password: string,
+  confirmation: string, accepted: boolean): string {
+  if (!accepted) return '请先阅读并同意用户协议与隐私政策';
+  if (!/^1\d{10}$/.test(mobile.trim())) return '请输入正确的中国大陆手机号';
+  if (!/^\d{4,6}$/.test(code.trim())) return '请输入收到的短信验证码';
+  if (password.length < 6) return '密码至少需要 6 位';
+  if (password.length > 256) return '密码长度不正确';
+  if (password !== confirmation) return '两次输入的密码不一致';
+  return '';
+}
+
+export function wechatAuthorizationValidation(code: string, state: string): string {
+  const normalizedCode = code.trim();
+  const normalizedState = state.trim();
+  if (normalizedCode.length < 6 || normalizedCode.length > 1024 || /[\s\x00-\x1f\x7f]/.test(normalizedCode)) {
+    return '微信授权信息无效，请重试';
+  }
+  if (!/^sd_[0-9]{13}_[A-Za-z0-9-]{16,64}$/.test(normalizedState)) {
+    return '微信授权状态已失效，请重试';
+  }
+  return '';
+}
+
+export function wechatOpenIdValidation(openId: string): string {
+  const normalized = openId.trim();
+  if (normalized.length < 6 || normalized.length > 128 || /[\s\x00-\x1f\x7f]/.test(normalized)) {
+    return '微信用户标识无效，请重新授权';
+  }
   return '';
 }
 
@@ -158,8 +190,10 @@ export function parseProfile(data: Object | undefined, memberId: string): Member
 
 export function profileName(profile?: MemberProfile): string {
   if (!profile || typeof profile !== 'object') return '';
-  return (typeof profile.nickname === 'string' && profile.nickname.trim()) ||
-    (typeof profile.username === 'string' && profile.username.trim()) || '';
+  const nickname = typeof profile.nickname === 'string' ? profile.nickname.trim() : '';
+  if (nickname && !/[\x00-\x1f\x7f]/.test(nickname)) return nickname;
+  const username = typeof profile.username === 'string' ? profile.username.trim() : '';
+  return username && !/[\x00-\x1f\x7f]/.test(username) ? username : '';
 }
 
 export function profileField(value: number | string | undefined, suffix: string = ''): string {
@@ -203,6 +237,17 @@ export function buildMultipart(fields: FormField[], boundary: string): string {
     if (!/^[a-z_]+$/.test(field.name)) throw new ApiError('请求字段异常');
     return `--${boundary}\r\nContent-Disposition: form-data; name="${field.name}"\r\n\r\n${field.value}\r\n`;
   }).join('') + `--${boundary}--\r\n`;
+}
+
+export function profileImageUrl(data: Object | undefined): string {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new ApiError('头像上传结果异常');
+  const payload = data as Record<string, Object>;
+  const raw = typeof payload['url'] === 'string' ? payload['url'].trim() :
+    typeof payload['path'] === 'string' ? payload['path'].trim() : '';
+  if (!raw || /[\x00-\x1f\x7f]/.test(raw) || raw.includes('..')) throw new ApiError('头像上传失败，请稍后重试');
+  if (raw.startsWith('/')) return `${API_BASE}${raw}`;
+  if (/^https:\/\/[A-Za-z0-9.-]+(?::\d+)?\/[A-Za-z0-9_./?=&%+-]+$/.test(raw)) return raw;
+  throw new ApiError('头像上传结果异常');
 }
 
 export function articleText(content: string | undefined): string {

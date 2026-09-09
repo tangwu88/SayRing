@@ -8,6 +8,13 @@ export interface AiChatMessage {
   failed: boolean;
 }
 
+export const AI_USER_MESSAGE_MAX_LENGTH: number = 160;
+export const AI_CONCISE_RETRY_PREFIX: string = '请用不超过100个汉字简短回答：';
+
+export function aiConciseRetryMessage(message: string): string {
+  return `${AI_CONCISE_RETRY_PREFIX}${message.trim().slice(0, AI_USER_MESSAGE_MAX_LENGTH)}`;
+}
+
 export interface ShopProduct {
   id: number;
   name: string;
@@ -117,11 +124,13 @@ export function parseShopHome(data: Object | undefined): ShopHome {
 
 function parseAiRow(value: Object | undefined, index: number): AiChatMessage | undefined {
   const row = object(value);
-  const message = text(row['message'] ?? row['content'], 12000);
-  if (!message) return undefined;
+  const rawMessage = text(row['message'] ?? row['content'], 12000);
+  if (!rawMessage) return undefined;
   const mineValue = row['my'];
   const mine = mineValue === true || String(mineValue ?? '').trim() === '1' ||
     text(row['role'], 20).toLowerCase() === 'user';
+  const message = mine && rawMessage.startsWith(AI_CONCISE_RETRY_PREFIX) ?
+    rawMessage.slice(AI_CONCISE_RETRY_PREFIX.length).trim() : rawMessage;
   const sessionId = text(row['session_id'] ?? row['sessionId'], 160);
   const id = text(row['id'], 80) || `${sessionId || 'message'}-${index}`;
   return { id: id, text: message, mine: mine, sessionId: sessionId, failed: false };
@@ -148,7 +157,7 @@ export function parseAiReply(data: Object | undefined): AiChatMessage {
 export function parseAppUpdateManifest(body: string, currentBuild: number): AppUpdateInfo {
   let root: Record<string, Object>;
   try { root = object(JSON.parse(body) as Object); }
-  catch { throw new ApiError('在线更新清单格式异常'); }
+  catch { throw new ApiError('更新信息暂时不可用，请稍后重试'); }
   const schema = integer(root['schema_version']);
   const platform = text(root['platform'], 40).toLowerCase();
   const channel = text(root['channel'], 40).toLowerCase();
@@ -161,7 +170,7 @@ export function parseAppUpdateManifest(body: string, currentBuild: number): AppU
   if (schema !== 1 || platform !== 'harmony' || channel !== 'production' || !latestVersion ||
     latestBuild <= 0 || minimumSupportedBuild <= 0 || minimumSupportedBuild > latestBuild ||
     destinationType !== 'harmony_appgallery') {
-    throw new ApiError('在线更新清单与当前鸿蒙版不匹配');
+    throw new ApiError('更新信息暂时不可用，请稍后重试');
   }
   if (!/^https:\/\/appgallery\.huawei\.com\/[A-Za-z0-9_./?=&%+:-]+$/.test(destinationUrl) ||
     destinationUrl.includes('..')) throw new ApiError('在线更新地址不安全');

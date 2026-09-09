@@ -5,6 +5,29 @@ on:
   pull_request:
 
 jobs:
+  harmony-contracts:
+    name: Harmony contracts (${{ matrix.timezone }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        timezone: [UTC, Asia/Shanghai]
+    env:
+      TZ: ${{ matrix.timezone }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Run Harmony host-side contracts and service regressions
+        run: node --test harmony-native/tests/*.test.mjs
+
   quality:
     runs-on: ubuntu-latest
     steps:

@@ -34,8 +34,21 @@ APP_STORE_PRODUCT_PATH_RE = re.compile(
 ANDROID_NS = "http://schemas.android.com/apk/res/android"
 FORBIDDEN_ANDROID_PERMISSIONS = {
     "android.permission.ACCESS_BACKGROUND_LOCATION",
+    "android.permission.BLUETOOTH_ADVERTISE",
     "android.permission.QUERY_ALL_PACKAGES",
+    "android.permission.READ_EXTERNAL_STORAGE",
     "android.permission.READ_PHONE_STATE",
+    "android.permission.RECORD_AUDIO",
+}
+OPTIONAL_ANDROID_FEATURES = {
+    "android.hardware.camera",
+    "android.hardware.camera.any",
+    "android.hardware.camera.autofocus",
+}
+INTERNAL_ANDROID_COMPONENTS = {
+    ("service", "com.yucheng.ycbtsdk.upgrade.utils.DfuService"),
+    ("service", "org.eclipse.paho.android.service.MqttService"),
+    ("receiver", "no.nordicsemi.android.support.v18.scanner.PendingIntentReceiver"),
 }
 PRODUCTION_ANDROID_ABIS = ("armeabi-v7a", "arm64-v8a")
 CONTROLLED_ARM64_ONLY_LIBRARY = "libjutils.so"
@@ -451,8 +464,7 @@ def apk_manifest_command(args: argparse.Namespace) -> None:
         fail("Built APK versionName does not match the gated release version.")
     if root.attrib.get(f"{{{ANDROID_NS}}}versionCode") != str(args.expected_build):
         fail("Built APK versionCode does not match the gated release build.")
-    text = Path(args.xml).read_text(encoding="utf-8")
-    if "${" in text:
+    if "${" in ET.tostring(root, encoding="unicode"):
         fail("Built APK manifest still contains unresolved placeholders.")
     permissions = {
         item.attrib.get(f"{{{ANDROID_NS}}}name", "")
@@ -465,6 +477,39 @@ def apk_manifest_command(args: argparse.Namespace) -> None:
             "Built APK manifest contains forbidden permission(s): "
             + ", ".join(forbidden)
         )
+    application = root.find("application")
+    if application is None:
+        fail("Built APK manifest is missing the application element.")
+    required_application_attributes = {
+        "allowBackup": "false",
+        "fullBackupContent": "false",
+        "usesCleartextTraffic": "false",
+        "networkSecurityConfig": "@xml/network_security_config",
+        "dataExtractionRules": "@xml/data_extraction_rules",
+    }
+    for name, expected_value in required_application_attributes.items():
+        actual = application.attrib.get(f"{{{ANDROID_NS}}}{name}", "")
+        if actual.startswith("@ref/"):
+            actual = resolve_apk_resource(actual, getattr(args, "resources", None))
+        if actual != expected_value:
+            fail(f"Built APK manifest has unsafe or missing android:{name}.")
+    features = {
+        item.attrib.get(f"{{{ANDROID_NS}}}name", ""): item.attrib.get(
+            f"{{{ANDROID_NS}}}required", "true"
+        )
+        for item in root.findall("uses-feature")
+    }
+    if "android.bluetooth.le" in features:
+        fail("Built APK manifest contains invalid Bluetooth feature android.bluetooth.le.")
+    for feature in sorted(OPTIONAL_ANDROID_FEATURES):
+        if features.get(feature) != "false":
+            fail(f"Built APK manifest must keep {feature} optional.")
+    for tag, component_name in INTERNAL_ANDROID_COMPONENTS:
+        for item in application.findall(tag):
+            if item.attrib.get(f"{{{ANDROID_NS}}}name") != component_name:
+                continue
+            if item.attrib.get(f"{{{ANDROID_NS}}}exported") != "false":
+                fail(f"Built APK manifest exposes internal component {component_name}.")
     values: dict[str, str] = {}
     for item in root.iter("meta-data"):
         name = item.attrib.get(f"{{{ANDROID_NS}}}name", "")
@@ -508,6 +553,24 @@ def apk_manifest_command(args: argparse.Namespace) -> None:
         if values.get(name) != value:
             fail(f"Built APK manifest is missing or mismatches {name}.")
     print("Production package and JPush manifest inspection passed.")
+
+
+def resolve_apk_resource(reference: str, resources: str | None) -> str:
+    """Resolve apkanalyzer numeric refs using this APK's aapt2 resource table."""
+    if not resources or not re.fullmatch(r"@ref/0x[0-9a-fA-F]{8}", reference):
+        fail("APK numeric resource references require --resources from aapt2 dump resources.")
+    identifier = reference.removeprefix("@ref/").lower()
+    matches = {
+        match.group(2)
+        for match in re.finditer(
+            r"(?m)^\s*resource (0x[0-9a-fA-F]{8}) ([\w.]+/[\w.]+)\s*$",
+            Path(resources).read_text(encoding="utf-8"),
+        )
+        if match.group(1).lower() == identifier
+    }
+    if len(matches) != 1:
+        fail("APK numeric resource reference is missing or ambiguous in its resource table.")
+    return "@" + next(iter(matches))
 
 
 def apk_abis_command(args: argparse.Namespace) -> None:
@@ -664,6 +727,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     apk_manifest = subparsers.add_parser("apk-manifest")
     apk_manifest.add_argument("--xml", required=True)
+    apk_manifest.add_argument("--resources")
     apk_manifest.add_argument("--expected-package", required=True)
     apk_manifest.add_argument("--expected-version", required=True)
     apk_manifest.add_argument("--expected-build", required=True, type=int)

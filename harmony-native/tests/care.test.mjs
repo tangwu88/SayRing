@@ -5,7 +5,7 @@ registerHooks({resolve(specifier, context, next) {
   return next(specifier.startsWith('.') && context.parentURL?.endsWith('.ts') && !/\.[a-z]+$/.test(specifier) ? specifier+'.ts' : specifier, context);
 }});
 const {AccountClient} = await import('../entry/src/main/ets/services/AccountClient.ts');
-const {ApiError} = await import('../entry/src/main/ets/model/Contracts.ts');
+const {ApiError,decodeEnvelope} = await import('../entry/src/main/ets/model/Contracts.ts');
 const {parseCareMembers,parseCareInvitations,parseCareSettings,careSettingsBody,careMobileValidation,
   chinaDay,chinaDaySeconds,shiftChinaDay,CARE_METRICS,parseCareMetric,careMetricLatest,careRecordText} = await import('../entry/src/main/ets/model/CareContracts.ts');
 const day='2026-08-27', now=Date.UTC(2026,8,4,10), metric=key=>CARE_METRICS.find(item=>item.key===key);
@@ -20,6 +20,16 @@ async function clientWith(request){
     async read(){return this.value},async write(value){this.value=value},async clear(){this.value=undefined}};
   const client=new AccountClient({request},vault,()=>now);await client.restore();return{client,vault};
 }
+test('notification session observer coexists with health ownership and cannot break login/logout',async()=>{
+  const {client}=await clientWith(async path=>path.includes('login')?auth(2):envelope([]));
+  const health=[],notify=[];client.observeHealthSession(session=>health.push(session));
+  const stop=client.observeSession(session=>notify.push(session));
+  client.observeSession(()=>{throw new Error('optional callback failed')});
+  await client.login('10000000002','123456');
+  assert.equal(client.current().memberId,'2');assert.equal(health.at(-1).ownerId,'2');assert.equal(notify.at(-1).ownerId,'2');
+  await client.logout();assert.equal(health.at(-1).ownerId,'');assert.equal(notify.at(-1).ownerId,'');
+  const length=notify.length;stop();await client.login('10000000002','123456');assert.equal(notify.length,length);
+});
 test('care relation and observed member IDs remain distinct and sensitive fields are dropped',()=>{
   const result=parseCareMembers([member,member,{...member,id:60,to_member_id:1}], '1');
   assert.deepEqual(result,[{relationId:59,memberId:87,name:'合成家人',mobile:'10000000002'}]);
@@ -42,7 +52,7 @@ test('incoming invitations exclude outgoing and self; pending badge and actionab
   assert.equal(parseCareInvitations([invite(),invite(1)],'1')[0].state,'other');
 });
 test('recipient nested as inviter is never exposed; matched alternative inviter is used',()=>{
-  assert.equal(parseCareInvitations([{...invite(),member:{id:1,nickname:'自己'}}],'1')[0].name,'关爱邀请人');
+  assert.equal(parseCareInvitations([{...invite(),member:{id:1,nickname:'自己'}}],'1')[0].name,'邀请人 #87');
   assert.equal(parseCareInvitations([{...invite(),member:{id:1},inviter:{id:87,nickname:'正确邀请人'}}],'1')[0].name,'正确邀请人');
 });
 test('sharing defaults off and preserves unknown historical options',()=>{
@@ -118,13 +128,139 @@ test('care request identity uses selected member rather than relation ID and pre
   assert.ok(paths[1].includes('selectmember=87'));assert.ok(paths[1].includes('date=1787760000'));assert.ok(paths[1].includes('type=pulseReat'));
   await assert.rejects(client.careMetric(59,59,'heart',day),/成员关系/);
 });
+test('late empty care response cannot clear a newer relation used to read member data',async()=>{
+  const requests=[];
+  const {client}=await clientWith(async path=>{
+    if(!path.endsWith('/my'))return envelope([]);
+    const pending=deferred();requests.push(pending);return pending.promise;
+  });
+  const old=client.careMembers();const ignored=assert.rejects(old,/已刷新/);await tick();
+  const latest=client.careMembers();await tick();
+  requests[1].resolve(envelope([member]));assert.equal((await latest).length,1);
+  requests[0].resolve(envelope([]));await ignored;
+  assert.equal((await client.careMetric(59,87,'heart',day)).state,'empty');
+});
+test('late populated care response cannot restore a relation removed by latest empty data',async()=>{
+  const requests=[];
+  const {client}=await clientWith(async()=>{const pending=deferred();requests.push(pending);return pending.promise});
+  const old=client.careMembers();const ignored=assert.rejects(old,/已刷新/);await tick();
+  const latest=client.careMembers();await tick();
+  requests[1].resolve(envelope([]));assert.deepEqual(await latest,[]);
+  requests[0].resolve(envelope([member]));await ignored;
+  await assert.rejects(client.careMetric(59,87,'heart',day),/成员关系/);
+});
+test('clearing care invalidates in-flight mapping reads even without changing the login generation',async()=>{
+  const pending=deferred();const {client}=await clientWith(async()=>pending.promise);
+  const reading=client.careMembers();const ignored=assert.rejects(reading,/已刷新/);await tick();
+  client.clearCare();
+  pending.resolve(envelope([member]));await ignored;
+  await assert.rejects(client.careMetric(59,87,'heart',day),/成员关系/);
+});
+test('account switch rejects old care mapping while new account relations remain readable',async()=>{
+  const pending=deferred();let reads=0;
+  const {client}=await clientWith(async path=>{
+    if(path.endsWith('/login'))return auth(2);
+    if(path.endsWith('/my'))return ++reads===1?pending.promise:envelope([member]);
+    return envelope([]);
+  });
+  const old=client.careMembers();const ignored=assert.rejects(old,/旧账号/);await tick();
+  await client.login('10000000002','synthetic-password');
+  await client.careMembers();
+  pending.resolve(envelope([]));await ignored;
+  assert.equal(client.current().memberId,'2');
+  assert.equal((await client.careMetric(59,87,'heart',day)).state,'empty');
+});
 test('403 never falls back to an endpoint that could bypass sharing restrictions',async()=>{
   let reads=0;const {client}=await clientWith(async path=>{if(path.endsWith('/my'))return envelope([member]);reads++;throw new ApiError('no permission',403)});
   await client.careMembers();assert.equal((await client.careMetric(59,87,'heart',day)).state,'unauthorized');assert.equal(reads,1);
 });
-test('typed endpoint failure can use whitelisted same-member raw fallback',async()=>{
-  const {client}=await clientWith(async path=>{if(path.endsWith('/my'))return envelope([member]);if(path.includes('type='))throw new ApiError('missing',500);return envelope([{time:'08:00',pulseReat:'[68]'}])});
-  await client.careMembers();assert.equal((await client.careMetric(59,87,'heart',day)).records[0].fields[0].value,68);
+test('typed endpoint failure cannot use same-member raw fallback',async()=>{
+  const paths=[];const {client}=await clientWith(async path=>{paths.push(path);if(path.endsWith('/my'))return envelope([member]);if(path.includes('type='))throw new ApiError('missing',500);return envelope([{time:'08:00',pulseReat:'[68]'}])});
+  await client.careMembers();const result=await client.careMetric(59,87,'heart',day);
+  assert.equal(result.state,'unavailable');assert.deepEqual(result.records,[]);assert.equal(paths.length,2);
+});
+test('care overview only uses each metric response, without preloading shared raw day data',async()=>{
+  let rawReads=0;
+  const {client}=await clientWith(async path=>{
+    if(path.endsWith('/my'))return envelope([member]);
+    if(path.includes('/daily-date/preview')&&!path.includes('type=')){
+      rawReads++;
+      return envelope([{time:'08:00',pulseReat:68,bloodGlucose:6.2,bloodOxygen:99}]);
+    }
+    if(path.includes('type=pulseReat'))throw new ApiError('typed unavailable',500);
+    if(path.includes('type=BloodGlucose'))return envelope([]);
+    if(path.includes('/daily-date/preview'))throw new ApiError('not shared',403);
+    return envelope([]);
+  });
+  await client.careMembers();
+  const metrics=await client.careMetrics(59,87,day);
+  assert.equal(metrics.length,CARE_METRICS.length);
+  assert.equal(metrics.find(item=>item.key==='heart').state,'unavailable');
+  assert.deepEqual(metrics.find(item=>item.key==='heart').records,[]);
+  assert.equal(metrics.find(item=>item.key==='glucose').state,'empty');
+  assert.deepEqual(metrics.find(item=>item.key==='glucose').records,[]);
+  assert.equal(metrics.find(item=>item.key==='oxygen').state,'unauthorized');
+  assert.equal(metrics.find(item=>item.key==='ecg').state,'empty');
+  assert.equal(rawReads,0);
+});
+for(const mode of ['single','overview'])for(const scenario of ['empty','empty-chart','404','500','403','offline','timeout'])
+test(`${mode} care ${scenario} never resurrects aggregate HRV or makes extra raw requests`,async()=>{
+  const paths=[];
+  const {client,vault}=await clientWith(async path=>{
+    paths.push(path);
+    if(path.endsWith('/my'))return envelope([member]);
+    if(path.includes('/daily-date/preview')&&!path.includes('type='))return envelope([{time:'08:00',HRVData:99}]);
+    if(path.includes('type=HRV')){
+      if(scenario==='empty')return envelope([]);
+      if(scenario==='empty-chart')return envelope({categories:[],series:[]});
+      if(['offline','timeout'].includes(scenario))throw new ApiError('网络连接失败或超时，请检查网络后重试',0);
+      throw new ApiError('synthetic response',Number(scenario));
+    }
+    return envelope([]);
+  });
+  await client.careMembers();
+  const result=mode==='single'?await client.careMetric(59,87,'hrv',day):(await client.careMetrics(59,87,day)).find(item=>item.key==='hrv');
+  assert.equal(result.state,scenario.startsWith('empty')?'empty':scenario==='403'?'unauthorized':'unavailable');
+  assert.deepEqual(result.records,[]);assert.ok(vault.value);
+  assert.equal(paths.some(path=>path.includes('/daily-date/preview')&&!path.includes('type=')),false);
+  assert.equal(paths.length,mode==='single'?2:CARE_METRICS.length+1);
+});
+for(const mode of ['single','overview'])test(`${mode} care preserves successful typed values and member/date without an aggregate read`,async()=>{
+  const paths=[];
+  const {client}=await clientWith(async path=>{
+    paths.push(path);
+    if(path.endsWith('/my'))return envelope([member]);
+    assert.ok(path.includes('selectmember=87'));assert.ok(path.includes('date=1787760000'));
+    if(path.includes('type=HRV'))return envelope([{time:'08:00',HRVData:55}]);
+    if(path.includes('/e-c-g/preview'))return envelope([{time:'08:00',data:{aveHeart:72,aveQT:380}}]);
+    return envelope([]);
+  });
+  await client.careMembers();
+  const metrics=mode==='single'?[await client.careMetric(59,87,'hrv',day)]:await client.careMetrics(59,87,day);
+  const hrv=metrics.find(item=>item.key==='hrv');assert.equal(hrv.state,'ready');assert.equal(hrv.records[0].fields[0].value,55);
+  if(mode==='overview')assert.equal(metrics.find(item=>item.key==='ecg').state,'ready');
+  assert.equal(paths.length,mode==='single'?2:CARE_METRICS.length+1);
+  assert.equal(paths.some(path=>path.includes('/daily-date/preview')&&!path.includes('type=')),false);
+});
+for(const mode of ['single','overview'])test(`${mode} care final 401 fails and clears login, without a raw fallback`,async()=>{
+  const paths=[];const {client,vault}=await clientWith(async path=>{
+    paths.push(path);if(path.endsWith('/my'))return envelope([member]);throw new ApiError('expired',401);
+  });
+  await client.careMembers();
+  await assert.rejects(mode==='single'?client.careMetric(59,87,'hrv',day):client.careMetrics(59,87,day));
+  assert.equal(vault.value,undefined);
+  assert.equal(paths.some(path=>path.includes('/daily-date/preview')&&!path.includes('type=')),false);
+});
+test('production envelope rejects business 403 even when an old successful row accompanies it',async()=>{
+  for(const code of [403,'403']){
+    let reads=0;
+    const {client}=await clientWith(async path=>{
+      if(path.endsWith('/my'))return envelope([member]);reads++;
+      return decodeEnvelope(JSON.stringify({code,message:'not shared',data:[{time:'08:00',HRVData:99}]}),200);
+    });
+    await client.careMembers();const result=await client.careMetric(59,87,'hrv',day);
+    assert.equal(result.state,'unauthorized');assert.deepEqual(result.records,[]);assert.equal(reads,1);
+  }
 });
 test('invitation response is explicit JSON and a handled invitation cannot be repeated',async()=>{
   let writes=0,status=0;const {client}=await clientWith(async(path,fields,session,json)=>{

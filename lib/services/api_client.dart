@@ -240,11 +240,17 @@ abstract interface class SaydianFeedbackApi {
   });
 }
 
+abstract interface class SaydianWechatAuthApi {
+  /// Exchange only. The controller persists the session after its epoch check.
+  Future<Session> loginWithWechat({required String code});
+}
+
 class SaydianApiClient
     implements
         SaydianApi,
         SaydianFileApi,
         SaydianSmsAuthApi,
+        SaydianWechatAuthApi,
         SaydianArticleApi,
         SaydianShopApi,
         SaydianShopCartApi,
@@ -284,6 +290,19 @@ class SaydianApiClient
     {'username': username, 'password': password, 'group': 'app'},
     accountKey: _stableLoginAccountKey(username),
   );
+
+  @override
+  Future<Session> loginWithWechat({required String code}) {
+    if (code.trim().isEmpty || code.length > 1024) {
+      throw const ApiException('微信授权已失效，请重试');
+    }
+    return _authenticate(
+      '/api/v1/site/app-wechat-login',
+      {'code': code.trim()},
+      persistSession: false,
+      requireMemberId: true,
+    );
+  }
 
   @override
   Future<Session> register(String mobile, String password) => _authenticate(
@@ -370,6 +389,8 @@ class SaydianApiClient
     Session? fallback,
     String? accountKey,
     Session? expectedSession,
+    bool persistSession = true,
+    bool requireMemberId = false,
   }) async {
     final request = http.MultipartRequest('POST', _uri(path))
       ..fields.addAll(fields);
@@ -402,6 +423,12 @@ class SaydianApiClient
     if (session.accessToken.isEmpty) {
       throw const ApiException('登录响应缺少 access_token');
     }
+    if (requireMemberId &&
+        (session.memberId.trim().isEmpty ||
+            {'0', 'null', 'undefined'}.contains(session.memberId.trim()))) {
+      throw const ApiException('微信登录失败，请重试', code: 'AUTH_IDENTITY_MISSING');
+    }
+    if (!persistSession) return session;
     if (expectedSession == null) {
       await _vault.writeSession(session);
     } else {
@@ -1931,20 +1958,13 @@ class SaydianApiClient
   bool _isOptionalNotificationEndpointUnavailableResponse(
     http.Response response,
   ) {
-    if (_isOptionalNotificationEndpointUnavailable(response.statusCode)) {
-      return true;
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return _isOptionalNotificationEndpointUnavailable(response.statusCode);
     }
     try {
       final payload = jsonDecode(response.body);
       if (payload is! Map) return false;
-      final rawCode = payload['code'];
-      final code = switch (rawCode) {
-        int value => value,
-        num value when value.isFinite && value == value.toInt() =>
-          value.toInt(),
-        String value => int.tryParse(value.trim()),
-        _ => null,
-      };
+      final code = _responseBusinessCode(payload['code']);
       return _isOptionalNotificationEndpointUnavailable(code);
     } on FormatException {
       return false;
@@ -1979,10 +1999,12 @@ class SaydianApiClient
   }
 
   bool _isUnauthorizedResponse(http.Response response) {
-    if (response.statusCode == 401) return true;
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return response.statusCode == 401;
+    }
     try {
       final payload = jsonDecode(response.body);
-      return payload is Map && payload['code'] is num && payload['code'] == 401;
+      return payload is Map && _responseBusinessCode(payload['code']) == 401;
     } on FormatException {
       return false;
     }
@@ -2052,21 +2074,38 @@ class SaydianApiClient
       throw ApiException('服务器响应格式不正确', statusCode: response.statusCode);
     }
     final payload = decoded.map((key, value) => MapEntry('$key', value));
-    final code = payload['code'];
-    final businessStatus = code is num && code >= 400 && code < 600
-        ? code.toInt()
+    final rawCode = payload['code'];
+    final code = _responseBusinessCode(rawCode);
+    final httpFailed = response.statusCode < 200 || response.statusCode >= 300;
+    final businessStatus = httpFailed
+        ? response.statusCode
+        : code != null && code >= 400 && code < 600
+        ? code
         : response.statusCode;
-    if (response.statusCode < 200 ||
-        response.statusCode >= 300 ||
-        (code is num && code.toInt() != 200)) {
+    if (httpFailed || (code != null && code != 200)) {
       throw ApiException(
         '${payload['message'] ?? '请求失败'}',
         statusCode: businessStatus,
-        code: code,
+        code: rawCode,
+      );
+    }
+    if (payload.containsKey('code') && code == null) {
+      throw ApiException(
+        '服务器响应状态格式不正确',
+        statusCode: response.statusCode,
+        code: rawCode,
       );
     }
     return payload;
   }
+
+  int? _responseBusinessCode(Object? value) => switch (value) {
+    int number => number,
+    num number when number.isFinite && number == number.toInt() =>
+      number.toInt(),
+    String text when RegExp(r'^[0-9]+$').hasMatch(text) => int.tryParse(text),
+    _ => null,
+  };
 
   Map<String, Object?> _data(Map<String, Object?> payload) {
     final data = payload['data'];
@@ -2109,56 +2148,92 @@ class SaydianApiClient
     required String day,
     int? memberId,
   }) async {
+    final owner = _stableSessionAccountKey(await _requiredSession());
     Map<String, Object?> aggregate = const {};
     ApiException? aggregateError;
     try {
-      final response = await _authorizedGet('/api/v1/member/care/preview', {
-        'id': '$id',
-        'day': day,
-      });
+      final response = await _authorizedCareRequest(
+        owner,
+        '/api/v1/member/care/preview',
+        {'id': '$id', 'day': day},
+      );
       aggregate = _data(_decode(response));
     } on ApiException catch (error) {
+      if (error.code == 'STALE_CARE_SESSION') rethrow;
       aggregateError = error;
     }
     final targetMemberId = memberId ?? _careMemberIds[id];
     if (targetMemberId == null) {
       if (aggregateError != null) throw aggregateError;
-      return aggregate;
+      return _mergeCarePreview(aggregate, const []);
     }
     final detail = await _getCareMemberHealthDetails(
+      owner: owner,
       memberId: targetMemberId,
       day: day,
     );
     if (aggregate.isEmpty && detail.isEmpty && aggregateError != null) {
       throw aggregateError;
     }
+    await _checkCareRequestOwner(owner);
     return _mergeCarePreview(aggregate, detail);
   }
 
+  Future<void> _checkCareRequestOwner(String owner) async {
+    final current = await _vault.readSession();
+    if (current == null || _stableSessionAccountKey(current) != owner) {
+      throw const ApiException('账号已变化，请重新查看', code: 'STALE_CARE_SESSION');
+    }
+  }
+
+  Future<http.Response> _authorizedCareRequest(
+    String owner,
+    String path,
+    Map<String, String> query, {
+    Map<String, Object?>? body,
+  }) async {
+    try {
+      final response = await _withAuthorizationRetry((session) async {
+        // Check the actual request session, not only a prior vault snapshot.
+        // Token refresh for the same owner remains valid.
+        if (_stableSessionAccountKey(session) != owner) {
+          throw const ApiException('账号已变化，请重新查看', code: 'STALE_CARE_SESSION');
+        }
+        final response = await _performRequest(
+          () => body == null
+              ? _client.get(
+                  _uri(path, query),
+                  headers: _authorizationHeaders(session),
+                )
+              : _client.post(
+                  _uri(path, query),
+                  headers: {
+                    ..._authorizationHeaders(session),
+                    'Content-Type': 'application/json',
+                  },
+                  body: jsonEncode(body),
+                ),
+        );
+        // Reject a stale 401 before the shared retry helper refreshes its token.
+        await _checkCareRequestOwner(owner);
+        return response;
+      });
+      await _checkCareRequestOwner(owner);
+      return response;
+    } catch (_) {
+      await _checkCareRequestOwner(owner);
+      rethrow;
+    }
+  }
+
   Future<List<Map<String, Object?>>> _getCareMemberHealthDetails({
+    required String owner,
     required int memberId,
     required String day,
   }) async {
     final chinaDayStart = _chinaDayStartEpochSeconds(day);
     if (chinaDayStart == null) return const [];
     final date = '$chinaDayStart';
-    Object? sharedDailyRows;
-    var sharedDailyRowsAvailable = false;
-    try {
-      final response = await _authorizedGet(
-        '/api/v1/member/daily-date/preview',
-        {'selectmember': '$memberId', 'date': date},
-      );
-      final payload = _decode(response);
-      sharedDailyRows = payload['data'];
-      sharedDailyRowsAvailable = true;
-    } on ApiException catch (error) {
-      if (error.statusCode == 401 ||
-          error.code == 'NETWORK_TIMEOUT' ||
-          error.code == 'NETWORK_UNAVAILABLE') {
-        rethrow;
-      }
-    }
     const specs =
         <({String title, String endpoint, String? type, String unit})>[
           (
@@ -2225,46 +2300,39 @@ class SaydianApiClient
     final result = <Map<String, Object?>>[];
     for (final spec in specs) {
       try {
-        final response = await _authorizedGet(spec.endpoint, {
+        final response = await _authorizedCareRequest(owner, spec.endpoint, {
           'selectmember': '$memberId',
           if (spec.type != null) 'type': spec.type!,
           'date': date,
         });
         final payload = _decode(response);
-        final normalized = _normalizeCareMetric(
-          title: spec.title,
-          type: spec.type ?? spec.endpoint,
-          unit: spec.unit,
-          raw: payload['data'],
-        );
+        // Each endpoint is authoritative for its metric. The legacy untyped
+        // daily table has no verified per-metric permission guarantee.
         result.add(
-          spec.endpoint == '/api/v1/member/daily-date/preview' &&
-                  normalized['state'] != 'ready' &&
-                  sharedDailyRowsAvailable
-              ? _normalizeCareRawFallback(
-                  title: spec.title,
-                  type: spec.type ?? spec.endpoint,
-                  unit: spec.unit,
-                  raw: sharedDailyRows,
-                )
-              : normalized,
+          _normalizeCareMetric(
+            title: spec.title,
+            type: spec.type ?? spec.endpoint,
+            unit: spec.unit,
+            raw: payload['data'],
+          ),
         );
       } on ApiException catch (error) {
-        if (error.statusCode == 401 ||
+        if (error.code == 'STALE_CARE_SESSION' ||
+            error.statusCode == 401 ||
             error.code == 'NETWORK_TIMEOUT' ||
             error.code == 'NETWORK_UNAVAILABLE') {
           rethrow;
         }
-        if (spec.endpoint == '/api/v1/member/daily-date/preview' &&
-            sharedDailyRowsAvailable) {
-          result.add(
-            _normalizeCareRawFallback(
-              title: spec.title,
-              type: spec.type ?? spec.endpoint,
-              unit: spec.unit,
-              raw: sharedDailyRows,
-            ),
-          );
+        // An explicit denial is distinct from empty or unavailable data.
+        if (error.statusCode == 403) {
+          result.add(<String, Object?>{
+            'title': spec.title,
+            'metricType': spec.type ?? spec.endpoint,
+            'unit': spec.unit,
+            'state': 'unauthorized',
+            'tips': '对方未授权此项目',
+            'records': const <Object?>[],
+          });
           continue;
         }
         result.add(<String, Object?>{
@@ -2272,9 +2340,7 @@ class SaydianApiClient
           'metricType': spec.type ?? spec.endpoint,
           'unit': spec.unit,
           'state': 'unavailable',
-          'tips': error.statusCode == 403
-              ? '${spec.title}未获共享授权'
-              : '${spec.title}服务暂不可用，请稍后重试',
+          'tips': '${spec.title}服务暂不可用，请稍后重试',
           'records': const <Object?>[],
         });
       }
@@ -2383,22 +2449,6 @@ class SaydianApiClient
       'min': ?minimum,
       'avg': ?average,
     };
-  }
-
-  Map<String, Object?> _normalizeCareRawFallback({
-    required String title,
-    required String type,
-    required String unit,
-    required Object? raw,
-  }) {
-    final normalized = _normalizeCareMetric(
-      title: title,
-      type: type,
-      unit: unit,
-      raw: raw,
-    );
-    if (normalized['state'] == 'ready') return normalized;
-    return <String, Object?>{...normalized, 'tips': '对方当日没有可共享的该项记录'};
   }
 
   Map<String, Object?> _decodeCareRawRecord(Map<Object?, Object?> row) =>
@@ -2763,22 +2813,6 @@ class SaydianApiClient
     Map<String, Object?> aggregate,
     List<Map<String, Object?>> detail,
   ) {
-    final existing = aggregate['daily'] is List
-        ? (aggregate['daily'] as List)
-              .whereType<Map>()
-              .map((row) => row.map((key, value) => MapEntry('$key', value)))
-              .toList()
-        : <Map<String, Object?>>[];
-    final byTitle = <String, Map<String, Object?>>{
-      for (final item in detail) '${item['title'] ?? ''}': item,
-    };
-    final merged = <Map<String, Object?>>[];
-    for (final item in existing) {
-      final title = '${item['title'] ?? ''}';
-      final details = byTitle.remove(title);
-      merged.add(details ?? item);
-    }
-    merged.addAll(byTitle.values);
     final today = aggregate['jrjk'] is List
         ? (aggregate['jrjk'] as List)
               .whereType<Map>()
@@ -2792,7 +2826,9 @@ class SaydianApiClient
       ...aggregate,
       'fallback': aggregate.isEmpty && detail.isNotEmpty,
       'jrjk': today,
-      'daily': merged,
+      // Health cards only come from supported, metric-specific endpoints.
+      // Unknown aliases or duplicate aggregate cards cannot bypass that result.
+      'daily': detail,
     };
   }
 
@@ -2885,7 +2921,17 @@ class SaydianApiClient
     required int type,
     required int memberId,
   }) async {
-    final response = await _authorizedGet(
+    final owner = _stableSessionAccountKey(await _requiredSession());
+    return _readCareShareSettings(owner, type: type, memberId: memberId);
+  }
+
+  Future<Set<String>> _readCareShareSettings(
+    String owner, {
+    required int type,
+    required int memberId,
+  }) async {
+    final response = await _authorizedCareRequest(
+      owner,
       '/api/v1/member/care-setting/preview',
       {'type': '$type', 'to_member_id': '$memberId'},
     );
@@ -2896,10 +2942,17 @@ class SaydianApiClient
       try {
         decoded = jsonDecode(raw);
       } on FormatException {
-        decoded = const <Object?>[];
+        throw const ApiException(
+          '共享设置读取失败，请重新读取',
+          code: 'INVALID_CARE_SETTINGS',
+        );
       }
     }
-    return decoded is List ? decoded.map((value) => '$value').toSet() : {};
+    if (decoded is! List ||
+        decoded.any((value) => value is! String || value.trim().isEmpty)) {
+      throw const ApiException('共享设置读取失败，请重新读取', code: 'INVALID_CARE_SETTINGS');
+    }
+    return decoded.cast<String>().toSet();
   }
 
   @override
@@ -2908,12 +2961,40 @@ class SaydianApiClient
     required int memberId,
     required Set<String> settings,
   }) async {
-    final response = await _authorizedPostJson('/api/v1/member/care-setting', {
-      'type': type,
-      'to_member_id': memberId,
-      'setting': settings.toList()..sort(),
-    });
+    final submitted = Set<String>.unmodifiable(settings);
+    final owner = _stableSessionAccountKey(await _requiredSession());
+    final response = await _authorizedCareRequest(
+      owner,
+      '/api/v1/member/care-setting',
+      const {},
+      body: {
+        'type': type,
+        'to_member_id': memberId,
+        'setting': submitted.toList()..sort(),
+      },
+    );
     _decode(response);
+    Set<String> verified;
+    try {
+      verified = await _readCareShareSettings(
+        owner,
+        type: type,
+        memberId: memberId,
+      );
+    } on ApiException catch (error) {
+      if (error.code == 'STALE_CARE_SESSION') rethrow;
+      throw ApiException(
+        '保存未确认，请重新读取后重试',
+        statusCode: error.statusCode,
+        code: 'CARE_SETTINGS_UNCONFIRMED',
+      );
+    }
+    if (!setEquals(submitted, verified)) {
+      throw const ApiException(
+        '保存未确认，请重新读取后重试',
+        code: 'CARE_SETTINGS_UNCONFIRMED',
+      );
+    }
   }
 }
 

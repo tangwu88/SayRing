@@ -10,11 +10,168 @@ import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
+import 'package:saydian_app/services/wechat_auth_bridge.dart';
 import 'package:saydian_app/ui/app_theme.dart';
 import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
 
 void main() {
+  test(
+    'WeChat requires consent and cancellation cannot create an account session',
+    () async {
+      final api = _WechatApi();
+      final auth = _WechatBridge();
+      final vault = MemorySessionVault();
+      final controller = AppController(
+        vault,
+        api,
+        MemoryHealthStore(),
+        _NoopWearable(),
+        wechatAuthBridge: auth,
+      );
+      addTearDown(controller.dispose);
+      expect(
+        await controller.loginWithWechat(privacyConsentGranted: false),
+        isFalse,
+      );
+      expect(auth.calls, 0);
+      final pending = controller.loginWithWechat(privacyConsentGranted: true);
+      await auth.started.future;
+      expect(
+        await controller.loginWithWechat(privacyConsentGranted: true),
+        isFalse,
+      );
+      controller.cancelWechatLogin();
+      auth.result.complete(
+        const WechatAuthorization(code: 'late-code', state: 'state'),
+      );
+      expect(await pending, isFalse);
+      expect(api.calls, 0);
+      expect(controller.session, isNull);
+      expect(await vault.readSession(), isNull);
+      expect(controller.isBusy, isFalse);
+    },
+  );
+
+  test(
+    'WeChat exchange must finish before authenticated mode and persistence',
+    () async {
+      final api = _WechatApi();
+      final auth = _WechatBridge();
+      final vault = MemorySessionVault();
+      final controller = AppController(
+        vault,
+        api,
+        MemoryHealthStore(),
+        _NoopWearable(),
+        wechatAuthBridge: auth,
+      );
+      addTearDown(controller.dispose);
+      final pending = controller.loginWithWechat(privacyConsentGranted: true);
+      await auth.started.future;
+      auth.result.complete(
+        const WechatAuthorization(code: 'code', state: 'state'),
+      );
+      await api.started.future;
+      expect(controller.session, isNull);
+      expect(await vault.readSession(), isNull);
+      api.result.complete(_wechatSession());
+      expect(await pending, isTrue);
+      expect(controller.session?.memberId, 'wechat-member');
+      expect((await vault.readSession())?.memberId, 'wechat-member');
+      expect(controller.isPreviewMode, isFalse);
+      expect(controller.isBusy, isFalse);
+    },
+  );
+
+  test(
+    'late WeChat exchange after cancellation cannot restore login',
+    () async {
+      final api = _WechatApi();
+      final auth = _WechatBridge();
+      final vault = MemorySessionVault();
+      final controller = AppController(
+        vault,
+        api,
+        MemoryHealthStore(),
+        _NoopWearable(),
+        wechatAuthBridge: auth,
+      );
+      addTearDown(controller.dispose);
+      final pending = controller.loginWithWechat(privacyConsentGranted: true);
+      await auth.started.future;
+      auth.result.complete(
+        const WechatAuthorization(code: 'code', state: 'state'),
+      );
+      await api.started.future;
+      controller.cancelWechatLogin();
+      api.result.complete(_wechatSession());
+      expect(await pending, isFalse);
+      expect(controller.session, isNull);
+      expect(await vault.readSession(), isNull);
+    },
+  );
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    for (final width in [320.0, 375.0, 430.0]) {
+      testWidgets(
+        '${platform.name} WeChat consent and cancel work at width $width with large text',
+        (tester) async {
+          await tester.binding.setSurfaceSize(Size(width, 812));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
+          final api = _WechatApi();
+          final auth = _WechatBridge();
+          final controller = AppController(
+            MemorySessionVault(),
+            api,
+            MemoryHealthStore(),
+            _NoopWearable(),
+            wechatAuthBridge: auth,
+          );
+          addTearDown(controller.dispose);
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: buildSaydianTheme(),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: const TextScaler.linear(1.5)),
+                child: child!,
+              ),
+              home: ListenableBuilder(
+                listenable: controller,
+                builder: (_, _) => LoginPage(controller: controller),
+              ),
+            ),
+          );
+          final button = find.byKey(const Key('wechat-login'));
+          expect(find.text('快速体验'), findsNothing);
+          await tester.ensureVisible(button);
+          await tester.tap(button);
+          await tester.pump();
+          expect(auth.calls, 0);
+          await tester.ensureVisible(find.byType(Checkbox));
+          await tester.tap(find.byType(Checkbox));
+          await tester.pump();
+          await tester.ensureVisible(button);
+          await tester.tap(button);
+          await tester.pump();
+          expect(auth.calls, 1);
+          expect(controller.isWechatLoginInProgress, isTrue);
+          await tester.tap(button);
+          await tester.pump();
+          auth.result.complete(null);
+          await tester.pumpAndSettle();
+          expect(controller.isBusy, isFalse);
+          expect(controller.session, isNull);
+          expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
+          expect(tester.takeException(), isNull);
+        },
+        variant: TargetPlatformVariant.only(platform),
+      );
+    }
+  }
+
   testWidgets('login page renders the required account and privacy controls', (
     tester,
   ) async {
@@ -213,6 +370,8 @@ void main() {
     expect(field(const Key('profile-birthday')).controller?.text, '1990-01-02');
     expect(field(const Key('profile-height')).controller?.text, '168');
     expect(field(const Key('profile-weight')).controller?.text, '62');
+    expect(find.byKey(const Key('profile-registered-mobile')), findsOneWidget);
+    expect(find.text('13800138000'), findsOneWidget);
 
     await tester.enterText(find.byKey(const Key('profile-nickname')), '保存后的昵称');
     await tester.scrollUntilVisible(
@@ -228,6 +387,60 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.savedNickname, '保存后的昵称');
+  });
+
+  testWidgets('profile editor handles an unset gender from WeChat login', (
+    tester,
+  ) async {
+    final api = _ProfileApi(gender: '0');
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            api,
+            MemoryHealthStore(),
+            _NoopWearable(),
+          )
+          ..session = Session(
+            accessToken: 'wechat-profile-token',
+            refreshToken: 'wechat-profile-refresh',
+            expiresAt: DateTime(2030),
+            memberId: 'wechat-profile-member',
+            displayName: '微信用户',
+          )
+          ..memberProfile = const {
+            'nickname': '微信用户',
+            'birthday': '1990-01-02',
+            'height': '168',
+            'weight': '62',
+            'gender': 0,
+          };
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: ProfileEditPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('未设置'), findsOneWidget);
+
+    await tester.tap(find.byType(DropdownButtonFormField<int>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('男').last);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('profile-save')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('profile-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.savedGender, 1);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('health alarm is visible above every app page until dismissed', (
@@ -354,16 +567,56 @@ class _NoopApi implements SaydianApi {
       throw UnimplementedError();
 }
 
-class _ProfileApi extends _NoopApi {
-  String? savedNickname;
+Session _wechatSession() => Session(
+  accessToken: 'test-token',
+  refreshToken: '',
+  expiresAt: DateTime.now().add(const Duration(hours: 1)),
+  memberId: 'wechat-member',
+  displayName: '微信用户',
+);
+
+class _WechatApi extends _NoopApi implements SaydianWechatAuthApi {
+  final result = Completer<Session>();
+  final started = Completer<void>();
+  int calls = 0;
+  @override
+  Future<Session> loginWithWechat({required String code}) {
+    calls++;
+    started.complete();
+    return result.future;
+  }
+}
+
+class _WechatBridge implements WechatAuthBridge {
+  final result = Completer<WechatAuthorization?>();
+  final started = Completer<void>();
+  int calls = 0;
+  @override
+  Future<WechatAuthorization?> authorize() {
+    calls++;
+    started.complete();
+    return result.future;
+  }
 
   @override
-  Future<Map<String, Object?>> getMemberProfile() async => const {
+  Future<void> cancel() async {}
+}
+
+class _ProfileApi extends _NoopApi {
+  _ProfileApi({this.gender = '2'});
+
+  final String gender;
+  String? savedNickname;
+  int? savedGender;
+
+  @override
+  Future<Map<String, Object?>> getMemberProfile() async => {
     'nickname': '服务端昵称',
+    'mobile': '13800138000',
     'birthday': '1990-01-02',
     'height': '168',
     'weight': '62',
-    'gender': '2',
+    'gender': gender,
   };
 
   @override
@@ -376,6 +629,7 @@ class _ProfileApi extends _NoopApi {
     String? headPortrait,
   }) async {
     savedNickname = nickname;
+    savedGender = gender;
   }
 }
 
