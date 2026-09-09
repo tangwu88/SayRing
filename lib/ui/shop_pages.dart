@@ -1,3 +1,4 @@
+import 'widgets/safe_network_image.dart';
 import '../l10n/global_locale_controller.dart';
 import '../services/global_environment.dart';
 import 'dart:async';
@@ -11,6 +12,7 @@ import '../services/app_payment_bridge.dart';
 import '../services/app_controller.dart';
 import 'app_theme.dart';
 import 'prototype_pages.dart';
+import 'global_shop_pages.dart';
 
 class ShopHomePage extends StatefulWidget {
   const ShopHomePage({
@@ -35,7 +37,7 @@ class _ShopHomePageState extends State<ShopHomePage> {
   @override
   void initState() {
     super.initState();
-    unawaited(_load());
+    if (!widget.controller.isGlobalEdition) unawaited(_load());
   }
 
   Future<void> _load() async {
@@ -86,6 +88,9 @@ class _ShopHomePageState extends State<ShopHomePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.controller.isGlobalEdition) {
+      return GlobalShopHomePage(controller: widget.controller);
+    }
     return Scaffold(
       key: const Key('shop-page'),
       appBar: AppBar(
@@ -2423,7 +2428,7 @@ List<Widget> _shopDetailContentWidgets(String raw) {
         padding: const EdgeInsets.only(bottom: 12),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: Image.network(
+          child: SafeNetworkImage(
             source,
             width: double.infinity,
             fit: BoxFit.fitWidth,
@@ -2474,7 +2479,7 @@ class ShopNetworkImage extends StatelessWidget {
         ),
       );
     }
-    return Image.network(
+    return SafeNetworkImage(
       normalized,
       fit: BoxFit.cover,
       loadingBuilder: (context, child, progress) => progress == null

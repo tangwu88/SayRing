@@ -3,7 +3,6 @@ package com.jiguang.jpush;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -150,7 +149,7 @@ public class JPushEventReceiver extends JPushMessageReceiver {
         try {
             resultJson.put("sequence", sequence);
         } catch (JSONException e) {
-            e.printStackTrace();
+            // Do not expose notification payloads through exception text.
         }
 
         final Result callback = JPushHelper.getInstance().getCallback(sequence);//instance.eventCallbackMap.get(sequence);
@@ -173,7 +172,7 @@ public class JPushEventReceiver extends JPushMessageReceiver {
                     try {
                         resultJson.put("code", jPushMessage.getErrorCode());
                     } catch (JSONException e) {
-                        e.printStackTrace();
+                        // Do not expose notification payloads through exception text.
                     }
                     callback.error(Integer.toString(jPushMessage.getErrorCode()), "", "");
                 }

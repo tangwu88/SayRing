@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/feature_models.dart';
 import '../domain/models.dart';
+import 'global_storage_scope.dart';
 import 'wearable_bridge.dart';
 
 enum WearableTransport { veepoo, yucheng }
@@ -91,6 +93,9 @@ class RoutedWearableBridge
     required WearableBridge veepoo,
     required WearableBridge yucheng,
     WearableTransportPreferenceStore? preferenceStore,
+    this.restoreOnlyBoundDevice = false,
+    this.recoveryOperationTimeout = const Duration(seconds: 30),
+    this.recoveryStopScanTimeout = const Duration(seconds: 3),
   }) : _sources = {
          WearableTransport.veepoo: veepoo,
          WearableTransport.yucheng: yucheng,
@@ -104,12 +109,19 @@ class RoutedWearableBridge
 
   final Map<WearableTransport, WearableBridge> _sources;
   final WearableTransportPreferenceStore _preferenceStore;
+  final bool restoreOnlyBoundDevice;
+  final Duration recoveryOperationTimeout;
+  final Duration recoveryStopScanTimeout;
   final Map<String, RoutedDevice> _scanned = {};
   final StreamController<WearableEvent> _eventController =
       StreamController<WearableEvent>.broadcast();
   final List<StreamSubscription<WearableEvent>> _subscriptions = [];
   WearableTransport? _activeTransport;
   int _connectionGeneration = 0;
+  int? _activeConnectionGeneration;
+  final Map<WearableTransport, int> _sourceConnectionGenerations = {};
+  final Map<WearableTransport, Future<void>> _pendingRecoveryWork = {};
+  int? _restoringGeneration;
 
   WearableBridge get _activeBridge {
     final transport = _activeTransport;
@@ -182,10 +194,21 @@ class RoutedWearableBridge
   }
 
   @override
-  Future<void> stopScan() => Future.wait([
-    _sources[WearableTransport.veepoo]!.stopScan(),
-    _sources[WearableTransport.yucheng]!.stopScan(),
-  ]).then((_) {});
+  Future<void> stopScan() {
+    if (_restoringGeneration == _connectionGeneration) {
+      ++_connectionGeneration;
+    }
+    return Future.wait([
+      _sources[WearableTransport.veepoo]!.stopScan().timeout(
+        recoveryStopScanTimeout,
+        onTimeout: () {},
+      ),
+      _sources[WearableTransport.yucheng]!.stopScan().timeout(
+        recoveryStopScanTimeout,
+        onTimeout: () {},
+      ),
+    ]).then((_) {});
+  }
 
   @override
   Future<void> connect(
@@ -206,35 +229,60 @@ class RoutedWearableBridge
         message: '当前手表暂时无法连接，请重新扫描后重试',
       );
     }
+    _requireRecoverySourceAvailable(device.transport);
 
     final generation = ++_connectionGeneration;
     _activeTransport = device.transport;
+    _activeConnectionGeneration = generation;
+    _sourceConnectionGenerations[device.transport] = generation;
     try {
       await _activeBridge.connect(device.nativeIdentifier, profile: profile);
       try {
-        await _preferenceStore.write(device.transport);
+        if (generation != _connectionGeneration) return;
+        final preference = _preferenceStore;
+        if (preference is WearableBindingPreferenceStore) {
+          await preference.writeBinding(
+            SavedWearableBinding(device.transport, device.nativeIdentifier),
+          );
+        } else {
+          await preference.write(device.transport);
+        }
       } catch (_) {
         // A preference write is not part of the authenticated BLE boundary.
       }
     } catch (_) {
-      if (generation == _connectionGeneration) _activeTransport = null;
+      if (_activeConnectionGeneration == generation) {
+        _activeTransport = null;
+        _activeConnectionGeneration = null;
+      }
       rethrow;
     }
   }
 
   @override
   Future<void> disconnect() async {
-    ++_connectionGeneration;
+    final disconnectGeneration = ++_connectionGeneration;
     final transport = _activeTransport;
     if (transport == null) return;
+    final connectionOwner = _activeConnectionGeneration;
     try {
-      await _sources[transport]!.disconnect();
+      final pending = _pendingRecoveryWork[transport];
+      if (pending == null) {
+        await _sources[transport]!.disconnect();
+      } else {
+        await pending.timeout(recoveryOperationTimeout);
+      }
     } finally {
-      _activeTransport = null;
-      try {
-        await _preferenceStore.clear();
-      } catch (_) {
-        // The explicit disconnect has already completed.
+      if (_activeConnectionGeneration == connectionOwner) {
+        _activeTransport = null;
+        _activeConnectionGeneration = null;
+      }
+      if (disconnectGeneration == _connectionGeneration) {
+        try {
+          await _preferenceStore.clear();
+        } catch (_) {
+          // The explicit disconnect has already completed.
+        }
       }
     }
   }
@@ -244,6 +292,14 @@ class RoutedWearableBridge
     required WearableUserProfile profile,
   }) async {
     final generation = ++_connectionGeneration;
+    if (restoreOnlyBoundDevice) {
+      _restoringGeneration = generation;
+      try {
+        return await _restoreBoundDevice(profile, generation);
+      } finally {
+        if (_restoringGeneration == generation) _restoringGeneration = null;
+      }
+    }
     WearableTransport? preferred;
     try {
       preferred = await _preferenceStore.read();
@@ -262,12 +318,132 @@ class RoutedWearableBridge
         if (generation != _connectionGeneration) return null;
         if (details == null) continue;
         _activeTransport = entry.key;
+        _activeConnectionGeneration = generation;
         return RoutedDevice.fromDevice(entry.key, details).display;
       } on PlatformException catch (error) {
         if (error.code != 'NO_SAVED_DEVICE') rethrow;
       }
     }
     return null;
+  }
+
+  Future<DeviceInfo?> _restoreBoundDevice(
+    WearableUserProfile profile,
+    int generation,
+  ) async {
+    final preference = _preferenceStore;
+    if (preference is! WearableBindingPreferenceStore) return null;
+    SavedWearableBinding? saved;
+    try {
+      saved = await preference.readBinding();
+    } catch (_) {
+      return null;
+    }
+    if (saved == null || generation != _connectionGeneration) return null;
+    _requireRecoverySourceAvailable(saved.transport);
+    final source = _sources[saved.transport]!;
+    // Native SDKs keep installation-wide saved targets. Never ask them to
+    // restore a target selected in another API environment.
+    final List<DeviceInfo> scanned;
+    try {
+      scanned = await source.scanDevices().timeout(recoveryOperationTimeout);
+    } finally {
+      try {
+        await source.stopScan().timeout(recoveryStopScanTimeout);
+      } on TimeoutException {
+        // The controller's explicit connect uses the same grace period for
+        // SDKs that stop scanning but fail to complete their method callback.
+      }
+    }
+    if (generation != _connectionGeneration) return null;
+    DeviceInfo? target;
+    for (final device in scanned) {
+      if (device.id == saved.nativeIdentifier) {
+        target = device;
+        break;
+      }
+    }
+    if (target == null) return null;
+    final routed = RoutedDevice.fromDevice(saved.transport, target);
+    if (saved.transport == WearableTransport.veepoo &&
+        YuchengDeviceClassifier.matches(target.name)) {
+      return null;
+    }
+    _activeTransport = saved.transport;
+    _activeConnectionGeneration = generation;
+    _sourceConnectionGenerations[saved.transport] = generation;
+    var timedOut = false;
+    final transport = saved.transport;
+    final actualWork = () async {
+      try {
+        await source.connect(routed.nativeIdentifier, profile: profile);
+        if (timedOut || generation != _connectionGeneration) {
+          await _disconnectRetiredRecovery(source, transport, generation);
+        }
+      } catch (_) {
+        _clearRecoveryOwner(transport, generation);
+        rethrow;
+      }
+    }();
+    late final Future<void> trackedWork;
+    trackedWork = actualWork.whenComplete(() {
+      if (identical(_pendingRecoveryWork[transport], trackedWork)) {
+        _pendingRecoveryWork.remove(transport);
+      }
+    });
+    _pendingRecoveryWork[transport] = trackedWork;
+    // Keep the actual native chain, not the timeout wrapper, as the channel
+    // barrier. A failed wait must not release a still-running SDK operation.
+    unawaited(trackedWork.catchError((Object _) {}));
+    try {
+      await trackedWork.timeout(recoveryOperationTimeout);
+    } on TimeoutException {
+      timedOut = true;
+      if (_activeConnectionGeneration == generation) _activeTransport = null;
+      rethrow;
+    } catch (_) {
+      _clearRecoveryOwner(transport, generation);
+      rethrow;
+    }
+    if (generation != _connectionGeneration) {
+      return null;
+    }
+    _scanned[routed.display.id] = routed;
+    return routed.display;
+  }
+
+  Future<void> _disconnectRetiredRecovery(
+    WearableBridge source,
+    WearableTransport transport,
+    int generation,
+  ) async {
+    if (_sourceConnectionGenerations[transport] != generation) return;
+    try {
+      // Do not timeout this original future: the caller times out its wait,
+      // while the same-source barrier stays until native cleanup really ends.
+      await source.disconnect();
+    } finally {
+      _clearRecoveryOwner(transport, generation);
+    }
+  }
+
+  void _clearRecoveryOwner(WearableTransport transport, int generation) {
+    if (_sourceConnectionGenerations[transport] == generation) {
+      _sourceConnectionGenerations.remove(transport);
+    }
+    if (_activeConnectionGeneration == generation) {
+      _activeTransport = null;
+      _activeConnectionGeneration = null;
+    }
+  }
+
+  void _requireRecoverySourceAvailable(WearableTransport transport) {
+    if (_pendingRecoveryWork.containsKey(transport)) {
+      throw PlatformException(
+        code: 'RECOVERY_PENDING',
+        message: '手表正在恢复连接，请稍后重试',
+      );
+    }
   }
 
   @override
@@ -457,6 +633,13 @@ class RoutedWearableBridge
   }
 
   void _forwardEvent(WearableTransport transport, WearableEvent event) {
+    if (_pendingRecoveryWork.containsKey(transport) &&
+        (_sourceConnectionGenerations[transport] != _connectionGeneration ||
+            _activeTransport != transport)) {
+      // Retired native callbacks may arrive before disconnect finishes. They
+      // must not re-adopt the old watch or publish health data after cancellation.
+      return;
+    }
     if (event.type == 'scanDevice') {
       final device = DeviceInfo.fromMap(event.payload);
       // Both Android SDKs can report the same W8-family watch while scanning.
@@ -519,16 +702,40 @@ abstract interface class WearableTransportPreferenceStore {
   Future<void> clear();
 }
 
-class SecureWearableTransportPreferenceStore
-    implements WearableTransportPreferenceStore {
-  const SecureWearableTransportPreferenceStore();
+class SavedWearableBinding {
+  const SavedWearableBinding(this.transport, this.nativeIdentifier);
 
-  static const _key = 'wearable.last.transport';
+  final WearableTransport transport;
+  final String nativeIdentifier;
+}
+
+abstract interface class WearableBindingPreferenceStore
+    implements WearableTransportPreferenceStore {
+  Future<SavedWearableBinding?> readBinding();
+  Future<void> writeBinding(SavedWearableBinding binding);
+}
+
+class SecureWearableTransportPreferenceStore
+    implements WearableBindingPreferenceStore {
+  const SecureWearableTransportPreferenceStore({this.storageNamespace});
+
+  final String? storageNamespace;
+  String get _key =>
+      'saydian.global.env.${globalStorageNamespace(storageNamespace)}.wearable.binding.v1';
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
-  @override
-  Future<WearableTransport?> read() async {
+  Future<Map<String, Object?>?> _readValue() async {
     final value = await _storage.read(key: _key);
+    if (value == null) return null;
+    try {
+      final decoded = jsonDecode(value);
+      return decoded is Map<String, Object?> ? decoded : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  WearableTransport? _transport(Object? value) {
     for (final transport in WearableTransport.values) {
       if (transport.name == value) return transport;
     }
@@ -536,8 +743,34 @@ class SecureWearableTransportPreferenceStore
   }
 
   @override
-  Future<void> write(WearableTransport transport) =>
-      _storage.write(key: _key, value: transport.name);
+  Future<WearableTransport?> read() async =>
+      _transport((await _readValue())?['transport']);
+
+  @override
+  Future<SavedWearableBinding?> readBinding() async {
+    final value = await _readValue();
+    final transport = _transport(value?['transport']);
+    final identifier = value?['nativeIdentifier'];
+    if (transport == null || identifier is! String || identifier.isEmpty) {
+      return null;
+    }
+    return SavedWearableBinding(transport, identifier);
+  }
+
+  @override
+  Future<void> write(WearableTransport transport) => _storage.write(
+    key: _key,
+    value: jsonEncode({'transport': transport.name}),
+  );
+
+  @override
+  Future<void> writeBinding(SavedWearableBinding binding) => _storage.write(
+    key: _key,
+    value: jsonEncode({
+      'transport': binding.transport.name,
+      'nativeIdentifier': binding.nativeIdentifier,
+    }),
+  );
 
   @override
   Future<void> clear() => _storage.delete(key: _key);

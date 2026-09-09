@@ -543,6 +543,15 @@ class AppLocalizationsJa extends AppLocalizations {
   }
 
   @override
+  String get globalShopPricePending => '価格は確認待ちです';
+
+  @override
+  String get globalShopLoadMore => '商品をさらに読み込む';
+
+  @override
+  String get globalShopReadOnly => '商品をご覧いただけます。この地域ではまだ注文できません。';
+
+  @override
   String get appName => 'Saydian';
 
   @override

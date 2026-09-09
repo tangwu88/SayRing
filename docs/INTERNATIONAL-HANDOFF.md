@@ -4,7 +4,7 @@
 
 1. `git status --short --branch` and `git remote -v`.
 2. `git fetch --prune origin`; only if clean, `git pull --ff-only origin main`. Never discard another colleague's work. Use an explicit checkpoint before merging remote changes.
-3. Read [temporary verification-free registration](INTERNATIONAL-UNVERIFIED-REGISTRATION-20260909.md), [implementation/test history](INTERNATIONAL-IMPLEMENTATION-20260909.md), [Flutter localization record](INTERNATIONAL-L10N-20260909.md), and the Harmony international record. Record subsequent changes and tests in Git as well.
+3. Read the latest [Android / isolated-service joint QA](INTERNATIONAL-JOINT-QA-20260909.md), [environment isolation](INTERNATIONAL-ENVIRONMENT-STORAGE-20260909.md), and [coverage matrix](INTERNATIONAL-JOINT-COVERAGE-20260910.md) before older records. Record subsequent changes and tests in Git as well.
 
 App workspace: `F:/xcodeplace/saydian-app-global`. Remote: `https://github.com/tangwu88/saydian-app-global` (Private). Preserved domestic history via `upstream`; do not use that remote for international pushes.
 
@@ -18,13 +18,15 @@ Server workspace: `F:/xcodeplace/saydian-server-global`, branch `codex/global-ap
 | Android application ID / iOS bundle ID | `cn.saydian.app.global` |
 | Native Harmony bundle | `cn.saydian.app.global.hm` |
 | First-party root | `https://app.saydian.cn` |
-| Deployed App V2 prefix | `/api/saydian-app/v2` |
-| Secure storage prefix | `saydian.global` (separate app sandbox as well) |
-| Flutter health database | `saydian_global_health_v1.db` |
+| Required isolated App V2 mount | `/global/api/saydian-app/v2` (deployment acceptance tracked separately) |
+| Secure storage prefix | `saydian.global.env.<origin-and-prefix-sha256>` |
+| Flutter health database | Environment-scoped SQLCipher file; old unscoped file/key preserved without adoption |
 | First-launch locale | English; persistent manual selection |
 | Supported locale resources | en, zh-Hans, zh-Hant, de, fr, es, ja, ko |
 
 Do not copy domestic `.env`, signing material, push secrets, account sessions, production workflow secrets or production data. Android/iOS native MethodChannel names remain stable internal ABI, not network domains. Official third-party weather/watch-face hosts remain independent of first-party API routing.
+
+The approved September 10 isolation contract supersedes older records referring to the root `/api` mount. Flutter methods may use canonical `/api/saydian-app/v2` paths internally; the global client maps them to `/global/api/saydian-app/v2` before sending. Never weaken this guard, reuse the local 8082 realm as online acceptance, or automatically claim its pending data. Review the [resource boundary](INTERNATIONAL-JOINT-QA-20260909.md) and [APK redirect checks](INTERNATIONAL-UPDATE-REDIRECT-GUARD-20260909.md).
 
 ## API contract highlights
 
@@ -42,7 +44,7 @@ Use Flutter `D:/Dev/Flutter/3.44.9`, JDK `F:/Codex/home/tools/jdk17`, Android SD
 
 ```powershell
 $env:JAVA_HOME='F:/Codex/home/tools/jdk17'
-$env:ANDROID_HOME='F:/Codex/home/tools/android-sdk'
+$env:ANDROID_HOME='D:/Dev/Android/Sdk'
 $env:ANDROID_SDK_ROOT=$env:ANDROID_HOME
 $env:GRADLE_USER_HOME='D:/Dev/Gradle'
 $env:Path="$env:JAVA_HOME/bin;D:/Dev/Flutter/3.44.9/bin;$env:Path"
@@ -67,7 +69,7 @@ The physical QA variants remain ARM-only. For the local `Saidian_API_36` x86_64 
 $env:SAIDIAN_EMULATOR_DEBUG='true'
 flutter run -d emulator-5554 --debug `
   --dart-define=SAYDIAN_API_BASE_URL=https://app.saydian.cn `
-  --dart-define=SAYDIAN_UPDATE_MANIFEST_URL=https://app.saydian.cn/api/saydian-app/v2/support/app-update `
+  --dart-define=SAYDIAN_UPDATE_MANIFEST_URL=https://app.saydian.cn/global/api/saydian-app/v2/support/app-update `
   --dart-define=QWEATHER_API_KEY=
 ```
 

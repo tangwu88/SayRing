@@ -1,4 +1,4 @@
-const baseUrl = process.env.SAYDIAN_API_BASE_URL ?? 'https://app.saidian.cc';
+const baseUrl = process.env.SAYDIAN_API_BASE_URL ?? 'https://app.saydian.cn';
 // Deliberately invalid sentinels: this probe must never authenticate or return
 // a real access token. Do not replace them with a real QA account.
 const invalidUsername = 'qa-invalid-account-never-use';

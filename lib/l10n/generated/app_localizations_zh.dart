@@ -520,6 +520,15 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get globalShopPricePending => '价格待确认';
+
+  @override
+  String get globalShopLoadMore => '加载更多商品';
+
+  @override
+  String get globalShopReadOnly => '可浏览商品，当前地区暂未开放下单。';
+
+  @override
   String get appName => 'Saydian';
 
   @override
@@ -2081,6 +2090,15 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   }
 
   @override
+  String get globalShopPricePending => '价格待确认';
+
+  @override
+  String get globalShopLoadMore => '加载更多商品';
+
+  @override
+  String get globalShopReadOnly => '可浏览商品，当前地区暂未开放下单。';
+
+  @override
   String get appName => 'Saydian';
 
   @override
@@ -3640,6 +3658,15 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String stepCount(int count) {
     return '$count 步';
   }
+
+  @override
+  String get globalShopPricePending => '價格待確認';
+
+  @override
+  String get globalShopLoadMore => '載入更多商品';
+
+  @override
+  String get globalShopReadOnly => '可瀏覽商品，目前地區暫未開放下單。';
 
   @override
   String get appName => 'Saydian';

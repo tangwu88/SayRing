@@ -14,6 +14,14 @@ import 'package:saydian_app/ui/global_auth_page.dart';
 
 class NoWatch extends Fake implements WearableBridge {}
 
+class UnavailableAuthController extends Fake implements AppController {
+  UnavailableAuthController(this.error);
+  final ApiException error;
+
+  @override
+  Future<GlobalAuthCapabilities> globalAuthCapabilities() async => throw error;
+}
+
 class NoCodeController extends Fake implements AppController {
   GlobalAccountIdentity? registeredIdentity;
   String? registeredPassword;
@@ -66,6 +74,40 @@ Widget host(AppController controller, {bool reset = false, double scale = 1}) =>
     );
 
 void main() {
+  for (final networkFailure in [false, true]) {
+    testWidgets(
+      'capabilities distinguish service absence from network $networkFailure',
+      (tester) async {
+        final controller = UnavailableAuthController(
+          networkFailure
+              ? const ApiException(
+                  'private network detail',
+                  code: 'NETWORK_UNAVAILABLE',
+                )
+              : const ApiException('private missing route', statusCode: 404),
+        );
+        await tester.pumpWidget(host(controller));
+        await tester.pumpAndSettle();
+        final l = AppLocalizations.of(
+          tester.element(find.byType(GlobalAuthPage)),
+        )!;
+        expect(
+          find.text(
+            networkFailure ? l.networkUnavailable : l.serviceUnavailable,
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.text(
+            networkFailure ? l.serviceUnavailable : l.networkUnavailable,
+          ),
+          findsNothing,
+        );
+        expect(find.textContaining('private'), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
   for (final scale in [1.0, 1.5, 2.0]) {
     testWidgets('global auth renders English on compact screen at $scale', (
       tester,

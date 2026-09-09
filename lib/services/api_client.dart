@@ -11,6 +11,7 @@ import '../domain/global_account.dart';
 import '../domain/global_care.dart';
 import '../domain/health_report_models.dart';
 import 'global_environment.dart';
+import 'network_audit.dart';
 import 'secure_vault.dart';
 
 part 'global_api_client.dart';
@@ -274,7 +275,7 @@ class SaydianApiClient
           Uri.parse(
             const String.fromEnvironment(
               'SAYDIAN_API_BASE_URL',
-              defaultValue: 'https://app.saidian.cc',
+              defaultValue: GlobalEnvironment.origin,
             ),
           );
 

@@ -68,6 +68,7 @@ class AppController extends ChangeNotifier {
     WechatAuthBridge? wechatAuthBridge,
     AppNotificationService? notificationService,
     List<Duration>? pushRegistrationRetryDelays,
+    this._allowAutomaticWearableRestore = true,
   }) : _paymentBridge = paymentBridge ?? const MethodChannelAppPaymentBridge(),
        _storeKitPurchaseBridge =
            storeKitPurchaseBridge ??
@@ -88,7 +89,9 @@ class AppController extends ChangeNotifier {
     );
   }
 
-  factory AppController.production() {
+  factory AppController.production({
+    bool allowAutomaticWearableRestore = true,
+  }) {
     final vault = SecureSessionVault.global();
     return AppController(
       vault,
@@ -99,10 +102,12 @@ class AppController extends ChangeNotifier {
       EncryptedHealthStore(vault, globalEdition: true),
       createProductionWearableBridge(),
       notificationService: JPushAppNotificationService(),
+      allowAutomaticWearableRestore: allowAutomaticWearableRestore,
     );
   }
 
   final SessionVault _vault;
+  final bool _allowAutomaticWearableRestore;
   final SaydianApi _api;
   bool get isGlobalEdition => _api is GlobalAccountApi;
 
@@ -120,6 +125,19 @@ class AppController extends ChangeNotifier {
   );
   Future<Map<String, Object?>> loadGlobalArticle(String id) =>
       (_api as GlobalContentApi).getGlobalArticle(id);
+
+  Future<Map<String, Object?>> loadGlobalShopProducts({
+    String? keyword,
+    String? categoryId,
+    int page = 1,
+  }) => (_api as GlobalCommerceApi).getGlobalShopProducts(
+    keyword: keyword,
+    categoryId: categoryId,
+    page: page,
+  );
+
+  Future<Map<String, Object?>> loadGlobalShopProduct(String id) =>
+      (_api as GlobalCommerceApi).getGlobalShopProduct(id);
 
   Future<List<GlobalCareRelationship>> globalCareRelationships() =>
       (_api as GlobalCareApi).globalCareRelationships();
@@ -712,7 +730,9 @@ class AppController extends ChangeNotifier {
     } catch (_) {
       sdkStatus = '设备连接服务暂时不可用';
     }
-    unawaited(restoreWearableConnection());
+    if (_allowAutomaticWearableRestore) {
+      unawaited(restoreWearableConnection());
+    }
     isBooting = false;
     notifyListeners();
     unawaited(refreshAiArticles());
@@ -2187,7 +2207,8 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> restoreWearableConnection() async {
-    if (_disposed ||
+    if (!_allowAutomaticWearableRestore ||
+        _disposed ||
         _accountTransitioning ||
         !_privacyConsentGranted ||
         !_wearableAccountRecoveryAllowed ||
@@ -4957,11 +4978,8 @@ class AppController extends ChangeNotifier {
       if (!_isCurrentSessionGeneration(expectedGeneration)) return;
       notifyListeners();
       unawaited(synchronizeCloud());
-    } catch (error, stackTrace) {
-      debugPrint(
-        'Health record persistence failed for ${record.metric.wireName}: '
-        '$error\n$stackTrace',
-      );
+    } catch (error) {
+      debugPrint('Health record persistence failed: ${error.runtimeType}');
       errorMessage = '测量结果已显示，但暂时无法保存到本机';
       if (_isCurrentSessionGeneration(expectedGeneration)) notifyListeners();
     }

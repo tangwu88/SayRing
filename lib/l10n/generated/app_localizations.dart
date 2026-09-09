@@ -1100,6 +1100,24 @@ abstract class AppLocalizations {
   /// **'{count} steps'**
   String stepCount(int count);
 
+  /// No description provided for @globalShopPricePending.
+  ///
+  /// In en, this message translates to:
+  /// **'Price to be confirmed'**
+  String get globalShopPricePending;
+
+  /// No description provided for @globalShopLoadMore.
+  ///
+  /// In en, this message translates to:
+  /// **'Load more products'**
+  String get globalShopLoadMore;
+
+  /// No description provided for @globalShopReadOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Browse products here. Ordering is not available in this region yet.'**
+  String get globalShopReadOnly;
+
   /// No description provided for @appName.
   ///
   /// In en, this message translates to:

@@ -1,3 +1,4 @@
+import 'widgets/safe_network_image.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
@@ -22,6 +23,7 @@ import '../services/notification_models.dart';
 import 'app_theme.dart';
 import 'brand_assets.dart';
 import 'global_auth_page.dart';
+import 'global_legal_page.dart';
 import 'global_care_page.dart';
 import 'health_reports_page.dart';
 import 'health_trend_page.dart';
@@ -3914,7 +3916,7 @@ List<Widget> _articleContentWidgets(BuildContext context, String raw) {
         padding: const EdgeInsets.only(bottom: 14),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(14),
-          child: Image.network(
+          child: SafeNetworkImage(
             source,
             key: ValueKey('article-content-image-${imageIndex++}'),
             fit: BoxFit.fitWidth,
@@ -4912,7 +4914,7 @@ class _DeviceWatchFaceMarketStripState
                       onTap: _openMarket,
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(18),
-                        child: Image.network(
+                        child: SafeNetworkImage(
                           item.previewUrl.toString(),
                           width: 88,
                           height: 88,
@@ -8073,7 +8075,7 @@ class _MemberAvatar extends StatelessWidget {
     final image = bytes != null
         ? Image.memory(bytes, fit: BoxFit.cover)
         : imageUrl.isNotEmpty
-        ? Image.network(
+        ? SafeNetworkImage(
             imageUrl,
             fit: BoxFit.cover,
             errorBuilder: (_, _, _) => fallback,
@@ -9089,7 +9091,7 @@ class _OrderProductImage extends StatelessWidget {
                 color: SaydianColors.techBlueSoft,
                 child: Icon(Icons.shopping_bag_outlined),
               )
-            : Image.network(
+            : SafeNetworkImage(
                 url,
                 fit: BoxFit.cover,
                 errorBuilder: (_, _, _) => const ColoredBox(
@@ -9757,11 +9759,16 @@ class AccountSettingsPage extends StatelessWidget {
                 ListTile(
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) => ArticleDetailPage(
-                        controller: controller,
-                        article: const {'id': 3, 'title': '隐私协议'},
-                        singleArticle: true,
-                      ),
+                      builder: (_) => controller.isGlobalEdition
+                          ? GlobalLegalPage(
+                              controller: controller,
+                              document: GlobalLegalDocumentType.privacyPolicy,
+                            )
+                          : ArticleDetailPage(
+                              controller: controller,
+                              article: const {'id': 3, 'title': '隐私协议'},
+                              singleArticle: true,
+                            ),
                     ),
                   ),
                   leading: const Icon(Icons.privacy_tip_outlined),

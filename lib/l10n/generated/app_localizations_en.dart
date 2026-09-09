@@ -587,6 +587,16 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get globalShopPricePending => 'Price to be confirmed';
+
+  @override
+  String get globalShopLoadMore => 'Load more products';
+
+  @override
+  String get globalShopReadOnly =>
+      'Browse products here. Ordering is not available in this region yet.';
+
+  @override
   String get appName => 'Saydian';
 
   @override

@@ -8,4 +8,5 @@ WearableBridge createProductionWearableBridge({
 }) => RoutedWearableBridge(
   veepoo: veepoo ?? MethodChannelWearableBridge(),
   yucheng: yucheng ?? YuchengWearableBridge(),
+  restoreOnlyBoundDevice: true,
 );

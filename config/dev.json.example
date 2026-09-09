@@ -1,5 +1,5 @@
 {
   "SAYDIAN_API_BASE_URL": "https://app.saydian.cn",
-  "SAYDIAN_UPDATE_MANIFEST_URL": "https://app.saydian.cn/api/saydian-app/v2/support/app-update",
+  "SAYDIAN_UPDATE_MANIFEST_URL": "https://app.saydian.cn/global/api/saydian-app/v2/support/app-update",
   "QWEATHER_API_KEY": ""
 }

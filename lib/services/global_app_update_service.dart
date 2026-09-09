@@ -29,8 +29,22 @@ class GlobalAppUpdateService extends AppUpdateService {
     try {
       final request = http.Request('GET', _endpointUri!)
         ..followRedirects = false;
+      NetworkAudit.record(
+        request.url,
+        request.method,
+        'update_manifest',
+        outcome: 'request_started',
+      );
+      final streamed = await _client.send(request).timeout(_requestTimeout);
+      NetworkAudit.record(
+        request.url,
+        request.method,
+        'update_manifest',
+        status: streamed.statusCode,
+        requestId: streamed.headers['x-request-id'],
+      );
       response = await http.Response.fromStream(
-        await _client.send(request).timeout(_requestTimeout),
+        streamed,
       ).timeout(_requestTimeout);
     } catch (_) {
       throw const AppUpdateException('Check your connection and try again.');
@@ -121,6 +135,7 @@ class GlobalAppUpdateService extends AppUpdateService {
   bool validatePersisted(AppUpdateInfo info) {
     final uri = info.destinationUri;
     if (uri.scheme != 'https' ||
+        uri.port != 443 ||
         uri.userInfo.isNotEmpty ||
         uri.hasQuery ||
         uri.hasFragment) {
@@ -128,10 +143,7 @@ class GlobalAppUpdateService extends AppUpdateService {
     }
     if (_targetPlatform == TargetPlatform.android) {
       return info.destinationType == AppUpdateDestinationType.androidApk &&
-          uri.origin == GlobalEnvironment.origin &&
-          RegExp(
-            r'^/global/down/files/[A-Za-z0-9._-]+\.apk$',
-          ).hasMatch(uri.path) &&
+          _isAllowedGlobalApkUri(uri) &&
           RegExp(r'^[a-f0-9]{64}$').hasMatch(info.sha256 ?? '');
     }
     if (_targetPlatform == TargetPlatform.iOS &&
@@ -145,3 +157,12 @@ class GlobalAppUpdateService extends AppUpdateService {
         _appStoreProductPath.hasMatch(uri.path);
   }
 }
+
+bool _isAllowedGlobalApkUri(Uri uri) =>
+    uri.scheme == 'https' &&
+    uri.host == Uri.parse(GlobalEnvironment.origin).host &&
+    uri.port == 443 &&
+    uri.userInfo.isEmpty &&
+    !uri.hasQuery &&
+    !uri.hasFragment &&
+    RegExp(r'^/global/down/files/[A-Za-z0-9._-]+\.apk$').hasMatch(uri.path);

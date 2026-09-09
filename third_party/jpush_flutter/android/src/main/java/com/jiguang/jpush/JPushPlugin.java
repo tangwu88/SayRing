@@ -12,7 +12,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
-import android.util.Log;
 
 import org.json.JSONObject;
 
@@ -567,8 +566,7 @@ public class JPushPlugin implements FlutterPlugin, MethodCallHandler, ActivityAw
         Log.d(TAG, "setup");
 
         HashMap<String, Object> map = call.arguments();
-        boolean debug = (boolean) map.get("debug");
-        JPushInterface.setDebugMode(debug);
+        JPushInterface.setDebugMode(false);
         String appKey = (String) map.get("appKey");
         if(!TextUtils.isEmpty(appKey)){
             JPushConfig config=new JPushConfig();
@@ -767,7 +765,7 @@ public class JPushPlugin implements FlutterPlugin, MethodCallHandler, ActivityAw
             JPushInterface.addLocalNotification(context, ln);
             result.success(true);
         } catch (Exception e) {
-            e.printStackTrace();
+            // Do not expose notification payloads through exception text.
             result.error("SEND_LOCAL_NOTIFICATION_ERROR", e.getMessage(), null);
         }
     }

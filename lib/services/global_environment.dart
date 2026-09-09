@@ -1,7 +1,21 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+
 /// First-party App V2 endpoints. Paths never fall back to legacy API routes.
 abstract final class GlobalEnvironment {
   static const origin = 'https://app.saydian.cn';
-  static const apiPrefix = '/api/saydian-app/v2';
+  static const apiPrefix = '/global/api/saydian-app/v2';
+  static const canonicalApiPrefix = '/api/saydian-app/v2';
+  static String get storageNamespace => sha256
+      .convert(utf8.encode('${configuredOrigin.origin}$apiPrefix'))
+      .toString();
+
+  /// Canonical controller paths are mounted only on the isolated gateway.
+  static String deployedPath(String path) =>
+      path == canonicalApiPrefix || path.startsWith('$canonicalApiPrefix/')
+      ? '$apiPrefix${path.substring(canonicalApiPrefix.length)}'
+      : path;
   static const locales = [
     'en',
     'zh-Hans',
@@ -13,6 +27,16 @@ abstract final class GlobalEnvironment {
     'ko',
   ];
   static const packageId = 'cn.saydian.app.global';
+
+  static Uri apiOrigin(Uri? override) => override == null
+      ? configuredOrigin
+      : validateOrigin(
+          override.toString(),
+          allowLocalDebug: const bool.fromEnvironment(
+            'SAYDIAN_ALLOW_LOCAL_DEBUG_API',
+          ),
+          isProduct: const bool.fromEnvironment('dart.vm.product'),
+        );
 
   static Uri get configuredOrigin {
     const raw = String.fromEnvironment(
@@ -40,7 +64,10 @@ abstract final class GlobalEnvironment {
         uri.scheme == 'http' &&
         {'10.0.2.2', '127.0.0.1', 'localhost'}.contains(uri.host) &&
         uri.hasPort;
-    final production = uri.scheme == 'https' && uri.host == 'app.saydian.cn';
+    final production =
+        uri.scheme == 'https' &&
+        uri.host == 'app.saydian.cn' &&
+        uri.port == 443;
     if ((!production && !localDebug) ||
         uri.userInfo.isNotEmpty ||
         uri.hasQuery ||
@@ -77,6 +104,9 @@ abstract final class GlobalEnvironment {
     final resolved = query == null
         ? result
         : result.replace(queryParameters: query);
+    if (!safeResourcePath(resolved)) {
+      throw ArgumentError('Path traversal is not accepted');
+    }
     if (resolved.path != apiPrefix &&
         !resolved.path.startsWith('$apiPrefix/')) {
       throw ArgumentError('App V2 API path required');
@@ -88,18 +118,39 @@ abstract final class GlobalEnvironment {
     final uri = Uri.tryParse(input.trim());
     if (uri == null || input.trim().isEmpty) return '';
     if (uri.hasScheme || uri.hasAuthority) {
-      if ({'sd.cc', 'app.saidian.cc'}.contains(uri.host)) return '';
-      if (uri.host == 'app.saydian.cn' &&
-          uri.path != apiPrefix &&
-          !uri.path.startsWith('$apiPrefix/')) {
-        return '';
-      }
-      return uri.scheme == 'https' ? uri.toString() : '';
+      return allowsFirstPartyResource(uri) ? uri.toString() : '';
     }
     try {
-      return resolve(Uri.parse(origin), input.trim()).toString();
+      return resolve(configuredOrigin, deployedPath(input.trim())).toString();
     } on ArgumentError {
       return '';
     }
   }
+
+  static bool safeResourcePath(Uri uri) {
+    if (uri.userInfo.isNotEmpty || uri.hasFragment) return false;
+    var path = uri.path;
+    for (var round = 0; round < 4; round++) {
+      if (path.contains('\\') ||
+          path.split('/').any((part) => part == '.' || part == '..')) {
+        return false;
+      }
+      try {
+        final next = Uri.decodeComponent(path);
+        if (next == path) return true;
+        path = next;
+      } on FormatException {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  static bool allowsFirstPartyResource(Uri uri) =>
+      (uri.scheme == 'https' || uri.scheme == 'http') &&
+      uri.origin == configuredOrigin.origin &&
+      safeResourcePath(uri) &&
+      (uri.path.startsWith('$apiPrefix/') ||
+          uri.path.startsWith('/global/media/') ||
+          uri.path.startsWith('/global/assets/'));
 }

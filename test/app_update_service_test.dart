@@ -882,7 +882,7 @@ void main() {
 
     expect(service.isConfigured, isTrue);
     expect((await service.check()).hasUpdate, isFalse);
-    expect(requestedUri.origin, 'https://app.saidian.cc');
+    expect(requestedUri.origin, 'https://app.saydian.cn');
     expect(requestedUri.path, '/api/v1/site/version');
   });
 }

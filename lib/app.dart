@@ -193,7 +193,7 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
       _updateService,
       store: widget.updateCheckStore,
     );
-    _apkInstaller = AndroidApkUpdateInstaller();
+    _apkInstaller = AndroidApkUpdateInstaller.global();
     _updateGateController =
         widget.updateGateController ?? AppUpdateGateController();
     _updateGateController.attach(_manualUpdateCheck);

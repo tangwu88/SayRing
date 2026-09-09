@@ -47,11 +47,11 @@ Map<String, Object?> capabilities({
   'legal': {
     'userAgreement': {
       'path':
-          '/api/saydian-app/v2/content/legal/user_agreement?version=reviewed-test-v1&locale=en',
+          '/global/api/saydian-app/v2/content/legal/user_agreement?version=reviewed-test-v1&locale=en',
     },
     'privacyPolicy': {
       'path':
-          '/api/saydian-app/v2/content/legal/privacy_policy?version=reviewed-test-v1&locale=en',
+          '/global/api/saydian-app/v2/content/legal/privacy_policy?version=reviewed-test-v1&locale=en',
     },
   },
 };
@@ -168,13 +168,13 @@ void main() {
       expect(
         GlobalEnvironment.resolve(
           origin,
-          '/api/saydian-app/v2/auth/capabilities?locale=de',
+          '/global/api/saydian-app/v2/auth/capabilities?locale=de',
         ).toString(),
-        'https://app.saydian.cn/api/saydian-app/v2/auth/capabilities?locale=de',
+        'https://app.saydian.cn/global/api/saydian-app/v2/auth/capabilities?locale=de',
       );
       expect(
-        GlobalEnvironment.media('/api/saydian-app/v2/files/avatar.jpg'),
-        'https://app.saydian.cn/api/saydian-app/v2/files/avatar.jpg',
+        GlobalEnvironment.media('/global/api/saydian-app/v2/files/avatar.jpg'),
+        'https://app.saydian.cn/global/api/saydian-app/v2/files/avatar.jpg',
       );
       expect(GlobalEnvironment.media('/files/avatar.jpg'), '');
       expect(GlobalEnvironment.media('https://app.saidian.cc/avatar.jpg'), '');
@@ -184,7 +184,7 @@ void main() {
       );
       expect(
         GlobalEnvironment.media('https://third-party.example/watchface.png'),
-        isNotEmpty,
+        isEmpty,
       );
       expect(
         () => GlobalEnvironment.resolve(origin, '//app.saidian.cc/api'),

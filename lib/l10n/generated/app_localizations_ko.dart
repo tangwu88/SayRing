@@ -546,6 +546,15 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
+  String get globalShopPricePending => '가격 확인 중';
+
+  @override
+  String get globalShopLoadMore => '상품 더 보기';
+
+  @override
+  String get globalShopReadOnly => '상품을 둘러볼 수 있습니다. 이 지역에서는 아직 주문할 수 없습니다.';
+
+  @override
   String get appName => 'Saydian';
 
   @override

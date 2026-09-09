@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 
 import '../domain/models.dart';
+import 'global_storage_scope.dart';
 import 'notification_inbox.dart';
 import 'secure_vault.dart';
 
@@ -111,11 +112,26 @@ class EncryptedHealthStore implements HealthStore, HealthStoreRecoveryStatus {
     this._databaseOpener = _openEncryptedHealthDatabase,
     this.fileOperations = const IoHealthStoreFileOperations(),
     this.globalEdition = false,
+    String? storageNamespace,
     DateTime Function()? clock,
-  }) : _clock = clock ?? DateTime.now;
+  }) : storageNamespace = globalEdition
+           ? globalStorageNamespace(storageNamespace)
+           : null,
+       _clock = clock ?? DateTime.now {
+    if (_vault is SecureSessionVault &&
+        _vault.storageNamespace != this.storageNamespace) {
+      throw ArgumentError(
+        'Health database and session environments must match',
+      );
+    }
+  }
 
   final SessionVault _vault;
   final bool globalEdition;
+  final String? storageNamespace;
+  String get databaseFileName => globalEdition
+      ? 'saydian_global_health_${storageNamespace}_v1.db'
+      : 'saydian_health_v1.db';
   final Future<String> Function()? _databasePathProvider;
   final HealthDatabaseOpener _databaseOpener;
   final HealthStoreFileOperations fileOperations;
@@ -161,9 +177,7 @@ class EncryptedHealthStore implements HealthStore, HealthStoreRecoveryStatus {
     final file = configuredPath == null
         ? path.join(
             (await getApplicationSupportDirectory()).path,
-            globalEdition
-                ? 'saydian_global_health_v1.db'
-                : 'saydian_health_v1.db',
+            databaseFileName,
           )
         : await configuredPath();
     final recoveryMarker = _recoveryMarkerPath(file);
@@ -458,6 +472,9 @@ class EncryptedHealthStore implements HealthStore, HealthStoreRecoveryStatus {
     required String healthOwnerId,
     required String notificationOwnerId,
   }) {
+    // International environments never claim records from an unscoped source.
+    // Their previous files and secure-storage encryption keys remain untouched.
+    if (globalEdition) return Future<void>.value();
     final healthOwner = healthOwnerId.trim();
     final notificationOwner = notificationOwnerId.trim();
     const legacyOwner = 'legacy-unscoped';

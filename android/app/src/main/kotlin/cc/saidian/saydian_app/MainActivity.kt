@@ -23,7 +23,7 @@ import android.os.Looper
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
-import android.util.Log
+import cc.saidian.saydian_app.PrivateStageLog as Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -996,8 +996,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     init {
         // init() can replace the SDK singleton on first use. Re-read it after
         // initialization so scan, connect and protocol operations share state.
+        disableVendorLogs()
         VPOperateManager.getInstance().init(appContext)
         manager = VPOperateManager.getInstance()
+        disableVendorLogs()
         // Keep the watch's BLE data link and the phone Bluetooth/audio link in
         // sync. The vendor SDK only establishes the latter automatically when
         // this switch is enabled.
@@ -1022,7 +1024,24 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         // leaves the BLE link alive but makes a later authentication time out.
         // Flutter already serializes commands, so retain the session until the
         // watch disconnects or this adapter closes.
+        disableVendorLogs()
         operation()
+    }
+
+    private fun disableVendorLogs() {
+        // vpbluetooth 1.20 defaults BluetoothLog.isDebug to true. Disable both
+        // protocol/transport logs and file capture in Debug as well as Release.
+        com.veepoo.protocol.util.VPLogger.setDebug(false)
+        com.inuker.bluetooth.library.utils.BluetoothLog.setDebug(false)
+        com.inuker.bluetooth.library.log.VPLocalLogger.getInstance().setOpenWriteLog(false)
+        com.inuker.bluetooth.library.log.VPLocalLogger.stopMonitor()
+        com.inuker.bluetooth.library.bluetrum.log.Logger.setLogger(null)
+        com.inuker.bluetooth.library.bluetrum.log.Logger.setLogLevel(Int.MAX_VALUE)
+        com.jieli.jl_rcsp.util.JL_Log.configureLog(appContext, false, false)
+        com.jieli.jl_bt_ota.util.JL_Log.setLog(false)
+        com.jieli.jl_bt_ota.util.JL_Log.setIsSaveLogFile(appContext, false)
+        com.jieli.bluetooth_connect.util.JL_Log.setLog(false)
+        com.jieli.bluetooth_connect.util.JL_Log.setIsSaveLogFile(false, appContext)
     }
 
     private fun releaseJLWatchFaceSession() {

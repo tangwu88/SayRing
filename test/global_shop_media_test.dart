@@ -3,20 +3,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/ui/shop_pages.dart';
+import 'package:saydian_app/ui/global_shop_pages.dart';
+import 'package:saydian_app/ui/widgets/safe_network_image.dart';
 
 const _blockedMedia = [
   'http://sd.cc/watch.jpg',
   'https://app.saidian.cc/watch.jpg',
   '/files/relative-watch.jpg',
   'https://app.saydian.cn/global/files/watch.jpg',
+  'https://cdn.example.invalid/watch.jpg',
 ];
 const _allowedMedia = {
   '/api/saydian-app/v2/files/relative-watch.jpg':
-      'https://app.saydian.cn/api/saydian-app/v2/files/relative-watch.jpg',
-  'https://app.saydian.cn/api/saydian-app/v2/files/watch.jpg':
-      'https://app.saydian.cn/api/saydian-app/v2/files/watch.jpg',
-  'https://cdn.example.invalid/watch.jpg':
-      'https://cdn.example.invalid/watch.jpg',
+      'https://app.saydian.cn/global/api/saydian-app/v2/files/relative-watch.jpg',
+  'https://app.saydian.cn/global/api/saydian-app/v2/files/watch.jpg':
+      'https://app.saydian.cn/global/api/saydian-app/v2/files/watch.jpg',
 };
 
 class _ShopMediaController extends Fake implements AppController {
@@ -25,36 +26,38 @@ class _ShopMediaController extends Fake implements AppController {
 
   @override
   Future<Map<String, Object?>> loadShopHome() async => {
+    'categories': [
+      {'id': 'test-category', 'name': 'Test category'},
+    ],
+    'featured': [],
+  };
+
+  @override
+  Future<Map<String, Object?>> loadGlobalShopProducts({
+    String? keyword,
+    String? categoryId,
+    int page = 1,
+  }) async => {
     'items': [
-      {
-        'type': 'tabs',
-        'value': [
-          {
-            'name': 'Test category',
-            'list': [
-              for (final (index, url) in [
-                ..._blockedMedia,
-                ..._allowedMedia.keys,
-              ].indexed)
-                {
-                  'id': index + 1,
-                  'name': 'Test product ${index + 1}',
-                  'picture': url,
-                  'price': 1,
-                },
-            ],
-          },
-        ],
-      },
+      for (final (index, url) in [
+        ..._blockedMedia,
+        ..._allowedMedia.keys,
+      ].indexed)
+        {
+          'id': 'product-${index + 1}',
+          'name': 'Test product ${index + 1}',
+          'coverImage': url,
+          'priceCents': 100,
+        },
     ],
   };
 
   @override
-  Future<Map<String, Object?>> loadShopProduct(int id) async => {
+  Future<Map<String, Object?>> loadGlobalShopProduct(String id) async => {
     'id': id,
     'name': 'Test product',
     'price': 1,
-    'intro': [
+    'detailHtml': [
       '<p>Test description</p>',
       for (final url in [..._blockedMedia, ..._allowedMedia.keys])
         '<img src="$url">',
@@ -79,9 +82,9 @@ Future<void> _pumpShop(WidgetTester tester, Widget page) async {
 }
 
 List<String> _networkImageUrls(WidgetTester tester) => tester
-    .widgetList<Image>(find.byType(Image))
+    .widgetList<Image>(find.byWidgetPredicate((widget) => widget is Image))
     .map((image) => image.image)
-    .whereType<NetworkImage>()
+    .whereType<SafeNetworkImageProvider>()
     .map((provider) => provider.url)
     .toList();
 
@@ -95,7 +98,7 @@ void _expectOnlyAllowedMedia(List<String> urls) {
     expect(uri.scheme, 'https');
     expect({'sd.cc', 'app.saidian.cc'}, isNot(contains(uri.host)));
     if (uri.host == 'app.saydian.cn') {
-      expect(uri.path, startsWith('/api/saydian-app/v2/'));
+      expect(uri.path, startsWith('/global/api/saydian-app/v2/'));
     }
   }
 }
@@ -107,10 +110,7 @@ void main() {
       await _pumpShop(tester, ShopHomePage(controller: _ShopMediaController()));
 
       expect(find.text('Test product 7'), findsOneWidget);
-      expect(
-        find.byIcon(Icons.image_not_supported_outlined),
-        findsNWidgets(_blockedMedia.length),
-      );
+      expect(find.byIcon(Icons.image_not_supported_outlined), findsWidgets);
       _expectOnlyAllowedMedia(_networkImageUrls(tester));
       expect(tester.takeException(), isNull);
     },
@@ -121,15 +121,16 @@ void main() {
   ) async {
     await _pumpShop(
       tester,
-      ShopProductPage(controller: _ShopMediaController(), productId: 1),
+      GlobalShopProductPage(
+        controller: _ShopMediaController(),
+        productId: 'product-1',
+      ),
     );
 
     expect(find.text('Test description'), findsOneWidget);
     final urls = _networkImageUrls(tester);
-    // The existing HTML renderer uses an empty source for filtered images.
-    // Verify all HTML images were exercised, not merely an unbuilt detail.
-    expect(urls, hasLength(_blockedMedia.length + _allowedMedia.length));
-    expect(urls.where((url) => url.isEmpty), hasLength(_blockedMedia.length));
+    // Both list and detail use only validated first-party image providers.
+    expect(urls, hasLength(_allowedMedia.length));
     _expectOnlyAllowedMedia(urls);
     expect(tester.takeException(), isNull);
   });

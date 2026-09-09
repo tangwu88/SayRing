@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:uuid/uuid.dart';
 
 import '../domain/models.dart';
+import 'global_storage_scope.dart';
 
 abstract interface class SessionVault {
   Future<Session?> readSession();
@@ -27,14 +28,18 @@ abstract interface class SessionVault {
 
 class SecureSessionVault implements SessionVault {
   SecureSessionVault([FlutterSecureStorage? storage])
-    : _global = false,
+    : storageNamespace = null,
       _storage = storage ?? const FlutterSecureStorage();
-  SecureSessionVault.global([FlutterSecureStorage? storage])
-    : _global = true,
-      _storage = storage ?? const FlutterSecureStorage();
+  SecureSessionVault.global({
+    FlutterSecureStorage? storage,
+    String? storageNamespace,
+  }) : storageNamespace = globalStorageNamespace(storageNamespace),
+       _storage = storage ?? const FlutterSecureStorage();
 
-  final bool _global;
-  String get _prefix => _global ? 'saydian.global' : 'saydian';
+  final String? storageNamespace;
+  String get _prefix => storageNamespace == null
+      ? 'saydian'
+      : 'saydian.global.env.$storageNamespace';
   String get _sessionKey => '$_prefix.session.v1';
   String get _privacyConsentKey => '$_prefix.privacy-consent.v1';
   String get _databaseKey => '$_prefix.database.key.v1';

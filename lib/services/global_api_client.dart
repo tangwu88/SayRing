@@ -48,11 +48,26 @@ abstract interface class GlobalContentApi {
   Future<Map<String, Object?>> getGlobalArticle(String id);
 }
 
+/// Read-only international catalog. Product identifiers remain opaque strings;
+/// amounts are returned with their original server currency metadata.
+abstract interface class GlobalCommerceApi {
+  Future<Map<String, Object?>> getGlobalShopProducts({
+    String? keyword,
+    String? categoryId,
+    int page = 1,
+  });
+  Future<Map<String, Object?>> getGlobalShopProduct(String id);
+}
+
 /// International transport. Only the deployed App V2 route family is accepted;
 /// no legacy endpoint or credential fallback exists.
 class GlobalSaydianApiClient extends SaydianApiClient
     with GlobalHealthApi
-    implements GlobalAccountApi, GlobalCareApi, GlobalContentApi {
+    implements
+        GlobalAccountApi,
+        GlobalCareApi,
+        GlobalContentApi,
+        GlobalCommerceApi {
   GlobalSaydianApiClient(
     super.vault, {
     http.Client? client,
@@ -60,10 +75,10 @@ class GlobalSaydianApiClient extends SaydianApiClient
     String Function()? locale,
   }) : _locale = locale ?? (() => 'en'),
        super(
-         baseUri: baseUri ?? GlobalEnvironment.configuredOrigin,
+         baseUri: GlobalEnvironment.apiOrigin(baseUri),
          client: _GlobalHttpClient(
            client ?? http.Client(),
-           baseUri ?? GlobalEnvironment.configuredOrigin,
+           GlobalEnvironment.apiOrigin(baseUri),
          ),
        );
 
@@ -327,7 +342,11 @@ class GlobalSaydianApiClient extends SaydianApiClient
   @override
   Uri _uri(String path, [Map<String, String>? query]) {
     try {
-      return GlobalEnvironment.resolve(_baseUri, path, query);
+      return GlobalEnvironment.resolve(
+        _baseUri,
+        GlobalEnvironment.deployedPath(path),
+        query,
+      );
     } on ArgumentError {
       throw const FeatureNotConfiguredException(
         'This feature is not yet available in this region.',
@@ -637,6 +656,113 @@ class GlobalSaydianApiClient extends SaydianApiClient
   @override
   Future<Map<String, Object?>> getShopHome() => _globalPublic('commerce/home');
 
+  @override
+  Future<Map<String, Object?>> getGlobalShopProducts({
+    String? keyword,
+    String? categoryId,
+    int page = 1,
+  }) async {
+    if (page < 1) throw const ApiException('Choose a valid page.');
+    final query = <String, String>{
+      'page': '$page',
+      'pageSize': '30',
+      'locale': _locale(),
+      if (keyword?.trim().isNotEmpty == true) 'keyword': keyword!.trim(),
+      if (categoryId?.trim().isNotEmpty == true)
+        'categoryId': categoryId!.trim(),
+    };
+    final response = _decode(
+      await _performRequest(
+        () => _client.get(
+          _uri('/api/saydian-app/v2/commerce/products', query),
+          headers: {'Accept-Language': _locale()},
+        ),
+      ),
+    );
+    final data = _data(response);
+    // Reject malformed lists, rather than reporting a broken service as empty.
+    _list(response);
+    return data;
+  }
+
+  @override
+  Future<Map<String, Object?>> getGlobalShopProduct(String id) {
+    if (id.trim().isEmpty) {
+      return Future.error(const ApiException('Choose a product first.'));
+    }
+    return _globalPublic('commerce/products/${Uri.encodeComponent(id)}');
+  }
+
+  // These inherited UI contracts contain integer IDs, domestic address fields
+  // or CNY checkout semantics. Do not translate UUIDs into synthetic integers,
+  // guess a country/currency, or silently call their former V1 routes.
+  Future<T> _unavailableGlobalCommerce<T>() => Future.error(
+    const FeatureNotConfiguredException(
+      'Shopping is not yet available in this region.',
+    ),
+  );
+
+  @override
+  Future<Map<String, Object?>> getShopProduct(int id) =>
+      _unavailableGlobalCommerce();
+  @override
+  Future<List<Map<String, Object?>>> getOrders({int? status}) =>
+      _unavailableGlobalCommerce();
+  @override
+  Future<Map<String, Object?>> getOrderDetail(int id) =>
+      _unavailableGlobalCommerce();
+  @override
+  Future<List<Map<String, Object?>>> getAddresses() =>
+      _unavailableGlobalCommerce();
+  @override
+  Future<Map<String, Object?>> getAddress(int id) =>
+      _unavailableGlobalCommerce();
+  @override
+  Future<List<Map<String, Object?>>> getOrderExpress(int orderId) =>
+      _unavailableGlobalCommerce();
+  @override
+  Future<List<Map<String, Object?>>> getShopCartItems() =>
+      _unavailableGlobalCommerce();
+  @override
+  Future<List<Map<String, Object?>>> addShopCartItem({
+    required int skuId,
+    required int quantity,
+  }) => _unavailableGlobalCommerce();
+  @override
+  Future<List<Map<String, Object?>>> updateShopCartItemQuantity({
+    required int skuId,
+    required int quantity,
+  }) => _unavailableGlobalCommerce();
+  @override
+  Future<List<Map<String, Object?>>> deleteShopCartItems(
+    Iterable<int> skuIds,
+  ) => _unavailableGlobalCommerce();
+  @override
+  Future<Map<String, Object?>> previewShopOrder({
+    required List<Map<String, int>> items,
+  }) => _unavailableGlobalCommerce();
+  @override
+  Future<void> confirmOrderReceipt(int orderId) => _unavailableGlobalCommerce();
+  @override
+  Future<void> applyOrderRefund({
+    required int orderProductId,
+    required int refundType,
+    required num amount,
+    required String reason,
+  }) => _unavailableGlobalCommerce();
+  @override
+  Future<Map<String, Object?>> saveAddress({
+    int? id,
+    required String realname,
+    required String mobile,
+    required String addressDetails,
+    required bool isDefault,
+    required String region,
+    required int provinceId,
+    required int cityId,
+    required int areaId,
+  }) => _unavailableGlobalCommerce();
+
   Future<Map<String, Object?>> _globalPublic(
     String path, [
     Map<String, Object?>? body,
@@ -665,13 +791,23 @@ class GlobalSaydianApiClient extends SaydianApiClient
   @override
   Future<Map<String, Object?>> getGlobalLegalDocument(String path) async {
     final parsed = Uri.parse(path);
+    final prefix = parsed.path.startsWith('${GlobalEnvironment.apiPrefix}/')
+        ? GlobalEnvironment.apiPrefix
+        : GlobalEnvironment.canonicalApiPrefix;
     if (parsed.hasScheme ||
         parsed.hasAuthority ||
-        !parsed.path.startsWith('/api/saydian-app/v2/content/legal/') ||
-        parsed.pathSegments.contains('..')) {
+        !GlobalEnvironment.safeResourcePath(parsed) ||
+        !RegExp('^$prefix/content/legal/[a-z_]+\$').hasMatch(parsed.path) ||
+        parsed.queryParametersAll['version']?.length != 1 ||
+        parsed.queryParameters['version']?.trim().isNotEmpty != true ||
+        parsed.queryParametersAll['locale']?.length != 1 ||
+        !GlobalEnvironment.locales.contains(parsed.queryParameters['locale']) ||
+        parsed.queryParameters.keys.any(
+          (key) => key != 'version' && key != 'locale',
+        )) {
       throw const ApiException('This document is not available.');
     }
-    return _globalPublic(path.substring('/api/saydian-app/v2/'.length));
+    return _globalPublic(path.substring(prefix.length + 1));
   }
 
   @override
@@ -881,13 +1017,27 @@ class _GlobalHttpClient extends http.BaseClient {
         request.url.userInfo.isNotEmpty ||
         (request.url.path != GlobalEnvironment.apiPrefix &&
             !request.url.path.startsWith('${GlobalEnvironment.apiPrefix}/'))) {
+      NetworkAudit.record(
+        request.url,
+        request.method,
+        'api',
+        outcome: 'blocked_origin',
+      );
       throw const ApiException(
         'This service is not available.',
         code: 'GLOBAL_ENDPOINT_REJECTED',
       );
     }
     request.followRedirects = false;
+    NetworkAudit.record(request.url, request.method, 'api', outcome: 'sending');
     final response = await inner.send(request);
+    NetworkAudit.record(
+      request.url,
+      request.method,
+      'api',
+      status: response.statusCode,
+      requestId: response.headers['x-request-id'],
+    );
     if (response.statusCode >= 300 && response.statusCode < 400) {
       await response.stream.drain<void>();
       throw const ApiException(

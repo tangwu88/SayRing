@@ -79,7 +79,7 @@ Future<void> _probeProductionApiNetwork() async {
   const directIp = String.fromEnvironment('SAIDIAN_TEST_API_IP');
   try {
     if (proxy.isEmpty && directIp.isEmpty) {
-      final addresses = await InternetAddress.lookup('app.saidian.cc');
+      final addresses = await InternetAddress.lookup('app.saydian.cn');
       debugPrint(
         'PAYMENT_NETWORK_QA:dns=${addresses.map((value) => value.address).join(',')}',
       );
@@ -90,7 +90,7 @@ Future<void> _probeProductionApiNetwork() async {
     }
     final client = _testHttpClient();
     try {
-      final request = await client.getUrl(Uri.parse('https://app.saidian.cc/'));
+      final request = await client.getUrl(Uri.parse('https://app.saydian.cn/'));
       final response = await request.close().timeout(
         const Duration(seconds: 15),
       );

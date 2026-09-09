@@ -76,7 +76,7 @@ def prepareYuchengPluginSources = tasks.register('prepareYuchengPluginSources', 
         initSourceBytes = initSourceBytes.replace(
                 unsupportedSpeechInit,
                 '        // Speech recognition is unavailable without the vendor libmsc.so runtime.')
-        def safeLoggingSetup = initAnchor + '''
+        def safeLoggingSetup = '''
 
         // The Yucheng flag does not configure the bundled JieLi loggers.  Some
         // of those loggers include TargetInfoResponse.toString(), which exposes
@@ -88,8 +88,22 @@ def prepareYuchengPluginSources = tasks.register('prepareYuchengPluginSources', 
         com.jieli.bluetooth_connect.util.JL_Log.setLog(false);
         com.jieli.bluetooth_connect.util.JL_Log.setIsSaveLogFile(false, context);'''
         patchedInitSource.bytes = initSourceBytes
-                .replace(initAnchor, safeLoggingSetup)
+                .replace(initAnchor, safeLoggingSetup + '''
+        YCBTClient.initClient(context, isReconnectEnable, false);
+''' + safeLoggingSetup)
                 .getBytes('ISO-8859-1')
+
+        // SDK isLogEnable does not affect upstream wrapper Log calls, which
+        // print scan identities and entire health maps. Route only this
+        // generated wrapper source through the module's no-output Log class.
+        fileTree(patchedYuchengJavaSource).matching { include '**/*.java' }.each { source ->
+            def safeSource = new String(source.bytes, 'ISO-8859-1')
+                    .replace('import android.util.Log;', '')
+                    .replace('android.util.Log.', 'Log.')
+                    .replaceAll(/\b[A-Za-z_][A-Za-z0-9_]*\.printStackTrace\(\);/,
+                            '/* Vendor exception text is not logged. */')
+            source.bytes = safeSource.getBytes('ISO-8859-1')
+        }
     }
 }
 
@@ -131,7 +145,7 @@ android {
     sourceSets {
         main {
             manifest.srcFile file(yuchengAndroidSource.path + '/src/main/AndroidManifest.xml')
-            java.srcDirs = [patchedYuchengJavaSource]
+            java.srcDirs = [patchedYuchengJavaSource, file('src/main/java')]
             jniLibs.srcDirs = [yuchengLibs]
         }
     }

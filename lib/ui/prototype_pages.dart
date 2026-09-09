@@ -1,7 +1,9 @@
+import 'widgets/safe_network_image.dart';
 import '../l10n/global_locale_controller.dart';
 import '../l10n/ui_labels.dart';
 import 'global_care_page.dart';
 import 'global_auth_page.dart';
+import 'global_legal_page.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -888,7 +890,7 @@ class SharingManagementPage extends StatelessWidget {
                   leading: CircleAvatar(
                     foregroundImage:
                         '${member['head_portrait'] ?? ''}'.startsWith('http')
-                        ? NetworkImage('${member['head_portrait']}')
+                        ? SafeNetworkImageProvider('${member['head_portrait']}')
                         : null,
                     child: const Icon(Icons.person_outline),
                   ),
@@ -1235,7 +1237,7 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                               foregroundImage:
                                   avatar.startsWith('http://') ||
                                       avatar.startsWith('https://')
-                                  ? NetworkImage(avatar)
+                                  ? SafeNetworkImageProvider(avatar)
                                   : null,
                               child: const Icon(
                                 Icons.person_rounded,
@@ -4472,7 +4474,7 @@ class _WatchFaceThumbnail extends StatelessWidget {
     if (source != null) {
       final uri = Uri.tryParse(source);
       if (uri != null && uri.isScheme('https')) {
-        image = Image.network(
+        image = SafeNetworkImage(
           source,
           fit: BoxFit.cover,
           errorBuilder: (_, _, _) => fallback,
@@ -5245,6 +5247,7 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
     } catch (_) {
       // Version remains explicitly unavailable instead of being hard-coded.
     }
+    if (widget.controller.isGlobalEdition) return;
     final article = await widget.controller.loadSingleArticle(14);
     final raw = '${article['content'] ?? article['description'] ?? ''}';
     final plain = _aboutPlainText(raw);
@@ -5253,14 +5256,18 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
     }
   }
 
-  void _openLegal(int id, String title) {
+  void _openLegal(GlobalLegalDocumentType document, String title) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => _SingleArticlePage(
-          controller: widget.controller,
-          articleId: id,
-          fallbackTitle: title,
-        ),
+        builder: (_) => widget.controller.isGlobalEdition
+            ? GlobalLegalPage(controller: widget.controller, document: document)
+            : _SingleArticlePage(
+                controller: widget.controller,
+                articleId: document == GlobalLegalDocumentType.privacyPolicy
+                    ? 3
+                    : 2,
+                fallbackTitle: title,
+              ),
       ),
     );
   }
@@ -5322,14 +5329,16 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
                   leading: const Icon(Icons.privacy_tip_outlined),
                   title: Text(context.l10n.privacyPolicy),
                   trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => _openLegal(3, '隐私政策'),
+                  onTap: () =>
+                      _openLegal(GlobalLegalDocumentType.privacyPolicy, '隐私政策'),
                 ),
                 const Divider(indent: 56, height: 1),
                 ListTile(
                   leading: const Icon(Icons.description_outlined),
                   title: Text(context.l10n.termsOfService),
                   trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => _openLegal(2, '用户协议'),
+                  onTap: () =>
+                      _openLegal(GlobalLegalDocumentType.userAgreement, '用户协议'),
                 ),
                 const Divider(indent: 56, height: 1),
                 ListTile(

@@ -9,6 +9,7 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
 import 'wearable_bridge.dart';
+import 'safe_resource_client.dart';
 
 class DeviceWatchFaceMarketException implements Exception {
   const DeviceWatchFaceMarketException(this.message);
@@ -236,7 +237,10 @@ class DeviceWatchFaceMarketService {
     Future<Directory> Function()? supportDirectory,
     Future<String> Function()? appVersionLoader,
     bool? directCatalogueAllowed,
-  }) : _client = client ?? http.Client(),
+  }) : _client = SafeResourceClient(
+         inner: client,
+         purpose: ResourcePurpose.watchFace,
+       ),
        _supportDirectory = supportDirectory ?? getApplicationSupportDirectory,
        _appVersionLoader =
            appVersionLoader ??

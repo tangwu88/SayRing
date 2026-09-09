@@ -108,9 +108,11 @@ void main() {
     final store = _UpdateGateStore(requiredRead.future);
     final response = Completer<http.Response>();
     var networkRequested = false;
+    late http.Request manifestRequest;
     final service = _iosUpdateService(
       MockClient((request) {
         networkRequested = true;
+        manifestRequest = request;
         return response.future;
       }),
     );
@@ -127,6 +129,8 @@ void main() {
 
     expect(find.byType(AppShell), findsOneWidget);
     expect(networkRequested, isTrue);
+    expect(manifestRequest.url.queryParameters, {'v': '19', 'platform': 'ios'});
+    expect(manifestRequest.followRedirects, isFalse);
 
     final appContext = tester.element(find.byType(AppShell));
     unawaited(
@@ -150,15 +154,15 @@ void main() {
         _mandatoryManifest(),
         200,
         headers: const {'content-type': 'application/json; charset=utf-8'},
-        request: http.Request(
-          'GET',
-          Uri.parse('https://app.saidian.cc/app-update.json'),
-        ),
+        // Return the actual request, including version/platform parameters.
+        // Different response metadata represents an unvalidated redirect.
+        request: manifestRequest,
       ),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('需要更新后继续使用'), findsOneWidget);
+    expect(store.writtenRequired?.forceUpdate, isTrue);
     expect(
       find.byKey(const Key('route-open-during-update-check')),
       findsNothing,

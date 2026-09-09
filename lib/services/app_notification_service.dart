@@ -8,6 +8,7 @@ import 'package:jpush_flutter/jpush_flutter.dart';
 import 'package:jpush_flutter/jpush_interface.dart';
 import 'package:uuid/uuid.dart';
 
+import 'global_storage_scope.dart';
 import 'notification_payload.dart';
 
 abstract interface class AppNotificationService {
@@ -48,21 +49,25 @@ final class JPushAppNotificationService implements AppNotificationService {
   JPushAppNotificationService({
     JPushFlutterInterface? jpush,
     FlutterSecureStorage? storage,
+    String? storageNamespace,
     String? appKey,
     this._registrationTimeout = const Duration(seconds: 5),
     this._permissionResolutionTimeout = const Duration(seconds: 4),
     this._permissionPollInterval = const Duration(milliseconds: 250),
   }) : _jpush = jpush ?? JPush.newJPush(),
        _storage = storage ?? const FlutterSecureStorage(),
+       _storageNamespace = globalStorageNamespace(storageNamespace),
        _configuredAppKey = appKey ?? _appKey;
 
   static const _appKey = String.fromEnvironment('JPUSH_APP_KEY');
-  static const _installationKey = 'saydian.push.installation-id.v1';
-  static const _permissionExplanationKey =
-      'saydian.push.permission-explained.v1';
+  String get _installationKey =>
+      'saydian.global.env.$_storageNamespace.push.installation-id.v1';
+  String get _permissionExplanationKey =>
+      'saydian.global.env.$_storageNamespace.push.permission-explained.v1';
 
   final JPushFlutterInterface _jpush;
   final FlutterSecureStorage _storage;
+  final String _storageNamespace;
   final String _configuredAppKey;
   final Duration _registrationTimeout;
   final Duration _permissionResolutionTimeout;

@@ -12,6 +12,18 @@
 
 ## 最近记录
 
+- [2026-09-10 联合验收覆盖矩阵](INTERNATIONAL-JOINT-COVERAGE-20260910.md) — 页面、域名、接口与回读证据逐项区分通过、失败、未验收。
+- [2026-09-10 独立真机 QA 驱动](INTERNATIONAL-JOINT-QA-DRIVER-20260910.md) — 私有配置指定精确设备，三轮只读同步测试；不执行 OTA、覆盖联系人或表盘，不把设备侧成功计为云端通过。
+- [2026-09-10 正式协议入口修复](INTERNATIONAL-LEGAL-ROUTES-20260910.md) — 登录、账号、关于统一走真实协议及版本；禁止旧文章路径与未审核替代文本，98 项相关测试通过。
+- [2026-09-10 重连独立复查](INTERNATIONAL-RECOVERY-INDEPENDENT-REVIEW-20260910.md) — 每 SDK 实际排空与迟到清理，独立 48 项验证；不凭有并发操作的旧真机日志臆测原因。
+- [2026-09-10 Dart 日志隐私](INTERNATIONAL-DART-LOG-PRIVACY-20260910.md) — 健康保存异常仅记类型；供应商直打日志与本地依赖替换边界单独保留。
+- [2026-09-09 Android 与隔离国际服务联合验收](INTERNATIONAL-JOINT-QA-20260909.md) — 新域名固定 /global 路由、下载/媒体请求保护、环境数据隔离及真机联调；逐项记录已通过、失败与未验收边界。
+- [2026-09-09 更新重定向防护](INTERNATIONAL-UPDATE-REDIRECT-GUARD-20260909.md) — 下载每跳发送前检查、国际安装器独立门禁与 72 项定向测试。
+- [2026-09-09 原生日志隐私审计](INTERNATIONAL-NATIVE-LOG-PRIVACY-20260909.md) — 厂商日志开关及 App/插件日志脱敏；玉成闭源日志残留单列待验。
+- [2026-09-09 环境持久化隔离](INTERNATIONAL-ENVIRONMENT-STORAGE-20260909.md) — 旧记录/密钥保留、环境绑定与精确目标恢复，113 项相关回归。
+- [2026-09-09 国际商城只读闭环](INTERNATIONAL-COMMERCE-READONLY-20260909.md) — UUID 商品详情、搜索/分页及缺币种安全展示；交易能力保持关闭。
+
+- [2026-09-09 国际版生产域名直接切换](INTERNATIONAL-PRODUCTION-DOMAIN-SWITCH-20260909.md) — 清除通用 API/更新/真机 QA 中的旧 `.cc` 默认值，强制国际版使用 `https://app.saydian.cn`。
 - [2026-09-09 国际版真机扫描定位开关](INTERNATIONAL-DEVICE-SCAN-20260909.md) — Android 10 权限允许但系统定位关闭导致搜索为空；用户开启定位后确认已发现设备，补共享扫描前置检查、八语设置引导和返回重试。
 - [2026-09-09 国际版临时免验证码注册](INTERNATIONAL-UNVERIFIED-REGISTRATION-20260909.md) — 服务端能力明确驱动邮箱/E.164 手机免码注册，联系方式仍保持未验证；Flutter 636、Harmony 481、Android 原生 15 项通过，模拟器与隔离 API/数据库闭环完成，生产开关默认关闭。
 - [2026-09-09 国际版实施与测试](INTERNATIONAL-IMPLEMENTATION-20260909.md) — 独立私有仓库、三端身份、隔离账号/V2健康同步、八语基础、真实协议与渠道门禁；所有失败、修复、尚未验收项保留。先读[国际版交接](INTERNATIONAL-HANDOFF.md)，不得按以下国内历史记录直接发布国际版。

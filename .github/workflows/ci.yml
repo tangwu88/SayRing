@@ -27,6 +27,8 @@ jobs:
           package-manager-cache: false
       - name: Run Harmony host-side contracts and service regressions
         run: node --test harmony-native/tests/*.test.mjs
+      - name: Check Android vendor log privacy controls
+        run: node --test tool/test_native_log_privacy.mjs
 
   quality:
     runs-on: ubuntu-latest

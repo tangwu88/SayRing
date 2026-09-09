@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../domain/feature_models.dart';
 import '../domain/models.dart';
+import 'global_storage_scope.dart';
 import 'wearable_bridge.dart';
 import 'wearable_routing.dart';
 import 'yucheng_payload_mapper.dart';
@@ -939,11 +940,14 @@ abstract interface class YuchengSavedDeviceStore {
 }
 
 class SecureYuchengSavedDeviceStore implements YuchengSavedDeviceStore {
-  const SecureYuchengSavedDeviceStore();
+  const SecureYuchengSavedDeviceStore({this.storageNamespace});
 
-  static const _identifierKey = 'wearable.yuc.last.identifier';
-  static const _nameKey = 'wearable.yuc.last.name';
-  static const _hardwareAddressKey = 'wearable.yuc.last.hardware_address';
+  final String? storageNamespace;
+  String get _prefix =>
+      'saydian.global.env.${globalStorageNamespace(storageNamespace)}.wearable.yuc';
+  String get _identifierKey => '$_prefix.last.identifier';
+  String get _nameKey => '$_prefix.last.name';
+  String get _hardwareAddressKey => '$_prefix.last.hardware_address';
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
   @override

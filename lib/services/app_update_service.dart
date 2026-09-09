@@ -12,6 +12,7 @@ import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'global_environment.dart';
+import 'network_audit.dart';
 
 part 'global_app_update_service.dart';
 
@@ -218,9 +219,12 @@ class AppUpdateService {
     late http.Response response;
     late Uri finalEndpointUri;
     try {
-      final request = http.Request('GET', requestUri)
-        ..headers['Accept'] = 'application/json';
-      final streamed = await _client.send(request).timeout(_requestTimeout);
+      final streamed = await _getWithSafeRedirects(
+        _client,
+        requestUri,
+        timeout: _requestTimeout,
+        headers: const {'Accept': 'application/json'},
+      );
       finalEndpointUri = _responseUrl(streamed) ?? requestUri;
       response = await http.Response.fromStream(
         streamed,
@@ -509,7 +513,7 @@ class AppUpdateService {
     }
     const configuredBase = String.fromEnvironment(
       'SAYDIAN_API_BASE_URL',
-      defaultValue: 'https://app.saidian.cc',
+      defaultValue: GlobalEnvironment.origin,
     );
     return Uri.tryParse(configuredBase.trim())?.resolve('/api/v1/site/version');
   }
@@ -533,15 +537,33 @@ class AndroidApkUpdateInstaller {
     MethodChannel? channel,
     Future<Directory> Function()? temporaryDirectory,
     bool? isAndroid,
+    this._allowedDownloadUri,
+    this._requireSha256 = false,
   }) : _client = client ?? http.Client(),
        _channel = channel ?? const MethodChannel('cc.saidian/app_update'),
        _temporaryDirectory = temporaryDirectory ?? getTemporaryDirectory,
        _isAndroid = isAndroid ?? Platform.isAndroid;
 
+  AndroidApkUpdateInstaller.global({
+    http.Client? client,
+    MethodChannel? channel,
+    Future<Directory> Function()? temporaryDirectory,
+    bool? isAndroid,
+  }) : this(
+         client: client,
+         channel: channel,
+         temporaryDirectory: temporaryDirectory,
+         isAndroid: isAndroid,
+         allowedDownloadUri: _isAllowedGlobalApkUri,
+         requireSha256: true,
+       );
+
   final http.Client _client;
   final MethodChannel _channel;
   final Future<Directory> Function() _temporaryDirectory;
   final bool _isAndroid;
+  final bool Function(Uri)? _allowedDownloadUri;
+  final bool _requireSha256;
 
   Future<void> downloadAndInstall(
     AppUpdateInfo info, {
@@ -550,6 +572,14 @@ class AndroidApkUpdateInstaller {
     if (!_isAndroid ||
         info.destinationType != AppUpdateDestinationType.androidApk) {
       throw const AppUpdateException('当前更新不能使用 Android 安装器');
+    }
+    if (!_isSameHttpsOrigin(info.destinationUri, info.destinationUri) ||
+        !(_allowedDownloadUri?.call(info.destinationUri) ?? true) ||
+        (_requireSha256 &&
+            !RegExp(r'^[a-f0-9]{64}$').hasMatch(info.sha256 ?? ''))) {
+      throw const AppUpdateException(
+        'This update is not available for this app.',
+      );
     }
     final directory = Directory(
       path.join((await _temporaryDirectory()).path, 'saidian_updates'),
@@ -562,9 +592,15 @@ class AndroidApkUpdateInstaller {
 
     http.StreamedResponse response;
     try {
-      response = await _client
-          .send(http.Request('GET', info.destinationUri))
-          .timeout(const Duration(seconds: 20));
+      response = await _getWithSafeRedirects(
+        _client,
+        info.destinationUri,
+        timeout: const Duration(seconds: 20),
+        allowedUri: _allowedDownloadUri,
+        auditKind: 'update_apk',
+      );
+    } on AppUpdateException {
+      rethrow;
     } catch (_) {
       throw const AppUpdateException('安装包下载失败，请稍后重试');
     }
@@ -835,9 +871,72 @@ void _requireHttps(Uri uri, String message) {
 }
 
 bool _isSameHttpsOrigin(Uri expected, Uri actual) =>
+    expected.scheme.toLowerCase() == 'https' &&
+    expected.host.isNotEmpty &&
+    expected.port == 443 &&
+    expected.userInfo.isEmpty &&
+    !expected.hasFragment &&
     actual.scheme.toLowerCase() == 'https' &&
     actual.host.toLowerCase() == expected.host.toLowerCase() &&
-    actual.port == expected.port;
+    actual.port == 443 &&
+    actual.userInfo.isEmpty &&
+    !actual.hasFragment;
+
+Future<http.StreamedResponse> _getWithSafeRedirects(
+  http.Client client,
+  Uri initialUri, {
+  required Duration timeout,
+  Map<String, String> headers = const {},
+  bool Function(Uri)? allowedUri,
+  String auditKind = 'update_manifest',
+}) async {
+  var uri = initialUri;
+  final visited = <Uri>{};
+  const maxRedirects = 3;
+  for (var hop = 0; hop <= maxRedirects; hop++) {
+    if (!_isSameHttpsOrigin(initialUri, uri) ||
+        !(allowedUri?.call(uri) ?? true) ||
+        !visited.add(uri)) {
+      throw const AppUpdateException('更新地址不在允许的安全范围内');
+    }
+    final request = http.Request('GET', uri)
+      ..followRedirects = false
+      ..headers.addAll(headers);
+    NetworkAudit.record(
+      uri,
+      request.method,
+      auditKind,
+      outcome: 'request_started',
+    );
+    final response = await client.send(request).timeout(timeout);
+    NetworkAudit.record(
+      uri,
+      request.method,
+      auditKind,
+      status: response.statusCode,
+      requestId: response.headers['x-request-id'],
+    );
+    // No client is allowed to follow a hop behind this validator's back.
+    if ((_responseUrl(response) ?? uri) != uri) {
+      await response.stream.listen(null).cancel();
+      throw const AppUpdateException('更新地址不在允许的安全范围内');
+    }
+    if (!const {301, 302, 303, 307, 308}.contains(response.statusCode)) {
+      return response;
+    }
+    final location = response.headers['location'];
+    await response.stream.listen(null).cancel();
+    if (hop == maxRedirects || location == null || location.trim().isEmpty) {
+      throw const AppUpdateException('更新下载跳转失败，请稍后重试');
+    }
+    final next = Uri.tryParse(location);
+    if (next == null) {
+      throw const AppUpdateException('更新地址不在允许的安全范围内');
+    }
+    uri = uri.resolveUri(next);
+  }
+  throw const AppUpdateException('更新下载跳转失败，请稍后重试');
+}
 
 Uri? _responseUrl(http.BaseResponse response) => switch (response) {
   http.BaseResponseWithUrl(:final url) => url,

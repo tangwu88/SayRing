@@ -3,7 +3,6 @@ import 'dart:convert';
 
 import 'package:country_picker/country_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:html/parser.dart' as html;
 
 import '../domain/global_account.dart';
 import '../l10n/generated/app_localizations.dart';
@@ -11,6 +10,7 @@ import '../l10n/global_locale_controller.dart';
 import '../services/api_client.dart';
 import '../services/app_controller.dart';
 import 'brand_assets.dart';
+import 'global_legal_page.dart';
 
 enum _AuthMode { signIn, signUp, reset }
 
@@ -85,9 +85,9 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
       final value = await widget.controller.globalAuthCapabilities();
       if (!mounted || generation != _capabilityGeneration) return;
       setState(() => _capabilities = value);
-    } catch (_) {
+    } catch (error) {
       if (mounted && generation == _capabilityGeneration) {
-        setState(() => _error = 'network');
+        setState(() => _error = _errorFrom(error));
       }
     } finally {
       if (mounted && generation == _capabilityGeneration) {
@@ -263,47 +263,16 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
     }
   }
 
-  Future<void> _openLegal(String key, String title) async {
-    final path = _capabilities?.legal[key];
-    if (path == null) {
-      setState(() => _error = 'service');
-      return;
-    }
-    try {
-      final document = await widget.controller.globalLegalDocument(path);
-      final plainText =
-          html
-              .parse(
-                '${document['contentHtml'] ?? ''}'.replaceAll(
-                  RegExp(r'</p>|<br\s*/?>', caseSensitive: false),
-                  '\n\n',
-                ),
-              )
-              .documentElement
-              ?.text
-              .trim() ??
-          '';
-      if (plainText.isEmpty) throw const FormatException();
-      if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('${document['title'] ?? title}'),
-          content: SizedBox(
-            width: 520,
-            child: SingleChildScrollView(child: SelectableText(plainText)),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(l.close),
-            ),
-          ],
-        ),
-      );
-    } catch (_) {
-      if (mounted) setState(() => _error = 'service');
-    }
+  Future<void> _openLegal(GlobalLegalDocumentType document) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) =>
+            GlobalLegalPage(controller: widget.controller, document: document),
+      ),
+    );
+    // The published version may change while reading; refresh it and require
+    // an explicit agreement again rather than retaining a stale consent tick.
+    if (mounted) await _loadCapabilities();
   }
 
   @override
@@ -551,13 +520,15 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                       Wrap(
                         children: [
                           TextButton(
-                            onPressed: () =>
-                                _openLegal('userAgreement', l.termsOfService),
+                            onPressed: () => _openLegal(
+                              GlobalLegalDocumentType.userAgreement,
+                            ),
                             child: Text(l.termsOfService),
                           ),
                           TextButton(
-                            onPressed: () =>
-                                _openLegal('privacyPolicy', l.privacyPolicy),
+                            onPressed: () => _openLegal(
+                              GlobalLegalDocumentType.privacyPolicy,
+                            ),
                             child: Text(l.privacyPolicy),
                           ),
                         ],

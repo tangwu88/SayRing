@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'safe_resource_client.dart';
 
 class DeviceWeatherException implements Exception {
   const DeviceWeatherException(
@@ -49,7 +50,10 @@ class DeviceWeatherForecast {
 /// `--dart-define=QWEATHER_API_KEY=...`.
 class DeviceWeatherService {
   DeviceWeatherService({http.Client? client})
-    : _client = client ?? http.Client();
+    : _client = SafeResourceClient(
+        inner: client,
+        purpose: ResourcePurpose.weather,
+      );
 
   final http.Client _client;
 
