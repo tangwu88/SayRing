@@ -59,6 +59,20 @@ An allowed QA release uses the existing non-production signing path; it is **not
 
 Flutter CI retains static/unit checks plus Android and macOS no-codesign jobs; former domestic publication workflows are inert examples in `docs/legacy-workflows/`. CI execution is separate evidence and may require GitHub account runner/billing availability. Native Harmony host tests are `node --test harmony-native/tests/*.test.mjs`; they are not ArkTS/HAP builds.
 
+### Local Android emulator Debug (UI-only)
+
+The physical QA variants remain ARM-only. For the local `Saidian_API_36` x86_64 emulator, opt in only for a Debug session:
+
+```powershell
+$env:SAIDIAN_EMULATOR_DEBUG='true'
+flutter run -d emulator-5554 --debug `
+  --dart-define=SAYDIAN_API_BASE_URL=https://app.saydian.cn `
+  --dart-define=SAYDIAN_UPDATE_MANIFEST_URL=https://app.saydian.cn/global/api/saydian-app/v2/support/app-update `
+  --dart-define=QWEATHER_API_KEY=
+```
+
+The Gradle gate rejects this switch for Release builds. The emulator validates Flutter/UI and local storage only; its x86_64 image cannot validate ARM-only watch SDK behavior, real Bluetooth, push delivery, online signup, payment, or production services. On this Windows host, a stale AVD long-path resolver could list an AVD but fail to start it; use an ignored local resolver or repair the local AVD setup, never commit AVD images, snapshots or resolver files.
+
 ## Remaining release gates — do not mark complete
 
 - Real deployment of isolated global API/Worker/DB/Redis/storage, migrations and gateway tests. Current local server work is source/scaffold verification only.

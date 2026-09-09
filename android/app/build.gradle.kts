@@ -50,6 +50,11 @@ fun releaseModeFlag(name: String): Boolean {
 
 val productionReleaseRequested = releaseModeFlag("SAIDIAN_PRODUCTION_RELEASE")
 val qaReleaseAllowed = releaseModeFlag("SAIDIAN_ALLOW_QA_RELEASE")
+// The production App supports physical ARM devices only.  Local Android
+// emulators are x86_64, so permit that ABI only when the explicit Debug-only
+// switch is supplied.  Release tasks below reject this switch.
+val emulatorDebugRequested = releaseModeFlag("SAIDIAN_EMULATOR_DEBUG")
+val debugEmulatorAbis = if (emulatorDebugRequested) setOf("x86_64") else emptySet()
 val updateManifestUrl =
     providers.environmentVariable("SAYDIAN_UPDATE_MANIFEST_URL")
         .orNull
@@ -120,9 +125,10 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         // Keep all distributable variants on the same two supported ARM ABIs.
-        // The release gate separately checks per-library symmetry.
+        // A local emulator Debug run may opt into x86_64 through the explicit
+        // switch above; the release gate separately checks ARM symmetry.
         ndk {
-            abiFilters += setOf("armeabi-v7a", "arm64-v8a")
+            abiFilters += setOf("armeabi-v7a", "arm64-v8a") + debugEmulatorAbis
         }
         manifestPlaceholders["JPUSH_APPKEY"] =
             jpushAppKey.ifEmpty { "debug-disabled" }
@@ -141,11 +147,14 @@ android {
             // Several transitive AARs also publish desktop/emulator binaries.
             // Distribution is intentionally limited to the two supported ARM
             // ABIs; release_gate.py verifies that their .so sets are symmetric.
-            excludes += setOf(
-                "lib/armeabi/**",
-                "lib/x86/**",
-                "lib/x86_64/**",
-            )
+            excludes +=
+                buildSet {
+                    add("lib/armeabi/**")
+                    add("lib/x86/**")
+                    if (!emulatorDebugRequested) {
+                        add("lib/x86_64/**")
+                    }
+                }
         }
     }
 
@@ -225,6 +234,13 @@ tasks.matching {
     it.name.startsWith("pre") && it.name.endsWith("ReleaseBuild")
 }.configureEach {
     dependsOn(verifySaidianReleaseMode)
+    doFirst {
+        if (emulatorDebugRequested) {
+            throw GradleException(
+                "SAIDIAN_EMULATOR_DEBUG=true is Debug-only and cannot be used for Release builds.",
+            )
+        }
+    }
 }
 
 kotlin {
