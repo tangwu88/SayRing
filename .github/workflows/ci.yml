@@ -31,6 +31,8 @@ jobs:
         run: node --test tool/test_native_log_privacy.mjs
       - name: Check international authentication smoke boundaries
         run: node --test tool/global_auth_smoke.test.mjs
+      - name: Check isolated authentication QA safety (offline only)
+        run: node --test tool/global_auth_account_qa.test.mjs
 
   quality:
     runs-on: ubuntu-latest

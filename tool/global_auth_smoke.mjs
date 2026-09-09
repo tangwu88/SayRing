@@ -162,6 +162,7 @@ export async function runGlobalAuthSmoke({fetchImpl = globalThis.fetch, timeoutM
       && !anonymous.payload?.accessToken && !anonymous.payload?.refreshToken,
   });
   let legalPassed = true;
+  const legalPaths = {};
   for (const [key, type] of [['userAgreement', 'user_agreement'], ['privacyPolicy', 'privacy_policy']]) {
     const path = capsPassed ? legalSmokePath(data?.legal?.[key]?.path, type, data?.consentVersion) : null;
     if (path === null) {
@@ -169,6 +170,7 @@ export async function runGlobalAuthSmoke({fetchImpl = globalThis.fetch, timeoutM
       record(type, {status: 'blocked_reference', httpStatus: null, requestId: null}, {referenceValid: false});
       continue;
     }
+    legalPaths[key] = path;
     const response = await request(path, fetchImpl, timeoutMs);
     const document = response.payload?.data;
     const passed = record(type, response, {
@@ -186,7 +188,11 @@ export async function runGlobalAuthSmoke({fetchImpl = globalThis.fetch, timeoutM
     ready: readyPassed, globalRegistration: capsPassed, anonymousDenied: anonymousPassed,
     reviewedMatchingLegal: legalPassed, readOnly: true, loginOrRegistrationTested: false,
   }});
-  return {passed, records};
+  // Internal gate metadata only: CLI deliberately emits records, never these
+  // references. A mutating caller must use the exact consent it just validated.
+  const validatedLegal = passed ? {consentVersion: data.consentVersion,
+    userAgreementPath: legalPaths.userAgreement, privacyPolicyPath: legalPaths.privacyPolicy} : null;
+  return {passed, records, validatedLegal};
 }
 
 export async function main(args = process.argv.slice(2)) {

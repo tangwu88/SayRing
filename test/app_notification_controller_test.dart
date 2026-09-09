@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:saydian_app/app.dart';
+import 'package:saydian_app/domain/global_account.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
@@ -1096,8 +1097,142 @@ void main() {
     expect(notifications.permissionRequested, isFalse);
   });
 
+  for (final previouslyAgreed in [false, true]) {
+    test(
+      'failed login preserves prior privacy agreement: $previouslyAgreed',
+      () async {
+        final vault = MemorySessionVault();
+        final api = _ConsentApi();
+        final notifications = _FakeNotificationService();
+        final controller = AppController(
+          vault,
+          api,
+          MemoryHealthStore(),
+          _NotificationWearable(),
+          notificationService: notifications,
+        );
+        addTearDown(controller.dispose);
+        await controller.initialize();
+        expect(
+          await controller.login(
+            'qa@example.com',
+            'test-only-password',
+            privacyConsentGranted: previouslyAgreed,
+          ),
+          isTrue,
+        );
+        api.rejectLogin = true;
+        expect(
+          await controller.login(
+            'other@example.com',
+            'test-only-password',
+            privacyConsentGranted: !previouslyAgreed,
+          ),
+          isFalse,
+        );
+        expect(vault.privacyConsentGranted, previouslyAgreed);
+        expect(controller.session, _NotificationApi._session);
+        expect(notifications.activated, previouslyAgreed);
+        expect(
+          await controller.shouldExplainNotificationPermission(),
+          previouslyAgreed,
+        );
+      },
+    );
+  }
+
   test(
-    'permission request records explicit consent and logout revokes it',
+    'reset session requires agreement and a current consent version',
+    () async {
+      final vault = MemorySessionVault();
+      final api = _ConsentApi();
+      final notifications = _FakeNotificationService();
+      final controller = AppController(
+        vault,
+        api,
+        MemoryHealthStore(),
+        _NotificationWearable(),
+        notificationService: notifications,
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      const challenge = VerificationChallenge(
+        id: 'synthetic-challenge',
+        expiresIn: 300,
+        retryAfter: 0,
+        maskedIdentifier: 'q***@example.com',
+      );
+      for (final scenario in [
+        (agreed: false, version: 'reviewed-test-v1'),
+        (agreed: true, version: null),
+        (agreed: true, version: ''),
+        (agreed: true, version: '   '),
+      ]) {
+        expect(
+          await controller.completeGlobalVerification(
+            challenge: challenge,
+            code: '123456',
+            password: 'test-only-password',
+            resetPassword: true,
+            locale: 'en',
+            privacyConsentGranted: scenario.agreed,
+            consentVersion: scenario.version,
+          ),
+          isFalse,
+        );
+      }
+      expect(api.verificationCalls, 0);
+      expect(controller.session, isNull);
+      expect(vault.privacyConsentGranted, isFalse);
+      expect(notifications.activated, isFalse);
+
+      expect(
+        await controller.completeGlobalVerification(
+          challenge: challenge,
+          code: '123456',
+          password: 'test-only-password',
+          resetPassword: true,
+          locale: 'en',
+          privacyConsentGranted: true,
+          consentVersion: 'reviewed-test-v1',
+        ),
+        isTrue,
+      );
+      expect(api.verificationCalls, 1);
+      expect(vault.privacyConsentGranted, isTrue);
+      expect(notifications.activated, isTrue);
+    },
+  );
+
+  test(
+    'denying OS notifications does not revoke explicit app agreement',
+    () async {
+      final vault = MemorySessionVault();
+      final notifications = _DeniedNotificationService();
+      final controller = AppController(
+        vault,
+        _NotificationApi(),
+        MemoryHealthStore(),
+        _NotificationWearable(),
+        notificationService: notifications,
+      );
+      addTearDown(controller.dispose);
+      await controller.initialize();
+      await controller.login(
+        'qa@example.com',
+        'test-only-password',
+        privacyConsentGranted: true,
+      );
+      await controller.requestNotificationPermission();
+      expect(notifications.permissionRequested, isTrue);
+      expect(controller.notificationPermissionEnabled, isFalse);
+      expect(vault.privacyConsentGranted, isTrue);
+      expect(notifications.activated, isTrue);
+    },
+  );
+
+  test(
+    'notification permission cannot grant privacy consent and logout revokes explicit agreement',
     () async {
       final vault = MemorySessionVault();
       final notifications = _FakeNotificationService();
@@ -1114,8 +1249,20 @@ void main() {
       expect(vault.privacyConsentGranted, isFalse);
 
       await controller.requestNotificationPermission();
+      expect(vault.privacyConsentGranted, isFalse);
+      expect(notifications.activated, isFalse);
+      expect(notifications.permissionRequested, isFalse);
+      expect(await controller.shouldExplainNotificationPermission(), isFalse);
+
+      await controller.login(
+        '13000000000',
+        'test-only-password',
+        privacyConsentGranted: true,
+      );
+      await controller.requestNotificationPermission();
       expect(vault.privacyConsentGranted, isTrue);
       expect(notifications.activated, isTrue);
+      expect(notifications.permissionRequested, isTrue);
 
       await controller.logout();
       expect(vault.privacyConsentGranted, isFalse);
@@ -1509,6 +1656,41 @@ class _NotificationApi extends Fake
   }) async {}
   @override
   Future<void> logout() async {}
+}
+
+class _ConsentApi extends _NotificationApi implements GlobalAccountApi {
+  bool rejectLogin = false;
+  int verificationCalls = 0;
+
+  @override
+  Future<Session> login(String username, String password) {
+    if (rejectLogin) {
+      throw const ApiException(
+        'Synthetic rejected credentials',
+        statusCode: 401,
+      );
+    }
+    return super.login(username, password);
+  }
+
+  @override
+  Future<Session> completeVerification({
+    required String challengeId,
+    required String code,
+    required String password,
+    required bool resetPassword,
+    required String locale,
+    String? nickname,
+    String? consentVersion,
+  }) async {
+    verificationCalls++;
+    return _NotificationApi._session;
+  }
+}
+
+class _DeniedNotificationService extends _FakeNotificationService {
+  @override
+  Future<bool> isPermissionEnabled() async => false;
 }
 
 class _NoNotificationApi extends Fake implements SaydianApi {

@@ -52,6 +52,8 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
 
   AppLocalizations get l => AppLocalizations.of(context)!;
   bool get _accountSetupMode => _mode != _AuthMode.signIn;
+  bool get _consentReady =>
+      !_loading && (_capabilities?.consentVersion?.trim().isNotEmpty ?? false);
   bool get _codeRequired =>
       _mode == _AuthMode.reset ||
       (_mode == _AuthMode.signUp &&
@@ -115,6 +117,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
     if (_busy) return;
     setState(() {
       _mode = mode;
+      _accepted = false;
       _resetChallenge();
       _password.clear();
       _confirmation.clear();
@@ -211,7 +214,11 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
 
   Future<void> _submit() async {
     if (_busy || !(_form.currentState?.validate() ?? false)) return;
-    if (_mode == _AuthMode.signUp && !_accepted) {
+    if (!_consentReady) {
+      setState(() => _error = 'service');
+      return;
+    }
+    if (!_accepted) {
       setState(() => _error = 'consent');
       return;
     }
@@ -501,22 +508,20 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                         ),
                       ],
                       const SizedBox(height: 16),
-                      if (_mode == _AuthMode.signUp)
-                        CheckboxListTile(
-                          key: const Key('auth-consent'),
-                          contentPadding: EdgeInsets.zero,
-                          controlAffinity: ListTileControlAffinity.leading,
-                          value: _accepted,
-                          onChanged:
-                              _busy || _capabilities?.consentVersion == null
-                              ? null
-                              : (value) =>
-                                    setState(() => _accepted = value == true),
-                          title: Text(
-                            l.agreeToTerms,
-                            style: const TextStyle(fontSize: 12, height: 1.4),
-                          ),
+                      CheckboxListTile(
+                        key: const Key('auth-consent'),
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        value: _accepted,
+                        onChanged: _busy || !_consentReady
+                            ? null
+                            : (value) =>
+                                  setState(() => _accepted = value == true),
+                        title: Text(
+                          l.agreeToTerms,
+                          style: const TextStyle(fontSize: 12, height: 1.4),
                         ),
+                      ),
                       Wrap(
                         children: [
                           TextButton(

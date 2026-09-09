@@ -55,6 +55,9 @@ test('fixed-origin GET gate requires real readiness/global registration/anonymou
   assert.equal(result.records.at(-1).checks.loginOrRegistrationTested, false);
   assert(!JSON.stringify(result).includes(secret));
   assert.equal(result.records[1].requestId, id);
+  assert.deepEqual(result.validatedLegal, {consentVersion: version,
+    userAgreementPath: legalPath('user_agreement', prefix), privacyPolicyPath: legalPath('privacy_policy', prefix)});
+  assert.equal(JSON.stringify(result.records).includes(version), false);
 });
 
 test('accepts canonical and already isolated legal paths with exact single mapping', () => {
@@ -119,6 +122,7 @@ test('unready database cannot be hidden by valid auth contracts', async () => {
   const result = await runGlobalAuthSmoke(f);
   assert.equal(result.passed, false);
   assert.equal(result.records[0].checks.databaseReady, false);
+  assert.equal(result.validatedLegal, null);
 });
 
 for (const [verificationRequired, countries, enabled] of [

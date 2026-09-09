@@ -12,6 +12,8 @@ Server workspace: `F:/xcodeplace/saydian-server-global`, branch `codex/global-ap
 
 ## Identity and environment
 
+**2026-09-10 deployment update:** the server owner has deployed the independent `/global` service at revision `4bf44bd9c9d5cc33a775d317cc7227740a249f45`. Readiness, capabilities, reviewed test-document contracts and anonymous member rejection now pass from the public new domain. Earlier 404/unconfigured statements below are historical checkpoints, not the latest state. Temporary email/SMS registration explicitly omits verification; real account and Android results are tracked in [the current authentication record](INTERNATIONAL-AUTH-DEVICE-20260910.md). Do not treat this as production-channel, commerce, complete data-isolation or all-device acceptance. The server task owns deployment and reports branch-specific Git auto-updates; App work must not change the server or reuse domestic deployment scripts.
+
 | Layer | International value |
 |---|---|
 | App name | Saydian |

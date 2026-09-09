@@ -221,9 +221,9 @@ class AppController extends ChangeNotifier {
     String? consentVersion,
   }) async {
     if (isBusy ||
-        (!resetPassword && !privacyConsentGranted) ||
-        (!resetPassword &&
-            (consentVersion == null || consentVersion.isEmpty))) {
+        !privacyConsentGranted ||
+        consentVersion == null ||
+        consentVersion.trim().isEmpty) {
       return false;
     }
     return _guard(() async {
@@ -763,8 +763,6 @@ class AppController extends ChangeNotifier {
       _accountTransitioning = true;
       try {
         await _drainCloudSync();
-        await _vault.writePrivacyConsentGranted(privacyConsentGranted);
-        _privacyConsentGranted = privacyConsentGranted;
         session = await _api.login(username.trim(), password);
         await _prepareAuthenticatedNotificationSession(
           privacyConsentGranted: privacyConsentGranted,
@@ -2912,7 +2910,11 @@ class AppController extends ChangeNotifier {
   }
 
   Future<bool> shouldExplainNotificationPermission() async {
-    if (!notificationServiceConfigured || session == null) return false;
+    if (!notificationServiceConfigured ||
+        session == null ||
+        !_privacyConsentGranted) {
+      return false;
+    }
     return _notificationService.shouldExplainPermission();
   }
 
@@ -2921,8 +2923,11 @@ class AppController extends ChangeNotifier {
 
   Future<void> requestNotificationPermission() async {
     if (session == null) return;
-    await _vault.writePrivacyConsentGranted(true);
-    _privacyConsentGranted = true;
+    if (!_privacyConsentGranted) {
+      errorMessage = '请先阅读并同意用户协议与隐私政策';
+      if (!_disposed) notifyListeners();
+      return;
+    }
     await _notificationService.activateAfterPrivacyConsent();
     await _notificationService.requestPermission();
     notificationPermissionEnabled = await _notificationService
