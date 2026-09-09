@@ -59,10 +59,14 @@ test('capabilities follow the vendor flags including inverted heart-rate support
     dailyDataDays: 3, heartRateFunction: 0, bloodPressure: 1, bloodOxygen: 1,
     bodyTemp: 1, bloodGlucose: 1, hrv: 1, ecgFunction: 1, bodyComposition: 1,
     bloodComposition: 1, sportModeCount: 20, newAlarm: 1, healthReminder: 1,
-    messageNotifyPackets: 2, findBand: 1, moreWatchfaceCount: 3,
+    messageNotifyPackets: 2, findBand: 1, moreWatchfaceCount: 3, customWatchfaceCount: 1,
+    camera: 1, hidFunction: 1, contactsType: 1, weather: 1, worldClock: 1,
+    b3AutoMeasure: 1, healthAssessment: 1, screenBrightness: 1,
   });
   for (const value of Object.values(supported)) assert.equal(value, true);
   assert.equal(capabilitiesFromFeatureList({ heartRateFunction: 1 }).heart, false);
+  assert.equal(capabilitiesFromFeatureList({ heartRateFunction: 0, b3AutoMeasure: 0 }).healthMonitoring, true,
+    'legacy W9/W9S sensor flags must keep the automatic monitoring entry visible');
   const unavailable = capabilitiesFromFeatureList();
   for (const value of Object.values(unavailable)) assert.equal(value, false);
 });

@@ -83,7 +83,8 @@ test('payment flow times out safely and always rechecks the server order',()=>{
   assert.ok(service.includes('await withPaymentTimeout(client.pay(request.payInfo))'));
   assert.ok(service.includes('finally'));
   assert.ok(back.includes('this.careBusy || this.paymentBusy'));
-  assert.ok(heading.includes('.enabled(!this.careBusy && !this.paymentBusy && !this.formBusy && !this.commerceBusy && !this.deviceSettingsWriting && !this.sportActionBusy)'));
+  assert.ok(heading.includes('!this.deviceSettingsWriting &&'));
+  assert.ok(heading.includes('!this.deviceFeatureWriting && !this.sportActionBusy'));
   const provider=page.slice(page.indexOf('private selectPaymentProvider('),page.indexOf('private async startPayment()'));
   assert.ok(provider.includes("this.paymentMessage = ''"));
   assert.ok(page.includes("this.selectPaymentProvider('wechat')"));

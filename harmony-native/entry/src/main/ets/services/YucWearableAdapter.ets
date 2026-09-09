@@ -83,9 +83,11 @@ export class YucWearableAdapter {
   attachContext(context: common.UIAbilityContext, listener: YucWearableListener): void {
     this.listener = listener;
     if (this.attached) return;
-    // SDK 2.1.5 owns W8 reconnect identity. App-visible state is reconciled by
-    // the service when ReadWriteOK arrives, including after process recreation.
-    YCBTClient.init(context, true, false);
+    // Keep reconnect provider-scoped in VepWearableService. The vendor-level
+    // reconnect cache is not model-aware and can otherwise reclaim a W9/W9S
+    // device while the Vep transport is using it. The app already restores a
+    // saved W8 binding by scanning and reconnecting it explicitly.
+    YCBTClient.init(context, false, false);
     this.client = YCBTClient.getInstance();
     this.client.registerBleStateChange(this.stateListener);
     this.client.registerBatteryLevelListener(this.batteryListener);

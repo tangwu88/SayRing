@@ -2,7 +2,7 @@
 
 ArkTS + ArkUI，独立于已有 Flutter/Android/iOS 工程。当前范围包含账号、苹果版同构的主要页面、远程关爱、消息推送客户端、商城订单、鸿蒙三方支付客户端，以及 Veepoo W9 与 Yucheng W8 手表的扫描、连接、健康同步、测量和设备控制。
 
-最新验证版本为 0.1.4（9），已对齐 AGC 应用身份 `cc.saidian.app.hm`（APP ID `6917615560681044373`）。Yucheng W8 SDK 2.1.5 已与既有 Veepoo W9 SDK 共存接入；最新鸿蒙 UTC 与 Asia/Shanghai 各 432 项契约测试通过。实际范围和边界见 [W8 SDK 接入与真机 QA](docs/W8-SDK-INTEGRATION-QA-20260907.md)、[鸿蒙运动完整闭环](../docs/IMPLEMENTATION-LOG-20260907-HARMONY-SPORT-PARITY.md)、[本轮 Vep 真机验收](../docs/IMPLEMENTATION-LOG-20260906-HARMONY-ET488-FULL-QA.md) 与 [正式发布阻断清单](docs/RELEASE-BLOCKERS-0.1.3.md)。
+最新验证版本为 0.1.4（9），已对齐 AGC 应用身份 `cc.saidian.app.hm`（APP ID `6917615560681044373`）。Yucheng W8 SDK 2.1.5 已与既有 Veepoo W9 SDK 共存接入；最新鸿蒙契约测试共 441 项通过。实际范围和边界见 [设备页功能对齐记录](docs/DEVICE-PARITY-QA-20260909.md)、[W8 SDK 接入与真机 QA](docs/W8-SDK-INTEGRATION-QA-20260907.md)、[鸿蒙运动完整闭环](../docs/IMPLEMENTATION-LOG-20260907-HARMONY-SPORT-PARITY.md)、[本轮 Vep 真机验收](../docs/IMPLEMENTATION-LOG-20260906-HARMONY-ET488-FULL-QA.md) 与 [正式发布阻断清单](docs/RELEASE-BLOCKERS-0.1.3.md)。
 
 当前源码已生成正式 Release 证书和发布 Profile 签名的 APP/HAP，官方签名工具确认 `type=release`、包名一致且完整性通过。真机上保留的仍是开发签名测试版；开发签名与发布签名不可直接覆盖，不能为了验证发行包而删除用户数据。
 
@@ -38,6 +38,7 @@ ohpm 工程元数据 1.0.0 是构建工具要求，不是 App 正式版本。签
 - 消息未读数、通知权限、极光鸿蒙标识登记及关爱/健康预警白名单路由；极光普通通知已验证前台、后台和点击唤醒，业务通知仍依赖服务端事件发送。
 - 商城真实订单列表、支付前再次读取订单金额与状态、服务端支付参数解析、微信/支付宝选择及结果回查；App 不在本机生成签名。
 - 官方 Veepoo 鸿蒙 SDK：Vep 扫描、连接、认证、自动重连、真实电量、健康历史、手动测量、真实心电采样、本地加密记录、设备设置、查找设备及手表内表盘读取/切换/恢复。
+- Vep 设备页高级功能：照片表盘、相机遥控协议、蓝牙通话、联系人/SOS、消息通知、天气、世界时钟、健康提醒、健康自动监测间隔、健康辅助评估、亮屏时长与抬腕亮屏；入口按手表实际能力显示，设置写入后回读确认。
 - Yucheng W8 鸿蒙 SDK 2.1.5：与 Vep 双 SDK 共存，已实现扫描、供应商路由连接、电量/信息/能力、历史同步、手动测量、心电、查找设备、时间同步和运动命令；现场无 W8 广播，真实 W8 连接与功能仍待实表验收。
 - 运动与记录：按设备实报模式提供手表启停、可用时暂停/继续、手表实时值、手机前台真实轨迹、退出保护、本机加密记录和记录详情。
 - 名称中含 `W8` 的设备固定标记为 `Yuc`，并只进入 Yucheng SDK 路径；W8 与 Vep 扫描结果、连接状态和回调不交叉。

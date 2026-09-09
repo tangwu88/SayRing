@@ -50,6 +50,11 @@ import { dialRenderKey, deviceRenderKey } from '../model/DeviceRenderKeys';
 import { vepDeviceSettings } from '../services/VepDeviceSettingsAdapter';
 import { WatchAlarm, WatchUnitField, WatchUnits, alarmDraftError, alarmRepeatText, copyWatchAlarm,
   emptyWatchUnits, newWatchAlarm, refreshSummaryOnSettingsReturn, supportedWatchUnit, watchUnitChoiceLabel } from '../model/DeviceSettingsTransactions';
+import { vepDeviceFeatures } from '../services/VepDeviceFeatureAdapter';
+import { WatchAssessmentSetting, WatchAutoMeasureSetting, WatchContact, WatchDeviceFeatureKey,
+  WatchDeviceFeatureSpec, WatchNotificationSetting, WatchPhoneState, WatchPhotoDialProfile, WatchReminder,
+  WatchScreenSetting, WatchWeatherSetting, WatchWorldClock, emptyPhoneState, emptyPhotoDialProfile,
+  emptyScreenSetting, visibleWatchDeviceFeatures, watchContactError, watchDeviceFeatureSupported } from '../model/DeviceFeatureContracts';
 
 const RED: string = '#D20B27';
 const RED_DARK: string = '#980018';
@@ -80,6 +85,7 @@ interface CareGroupView { daily: boolean; }
 interface DeviceActionOptions { title: string; icon: Resource; color: string; background: string; action: () => void; id: string; }
 interface WatchUnitOptions { title: string; field: WatchUnitField; value: number; }
 interface DialRowProps { dial: WearableDial; index: number; }
+interface WorldClockPreset { city: string; utcOffsetMinutes: number; }
 
 @Entry
 @Component
@@ -200,6 +206,27 @@ struct Index {
   @State private watchAlarmDraft: WatchAlarm = newWatchAlarm();
   private watchAlarmOriginal: WatchAlarm | undefined = undefined;
   private deviceEditorGeneration: number = 0;
+  @State private selectedDeviceFeature: WatchDeviceFeatureKey = 'notifications';
+  @State private deviceFeatureBusy: boolean = false;
+  @State private deviceFeatureWriting: boolean = false;
+  @State private deviceFeatureLoaded: boolean = false;
+  @State private deviceFeatureMessage: string = '';
+  @State private watchPhoneState: WatchPhoneState = emptyPhoneState();
+  @State private watchContacts: WatchContact[] = [];
+  @State private watchContactDraft: WatchContact = { id: 0, name: '', phone: '', sos: false };
+  @State private watchNotifications: WatchNotificationSetting[] = [];
+  @State private watchWeather: WatchWeatherSetting = { enabled: false, celsius: true };
+  @State private watchWorldClocks: WatchWorldClock[] = [];
+  @State private watchReminders: WatchReminder[] = [];
+  @State private watchAutoMeasures: WatchAutoMeasureSetting[] = [];
+  @State private watchAssessments: WatchAssessmentSetting[] = [];
+  @State private watchScreen: WatchScreenSetting = emptyScreenSetting();
+  @State private watchPhotoDial: WatchPhotoDialProfile = emptyPhotoDialProfile();
+  @State private photoDialUri: string = '';
+  @State private photoDialProgress: number = 0;
+  @State private cameraRemoteEnabled: boolean = false;
+  @State private cameraRemoteMessage: string = '';
+  private deviceFeatureGeneration: number = 0;
   @State private careOverview: CareMetric[] = [];
   @State private careUpdatedAt: string = '';
   @State private notificationCount: number = -1;
@@ -312,6 +339,11 @@ struct Index {
     { key: 'temperature', title: '体温' }, { key: 'ecg', title: '心电' },
     { key: 'bodyComposition', title: '身体成分' }, { key: 'bloodComponents', title: '血液成分' }
   ];
+  private readonly worldClockPresets: WorldClockPreset[] = [
+    { city: '北京', utcOffsetMinutes: 480 }, { city: '东京', utcOffsetMinutes: 540 },
+    { city: '伦敦', utcOffsetMinutes: 0 }, { city: '巴黎', utcOffsetMinutes: 60 },
+    { city: '纽约', utcOffsetMinutes: -300 }, { city: '洛杉矶', utcOffsetMinutes: -480 }
+  ];
 
   aboutToAppear(): void {
     this.refreshLayoutScale();
@@ -340,6 +372,7 @@ struct Index {
     ++this.pageGeneration; ++this.contentGeneration; ++this.careGeneration;
     this.clearSmsCountdown();
     this.stopSportClock();
+    this.clearDeviceFeature();
     vepWearable.clearListener();
     if (this.environmentCallbackId >= 0) {
       this.uiContext().getApplicationContext().off('environment', this.environmentCallbackId).catch(() => {});
@@ -474,6 +507,259 @@ struct Index {
       if (deviceKey === this.wearableSnapshot.deviceKey) this.settingsMessage = (error as Error).message || '暂时无法读取，请重试';
       return false;
     } finally { this.settingsBusy = false; }
+  }
+
+  private deviceFeatureSpec(): WatchDeviceFeatureSpec {
+    return visibleWatchDeviceFeatures(this.wearableSnapshot.capabilities)
+      .find((item: WatchDeviceFeatureSpec) => item.key === this.selectedDeviceFeature) ??
+      { key: this.selectedDeviceFeature, title: '设备功能', subtitle: '读取手表实际设置' };
+  }
+
+  private deviceFeatureIcon(feature: WatchDeviceFeatureKey): Resource {
+    if (feature === 'photoDial') return $r('sys.symbol.camera_fill');
+    if (feature === 'camera') return $r('sys.symbol.camera_fill');
+    if (feature === 'phoneCalls') return $r('sys.symbol.phone_fill');
+    if (feature === 'contacts') return $r('sys.symbol.person_2_fill');
+    if (feature === 'notifications') return $r('sys.symbol.bell_fill');
+    if (feature === 'weather') return $r('sys.symbol.cloud_sun_fill');
+    if (feature === 'worldClock') return $r('sys.symbol.clock');
+    if (feature === 'healthReminders') return $r('sys.symbol.heart_fill');
+    if (feature === 'healthMonitoring') return $r('sys.symbol.waveform');
+    if (feature === 'healthAssessment') return $r('sys.symbol.checkmark_shield_fill');
+    return $r('sys.symbol.brightness');
+  }
+
+  private clearDeviceFeature(): void {
+    ++this.deviceFeatureGeneration;
+    if (this.cameraRemoteEnabled) vepDeviceFeatures.setCameraRemote(false).catch(() => {});
+    vepDeviceFeatures.setCameraListener(undefined);
+    this.deviceFeatureBusy = false; this.deviceFeatureWriting = false; this.deviceFeatureLoaded = false;
+    this.deviceFeatureMessage = ''; this.watchPhoneState = emptyPhoneState(); this.watchContacts = [];
+    this.watchContactDraft = { id: 0, name: '', phone: '', sos: false }; this.watchNotifications = [];
+    this.watchWeather = { enabled: false, celsius: true }; this.watchWorldClocks = []; this.watchReminders = [];
+    this.watchAutoMeasures = []; this.watchAssessments = []; this.watchScreen = emptyScreenSetting();
+    this.watchPhotoDial = emptyPhotoDialProfile(); this.photoDialUri = ''; this.photoDialProgress = 0;
+    this.cameraRemoteEnabled = false; this.cameraRemoteMessage = '';
+  }
+
+  private async openDeviceFeature(feature: WatchDeviceFeatureKey): Promise<void> {
+    if (!this.wearableSnapshot.connected || !watchDeviceFeatureSupported(this.wearableSnapshot.capabilities, feature)) return;
+    this.clearDeviceFeature(); this.selectedDeviceFeature = feature; this.openInnerPage('device-feature');
+    await this.refreshDeviceFeature();
+  }
+
+  private async refreshDeviceFeature(): Promise<void> {
+    if (this.deviceFeatureBusy || !this.wearableSnapshot.connected) return;
+    const generation = ++this.deviceFeatureGeneration, deviceKey = this.wearableSnapshot.deviceKey;
+    const feature = this.selectedDeviceFeature;
+    this.deviceFeatureBusy = true; this.deviceFeatureLoaded = false; this.deviceFeatureMessage = '';
+    try {
+      if (feature === 'photoDial') this.watchPhotoDial = await vepDeviceFeatures.readPhotoDialProfile();
+      else if (feature === 'camera') {
+        vepDeviceFeatures.setCameraListener((captureRequested: boolean, message: string) => {
+          if (generation !== this.deviceFeatureGeneration || this.screen !== 'device-feature') return;
+          this.cameraRemoteMessage = captureRequested ? '手表已发出拍照指令' : message;
+        });
+        this.cameraRemoteMessage = '点击开启后，可在手表相机页面发送遥控拍照指令';
+      } else if (feature === 'phoneCalls') this.watchPhoneState = await vepDeviceFeatures.readPhoneState();
+      else if (feature === 'contacts') this.watchContacts = await vepDeviceFeatures.readContacts();
+      else if (feature === 'notifications') this.watchNotifications = await vepDeviceFeatures.readNotifications();
+      else if (feature === 'weather') this.watchWeather = await vepDeviceFeatures.readWeather();
+      else if (feature === 'worldClock') this.watchWorldClocks = await vepDeviceFeatures.readWorldClocks();
+      else if (feature === 'healthReminders') this.watchReminders = await vepDeviceFeatures.readReminders();
+      else if (feature === 'healthMonitoring') this.watchAutoMeasures = await vepDeviceFeatures.readAutoMeasure();
+      else if (feature === 'healthAssessment') this.watchAssessments = await vepDeviceFeatures.readAssessments();
+      else this.watchScreen = await vepDeviceFeatures.readScreen();
+      if (generation === this.deviceFeatureGeneration && deviceKey === this.wearableSnapshot.deviceKey) {
+        this.deviceFeatureLoaded = true;
+        if (feature === 'photoDial' && this.watchPhotoDial.message) this.deviceFeatureMessage = this.watchPhotoDial.message;
+      }
+    } catch (error) {
+      if (generation === this.deviceFeatureGeneration && deviceKey === this.wearableSnapshot.deviceKey) {
+        this.deviceFeatureMessage = (error as Error).message || '暂时无法读取此功能，请重试';
+      }
+    } finally {
+      if (generation === this.deviceFeatureGeneration && deviceKey === this.wearableSnapshot.deviceKey) this.deviceFeatureBusy = false;
+    }
+  }
+
+  private async writeDeviceFeature(action: () => Promise<void>, successMessage: string): Promise<void> {
+    if (this.deviceFeatureBusy || !this.deviceFeatureLoaded || !this.wearableSnapshot.connected) return;
+    const generation = this.deviceFeatureGeneration, deviceKey = this.wearableSnapshot.deviceKey;
+    this.deviceFeatureBusy = true; this.deviceFeatureWriting = true; this.deviceFeatureMessage = '';
+    try {
+      await action();
+      if (generation === this.deviceFeatureGeneration && deviceKey === this.wearableSnapshot.deviceKey) {
+        this.deviceFeatureMessage = successMessage;
+      }
+    } catch (error) {
+      if (generation === this.deviceFeatureGeneration && deviceKey === this.wearableSnapshot.deviceKey) {
+        this.deviceFeatureLoaded = false;
+        this.deviceFeatureMessage = (error as Error).message || '保存结果未确认，请重新读取';
+      }
+    } finally {
+      if (generation === this.deviceFeatureGeneration && deviceKey === this.wearableSnapshot.deviceKey) {
+        this.deviceFeatureBusy = false; this.deviceFeatureWriting = false;
+      }
+    }
+  }
+
+  private connectWatchPhone(): void {
+    this.writeDeviceFeature(async (): Promise<void> => {
+      this.watchPhoneState = await vepDeviceFeatures.connectPhoneAudio();
+    }, '蓝牙通话连接状态已更新');
+  }
+
+  private changeContactDraft(field: string, value: string): void {
+    const draft: WatchContact = { id: this.watchContactDraft.id, name: this.watchContactDraft.name,
+      phone: this.watchContactDraft.phone, sos: this.watchContactDraft.sos };
+    if (field === 'name') draft.name = value; else draft.phone = value;
+    this.watchContactDraft = draft;
+  }
+
+  private editWatchContact(contact?: WatchContact): void {
+    this.watchContactDraft = contact ? { id: contact.id, name: contact.name, phone: contact.phone, sos: contact.sos } :
+      { id: 0, name: '', phone: '', sos: false };
+    this.deviceFeatureMessage = '';
+  }
+
+  private saveWatchContact(): void {
+    const error = watchContactError(this.watchContactDraft);
+    if (error) { this.deviceFeatureMessage = error; return; }
+    const draft: WatchContact = { id: this.watchContactDraft.id, name: this.watchContactDraft.name,
+      phone: this.watchContactDraft.phone, sos: this.watchContactDraft.sos };
+    const expected = draft.id > 0 ? this.watchContacts.find((item: WatchContact) => item.id === draft.id) : undefined;
+    this.writeDeviceFeature(async (): Promise<void> => {
+      this.watchContacts = await vepDeviceFeatures.saveContact(draft, expected);
+      this.watchContactDraft = { id: 0, name: '', phone: '', sos: false };
+    }, '联系人已保存到手表');
+  }
+
+  private async deleteWatchContact(contact: WatchContact): Promise<void> {
+    if (!await this.confirmCommerce('删除联系人？', `将从手表中删除“${contact.name}”。`, '删除')) return;
+    await this.writeDeviceFeature(async (): Promise<void> => {
+      this.watchContacts = await vepDeviceFeatures.deleteContact(contact);
+      if (this.watchContactDraft.id === contact.id) this.watchContactDraft = { id: 0, name: '', phone: '', sos: false };
+    }, '联系人已从手表删除');
+  }
+
+  private setWatchSos(contact: WatchContact): void {
+    this.writeDeviceFeature(async (): Promise<void> => {
+      this.watchContacts = await vepDeviceFeatures.setSosContact(contact);
+    }, `${contact.name} 已设为 SOS 紧急联系人`);
+  }
+
+  private setWatchNotification(item: WatchNotificationSetting, enabled: boolean): void {
+    this.writeDeviceFeature(async (): Promise<void> => {
+      this.watchNotifications = await vepDeviceFeatures.setNotification(item.key, enabled);
+    }, `${item.label}已${enabled ? '开启' : '关闭'}`);
+  }
+
+  private saveWatchWeather(enabled: boolean, celsius: boolean): void {
+    const value: WatchWeatherSetting = { enabled: enabled, celsius: celsius };
+    this.writeDeviceFeature(async (): Promise<void> => {
+      this.watchWeather = await vepDeviceFeatures.saveWeather(value);
+    }, '天气设置已保存到手表');
+  }
+
+  private addWatchWorldClock(preset: WorldClockPreset): void {
+    this.writeDeviceFeature(async (): Promise<void> => {
+      this.watchWorldClocks = await vepDeviceFeatures.addWorldClock(preset.city, preset.utcOffsetMinutes);
+    }, `${preset.city}已添加到手表`);
+  }
+
+  private async deleteWatchWorldClock(clock: WatchWorldClock): Promise<void> {
+    if (!await this.confirmCommerce('删除世界时钟？', `将从手表中删除“${clock.city}”。`, '删除')) return;
+    await this.writeDeviceFeature(async (): Promise<void> => {
+      this.watchWorldClocks = await vepDeviceFeatures.deleteWorldClock(clock);
+    }, `${clock.city}已删除`);
+  }
+
+  private setWatchReminder(item: WatchReminder, enabled: boolean, deltaMinutes: number = 0): void {
+    const value: WatchReminder = { id: item.id, type: item.type, label: item.label, startTime: item.startTime,
+      endTime: item.endTime, enabled: enabled, sedentary: item.sedentary,
+      intervalMinutes: Math.max(15, Math.min(240, item.intervalMinutes + deltaMinutes)) };
+    this.writeDeviceFeature(async (): Promise<void> => {
+      this.watchReminders = await vepDeviceFeatures.saveReminder(value);
+    }, `${item.label}已保存`);
+  }
+
+  private setWatchAutoMeasure(item: WatchAutoMeasureSetting, enabled: boolean, deltaSteps: number = 0): void {
+    const step = Math.max(1, item.minimumIntervalMinutes);
+    const value: WatchAutoMeasureSetting = { feature: item.feature, label: item.label, enabled: enabled,
+      minimumIntervalMinutes: item.minimumIntervalMinutes, intervalModifiable: item.intervalModifiable,
+      timeSlotModifiable: item.timeSlotModifiable, startTime: item.startTime, endTime: item.endTime,
+      intervalMinutes: Math.max(step, Math.min(1440, item.intervalMinutes + deltaSteps * step)) };
+    this.writeDeviceFeature(async (): Promise<void> => {
+      this.watchAutoMeasures = await vepDeviceFeatures.saveAutoMeasure(value);
+    }, `${item.label}已保存`);
+  }
+
+  private setWatchAssessment(item: WatchAssessmentSetting, enabled: boolean): void {
+    const value: WatchAssessmentSetting = { dataType: item.dataType, label: item.label, enabled: enabled };
+    this.writeDeviceFeature(async (): Promise<void> => {
+      this.watchAssessments = await vepDeviceFeatures.saveAssessment(value);
+    }, `${item.label}已${enabled ? '开启' : '关闭'}`);
+  }
+
+  private saveWatchScreen(next: WatchScreenSetting): void {
+    this.writeDeviceFeature(async (): Promise<void> => {
+      this.watchScreen = await vepDeviceFeatures.saveScreen(next);
+    }, '屏幕显示设置已保存到手表');
+  }
+
+  private nextWatchScreen(durationSeconds?: number, raiseToWakeEnabled?: boolean,
+    raiseToWakeLevel?: number): WatchScreenSetting {
+    return { durationSupported: this.watchScreen.durationSupported,
+      durationSeconds: durationSeconds ?? this.watchScreen.durationSeconds,
+      raiseToWakeSupported: this.watchScreen.raiseToWakeSupported,
+      raiseToWakeEnabled: raiseToWakeEnabled ?? this.watchScreen.raiseToWakeEnabled,
+      raiseToWakeStartTime: this.watchScreen.raiseToWakeStartTime,
+      raiseToWakeEndTime: this.watchScreen.raiseToWakeEndTime,
+      raiseToWakeLevel: raiseToWakeLevel ?? this.watchScreen.raiseToWakeLevel };
+  }
+
+  private setCameraRemote(enabled: boolean): void {
+    this.writeDeviceFeature(async (): Promise<void> => {
+      await vepDeviceFeatures.setCameraRemote(enabled); this.cameraRemoteEnabled = enabled;
+      this.cameraRemoteMessage = enabled ? '相机遥控已开启，请在手表上点击拍照' : '相机遥控已关闭';
+    }, enabled ? '相机遥控已开启' : '相机遥控已关闭');
+  }
+
+  private async pickPhotoDial(): Promise<void> {
+    if (this.deviceFeatureBusy || !this.deviceFeatureLoaded) return;
+    this.deviceFeatureBusy = true; this.deviceFeatureMessage = '';
+    try {
+      const options = new photoAccessHelper.PhotoSelectOptions();
+      options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
+      options.maxSelectNumber = 1; options.isEditSupported = true;
+      const selected = await new photoAccessHelper.PhotoViewPicker().select(options);
+      const uri = selected.photoUris.length ? selected.photoUris[0].trim() : '';
+      if (uri) { this.photoDialUri = uri; this.photoDialProgress = 0; this.deviceFeatureMessage = '照片已选择，请确认后安装到手表'; }
+    } catch (error) {
+      const code = Number((error as BusinessError).code ?? 0);
+      if (code !== 201) this.deviceFeatureMessage = '无法读取照片，请重新选择';
+    } finally { this.deviceFeatureBusy = false; }
+  }
+
+  private installPhotoDial(): void {
+    if (!this.photoDialUri) { this.deviceFeatureMessage = '请先选择一张照片'; return; }
+    const generation = this.deviceFeatureGeneration;
+    this.photoDialProgress = 0;
+    this.writeDeviceFeature(async (): Promise<void> => {
+      await vepDeviceFeatures.installPhotoDial(this.photoDialUri, (progress: number, message: string) => {
+        if (generation !== this.deviceFeatureGeneration) return;
+        this.photoDialProgress = progress;
+        if (message) this.deviceFeatureMessage = message;
+      });
+      this.photoDialProgress = 100;
+      await vepWearable.readDials();
+    }, '照片表盘已安装到手表');
+  }
+
+  private watchWorldClockOffset(minutes: number): string {
+    const sign = minutes >= 0 ? '+' : '-'; const absolute = Math.abs(minutes);
+    return `UTC${sign}${String(Math.floor(absolute / 60)).padStart(2, '0')}:${String(absolute % 60).padStart(2, '0')}`;
   }
 
   private clearDeviceEditor(): void {
@@ -866,7 +1152,7 @@ struct Index {
       },
       onSnapshot: (snapshot: WearableSnapshot) => {
         if (snapshot.deviceKey !== this.wearableSnapshot.deviceKey || (!snapshot.connected && this.wearableSnapshot.connected)) {
-          this.clearDeviceEditor();
+          this.clearDeviceEditor(); this.clearDeviceFeature();
         }
         this.wearableSnapshot = snapshot;
         if (this.screen === 'wearable-metric') this.loadTrendData();
@@ -2136,9 +2422,11 @@ struct Index {
   }
 
   private back(): void {
-    if (this.careBusy || this.paymentBusy || this.formBusy || this.commerceBusy || this.deviceSettingsWriting) return;
+    if (this.careBusy || this.paymentBusy || this.formBusy || this.commerceBusy || this.deviceSettingsWriting ||
+      this.deviceFeatureWriting) return;
     if (this.screen === 'sport-records' && this.sportActive()) { this.confirmStopSport(true); return; }
     if (this.screen === 'device-units' || this.screen === 'device-alarms') this.clearDeviceEditor();
+    if (this.screen === 'device-feature') this.clearDeviceFeature();
     if (this.purchaseSheet) { this.purchaseSheet = false; return; }
     if (this.screen === 'addresses') this.selectingCheckoutAddress = false;
     this.commerceError = ''; this.commerceLoading = false;
@@ -2256,8 +2544,10 @@ struct Index {
       Button() {
         SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(24).fontColor([INK])
       }.backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12).width(48).height(this.controlHeight(48))
-        .enabled(!this.careBusy && !this.paymentBusy && !this.formBusy && !this.commerceBusy && !this.deviceSettingsWriting && !this.sportActionBusy).onClick(() => this.back()).accessibilityText('返回上一页')
-      Text(this.screen === 'health-record' ? '记录详情' : this.screen === 'device-dials' ? '表盘中心' : this.screen === 'device-settings' ? '设备设置' :
+        .enabled(!this.careBusy && !this.paymentBusy && !this.formBusy && !this.commerceBusy && !this.deviceSettingsWriting &&
+          !this.deviceFeatureWriting && !this.sportActionBusy).onClick(() => this.back()).accessibilityText('返回上一页')
+      Text(this.screen === 'health-record' ? '记录详情' : this.screen === 'device-dials' ? '表盘中心' :
+        this.screen === 'device-feature' ? this.deviceFeatureSpec().title : this.screen === 'device-settings' ? '设备设置' :
         this.screen === 'device-units' ? '手表单位' : this.screen === 'device-alarms' ? '闹钟' : this.screen === 'device-alarm-edit' ?
           (this.watchAlarmDraft.id < 0 ? '添加闹钟' : '编辑闹钟') : this.screen === 'profile-edit' ? '个人资料' : this.screen === 'addresses' ? '收货地址' :
         this.screen === 'address-edit' ? (this.addressDraft.id ? '编辑地址' : '新增地址') : this.screen === 'reset-password' ? '找回密码' :
@@ -2672,21 +2962,52 @@ struct Index {
         this.Notice({ message: this.wearableMessage,
           color: this.wearablePhase === 'error' || this.wearablePhase === 'permission' ? '#FFF0E9' : GREEN_SOFT })
 
-        if (this.wearableSnapshot.capabilities.dial) {
+        if (this.wearableSnapshot.capabilities.dial || this.wearableSnapshot.capabilities.photoDial) {
           Text('表盘与个性化').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-          Row({ space: 12 }) {
-            Column() {
-              SymbolGlyph($r('sys.symbol.watch_badge_card')).fontSize(25).fontColor([RED])
-            }.width(46).height(46).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(14)
-            Column({ space: 3 }) {
-              Text('表盘中心').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-              Text('查看并切换手表内表盘').fontSize(13).fontColor(MUTED).width('100%')
-            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-            SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
-          }.width('100%').constraintSize({ minHeight: 76 }).padding({ left: 13, right: 13, top: 11, bottom: 11 })
-            .backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
-            .enabled(!this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
-            .onClick(() => this.openDials()).id('wearable_read_dials').accessibilityText('表盘中心')
+          Column({ space: 0 }) {
+            if (this.wearableSnapshot.capabilities.dial) {
+              Row({ space: 12 }) {
+                Column() {
+                  SymbolGlyph($r('sys.symbol.watch_badge_card')).fontSize(25).fontColor([RED])
+                }.width(46).height(46).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(14)
+                Column({ space: 3 }) {
+                  Text('表盘中心').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                  Text('查看并切换手表内表盘').fontSize(13).fontColor(MUTED).width('100%')
+                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
+              }.width('100%').constraintSize({ minHeight: 76 }).padding({ left: 13, right: 13, top: 11, bottom: 11 })
+                .enabled(!this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
+                .onClick(() => this.openDials()).id('wearable_read_dials').accessibilityText('表盘中心')
+            }
+            if (this.wearableSnapshot.capabilities.dial && this.wearableSnapshot.capabilities.photoDial) {
+              Divider().color(LINE).margin({ left: 58 })
+            }
+            if (this.wearableSnapshot.capabilities.photoDial) {
+              Row({ space: 12 }) {
+                Column() { SymbolGlyph($r('sys.symbol.camera_fill')).fontSize(25).fontColor([BLUE]) }
+                  .width(46).height(46).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(14)
+                Column({ space: 3 }) {
+                  Text('照片表盘').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                  Text('选择照片并按手表尺寸制作').fontSize(13).fontColor(MUTED).width('100%')
+                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
+              }.width('100%').constraintSize({ minHeight: 76 }).padding({ left: 13, right: 13, top: 11, bottom: 11 })
+                .enabled(!this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
+                .onClick(() => this.openDeviceFeature('photoDial')).id('wearable_photo_dial').accessibilityText('照片表盘')
+            }
+          }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+        }
+
+        if (visibleWatchDeviceFeatures(this.wearableSnapshot.capabilities)
+          .filter((item: WatchDeviceFeatureSpec) => item.key !== 'photoDial').length > 0) {
+          Text('常用功能').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+            ForEach(visibleWatchDeviceFeatures(this.wearableSnapshot.capabilities)
+              .filter((item: WatchDeviceFeatureSpec) => item.key !== 'photoDial'), (feature: WatchDeviceFeatureSpec) => {
+              this.DeviceAction({ title: feature.title, icon: this.deviceFeatureIcon(feature.key), color: BLUE,
+                background: BLUE_SOFT, action: () => this.openDeviceFeature(feature.key), id: `device_feature_${feature.key}` })
+            }, (feature: WatchDeviceFeatureSpec) => feature.key)
+          }.width('100%')
         }
 
         Text('设备功能').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
@@ -2837,6 +3158,307 @@ struct Index {
           .enabled(!this.dialBusy && !this.wearableBusy() && !this.wearableMeasurement.running && !this.sportActive())
           .onClick(() => vepWearable.restoreOriginalDial()).id('wearable_restore_dial')
       }
+    }
+  }
+
+  @Builder
+  DeviceFeatureContent() {
+    if (!this.wearableSnapshot.connected) {
+      this.StateCard({ title: '手表已断开', detail: '重新连接后再查看或调整此功能。', icon: $r('sys.symbol.watch') })
+    } else if (!watchDeviceFeatureSupported(this.wearableSnapshot.capabilities, this.selectedDeviceFeature)) {
+      this.StateCard({ title: '当前手表不支持此功能', detail: '设备页只会展示手表能力表中已支持的功能。',
+        icon: this.deviceFeatureIcon(this.selectedDeviceFeature) })
+    } else {
+      this.StateCard({ title: this.deviceFeatureSpec().title, detail: this.deviceFeatureSpec().subtitle,
+        icon: this.deviceFeatureIcon(this.selectedDeviceFeature), green: this.deviceFeatureLoaded })
+      if (this.deviceFeatureBusy) { LoadingProgress().width(34).height(34).color(RED) }
+      if (this.deviceFeatureMessage) {
+        this.Notice({ message: this.deviceFeatureMessage,
+          color: this.deviceFeatureLoaded && !this.deviceFeatureMessage.includes('失败') &&
+            !this.deviceFeatureMessage.includes('无法') ? GREEN_SOFT : GOLD_SOFT })
+      }
+      if (this.deviceFeatureLoaded) {
+        if (this.selectedDeviceFeature === 'photoDial') {
+          if (this.watchPhotoDial.supported) {
+            this.Notice({ message: `将按手表实际分辨率 ${this.watchPhotoDial.width} × ${this.watchPhotoDial.height} 制作，传输时请保持设备靠近。` })
+            if (this.photoDialUri) {
+              Image(this.photoDialUri).width('100%').height(260).objectFit(ImageFit.Contain).backgroundColor('#111318')
+                .borderRadius(18).accessibilityText('已选择的照片表盘预览')
+            }
+            Button(this.photoDialUri ? '重新选择照片' : '选择照片').width('100%').height(this.controlHeight(56))
+              .fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).backgroundColor(SURFACE)
+              .type(ButtonType.Normal).borderRadius(14).border({ width: 1, color: OUTLINE })
+              .enabled(!this.deviceFeatureBusy).onClick(() => this.pickPhotoDial()).id('photo_dial_pick')
+            if (this.photoDialProgress > 0) {
+              Progress({ value: this.photoDialProgress, total: 100, type: ProgressType.Linear }).width('100%').color(RED)
+              Text(`安装进度 ${this.photoDialProgress}%`).fontSize(15).fontColor(MUTED).width('100%').textAlign(TextAlign.Center)
+            }
+            Button(this.deviceFeatureWriting ? '正在安装…' : '安装到手表').width('100%').height(this.controlHeight(56))
+              .fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(14)
+              .enabled(!this.deviceFeatureBusy && this.photoDialUri.length > 0).onClick(() => this.installPhotoDial())
+              .id('photo_dial_install')
+          } else {
+            this.StateCard({ title: '暂未读取到照片表盘规格', detail: this.watchPhotoDial.message || '请重新读取后再试。',
+              icon: $r('sys.symbol.camera_fill') })
+          }
+        } else if (this.selectedDeviceFeature === 'camera') {
+          this.Notice({ message: '相机遥控会让手表进入拍照控制状态。本页面保持打开时，可接收手表的拍照按键事件。' })
+          Column() {
+            SymbolGlyph($r('sys.symbol.camera_fill')).fontSize(62).fontColor([this.cameraRemoteEnabled ? RED : MUTED])
+          }.width('100%').height(220).justifyContent(FlexAlign.Center).backgroundColor('#EEF1F5').borderRadius(18)
+          Text(this.cameraRemoteMessage || '相机遥控尚未开启').fontSize(16).fontColor(INK).width('100%').textAlign(TextAlign.Center)
+          Button(this.cameraRemoteEnabled ? '关闭相机遥控' : '开启相机遥控').width('100%').height(this.controlHeight(56))
+            .fontSize(16).fontWeight(FontWeight.Bold).fontColor(this.cameraRemoteEnabled ? RED : Color.White)
+            .backgroundColor(this.cameraRemoteEnabled ? RED_SOFT : RED).type(ButtonType.Normal).borderRadius(14)
+            .enabled(!this.deviceFeatureBusy).onClick(() => this.setCameraRemote(!this.cameraRemoteEnabled)).id('camera_remote_toggle')
+        } else if (this.selectedDeviceFeature === 'phoneCalls') {
+          Column({ space: 12 }) {
+            Text(this.watchPhoneState.connected ? '蓝牙通话已连接' : '蓝牙通话未连接').fontSize(20).fontWeight(FontWeight.Bold)
+              .fontColor(this.watchPhoneState.connected ? GREEN : INK).width('100%')
+            Text(`手表通话开关：${this.watchPhoneState.enabled ? '开启' : '关闭'}`).fontSize(16).fontColor(INK).width('100%')
+            Text(`设备配对状态：${this.watchPhoneState.paired ? '已配对' : '未配对'}`).fontSize(16).fontColor(INK).width('100%')
+            Text(`媒体音频：${this.watchPhoneState.multimediaEnabled ? '开启' : '关闭'}`).fontSize(16).fontColor(INK).width('100%')
+          }.width('100%').padding(18).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+          Button(this.watchPhoneState.connected ? '重新读取连接状态' : '连接手表通话蓝牙').width('100%').height(this.controlHeight(56))
+            .fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(14)
+            .enabled(!this.deviceFeatureBusy).onClick(() => this.watchPhoneState.connected ? this.refreshDeviceFeature() : this.connectWatchPhone())
+            .id('watch_phone_connect')
+        } else if (this.selectedDeviceFeature === 'contacts') {
+          Column({ space: 12 }) {
+            Text(this.watchContactDraft.id > 0 ? '编辑联系人' : '添加联系人').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+            TextInput({ text: this.watchContactDraft.name, placeholder: '姓名' }).height(this.controlHeight(52)).fontSize(17).maxLength(20)
+              .backgroundColor(SURFACE_ALT).borderRadius(12).enabled(!this.deviceFeatureBusy)
+              .onChange((value: string) => this.changeContactDraft('name', value)).id('watch_contact_name')
+            TextInput({ text: this.watchContactDraft.phone, placeholder: '电话号码' }).height(this.controlHeight(52)).fontSize(17)
+              .type(InputType.PhoneNumber).maxLength(20).backgroundColor(SURFACE_ALT).borderRadius(12).enabled(!this.deviceFeatureBusy)
+              .onChange((value: string) => this.changeContactDraft('phone', value)).id('watch_contact_phone')
+            if (watchContactError(this.watchContactDraft) && (this.watchContactDraft.name || this.watchContactDraft.phone)) {
+              Text(watchContactError(this.watchContactDraft)).fontSize(14).fontColor(RED_DARK).width('100%')
+            }
+            Row({ space: 10 }) {
+              if (this.watchContactDraft.id > 0) {
+                Button('取消编辑').layoutWeight(1).height(this.controlHeight()).fontSize(16).fontColor(INK).backgroundColor(SURFACE_ALT)
+                  .enabled(!this.deviceFeatureBusy).onClick(() => this.editWatchContact()).id('watch_contact_cancel')
+              }
+              Button(this.watchContactDraft.id > 0 ? '保存修改' : '添加到手表').layoutWeight(1).height(this.controlHeight())
+                .fontSize(16).fontWeight(FontWeight.Bold).backgroundColor(RED).enabled(!this.deviceFeatureBusy && !watchContactError(this.watchContactDraft))
+                .onClick(() => this.saveWatchContact()).id('watch_contact_save')
+            }.width('100%')
+          }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+          if (this.watchContacts.length === 0) {
+            this.StateCard({ title: '手表中还没有联系人', icon: $r('sys.symbol.person_2_fill') })
+          }
+          ForEach(this.watchContacts, (contact: WatchContact) => {
+            Column({ space: 10 }) {
+              Row({ space: 12 }) {
+                Column() { SymbolGlyph($r('sys.symbol.person_fill')).fontSize(24).fontColor([contact.sos ? RED : BLUE]) }
+                  .width(46).height(46).justifyContent(FlexAlign.Center).backgroundColor(contact.sos ? RED_SOFT : BLUE_SOFT).borderRadius(23)
+                Column({ space: 4 }) {
+                  Row({ space: 7 }) {
+                    Text(contact.name).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).maxLines(1)
+                    if (contact.sos) {
+                      Text('当前 SOS').fontSize(12).fontWeight(FontWeight.Bold).fontColor(RED)
+                        .padding({ left: 7, right: 7, top: 3, bottom: 3 }).backgroundColor(RED_SOFT).borderRadius(10)
+                    }
+                  }.width('100%')
+                  Text(contact.phone).fontSize(15).fontColor(MUTED).width('100%')
+                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+              }.width('100%')
+              Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+                Button('编辑').width(this.singleColumn() ? '100%' : '31%').height(this.controlHeight()).fontColor(INK).backgroundColor(SURFACE_ALT)
+                  .enabled(!this.deviceFeatureBusy).onClick(() => this.editWatchContact(contact)).id(`watch_contact_edit_${contact.id}`)
+                Button(contact.sos ? '已是 SOS' : '设为 SOS').width(this.singleColumn() ? '100%' : '36%').height(this.controlHeight())
+                  .fontColor(contact.sos ? GREEN : RED).backgroundColor(contact.sos ? GREEN_SOFT : RED_SOFT)
+                  .enabled(!this.deviceFeatureBusy && !contact.sos).onClick(() => this.setWatchSos(contact)).id(`watch_contact_sos_${contact.id}`)
+                Button('删除').width(this.singleColumn() ? '100%' : '27%').height(this.controlHeight()).fontColor(RED)
+                  .backgroundColor(Color.Transparent).enabled(!this.deviceFeatureBusy).onClick(() => this.deleteWatchContact(contact))
+                  .id(`watch_contact_delete_${contact.id}`)
+              }.width('100%')
+            }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+          }, (contact: WatchContact) => `${contact.id}-${contact.name}-${contact.phone}-${contact.sos}`)
+        } else if (this.selectedDeviceFeature === 'notifications') {
+          if (this.watchNotifications.length === 0) {
+            this.StateCard({ title: '手表没有返回可配置的消息类型', icon: $r('sys.symbol.bell_fill') })
+          }
+          Column() {
+            ForEach(this.watchNotifications, (item: WatchNotificationSetting, index: number) => {
+              Row({ space: 12 }) {
+                Text(item.label).fontSize(17).fontWeight(FontWeight.Medium).fontColor(INK).layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: item.enabled }).selectedColor(RED).enabled(!this.deviceFeatureBusy)
+                  .onChange((enabled: boolean) => this.setWatchNotification(item, enabled))
+                  .accessibilityText(`${item.label}${item.enabled ? '已开启' : '已关闭'}`).id(`watch_notification_${item.key}`)
+              }.width('100%').constraintSize({ minHeight: 62 }).padding({ left: 16, right: 12 })
+              if (index < this.watchNotifications.length - 1) { Divider().color(LINE).margin({ left: 16 }) }
+            }, (item: WatchNotificationSetting) => `${item.key}-${item.enabled}`)
+          }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+        } else if (this.selectedDeviceFeature === 'weather') {
+          Column({ space: 8 }) {
+            Row() {
+              Column({ space: 4 }) {
+                Text('手表天气').fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                Text('开启后同步天气信息到手表').fontSize(14).fontColor(MUTED).width('100%')
+              }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+              Toggle({ type: ToggleType.Switch, isOn: this.watchWeather.enabled }).selectedColor(RED)
+                .enabled(!this.deviceFeatureBusy).onChange((enabled: boolean) => this.saveWatchWeather(enabled, this.watchWeather.celsius))
+                .id('watch_weather_enabled')
+            }.width('100%').constraintSize({ minHeight: 68 }).padding(16)
+            Divider().color(LINE)
+            Text('温度单位').fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').padding({ left: 16, right: 16, top: 8 })
+            Row({ space: 10 }) {
+              Button('摄氏度 ℃').layoutWeight(1).height(this.controlHeight()).fontColor(this.watchWeather.celsius ? RED : INK)
+                .backgroundColor(this.watchWeather.celsius ? RED_SOFT : SURFACE_ALT).enabled(!this.deviceFeatureBusy)
+                .onClick(() => this.saveWatchWeather(this.watchWeather.enabled, true)).id('watch_weather_celsius')
+              Button('华氏度 ℉').layoutWeight(1).height(this.controlHeight()).fontColor(!this.watchWeather.celsius ? RED : INK)
+                .backgroundColor(!this.watchWeather.celsius ? RED_SOFT : SURFACE_ALT).enabled(!this.deviceFeatureBusy)
+                .onClick(() => this.saveWatchWeather(this.watchWeather.enabled, false)).id('watch_weather_fahrenheit')
+            }.width('100%').padding({ left: 16, right: 16, bottom: 16 })
+          }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+        } else if (this.selectedDeviceFeature === 'worldClock') {
+          if (this.watchWorldClocks.length === 0) {
+            this.StateCard({ title: '手表中还没有世界时钟', icon: $r('sys.symbol.clock') })
+          }
+          ForEach(this.watchWorldClocks, (clock: WatchWorldClock) => {
+            Row({ space: 12 }) {
+              Column({ space: 4 }) {
+                Text(clock.city).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                Text(this.watchWorldClockOffset(clock.utcOffsetMinutes)).fontSize(14).fontColor(MUTED).width('100%')
+              }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+              Button('删除').height(this.controlHeight()).fontColor(RED).backgroundColor(RED_SOFT).enabled(!this.deviceFeatureBusy)
+                .onClick(() => this.deleteWatchWorldClock(clock)).id(`watch_clock_delete_${clock.id}`)
+            }.width('100%').constraintSize({ minHeight: 74 }).padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+          }, (clock: WatchWorldClock) => `${clock.id}-${clock.city}-${clock.utcOffsetMinutes}`)
+          Text('添加城市').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+          Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+            ForEach(this.worldClockPresets, (preset: WorldClockPreset) => {
+              Button(`${preset.city}\n${this.watchWorldClockOffset(preset.utcOffsetMinutes)}`).width(this.singleColumn() ? '100%' : '48%')
+                .constraintSize({ minHeight: 64 }).fontSize(15).fontColor(INK).backgroundColor(SURFACE)
+                .type(ButtonType.Normal).borderRadius(14).border({ width: 1, color: LINE }).margin({ bottom: 10 })
+                .enabled(!this.deviceFeatureBusy && !this.watchWorldClocks.some((clock: WatchWorldClock) => clock.city === preset.city))
+                .onClick(() => this.addWatchWorldClock(preset)).id(`watch_clock_add_${preset.city}`)
+            }, (preset: WorldClockPreset) => preset.city)
+          }.width('100%')
+        } else if (this.selectedDeviceFeature === 'healthReminders') {
+          if (this.watchReminders.length === 0) {
+            this.StateCard({ title: '手表没有返回可配置的健康提醒', icon: $r('sys.symbol.heart_fill') })
+          }
+          ForEach(this.watchReminders, (item: WatchReminder) => {
+            Column({ space: 12 }) {
+              Row() {
+                Column({ space: 4 }) {
+                  Text(item.label).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                  Text(`${item.startTime} - ${item.endTime}`).fontSize(14).fontColor(MUTED).width('100%')
+                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                Toggle({ type: ToggleType.Switch, isOn: item.enabled }).selectedColor(RED).enabled(!this.deviceFeatureBusy)
+                  .onChange((enabled: boolean) => this.setWatchReminder(item, enabled)).id(`watch_reminder_toggle_${item.id}`)
+              }.width('100%')
+              Row({ space: 10 }) {
+                Button('−').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                  .enabled(!this.deviceFeatureBusy && item.intervalMinutes > 15)
+                  .onClick(() => this.setWatchReminder(item, item.enabled, -15)).id(`watch_reminder_less_${item.id}`)
+                Text(`每 ${item.intervalMinutes} 分钟`).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).textAlign(TextAlign.Center)
+                Button('+').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                  .enabled(!this.deviceFeatureBusy && item.intervalMinutes < 240)
+                  .onClick(() => this.setWatchReminder(item, item.enabled, 15)).id(`watch_reminder_more_${item.id}`)
+              }.width('100%')
+            }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+          }, (item: WatchReminder) => `${item.id}-${item.enabled}-${item.intervalMinutes}`)
+        } else if (this.selectedDeviceFeature === 'healthMonitoring') {
+          this.Notice({ message: '监测间隔按手表支持的最小步长调整，保存后会重新读取确认。' })
+          if (this.watchAutoMeasures.length === 0) {
+            this.StateCard({ title: '手表没有返回可配置的自动监测项目', icon: $r('sys.symbol.waveform') })
+          }
+          ForEach(this.watchAutoMeasures, (item: WatchAutoMeasureSetting) => {
+            Column({ space: 12 }) {
+              Row() {
+                Column({ space: 4 }) {
+                  Text(item.label).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                  Text(item.timeSlotModifiable ? `${item.startTime} - ${item.endTime}` : '全天按手表规则监测')
+                    .fontSize(14).fontColor(MUTED).width('100%')
+                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                Toggle({ type: ToggleType.Switch, isOn: item.enabled }).selectedColor(RED).enabled(!this.deviceFeatureBusy)
+                  .onChange((enabled: boolean) => this.setWatchAutoMeasure(item, enabled)).id(`watch_auto_toggle_${item.feature}`)
+              }.width('100%')
+              if (item.intervalModifiable) {
+                Row({ space: 10 }) {
+                  Button('−').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                    .enabled(!this.deviceFeatureBusy && item.intervalMinutes > item.minimumIntervalMinutes)
+                    .onClick(() => this.setWatchAutoMeasure(item, item.enabled, -1)).id(`watch_auto_less_${item.feature}`)
+                  Text(`每 ${item.intervalMinutes} 分钟`).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).textAlign(TextAlign.Center)
+                  Button('+').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                    .enabled(!this.deviceFeatureBusy && item.intervalMinutes < 1440)
+                    .onClick(() => this.setWatchAutoMeasure(item, item.enabled, 1)).id(`watch_auto_more_${item.feature}`)
+                }.width('100%')
+              } else {
+                Text(`监测间隔由手表固定为 ${item.intervalMinutes} 分钟`).fontSize(14).fontColor(MUTED).width('100%')
+              }
+            }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+          }, (item: WatchAutoMeasureSetting) => `${item.feature}-${item.enabled}-${item.intervalMinutes}`)
+        } else if (this.selectedDeviceFeature === 'healthAssessment') {
+          if (this.watchAssessments.length === 0) {
+            this.StateCard({ title: '手表没有返回可配置的辅助评估', icon: $r('sys.symbol.checkmark_shield_fill') })
+          }
+          Column() {
+            ForEach(this.watchAssessments, (item: WatchAssessmentSetting, index: number) => {
+              Row({ space: 12 }) {
+                Text(item.label).fontSize(17).fontWeight(FontWeight.Medium).fontColor(INK).layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: item.enabled }).selectedColor(RED).enabled(!this.deviceFeatureBusy)
+                  .onChange((enabled: boolean) => this.setWatchAssessment(item, enabled)).id(`watch_assessment_${item.dataType}`)
+              }.width('100%').constraintSize({ minHeight: 62 }).padding({ left: 16, right: 12 })
+              if (index < this.watchAssessments.length - 1) { Divider().color(LINE).margin({ left: 16 }) }
+            }, (item: WatchAssessmentSetting) => `${item.dataType}-${item.enabled}`)
+          }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+        } else if (this.selectedDeviceFeature === 'screenDisplay') {
+          if (this.watchScreen.durationSupported) {
+            Column({ space: 12 }) {
+              Text('亮屏时长').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+              Row({ space: 10 }) {
+                Button('−').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                  .enabled(!this.deviceFeatureBusy && this.watchScreen.durationSeconds > 1)
+                  .onClick(() => this.saveWatchScreen(this.nextWatchScreen(
+                    Math.max(1, this.watchScreen.durationSeconds - 1)))).id('watch_screen_duration_less')
+                Text(`${this.watchScreen.durationSeconds} 秒`).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK)
+                  .layoutWeight(1).textAlign(TextAlign.Center)
+                Button('+').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                  .enabled(!this.deviceFeatureBusy && this.watchScreen.durationSeconds < 120)
+                  .onClick(() => this.saveWatchScreen(this.nextWatchScreen(
+                    Math.min(120, this.watchScreen.durationSeconds + 1)))).id('watch_screen_duration_more')
+              }.width('100%')
+            }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+          }
+          if (this.watchScreen.raiseToWakeSupported) {
+            Column({ space: 12 }) {
+              Row() {
+                Column({ space: 4 }) {
+                  Text('抬腕亮屏').fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+                  Text(`${this.watchScreen.raiseToWakeStartTime} - ${this.watchScreen.raiseToWakeEndTime}`)
+                    .fontSize(14).fontColor(MUTED).width('100%')
+                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                Toggle({ type: ToggleType.Switch, isOn: this.watchScreen.raiseToWakeEnabled }).selectedColor(RED)
+                  .enabled(!this.deviceFeatureBusy).onChange((enabled: boolean) =>
+                    this.saveWatchScreen(this.nextWatchScreen(undefined, enabled))).id('watch_raise_to_wake')
+              }.width('100%')
+              Row({ space: 10 }) {
+                Button('−').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                  .enabled(!this.deviceFeatureBusy && this.watchScreen.raiseToWakeLevel > 1)
+                  .onClick(() => this.saveWatchScreen(this.nextWatchScreen(undefined, undefined,
+                    Math.max(1, this.watchScreen.raiseToWakeLevel - 1)))).id('watch_raise_level_less')
+                Text(`灵敏度 ${this.watchScreen.raiseToWakeLevel}`).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK)
+                  .layoutWeight(1).textAlign(TextAlign.Center)
+                Button('+').width(52).height(this.controlHeight()).fontSize(22).fontColor(RED).backgroundColor(RED_SOFT)
+                  .enabled(!this.deviceFeatureBusy && this.watchScreen.raiseToWakeLevel < 10)
+                  .onClick(() => this.saveWatchScreen(this.nextWatchScreen(undefined, undefined,
+                    Math.min(10, this.watchScreen.raiseToWakeLevel + 1)))).id('watch_raise_level_more')
+              }.width('100%')
+            }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
+          }
+          if (!this.watchScreen.durationSupported && !this.watchScreen.raiseToWakeSupported) {
+            this.StateCard({ title: '当前手表没有可调整的屏幕项目', icon: $r('sys.symbol.brightness') })
+          }
+        }
+      }
+      Button(this.deviceFeatureBusy ? '读取中…' : '重新读取手表设置').width('100%').height(this.controlHeight())
+        .fontSize(16).fontColor(RED).backgroundColor(Color.Transparent).enabled(!this.deviceFeatureBusy)
+        .onClick(() => this.refreshDeviceFeature()).id('device_feature_refresh')
     }
   }
 
@@ -5080,6 +5702,8 @@ struct Index {
           this.DeviceSearchContent()
         } else if (this.screen === 'device-dials') {
           this.InstalledDialsContent()
+        } else if (this.screen === 'device-feature') {
+          this.DeviceFeatureContent()
         } else if (this.screen === 'device-settings') {
           this.DeviceSettingsContent()
         } else if (this.screen === 'device-units' || this.screen === 'device-alarms' || this.screen === 'device-alarm-edit') {

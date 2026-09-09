@@ -20,6 +20,16 @@ export interface YucCapabilities {
   notification: boolean;
   findDevice: boolean;
   dial: boolean;
+  photoDial: boolean;
+  camera: boolean;
+  phoneCalls: boolean;
+  contacts: boolean;
+  weather: boolean;
+  worldClock: boolean;
+  healthReminder: boolean;
+  healthMonitoring: boolean;
+  healthAssessment: boolean;
+  screenDisplay: boolean;
 }
 
 export interface YucSportCapability {
@@ -88,7 +98,10 @@ export function yucCapabilitiesFromFlags(flags?: YucFeatureFlags): YucCapabiliti
     activity: false, sleep: false, heart: false, pressure: false, oxygen: false,
     temperature: false, glucose: false, hrv: false, ecg: false,
     bodyComposition: false, bloodComponents: false, sport: false, alarm: false,
-    sedentaryReminder: false, notification: false, findDevice: false, dial: false
+    sedentaryReminder: false, notification: false, findDevice: false, dial: false,
+    photoDial: false, camera: false, phoneCalls: false, contacts: false,
+    weather: false, worldClock: false, healthReminder: false, healthMonitoring: false,
+    healthAssessment: false, screenDisplay: false
   };
   return {
     activity: flags.step,
@@ -112,7 +125,20 @@ export function yucCapabilitiesFromFlags(flags?: YucFeatureFlags): YucCapabiliti
     findDevice: flags.findDevice,
     // W8/JL installed-dial access needs a separate RCSP lifecycle. Do not mix
     // it with the Vep dial protocol merely because the firmware advertises it.
-    dial: false
+    dial: false,
+    // The Yucheng 2.1.5 public Harmony wrapper does not expose these complete
+    // settings transactions yet. Keep them hidden instead of routing W8
+    // commands into the unrelated Vep protocol.
+    photoDial: false,
+    camera: false,
+    phoneCalls: false,
+    contacts: false,
+    weather: false,
+    worldClock: false,
+    healthReminder: false,
+    healthMonitoring: false,
+    healthAssessment: false,
+    screenDisplay: false
   };
 }
 

@@ -38,6 +38,16 @@ export interface WearableCapabilities {
   notification: boolean;
   findDevice: boolean;
   dial: boolean;
+  photoDial: boolean;
+  camera: boolean;
+  phoneCalls: boolean;
+  contacts: boolean;
+  weather: boolean;
+  worldClock: boolean;
+  healthReminder: boolean;
+  healthMonitoring: boolean;
+  healthAssessment: boolean;
+  screenDisplay: boolean;
 }
 
 export interface WearableFeatureWire {
@@ -62,6 +72,18 @@ export interface WearableFeatureWire {
   uiStyleCount?: number;
   moreWatchfaceCount?: number;
   customWatchfaceCount?: number;
+  camera?: number;
+  wristScreen?: number;
+  screenBrightness?: number;
+  screenOnDuration?: number;
+  contactsType?: number;
+  weather?: number;
+  worldClock?: number;
+  b3AutoMeasure?: number;
+  healthAssessment?: number;
+  microCheckup?: number;
+  hidFunction?: number;
+  lteFunction?: number;
 }
 
 export interface WearableSportCapability {
@@ -270,7 +292,10 @@ export function emptyCapabilities(): WearableCapabilities {
     activity: false, sleep: false, heart: false, pressure: false, oxygen: false,
     temperature: false, glucose: false, hrv: false, ecg: false, bodyComposition: false,
     bloodComponents: false, sport: false, alarm: false, sedentaryReminder: false,
-    notification: false, findDevice: false, dial: false
+    notification: false, findDevice: false, dial: false, photoDial: false,
+    camera: false, phoneCalls: false, contacts: false, weather: false,
+    worldClock: false, healthReminder: false, healthMonitoring: false,
+    healthAssessment: false, screenDisplay: false
   };
 }
 
@@ -386,7 +411,29 @@ export function capabilitiesFromFeatureList(feature?: WearableFeatureWire): Wear
     notification: (feature.messageNotifyPackets ?? 0) > 0,
     findDevice: (feature.findBand ?? 0) > 0,
     dial: (feature.uiStyleCount ?? 0) > 0 || (feature.moreWatchfaceCount ?? 0) > 0 ||
-      (feature.customWatchfaceCount ?? 0) > 0
+      (feature.customWatchfaceCount ?? 0) > 0,
+    photoDial: (feature.customWatchfaceCount ?? 0) > 0,
+    camera: (feature.camera ?? 0) > 0,
+    // The Harmony SDK does not expose Android's isSupportBTFunction flag.
+    // A positive HID/LTE/contact transport flag is the closest device-side
+    // capability signal; the BtService readback remains the final gate.
+    phoneCalls: (feature.hidFunction ?? 0) > 0 || (feature.lteFunction ?? 0) > 0 ||
+      (feature.contactsType ?? 0) > 0,
+    contacts: (feature.contactsType ?? 0) > 0,
+    weather: (feature.weather ?? 0) > 0,
+    worldClock: (feature.worldClock ?? 0) > 0,
+    healthReminder: (feature.healthReminder ?? 0) > 0,
+    // Older W9/W9S firmware can expose the individual health sensors while
+    // leaving the newer B3 aggregate flag unset. Keep the entry visible for
+    // those devices and let AutoMeasureService return the exact configurable
+    // items instead of incorrectly hiding the whole page.
+    healthMonitoring: (feature.b3AutoMeasure ?? 0) > 0 ||
+      (feature.heartRateFunction !== undefined && feature.heartRateFunction !== 1) ||
+      (feature.bloodPressure ?? 0) > 0 || (feature.bloodOxygen ?? 0) > 0 ||
+      (feature.bodyTemp ?? 0) > 0 || (feature.hrv ?? 0) > 0,
+    healthAssessment: (feature.healthAssessment ?? 0) > 0 || (feature.microCheckup ?? 0) > 0,
+    screenDisplay: (feature.screenBrightness ?? 0) > 0 || (feature.screenOnDuration ?? 0) > 0 ||
+      (feature.wristScreen ?? 0) > 0
   };
 }
 
