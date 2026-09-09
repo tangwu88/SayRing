@@ -98,6 +98,7 @@ The Gradle gate rejects this switch for Release builds. The emulator validates F
 - File: `build/global-qa/Saydian-global-0.1.20+1002-qa.apk` (68,190,604 bytes, ignored by Git).
 - SHA-256: `a3169fe4c897da4222d603189d9003fe0cd08e326dd4ae5df42bf07978c1ab66`.
 - Package: `cn.saydian.app.global`; label `Saydian`; version `0.1.20+1002`; Android 8+/two ARM ABIs. Both Debug and Release QA compile; Release is debug-signed, not an app-store package.
+- The immutable QA APK above predates deployed-prefix alignment and still contains the old `/global/api/saydian-app/v2` base. Do not use it for online API acceptance. Source commit `cabe42a8a2e5e64b1ce3d98f4ff3703d67baeeed` and the current emulator Debug build use `/api/saydian-app/v2`; rebuild and rehash before distributing a replacement QA package.
 - Latest Harmony camera merge host tests: 481/481. No HAP/iOS binary has been supplied.
 - No phone is currently visible to ADB. Installation coexistence and watch tests remain pending. Before handing a copied APK to QA, verify this hash; never point the domestic download page at it.
 - App V2 routes are deployed, but `auth/capabilities` remains HTTP 404 and the independent international account realm has not been accepted. This APK is for UI/device QA, not proof of working online registration, account isolation or commerce. Supply reviewed legal text and separately approved provider/realm configuration before live onboarding tests.
