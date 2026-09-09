@@ -56,3 +56,25 @@ App 基线：`e9c64713322fc0419414f7f6b43e9bd9d330c9b5`
 - 服务端部署模板默认关闭临时开关，当前本地协议仅为 QA 占位，未获正式法律审核。
 - 真实邮箱/短信投递、密码找回、未验证账号升级、滥用防护现场验证、物理手机、手表、iPhone/HarmonyOS 真机和商店签名仍未验收。
 - 临时免验证码不能成为永久安全设计；正式开放前需确定验证恢复与既有未验证账号处理策略。
+
+## 物理安卓真机调试（2026-09-09）
+
+### 范围、基线与预期
+
+- 修改前执行 `git fetch origin --prune`；工作树干净，`HEAD`、`origin/main` 均为 `345a34283cdfad066eb9cf1c82d7d3056ac8667e`，ahead/behind 为 `0/0`。
+- 目标为华为 PPA-LX3、Android 10 / API 29、arm64-v8a；只安装并启动国际版 Debug，不卸载 App、不清除账号、设备绑定或健康数据。
+- 预期先确认正式接口现状，再通过隔离本地 API 验证“注册暂不需要验证码”；不提交真实注册、不写生产数据。
+
+### 命令、结果与修复
+
+- 初次 `adb devices -l` 只有模拟器；Windows 仅识别手机的 MTP/存储接口。手机允许 RSA 调试后执行 `pnputil /scan-devices`、重启 ADB，`ADB Interface` 正常枚举，Flutter 识别物理 arm64 真机。
+- 使用 `flutter run --debug --no-pub` 和正式根地址 `https://app.saydian.cn` 构建、安装并启动成功；包为 `cn.saydian.app.global`、`0.1.20+1002`，MainActivity 为前台，Dart VM Service 已连接。正式 `/api/saydian-app/v2/auth/capabilities` 尚未部署，登录页按预期显示重试状态，不能据此验收注册。
+- 本地 `127.0.0.1:8082` 能力接口返回 HTTP 200，并明确给出邮箱/手机号注册可用及 `verificationRequired=false`。执行 `adb reverse tcp:8082 tcp:8082`，再用 `SAYDIAN_API_BASE_URL=http://127.0.0.1:8082`、`SAYDIAN_ALLOW_LOCAL_DEBUG_API=true` 重启 Debug。
+- UI Automator 初次复核：英文登录页不再显示网络错误，已进入 `Create account` 模式，Email/Phone number 均可选且没有验证码控件。自动化没有点击最终创建按钮；随后手机端人工操作推进到系统位置权限页，未读取账号内容、未检查或删除人工产生的本地 QA 数据。
+- 最近目标进程日志精确检查未发现 `FATAL EXCEPTION`、`AndroidRuntime: FATAL`、`E/flutter` 或 `Unhandled Exception`。首次筛选脚本误用了 PowerShell 只读 `$PID`；改为任务专用 `$appProcessId` 后重新执行通过，App 本身没有因此失败。
+- Debug 冷启动在这台 Android 10 真机上记录到 313/132 帧跳过；本轮未出现崩溃或不可操作，但该数据仅作后续 Profile/Release 性能验收线索，不能将 Debug 启动抖动直接判为正式包性能结论。
+
+### 当前边界
+
+- 真机 Debug 与隔离免验证码注册页面已验收，调试服务保持连接；本机 API 和 ADB reverse 仅在当前电脑/USB 会话有效。
+- 本轮自动化未提交注册、登录、健康写入或支付；手机端人工操作可能已改变本地 QA 登录状态，现状予以保留。未测试手表连接；生产国际认证服务仍未部署，线上注册继续不可用。
