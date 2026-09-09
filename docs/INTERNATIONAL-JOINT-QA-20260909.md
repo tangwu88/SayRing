@@ -90,6 +90,8 @@ Expected result: first-party network operations stay on the isolated new-domain 
 
 ## Final QA artifacts (normal entrypoint; internal only)
 
+The table below records the `b323114` checkpoint. The subsequent relative-media correction, regression results and replacement APKs are in [2026-09-10 media compatibility follow-up](INTERNATIONAL-MEDIA-COMPATIBILITY-20260910.md); use that follow-up for the latest deliverable.
+
 Version **0.1.21 / 1003**, package `cn.saydian.app.global`, label **Saydian**, ABIs `armeabi-v7a, arm64-v8a`. Same non-production signing certificate as the prior installed QA package; not an app-store release.
 
 | Artifact under ignored `build/joint-qa-20260909/` | Bytes | SHA-256 |

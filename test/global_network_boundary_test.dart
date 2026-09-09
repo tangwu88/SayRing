@@ -50,6 +50,78 @@ void main() {
     );
   });
 
+  for (final path in [
+    '/global/media/catalog/a.png?size=small',
+    '/global/assets/brand/logo.png',
+    '/global/media/%E5%95%86%E5%93%81/a%20b.png?signature=test%2Bvalue',
+    '/global/assets/icons/a%20b.png?size=48',
+  ]) {
+    test(
+      'relative global media matches its absolute resource: $path',
+      () async {
+        final absolute = '$root$path';
+        expect(GlobalEnvironment.media(path), absolute);
+        expect(GlobalEnvironment.media(absolute), absolute);
+        var sent = 0;
+        final client = SafeResourceClient(
+          purpose: ResourcePurpose.image,
+          inner: MockClient((request) async {
+            sent++;
+            expect(request.url.toString(), absolute);
+            expect(request.followRedirects, isFalse);
+            return http.Response('image', 200);
+          }),
+        );
+        expect(
+          (await client.get(
+            Uri.parse(GlobalEnvironment.media(path)),
+          )).statusCode,
+          200,
+        );
+        expect(sent, 1);
+        client.close();
+      },
+    );
+  }
+
+  test('relative media does not expand the approved resource boundary', () {
+    for (final path in [
+      '/media/a.png',
+      '/global/media-other/a.png',
+      '/global/assets-other/a.png',
+      '/api/saydian-app/v1/files/a.png',
+      '//app.saydian.cn/global/media/a.png',
+      '//app.saidian.cc/global/media/a.png',
+      '/global/media/a.png#private',
+      '/global/assets/%252e%252e/media/a.png',
+      '/global/media/%2e%2e/assets/a.png',
+      '/global/media/../assets/a.png',
+      '/global/assets/./a.png',
+      '/global/media/a%2f..%2f../assets/a.png',
+      r'/global/media/\private.png',
+      '/global/media/%255cprivate.png',
+    ]) {
+      expect(GlobalEnvironment.media(path), isEmpty, reason: path);
+    }
+  });
+
+  test('media support does not broaden the API path resolver', () {
+    expect(
+      GlobalEnvironment.media('/api/saydian-app/v2/files/test/content'),
+      file,
+    );
+    expect(
+      GlobalEnvironment.media('/global/api/saydian-app/v2/files/test/content'),
+      file,
+    );
+    for (final path in ['/global/media/a.png', '/global/assets/a.png']) {
+      expect(
+        () => GlobalEnvironment.resolve(Uri.parse(root), path),
+        throwsArgumentError,
+      );
+    }
+  });
+
   for (final url in [
     'https://app.saidian.cc/file',
     'https://sd.cc/file',

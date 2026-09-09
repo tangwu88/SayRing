@@ -121,6 +121,14 @@ abstract final class GlobalEnvironment {
       return allowsFirstPartyResource(uri) ? uri.toString() : '';
     }
     try {
+      if (uri.path.startsWith('/global/media/') ||
+          uri.path.startsWith('/global/assets/')) {
+        // Check the original path before URI resolution can normalize traversal.
+        final rawPath = input.trim().split(RegExp(r'[?#]')).first;
+        if (!_safePath(rawPath) || !safeResourcePath(uri)) return '';
+        final resolved = configuredOrigin.resolveUri(uri);
+        return allowsFirstPartyResource(resolved) ? resolved.toString() : '';
+      }
       return resolve(configuredOrigin, deployedPath(input.trim())).toString();
     } on ArgumentError {
       return '';
@@ -129,12 +137,16 @@ abstract final class GlobalEnvironment {
 
   static bool safeResourcePath(Uri uri) {
     if (uri.userInfo.isNotEmpty || uri.hasFragment) return false;
-    var path = uri.path;
+    return _safePath(uri.path);
+  }
+
+  static bool _safePath(String path) {
     for (var round = 0; round < 4; round++) {
       if (path.contains('\\') ||
           path.split('/').any((part) => part == '.' || part == '..')) {
         return false;
       }
+      if (!path.contains('%')) return true;
       try {
         final next = Uri.decodeComponent(path);
         if (next == path) return true;
