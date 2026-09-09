@@ -1,4 +1,8 @@
 {
+  "scanLocationTitle": "请开启手机定位",
+  "scanLocationHint": "请在设置中开启手机定位，再返回此页面查找附近的手表。",
+  "scanPermissionTitle": "请允许相关权限",
+  "scanPermissionHint": "请在设置中允许相关权限，再返回此页面查找手表。",
   "loginProtectionTitle": "登录保护",
   "verifyContactToReset": "验证邮箱或手机号后重新设置密码",
   "workoutStartOnWatch": "当前手表未开放由 APP 启动的运动模式，请直接在手表上开始运动。",

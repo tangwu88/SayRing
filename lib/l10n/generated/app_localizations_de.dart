@@ -9,6 +9,20 @@ class AppLocalizationsDe extends AppLocalizations {
   AppLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
+  String get scanLocationTitle => 'Standort einschalten';
+
+  @override
+  String get scanLocationHint =>
+      'Aktiviere die Standortdienste deines Telefons und kehre zurück, um Uhren in der Nähe zu finden.';
+
+  @override
+  String get scanPermissionTitle => 'Gerätezugriff erlauben';
+
+  @override
+  String get scanPermissionHint =>
+      'Erlaube die erforderlichen Berechtigungen in den Einstellungen und kehre zurück, um deine Uhr zu finden.';
+
+  @override
   String get loginProtectionTitle => 'Anmeldeschutz';
 
   @override

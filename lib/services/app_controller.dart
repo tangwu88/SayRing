@@ -47,6 +47,8 @@ enum PushDeviceRegistrationState {
   failed,
 }
 
+enum DeviceScanIssue { permissionsRequired, locationServiceDisabled }
+
 const _defaultPushRegistrationRetryDelays = <Duration>[
   Duration(seconds: 2),
   Duration(seconds: 5),
@@ -319,6 +321,7 @@ class AppController extends ChangeNotifier {
   bool sportPaused = false;
   Map<String, num> liveSportData = const {};
   List<DeviceInfo> scannedDevices = const [];
+  DeviceScanIssue? deviceScanIssue;
   List<HealthRecord> healthRecords = const [];
   List<SportRecord> sportRecords = const [];
   List<Map<String, Object?>> careMembers = const [];
@@ -1191,9 +1194,11 @@ class AppController extends ChangeNotifier {
 
   Future<void> scanDevices() async {
     errorMessage = null;
+    deviceScanIssue = null;
     scannedDevices = const [];
     try {
       if (!await _ensureBluetoothPermissions()) {
+        deviceScanIssue = DeviceScanIssue.permissionsRequired;
         errorMessage = '允许相关权限后使用';
         notifyListeners();
         return;
@@ -1217,6 +1222,13 @@ class AppController extends ChangeNotifier {
       errorMessage = '此功能暂时无法使用，请稍后再试';
       deviceMachine.transition(DeviceConnectionState.error);
     } on PlatformException catch (error) {
+      deviceScanIssue = switch (error.code) {
+        'LOCATION_SERVICE_DISABLED' => DeviceScanIssue.locationServiceDisabled,
+        'BLE_PERMISSION_DENIED' ||
+        'BLE_PERMISSION_REQUIRED' ||
+        'BLUETOOTH_PERMISSION_REQUIRED' => DeviceScanIssue.permissionsRequired,
+        _ => null,
+      };
       errorMessage = _wearableErrorMessage(error, fallback: '暂时无法查找手表');
       deviceMachine.transition(DeviceConnectionState.error);
     } catch (_) {
@@ -1250,7 +1262,19 @@ class AppController extends ChangeNotifier {
         ? [Permission.bluetoothScan, Permission.bluetoothConnect]
         : [Permission.locationWhenInUse];
     final statuses = await permissions.request();
-    return statuses.values.every((status) => status.isGranted);
+    if (!statuses.values.every((status) => status.isGranted)) return false;
+    // Android 11 and older also gate BLE scan results on the system location
+    // switch. Check before either vendor scanner starts; permissions alone do
+    // not prove that scanning is available. Android 12+ uses nearby devices.
+    if (android.version.sdkInt <= 30 &&
+        await Permission.locationWhenInUse.serviceStatus !=
+            ServiceStatus.enabled) {
+      throw PlatformException(
+        code: 'LOCATION_SERVICE_DISABLED',
+        message: '请开启手机定位后再查找手表',
+      );
+    }
+    return true;
   }
 
   Future<void> connectDevice(DeviceInfo device) async {
@@ -4529,7 +4553,8 @@ class AppController extends ChangeNotifier {
     final nativeMessage = error.message?.trim();
     final mappedMessage = switch (error.code) {
       'BLUETOOTH_DISABLED' => '请先打开手机蓝牙',
-      'BLE_PERMISSION_DENIED' || 'LOCATION_SERVICE_DISABLED' => '允许相关权限后使用',
+      'BLE_PERMISSION_DENIED' => '允许相关权限后使用',
+      'LOCATION_SERVICE_DISABLED' => '请开启手机定位后再查找手表',
       'DEVICE_NOT_FOUND' => '手表已离开搜索范围，请重新搜索',
       'NOT_CONNECTED' => '连接手表后使用',
       'UNSUPPORTED_METRIC' ||

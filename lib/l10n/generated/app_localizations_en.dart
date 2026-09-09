@@ -9,6 +9,20 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get scanLocationTitle => 'Turn on location';
+
+  @override
+  String get scanLocationHint =>
+      'Turn on your phone’s location services to find nearby watches, then return to this page.';
+
+  @override
+  String get scanPermissionTitle => 'Allow device access';
+
+  @override
+  String get scanPermissionHint =>
+      'Allow the required permissions in Settings, then return to find your watch.';
+
+  @override
   String get loginProtectionTitle => 'Sign-in protection';
 
   @override

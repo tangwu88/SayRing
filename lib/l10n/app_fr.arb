@@ -1,4 +1,8 @@
 {
+  "scanLocationTitle": "Activer la localisation",
+  "scanLocationHint": "Activez la localisation de votre téléphone, puis revenez ici pour rechercher les montres à proximité.",
+  "scanPermissionTitle": "Autoriser l’accès aux appareils",
+  "scanPermissionHint": "Accordez les autorisations nécessaires dans les réglages, puis revenez rechercher votre montre.",
   "loginProtectionTitle": "Protection de la connexion",
   "verifyContactToReset": "Vérifiez votre adresse e-mail ou votre numéro de téléphone pour réinitialiser le mot de passe.",
   "workoutStartOnWatch": "Cette montre ne peut pas démarrer un entraînement depuis l’application. Démarrez-le directement sur la montre.",

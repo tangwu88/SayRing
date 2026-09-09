@@ -4947,12 +4947,16 @@ class DeviceSearchPage extends StatefulWidget {
   State<DeviceSearchPage> createState() => _DeviceSearchPageState();
 }
 
-class _DeviceSearchPageState extends State<DeviceSearchPage> {
+class _DeviceSearchPageState extends State<DeviceSearchPage>
+    with WidgetsBindingObserver {
   String? _connectingDeviceId;
+  bool _scanInFlight = false;
+  bool _awaitingScanSettingsReturn = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_startScan());
     });
@@ -4960,6 +4964,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(widget.controller.stopDeviceScan());
     if (_connectingDeviceId != null) {
       unawaited(widget.controller.disconnectDevice());
@@ -4968,9 +4973,43 @@ class _DeviceSearchPageState extends State<DeviceSearchPage> {
   }
 
   Future<void> _startScan() async {
-    if (_connectingDeviceId != null) return;
-    widget.controller.clearError();
-    await widget.controller.scanDevices();
+    if (_connectingDeviceId != null || _scanInFlight) return;
+    _scanInFlight = true;
+    try {
+      widget.controller.clearError();
+      await widget.controller.scanDevices();
+    } finally {
+      _scanInFlight = false;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _awaitingScanSettingsReturn) {
+      _awaitingScanSettingsReturn = false;
+      if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+        unawaited(_startScan());
+      }
+    }
+  }
+
+  Future<void> _openScanSettings() async {
+    final issue = widget.controller.deviceScanIssue;
+    if (issue == null || _awaitingScanSettingsReturn) return;
+    _awaitingScanSettingsReturn = true;
+    try {
+      final opened = issue == DeviceScanIssue.locationServiceDisabled
+          ? await Geolocator.openLocationSettings()
+          : await openAppSettings();
+      if (!opened) _awaitingScanSettingsReturn = false;
+    } catch (_) {
+      _awaitingScanSettingsReturn = false;
+    }
+    if (mounted && !_awaitingScanSettingsReturn) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_scanIssueHint(context, issue))));
+    }
   }
 
   Future<void> _connect(DeviceInfo device) async {
@@ -5019,7 +5058,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage> {
               title: Text(context.l10n.addDevice),
               actions: [
                 IconButton(
-                  tooltip: '重新搜索',
+                  tooltip: context.l10n.searchAgain,
                   onPressed: scanning || connecting ? null : _startScan,
                   icon: const Icon(Icons.refresh_rounded),
                 ),
@@ -5030,6 +5069,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage> {
                   ? _DeviceSearchEmpty(
                       scanning: scanning,
                       errorMessage: controller.errorMessage,
+                      issue: controller.deviceScanIssue,
+                      onOpenSettings: _openScanSettings,
                       onRetry: scanning || connecting ? null : _startScan,
                     )
                   : ListView(
@@ -5241,11 +5282,15 @@ class _DeviceSearchEmpty extends StatelessWidget {
   const _DeviceSearchEmpty({
     required this.scanning,
     required this.errorMessage,
+    required this.issue,
+    required this.onOpenSettings,
     required this.onRetry,
   });
 
   final bool scanning;
   final String? errorMessage;
+  final DeviceScanIssue? issue;
+  final VoidCallback onOpenSettings;
   final VoidCallback? onRetry;
 
   @override
@@ -5266,14 +5311,28 @@ class _DeviceSearchEmpty extends StatelessWidget {
             shape: BoxShape.circle,
           ),
           child: Icon(
-            scanning ? Icons.radar_rounded : Icons.watch_off_outlined,
+            scanning
+                ? Icons.radar_rounded
+                : issue == DeviceScanIssue.locationServiceDisabled
+                ? Icons.location_off_outlined
+                : issue != null
+                ? Icons.settings_outlined
+                : Icons.watch_off_outlined,
             color: SaydianColors.blue,
             size: 76,
           ),
         ),
         const SizedBox(height: 28),
         Text(
-          scanning ? context.l10n.searchingNearby : context.l10n.noDevices,
+          scanning
+              ? context.l10n.searchingNearby
+              : switch (issue) {
+                  DeviceScanIssue.locationServiceDisabled =>
+                    context.l10n.scanLocationTitle,
+                  DeviceScanIssue.permissionsRequired =>
+                    context.l10n.scanPermissionTitle,
+                  null => context.l10n.noDevices,
+                },
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
         ),
@@ -5281,6 +5340,8 @@ class _DeviceSearchEmpty extends StatelessWidget {
         Text(
           scanning
               ? context.l10n.activateWatch
+              : issue != null
+              ? _scanIssueHint(context, issue!)
               : (errorMessage?.trim().isNotEmpty ?? false)
               ? errorMessage!
               : context.l10n.checkWatchConnection,
@@ -5292,22 +5353,39 @@ class _DeviceSearchEmpty extends StatelessWidget {
           const LinearProgressIndicator(),
         ] else ...[
           const SizedBox(height: 26),
+          if (issue != null) ...[
+            FilledButton.icon(
+              key: const Key('device-scan-open-settings'),
+              onPressed: onOpenSettings,
+              icon: const Icon(Icons.settings_outlined),
+              label: Text(context.l10n.goToSettings),
+            ),
+            const SizedBox(height: 12),
+          ],
           FilledButton.icon(
             onPressed: onRetry,
             icon: const Icon(Icons.refresh_rounded),
             label: Text(context.l10n.searchAgain),
           ),
-          const SizedBox(height: 20),
-          _InlineNotice(
-            message: context.l10n.searchRecovery,
-            icon: Icons.info_outline_rounded,
-            color: SaydianColors.blue,
-          ),
+          if (issue == null) ...[
+            const SizedBox(height: 20),
+            _InlineNotice(
+              message: context.l10n.searchRecovery,
+              icon: Icons.info_outline_rounded,
+              color: SaydianColors.blue,
+            ),
+          ],
         ],
       ],
     );
   }
 }
+
+String _scanIssueHint(BuildContext context, DeviceScanIssue issue) =>
+    switch (issue) {
+      DeviceScanIssue.locationServiceDisabled => context.l10n.scanLocationHint,
+      DeviceScanIssue.permissionsRequired => context.l10n.scanPermissionHint,
+    };
 
 class DeviceInfoPage extends StatefulWidget {
   const DeviceInfoPage({required this.controller, super.key});

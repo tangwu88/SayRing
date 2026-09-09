@@ -9,6 +9,18 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get scanLocationTitle => '请开启手机定位';
+
+  @override
+  String get scanLocationHint => '请在设置中开启手机定位，再返回此页面查找附近的手表。';
+
+  @override
+  String get scanPermissionTitle => '请允许相关权限';
+
+  @override
+  String get scanPermissionHint => '请在设置中允许相关权限，再返回此页面查找手表。';
+
+  @override
   String get loginProtectionTitle => '登录保护';
 
   @override
@@ -1558,6 +1570,18 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   AppLocalizationsZhHans() : super('zh_Hans');
 
   @override
+  String get scanLocationTitle => '请开启手机定位';
+
+  @override
+  String get scanLocationHint => '请在设置中开启手机定位，再返回此页面查找附近的手表。';
+
+  @override
+  String get scanPermissionTitle => '请允许相关权限';
+
+  @override
+  String get scanPermissionHint => '请在设置中允许相关权限，再返回此页面查找手表。';
+
+  @override
   String get loginProtectionTitle => '登录保护';
 
   @override
@@ -3105,6 +3129,18 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 /// The translations for Chinese, using the Han script (`zh_Hant`).
 class AppLocalizationsZhHant extends AppLocalizationsZh {
   AppLocalizationsZhHant() : super('zh_Hant');
+
+  @override
+  String get scanLocationTitle => '請開啟手機定位';
+
+  @override
+  String get scanLocationHint => '請在設定中開啟手機定位，再返回此頁面尋找附近的手錶。';
+
+  @override
+  String get scanPermissionTitle => '請允許相關權限';
+
+  @override
+  String get scanPermissionHint => '請在設定中允許相關權限，再返回此頁面尋找手錶。';
 
   @override
   String get loginProtectionTitle => '登入保護';

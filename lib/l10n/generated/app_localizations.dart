@@ -110,6 +110,30 @@ abstract class AppLocalizations {
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
   ];
 
+  /// No description provided for @scanLocationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on location'**
+  String get scanLocationTitle;
+
+  /// No description provided for @scanLocationHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on your phone’s location services to find nearby watches, then return to this page.'**
+  String get scanLocationHint;
+
+  /// No description provided for @scanPermissionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow device access'**
+  String get scanPermissionTitle;
+
+  /// No description provided for @scanPermissionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the required permissions in Settings, then return to find your watch.'**
+  String get scanPermissionHint;
+
   /// No description provided for @loginProtectionTitle.
   ///
   /// In en, this message translates to:

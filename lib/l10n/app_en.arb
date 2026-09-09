@@ -1,4 +1,8 @@
 {
+  "scanLocationTitle": "Turn on location",
+  "scanLocationHint": "Turn on your phone’s location services to find nearby watches, then return to this page.",
+  "scanPermissionTitle": "Allow device access",
+  "scanPermissionHint": "Allow the required permissions in Settings, then return to find your watch.",
   "loginProtectionTitle": "Sign-in protection",
   "verifyContactToReset": "Verify your email or phone number to reset your password.",
   "workoutStartOnWatch": "This watch cannot start workouts from the app. Start the workout directly on your watch.",

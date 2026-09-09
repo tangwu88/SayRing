@@ -9,6 +9,20 @@ class AppLocalizationsEs extends AppLocalizations {
   AppLocalizationsEs([String locale = 'es']) : super(locale);
 
   @override
+  String get scanLocationTitle => 'Activa la ubicación';
+
+  @override
+  String get scanLocationHint =>
+      'Activa la ubicación del teléfono y vuelve a esta página para buscar relojes cercanos.';
+
+  @override
+  String get scanPermissionTitle => 'Permite el acceso a dispositivos';
+
+  @override
+  String get scanPermissionHint =>
+      'Concede los permisos necesarios en Ajustes y vuelve para buscar tu reloj.';
+
+  @override
   String get loginProtectionTitle => 'Protección del inicio de sesión';
 
   @override

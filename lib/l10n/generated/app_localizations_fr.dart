@@ -9,6 +9,20 @@ class AppLocalizationsFr extends AppLocalizations {
   AppLocalizationsFr([String locale = 'fr']) : super(locale);
 
   @override
+  String get scanLocationTitle => 'Activer la localisation';
+
+  @override
+  String get scanLocationHint =>
+      'Activez la localisation de votre téléphone, puis revenez ici pour rechercher les montres à proximité.';
+
+  @override
+  String get scanPermissionTitle => 'Autoriser l’accès aux appareils';
+
+  @override
+  String get scanPermissionHint =>
+      'Accordez les autorisations nécessaires dans les réglages, puis revenez rechercher votre montre.';
+
+  @override
   String get loginProtectionTitle => 'Protection de la connexion';
 
   @override

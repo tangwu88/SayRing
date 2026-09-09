@@ -1,4 +1,8 @@
 {
+  "scanLocationTitle": "請開啟手機定位",
+  "scanLocationHint": "請在設定中開啟手機定位，再返回此頁面尋找附近的手錶。",
+  "scanPermissionTitle": "請允許相關權限",
+  "scanPermissionHint": "請在設定中允許相關權限，再返回此頁面尋找手錶。",
   "loginProtectionTitle": "登入保護",
   "verifyContactToReset": "驗證電子郵件或手機號碼後重新設定密碼",
   "workoutStartOnWatch": "目前手錶不支援從 App 啟動運動，請直接在手錶上開始運動。",

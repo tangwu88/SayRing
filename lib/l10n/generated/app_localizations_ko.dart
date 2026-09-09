@@ -9,6 +9,19 @@ class AppLocalizationsKo extends AppLocalizations {
   AppLocalizationsKo([String locale = 'ko']) : super(locale);
 
   @override
+  String get scanLocationTitle => '위치 서비스를 켜 주세요';
+
+  @override
+  String get scanLocationHint =>
+      '설정에서 휴대전화의 위치 서비스를 켠 후 이 화면으로 돌아와 주변 워치를 검색해 주세요.';
+
+  @override
+  String get scanPermissionTitle => '기기 접근을 허용해 주세요';
+
+  @override
+  String get scanPermissionHint => '설정에서 필요한 권한을 허용한 후 이 화면으로 돌아와 워치를 검색해 주세요.';
+
+  @override
   String get loginProtectionTitle => '로그인 보호';
 
   @override

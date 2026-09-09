@@ -1,4 +1,8 @@
 {
+  "scanLocationTitle": "位置情報をオンにしてください",
+  "scanLocationHint": "設定でスマートフォンの位置情報をオンにしてから、この画面に戻って近くのウォッチを検索してください。",
+  "scanPermissionTitle": "必要な権限を許可してください",
+  "scanPermissionHint": "設定で必要な権限を許可してから、この画面に戻ってウォッチを検索してください。",
   "loginProtectionTitle": "ログイン保護",
   "verifyContactToReset": "メールアドレスまたは電話番号を確認して、パスワードを再設定します。",
   "workoutStartOnWatch": "この腕時計ではアプリから運動を開始できません。腕時計で直接開始してください。",

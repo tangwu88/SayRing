@@ -1,4 +1,8 @@
 {
+  "scanLocationTitle": "Activa la ubicación",
+  "scanLocationHint": "Activa la ubicación del teléfono y vuelve a esta página para buscar relojes cercanos.",
+  "scanPermissionTitle": "Permite el acceso a dispositivos",
+  "scanPermissionHint": "Concede los permisos necesarios en Ajustes y vuelve para buscar tu reloj.",
   "loginProtectionTitle": "Protección del inicio de sesión",
   "verifyContactToReset": "Verifica tu correo o teléfono para restablecer la contraseña.",
   "workoutStartOnWatch": "Este reloj no permite iniciar entrenamientos desde la app. Inícialos directamente en el reloj.",

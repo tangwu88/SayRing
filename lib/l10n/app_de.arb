@@ -1,4 +1,8 @@
 {
+  "scanLocationTitle": "Standort einschalten",
+  "scanLocationHint": "Aktiviere die Standortdienste deines Telefons und kehre zurück, um Uhren in der Nähe zu finden.",
+  "scanPermissionTitle": "Gerätezugriff erlauben",
+  "scanPermissionHint": "Erlaube die erforderlichen Berechtigungen in den Einstellungen und kehre zurück, um deine Uhr zu finden.",
   "loginProtectionTitle": "Anmeldeschutz",
   "verifyContactToReset": "Bestätigen Sie Ihre E-Mail-Adresse oder Telefonnummer, um das Passwort zurückzusetzen.",
   "workoutStartOnWatch": "Diese Uhr kann Trainings nicht über die App starten. Starten Sie das Training direkt auf Ihrer Uhr.",

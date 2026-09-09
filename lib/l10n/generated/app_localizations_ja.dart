@@ -9,6 +9,19 @@ class AppLocalizationsJa extends AppLocalizations {
   AppLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
+  String get scanLocationTitle => '位置情報をオンにしてください';
+
+  @override
+  String get scanLocationHint =>
+      '設定でスマートフォンの位置情報をオンにしてから、この画面に戻って近くのウォッチを検索してください。';
+
+  @override
+  String get scanPermissionTitle => '必要な権限を許可してください';
+
+  @override
+  String get scanPermissionHint => '設定で必要な権限を許可してから、この画面に戻ってウォッチを検索してください。';
+
+  @override
   String get loginProtectionTitle => 'ログイン保護';
 
   @override
