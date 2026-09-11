@@ -6,6 +6,7 @@ const source = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'u
 const activity = source('android/app/src/main/kotlin/cc/saidian/saydian_app/MainActivity.kt');
 const stages = source('android/app/src/main/kotlin/cc/saidian/saydian_app/PrivateStageLog.kt');
 const yucheng = source('android/yc_product_plugin_android/build.gradle');
+const releaseRules = source('android/app/proguard-rules.pro');
 const jpush = 'third_party/jpush_flutter/android/src/main/java/com/jiguang/jpush/';
 
 test('Veepoo disables protocol, transport and file logging in every build', () => {
@@ -66,5 +67,12 @@ test('vendor wrapper logger sinks have no output or persistence calls', () => {
     const text = source(path);
     assert.equal((text.match(/return 0;/g) ?? []).length, 4);
     assert.doesNotMatch(text, /android\.util|System\.|File|Writer|printStackTrace/);
+  }
+});
+
+test('release optimization removes direct Android Log calls from closed SDKs', () => {
+  assert.match(releaseRules, /-assumenosideeffects class android\.util\.Log/);
+  for (const level of ['v', 'd', 'i', 'w', 'e', 'wtf', 'println']) {
+    assert.match(releaseRules, new RegExp(`public static int ${level}\\(\\.\\.\\.\\);`));
   }
 });

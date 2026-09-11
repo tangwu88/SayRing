@@ -3416,9 +3416,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
 
   Widget _buildNotificationsPanel(bool busy) {
     if (_featureData.isEmpty) return _loadingCard(busy, '消息通知设置');
-    final supported = (_featureData['supportedKeys'] as List?)
-        ?.map((value) => '$value')
-        .toSet();
+    final supported =
+        (_featureData['supportedKeys'] as List?)
+            ?.map((value) => '$value')
+            .toSet() ??
+        const <String>{};
     final entries = <(String, String, String)>[
       ('incomingCall', '来电提醒', '有电话时在手表提醒'),
       ('sms', '短信', '在手表显示短信提醒'),
@@ -3431,6 +3433,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       ('telegram', 'Telegram', '在手表显示 Telegram 消息提醒'),
       ('otherApps', '其他应用', '接收其他已允许应用的消息提醒'),
     ];
+    final visibleEntries = entries
+        .where((entry) => supported.contains(entry.$1))
+        .toList(growable: false);
     final access = _featureData['notificationAccess'] == true;
     return Column(
       children: [
@@ -3452,23 +3457,25 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             ),
           ),
         ),
-        const SizedBox(height: 10),
-        Card(
-          child: Column(
-            children: [
-              for (var index = 0; index < entries.length; index++) ...[
-                _featureSwitch(
-                  keyName: entries[index].$1,
-                  title: entries[index].$2,
-                  subtitle: entries[index].$3,
-                  busy: busy,
-                  supported: supported?.contains(entries[index].$1) ?? true,
-                ),
-                if (index != entries.length - 1) const Divider(indent: 56),
+        if (visibleEntries.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Card(
+            child: Column(
+              children: [
+                for (var index = 0; index < visibleEntries.length; index++) ...[
+                  _featureSwitch(
+                    keyName: visibleEntries[index].$1,
+                    title: visibleEntries[index].$2,
+                    subtitle: visibleEntries[index].$3,
+                    busy: busy,
+                  ),
+                  if (index != visibleEntries.length - 1)
+                    const Divider(indent: 56),
+                ],
               ],
-            ],
+            ),
           ),
-        ),
+        ],
       ],
     );
   }
@@ -4235,7 +4242,22 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   Future<void> _showReminderEditor(Map<String, Object?> reminder) async {
     var startMinutes = (reminder['startMinutes'] as num?)?.toInt() ?? 480;
     var endMinutes = (reminder['endMinutes'] as num?)?.toInt() ?? 1320;
-    var interval = (reminder['intervalMinutes'] as num?)?.toInt() ?? 60;
+    final reportedInterval =
+        (reminder['intervalMinutes'] as num?)?.toInt() ?? 60;
+    var interval = reportedInterval >= 15 && reportedInterval <= 240
+        ? reportedInterval
+        : 60;
+    final intervalOptions = <int>{
+      15,
+      30,
+      45,
+      60,
+      90,
+      120,
+      180,
+      240,
+      interval,
+    }.toList(growable: false)..sort();
     final values = await showDialog<Map<String, Object?>>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -4287,7 +4309,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 decoration: InputDecoration(
                   labelText: context.l10n.reminderInterval,
                 ),
-                items: const [30, 45, 60, 90, 120]
+                items: intervalOptions
                     .map(
                       (minutes) => DropdownMenuItem(
                         value: minutes,

@@ -618,11 +618,12 @@ class AppLocalizationsFr extends AppLocalizations {
   String get noDevices => 'Aucun appareil trouvé';
 
   @override
-  String get selectWatch => 'Sélectionnez la montre à connecter';
+  String get selectWatch =>
+      'Vérifiez le nom et le signal, puis choisissez votre montre';
 
   @override
   String get searchingHint =>
-      'Recherche en cours. Gardez la montre près du téléphone.';
+      'Recherche en cours. Le signal se met à jour sans déplacer la liste.';
 
   @override
   String get activateWatch =>
@@ -630,7 +631,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get checkWatchConnection =>
-      'Vérifiez que la montre est chargée et déconnectée d’un autre téléphone, puis relancez la recherche';
+      'Si la montre est connectée au Bluetooth de ce téléphone ou d’un autre, déconnectez-la puis relancez la recherche';
 
   @override
   String get running => 'Course';
@@ -988,7 +989,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Essayez de réactiver le Bluetooth, de rapprocher la montre ou de la déconnecter d’un autre téléphone.';
+      'Gardez la montre près du téléphone. Si elle est connectée au Bluetooth système ou à un autre téléphone, déconnectez-la puis réessayez.';
 
   @override
   String get deviceName => 'Nom de l’appareil';
@@ -1474,6 +1475,13 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get syncData => 'Synchroniser les données';
+
+  @override
+  String get syncComplete => 'Données synchronisées';
+
+  @override
+  String get syncFailedTryAgain =>
+      'Échec de la synchronisation. Gardez la montre près du téléphone et réessayez.';
 
   @override
   String get disconnect => 'Déconnecter';

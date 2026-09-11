@@ -564,17 +564,17 @@ class AppLocalizationsKo extends AppLocalizations {
   String get noDevices => '기기를 찾지 못했습니다';
 
   @override
-  String get selectWatch => '연결할 워치를 선택하세요';
+  String get selectWatch => '이름과 신호 세기를 확인한 후 워치를 선택하세요';
 
   @override
-  String get searchingHint => '검색 중입니다. 워치를 휴대전화 가까이에 두세요.';
+  String get searchingHint => '검색 중입니다. 목록 위치는 그대로이고 신호 세기만 갱신됩니다.';
 
   @override
   String get activateWatch => '워치를 충전해 활성화한 후 휴대전화 가까이에 두세요';
 
   @override
   String get checkWatchConnection =>
-      '워치가 충전되어 있고 다른 휴대전화에 연결되지 않았는지 확인한 후 다시 검색하세요';
+      '이 휴대전화의 블루투스 설정이나 다른 휴대전화에 연결되어 있으면 먼저 연결을 해제한 후 다시 검색하세요';
 
   @override
   String get running => '달리기';
@@ -927,7 +927,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      '블루투스를 껐다 켜거나 워치를 가까이 두세요. 다른 휴대전화와 연결되어 있다면 연결을 해제하세요.';
+      '워치를 가까이 두세요. 시스템 블루투스나 다른 휴대전화에 연결되어 있다면 먼저 해제한 후 다시 시도하세요.';
 
   @override
   String get deviceName => '기기 이름';
@@ -1394,6 +1394,12 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get syncData => '데이터 동기화';
+
+  @override
+  String get syncComplete => '데이터를 동기화했습니다';
+
+  @override
+  String get syncFailedTryAgain => '동기화하지 못했습니다. 워치를 휴대전화 가까이에 두고 다시 시도하세요.';
 
   @override
   String get disconnect => '연결 해제';

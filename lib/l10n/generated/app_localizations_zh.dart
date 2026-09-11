@@ -538,16 +538,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get noDevices => '未发现设备';
 
   @override
-  String get selectWatch => '请选择需要连接的手表';
+  String get selectWatch => '请核对名称和信号强度，再选择手表';
 
   @override
-  String get searchingHint => '正在持续搜索，请将手表靠近手机';
+  String get searchingHint => '正在搜索，信号会更新，列表位置不会变化';
 
   @override
   String get activateWatch => '请取出设备、充电激活，并将手表靠近手机';
 
   @override
-  String get checkWatchConnection => '请确认手表有电且未连接其他手机，然后重新搜索';
+  String get checkWatchConnection => '若手表已连到本机系统蓝牙或其他手机，请先断开后重新搜索';
 
   @override
   String get running => '跑步';
@@ -899,7 +899,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get searchAgain => '重新搜索';
 
   @override
-  String get searchRecovery => '可尝试重新打开手机蓝牙、让手表靠近手机，或先在其他手机上断开该手表。';
+  String get searchRecovery => '请让手表靠近手机；若已连接本机系统蓝牙或其他手机，请先断开再重试。';
 
   @override
   String get deviceName => '设备名称';
@@ -1365,6 +1365,12 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get syncData => '同步数据';
+
+  @override
+  String get syncComplete => '数据同步完成';
+
+  @override
+  String get syncFailedTryAgain => '数据同步失败，请将手表靠近手机后重试';
 
   @override
   String get disconnect => '断开连接';
@@ -2108,16 +2114,16 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get noDevices => '未发现设备';
 
   @override
-  String get selectWatch => '请选择需要连接的手表';
+  String get selectWatch => '请核对名称和信号强度，再选择手表';
 
   @override
-  String get searchingHint => '正在持续搜索，请将手表靠近手机';
+  String get searchingHint => '正在搜索，信号会更新，列表位置不会变化';
 
   @override
   String get activateWatch => '请取出设备、充电激活，并将手表靠近手机';
 
   @override
-  String get checkWatchConnection => '请确认手表有电且未连接其他手机，然后重新搜索';
+  String get checkWatchConnection => '若手表已连到本机系统蓝牙或其他手机，请先断开后重新搜索';
 
   @override
   String get running => '跑步';
@@ -2469,7 +2475,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get searchAgain => '重新搜索';
 
   @override
-  String get searchRecovery => '可尝试重新打开手机蓝牙、让手表靠近手机，或先在其他手机上断开该手表。';
+  String get searchRecovery => '请让手表靠近手机；若已连接本机系统蓝牙或其他手机，请先断开再重试。';
 
   @override
   String get deviceName => '设备名称';
@@ -2935,6 +2941,12 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get syncData => '同步数据';
+
+  @override
+  String get syncComplete => '数据同步完成';
+
+  @override
+  String get syncFailedTryAgain => '数据同步失败，请将手表靠近手机后重试';
 
   @override
   String get disconnect => '断开连接';
@@ -3678,16 +3690,16 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get noDevices => '未發現裝置';
 
   @override
-  String get selectWatch => '請選擇要連接的手錶';
+  String get selectWatch => '請核對名稱和訊號強度，再選擇手錶';
 
   @override
-  String get searchingHint => '持續搜尋中，請將手錶靠近手機';
+  String get searchingHint => '正在搜尋，訊號會更新，清單位置不會變化';
 
   @override
   String get activateWatch => '請取出裝置、充電啟動，並將手錶靠近手機';
 
   @override
-  String get checkWatchConnection => '請確認手錶有電且未連接其他手機，再重新搜尋';
+  String get checkWatchConnection => '若手錶已連到本機系統藍牙或其他手機，請先中斷連線後重新搜尋';
 
   @override
   String get running => '跑步';
@@ -4039,7 +4051,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get searchAgain => '重新搜尋';
 
   @override
-  String get searchRecovery => '可嘗試重新開啟手機藍牙、讓手錶靠近手機，或先在其他手機上中斷該手錶連線。';
+  String get searchRecovery => '請讓手錶靠近手機；若已連接本機系統藍牙或其他手機，請先中斷連線再重試。';
 
   @override
   String get deviceName => '裝置名稱';
@@ -4505,6 +4517,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get syncData => '同步資料';
+
+  @override
+  String get syncComplete => '資料同步完成';
+
+  @override
+  String get syncFailedTryAgain => '資料同步失敗，請將手錶靠近手機後重試';
 
   @override
   String get disconnect => '中斷連接';

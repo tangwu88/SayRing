@@ -561,16 +561,17 @@ class AppLocalizationsJa extends AppLocalizations {
   String get noDevices => 'デバイスが見つかりません';
 
   @override
-  String get selectWatch => '接続するウォッチを選択してください';
+  String get selectWatch => '名前と電波強度を確認してウォッチを選択してください';
 
   @override
-  String get searchingHint => '検索中です。ウォッチをスマートフォンに近づけてください。';
+  String get searchingHint => '検索中です。リストの位置は変わらず、電波強度だけが更新されます。';
 
   @override
   String get activateWatch => 'ウォッチを充電して起動し、スマートフォンに近づけてください';
 
   @override
-  String get checkWatchConnection => 'ウォッチの充電と他のスマートフォンとの接続を確認して再検索してください';
+  String get checkWatchConnection =>
+      'このスマートフォンのBluetooth設定または別の端末に接続中なら、接続を解除して再検索してください';
 
   @override
   String get running => 'ランニング';
@@ -923,7 +924,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Bluetoothを再度有効にする、ウォッチを近づける、別のスマートフォンとの接続を解除する操作をお試しください。';
+      'ウォッチを近づけ、システムBluetoothまたは別の端末に接続中なら先に解除してから再試行してください。';
 
   @override
   String get deviceName => 'デバイス名';
@@ -1389,6 +1390,12 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get syncData => 'データを同期';
+
+  @override
+  String get syncComplete => 'データを同期しました';
+
+  @override
+  String get syncFailedTryAgain => '同期できませんでした。ウォッチをスマートフォンに近づけて再試行してください。';
 
   @override
   String get disconnect => '接続を解除';

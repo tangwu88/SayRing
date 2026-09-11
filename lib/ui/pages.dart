@@ -4311,7 +4311,20 @@ class DevicePage extends StatelessWidget {
                       child: FilledButton.icon(
                         onPressed: controller.isDeviceSyncing
                             ? null
-                            : controller.syncDeviceData,
+                            : () async {
+                                final succeeded = await controller
+                                    .syncDeviceData();
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      succeeded
+                                          ? context.l10n.syncComplete
+                                          : context.l10n.syncFailedTryAgain,
+                                    ),
+                                  ),
+                                );
+                              },
                         icon: controller.isDeviceSyncing
                             ? const SizedBox.square(
                                 dimension: 16,

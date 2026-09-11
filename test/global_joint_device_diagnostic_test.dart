@@ -386,7 +386,7 @@ class _FakeController extends Fake implements AppController {
   @override
   Future<bool> refreshConnectedDeviceDetails() async => true;
   @override
-  Future<void> syncDeviceData() async {
+  Future<bool> syncDeviceData() async {
     syncCount++;
     await pendingSync;
     onSync?.call();
@@ -405,6 +405,7 @@ class _FakeController extends Fake implements AppController {
         rawVersion: 1,
       ),
     ];
+    return true;
   }
 
   @override

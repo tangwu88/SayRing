@@ -17,6 +17,19 @@
 # to the merged concrete callback class in the previous release APK.
 -keep class cc.saidian.saydian_app.VeepooWearableAdapter** { *; }
 
+# The closed Bluetooth scanner writes scan payloads directly through
+# android.util.Log, bypassing the SDK logging flags. Remove every Android log
+# call from optimized release builds so device identifiers cannot enter logs.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+    public static int w(...);
+    public static int e(...);
+    public static int wtf(...);
+    public static int println(...);
+}
+
 # The pinned Yucheng SDK ships optional AliAgent, Realtek OTA and chip-specific
 # branches without all of their proprietary runtimes. The app does not expose
 # those optional entry points. Keep R8 strict for every other missing class and

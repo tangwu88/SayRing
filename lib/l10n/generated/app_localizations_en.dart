@@ -606,10 +606,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get noDevices => 'No devices found';
 
   @override
-  String get selectWatch => 'Select the watch you want to connect';
+  String get selectWatch => 'Check the name and signal, then select your watch';
 
   @override
-  String get searchingHint => 'Searching. Keep your watch near your phone.';
+  String get searchingHint =>
+      'Searching. Signal strength updates without moving the list.';
 
   @override
   String get activateWatch =>
@@ -617,7 +618,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get checkWatchConnection =>
-      'Check that your watch is charged and not connected to another phone, then search again';
+      'If the watch is connected in this phone\'s Bluetooth settings or on another phone, disconnect it and search again';
 
   @override
   String get running => 'Running';
@@ -975,7 +976,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Try turning Bluetooth off and on, moving the watch closer, or disconnecting it from another phone.';
+      'Keep the watch close. If it is connected in system Bluetooth or on another phone, disconnect it first, then try again.';
 
   @override
   String get deviceName => 'Device name';
@@ -1457,6 +1458,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get syncData => 'Sync data';
+
+  @override
+  String get syncComplete => 'Data synced';
+
+  @override
+  String get syncFailedTryAgain =>
+      'Could not sync. Keep your watch nearby and try again.';
 
   @override
   String get disconnect => 'Disconnect';

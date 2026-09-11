@@ -114,6 +114,33 @@ void main() {
     expect(controller.scannedDevices, [_ScanWearable.watch]);
   });
 
+  test(
+    'scan keeps first-seen order while refreshing signal strength',
+    () async {
+      environment.sdk = 31;
+      const first = DeviceInfo(id: 'veepoo:FIRST', name: 'First', rssi: -80);
+      const second = DeviceInfo(id: 'veepoo:SECOND', name: 'Second', rssi: -40);
+      const refreshedFirst = DeviceInfo(
+        id: 'veepoo:FIRST',
+        name: 'First',
+        rssi: -30,
+      );
+      final wearable = _ScanWearable(
+        results: const [first, second, refreshedFirst],
+      );
+      final controller = _controller(wearable);
+      addTearDown(controller.dispose);
+
+      await controller.scanDevices();
+
+      expect(controller.scannedDevices.map((device) => device.id), [
+        'veepoo:FIRST',
+        'veepoo:SECOND',
+      ]);
+      expect(controller.scannedDevices.first.rssi, -30);
+    },
+  );
+
   test('denied permission stays distinct from disabled location', () async {
     environment.permissionGranted = false;
     final wearable = _ScanWearable();
@@ -307,6 +334,10 @@ class _NoopApi extends Fake implements SaydianApi {}
 
 class _ScanWearable extends Fake implements WearableBridge {
   static const watch = DeviceInfo(id: 'veepoo:TEST-WATCH', name: 'QA Watch');
+  _ScanWearable({List<DeviceInfo>? results})
+    : results = results ?? const [watch];
+
+  final List<DeviceInfo> results;
   int scans = 0;
   PlatformException? error;
 
@@ -314,7 +345,7 @@ class _ScanWearable extends Fake implements WearableBridge {
   Future<List<DeviceInfo>> scanDevices() async {
     scans++;
     if (error != null) throw error!;
-    return [watch];
+    return results;
   }
 
   @override

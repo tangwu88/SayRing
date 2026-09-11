@@ -1139,13 +1139,13 @@ abstract class AppLocalizations {
   /// No description provided for @selectWatch.
   ///
   /// In en, this message translates to:
-  /// **'Select the watch you want to connect'**
+  /// **'Check the name and signal, then select your watch'**
   String get selectWatch;
 
   /// No description provided for @searchingHint.
   ///
   /// In en, this message translates to:
-  /// **'Searching. Keep your watch near your phone.'**
+  /// **'Searching. Signal strength updates without moving the list.'**
   String get searchingHint;
 
   /// No description provided for @activateWatch.
@@ -1157,7 +1157,7 @@ abstract class AppLocalizations {
   /// No description provided for @checkWatchConnection.
   ///
   /// In en, this message translates to:
-  /// **'Check that your watch is charged and not connected to another phone, then search again'**
+  /// **'If the watch is connected in this phone\'s Bluetooth settings or on another phone, disconnect it and search again'**
   String get checkWatchConnection;
 
   /// No description provided for @running.
@@ -1841,7 +1841,7 @@ abstract class AppLocalizations {
   /// No description provided for @searchRecovery.
   ///
   /// In en, this message translates to:
-  /// **'Try turning Bluetooth off and on, moving the watch closer, or disconnecting it from another phone.'**
+  /// **'Keep the watch close. If it is connected in system Bluetooth or on another phone, disconnect it first, then try again.'**
   String get searchRecovery;
 
   /// No description provided for @deviceName.
@@ -2767,6 +2767,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sync data'**
   String get syncData;
+
+  /// No description provided for @syncComplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Data synced'**
+  String get syncComplete;
+
+  /// No description provided for @syncFailedTryAgain.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not sync. Keep your watch nearby and try again.'**
+  String get syncFailedTryAgain;
 
   /// No description provided for @disconnect.
   ///

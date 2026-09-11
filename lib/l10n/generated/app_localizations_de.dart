@@ -614,10 +614,11 @@ class AppLocalizationsDe extends AppLocalizations {
   String get noDevices => 'Keine Geräte gefunden';
 
   @override
-  String get selectWatch => 'Wählen Sie die zu verbindende Uhr';
+  String get selectWatch => 'Name und Signal prüfen, dann die Uhr auswählen';
 
   @override
-  String get searchingHint => 'Suche läuft. Uhr nahe am Telefon halten.';
+  String get searchingHint =>
+      'Suche läuft. Die Signalstärke wird aktualisiert, die Liste bleibt stabil.';
 
   @override
   String get activateWatch =>
@@ -625,7 +626,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get checkWatchConnection =>
-      'Prüfen Sie den Akkustand und trennen Sie andere Telefonverbindungen. Suchen Sie dann erneut.';
+      'Ist die Uhr in den Bluetooth-Einstellungen dieses oder eines anderen Telefons verbunden, trennen Sie sie und suchen Sie erneut.';
 
   @override
   String get running => 'Laufen';
@@ -983,7 +984,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Bluetooth aus- und einschalten, Uhr näher bringen oder von einem anderen Telefon trennen.';
+      'Uhr nah halten. Ist sie über System-Bluetooth oder ein anderes Telefon verbunden, zuerst trennen und erneut versuchen.';
 
   @override
   String get deviceName => 'Gerätename';
@@ -1471,6 +1472,13 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get syncData => 'Daten synchronisieren';
+
+  @override
+  String get syncComplete => 'Daten synchronisiert';
+
+  @override
+  String get syncFailedTryAgain =>
+      'Synchronisierung fehlgeschlagen. Halten Sie die Uhr nah am Telefon und versuchen Sie es erneut.';
 
   @override
   String get disconnect => 'Trennen';

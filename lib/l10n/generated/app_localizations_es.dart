@@ -613,10 +613,12 @@ class AppLocalizationsEs extends AppLocalizations {
   String get noDevices => 'No se encontraron dispositivos';
 
   @override
-  String get selectWatch => 'Selecciona el reloj que quieres conectar';
+  String get selectWatch =>
+      'Comprueba el nombre y la señal y selecciona tu reloj';
 
   @override
-  String get searchingHint => 'Buscando. Mantén el reloj cerca del teléfono.';
+  String get searchingHint =>
+      'Buscando. La señal se actualiza sin mover la lista.';
 
   @override
   String get activateWatch =>
@@ -624,7 +626,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get checkWatchConnection =>
-      'Comprueba que el reloj tenga batería y no esté conectado a otro teléfono, y vuelve a buscar';
+      'Si el reloj está conectado en el Bluetooth de este teléfono o de otro, desconéctalo y vuelve a buscar';
 
   @override
   String get running => 'Correr';
@@ -982,7 +984,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Prueba a reiniciar Bluetooth, acercar el reloj o desconectarlo de otro teléfono.';
+      'Mantén el reloj cerca. Si está conectado al Bluetooth del sistema o a otro teléfono, desconéctalo y vuelve a intentarlo.';
 
   @override
   String get deviceName => 'Nombre del dispositivo';
@@ -1468,6 +1470,13 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get syncData => 'Sincronizar datos';
+
+  @override
+  String get syncComplete => 'Datos sincronizados';
+
+  @override
+  String get syncFailedTryAgain =>
+      'No se pudo sincronizar. Acerca el reloj al teléfono y vuelve a intentarlo.';
 
   @override
   String get disconnect => 'Desconectar';

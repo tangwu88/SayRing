@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/local_health_store.dart';
@@ -149,6 +150,42 @@ void main() {
       expect(find.textContaining('设备服务'), findsNothing);
     },
   );
+
+  testWidgets('device sync gives a clear completion message', (tester) async {
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            _CoverageApi(),
+            MemoryHealthStore(),
+            _FeatureWearable(),
+          )
+          ..isBooting = false
+          ..connectedDevice = const DeviceInfo(
+            id: 'veepoo:watch-1',
+            name: 'Test Watch',
+          )
+          ..deviceCapabilityState = DeviceCapabilityState.ready
+          ..capabilities = const DeviceCapabilities(
+            metrics: {HealthMetric.heartRate},
+            features: {DeviceFeature.findWatch},
+            integratedFeatures: {DeviceFeature.findWatch},
+          );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(body: DevicePage(controller: controller)),
+      ),
+    );
+    await tester.tap(find.text('Sync data'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Data synced'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'device capability loading and failure never reveal guessed features',
@@ -321,6 +358,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(entry.value), findsOneWidget, reason: entry.key.name);
       expect(find.textContaining('设备服务'), findsNothing);
+      if (entry.key == DeviceFeature.notifications) {
+        expect(find.text('微信'), findsOneWidget);
+        expect(find.text('短信'), findsOneWidget);
+        expect(find.text('钉钉'), findsNothing);
+        expect(find.text('企业微信'), findsNothing);
+        expect(find.text('当前手表不支持此项'), findsNothing);
+      }
       if (entry.key == DeviceFeature.watchFaces) {
         expect(
           find.byWidgetPredicate(
@@ -333,6 +377,46 @@ void main() {
       }
     }
   });
+
+  for (final interval in [15, 180]) {
+    testWidgets(
+      'health reminder editor accepts $interval minute device value',
+      (tester) async {
+        final wearable = _FeatureWearable(healthReminderInterval: interval);
+        final controller = AppController(
+          MemorySessionVault(),
+          _CoverageApi(),
+          MemoryHealthStore(),
+          wearable,
+        )..isBooting = false;
+        addTearDown(controller.dispose);
+        await controller.connectDevice(
+          const DeviceInfo(
+            id: 'veepoo:WATCH:01',
+            name: 'Test Watch',
+            model: 'JL',
+          ),
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DeviceFeaturePage(
+              controller: controller,
+              feature: DeviceFeature.healthReminders,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('久坐提醒'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('$interval 分钟'), findsWidgets);
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('取消'));
+        await tester.pumpAndSettle();
+      },
+    );
+  }
 
   testWidgets('feature page defers device reads until after its first frame', (
     tester,
@@ -627,6 +711,9 @@ class _CoverageWearable extends Fake implements WearableBridge {
 }
 
 class _FeatureWearable extends Fake implements WearableBridge {
+  _FeatureWearable({this.healthReminderInterval = 60});
+
+  final int healthReminderInterval;
   final List<bool> findActionStates = [];
 
   @override
@@ -684,7 +771,7 @@ class _FeatureWearable extends Fake implements WearableBridge {
               'enabled': true,
               'startMinutes': 480,
               'endMinutes': 1320,
-              'intervalMinutes': 60,
+              'intervalMinutes': healthReminderInterval,
             },
           ],
         },

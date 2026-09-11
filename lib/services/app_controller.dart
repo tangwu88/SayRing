@@ -1436,18 +1436,19 @@ class AppController extends ChangeNotifier {
     unawaited(synchronizeCloud());
   }
 
-  Future<void> syncDeviceData() async {
+  Future<bool> syncDeviceData() async {
     final device = connectedDevice;
     if (device == null) {
       errorMessage = '请先连接手表';
       notifyListeners();
-      return;
+      return false;
     }
-    if (isDeviceSyncing) return;
+    if (isDeviceSyncing) return false;
     final succeeded = await _syncDeviceData(device.id, initial: false);
     if (succeeded) {
       unawaited(synchronizeCloud());
     }
+    return succeeded;
   }
 
   Future<bool> _syncDeviceData(String deviceId, {required bool initial}) async {
@@ -4899,14 +4900,16 @@ class AppController extends ChangeNotifier {
 
   void _upsertScannedDevice(DeviceInfo device) {
     if (device.id.trim().isEmpty) return;
-    final byId = <String, DeviceInfo>{
-      for (final existing in scannedDevices) existing.id: existing,
-      device.id: device,
-    };
-    scannedDevices = byId.values.toList()
-      ..sort(
-        (left, right) => (right.rssi ?? -999).compareTo(left.rssi ?? -999),
-      );
+    final updated = scannedDevices.toList(growable: true);
+    final existingIndex = updated.indexWhere(
+      (existing) => existing.id == device.id,
+    );
+    if (existingIndex >= 0) {
+      updated[existingIndex] = device;
+    } else {
+      updated.add(device);
+    }
+    scannedDevices = List.unmodifiable(updated);
   }
 
   DeviceInfo _mergeDeviceDetails(DeviceInfo device) {
