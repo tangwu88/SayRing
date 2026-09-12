@@ -79,7 +79,7 @@ void main() {
     expect(find.text('远程关爱'), findsOneWidget);
     expect(find.text('健康百科'), findsOneWidget);
     expect(find.text('健康预警'), findsOneWidget);
-    expect(find.text('赛电商城'), findsOneWidget);
+    expect(find.text('Say Ring 商城'), findsOneWidget);
 
     final navigationBar = tester.widget<NavigationBar>(
       find.byType(NavigationBar),
@@ -100,7 +100,7 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('赛电商城'));
+    await tester.tap(find.text('Say Ring 商城'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('shop-page')), findsOneWidget);
     expect(find.text('此功能暂时无法使用，请稍后再试'), findsWidgets);
@@ -285,7 +285,7 @@ void main() {
       final emptyNotice = find.byKey(
         const Key('dashboard-health-empty-notice'),
       );
-      final emptyMessage = find.text('连接手表后可查看支持的健康数据');
+      final emptyMessage = find.text('连接戒指后可查看支持的健康数据');
       expect(emptyNotice, findsOneWidget);
       expect(emptyMessage, findsOneWidget);
       final emptyText = tester.widget<Text>(emptyMessage);
@@ -682,7 +682,7 @@ void main() {
       expect(await controller.startMeasurement(HealthMetric.heartRate), isTrue);
       expect(await controller.startMeasurement(HealthMetric.hrv), isFalse);
       expect(wearable.starts, 1);
-      expect(controller.errorMessage, contains('另一项手表测量尚未结束'));
+      expect(controller.errorMessage, contains('另一项戒指测量尚未结束'));
 
       await controller.stopMeasurement(HealthMetric.heartRate);
       expect(controller.deviceState, DeviceConnectionState.ready);
@@ -804,7 +804,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('HRV测量'), findsOneWidget);
-    expect(find.text('请将手表贴合手腕并保持静止，等待 HRV 测量结果'), findsOneWidget);
+    expect(find.text('请将戒指贴合手指并保持静止，等待 HRV 测量结果'), findsOneWidget);
     expect(find.textContaining('心电电极'), findsNothing);
 
     await tester.binding.handlePopRoute();
@@ -872,7 +872,7 @@ void main() {
       isFalse,
     );
     expect(controller.deviceState, DeviceConnectionState.ready);
-    expect(controller.errorMessage, contains('贴合手腕'));
+    expect(controller.errorMessage, contains('贴合手指'));
   });
 
   testWidgets('health warning settings persist all three alarm switches', (
@@ -1006,12 +1006,12 @@ void main() {
     wearable.emit(
       const WearableEvent(
         type: 'error',
-        payload: {'code': 'HEART_NOT_WORN', 'message': '请正确佩戴手表后重新测量心率'},
+        payload: {'code': 'HEART_NOT_WORN', 'message': '请正确佩戴戒指后重新测量心率'},
       ),
     );
     await tester.pump();
 
-    expect(find.text('请正确佩戴手表后重新测量心率'), findsOneWidget);
+    expect(find.text('请正确佩戴戒指后重新测量心率'), findsOneWidget);
     expect(find.text('重新测量'), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsNothing);
     expect(controller.deviceState, DeviceConnectionState.ready);
@@ -1070,7 +1070,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('未检测到正确接触，请佩戴手表并按手表提示接触电极'), findsOneWidget);
+    expect(find.text('未检测到正确接触，请佩戴戒指并按戒指提示接触电极'), findsOneWidget);
     expect(find.text('测量进度 12%'), findsOneWidget);
 
     await tester.binding.handlePopRoute();
@@ -1132,7 +1132,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('未检测到电极接触，请正确佩戴手表并将手指持续贴在心电电极上'), findsOneWidget);
+    expect(find.text('未检测到电极接触，请正确佩戴戒指并将手指持续贴在心电电极上'), findsOneWidget);
     expect(find.text('测量进度 2%'), findsOneWidget);
     expect(controller.deviceState, DeviceConnectionState.measuring);
     expect(controller.measurementErrorMessage, isNull);
@@ -1180,7 +1180,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('手表未返回可用心电波形'), findsOneWidget);
+    expect(find.text('戒指未返回可用心电波形'), findsOneWidget);
     expect(find.byType(LineChart), findsNothing);
   });
 
@@ -1532,7 +1532,7 @@ void main() {
 
       expect(controller.autoMeasureSettings, isEmpty);
       expect(controller.heartRateWarningSupported, isFalse);
-      expect(controller.deviceSettingsStatus, '当前手表未提供可设置的健康检测项目');
+      expect(controller.deviceSettingsStatus, '当前戒指未提供可设置的健康检测项目');
     },
   );
 
@@ -2089,7 +2089,7 @@ void main() {
 
       await tester.tap(find.text('风险分析').first);
       await tester.pumpAndSettle();
-      expect(find.text('本次手表未返回风险指标'), findsOneWidget);
+      expect(find.text('本次戒指未返回风险指标'), findsOneWidget);
       expect(find.textContaining('低风险 · 0'), findsNothing);
       expect(tester.takeException(), isNull);
     },
@@ -2498,7 +2498,7 @@ class _NotWornBloodPressureWearable extends _NoopWearable {
   Future<void> startMeasurement(HealthMetric metric) async {
     throw PlatformException(
       code: 'BLOOD_PRESSURE_NOT_WORN',
-      message: '未检测到有效佩戴状态，请将手表贴合手腕后重新测量血压',
+      message: '未检测到有效佩戴状态，请将戒指贴合手指后重新测量血压',
     );
   }
 }

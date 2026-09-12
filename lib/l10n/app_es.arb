@@ -76,7 +76,7 @@
   "seekProfessionalCare": "Si sientes un malestar importante, consulta pronto a un profesional sanitario.",
   "watchHealthReference": "Las mediciones del anillo sirven de referencia para el bienestar diario.",
   "calibrationReferenceHint": "Utiliza un valor recién medido con un equipo profesional.",
-  "calibrationWearerHint": "La calibración solo sirve para la persona que lleva el reloj. Desactívala o repítela si cambia de usuario.",
+  "calibrationWearerHint": "La calibración solo sirve para la persona que lleva el anillo. Desactívala o repítela si cambia de usuario.",
   "enableCalibration": "Activar calibración",
   "calibrationDisabledHint": "Al desactivarla, se restablece el modo de medición general del anillo.",
   "diastolicLowerLabel": "Presión diastólica (valor inferior)",
@@ -94,18 +94,18 @@
   "ecgHealthReport": "Informe de salud ECG",
   "brandedEcgReport": "Say Ring · Informe de salud ECG",
   "ecgReportSafety": "Nota: este informe usa datos medidos por el anillo. Es solo una referencia para el bienestar y no sustituye el diagnóstico de un médico.",
-  "installedWatchFaces": "Esferas instaladas",
-  "switchInstalledWatchFace": "Cambia entre las esferas que ya están en tu reloj.",
+  "installedWatchFaces": "Estilos de pantalla instalados",
+  "switchInstalledWatchFace": "Cambia entre los estilos de pantalla guardados en el anillo.",
   "useSelectedWatchFace": "Usar",
   "downloadUseWatchFace": "Toca para descargar y usar",
-  "photoWatchFaceHint": "Elige una foto nítida, revisa la vista previa y envíala al reloj.",
+  "photoWatchFaceHint": "Elige una foto nítida, revisa la vista previa y envíala al anillo.",
   "timeDisplayPosition": "Posición de la hora",
-  "transferSetWatchFace": "Enviar y establecer como esfera",
-  "watchTransferKeepNear": "Mantén el reloj cerca del teléfono durante la transferencia y no salgas de esta página.",
+  "transferSetWatchFace": "Enviar y establecer como estilo de pantalla",
+  "watchTransferKeepNear": "Mantén el anillo cerca del teléfono durante la transferencia y no salgas de esta página.",
   "callMediaAudio": "Audio de llamadas y multimedia",
   "useCelsius": "Usar grados Celsius",
-  "sosContactHint": "Cuando se active SOS en el reloj, se contactará primero con la persona elegida aquí. Elige a un familiar con quien hables habitualmente.",
-  "noHealthAssessments": "Este reloj no tiene evaluaciones de salud configurables.",
+  "sosContactHint": "Cuando se active SOS en el anillo, se contactará primero con la persona elegida aquí. Elige a un familiar con quien hables habitualmente.",
+  "noHealthAssessments": "Este anillo no tiene evaluaciones de salud configurables.",
   "modelFeaturesVary": "Las funciones compatibles varían según el modelo. La app muestra solo las disponibles para el anillo conectado.",
   "assessmentEnabledHint": "Al activarlo, el anillo ofrece información sobre tendencias diarias.",
   "assessmentSafety": "Las evaluaciones complementarias son una referencia para el bienestar diario, no para diagnóstico ni tratamiento.",
@@ -115,7 +115,7 @@
   "ecgWaveformTitle": "Onda ECG",
   "ecgWaveformMissing": "No se recibió una onda ECG válida para esta medición.",
   "ecgElectrodeHint": "Los resultados de frecuencia cardíaca y VFC siguen disponibles. Mantén el contacto con el electrodo del anillo durante toda la próxima medición.",
-  "screenAutoTimeHint": "El reloj se ajusta automáticamente según la hora.",
+  "screenAutoTimeHint": "El anillo se ajusta automáticamente según la hora.",
   "raiseWristScreenHint": "La pantalla se enciende cuando levantas la muñeca.",
   "watchHighHeartRate": "Alerta de frecuencia cardíaca alta",
   "watchThresholdHint": "El anillo avisa cuando se alcanza el límite.",
@@ -125,8 +125,8 @@
   "recentData": "Datos recientes",
   "trendReferenceOnly": "Las tendencias son solo una referencia para el bienestar diario.",
   "trendVariationSafety": "Los cambios puntuales y entre periodos pueden verse afectados por el ajuste, la actividad y el entorno y no sustituyen un diagnóstico médico.",
-  "watchFaceDownloadHint": "Tras descargarse, la esfera se enviará al reloj. Mantén el reloj cerca del teléfono y quédate en esta página durante la transferencia.",
-  "refreshWatchFaces": "Actualizar esferas",
+  "watchFaceDownloadHint": "Tras descargarse, el estilo de pantalla se enviará al anillo. Mantén el anillo cerca del teléfono y quédate en esta página durante la transferencia.",
+  "refreshWatchFaces": "Actualizar estilos de pantalla",
   "openTestFlight": "Abrir TestFlight",
   "articlesEmpty": "Todavía no hay artículos en esta categoría.",
   "articlesUnavailable": "No se pudo cargar la biblioteca de salud.",
@@ -157,21 +157,69 @@
   "watchCalories": "Calorías del anillo",
   "connectForWorkout": "Primero conecta tu anillo en la página Dispositivo. El anillo registrará el entrenamiento.",
   "latestVersion": "Ya tienes la última versión: V{version}",
-  "@latestVersion": {"placeholders":{"version":{"type":"String"}}},
+  "@latestVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "workoutPaused": "{mode} en pausa",
-  "@workoutPaused": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutPaused": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutInProgress": "{mode} en curso",
-  "@workoutInProgress": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutInProgress": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutReady": "Listo para empezar: {mode}",
-  "@workoutReady": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutReady": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "startWorkout": "Empezar: {mode}",
-  "@startWorkout": {"placeholders":{"mode":{"type":"String"}}},
+  "@startWorkout": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "finishOtherWorkout": "Primero termina: {mode}",
-  "@finishOtherWorkout": {"placeholders":{"mode":{"type":"String"}}},
+  "@finishOtherWorkout": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutDetails": "Detalles de {mode}",
-  "@workoutDetails": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutDetails": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "stepCount": "{count} pasos",
-  "@stepCount": {"placeholders":{"count":{"type":"int"}}},
+  "@stepCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "@@locale": "es",
   "globalShopPricePending": "Precio por confirmar",
   "globalShopLoadMore": "Cargar más",
@@ -251,9 +299,9 @@
   "restorePurchases": "Restaurar compras",
   "paymentMethod": "Forma de pago",
   "refresh": "Actualizar",
-  "useWatchFace": "¿Usar esta esfera?",
+  "useWatchFace": "¿Usar este estilo de pantalla?",
   "downloadAndUse": "Descargar y usar",
-  "watchFaceFailed": "No se pudo aplicar la esfera",
+  "watchFaceFailed": "No se pudo aplicar el estilo de pantalla",
   "statusNormal": "Normal",
   "statusRecorded": "Registrado",
   "statusAttention": "Revisar lectura",
@@ -283,7 +331,7 @@
   "deliveryAddresses": "Direcciones de entrega",
   "readAgain": "Leer de nuevo",
   "smsCode": "Código SMS",
-  "watchFaceShop": "Tienda de esferas",
+  "watchFaceShop": "Tienda de estilos de pantalla",
   "selectCity": "Seleccionar ciudad",
   "city": "Ciudad",
   "confirm": "Confirmar",
@@ -335,7 +383,7 @@
   "distance": "Distancia",
   "calories": "Calorías",
   "healthProfile": "Perfil de salud",
-  "photoWatchFace": "Esfera con foto",
+  "photoWatchFace": "Pantalla con foto",
   "cameraRemote": "Control de cámara",
   "phoneCalls": "Llamadas",
   "contacts": "Contactos",
@@ -370,7 +418,7 @@
   "capabilitiesHint": "Solo se mostrarán las funciones disponibles en este anillo",
   "capabilitiesFailed": "No se pudieron leer las funciones del anillo",
   "keepWatchNear": "Acerca el anillo al teléfono e inténtalo de nuevo",
-  "personalizeWatch": "Esferas y estilo",
+  "personalizeWatch": "Pantalla y personalización",
   "signInCloudHint": "Inicia sesión para usar los servicios de salud en la nube",
   "aiQuestion": "Preguntar a la IA",
   "aiQuestionHint": "Consulta sobre bienestar a tu asistente de IA",
@@ -455,7 +503,7 @@
   "syncFailedTryAgain": "No se pudo sincronizar. Acerca el anillo al teléfono y vuelve a intentarlo.",
   "disconnect": "Desconectar",
   "findWatch": "Buscar anillo",
-  "watchFaces": "Esferas",
+  "watchFaces": "Estilos de pantalla",
   "deviceFeatures": "Funciones del dispositivo",
   "aboutDevice": "Acerca del dispositivo",
   "connectionHelp": "Ayuda de conexión",
@@ -622,5 +670,11 @@
   "shareProduct": "Compartir producto",
   "customerReviews": "Reseñas de clientes",
   "stockCount": "{count} en stock",
-  "@stockCount": {"placeholders":{"count":{"type":"int"}}}
+  "@stockCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

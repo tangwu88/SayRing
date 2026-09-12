@@ -43,7 +43,7 @@ enum HealthMetric {
 enum MeasurementSource { wearable, manual, imported }
 
 enum MeasurementOrigin {
-  watchHistory('watch_history', '手表历史数据'),
+  watchHistory('watch_history', '戒指历史数据'),
   appMeasurement('app_measurement', 'App 手动测量数据'),
   remoteMember('remote_member', '远程成员数据'),
   manualEntry('manual_entry', '人工录入数据'),

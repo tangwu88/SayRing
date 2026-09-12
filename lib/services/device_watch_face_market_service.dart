@@ -64,10 +64,10 @@ class DeviceWatchFaceMarketItem {
         previewUrl == null ||
         fileUrl.scheme != 'https' ||
         previewUrl.scheme != 'https') {
-      throw const DeviceWatchFaceMarketException('表盘数据地址无效');
+      throw const DeviceWatchFaceMarketException('显示样式数据地址无效');
     }
     return DeviceWatchFaceMarketItem(
-      name: '${map['name'] ?? '在线表盘'}'.trim(),
+      name: '${map['name'] ?? '在线显示样式'}'.trim(),
       fileUrl: fileUrl,
       previewUrl: previewUrl,
       fileLength: _optionalInt(map['fileLenght'] ?? map['fileLength']) ?? 0,
@@ -164,7 +164,7 @@ class DeviceWatchFaceMarketProfile {
         aliasesAgree('height', 'screenHeight') &&
         aliasesAgree('maxFileLength', 'maxLength');
     if (!valid) {
-      throw const DeviceWatchFaceMarketException('当前手表的表盘兼容规格不完整');
+      throw const DeviceWatchFaceMarketException('当前戒指的显示规格不完整');
     }
     return DeviceWatchFaceMarketProfile(
       provider: provider,
@@ -394,7 +394,7 @@ class DeviceWatchFaceMarketService {
     required DeviceWatchFaceMarketProfile profile,
   }) async {
     if (!_directCatalogueAllowed) {
-      throw const DeviceWatchFaceMarketException('当前手机无法完成此操作，请在手表上操作');
+      throw const DeviceWatchFaceMarketException('当前手机无法完成此操作，请在戒指上操作');
     }
     final appVersion = (await _appVersionLoader()).trim();
     final uri = Uri.parse(_endpoint).replace(
@@ -417,7 +417,7 @@ class DeviceWatchFaceMarketService {
       throw const DeviceWatchFaceMarketException('网络不可用，请检查网络后重试');
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw const DeviceWatchFaceMarketException('表盘商城暂时无法访问，请稍后重试');
+      throw const DeviceWatchFaceMarketException('显示样式商城暂时无法访问，请稍后重试');
     }
     return response;
   }
@@ -427,10 +427,10 @@ class DeviceWatchFaceMarketService {
     try {
       decoded = jsonDecode(body);
     } catch (_) {
-      throw const DeviceWatchFaceMarketException('表盘商城返回了无法识别的数据');
+      throw const DeviceWatchFaceMarketException('显示样式商城返回了无法识别的数据');
     }
     if (decoded is! Map) {
-      throw const DeviceWatchFaceMarketException('表盘商城返回了无法识别的数据');
+      throw const DeviceWatchFaceMarketException('显示样式商城返回了无法识别的数据');
     }
     final rawItems = decoded['results'];
     final items = <DeviceWatchFaceMarketItem>[];
@@ -509,13 +509,13 @@ class DeviceWatchFaceMarketService {
     void Function(double progress)? onProgress,
   }) async {
     if (!_directCatalogueAllowed) {
-      throw const DeviceWatchFaceMarketException('当前手机无法完成此操作，请在手表上操作');
+      throw const DeviceWatchFaceMarketException('当前手机无法完成此操作，请在戒指上操作');
     }
     if ((item.dialShape != null && item.dialShape != profile.dialShape) ||
         (item.binProtocol != null && item.binProtocol != profile.binProtocol) ||
         item.fileLength <= 100 ||
         item.fileLength > profile.maxFileLength) {
-      throw const DeviceWatchFaceMarketException('此表盘与当前手表规格不匹配');
+      throw const DeviceWatchFaceMarketException('此显示样式与当前戒指规格不匹配');
     }
     http.StreamedResponse response;
     try {
@@ -524,10 +524,10 @@ class DeviceWatchFaceMarketService {
           .send(request)
           .timeout(const Duration(seconds: 20));
     } catch (_) {
-      throw const DeviceWatchFaceMarketException('表盘下载失败，请检查网络后重试');
+      throw const DeviceWatchFaceMarketException('显示样式下载失败，请检查网络后重试');
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw const DeviceWatchFaceMarketException('表盘下载失败，请稍后重试');
+      throw const DeviceWatchFaceMarketException('显示样式下载失败，请稍后重试');
     }
     final directory = Directory(
       path.join((await getTemporaryDirectory()).path, 'saidian_watch_faces'),
@@ -561,12 +561,12 @@ class DeviceWatchFaceMarketService {
     } catch (_) {
       await sink.close();
       if (await file.exists()) await file.delete();
-      throw const DeviceWatchFaceMarketException('表盘下载中断，请重试');
+      throw const DeviceWatchFaceMarketException('显示样式下载中断，请重试');
     }
     await sink.close();
     if (received <= 0 || (item.fileLength > 0 && received != item.fileLength)) {
       if (await file.exists()) await file.delete();
-      throw const DeviceWatchFaceMarketException('表盘文件不完整，请重新下载');
+      throw const DeviceWatchFaceMarketException('显示样式文件不完整，请重新下载');
     }
     onProgress?.call(1);
     return file.path;

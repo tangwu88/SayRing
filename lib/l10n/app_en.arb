@@ -94,18 +94,18 @@
   "ecgHealthReport": "ECG health report",
   "brandedEcgReport": "Say Ring · ECG health report",
   "ecgReportSafety": "Note: this report uses ring measurement data. It is for wellness reference only and cannot replace a doctor’s diagnosis.",
-  "installedWatchFaces": "Installed watch faces",
-  "switchInstalledWatchFace": "Switch between watch faces already on your watch.",
+  "installedWatchFaces": "Installed display styles",
+  "switchInstalledWatchFace": "Switch between display styles already stored on your ring.",
   "useSelectedWatchFace": "Use",
   "downloadUseWatchFace": "Tap to download and use",
-  "photoWatchFaceHint": "Choose a clear photo, check the preview, then send it to your watch.",
+  "photoWatchFaceHint": "Choose a clear photo, check the preview, then send it to your ring.",
   "timeDisplayPosition": "Time position",
-  "transferSetWatchFace": "Send and set as watch face",
-  "watchTransferKeepNear": "Keep the watch near your phone during transfer and stay on this page.",
+  "transferSetWatchFace": "Send and set as display style",
+  "watchTransferKeepNear": "Keep the ring near your phone during transfer and stay on this page.",
   "callMediaAudio": "Call and media audio",
   "useCelsius": "Use Celsius",
-  "sosContactHint": "When SOS is triggered on the watch, it will first contact the person selected here. Choose a family member you contact regularly.",
-  "noHealthAssessments": "No configurable health assessments are available on this watch.",
+  "sosContactHint": "When SOS is triggered on the ring, it will first contact the person selected here. Choose a family member you contact regularly.",
+  "noHealthAssessments": "No configurable health assessments are available on this ring.",
   "modelFeaturesVary": "Supported features vary by model. The app shows only features available for your connected ring.",
   "assessmentEnabledHint": "When enabled, the ring provides daily trend information.",
   "assessmentSafety": "Supplementary assessments are for everyday wellness reference, not diagnosis or treatment.",
@@ -115,7 +115,7 @@
   "ecgWaveformTitle": "ECG waveform",
   "ecgWaveformMissing": "No valid ECG waveform was returned for this measurement.",
   "ecgElectrodeHint": "Heart rate and HRV results remain available. Keep touching the ring electrode throughout your next measurement.",
-  "screenAutoTimeHint": "The watch adjusts automatically based on the time.",
+  "screenAutoTimeHint": "The ring adjusts this automatically based on the time.",
   "raiseWristScreenHint": "The screen lights up when you raise your wrist.",
   "watchHighHeartRate": "High heart rate alert",
   "watchThresholdHint": "The ring alerts you when the limit is reached.",
@@ -125,8 +125,8 @@
   "recentData": "Recent data",
   "trendReferenceOnly": "Trends are for everyday wellness reference only.",
   "trendVariationSafety": "Individual and period-to-period changes may be affected by fit, activity and surroundings and do not replace a medical diagnosis.",
-  "watchFaceDownloadHint": "After downloading, the watch face will be sent to your watch. Keep the watch near your phone and stay on this page during transfer.",
-  "refreshWatchFaces": "Refresh watch faces",
+  "watchFaceDownloadHint": "After downloading, the display style will be sent to your ring. Keep the ring near your phone and stay on this page during transfer.",
+  "refreshWatchFaces": "Refresh display styles",
   "openTestFlight": "Open TestFlight",
   "articlesEmpty": "No articles are available in this category yet.",
   "articlesUnavailable": "The health library could not be loaded.",
@@ -157,21 +157,69 @@
   "watchCalories": "Ring calories",
   "connectForWorkout": "Connect your ring on the Device page first. Your ring will record the workout.",
   "latestVersion": "You are using the latest version: V{version}",
-  "@latestVersion": {"placeholders":{"version":{"type":"String"}}},
+  "@latestVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "workoutPaused": "{mode} paused",
-  "@workoutPaused": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutPaused": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutInProgress": "{mode} in progress",
-  "@workoutInProgress": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutInProgress": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutReady": "Ready to start {mode}",
-  "@workoutReady": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutReady": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "startWorkout": "Start {mode}",
-  "@startWorkout": {"placeholders":{"mode":{"type":"String"}}},
+  "@startWorkout": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "finishOtherWorkout": "Finish {mode} first",
-  "@finishOtherWorkout": {"placeholders":{"mode":{"type":"String"}}},
+  "@finishOtherWorkout": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutDetails": "{mode} details",
-  "@workoutDetails": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutDetails": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "stepCount": "{count} steps",
-  "@stepCount": {"placeholders":{"count":{"type":"int"}}},
+  "@stepCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "@@locale": "en",
   "globalShopPricePending": "Price to be confirmed",
   "globalShopLoadMore": "Load more",
@@ -193,11 +241,41 @@
   "metricMeasurement": "Measure {metric}",
   "metricCalibration": "Calibrate {metric}",
   "metricDetails": "{metric} details",
-  "@metricAnalysis": {"placeholders": {"metric": {"type": "String"}}},
-  "@metricAllData": {"placeholders": {"metric": {"type": "String"}}},
-  "@metricMeasurement": {"placeholders": {"metric": {"type": "String"}}},
-  "@metricCalibration": {"placeholders": {"metric": {"type": "String"}}},
-  "@metricDetails": {"placeholders": {"metric": {"type": "String"}}},
+  "@metricAnalysis": {
+    "placeholders": {
+      "metric": {
+        "type": "String"
+      }
+    }
+  },
+  "@metricAllData": {
+    "placeholders": {
+      "metric": {
+        "type": "String"
+      }
+    }
+  },
+  "@metricMeasurement": {
+    "placeholders": {
+      "metric": {
+        "type": "String"
+      }
+    }
+  },
+  "@metricCalibration": {
+    "placeholders": {
+      "metric": {
+        "type": "String"
+      }
+    }
+  },
+  "@metricDetails": {
+    "placeholders": {
+      "metric": {
+        "type": "String"
+      }
+    }
+  },
   "add": "Add",
   "endTime": "End time",
   "reminderInterval": "Reminder interval",
@@ -256,9 +334,9 @@
   "restorePurchases": "Restore purchases",
   "paymentMethod": "Payment method",
   "refresh": "Refresh",
-  "useWatchFace": "Use this watch face?",
+  "useWatchFace": "Use this display style?",
   "downloadAndUse": "Download and use",
-  "watchFaceFailed": "Could not set the watch face",
+  "watchFaceFailed": "Could not set the display style",
   "statusNormal": "Normal",
   "statusRecorded": "Recorded",
   "statusAttention": "Check reading",
@@ -288,7 +366,7 @@
   "deliveryAddresses": "Delivery addresses",
   "readAgain": "Read again",
   "smsCode": "SMS verification code",
-  "watchFaceShop": "Watch face store",
+  "watchFaceShop": "Display style store",
   "selectCity": "Select city",
   "city": "City",
   "confirm": "Confirm",
@@ -340,7 +418,7 @@
   "distance": "Distance",
   "calories": "Calories",
   "healthProfile": "Health profile",
-  "photoWatchFace": "Photo watch face",
+  "photoWatchFace": "Photo display",
   "cameraRemote": "Camera remote",
   "phoneCalls": "Phone calls",
   "contacts": "Contacts",
@@ -375,11 +453,17 @@
   "capabilitiesHint": "Only features available on this ring will be shown",
   "capabilitiesFailed": "Could not read this ring’s features",
   "keepWatchNear": "Keep your ring near your phone and try again",
-  "personalizeWatch": "Watch faces & style",
+  "personalizeWatch": "Display & personalization",
   "signInCloudHint": "Sign in to use cloud health services",
   "aiQuestion": "Ask AI",
   "aiQuestionHint": "Ask your AI assistant about wellbeing",
-  "@verificationSentTo": {"placeholders": {"contact": {"type": "String"}}},
+  "@verificationSentTo": {
+    "placeholders": {
+      "contact": {
+        "type": "String"
+      }
+    }
+  },
   "language": "Language",
   "signIn": "Sign in",
   "signUp": "Sign up",
@@ -461,7 +545,7 @@
   "syncFailedTryAgain": "Could not sync. Keep your ring nearby and try again.",
   "disconnect": "Disconnect",
   "findWatch": "Find ring",
-  "watchFaces": "Watch faces",
+  "watchFaces": "Display styles",
   "deviceFeatures": "Device features",
   "aboutDevice": "About device",
   "connectionHelp": "Connection help",
@@ -621,7 +705,13 @@
   "submitReview": "Submit review",
   "defaultVariant": "Default option",
   "selectedItems": "{count} selected",
-  "@selectedItems": {"placeholders":{"count":{"type":"int"}}},
+  "@selectedItems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "signInToShopHint": "Sign in to manage your cart, addresses and orders.",
   "checkoutPriceChanged": "The order total changed. Review the refreshed amount before continuing.",
   "shopHelpIntro": "Order, delivery and after-sales options follow the services available for your market.",
@@ -681,5 +771,11 @@
   "shareProduct": "Share product",
   "customerReviews": "Customer reviews",
   "stockCount": "{count} in stock",
-  "@stockCount": {"placeholders":{"count":{"type":"int"}}}
+  "@stockCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

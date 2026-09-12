@@ -79,14 +79,14 @@ void main() {
 
     await controller.readDeviceFeature(DeviceFeature.watchFaces);
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('表盘中心'));
-    await tester.tap(find.text('表盘中心'));
+    await tester.ensureVisible(find.text('显示样式'));
+    await tester.tap(find.text('显示样式'));
     await _waitUntil(
       tester,
-      () => find.text('手表中的表盘').evaluate().isNotEmpty,
+      () => find.text('戒指中的显示样式').evaluate().isNotEmpty,
       const Duration(seconds: 20),
     );
-    expect(find.text('手表中的表盘'), findsOneWidget);
+    expect(find.text('戒指中的显示样式'), findsOneWidget);
     await _tapBack(tester);
 
     await controller.syncDeviceData();
@@ -251,7 +251,7 @@ Future<DeviceInfo> _scanForDevice(
     if (matchesNow.isNotEmpty) return matchesNow.first;
     await tester.pump(const Duration(seconds: 3));
   }
-  fail('三轮搜索后仍未重新发现目标手表');
+  fail('三轮搜索后仍未重新发现目标戒指');
 }
 
 Future<DeviceInfo?> _tryScanForDevice(

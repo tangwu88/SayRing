@@ -76,12 +76,12 @@
   "seekProfessionalCare": "Si vous ressentez un malaise important, consultez rapidement un professionnel de santé.",
   "watchHealthReference": "Les mesures de la bague servent de référence pour le suivi quotidien du bien-être.",
   "calibrationReferenceHint": "Utilisez une valeur qui vient d’être mesurée avec un appareil professionnel.",
-  "calibrationWearerHint": "L’étalonnage ne s’applique qu’à la personne qui porte actuellement la montre. Désactivez-le ou recommencez-le si elle change.",
+  "calibrationWearerHint": "L’étalonnage ne s’applique qu’à la personne qui porte actuellement la bague. Désactivez-le ou recommencez-le si elle change.",
   "enableCalibration": "Activer l’étalonnage",
   "calibrationDisabledHint": "La désactivation rétablit le mode de mesure général de la bague.",
   "diastolicLowerLabel": "Pression diastolique (chiffre inférieur)",
   "longTermTrendHint": "Les tendances à long terme offrent un contexte plus utile.",
-  "measurementVariationHint": "Une mesure isolée peut être influencée par le port de la montre, l’activité et l’environnement. En cas de malaise, consultez un professionnel de santé.",
+  "measurementVariationHint": "Une mesure isolée peut être influencée par le port de la bague, l’activité et l’environnement. En cas de malaise, consultez un professionnel de santé.",
   "ecgDetailTitle": "Détails ECG",
   "viewFullReport": "Voir le rapport complet",
   "ecgReferenceHint": "Les résultats ECG servent uniquement de référence pour le bien-être.",
@@ -94,18 +94,18 @@
   "ecgHealthReport": "Rapport de santé ECG",
   "brandedEcgReport": "Say Ring · Rapport de santé ECG",
   "ecgReportSafety": "Remarque : ce rapport utilise les mesures de la bague. Il sert uniquement de référence pour le bien-être et ne remplace pas le diagnostic d’un médecin.",
-  "installedWatchFaces": "Cadrans installés",
-  "switchInstalledWatchFace": "Choisissez parmi les cadrans déjà présents sur votre montre.",
+  "installedWatchFaces": "Styles d’affichage installés",
+  "switchInstalledWatchFace": "Choisissez parmi les styles d’affichage déjà enregistrés sur votre bague.",
   "useSelectedWatchFace": "Utiliser",
   "downloadUseWatchFace": "Touchez pour télécharger et utiliser",
-  "photoWatchFaceHint": "Choisissez une photo nette, vérifiez l’aperçu, puis envoyez-la à votre montre.",
+  "photoWatchFaceHint": "Choisissez une photo nette, vérifiez l’aperçu, puis envoyez-la à votre bague.",
   "timeDisplayPosition": "Position de l’heure",
-  "transferSetWatchFace": "Envoyer et définir comme cadran",
-  "watchTransferKeepNear": "Gardez la montre près du téléphone pendant le transfert et restez sur cette page.",
+  "transferSetWatchFace": "Envoyer et définir comme style d’affichage",
+  "watchTransferKeepNear": "Gardez la bague près du téléphone pendant le transfert et restez sur cette page.",
   "callMediaAudio": "Audio des appels et des médias",
   "useCelsius": "Utiliser les degrés Celsius",
-  "sosContactHint": "Lorsque SOS est déclenché sur la montre, la personne choisie ici sera contactée en premier. Choisissez un proche que vous contactez régulièrement.",
-  "noHealthAssessments": "Aucune évaluation de santé configurable n’est disponible sur cette montre.",
+  "sosContactHint": "Lorsque SOS est déclenché sur la bague, la personne choisie ici sera contactée en premier. Choisissez un proche que vous contactez régulièrement.",
+  "noHealthAssessments": "Aucune évaluation de santé configurable n’est disponible sur cette bague.",
   "modelFeaturesVary": "Les fonctions disponibles varient selon le modèle. L’app affiche uniquement celles disponibles pour la bague connectée.",
   "assessmentEnabledHint": "Une fois activée, la bague fournit des informations sur les tendances quotidiennes.",
   "assessmentSafety": "Les évaluations complémentaires servent de référence pour le bien-être quotidien, pas au diagnostic ni au traitement.",
@@ -115,7 +115,7 @@
   "ecgWaveformTitle": "Tracé ECG",
   "ecgWaveformMissing": "Aucun tracé ECG valide n’a été reçu pour cette mesure.",
   "ecgElectrodeHint": "Les résultats de fréquence cardiaque et de VFC restent consultables. Gardez le contact avec l’électrode de la bague pendant toute la prochaine mesure.",
-  "screenAutoTimeHint": "La montre s’adapte automatiquement selon l’heure.",
+  "screenAutoTimeHint": "La bague s’adapte automatiquement selon l’heure.",
   "raiseWristScreenHint": "L’écran s’allume lorsque vous levez le poignet.",
   "watchHighHeartRate": "Alerte de fréquence cardiaque élevée",
   "watchThresholdHint": "La bague vous avertit lorsque le seuil est atteint.",
@@ -125,8 +125,8 @@
   "recentData": "Données récentes",
   "trendReferenceOnly": "Les tendances servent uniquement de référence pour le bien-être quotidien.",
   "trendVariationSafety": "Les variations ponctuelles et au fil du temps peuvent être influencées par le port, l’activité et l’environnement et ne remplacent pas un diagnostic médical.",
-  "watchFaceDownloadHint": "Après le téléchargement, le cadran sera envoyé à la montre. Gardez-la près du téléphone et restez sur cette page pendant le transfert.",
-  "refreshWatchFaces": "Actualiser les cadrans",
+  "watchFaceDownloadHint": "Après le téléchargement, le style d’affichage sera envoyé à la bague. Gardez-la près du téléphone et restez sur cette page pendant le transfert.",
+  "refreshWatchFaces": "Actualiser les styles d’affichage",
   "openTestFlight": "Ouvrir TestFlight",
   "articlesEmpty": "Aucun article n’est encore disponible dans cette catégorie.",
   "articlesUnavailable": "Impossible de charger la bibliothèque de santé.",
@@ -157,21 +157,69 @@
   "watchCalories": "Calories de la bague",
   "connectForWorkout": "Connectez d’abord votre bague sur la page Appareil. La bague enregistrera l’entraînement.",
   "latestVersion": "Vous utilisez la dernière version : V{version}",
-  "@latestVersion": {"placeholders":{"version":{"type":"String"}}},
+  "@latestVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "workoutPaused": "{mode} en pause",
-  "@workoutPaused": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutPaused": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutInProgress": "{mode} en cours",
-  "@workoutInProgress": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutInProgress": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutReady": "Prêt à commencer : {mode}",
-  "@workoutReady": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutReady": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "startWorkout": "Commencer : {mode}",
-  "@startWorkout": {"placeholders":{"mode":{"type":"String"}}},
+  "@startWorkout": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "finishOtherWorkout": "Terminez d’abord : {mode}",
-  "@finishOtherWorkout": {"placeholders":{"mode":{"type":"String"}}},
+  "@finishOtherWorkout": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutDetails": "Détails : {mode}",
-  "@workoutDetails": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutDetails": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "stepCount": "{count} pas",
-  "@stepCount": {"placeholders":{"count":{"type":"int"}}},
+  "@stepCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "@@locale": "fr",
   "globalShopPricePending": "Prix à confirmer",
   "globalShopLoadMore": "Afficher plus",
@@ -251,9 +299,9 @@
   "restorePurchases": "Restaurer les achats",
   "paymentMethod": "Mode de paiement",
   "refresh": "Actualiser",
-  "useWatchFace": "Utiliser ce cadran ?",
+  "useWatchFace": "Utiliser ce style d’affichage ?",
   "downloadAndUse": "Télécharger et utiliser",
-  "watchFaceFailed": "Impossible d’appliquer le cadran",
+  "watchFaceFailed": "Impossible d’appliquer le style d’affichage",
   "statusNormal": "Normal",
   "statusRecorded": "Enregistré",
   "statusAttention": "Vérifier la mesure",
@@ -283,7 +331,7 @@
   "deliveryAddresses": "Adresses de livraison",
   "readAgain": "Relire",
   "smsCode": "Code SMS",
-  "watchFaceShop": "Boutique de cadrans",
+  "watchFaceShop": "Boutique de styles d’affichage",
   "selectCity": "Choisir une ville",
   "city": "Ville",
   "confirm": "Confirmer",
@@ -335,7 +383,7 @@
   "distance": "Distance",
   "calories": "Calories",
   "healthProfile": "Profil de santé",
-  "photoWatchFace": "Cadran photo",
+  "photoWatchFace": "Affichage photo",
   "cameraRemote": "Télécommande photo",
   "phoneCalls": "Appels",
   "contacts": "Contacts",
@@ -370,7 +418,7 @@
   "capabilitiesHint": "Seules les fonctions disponibles sur cette bague s’afficheront",
   "capabilitiesFailed": "Impossible de lire les fonctions de cette bague",
   "keepWatchNear": "Gardez la bague près du téléphone et réessayez",
-  "personalizeWatch": "Cadrans et style",
+  "personalizeWatch": "Affichage et personnalisation",
   "signInCloudHint": "Connectez-vous pour les services de santé en ligne",
   "aiQuestion": "Demander à l’IA",
   "aiQuestionHint": "Posez vos questions de bien-être à l’assistant IA",
@@ -455,7 +503,7 @@
   "syncFailedTryAgain": "Échec de la synchronisation. Gardez la bague près du téléphone et réessayez.",
   "disconnect": "Déconnecter",
   "findWatch": "Trouver la bague",
-  "watchFaces": "Cadrans",
+  "watchFaces": "Styles d’affichage",
   "deviceFeatures": "Fonctions de l’appareil",
   "aboutDevice": "À propos de l’appareil",
   "connectionHelp": "Aide à la connexion",
@@ -622,5 +670,11 @@
   "shareProduct": "Partager le produit",
   "customerReviews": "Avis clients",
   "stockCount": "{count} en stock",
-  "@stockCount": {"placeholders":{"count":{"type":"int"}}}
+  "@stockCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

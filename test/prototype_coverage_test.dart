@@ -21,7 +21,7 @@ void main() {
   test('feature availability always has plain user copy', () {
     expect(
       const FeatureAvailability(FeatureAvailabilityStatus.needsDevice).message,
-      '连接手表后使用',
+      '连接戒指后使用',
     );
     expect(
       const FeatureAvailability(
@@ -33,13 +33,13 @@ void main() {
       const FeatureAvailability(
         FeatureAvailabilityStatus.unsupportedDevice,
       ).message,
-      '当前手表不支持此功能',
+      '当前戒指不支持此功能',
     );
     expect(
       const FeatureAvailability(
         FeatureAvailabilityStatus.serviceUnavailable,
       ).message,
-      '请在手表上操作',
+      '请在戒指上操作',
     );
   });
 
@@ -73,8 +73,8 @@ void main() {
 
     expect(find.text('添加智能设备'), findsOneWidget);
     expect(find.text('连接说明'), findsOneWidget);
-    expect(find.text('表盘中心'), findsNothing);
-    expect(find.text('查找手表'), findsNothing);
+    expect(find.text('显示样式'), findsNothing);
+    expect(find.text('查找戒指'), findsNothing);
     expect(find.text('联系人'), findsNothing);
     expect(find.text('健康提醒'), findsNothing);
     expect(find.text('屏幕显示'), findsNothing);
@@ -113,10 +113,10 @@ void main() {
       await tester.drag(find.byType(ListView), const Offset(0, -320));
       await tester.pumpAndSettle();
 
-      expect(find.text('查找手表'), findsOneWidget);
+      expect(find.text('查找戒指'), findsOneWidget);
       expect(find.text('天气'), findsOneWidget);
       expect(find.text('相机遥控'), findsNothing);
-      expect(find.text('表盘与个性化'), findsNothing);
+      expect(find.text('显示与个性化'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
@@ -209,7 +209,7 @@ void main() {
         find.byKey(const Key('device-capabilities-loading')),
         findsOneWidget,
       );
-      expect(find.text('查找手表'), findsNothing);
+      expect(find.text('查找戒指'), findsNothing);
 
       controller.deviceCapabilityState = DeviceCapabilityState.unavailable;
       controller.notifyListeners();
@@ -222,7 +222,7 @@ void main() {
         find.byKey(const Key('device-capabilities-retry')),
         findsOneWidget,
       );
-      expect(find.text('查找手表'), findsNothing);
+      expect(find.text('查找戒指'), findsNothing);
     },
   );
 
@@ -280,7 +280,7 @@ void main() {
       await tester.drag(find.byType(ListView), const Offset(0, -320));
       await tester.pumpAndSettle();
 
-      expect(find.text('查找手表'), findsOneWidget);
+      expect(find.text('查找戒指'), findsOneWidget);
       expect(find.text('相机遥控'), findsNothing);
       expect(
         find.byKey(const Key('device-capabilities-unavailable')),
@@ -313,8 +313,8 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('请在手表上操作'), findsOneWidget);
-    expect(find.text('当前手表不支持此功能'), findsNothing);
+    expect(find.text('请在戒指上操作'), findsOneWidget);
+    expect(find.text('当前戒指不支持此功能'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -363,7 +363,7 @@ void main() {
         expect(find.text('短信'), findsOneWidget);
         expect(find.text('钉钉'), findsNothing);
         expect(find.text('企业微信'), findsNothing);
-        expect(find.text('当前手表不支持此项'), findsNothing);
+        expect(find.text('当前戒指不支持此项'), findsNothing);
       }
       if (entry.key == DeviceFeature.watchFaces) {
         expect(
@@ -819,7 +819,7 @@ class _EventCoverageWearable extends Fake implements WearableBridge {
   @override
   Future<DeviceCapabilities> getCapabilities() async => throw PlatformException(
     code: 'CAPABILITIES_UNAVAILABLE',
-    message: '暂时无法读取此手表的功能',
+    message: '暂时无法读取此戒指的功能',
   );
 
   @override

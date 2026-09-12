@@ -61,7 +61,7 @@ HealthInterpretation interpretHealthRecord(HealthRecord record) {
       if (value > 37.3) {
         return const HealthInterpretation(
           title: '本次体温偏高',
-          detail: '手表测量受佩戴和环境影响，请用医用体温计复核；如有不适请咨询医务人员。',
+          detail: '戒指测量受佩戴和环境影响，请用医用体温计复核；如有不适请咨询医务人员。',
         );
       }
       if (value < 36) {
@@ -72,7 +72,7 @@ HealthInterpretation interpretHealthRecord(HealthRecord record) {
       }
       return const HealthInterpretation(
         title: '本次体温处于常见参考范围',
-        detail: '手表结果用于健康趋势管理，不能替代医用体温计。',
+        detail: '戒指结果用于健康趋势管理，不能替代医用体温计。',
       );
     case HealthMetric.ecg:
       final riskSignals = [
@@ -86,7 +86,7 @@ HealthInterpretation interpretHealthRecord(HealthRecord record) {
         return const HealthInterpretation(
           title: '设备标记到需关注的心电特征',
           detail:
-              '已结合手表返回的节律及风险标记进行解读。该结果不是医学诊断；如反复出现或伴胸闷、心悸等不适，请携带完整波形咨询专业医务人员。',
+              '已结合戒指返回的节律及风险标记进行解读。该结果不是医学诊断；如反复出现或伴胸闷、心悸等不适，请携带完整波形咨询专业医务人员。',
         );
       }
       return const HealthInterpretation(
@@ -106,7 +106,7 @@ HealthInterpretation interpretHealthRecord(HealthRecord record) {
     case HealthMetric.bloodComposition:
       return const HealthInterpretation(
         title: '血液成分估算完成',
-        detail: '手表结果仅作趋势参考，不能替代医院采血化验；异常结果请以医疗机构检测为准。',
+        detail: '戒指结果仅作趋势参考，不能替代医院采血化验；异常结果请以医疗机构检测为准。',
       );
     default:
       return const HealthInterpretation(
@@ -118,7 +118,7 @@ HealthInterpretation interpretHealthRecord(HealthRecord record) {
 
 const _insufficient = HealthInterpretation(
   title: '本次数据不足',
-  detail: '请确认手表正确佩戴后重新测量。',
+  detail: '请确认戒指正确佩戴后重新测量。',
 );
 
 String healthValueLabel(String key, HealthMetric metric) => switch (key) {

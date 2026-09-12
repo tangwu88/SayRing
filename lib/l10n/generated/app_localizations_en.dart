@@ -336,11 +336,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'Note: this report uses ring measurement data. It is for wellness reference only and cannot replace a doctor’s diagnosis.';
 
   @override
-  String get installedWatchFaces => 'Installed watch faces';
+  String get installedWatchFaces => 'Installed display styles';
 
   @override
   String get switchInstalledWatchFace =>
-      'Switch between watch faces already on your watch.';
+      'Switch between display styles already stored on your ring.';
 
   @override
   String get useSelectedWatchFace => 'Use';
@@ -350,17 +350,17 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get photoWatchFaceHint =>
-      'Choose a clear photo, check the preview, then send it to your watch.';
+      'Choose a clear photo, check the preview, then send it to your ring.';
 
   @override
   String get timeDisplayPosition => 'Time position';
 
   @override
-  String get transferSetWatchFace => 'Send and set as watch face';
+  String get transferSetWatchFace => 'Send and set as display style';
 
   @override
   String get watchTransferKeepNear =>
-      'Keep the watch near your phone during transfer and stay on this page.';
+      'Keep the ring near your phone during transfer and stay on this page.';
 
   @override
   String get callMediaAudio => 'Call and media audio';
@@ -370,11 +370,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get sosContactHint =>
-      'When SOS is triggered on the watch, it will first contact the person selected here. Choose a family member you contact regularly.';
+      'When SOS is triggered on the ring, it will first contact the person selected here. Choose a family member you contact regularly.';
 
   @override
   String get noHealthAssessments =>
-      'No configurable health assessments are available on this watch.';
+      'No configurable health assessments are available on this ring.';
 
   @override
   String get modelFeaturesVary =>
@@ -412,7 +412,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get screenAutoTimeHint =>
-      'The watch adjusts automatically based on the time.';
+      'The ring adjusts this automatically based on the time.';
 
   @override
   String get raiseWristScreenHint =>
@@ -448,10 +448,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get watchFaceDownloadHint =>
-      'After downloading, the watch face will be sent to your watch. Keep the watch near your phone and stay on this page during transfer.';
+      'After downloading, the display style will be sent to your ring. Keep the ring near your phone and stay on this page during transfer.';
 
   @override
-  String get refreshWatchFaces => 'Refresh watch faces';
+  String get refreshWatchFaces => 'Refresh display styles';
 
   @override
   String get openTestFlight => 'Open TestFlight';
@@ -837,13 +837,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get refresh => 'Refresh';
 
   @override
-  String get useWatchFace => 'Use this watch face?';
+  String get useWatchFace => 'Use this display style?';
 
   @override
   String get downloadAndUse => 'Download and use';
 
   @override
-  String get watchFaceFailed => 'Could not set the watch face';
+  String get watchFaceFailed => 'Could not set the display style';
 
   @override
   String get statusNormal => 'Normal';
@@ -937,7 +937,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get smsCode => 'SMS verification code';
 
   @override
-  String get watchFaceShop => 'Watch face store';
+  String get watchFaceShop => 'Display style store';
 
   @override
   String get selectCity => 'Select city';
@@ -1096,7 +1096,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get healthProfile => 'Health profile';
 
   @override
-  String get photoWatchFace => 'Photo watch face';
+  String get photoWatchFace => 'Photo display';
 
   @override
   String get cameraRemote => 'Camera remote';
@@ -1207,7 +1207,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get keepWatchNear => 'Keep your ring near your phone and try again';
 
   @override
-  String get personalizeWatch => 'Watch faces & style';
+  String get personalizeWatch => 'Display & personalization';
 
   @override
   String get signInCloudHint => 'Sign in to use cloud health services';
@@ -1474,7 +1474,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get findWatch => 'Find ring';
 
   @override
-  String get watchFaces => 'Watch faces';
+  String get watchFaces => 'Display styles';
 
   @override
   String get deviceFeatures => 'Device features';

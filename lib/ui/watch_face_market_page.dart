@@ -108,7 +108,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
       _pageCount = 1;
       _total = 0;
       _showingCache = false;
-      _error = '连接设备已变化，请返回表盘中心重新读取规格';
+      _error = '连接设备已变化，请返回显示样式页面重新读取规格';
     });
   }
 
@@ -129,7 +129,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
   Future<void> _load({bool reset = false}) async {
     if (_loading && !reset) return;
     if (!widget.profile.matchesDevice(widget.controller.connectedDevice?.id)) {
-      setState(() => _error = '连接设备已变化，请返回表盘中心重新读取规格');
+      setState(() => _error = '连接设备已变化，请返回显示样式页面重新读取规格');
       return;
     }
     final generation = _loadGate.begin();
@@ -167,13 +167,13 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
         setState(
           () => _error = userFacingMessage(
             error.message,
-            fallback: '表盘暂时无法加载，请重试',
+            fallback: '显示样式暂时无法加载，请重试',
           ),
         );
       }
     } catch (_) {
       if (_isCurrentLoad(generation, requestedDeviceId, requestedFingerprint)) {
-        setState(() => _error = '表盘商城加载失败，请稍后重试');
+        setState(() => _error = '显示样式商城加载失败，请稍后重试');
       }
     } finally {
       if (_isCurrentLoad(generation, requestedDeviceId, requestedFingerprint)) {
@@ -246,7 +246,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
       if (latestProfile.profileFingerprint !=
               widget.profile.profileFingerprint ||
           !latestProfile.matchesDevice(widget.controller.connectedDevice?.id)) {
-        throw const DeviceWatchFaceMarketException('连接设备或表盘规格已变化，请返回后重新进入商城');
+        throw const DeviceWatchFaceMarketException('连接设备或显示规格已变化，请返回后重新进入商城');
       }
       late final String filePath;
       late final int fileLength;
@@ -255,14 +255,14 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
         if (!widget.controller.usesNativeWatchFaceMarket ||
             item.dialShape != latestProfile.dialShape ||
             item.binProtocol != latestProfile.binProtocol) {
-          throw const DeviceWatchFaceMarketException('连接设备或表盘规格已变化，请重新进入商城');
+          throw const DeviceWatchFaceMarketException('连接设备或显示规格已变化，请重新进入商城');
         }
         final download = await widget.controller.downloadNativeWatchFace(
           nativeCatalogId,
         );
         if (download.catalogId != nativeCatalogId ||
             download.fileLength > latestProfile.maxFileLength) {
-          throw const DeviceWatchFaceMarketException('表盘文件与当前手表规格不匹配');
+          throw const DeviceWatchFaceMarketException('显示样式文件与当前戒指规格不匹配');
         }
         filePath = download.filePath;
         fileLength = download.fileLength;
@@ -298,8 +298,8 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
           });
       if (!mounted) return;
       final resultMessage = saved
-          ? '表盘已传送并设置完成'
-          : widget.controller.errorMessage ?? '表盘设置失败，请稍后重试';
+          ? '显示样式已传送并设置完成'
+          : widget.controller.errorMessage ?? '显示样式设置失败，请稍后重试';
       setState(() {
         _installError = saved ? null : resultMessage;
         _lastFailedInstall = saved ? null : item;
@@ -316,7 +316,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
       if (mounted) {
         final message = userFacingMessage(
           error.message,
-          fallback: '表盘设置失败，请重试',
+          fallback: '显示样式设置失败，请重试',
         );
         setState(() {
           _installError = message;
@@ -328,7 +328,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
       }
     } catch (_) {
       if (mounted) {
-        const message = '表盘设置失败，请稍后重试';
+        const message = '显示样式设置失败，请稍后重试';
         setState(() {
           _installError = message;
           _lastFailedInstall = item;
@@ -360,7 +360,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
                     Expanded(
                       child: Text(
                         widget.profile.deviceLabel.isEmpty
-                            ? '适配当前手表'
+                            ? '适配当前戒指'
                             : '为 ${widget.profile.deviceLabel} 精选',
                         style: const TextStyle(
                           fontSize: 20,
@@ -382,7 +382,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
                   child: Text(
-                    '当前展示离线缓存；安装前会重新验证已连接手表。',
+                    '当前展示离线缓存；安装前会重新验证已连接戒指。',
                     style: TextStyle(color: SaydianColors.orange),
                   ),
                 ),
@@ -449,7 +449,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
                       children: [
                         const Icon(Icons.watch_outlined, size: 58),
                         const SizedBox(height: 14),
-                        Text(_error ?? '暂无可用表盘', textAlign: TextAlign.center),
+                        Text(_error ?? '暂无可用显示样式', textAlign: TextAlign.center),
                         const SizedBox(height: 14),
                         FilledButton(
                           onPressed: _loading ? null : () => _load(reset: true),
@@ -521,7 +521,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
                                     Text(
                                       _downloadProgress < 1
                                           ? '正在下载'
-                                          : '正在传送到手表',
+                                          : '正在传送到戒指',
                                       textAlign: TextAlign.center,
                                       style: const TextStyle(fontSize: 13),
                                     ),
@@ -573,7 +573,7 @@ class _DeviceWatchFaceMarketPageState extends State<DeviceWatchFaceMarketPage> {
         !RegExp(r'[\s\u4e00-\u9fff]').hasMatch(raw) &&
         RegExp(r'[A-Za-z]').hasMatch(raw) &&
         RegExp(r'\d').hasMatch(raw);
-    return raw.isEmpty || isProtocolCode ? '精选表盘 ${index + 1}' : raw;
+    return raw.isEmpty || isProtocolCode ? '精选显示样式 ${index + 1}' : raw;
   }
 }
 

@@ -294,10 +294,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get ecgReportSafety => '说明：本报告由戒指测量数据生成，仅供健康管理参考，不能替代医生诊断。';
 
   @override
-  String get installedWatchFaces => '已安装表盘';
+  String get installedWatchFaces => '已安装显示样式';
 
   @override
-  String get switchInstalledWatchFace => '可切换手表内已有表盘';
+  String get switchInstalledWatchFace => '可切换戒指内已有的显示样式';
 
   @override
   String get useSelectedWatchFace => '使用';
@@ -306,16 +306,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get downloadUseWatchFace => '点击下载并使用';
 
   @override
-  String get photoWatchFaceHint => '选择一张清晰照片，预览无误后再传送到手表。';
+  String get photoWatchFaceHint => '选择一张清晰照片，预览无误后再传送到戒指。';
 
   @override
   String get timeDisplayPosition => '时间显示位置';
 
   @override
-  String get transferSetWatchFace => '传送并设为表盘';
+  String get transferSetWatchFace => '传送并设为显示样式';
 
   @override
-  String get watchTransferKeepNear => '传送时请保持手表靠近手机，并避免切换到其他页面。';
+  String get watchTransferKeepNear => '传送时请保持戒指靠近手机，并避免切换到其他页面。';
 
   @override
   String get callMediaAudio => '通话与媒体声音';
@@ -324,10 +324,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get useCelsius => '使用摄氏度';
 
   @override
-  String get sosContactHint => '手表触发 SOS 后，会优先联系这里选择的人。建议选择最常联系的家人。';
+  String get sosContactHint => '戒指触发 SOS 后，会优先联系这里选择的人。建议选择最常联系的家人。';
 
   @override
-  String get noHealthAssessments => '当前手表没有可设置的辅助评估';
+  String get noHealthAssessments => '当前戒指没有可设置的辅助评估';
 
   @override
   String get modelFeaturesVary => '不同型号支持的项目可能不同，连接后仅显示当前戒指可用的功能。';
@@ -357,7 +357,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get ecgElectrodeHint => '心率和 HRV 等结果仍可查看；下次测量时请持续接触戒指电极。';
 
   @override
-  String get screenAutoTimeHint => '由手表根据时间自动调节';
+  String get screenAutoTimeHint => '由戒指根据时间自动调节';
 
   @override
   String get raiseWristScreenHint => '抬起手腕时自动点亮屏幕';
@@ -387,10 +387,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get trendVariationSafety => '单次和阶段变化可能受佩戴、运动及环境影响，不替代医疗诊断。';
 
   @override
-  String get watchFaceDownloadHint => '下载后会传送到手表。传送期间请保持手表靠近手机，不要离开当前页面。';
+  String get watchFaceDownloadHint => '下载后会将显示样式传送到戒指。传送期间请保持戒指靠近手机，不要离开当前页面。';
 
   @override
-  String get refreshWatchFaces => '刷新手表表盘';
+  String get refreshWatchFaces => '刷新显示样式';
 
   @override
   String get openTestFlight => '打开 TestFlight';
@@ -764,13 +764,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get refresh => '刷新';
 
   @override
-  String get useWatchFace => '使用这个表盘？';
+  String get useWatchFace => '使用这个显示样式？';
 
   @override
   String get downloadAndUse => '下载并使用';
 
   @override
-  String get watchFaceFailed => '表盘未设置成功';
+  String get watchFaceFailed => '显示样式未设置成功';
 
   @override
   String get statusNormal => '正常';
@@ -860,7 +860,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get smsCode => '短信验证码';
 
   @override
-  String get watchFaceShop => '表盘商城';
+  String get watchFaceShop => '显示样式商城';
 
   @override
   String get selectCity => '选择城市';
@@ -1016,7 +1016,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get healthProfile => '健康档案';
 
   @override
-  String get photoWatchFace => '照片表盘';
+  String get photoWatchFace => '照片显示';
 
   @override
   String get cameraRemote => '相机遥控';
@@ -1124,7 +1124,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get keepWatchNear => '请保持戒指靠近手机后重试';
 
   @override
-  String get personalizeWatch => '表盘与个性化';
+  String get personalizeWatch => '显示与个性化';
 
   @override
   String get signInCloudHint => '登录后开启云端健康服务';
@@ -1379,7 +1379,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get findWatch => '查找戒指';
 
   @override
-  String get watchFaces => '表盘';
+  String get watchFaces => '显示样式';
 
   @override
   String get deviceFeatures => '设备功能';
@@ -2190,10 +2190,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get ecgReportSafety => '说明：本报告由戒指测量数据生成，仅供健康管理参考，不能替代医生诊断。';
 
   @override
-  String get installedWatchFaces => '已安装表盘';
+  String get installedWatchFaces => '已安装显示样式';
 
   @override
-  String get switchInstalledWatchFace => '可切换手表内已有表盘';
+  String get switchInstalledWatchFace => '可切换戒指内已有的显示样式';
 
   @override
   String get useSelectedWatchFace => '使用';
@@ -2202,16 +2202,16 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get downloadUseWatchFace => '点击下载并使用';
 
   @override
-  String get photoWatchFaceHint => '选择一张清晰照片，预览无误后再传送到手表。';
+  String get photoWatchFaceHint => '选择一张清晰照片，预览无误后再传送到戒指。';
 
   @override
   String get timeDisplayPosition => '时间显示位置';
 
   @override
-  String get transferSetWatchFace => '传送并设为表盘';
+  String get transferSetWatchFace => '传送并设为显示样式';
 
   @override
-  String get watchTransferKeepNear => '传送时请保持手表靠近手机，并避免切换到其他页面。';
+  String get watchTransferKeepNear => '传送时请保持戒指靠近手机，并避免切换到其他页面。';
 
   @override
   String get callMediaAudio => '通话与媒体声音';
@@ -2220,10 +2220,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get useCelsius => '使用摄氏度';
 
   @override
-  String get sosContactHint => '手表触发 SOS 后，会优先联系这里选择的人。建议选择最常联系的家人。';
+  String get sosContactHint => '戒指触发 SOS 后，会优先联系这里选择的人。建议选择最常联系的家人。';
 
   @override
-  String get noHealthAssessments => '当前手表没有可设置的辅助评估';
+  String get noHealthAssessments => '当前戒指没有可设置的辅助评估';
 
   @override
   String get modelFeaturesVary => '不同型号支持的项目可能不同，连接后仅显示当前戒指可用的功能。';
@@ -2253,7 +2253,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get ecgElectrodeHint => '心率和 HRV 等结果仍可查看；下次测量时请持续接触戒指电极。';
 
   @override
-  String get screenAutoTimeHint => '由手表根据时间自动调节';
+  String get screenAutoTimeHint => '由戒指根据时间自动调节';
 
   @override
   String get raiseWristScreenHint => '抬起手腕时自动点亮屏幕';
@@ -2283,10 +2283,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get trendVariationSafety => '单次和阶段变化可能受佩戴、运动及环境影响，不替代医疗诊断。';
 
   @override
-  String get watchFaceDownloadHint => '下载后会传送到手表。传送期间请保持手表靠近手机，不要离开当前页面。';
+  String get watchFaceDownloadHint => '下载后会将显示样式传送到戒指。传送期间请保持戒指靠近手机，不要离开当前页面。';
 
   @override
-  String get refreshWatchFaces => '刷新手表表盘';
+  String get refreshWatchFaces => '刷新显示样式';
 
   @override
   String get openTestFlight => '打开 TestFlight';
@@ -2660,13 +2660,13 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get refresh => '刷新';
 
   @override
-  String get useWatchFace => '使用这个表盘？';
+  String get useWatchFace => '使用这个显示样式？';
 
   @override
   String get downloadAndUse => '下载并使用';
 
   @override
-  String get watchFaceFailed => '表盘未设置成功';
+  String get watchFaceFailed => '显示样式未设置成功';
 
   @override
   String get statusNormal => '正常';
@@ -2756,7 +2756,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get smsCode => '短信验证码';
 
   @override
-  String get watchFaceShop => '表盘商城';
+  String get watchFaceShop => '显示样式商城';
 
   @override
   String get selectCity => '选择城市';
@@ -2912,7 +2912,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get healthProfile => '健康档案';
 
   @override
-  String get photoWatchFace => '照片表盘';
+  String get photoWatchFace => '照片显示';
 
   @override
   String get cameraRemote => '相机遥控';
@@ -3020,7 +3020,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get keepWatchNear => '请保持戒指靠近手机后重试';
 
   @override
-  String get personalizeWatch => '表盘与个性化';
+  String get personalizeWatch => '显示与个性化';
 
   @override
   String get signInCloudHint => '登录后开启云端健康服务';
@@ -3275,7 +3275,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get findWatch => '查找戒指';
 
   @override
-  String get watchFaces => '表盘';
+  String get watchFaces => '显示样式';
 
   @override
   String get deviceFeatures => '设备功能';
@@ -4086,10 +4086,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get ecgReportSafety => '說明：本報告由戒指測量資料產生，僅供健康管理參考，不能替代醫師診斷。';
 
   @override
-  String get installedWatchFaces => '已安裝錶面';
+  String get installedWatchFaces => '已安裝顯示樣式';
 
   @override
-  String get switchInstalledWatchFace => '可切換手錶內已有錶面';
+  String get switchInstalledWatchFace => '可切換戒指內已有的顯示樣式';
 
   @override
   String get useSelectedWatchFace => '使用';
@@ -4098,16 +4098,16 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get downloadUseWatchFace => '點選下載並使用';
 
   @override
-  String get photoWatchFaceHint => '選擇一張清晰照片，確認預覽後再傳送至手錶。';
+  String get photoWatchFaceHint => '選擇一張清晰照片，確認預覽後再傳送至戒指。';
 
   @override
   String get timeDisplayPosition => '時間顯示位置';
 
   @override
-  String get transferSetWatchFace => '傳送並設為錶面';
+  String get transferSetWatchFace => '傳送並設為顯示樣式';
 
   @override
-  String get watchTransferKeepNear => '傳送時請讓手錶靠近手機，並避免切換至其他頁面。';
+  String get watchTransferKeepNear => '傳送時請讓戒指靠近手機，並避免切換至其他頁面。';
 
   @override
   String get callMediaAudio => '通話與媒體聲音';
@@ -4116,10 +4116,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get useCelsius => '使用攝氏度';
 
   @override
-  String get sosContactHint => '手錶觸發 SOS 後，會優先聯絡此處選擇的人。建議選擇最常聯絡的家人。';
+  String get sosContactHint => '戒指觸發 SOS 後，會優先聯絡此處選擇的人。建議選擇最常聯絡的家人。';
 
   @override
-  String get noHealthAssessments => '目前手錶沒有可設定的輔助評估';
+  String get noHealthAssessments => '目前戒指沒有可設定的輔助評估';
 
   @override
   String get modelFeaturesVary => '不同型號支援的項目可能不同，連接後僅顯示目前戒指可用的功能。';
@@ -4149,7 +4149,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get ecgElectrodeHint => '心率和 HRV 等結果仍可查看；下次測量時請持續接觸戒指電極。';
 
   @override
-  String get screenAutoTimeHint => '由手錶依時間自動調節';
+  String get screenAutoTimeHint => '由戒指依時間自動調節';
 
   @override
   String get raiseWristScreenHint => '抬起手腕時自動點亮螢幕';
@@ -4179,10 +4179,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get trendVariationSafety => '單次和階段變化可能受佩戴、運動及環境影響，不替代醫療診斷。';
 
   @override
-  String get watchFaceDownloadHint => '下載後會傳送至手錶。傳送期間請讓手錶靠近手機，不要離開目前頁面。';
+  String get watchFaceDownloadHint => '下載後會將顯示樣式傳送至戒指。傳送期間請讓戒指靠近手機，不要離開目前頁面。';
 
   @override
-  String get refreshWatchFaces => '重新整理手錶錶面';
+  String get refreshWatchFaces => '重新整理顯示樣式';
 
   @override
   String get openTestFlight => '開啟 TestFlight';
@@ -4556,13 +4556,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get refresh => '重新整理';
 
   @override
-  String get useWatchFace => '使用此錶盤？';
+  String get useWatchFace => '使用此顯示樣式？';
 
   @override
   String get downloadAndUse => '下載並使用';
 
   @override
-  String get watchFaceFailed => '錶盤設定未成功';
+  String get watchFaceFailed => '顯示樣式設定未成功';
 
   @override
   String get statusNormal => '正常';
@@ -4652,7 +4652,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get smsCode => '簡訊驗證碼';
 
   @override
-  String get watchFaceShop => '錶盤商城';
+  String get watchFaceShop => '顯示樣式商城';
 
   @override
   String get selectCity => '選擇城市';
@@ -4808,7 +4808,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get healthProfile => '健康檔案';
 
   @override
-  String get photoWatchFace => '照片錶盤';
+  String get photoWatchFace => '照片顯示';
 
   @override
   String get cameraRemote => '相機遙控';
@@ -4916,7 +4916,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get keepWatchNear => '請保持戒指靠近手機後重試';
 
   @override
-  String get personalizeWatch => '錶盤與個人化';
+  String get personalizeWatch => '顯示與個人化';
 
   @override
   String get signInCloudHint => '登入後開啟雲端健康服務';
@@ -5171,7 +5171,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get findWatch => '尋找戒指';
 
   @override
-  String get watchFaces => '錶盤';
+  String get watchFaces => '顯示樣式';
 
   @override
   String get deviceFeatures => '裝置功能';

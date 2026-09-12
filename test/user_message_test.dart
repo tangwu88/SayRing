@@ -15,7 +15,7 @@ void main() {
     }
   });
   test('actionable account, permission and device errors remain visible', () {
-    for (final message in ['密码不正确', '请先打开手机蓝牙', '当前手表不支持此功能', '请保持静止']) {
+    for (final message in ['密码不正确', '请先打开手机蓝牙', '当前戒指不支持此功能', '请保持静止']) {
       expect(userFacingMessage(message, fallback: '失败'), message);
     }
     expect(

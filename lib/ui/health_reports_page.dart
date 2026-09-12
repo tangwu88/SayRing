@@ -888,7 +888,7 @@ class _ProfileOverview extends StatelessWidget {
               Expanded(
                 child: Text(
                   profile.devices.isEmpty
-                      ? '暂未绑定手表，已保存的有效记录仍会保留'
+                      ? '暂未绑定戒指，已保存的有效记录仍会保留'
                       : '已绑定 ${profile.devices.length} 台设备：${profile.devices.map((device) => device.displayName.isEmpty ? device.model : device.displayName).where((name) => name.isNotEmpty).join('、')}',
                   style: const TextStyle(
                     color: SaydianColors.muted,

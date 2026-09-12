@@ -94,18 +94,18 @@
   "ecgHealthReport": "심전도 건강 보고서",
   "brandedEcgReport": "Say Ring · 심전도 건강 보고서",
   "ecgReportSafety": "안내: 이 보고서는 링 측정 데이터를 바탕으로 작성되었습니다. 건강 관리 참고용이며 의사의 진단을 대신할 수 없습니다.",
-  "installedWatchFaces": "설치된 워치 페이스",
-  "switchInstalledWatchFace": "워치에 이미 설치된 페이스로 변경할 수 있습니다.",
+  "installedWatchFaces": "설치된 디스플레이 스타일",
+  "switchInstalledWatchFace": "링에 저장된 디스플레이 스타일로 변경할 수 있습니다.",
   "useSelectedWatchFace": "사용",
   "downloadUseWatchFace": "눌러서 다운로드 및 사용",
-  "photoWatchFaceHint": "선명한 사진을 선택하고 미리보기를 확인한 후 워치로 전송하세요.",
+  "photoWatchFaceHint": "선명한 사진을 선택하고 미리보기를 확인한 후 링으로 전송하세요.",
   "timeDisplayPosition": "시간 표시 위치",
-  "transferSetWatchFace": "전송하고 워치 페이스로 설정",
-  "watchTransferKeepNear": "전송 중에는 워치를 휴대폰 가까이에 두고 이 화면을 유지하세요.",
+  "transferSetWatchFace": "전송하고 디스플레이 스타일로 설정",
+  "watchTransferKeepNear": "전송 중에는 링을 휴대폰 가까이에 두고 이 화면을 유지하세요.",
   "callMediaAudio": "통화 및 미디어 소리",
   "useCelsius": "섭씨 사용",
-  "sosContactHint": "워치에서 SOS가 작동하면 여기서 선택한 사람에게 우선 연락합니다. 평소 자주 연락하는 가족을 선택하세요.",
-  "noHealthAssessments": "현재 워치에는 설정 가능한 보조 평가가 없습니다.",
+  "sosContactHint": "링에서 SOS가 작동하면 여기서 선택한 사람에게 우선 연락합니다. 평소 자주 연락하는 가족을 선택하세요.",
+  "noHealthAssessments": "현재 링에는 설정 가능한 보조 평가가 없습니다.",
   "modelFeaturesVary": "지원 기능은 모델에 따라 다릅니다. 앱에는 연결된 링에서 사용할 수 있는 기능만 표시됩니다.",
   "assessmentEnabledHint": "켜면 링이 일상적인 추세 정보를 제공합니다.",
   "assessmentSafety": "보조 평가는 일상적인 건강 관리 참고용이며 진단이나 치료용이 아닙니다.",
@@ -115,7 +115,7 @@
   "ecgWaveformTitle": "심전도 파형",
   "ecgWaveformMissing": "이번 측정에서는 유효한 심전도 파형이 반환되지 않았습니다.",
   "ecgElectrodeHint": "심박수 및 HRV 결과는 계속 확인할 수 있습니다. 다음 측정 시에는 링 전극에 계속 접촉해 주세요.",
-  "screenAutoTimeHint": "워치가 시간에 따라 자동으로 조절합니다.",
+  "screenAutoTimeHint": "링이 시간에 따라 자동으로 조절합니다.",
   "raiseWristScreenHint": "손목을 들면 화면이 켜집니다.",
   "watchHighHeartRate": "높은 심박수 알림",
   "watchThresholdHint": "상한에 도달하면 링이 알려드립니다.",
@@ -125,8 +125,8 @@
   "recentData": "최근 데이터",
   "trendReferenceOnly": "추세는 일상적인 건강 관리 참고용입니다.",
   "trendVariationSafety": "단회 및 기간별 변화는 착용 상태, 운동, 환경의 영향을 받을 수 있으며 의학적 진단을 대신하지 않습니다.",
-  "watchFaceDownloadHint": "다운로드 후 워치 페이스가 워치로 전송됩니다. 전송 중에는 워치를 휴대폰 가까이에 두고 이 화면을 유지하세요.",
-  "refreshWatchFaces": "워치 페이스 새로고침",
+  "watchFaceDownloadHint": "다운로드 후 디스플레이 스타일이 링으로 전송됩니다. 전송 중에는 링을 휴대폰 가까이에 두고 이 화면을 유지하세요.",
+  "refreshWatchFaces": "디스플레이 스타일 새로고침",
   "openTestFlight": "TestFlight 열기",
   "articlesEmpty": "이 카테고리에는 아직 글이 없습니다.",
   "articlesUnavailable": "건강 백과를 불러올 수 없습니다.",
@@ -157,21 +157,69 @@
   "watchCalories": "링 칼로리",
   "connectForWorkout": "먼저 기기 화면에서 링을 연결하세요. 링이 운동을 기록합니다.",
   "latestVersion": "최신 버전 V{version}을 사용하고 있습니다",
-  "@latestVersion": {"placeholders":{"version":{"type":"String"}}},
+  "@latestVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "workoutPaused": "{mode} 일시 정지됨",
-  "@workoutPaused": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutPaused": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutInProgress": "{mode} 진행 중",
-  "@workoutInProgress": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutInProgress": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutReady": "{mode} 시작 준비",
-  "@workoutReady": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutReady": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "startWorkout": "{mode} 시작",
-  "@startWorkout": {"placeholders":{"mode":{"type":"String"}}},
+  "@startWorkout": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "finishOtherWorkout": "먼저 {mode}을(를) 종료하세요",
-  "@finishOtherWorkout": {"placeholders":{"mode":{"type":"String"}}},
+  "@finishOtherWorkout": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutDetails": "{mode} 상세",
-  "@workoutDetails": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutDetails": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "stepCount": "{count} 걸음",
-  "@stepCount": {"placeholders":{"count":{"type":"int"}}},
+  "@stepCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "@@locale": "ko",
   "globalShopPricePending": "가격 확인 중",
   "globalShopLoadMore": "더 보기",
@@ -251,9 +299,9 @@
   "restorePurchases": "구매 복원",
   "paymentMethod": "결제 수단",
   "refresh": "새로고침",
-  "useWatchFace": "이 워치 페이스를 사용하시겠습니까?",
+  "useWatchFace": "이 디스플레이 스타일을 사용하시겠습니까?",
   "downloadAndUse": "다운로드하여 사용",
-  "watchFaceFailed": "워치 페이스를 설정하지 못했습니다",
+  "watchFaceFailed": "디스플레이 스타일을 설정하지 못했습니다",
   "statusNormal": "정상",
   "statusRecorded": "기록됨",
   "statusAttention": "측정값 확인",
@@ -283,7 +331,7 @@
   "deliveryAddresses": "배송지",
   "readAgain": "다시 읽기",
   "smsCode": "문자 인증 코드",
-  "watchFaceShop": "워치 페이스 스토어",
+  "watchFaceShop": "디스플레이 스타일 스토어",
   "selectCity": "도시 선택",
   "city": "도시",
   "confirm": "확인",
@@ -335,7 +383,7 @@
   "distance": "거리",
   "calories": "칼로리",
   "healthProfile": "건강 프로필",
-  "photoWatchFace": "사진 워치 페이스",
+  "photoWatchFace": "사진 디스플레이",
   "cameraRemote": "카메라 리모컨",
   "phoneCalls": "통화",
   "contacts": "연락처",
@@ -370,7 +418,7 @@
   "capabilitiesHint": "이 링에서 사용할 수 있는 기능만 표시됩니다",
   "capabilitiesFailed": "링 기능을 읽지 못했습니다",
   "keepWatchNear": "링을 휴대전화 가까이에 두고 다시 시도하세요",
-  "personalizeWatch": "워치 페이스 및 꾸미기",
+  "personalizeWatch": "디스플레이 및 꾸미기",
   "signInCloudHint": "로그인하고 클라우드 건강 서비스를 이용하세요",
   "aiQuestion": "AI에 질문",
   "aiQuestionHint": "AI 도우미에게 건강 관리에 관해 물어보세요",
@@ -455,7 +503,7 @@
   "syncFailedTryAgain": "동기화하지 못했습니다. 링을 휴대전화 가까이에 두고 다시 시도하세요.",
   "disconnect": "연결 해제",
   "findWatch": "링 찾기",
-  "watchFaces": "워치 페이스",
+  "watchFaces": "디스플레이 스타일",
   "deviceFeatures": "기기 기능",
   "aboutDevice": "기기 정보",
   "connectionHelp": "연결 도움말",
@@ -622,5 +670,11 @@
   "shareProduct": "상품 공유",
   "customerReviews": "고객 리뷰",
   "stockCount": "재고 {count}개",
-  "@stockCount": {"placeholders":{"count":{"type":"int"}}}
+  "@stockCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

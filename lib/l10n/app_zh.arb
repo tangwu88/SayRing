@@ -94,18 +94,18 @@
   "ecgHealthReport": "心电健康报告",
   "brandedEcgReport": "Say Ring · 心电健康报告",
   "ecgReportSafety": "说明：本报告由戒指测量数据生成，仅供健康管理参考，不能替代医生诊断。",
-  "installedWatchFaces": "已安装表盘",
-  "switchInstalledWatchFace": "可切换手表内已有表盘",
+  "installedWatchFaces": "已安装显示样式",
+  "switchInstalledWatchFace": "可切换戒指内已有的显示样式",
   "useSelectedWatchFace": "使用",
   "downloadUseWatchFace": "点击下载并使用",
-  "photoWatchFaceHint": "选择一张清晰照片，预览无误后再传送到手表。",
+  "photoWatchFaceHint": "选择一张清晰照片，预览无误后再传送到戒指。",
   "timeDisplayPosition": "时间显示位置",
-  "transferSetWatchFace": "传送并设为表盘",
-  "watchTransferKeepNear": "传送时请保持手表靠近手机，并避免切换到其他页面。",
+  "transferSetWatchFace": "传送并设为显示样式",
+  "watchTransferKeepNear": "传送时请保持戒指靠近手机，并避免切换到其他页面。",
   "callMediaAudio": "通话与媒体声音",
   "useCelsius": "使用摄氏度",
-  "sosContactHint": "手表触发 SOS 后，会优先联系这里选择的人。建议选择最常联系的家人。",
-  "noHealthAssessments": "当前手表没有可设置的辅助评估",
+  "sosContactHint": "戒指触发 SOS 后，会优先联系这里选择的人。建议选择最常联系的家人。",
+  "noHealthAssessments": "当前戒指没有可设置的辅助评估",
   "modelFeaturesVary": "不同型号支持的项目可能不同，连接后仅显示当前戒指可用的功能。",
   "assessmentEnabledHint": "开启后由戒指提供日常趋势参考",
   "assessmentSafety": "辅助评估仅供日常健康管理参考，不用于诊断或治疗。",
@@ -115,7 +115,7 @@
   "ecgWaveformTitle": "心电波形",
   "ecgWaveformMissing": "本次未返回有效心电波形",
   "ecgElectrodeHint": "心率和 HRV 等结果仍可查看；下次测量时请持续接触戒指电极。",
-  "screenAutoTimeHint": "由手表根据时间自动调节",
+  "screenAutoTimeHint": "由戒指根据时间自动调节",
   "raiseWristScreenHint": "抬起手腕时自动点亮屏幕",
   "watchHighHeartRate": "心率过高预警",
   "watchThresholdHint": "达到阈值后由戒指提醒",
@@ -125,8 +125,8 @@
   "recentData": "近期数据",
   "trendReferenceOnly": "趋势仅作日常健康参考",
   "trendVariationSafety": "单次和阶段变化可能受佩戴、运动及环境影响，不替代医疗诊断。",
-  "watchFaceDownloadHint": "下载后会传送到手表。传送期间请保持手表靠近手机，不要离开当前页面。",
-  "refreshWatchFaces": "刷新手表表盘",
+  "watchFaceDownloadHint": "下载后会将显示样式传送到戒指。传送期间请保持戒指靠近手机，不要离开当前页面。",
+  "refreshWatchFaces": "刷新显示样式",
   "openTestFlight": "打开 TestFlight",
   "articlesEmpty": "该分类暂无百科内容",
   "articlesUnavailable": "健康百科加载失败",
@@ -157,21 +157,69 @@
   "watchCalories": "戒指热量",
   "connectForWorkout": "请先在设备页连接戒指，运动模式将由戒指记录。",
   "latestVersion": "当前已是最新版本 V{version}",
-  "@latestVersion": {"placeholders":{"version":{"type":"String"}}},
+  "@latestVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "workoutPaused": "{mode}已暂停",
-  "@workoutPaused": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutPaused": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutInProgress": "{mode}进行中",
-  "@workoutInProgress": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutInProgress": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutReady": "准备开始{mode}",
-  "@workoutReady": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutReady": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "startWorkout": "开始{mode}",
-  "@startWorkout": {"placeholders":{"mode":{"type":"String"}}},
+  "@startWorkout": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "finishOtherWorkout": "请先结束{mode}",
-  "@finishOtherWorkout": {"placeholders":{"mode":{"type":"String"}}},
+  "@finishOtherWorkout": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutDetails": "{mode}详情",
-  "@workoutDetails": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutDetails": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "stepCount": "{count} 步",
-  "@stepCount": {"placeholders":{"count":{"type":"int"}}},
+  "@stepCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "@@locale": "zh",
   "globalShopPricePending": "价格待确认",
   "globalShopLoadMore": "加载更多",
@@ -251,9 +299,9 @@
   "restorePurchases": "恢复购买",
   "paymentMethod": "支付方式",
   "refresh": "刷新",
-  "useWatchFace": "使用这个表盘？",
+  "useWatchFace": "使用这个显示样式？",
   "downloadAndUse": "下载并使用",
-  "watchFaceFailed": "表盘未设置成功",
+  "watchFaceFailed": "显示样式未设置成功",
   "statusNormal": "正常",
   "statusRecorded": "已记录",
   "statusAttention": "请关注",
@@ -283,7 +331,7 @@
   "deliveryAddresses": "收货地址",
   "readAgain": "重新读取",
   "smsCode": "短信验证码",
-  "watchFaceShop": "表盘商城",
+  "watchFaceShop": "显示样式商城",
   "selectCity": "选择城市",
   "city": "城市",
   "confirm": "确定",
@@ -335,7 +383,7 @@
   "distance": "距离",
   "calories": "热量",
   "healthProfile": "健康档案",
-  "photoWatchFace": "照片表盘",
+  "photoWatchFace": "照片显示",
   "cameraRemote": "相机遥控",
   "phoneCalls": "电话",
   "contacts": "联系人",
@@ -438,7 +486,7 @@
   "syncFailedTryAgain": "数据同步失败，请将戒指靠近手机后重试",
   "disconnect": "断开连接",
   "findWatch": "查找戒指",
-  "watchFaces": "表盘",
+  "watchFaces": "显示样式",
   "deviceFeatures": "设备功能",
   "aboutDevice": "关于设备",
   "connectionHelp": "连接说明",
@@ -513,7 +561,7 @@
   "capabilitiesHint": "识别完成后只显示当前戒指可用的功能",
   "capabilitiesFailed": "暂时无法读取此戒指的功能",
   "keepWatchNear": "请保持戒指靠近手机后重试",
-  "personalizeWatch": "表盘与个性化",
+  "personalizeWatch": "显示与个性化",
   "signInCloudHint": "登录后开启云端健康服务",
   "aiQuestion": "AI提问",
   "aiQuestionHint": "向 AI 健康管家咨询健康问题",
@@ -622,5 +670,11 @@
   "shareProduct": "分享商品",
   "customerReviews": "用户评价",
   "stockCount": "库存 {count} 件",
-  "@stockCount": {"placeholders":{"count":{"type":"int"}}}
+  "@stockCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

@@ -2014,7 +2014,7 @@ class AppController extends ChangeNotifier {
     _activeMeasurementMetric = null;
     _activeMeasurementSessionGeneration = null;
     _measurementTimeout = null;
-    measurementErrorMessage = '长时间未检测到有效结果，请确认戒指已贴合手腕后重新测量';
+    measurementErrorMessage = '长时间未检测到有效结果，请确认戒指已贴合手指后重新测量';
     errorMessage = measurementErrorMessage;
     if (deviceState == DeviceConnectionState.measuring) {
       deviceMachine.transition(DeviceConnectionState.ready);
@@ -2620,7 +2620,7 @@ class AppController extends ChangeNotifier {
 
   Future<List<NativeWatchFaceCatalogItem>> readNativeWatchFaceCatalog() async {
     if (connectedDevice == null || !usesNativeWatchFaceMarket) {
-      throw UnsupportedError('当前平台不支持原生表盘目录');
+      throw UnsupportedError('当前平台不支持原生显示样式目录');
     }
     return (_wearable as WearableNativeWatchFaceBridge)
         .getNativeWatchFaceCatalog();
@@ -2630,7 +2630,7 @@ class AppController extends ChangeNotifier {
     String catalogId,
   ) async {
     if (connectedDevice == null || !usesNativeWatchFaceMarket) {
-      throw UnsupportedError('当前平台不支持原生表盘下载');
+      throw UnsupportedError('当前平台不支持原生显示样式下载');
     }
     return (_wearable as WearableNativeWatchFaceBridge).downloadNativeWatchFace(
       catalogId,

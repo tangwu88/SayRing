@@ -46,7 +46,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(api.lastLogin, ('13800138000', 'qa-password'));
-      expect(find.text('赛电商城'), findsOneWidget);
+      expect(find.text('Say Ring 商城'), findsOneWidget);
       expect(find.byType(NavigationBar), findsOneWidget);
     },
   );
@@ -97,7 +97,7 @@ void main() {
     addTearDown(controller.dispose);
     await _pumpPhone(tester, controller);
 
-    await tester.tap(find.text('赛电商城'));
+    await tester.tap(find.text('Say Ring 商城'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('shop-page')), findsOneWidget);
     expect(find.text('QA 智能手表'), findsOneWidget);
@@ -166,7 +166,7 @@ void main() {
     );
     await _pumpPhone(tester, controller);
 
-    await tester.tap(find.text('赛电商城'));
+    await tester.tap(find.text('Say Ring 商城'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('购物车'));
     await tester.pumpAndSettle();
@@ -203,7 +203,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(320, 568));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('赛电商城'));
+    await tester.tap(find.text('Say Ring 商城'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('QA 智能手表'));
     await tester.pumpAndSettle();
@@ -496,7 +496,7 @@ void main() {
 
       expect(find.text('添加设备'), findsOneWidget);
       expect(find.text('QA Watch'), findsOneWidget);
-      expect(find.text('连接失败，请确认手表未连接其他手机后重试'), findsOneWidget);
+      expect(find.text('连接失败，请确认戒指未连接其他手机后重试'), findsOneWidget);
       expect(tester.takeException(), isNull);
     } finally {
       debugDefaultTargetPlatformOverride = null;
@@ -701,7 +701,7 @@ void main() {
       wearable.emitEvent(
         const WearableEvent(
           type: 'error',
-          payload: {'code': 'HEART_NOT_WORN', 'message': '请正确佩戴手表后重新测量心率'},
+          payload: {'code': 'HEART_NOT_WORN', 'message': '请正确佩戴戒指后重新测量心率'},
         ),
       );
       await Future<void>.delayed(Duration.zero);
@@ -901,7 +901,7 @@ void main() {
     expect(records.single.steps, 18);
     expect(records.single.heartRate, 88);
     expect(wearable.stopCount, 0);
-    expect(find.textContaining('手表已结束本次运动，记录已保存'), findsOneWidget);
+    expect(find.textContaining('戒指已结束本次运动，记录已保存'), findsOneWidget);
 
     await tester.pump(const Duration(seconds: 2));
     expect(find.text('00:00:02'), findsOneWidget);
@@ -1322,7 +1322,7 @@ void main() {
       expect(find.text('徒步'), findsNothing);
       await tester.tap(find.text('运动记录'));
       await tester.pumpAndSettle();
-      expect(find.text('请先连接手表后读取运动记录'), findsOneWidget);
+      expect(find.text('请先连接戒指后读取运动记录'), findsOneWidget);
       await _popRoute(tester);
       await tester.pumpAndSettle();
 

@@ -275,7 +275,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get calibrationWearerHint =>
-      'La calibración solo sirve para la persona que lleva el reloj. Desactívala o repítela si cambia de usuario.';
+      'La calibración solo sirve para la persona que lleva el anillo. Desactívala o repítela si cambia de usuario.';
 
   @override
   String get enableCalibration => 'Activar calibración';
@@ -338,11 +338,11 @@ class AppLocalizationsEs extends AppLocalizations {
       'Nota: este informe usa datos medidos por el anillo. Es solo una referencia para el bienestar y no sustituye el diagnóstico de un médico.';
 
   @override
-  String get installedWatchFaces => 'Esferas instaladas';
+  String get installedWatchFaces => 'Estilos de pantalla instalados';
 
   @override
   String get switchInstalledWatchFace =>
-      'Cambia entre las esferas que ya están en tu reloj.';
+      'Cambia entre los estilos de pantalla guardados en el anillo.';
 
   @override
   String get useSelectedWatchFace => 'Usar';
@@ -352,17 +352,18 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get photoWatchFaceHint =>
-      'Elige una foto nítida, revisa la vista previa y envíala al reloj.';
+      'Elige una foto nítida, revisa la vista previa y envíala al anillo.';
 
   @override
   String get timeDisplayPosition => 'Posición de la hora';
 
   @override
-  String get transferSetWatchFace => 'Enviar y establecer como esfera';
+  String get transferSetWatchFace =>
+      'Enviar y establecer como estilo de pantalla';
 
   @override
   String get watchTransferKeepNear =>
-      'Mantén el reloj cerca del teléfono durante la transferencia y no salgas de esta página.';
+      'Mantén el anillo cerca del teléfono durante la transferencia y no salgas de esta página.';
 
   @override
   String get callMediaAudio => 'Audio de llamadas y multimedia';
@@ -372,11 +373,11 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get sosContactHint =>
-      'Cuando se active SOS en el reloj, se contactará primero con la persona elegida aquí. Elige a un familiar con quien hables habitualmente.';
+      'Cuando se active SOS en el anillo, se contactará primero con la persona elegida aquí. Elige a un familiar con quien hables habitualmente.';
 
   @override
   String get noHealthAssessments =>
-      'Este reloj no tiene evaluaciones de salud configurables.';
+      'Este anillo no tiene evaluaciones de salud configurables.';
 
   @override
   String get modelFeaturesVary =>
@@ -414,7 +415,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get screenAutoTimeHint =>
-      'El reloj se ajusta automáticamente según la hora.';
+      'El anillo se ajusta automáticamente según la hora.';
 
   @override
   String get raiseWristScreenHint =>
@@ -451,10 +452,10 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get watchFaceDownloadHint =>
-      'Tras descargarse, la esfera se enviará al reloj. Mantén el reloj cerca del teléfono y quédate en esta página durante la transferencia.';
+      'Tras descargarse, el estilo de pantalla se enviará al anillo. Mantén el anillo cerca del teléfono y quédate en esta página durante la transferencia.';
 
   @override
-  String get refreshWatchFaces => 'Actualizar esferas';
+  String get refreshWatchFaces => 'Actualizar estilos de pantalla';
 
   @override
   String get openTestFlight => 'Abrir TestFlight';
@@ -844,13 +845,13 @@ class AppLocalizationsEs extends AppLocalizations {
   String get refresh => 'Actualizar';
 
   @override
-  String get useWatchFace => '¿Usar esta esfera?';
+  String get useWatchFace => '¿Usar este estilo de pantalla?';
 
   @override
   String get downloadAndUse => 'Descargar y usar';
 
   @override
-  String get watchFaceFailed => 'No se pudo aplicar la esfera';
+  String get watchFaceFailed => 'No se pudo aplicar el estilo de pantalla';
 
   @override
   String get statusNormal => 'Normal';
@@ -944,7 +945,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get smsCode => 'Código SMS';
 
   @override
-  String get watchFaceShop => 'Tienda de esferas';
+  String get watchFaceShop => 'Tienda de estilos de pantalla';
 
   @override
   String get selectCity => 'Seleccionar ciudad';
@@ -1104,7 +1105,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get healthProfile => 'Perfil de salud';
 
   @override
-  String get photoWatchFace => 'Esfera con foto';
+  String get photoWatchFace => 'Pantalla con foto';
 
   @override
   String get cameraRemote => 'Control de cámara';
@@ -1219,7 +1220,7 @@ class AppLocalizationsEs extends AppLocalizations {
       'Acerca el anillo al teléfono e inténtalo de nuevo';
 
   @override
-  String get personalizeWatch => 'Esferas y estilo';
+  String get personalizeWatch => 'Pantalla y personalización';
 
   @override
   String get signInCloudHint =>
@@ -1485,7 +1486,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get findWatch => 'Buscar anillo';
 
   @override
-  String get watchFaces => 'Esferas';
+  String get watchFaces => 'Estilos de pantalla';
 
   @override
   String get deviceFeatures => 'Funciones del dispositivo';

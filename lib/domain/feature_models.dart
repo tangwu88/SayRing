@@ -20,17 +20,17 @@ class FeatureAvailability {
       detail ??
       switch (status) {
         FeatureAvailabilityStatus.ready => '可以使用',
-        FeatureAvailabilityStatus.needsDevice => '连接手表后使用',
+        FeatureAvailabilityStatus.needsDevice => '连接戒指后使用',
         FeatureAvailabilityStatus.needsPermission => '允许相关权限后使用',
-        FeatureAvailabilityStatus.unsupportedDevice => '当前手表不支持此功能',
-        FeatureAvailabilityStatus.serviceUnavailable => '请在手表上操作',
+        FeatureAvailabilityStatus.unsupportedDevice => '当前戒指不支持此功能',
+        FeatureAvailabilityStatus.serviceUnavailable => '请在戒指上操作',
       };
 }
 
 enum DeviceFeature {
-  watchFaces('watch_faces', '表盘中心'),
-  photoWatchFace('photo_watch_face', '照片表盘'),
-  findWatch('find_watch', '查找手表'),
+  watchFaces('watch_faces', '显示样式'),
+  photoWatchFace('photo_watch_face', '照片显示'),
+  findWatch('find_watch', '查找戒指'),
   camera('camera', '相机遥控'),
   phoneCalls('phone_calls', '电话'),
   contacts('contacts', '常用联系人'),

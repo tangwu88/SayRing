@@ -459,7 +459,7 @@ class RoutedWearableBridge
         bridge is! WearableNativeWatchFaceBridge) {
       throw PlatformException(
         code: 'WATCH_FACE_MARKET_UNSUPPORTED',
-        message: '当前戒指暂不支持在线表盘',
+        message: '当前戒指暂不支持在线显示样式',
       );
     }
     return bridge as WearableNativeWatchFaceBridge;
@@ -469,7 +469,7 @@ class RoutedWearableBridge
     if (generation != _connectionGeneration || _activeTransport == null) {
       throw PlatformException(
         code: 'DEVICE_CHANGED',
-        message: '设备连接已变化，请重新打开表盘商城',
+        message: '设备连接已变化，请重新打开显示样式商城',
       );
     }
   }

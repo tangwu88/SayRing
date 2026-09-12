@@ -1250,7 +1250,7 @@ class _CareInvitationsPageState extends State<CareInvitationsPage> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    nickname.isEmpty ? '赛电用户' : nickname,
+                                    nickname.isEmpty ? 'Say Ring 用户' : nickname,
                                     style: const TextStyle(
                                       fontSize: 17,
                                       fontWeight: FontWeight.w800,
@@ -1377,7 +1377,7 @@ class _HealthCalibrationPageState extends State<HealthCalibrationPage> {
       SnackBar(
         content: Text(
           saved
-              ? '${widget.metric.label}校准已保存到手表'
+              ? '${widget.metric.label}校准已保存到戒指'
               : widget.controller.errorMessage ?? '校准保存失败，请稍后重试',
         ),
       ),
@@ -1483,7 +1483,7 @@ class _HealthCalibrationPageState extends State<HealthCalibrationPage> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.save_outlined),
-              label: Text(_saving ? '正在写入手表' : '保存校准'),
+              label: Text(_saving ? '正在写入戒指' : '保存校准'),
             ),
           ],
         ),
@@ -2377,7 +2377,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           currentSequence: widget.controller.cameraShutterSequence,
         );
         if (_camera != null || _cameraRemoteStarted || _cameraInitializing) {
-          unawaited(_suspendCamera(message: '手表已断开，请重新连接后使用'));
+          unawaited(_suspendCamera(message: '戒指已断开，请重新连接后使用'));
         }
         return;
       }
@@ -2579,8 +2579,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       setState(() {
         _cameraRemoteStarted = started;
         _cameraMessage = started
-            ? '可点击手机按钮，也可在手表上点击拍照'
-            : widget.controller.errorMessage ?? '手表相机遥控暂时无法开启';
+            ? '可点击手机按钮，也可在戒指上点击拍照'
+            : widget.controller.errorMessage ?? '戒指相机遥控暂时无法开启';
       });
       if (started) {
         _cameraShutterGate.arm(
@@ -2644,7 +2644,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       currentSequence: widget.controller.cameraShutterSequence,
     );
     if (!widget.controller.availabilityFor(widget.feature).isReady) {
-      if (mounted) setState(() => _cameraMessage = '手表已断开，请重新连接后使用');
+      if (mounted) setState(() => _cameraMessage = '戒指已断开，请重新连接后使用');
       return;
     }
     await _initializeCamera();
@@ -2755,8 +2755,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       SnackBar(
         content: Text(
           success
-              ? (isOneShot ? '已发送查找指令，请留意手表振动' : (next ? '手表正在响铃或振动' : '已停止查找'))
-              : widget.controller.errorMessage ?? '暂时无法查找手表',
+              ? (isOneShot ? '已发送查找指令，请留意戒指振动' : (next ? '戒指正在响铃或振动' : '已停止查找'))
+              : widget.controller.errorMessage ?? '暂时无法查找戒指',
         ),
       ),
     );
@@ -2829,7 +2829,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     DeviceFeature.healthAssessment => _buildHealthAssessmentPanel(busy),
     DeviceFeature.healthMonitoring => _buildHealthMonitoringPanel(),
     _ => FeatureStateCard(
-      message: '请在手表上操作',
+      message: '请在戒指上操作',
       detail: _deviceFeatureDescription(widget.feature),
       icon: _deviceFeatureIcon(widget.feature),
     ),
@@ -2846,7 +2846,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
 
   Widget _loadingCard(bool busy, String label) => FeatureStateCard(
     message: busy ? '正在读取$label' : '暂时未读取到$label',
-    detail: '请保持手表靠近手机后重试。',
+    detail: '请保持戒指靠近手机后重试。',
     icon: _deviceFeatureIcon(widget.feature),
     actionLabel: busy ? null : '重新读取',
     onAction: busy ? null : _loadFeature,
@@ -2896,7 +2896,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         const Align(
           alignment: Alignment.centerLeft,
           child: Text(
-            '手表中的表盘',
+            '戒指中的显示样式',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
           ),
         ),
@@ -2904,17 +2904,17 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         if (busy && progress != null && progress > 0) ...[
           LinearProgressIndicator(value: progress.clamp(0, 100) / 100),
           const SizedBox(height: 10),
-          Text('正在读取表盘 $progress%'),
+          Text('正在读取显示样式 $progress%'),
           const SizedBox(height: 12),
         ],
         if (noLocalData)
-          _loadingCard(busy, '手表中的表盘')
+          _loadingCard(busy, '戒指中的显示样式')
         else
           Card(
             child: faces.isEmpty
                 ? const Padding(
                     padding: EdgeInsets.all(24),
-                    child: Center(child: Text('手表中暂未读取到可切换的表盘')),
+                    child: Center(child: Text('戒指中暂未读取到可切换的显示样式')),
                   )
                 : Column(
                     children: [
@@ -2922,11 +2922,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                         ListTile(
                           minLeadingWidth: 64,
                           leading: _WatchFaceThumbnail(face: faces[index]),
-                          title: Text('${faces[index]['name'] ?? '手表表盘'}'),
+                          title: Text('${faces[index]['name'] ?? '戒指显示样式'}'),
                           subtitle: Text(
                             faces[index]['isCurrent'] == true
                                 ? '当前使用'
-                                : '${faces[index]['status'] ?? '手表表盘'}',
+                                : '${faces[index]['status'] ?? '戒指显示样式'}',
                           ),
                           trailing: faces[index]['isCurrent'] == true
                               ? const Icon(
@@ -2970,7 +2970,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       final profileData = await widget.controller.readWatchFaceProfile();
       final profile = DeviceWatchFaceMarketProfile.fromMap(profileData);
       if (!profile.matchesDevice(widget.controller.connectedDevice?.id)) {
-        throw const DeviceWatchFaceMarketException('连接设备已变化，请重新进入表盘中心');
+        throw const DeviceWatchFaceMarketException('连接设备已变化，请重新进入显示样式页面');
       }
       if (!mounted) return;
       await Navigator.of(context).push(
@@ -2998,7 +2998,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       'id': '${face['id'] ?? ''}',
       'type': '${face['type'] ?? ''}',
       'index': (face['index'] as num?)?.toInt() ?? 0,
-    }, '表盘已切换');
+    }, '显示样式已切换');
   }
 
   Widget _buildPhotoWatchFacePanel(bool busy) {
@@ -3089,7 +3089,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                   Padding(
                     padding: const EdgeInsets.all(12),
                     child: Text(
-                      progress > 0 ? '正在传送到手表 $progress%' : '正在准备照片表盘',
+                      progress > 0 ? '正在传送到戒指 $progress%' : '正在准备照片显示',
                     ),
                   ),
                 ],
@@ -3165,7 +3165,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         'imagePath': photo.path,
         'timePosition': _dialTimePosition,
       },
-      '照片表盘已设置',
+      '照片显示已设置',
       reload: false,
     );
   }
@@ -3294,7 +3294,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                     SizedBox(width: 8),
                     Flexible(
                       child: Text(
-                        '可点击手机快门，也可按手表拍照键；照片会保存到手机相册。',
+                        '可点击手机快门，也可按戒指拍照键；照片会保存到手机相册。',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: SaydianColors.muted),
                       ),
@@ -3370,7 +3370,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             ),
             title: Text(context.l10n.callMediaAudio),
             subtitle: Text(
-              _featureData['audioEnabled'] == true ? '手表媒体声音已连接' : '媒体声音尚未连接',
+              _featureData['audioEnabled'] == true ? '戒指媒体声音已连接' : '媒体声音尚未连接',
             ),
           ),
           Padding(
@@ -3406,7 +3406,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     bool supported = true,
   }) => SwitchListTile(
     title: Text(title),
-    subtitle: Text(supported ? subtitle : '当前手表不支持此项'),
+    subtitle: Text(supported ? subtitle : '当前戒指不支持此项'),
     value: _featureData[keyName] == true,
     onChanged: busy || !supported
         ? null
@@ -3422,15 +3422,15 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             .toSet() ??
         const <String>{};
     final entries = <(String, String, String)>[
-      ('incomingCall', '来电提醒', '有电话时在手表提醒'),
-      ('sms', '短信', '在手表显示短信提醒'),
-      ('wechat', '微信', '在手表显示微信消息提醒'),
-      ('qq', 'QQ', '在手表显示 QQ 消息提醒'),
-      ('whatsapp', 'WhatsApp', '在手表显示 WhatsApp 消息提醒'),
-      ('dingtalk', '钉钉', '在手表显示钉钉消息提醒'),
-      ('wecom', '企业微信', '在手表显示企业微信消息提醒'),
-      ('tiktok', '抖音', '在手表显示抖音消息提醒'),
-      ('telegram', 'Telegram', '在手表显示 Telegram 消息提醒'),
+      ('incomingCall', '来电提醒', '有电话时在戒指提醒'),
+      ('sms', '短信', '在戒指显示短信提醒'),
+      ('wechat', '微信', '在戒指显示微信消息提醒'),
+      ('qq', 'QQ', '在戒指显示 QQ 消息提醒'),
+      ('whatsapp', 'WhatsApp', '在戒指显示 WhatsApp 消息提醒'),
+      ('dingtalk', '钉钉', '在戒指显示钉钉消息提醒'),
+      ('wecom', '企业微信', '在戒指显示企业微信消息提醒'),
+      ('tiktok', '抖音', '在戒指显示抖音消息提醒'),
+      ('telegram', 'Telegram', '在戒指显示 Telegram 消息提醒'),
       ('otherApps', '其他应用', '接收其他已允许应用的消息提醒'),
     ];
     final visibleEntries = entries
@@ -3446,7 +3446,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               color: access ? SaydianColors.green : SaydianColors.orange,
             ),
             title: Text(access ? '手机通知权限已允许' : '还需允许手机通知权限'),
-            subtitle: Text(access ? '已开启的应用消息可以发送到手表' : '允许后，手表才能显示手机收到的应用消息'),
+            subtitle: Text(access ? '已开启的应用消息可以发送到戒指' : '允许后，戒指才能显示手机收到的应用消息'),
             trailing: TextButton(
               onPressed: busy
                   ? null
@@ -3501,8 +3501,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             children: [
               _featureSwitch(
                 keyName: 'enabled',
-                title: '在手表显示天气',
-                subtitle: '开启后可在手表查看天气信息',
+                title: '在戒指显示天气',
+                subtitle: '开启后可在戒指查看天气信息',
                 busy: busy || _weatherRefreshing,
               ),
               const Divider(indent: 56),
@@ -3527,7 +3527,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                   subtitle: Text(
                     updatedAt > 0
                         ? '上次更新 ${_weatherTimeLabel(updatedAt)}'
-                        : '已同步到手表',
+                        : '已同步到戒指',
                   ),
                 ),
               ],
@@ -3603,7 +3603,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       final values = forecast.toFeatureValues(
         useCelsius: _featureData['useCelsius'] != false,
       );
-      final saved = await _saveFeature(values, '天气已同步到手表', reload: false);
+      final saved = await _saveFeature(values, '天气已同步到戒指', reload: false);
       if (saved && mounted) {
         setState(() {
           _featureData = {..._featureData, ...values};
@@ -3653,7 +3653,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           child: alarms.isEmpty
               ? const Padding(
                   padding: EdgeInsets.all(24),
-                  child: Center(child: Text('手表中还没有闹钟')),
+                  child: Center(child: Text('戒指中还没有闹钟')),
                 )
               : Column(
                   children: [
@@ -3858,7 +3858,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             ),
             subtitle: Text(
               emergency == null
-                  ? '尚未设置，手表触发 SOS 时将无法快速联系家人'
+                  ? '尚未设置，戒指触发 SOS 时将无法快速联系家人'
                   : '${emergency['name'] ?? ''}  ${emergency['phone'] ?? ''}',
             ),
             trailing: TextButton(
@@ -3874,7 +3874,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           child: contacts.isEmpty
               ? const Padding(
                   padding: EdgeInsets.all(24),
-                  child: Center(child: Text('手表中还没有常用联系人')),
+                  child: Center(child: Text('戒指中还没有常用联系人')),
                 )
               : Column(
                   children: [
@@ -3953,7 +3953,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Future<void> _deleteContact(Map<String, Object?> contact) async {
-    final confirmed = await _confirm('删除联系人', '确定从手表删除这个联系人吗？');
+    final confirmed = await _confirm('删除联系人', '确定从戒指删除这个联系人吗？');
     if (!confirmed) return;
     await _saveFeature({...contact, 'operation': 'delete'}, '联系人已删除');
   }
@@ -3976,7 +3976,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     if (supported.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('当前手表不支持设置 SOS 联系人')));
+      ).showSnackBar(const SnackBar(content: Text('当前戒指不支持设置 SOS 联系人')));
       return;
     }
     Map<String, Object?>? picked = supported.firstWhere(
@@ -4091,7 +4091,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           child: clocks.isEmpty
               ? const Padding(
                   padding: EdgeInsets.all(24),
-                  child: Center(child: Text('手表中还没有世界时钟')),
+                  child: Center(child: Text('戒指中还没有世界时钟')),
                 )
               : Column(
                   children: [
@@ -4188,7 +4188,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Future<void> _deleteWorldClock(Map<String, Object?> clock) async {
-    final confirmed = await _confirm('删除世界时钟', '确定从手表删除这个城市吗？');
+    final confirmed = await _confirm('删除世界时钟', '确定从戒指删除这个城市吗？');
     if (!confirmed) return;
     await _saveFeature({...clock, 'operation': 'delete'}, '世界时钟已删除');
   }
@@ -4206,7 +4206,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       child: reminders.isEmpty
           ? const Padding(
               padding: EdgeInsets.all(24),
-              child: Center(child: Text('当前手表没有可设置的健康提醒')),
+              child: Center(child: Text('当前戒指没有可设置的健康提醒')),
             )
           : Column(
               children: [
@@ -4515,8 +4515,8 @@ class _WatchFaceThumbnail extends StatelessWidget {
     return Semantics(
       image: true,
       label: source == null
-          ? '${face['name'] ?? '表盘'}预览暂不可用'
-          : '${face['name'] ?? '表盘'}缩略图',
+          ? '${face['name'] ?? '显示样式'}预览暂不可用'
+          : '${face['name'] ?? '显示样式'}缩略图',
       child: Container(
         width: 62,
         height: 62,
@@ -4631,7 +4631,7 @@ class _EcgWaveformCard extends StatelessWidget {
               Text('心电波形', style: TextStyle(fontWeight: FontWeight.w800)),
               SizedBox(height: 10),
               FeatureStateCard(
-                message: '手表未返回可用心电波形',
+                message: '戒指未返回可用心电波形',
                 icon: Icons.monitor_heart_outlined,
               ),
             ],
@@ -4774,8 +4774,8 @@ class _FindWatchPanel extends StatelessWidget {
             const SizedBox(height: 14),
             Text(
               finding
-                  ? (supportsStop ? '请留意附近响铃或振动的手表' : '查找指令已发送，请留意手表振动')
-                  : '让手表响铃或振动，帮助你快速找到它',
+                  ? (supportsStop ? '请留意附近响铃或振动的戒指' : '查找指令已发送，请留意戒指振动')
+                  : '让戒指响铃或振动，帮助你快速找到它',
               textAlign: TextAlign.center,
               style: const TextStyle(height: 1.5),
             ),
@@ -4818,8 +4818,8 @@ class _ScreenSettingsPanel extends StatelessWidget {
     final value = settings;
     if (value == null) {
       return FeatureStateCard(
-        message: busy ? '正在读取手表设置' : '暂时未读取到屏幕设置',
-        detail: '请保持手表靠近手机后重试。',
+        message: busy ? '正在读取戒指设置' : '暂时未读取到屏幕设置',
+        detail: '请保持戒指靠近手机后重试。',
         icon: Icons.brightness_6_outlined,
         actionLabel: busy ? null : '重新读取',
         onAction: busy ? null : onReload,
@@ -4877,7 +4877,7 @@ class _ScreenSettingsPanel extends StatelessWidget {
                     SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        '当前手表固件未开放 APP 亮度调节，请在手表的屏幕设置中调整亮度。',
+                        '当前戒指固件未开放 APP 亮度调节，请在戒指的屏幕设置中调整亮度。',
                         style: TextStyle(fontSize: 14, height: 1.45),
                       ),
                     ),
@@ -5120,9 +5120,9 @@ class _FeedbackPageState extends State<FeedbackPage> {
             child: Column(
               children: [
                 ExpansionTile(
-                  title: Text('如何连接手表？'),
+                  title: Text('如何连接戒指？'),
                   childrenPadding: EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  children: [Text('打开“设备”页并选择添加设备。搜索时让手表保持亮屏、靠近手机，并在手表端确认配对。')],
+                  children: [Text('打开“设备”页并选择添加设备。搜索时让戒指保持亮屏、靠近手机，并在戒指端确认配对。')],
                 ),
                 Divider(height: 1),
                 ExpansionTile(
@@ -5731,18 +5731,18 @@ IconData _deviceFeatureIcon(DeviceFeature feature) => switch (feature) {
 };
 
 String _deviceFeatureDescription(DeviceFeature feature) => switch (feature) {
-  DeviceFeature.watchFaces => '选择并管理手表表盘',
-  DeviceFeature.photoWatchFace => '用自己的照片制作表盘',
-  DeviceFeature.findWatch => '让附近的手表响铃或振动',
-  DeviceFeature.camera => '使用手表控制手机拍照',
-  DeviceFeature.phoneCalls => '管理手表通话相关设置',
-  DeviceFeature.contacts => '管理手表中的常用联系人',
-  DeviceFeature.notifications => '选择需要在手表上提醒的消息',
-  DeviceFeature.alarms => '管理手表闹钟和重复日期',
-  DeviceFeature.weather => '把所在城市天气同步到手表',
-  DeviceFeature.worldClock => '在手表上查看其他城市时间',
+  DeviceFeature.watchFaces => '选择并管理戒指显示样式',
+  DeviceFeature.photoWatchFace => '用自己的照片制作显示样式',
+  DeviceFeature.findWatch => '让附近的戒指响铃或振动',
+  DeviceFeature.camera => '使用戒指控制手机拍照',
+  DeviceFeature.phoneCalls => '管理戒指通话相关设置',
+  DeviceFeature.contacts => '管理戒指中的常用联系人',
+  DeviceFeature.notifications => '选择需要在戒指上提醒的消息',
+  DeviceFeature.alarms => '管理戒指闹钟和重复日期',
+  DeviceFeature.weather => '把所在城市天气同步到戒指',
+  DeviceFeature.worldClock => '在戒指上查看其他城市时间',
   DeviceFeature.healthReminders => '设置久坐、饮水和日常提醒',
   DeviceFeature.healthMonitoring => '设置自动检测和健康提醒',
-  DeviceFeature.healthAssessment => '查看手表支持的辅助评估',
+  DeviceFeature.healthAssessment => '查看戒指支持的辅助评估',
   DeviceFeature.screenDisplay => '调节亮度和亮屏方式',
 };

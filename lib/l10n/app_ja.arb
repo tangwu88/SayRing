@@ -94,18 +94,18 @@
   "ecgHealthReport": "心電図健康レポート",
   "brandedEcgReport": "Say Ring · 心電図健康レポート",
   "ecgReportSafety": "注：このレポートはリングの測定データに基づく健康管理の参考用であり、医師の診断の代わりにはなりません。",
-  "installedWatchFaces": "インストール済みの文字盤",
-  "switchInstalledWatchFace": "腕時計に保存済みの文字盤を切り替えられます。",
+  "installedWatchFaces": "インストール済みの表示スタイル",
+  "switchInstalledWatchFace": "リングに保存済みの表示スタイルを切り替えられます。",
   "useSelectedWatchFace": "使用する",
   "downloadUseWatchFace": "タップしてダウンロード・適用",
-  "photoWatchFaceHint": "鮮明な写真を選び、プレビューを確認してから腕時計に転送してください。",
+  "photoWatchFaceHint": "鮮明な写真を選び、プレビューを確認してからリングに転送してください。",
   "timeDisplayPosition": "時刻の表示位置",
-  "transferSetWatchFace": "転送して文字盤に設定",
-  "watchTransferKeepNear": "転送中は腕時計をスマートフォンの近くに置き、この画面から移動しないでください。",
+  "transferSetWatchFace": "転送して表示スタイルに設定",
+  "watchTransferKeepNear": "転送中はリングをスマートフォンの近くに置き、この画面から移動しないでください。",
   "callMediaAudio": "通話・メディアの音声",
   "useCelsius": "摂氏を使用",
-  "sosContactHint": "腕時計でSOSを作動させると、ここで選んだ人に優先して連絡します。普段よく連絡するご家族を選ぶことをおすすめします。",
-  "noHealthAssessments": "この腕時計には設定可能な補助評価がありません。",
+  "sosContactHint": "リングでSOSを作動させると、ここで選んだ人に優先して連絡します。普段よく連絡するご家族を選ぶことをおすすめします。",
+  "noHealthAssessments": "このリングには設定可能な補助評価がありません。",
   "modelFeaturesVary": "対応機能はモデルにより異なります。接続中のリングで利用できる機能だけがアプリに表示されます。",
   "assessmentEnabledHint": "有効にすると、リングが日々の傾向を参考情報として提供します。",
   "assessmentSafety": "補助評価は日常の健康管理の参考用で、診断や治療には使用できません。",
@@ -115,7 +115,7 @@
   "ecgWaveformTitle": "心電図波形",
   "ecgWaveformMissing": "今回は有効な心電図波形が取得されませんでした。",
   "ecgElectrodeHint": "心拍数やHRVなどの結果は引き続き確認できます。次回は測定中ずっとリングの電極に触れてください。",
-  "screenAutoTimeHint": "腕時計が時刻に応じて自動調整します。",
+  "screenAutoTimeHint": "リングが時刻に応じて自動調整します。",
   "raiseWristScreenHint": "手首を上げると画面が点灯します。",
   "watchHighHeartRate": "高心拍数アラート",
   "watchThresholdHint": "設定値に達するとリングが通知します。",
@@ -125,8 +125,8 @@
   "recentData": "最近のデータ",
   "trendReferenceOnly": "傾向は日々の健康管理の参考用です。",
   "trendVariationSafety": "単発または期間ごとの変化は、装着状態、運動、環境の影響を受ける場合があり、医療診断の代わりにはなりません。",
-  "watchFaceDownloadHint": "ダウンロード後、文字盤を腕時計に転送します。転送中は腕時計をスマートフォンの近くに置き、この画面を開いたままにしてください。",
-  "refreshWatchFaces": "文字盤を更新",
+  "watchFaceDownloadHint": "ダウンロード後、表示スタイルをリングに転送します。転送中はリングをスマートフォンの近くに置き、この画面を開いたままにしてください。",
+  "refreshWatchFaces": "表示スタイルを更新",
   "openTestFlight": "TestFlight を開く",
   "articlesEmpty": "このカテゴリーの記事はまだありません。",
   "articlesUnavailable": "健康ライブラリを読み込めませんでした。",
@@ -157,21 +157,69 @@
   "watchCalories": "リングの消費カロリー",
   "connectForWorkout": "まずデバイス画面でリングを接続してください。運動はリングが記録します。",
   "latestVersion": "最新バージョン V{version} を使用しています",
-  "@latestVersion": {"placeholders":{"version":{"type":"String"}}},
+  "@latestVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "workoutPaused": "{mode}を一時停止中",
-  "@workoutPaused": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutPaused": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutInProgress": "{mode}中",
-  "@workoutInProgress": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutInProgress": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutReady": "{mode}を開始できます",
-  "@workoutReady": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutReady": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "startWorkout": "{mode}を開始",
-  "@startWorkout": {"placeholders":{"mode":{"type":"String"}}},
+  "@startWorkout": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "finishOtherWorkout": "先に{mode}を終了してください",
-  "@finishOtherWorkout": {"placeholders":{"mode":{"type":"String"}}},
+  "@finishOtherWorkout": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutDetails": "{mode}の詳細",
-  "@workoutDetails": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutDetails": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "stepCount": "{count} 歩",
-  "@stepCount": {"placeholders":{"count":{"type":"int"}}},
+  "@stepCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "@@locale": "ja",
   "globalShopPricePending": "価格は確認待ちです",
   "globalShopLoadMore": "さらに読み込む",
@@ -251,9 +299,9 @@
   "restorePurchases": "購入を復元",
   "paymentMethod": "支払い方法",
   "refresh": "更新",
-  "useWatchFace": "この文字盤を使用しますか？",
+  "useWatchFace": "この表示スタイルを使用しますか？",
   "downloadAndUse": "ダウンロードして使用",
-  "watchFaceFailed": "文字盤を設定できませんでした",
+  "watchFaceFailed": "表示スタイルを設定できませんでした",
   "statusNormal": "正常",
   "statusRecorded": "記録済み",
   "statusAttention": "数値を確認",
@@ -283,7 +331,7 @@
   "deliveryAddresses": "配送先住所",
   "readAgain": "再取得",
   "smsCode": "SMS確認コード",
-  "watchFaceShop": "文字盤ストア",
+  "watchFaceShop": "表示スタイルストア",
   "selectCity": "都市を選択",
   "city": "都市",
   "confirm": "確認",
@@ -335,7 +383,7 @@
   "distance": "距離",
   "calories": "消費カロリー",
   "healthProfile": "健康プロフィール",
-  "photoWatchFace": "写真の文字盤",
+  "photoWatchFace": "写真表示",
   "cameraRemote": "カメラリモコン",
   "phoneCalls": "通話",
   "contacts": "連絡先",
@@ -370,7 +418,7 @@
   "capabilitiesHint": "このリングで利用できる機能のみ表示します",
   "capabilitiesFailed": "リングの機能を読み取れませんでした",
   "keepWatchNear": "リングを近づけて再試行してください",
-  "personalizeWatch": "文字盤とカスタマイズ",
+  "personalizeWatch": "表示とカスタマイズ",
   "signInCloudHint": "ログインしてクラウド健康サービスを利用",
   "aiQuestion": "AIに質問",
   "aiQuestionHint": "AIアシスタントに健康管理について質問",
@@ -455,7 +503,7 @@
   "syncFailedTryAgain": "同期できませんでした。リングをスマートフォンに近づけて再試行してください。",
   "disconnect": "接続を解除",
   "findWatch": "リングを探す",
-  "watchFaces": "文字盤",
+  "watchFaces": "表示スタイル",
   "deviceFeatures": "デバイス機能",
   "aboutDevice": "デバイスについて",
   "connectionHelp": "接続ガイド",
@@ -622,5 +670,11 @@
   "shareProduct": "商品を共有",
   "customerReviews": "購入者レビュー",
   "stockCount": "在庫 {count} 点",
-  "@stockCount": {"placeholders":{"count":{"type":"int"}}}
+  "@stockCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

@@ -21,7 +21,7 @@ void main() {
     );
     expect(navigationBar.destinations, hasLength(3));
     expect(find.byKey(const Key('dashboard-ai-assistant')), findsOneWidget);
-    for (final entry in const ['远程关爱', '健康百科', '健康预警', '赛电商城']) {
+    for (final entry in const ['远程关爱', '健康百科', '健康预警', 'Say Ring 商城']) {
       expect(find.text(entry), findsOneWidget, reason: '$entry 首页入口缺失');
     }
     expect(find.text('健康数据'), findsOneWidget);
@@ -42,7 +42,7 @@ void main() {
     await tester.tap(heartRate);
     await tester.pumpAndSettle();
     expect(find.text('心率分析'), findsOneWidget);
-    expect(find.text('连接支持该指标的手表后测量'), findsOneWidget);
+    expect(find.text('连接支持该指标的戒指后测量'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('health-measure-heart_rate')),
       findsNothing,

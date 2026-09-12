@@ -683,13 +683,13 @@ abstract class AppLocalizations {
   /// No description provided for @installedWatchFaces.
   ///
   /// In en, this message translates to:
-  /// **'Installed watch faces'**
+  /// **'Installed display styles'**
   String get installedWatchFaces;
 
   /// No description provided for @switchInstalledWatchFace.
   ///
   /// In en, this message translates to:
-  /// **'Switch between watch faces already on your watch.'**
+  /// **'Switch between display styles already stored on your ring.'**
   String get switchInstalledWatchFace;
 
   /// No description provided for @useSelectedWatchFace.
@@ -707,7 +707,7 @@ abstract class AppLocalizations {
   /// No description provided for @photoWatchFaceHint.
   ///
   /// In en, this message translates to:
-  /// **'Choose a clear photo, check the preview, then send it to your watch.'**
+  /// **'Choose a clear photo, check the preview, then send it to your ring.'**
   String get photoWatchFaceHint;
 
   /// No description provided for @timeDisplayPosition.
@@ -719,13 +719,13 @@ abstract class AppLocalizations {
   /// No description provided for @transferSetWatchFace.
   ///
   /// In en, this message translates to:
-  /// **'Send and set as watch face'**
+  /// **'Send and set as display style'**
   String get transferSetWatchFace;
 
   /// No description provided for @watchTransferKeepNear.
   ///
   /// In en, this message translates to:
-  /// **'Keep the watch near your phone during transfer and stay on this page.'**
+  /// **'Keep the ring near your phone during transfer and stay on this page.'**
   String get watchTransferKeepNear;
 
   /// No description provided for @callMediaAudio.
@@ -743,13 +743,13 @@ abstract class AppLocalizations {
   /// No description provided for @sosContactHint.
   ///
   /// In en, this message translates to:
-  /// **'When SOS is triggered on the watch, it will first contact the person selected here. Choose a family member you contact regularly.'**
+  /// **'When SOS is triggered on the ring, it will first contact the person selected here. Choose a family member you contact regularly.'**
   String get sosContactHint;
 
   /// No description provided for @noHealthAssessments.
   ///
   /// In en, this message translates to:
-  /// **'No configurable health assessments are available on this watch.'**
+  /// **'No configurable health assessments are available on this ring.'**
   String get noHealthAssessments;
 
   /// No description provided for @modelFeaturesVary.
@@ -809,7 +809,7 @@ abstract class AppLocalizations {
   /// No description provided for @screenAutoTimeHint.
   ///
   /// In en, this message translates to:
-  /// **'The watch adjusts automatically based on the time.'**
+  /// **'The ring adjusts this automatically based on the time.'**
   String get screenAutoTimeHint;
 
   /// No description provided for @raiseWristScreenHint.
@@ -869,13 +869,13 @@ abstract class AppLocalizations {
   /// No description provided for @watchFaceDownloadHint.
   ///
   /// In en, this message translates to:
-  /// **'After downloading, the watch face will be sent to your watch. Keep the watch near your phone and stay on this page during transfer.'**
+  /// **'After downloading, the display style will be sent to your ring. Keep the ring near your phone and stay on this page during transfer.'**
   String get watchFaceDownloadHint;
 
   /// No description provided for @refreshWatchFaces.
   ///
   /// In en, this message translates to:
-  /// **'Refresh watch faces'**
+  /// **'Refresh display styles'**
   String get refreshWatchFaces;
 
   /// No description provided for @openTestFlight.
@@ -1571,7 +1571,7 @@ abstract class AppLocalizations {
   /// No description provided for @useWatchFace.
   ///
   /// In en, this message translates to:
-  /// **'Use this watch face?'**
+  /// **'Use this display style?'**
   String get useWatchFace;
 
   /// No description provided for @downloadAndUse.
@@ -1583,7 +1583,7 @@ abstract class AppLocalizations {
   /// No description provided for @watchFaceFailed.
   ///
   /// In en, this message translates to:
-  /// **'Could not set the watch face'**
+  /// **'Could not set the display style'**
   String get watchFaceFailed;
 
   /// No description provided for @statusNormal.
@@ -1763,7 +1763,7 @@ abstract class AppLocalizations {
   /// No description provided for @watchFaceShop.
   ///
   /// In en, this message translates to:
-  /// **'Watch face store'**
+  /// **'Display style store'**
   String get watchFaceShop;
 
   /// No description provided for @selectCity.
@@ -2075,7 +2075,7 @@ abstract class AppLocalizations {
   /// No description provided for @photoWatchFace.
   ///
   /// In en, this message translates to:
-  /// **'Photo watch face'**
+  /// **'Photo display'**
   String get photoWatchFace;
 
   /// No description provided for @cameraRemote.
@@ -2285,7 +2285,7 @@ abstract class AppLocalizations {
   /// No description provided for @personalizeWatch.
   ///
   /// In en, this message translates to:
-  /// **'Watch faces & style'**
+  /// **'Display & personalization'**
   String get personalizeWatch;
 
   /// No description provided for @signInCloudHint.
@@ -2795,7 +2795,7 @@ abstract class AppLocalizations {
   /// No description provided for @watchFaces.
   ///
   /// In en, this message translates to:
-  /// **'Watch faces'**
+  /// **'Display styles'**
   String get watchFaces;
 
   /// No description provided for @deviceFeatures.

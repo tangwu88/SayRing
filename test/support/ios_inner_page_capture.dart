@@ -118,7 +118,7 @@ void main() {
               refreshToken: '',
               expiresAt: DateTime(2030),
               memberId: 'visual-fixture',
-              displayName: '赛电用户',
+              displayName: 'Say Ring 用户',
             );
       addTearDown(controller.dispose);
       final pages = <String, Widget>{

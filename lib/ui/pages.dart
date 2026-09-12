@@ -1143,7 +1143,7 @@ class _DeviceHero extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        device?.name ?? '尚未连接手表',
+                        device?.name ?? '尚未连接戒指',
                         style: const TextStyle(
                           color: SaydianColors.ink,
                           fontSize: 19,
@@ -1602,7 +1602,7 @@ class HealthPage extends StatelessWidget {
           if (visibleMetrics.isEmpty) ...[
             _InlineNotice(
               message: controller.connectedDevice == null
-                  ? '连接手表后可查看支持的健康数据'
+                  ? '连接戒指后可查看支持的健康数据'
                   : '暂无可显示的健康数据',
               icon: Icons.watch_outlined,
               color: SaydianColors.blue,
@@ -1764,18 +1764,18 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
           final failed = !isNew && failure != null;
           final waitingMessage = !widget.controller.measurementWearConfirmed
               ? switch (widget.metric) {
-                  HealthMetric.ecg => '未检测到电极接触，请正确佩戴手表并将手指持续贴在心电电极上',
+                  HealthMetric.ecg => '未检测到电极接触，请正确佩戴戒指并将手指持续贴在心电电极上',
                   HealthMetric.bodyComposition ||
-                  HealthMetric.bloodComposition => '未检测到正确接触，请佩戴手表并按手表提示接触电极',
-                  _ => '未检测到正确佩戴，请将手表贴合手腕后继续测量',
+                  HealthMetric.bloodComposition => '未检测到正确接触，请佩戴戒指并按戒指提示接触电极',
+                  _ => '未检测到正确佩戴，请将戒指贴合手指后继续测量',
                 }
               : switch (widget.metric) {
-                  HealthMetric.bloodPressure => '正在测量血压，请保持手表贴合手腕、手臂静止并等待结果',
-                  HealthMetric.ecg => '请正确佩戴手表，并将手指持续贴在心电电极上',
-                  HealthMetric.hrv => '请将手表贴合手腕并保持静止，等待 HRV 测量结果',
+                  HealthMetric.bloodPressure => '正在测量血压，请保持戒指贴合手指、手臂静止并等待结果',
+                  HealthMetric.ecg => '请正确佩戴戒指，并将手指持续贴在心电电极上',
+                  HealthMetric.hrv => '请将戒指贴合手指并保持静止，等待 HRV 测量结果',
                   HealthMetric.bodyComposition ||
-                  HealthMetric.bloodComposition => '请按手表提示保持正确接触，测量完成前不要移动',
-                  _ => '请保持正确佩戴并静止，等待手表返回结果',
+                  HealthMetric.bloodComposition => '请按戒指提示保持正确接触，测量完成前不要移动',
+                  _ => '请保持正确佩戴并静止，等待戒指返回结果',
                 };
           return AlertDialog(
             title: Text(
@@ -1977,7 +1977,7 @@ class _SportEntryPanel extends StatelessWidget {
                             style: TextStyle(fontWeight: FontWeight.w900),
                           ),
                           Text(
-                            '选择运动类型，连接手表后同步记录',
+                            '选择运动类型，连接戒指后同步记录',
                             style: TextStyle(
                               color: SaydianColors.muted,
                               fontSize: 13,
@@ -2051,7 +2051,7 @@ class _SportEntryPanel extends StatelessWidget {
               ),
               subtitle: Text(
                 controller.connectedDevice == null
-                    ? '连接手表后读取运动记录'
+                    ? '连接戒指后读取运动记录'
                     : '已读取 ${controller.sportRecords.length} 条记录',
                 style: const TextStyle(
                   color: SaydianColors.muted,
@@ -2212,7 +2212,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
     var recordSaved = false;
     if (mounted) {
       setState(() {
-        _locationStatus = requestDeviceStop ? '正在结束运动并保存记录' : '手表已结束运动，正在保存记录';
+        _locationStatus = requestDeviceStop ? '正在结束运动并保存记录' : '戒指已结束运动，正在保存记录';
       });
     }
     try {
@@ -2259,7 +2259,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
       _locationStatus = recordSaved
           ? requestDeviceStop
                 ? '本次运动已结束，记录已保存'
-                : '手表已结束本次运动，记录已保存'
+                : '戒指已结束本次运动，记录已保存'
           : '本次运动已结束';
     } finally {
       _finalizingSport = false;
@@ -2305,7 +2305,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
   Future<void> _startLocationTracking(int generation) async {
     if (!await Geolocator.isLocationServiceEnabled()) {
       if (_isCurrentTrackingGeneration(generation)) {
-        setState(() => _locationStatus = '定位服务未开启，仍会记录手表运动数据');
+        setState(() => _locationStatus = '定位服务未开启，仍会记录戒指运动数据');
       }
       return;
     }
@@ -2317,7 +2317,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
     if (!_isCurrentTrackingGeneration(generation)) return;
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
-      setState(() => _locationStatus = '未允许位置权限，仍会记录手表运动数据');
+      setState(() => _locationStatus = '未允许位置权限，仍会记录戒指运动数据');
       return;
     }
     setState(() => _locationStatus = '正在记录前台户外轨迹');
@@ -2353,7 +2353,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
           },
           onError: (_) {
             if (_isCurrentTrackingGeneration(generation)) {
-              setState(() => _locationStatus = '轨迹读取中断，手表运动仍在继续');
+              setState(() => _locationStatus = '轨迹读取中断，戒指运动仍在继续');
             }
           },
         );
@@ -2598,8 +2598,8 @@ class _SportRecordsPageState extends State<SportRecordsPage> {
                 padding: const EdgeInsets.all(32),
                 child: Text(
                   widget.controller.connectedDevice == null
-                      ? '请先连接手表后读取运动记录'
-                      : '手表中暂无运动记录',
+                      ? '请先连接戒指后读取运动记录'
+                      : '戒指中暂无运动记录',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: SaydianColors.muted),
                 ),
@@ -2910,9 +2910,9 @@ class _HealthRow extends StatelessWidget {
     final status = record != null
         ? '最近 ${DateFormat('MM-dd HH:mm').format(record!.measuredAt.toLocal())}'
         : !connected
-        ? '连接手表后使用'
+        ? '连接戒指后使用'
         : supported == false
-        ? '请在手表上操作'
+        ? '请在戒指上操作'
         : '暂无测量记录';
     final icon = switch (metric) {
       HealthMetric.heartRate => Icons.favorite_rounded,
@@ -4714,8 +4714,8 @@ class _BatteryBadge extends StatelessWidget {
     };
     final label = value?.displayLabel ?? '--';
     final semantics = value == null
-        ? '手表电量暂未读取'
-        : '手表电量 $label，${value.chargeState.label}';
+        ? '戒指电量暂未读取'
+        : '戒指电量 $label，${value.chargeState.label}';
     return Semantics(
       label: semantics,
       child: Row(
@@ -4893,7 +4893,7 @@ class _DeviceWatchFaceMarketStripState
               children: [
                 Expanded(
                   child: Text(
-                    '表盘市场',
+                    '显示样式市场',
                     style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
                   ),
                 ),
@@ -4913,7 +4913,7 @@ class _DeviceWatchFaceMarketStripState
                   child: InkWell(
                     borderRadius: BorderRadius.circular(16),
                     onTap: _openMarket,
-                    child: const Center(child: Text('进入表盘市场选择更多样式')),
+                    child: const Center(child: Text('进入显示样式市场选择更多样式')),
                   ),
                 )
               : ListView.separated(
@@ -5249,8 +5249,8 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                                         DeviceConnectionState.connecting ||
                                     controller.deviceState ==
                                         DeviceConnectionState.authenticating
-                                ? '正在连接；如手表弹出确认，请在 12 秒内确认，并保持手表靠近手机…'
-                                : '正在${_deviceStateLabel(controller.deviceState)}，请保持手表靠近手机…',
+                                ? '正在连接；如戒指弹出确认，请在 12 秒内确认，并保持戒指靠近手机…'
+                                : '正在${_deviceStateLabel(controller.deviceState)}，请保持戒指靠近手机…',
                             icon: Icons.bluetooth_connected_rounded,
                             color: SaydianColors.blue,
                           ),
@@ -10514,8 +10514,8 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
                 else
                   Text(
                     interval.minutes > 0
-                        ? '每 ${interval.minutes} 分钟（手表固定）'
-                        : '手表固定',
+                        ? '每 ${interval.minutes} 分钟（戒指固定）'
+                        : '戒指固定',
                     style: const TextStyle(color: SaydianColors.muted),
                   ),
               ],
@@ -10569,7 +10569,7 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
         children: [
           const Expanded(
             child: Text(
-              '手表健康检测',
+              '戒指健康检测',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
             ),
           ),
@@ -10579,7 +10579,7 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
                     controller.isDeviceSettingsLoading
                 ? null
                 : controller.refreshDeviceSettings,
-            tooltip: '从手表刷新',
+            tooltip: '从戒指刷新',
             icon: controller.isDeviceSettingsLoading
                 ? const SizedBox.square(
                     dimension: 20,
@@ -10603,7 +10603,7 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
       else if (tiles.isEmpty)
         FeatureStateCard(
           message: controller.deviceSettingsStatus,
-          detail: '没有读取到可设置项目，可重新读取手表设置。',
+          detail: '没有读取到可设置项目，可重新读取戒指设置。',
           icon: Icons.monitor_heart_outlined,
           actionLabel: controller.isDeviceSettingsLoading ? null : '重新读取',
           onAction: controller.isDeviceSettingsLoading

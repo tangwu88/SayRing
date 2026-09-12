@@ -59,6 +59,16 @@
 - Flutter 回归记录：英文路径格式检查首次发现新契约测试 1 处排版差异，格式化后 155 个文件均合规；新增契约首次运行发现三份中文目录的“还没有账号”遗漏产品名，统一改为“还没有 Say Ring 账号”并重新生成本地化代码。静态分析在修正前已通过，最终全量结果见后续记录。
 - 工具边界：中文路径中的 Dart/Flutter 命令仍可能无输出挂起，本轮不把挂起记为通过；提交后在 `F:\xcodeplace\say-ring` 英文路径执行格式、静态分析、双时区测试和 Android 构建。
 
+### 06:08 戒指路由夹具、显示文案与全量回归
+
+- 原因：首次完整 Flutter 回归在提交 `6cc75eb` 上暴露 38 个失败；主要是旧测试夹具仍使用无供应商前缀的设备名，以及界面断言继续使用“手表/表盘/手腕”。这些失败会掩盖“未知设备必须安全拒绝”的新路由边界。
+- 文件/范围：`global_wearable_restore_test.dart`、`yucheng_wearable_bridge_test.dart`、设备/健康/商城 Widget 测试；Flutter 用户可见设备提示、健康解释、显示样式页面、八语 ARB 与生成资源；`say_ring_brand_contract_test.dart`。
+- 修复结论：恢复和玉成测试数据改用真实路由前缀（V/YC），并把已废弃的 W8 型号白名单测试改为验证任意 YC 前缀戒指均可进入玉成握手。戒指佩戴提示改为“贴合手指”；表盘类用户入口统一为“显示样式/照片显示”，内部协议键和厂商原始字段保持不变。
+- 防复发：9 份语言目录的全部用户文案禁止重新出现对应语言的 watch/watch-face 用词；核心戒指页面与服务禁止出现“手表/表盘”。原始服务端报告、商品名、SDK 返回名称和国内版不可达兜底值不做篡改。
+- 测试结果：路由/玉成定向 35/35；主要 UI 与业务流程 86/86；品牌契约 5/5；Flutter 全量 UTC 914/914、`America/New_York` 914/914；HarmonyOS 宿主测试 481/481，均通过。
+- 失败记录：中文路径执行 `flutter analyze --no-pub` 时分析服务器再次因 LSP JSON 截断退出（`FormatException: Unexpected end of input`）；这是工具/路径失败，不能计为静态分析结果，需在英文最终路径复验。沙箱内 Flutter 因无法写 SDK 锁文件出现多个 `cmd.exe` 空转；仅停止本任务遗留空转进程，改在授权的标准 SDK 环境运行，未停止 Gradle/Android 服务。
+- 后续待验：英文路径格式和静态分析、Android Debug/Release 实际构建；iOS/macOS 与 HarmonyOS HAP 工具链；真实 YC、V/TK 戒指三轮连接/同步/断开/重连；魔样目标戒指 SDK、服务端 `ringPreferred` 多来源契约，以及仓库 Private 状态和首次推送。
+
 ## 下一阶段门禁
 
 - 在英文最终路径执行格式化、`flutter analyze`、双时区全量 Flutter、Android Debug/QA Release、完整 HarmonyOS 宿主测试与可用构建；macOS/iOS 和真实 HarmonyOS 构建环境缺失时明确标记未执行。

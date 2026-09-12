@@ -9,8 +9,8 @@ import 'package:saydian_app/services/wearable_routing.dart';
 
 final _environmentA = 'a' * 64;
 final _environmentB = 'b' * 64;
-const _watchA = DeviceInfo(id: 'native-id-a', name: 'Same model');
-const _watchB = DeviceInfo(id: 'native-id-b', name: 'Same model');
+const _watchA = DeviceInfo(id: 'native-id-a', name: 'V Same model');
+const _watchB = DeviceInfo(id: 'native-id-b', name: 'V Same model');
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -306,7 +306,7 @@ void main() {
         pendingConnect: pendingConnect.future,
       );
       final yucheng = _FakeBridge(
-        scanned: const [DeviceInfo(id: 'yuc-id', name: 'W8')],
+        scanned: const [DeviceInfo(id: 'yuc-id', name: 'YC W8')],
       );
       await _saveTarget();
       final bridge = _bridge(
@@ -343,7 +343,7 @@ void main() {
         pendingDisconnect: pendingDisconnect.future,
       );
       final yucheng = _FakeBridge(
-        scanned: const [DeviceInfo(id: 'yuc-id', name: 'W8')],
+        scanned: const [DeviceInfo(id: 'yuc-id', name: 'YC W8')],
       );
       await _saveTarget();
       final bridge = _bridge(

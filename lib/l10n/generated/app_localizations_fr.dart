@@ -277,7 +277,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get calibrationWearerHint =>
-      'L’étalonnage ne s’applique qu’à la personne qui porte actuellement la montre. Désactivez-le ou recommencez-le si elle change.';
+      'L’étalonnage ne s’applique qu’à la personne qui porte actuellement la bague. Désactivez-le ou recommencez-le si elle change.';
 
   @override
   String get enableCalibration => 'Activer l’étalonnage';
@@ -295,7 +295,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get measurementVariationHint =>
-      'Une mesure isolée peut être influencée par le port de la montre, l’activité et l’environnement. En cas de malaise, consultez un professionnel de santé.';
+      'Une mesure isolée peut être influencée par le port de la bague, l’activité et l’environnement. En cas de malaise, consultez un professionnel de santé.';
 
   @override
   String get ecgDetailTitle => 'Détails ECG';
@@ -340,11 +340,11 @@ class AppLocalizationsFr extends AppLocalizations {
       'Remarque : ce rapport utilise les mesures de la bague. Il sert uniquement de référence pour le bien-être et ne remplace pas le diagnostic d’un médecin.';
 
   @override
-  String get installedWatchFaces => 'Cadrans installés';
+  String get installedWatchFaces => 'Styles d’affichage installés';
 
   @override
   String get switchInstalledWatchFace =>
-      'Choisissez parmi les cadrans déjà présents sur votre montre.';
+      'Choisissez parmi les styles d’affichage déjà enregistrés sur votre bague.';
 
   @override
   String get useSelectedWatchFace => 'Utiliser';
@@ -354,17 +354,18 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get photoWatchFaceHint =>
-      'Choisissez une photo nette, vérifiez l’aperçu, puis envoyez-la à votre montre.';
+      'Choisissez une photo nette, vérifiez l’aperçu, puis envoyez-la à votre bague.';
 
   @override
   String get timeDisplayPosition => 'Position de l’heure';
 
   @override
-  String get transferSetWatchFace => 'Envoyer et définir comme cadran';
+  String get transferSetWatchFace =>
+      'Envoyer et définir comme style d’affichage';
 
   @override
   String get watchTransferKeepNear =>
-      'Gardez la montre près du téléphone pendant le transfert et restez sur cette page.';
+      'Gardez la bague près du téléphone pendant le transfert et restez sur cette page.';
 
   @override
   String get callMediaAudio => 'Audio des appels et des médias';
@@ -374,11 +375,11 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get sosContactHint =>
-      'Lorsque SOS est déclenché sur la montre, la personne choisie ici sera contactée en premier. Choisissez un proche que vous contactez régulièrement.';
+      'Lorsque SOS est déclenché sur la bague, la personne choisie ici sera contactée en premier. Choisissez un proche que vous contactez régulièrement.';
 
   @override
   String get noHealthAssessments =>
-      'Aucune évaluation de santé configurable n’est disponible sur cette montre.';
+      'Aucune évaluation de santé configurable n’est disponible sur cette bague.';
 
   @override
   String get modelFeaturesVary =>
@@ -416,7 +417,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get screenAutoTimeHint =>
-      'La montre s’adapte automatiquement selon l’heure.';
+      'La bague s’adapte automatiquement selon l’heure.';
 
   @override
   String get raiseWristScreenHint =>
@@ -453,10 +454,10 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get watchFaceDownloadHint =>
-      'Après le téléchargement, le cadran sera envoyé à la montre. Gardez-la près du téléphone et restez sur cette page pendant le transfert.';
+      'Après le téléchargement, le style d’affichage sera envoyé à la bague. Gardez-la près du téléphone et restez sur cette page pendant le transfert.';
 
   @override
-  String get refreshWatchFaces => 'Actualiser les cadrans';
+  String get refreshWatchFaces => 'Actualiser les styles d’affichage';
 
   @override
   String get openTestFlight => 'Ouvrir TestFlight';
@@ -848,13 +849,13 @@ class AppLocalizationsFr extends AppLocalizations {
   String get refresh => 'Actualiser';
 
   @override
-  String get useWatchFace => 'Utiliser ce cadran ?';
+  String get useWatchFace => 'Utiliser ce style d’affichage ?';
 
   @override
   String get downloadAndUse => 'Télécharger et utiliser';
 
   @override
-  String get watchFaceFailed => 'Impossible d’appliquer le cadran';
+  String get watchFaceFailed => 'Impossible d’appliquer le style d’affichage';
 
   @override
   String get statusNormal => 'Normal';
@@ -948,7 +949,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get smsCode => 'Code SMS';
 
   @override
-  String get watchFaceShop => 'Boutique de cadrans';
+  String get watchFaceShop => 'Boutique de styles d’affichage';
 
   @override
   String get selectCity => 'Choisir une ville';
@@ -1109,7 +1110,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get healthProfile => 'Profil de santé';
 
   @override
-  String get photoWatchFace => 'Cadran photo';
+  String get photoWatchFace => 'Affichage photo';
 
   @override
   String get cameraRemote => 'Télécommande photo';
@@ -1222,7 +1223,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get keepWatchNear => 'Gardez la bague près du téléphone et réessayez';
 
   @override
-  String get personalizeWatch => 'Cadrans et style';
+  String get personalizeWatch => 'Affichage et personnalisation';
 
   @override
   String get signInCloudHint =>
@@ -1489,7 +1490,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get findWatch => 'Trouver la bague';
 
   @override
-  String get watchFaces => 'Cadrans';
+  String get watchFaces => 'Styles d’affichage';
 
   @override
   String get deviceFeatures => 'Fonctions de l’appareil';

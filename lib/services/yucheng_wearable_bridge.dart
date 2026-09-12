@@ -633,7 +633,7 @@ class YuchengWearableBridge
     }
     final dialId = int.tryParse('${values['id'] ?? values['index'] ?? ''}');
     if (dialId == null) {
-      throw PlatformException(code: 'INVALID_ARGUMENT', message: '表盘标识无效');
+      throw PlatformException(code: 'INVALID_ARGUMENT', message: '显示样式标识无效');
     }
     _require(await _client.changeWatchFace(dialId));
   }
@@ -912,7 +912,7 @@ class YuchengWearableBridge
         type: 'error',
         payload: {
           'code': 'MEASUREMENT_STOP_FAILED',
-          'message': '未收到有效测量结果，请确认戒指已贴合手腕后重试',
+          'message': '未收到有效测量结果，请确认戒指已贴合手指后重试',
         },
       ),
     );

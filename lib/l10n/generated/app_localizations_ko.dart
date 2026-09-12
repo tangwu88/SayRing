@@ -314,10 +314,10 @@ class AppLocalizationsKo extends AppLocalizations {
       '안내: 이 보고서는 링 측정 데이터를 바탕으로 작성되었습니다. 건강 관리 참고용이며 의사의 진단을 대신할 수 없습니다.';
 
   @override
-  String get installedWatchFaces => '설치된 워치 페이스';
+  String get installedWatchFaces => '설치된 디스플레이 스타일';
 
   @override
-  String get switchInstalledWatchFace => '워치에 이미 설치된 페이스로 변경할 수 있습니다.';
+  String get switchInstalledWatchFace => '링에 저장된 디스플레이 스타일로 변경할 수 있습니다.';
 
   @override
   String get useSelectedWatchFace => '사용';
@@ -326,16 +326,16 @@ class AppLocalizationsKo extends AppLocalizations {
   String get downloadUseWatchFace => '눌러서 다운로드 및 사용';
 
   @override
-  String get photoWatchFaceHint => '선명한 사진을 선택하고 미리보기를 확인한 후 워치로 전송하세요.';
+  String get photoWatchFaceHint => '선명한 사진을 선택하고 미리보기를 확인한 후 링으로 전송하세요.';
 
   @override
   String get timeDisplayPosition => '시간 표시 위치';
 
   @override
-  String get transferSetWatchFace => '전송하고 워치 페이스로 설정';
+  String get transferSetWatchFace => '전송하고 디스플레이 스타일로 설정';
 
   @override
-  String get watchTransferKeepNear => '전송 중에는 워치를 휴대폰 가까이에 두고 이 화면을 유지하세요.';
+  String get watchTransferKeepNear => '전송 중에는 링을 휴대폰 가까이에 두고 이 화면을 유지하세요.';
 
   @override
   String get callMediaAudio => '통화 및 미디어 소리';
@@ -345,10 +345,10 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get sosContactHint =>
-      '워치에서 SOS가 작동하면 여기서 선택한 사람에게 우선 연락합니다. 평소 자주 연락하는 가족을 선택하세요.';
+      '링에서 SOS가 작동하면 여기서 선택한 사람에게 우선 연락합니다. 평소 자주 연락하는 가족을 선택하세요.';
 
   @override
-  String get noHealthAssessments => '현재 워치에는 설정 가능한 보조 평가가 없습니다.';
+  String get noHealthAssessments => '현재 링에는 설정 가능한 보조 평가가 없습니다.';
 
   @override
   String get modelFeaturesVary =>
@@ -380,7 +380,7 @@ class AppLocalizationsKo extends AppLocalizations {
       '심박수 및 HRV 결과는 계속 확인할 수 있습니다. 다음 측정 시에는 링 전극에 계속 접촉해 주세요.';
 
   @override
-  String get screenAutoTimeHint => '워치가 시간에 따라 자동으로 조절합니다.';
+  String get screenAutoTimeHint => '링이 시간에 따라 자동으로 조절합니다.';
 
   @override
   String get raiseWristScreenHint => '손목을 들면 화면이 켜집니다.';
@@ -412,10 +412,10 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get watchFaceDownloadHint =>
-      '다운로드 후 워치 페이스가 워치로 전송됩니다. 전송 중에는 워치를 휴대폰 가까이에 두고 이 화면을 유지하세요.';
+      '다운로드 후 디스플레이 스타일이 링으로 전송됩니다. 전송 중에는 링을 휴대폰 가까이에 두고 이 화면을 유지하세요.';
 
   @override
-  String get refreshWatchFaces => '워치 페이스 새로고침';
+  String get refreshWatchFaces => '디스플레이 스타일 새로고침';
 
   @override
   String get openTestFlight => 'TestFlight 열기';
@@ -792,13 +792,13 @@ class AppLocalizationsKo extends AppLocalizations {
   String get refresh => '새로고침';
 
   @override
-  String get useWatchFace => '이 워치 페이스를 사용하시겠습니까?';
+  String get useWatchFace => '이 디스플레이 스타일을 사용하시겠습니까?';
 
   @override
   String get downloadAndUse => '다운로드하여 사용';
 
   @override
-  String get watchFaceFailed => '워치 페이스를 설정하지 못했습니다';
+  String get watchFaceFailed => '디스플레이 스타일을 설정하지 못했습니다';
 
   @override
   String get statusNormal => '정상';
@@ -888,7 +888,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get smsCode => '문자 인증 코드';
 
   @override
-  String get watchFaceShop => '워치 페이스 스토어';
+  String get watchFaceShop => '디스플레이 스타일 스토어';
 
   @override
   String get selectCity => '도시 선택';
@@ -1045,7 +1045,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get healthProfile => '건강 프로필';
 
   @override
-  String get photoWatchFace => '사진 워치 페이스';
+  String get photoWatchFace => '사진 디스플레이';
 
   @override
   String get cameraRemote => '카메라 리모컨';
@@ -1153,7 +1153,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get keepWatchNear => '링을 휴대전화 가까이에 두고 다시 시도하세요';
 
   @override
-  String get personalizeWatch => '워치 페이스 및 꾸미기';
+  String get personalizeWatch => '디스플레이 및 꾸미기';
 
   @override
   String get signInCloudHint => '로그인하고 클라우드 건강 서비스를 이용하세요';
@@ -1409,7 +1409,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get findWatch => '링 찾기';
 
   @override
-  String get watchFaces => '워치 페이스';
+  String get watchFaces => '디스플레이 스타일';
 
   @override
   String get deviceFeatures => '기기 기능';

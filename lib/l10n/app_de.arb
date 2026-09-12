@@ -94,18 +94,18 @@
   "ecgHealthReport": "EKG-Gesundheitsbericht",
   "brandedEcgReport": "Say Ring · EKG-Gesundheitsbericht",
   "ecgReportSafety": "Hinweis: Dieser Bericht basiert auf Messdaten des Rings. Er dient nur zur Gesundheitsorientierung und ersetzt keine ärztliche Diagnose.",
-  "installedWatchFaces": "Installierte Zifferblätter",
-  "switchInstalledWatchFace": "Wechseln Sie zwischen den bereits auf Ihrer Uhr vorhandenen Zifferblättern.",
+  "installedWatchFaces": "Installierte Anzeigestile",
+  "switchInstalledWatchFace": "Wechseln Sie zwischen den bereits auf Ihrem Ring gespeicherten Anzeigestilen.",
   "useSelectedWatchFace": "Verwenden",
   "downloadUseWatchFace": "Zum Herunterladen und Verwenden antippen",
-  "photoWatchFaceHint": "Wählen Sie ein scharfes Foto, prüfen Sie die Vorschau und übertragen Sie es dann auf Ihre Uhr.",
+  "photoWatchFaceHint": "Wählen Sie ein scharfes Foto, prüfen Sie die Vorschau und übertragen Sie es dann auf Ihren Ring.",
   "timeDisplayPosition": "Position der Uhrzeit",
-  "transferSetWatchFace": "Übertragen und als Zifferblatt festlegen",
-  "watchTransferKeepNear": "Halten Sie die Uhr während der Übertragung nahe am Telefon und bleiben Sie auf dieser Seite.",
+  "transferSetWatchFace": "Übertragen und als Anzeigestil festlegen",
+  "watchTransferKeepNear": "Halten Sie den Ring während der Übertragung nahe am Telefon und bleiben Sie auf dieser Seite.",
   "callMediaAudio": "Anruf- und Medienaudio",
   "useCelsius": "Celsius verwenden",
-  "sosContactHint": "Wird SOS auf der Uhr ausgelöst, wird zuerst die hier ausgewählte Person kontaktiert. Wählen Sie ein Familienmitglied, mit dem Sie regelmäßig Kontakt haben.",
-  "noHealthAssessments": "Für diese Uhr sind keine einstellbaren ergänzenden Gesundheitsbewertungen verfügbar.",
+  "sosContactHint": "Wird SOS auf dem Ring ausgelöst, wird zuerst die hier ausgewählte Person kontaktiert. Wählen Sie ein Familienmitglied, mit dem Sie regelmäßig Kontakt haben.",
+  "noHealthAssessments": "Für diesen Ring sind keine einstellbaren ergänzenden Gesundheitsbewertungen verfügbar.",
   "modelFeaturesVary": "Die unterstützten Funktionen unterscheiden sich je nach Modell. Die App zeigt nur Funktionen an, die für den verbundenen Ring verfügbar sind.",
   "assessmentEnabledHint": "Nach dem Aktivieren liefert der Ring Informationen zu täglichen Trends.",
   "assessmentSafety": "Ergänzende Bewertungen dienen der täglichen Gesundheitsorientierung, nicht der Diagnose oder Behandlung.",
@@ -115,7 +115,7 @@
   "ecgWaveformTitle": "EKG-Kurve",
   "ecgWaveformMissing": "Für diese Messung wurde keine gültige EKG-Kurve zurückgegeben.",
   "ecgElectrodeHint": "Herzfrequenz- und HRV-Ergebnisse bleiben verfügbar. Berühren Sie bei der nächsten Messung durchgehend die Elektrode des Rings.",
-  "screenAutoTimeHint": "Die Uhr passt dies automatisch an die Uhrzeit an.",
+  "screenAutoTimeHint": "Der Ring passt dies automatisch an die Uhrzeit an.",
   "raiseWristScreenHint": "Das Display leuchtet auf, wenn Sie das Handgelenk anheben.",
   "watchHighHeartRate": "Warnung bei hoher Herzfrequenz",
   "watchThresholdHint": "Der Ring warnt Sie, sobald die Grenze erreicht wird.",
@@ -125,8 +125,8 @@
   "recentData": "Aktuelle Daten",
   "trendReferenceOnly": "Trends dienen nur der täglichen Gesundheitsorientierung.",
   "trendVariationSafety": "Einzelne und zeitliche Veränderungen können durch Sitz, Bewegung und Umgebung beeinflusst werden und ersetzen keine ärztliche Diagnose.",
-  "watchFaceDownloadHint": "Nach dem Download wird das Zifferblatt auf Ihre Uhr übertragen. Halten Sie die Uhr dabei nahe am Telefon und bleiben Sie auf dieser Seite.",
-  "refreshWatchFaces": "Zifferblätter aktualisieren",
+  "watchFaceDownloadHint": "Nach dem Download wird der Anzeigestil auf Ihren Ring übertragen. Halten Sie den Ring dabei nahe am Telefon und bleiben Sie auf dieser Seite.",
+  "refreshWatchFaces": "Anzeigestile aktualisieren",
   "openTestFlight": "TestFlight öffnen",
   "articlesEmpty": "In dieser Kategorie sind noch keine Artikel verfügbar.",
   "articlesUnavailable": "Die Gesundheitsbibliothek konnte nicht geladen werden.",
@@ -157,21 +157,69 @@
   "watchCalories": "Kalorien des Rings",
   "connectForWorkout": "Verbinden Sie zuerst Ihren Ring auf der Geräteseite. Ihr Ring zeichnet das Training auf.",
   "latestVersion": "Sie verwenden die neueste Version: V{version}",
-  "@latestVersion": {"placeholders":{"version":{"type":"String"}}},
+  "@latestVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "workoutPaused": "{mode} pausiert",
-  "@workoutPaused": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutPaused": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutInProgress": "{mode} läuft",
-  "@workoutInProgress": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutInProgress": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutReady": "Bereit für {mode}",
-  "@workoutReady": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutReady": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "startWorkout": "{mode} starten",
-  "@startWorkout": {"placeholders":{"mode":{"type":"String"}}},
+  "@startWorkout": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "finishOtherWorkout": "Beenden Sie zuerst {mode}",
-  "@finishOtherWorkout": {"placeholders":{"mode":{"type":"String"}}},
+  "@finishOtherWorkout": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "workoutDetails": "Details zu {mode}",
-  "@workoutDetails": {"placeholders":{"mode":{"type":"String"}}},
+  "@workoutDetails": {
+    "placeholders": {
+      "mode": {
+        "type": "String"
+      }
+    }
+  },
   "stepCount": "{count} Schritte",
-  "@stepCount": {"placeholders":{"count":{"type":"int"}}},
+  "@stepCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "@@locale": "de",
   "globalShopPricePending": "Preis noch nicht bestätigt",
   "globalShopLoadMore": "Mehr laden",
@@ -251,9 +299,9 @@
   "restorePurchases": "Käufe wiederherstellen",
   "paymentMethod": "Zahlungsart",
   "refresh": "Aktualisieren",
-  "useWatchFace": "Dieses Zifferblatt verwenden?",
+  "useWatchFace": "Diesen Anzeigestil verwenden?",
   "downloadAndUse": "Herunterladen und verwenden",
-  "watchFaceFailed": "Zifferblatt konnte nicht eingestellt werden",
+  "watchFaceFailed": "Anzeigestil konnte nicht eingestellt werden",
   "statusNormal": "Normal",
   "statusRecorded": "Erfasst",
   "statusAttention": "Wert prüfen",
@@ -283,7 +331,7 @@
   "deliveryAddresses": "Lieferadressen",
   "readAgain": "Erneut lesen",
   "smsCode": "SMS-Bestätigungscode",
-  "watchFaceShop": "Zifferblatt-Shop",
+  "watchFaceShop": "Shop für Anzeigestile",
   "selectCity": "Stadt auswählen",
   "city": "Stadt",
   "confirm": "Bestätigen",
@@ -335,7 +383,7 @@
   "distance": "Entfernung",
   "calories": "Kalorien",
   "healthProfile": "Gesundheitsprofil",
-  "photoWatchFace": "Foto-Zifferblatt",
+  "photoWatchFace": "Fotoanzeige",
   "cameraRemote": "Kamera-Fernbedienung",
   "phoneCalls": "Anrufe",
   "contacts": "Kontakte",
@@ -370,7 +418,7 @@
   "capabilitiesHint": "Es werden nur verfügbare Funktionen dieses Rings angezeigt",
   "capabilitiesFailed": "Ringfunktionen konnten nicht gelesen werden",
   "keepWatchNear": "Ring nahe am Telefon halten und erneut versuchen",
-  "personalizeWatch": "Zifferblätter & Design",
+  "personalizeWatch": "Anzeige & Personalisierung",
   "signInCloudHint": "Für Cloud-Gesundheitsdienste anmelden",
   "aiQuestion": "KI fragen",
   "aiQuestionHint": "Fragen Sie Ihren KI-Assistenten zum Wohlbefinden",
@@ -455,7 +503,7 @@
   "syncFailedTryAgain": "Synchronisierung fehlgeschlagen. Halten Sie den Ring nah am Telefon und versuchen Sie es erneut.",
   "disconnect": "Trennen",
   "findWatch": "Ring suchen",
-  "watchFaces": "Zifferblätter",
+  "watchFaces": "Anzeigestile",
   "deviceFeatures": "Gerätefunktionen",
   "aboutDevice": "Über das Gerät",
   "connectionHelp": "Hilfe zur Verbindung",
@@ -622,5 +670,11 @@
   "shareProduct": "Produkt teilen",
   "customerReviews": "Kundenbewertungen",
   "stockCount": "{count} auf Lager",
-  "@stockCount": {"placeholders":{"count":{"type":"int"}}}
+  "@stockCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

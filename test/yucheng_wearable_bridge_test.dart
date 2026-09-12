@@ -20,31 +20,21 @@ void main() {
     expect(client.reconnectEnabled, isFalse);
   });
 
-  test(
-    'disconnects when connected model is outside Yucheng allowlist',
-    () async {
-      final client = _FakeYuchengClient(
-        modelName: 'YC Ring',
-        scannedName: 'YC Ring',
-      );
-      final bridge = YuchengWearableBridge(
-        client: client,
-        initialHealthSettleDelay: Duration.zero,
-      );
-      await bridge.scanDevices();
-      await expectLater(
-        bridge.connect('YC-01', profile: _profile),
-        throwsA(
-          isA<PlatformException>().having(
-            (e) => e.code,
-            'code',
-            'YUCHENG_MODEL_MISMATCH',
-          ),
-        ),
-      );
-      expect(client.disconnectCount, 0);
-    },
-  );
+  test('accepts YC-prefixed rings without a W8 model allowlist', () async {
+    final client = _FakeYuchengClient(
+      modelName: 'YC Ring',
+      scannedName: 'YC Ring',
+    );
+    final bridge = YuchengWearableBridge(
+      client: client,
+      initialHealthSettleDelay: Duration.zero,
+    );
+    await bridge.scanDevices();
+    await bridge.connect('YC-01', profile: _profile);
+
+    expect(client.disconnectCount, 0);
+    expect((await bridge.getConnectedDeviceDetails())?.name, 'YC Ring');
+  });
 
   test('maps unavailable operation to FEATURE_UNSUPPORTED', () async {
     final client = _FakeYuchengClient(
@@ -539,7 +529,7 @@ void main() {
     final store = _MemoryYuchengSavedDeviceStore();
     final firstClient = _FakeYuchengClient(
       modelName: 'W8 Plus',
-      scannedName: 'W8 Plus 549D',
+      scannedName: 'YC W8 Plus 549D',
     );
     final firstBridge = YuchengWearableBridge(
       client: firstClient,
@@ -558,7 +548,7 @@ void main() {
     final restored = await restoredBridge.restoreConnection(profile: _profile);
 
     expect(restoredClient.savedConnectCalls, ['YC-01']);
-    expect(restored?.name, 'W8 Plus 549D');
+    expect(restored?.name, 'YC W8 Plus 549D');
     expect(restored?.hardwareAddress, '07:43:00:00:4D:E9');
   });
 
@@ -591,7 +581,7 @@ const _profile = WearableUserProfile(
 class _FakeYuchengClient implements YuchengProductClient {
   _FakeYuchengClient({
     required this.modelName,
-    this.scannedName = 'W8 Ultra',
+    this.scannedName = 'YC W8 Ultra',
     this.scannedHardwareAddress = '07:43:00:00:4D:E9',
     this.queriedMacAddress = '07:43:00:00:4D:E9',
     this.measurementStatus = 0,

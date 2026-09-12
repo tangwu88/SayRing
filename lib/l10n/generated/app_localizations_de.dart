@@ -338,11 +338,11 @@ class AppLocalizationsDe extends AppLocalizations {
       'Hinweis: Dieser Bericht basiert auf Messdaten des Rings. Er dient nur zur Gesundheitsorientierung und ersetzt keine ärztliche Diagnose.';
 
   @override
-  String get installedWatchFaces => 'Installierte Zifferblätter';
+  String get installedWatchFaces => 'Installierte Anzeigestile';
 
   @override
   String get switchInstalledWatchFace =>
-      'Wechseln Sie zwischen den bereits auf Ihrer Uhr vorhandenen Zifferblättern.';
+      'Wechseln Sie zwischen den bereits auf Ihrem Ring gespeicherten Anzeigestilen.';
 
   @override
   String get useSelectedWatchFace => 'Verwenden';
@@ -352,17 +352,17 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get photoWatchFaceHint =>
-      'Wählen Sie ein scharfes Foto, prüfen Sie die Vorschau und übertragen Sie es dann auf Ihre Uhr.';
+      'Wählen Sie ein scharfes Foto, prüfen Sie die Vorschau und übertragen Sie es dann auf Ihren Ring.';
 
   @override
   String get timeDisplayPosition => 'Position der Uhrzeit';
 
   @override
-  String get transferSetWatchFace => 'Übertragen und als Zifferblatt festlegen';
+  String get transferSetWatchFace => 'Übertragen und als Anzeigestil festlegen';
 
   @override
   String get watchTransferKeepNear =>
-      'Halten Sie die Uhr während der Übertragung nahe am Telefon und bleiben Sie auf dieser Seite.';
+      'Halten Sie den Ring während der Übertragung nahe am Telefon und bleiben Sie auf dieser Seite.';
 
   @override
   String get callMediaAudio => 'Anruf- und Medienaudio';
@@ -372,11 +372,11 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get sosContactHint =>
-      'Wird SOS auf der Uhr ausgelöst, wird zuerst die hier ausgewählte Person kontaktiert. Wählen Sie ein Familienmitglied, mit dem Sie regelmäßig Kontakt haben.';
+      'Wird SOS auf dem Ring ausgelöst, wird zuerst die hier ausgewählte Person kontaktiert. Wählen Sie ein Familienmitglied, mit dem Sie regelmäßig Kontakt haben.';
 
   @override
   String get noHealthAssessments =>
-      'Für diese Uhr sind keine einstellbaren ergänzenden Gesundheitsbewertungen verfügbar.';
+      'Für diesen Ring sind keine einstellbaren ergänzenden Gesundheitsbewertungen verfügbar.';
 
   @override
   String get modelFeaturesVary =>
@@ -414,7 +414,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get screenAutoTimeHint =>
-      'Die Uhr passt dies automatisch an die Uhrzeit an.';
+      'Der Ring passt dies automatisch an die Uhrzeit an.';
 
   @override
   String get raiseWristScreenHint =>
@@ -450,10 +450,10 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get watchFaceDownloadHint =>
-      'Nach dem Download wird das Zifferblatt auf Ihre Uhr übertragen. Halten Sie die Uhr dabei nahe am Telefon und bleiben Sie auf dieser Seite.';
+      'Nach dem Download wird der Anzeigestil auf Ihren Ring übertragen. Halten Sie den Ring dabei nahe am Telefon und bleiben Sie auf dieser Seite.';
 
   @override
-  String get refreshWatchFaces => 'Zifferblätter aktualisieren';
+  String get refreshWatchFaces => 'Anzeigestile aktualisieren';
 
   @override
   String get openTestFlight => 'TestFlight öffnen';
@@ -844,13 +844,13 @@ class AppLocalizationsDe extends AppLocalizations {
   String get refresh => 'Aktualisieren';
 
   @override
-  String get useWatchFace => 'Dieses Zifferblatt verwenden?';
+  String get useWatchFace => 'Diesen Anzeigestil verwenden?';
 
   @override
   String get downloadAndUse => 'Herunterladen und verwenden';
 
   @override
-  String get watchFaceFailed => 'Zifferblatt konnte nicht eingestellt werden';
+  String get watchFaceFailed => 'Anzeigestil konnte nicht eingestellt werden';
 
   @override
   String get statusNormal => 'Normal';
@@ -944,7 +944,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get smsCode => 'SMS-Bestätigungscode';
 
   @override
-  String get watchFaceShop => 'Zifferblatt-Shop';
+  String get watchFaceShop => 'Shop für Anzeigestile';
 
   @override
   String get selectCity => 'Stadt auswählen';
@@ -1103,7 +1103,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get healthProfile => 'Gesundheitsprofil';
 
   @override
-  String get photoWatchFace => 'Foto-Zifferblatt';
+  String get photoWatchFace => 'Fotoanzeige';
 
   @override
   String get cameraRemote => 'Kamera-Fernbedienung';
@@ -1219,7 +1219,7 @@ class AppLocalizationsDe extends AppLocalizations {
       'Ring nahe am Telefon halten und erneut versuchen';
 
   @override
-  String get personalizeWatch => 'Zifferblätter & Design';
+  String get personalizeWatch => 'Anzeige & Personalisierung';
 
   @override
   String get signInCloudHint => 'Für Cloud-Gesundheitsdienste anmelden';
@@ -1488,7 +1488,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get findWatch => 'Ring suchen';
 
   @override
-  String get watchFaces => 'Zifferblätter';
+  String get watchFaces => 'Anzeigestile';
 
   @override
   String get deviceFeatures => 'Gerätefunktionen';

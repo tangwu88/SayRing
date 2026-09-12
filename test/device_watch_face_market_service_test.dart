@@ -218,7 +218,7 @@ void main() {
           isA<DeviceWatchFaceMarketException>().having(
             (error) => error.message,
             'message',
-            contains('请在手表上操作'),
+            contains('请在戒指上操作'),
           ),
         ),
       );

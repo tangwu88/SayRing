@@ -311,10 +311,10 @@ class AppLocalizationsJa extends AppLocalizations {
       '注：このレポートはリングの測定データに基づく健康管理の参考用であり、医師の診断の代わりにはなりません。';
 
   @override
-  String get installedWatchFaces => 'インストール済みの文字盤';
+  String get installedWatchFaces => 'インストール済みの表示スタイル';
 
   @override
-  String get switchInstalledWatchFace => '腕時計に保存済みの文字盤を切り替えられます。';
+  String get switchInstalledWatchFace => 'リングに保存済みの表示スタイルを切り替えられます。';
 
   @override
   String get useSelectedWatchFace => '使用する';
@@ -323,16 +323,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get downloadUseWatchFace => 'タップしてダウンロード・適用';
 
   @override
-  String get photoWatchFaceHint => '鮮明な写真を選び、プレビューを確認してから腕時計に転送してください。';
+  String get photoWatchFaceHint => '鮮明な写真を選び、プレビューを確認してからリングに転送してください。';
 
   @override
   String get timeDisplayPosition => '時刻の表示位置';
 
   @override
-  String get transferSetWatchFace => '転送して文字盤に設定';
+  String get transferSetWatchFace => '転送して表示スタイルに設定';
 
   @override
-  String get watchTransferKeepNear => '転送中は腕時計をスマートフォンの近くに置き、この画面から移動しないでください。';
+  String get watchTransferKeepNear => '転送中はリングをスマートフォンの近くに置き、この画面から移動しないでください。';
 
   @override
   String get callMediaAudio => '通話・メディアの音声';
@@ -342,10 +342,10 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get sosContactHint =>
-      '腕時計でSOSを作動させると、ここで選んだ人に優先して連絡します。普段よく連絡するご家族を選ぶことをおすすめします。';
+      'リングでSOSを作動させると、ここで選んだ人に優先して連絡します。普段よく連絡するご家族を選ぶことをおすすめします。';
 
   @override
-  String get noHealthAssessments => 'この腕時計には設定可能な補助評価がありません。';
+  String get noHealthAssessments => 'このリングには設定可能な補助評価がありません。';
 
   @override
   String get modelFeaturesVary =>
@@ -377,7 +377,7 @@ class AppLocalizationsJa extends AppLocalizations {
       '心拍数やHRVなどの結果は引き続き確認できます。次回は測定中ずっとリングの電極に触れてください。';
 
   @override
-  String get screenAutoTimeHint => '腕時計が時刻に応じて自動調整します。';
+  String get screenAutoTimeHint => 'リングが時刻に応じて自動調整します。';
 
   @override
   String get raiseWristScreenHint => '手首を上げると画面が点灯します。';
@@ -409,10 +409,10 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get watchFaceDownloadHint =>
-      'ダウンロード後、文字盤を腕時計に転送します。転送中は腕時計をスマートフォンの近くに置き、この画面を開いたままにしてください。';
+      'ダウンロード後、表示スタイルをリングに転送します。転送中はリングをスマートフォンの近くに置き、この画面を開いたままにしてください。';
 
   @override
-  String get refreshWatchFaces => '文字盤を更新';
+  String get refreshWatchFaces => '表示スタイルを更新';
 
   @override
   String get openTestFlight => 'TestFlight を開く';
@@ -789,13 +789,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get refresh => '更新';
 
   @override
-  String get useWatchFace => 'この文字盤を使用しますか？';
+  String get useWatchFace => 'この表示スタイルを使用しますか？';
 
   @override
   String get downloadAndUse => 'ダウンロードして使用';
 
   @override
-  String get watchFaceFailed => '文字盤を設定できませんでした';
+  String get watchFaceFailed => '表示スタイルを設定できませんでした';
 
   @override
   String get statusNormal => '正常';
@@ -885,7 +885,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get smsCode => 'SMS確認コード';
 
   @override
-  String get watchFaceShop => '文字盤ストア';
+  String get watchFaceShop => '表示スタイルストア';
 
   @override
   String get selectCity => '都市を選択';
@@ -1042,7 +1042,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get healthProfile => '健康プロフィール';
 
   @override
-  String get photoWatchFace => '写真の文字盤';
+  String get photoWatchFace => '写真表示';
 
   @override
   String get cameraRemote => 'カメラリモコン';
@@ -1150,7 +1150,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get keepWatchNear => 'リングを近づけて再試行してください';
 
   @override
-  String get personalizeWatch => '文字盤とカスタマイズ';
+  String get personalizeWatch => '表示とカスタマイズ';
 
   @override
   String get signInCloudHint => 'ログインしてクラウド健康サービスを利用';
@@ -1405,7 +1405,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get findWatch => 'リングを探す';
 
   @override
-  String get watchFaces => '文字盤';
+  String get watchFaces => '表示スタイル';
 
   @override
   String get deviceFeatures => 'デバイス機能';
