@@ -113,10 +113,10 @@ class RoutedWearableBridge
   }) : _sources = {
          WearableTransport.veepoo: veepoo,
          WearableTransport.yucheng: yucheng,
-         if (moyoung != null) WearableTransport.moyoung: moyoung,
        },
        _preferenceStore =
            preferenceStore ?? const SecureWearableTransportPreferenceStore() {
+    if (moyoung != null) _sources[WearableTransport.moyoung] = moyoung;
     _eventController
       ..onListen = _subscribeToSourceEvents
       ..onCancel = _cancelSourceEvents;

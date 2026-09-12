@@ -9,7 +9,7 @@ import 'package:saydian_app/services/wearable_routing.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('iOS W8 full safe physical-device smoke test', (_) async {
+  testWidgets('iOS YC ring safe physical-device smoke test', (_) async {
     final controller = AppController.production();
     addTearDown(controller.dispose);
     await controller.initialize();
@@ -24,22 +24,25 @@ void main() {
               .where(
                 (device) =>
                     device.sdkSource == WearableSdkSource.yucheng &&
-                    YuchengDeviceClassifier.matches(device.name),
+                    WearableDeviceClassifier.routesTo(
+                      device.name,
+                      WearableTransport.yucheng,
+                    ),
               )
               .toList()
-        ..sort((a, b) {
-          final aConnected = a.rssi == 0 ? 1 : 0;
-          final bConnected = b.rssi == 0 ? 1 : 0;
-          final connectedOrder = bConnected.compareTo(aConnected);
-          if (connectedOrder != 0) return connectedOrder;
-          return (b.rssi ?? -999).compareTo(a.rssi ?? -999);
-        });
+            ..sort((a, b) {
+              final aConnected = a.rssi == 0 ? 1 : 0;
+              final bConnected = b.rssi == 0 ? 1 : 0;
+              final connectedOrder = bConnected.compareTo(aConnected);
+              if (connectedOrder != 0) return connectedOrder;
+              return (b.rssi ?? -999).compareTo(a.rssi ?? -999);
+            });
       if (candidates.isEmpty && attempt < 2) {
         debugPrint('W8_SCAN_RETRY:${attempt + 1}');
         await Future<void>.delayed(const Duration(seconds: 3));
       }
     }
-    expect(candidates, isNotEmpty, reason: '没有发现 W8 系列设备');
+    expect(candidates, isNotEmpty, reason: '没有发现 YC 前缀戒指');
     final w8 = candidates.first;
     debugPrint(
       'W8_SELECTED:${w8.name}:${w8.hardwareAddress}:${w8.id}:${w8.rssi}',

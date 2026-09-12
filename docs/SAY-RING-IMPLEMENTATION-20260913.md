@@ -44,6 +44,12 @@
 - 结果：健康、运动、Flutter 路由与启动 22/22 通过；验证同设备不同大小写/空白得到稳定身份，两台设备同秒 ID 不同。
 - 数据边界：不重写既有历史值，不按“同秒同指标”删除无法证明重复的原始记录。
 
+### 04:31 英文路径格式与静态分析
+
+- `flutter pub get --offline`：通过，使用锁定依赖；仅提示 5 个不兼容约束范围之外的新版本，没有升级依赖。
+- `dart format --output=none --set-exit-if-changed lib test`：首次失败，准确发现 4 个需格式化文件；执行标准格式化后提交 `571725a style: format Say Ring routing sources`。
+- `flutter analyze --no-pub`：英文路径可稳定执行；首次发现 2 个旧真机测试仍引用已移除的 `YuchengDeviceClassifier`，另有 1 个可改用普通赋值避免的集合空值风格提示。已统一改用 `WearableDeviceClassifier` 的 YC 前缀规则，并修正风格提示；待紧接着复验。
+
 ## 下一阶段门禁
 
 - 在英文最终路径执行格式化、`flutter analyze`、双时区全量 Flutter、Android Debug/QA Release、完整 HarmonyOS 宿主测试与可用构建；macOS/iOS 和真实 HarmonyOS 构建环境缺失时明确标记未执行。

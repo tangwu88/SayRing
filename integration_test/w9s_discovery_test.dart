@@ -22,7 +22,7 @@ void main() {
     expect(devices, isNotEmpty, reason: 'Yuc SDK 单独扫描没有返回附近设备');
   });
 
-  testWidgets('discovers nearby W8 family through the Yuc transport', (
+  testWidgets('discovers nearby YC ring through the Yuc transport', (
     tester,
   ) async {
     final controller = AppController.production();
@@ -37,9 +37,12 @@ void main() {
     );
 
     final matches = devices.where(
-      (device) => YuchengDeviceClassifier.matches(device.name),
+      (device) => WearableDeviceClassifier.routesTo(
+        device.name,
+        WearableTransport.yucheng,
+      ),
     );
-    expect(matches, isNotEmpty, reason: '没有发现处于广播状态的 W8 系列设备');
+    expect(matches, isNotEmpty, reason: '没有发现处于广播状态的 YC 前缀戒指');
     expect(
       matches.every((device) => device.sdkSource == WearableSdkSource.yucheng),
       isTrue,
