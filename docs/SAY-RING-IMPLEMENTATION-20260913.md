@@ -67,6 +67,7 @@
 - 防复发：9 份语言目录的全部用户文案禁止重新出现对应语言的 watch/watch-face 用词；核心戒指页面与服务禁止出现“手表/表盘”。原始服务端报告、商品名、SDK 返回名称和国内版不可达兜底值不做篡改。
 - 测试结果：路由/玉成定向 35/35；主要 UI 与业务流程 86/86；品牌契约 5/5；Flutter 全量 UTC 914/914、`America/New_York` 914/914；HarmonyOS 宿主测试 481/481，均通过。
 - 失败记录：中文路径执行 `flutter analyze --no-pub` 时分析服务器再次因 LSP JSON 截断退出（`FormatException: Unexpected end of input`）；这是工具/路径失败，不能计为静态分析结果，需在英文最终路径复验。沙箱内 Flutter 因无法写 SDK 锁文件出现多个 `cmd.exe` 空转；仅停止本任务遗留空转进程，改在授权的标准 SDK 环境运行，未停止 Gradle/Android 服务。
+- 格式门禁：同步至英文路径后，155 个 Dart 文件中仅 `say_ring_brand_contract_test.dart` 有 1 处标准换行排版差异；已用当前 Dart formatter 修正。formatter 随后的匿名遥测时间戳写入因沙箱权限被拒绝，但源码格式化本身已经完成；最终路径需再次以只读模式确认 155/155。
 - 后续待验：英文路径格式和静态分析、Android Debug/Release 实际构建；iOS/macOS 与 HarmonyOS HAP 工具链；真实 YC、V/TK 戒指三轮连接/同步/断开/重连；魔样目标戒指 SDK、服务端 `ringPreferred` 多来源契约，以及仓库 Private 状态和首次推送。
 
 ## 下一阶段门禁

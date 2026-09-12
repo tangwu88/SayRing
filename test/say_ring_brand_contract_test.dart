@@ -59,14 +59,8 @@ void main() {
     final forbiddenByCatalog = <String, RegExp>{
       'app_en.arb': RegExp(r'\bwatch(?:es)?\b', caseSensitive: false),
       'app_de.arb': RegExp(r'\bUhr(?:en)?\b|Zifferblatt'),
-      'app_fr.arb': RegExp(
-        r'\bmontre(?:s)?\b|cadran',
-        caseSensitive: false,
-      ),
-      'app_es.arb': RegExp(
-        r'\breloj(?:es)?\b|esfera',
-        caseSensitive: false,
-      ),
+      'app_fr.arb': RegExp(r'\bmontre(?:s)?\b|cadran', caseSensitive: false),
+      'app_es.arb': RegExp(r'\breloj(?:es)?\b|esfera', caseSensitive: false),
       'app_ja.arb': RegExp(r'腕時計|文字盤'),
       'app_ko.arb': RegExp(r'워치'),
       'app_zh.arb': RegExp(r'手表|表盘'),
