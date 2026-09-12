@@ -73,6 +73,9 @@ mixin GlobalHealthApi on SaydianApiClient {
         : null;
     for (final record in batch.records) {
       final offset = _globalTimezoneOffset(record.timezone);
+      final transport = WearableDeviceClassifier.transportForScopedId(
+        record.deviceId,
+      );
       // These native labels describe provenance, not a validated health score.
       // Keep the original local record; never promote them to V2 `valid`.
       final quality = switch (record.quality) {
@@ -117,6 +120,11 @@ mixin GlobalHealthApi on SaydianApiClient {
           if (record.deviceId.isNotEmpty) 'deviceId': record.deviceId,
           if (record.firmwareVersion.isNotEmpty)
             'firmware': record.firmwareVersion,
+          'sourceApp': GlobalEnvironment.productId,
+          if (record.source == MeasurementSource.wearable && transport != null)
+            'vendor': transport.name,
+          if (record.source == MeasurementSource.wearable && transport != null)
+            'deviceCategory': 'ring',
           'origin': record.origin.wireName,
           'measurementSource': record.source.name,
           'rawVersion': record.rawVersion,
@@ -189,6 +197,186 @@ mixin GlobalHealthApi on SaydianApiClient {
       rejected: rejected,
       nextCursor: cursor as String?,
     );
+  }
+
+  Future<CloudHealthPage> getCloudHealthRecords({
+    int limit = 200,
+    String? before,
+  }) async {
+    if (limit < 1 || limit > 200) {
+      throw const ApiException(
+        'Unable to read cloud health records.',
+        code: 'INVALID_HEALTH_PAGE',
+      );
+    }
+    final owner = _stableSessionAccountKey(await _requiredSession());
+    final data = _data(
+      _decode(
+        await _globalHealthRequest(
+          owner,
+          'GET',
+          '$_healthRoot/records',
+          query: {
+            'limit': '$limit',
+            if (before != null && before.trim().isNotEmpty)
+              'before': before.trim(),
+          },
+        ),
+      ),
+    );
+    final items = data['items'];
+    final nextCursor = data['nextCursor'];
+    if (items is! List ||
+        items.any((item) => item is! Map) ||
+        (nextCursor != null && nextCursor is! String)) {
+      throw const ApiException(
+        'Unable to read cloud health records.',
+        code: 'INVALID_HEALTH_PAGE',
+      );
+    }
+    return CloudHealthPage(
+      records: items
+          .cast<Map>()
+          .map(
+            (item) => _cloudHealthRecord(
+              item.map((key, value) => MapEntry('$key', value)),
+            ),
+          )
+          .toList(growable: false),
+      nextCursor: nextCursor as String?,
+    );
+  }
+
+  HealthRecord _cloudHealthRecord(Map<String, Object?> row) {
+    final id = '${row['id'] ?? ''}'.trim();
+    final metricWire = row['metric'] == 'temperature'
+        ? 'body_temperature'
+        : '${row['metric'] ?? ''}'.trim();
+    HealthMetric? metric;
+    for (final candidate in HealthMetric.values) {
+      if (candidate.wireName == metricWire) metric = candidate;
+    }
+    final observedAt = row['observedAt'] is String
+        ? DateTime.tryParse(row['observedAt'] as String)
+        : null;
+    final offset = row['timezoneOffsetMinutes'];
+    final rawValues = row['values'];
+    final sourceRaw = row['source'];
+    if (id.isEmpty ||
+        id.length > 160 ||
+        metric == null ||
+        observedAt == null ||
+        offset is! num ||
+        offset != offset.toInt() ||
+        offset < -840 ||
+        offset > 840 ||
+        rawValues is! Map ||
+        sourceRaw is! Map) {
+      throw const ApiException(
+        'Unable to read cloud health records.',
+        code: 'INVALID_HEALTH_RECORD',
+      );
+    }
+    final values = <String, num>{};
+    for (final entry in rawValues.entries) {
+      if (entry.value == null) continue;
+      if (entry.value is! num || !(entry.value as num).isFinite) {
+        throw const ApiException(
+          'Unable to read cloud health records.',
+          code: 'INVALID_HEALTH_RECORD',
+        );
+      }
+      values['${entry.key}'] = entry.value as num;
+    }
+    if (values.isEmpty) {
+      throw const ApiException(
+        'Unable to read cloud health records.',
+        code: 'INVALID_HEALTH_RECORD',
+      );
+    }
+    final source = sourceRaw.map((key, value) => MapEntry('$key', value));
+    final deviceKey = '${source['deviceKey'] ?? ''}'.trim();
+    if (deviceKey.isNotEmpty &&
+        !RegExp(r'^[a-f0-9]{64}$').hasMatch(deviceKey)) {
+      throw const ApiException(
+        'Unable to read cloud health records.',
+        code: 'INVALID_HEALTH_RECORD',
+      );
+    }
+    final measurementSource = switch ('${source['measurementSource'] ?? ''}') {
+      'wearable' => MeasurementSource.wearable,
+      'manual' => MeasurementSource.manual,
+      'imported' || '' => MeasurementSource.imported,
+      _ => throw const ApiException(
+        'Unable to read cloud health records.',
+        code: 'INVALID_HEALTH_RECORD',
+      ),
+    };
+    final vendor = '${source['vendor'] ?? ''}'.trim();
+    final category = '${source['deviceCategory'] ?? ''}'.trim();
+    final sourceApp = '${source['sourceApp'] ?? ''}'.trim();
+    if ((vendor.isNotEmpty &&
+            !const {
+              'yucheng',
+              'veepoo',
+              'moyoung',
+              'unknown',
+            }.contains(vendor)) ||
+        (category.isNotEmpty &&
+            !const {'ring', 'watch', 'unknown'}.contains(category)) ||
+        (sourceApp.isNotEmpty &&
+            !const {'say-ring', 'saydian'}.contains(sourceApp))) {
+      throw const ApiException(
+        'Unable to read cloud health records.',
+        code: 'INVALID_HEALTH_RECORD',
+      );
+    }
+    final quality = '${row['quality'] ?? 'unknown'}'.trim();
+    if (!const {'unknown', 'valid', 'suspect', 'invalid'}.contains(quality)) {
+      throw const ApiException(
+        'Unable to read cloud health records.',
+        code: 'INVALID_HEALTH_RECORD',
+      );
+    }
+    final rawVersionValue = source['rawVersion'];
+    final rawVersion = rawVersionValue == null ? 1 : rawVersionValue;
+    if (rawVersion is! num ||
+        rawVersion != rawVersion.toInt() ||
+        rawVersion < 1) {
+      throw const ApiException(
+        'Unable to read cloud health records.',
+        code: 'INVALID_HEALTH_RECORD',
+      );
+    }
+    return HealthRecord(
+      id: id,
+      metric: metric,
+      values: values,
+      unit: '${row['unit'] ?? metric.defaultUnit}',
+      measuredAt: observedAt.toUtc(),
+      timezone: _globalTimezoneString(offset.toInt()),
+      deviceId: deviceKey.isEmpty ? '' : 'server:$deviceKey',
+      firmwareVersion: '${source['firmware'] ?? ''}'.trim(),
+      quality: quality,
+      source: measurementSource,
+      origin: MeasurementOrigin.fromWire(
+        source['origin'] ?? 'unknown',
+        source: measurementSource,
+      ),
+      rawVersion: rawVersion.toInt(),
+      sourceModel: '${source['model'] ?? ''}'.trim(),
+      sourceVendor: vendor,
+      sourceDeviceCategory: category,
+      sourceApp: sourceApp,
+    );
+  }
+
+  String _globalTimezoneString(int offsetMinutes) {
+    final sign = offsetMinutes < 0 ? '-' : '+';
+    final absolute = offsetMinutes.abs();
+    final hours = (absolute ~/ 60).toString().padLeft(2, '0');
+    final minutes = (absolute % 60).toString().padLeft(2, '0');
+    return '$sign$hours:$minutes';
   }
 
   int? _globalTimezoneOffset(String timezone) {

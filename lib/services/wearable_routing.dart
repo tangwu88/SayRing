@@ -29,6 +29,18 @@ class WearableDeviceClassifier {
     return null;
   }
 
+  static WearableTransport? transportForScopedId(String deviceId) {
+    final normalized = deviceId.trim().toLowerCase();
+    final separator = normalized.indexOf(':');
+    if (separator <= 0) return null;
+    return switch (normalized.substring(0, separator)) {
+      'yucheng' => WearableTransport.yucheng,
+      'veepoo' => WearableTransport.veepoo,
+      'moyoung' => WearableTransport.moyoung,
+      _ => null,
+    };
+  }
+
   static bool routesTo(String name, WearableTransport transport) =>
       transportFor(name) == transport;
 }
@@ -465,12 +477,12 @@ class RoutedWearableBridge
     return bridge as WearableNativeWatchFaceBridge;
   }
 
-  void _requireCurrentConnection(int generation) {
+  void _requireCurrentConnection(
+    int generation, {
+    String message = '设备连接已变化，请重新打开显示样式商城',
+  }) {
     if (generation != _connectionGeneration || _activeTransport == null) {
-      throw PlatformException(
-        code: 'DEVICE_CHANGED',
-        message: '设备连接已变化，请重新打开显示样式商城',
-      );
+      throw PlatformException(code: 'DEVICE_CHANGED', message: message);
     }
   }
 
@@ -499,8 +511,36 @@ class RoutedWearableBridge
       _activeBridge.getCapabilities();
 
   @override
-  Future<List<HealthRecord>> syncHealthData({String? cursor}) =>
-      _activeBridge.syncHealthData(cursor: cursor);
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) async {
+    final transport = _activeTransport;
+    if (transport == null) {
+      throw PlatformException(code: 'NOT_CONNECTED', message: '请先连接戒指');
+    }
+    final generation = _connectionGeneration;
+    final records = await _activeBridge.syncHealthData(cursor: cursor);
+    _requireCurrentConnection(generation, message: '戒指连接已变化，请重新同步');
+    return records
+        .map((record) {
+          final existingTransport =
+              WearableDeviceClassifier.transportForScopedId(record.deviceId);
+          if (existingTransport != null && existingTransport != transport) {
+            throw PlatformException(
+              code: 'DEVICE_PROVIDER_MISMATCH',
+              message: '戒指数据来源已变化，请重新连接后同步',
+            );
+          }
+          final deviceId = record.deviceId.isEmpty || existingTransport != null
+              ? record.deviceId
+              : RoutedDevice.scopedID(transport, record.deviceId);
+          return record.copyWith(
+            deviceId: deviceId,
+            sourceVendor: transport.name,
+            sourceDeviceCategory: 'ring',
+            sourceApp: 'say-ring',
+          );
+        })
+        .toList(growable: false);
+  }
 
   @override
   Future<void> startMeasurement(HealthMetric metric) =>

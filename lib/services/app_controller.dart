@@ -15,6 +15,7 @@ import '../domain/feature_models.dart';
 import '../domain/health_report_models.dart';
 import '../domain/health_record_validation.dart';
 import '../domain/health_record_dedup.dart';
+import '../domain/health_source_policy.dart';
 import '../domain/models.dart';
 import '../domain/global_account.dart';
 import '../domain/global_care.dart';
@@ -1003,6 +1004,9 @@ class AppController extends ChangeNotifier {
     notifyListeners();
     unawaited(refreshAiArticles());
     if (session != null) {
+      if (_api is CloudHealthRecordReader) {
+        unawaited(synchronizeCloud());
+      }
       unawaited(refreshHealthWarningCloudState());
       unawaited(refreshCare());
       unawaited(refreshCareInvitations());
@@ -1359,14 +1363,16 @@ class AppController extends ChangeNotifier {
     final resume = _accountWearableResume;
     _accountWearableResume = null;
     _accountTransitioning = false;
-    if (resume == null ||
-        session == null ||
-        !_isCurrentSessionGeneration(resume.generation)) {
-      return;
+    if (resume != null &&
+        session != null &&
+        _isCurrentSessionGeneration(resume.generation)) {
+      // Same-owner reauthentication is an explicit fresh native connection,
+      // not reassignment of the old connection generation.
+      await connectDevice(resume.device);
     }
-    // Same-owner reauthentication is an explicit fresh native connection, not
-    // reassignment of the old connection generation. Other accounts must select a watch.
-    await connectDevice(resume.device);
+    if (session != null && _api is CloudHealthRecordReader) {
+      unawaited(synchronizeCloud());
+    }
   }
 
   void enterPreview() {
@@ -1994,7 +2000,10 @@ class AppController extends ChangeNotifier {
     );
     if (!_isCurrentSessionGeneration(generation)) return const [];
     return deduplicateHealthRecords(
-      records.where(hasSaneWearableTransportValues),
+      ringPreferredHealthRecords(
+        records.where(hasSaneWearableTransportValues),
+        preferredDeviceId: connectedDevice?.id,
+      ),
     );
   }
 
@@ -2728,8 +2737,22 @@ class AppController extends ChangeNotifier {
             !_accountTransitioning && _isCurrentSessionGeneration(generation),
       );
       if (!_isCurrentSessionGeneration(generation)) return;
+      var downloaded = 0;
+      final api = _api;
+      if (api is CloudHealthRecordReader) {
+        final reader = api as CloudHealthRecordReader;
+        try {
+          downloaded = await _pullCloudHealthRecords(reader, generation);
+        } on ApiException catch (error) {
+          if (!_isCurrentSessionGeneration(generation)) return;
+          cloudSyncStatus = result.uploaded > 0
+              ? '本机数据已上传，云端记录暂时无法读取'
+              : _apiErrorMessage(error, fallback: '云端记录暂时无法读取');
+          return;
+        }
+      }
       cloudSyncStatus =
-          result.message ?? '已上传 ${result.uploaded} 条，拒绝 ${result.rejected} 条';
+          result.message ?? '已上传 ${result.uploaded} 条，读取 $downloaded 条云端记录';
     } on ApiException catch (error) {
       if (!_isCurrentSessionGeneration(generation)) return;
       cloudSyncStatus = _apiErrorMessage(error, fallback: '数据上传失败，请稍后重试');
@@ -2741,6 +2764,39 @@ class AppController extends ChangeNotifier {
       }
       if (_isCurrentSessionGeneration(generation)) notifyListeners();
     }
+  }
+
+  Future<int> _pullCloudHealthRecords(
+    CloudHealthRecordReader reader,
+    int generation,
+  ) async {
+    String? before;
+    final cursors = <String>{};
+    var received = 0;
+    for (var pageNumber = 0; pageNumber < 100; pageNumber++) {
+      if (!_isCurrentSessionGeneration(generation)) return received;
+      final page = await reader.getCloudHealthRecords(before: before);
+      if (!_isCurrentSessionGeneration(generation)) return received;
+      await _healthStore.upsertSynced(page.records);
+      if (!_isCurrentSessionGeneration(generation)) return received;
+      received += page.records.length;
+      final next = page.nextCursor;
+      if (next == null) {
+        await _refreshHealthRecordCache(expectedGeneration: generation);
+        return received;
+      }
+      if (next.isEmpty || !cursors.add(next)) {
+        throw const ApiException(
+          'Cloud health history could not be completed.',
+          code: 'INVALID_HEALTH_CURSOR',
+        );
+      }
+      before = next;
+    }
+    throw const ApiException(
+      'Cloud health history is larger than this device can load at once.',
+      code: 'HEALTH_HISTORY_LIMIT',
+    );
   }
 
   Future<void> _drainCloudSync() async {
@@ -5355,7 +5411,12 @@ class AppController extends ChangeNotifier {
       for (final record in recent) record.id: record,
       for (final record in latest) record.id: record,
     };
-    healthRecords = deduplicateHealthRecords(byId.values);
+    healthRecords = deduplicateHealthRecords(
+      ringPreferredHealthRecords(
+        byId.values,
+        preferredDeviceId: connectedDevice?.id,
+      ),
+    );
   }
 
   @override

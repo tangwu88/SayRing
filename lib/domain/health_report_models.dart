@@ -91,6 +91,7 @@ class HealthProfileSummary {
     required this.activeWarningCount,
     required this.analysisConsentGranted,
     required this.analysisConsentVersion,
+    this.sourcePolicy = 'all',
     this.analysisConsentAvailableVersion,
     this.analysisConsentDocument,
   });
@@ -106,6 +107,7 @@ class HealthProfileSummary {
   final int activeWarningCount;
   final bool analysisConsentGranted;
   final String? analysisConsentVersion;
+  final String sourcePolicy;
   final String? analysisConsentAvailableVersion;
   final Map<String, Object?>? analysisConsentDocument;
 
@@ -115,6 +117,7 @@ class HealthProfileSummary {
     final consent = _asMap(map['analysisConsent']);
     return HealthProfileSummary(
       memberId: '${map['memberId'] ?? ''}'.trim(),
+      sourcePolicy: '${map['sourcePolicy'] ?? 'all'}'.trim(),
       periodFrom: _asDate(period['from']),
       periodTo: _asDate(period['to']),
       validRecordCount: _asInt(completeness['validRecordCount']),
@@ -150,6 +153,7 @@ class HealthReportEligibility {
     required this.missing,
     required this.consentRequired,
     required this.availableCredits,
+    this.sourcePolicy = 'all',
   });
 
   final bool eligible;
@@ -161,11 +165,13 @@ class HealthReportEligibility {
   final List<String> missing;
   final bool consentRequired;
   final int availableCredits;
+  final String sourcePolicy;
 
   factory HealthReportEligibility.fromMap(Map<String, Object?> map) {
     final period = _asMap(map['period']);
     return HealthReportEligibility(
       eligible: map['eligible'] == true,
+      sourcePolicy: '${map['sourcePolicy'] ?? 'all'}'.trim(),
       periodFrom: _asDate(period['from']),
       periodTo: _asDate(period['to']),
       validRecordCount: _asInt(map['validRecordCount']),
@@ -192,6 +198,7 @@ class HealthReportSummary {
     required this.generatedAt,
     required this.createdAt,
     required this.needsPayment,
+    this.sourcePolicy = 'all',
   });
 
   final String id;
@@ -206,6 +213,7 @@ class HealthReportSummary {
   final DateTime? generatedAt;
   final DateTime? createdAt;
   final bool needsPayment;
+  final String sourcePolicy;
 
   String get previewTitle => _nonEmpty(freePreview['title']) ?? '近30天健康概览';
 
@@ -217,6 +225,7 @@ class HealthReportSummary {
     final status = HealthReportStatus.fromWire(map['status']);
     return HealthReportSummary(
       id: '${map['id'] ?? ''}'.trim(),
+      sourcePolicy: '${map['sourcePolicy'] ?? 'all'}'.trim(),
       status: status,
       periodFrom: _asDate(period['from']),
       periodTo: _asDate(period['to']),

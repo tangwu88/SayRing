@@ -87,6 +87,15 @@ void main() {
     expect(WearableDeviceClassifier.transportFor('W8'), isNull);
     expect(WearableDeviceClassifier.transportFor('Ring'), isNull);
     expect(WearableDeviceClassifier.transportFor(''), isNull);
+    expect(
+      WearableDeviceClassifier.transportForScopedId(' yucheng:A1-B2 '),
+      WearableTransport.yucheng,
+    );
+    expect(WearableDeviceClassifier.transportForScopedId('VEP:A1-B2'), isNull);
+    expect(
+      WearableDeviceClassifier.transportForScopedId('ring-without-scope'),
+      isNull,
+    );
   });
 
   test('scopes IDs without losing the vendor identifier', () {

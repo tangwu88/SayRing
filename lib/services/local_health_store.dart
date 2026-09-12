@@ -19,6 +19,7 @@ abstract interface class HealthStore implements NotificationInboxStorage {
     required String notificationOwnerId,
   });
   Future<void> upsert(List<HealthRecord> records);
+  Future<void> upsertSynced(List<HealthRecord> records);
   Future<void> upsertImmediate(HealthRecord record);
   Future<List<HealthRecord>> recent({int limit = 200});
   Future<List<HealthRecord>> range({
@@ -789,6 +790,50 @@ class EncryptedHealthStore implements HealthStore, HealthStoreRecoveryStatus {
   }
 
   @override
+  Future<void> upsertSynced(List<HealthRecord> records) async {
+    if (records.isEmpty) return;
+    final ownerId = _ownerId;
+    await _enqueue(() async {
+      await _db.transaction((transaction) async {
+        final ids = records.map((record) => record.id).toSet().toList();
+        final placeholders = List.filled(ids.length, '?').join(',');
+        final existingRows = await transaction.query(
+          'health_records',
+          columns: ['id', 'payload'],
+          where: 'owner_id = ? AND id IN ($placeholders)',
+          whereArgs: [ownerId, ...ids],
+        );
+        final existing = {
+          for (final row in existingRows) '${row['id']}': '${row['payload']}',
+        };
+        final batch = transaction.batch();
+        for (final record in records) {
+          final payload = record.encode();
+          final saved = existing[record.id];
+          if (saved == null) {
+            batch.insert('health_records', {
+              'owner_id': ownerId,
+              'id': record.id,
+              'metric': record.metric.wireName,
+              'measured_at': record.measuredAt.toUtc().toIso8601String(),
+              'payload': payload,
+              'synced': 1,
+            }, conflictAlgorithm: ConflictAlgorithm.ignore);
+          } else if (saved == payload) {
+            batch.update(
+              'health_records',
+              {'synced': 1},
+              where: 'owner_id = ? AND id = ?',
+              whereArgs: [ownerId, record.id],
+            );
+          }
+        }
+        await batch.commit(noResult: true);
+      });
+    });
+  }
+
+  @override
   Future<List<HealthRecord>> recent({int limit = 200}) async {
     final ownerId = _ownerId;
     final rows = await _enqueue(
@@ -1165,6 +1210,19 @@ class MemoryHealthStore implements HealthStore {
   Future<void> upsert(List<HealthRecord> records) async {
     for (final record in records) {
       _records.putIfAbsent(record.id, () => record);
+    }
+  }
+
+  @override
+  Future<void> upsertSynced(List<HealthRecord> records) async {
+    for (final record in records) {
+      final existing = _records[record.id];
+      if (existing == null) {
+        _records[record.id] = record;
+        _synced.add(record.id);
+      } else if (existing.encode() == record.encode()) {
+        _synced.add(record.id);
+      }
     }
   }
 

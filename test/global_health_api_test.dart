@@ -9,8 +9,11 @@ import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 
-http.Response _ok(Object? data) =>
-    http.Response(jsonEncode({'code': 200, 'data': data}), 200);
+http.Response _ok(Object? data) => http.Response(
+  jsonEncode({'code': 200, 'data': data}),
+  200,
+  headers: const {'content-type': 'application/json; charset=utf-8'},
+);
 Session _session([String owner = 'a']) => Session(
   accessToken: 'synthetic-access-$owner',
   refreshToken: '',
@@ -27,6 +30,7 @@ HealthRecord _record(
   MeasurementSource source = MeasurementSource.wearable,
   List<num> samples = const [],
   String quality = 'unknown',
+  String deviceId = 'synthetic-device',
 }) => HealthRecord(
   id: id,
   metric: metric,
@@ -34,7 +38,7 @@ HealthRecord _record(
   unit: metric.defaultUnit,
   measuredAt: DateTime.parse('2026-09-01T05:23:14Z'),
   timezone: timezone,
-  deviceId: 'synthetic-device',
+  deviceId: deviceId,
   firmwareVersion: 'qa-firmware',
   quality: quality,
   source: source,
@@ -138,11 +142,42 @@ void main() {
         'platform': 'android',
         'deviceId': 'synthetic-device',
         'firmware': 'qa-firmware',
+        'sourceApp': 'say-ring',
         'origin': 'watch_history',
         'measurementSource': 'wearable',
         'rawVersion': 2,
       });
       expect(rows[1]['metric'], 'temperature');
+    },
+  );
+
+  test(
+    'scoped wearable identity sends canonical ring metadata without guessing',
+    () async {
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault()..session = _session(),
+        client: MockClient((request) async {
+          final rows = (jsonDecode(request.body) as Map)['records'] as List;
+          expect(rows[0]['source'], containsPair('vendor', 'yucheng'));
+          expect(rows[0]['source'], containsPair('deviceCategory', 'ring'));
+          expect(rows[1]['source'], isNot(contains('vendor')));
+          expect(rows[1]['source'], isNot(contains('deviceCategory')));
+          return _ok({
+            'acceptedIds': ['ring', 'unknown'],
+            'rejected': [],
+            'nextCursor': null,
+          });
+        }),
+      );
+      await api.uploadHealthBatch(
+        SyncBatch(
+          cursor: null,
+          records: [
+            _record('ring', deviceId: 'yucheng:device-a'),
+            _record('unknown', deviceId: 'device-without-scope'),
+          ],
+        ),
+      );
     },
   );
 
@@ -265,6 +300,94 @@ void main() {
             _record('a', timezone: '+05:45', origin: MeasurementOrigin.unknown),
           ],
         ),
+      );
+    },
+  );
+
+  test(
+    'cloud history keeps opaque device source metadata and cursor',
+    () async {
+      final deviceKey = List.filled(64, 'a').join();
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault()..session = _session(),
+        client: MockClient((request) async {
+          expect(request.url.path, '/global/api/saydian-app/v2/health/records');
+          expect(request.url.queryParameters, {
+            'limit': '200',
+            'before': 'older-page',
+          });
+          return _ok({
+            'items': [
+              {
+                'id': 'cloud-record',
+                'metric': 'temperature',
+                'observedAt': '2026-09-01T05:23:14.000Z',
+                'timezoneOffsetMinutes': 345,
+                'values': {'value': 36.5, 'unknown': null},
+                'unit': '℃',
+                'quality': 'valid',
+                'source': {
+                  'platform': 'android',
+                  'deviceKey': deviceKey,
+                  'model': 'YC Ring',
+                  'firmware': '1.2.3',
+                  'vendor': 'yucheng',
+                  'deviceCategory': 'ring',
+                  'sourceApp': 'say-ring',
+                  'origin': 'watch_history',
+                  'measurementSource': 'wearable',
+                  'rawVersion': 2,
+                },
+              },
+            ],
+            'nextCursor': 'next-page',
+          });
+        }),
+      );
+
+      final page = await api.getCloudHealthRecords(before: 'older-page');
+      final record = page.records.single;
+      expect(page.nextCursor, 'next-page');
+      expect(record.metric, HealthMetric.bodyTemperature);
+      expect(record.timezone, '+05:45');
+      expect(record.deviceId, 'server:$deviceKey');
+      expect(record.sourceModel, 'YC Ring');
+      expect(record.sourceVendor, 'yucheng');
+      expect(record.sourceDeviceCategory, 'ring');
+      expect(record.sourceApp, 'say-ring');
+      expect(record.origin, MeasurementOrigin.watchHistory);
+      expect(record.values, {'value': 36.5});
+    },
+  );
+
+  test(
+    'cloud history rejects a client-controlled or malformed device key',
+    () async {
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault()..session = _session(),
+        client: MockClient(
+          (_) async => _ok({
+            'items': [
+              {
+                'id': 'cloud-record',
+                'metric': 'heart_rate',
+                'observedAt': '2026-09-01T05:23:14.000Z',
+                'timezoneOffsetMinutes': 0,
+                'values': {'value': 72},
+                'quality': 'valid',
+                'source': {
+                  'platform': 'android',
+                  'deviceKey': 'raw-hardware-address',
+                },
+              },
+            ],
+            'nextCursor': null,
+          }),
+        ),
+      );
+      await expectLater(
+        api.getCloudHealthRecords(),
+        throwsA(isA<ApiException>()),
       );
     },
   );

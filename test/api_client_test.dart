@@ -1900,6 +1900,11 @@ void main() {
     final requested = <String>[];
     final client = MockClient((request) async {
       requested.add(request.url.path);
+      if (request.url.path == '/api/saydian-app/v2/health/profile' ||
+          request.url.path ==
+              '/api/saydian-app/v2/health/reports/eligibility') {
+        expect(request.url.queryParameters['sourcePolicy'], 'ringPreferred');
+      }
       if (request.url.path == '/api/saydian-app/v2/billing/offers') {
         expect(request.headers['authorization'], isNull);
         expect(request.url.queryParameters['platform'], 'ios');
@@ -1908,6 +1913,7 @@ void main() {
       }
       final data = switch (request.url.path) {
         '/api/saydian-app/v2/health/profile' => {
+          'sourcePolicy': 'ringPreferred',
           'memberId': 'member-1',
           'period': {
             'from': '2026-08-01T00:00:00.000Z',
@@ -1926,6 +1932,7 @@ void main() {
           'analysisConsent': {'granted': true, 'version': 'health-v1'},
         },
         '/api/saydian-app/v2/health/reports/eligibility' => {
+          'sourcePolicy': 'ringPreferred',
           'eligible': true,
           'validRecordCount': 12,
           'distinctDays': 4,
@@ -1978,8 +1985,12 @@ void main() {
       baseUri: Uri.parse('https://example.invalid'),
     );
 
-    expect((await api.getHealthProfile()).validRecordCount, 12);
-    expect((await api.getHealthReportEligibility()).eligible, isTrue);
+    final profile = await api.getHealthProfile();
+    expect(profile.validRecordCount, 12);
+    expect(profile.sourcePolicy, 'ringPreferred');
+    final eligibility = await api.getHealthReportEligibility();
+    expect(eligibility.eligible, isTrue);
+    expect(eligibility.sourcePolicy, 'ringPreferred');
     expect((await api.getHealthReports()).single.aiGenerated, isTrue);
     expect(
       (await api.getHealthReportOffers(platform: 'ios')).single.priceCents,
@@ -2018,6 +2029,9 @@ void main() {
               ? '/api/saydian-app/v2/health/reports'
               : '/api/saydian-app/v2/health/reports/report-12345678/retry',
         );
+        if (index == 2) {
+          expect(jsonDecode(request.body), {'sourcePolicy': 'ringPreferred'});
+        }
         return http.Response(
           '{"code":200,"data":{"id":"report-12345678","status":"queued","dataCompleteness":{"validRecordCount":8,"distinctDays":3},"freePreview":{},"aiGenerated":false}}',
           200,

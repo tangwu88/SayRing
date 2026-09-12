@@ -635,6 +635,10 @@ class HealthRecord {
     required this.rawVersion,
     MeasurementOrigin? origin,
     this.samples = const [],
+    this.sourceModel = '',
+    this.sourceVendor = '',
+    this.sourceDeviceCategory = '',
+    this.sourceApp = '',
   }) : origin = origin ?? MeasurementOrigin.fromWire(null, source: source);
 
   final String id;
@@ -650,6 +654,10 @@ class HealthRecord {
   final MeasurementOrigin origin;
   final int rawVersion;
   final List<num> samples;
+  final String sourceModel;
+  final String sourceVendor;
+  final String sourceDeviceCategory;
+  final String sourceApp;
 
   factory HealthRecord.fromJson(Map<String, Object?> json) {
     final rawValues = json['values'];
@@ -681,6 +689,10 @@ class HealthRecord {
       samples: json['samples'] is List
           ? (json['samples'] as List).whereType<num>().toList()
           : const [],
+      sourceModel: '${json['sourceModel'] ?? ''}'.trim(),
+      sourceVendor: '${json['sourceVendor'] ?? ''}'.trim(),
+      sourceDeviceCategory: '${json['sourceDeviceCategory'] ?? ''}'.trim(),
+      sourceApp: '${json['sourceApp'] ?? ''}'.trim(),
     );
   }
 
@@ -698,6 +710,11 @@ class HealthRecord {
     'origin': origin.wireName,
     'rawVersion': rawVersion,
     if (samples.isNotEmpty) 'samples': samples,
+    if (sourceModel.isNotEmpty) 'sourceModel': sourceModel,
+    if (sourceVendor.isNotEmpty) 'sourceVendor': sourceVendor,
+    if (sourceDeviceCategory.isNotEmpty)
+      'sourceDeviceCategory': sourceDeviceCategory,
+    if (sourceApp.isNotEmpty) 'sourceApp': sourceApp,
   };
 
   HealthRecord copyWith({
@@ -707,6 +724,12 @@ class HealthRecord {
     MeasurementOrigin? origin,
     int? rawVersion,
     List<num>? samples,
+    String? deviceId,
+    String? firmwareVersion,
+    String? sourceModel,
+    String? sourceVendor,
+    String? sourceDeviceCategory,
+    String? sourceApp,
   }) => HealthRecord(
     id: id,
     metric: metric,
@@ -714,13 +737,17 @@ class HealthRecord {
     unit: unit,
     measuredAt: measuredAt,
     timezone: timezone,
-    deviceId: deviceId,
-    firmwareVersion: firmwareVersion,
+    deviceId: deviceId ?? this.deviceId,
+    firmwareVersion: firmwareVersion ?? this.firmwareVersion,
     quality: quality ?? this.quality,
     source: source ?? this.source,
     origin: origin ?? this.origin,
     rawVersion: rawVersion ?? this.rawVersion,
     samples: samples ?? this.samples,
+    sourceModel: sourceModel ?? this.sourceModel,
+    sourceVendor: sourceVendor ?? this.sourceVendor,
+    sourceDeviceCategory: sourceDeviceCategory ?? this.sourceDeviceCategory,
+    sourceApp: sourceApp ?? this.sourceApp,
   );
 
   String get displayValue {

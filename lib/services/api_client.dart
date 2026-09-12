@@ -13,6 +13,7 @@ import '../domain/health_report_models.dart';
 import 'global_environment.dart';
 import 'network_audit.dart';
 import 'secure_vault.dart';
+import 'wearable_routing.dart';
 
 part 'global_api_client.dart';
 part 'global_health_api.dart';
@@ -42,6 +43,20 @@ class BatchUploadResult {
   final Set<String> acceptedIds;
   final Map<String, String> rejected;
   final String? nextCursor;
+}
+
+class CloudHealthPage {
+  const CloudHealthPage({required this.records, required this.nextCursor});
+
+  final List<HealthRecord> records;
+  final String? nextCursor;
+}
+
+abstract interface class CloudHealthRecordReader {
+  Future<CloudHealthPage> getCloudHealthRecords({
+    int limit = 200,
+    String? before,
+  });
 }
 
 abstract interface class SaydianApi {
@@ -1587,7 +1602,10 @@ class SaydianApiClient
 
   @override
   Future<HealthProfileSummary> getHealthProfile() async {
-    final response = await _authorizedGet('/api/saydian-app/v2/health/profile');
+    final response = await _authorizedGet(
+      '/api/saydian-app/v2/health/profile',
+      const {'sourcePolicy': 'ringPreferred'},
+    );
     return HealthProfileSummary.fromMap(_data(_decode(response)));
   }
 
@@ -1610,6 +1628,7 @@ class SaydianApiClient
   Future<HealthReportEligibility> getHealthReportEligibility() async {
     final response = await _authorizedGet(
       '/api/saydian-app/v2/health/reports/eligibility',
+      const {'sourcePolicy': 'ringPreferred'},
     );
     return HealthReportEligibility.fromMap(_data(_decode(response)));
   }
@@ -1628,7 +1647,7 @@ class SaydianApiClient
   Future<HealthReportSummary> createHealthReport() async {
     final response = await _authorizedPostJson(
       '/api/saydian-app/v2/health/reports',
-      const <String, Object?>{},
+      const <String, Object?>{'sourcePolicy': 'ringPreferred'},
     );
     return HealthReportSummary.fromMap(_data(_decode(response)));
   }

@@ -138,7 +138,8 @@ class GlobalSaydianApiClient extends SaydianApiClient
         GlobalAccountApi,
         GlobalCareApi,
         GlobalContentApi,
-        GlobalCommerceApi {
+        GlobalCommerceApi,
+        CloudHealthRecordReader {
   GlobalSaydianApiClient(
     super.vault, {
     http.Client? client,

@@ -120,6 +120,38 @@ void main() {
       expect(await store.readCursor(), isNull);
     },
   );
+
+  test(
+    'cloud records are stored as synced without overwriting a local conflict',
+    () async {
+      final store = MemoryHealthStore();
+      await store.initialize();
+      final local = _measurement('same-id', HealthMetric.heartRate, {
+        'value': 78,
+      });
+      final conflictingCloud = local.copyWith(values: {'value': 79});
+      final cloudOnly = _measurement('cloud-only', HealthMetric.heartRate, {
+        'value': 75,
+      });
+      await store.upsert([local]);
+      await store.upsertSynced([conflictingCloud, cloudOnly]);
+
+      expect((await store.pending()).map((record) => record.id), ['same-id']);
+      expect(
+        (await store.recent())
+            .firstWhere((record) => record.id == 'same-id')
+            .values['value'],
+        78,
+      );
+      expect(
+        (await store.pending()).map((record) => record.id),
+        isNot(contains('cloud-only')),
+      );
+
+      await store.upsertSynced([local]);
+      expect(await store.pending(), isEmpty);
+    },
+  );
 }
 
 HealthRecord _measurement(
