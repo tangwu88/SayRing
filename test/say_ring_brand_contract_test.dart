@@ -5,10 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('all locale catalogs keep the Say Ring identity', () {
-    final catalogs = Directory('lib/l10n')
-        .listSync()
-        .whereType<File>()
-        .where((file) => RegExp(r'app_[^\\/]+\.arb$').hasMatch(file.path));
+    final catalogs = Directory('lib/l10n').listSync().whereType<File>().where(
+      (file) => RegExp(r'app_[^\\/]+\.arb$').hasMatch(file.path),
+    );
 
     for (final catalog in catalogs) {
       final messages =
@@ -71,7 +70,8 @@ void main() {
 
     for (final entry in forbiddenByCatalog.entries) {
       final file = File('lib/l10n/${entry.key}');
-      final messages = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      final messages =
+          jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
       for (final key in ringFacingKeys) {
         final value = messages[key] as String;
         expect(
