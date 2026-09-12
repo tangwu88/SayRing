@@ -139,6 +139,272 @@ class AppController extends ChangeNotifier {
   Future<Map<String, Object?>> loadGlobalShopProduct(String id) =>
       (_api as GlobalCommerceApi).getGlobalShopProduct(id);
 
+  GlobalCommerceApi get _globalCommerceApi {
+    final api = _api;
+    if (api is GlobalCommerceApi) return api as GlobalCommerceApi;
+    throw const FeatureNotConfiguredException(
+      'Shopping is not available right now.',
+    );
+  }
+
+  Future<T> _globalCommerceAccountRequest<T>(
+    Future<T> Function(GlobalCommerceApi api) request,
+  ) async {
+    final generation = _sessionGeneration;
+    final owner = session;
+    if (owner == null) {
+      throw const ApiException('Sign in to continue.', statusCode: 401);
+    }
+    final result = await request(_globalCommerceApi);
+    if (!_isCurrentAccountRequest(generation, owner)) {
+      throw const ApiException(
+        'Your account changed. Please open the shop again.',
+        code: 'STALE_COMMERCE_SESSION',
+      );
+    }
+    return result;
+  }
+
+  Future<Map<String, Object?>> loadGlobalCommerceCapabilities() =>
+      _globalCommerceApi.getGlobalCommerceCapabilities();
+
+  Future<Map<String, Object?>> loadGlobalShopCart() =>
+      _globalCommerceAccountRequest((api) => api.getGlobalShopCart());
+
+  Future<Map<String, Object?>> updateGlobalShopCartItem({
+    required String skuId,
+    required int quantity,
+    bool selected = true,
+    String mode = 'set',
+  }) => _globalCommerceAccountRequest(
+    (api) => api.putGlobalShopCartItem(
+      skuId: skuId,
+      quantity: quantity,
+      selected: selected,
+      mode: mode,
+    ),
+  );
+
+  Future<Map<String, Object?>> removeGlobalShopCartItem(String id) =>
+      _globalCommerceAccountRequest((api) => api.deleteGlobalShopCartItem(id));
+
+  Future<List<Map<String, Object?>>> loadGlobalShopAddresses() =>
+      _globalCommerceAccountRequest((api) => api.getGlobalShopAddresses());
+
+  Future<Map<String, Object?>> loadGlobalShopAddress(String id) =>
+      _globalCommerceAccountRequest((api) => api.getGlobalShopAddress(id));
+
+  Future<Map<String, Object?>> saveGlobalShopAddress(
+    Map<String, Object?> address, {
+    String? id,
+  }) => _globalCommerceAccountRequest(
+    (api) => api.saveGlobalShopAddress(address, id: id),
+  );
+
+  Future<void> deleteGlobalShopAddress(String id) =>
+      _globalCommerceAccountRequest((api) => api.deleteGlobalShopAddress(id));
+
+  Future<Map<String, Object?>> previewGlobalShopOrder({
+    required String addressId,
+    required List<Map<String, Object?>> items,
+    String? couponClaimId,
+    int pointCents = 0,
+    String buyerRemark = '',
+  }) => _globalCommerceAccountRequest(
+    (api) => api.previewGlobalShopOrder(
+      addressId: addressId,
+      items: items,
+      couponClaimId: couponClaimId,
+      pointCents: pointCents,
+      buyerRemark: buyerRemark,
+    ),
+  );
+
+  Future<Map<String, Object?>> placeGlobalShopOrder({
+    required String addressId,
+    required List<Map<String, Object?>> items,
+    required String expectedQuote,
+    required String idempotencyKey,
+    String? couponClaimId,
+    int pointCents = 0,
+    String buyerRemark = '',
+  }) => _globalCommerceAccountRequest(
+    (api) => api.createGlobalShopOrder(
+      addressId: addressId,
+      items: items,
+      expectedQuote: expectedQuote,
+      idempotencyKey: idempotencyKey,
+      couponClaimId: couponClaimId,
+      pointCents: pointCents,
+      buyerRemark: buyerRemark,
+    ),
+  );
+
+  Future<List<Map<String, Object?>>> loadGlobalShopOrders({
+    String? status,
+    String? group,
+  }) => _globalCommerceAccountRequest(
+    (api) => api.getGlobalShopOrders(status: status, group: group),
+  );
+
+  Future<Map<String, Object?>> loadGlobalShopOrder(String id) =>
+      _globalCommerceAccountRequest((api) => api.getGlobalShopOrder(id));
+
+  Future<void> cancelGlobalShopOrder(String id) =>
+      _globalCommerceAccountRequest((api) => api.cancelGlobalShopOrder(id));
+
+  Future<void> confirmGlobalShopOrderReceipt(String id) =>
+      _globalCommerceAccountRequest(
+        (api) => api.confirmGlobalShopOrderReceipt(id),
+      );
+
+  Future<List<Map<String, Object?>>> loadGlobalShopOrderLogistics(String id) =>
+      _globalCommerceAccountRequest(
+        (api) => api.getGlobalShopOrderLogistics(id),
+      );
+
+  Future<Map<String, Object?>> previewGlobalShopAfterSale({
+    required String orderId,
+    required Map<String, Object?> input,
+  }) => _globalCommerceAccountRequest(
+    (api) => api.previewGlobalShopAfterSale(orderId: orderId, input: input),
+  );
+
+  Future<Map<String, Object?>> createGlobalShopAfterSale({
+    required String orderId,
+    required Map<String, Object?> input,
+  }) => _globalCommerceAccountRequest(
+    (api) => api.createGlobalShopAfterSale(orderId: orderId, input: input),
+  );
+
+  Future<Map<String, Object?>> loadGlobalShopEvidenceCapabilities() =>
+      _globalCommerceAccountRequest(
+        (api) => api.getGlobalShopEvidenceCapabilities(),
+      );
+
+  Future<Map<String, Object?>> uploadGlobalShopEvidence(
+    String filePath, {
+    void Function(double progress)? onProgress,
+  }) => _globalCommerceAccountRequest(
+    (api) => api.uploadGlobalShopEvidence(filePath, onProgress: onProgress),
+  );
+
+  Future<Uint8List> loadGlobalShopEvidence(String id) =>
+      _globalCommerceAccountRequest((api) => api.loadGlobalShopEvidence(id));
+
+  String _globalCommerceDraftOwner(Session value) =>
+      value.accountKey.trim().isNotEmpty
+      ? value.accountKey.trim()
+      : value.memberId.trim();
+
+  Future<Map<String, Object?>?> readGlobalShopDraft(String key) async {
+    final generation = _sessionGeneration;
+    final owner = session;
+    if (owner == null) return null;
+    final value = await _vault.readGlobalCommerceDraft(
+      _globalCommerceDraftOwner(owner),
+      key,
+    );
+    if (!_isCurrentAccountRequest(generation, owner)) {
+      throw const ApiException(
+        'Your account changed. Please open the shop again.',
+        code: 'STALE_COMMERCE_SESSION',
+      );
+    }
+    return value;
+  }
+
+  Future<void> writeGlobalShopDraft(
+    String key,
+    Map<String, Object?> value,
+  ) async {
+    final generation = _sessionGeneration;
+    final owner = session;
+    if (owner == null) {
+      throw const ApiException('Sign in to continue.', statusCode: 401);
+    }
+    await _vault.writeGlobalCommerceDraft(
+      _globalCommerceDraftOwner(owner),
+      key,
+      value,
+    );
+    if (!_isCurrentAccountRequest(generation, owner)) {
+      throw const ApiException(
+        'Your account changed. Please open the shop again.',
+        code: 'STALE_COMMERCE_SESSION',
+      );
+    }
+  }
+
+  Future<void> clearGlobalShopDraft(String key) async {
+    final generation = _sessionGeneration;
+    final owner = session;
+    if (owner == null) return;
+    await _vault.clearGlobalCommerceDraft(
+      _globalCommerceDraftOwner(owner),
+      key,
+    );
+    if (!_isCurrentAccountRequest(generation, owner)) {
+      throw const ApiException(
+        'Your account changed. Please open the shop again.',
+        code: 'STALE_COMMERCE_SESSION',
+      );
+    }
+  }
+
+  Future<Map<String, Object?>> submitGlobalShopReturnLogistics({
+    required String orderId,
+    required String saleId,
+    required Map<String, Object?> input,
+  }) => _globalCommerceAccountRequest(
+    (api) => api.submitGlobalShopReturnLogistics(
+      orderId: orderId,
+      saleId: saleId,
+      input: input,
+    ),
+  );
+
+  Future<List<Map<String, Object?>>> loadGlobalShopFavorites() =>
+      _globalCommerceAccountRequest((api) => api.getGlobalShopFavorites());
+
+  Future<void> setGlobalShopFavorite(String productId, bool enabled) =>
+      _globalCommerceAccountRequest(
+        (api) => api.setGlobalShopFavorite(productId, enabled),
+      );
+
+  Future<List<Map<String, Object?>>> loadGlobalShopCoupons() =>
+      _globalCommerceAccountRequest((api) => api.getGlobalShopCoupons());
+
+  Future<Map<String, Object?>> loadGlobalShopAvailableCoupons({int page = 1}) =>
+      _globalCommerceAccountRequest(
+        (api) => api.getGlobalShopAvailableCoupons(page: page),
+      );
+
+  Future<Map<String, Object?>> claimGlobalShopCoupon(String id) =>
+      _globalCommerceAccountRequest((api) => api.claimGlobalShopCoupon(id));
+
+  Future<Map<String, Object?>> claimGlobalShopCouponCode(String code) =>
+      _globalCommerceAccountRequest(
+        (api) => api.claimGlobalShopCouponCode(code),
+      );
+
+  Future<Map<String, Object?>> loadGlobalShopPoints({int page = 1}) =>
+      _globalCommerceAccountRequest(
+        (api) => api.getGlobalShopPoints(page: page),
+      );
+
+  Future<Map<String, Object?>> submitGlobalShopReview({
+    required String orderItemId,
+    required int rating,
+    required String content,
+  }) => _globalCommerceAccountRequest(
+    (api) => api.createGlobalShopReview(
+      orderItemId: orderItemId,
+      rating: rating,
+      content: content,
+    ),
+  );
+
   Future<List<GlobalCareRelationship>> globalCareRelationships() =>
       (_api as GlobalCareApi).globalCareRelationships();
   Future<void> globalInviteCare(String identifier) =>

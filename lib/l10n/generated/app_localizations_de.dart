@@ -598,7 +598,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get globalShopPricePending => 'Preis noch nicht bestätigt';
 
   @override
-  String get globalShopLoadMore => 'Weitere Produkte laden';
+  String get globalShopLoadMore => 'Mehr laden';
 
   @override
   String get globalShopReadOnly =>
@@ -1687,5 +1687,349 @@ class AppLocalizationsDe extends AppLocalizations {
   @override
   String versionBuild(String version, int build) {
     return 'V$version · Build $build';
+  }
+
+  @override
+  String get globalShopBrowseNotice =>
+      'Sie können weiter stöbern. Bestellungen sind verfügbar, sobald Lieferung und Zahlung für Ihren Markt angeboten werden.';
+
+  @override
+  String get shopAccount => 'Shop-Konto';
+
+  @override
+  String get addToCart => 'In den Warenkorb';
+
+  @override
+  String get addedToCart => 'Zum Warenkorb hinzugefügt';
+
+  @override
+  String get quantity => 'Menge';
+
+  @override
+  String get inStock => 'Auf Lager';
+
+  @override
+  String get outOfStock => 'Ausverkauft oder nicht verfügbar';
+
+  @override
+  String get favorites => 'Favoriten';
+
+  @override
+  String get coupons => 'Gutscheine';
+
+  @override
+  String get points => 'Punkte';
+
+  @override
+  String get helpCenter => 'Hilfe';
+
+  @override
+  String get chooseDeliveryAddress => 'Lieferadresse auswählen';
+
+  @override
+  String get editAddress => 'Adresse bearbeiten';
+
+  @override
+  String get delete => 'Löschen';
+
+  @override
+  String get deleteAddressPrompt => 'Diese Adresse löschen?';
+
+  @override
+  String get postalCode => 'Postleitzahl';
+
+  @override
+  String get itemsSubtotal => 'Zwischensumme';
+
+  @override
+  String get discount => 'Rabatt';
+
+  @override
+  String get shippingFee => 'Versand';
+
+  @override
+  String get amountDue => 'Zu zahlender Betrag';
+
+  @override
+  String get placeOrder => 'Bestellung aufgeben';
+
+  @override
+  String get orderPlaced => 'Bestellung aufgegeben';
+
+  @override
+  String get orderSubmissionUncertain =>
+      'Das Ergebnis ist noch nicht bestätigt. Prüfen Sie Meine Bestellungen, bevor Sie es erneut versuchen.';
+
+  @override
+  String get availableCoupons => 'Verfügbare Gutscheine';
+
+  @override
+  String get ownedCoupons => 'Meine Gutscheine';
+
+  @override
+  String get couponCode => 'Gutscheincode';
+
+  @override
+  String get redeem => 'Einlösen';
+
+  @override
+  String get claim => 'Abrufen';
+
+  @override
+  String get claimed => 'Abgerufen';
+
+  @override
+  String get pointsBalance => 'Punktestand';
+
+  @override
+  String get pointsUnavailable => 'Punktestand noch nicht verfügbar';
+
+  @override
+  String get marketUnavailable =>
+      'Bestellungen sind für den gewählten Liefermarkt noch nicht verfügbar.';
+
+  @override
+  String get paymentUnavailable =>
+      'Die Zahlung ist in der App derzeit nicht verfügbar. Warenkorb und bestehende Bestellungen bleiben erhalten.';
+
+  @override
+  String get orderNumber => 'Bestellung';
+
+  @override
+  String get orderDate => 'Erstellt';
+
+  @override
+  String get cancelOrder => 'Bestellung stornieren';
+
+  @override
+  String get cancelOrderPrompt => 'Diese unbezahlte Bestellung stornieren?';
+
+  @override
+  String get refundOnly => 'Nur Erstattung';
+
+  @override
+  String get returnRefund => 'Rücksendung und Erstattung';
+
+  @override
+  String get exchange => 'Umtausch';
+
+  @override
+  String get submitRequest => 'Anfrage senden';
+
+  @override
+  String get requestSubmitted => 'Anfrage gesendet';
+
+  @override
+  String get writeReview => 'Bewertung schreiben';
+
+  @override
+  String get submitReview => 'Bewertung senden';
+
+  @override
+  String get defaultVariant => 'Standardoption';
+
+  @override
+  String selectedItems(int count) {
+    return '$count ausgewählt';
+  }
+
+  @override
+  String get signInToShopHint =>
+      'Melden Sie sich an, um Warenkorb, Adressen und Bestellungen zu verwalten.';
+
+  @override
+  String get checkoutPriceChanged =>
+      'Der Gesamtbetrag hat sich geändert. Prüfen Sie den aktualisierten Betrag, bevor Sie fortfahren.';
+
+  @override
+  String get shopHelpIntro =>
+      'Bestell-, Liefer- und Serviceoptionen richten sich nach den für Ihren Markt verfügbaren Diensten.';
+
+  @override
+  String get shopHelpOrdering => 'Warum kann ich nicht bestellen?';
+
+  @override
+  String get shopHelpOrderingAnswer =>
+      'Bestellungen sind erst möglich, wenn Liefer- und Marktdienste verfügbar sind. Sie können Produkte im Warenkorb behalten und es später erneut versuchen.';
+
+  @override
+  String get shopHelpPayment => 'Wie wird die Zahlung bestätigt?';
+
+  @override
+  String get shopHelpPaymentAnswer =>
+      'Eine Bestellung gilt erst als bezahlt, wenn der Zahlungsanbieter dies bestätigt. Geben Sie während der Bestätigung keine weitere Bestellung auf.';
+
+  @override
+  String get shopHelpAfterSales =>
+      'Wie beantrage ich Unterstützung nach dem Kauf?';
+
+  @override
+  String get shopHelpAfterSalesAnswer =>
+      'Öffnen Sie eine berechtigte Bestellung, wählen Sie Support anfordern, prüfen Sie den Erstattungsbetrag und senden Sie Ihren Grund.';
+
+  @override
+  String get noOrders => 'Noch keine Bestellungen';
+
+  @override
+  String get noFavorites => 'Noch keine Favoriten';
+
+  @override
+  String get noCoupons => 'Keine Gutscheine verfügbar';
+
+  @override
+  String get selectItemsToContinue =>
+      'Wählen Sie mindestens einen verfügbaren Artikel aus.';
+
+  @override
+  String get noCoupon => 'Keinen Gutschein verwenden';
+
+  @override
+  String get pointsToUse => 'Einzulösender Punktewert';
+
+  @override
+  String get refreshOrderTotal => 'Gesamtbetrag aktualisieren';
+
+  @override
+  String get chooseAddressForTotal =>
+      'Wählen Sie eine Adresse, um den aktuellen Gesamtbetrag zu erhalten.';
+
+  @override
+  String get requiredField => 'Dieses Feld ist erforderlich.';
+
+  @override
+  String get invalidInternationalPhone =>
+      'Geben Sie eine gültige Telefonnummer mit Landesvorwahl ein.';
+
+  @override
+  String get invalidCouponCode =>
+      'Geben Sie einen gültigen Code mit 4–32 Buchstaben, Zahlen, Bindestrichen oder Unterstrichen ein.';
+
+  @override
+  String get unavailable => 'Nicht verfügbar';
+
+  @override
+  String get orderItemsUnavailable =>
+      'Artikelangaben sind für diese ältere Bestellung nicht verfügbar.';
+
+  @override
+  String get orderCompleted => 'Abgeschlossen';
+
+  @override
+  String get orderCancelled => 'Storniert';
+
+  @override
+  String get orderRefunded => 'Erstattet';
+
+  @override
+  String get orderStatusPending => 'In Bearbeitung';
+
+  @override
+  String get legacyOrderReadOnly =>
+      'Diese ältere Bestellung kann hier angesehen werden. Wenden Sie sich für Änderungen an den Support.';
+
+  @override
+  String get returnLogistics => 'Rücksendung';
+
+  @override
+  String get carrier => 'Versanddienstleister';
+
+  @override
+  String get trackingNumber => 'Sendungsnummer';
+
+  @override
+  String get noShippingUpdates => 'Noch keine Versandaktualisierungen';
+
+  @override
+  String get waitingForReturn => 'Warten auf Rücksendung';
+
+  @override
+  String get requestRejected => 'Anfrage abgelehnt';
+
+  @override
+  String get requestProcessing => 'Anfrage wird bearbeitet';
+
+  @override
+  String get afterSalesUnavailable =>
+      'Kein Artikel dieser Bestellung ist für Unterstützung nach dem Kauf berechtigt.';
+
+  @override
+  String get previewRequest => 'Anfragebetrag prüfen';
+
+  @override
+  String get problemPhotos => 'Problemfotos';
+
+  @override
+  String get afterSalePhotoHint =>
+      'Optional. Bis zu 9 JPG-, PNG- oder WebP-Bilder mit je höchstens 10 MB.';
+
+  @override
+  String get addProblemPhotos => 'Fotos hinzufügen';
+
+  @override
+  String get chooseFromGallery => 'Aus Galerie auswählen';
+
+  @override
+  String get takePhoto => 'Foto aufnehmen';
+
+  @override
+  String get photoUploading => 'Wird hochgeladen…';
+
+  @override
+  String get photoUploaded => 'Hochgeladen';
+
+  @override
+  String get photoUploadFailed =>
+      'Upload fehlgeschlagen. Erneut versuchen oder Foto entfernen.';
+
+  @override
+  String get photoServiceUnavailable =>
+      'Fotos können derzeit nicht hinzugefügt werden. Sie können weiterhin eine Beschreibung senden.';
+
+  @override
+  String get removePhoto => 'Foto entfernen';
+
+  @override
+  String get photoTooLarge => 'Jedes Foto darf höchstens 10 MB groß sein.';
+
+  @override
+  String get photoFormatUnsupported =>
+      'Wählen Sie ein JPG-, PNG- oder WebP-Bild.';
+
+  @override
+  String get photoReadFailed =>
+      'Das Foto konnte nicht geladen werden. Bitte erneut versuchen.';
+
+  @override
+  String get afterSaleSubmissionUncertain =>
+      'Das Ergebnis ist noch nicht bestätigt. Prüfen Sie den Bestellstatus oder wiederholen Sie dieselbe Anfrage.';
+
+  @override
+  String get requestDetails => 'Anfragedetails';
+
+  @override
+  String get afterSaleItems => 'Artikel in dieser Anfrage';
+
+  @override
+  String get afterSaleItemsUnavailable =>
+      'Artikeldetails sind für diese Anfrage nicht verfügbar.';
+
+  @override
+  String get refundProgress => 'Erstattungsstatus';
+
+  @override
+  String get refundResultPending => 'Das Erstattungsergebnis wird bestätigt.';
+
+  @override
+  String get afterSaleItem => 'Serviceartikel';
+
+  @override
+  String get shareProduct => 'Produkt teilen';
+
+  @override
+  String get customerReviews => 'Kundenbewertungen';
+
+  @override
+  String stockCount(int count) {
+    return '$count auf Lager';
   }
 }

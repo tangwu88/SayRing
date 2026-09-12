@@ -546,7 +546,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get globalShopPricePending => '価格は確認待ちです';
 
   @override
-  String get globalShopLoadMore => '商品をさらに読み込む';
+  String get globalShopLoadMore => 'さらに読み込む';
 
   @override
   String get globalShopReadOnly => '商品をご覧いただけます。この地域ではまだ注文できません。';
@@ -1602,5 +1602,331 @@ class AppLocalizationsJa extends AppLocalizations {
   @override
   String versionBuild(String version, int build) {
     return 'V$version · ビルド $build';
+  }
+
+  @override
+  String get globalShopBrowseNotice =>
+      '商品は引き続きご覧いただけます。お届け先の地域で配送と支払いが利用可能になると注文できます。';
+
+  @override
+  String get shopAccount => 'ショップアカウント';
+
+  @override
+  String get addToCart => 'カートに追加';
+
+  @override
+  String get addedToCart => 'カートに追加しました';
+
+  @override
+  String get quantity => '数量';
+
+  @override
+  String get inStock => '在庫あり';
+
+  @override
+  String get outOfStock => '在庫切れまたは利用不可';
+
+  @override
+  String get favorites => 'お気に入り';
+
+  @override
+  String get coupons => 'クーポン';
+
+  @override
+  String get points => 'ポイント';
+
+  @override
+  String get helpCenter => 'ヘルプセンター';
+
+  @override
+  String get chooseDeliveryAddress => '配送先を選択';
+
+  @override
+  String get editAddress => '住所を編集';
+
+  @override
+  String get delete => '削除';
+
+  @override
+  String get deleteAddressPrompt => 'この住所を削除しますか？';
+
+  @override
+  String get postalCode => '郵便番号';
+
+  @override
+  String get itemsSubtotal => '商品小計';
+
+  @override
+  String get discount => '割引';
+
+  @override
+  String get shippingFee => '送料';
+
+  @override
+  String get amountDue => 'お支払い金額';
+
+  @override
+  String get placeOrder => '注文を確定';
+
+  @override
+  String get orderPlaced => '注文を受け付けました';
+
+  @override
+  String get orderSubmissionUncertain => '注文結果を確認できません。再度操作する前に注文履歴をご確認ください。';
+
+  @override
+  String get availableCoupons => '利用可能なクーポン';
+
+  @override
+  String get ownedCoupons => 'マイクーポン';
+
+  @override
+  String get couponCode => 'クーポンコード';
+
+  @override
+  String get redeem => '利用する';
+
+  @override
+  String get claim => '受け取る';
+
+  @override
+  String get claimed => '受取済み';
+
+  @override
+  String get pointsBalance => 'ポイント残高';
+
+  @override
+  String get pointsUnavailable => '残高はまだ利用できません';
+
+  @override
+  String get marketUnavailable => '選択した配送地域では、まだ注文をご利用いただけません。';
+
+  @override
+  String get paymentUnavailable =>
+      '現在、アプリではお支払いをご利用いただけません。カートと既存の注文は引き続き確認できます。';
+
+  @override
+  String get orderNumber => '注文';
+
+  @override
+  String get orderDate => '作成日時';
+
+  @override
+  String get cancelOrder => '注文をキャンセル';
+
+  @override
+  String get cancelOrderPrompt => 'この未払い注文をキャンセルしますか？';
+
+  @override
+  String get refundOnly => '返金のみ';
+
+  @override
+  String get returnRefund => '返品・返金';
+
+  @override
+  String get exchange => '交換';
+
+  @override
+  String get submitRequest => '申請を送信';
+
+  @override
+  String get requestSubmitted => '申請を送信しました';
+
+  @override
+  String get writeReview => 'レビューを書く';
+
+  @override
+  String get submitReview => 'レビューを投稿';
+
+  @override
+  String get defaultVariant => '標準オプション';
+
+  @override
+  String selectedItems(int count) {
+    return '$count件選択';
+  }
+
+  @override
+  String get signInToShopHint => 'ログインすると、カート、住所、注文を管理できます。';
+
+  @override
+  String get checkoutPriceChanged => '注文金額が変更されました。更新後の金額をご確認ください。';
+
+  @override
+  String get shopHelpIntro => '注文、配送、アフターサービスは、お住まいの地域で利用できるサービスに準じます。';
+
+  @override
+  String get shopHelpOrdering => 'なぜ注文できないのですか？';
+
+  @override
+  String get shopHelpOrderingAnswer =>
+      '配送および販売サービスが利用可能になると注文できます。商品はカートに残したまま、後でもう一度お試しいただけます。';
+
+  @override
+  String get shopHelpPayment => '支払いはどのように確認されますか？';
+
+  @override
+  String get shopHelpPaymentAnswer =>
+      '決済事業者による確認後にのみ、注文は支払い済みになります。確認中は同じ注文を再度行わないでください。';
+
+  @override
+  String get shopHelpAfterSales => '購入後のサポートはどう申請しますか？';
+
+  @override
+  String get shopHelpAfterSalesAnswer =>
+      '対象の注文を開き、サポート申請を選択して、返金額と理由を確認して送信してください。';
+
+  @override
+  String get noOrders => '注文はまだありません';
+
+  @override
+  String get noFavorites => 'お気に入りはまだありません';
+
+  @override
+  String get noCoupons => '利用できるクーポンはありません';
+
+  @override
+  String get selectItemsToContinue => '利用可能な商品を1点以上選択してください。';
+
+  @override
+  String get noCoupon => 'クーポンを使用しない';
+
+  @override
+  String get pointsToUse => '使用するポイント相当額';
+
+  @override
+  String get refreshOrderTotal => '注文金額を更新';
+
+  @override
+  String get chooseAddressForTotal => '配送先を選択すると、最新の注文金額を確認できます。';
+
+  @override
+  String get requiredField => 'この項目は必須です。';
+
+  @override
+  String get invalidInternationalPhone => '国番号を含む有効な電話番号を入力してください。';
+
+  @override
+  String get invalidCouponCode => '4～32文字の英数字、ハイフンまたはアンダースコアで入力してください。';
+
+  @override
+  String get unavailable => '利用不可';
+
+  @override
+  String get orderItemsUnavailable => 'この過去の注文では商品情報を確認できません。';
+
+  @override
+  String get orderCompleted => '完了';
+
+  @override
+  String get orderCancelled => 'キャンセル済み';
+
+  @override
+  String get orderRefunded => '返金済み';
+
+  @override
+  String get orderStatusPending => '処理中';
+
+  @override
+  String get legacyOrderReadOnly =>
+      'この過去の注文は閲覧のみ可能です。変更が必要な場合はサポートへお問い合わせください。';
+
+  @override
+  String get returnLogistics => '返品配送';
+
+  @override
+  String get carrier => '配送業者';
+
+  @override
+  String get trackingNumber => '追跡番号';
+
+  @override
+  String get noShippingUpdates => '配送状況の更新はまだありません';
+
+  @override
+  String get waitingForReturn => '返品待ち';
+
+  @override
+  String get requestRejected => '申請は承認されませんでした';
+
+  @override
+  String get requestProcessing => '申請処理中';
+
+  @override
+  String get afterSalesUnavailable => 'この注文には購入後サポートの対象商品がありません。';
+
+  @override
+  String get previewRequest => '申請金額を確認';
+
+  @override
+  String get problemPhotos => '問題の写真';
+
+  @override
+  String get afterSalePhotoHint => '任意。JPG、PNG、WebP を最大9枚、1枚10MBまで追加できます。';
+
+  @override
+  String get addProblemPhotos => '写真を追加';
+
+  @override
+  String get chooseFromGallery => 'ギャラリーから選択';
+
+  @override
+  String get takePhoto => '写真を撮る';
+
+  @override
+  String get photoUploading => 'アップロード中…';
+
+  @override
+  String get photoUploaded => 'アップロード済み';
+
+  @override
+  String get photoUploadFailed => 'アップロードできませんでした。再試行するか写真を削除してください。';
+
+  @override
+  String get photoServiceUnavailable => '現在写真を追加できません。説明文だけでも申請できます。';
+
+  @override
+  String get removePhoto => '写真を削除';
+
+  @override
+  String get photoTooLarge => '写真は1枚10MB以下にしてください。';
+
+  @override
+  String get photoFormatUnsupported => 'JPG、PNG、WebP の画像を選択してください。';
+
+  @override
+  String get photoReadFailed => '写真を読み込めませんでした。もう一度お試しください。';
+
+  @override
+  String get afterSaleSubmissionUncertain =>
+      '申請結果を確認できません。注文状況を確認するか、同じ申請を再試行してください。';
+
+  @override
+  String get requestDetails => '申請内容';
+
+  @override
+  String get afterSaleItems => '今回の申請商品';
+
+  @override
+  String get afterSaleItemsUnavailable => 'この申請の商品明細は取得できません。';
+
+  @override
+  String get refundProgress => '返金状況';
+
+  @override
+  String get refundResultPending => '返金結果を確認しています。';
+
+  @override
+  String get afterSaleItem => 'アフターサービス商品';
+
+  @override
+  String get shareProduct => '商品を共有';
+
+  @override
+  String get customerReviews => '購入者レビュー';
+
+  @override
+  String stockCount(int count) {
+    return '在庫 $count 点';
   }
 }

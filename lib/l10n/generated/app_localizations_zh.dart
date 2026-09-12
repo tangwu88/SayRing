@@ -523,7 +523,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get globalShopPricePending => '价格待确认';
 
   @override
-  String get globalShopLoadMore => '加载更多商品';
+  String get globalShopLoadMore => '加载更多';
 
   @override
   String get globalShopReadOnly => '可浏览商品，当前地区暂未开放下单。';
@@ -1577,6 +1577,326 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String versionBuild(String version, int build) {
     return 'V$version · 构建 $build';
+  }
+
+  @override
+  String get globalShopBrowseNotice => '您可以继续浏览商品；当前市场的配送和支付可用后才会开放下单。';
+
+  @override
+  String get shopAccount => '商城服务';
+
+  @override
+  String get addToCart => '加入购物车';
+
+  @override
+  String get addedToCart => '已加入购物车';
+
+  @override
+  String get quantity => '数量';
+
+  @override
+  String get inStock => '有货';
+
+  @override
+  String get outOfStock => '暂时缺货或已下架';
+
+  @override
+  String get favorites => '我的收藏';
+
+  @override
+  String get coupons => '优惠券';
+
+  @override
+  String get points => '积分';
+
+  @override
+  String get helpCenter => '帮助中心';
+
+  @override
+  String get chooseDeliveryAddress => '选择收货地址';
+
+  @override
+  String get editAddress => '编辑地址';
+
+  @override
+  String get delete => '删除';
+
+  @override
+  String get deleteAddressPrompt => '删除这个收货地址吗？';
+
+  @override
+  String get postalCode => '邮政编码';
+
+  @override
+  String get itemsSubtotal => '商品金额';
+
+  @override
+  String get discount => '优惠';
+
+  @override
+  String get shippingFee => '运费';
+
+  @override
+  String get amountDue => '应付金额';
+
+  @override
+  String get placeOrder => '提交订单';
+
+  @override
+  String get orderPlaced => '订单已提交';
+
+  @override
+  String get orderSubmissionUncertain => '订单结果尚未确认，请先到“我的订单”查看，不要重复提交。';
+
+  @override
+  String get availableCoupons => '可领取优惠券';
+
+  @override
+  String get ownedCoupons => '我的优惠券';
+
+  @override
+  String get couponCode => '优惠码';
+
+  @override
+  String get redeem => '兑换';
+
+  @override
+  String get claim => '领取';
+
+  @override
+  String get claimed => '已领取';
+
+  @override
+  String get pointsBalance => '积分余额';
+
+  @override
+  String get pointsUnavailable => '余额暂未获取';
+
+  @override
+  String get marketUnavailable => '当前收货市场暂未开放下单。';
+
+  @override
+  String get paymentUnavailable => 'App 内支付暂不可用，购物车和已有订单仍会保留。';
+
+  @override
+  String get orderNumber => '订单';
+
+  @override
+  String get orderDate => '下单时间';
+
+  @override
+  String get cancelOrder => '取消订单';
+
+  @override
+  String get cancelOrderPrompt => '取消这个待付款订单吗？';
+
+  @override
+  String get refundOnly => '仅退款';
+
+  @override
+  String get returnRefund => '退货退款';
+
+  @override
+  String get exchange => '换货';
+
+  @override
+  String get submitRequest => '提交申请';
+
+  @override
+  String get requestSubmitted => '申请已提交';
+
+  @override
+  String get writeReview => '评价商品';
+
+  @override
+  String get submitReview => '提交评价';
+
+  @override
+  String get defaultVariant => '默认规格';
+
+  @override
+  String selectedItems(int count) {
+    return '已选 $count 件';
+  }
+
+  @override
+  String get signInToShopHint => '登录后可管理购物车、收货地址和订单。';
+
+  @override
+  String get checkoutPriceChanged => '订单金额已变化，请核对刷新后的金额再继续。';
+
+  @override
+  String get shopHelpIntro => '下单、配送和售后会根据当前市场已开放的服务显示。';
+
+  @override
+  String get shopHelpOrdering => '为什么暂时不能下单？';
+
+  @override
+  String get shopHelpOrderingAnswer =>
+      '只有当前市场的配送和交易服务已开放时才能下单。商品可先保留在购物车，稍后再试。';
+
+  @override
+  String get shopHelpPayment => '付款结果如何确认？';
+
+  @override
+  String get shopHelpPaymentAnswer => '只有支付渠道确认后订单才会显示已付款。确认期间请不要重复下单。';
+
+  @override
+  String get shopHelpAfterSales => '如何申请售后？';
+
+  @override
+  String get shopHelpAfterSalesAnswer => '打开符合条件的订单，选择“申请售后”，核对退款金额并填写原因后提交。';
+
+  @override
+  String get noOrders => '暂无订单';
+
+  @override
+  String get noFavorites => '暂无收藏';
+
+  @override
+  String get noCoupons => '暂无可用优惠券';
+
+  @override
+  String get selectItemsToContinue => '请至少选择一件有库存的商品。';
+
+  @override
+  String get noCoupon => '不使用优惠券';
+
+  @override
+  String get pointsToUse => '使用积分金额';
+
+  @override
+  String get refreshOrderTotal => '刷新订单金额';
+
+  @override
+  String get chooseAddressForTotal => '选择收货地址后获取最新订单金额。';
+
+  @override
+  String get requiredField => '请填写此项';
+
+  @override
+  String get invalidInternationalPhone => '请输入带国家区号的有效手机号。';
+
+  @override
+  String get invalidCouponCode => '请输入 4–32 位字母、数字、短横线或下划线。';
+
+  @override
+  String get unavailable => '不可用';
+
+  @override
+  String get orderItemsUnavailable => '此历史订单暂未获取商品明细。';
+
+  @override
+  String get orderCompleted => '已完成';
+
+  @override
+  String get orderCancelled => '已取消';
+
+  @override
+  String get orderRefunded => '已退款';
+
+  @override
+  String get orderStatusPending => '处理中';
+
+  @override
+  String get legacyOrderReadOnly => '此历史订单可查看；如需修改，请联系客服。';
+
+  @override
+  String get returnLogistics => '退货物流';
+
+  @override
+  String get carrier => '物流公司';
+
+  @override
+  String get trackingNumber => '运单号';
+
+  @override
+  String get noShippingUpdates => '暂无物流更新';
+
+  @override
+  String get waitingForReturn => '等待寄回';
+
+  @override
+  String get requestRejected => '申请未通过';
+
+  @override
+  String get requestProcessing => '申请处理中';
+
+  @override
+  String get afterSalesUnavailable => '此订单暂无可申请售后的商品。';
+
+  @override
+  String get previewRequest => '核对申请金额';
+
+  @override
+  String get problemPhotos => '问题图片';
+
+  @override
+  String get afterSalePhotoHint => '选填，最多 9 张 JPG、PNG 或 WebP 图片，每张不超过 10MB。';
+
+  @override
+  String get addProblemPhotos => '添加图片';
+
+  @override
+  String get chooseFromGallery => '从相册选择';
+
+  @override
+  String get takePhoto => '拍照';
+
+  @override
+  String get photoUploading => '正在上传…';
+
+  @override
+  String get photoUploaded => '已上传';
+
+  @override
+  String get photoUploadFailed => '上传失败，请重试或移除这张图片。';
+
+  @override
+  String get photoServiceUnavailable => '暂时无法添加图片，您仍可提交文字说明。';
+
+  @override
+  String get removePhoto => '移除图片';
+
+  @override
+  String get photoTooLarge => '每张图片不能超过 10MB。';
+
+  @override
+  String get photoFormatUnsupported => '请选择 JPG、PNG 或 WebP 图片。';
+
+  @override
+  String get photoReadFailed => '图片暂时无法读取，请重试。';
+
+  @override
+  String get afterSaleSubmissionUncertain => '申请结果尚未确认，请查看订单售后进度或按原申请重试。';
+
+  @override
+  String get requestDetails => '申请说明';
+
+  @override
+  String get afterSaleItems => '本次售后商品';
+
+  @override
+  String get afterSaleItemsUnavailable => '本次售后商品明细暂未获取。';
+
+  @override
+  String get refundProgress => '退款进度';
+
+  @override
+  String get refundResultPending => '退款结果正在确认中。';
+
+  @override
+  String get afterSaleItem => '售后商品';
+
+  @override
+  String get shareProduct => '分享商品';
+
+  @override
+  String get customerReviews => '用户评价';
+
+  @override
+  String stockCount(int count) {
+    return '库存 $count 件';
   }
 }
 
@@ -2099,7 +2419,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get globalShopPricePending => '价格待确认';
 
   @override
-  String get globalShopLoadMore => '加载更多商品';
+  String get globalShopLoadMore => '加载更多';
 
   @override
   String get globalShopReadOnly => '可浏览商品，当前地区暂未开放下单。';
@@ -3154,6 +3474,326 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String versionBuild(String version, int build) {
     return 'V$version · 构建 $build';
   }
+
+  @override
+  String get globalShopBrowseNotice => '您可以继续浏览商品；当前市场的配送和支付可用后才会开放下单。';
+
+  @override
+  String get shopAccount => '商城服务';
+
+  @override
+  String get addToCart => '加入购物车';
+
+  @override
+  String get addedToCart => '已加入购物车';
+
+  @override
+  String get quantity => '数量';
+
+  @override
+  String get inStock => '有货';
+
+  @override
+  String get outOfStock => '暂时缺货或已下架';
+
+  @override
+  String get favorites => '我的收藏';
+
+  @override
+  String get coupons => '优惠券';
+
+  @override
+  String get points => '积分';
+
+  @override
+  String get helpCenter => '帮助中心';
+
+  @override
+  String get chooseDeliveryAddress => '选择收货地址';
+
+  @override
+  String get editAddress => '编辑地址';
+
+  @override
+  String get delete => '删除';
+
+  @override
+  String get deleteAddressPrompt => '删除这个收货地址吗？';
+
+  @override
+  String get postalCode => '邮政编码';
+
+  @override
+  String get itemsSubtotal => '商品金额';
+
+  @override
+  String get discount => '优惠';
+
+  @override
+  String get shippingFee => '运费';
+
+  @override
+  String get amountDue => '应付金额';
+
+  @override
+  String get placeOrder => '提交订单';
+
+  @override
+  String get orderPlaced => '订单已提交';
+
+  @override
+  String get orderSubmissionUncertain => '订单结果尚未确认，请先到“我的订单”查看，不要重复提交。';
+
+  @override
+  String get availableCoupons => '可领取优惠券';
+
+  @override
+  String get ownedCoupons => '我的优惠券';
+
+  @override
+  String get couponCode => '优惠码';
+
+  @override
+  String get redeem => '兑换';
+
+  @override
+  String get claim => '领取';
+
+  @override
+  String get claimed => '已领取';
+
+  @override
+  String get pointsBalance => '积分余额';
+
+  @override
+  String get pointsUnavailable => '余额暂未获取';
+
+  @override
+  String get marketUnavailable => '当前收货市场暂未开放下单。';
+
+  @override
+  String get paymentUnavailable => 'App 内支付暂不可用，购物车和已有订单仍会保留。';
+
+  @override
+  String get orderNumber => '订单';
+
+  @override
+  String get orderDate => '下单时间';
+
+  @override
+  String get cancelOrder => '取消订单';
+
+  @override
+  String get cancelOrderPrompt => '取消这个待付款订单吗？';
+
+  @override
+  String get refundOnly => '仅退款';
+
+  @override
+  String get returnRefund => '退货退款';
+
+  @override
+  String get exchange => '换货';
+
+  @override
+  String get submitRequest => '提交申请';
+
+  @override
+  String get requestSubmitted => '申请已提交';
+
+  @override
+  String get writeReview => '评价商品';
+
+  @override
+  String get submitReview => '提交评价';
+
+  @override
+  String get defaultVariant => '默认规格';
+
+  @override
+  String selectedItems(int count) {
+    return '已选 $count 件';
+  }
+
+  @override
+  String get signInToShopHint => '登录后可管理购物车、收货地址和订单。';
+
+  @override
+  String get checkoutPriceChanged => '订单金额已变化，请核对刷新后的金额再继续。';
+
+  @override
+  String get shopHelpIntro => '下单、配送和售后会根据当前市场已开放的服务显示。';
+
+  @override
+  String get shopHelpOrdering => '为什么暂时不能下单？';
+
+  @override
+  String get shopHelpOrderingAnswer =>
+      '只有当前市场的配送和交易服务已开放时才能下单。商品可先保留在购物车，稍后再试。';
+
+  @override
+  String get shopHelpPayment => '付款结果如何确认？';
+
+  @override
+  String get shopHelpPaymentAnswer => '只有支付渠道确认后订单才会显示已付款。确认期间请不要重复下单。';
+
+  @override
+  String get shopHelpAfterSales => '如何申请售后？';
+
+  @override
+  String get shopHelpAfterSalesAnswer => '打开符合条件的订单，选择“申请售后”，核对退款金额并填写原因后提交。';
+
+  @override
+  String get noOrders => '暂无订单';
+
+  @override
+  String get noFavorites => '暂无收藏';
+
+  @override
+  String get noCoupons => '暂无可用优惠券';
+
+  @override
+  String get selectItemsToContinue => '请至少选择一件有库存的商品。';
+
+  @override
+  String get noCoupon => '不使用优惠券';
+
+  @override
+  String get pointsToUse => '使用积分金额';
+
+  @override
+  String get refreshOrderTotal => '刷新订单金额';
+
+  @override
+  String get chooseAddressForTotal => '选择收货地址后获取最新订单金额。';
+
+  @override
+  String get requiredField => '请填写此项';
+
+  @override
+  String get invalidInternationalPhone => '请输入带国家区号的有效手机号。';
+
+  @override
+  String get invalidCouponCode => '请输入 4–32 位字母、数字、短横线或下划线。';
+
+  @override
+  String get unavailable => '不可用';
+
+  @override
+  String get orderItemsUnavailable => '此历史订单暂未获取商品明细。';
+
+  @override
+  String get orderCompleted => '已完成';
+
+  @override
+  String get orderCancelled => '已取消';
+
+  @override
+  String get orderRefunded => '已退款';
+
+  @override
+  String get orderStatusPending => '处理中';
+
+  @override
+  String get legacyOrderReadOnly => '此历史订单可查看；如需修改，请联系客服。';
+
+  @override
+  String get returnLogistics => '退货物流';
+
+  @override
+  String get carrier => '物流公司';
+
+  @override
+  String get trackingNumber => '运单号';
+
+  @override
+  String get noShippingUpdates => '暂无物流更新';
+
+  @override
+  String get waitingForReturn => '等待寄回';
+
+  @override
+  String get requestRejected => '申请未通过';
+
+  @override
+  String get requestProcessing => '申请处理中';
+
+  @override
+  String get afterSalesUnavailable => '此订单暂无可申请售后的商品。';
+
+  @override
+  String get previewRequest => '核对申请金额';
+
+  @override
+  String get problemPhotos => '问题图片';
+
+  @override
+  String get afterSalePhotoHint => '选填，最多 9 张 JPG、PNG 或 WebP 图片，每张不超过 10MB。';
+
+  @override
+  String get addProblemPhotos => '添加图片';
+
+  @override
+  String get chooseFromGallery => '从相册选择';
+
+  @override
+  String get takePhoto => '拍照';
+
+  @override
+  String get photoUploading => '正在上传…';
+
+  @override
+  String get photoUploaded => '已上传';
+
+  @override
+  String get photoUploadFailed => '上传失败，请重试或移除这张图片。';
+
+  @override
+  String get photoServiceUnavailable => '暂时无法添加图片，您仍可提交文字说明。';
+
+  @override
+  String get removePhoto => '移除图片';
+
+  @override
+  String get photoTooLarge => '每张图片不能超过 10MB。';
+
+  @override
+  String get photoFormatUnsupported => '请选择 JPG、PNG 或 WebP 图片。';
+
+  @override
+  String get photoReadFailed => '图片暂时无法读取，请重试。';
+
+  @override
+  String get afterSaleSubmissionUncertain => '申请结果尚未确认，请查看订单售后进度或按原申请重试。';
+
+  @override
+  String get requestDetails => '申请说明';
+
+  @override
+  String get afterSaleItems => '本次售后商品';
+
+  @override
+  String get afterSaleItemsUnavailable => '本次售后商品明细暂未获取。';
+
+  @override
+  String get refundProgress => '退款进度';
+
+  @override
+  String get refundResultPending => '退款结果正在确认中。';
+
+  @override
+  String get afterSaleItem => '售后商品';
+
+  @override
+  String get shareProduct => '分享商品';
+
+  @override
+  String get customerReviews => '用户评价';
+
+  @override
+  String stockCount(int count) {
+    return '库存 $count 件';
+  }
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -3675,7 +4315,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get globalShopPricePending => '價格待確認';
 
   @override
-  String get globalShopLoadMore => '載入更多商品';
+  String get globalShopLoadMore => '載入更多';
 
   @override
   String get globalShopReadOnly => '可瀏覽商品，目前地區暫未開放下單。';
@@ -4729,5 +5369,325 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String versionBuild(String version, int build) {
     return 'V$version · 組建 $build';
+  }
+
+  @override
+  String get globalShopBrowseNotice => '您可以繼續瀏覽商品；目前市場的配送和付款可用後才會開放下單。';
+
+  @override
+  String get shopAccount => '商城服務';
+
+  @override
+  String get addToCart => '加入購物車';
+
+  @override
+  String get addedToCart => '已加入購物車';
+
+  @override
+  String get quantity => '數量';
+
+  @override
+  String get inStock => '有貨';
+
+  @override
+  String get outOfStock => '暫時缺貨或已下架';
+
+  @override
+  String get favorites => '我的收藏';
+
+  @override
+  String get coupons => '優惠券';
+
+  @override
+  String get points => '積分';
+
+  @override
+  String get helpCenter => '幫助中心';
+
+  @override
+  String get chooseDeliveryAddress => '選擇收貨地址';
+
+  @override
+  String get editAddress => '編輯地址';
+
+  @override
+  String get delete => '刪除';
+
+  @override
+  String get deleteAddressPrompt => '刪除這個收貨地址嗎？';
+
+  @override
+  String get postalCode => '郵遞區號';
+
+  @override
+  String get itemsSubtotal => '商品金額';
+
+  @override
+  String get discount => '優惠';
+
+  @override
+  String get shippingFee => '運費';
+
+  @override
+  String get amountDue => '應付金額';
+
+  @override
+  String get placeOrder => '提交訂單';
+
+  @override
+  String get orderPlaced => '訂單已提交';
+
+  @override
+  String get orderSubmissionUncertain => '訂單結果尚未確認，請先到「我的訂單」查看，不要重複提交。';
+
+  @override
+  String get availableCoupons => '可領取優惠券';
+
+  @override
+  String get ownedCoupons => '我的優惠券';
+
+  @override
+  String get couponCode => '優惠碼';
+
+  @override
+  String get redeem => '兌換';
+
+  @override
+  String get claim => '領取';
+
+  @override
+  String get claimed => '已領取';
+
+  @override
+  String get pointsBalance => '積分餘額';
+
+  @override
+  String get pointsUnavailable => '餘額暫未取得';
+
+  @override
+  String get marketUnavailable => '目前收貨市場暫未開放下單。';
+
+  @override
+  String get paymentUnavailable => 'App 內付款暫不可用，購物車和已有訂單仍會保留。';
+
+  @override
+  String get orderNumber => '訂單';
+
+  @override
+  String get orderDate => '下單時間';
+
+  @override
+  String get cancelOrder => '取消訂單';
+
+  @override
+  String get cancelOrderPrompt => '取消這個待付款訂單嗎？';
+
+  @override
+  String get refundOnly => '僅退款';
+
+  @override
+  String get returnRefund => '退貨退款';
+
+  @override
+  String get exchange => '換貨';
+
+  @override
+  String get submitRequest => '提交申請';
+
+  @override
+  String get requestSubmitted => '申請已提交';
+
+  @override
+  String get writeReview => '評價商品';
+
+  @override
+  String get submitReview => '提交評價';
+
+  @override
+  String get defaultVariant => '預設規格';
+
+  @override
+  String selectedItems(int count) {
+    return '已選 $count 件';
+  }
+
+  @override
+  String get signInToShopHint => '登入後可管理購物車、收貨地址和訂單。';
+
+  @override
+  String get checkoutPriceChanged => '訂單金額已變更，請核對重新整理後的金額再繼續。';
+
+  @override
+  String get shopHelpIntro => '下單、配送和售後會依目前市場已開放的服務顯示。';
+
+  @override
+  String get shopHelpOrdering => '為什麼暫時不能下單？';
+
+  @override
+  String get shopHelpOrderingAnswer =>
+      '只有目前市場的配送和交易服務已開放時才能下單。商品可先保留在購物車，稍後再試。';
+
+  @override
+  String get shopHelpPayment => '付款結果如何確認？';
+
+  @override
+  String get shopHelpPaymentAnswer => '只有付款渠道確認後訂單才會顯示已付款。確認期間請勿重複下單。';
+
+  @override
+  String get shopHelpAfterSales => '如何申請售後？';
+
+  @override
+  String get shopHelpAfterSalesAnswer => '開啟符合條件的訂單，選擇「申請售後」，核對退款金額並填寫原因後提交。';
+
+  @override
+  String get noOrders => '暫無訂單';
+
+  @override
+  String get noFavorites => '暫無收藏';
+
+  @override
+  String get noCoupons => '暫無可用優惠券';
+
+  @override
+  String get selectItemsToContinue => '請至少選擇一件有庫存的商品。';
+
+  @override
+  String get noCoupon => '不使用優惠券';
+
+  @override
+  String get pointsToUse => '使用積分金額';
+
+  @override
+  String get refreshOrderTotal => '重新整理訂單金額';
+
+  @override
+  String get chooseAddressForTotal => '選擇收貨地址後取得最新訂單金額。';
+
+  @override
+  String get requiredField => '請填寫此項';
+
+  @override
+  String get invalidInternationalPhone => '請輸入含國家區號的有效手機號碼。';
+
+  @override
+  String get invalidCouponCode => '請輸入 4–32 位字母、數字、短橫線或底線。';
+
+  @override
+  String get unavailable => '不可用';
+
+  @override
+  String get orderItemsUnavailable => '此歷史訂單暫未取得商品明細。';
+
+  @override
+  String get orderCompleted => '已完成';
+
+  @override
+  String get orderCancelled => '已取消';
+
+  @override
+  String get orderRefunded => '已退款';
+
+  @override
+  String get orderStatusPending => '處理中';
+
+  @override
+  String get legacyOrderReadOnly => '此歷史訂單可查看；如需修改，請聯絡客服。';
+
+  @override
+  String get returnLogistics => '退貨物流';
+
+  @override
+  String get carrier => '物流公司';
+
+  @override
+  String get trackingNumber => '運單號';
+
+  @override
+  String get noShippingUpdates => '暫無物流更新';
+
+  @override
+  String get waitingForReturn => '等待寄回';
+
+  @override
+  String get requestRejected => '申請未通過';
+
+  @override
+  String get requestProcessing => '申請處理中';
+
+  @override
+  String get afterSalesUnavailable => '此訂單暫無可申請售後的商品。';
+
+  @override
+  String get previewRequest => '核對申請金額';
+
+  @override
+  String get problemPhotos => '問題圖片';
+
+  @override
+  String get afterSalePhotoHint => '選填，最多 9 張 JPG、PNG 或 WebP 圖片，每張不超過 10MB。';
+
+  @override
+  String get addProblemPhotos => '新增圖片';
+
+  @override
+  String get chooseFromGallery => '從相簿選擇';
+
+  @override
+  String get takePhoto => '拍照';
+
+  @override
+  String get photoUploading => '正在上傳…';
+
+  @override
+  String get photoUploaded => '已上傳';
+
+  @override
+  String get photoUploadFailed => '上傳失敗，請重試或移除這張圖片。';
+
+  @override
+  String get photoServiceUnavailable => '暫時無法新增圖片，您仍可提交文字說明。';
+
+  @override
+  String get removePhoto => '移除圖片';
+
+  @override
+  String get photoTooLarge => '每張圖片不能超過 10MB。';
+
+  @override
+  String get photoFormatUnsupported => '請選擇 JPG、PNG 或 WebP 圖片。';
+
+  @override
+  String get photoReadFailed => '圖片暫時無法讀取，請重試。';
+
+  @override
+  String get afterSaleSubmissionUncertain => '申請結果尚未確認，請查看訂單售後進度或按原申請重試。';
+
+  @override
+  String get requestDetails => '申請說明';
+
+  @override
+  String get afterSaleItems => '本次售後商品';
+
+  @override
+  String get afterSaleItemsUnavailable => '本次售後商品明細暫未取得。';
+
+  @override
+  String get refundProgress => '退款進度';
+
+  @override
+  String get refundResultPending => '退款結果正在確認中。';
+
+  @override
+  String get afterSaleItem => '售後商品';
+
+  @override
+  String get shareProduct => '分享商品';
+
+  @override
+  String get customerReviews => '用戶評價';
+
+  @override
+  String stockCount(int count) {
+    return '庫存 $count 件';
   }
 }

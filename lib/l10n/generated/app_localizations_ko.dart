@@ -549,7 +549,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get globalShopPricePending => '가격 확인 중';
 
   @override
-  String get globalShopLoadMore => '상품 더 보기';
+  String get globalShopLoadMore => '더 보기';
 
   @override
   String get globalShopReadOnly => '상품을 둘러볼 수 있습니다. 이 지역에서는 아직 주문할 수 없습니다.';
@@ -1606,5 +1606,334 @@ class AppLocalizationsKo extends AppLocalizations {
   @override
   String versionBuild(String version, int build) {
     return 'V$version · 빌드 $build';
+  }
+
+  @override
+  String get globalShopBrowseNotice =>
+      '상품은 계속 둘러볼 수 있습니다. 배송 지역에서 배송과 결제를 이용할 수 있을 때 주문이 열립니다.';
+
+  @override
+  String get shopAccount => '쇼핑 계정';
+
+  @override
+  String get addToCart => '장바구니에 담기';
+
+  @override
+  String get addedToCart => '장바구니에 담았습니다';
+
+  @override
+  String get quantity => '수량';
+
+  @override
+  String get inStock => '재고 있음';
+
+  @override
+  String get outOfStock => '품절 또는 이용 불가';
+
+  @override
+  String get favorites => '찜한 상품';
+
+  @override
+  String get coupons => '쿠폰';
+
+  @override
+  String get points => '포인트';
+
+  @override
+  String get helpCenter => '도움말';
+
+  @override
+  String get chooseDeliveryAddress => '배송지 선택';
+
+  @override
+  String get editAddress => '주소 수정';
+
+  @override
+  String get delete => '삭제';
+
+  @override
+  String get deleteAddressPrompt => '이 주소를 삭제할까요?';
+
+  @override
+  String get postalCode => '우편번호';
+
+  @override
+  String get itemsSubtotal => '상품 소계';
+
+  @override
+  String get discount => '할인';
+
+  @override
+  String get shippingFee => '배송비';
+
+  @override
+  String get amountDue => '결제 금액';
+
+  @override
+  String get placeOrder => '주문하기';
+
+  @override
+  String get orderPlaced => '주문이 접수되었습니다';
+
+  @override
+  String get orderSubmissionUncertain =>
+      '주문 결과를 확인할 수 없습니다. 다시 시도하기 전에 내 주문을 확인해 주세요.';
+
+  @override
+  String get availableCoupons => '사용 가능한 쿠폰';
+
+  @override
+  String get ownedCoupons => '내 쿠폰';
+
+  @override
+  String get couponCode => '쿠폰 코드';
+
+  @override
+  String get redeem => '사용';
+
+  @override
+  String get claim => '받기';
+
+  @override
+  String get claimed => '받음';
+
+  @override
+  String get pointsBalance => '포인트 잔액';
+
+  @override
+  String get pointsUnavailable => '잔액을 아직 확인할 수 없습니다';
+
+  @override
+  String get marketUnavailable => '선택한 배송 지역에서는 아직 주문할 수 없습니다.';
+
+  @override
+  String get paymentUnavailable =>
+      '현재 앱에서 결제할 수 없습니다. 장바구니와 기존 주문은 계속 이용할 수 있습니다.';
+
+  @override
+  String get orderNumber => '주문';
+
+  @override
+  String get orderDate => '주문일';
+
+  @override
+  String get cancelOrder => '주문 취소';
+
+  @override
+  String get cancelOrderPrompt => '이 미결제 주문을 취소할까요?';
+
+  @override
+  String get refundOnly => '환불만';
+
+  @override
+  String get returnRefund => '반품 및 환불';
+
+  @override
+  String get exchange => '교환';
+
+  @override
+  String get submitRequest => '요청 제출';
+
+  @override
+  String get requestSubmitted => '요청을 제출했습니다';
+
+  @override
+  String get writeReview => '리뷰 작성';
+
+  @override
+  String get submitReview => '리뷰 등록';
+
+  @override
+  String get defaultVariant => '기본 옵션';
+
+  @override
+  String selectedItems(int count) {
+    return '$count개 선택';
+  }
+
+  @override
+  String get signInToShopHint => '로그인하여 장바구니, 주소와 주문을 관리하세요.';
+
+  @override
+  String get checkoutPriceChanged => '주문 금액이 변경되었습니다. 계속하기 전에 갱신된 금액을 확인해 주세요.';
+
+  @override
+  String get shopHelpIntro => '주문, 배송 및 판매 후 지원은 해당 지역에서 이용할 수 있는 서비스를 따릅니다.';
+
+  @override
+  String get shopHelpOrdering => '왜 주문할 수 없나요?';
+
+  @override
+  String get shopHelpOrderingAnswer =>
+      '배송 및 지역 서비스가 제공될 때 주문이 활성화됩니다. 상품은 장바구니에 보관하고 나중에 다시 시도할 수 있습니다.';
+
+  @override
+  String get shopHelpPayment => '결제는 어떻게 확인되나요?';
+
+  @override
+  String get shopHelpPaymentAnswer =>
+      '결제 업체가 확인한 후에만 주문이 결제 완료로 표시됩니다. 확인 중에는 같은 주문을 다시 제출하지 마세요.';
+
+  @override
+  String get shopHelpAfterSales => '판매 후 지원은 어떻게 요청하나요?';
+
+  @override
+  String get shopHelpAfterSalesAnswer =>
+      '지원 가능한 주문을 열고 지원 요청을 선택한 뒤, 환불 금액과 사유를 확인하여 제출하세요.';
+
+  @override
+  String get noOrders => '아직 주문이 없습니다';
+
+  @override
+  String get noFavorites => '아직 찜한 상품이 없습니다';
+
+  @override
+  String get noCoupons => '사용 가능한 쿠폰이 없습니다';
+
+  @override
+  String get selectItemsToContinue => '계속하려면 이용 가능한 상품을 하나 이상 선택하세요.';
+
+  @override
+  String get noCoupon => '쿠폰 사용 안 함';
+
+  @override
+  String get pointsToUse => '사용할 포인트 금액';
+
+  @override
+  String get refreshOrderTotal => '주문 금액 갱신';
+
+  @override
+  String get chooseAddressForTotal => '배송지를 선택하면 최신 주문 금액을 확인할 수 있습니다.';
+
+  @override
+  String get requiredField => '필수 항목입니다.';
+
+  @override
+  String get invalidInternationalPhone => '국가 번호를 포함한 올바른 전화번호를 입력하세요.';
+
+  @override
+  String get invalidCouponCode => '영문, 숫자, 하이픈 또는 밑줄로 된 4~32자 코드를 입력하세요.';
+
+  @override
+  String get unavailable => '이용 불가';
+
+  @override
+  String get orderItemsUnavailable => '이전 주문의 상품 정보는 제공되지 않습니다.';
+
+  @override
+  String get orderCompleted => '완료';
+
+  @override
+  String get orderCancelled => '취소됨';
+
+  @override
+  String get orderRefunded => '환불됨';
+
+  @override
+  String get orderStatusPending => '처리 중';
+
+  @override
+  String get legacyOrderReadOnly =>
+      '이전 주문은 여기에서 조회만 할 수 있습니다. 변경이 필요하면 고객 지원에 문의하세요.';
+
+  @override
+  String get returnLogistics => '반품 배송';
+
+  @override
+  String get carrier => '배송 업체';
+
+  @override
+  String get trackingNumber => '운송장 번호';
+
+  @override
+  String get noShippingUpdates => '아직 배송 정보가 없습니다';
+
+  @override
+  String get waitingForReturn => '반품 대기 중';
+
+  @override
+  String get requestRejected => '요청이 거절되었습니다';
+
+  @override
+  String get requestProcessing => '요청 처리 중';
+
+  @override
+  String get afterSalesUnavailable => '이 주문에는 판매 후 지원이 가능한 상품이 없습니다.';
+
+  @override
+  String get previewRequest => '요청 금액 확인';
+
+  @override
+  String get problemPhotos => '문제 사진';
+
+  @override
+  String get afterSalePhotoHint =>
+      '선택 사항입니다. JPG, PNG 또는 WebP 이미지를 최대 9장, 장당 10MB까지 추가할 수 있습니다.';
+
+  @override
+  String get addProblemPhotos => '사진 추가';
+
+  @override
+  String get chooseFromGallery => '갤러리에서 선택';
+
+  @override
+  String get takePhoto => '사진 촬영';
+
+  @override
+  String get photoUploading => '업로드 중…';
+
+  @override
+  String get photoUploaded => '업로드됨';
+
+  @override
+  String get photoUploadFailed => '업로드에 실패했습니다. 다시 시도하거나 사진을 삭제하세요.';
+
+  @override
+  String get photoServiceUnavailable =>
+      '지금은 사진을 추가할 수 없습니다. 설명만으로도 요청할 수 있습니다.';
+
+  @override
+  String get removePhoto => '사진 삭제';
+
+  @override
+  String get photoTooLarge => '사진 한 장은 10MB 이하여야 합니다.';
+
+  @override
+  String get photoFormatUnsupported => 'JPG, PNG 또는 WebP 이미지를 선택하세요.';
+
+  @override
+  String get photoReadFailed => '사진을 불러오지 못했습니다. 다시 시도하세요.';
+
+  @override
+  String get afterSaleSubmissionUncertain =>
+      '요청 결과가 확인되지 않았습니다. 주문 상태를 확인하거나 같은 요청을 다시 시도하세요.';
+
+  @override
+  String get requestDetails => '신청 상세';
+
+  @override
+  String get afterSaleItems => '이번 신청 상품';
+
+  @override
+  String get afterSaleItemsUnavailable => '이 신청의 상품 상세 정보를 불러올 수 없습니다.';
+
+  @override
+  String get refundProgress => '환불 진행 상태';
+
+  @override
+  String get refundResultPending => '환불 결과를 확인하고 있습니다.';
+
+  @override
+  String get afterSaleItem => '판매 후 지원 상품';
+
+  @override
+  String get shareProduct => '상품 공유';
+
+  @override
+  String get customerReviews => '고객 리뷰';
+
+  @override
+  String stockCount(int count) {
+    return '재고 $count개';
   }
 }

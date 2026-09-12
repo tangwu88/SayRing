@@ -10,10 +10,25 @@ import 'package:saydian_app/ui/shop_pages.dart';
 class _Controller extends Fake implements AppController {
   final productRequests = <String>[];
   final filters = <String>[];
+  final cartUpdates = <Map<String, Object?>>[];
+  final favoriteUpdates = <bool>[];
   Future<Map<String, Object?>> Function(String?, int)? products;
 
   @override
   bool get isGlobalEdition => true;
+  @override
+  bool get isAuthenticated => true;
+  @override
+  Future<Map<String, Object?>> loadGlobalCommerceCapabilities() async => {
+    'checkout': {
+      'enabled': true,
+      'countryCodes': ['CN'],
+      'currency': 'CNY',
+      'currencyExponent': 2,
+    },
+    'payments': <Object?>[],
+    'maintenance': {'readOnly': false},
+  };
   @override
   Future<Map<String, Object?>> loadShopHome() async => {
     'banners': [],
@@ -46,12 +61,51 @@ class _Controller extends Fake implements AppController {
     return {
       'id': id,
       'displayName': 'Watch details',
+      'tags': ['Health', 'W9'],
       'skus': [
-        {'id': 'uuid-sku', 'specification': 'Black', 'salePriceCents': 1200},
+        {
+          'id': 'uuid-sku',
+          'specification': 'Black',
+          'salePriceCents': 1200,
+          'marketPriceCents': 1599,
+          'stock': 5,
+        },
       ],
       'detailHtml':
           '<p>Real product description</p><script>do not display</script>',
+      'reviews': [
+        {
+          'id': 'review-id',
+          'rating': 5,
+          'content': 'Comfortable all day.',
+          'user': {'nickname': 'Alex'},
+        },
+      ],
     };
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> loadGlobalShopFavorites() async => [];
+
+  @override
+  Future<void> setGlobalShopFavorite(String productId, bool enabled) async {
+    favoriteUpdates.add(enabled);
+  }
+
+  @override
+  Future<Map<String, Object?>> updateGlobalShopCartItem({
+    required String skuId,
+    required int quantity,
+    bool selected = true,
+    String mode = 'set',
+  }) async {
+    cartUpdates.add({
+      'skuId': skuId,
+      'quantity': quantity,
+      'selected': selected,
+      'mode': mode,
+    });
+    return {'items': <Object?>[]};
   }
 }
 
@@ -82,7 +136,8 @@ void main() {
       await _pump(tester, ShopHomePage(controller: controller));
       expect(find.byKey(const Key('global-shop-page')), findsOneWidget);
       expect(find.text('Catalog watch'), findsOneWidget);
-      expect(find.text('Price to be confirmed'), findsOneWidget);
+      expect(find.text('Price to be confirmed'), findsNothing);
+      expect(find.textContaining('12.00'), findsOneWidget);
       expect(find.textContaining('¥'), findsNothing);
       expect(find.text('Buy now'), findsNothing);
       await tester.tap(find.text('Catalog watch'));
@@ -90,8 +145,28 @@ void main() {
       expect(controller.productRequests, ['uuid-watch']);
       expect(find.text('Watch details'), findsOneWidget);
       expect(find.text('Black'), findsOneWidget);
+      expect(find.text('5 in stock'), findsOneWidget);
+      expect(find.textContaining('15.99'), findsOneWidget);
+      expect(find.byTooltip('Share product'), findsOneWidget);
       expect(find.text('Real product description'), findsOneWidget);
       expect(find.text('do not display'), findsNothing);
+      expect(find.text('Buy now'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Customer reviews'),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('Comfortable all day.'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('global-product-add-cart')));
+      await tester.pumpAndSettle();
+      expect(controller.cartUpdates, [
+        {
+          'skuId': 'uuid-sku',
+          'quantity': 1,
+          'selected': true,
+          'mode': 'increment',
+        },
+      ]);
       await tester.pageBack();
       await tester.pumpAndSettle();
       expect(find.text('Catalog watch'), findsOneWidget);
@@ -213,9 +288,26 @@ void main() {
         addTearDown(() => tester.binding.setSurfaceSize(null));
         final controller = _Controller();
         await _pump(tester, ShopHomePage(controller: controller), scale: scale);
+        final catalogException = tester.takeException();
+        if (catalogException is FlutterError) {
+          fail('Catalog: ${catalogException.toStringDeep()}');
+        }
         await tester.tap(find.text('Catalog watch'));
         await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull);
+        final exception = tester.takeException();
+        if (exception is FlutterError) {
+          for (final element
+              in find
+                  .byWidgetPredicate((widget) => widget is Flex)
+                  .evaluate()) {
+            final render = element.renderObject;
+            if (render?.toString().contains('OVERFLOWING') == true) {
+              fail('${exception.toStringDeep()}\n${element.toStringDeep()}');
+            }
+          }
+          fail(exception.toStringDeep());
+        }
+        expect(exception, isNull);
       });
     }
   }

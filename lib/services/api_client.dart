@@ -1882,6 +1882,22 @@ class SaydianApiClient
     ),
   );
 
+  Future<http.Response> _authorizedPatchJson(
+    String path,
+    Map<String, Object?> body,
+  ) => _withAuthorizationRetry(
+    (session) => _performRequest(
+      () => _client.patch(
+        _uri(path),
+        headers: {
+          ..._authorizationHeaders(session),
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(body),
+      ),
+    ),
+  );
+
   Future<http.Response> _authorizedDelete(String path) =>
       _withAuthorizationRetry(
         (session) => _performRequest(
@@ -2094,7 +2110,7 @@ class SaydianApiClient
       throw ApiException(
         '${payload['message'] ?? '请求失败'}',
         statusCode: businessStatus,
-        code: rawCode,
+        code: payload['errorKey'] ?? rawCode,
       );
     }
     if (payload.containsKey('code') && code == null) {

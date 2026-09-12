@@ -590,7 +590,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get globalShopPricePending => 'Price to be confirmed';
 
   @override
-  String get globalShopLoadMore => 'Load more products';
+  String get globalShopLoadMore => 'Load more';
 
   @override
   String get globalShopReadOnly =>
@@ -1671,5 +1671,347 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String versionBuild(String version, int build) {
     return 'V$version · Build $build';
+  }
+
+  @override
+  String get globalShopBrowseNotice =>
+      'You can continue browsing. Ordering opens only when delivery and payment are available for your market.';
+
+  @override
+  String get shopAccount => 'Shop account';
+
+  @override
+  String get addToCart => 'Add to cart';
+
+  @override
+  String get addedToCart => 'Added to cart';
+
+  @override
+  String get quantity => 'Quantity';
+
+  @override
+  String get inStock => 'In stock';
+
+  @override
+  String get outOfStock => 'Out of stock or unavailable';
+
+  @override
+  String get favorites => 'Favorites';
+
+  @override
+  String get coupons => 'Coupons';
+
+  @override
+  String get points => 'Points';
+
+  @override
+  String get helpCenter => 'Help center';
+
+  @override
+  String get chooseDeliveryAddress => 'Choose a delivery address';
+
+  @override
+  String get editAddress => 'Edit address';
+
+  @override
+  String get delete => 'Delete';
+
+  @override
+  String get deleteAddressPrompt => 'Delete this address?';
+
+  @override
+  String get postalCode => 'Postal code';
+
+  @override
+  String get itemsSubtotal => 'Items subtotal';
+
+  @override
+  String get discount => 'Discount';
+
+  @override
+  String get shippingFee => 'Shipping';
+
+  @override
+  String get amountDue => 'Amount due';
+
+  @override
+  String get placeOrder => 'Place order';
+
+  @override
+  String get orderPlaced => 'Order placed';
+
+  @override
+  String get orderSubmissionUncertain =>
+      'The order result is not confirmed. Check My orders before trying again.';
+
+  @override
+  String get availableCoupons => 'Available coupons';
+
+  @override
+  String get ownedCoupons => 'My coupons';
+
+  @override
+  String get couponCode => 'Coupon code';
+
+  @override
+  String get redeem => 'Redeem';
+
+  @override
+  String get claim => 'Claim';
+
+  @override
+  String get claimed => 'Claimed';
+
+  @override
+  String get pointsBalance => 'Points balance';
+
+  @override
+  String get pointsUnavailable => 'Balance not available yet';
+
+  @override
+  String get marketUnavailable =>
+      'Ordering is not available for the selected delivery market yet.';
+
+  @override
+  String get paymentUnavailable =>
+      'Payment is not available in the app right now. Your cart and existing orders remain available.';
+
+  @override
+  String get orderNumber => 'Order';
+
+  @override
+  String get orderDate => 'Created';
+
+  @override
+  String get cancelOrder => 'Cancel order';
+
+  @override
+  String get cancelOrderPrompt => 'Cancel this unpaid order?';
+
+  @override
+  String get refundOnly => 'Refund only';
+
+  @override
+  String get returnRefund => 'Return and refund';
+
+  @override
+  String get exchange => 'Exchange';
+
+  @override
+  String get submitRequest => 'Submit request';
+
+  @override
+  String get requestSubmitted => 'Request submitted';
+
+  @override
+  String get writeReview => 'Write a review';
+
+  @override
+  String get submitReview => 'Submit review';
+
+  @override
+  String get defaultVariant => 'Default option';
+
+  @override
+  String selectedItems(int count) {
+    return '$count selected';
+  }
+
+  @override
+  String get signInToShopHint =>
+      'Sign in to manage your cart, addresses and orders.';
+
+  @override
+  String get checkoutPriceChanged =>
+      'The order total changed. Review the refreshed amount before continuing.';
+
+  @override
+  String get shopHelpIntro =>
+      'Order, delivery and after-sales options follow the services available for your market.';
+
+  @override
+  String get shopHelpOrdering => 'Why can’t I place an order?';
+
+  @override
+  String get shopHelpOrderingAnswer =>
+      'Ordering is enabled only after delivery and market services are available. You can keep products in your cart and try again later.';
+
+  @override
+  String get shopHelpPayment => 'How is payment confirmed?';
+
+  @override
+  String get shopHelpPaymentAnswer =>
+      'An order is marked paid only after the payment provider confirms it. Do not place another order while confirmation is pending.';
+
+  @override
+  String get shopHelpAfterSales => 'How do I request after-sales support?';
+
+  @override
+  String get shopHelpAfterSalesAnswer =>
+      'Open an eligible order, choose Request support, review the refund amount and submit your reason.';
+
+  @override
+  String get noOrders => 'No orders yet';
+
+  @override
+  String get noFavorites => 'No favorites yet';
+
+  @override
+  String get noCoupons => 'No coupons available';
+
+  @override
+  String get selectItemsToContinue =>
+      'Select at least one available item to continue.';
+
+  @override
+  String get noCoupon => 'Do not use a coupon';
+
+  @override
+  String get pointsToUse => 'Points value to use';
+
+  @override
+  String get refreshOrderTotal => 'Refresh order total';
+
+  @override
+  String get chooseAddressForTotal =>
+      'Choose an address to get the latest order total.';
+
+  @override
+  String get requiredField => 'This field is required.';
+
+  @override
+  String get invalidInternationalPhone =>
+      'Enter a valid phone number with country code.';
+
+  @override
+  String get invalidCouponCode =>
+      'Enter a valid coupon code with 4–32 letters, numbers, hyphens or underscores.';
+
+  @override
+  String get unavailable => 'Unavailable';
+
+  @override
+  String get orderItemsUnavailable =>
+      'Order items are not available for this older order.';
+
+  @override
+  String get orderCompleted => 'Completed';
+
+  @override
+  String get orderCancelled => 'Cancelled';
+
+  @override
+  String get orderRefunded => 'Refunded';
+
+  @override
+  String get orderStatusPending => 'Processing';
+
+  @override
+  String get legacyOrderReadOnly =>
+      'This older order can be viewed here. Contact support if you need help changing it.';
+
+  @override
+  String get returnLogistics => 'Return shipping';
+
+  @override
+  String get carrier => 'Carrier';
+
+  @override
+  String get trackingNumber => 'Tracking number';
+
+  @override
+  String get noShippingUpdates => 'No shipping updates yet';
+
+  @override
+  String get waitingForReturn => 'Waiting for return';
+
+  @override
+  String get requestRejected => 'Request declined';
+
+  @override
+  String get requestProcessing => 'Request processing';
+
+  @override
+  String get afterSalesUnavailable =>
+      'No item in this order is eligible for after-sales support.';
+
+  @override
+  String get previewRequest => 'Review request amount';
+
+  @override
+  String get problemPhotos => 'Problem photos';
+
+  @override
+  String get afterSalePhotoHint =>
+      'Optional. Up to 9 JPG, PNG or WebP images, 10 MB each.';
+
+  @override
+  String get addProblemPhotos => 'Add photos';
+
+  @override
+  String get chooseFromGallery => 'Choose from gallery';
+
+  @override
+  String get takePhoto => 'Take a photo';
+
+  @override
+  String get photoUploading => 'Uploading…';
+
+  @override
+  String get photoUploaded => 'Uploaded';
+
+  @override
+  String get photoUploadFailed =>
+      'Upload failed. Try again or remove this photo.';
+
+  @override
+  String get photoServiceUnavailable =>
+      'Photos cannot be added right now. You can still submit a written description.';
+
+  @override
+  String get removePhoto => 'Remove photo';
+
+  @override
+  String get photoTooLarge => 'Each photo must be no larger than 10 MB.';
+
+  @override
+  String get photoFormatUnsupported => 'Choose a JPG, PNG or WebP image.';
+
+  @override
+  String get photoReadFailed =>
+      'The photo could not be loaded. Please try again.';
+
+  @override
+  String get afterSaleSubmissionUncertain =>
+      'The request result is not confirmed. Check the order status or retry the same request.';
+
+  @override
+  String get requestDetails => 'Request details';
+
+  @override
+  String get afterSaleItems => 'Items in this request';
+
+  @override
+  String get afterSaleItemsUnavailable =>
+      'Item details are not available for this request.';
+
+  @override
+  String get refundProgress => 'Refund progress';
+
+  @override
+  String get refundResultPending => 'The refund result is being confirmed.';
+
+  @override
+  String get afterSaleItem => 'After-sales item';
+
+  @override
+  String get shareProduct => 'Share product';
+
+  @override
+  String get customerReviews => 'Customer reviews';
+
+  @override
+  String stockCount(int count) {
+    return '$count in stock';
   }
 }

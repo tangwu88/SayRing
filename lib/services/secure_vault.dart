@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:crypto/crypto.dart';
 import 'package:uuid/uuid.dart';
 
 import '../domain/models.dart';
@@ -23,6 +24,16 @@ abstract interface class SessionVault {
   Future<void> clearPendingPushUnregisterInstallationId();
   Future<bool> readLegacyHealthMigrationHandled();
   Future<void> writeLegacyHealthMigrationHandled();
+  Future<Map<String, Object?>?> readGlobalCommerceDraft(
+    String owner,
+    String key,
+  );
+  Future<void> writeGlobalCommerceDraft(
+    String owner,
+    String key,
+    Map<String, Object?> value,
+  );
+  Future<void> clearGlobalCommerceDraft(String owner, String key);
   Future<String> databaseKey();
 }
 
@@ -49,6 +60,11 @@ class SecureSessionVault implements SessionVault {
       '$_prefix.push.pending-unregister-installation.v1';
   String get _legacyHealthMigrationHandledKey =>
       '$_prefix.health.legacy-migration-handled.v1';
+
+  String _globalCommerceDraftKey(String owner, String key) {
+    final digest = sha256.convert(utf8.encode('$owner\u0000$key'));
+    return '$_prefix.commerce-draft.v1.$digest';
+  }
 
   final FlutterSecureStorage _storage;
   Future<void> _sessionMutationQueue = Future<void>.value();
@@ -181,6 +197,39 @@ class SecureSessionVault implements SessionVault {
       _storage.write(key: _legacyHealthMigrationHandledKey, value: 'handled');
 
   @override
+  Future<Map<String, Object?>?> readGlobalCommerceDraft(
+    String owner,
+    String key,
+  ) async {
+    final raw = await _storage.read(
+      key: _globalCommerceDraftKey(owner.trim(), key.trim()),
+    );
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final value = jsonDecode(raw);
+      if (value is! Map) return null;
+      return value.map((key, value) => MapEntry('$key', value));
+    } on FormatException {
+      await clearGlobalCommerceDraft(owner, key);
+      return null;
+    }
+  }
+
+  @override
+  Future<void> writeGlobalCommerceDraft(
+    String owner,
+    String key,
+    Map<String, Object?> value,
+  ) => _storage.write(
+    key: _globalCommerceDraftKey(owner.trim(), key.trim()),
+    value: jsonEncode(value),
+  );
+
+  @override
+  Future<void> clearGlobalCommerceDraft(String owner, String key) =>
+      _storage.delete(key: _globalCommerceDraftKey(owner.trim(), key.trim()));
+
+  @override
   Future<String> databaseKey() async {
     final existing = await _storage.read(key: _databaseKey);
     if (existing != null && existing.length >= 24) return existing;
@@ -198,6 +247,9 @@ class MemorySessionVault implements SessionVault {
   String? pendingPushUnregisterInstallationId;
   bool privacyConsentGranted = false;
   bool legacyHealthMigrationHandled = false;
+  final Map<String, Map<String, Object?>> globalCommerceDrafts = {};
+
+  String _commerceDraftKey(String owner, String key) => '$owner\u0000$key';
 
   @override
   Future<void> clearSession() async => session = null;
@@ -263,6 +315,30 @@ class MemorySessionVault implements SessionVault {
   @override
   Future<void> writeLegacyHealthMigrationHandled() async =>
       legacyHealthMigrationHandled = true;
+
+  @override
+  Future<Map<String, Object?>?> readGlobalCommerceDraft(
+    String owner,
+    String key,
+  ) async {
+    final value = globalCommerceDrafts[_commerceDraftKey(owner, key)];
+    return value == null ? null : Map<String, Object?>.from(value);
+  }
+
+  @override
+  Future<void> writeGlobalCommerceDraft(
+    String owner,
+    String key,
+    Map<String, Object?> value,
+  ) async {
+    globalCommerceDrafts[_commerceDraftKey(owner, key)] =
+        Map<String, Object?>.from(value);
+  }
+
+  @override
+  Future<void> clearGlobalCommerceDraft(String owner, String key) async {
+    globalCommerceDrafts.remove(_commerceDraftKey(owner, key));
+  }
 }
 
 bool _sameSession(Session? left, Session right) =>

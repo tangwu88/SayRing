@@ -23,6 +23,20 @@ const _allowedMedia = {
 class _ShopMediaController extends Fake implements AppController {
   @override
   bool get isGlobalEdition => true;
+  @override
+  bool get isAuthenticated => false;
+
+  @override
+  Future<Map<String, Object?>> loadGlobalCommerceCapabilities() async => {
+    'checkout': {
+      'enabled': false,
+      'countryCodes': ['CN'],
+      'currency': 'CNY',
+      'currencyExponent': 2,
+    },
+    'payments': <Object?>[],
+    'maintenance': {'readOnly': false},
+  };
 
   @override
   Future<Map<String, Object?>> loadShopHome() async => {

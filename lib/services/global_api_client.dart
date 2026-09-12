@@ -48,15 +48,86 @@ abstract interface class GlobalContentApi {
   Future<Map<String, Object?>> getGlobalArticle(String id);
 }
 
-/// Read-only international catalog. Product identifiers remain opaque strings;
-/// amounts are returned with their original server currency metadata.
+/// International commerce contract. Product, cart, address and order IDs stay
+/// opaque strings; amounts retain the server-provided currency metadata.
 abstract interface class GlobalCommerceApi {
+  Future<Map<String, Object?>> getGlobalCommerceCapabilities();
   Future<Map<String, Object?>> getGlobalShopProducts({
     String? keyword,
     String? categoryId,
     int page = 1,
   });
   Future<Map<String, Object?>> getGlobalShopProduct(String id);
+  Future<Map<String, Object?>> getGlobalShopCart();
+  Future<Map<String, Object?>> putGlobalShopCartItem({
+    required String skuId,
+    required int quantity,
+    bool selected = true,
+    String mode = 'set',
+  });
+  Future<Map<String, Object?>> deleteGlobalShopCartItem(String id);
+  Future<List<Map<String, Object?>>> getGlobalShopAddresses();
+  Future<Map<String, Object?>> getGlobalShopAddress(String id);
+  Future<Map<String, Object?>> saveGlobalShopAddress(
+    Map<String, Object?> address, {
+    String? id,
+  });
+  Future<void> deleteGlobalShopAddress(String id);
+  Future<Map<String, Object?>> previewGlobalShopOrder({
+    required String addressId,
+    required List<Map<String, Object?>> items,
+    String? couponClaimId,
+    int pointCents = 0,
+    String buyerRemark = '',
+  });
+  Future<Map<String, Object?>> createGlobalShopOrder({
+    required String addressId,
+    required List<Map<String, Object?>> items,
+    required String expectedQuote,
+    required String idempotencyKey,
+    String? couponClaimId,
+    int pointCents = 0,
+    String buyerRemark = '',
+  });
+  Future<List<Map<String, Object?>>> getGlobalShopOrders({
+    String? status,
+    String? group,
+  });
+  Future<Map<String, Object?>> getGlobalShopOrder(String id);
+  Future<void> cancelGlobalShopOrder(String id);
+  Future<void> confirmGlobalShopOrderReceipt(String id);
+  Future<List<Map<String, Object?>>> getGlobalShopOrderLogistics(String id);
+  Future<Map<String, Object?>> previewGlobalShopAfterSale({
+    required String orderId,
+    required Map<String, Object?> input,
+  });
+  Future<Map<String, Object?>> createGlobalShopAfterSale({
+    required String orderId,
+    required Map<String, Object?> input,
+  });
+  Future<Map<String, Object?>> getGlobalShopEvidenceCapabilities();
+  Future<Map<String, Object?>> uploadGlobalShopEvidence(
+    String filePath, {
+    void Function(double progress)? onProgress,
+  });
+  Future<Uint8List> loadGlobalShopEvidence(String id);
+  Future<Map<String, Object?>> submitGlobalShopReturnLogistics({
+    required String orderId,
+    required String saleId,
+    required Map<String, Object?> input,
+  });
+  Future<List<Map<String, Object?>>> getGlobalShopFavorites();
+  Future<void> setGlobalShopFavorite(String productId, bool enabled);
+  Future<List<Map<String, Object?>>> getGlobalShopCoupons();
+  Future<Map<String, Object?>> getGlobalShopAvailableCoupons({int page = 1});
+  Future<Map<String, Object?>> claimGlobalShopCoupon(String id);
+  Future<Map<String, Object?>> claimGlobalShopCouponCode(String code);
+  Future<Map<String, Object?>> getGlobalShopPoints({int page = 1});
+  Future<Map<String, Object?>> createGlobalShopReview({
+    required String orderItemId,
+    required int rating,
+    required String content,
+  });
 }
 
 /// International transport. Only the deployed App V2 route family is accepted;
@@ -657,6 +728,19 @@ class GlobalSaydianApiClient extends SaydianApiClient
   Future<Map<String, Object?>> getShopHome() => _globalPublic('commerce/home');
 
   @override
+  Future<Map<String, Object?>> getGlobalCommerceCapabilities() async {
+    final response = await _performRequest(
+      () => _client.get(
+        _uri('/api/saydian-app/v2/commerce/capabilities', {
+          'locale': _locale(),
+        }),
+        headers: {'Accept-Language': _locale()},
+      ),
+    );
+    return _data(_decode(response));
+  }
+
+  @override
   Future<Map<String, Object?>> getGlobalShopProducts({
     String? keyword,
     String? categoryId,
@@ -691,6 +775,455 @@ class GlobalSaydianApiClient extends SaydianApiClient
       return Future.error(const ApiException('Choose a product first.'));
     }
     return _globalPublic('commerce/products/${Uri.encodeComponent(id)}');
+  }
+
+  String _globalCommercePath(String route) =>
+      '/api/saydian-app/v2/commerce/$route';
+
+  Map<String, Object?> _globalOrderInput({
+    required String addressId,
+    required List<Map<String, Object?>> items,
+    String? couponClaimId,
+    int pointCents = 0,
+    String buyerRemark = '',
+    String? expectedQuote,
+  }) => {
+    'addressId': addressId,
+    'items': items,
+    'pointCents': pointCents,
+    if (couponClaimId?.trim().isNotEmpty == true)
+      'couponClaimId': couponClaimId!.trim(),
+    if (buyerRemark.trim().isNotEmpty) 'buyerRemark': buyerRemark.trim(),
+    'expectedQuote': ?expectedQuote,
+  };
+
+  Future<Map<String, Object?>> _globalCommerceMap(
+    String method,
+    String route, {
+    Map<String, String>? query,
+    Map<String, Object?> body = const {},
+    Map<String, String> headers = const {},
+  }) async {
+    final path = _globalCommercePath(route);
+    final response = switch (method) {
+      'GET' => await _authorizedGet(path, query),
+      'POST' => await _authorizedPostJson(path, body, headers: headers),
+      'PUT' => await _authorizedPutJson(path, body),
+      'PATCH' => await _authorizedPatchJson(path, body),
+      'DELETE' => await _authorizedDelete(path),
+      _ => throw const ApiException('This action is not available.'),
+    };
+    return _data(_decode(response));
+  }
+
+  Future<List<Map<String, Object?>>> _globalCommerceList(
+    String route, {
+    Map<String, String>? query,
+  }) async =>
+      _list(_decode(await _authorizedGet(_globalCommercePath(route), query)));
+
+  String _requiredGlobalId(String value, String message) {
+    final normalized = value.trim();
+    if (normalized.isEmpty || normalized.length > 180) {
+      throw ApiException(message);
+    }
+    return normalized;
+  }
+
+  @override
+  Future<Map<String, Object?>> getGlobalShopCart() =>
+      _globalCommerceMap('GET', 'cart');
+
+  @override
+  Future<Map<String, Object?>> putGlobalShopCartItem({
+    required String skuId,
+    required int quantity,
+    bool selected = true,
+    String mode = 'set',
+  }) {
+    final id = _requiredGlobalId(skuId, 'Choose an option first.');
+    if (quantity < 1 ||
+        quantity > 999 ||
+        !{'set', 'increment'}.contains(mode)) {
+      return Future.error(const ApiException('Choose a valid quantity.'));
+    }
+    return _globalCommerceMap(
+      'POST',
+      'cart/items',
+      body: {
+        'skuId': id,
+        'quantity': quantity,
+        'selected': selected,
+        'mode': mode,
+      },
+    );
+  }
+
+  @override
+  Future<Map<String, Object?>> deleteGlobalShopCartItem(
+    String id,
+  ) => _globalCommerceMap(
+    'DELETE',
+    'cart/items/${Uri.encodeComponent(_requiredGlobalId(id, 'Choose a cart item first.'))}',
+  );
+
+  @override
+  Future<List<Map<String, Object?>>> getGlobalShopAddresses() =>
+      _globalCommerceList('addresses');
+
+  @override
+  Future<Map<String, Object?>> getGlobalShopAddress(
+    String id,
+  ) => _globalCommerceMap(
+    'GET',
+    'addresses/${Uri.encodeComponent(_requiredGlobalId(id, 'Choose an address first.'))}',
+  );
+
+  @override
+  Future<Map<String, Object?>> saveGlobalShopAddress(
+    Map<String, Object?> address, {
+    String? id,
+  }) => id?.trim().isNotEmpty == true
+      ? _globalCommerceMap(
+          'PATCH',
+          'addresses/${Uri.encodeComponent(_requiredGlobalId(id!, 'Choose an address first.'))}',
+          body: address,
+        )
+      : _globalCommerceMap('POST', 'addresses', body: address);
+
+  @override
+  Future<void> deleteGlobalShopAddress(String id) async {
+    await _globalCommerceMap(
+      'DELETE',
+      'addresses/${Uri.encodeComponent(_requiredGlobalId(id, 'Choose an address first.'))}',
+    );
+  }
+
+  @override
+  Future<Map<String, Object?>> previewGlobalShopOrder({
+    required String addressId,
+    required List<Map<String, Object?>> items,
+    String? couponClaimId,
+    int pointCents = 0,
+    String buyerRemark = '',
+  }) => _globalCommerceMap(
+    'POST',
+    'orders/preview',
+    body: _globalOrderInput(
+      addressId: _requiredGlobalId(addressId, 'Choose a delivery address.'),
+      items: items,
+      couponClaimId: couponClaimId,
+      pointCents: pointCents,
+      buyerRemark: buyerRemark,
+    ),
+  );
+
+  @override
+  Future<Map<String, Object?>> createGlobalShopOrder({
+    required String addressId,
+    required List<Map<String, Object?>> items,
+    required String expectedQuote,
+    required String idempotencyKey,
+    String? couponClaimId,
+    int pointCents = 0,
+    String buyerRemark = '',
+  }) {
+    final quote = expectedQuote.trim();
+    final key = idempotencyKey.trim();
+    if (!RegExp(r'^q1:[a-f0-9]{64}$').hasMatch(quote)) {
+      return Future.error(
+        const ApiException('Refresh the order total before placing the order.'),
+      );
+    }
+    if (!RegExp(r'^[A-Za-z0-9_-]{8,128}$').hasMatch(key)) {
+      return Future.error(
+        const ApiException('Please try placing the order again.'),
+      );
+    }
+    return _globalCommerceMap(
+      'POST',
+      'orders',
+      headers: {'Idempotency-Key': key},
+      body: _globalOrderInput(
+        addressId: _requiredGlobalId(addressId, 'Choose a delivery address.'),
+        items: items,
+        couponClaimId: couponClaimId,
+        pointCents: pointCents,
+        buyerRemark: buyerRemark,
+        expectedQuote: quote,
+      ),
+    );
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> getGlobalShopOrders({
+    String? status,
+    String? group,
+  }) => _globalCommerceList(
+    'orders',
+    query: {
+      if (status?.trim().isNotEmpty == true) 'status': status!.trim(),
+      if (group?.trim().isNotEmpty == true) 'group': group!.trim(),
+    },
+  );
+
+  @override
+  Future<Map<String, Object?>> getGlobalShopOrder(
+    String id,
+  ) => _globalCommerceMap(
+    'GET',
+    'orders/${Uri.encodeComponent(_requiredGlobalId(id, 'Choose an order first.'))}',
+  );
+
+  @override
+  Future<void> cancelGlobalShopOrder(String id) async {
+    await _globalCommerceMap(
+      'POST',
+      'orders/${Uri.encodeComponent(_requiredGlobalId(id, 'Choose an order first.'))}/cancel',
+    );
+  }
+
+  @override
+  Future<void> confirmGlobalShopOrderReceipt(String id) async {
+    await _globalCommerceMap(
+      'POST',
+      'orders/${Uri.encodeComponent(_requiredGlobalId(id, 'Choose an order first.'))}/receipt',
+    );
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> getGlobalShopOrderLogistics(
+    String id,
+  ) => _globalCommerceList(
+    'orders/${Uri.encodeComponent(_requiredGlobalId(id, 'Choose an order first.'))}/logistics',
+  );
+
+  @override
+  Future<Map<String, Object?>> previewGlobalShopAfterSale({
+    required String orderId,
+    required Map<String, Object?> input,
+  }) => _globalCommerceMap(
+    'POST',
+    'orders/${Uri.encodeComponent(_requiredGlobalId(orderId, 'Choose an order first.'))}/after-sales/preview',
+    body: input,
+  );
+
+  @override
+  Future<Map<String, Object?>> createGlobalShopAfterSale({
+    required String orderId,
+    required Map<String, Object?> input,
+  }) => _globalCommerceMap(
+    'POST',
+    'orders/${Uri.encodeComponent(_requiredGlobalId(orderId, 'Choose an order first.'))}/after-sales',
+    body: input,
+  );
+
+  static const _globalEvidenceContentTypes = <String>{
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+  };
+
+  String _requiredGlobalEvidenceId(String value) {
+    final normalized = value.trim().toLowerCase();
+    if (!RegExp(
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+    ).hasMatch(normalized)) {
+      throw const ApiException('This photo is not available.');
+    }
+    return normalized;
+  }
+
+  @override
+  Future<Map<String, Object?>> getGlobalShopEvidenceCapabilities() =>
+      _globalCommerceMap('GET', 'after-sale-images/capabilities');
+
+  @override
+  Future<Map<String, Object?>> uploadGlobalShopEvidence(
+    String filePath, {
+    void Function(double progress)? onProgress,
+  }) async {
+    final normalized = filePath.trim();
+    final extension = normalized.toLowerCase().split('.').last;
+    final subtype = switch (extension) {
+      'jpg' || 'jpeg' => 'jpeg',
+      'png' => 'png',
+      'webp' => 'webp',
+      _ => null,
+    };
+    if (normalized.isEmpty || subtype == null) {
+      throw const ApiException('Choose a JPG, PNG or WebP image.');
+    }
+    final response = await _withAuthorizationRetry((session) async {
+      final multipart = http.MultipartRequest(
+        'POST',
+        _uri(_globalCommercePath('after-sale-images')),
+      )..headers.addAll(_authorizationHeaders(session));
+      multipart.files.add(
+        await http.MultipartFile.fromPath(
+          'file',
+          normalized,
+          contentType: http_parser.MediaType('image', subtype),
+        ),
+      );
+      final length = multipart.contentLength;
+      final body = multipart.finalize();
+      final streamed = http.StreamedRequest('POST', multipart.url)
+        ..headers.addAll(multipart.headers)
+        ..contentLength = length;
+      final responseFuture = _performRequest(() => _client.send(streamed));
+      var sent = 0;
+      try {
+        await for (final chunk in body) {
+          streamed.sink.add(chunk);
+          sent += chunk.length;
+          onProgress?.call(length <= 0 ? 0 : sent / length);
+        }
+      } finally {
+        await streamed.sink.close();
+      }
+      return _performRequest(
+        () async => http.Response.fromStream(await responseFuture),
+      );
+    });
+    final data = _data(_decode(response));
+    final id = _requiredGlobalEvidenceId('${data['id'] ?? ''}');
+    final byteSize = data['byteSize'];
+    final contentType = '${data['contentType'] ?? ''}'.toLowerCase();
+    final digest = '${data['sha256'] ?? ''}'.toLowerCase();
+    if (byteSize is! int ||
+        byteSize <= 0 ||
+        byteSize > 10 * 1024 * 1024 ||
+        !_globalEvidenceContentTypes.contains(contentType) ||
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(digest)) {
+      throw const ApiException('The photo upload could not be confirmed.');
+    }
+    onProgress?.call(1);
+    return {
+      'id': id,
+      'byteSize': byteSize,
+      'contentType': contentType,
+      'sha256': digest,
+    };
+  }
+
+  @override
+  Future<Uint8List> loadGlobalShopEvidence(String id) async {
+    final response = await _authorizedGet(
+      _globalCommercePath(
+        'after-sale-images/${Uri.encodeComponent(_requiredGlobalEvidenceId(id))}',
+      ),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      _decode(response);
+    }
+    final contentType = (response.headers['content-type'] ?? '')
+        .split(';')
+        .first
+        .trim()
+        .toLowerCase();
+    if (!_globalEvidenceContentTypes.contains(contentType) ||
+        response.bodyBytes.isEmpty ||
+        response.bodyBytes.length > 10 * 1024 * 1024) {
+      throw const ApiException('This photo could not be loaded.');
+    }
+    return Uint8List.fromList(response.bodyBytes);
+  }
+
+  @override
+  Future<Map<String, Object?>> submitGlobalShopReturnLogistics({
+    required String orderId,
+    required String saleId,
+    required Map<String, Object?> input,
+  }) => _globalCommerceMap(
+    'POST',
+    'orders/${Uri.encodeComponent(_requiredGlobalId(orderId, 'Choose an order first.'))}/after-sales/${Uri.encodeComponent(_requiredGlobalId(saleId, 'Choose an after-sales request first.'))}/return-logistics',
+    body: input,
+  );
+
+  @override
+  Future<List<Map<String, Object?>>> getGlobalShopFavorites() =>
+      _globalCommerceList('favorites');
+
+  @override
+  Future<void> setGlobalShopFavorite(String productId, bool enabled) async {
+    await _globalCommerceMap(
+      'PUT',
+      'products/${Uri.encodeComponent(_requiredGlobalId(productId, 'Choose a product first.'))}/favorite',
+      body: {'enabled': enabled},
+    );
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> getGlobalShopCoupons() =>
+      _globalCommerceList('coupons');
+
+  @override
+  Future<Map<String, Object?>> getGlobalShopAvailableCoupons({int page = 1}) {
+    if (page < 1) {
+      return Future.error(const ApiException('Choose a valid page.'));
+    }
+    return _globalCommerceMap(
+      'GET',
+      'coupons/available',
+      query: {'page': '$page'},
+    );
+  }
+
+  @override
+  Future<Map<String, Object?>> claimGlobalShopCoupon(
+    String id,
+  ) => _globalCommerceMap(
+    'POST',
+    'coupons/${Uri.encodeComponent(_requiredGlobalId(id, 'Choose a coupon first.'))}/claim',
+  );
+
+  @override
+  Future<Map<String, Object?>> claimGlobalShopCouponCode(String code) {
+    final normalized = code.trim().toUpperCase();
+    if (!RegExp(r'^[A-Z0-9_-]{4,32}$').hasMatch(normalized)) {
+      return Future.error(
+        const ApiException('Enter a valid coupon code with 4–32 characters.'),
+      );
+    }
+    return _globalCommerceMap(
+      'POST',
+      'coupons/code/claim',
+      body: {'code': normalized},
+    );
+  }
+
+  @override
+  Future<Map<String, Object?>> getGlobalShopPoints({int page = 1}) {
+    if (page < 1) {
+      return Future.error(const ApiException('Choose a valid page.'));
+    }
+    return _globalCommerceMap('GET', 'points', query: {'page': '$page'});
+  }
+
+  @override
+  Future<Map<String, Object?>> createGlobalShopReview({
+    required String orderItemId,
+    required int rating,
+    required String content,
+  }) {
+    final text = content.trim();
+    if (rating < 1 || rating > 5 || text.isEmpty || text.length > 1000) {
+      return Future.error(const ApiException('Check your rating and review.'));
+    }
+    return _globalCommerceMap(
+      'POST',
+      'reviews',
+      body: {
+        'orderItemId': _requiredGlobalId(
+          orderItemId,
+          'Choose an order item first.',
+        ),
+        'rating': rating,
+        'content': text,
+        'images': const <String>[],
+      },
+    );
   }
 
   // These inherited UI contracts contain integer IDs, domestic address fields

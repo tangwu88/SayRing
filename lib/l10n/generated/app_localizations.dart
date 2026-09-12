@@ -1109,7 +1109,7 @@ abstract class AppLocalizations {
   /// No description provided for @globalShopLoadMore.
   ///
   /// In en, this message translates to:
-  /// **'Load more products'**
+  /// **'Load more'**
   String get globalShopLoadMore;
 
   /// No description provided for @globalShopReadOnly.
@@ -3163,6 +3163,636 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'V{version} · Build {build}'**
   String versionBuild(String version, int build);
+
+  /// No description provided for @globalShopBrowseNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'You can continue browsing. Ordering opens only when delivery and payment are available for your market.'**
+  String get globalShopBrowseNotice;
+
+  /// No description provided for @shopAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Shop account'**
+  String get shopAccount;
+
+  /// No description provided for @addToCart.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to cart'**
+  String get addToCart;
+
+  /// No description provided for @addedToCart.
+  ///
+  /// In en, this message translates to:
+  /// **'Added to cart'**
+  String get addedToCart;
+
+  /// No description provided for @quantity.
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity'**
+  String get quantity;
+
+  /// No description provided for @inStock.
+  ///
+  /// In en, this message translates to:
+  /// **'In stock'**
+  String get inStock;
+
+  /// No description provided for @outOfStock.
+  ///
+  /// In en, this message translates to:
+  /// **'Out of stock or unavailable'**
+  String get outOfStock;
+
+  /// No description provided for @favorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorites'**
+  String get favorites;
+
+  /// No description provided for @coupons.
+  ///
+  /// In en, this message translates to:
+  /// **'Coupons'**
+  String get coupons;
+
+  /// No description provided for @points.
+  ///
+  /// In en, this message translates to:
+  /// **'Points'**
+  String get points;
+
+  /// No description provided for @helpCenter.
+  ///
+  /// In en, this message translates to:
+  /// **'Help center'**
+  String get helpCenter;
+
+  /// No description provided for @chooseDeliveryAddress.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a delivery address'**
+  String get chooseDeliveryAddress;
+
+  /// No description provided for @editAddress.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit address'**
+  String get editAddress;
+
+  /// No description provided for @delete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get delete;
+
+  /// No description provided for @deleteAddressPrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this address?'**
+  String get deleteAddressPrompt;
+
+  /// No description provided for @postalCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Postal code'**
+  String get postalCode;
+
+  /// No description provided for @itemsSubtotal.
+  ///
+  /// In en, this message translates to:
+  /// **'Items subtotal'**
+  String get itemsSubtotal;
+
+  /// No description provided for @discount.
+  ///
+  /// In en, this message translates to:
+  /// **'Discount'**
+  String get discount;
+
+  /// No description provided for @shippingFee.
+  ///
+  /// In en, this message translates to:
+  /// **'Shipping'**
+  String get shippingFee;
+
+  /// No description provided for @amountDue.
+  ///
+  /// In en, this message translates to:
+  /// **'Amount due'**
+  String get amountDue;
+
+  /// No description provided for @placeOrder.
+  ///
+  /// In en, this message translates to:
+  /// **'Place order'**
+  String get placeOrder;
+
+  /// No description provided for @orderPlaced.
+  ///
+  /// In en, this message translates to:
+  /// **'Order placed'**
+  String get orderPlaced;
+
+  /// No description provided for @orderSubmissionUncertain.
+  ///
+  /// In en, this message translates to:
+  /// **'The order result is not confirmed. Check My orders before trying again.'**
+  String get orderSubmissionUncertain;
+
+  /// No description provided for @availableCoupons.
+  ///
+  /// In en, this message translates to:
+  /// **'Available coupons'**
+  String get availableCoupons;
+
+  /// No description provided for @ownedCoupons.
+  ///
+  /// In en, this message translates to:
+  /// **'My coupons'**
+  String get ownedCoupons;
+
+  /// No description provided for @couponCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Coupon code'**
+  String get couponCode;
+
+  /// No description provided for @redeem.
+  ///
+  /// In en, this message translates to:
+  /// **'Redeem'**
+  String get redeem;
+
+  /// No description provided for @claim.
+  ///
+  /// In en, this message translates to:
+  /// **'Claim'**
+  String get claim;
+
+  /// No description provided for @claimed.
+  ///
+  /// In en, this message translates to:
+  /// **'Claimed'**
+  String get claimed;
+
+  /// No description provided for @pointsBalance.
+  ///
+  /// In en, this message translates to:
+  /// **'Points balance'**
+  String get pointsBalance;
+
+  /// No description provided for @pointsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Balance not available yet'**
+  String get pointsUnavailable;
+
+  /// No description provided for @marketUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Ordering is not available for the selected delivery market yet.'**
+  String get marketUnavailable;
+
+  /// No description provided for @paymentUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Payment is not available in the app right now. Your cart and existing orders remain available.'**
+  String get paymentUnavailable;
+
+  /// No description provided for @orderNumber.
+  ///
+  /// In en, this message translates to:
+  /// **'Order'**
+  String get orderNumber;
+
+  /// No description provided for @orderDate.
+  ///
+  /// In en, this message translates to:
+  /// **'Created'**
+  String get orderDate;
+
+  /// No description provided for @cancelOrder.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel order'**
+  String get cancelOrder;
+
+  /// No description provided for @cancelOrderPrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel this unpaid order?'**
+  String get cancelOrderPrompt;
+
+  /// No description provided for @refundOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Refund only'**
+  String get refundOnly;
+
+  /// No description provided for @returnRefund.
+  ///
+  /// In en, this message translates to:
+  /// **'Return and refund'**
+  String get returnRefund;
+
+  /// No description provided for @exchange.
+  ///
+  /// In en, this message translates to:
+  /// **'Exchange'**
+  String get exchange;
+
+  /// No description provided for @submitRequest.
+  ///
+  /// In en, this message translates to:
+  /// **'Submit request'**
+  String get submitRequest;
+
+  /// No description provided for @requestSubmitted.
+  ///
+  /// In en, this message translates to:
+  /// **'Request submitted'**
+  String get requestSubmitted;
+
+  /// No description provided for @writeReview.
+  ///
+  /// In en, this message translates to:
+  /// **'Write a review'**
+  String get writeReview;
+
+  /// No description provided for @submitReview.
+  ///
+  /// In en, this message translates to:
+  /// **'Submit review'**
+  String get submitReview;
+
+  /// No description provided for @defaultVariant.
+  ///
+  /// In en, this message translates to:
+  /// **'Default option'**
+  String get defaultVariant;
+
+  /// No description provided for @selectedItems.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} selected'**
+  String selectedItems(int count);
+
+  /// No description provided for @signInToShopHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to manage your cart, addresses and orders.'**
+  String get signInToShopHint;
+
+  /// No description provided for @checkoutPriceChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'The order total changed. Review the refreshed amount before continuing.'**
+  String get checkoutPriceChanged;
+
+  /// No description provided for @shopHelpIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Order, delivery and after-sales options follow the services available for your market.'**
+  String get shopHelpIntro;
+
+  /// No description provided for @shopHelpOrdering.
+  ///
+  /// In en, this message translates to:
+  /// **'Why can’t I place an order?'**
+  String get shopHelpOrdering;
+
+  /// No description provided for @shopHelpOrderingAnswer.
+  ///
+  /// In en, this message translates to:
+  /// **'Ordering is enabled only after delivery and market services are available. You can keep products in your cart and try again later.'**
+  String get shopHelpOrderingAnswer;
+
+  /// No description provided for @shopHelpPayment.
+  ///
+  /// In en, this message translates to:
+  /// **'How is payment confirmed?'**
+  String get shopHelpPayment;
+
+  /// No description provided for @shopHelpPaymentAnswer.
+  ///
+  /// In en, this message translates to:
+  /// **'An order is marked paid only after the payment provider confirms it. Do not place another order while confirmation is pending.'**
+  String get shopHelpPaymentAnswer;
+
+  /// No description provided for @shopHelpAfterSales.
+  ///
+  /// In en, this message translates to:
+  /// **'How do I request after-sales support?'**
+  String get shopHelpAfterSales;
+
+  /// No description provided for @shopHelpAfterSalesAnswer.
+  ///
+  /// In en, this message translates to:
+  /// **'Open an eligible order, choose Request support, review the refund amount and submit your reason.'**
+  String get shopHelpAfterSalesAnswer;
+
+  /// No description provided for @noOrders.
+  ///
+  /// In en, this message translates to:
+  /// **'No orders yet'**
+  String get noOrders;
+
+  /// No description provided for @noFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'No favorites yet'**
+  String get noFavorites;
+
+  /// No description provided for @noCoupons.
+  ///
+  /// In en, this message translates to:
+  /// **'No coupons available'**
+  String get noCoupons;
+
+  /// No description provided for @selectItemsToContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Select at least one available item to continue.'**
+  String get selectItemsToContinue;
+
+  /// No description provided for @noCoupon.
+  ///
+  /// In en, this message translates to:
+  /// **'Do not use a coupon'**
+  String get noCoupon;
+
+  /// No description provided for @pointsToUse.
+  ///
+  /// In en, this message translates to:
+  /// **'Points value to use'**
+  String get pointsToUse;
+
+  /// No description provided for @refreshOrderTotal.
+  ///
+  /// In en, this message translates to:
+  /// **'Refresh order total'**
+  String get refreshOrderTotal;
+
+  /// No description provided for @chooseAddressForTotal.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an address to get the latest order total.'**
+  String get chooseAddressForTotal;
+
+  /// No description provided for @requiredField.
+  ///
+  /// In en, this message translates to:
+  /// **'This field is required.'**
+  String get requiredField;
+
+  /// No description provided for @invalidInternationalPhone.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid phone number with country code.'**
+  String get invalidInternationalPhone;
+
+  /// No description provided for @invalidCouponCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid coupon code with 4–32 letters, numbers, hyphens or underscores.'**
+  String get invalidCouponCode;
+
+  /// No description provided for @unavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Unavailable'**
+  String get unavailable;
+
+  /// No description provided for @orderItemsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Order items are not available for this older order.'**
+  String get orderItemsUnavailable;
+
+  /// No description provided for @orderCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get orderCompleted;
+
+  /// No description provided for @orderCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get orderCancelled;
+
+  /// No description provided for @orderRefunded.
+  ///
+  /// In en, this message translates to:
+  /// **'Refunded'**
+  String get orderRefunded;
+
+  /// No description provided for @orderStatusPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Processing'**
+  String get orderStatusPending;
+
+  /// No description provided for @legacyOrderReadOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'This older order can be viewed here. Contact support if you need help changing it.'**
+  String get legacyOrderReadOnly;
+
+  /// No description provided for @returnLogistics.
+  ///
+  /// In en, this message translates to:
+  /// **'Return shipping'**
+  String get returnLogistics;
+
+  /// No description provided for @carrier.
+  ///
+  /// In en, this message translates to:
+  /// **'Carrier'**
+  String get carrier;
+
+  /// No description provided for @trackingNumber.
+  ///
+  /// In en, this message translates to:
+  /// **'Tracking number'**
+  String get trackingNumber;
+
+  /// No description provided for @noShippingUpdates.
+  ///
+  /// In en, this message translates to:
+  /// **'No shipping updates yet'**
+  String get noShippingUpdates;
+
+  /// No description provided for @waitingForReturn.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for return'**
+  String get waitingForReturn;
+
+  /// No description provided for @requestRejected.
+  ///
+  /// In en, this message translates to:
+  /// **'Request declined'**
+  String get requestRejected;
+
+  /// No description provided for @requestProcessing.
+  ///
+  /// In en, this message translates to:
+  /// **'Request processing'**
+  String get requestProcessing;
+
+  /// No description provided for @afterSalesUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'No item in this order is eligible for after-sales support.'**
+  String get afterSalesUnavailable;
+
+  /// No description provided for @previewRequest.
+  ///
+  /// In en, this message translates to:
+  /// **'Review request amount'**
+  String get previewRequest;
+
+  /// No description provided for @problemPhotos.
+  ///
+  /// In en, this message translates to:
+  /// **'Problem photos'**
+  String get problemPhotos;
+
+  /// No description provided for @afterSalePhotoHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Optional. Up to 9 JPG, PNG or WebP images, 10 MB each.'**
+  String get afterSalePhotoHint;
+
+  /// No description provided for @addProblemPhotos.
+  ///
+  /// In en, this message translates to:
+  /// **'Add photos'**
+  String get addProblemPhotos;
+
+  /// No description provided for @chooseFromGallery.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose from gallery'**
+  String get chooseFromGallery;
+
+  /// No description provided for @takePhoto.
+  ///
+  /// In en, this message translates to:
+  /// **'Take a photo'**
+  String get takePhoto;
+
+  /// No description provided for @photoUploading.
+  ///
+  /// In en, this message translates to:
+  /// **'Uploading…'**
+  String get photoUploading;
+
+  /// No description provided for @photoUploaded.
+  ///
+  /// In en, this message translates to:
+  /// **'Uploaded'**
+  String get photoUploaded;
+
+  /// No description provided for @photoUploadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Upload failed. Try again or remove this photo.'**
+  String get photoUploadFailed;
+
+  /// No description provided for @photoServiceUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Photos cannot be added right now. You can still submit a written description.'**
+  String get photoServiceUnavailable;
+
+  /// No description provided for @removePhoto.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove photo'**
+  String get removePhoto;
+
+  /// No description provided for @photoTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'Each photo must be no larger than 10 MB.'**
+  String get photoTooLarge;
+
+  /// No description provided for @photoFormatUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a JPG, PNG or WebP image.'**
+  String get photoFormatUnsupported;
+
+  /// No description provided for @photoReadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The photo could not be loaded. Please try again.'**
+  String get photoReadFailed;
+
+  /// No description provided for @afterSaleSubmissionUncertain.
+  ///
+  /// In en, this message translates to:
+  /// **'The request result is not confirmed. Check the order status or retry the same request.'**
+  String get afterSaleSubmissionUncertain;
+
+  /// No description provided for @requestDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'Request details'**
+  String get requestDetails;
+
+  /// No description provided for @afterSaleItems.
+  ///
+  /// In en, this message translates to:
+  /// **'Items in this request'**
+  String get afterSaleItems;
+
+  /// No description provided for @afterSaleItemsUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Item details are not available for this request.'**
+  String get afterSaleItemsUnavailable;
+
+  /// No description provided for @refundProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Refund progress'**
+  String get refundProgress;
+
+  /// No description provided for @refundResultPending.
+  ///
+  /// In en, this message translates to:
+  /// **'The refund result is being confirmed.'**
+  String get refundResultPending;
+
+  /// No description provided for @afterSaleItem.
+  ///
+  /// In en, this message translates to:
+  /// **'After-sales item'**
+  String get afterSaleItem;
+
+  /// No description provided for @shareProduct.
+  ///
+  /// In en, this message translates to:
+  /// **'Share product'**
+  String get shareProduct;
+
+  /// No description provided for @customerReviews.
+  ///
+  /// In en, this message translates to:
+  /// **'Customer reviews'**
+  String get customerReviews;
+
+  /// No description provided for @stockCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} in stock'**
+  String stockCount(int count);
 }
 
 class _AppLocalizationsDelegate
