@@ -586,7 +586,7 @@ class AndroidApkUpdateInstaller {
     );
     await directory.create(recursive: true);
     final target = File(
-      path.join(directory.path, 'Saydian-${info.latestBuild}.apk'),
+      path.join(directory.path, 'Say-Ring-${info.latestBuild}.apk'),
     );
     if (await target.exists()) await target.delete();
 
@@ -651,7 +651,7 @@ class AndroidApkUpdateInstaller {
       });
     } on PlatformException catch (error) {
       if (error.code == 'UNKNOWN_SOURCES_DISABLED') {
-        throw const AppUpdateException('请先允许赛电安装未知来源应用');
+        throw const AppUpdateException('请先允许 Say Ring 安装未知来源应用');
       }
       throw AppUpdateException(error.message ?? '无法打开系统安装器');
     }

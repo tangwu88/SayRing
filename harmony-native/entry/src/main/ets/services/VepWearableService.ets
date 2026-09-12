@@ -179,7 +179,7 @@ export class VepWearableService {
       this.accountTeardownPending = false;
       if (this.busyOperation === '切换账号') this.busyOperation = '';
       if (failed) {
-        this.snapshot.message = '旧手表连接尚未结束，请关闭再开启蓝牙后重试';
+        this.snapshot.message = '旧戒指连接尚未结束，请关闭再开启蓝牙后重试';
         this.emitSnapshot();
       } else this.initializeStorage();
     });
@@ -191,7 +191,7 @@ export class VepWearableService {
         if (!this.yuc().isReady()) return;
         await this.delay(100);
       }
-      throw new Error('旧 W8 手表连接尚未结束');
+      throw new Error('旧 W8 戒指连接尚未结束');
     }
     for (let attempt = 0; attempt < 50; attempt++) {
       const state = this.sdk.getState();
@@ -199,7 +199,7 @@ export class VepWearableService {
         state === ConnectionState.UNINITIALIZED) return;
       await this.delay(100);
     }
-    throw new Error('旧手表连接尚未结束');
+    throw new Error('旧戒指连接尚未结束');
   }
 
   private async disconnectNativeForAccount(): Promise<void> {
@@ -222,11 +222,11 @@ export class VepWearableService {
     if (!this.snapshot.connected) {
       try {
         while (this.deviceCommandInFlight) {
-          await this.withTimeout(this.deviceCommandInFlight, 5000, '旧手表指令尚未结束');
+          await this.withTimeout(this.deviceCommandInFlight, 5000, '旧戒指指令尚未结束');
           if (!sameHealthSession(session, this.accountSession)) return false;
         }
       } catch {
-        this.emitPhase('error', '旧手表操作尚未结束，请稍后重试');
+        this.emitPhase('error', '旧戒指操作尚未结束，请稍后重试');
         return false;
       }
     }
@@ -242,7 +242,7 @@ export class VepWearableService {
         if (!sameHealthSession(session, this.accountSession)) return false;
         this.accountTeardownFailed = false;
       } catch {
-        this.emitPhase('error', '旧手表连接尚未结束，请关闭再开启蓝牙后重试');
+        this.emitPhase('error', '旧戒指连接尚未结束，请关闭再开启蓝牙后重试');
         return false;
       }
     }
@@ -264,7 +264,7 @@ export class VepWearableService {
     this.emitMeasurement();
     this.emitSportSession();
     this.emitPhase(this.snapshot.connected ? 'connected' : 'idle',
-      this.snapshot.connected ? `已连接 ${this.snapshot.deviceName}` : '尚未连接手表');
+      this.snapshot.connected ? `已连接 ${this.snapshot.deviceName}` : '尚未连接戒指');
   }
 
   clearListener(): void {
@@ -295,7 +295,7 @@ export class VepWearableService {
     const session = this.accountSession;
     if (!await this.accountWearableReady() || !sameHealthSession(session, this.accountSession)) return false;
     if (this.busyOperation && this.busyOperation !== 'scan') {
-      if (this.busyOperation !== '连接手表') {
+      if (this.busyOperation !== '连接戒指') {
         this.emitPhase('error', `正在${this.busyOperation}，请稍后再扫描`);
         return false;
       }
@@ -312,7 +312,7 @@ export class VepWearableService {
       this.userDisconnect = false;
     }
     if (!await this.requestPermissions()) {
-      this.emitPhase('permission', '需要蓝牙和附近设备权限才能扫描手表');
+      this.emitPhase('permission', '需要蓝牙和附近设备权限才能扫描戒指');
       return false;
     }
     this.stopScan();
@@ -345,13 +345,13 @@ export class VepWearableService {
       this.scanning = true;
       this.busyOperation = 'scan';
       this.startSystemConnectedCheck();
-      this.emitPhase('scanning', '正在扫描附近手表…');
+      this.emitPhase('scanning', '正在扫描附近戒指…');
       this.scanTimer = setTimeout(() => {
         if (scanGeneration !== this.scanGeneration || !this.scanning) return;
         // Do not clear the timer that is currently executing. The generation
         // guard prevents a late timeout from stopping a newer scan.
         this.scanTimer = -1;
-        this.stopScan(this.devices.length ? '扫描已完成' : '未收到手表配对信号，请打开手表配对页后重试');
+        this.stopScan(this.devices.length ? '扫描已完成' : '未收到戒指配对信号，请将戒指充电并靠近手机后重试');
       }, WEARABLE_SCAN_TIMEOUT_MS);
       return true;
     } catch (error) {
@@ -384,7 +384,7 @@ export class VepWearableService {
     const requestedSession = this.accountSession;
     if (!await this.accountWearableReady() || !sameHealthSession(requestedSession, this.accountSession)) return false;
     if (!validHealthOwner(this.accountSession.ownerId)) {
-      this.emitPhase('error', '请先登录再连接手表'); return false;
+      this.emitPhase('error', '请先登录再连接戒指'); return false;
     }
     const descriptor = this.devices.find((item: WearableDevice) => item.key === deviceKey);
     if (!descriptor) {
@@ -409,7 +409,7 @@ export class VepWearableService {
       return false;
     }
     if (this.busyOperation && this.busyOperation !== 'scan') {
-      const replacesPendingConnection = !isRetry && this.busyOperation === '连接手表' &&
+      const replacesPendingConnection = !isRetry && this.busyOperation === '连接戒指' &&
         !!this.connectedKey && this.connectedKey !== deviceKey;
       if (!replacesPendingConnection) {
         this.emitPhase('error', `正在${this.busyOperation}，请稍后再连接`);
@@ -430,7 +430,7 @@ export class VepWearableService {
     this.stopScan();
     this.cancelReconnect();
     if (!isRetry) this.reconnectAttempt = 0;
-    this.busyOperation = '连接手表';
+    this.busyOperation = '连接戒指';
     this.userDisconnect = false;
     const generation = ++this.connectionGeneration;
     const session = this.accountSession;
@@ -500,7 +500,7 @@ export class VepWearableService {
       return false;
     }
     if (this.busyOperation && this.busyOperation !== 'scan') {
-      const replacesPendingConnection = !isRetry && this.busyOperation === '连接手表' &&
+      const replacesPendingConnection = !isRetry && this.busyOperation === '连接戒指' &&
         !!this.connectedKey && this.connectedKey !== descriptor.key;
       if (!replacesPendingConnection) {
         this.emitPhase('error', `正在${this.busyOperation}，请稍后再连接`);
@@ -519,7 +519,7 @@ export class VepWearableService {
     this.stopScan();
     this.cancelReconnect();
     if (!isRetry) this.reconnectAttempt = 0;
-    this.busyOperation = '连接手表';
+    this.busyOperation = '连接戒指';
     this.userDisconnect = false;
     const generation = ++this.connectionGeneration;
     const session = this.accountSession;
@@ -585,7 +585,7 @@ export class VepWearableService {
     }
     const generation = ++this.connectionGeneration;
     this.busyOperation = '断开连接';
-    this.emitPhase('disconnecting', '正在断开手表…');
+    this.emitPhase('disconnecting', '正在断开戒指…');
     await this.cancelMeasurement(true);
     if (generation !== this.connectionGeneration) return;
     this.invalidateMeasurementSession();
@@ -603,11 +603,11 @@ export class VepWearableService {
     this.snapshot = emptyWearableSnapshot();
     this.sportSession = emptySportSession();
     this.busyOperation = '';
-    if (!disconnected) this.snapshot.message = '尚未确认手表已断开，请关闭再开启蓝牙后重试';
+    if (!disconnected) this.snapshot.message = '尚未确认戒指已断开，请关闭再开启蓝牙后重试';
     this.emitSnapshot();
     this.emitMeasurement();
     this.emitSportSession();
-    this.emitPhase(disconnected ? 'idle' : 'error', disconnected ? '已断开手表' : this.snapshot.message);
+    this.emitPhase(disconnected ? 'idle' : 'error', disconnected ? '已断开戒指' : this.snapshot.message);
   }
 
   async refresh(): Promise<boolean> {
@@ -622,12 +622,12 @@ export class VepWearableService {
   async syncHistory(): Promise<boolean> {
     return this.runConnectedOperation('同步健康数据', async (current: () => void): Promise<boolean> => {
       const generation = this.connectionGeneration;
-      this.emitPhase('syncing', '正在同步近三天手表数据…');
+      this.emitPhase('syncing', '正在同步近三天戒指数据…');
       await this.syncHistoryInternal(generation, [HealthQueryDay.TODAY,
         HealthQueryDay.YESTERDAY, HealthQueryDay.DAY_BEFORE_YESTERDAY]);
       current();
       this.snapshot.syncedAt = Date.now();
-      this.snapshot.message = '手表历史数据已同步';
+      this.snapshot.message = '戒指历史数据已同步';
       await this.saveCurrentRecords(this.snapshot.records);
       current();
       this.synchronizeCloud();
@@ -643,14 +643,14 @@ export class VepWearableService {
       if (this.activeProvider === 'Yuc') {
         await this.yuc().findDevice();
         current();
-        this.emitPhase('connected', '已向 W8 手表发送查找提示');
+        this.emitPhase('connected', '已向 W8 戒指发送查找提示');
         return true;
       }
       const result = await this.sdk.deviceControlService.findDevice(true);
       current();
       const ok = result.success;
-      this.emitPhase(ok ? 'connected' : 'error', ok ? '已向手表发送查找提示' :
-        (result.errorMessage ?? '手表不支持查找设备'));
+      this.emitPhase(ok ? 'connected' : 'error', ok ? '已向戒指发送查找提示' :
+        (result.errorMessage ?? '戒指不支持查找设备'));
       return ok;
     });
   }
@@ -660,12 +660,12 @@ export class VepWearableService {
       if (this.activeProvider === 'Yuc') {
         await this.yuc().syncTime();
         current();
-        this.emitPhase('connected', 'W8 手表时间已同步');
+        this.emitPhase('connected', 'W8 戒指时间已同步');
         return true;
       }
       const result = await this.sdk.deviceControlService.syncTimeNow(new Date());
       current();
-      this.emitPhase(result.success ? 'connected' : 'error', result.success ? '手表时间已同步' :
+      this.emitPhase(result.success ? 'connected' : 'error', result.success ? '戒指时间已同步' :
         (result.errorMessage ?? '时间同步失败'));
       return result.success;
     });
@@ -677,7 +677,7 @@ export class VepWearableService {
         current();
         const settings = emptyDeviceSettings();
         settings.loadedAt = Date.now();
-        settings.unitSystem = '由手表端管理';
+        settings.unitSystem = '由戒指端管理';
         settings.timeFormat = '已随手机时间同步';
         settings.automaticHealth = '请在健康监测页设置';
         settings.sedentaryReminder = this.snapshot.capabilities.sedentaryReminder ? 'W8 SDK 暂未开放读取' : '设备不支持';
@@ -738,7 +738,7 @@ export class VepWearableService {
       current();
       settings.loadedAt = successes > 0 ? Date.now() : 0;
       this.snapshot.settings = settings;
-      this.snapshot.message = successes > 0 ? '已读取手表实际设置' : '手表未返回可读取的设置';
+      this.snapshot.message = successes > 0 ? '已读取戒指实际设置' : '戒指未返回可读取的设置';
       this.emitSnapshot();
       this.emitPhase(successes > 0 ? 'connected' : 'error', this.snapshot.message);
       return successes > 0;
@@ -753,7 +753,7 @@ export class VepWearableService {
       const currentResult = await this.sdk.dialService.getCurrentDial();
       current();
       if (!listResult.success || !listResult.list) {
-        this.emitPhase('error', listResult.errorMessage ?? '手表未返回可用表盘');
+        this.emitPhase('error', listResult.errorMessage ?? '戒指未返回可用表盘');
         return false;
       }
       this.dialFiles.clear();
@@ -775,7 +775,7 @@ export class VepWearableService {
       this.snapshot.dials = dials;
       this.snapshot.currentDialKey = currentKey;
       this.snapshot.originalDialKey = this.originalDial ? this.dialKey(this.originalDial) : '';
-      this.snapshot.message = dials.length > 0 ? `已读取 ${dials.length} 个手表内表盘` : '手表未返回表盘文件';
+      this.snapshot.message = dials.length > 0 ? `已读取 ${dials.length} 个戒指内表盘` : '戒指未返回表盘文件';
       this.emitSnapshot();
       this.emitPhase(dials.length > 0 ? 'connected' : 'error', this.snapshot.message);
       return dials.length > 0;
@@ -793,7 +793,7 @@ export class VepWearableService {
       const setOk = await this.sdk.dialService.setUsingDial(dial);
       current();
       if (!setOk) {
-        this.emitPhase('error', '手表未确认表盘切换');
+        this.emitPhase('error', '戒指未确认表盘切换');
         return false;
       }
       const readback = await this.sdk.dialService.getCurrentDial();
@@ -831,7 +831,7 @@ export class VepWearableService {
 
   private async startMeasurementInternal(metric: WearableMetricKey): Promise<boolean> {
     if (!this.ensureConnected() || !this.supportsMetric(metric)) {
-      this.emitPhase('error', '当前手表不支持该测量项目');
+      this.emitPhase('error', '当前戒指不支持该测量项目');
       return false;
     }
     if ((metric === 'hrv' && this.activeProvider !== 'Yuc') || metric === 'activity' || metric === 'sleep' || metric === 'sport') {
@@ -914,7 +914,7 @@ export class VepWearableService {
       }
       if (!success) {
         this.measurement.running = false;
-        this.measurement.status = errorMessage || '手表未接受测量指令';
+        this.measurement.status = errorMessage || '戒指未接受测量指令';
         this.endOperation();
       }
       this.emitMeasurement();
@@ -938,7 +938,7 @@ export class VepWearableService {
   async startSport(mode: WearableSportMode): Promise<boolean> {
     if (this.sportActive() || this.sportCommandInFlight) return false;
     if (!this.snapshot.sportCapability.modes.includes(mode)) {
-      this.emitPhase('error', '当前手表未开放由 App 开启此运动');
+      this.emitPhase('error', '当前戒指未开放由 App 开启此运动');
       return false;
     }
     const generation = ++this.sportSessionGeneration;
@@ -956,7 +956,7 @@ export class VepWearableService {
     if (!success) {
       this.stopLocationTracking();
       this.sportSession.phase = 'error';
-      this.sportSession.status = '手表未能开始运动，请确认手表处于可操作状态';
+      this.sportSession.status = '戒指未能开始运动，请确认戒指处于可操作状态';
       this.emitSportSession();
       return false;
     }
@@ -1011,7 +1011,7 @@ export class VepWearableService {
     if (generation !== this.sportSessionGeneration) return false;
     if (!success) {
       this.sportSession.phase = previousPhase;
-      this.sportSession.status = '手表未确认结束，请在手表端结束后再刷新记录';
+      this.sportSession.status = '戒指未确认结束，请在戒指端结束后再刷新记录';
       this.emitSportSession();
       return false;
     }
@@ -1054,7 +1054,7 @@ export class VepWearableService {
       this.snapshot.sportCapability.modes.includes(mode)) {
       const generation = ++this.sportSessionGeneration;
       this.sportSaved = false;
-      this.sportSession = emptySportSession(`${sportModeLabel(mode)}已从手表开始`);
+      this.sportSession = emptySportSession(`${sportModeLabel(mode)}已从戒指开始`);
       this.sportSession.phase = 'running';
       this.sportSession.mode = mode;
       this.sportSession.startedAt = Date.now();
@@ -1063,7 +1063,7 @@ export class VepWearableService {
     if (!this.sportActive()) return;
     if (mode && mode !== this.sportSession.mode) return;
     this.applySportControlRecords(event.data);
-    if (latest.code === SportControlCode.STOP) this.finishSportSession(true, '运动已在手表端结束并保存');
+    if (latest.code === SportControlCode.STOP) this.finishSportSession(true, '运动已在戒指端结束并保存');
   };
 
   private onSportModePush = (event: SportModePushEvent): void => {
@@ -1073,7 +1073,7 @@ export class VepWearableService {
       this.snapshot.sportCapability.modes.includes(mode)) {
       const generation = ++this.sportSessionGeneration;
       this.sportSaved = false;
-      this.sportSession = emptySportSession(`${sportModeLabel(mode)}已从手表开始`);
+      this.sportSession = emptySportSession(`${sportModeLabel(mode)}已从戒指开始`);
       this.sportSession.phase = 'running';
       this.sportSession.mode = mode;
       this.sportSession.startedAt = Date.now();
@@ -1082,7 +1082,7 @@ export class VepWearableService {
       this.emitSportSession();
     } else if (event.data.kind === SportModePushKind.CLOSE && this.sportActive() &&
       (!mode || mode === this.sportSession.mode)) {
-      this.finishSportSession(true, '运动已在手表端结束并保存');
+      this.finishSportSession(true, '运动已在戒指端结束并保存');
     }
   };
 
@@ -1170,7 +1170,7 @@ export class VepWearableService {
     this.stopLocationTracking();
     if (!await this.requestPermissions() || generation !== this.sportSessionGeneration || !this.sportActive()) {
       if (generation === this.sportSessionGeneration) {
-        this.sportSession.locationStatus = '未获得定位权限，仍会记录手表运动数据';
+        this.sportSession.locationStatus = '未获得定位权限，仍会记录戒指运动数据';
         this.emitSportSession();
       }
       return;
@@ -1199,7 +1199,7 @@ export class VepWearableService {
       this.sportSession.locationStatus = '正在等待定位';
     } catch {
       this.locationListener = undefined;
-      this.sportSession.locationStatus = '定位服务暂不可用，仍会记录手表运动数据';
+      this.sportSession.locationStatus = '定位服务暂不可用，仍会记录戒指运动数据';
     }
     this.emitSportSession();
   }
@@ -1413,7 +1413,7 @@ export class VepWearableService {
     if (this.activeProvider !== 'Vep') return;
     const event = payload as ConnectionEvent;
     if (event.newState === ConnectionState.DISCONNECTED && !this.userDisconnect && this.lastDevice) {
-      this.finishSportSession(true, '手表断开，已保留断开前的真实运动数据');
+      this.finishSportSession(true, '戒指断开，已保留断开前的真实运动数据');
       ++this.connectionGeneration;
       this.invalidateMeasurementSession();
       if (this.measurement.running) {
@@ -1429,7 +1429,7 @@ export class VepWearableService {
       this.busyOperation = '';
       this.snapshot.connected = false;
       this.snapshot.battery = emptyBattery();
-      this.snapshot.message = '手表连接已中断';
+      this.snapshot.message = '戒指连接已中断';
       this.emitSnapshot();
       this.emitSportSession();
       this.scheduleReconnect();
@@ -1443,7 +1443,7 @@ export class VepWearableService {
       return;
     }
     if (this.activeProvider !== 'Yuc' || !this.snapshot.connected || this.userDisconnect) return;
-    this.finishSportSession(true, 'W8 手表断开，已保留断开前的真实运动数据');
+    this.finishSportSession(true, 'W8 戒指断开，已保留断开前的真实运动数据');
     const generation = ++this.connectionGeneration;
     this.invalidateMeasurementSession();
     if (this.measurement.running) {
@@ -1569,7 +1569,7 @@ export class VepWearableService {
   private scheduleReconnect(): void {
     if (this.activeProvider !== 'Vep' || this.reconnectTimer !== -1 || this.userDisconnect) return;
     if (!this.lastDevice || this.reconnectAttempt >= WEARABLE_RECONNECT_DELAYS_MS.length) {
-      this.emitPhase('error', '自动重连未成功，请确认手表未被其他手机占用后手动重连');
+      this.emitPhase('error', '自动重连未成功，请确认戒指未被其他手机占用后手动重连');
       return;
     }
     const delayMs = WEARABLE_RECONNECT_DELAYS_MS[this.reconnectAttempt];
@@ -1610,7 +1610,7 @@ export class VepWearableService {
       provider: 'Vep',
       connected: true,
       deviceKey: this.connectedKey,
-      deviceName: device.deviceName || fallback?.name || '赛电手表',
+      deviceName: device.deviceName || fallback?.name || 'Say Ring戒指',
       mac: normalizeMac(device.mac || fallback?.mac || ''),
       model: device.modelName || '',
       firmware: device.firmwareVersion || device.deviceVersion || '',
@@ -1670,7 +1670,7 @@ export class VepWearableService {
     if (!isCurrentConnectionGeneration(generation, this.connectionGeneration)) return;
     this.snapshot = {
       provider: 'Yuc', connected: true, deviceKey: this.connectedKey,
-      deviceName: fallback?.name || this.lastBinding?.name || '赛电 W8 手表',
+      deviceName: fallback?.name || this.lastBinding?.name || 'Say Ring W8 戒指',
       mac: normalizeMac(mac), model: model, firmware: firmware,
       capabilities: capabilities, sportCapability: sportCapability, battery: battery,
       records: sameDevice ? this.snapshot.records : [],
@@ -1874,12 +1874,12 @@ export class VepWearableService {
     const value = boundedHealthValue('心率', data.heartRate, 'BPM', 20, 240);
     if (!value) {
       this.measurement.values = [];
-      this.measurement.status = '等待手表获得有效心率，请正确佩戴并保持静止';
+      this.measurement.status = '等待戒指获得有效心率，请正确佩戴并保持静止';
       this.emitMeasurement();
       return;
     }
     this.measurement.values = [value];
-    this.measurement.status = '已收到手表实时心率';
+    this.measurement.status = '已收到戒指实时心率';
     this.emitMeasurement();
   };
 
@@ -1900,7 +1900,7 @@ export class VepWearableService {
     if (this.measurement.metric !== 'oxygen' || !this.measurement.running || value <= 0) return;
     this.measurement.values = this.validValues([boundedHealthValue('血氧', value, '%', 50, 100)]);
     if (this.measurement.values.length === 0) {
-      this.measurement.status = '等待手表获得有效血氧，请正确佩戴并保持静止';
+      this.measurement.status = '等待戒指获得有效血氧，请正确佩戴并保持静止';
       this.emitMeasurement();
       return;
     }
@@ -2051,7 +2051,7 @@ export class VepWearableService {
       this.measurement.status = shutdown ? '' : '已取消心电测量，未保存未完成波形';
     } else if (values.length > 0 && !shutdown) {
       this.measurement.values = values;
-      this.measurement.status = '测量已结束，已保留手表实时读数';
+      this.measurement.status = '测量已结束，已保留戒指实时读数';
       this.addMeasurementRecord();
     } else {
       this.measurement.status = shutdown ? '' : '已取消测量，未收到有效读数';
@@ -2278,7 +2278,7 @@ export class VepWearableService {
       this.busyOperation || this.measurement.running || this.sportActive()) return;
     try {
       await this.runDeviceCommand('连接后初始化', async (current: () => void): Promise<void> => {
-        this.emitPhase('syncing', '正在读取电量并同步今日手表数据…');
+        this.emitPhase('syncing', '正在读取电量并同步今日戒指数据…');
         console.info(`[SaydianWearable] delayed post-connect initialization started generation=${generation}`);
         await this.refreshConnectedDeviceInternal(generation);
         current();
@@ -2286,7 +2286,7 @@ export class VepWearableService {
         await this.syncHistoryInternal(generation, [HealthQueryDay.TODAY], false);
         current();
         this.snapshot.syncedAt = Date.now();
-        this.snapshot.message = '今日手表数据已自动同步';
+        this.snapshot.message = '今日戒指数据已自动同步';
         await this.saveCurrentRecords(this.snapshot.records);
         current();
         this.synchronizeCloud();
@@ -2369,15 +2369,15 @@ export class VepWearableService {
 
   private beginOperation(name: string): boolean {
     if (this.accountTeardownPending || this.accountTeardownFailed) {
-      this.emitPhase('error', '请等待旧手表连接结束后重试'); return false;
+      this.emitPhase('error', '请等待旧戒指连接结束后重试'); return false;
     }
     const sportControl = ['开始运动', '暂停运动', '继续运动', '结束运动'].includes(name);
     if (this.sportActive() && !sportControl) {
-      this.emitPhase('error', '运动进行中，请先结束运动再操作手表');
+      this.emitPhase('error', '运动进行中，请先结束运动再操作戒指');
       return false;
     }
     if (this.busyOperation || this.deviceCommandInFlight) {
-      this.emitPhase('error', this.busyOperation ? `正在${this.busyOperation}，请完成后再操作` : '旧手表操作尚未结束，请稍后重试');
+      this.emitPhase('error', this.busyOperation ? `正在${this.busyOperation}，请完成后再操作` : '旧戒指操作尚未结束，请稍后重试');
       return false;
     }
     this.busyOperation = name;
@@ -2398,13 +2398,13 @@ export class VepWearableService {
 
   async runDeviceCommand<T>(name: string, operation: (assertCurrent: () => void) => Promise<T>): Promise<T> {
     if (this.deviceCommandInFlight || !this.ensureConnected() || !this.beginOperation(name)) {
-      throw new Error('请连接手表并等待当前操作完成');
+      throw new Error('请连接戒指并等待当前操作完成');
     }
     const connection = this.connectionGeneration, session = this.accountSession, generation = this.operationGeneration;
     const assertCurrent = (): void => {
       if (connection !== this.connectionGeneration || !sameHealthSession(session, this.accountSession) ||
         generation !== this.operationGeneration || !this.snapshot.connected || this.accountTeardownPending) {
-        throw new Error('账号或手表已变化，请重新操作');
+        throw new Error('账号或戒指已变化，请重新操作');
       }
     };
     const result = Promise.resolve().then(async (): Promise<T> => {
@@ -2427,7 +2427,7 @@ export class VepWearableService {
     const nativeConnected = this.activeProvider === 'Yuc' ? this.yuc().isReady() :
       this.sdk.getState() === ConnectionState.CONNECTED;
     if (!this.snapshot.connected || !nativeConnected) {
-      this.emitPhase('error', '请先连接手表');
+      this.emitPhase('error', '请先连接戒指');
       return false;
     }
     return true;
@@ -2526,9 +2526,9 @@ export class VepWearableService {
     if (code === 2900003) return '手机蓝牙已关闭';
     if (code === 2900001) return '系统蓝牙服务暂不可用';
     if (/JL RCSP service not available/i.test(error.message)) {
-      return `${fallback}：当前手表暂不支持表盘读取`;
+      return `${fallback}：当前戒指暂不支持表盘读取`;
     }
-    if (/timeout|超时/i.test(error.message)) return `${fallback}：连接超时，请确认手表未被其他手机占用`;
+    if (/timeout|超时/i.test(error.message)) return `${fallback}：连接超时，请确认戒指未被其他手机占用`;
     return error.message && error.message.length <= 120 ? `${fallback}：${error.message}` : fallback;
   }
 

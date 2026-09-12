@@ -94,7 +94,7 @@ function orderSummary(row: Record<string, Object>): string {
     const nested = text(first['product_name'] ?? first['name'] ?? first['title'], 120);
     if (nested) return nested;
   }
-  return '赛电商城订单';
+  return 'Say Ring 商城订单';
 }
 
 export function parseShopOrder(value: Object | undefined): ShopOrder {

@@ -51,7 +51,7 @@ const translations: Record<string, string[]> = {
   "settings": ["Settings","设置","設定","Einstellungen","Réglages","Ajustes","設定","설정"],
   "account": ["Account","帐号","帳戶","Konto","Compte","Cuenta","アカウント","계정"],
   "logout": ["Log out","退出登录","登出","Abmelden","Se déconnecter","Cerrar sesión","ログアウト","로그아웃"],
-  "connect_watch": ["Connect watch","连接手表","連接手錶","Uhr verbinden","Connecter la montre","Conectar reloj","腕時計を接続","시계 연결"],
+  "connect_watch": ["Connect ring","连接戒指","連接戒指","Ring verbinden","Connecter la bague","Conectar anillo","リングを接続","링 연결"],
   "add_device": ["Add device","添加设备","新增裝置","Gerät hinzufügen","Ajouter un appareil","Añadir dispositivo","デバイス追加","기기 추가"],
   "sync": ["Sync data","同步数据","同步資料","Daten synchronisieren","Synchroniser","Sincronizar datos","データ同期","데이터 동기화"],
   "disconnect": ["Disconnect","断开连接","中斷連線","Trennen","Déconnecter","Desconectar","接続解除","연결 해제"],
@@ -73,7 +73,7 @@ const translations: Record<string, string[]> = {
   "care": ["Family care","远程关爱","遠端關愛","Familienfürsorge","Suivi des proches","Cuidado familiar","家族ケア","가족 돌봄"],
   "about": ["About","关于我们","關於我們","Über uns","À propos","Acerca de","アプリについて","앱 정보"],
   "display_units": ["Units","单位设置","單位設定","Einheiten","Unités","Unidades","単位","단위"],
-  "language_note": ["App language only. Your watch language will stay unchanged.","仅修改App语言，不改变手表语言。","僅修改App語言，不更改手錶語言。","Nur App-Sprache. Die Sprache der Uhr bleibt unverändert.","Langue de l’app uniquement. La montre reste inchangée.","Solo cambia el idioma de la app, no el del reloj.","アプリの言語のみ変更します。腕時計の言語は変わりません。","앱 언어만 변경됩니다. 시계 언어는 그대로 유지됩니다."],
+  "language_note": ["App language only. Your ring language will stay unchanged.","仅修改 App 语言，不改变戒指语言。","僅修改 App 語言，不更改戒指語言。","Nur App-Sprache. Die Sprache des Rings bleibt unverändert.","Langue de l’app uniquement. La bague reste inchangée.","Solo cambia el idioma de la app, no el del anillo.","アプリの言語のみ変更します。リングの言語は変わりません。","앱 언어만 변경됩니다. 링 언어는 그대로 유지됩니다."],
 };
 let activeLocale: string = 'en';
 Object.keys(CRITICAL_TRANSLATIONS).forEach((key: string) => { translations[key] = CRITICAL_TRANSLATIONS[key]; });

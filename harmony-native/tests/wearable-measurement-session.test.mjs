@@ -201,7 +201,7 @@ test('device transaction fences write after account change and cannot release an
   connect(service, 'watchB');
   await service.startMeasurement('heart');
   read.resolve();
-  await assert.rejects(operation, /账号或手表已变化/);
+  await assert.rejects(operation, /账号或戒指已变化/);
   assert.equal(writes, 0);
   assert.equal(service.busyOperation, '手动测量');
 });
@@ -224,7 +224,9 @@ test('first login with an uninitialized SDK does not require a nonexistent disco
 
 function prepareNextConnection(service, native) {
   let connects = 0;
-  service.devices = [{ key: 'watchB', provider: 'Vep', name: 'W9S', mac: '', rssi: -50 }];
+  // Use a production-routable VEP ring name. Unknown or legacy watch names
+  // must not bypass the Say Ring provider classifier during reconnect tests.
+  service.devices = [{ key: 'watchB', provider: 'Vep', name: 'V-Ring', mac: '', rssi: -50 }];
   service.vepDevices.set('watchB', { deviceId: 'watchB' });
   native.deviceLabel = 'watchA';
   native.connectDevice = async () => {
@@ -232,7 +234,7 @@ function prepareNextConnection(service, native) {
     return { success: true };
   };
   service.refreshConnectedDeviceInternal = async () => {
-    service.snapshot = { ...contracts.emptyWearableSnapshot(), connected: true, deviceKey: 'watchB', deviceName: 'W9S' };
+    service.snapshot = { ...contracts.emptyWearableSnapshot(), connected: true, deviceKey: 'watchB', deviceName: 'V-Ring' };
   };
   service.loadStoredRecords = async () => {};
   service.postConnectInitialize = () => {};
@@ -247,7 +249,7 @@ function legacyCommand(service, native, method, gate) {
   const followups = [];
   service.snapshot.capabilities = { ...service.snapshot.capabilities,
     findDevice: true, dial: true, notification: true, alarm: true, sedentaryReminder: true };
-  native.getConnectedDevice = () => ({ deviceName: 'W9S', featureList: { heartRateFunction: 1 } });
+  native.getConnectedDevice = () => ({ deviceName: 'V-Ring', featureList: { heartRateFunction: 1 } });
   native.deviceService = { getBatteryInfo: () => gate.promise };
   native.ecgService.getSavedId = async () => ({ success: false });
   native.deviceControlService = { findDevice: () => gate.promise, syncTimeNow: () => gate.promise };
@@ -345,7 +347,7 @@ test('legacy native timeouts remain pending until actual settlement, not a fabri
   await settle(); const count = prepareNextConnection(service, native);
   await service.disconnect();
   const timeout = service.withTimeout.bind(service);
-  service.withTimeout = (value, ms, message) => message === '旧手表指令尚未结束' ?
+  service.withTimeout = (value, ms, message) => message === '旧戒指指令尚未结束' ?
     Promise.reject(new Error(message)) : timeout(value, ms, message);
   assert.equal(await service.connect('watchB'), false);
   assert.equal(await service.connect('watchB'), false);
@@ -368,7 +370,7 @@ test('explicit disconnect waits for native DISCONNECTED without waiting forever 
   const disconnect = service.disconnect().then(() => { completed = true; });
   await settle();
   assert.equal(completed, false);
-  assert.equal(phases.some(([phase, message]) => phase === 'idle' && message === '已断开手表'), false);
+  assert.equal(phases.some(([phase, message]) => phase === 'idle' && message === '已断开戒指'), false);
   native.state = ConnectionState.DISCONNECTED; nativeClosed.resolve(); await disconnect;
   assert.equal(completed, true);
   assert.notEqual(service.deviceCommandInFlight, undefined);
@@ -411,7 +413,7 @@ test('manual disconnect cannot reconnect while a two-packet native command is st
   assert.equal(connected, false);
   assert.equal(service.currentSnapshot().connected, false);
   firstPacket.resolve();
-  await assert.rejects(operation, /账号或手表已变化/);
+  await assert.rejects(operation, /账号或戒指已变化/);
   assert.equal(await next, true);
   assert.deepEqual(packetTargets, ['watchA', 'watchA']);
   assert.equal(count(), 1);
@@ -429,7 +431,7 @@ test('account transition drains the SDK command before giving a new account the 
   assert.equal(service.accountTeardownPending, true);
   assert.equal(count(), 0);
   firstPacket.resolve();
-  await assert.rejects(operation, /账号或手表已变化/);
+  await assert.rejects(operation, /账号或戒指已变化/);
   assert.equal(await next, true);
   assert.equal(service.deviceCommandInFlight, undefined);
 });
@@ -441,7 +443,7 @@ test('repeated drain timeouts never mean cancelled; only actual settlement allow
   const operation = service.runDeviceCommand('保存配置', async () => { await firstPacket.promise; return true; });
   await settle(); await service.disconnect();
   const timeout = service.withTimeout.bind(service);
-  service.withTimeout = (value, ms, message) => message === '旧手表指令尚未结束' ?
+  service.withTimeout = (value, ms, message) => message === '旧戒指指令尚未结束' ?
     Promise.reject(new Error(message)) : timeout(value, ms, message);
   assert.equal(await service.connect('watchB'), false);
   assert.equal(await service.connect('watchB'), false);
@@ -449,7 +451,7 @@ test('repeated drain timeouts never mean cancelled; only actual settlement allow
   assert.equal(service.currentSnapshot().connected, false);
   assert.equal(count(), 0);
   firstPacket.resolve();
-  await assert.rejects(operation, /账号或手表已变化/);
+  await assert.rejects(operation, /账号或戒指已变化/);
   service.withTimeout = timeout;
   assert.equal(await service.connect('watchB'), true);
   assert.equal(count(), 1);

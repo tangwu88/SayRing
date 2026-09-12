@@ -1404,7 +1404,7 @@ struct IOSWechatAuthState {
       result(
         FlutterError(
           code: "PHOTO_PERMISSION_DENIED",
-          message: "请在系统设置中允许赛电添加照片后重试",
+          message: "请在系统设置中允许Say Ring添加照片后重试",
           details: nil
         ))
     }
@@ -1641,7 +1641,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
             self.resetBatterySession(cancelDeferredOperation: true)
             self.cancelHealthSync(
               code: "HEALTH_SYNC_CANCELLED",
-              message: "手表连接已断开，数据同步已取消"
+              message: "戒指连接已断开，数据同步已取消"
             )
             self.activeMeasurementMetric = nil
             self.measurementGeneration &+= 1
@@ -1658,7 +1658,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
           self.resetBatterySession(cancelDeferredOperation: true)
           self.cancelHealthSync(
             code: "HEALTH_SYNC_CANCELLED",
-            message: "手表连接已断开，数据同步已取消"
+            message: "戒指连接已断开，数据同步已取消"
           )
           self.activeMeasurementMetric = nil
           self.measurementGeneration &+= 1
@@ -1837,7 +1837,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   func disconnect(_ result: @escaping FlutterResult) {
     guard let generation = explicitDisconnectGate.begin() else {
-      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在断开连接，请稍后重试", details: nil))
+      result(FlutterError(code: "DEVICE_BUSY", message: "戒指正在断开连接，请稍后重试", details: nil))
       return
     }
     explicitDisconnectGeneration = generation
@@ -1849,7 +1849,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     resetBatterySession(cancelDeferredOperation: true)
     cancelHealthSync(
       code: "HEALTH_SYNC_CANCELLED",
-      message: "手表连接已断开，数据同步已取消"
+      message: "戒指连接已断开，数据同步已取消"
     )
     activeMeasurementMetric = nil
     measurementGeneration &+= 1
@@ -1873,7 +1873,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     resetBatterySession(cancelDeferredOperation: true)
     cancelHealthSync(
       code: "HEALTH_SYNC_CANCELLED",
-      message: "手表连接已断开，数据同步已取消"
+      message: "戒指连接已断开，数据同步已取消"
     )
     activeMeasurementMetric = nil
     measurementGeneration &+= 1
@@ -2105,7 +2105,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       activeMeasurementMetric == nil,
       watchFaceTransferGate.isInFlight == false
     else {
-      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在处理其他操作，请稍后重试", details: nil))
+      result(FlutterError(code: "DEVICE_BUSY", message: "戒指正在处理其他操作，请稍后重试", details: nil))
       return
     }
 
@@ -2120,7 +2120,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
         },
         cancel: cancel,
         rejectAsBusy: {
-          result(FlutterError(code: "DEVICE_BUSY", message: "手表正在处理其他操作，请稍后重试", details: nil))
+          result(FlutterError(code: "DEVICE_BUSY", message: "戒指正在处理其他操作，请稍后重试", details: nil))
         }
       )
       return
@@ -2129,7 +2129,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     let startedAt = Date()
     requestBatteryRefreshIfNeeded(force: true)
     guard batteryRefreshGate.isInFlight else {
-      result(FlutterError(code: "BATTERY_READ_FAILED", message: "无法读取手表电量，请保持连接后重试", details: nil))
+      result(FlutterError(code: "BATTERY_READ_FAILED", message: "无法读取戒指电量，请保持连接后重试", details: nil))
       return
     }
     _ = deferDeviceOperationUntilBatteryIdle(
@@ -2138,18 +2138,18 @@ private final class VeepooWearableAdapter: WearableAdapter {
           let snapshot = self.batterySnapshot,
           snapshot.updatedAt >= startedAt
         else {
-          result(FlutterError(code: "BATTERY_READ_FAILED", message: "无法读取手表电量，请保持连接后重试", details: nil))
+          result(FlutterError(code: "BATTERY_READ_FAILED", message: "无法读取戒指电量，请保持连接后重试", details: nil))
           return
         }
         guard snapshot.low != true else {
-          result(FlutterError(code: "LOW_POWER", message: "手表电量较低，请充电后再设置表盘", details: nil))
+          result(FlutterError(code: "LOW_POWER", message: "戒指电量较低，请充电后再设置表盘", details: nil))
           return
         }
         execute()
       },
       cancel: cancel,
       rejectAsBusy: {
-        result(FlutterError(code: "DEVICE_BUSY", message: "手表正在处理其他操作，请稍后重试", details: nil))
+        result(FlutterError(code: "DEVICE_BUSY", message: "戒指正在处理其他操作，请稍后重试", details: nil))
       }
     )
   }
@@ -2231,11 +2231,11 @@ private final class VeepooWearableAdapter: WearableAdapter {
       let routeID = connectedRouteID?.trimmingCharacters(in: .whitespacesAndNewlines),
       !routeID.isEmpty
     else {
-      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接Say Ring设备", details: nil))
       return
     }
     guard !watchFaceTransferGate.isInFlight, activeMeasurementMetric == nil else {
-      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在处理其他操作，请稍后再同步数据", details: nil))
+      result(FlutterError(code: "DEVICE_BUSY", message: "戒指正在处理其他操作，请稍后再同步数据", details: nil))
       return
     }
     if deferDeviceOperationUntilBatteryIdle(
@@ -2243,16 +2243,16 @@ private final class VeepooWearableAdapter: WearableAdapter {
         self?.syncHealthData(cursor: cursor, result: result)
       },
       cancel: {
-        result(FlutterError(code: "NOT_CONNECTED", message: "手表连接已断开，数据同步已取消", details: nil))
+        result(FlutterError(code: "NOT_CONNECTED", message: "戒指连接已断开，数据同步已取消", details: nil))
       },
       rejectAsBusy: {
-        result(FlutterError(code: "DEVICE_BUSY", message: "手表正在处理其他操作，请稍后重试", details: nil))
+        result(FlutterError(code: "DEVICE_BUSY", message: "戒指正在处理其他操作，请稍后重试", details: nil))
       }
     ) {
       return
     }
     guard let request = healthSyncGate.begin(routeID: routeID) else {
-      result(FlutterError(code: "DEVICE_BUSY", message: "手表数据正在同步", details: nil))
+      result(FlutterError(code: "DEVICE_BUSY", message: "戒指数据正在同步", details: nil))
       return
     }
     healthSyncResult = result
@@ -2262,7 +2262,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
         request: request,
         payload: FlutterError(
           code: "HEALTH_SYNC_TIMEOUT",
-          message: "手表健康数据同步超时，请保持连接后重试",
+          message: "戒指健康数据同步超时，请保持连接后重试",
           details: nil
         )
       )
@@ -2356,11 +2356,11 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   func startMeasurement(_ metric: String, result: @escaping FlutterResult) {
     guard connected != nil else {
-      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接Say Ring设备", details: nil))
       return
     }
     guard deviceSessionReady else {
-      result(FlutterError(code: "DEVICE_NOT_READY", message: "手表正在完成连接准备，请稍后重试", details: nil))
+      result(FlutterError(code: "DEVICE_NOT_READY", message: "戒指正在完成连接准备，请稍后重试", details: nil))
       return
     }
     guard (capabilities()["metrics"] as? [String])?.contains(metric) == true else {
@@ -2368,7 +2368,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       return
     }
     guard !healthSyncGate.isInFlight, !watchFaceTransferGate.isInFlight else {
-      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在处理其他操作，请稍后重试", details: nil))
+      result(FlutterError(code: "DEVICE_BUSY", message: "戒指正在处理其他操作，请稍后重试", details: nil))
       return
     }
     if deferDeviceOperationUntilBatteryIdle(
@@ -2376,16 +2376,16 @@ private final class VeepooWearableAdapter: WearableAdapter {
         self?.startMeasurement(metric, result: result)
       },
       cancel: {
-        result(FlutterError(code: "NOT_CONNECTED", message: "手表连接已断开，测量已取消", details: nil))
+        result(FlutterError(code: "NOT_CONNECTED", message: "戒指连接已断开，测量已取消", details: nil))
       },
       rejectAsBusy: {
-        result(FlutterError(code: "DEVICE_BUSY", message: "手表正在处理其他操作，请稍后重试", details: nil))
+        result(FlutterError(code: "DEVICE_BUSY", message: "戒指正在处理其他操作，请稍后重试", details: nil))
       }
     ) {
       return
     }
     guard activeMeasurementMetric == nil else {
-      result(FlutterError(code: "DEVICE_BUSY", message: "另一项手表测量尚未结束", details: nil))
+      result(FlutterError(code: "DEVICE_BUSY", message: "另一项戒指测量尚未结束", details: nil))
       return
     }
     activeMeasurementMetric = metric
@@ -2457,7 +2457,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     default:
       activeMeasurementMetric = nil
       finishBatteryBlockingOperation()
-      result(FlutterError(code: "MEASUREMENT_NOT_AVAILABLE", message: "该指标仅支持同步手表历史数据", details: nil))
+      result(FlutterError(code: "MEASUREMENT_NOT_AVAILABLE", message: "该指标仅支持同步戒指历史数据", details: nil))
       return
     }
     result(nil)
@@ -2532,7 +2532,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       finishEcgMeasurementWithError(
         generation: generation,
         code: "MEASUREMENT_DEVICE_BUSY",
-        message: "手表正在处理其他任务，请稍后重试"
+        message: "戒指正在处理其他任务，请稍后重试"
       )
     case .failure:
       finishEcgMeasurementWithError(
@@ -2542,7 +2542,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     case .noFunction:
       finishEcgMeasurementWithError(
         generation: generation,
-        message: "当前手表不支持 App 心电测量"
+        message: "当前戒指不支持 App 心电测量"
       )
     case nil:
       finishEcgMeasurementWithError(
@@ -2590,7 +2590,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       return
     }
     if let activeMeasurementMetric, activeMeasurementMetric != metric {
-      result(FlutterError(code: "DEVICE_BUSY", message: "另一项手表测量尚未结束", details: nil))
+      result(FlutterError(code: "DEVICE_BUSY", message: "另一项戒指测量尚未结束", details: nil))
       return
     }
     guard activeMeasurementMetric == metric else {
@@ -2627,16 +2627,16 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   func startSport(_ mode: String, result: @escaping FlutterResult) {
     guard let model = connected else {
-      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接Say Ring设备", details: nil))
       return
     }
     guard model.runningSaveTimes > 0,
           let mappedMode = WearablePayloadMapper.sportMode(mode) else {
-      result(FlutterError(code: "SPORT_UNSUPPORTED", message: "当前手表不支持该运动模式", details: nil))
+      result(FlutterError(code: "SPORT_UNSUPPORTED", message: "当前戒指不支持该运动模式", details: nil))
       return
     }
     if model.runningType == 0 && mode != "running" {
-      result(FlutterError(code: "SPORT_UNSUPPORTED", message: "当前手表仅支持单一运动模式", details: nil))
+      result(FlutterError(code: "SPORT_UNSUPPORTED", message: "当前戒指仅支持单一运动模式", details: nil))
       return
     }
     let sdkMode: VPDeviceRuningMode = switch mappedMode {
@@ -2653,14 +2653,14 @@ private final class VeepooWearableAdapter: WearableAdapter {
         self.emit("sportState", ["value": "running", "mode": mode, "deviceStatus": state])
         result(nil)
       } else {
-        result(FlutterError(code: "SPORT_START_FAILED", message: state == 2 ? "手表正在执行其他操作" : "运动模式暂时无法开启", details: ["deviceStatus": state]))
+        result(FlutterError(code: "SPORT_START_FAILED", message: state == 2 ? "戒指正在执行其他操作" : "运动模式暂时无法开启", details: ["deviceStatus": state]))
       }
     }
   }
 
   func stopSport(_ result: @escaping FlutterResult) {
     guard connected != nil else {
-      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接Say Ring设备", details: nil))
       return
     }
     manager.peripheralManage.veepooSDKSettingDeviceRunning(0, run: .common) { [weak self] state, success in
@@ -2677,11 +2677,11 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   func readSportRecords(_ result: @escaping FlutterResult) {
     guard let model = connected else {
-      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接Say Ring设备", details: nil))
       return
     }
     guard model.runningSaveTimes > 0 else {
-      result(FlutterError(code: "SPORT_UNSUPPORTED", message: "当前手表不支持运动记录", details: nil))
+      result(FlutterError(code: "SPORT_UNSUPPORTED", message: "当前戒指不支持运动记录", details: nil))
       return
     }
     manager.peripheralManage.veepooSDKStartReadDeviceRunningData { [weak self] state, total, current, progress in
@@ -2697,14 +2697,14 @@ private final class VeepooWearableAdapter: WearableAdapter {
           .compactMap(WearablePayloadMapper.sportRecord)
         result(Dictionary(grouping: records, by: { $0["id"] as? String ?? UUID().uuidString }).compactMap { $0.value.first })
       } else if state == .invalid {
-        result(FlutterError(code: "SPORT_UNSUPPORTED", message: "当前手表不支持运动记录", details: nil))
+        result(FlutterError(code: "SPORT_UNSUPPORTED", message: "当前戒指不支持运动记录", details: nil))
       }
     }
   }
 
   func readAutoMeasureSettings(_ result: @escaping FlutterResult) {
     guard let model = connected else {
-      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接Say Ring设备", details: nil))
       return
     }
     guard model.autoMonitSwitchType > 0 else {
@@ -2729,11 +2729,11 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   func setAutoMeasureSetting(_ type: String, enabled: Bool, result: @escaping FlutterResult) {
     guard connected != nil else {
-      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接Say Ring设备", details: nil))
       return
     }
     guard let model = autoMeasureModels[type] else {
-      result(FlutterError(code: "AUTO_MEASURE_UNSUPPORTED", message: "当前手表不支持该自动检测功能，请先刷新设置", details: nil))
+      result(FlutterError(code: "AUTO_MEASURE_UNSUPPORTED", message: "当前戒指不支持该自动检测功能，请先刷新设置", details: nil))
       return
     }
     let previous = model.on
@@ -2750,7 +2750,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   func readHeartRateWarning(_ result: @escaping FlutterResult) {
     guard let model = connected else {
-      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接Say Ring设备", details: nil))
       return
     }
     guard Self.supportsHeartWarning(model) else {
@@ -2771,11 +2771,11 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   func setHeartRateWarning(_ value: Int, result: @escaping FlutterResult) {
     guard let device = connected else {
-      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接Say Ring设备", details: nil))
       return
     }
     guard Self.supportsHeartWarning(device) else {
-      result(FlutterError(code: "HEART_WARNING_UNSUPPORTED", message: "当前手表不支持心率过高预警", details: nil))
+      result(FlutterError(code: "HEART_WARNING_UNSUPPORTED", message: "当前戒指不支持心率过高预警", details: nil))
       return
     }
     let bounded = WearablePayloadMapper.clampedHeartWarning(value)
@@ -2792,7 +2792,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   func readDeviceFeature(_ feature: String, result: @escaping FlutterResult) {
     guard connected != nil else {
-      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接Say Ring设备", details: nil))
       return
     }
     if feature == "camera" {
@@ -2856,7 +2856,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     result: @escaping FlutterResult
   ) {
     guard connected != nil else {
-      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接Say Ring设备", details: nil))
       return
     }
     if feature == "notifications" {
@@ -2940,17 +2940,17 @@ private final class VeepooWearableAdapter: WearableAdapter {
     result: @escaping FlutterResult
   ) {
     guard let model = connected else {
-      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接Say Ring设备", details: nil))
       return
     }
     if feature == "find_watch" {
       guard model.searchDeviceFunction > 0 else {
-        result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持查找功能", details: nil))
+        result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持查找功能", details: nil))
         return
       }
       manager.peripheralManage.veepooSDK_searchDeviceFuntion(withState: enabled) { open, state in
         if state == .unsupported {
-          result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持查找功能", details: nil))
+          result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持查找功能", details: nil))
         } else {
           result(nil)
         }
@@ -2959,7 +2959,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     }
     if feature == "camera" {
       guard Self.supportsCamera(model) else {
-        result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持相机遥控", details: nil))
+        result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持相机遥控", details: nil))
         return
       }
       manager.peripheralManage.veepooSDKSettingCameraType(enabled ? .enter : .exit) { [weak self] type in
@@ -3414,7 +3414,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func readScreenSettings(_ result: @escaping FlutterResult) {
     guard let model = connected else {
-      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接Say Ring设备", details: nil))
       return
     }
     var payload: [String: Any] = [
@@ -3501,7 +3501,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func writeScreenSettings(_ values: [String: Any], result: @escaping FlutterResult) {
     guard let model = connected else {
-      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接Say Ring设备", details: nil))
       return
     }
     func writeRaiseHand() {
@@ -3597,7 +3597,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func readLongSeat(_ result: @escaping FlutterResult) {
     guard let model = connected, Self.supportsLongSeat(model) else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持久坐提醒", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持久坐提醒", details: nil))
       return
     }
     manager.peripheralManage.veepooSDKSettingDeviceLongSeat(
@@ -3623,7 +3623,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func writeLongSeat(_ values: [String: Any], result: @escaping FlutterResult) {
     guard let device = connected, Self.supportsLongSeat(device) else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持久坐提醒", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持久坐提醒", details: nil))
       return
     }
     let start = (values["startMinutes"] as? NSNumber)?.intValue ?? 480
@@ -3652,7 +3652,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func readWorldClocks(_ result: @escaping FlutterResult) {
     guard connected?.worldClockType ?? 0 > 0 else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持世界时钟", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持世界时钟", details: nil))
       return
     }
     manager.peripheralManage.veepooSDKWorldClockRead(with: worldClockModels) { [weak self] success, models in
@@ -3668,7 +3668,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func writeWorldClock(_ values: [String: Any], result: @escaping FlutterResult) {
     guard connected?.worldClockType ?? 0 > 0 else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持世界时钟", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持世界时钟", details: nil))
       return
     }
     let operation = values["operation"] as? String ?? "add"
@@ -3726,7 +3726,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func readContacts(_ result: @escaping FlutterResult) {
     guard connected?.contactType ?? 0 > 0 else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持联系人", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持联系人", details: nil))
       return
     }
     manager.peripheralManage.veepooSDKSettingDeviceContacts(with: .read, opModel: VPDeviceContactsModel(), toID: 0) { state, models in
@@ -3734,7 +3734,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       case .complete:
         result(["items": (models ?? []).map(Self.contactPayload)])
       case .noFunction:
-        result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持联系人", details: nil))
+        result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持联系人", details: nil))
       case .failure:
         result(FlutterError(code: "CONTACT_READ_FAILED", message: "联系人暂时无法读取", details: nil))
       case .reading:
@@ -3747,7 +3747,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func writeContact(_ values: [String: Any], result: @escaping FlutterResult) {
     guard connected?.contactType ?? 0 > 0 else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持联系人", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持联系人", details: nil))
       return
     }
     let operation = values["operation"] as? String ?? "add"
@@ -3781,7 +3781,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     manager.peripheralManage.veepooSDKSettingDeviceContacts(with: code, opModel: model, toID: 0) { state, _ in
       switch state {
       case .complete: result(nil)
-      case .noFunction: result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持联系人", details: nil))
+      case .noFunction: result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持联系人", details: nil))
       case .failure: result(FlutterError(code: "CONTACT_WRITE_FAILED", message: "联系人保存失败", details: nil))
       case .reading: break
       @unknown default: result(FlutterError(code: "CONTACT_WRITE_FAILED", message: "联系人保存失败", details: nil))
@@ -3801,7 +3801,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func readAlarms(_ result: @escaping FlutterResult) {
     guard let device = connected, let kind = Self.alarmKind(device) else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持可管理闹钟", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持可管理闹钟", details: nil))
       return
     }
     switch kind {
@@ -3832,7 +3832,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func writeAlarm(_ values: [String: Any], result: @escaping FlutterResult) {
     guard let device = connected, let kind = Self.alarmKind(device) else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持可管理闹钟", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持可管理闹钟", details: nil))
       return
     }
     let operation = values["operation"] as? String ?? "add"
@@ -3922,7 +3922,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func readWeather(_ result: @escaping FlutterResult) {
     guard connected?.weatherType ?? 0 > 0 else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持天气", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持天气", details: nil))
       return
     }
     VPWeatherHandle.share().readWeatherInfo { [weak self] state, config in
@@ -3944,7 +3944,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func writeWeather(_ values: [String: Any], result: @escaping FlutterResult) {
     guard connected?.weatherType ?? 0 > 0 else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持天气", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持天气", details: nil))
       return
     }
     let config = weatherConfigModel ?? VPWeatherConfigModel()
@@ -3966,7 +3966,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
         return
       }
       guard server.weatherValid(withWeatherType: Int32(self.connected?.weatherType ?? 0)) else {
-        result(FlutterError(code: "INVALID_ARGUMENT", message: "天气数据与当前手表不兼容", details: nil))
+        result(FlutterError(code: "INVALID_ARGUMENT", message: "天气数据与当前戒指不兼容", details: nil))
         return
       }
       VPWeatherHandle.share().syncWeatherDataToDevice(with: server) { state in
@@ -3974,7 +3974,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
           server.save()
           result(nil)
         } else {
-          result(FlutterError(code: "WEATHER_SYNC_FAILED", message: "天气同步到手表失败", details: nil))
+          result(FlutterError(code: "WEATHER_SYNC_FAILED", message: "天气同步到戒指失败", details: nil))
         }
       }
     }
@@ -4026,7 +4026,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func readHealthAssessment(_ result: @escaping FlutterResult) {
     guard let device = connected, device.funcAssessmentType.rawValue > 0 else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持辅助评估设置", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持辅助评估设置", details: nil))
       return
     }
     manager.peripheralManage.veepooSDK_readFuncAssessment { models in
@@ -4040,7 +4040,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func writeHealthAssessment(_ values: [String: Any], result: @escaping FlutterResult) {
     guard let device = connected, device.funcAssessmentType.rawValue > 0 else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持辅助评估设置", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持辅助评估设置", details: nil))
       return
     }
     guard let type = Self.healthAssessmentType(values["id"] as? String ?? "") else {
@@ -4078,7 +4078,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func readPhoneCalls(_ result: @escaping FlutterResult) {
     guard connected?.deviceBTInfoData.count ?? 0 > 0 else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持蓝牙通话", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持蓝牙通话", details: nil))
       return
     }
     result(phoneCallState)
@@ -4086,11 +4086,11 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   private func writePhoneCalls(_ values: [String: Any], result: @escaping FlutterResult) {
     guard connected?.deviceBTInfoData.count ?? 0 > 0 else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持蓝牙通话", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持蓝牙通话", details: nil))
       return
     }
     guard values["enabled"] as? Bool == true else {
-      result(FlutterError(code: "FEATURE_UNAVAILABLE", message: "请在手表或手机蓝牙设置中断开通话连接", details: nil))
+      result(FlutterError(code: "FEATURE_UNAVAILABLE", message: "请在戒指或手机蓝牙设置中断开通话连接", details: nil))
       return
     }
     phoneCallState["connectionStatus"] = "broadcasting"
@@ -4103,7 +4103,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       let expectedSession = watchFaceSessionGate.currentSession,
       device.dialCount > 0 || device.marketDialCount > 0 || device.photoDialCount > 0
     else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持表盘管理", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持表盘管理", details: nil))
       return
     }
     func finish(_ marketModel: VPDeviceMarketDialModel?) {
@@ -4158,7 +4158,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
 
   func getWatchFaceProfile(_ result: @escaping FlutterResult) {
     guard let device = connected, device.marketDialCount > 0 else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持在线表盘", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持在线表盘", details: nil))
       return
     }
     readMarketDialModel { [weak self] model, error in
@@ -4172,7 +4172,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
             !device.deviceTestVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
         result(FlutterError(
           code: "WATCH_FACE_PROFILE_INVALID",
-          message: "手表返回的在线表盘规格不完整",
+          message: "戒指返回的在线表盘规格不完整",
           details: error?.localizedDescription
         ))
         return
@@ -4184,7 +4184,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       ) else {
         result(FlutterError(
           code: "WATCH_FACE_PROFILE_INVALID",
-          message: "手表返回的在线表盘身份或规格不完整",
+          message: "戒指返回的在线表盘身份或规格不完整",
           details: nil
         ))
         return
@@ -4200,7 +4200,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     else {
       result(FlutterError(
         code: "FEATURE_UNSUPPORTED",
-        message: "当前手表不支持在线表盘",
+        message: "当前戒指不支持在线表盘",
         details: nil
       ))
       return
@@ -4210,14 +4210,14 @@ private final class VeepooWearableAdapter: WearableAdapter {
       cancel: {
         result(FlutterError(
           code: "NOT_CONNECTED",
-          message: "手表连接已断开，表盘目录读取已取消",
+          message: "戒指连接已断开，表盘目录读取已取消",
           details: nil
         ))
       },
       rejectAsBusy: {
         result(FlutterError(
           code: "DEVICE_BUSY",
-          message: "手表正在处理其他操作，请稍后重试",
+          message: "戒指正在处理其他操作，请稍后重试",
           details: nil
         ))
       }
@@ -4227,7 +4227,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     guard !watchFaceTransferGate.isInFlight else {
       result(FlutterError(
         code: "DEVICE_BUSY",
-        message: "手表正在传送表盘，请稍后重试",
+        message: "戒指正在传送表盘，请稍后重试",
         details: nil
       ))
       return
@@ -4246,7 +4246,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       guard readError == nil, let deviceModel else {
         result(FlutterError(
           code: "WATCH_FACE_PROFILE_READ_FAILED",
-          message: "无法读取手表的表盘规格",
+          message: "无法读取戒指的表盘规格",
           details: readError?.localizedDescription
         ))
         return
@@ -4378,7 +4378,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     else {
       result(FlutterError(
         code: "DEVICE_BUSY",
-        message: "手表正在处理表盘任务，请稍后重试",
+        message: "戒指正在处理表盘任务，请稍后重试",
         details: nil
       ))
       return
@@ -4390,14 +4390,14 @@ private final class VeepooWearableAdapter: WearableAdapter {
       cancel: {
         result(FlutterError(
           code: "NOT_CONNECTED",
-          message: "手表连接已断开，表盘下载已取消",
+          message: "戒指连接已断开，表盘下载已取消",
           details: nil
         ))
       },
       rejectAsBusy: {
         result(FlutterError(
           code: "DEVICE_BUSY",
-          message: "手表正在处理其他操作，请稍后重试",
+          message: "戒指正在处理其他操作，请稍后重试",
           details: nil
         ))
       }
@@ -4537,7 +4537,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     _ completion: @escaping (VPDeviceMarketDialModel?, Error?) -> Void
   ) {
     guard let session = watchFaceSessionGate.currentSession else {
-      completion(nil, Self.watchFaceError(1, "手表连接已变化"))
+      completion(nil, Self.watchFaceError(1, "戒指连接已变化"))
       return
     }
     if !forceRefresh,
@@ -4552,7 +4552,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       marketDialModelSession = nil
     }
     guard let requestToken = watchFaceSessionGate.beginRequest() else {
-      completion(nil, Self.watchFaceError(1, "手表连接已变化"))
+      completion(nil, Self.watchFaceError(1, "戒指连接已变化"))
       return
     }
     manager.peripheralManage.veepooSDK_dialChannel(
@@ -4563,7 +4563,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
         DispatchQueue.main.async { [weak self] in
           guard let self else { return }
           guard self.watchFaceSessionGate.accepts(requestToken) else {
-            completion(nil, Self.watchFaceError(2, "手表连接或表盘读取任务已变化"))
+            completion(nil, Self.watchFaceError(2, "戒指连接或表盘读取任务已变化"))
             return
           }
           if error == nil, let model {
@@ -4604,7 +4604,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     guard connected != nil,
       let expectedSession = watchFaceSessionGate.currentSession
     else {
-      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接赛电设备", details: nil))
+      result(FlutterError(code: "NOT_CONNECTED", message: "请先连接Say Ring设备", details: nil))
       return
     }
     let type: VPDeviceDialType
@@ -4653,7 +4653,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
               guard readSuccess, readType == type, readStyle == index else {
                 result(FlutterError(
                   code: "WATCH_FACE_VERIFY_FAILED",
-                  message: "手表未返回与目标一致的表盘，请重试",
+                  message: "戒指未返回与目标一致的表盘，请重试",
                   details: ["expectedStyle": Int(index), "actualStyle": readStyle]
                 ))
                 return
@@ -4685,11 +4685,11 @@ private final class VeepooWearableAdapter: WearableAdapter {
           device.marketDialCount > 0,
           let fileURL = WearablePayloadMapper.localFileURL(values["filePath"] as? String ?? ""),
           FileManager.default.fileExists(atPath: fileURL.path) else {
-      result(FlutterError(code: "INVALID_ARGUMENT", message: "表盘文件无效或手表不支持在线表盘", details: nil))
+      result(FlutterError(code: "INVALID_ARGUMENT", message: "表盘文件无效或戒指不支持在线表盘", details: nil))
       return
     }
     guard !watchFaceTransferGate.isInFlight else {
-      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在传送表盘，请稍后重试", details: nil))
+      result(FlutterError(code: "DEVICE_BUSY", message: "戒指正在传送表盘，请稍后重试", details: nil))
       return
     }
     if !batteryPreflightPassed {
@@ -4702,14 +4702,14 @@ private final class VeepooWearableAdapter: WearableAdapter {
           )
         },
         cancel: {
-          result(FlutterError(code: "NOT_CONNECTED", message: "手表连接已断开，表盘传输已取消", details: nil))
+          result(FlutterError(code: "NOT_CONNECTED", message: "戒指连接已断开，表盘传输已取消", details: nil))
         },
         result: result
       )
       return
     }
     guard let transferGeneration = watchFaceTransferGate.begin() else {
-      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在传送表盘，请稍后重试", details: nil))
+      result(FlutterError(code: "DEVICE_BUSY", message: "戒指正在传送表盘，请稍后重试", details: nil))
       return
     }
     var finished = false
@@ -4728,7 +4728,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       result(error)
     }
     timeout = DispatchWorkItem {
-      finish(FlutterError(code: "WATCH_FACE_UPLOAD_TIMEOUT", message: "表盘传输超时，请保持手表靠近手机后重试", details: nil))
+      finish(FlutterError(code: "WATCH_FACE_UPLOAD_TIMEOUT", message: "表盘传输超时，请保持戒指靠近手机后重试", details: nil))
     }
     if let timeout {
       DispatchQueue.main.asyncAfter(deadline: .now() + 150, execute: timeout)
@@ -4739,7 +4739,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
         return
       }
       guard error == nil, let model else {
-        finish(FlutterError(code: "WATCH_FACE_PROFILE_READ_FAILED", message: "无法读取手表的表盘规格", details: error?.localizedDescription))
+        finish(FlutterError(code: "WATCH_FACE_PROFILE_READ_FAILED", message: "无法读取戒指的表盘规格", details: error?.localizedDescription))
         return
       }
       guard let activeDevice = self.connected,
@@ -4802,7 +4802,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
             Self.isCompatibleDialShape(requestedShape, actual: model.deviceShape) else {
         finish(FlutterError(
           code: "WATCH_FACE_INCOMPATIBLE",
-          message: "该表盘与当前手表的屏幕或协议不匹配",
+          message: "该表盘与当前戒指的屏幕或协议不匹配",
           details: [
             "actualLength": actualLength,
             "reportedLength": reportedLength,
@@ -4831,7 +4831,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
               return
             }
             guard success else {
-              finish(FlutterError(code: "WATCH_FACE_ACTIVATE_FAILED", message: "表盘已传送，但手表未能切换到新表盘", details: nil))
+              finish(FlutterError(code: "WATCH_FACE_ACTIVATE_FAILED", message: "表盘已传送，但戒指未能切换到新表盘", details: nil))
               return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -4920,7 +4920,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
             return
           }
           guard success else {
-            completion(FlutterError(code: "WATCH_FACE_VERIFY_UNAVAILABLE", message: "表盘已传送，但无法打开手表文件系统确认结果", details: nil))
+            completion(FlutterError(code: "WATCH_FACE_VERIFY_UNAVAILABLE", message: "表盘已传送，但无法打开戒指文件系统确认结果", details: nil))
             return
           }
           dialManager.getJLWatchNames { names in
@@ -4929,7 +4929,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
                 let names,
                 !names.isEmpty
               else {
-                completion(FlutterError(code: "WATCH_FACE_VERIFY_UNAVAILABLE", message: "表盘已传送，但手表未返回可验证的表盘目录", details: nil))
+                completion(FlutterError(code: "WATCH_FACE_VERIFY_UNAVAILABLE", message: "表盘已传送，但戒指未返回可验证的表盘目录", details: nil))
                 return
               }
               dialManager.getJLCurrentPhotoAndMarketWatchName(with: names) {
@@ -4947,7 +4947,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
                   else {
                     completion(FlutterError(
                       code: "WATCH_FACE_VERIFY_FAILED",
-                      message: "手表未返回与本次传输一致的表盘文件",
+                      message: "戒指未返回与本次传输一致的表盘文件",
                       details: ["expected": fileURL.lastPathComponent, "actual": marketWatchName ?? ""]
                     ))
                     return
@@ -4969,7 +4969,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
         return
       }
       guard error == nil, let refreshed else {
-        completion(FlutterError(code: "WATCH_FACE_VERIFY_UNAVAILABLE", message: "表盘已传送，但手表未返回可验证的安装标识", details: error?.localizedDescription))
+        completion(FlutterError(code: "WATCH_FACE_VERIFY_UNAVAILABLE", message: "表盘已传送，但戒指未返回可验证的安装标识", details: error?.localizedDescription))
         return
       }
       guard WearableMarketDialVerification.confirmsChangedImage(
@@ -4978,7 +4978,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       ) else {
         completion(FlutterError(
           code: "WATCH_FACE_VERIFY_UNCONFIRMED",
-          message: "手表未返回新的表盘标识，本次安装不能确认为成功",
+          message: "戒指未返回新的表盘标识，本次安装不能确认为成功",
           details: ["previousImageId": previousImageID, "currentImageId": refreshed.imageId]
         ))
         return
@@ -4998,7 +4998,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     guard connected?.photoDialCount ?? 0 > 0,
       let expectedSession = watchFaceSessionGate.currentSession
     else {
-      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前手表不支持照片表盘", details: nil))
+      result(FlutterError(code: "FEATURE_UNSUPPORTED", message: "当前戒指不支持照片表盘", details: nil))
       return
     }
     manager.peripheralManage.veepooSDK_dialChannel(
@@ -5041,7 +5041,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
       return
     }
     guard !watchFaceTransferGate.isInFlight else {
-      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在传送表盘，请稍后重试", details: nil))
+      result(FlutterError(code: "DEVICE_BUSY", message: "戒指正在传送表盘，请稍后重试", details: nil))
       return
     }
     if !batteryPreflightPassed {
@@ -5054,14 +5054,14 @@ private final class VeepooWearableAdapter: WearableAdapter {
           )
         },
         cancel: {
-          result(FlutterError(code: "NOT_CONNECTED", message: "手表连接已断开，照片表盘传输已取消", details: nil))
+          result(FlutterError(code: "NOT_CONNECTED", message: "戒指连接已断开，照片表盘传输已取消", details: nil))
         },
         result: result
       )
       return
     }
     guard let transferGeneration = watchFaceTransferGate.begin() else {
-      result(FlutterError(code: "DEVICE_BUSY", message: "手表正在传送表盘，请稍后重试", details: nil))
+      result(FlutterError(code: "DEVICE_BUSY", message: "戒指正在传送表盘，请稍后重试", details: nil))
       return
     }
     var finished = false
@@ -5082,7 +5082,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
     timeout = DispatchWorkItem {
       finish(FlutterError(
         code: "PHOTO_WATCH_FACE_UPLOAD_TIMEOUT",
-        message: "照片表盘传输超时，请保持手表靠近手机后重试",
+        message: "照片表盘传输超时，请保持戒指靠近手机后重试",
         details: nil
       ))
     }
@@ -5095,7 +5095,7 @@ private final class VeepooWearableAdapter: WearableAdapter {
         return
       }
       guard model.configModel.screenSize.width > 0, model.configModel.screenSize.height > 0 else {
-        finish(FlutterError(code: "PHOTO_WATCH_FACE_UNSUPPORTED", message: "SDK 尚未适配当前手表屏幕", details: nil))
+        finish(FlutterError(code: "PHOTO_WATCH_FACE_UNSUPPORTED", message: "SDK 尚未适配当前戒指屏幕", details: nil))
         return
       }
       model.isDefaultBG = false

@@ -119,7 +119,7 @@ abstract class AppLocalizations {
   /// No description provided for @scanLocationHint.
   ///
   /// In en, this message translates to:
-  /// **'Turn on your phone’s location services to find nearby watches, then return to this page.'**
+  /// **'Turn on your phone’s location services to find nearby rings, then return to this page.'**
   String get scanLocationHint;
 
   /// No description provided for @scanPermissionTitle.
@@ -131,7 +131,7 @@ abstract class AppLocalizations {
   /// No description provided for @scanPermissionHint.
   ///
   /// In en, this message translates to:
-  /// **'Allow the required permissions in Settings, then return to find your watch.'**
+  /// **'Allow the required permissions in Settings, then return to find your ring.'**
   String get scanPermissionHint;
 
   /// No description provided for @loginProtectionTitle.
@@ -149,7 +149,7 @@ abstract class AppLocalizations {
   /// No description provided for @workoutStartOnWatch.
   ///
   /// In en, this message translates to:
-  /// **'This watch cannot start workouts from the app. Start the workout directly on your watch.'**
+  /// **'This ring cannot start workouts from the app. Start the workout directly on your ring.'**
   String get workoutStartOnWatch;
 
   /// No description provided for @finishWorkoutConfirm.
@@ -185,7 +185,7 @@ abstract class AppLocalizations {
   /// No description provided for @workoutWatchHeartRate.
   ///
   /// In en, this message translates to:
-  /// **'Watch heart rate'**
+  /// **'Ring heart rate'**
   String get workoutWatchHeartRate;
 
   /// No description provided for @messageSendFailed.
@@ -371,7 +371,7 @@ abstract class AppLocalizations {
   /// No description provided for @brandHealthTitle.
   ///
   /// In en, this message translates to:
-  /// **'Saydian Health'**
+  /// **'Say Ring Health'**
   String get brandHealthTitle;
 
   /// No description provided for @accountAndSecurity.
@@ -437,7 +437,7 @@ abstract class AppLocalizations {
   /// No description provided for @reportInsufficientDataHint.
   ///
   /// In en, this message translates to:
-  /// **'No payment order is created when data is insufficient. Wear your watch as usual, sync its data, then try again.'**
+  /// **'No payment order is created when data is insufficient. Wear your ring as usual, sync its data, then try again.'**
   String get reportInsufficientDataHint;
 
   /// No description provided for @waitingPaymentConfirmation.
@@ -485,7 +485,7 @@ abstract class AppLocalizations {
   /// No description provided for @calibrateOnWatchHint.
   ///
   /// In en, this message translates to:
-  /// **'Follow the instructions on your watch to complete calibration.'**
+  /// **'Follow the instructions on your ring to complete calibration.'**
   String get calibrateOnWatchHint;
 
   /// No description provided for @spotCheckCuffHint.
@@ -563,7 +563,7 @@ abstract class AppLocalizations {
   /// No description provided for @watchHealthReference.
   ///
   /// In en, this message translates to:
-  /// **'Watch measurements are for everyday wellness reference.'**
+  /// **'Ring measurements are for everyday wellness reference.'**
   String get watchHealthReference;
 
   /// No description provided for @calibrationReferenceHint.
@@ -659,7 +659,7 @@ abstract class AppLocalizations {
   /// No description provided for @watchAlgorithmReference.
   ///
   /// In en, this message translates to:
-  /// **'The values below come from the watch’s algorithm and are for health trend reference only.'**
+  /// **'The values below come from the ring’s algorithm and are for health trend reference only.'**
   String get watchAlgorithmReference;
 
   /// No description provided for @ecgHealthReport.
@@ -671,13 +671,13 @@ abstract class AppLocalizations {
   /// No description provided for @brandedEcgReport.
   ///
   /// In en, this message translates to:
-  /// **'Saydian · ECG health report'**
+  /// **'Say Ring · ECG health report'**
   String get brandedEcgReport;
 
   /// No description provided for @ecgReportSafety.
   ///
   /// In en, this message translates to:
-  /// **'Note: this report uses watch measurement data. It is for wellness reference only and cannot replace a doctor’s diagnosis.'**
+  /// **'Note: this report uses ring measurement data. It is for wellness reference only and cannot replace a doctor’s diagnosis.'**
   String get ecgReportSafety;
 
   /// No description provided for @installedWatchFaces.
@@ -1049,7 +1049,7 @@ abstract class AppLocalizations {
   /// No description provided for @connectForWorkout.
   ///
   /// In en, this message translates to:
-  /// **'Connect your watch on the Device page first. Your watch will record the workout.'**
+  /// **'Connect your ring on the Device page first. Your ring will record the workout.'**
   String get connectForWorkout;
 
   /// No description provided for @latestVersion.
@@ -1625,7 +1625,7 @@ abstract class AppLocalizations {
   /// No description provided for @careInviteHint.
   ///
   /// In en, this message translates to:
-  /// **'Invite an international Saydian account by email or international phone number.'**
+  /// **'Invite a Say Ring account by email or international phone number.'**
   String get careInviteHint;
 
   /// No description provided for @careSharingHint.
@@ -2567,7 +2567,7 @@ abstract class AppLocalizations {
   /// No description provided for @noAccount.
   ///
   /// In en, this message translates to:
-  /// **'New to Saydian?'**
+  /// **'New to Say Ring?'**
   String get noAccount;
 
   /// No description provided for @showPassword.
@@ -2657,7 +2657,7 @@ abstract class AppLocalizations {
   /// No description provided for @defaultUser.
   ///
   /// In en, this message translates to:
-  /// **'Saydian user'**
+  /// **'Say Ring user'**
   String get defaultUser;
 
   /// No description provided for @dailyGreeting.
@@ -2777,7 +2777,7 @@ abstract class AppLocalizations {
   /// No description provided for @syncFailedTryAgain.
   ///
   /// In en, this message translates to:
-  /// **'Could not sync. Keep your watch nearby and try again.'**
+  /// **'Could not sync. Keep your ring nearby and try again.'**
   String get syncFailedTryAgain;
 
   /// No description provided for @disconnect.
@@ -2789,7 +2789,7 @@ abstract class AppLocalizations {
   /// No description provided for @findWatch.
   ///
   /// In en, this message translates to:
-  /// **'Find watch'**
+  /// **'Find ring'**
   String get findWatch;
 
   /// No description provided for @watchFaces.
@@ -2825,7 +2825,7 @@ abstract class AppLocalizations {
   /// No description provided for @useWatch.
   ///
   /// In en, this message translates to:
-  /// **'Please use this feature on your watch'**
+  /// **'Please use this feature on your ring'**
   String get useWatch;
 
   /// No description provided for @myOrders.
@@ -2921,7 +2921,7 @@ abstract class AppLocalizations {
   /// No description provided for @aboutApp.
   ///
   /// In en, this message translates to:
-  /// **'About Saydian'**
+  /// **'About Say Ring'**
   String get aboutApp;
 
   /// No description provided for @security.
@@ -3011,7 +3011,7 @@ abstract class AppLocalizations {
   /// No description provided for @enableNotifications.
   ///
   /// In en, this message translates to:
-  /// **'Enable Saydian notifications'**
+  /// **'Enable Say Ring notifications'**
   String get enableNotifications;
 
   /// No description provided for @notificationExplanation.

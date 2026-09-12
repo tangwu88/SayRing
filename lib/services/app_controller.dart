@@ -650,7 +650,7 @@ class AppController extends ChangeNotifier {
   int cameraShutterSequence = 0;
   int heartRateWarning = 120;
   bool heartRateWarningSupported = false;
-  String deviceSettingsStatus = '连接手表后可读取';
+  String deviceSettingsStatus = '连接戒指后可读取';
   HealthWarningSettings healthWarningSettings = const HealthWarningSettings();
   List<HealthWarningAlert> healthWarningAlerts = const [];
   HealthWarningAlert? activeHealthWarningAlert;
@@ -1207,7 +1207,7 @@ class AppController extends ChangeNotifier {
                 password: password,
                 nickname: nickname?.trim().isNotEmpty == true
                     ? nickname!.trim()
-                    : '赛电用户${mobile.trim().substring(7)}',
+                    : 'Say Ring 用户${mobile.trim().substring(7)}',
               );
         await _prepareAuthenticatedNotificationSession(
           privacyConsentGranted: privacyConsentGranted,
@@ -1350,7 +1350,7 @@ class AppController extends ChangeNotifier {
       await _wearableConnectInFlight;
       return true;
     } catch (_) {
-      sdkStatus = '请在设备页重新连接手表';
+      sdkStatus = '请在设备页重新连接戒指';
       return false;
     }
   }
@@ -1513,10 +1513,10 @@ class AppController extends ChangeNotifier {
         'BLUETOOTH_PERMISSION_REQUIRED' => DeviceScanIssue.permissionsRequired,
         _ => null,
       };
-      errorMessage = _wearableErrorMessage(error, fallback: '暂时无法查找手表');
+      errorMessage = _wearableErrorMessage(error, fallback: '暂时无法查找戒指');
       deviceMachine.transition(DeviceConnectionState.error);
     } catch (_) {
-      errorMessage = '暂时无法查找手表，请稍后重试';
+      errorMessage = '暂时无法查找戒指，请稍后重试';
       deviceMachine.transition(DeviceConnectionState.error);
     }
     notifyListeners();
@@ -1555,7 +1555,7 @@ class AppController extends ChangeNotifier {
             ServiceStatus.enabled) {
       throw PlatformException(
         code: 'LOCATION_SERVICE_DISABLED',
-        message: '请开启手机定位后再查找手表',
+        message: '请开启手机定位后再查找戒指',
       );
     }
     return true;
@@ -1648,7 +1648,7 @@ class AppController extends ChangeNotifier {
     } catch (_) {
       if (!isCurrent()) return;
       deviceCapabilityState = DeviceCapabilityState.disconnected;
-      errorMessage = '连接失败，请将手表靠近手机后重试';
+      errorMessage = '连接失败，请将戒指靠近手机后重试';
       deviceMachine.transition(DeviceConnectionState.error);
     }
     notifyListeners();
@@ -1682,13 +1682,13 @@ class AppController extends ChangeNotifier {
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.unavailable;
       if (announceFailure) {
-        errorMessage = _wearableErrorMessage(error, fallback: '暂时无法读取此手表的功能');
+        errorMessage = _wearableErrorMessage(error, fallback: '暂时无法读取此戒指的功能');
       }
     } catch (_) {
       if (!isCurrent()) return false;
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.unavailable;
-      if (announceFailure) errorMessage = '暂时无法读取此手表的功能';
+      if (announceFailure) errorMessage = '暂时无法读取此戒指的功能';
     }
     notifyListeners();
     return false;
@@ -1705,7 +1705,7 @@ class AppController extends ChangeNotifier {
   Future<bool> syncDeviceData() async {
     final device = connectedDevice;
     if (device == null) {
-      errorMessage = '请先连接手表';
+      errorMessage = '请先连接戒指';
       notifyListeners();
       return false;
     }
@@ -1730,7 +1730,7 @@ class AppController extends ChangeNotifier {
     isDeviceSyncing = true;
     var succeeded = false;
     deviceSyncProgress = 0;
-    syncStatus = '正在读取手表数据';
+    syncStatus = '正在读取戒指数据';
     _clearDeviceSyncError();
     notifyListeners();
     try {
@@ -1854,7 +1854,7 @@ class AppController extends ChangeNotifier {
             // A concurrent native disconnect may already have moved the state.
           }
         }
-        errorMessage = '手表连接已断开，请重新连接';
+        errorMessage = '戒指连接已断开，请重新连接';
         notifyListeners();
         return false;
       }
@@ -1879,7 +1879,7 @@ class AppController extends ChangeNotifier {
   Future<bool> startMeasurement(HealthMetric metric) async {
     if (_activeMeasurementMetric != null ||
         deviceState == DeviceConnectionState.measuring) {
-      measurementErrorMessage = '另一项手表测量尚未结束，请稍后重试';
+      measurementErrorMessage = '另一项戒指测量尚未结束，请稍后重试';
       errorMessage = measurementErrorMessage;
       notifyListeners();
       return false;
@@ -1893,7 +1893,7 @@ class AppController extends ChangeNotifier {
     measurementSampleFrequency = 250;
     errorMessage = null;
     if (connectedDevice == null) {
-      errorMessage = '请先连接手表';
+      errorMessage = '请先连接戒指';
       notifyListeners();
       return false;
     }
@@ -1903,7 +1903,7 @@ class AppController extends ChangeNotifier {
       return false;
     }
     if (isDeviceSyncing) {
-      measurementErrorMessage = '手表数据正在同步，请稍后再测量';
+      measurementErrorMessage = '戒指数据正在同步，请稍后再测量';
       errorMessage = measurementErrorMessage;
       notifyListeners();
       return false;
@@ -2014,7 +2014,7 @@ class AppController extends ChangeNotifier {
     _activeMeasurementMetric = null;
     _activeMeasurementSessionGeneration = null;
     _measurementTimeout = null;
-    measurementErrorMessage = '长时间未检测到有效结果，请确认手表已贴合手腕后重新测量';
+    measurementErrorMessage = '长时间未检测到有效结果，请确认戒指已贴合手腕后重新测量';
     errorMessage = measurementErrorMessage;
     if (deviceState == DeviceConnectionState.measuring) {
       deviceMachine.transition(DeviceConnectionState.ready);
@@ -2183,7 +2183,7 @@ class AppController extends ChangeNotifier {
 
   Future<bool> startSport(SportMode mode) async {
     if (connectedDevice == null) {
-      errorMessage = '请先连接手表后再开始运动';
+      errorMessage = '请先连接戒指后再开始运动';
       notifyListeners();
       return false;
     }
@@ -2191,7 +2191,7 @@ class AppController extends ChangeNotifier {
     if (_hasResolvedDeviceCapabilities &&
         reportedModes != null &&
         !reportedModes.contains(mode)) {
-      errorMessage = '当前手表不支持从 APP 开启${mode.label}';
+      errorMessage = '当前戒指不支持从 APP 开启${mode.label}';
       notifyListeners();
       return false;
     }
@@ -2237,13 +2237,13 @@ class AppController extends ChangeNotifier {
 
   Future<bool> setSportPaused(bool paused) async {
     if (activeSport == null || capabilities?.supportsSportPause != true) {
-      errorMessage = '当前手表不支持暂停运动';
+      errorMessage = '当前戒指不支持暂停运动';
       notifyListeners();
       return false;
     }
     final bridge = _wearable;
     if (bridge is! WearableSportPauseBridge) {
-      errorMessage = '当前手表不支持暂停运动';
+      errorMessage = '当前戒指不支持暂停运动';
       notifyListeners();
       return false;
     }
@@ -2331,13 +2331,13 @@ class AppController extends ChangeNotifier {
       autoMeasureSettings = const {};
       autoMeasureIntervals = const {};
       heartRateWarningSupported = false;
-      deviceSettingsStatus = '请先连接手表';
+      deviceSettingsStatus = '请先连接戒指';
       notifyListeners();
       return;
     }
     final expectedDeviceId = connectedDevice!.id;
     isDeviceSettingsLoading = true;
-    deviceSettingsStatus = '正在读取手表设置';
+    deviceSettingsStatus = '正在读取戒指设置';
     notifyListeners();
     try {
       Map<String, bool> settings;
@@ -2346,7 +2346,7 @@ class AppController extends ChangeNotifier {
       } on PlatformException catch (error) {
         if (!_isTransientDeviceSettingsError(error)) rethrow;
         if (_disposed || connectedDevice?.id != expectedDeviceId) return;
-        deviceSettingsStatus = '手表正在准备设置，正在重新读取';
+        deviceSettingsStatus = '戒指正在准备设置，正在重新读取';
         notifyListeners();
         await Future<void>.delayed(const Duration(milliseconds: 650));
         if (_disposed || connectedDevice?.id != expectedDeviceId) return;
@@ -2383,17 +2383,17 @@ class AppController extends ChangeNotifier {
       }
       if (_disposed || connectedDevice?.id != expectedDeviceId) return;
       deviceSettingsStatus = settings.isEmpty && !heartRateWarningSupported
-          ? '当前手表未提供可设置的健康检测项目'
+          ? '当前戒指未提供可设置的健康检测项目'
           : partialRead
           ? '主要设置已读取，部分项目可稍后刷新'
           : '设置已同步';
     } on PlatformException catch (error) {
       deviceSettingsStatus = autoMeasureSettings.isEmpty
-          ? _wearableErrorMessage(error, fallback: '读取手表设置失败，请点击重试')
+          ? _wearableErrorMessage(error, fallback: '读取戒指设置失败，请点击重试')
           : '刷新失败，已显示上次读取的设置';
     } catch (_) {
       deviceSettingsStatus = autoMeasureSettings.isEmpty
-          ? '手表设置读取失败，请稍后重试'
+          ? '戒指设置读取失败，请稍后重试'
           : '刷新失败，已显示上次读取的设置';
     }
     if (!_disposed) notifyListeners();
@@ -2407,29 +2407,29 @@ class AppController extends ChangeNotifier {
 
   Future<void> setAutoMeasureSetting(String type, bool enabled) async {
     if (connectedDevice == null) {
-      errorMessage = '请先连接手表';
+      errorMessage = '请先连接戒指';
       notifyListeners();
       return;
     }
     try {
       await _wearable.setAutoMeasureSetting(type, enabled);
       autoMeasureSettings = {...autoMeasureSettings, type: enabled};
-      deviceSettingsStatus = '设置已写入手表';
+      deviceSettingsStatus = '设置已写入戒指';
     } on PlatformException catch (error) {
-      errorMessage = _wearableErrorMessage(error, fallback: '写入手表设置失败');
+      errorMessage = _wearableErrorMessage(error, fallback: '写入戒指设置失败');
     }
     notifyListeners();
   }
 
   Future<void> setAutoMeasureInterval(String type, int minutes) async {
     if (connectedDevice == null) {
-      errorMessage = '请先连接手表';
+      errorMessage = '请先连接戒指';
       notifyListeners();
       return;
     }
     final bridge = _wearable;
     if (bridge is! WearableAutoMeasureIntervalBridge) {
-      errorMessage = '当前手表不支持调整监测间隔';
+      errorMessage = '当前戒指不支持调整监测间隔';
       notifyListeners();
       return;
     }
@@ -2447,7 +2447,7 @@ class AppController extends ChangeNotifier {
           ),
         };
       }
-      deviceSettingsStatus = '监测间隔已写入手表';
+      deviceSettingsStatus = '监测间隔已写入戒指';
     } on PlatformException catch (error) {
       errorMessage = _wearableErrorMessage(error, fallback: '监测间隔设置失败');
     }
@@ -2526,25 +2526,25 @@ class AppController extends ChangeNotifier {
     } on PlatformException catch (error) {
       if (generation != _wearableRestoreGeneration) return;
       if (error.code == 'NO_SAVED_DEVICE') return;
-      sdkStatus = _wearableErrorMessage(error, fallback: '手表自动重连失败');
+      sdkStatus = _wearableErrorMessage(error, fallback: '戒指自动重连失败');
       notifyListeners();
     } catch (_) {
       if (generation != _wearableRestoreGeneration) return;
-      sdkStatus = '手表自动重连失败，可在设备页重新连接';
+      sdkStatus = '戒指自动重连失败，可在设备页重新连接';
       notifyListeners();
     }
   }
 
   Future<void> setHeartRateWarning(int value) async {
     if (connectedDevice == null) {
-      errorMessage = '请先连接手表';
+      errorMessage = '请先连接戒指';
       notifyListeners();
       return;
     }
     try {
       await _wearable.setHeartRateWarning(value);
       heartRateWarning = value;
-      deviceSettingsStatus = '心率预警已写入手表';
+      deviceSettingsStatus = '心率预警已写入戒指';
     } on PlatformException catch (error) {
       errorMessage = _wearableErrorMessage(error, fallback: '心率预警设置失败');
     }
@@ -4847,17 +4847,17 @@ class AppController extends ChangeNotifier {
     final mappedMessage = switch (error.code) {
       'BLUETOOTH_DISABLED' => '请先打开手机蓝牙',
       'BLE_PERMISSION_DENIED' => '允许相关权限后使用',
-      'LOCATION_SERVICE_DISABLED' => '请开启手机定位后再查找手表',
-      'DEVICE_NOT_FOUND' => '手表已离开搜索范围，请重新搜索',
-      'NOT_CONNECTED' => '连接手表后使用',
+      'LOCATION_SERVICE_DISABLED' => '请开启手机定位后再查找戒指',
+      'DEVICE_NOT_FOUND' => '戒指已离开搜索范围，请重新搜索',
+      'NOT_CONNECTED' => '连接戒指后使用',
       'UNSUPPORTED_METRIC' ||
       'MEASUREMENT_NOT_AVAILABLE' ||
-      'FEATURE_UNSUPPORTED' => '当前手表不支持此功能',
+      'FEATURE_UNSUPPORTED' => '当前戒指不支持此功能',
       'FEATURE_UNAVAILABLE' ||
       'DEVICE_SETTINGS_NOT_CONFIGURED' ||
-      'SPORT_NOT_CONFIGURED' => '请在手表上操作',
+      'SPORT_NOT_CONFIGURED' => '请在戒指上操作',
       'SDK_NOT_CONFIGURED' => '此功能暂时无法使用，请稍后再试',
-      'CONNECT_FAILED' || 'CONNECTION_DROPPED' => '连接失败，请确认手表未连接其他手机后重试',
+      'CONNECT_FAILED' || 'CONNECTION_DROPPED' => '连接失败，请确认戒指未连接其他手机后重试',
       'YUCHENG_SYNC_TIMEOUT' => '数据同步超时，可稍后重试',
       'NETWORK_ERROR' || 'NETWORK_UNAVAILABLE' => '网络不可用，请检查后重试',
       _ => null,
@@ -4920,7 +4920,7 @@ class AppController extends ChangeNotifier {
             ((event.payload['progress'] as num?)?.toDouble() ?? 0)
                 .clamp(0.0, 1.0)
                 .toDouble();
-        syncStatus = '正在读取手表数据 ${(deviceSyncProgress * 100).round()}%';
+        syncStatus = '正在读取戒指数据 ${(deviceSyncProgress * 100).round()}%';
       }
     } else if (event.type == 'healthRecord') {
       final eventGeneration =
@@ -5043,7 +5043,7 @@ class AppController extends ChangeNotifier {
           code: errorCode,
           message: event.payload['message']?.toString(),
         ),
-        fallback: '手表连接出现问题，请稍后重试',
+        fallback: '戒指连接出现问题，请稍后重试',
       );
       errorMessage = resolvedMessage;
       if (_isMeasurementErrorCode(errorCode) && activeSport == null) {

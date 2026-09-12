@@ -362,7 +362,7 @@ export class AccountClient {
     return await this.authenticate('/api/v1/site/register', [
       { name: 'mobile', value: normalized }, { name: 'code', value: code.trim() },
       { name: 'password', value: password }, { name: 'password_repetition', value: confirmation },
-      { name: 'nickname', value: `赛电用户${normalized.slice(-4)}` }, { name: 'group', value: 'app' }
+      { name: 'nickname', value: `Say Ring 用户${normalized.slice(-4)}` }, { name: 'group', value: 'app' }
     ]);
   }
 

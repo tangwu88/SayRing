@@ -137,7 +137,7 @@ export function parseOrderDetail(raw: Object | undefined, expectedId: number): O
   if (id !== expectedId || id <= 0 || status === -999 || amount < 0) throw new ApiError('订单详情读取失败，请重试');
   const products = rows(row['product'] ?? row['products']).map((value: Object) => line(value));
   return { order: { id, number: text(row['order_sn'] ?? row['order_no']) || String(id), amountCents: amount, status,
-    summary: products[0]?.name ?? '赛电商城订单' }, products,
+    summary: products[0]?.name ?? 'Say Ring 商城订单' }, products,
     receiver: [text(row['receiver_name'] ?? row['realname']) || '--', text(row['receiver_mobile'] ?? row['mobile']) || '--'].join('  '),
     address: [text(row['receiver_region_name']), text(row['receiver_address'] ?? row['address'])].filter((part: string) => part.length > 0).join(' ') || '--',
     createdAt: messageTime(row['created_at']) || '--', orderCents: commerceCents(row['order_money']) };
@@ -148,7 +148,7 @@ export function orderHeading(status: number): string {
 }
 export function orderExplanation(status: number): string {
   return status === 0 ? '请在订单有效期内完成支付' : status === 1 ? '商家正在准备您的商品' : status === 2 ?
-    '商品已发出，请注意查收' : status === 3 || status === 4 ? '感谢您使用赛电商城' : '订单状态以商城最新数据为准';
+    '商品已发出，请注意查收' : status === 3 || status === 4 ? '感谢您使用 Say Ring 商城' : '订单状态以商城最新数据为准';
 }
 export function parseShipments(raw: Object | undefined): Shipment[] {
   const values = object(raw)['data'];

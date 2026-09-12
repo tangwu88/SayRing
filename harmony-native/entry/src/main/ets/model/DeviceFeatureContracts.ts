@@ -93,15 +93,15 @@ export interface WatchPhotoDialProfile {
 
 export const WATCH_DEVICE_FEATURES: WatchDeviceFeatureSpec[] = [
   { key: 'photoDial', title: '照片表盘', subtitle: '用自己的照片制作表盘' },
-  { key: 'camera', title: '相机遥控', subtitle: '使用手表控制手机拍照' },
-  { key: 'phoneCalls', title: '电话', subtitle: '管理手表蓝牙通话连接' },
+  { key: 'camera', title: '相机遥控', subtitle: '使用戒指控制手机拍照' },
+  { key: 'phoneCalls', title: '电话', subtitle: '管理戒指通话连接' },
   { key: 'contacts', title: '联系人', subtitle: '管理联系人和 SOS 紧急联系人' },
-  { key: 'notifications', title: '消息通知', subtitle: '选择需要在手表提醒的消息' },
-  { key: 'weather', title: '天气', subtitle: '设置手表天气显示与温度单位' },
-  { key: 'worldClock', title: '世界时钟', subtitle: '管理手表中的其他城市时间' },
+  { key: 'notifications', title: '消息通知', subtitle: '选择需要在戒指提醒的消息' },
+  { key: 'weather', title: '天气', subtitle: '设置戒指天气显示与温度单位' },
+  { key: 'worldClock', title: '世界时钟', subtitle: '管理戒指中的其他城市时间' },
   { key: 'healthReminders', title: '健康提醒', subtitle: '设置久坐、饮水和日常提醒' },
   { key: 'healthMonitoring', title: '健康监测', subtitle: '设置自动检测和监测间隔' },
-  { key: 'healthAssessment', title: '辅助评估', subtitle: '设置手表支持的辅助评估' },
+  { key: 'healthAssessment', title: '辅助评估', subtitle: '设置戒指支持的辅助评估' },
   { key: 'screenDisplay', title: '屏幕显示', subtitle: '设置亮屏时长和抬腕亮屏' }
 ];
 
@@ -138,7 +138,7 @@ export function nextWatchItemId(ids: number[], maximum: number = 10): number {
   for (let candidate = 1; candidate <= maximum; ++candidate) {
     if (!ids.includes(candidate)) return candidate;
   }
-  throw new Error('数量已达手表上限');
+  throw new Error('数量已达戒指上限');
 }
 
 export function normalizedTime(value: string, fallback: string): string {

@@ -371,7 +371,7 @@ class MainActivity : FlutterActivity() {
             Build.VERSION.SDK_INT <= Build.VERSION_CODES.R &&
             !isLocationServiceEnabled()
         ) {
-            result.error("LOCATION_SERVICE_DISABLED", "请开启手机定位后再查找手表", null)
+            result.error("LOCATION_SERVICE_DISABLED", "请开启手机定位后再查找戒指", null)
             return
         }
         dispatch(call, result)
@@ -386,15 +386,15 @@ class MainActivity : FlutterActivity() {
      */
     private fun prepareSilentRestoreCall(call: MethodCall, result: MethodChannel.Result) {
         if (!hasBlePermissions()) {
-            result.error("BLE_PERMISSION_REQUIRED", "请在设备页连接手表", null)
+            result.error("BLE_PERMISSION_REQUIRED", "请在设备页连接戒指", null)
             return
         }
         if (!isBluetoothEnabled()) {
-            result.error("BLUETOOTH_DISABLED", "请在设备页开启蓝牙并连接手表", null)
+            result.error("BLUETOOTH_DISABLED", "请在设备页开启蓝牙并连接戒指", null)
             return
         }
         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.R && !isLocationServiceEnabled()) {
-            result.error("LOCATION_SERVICE_DISABLED", "请在设备页开启定位后连接手表", null)
+            result.error("LOCATION_SERVICE_DISABLED", "请在设备页开启定位后连接戒指", null)
             return
         }
         dispatch(call, result)
@@ -1185,7 +1185,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             generation,
                             callback,
                             "RECONNECT_RESET_FAILED",
-                            "已有连接未能断开，请关闭手表其他手机的连接后重试",
+                            "已有连接未能断开，请关闭戒指其他手机的连接后重试",
                         )
                     }
                 }
@@ -1284,7 +1284,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     generation,
                     callback,
                     "CONNECT_TIMEOUT",
-                    "设备连接超时，请确认手表未连接其他手机后重试",
+                    "设备连接超时，请确认戒指未连接其他手机后重试",
                 )
             }
         connectionTimeoutTask = timeout
@@ -1313,7 +1313,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 generation,
                 callback,
                 "RECONNECT_RESET_TIMEOUT",
-                "已有蓝牙连接未能完全断开，请关闭手表蓝牙后重试",
+                "已有蓝牙连接未能完全断开，请关闭戒指蓝牙后重试",
             )
             return
         }
@@ -1356,7 +1356,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             generation,
                             callback,
                             "CONNECT_FAILED",
-                            "设备连接失败，请保持手表靠近手机后重试",
+                            "设备连接失败，请保持戒指靠近手机后重试",
                         )
                     }
                 }
@@ -1375,7 +1375,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             generation,
                             callback,
                             "NOTIFY_FAILED",
-                            "设备连接失败，请保持手表靠近手机后重试",
+                            "设备连接失败，请保持戒指靠近手机后重试",
                         )
                     }
                 }
@@ -1406,7 +1406,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             generation,
                             callback,
                             "PASSWORD_WRITE_FAILED",
-                            "设备确认失败，请重新连接并在手表上确认",
+                            "设备确认失败，请重新连接并在戒指上确认",
                         )
                     }
                 }
@@ -1455,7 +1455,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             generation,
                             callback,
                             "CONFIRM_TIMEOUT",
-                            "设备端连接确认超时，请在手表上确认连接",
+                            "设备端连接确认超时，请在戒指上确认连接",
                         )
                     }
                 }
@@ -1895,7 +1895,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         put(MediaStore.Images.Media.MIME_TYPE, mimeType)
                         put(
                             MediaStore.Images.Media.RELATIVE_PATH,
-                            "${Environment.DIRECTORY_PICTURES}/赛电",
+                            "${Environment.DIRECTORY_PICTURES}/Say Ring",
                         )
                         put(MediaStore.Images.Media.IS_PENDING, 1)
                     }
@@ -1915,7 +1915,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 val directory =
                     File(
                         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
-                        "赛电",
+                        "Say Ring",
                     ).apply { mkdirs() }
                 val file = File(directory, safeName)
                 file.outputStream().use { it.write(bytes) }
@@ -1949,12 +1949,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     fun getWatchFaceProfile(callback: ResultCallback<Any?>) {
         ensureConnected(callback) ?: return
         if (!manager.isJLCPUPlatform) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持在线表盘")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持在线表盘")
             return
         }
         val context = currentWatchFaceOperationContext()
         if (context == null) {
-            callback.error("NOT_CONNECTED", "请先连接赛电设备")
+            callback.error("NOT_CONNECTED", "请先连接Say Ring设备")
             return
         }
         readWatchFaceProfile(
@@ -2008,7 +2008,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             return
         }
         if (!manager.isJLCPUPlatform) {
-            onError("FEATURE_UNSUPPORTED", "当前手表不支持在线表盘")
+            onError("FEATURE_UNSUPPORTED", "当前戒指不支持在线表盘")
             return
         }
         val cached = watchFaceProfile
@@ -2023,7 +2023,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         val slotCount = currentWatchFaceServerSlotCount()
         if (slotCount <= 0) {
             watchFaceProfile = null
-            onError("FEATURE_UNSUPPORTED", "当前手表没有可用的服务器表盘槽位")
+            onError("FEATURE_UNSUPPORTED", "当前戒指没有可用的服务器表盘槽位")
             return
         }
         val completed = AtomicBoolean(false)
@@ -2039,7 +2039,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     ) {
                         watchFaceProfile = null
                     }
-                    onError("READ_TIMEOUT", "手表表盘规格读取超时，请重新连接后重试")
+                    onError("READ_TIMEOUT", "戒指表盘规格读取超时，请重新连接后重试")
                 }
             }
         fun fail(code: String, message: String) {
@@ -2063,7 +2063,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 IBleWriteResponse { code ->
                     if (code != Code.REQUEST_SUCCESS) {
                         connectionHandler.post {
-                            fail("READ_FAILED", "手表屏幕规格读取失败，请重新连接后重试")
+                            fail("READ_FAILED", "戒指屏幕规格读取失败，请重新连接后重试")
                         }
                     }
                 },
@@ -2112,7 +2112,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                 )
                                 fail(
                                     "FEATURE_UNSUPPORTED",
-                                    "手表未提供完整的在线表盘规格，当前仅可使用已安装表盘",
+                                    "戒指未提供完整的在线表盘规格，当前仅可使用已安装表盘",
                                 )
                                 return@post
                             }
@@ -2139,7 +2139,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             IBleWriteResponse { code ->
                 if (code != Code.REQUEST_SUCCESS) {
                     connectionHandler.post {
-                        fail("READ_FAILED", "手表服务器表盘规格读取失败，请重新连接后重试")
+                        fail("READ_FAILED", "戒指服务器表盘规格读取失败，请重新连接后重试")
                     }
                 }
             },
@@ -2215,7 +2215,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             !preferences.isSupportScreenlightTime &&
             !preferences.isSupportNightturnSetting
         ) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         val values =
@@ -2402,12 +2402,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
     private fun readWatchFaces(callback: ResultCallback<Any?>) {
         if (!manager.isJLCPUPlatform) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         val context = currentWatchFaceOperationContext()
         if (context == null || !isWatchFaceContextCurrent(context)) {
-            callback.error("NOT_CONNECTED", "请先连接赛电设备")
+            callback.error("NOT_CONNECTED", "请先连接Say Ring设备")
             return
         }
         readWatchFaceProfile(
@@ -2471,7 +2471,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     Runnable {
                         fail(
                             "READ_TIMEOUT",
-                            "表盘连接超时，请保持手表亮屏并靠近手机后重试",
+                            "表盘连接超时，请保持戒指亮屏并靠近手机后重试",
                         )
                     }
                 rawFallbackTimeout = fallbackTimeout
@@ -2528,7 +2528,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                 connectionHandler.post {
                                     fail(
                                         "READ_FAILED",
-                                        "表盘读取失败，请保持手表靠近手机后重试",
+                                        "表盘读取失败，请保持戒指靠近手机后重试",
                                         error,
                                     )
                                 }
@@ -2539,7 +2539,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     connectionHandler.post {
                         fail(
                             "READ_FAILED",
-                            "表盘读取失败，请保持手表靠近手机后重试",
+                            "表盘读取失败，请保持戒指靠近手机后重试",
                             error,
                         )
                     }
@@ -2755,7 +2755,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                 connectionHandler.post {
                                     fail(
                                         "AUTH_FAILED",
-                                        "手表未完成表盘连接，请保持手表亮屏后重试",
+                                        "戒指未完成表盘连接，请保持戒指亮屏后重试",
                                     )
                                 }
                             }
@@ -2782,7 +2782,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                 return@post
                             }
                             if (code != Code.REQUEST_SUCCESS) {
-                                fail("NOTIFY_FAILED", "手表未完成表盘连接，请稍后重试", code)
+                                fail("NOTIFY_FAILED", "戒指未完成表盘连接，请稍后重试", code)
                                 return@post
                             }
                             val mtuCompleted = AtomicBoolean(false)
@@ -2816,7 +2816,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 "system" -> "系统表盘 ${index + 1}"
                 "downloaded" -> "已安装表盘 ${index + 1}"
                 "photo" -> "照片表盘"
-                "other" -> "手表表盘 ${index + 1}"
+                "other" -> "戒指表盘 ${index + 1}"
                 else -> "当前表盘"
             }
         return buildMap {
@@ -2836,7 +2836,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         callback: ResultCallback<Unit>,
     ) {
         if (!manager.isJLCPUPlatform) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         when (values?.get("operation")?.toString()) {
@@ -2862,7 +2862,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         val timeout =
             Runnable {
                 if (completed.compareAndSet(false, true)) {
-                    onError("JL_SESSION_TIMEOUT", "表盘连接超时，请保持手表亮屏并靠近手机后重试")
+                    onError("JL_SESSION_TIMEOUT", "表盘连接超时，请保持戒指亮屏并靠近手机后重试")
                 }
             }
         fun fail(code: String, message: String) {
@@ -2899,7 +2899,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
                         override fun onRcspAuthFailed() {
                             connectionHandler.post {
-                                fail("JL_AUTH_FAILED", "手表未完成表盘认证，请保持手表亮屏后重试")
+                                fail("JL_AUTH_FAILED", "戒指未完成表盘认证，请保持戒指亮屏后重试")
                             }
                         }
                     },
@@ -2922,7 +2922,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             return@post
                         }
                         if (code != Code.REQUEST_SUCCESS) {
-                            fail("JL_NOTIFY_FAILED", "手表未完成表盘连接，请稍后重试")
+                            fail("JL_NOTIFY_FAILED", "戒指未完成表盘连接，请稍后重试")
                             return@post
                         }
                         val mtuCompleted = AtomicBoolean(false)
@@ -2948,7 +2948,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     ) {
         val context = currentWatchFaceOperationContext()
         if (context == null || !isWatchFaceContextCurrent(context)) {
-            callback.error("NOT_CONNECTED", "请先连接赛电设备")
+            callback.error("NOT_CONNECTED", "请先连接Say Ring设备")
             return
         }
         val path = values?.get("filePath")?.toString().orEmpty()
@@ -2973,12 +2973,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             return
         }
         if (isHealthSyncInFlight()) {
-            callback.error("DEVICE_BUSY", "手表健康数据正在同步，请稍后重试")
+            callback.error("DEVICE_BUSY", "戒指健康数据正在同步，请稍后重试")
             return
         }
         val transferGeneration = watchFaceTransferGate.begin()
         if (transferGeneration == null) {
-            callback.error("DEVICE_BUSY", "手表正在传送表盘，请稍后重试")
+            callback.error("DEVICE_BUSY", "戒指正在传送表盘，请稍后重试")
             return
         }
         val request =
@@ -3018,7 +3018,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 finish(
                     false,
                     "WRITE_TIMEOUT",
-                    "表盘传送超时，请保持手表靠近手机后重试",
+                    "表盘传送超时，请保持戒指靠近手机后重试",
                 )
             }
         contextMonitor =
@@ -3051,15 +3051,15 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         "PROFILE_MISMATCH" to "表盘规格已变化，请刷新表盘商城后重试"
                     VeepooWatchFaceUploadIssue.DIMENSIONS_MISMATCH ->
                         "PROFILE_MISMATCH" to
-                            "该表盘尺寸与当前手表 ${profile.width}×${profile.height} 不匹配"
+                            "该表盘尺寸与当前戒指 ${profile.width}×${profile.height} 不匹配"
                     VeepooWatchFaceUploadIssue.DIAL_SHAPE_MISMATCH ->
-                        "PROFILE_MISMATCH" to "该表盘形状与当前手表不匹配"
+                        "PROFILE_MISMATCH" to "该表盘形状与当前戒指不匹配"
                     VeepooWatchFaceUploadIssue.BIN_PROTOCOL_MISMATCH ->
-                        "PROFILE_MISMATCH" to "该表盘传输协议与当前手表不匹配"
+                        "PROFILE_MISMATCH" to "该表盘传输协议与当前戒指不匹配"
                     VeepooWatchFaceUploadIssue.MAX_FILE_LENGTH_MISMATCH ->
-                        "PROFILE_MISMATCH" to "手表表盘容量已变化，请刷新商城后重试"
+                        "PROFILE_MISMATCH" to "戒指表盘容量已变化，请刷新商城后重试"
                     VeepooWatchFaceUploadIssue.FILE_INVALID ->
-                        "INVALID_ARGUMENT" to "表盘文件无效或超过手表容量，请重新下载"
+                        "INVALID_ARGUMENT" to "表盘文件无效或超过戒指容量，请重新下载"
                     VeepooWatchFaceUploadIssue.FILE_LENGTH_MISMATCH ->
                         "INVALID_ARGUMENT" to "表盘文件不完整，请重新下载"
                 }
@@ -3139,7 +3139,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                             if (installedPath.isBlank()) {
                                                 finish(
                                                     false,
-                                                    message = "表盘已传输，但没有取得手表中的表盘位置",
+                                                    message = "表盘已传输，但没有取得戒指中的表盘位置",
                                                 )
                                                 return@post
                                             }
@@ -3207,7 +3207,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                                                                             finish(
                                                                                                 active,
                                                                                                 message =
-                                                                                                    "表盘已传输，但手表未确认启用，请在表盘中心重试",
+                                                                                                    "表盘已传输，但戒指未确认启用，请在表盘中心重试",
                                                                                             )
                                                                                         }
                                                                                     }
@@ -3276,8 +3276,8 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                             val detail = message?.trim().orEmpty()
                                             val userMessage =
                                                 when (code) {
-                                                    20 -> "手表表盘空间不足，请删除已安装表盘后重试"
-                                                    12545 -> "手表正在忙，请退出手表当前功能后重试"
+                                                    20 -> "戒指表盘空间不足，请删除已安装表盘后重试"
+                                                    12545 -> "戒指正在忙，请退出戒指当前功能后重试"
                                                     else ->
                                                         buildString {
                                                             append("表盘传输失败（错误码 ")
@@ -3454,7 +3454,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private fun switchWatchFace(values: Map<*, *>, callback: ResultCallback<Unit>) {
         val context = currentWatchFaceOperationContext()
         if (context == null || !isWatchFaceContextCurrent(context)) {
-            callback.error("NOT_CONNECTED", "请先连接赛电设备")
+            callback.error("NOT_CONNECTED", "请先连接Say Ring设备")
             return
         }
         val targetPath = values["id"]?.toString()?.trim().orEmpty()
@@ -3477,7 +3477,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             Runnable {
                 if (completed.compareAndSet(false, true)) {
                     if (isWatchFaceContextCurrent(context)) {
-                        callback.error("WRITE_TIMEOUT", "表盘切换超时，请保持手表靠近手机后重试")
+                        callback.error("WRITE_TIMEOUT", "表盘切换超时，请保持戒指靠近手机后重试")
                     } else {
                         callback.error("DEVICE_CHANGED", "连接设备已切换，表盘切换已取消")
                     }
@@ -3491,7 +3491,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 return
             }
             if (success) callback.success(Unit)
-            else callback.error("WRITE_FAILED", "表盘切换失败，请保持手表靠近手机后重试")
+            else callback.error("WRITE_FAILED", "表盘切换失败，请保持戒指靠近手机后重试")
         }
         fun verifyCurrentFace() {
             WatchManager.getInstance().getCurrentWatchInfo(
@@ -3551,7 +3551,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         }
         val context = currentWatchFaceOperationContext()
         if (context == null || !isWatchFaceContextCurrent(context)) {
-            callback.error("NOT_CONNECTED", "请先连接赛电设备")
+            callback.error("NOT_CONNECTED", "请先连接Say Ring设备")
             return
         }
         if (!batteryPreflightPassed) {
@@ -3570,12 +3570,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             return
         }
         if (isHealthSyncInFlight()) {
-            callback.error("DEVICE_BUSY", "手表健康数据正在同步，请稍后重试")
+            callback.error("DEVICE_BUSY", "戒指健康数据正在同步，请稍后重试")
             return
         }
         val transferGeneration = watchFaceTransferGate.begin()
         if (transferGeneration == null) {
-            callback.error("DEVICE_BUSY", "手表正在传送表盘，请稍后重试")
+            callback.error("DEVICE_BUSY", "戒指正在传送表盘，请稍后重试")
             return
         }
         val completed = AtomicBoolean(false)
@@ -3603,7 +3603,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 finish(
                     false,
                     "WRITE_TIMEOUT",
-                    "照片表盘传送超时，请保持手表靠近手机后重试",
+                    "照片表盘传送超时，请保持戒指靠近手机后重试",
                 )
             }
         connectionHandler.postDelayed(timeout, WATCH_FACE_UPLOAD_TIMEOUT_MS)
@@ -3618,7 +3618,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                 object : JLWatchFaceManager.JLTransferPicDialListener {
                                     override fun onLowPower() {
                                         connectionHandler.post {
-                                            finish(false, "LOW_POWER", "手表电量较低，请充电后再设置表盘")
+                                            finish(false, "LOW_POWER", "戒指电量较低，请充电后再设置表盘")
                                         }
                                     }
 
@@ -3650,7 +3650,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                     override fun onTransferError(code: Int, errorMsg: String) {
                                         Log.w(LOG_TAG, "Photo watch face failed: code=$code message=$errorMsg")
                                         connectionHandler.post {
-                                            finish(false, "TRANSFER_FAILED", "照片表盘设置失败，请保持手表靠近手机后重试")
+                                            finish(false, "TRANSFER_FAILED", "照片表盘设置失败，请保持戒指靠近手机后重试")
                                         }
                                     }
                                 },
@@ -3658,7 +3658,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         }.onFailure { error ->
                             Log.w(LOG_TAG, "Photo watch face failed before SDK callback", error)
                             connectionHandler.post {
-                                finish(false, "TRANSFER_FAILED", "照片表盘设置失败，请保持手表靠近手机后重试")
+                                finish(false, "TRANSFER_FAILED", "照片表盘设置失败，请保持戒指靠近手机后重试")
                             }
                         }
                     },
@@ -3688,11 +3688,11 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 return@refreshBatteryLevel
             }
             if (snapshot == null) {
-                onError("BATTERY_READ_FAILED", "无法读取手表电量，请保持连接后重试")
+                onError("BATTERY_READ_FAILED", "无法读取戒指电量，请保持连接后重试")
                 return@refreshBatteryLevel
             }
             if (snapshot.low) {
-                onError("LOW_POWER", "手表电量较低，请充电后再设置表盘")
+                onError("LOW_POWER", "戒指电量较低，请充电后再设置表盘")
                 return@refreshBatteryLevel
             }
             onReady()
@@ -3708,7 +3708,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         val timeout =
             Runnable {
                 if (completed.compareAndSet(false, true)) {
-                    onError("PHOTO_SIZE_TIMEOUT", "手表表盘尺寸读取超时，请保持连接后重试")
+                    onError("PHOTO_SIZE_TIMEOUT", "戒指表盘尺寸读取超时，请保持连接后重试")
                 }
             }
         fun fail(code: String, message: String) {
@@ -3721,7 +3721,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             IBleWriteResponse { code ->
                 if (code != Code.REQUEST_SUCCESS) {
                     connectionHandler.post {
-                        fail("PHOTO_SIZE_READ_FAILED", "无法读取手表表盘尺寸，请重新连接后重试")
+                        fail("PHOTO_SIZE_READ_FAILED", "无法读取戒指表盘尺寸，请重新连接后重试")
                     }
                 }
             },
@@ -3734,7 +3734,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     val targetWidth = watchUiType.bigBitmapWidth
                     val targetHeight = watchUiType.bigBitmapHeight
                     if (targetWidth <= 0 || targetHeight <= 0) {
-                        onError("PHOTO_SIZE_INVALID", "手表返回的表盘尺寸无效，请重新连接后重试")
+                        onError("PHOTO_SIZE_INVALID", "戒指返回的表盘尺寸无效，请重新连接后重试")
                         return
                     }
                     Thread {
@@ -3799,7 +3799,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
     private fun readHealthAssessment(callback: ResultCallback<Any?>) {
         if (!VpSpGetUtil.getVpSpVariInstance(appContext).isSupportHealthAssessment) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         manager.readFunSwitchState(
@@ -3827,7 +3827,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
     private fun writeHealthAssessment(values: Map<*, *>?, callback: ResultCallback<Unit>) {
         if (!VpSpGetUtil.getVpSpVariInstance(appContext).isSupportHealthAssessment) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         val flag = (values?.get("id") as? Number)?.toInt()
@@ -3958,14 +3958,14 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private fun readPhoneCalls(callback: ResultCallback<Any?>) {
         val preferences = VpSpGetUtil.getVpSpVariInstance(appContext)
         if (!preferences.isSupportBTFunction) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         manager.readBTInfo(
             writeResponse(callback, "通话设置读取失败，请稍后重试"),
             object : IDeviceBTInfoListener {
                 override fun onDeviceBTFunctionNotSupport() {
-                    callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+                    callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
                 }
 
                 override fun onDeviceBTInfoSettingSuccess(info: BTInfo) = Unit
@@ -3987,7 +3987,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
     private fun writePhoneCalls(values: Map<*, *>?, callback: ResultCallback<Unit>) {
         if (!VpSpGetUtil.getVpSpVariInstance(appContext).isSupportBTFunction) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         manager.setBTStatus(
@@ -4124,7 +4124,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     },
                     onFailure = { callback.error("READ_FAILED", "闹钟读取失败，请稍后重试") },
                 )
-            else -> callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            else -> callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
         }
     }
 
@@ -4224,7 +4224,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         when {
             preferences.isSupportTextAlarm -> writeTextAlarm(values, callback)
             preferences.isSupportMultiAlarm -> writeSceneAlarm(values, callback)
-            else -> callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            else -> callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
         }
     }
 
@@ -4284,7 +4284,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     }
                 if (success) complete()
                 else if (data.oprate == EMultiAlarmOprate.ALARM_FULL) {
-                    fail("LIMIT_REACHED", "手表闹钟数量已满")
+                    fail("LIMIT_REACHED", "戒指闹钟数量已满")
                 } else {
                     fail("WRITE_FAILED", "闹钟保存失败，请稍后重试")
                 }
@@ -4378,7 +4378,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         data.oprate == EMultiAlarmOprate.SETTING_SUCCESS
                     if (success) complete()
                     else if (data.oprate == EMultiAlarmOprate.ALARM_FULL) {
-                        fail("LIMIT_REACHED", "手表闹钟数量已满")
+                        fail("LIMIT_REACHED", "戒指闹钟数量已满")
                     } else {
                         fail("WRITE_FAILED", "闹钟保存失败，请稍后重试")
                     }
@@ -4556,7 +4556,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
     private fun readContacts(callback: ResultCallback<Any?>) {
         if (!VpSpGetUtil.getVpSpVariInstance(appContext).isSupportContactFunction) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         manager.readContact(
@@ -4592,7 +4592,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
     private fun writeContact(values: Map<*, *>?, callback: ResultCallback<Unit>) {
         if (!VpSpGetUtil.getVpSpVariInstance(appContext).isSupportContactFunction) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         val operation = values?.get("operation")?.toString().orEmpty()
@@ -4668,7 +4668,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             return
         }
         if (!preferences.isSupportHealthRemind) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         cachedHealthReminders.clear()
@@ -4676,7 +4676,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             HealthRemindType.ALL,
             object : IHealthRemindListener {
                 override fun functionNotSupport() {
-                    callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+                    callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
                 }
 
                 override fun onHealthRemindRead(reminder: HealthRemind) {
@@ -4732,7 +4732,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             reminder,
             object : IHealthRemindListener {
                 override fun functionNotSupport() {
-                    callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+                    callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
                 }
 
                 override fun onHealthRemindRead(reminder: HealthRemind) = Unit
@@ -4779,7 +4779,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                     ),
                             ),
                         )
-                    "UNSUPPORT" -> callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+                    "UNSUPPORT" -> callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
                     else -> callback.error("READ_FAILED", "久坐提醒读取失败，请稍后重试")
                 }
             },
@@ -4810,7 +4810,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     data.status?.name == if (expectedOpen) "OPEN_SUCCESS" else "CLOSE_SUCCESS"
                 if (success) callback.success(Unit)
                 else if (data.status?.name == "UNSUPPORT") {
-                    callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+                    callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
                 } else {
                     callback.error("WRITE_FAILED", "久坐提醒保存失败，请稍后重试")
                 }
@@ -4851,7 +4851,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
     private fun readWorldClocks(callback: ResultCallback<Any?>) {
         if (!VpSpGetUtil.getVpSpVariInstance(appContext).isSupportWorldClock) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         manager.readWorldClock(
@@ -4882,7 +4882,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
     private fun writeWorldClock(values: Map<*, *>?, callback: ResultCallback<Unit>) {
         if (!VpSpGetUtil.getVpSpVariInstance(appContext).isSupportWorldClock) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         val operation = values?.get("operation")?.toString().orEmpty()
@@ -4942,7 +4942,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
     private fun readWeather(callback: ResultCallback<Any?>) {
         if (!VpSpGetUtil.getVpSpVariInstance(appContext).isSupportWeather) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         manager.readWeatherStatusInfo(
@@ -4967,7 +4967,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
     private fun writeWeather(values: Map<*, *>?, callback: ResultCallback<Unit>) {
         if (!VpSpGetUtil.getVpSpVariInstance(appContext).isSupportWeather) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         if (values?.get("operation")?.toString() == "sync") {
@@ -5128,13 +5128,13 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             return
         }
         if (!VpSpGetUtil.getVpSpVariInstance(appContext).isSupportFindDeviceByPhone) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         val listener =
             object : IFindDevicelistener {
                 override fun unSupportFindDeviceByPhone() {
-                    callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+                    callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
                 }
 
                 override fun findedDevice() {
@@ -5152,7 +5152,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         val writeResponse =
             IBleWriteResponse { code ->
                 if (code != Code.REQUEST_SUCCESS) {
-                    callback.error("WRITE_FAILED", "暂时无法查找手表，请稍后重试")
+                    callback.error("WRITE_FAILED", "暂时无法查找戒指，请稍后重试")
                 }
             }
         if (enabled) {
@@ -5164,7 +5164,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
 
     private fun triggerCamera(enabled: Boolean, callback: ResultCallback<Unit>) {
         if (!VpSpGetUtil.getVpSpVariInstance(appContext).isSupportCamera) {
-            callback.error("FEATURE_UNSUPPORTED", "当前手表不支持此功能")
+            callback.error("FEATURE_UNSUPPORTED", "当前戒指不支持此功能")
             return
         }
         val listener =
@@ -5208,9 +5208,9 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             callback.error(
                 "SPORT_MODE_UNSUPPORTED",
                 if (supportsSingleSport) {
-                    "当前手表仅支持由 APP 开启跑步模式"
+                    "当前戒指仅支持由 APP 开启跑步模式"
                 } else {
-                    "当前手表未开放由 APP 开启运动模式"
+                    "当前戒指未开放由 APP 开启运动模式"
                 },
             )
             return
@@ -5251,7 +5251,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 withOperationTimeout(
                     callback,
                     "SPORT_CONTROL_TIMEOUT",
-                    "手表未确认开启${sportModeLabel(mode)}，请保持连接后重试",
+                    "戒指未确认开启${sportModeLabel(mode)}，请保持连接后重试",
                 )
             manager.setSportControlInfo(
                 writeResponse(guarded, "运动模式暂时无法开启"),
@@ -5259,7 +5259,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 sportType,
                 object : ISportControlOptListener {
                     override fun onSportControlOptFail() {
-                        guarded.error("SPORT_CONTROL_FAILED", "手表未能开启${sportModeLabel(mode)}")
+                        guarded.error("SPORT_CONTROL_FAILED", "戒指未能开启${sportModeLabel(mode)}")
                     }
 
                     override fun onSportControlOptSuccess() {
@@ -5334,7 +5334,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 withOperationTimeout(
                     callback,
                     "SPORT_CONTROL_TIMEOUT",
-                    "手表未确认结束运动，请保持连接后重试",
+                    "戒指未确认结束运动，请保持连接后重试",
                 )
             manager.setSportControlInfo(
                 writeResponse(guarded, "运动模式暂时无法结束"),
@@ -5342,7 +5342,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 controlledType,
                 object : ISportControlOptListener {
                     override fun onSportControlOptFail() {
-                        guarded.error("SPORT_CONTROL_FAILED", "手表未能结束当前运动")
+                        guarded.error("SPORT_CONTROL_FAILED", "戒指未能结束当前运动")
                     }
 
                     override fun onSportControlOptSuccess() {
@@ -5562,7 +5562,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             if (legacyTypes.isNotEmpty()) {
                 readLegacyAutoMeasureSettings(legacyTypes, callback)
             } else if (currentlySupportsAutoMeasure()) {
-                callback.error("AUTO_MEASURE_READ_FAILED", "手表不支持或无法读取自动检测设置")
+                callback.error("AUTO_MEASURE_READ_FAILED", "戒指不支持或无法读取自动检测设置")
             } else {
                 autoMeasureSettings.clear()
                 callback.success(emptyMap())
@@ -5650,18 +5650,18 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             withOperationTimeout(
                 callback,
                 "AUTO_MEASURE_READ_TIMEOUT",
-                "暂时未读取到手表健康监测设置，请稍后重试",
+                "暂时未读取到戒指健康监测设置，请稍后重试",
             )
         val values = linkedMapOf<String, Boolean>()
         var finalizeTask: Runnable? = null
         manager.readCustomSetting(
-            writeResponse(guardedCallback, "手表健康监测设置暂时无法读取"),
+            writeResponse(guardedCallback, "戒指健康监测设置暂时无法读取"),
             object : ICustomSettingDataListener {
                 override fun OnSettingDataChange(data: CustomSettingData) {
                     if (data.status != ECustomStatus.READ_SUCCESS &&
                         data.status != ECustomStatus.SETTING_SUCCESS
                     ) {
-                        guardedCallback.error("AUTO_MEASURE_READ_FAILED", "手表健康监测设置读取失败")
+                        guardedCallback.error("AUTO_MEASURE_READ_FAILED", "戒指健康监测设置读取失败")
                         return
                     }
                     lastCustomSettingData = data
@@ -5719,12 +5719,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     ) {
         val preferences = VpSpGetUtil.getVpSpVariInstance(appContext)
         if (!legacyAutoMeasureTypes(preferences).contains(type)) {
-            callback.error("AUTO_MEASURE_UNSUPPORTED", "当前手表不支持该自动检测功能")
+            callback.error("AUTO_MEASURE_UNSUPPORTED", "当前戒指不支持该自动检测功能")
             return
         }
         val current = lastCustomSettingData
         if (current == null) {
-            callback.error("READ_REQUIRED", "请先刷新手表健康监测设置后再操作")
+            callback.error("READ_REQUIRED", "请先刷新戒指健康监测设置后再操作")
             return
         }
         val status =
@@ -5739,7 +5739,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             "bodyTemperature" -> current.autoTemperatureDetect = status
             "hrv" -> current.autoHrv = status
             else -> {
-                callback.error("AUTO_MEASURE_UNSUPPORTED", "当前手表不支持该自动检测功能")
+                callback.error("AUTO_MEASURE_UNSUPPORTED", "当前戒指不支持该自动检测功能")
                 return
             }
         }
@@ -5748,17 +5748,17 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             withOperationTimeout(
                 callback,
                 "AUTO_MEASURE_WRITE_TIMEOUT",
-                "手表健康监测设置保存超时，请稍后重试",
+                "戒指健康监测设置保存超时，请稍后重试",
             )
         val verificationStarted = AtomicBoolean(false)
         manager.changeCustomSetting(
-            writeResponse(guardedCallback, "手表健康监测设置保存失败"),
+            writeResponse(guardedCallback, "戒指健康监测设置保存失败"),
             object : ICustomSettingDataListener {
                 override fun OnSettingDataChange(data: CustomSettingData) {
                     if (data.status != ECustomStatus.SETTING_SUCCESS &&
                         data.status != ECustomStatus.READ_SUCCESS
                     ) {
-                        guardedCallback.error("AUTO_MEASURE_WRITE_FAILED", "手表健康监测设置保存失败")
+                        guardedCallback.error("AUTO_MEASURE_WRITE_FAILED", "戒指健康监测设置保存失败")
                         return
                     }
                     lastCustomSettingData = data
@@ -5771,7 +5771,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             manager.readCustomSetting(
                                 writeResponse(
                                     guardedCallback,
-                                    "手表健康监测设置保存后校验失败",
+                                    "戒指健康监测设置保存后校验失败",
                                 ),
                                 object : ICustomSettingDataListener {
                                     override fun OnSettingDataChange(verified: CustomSettingData) {
@@ -5780,7 +5780,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                         ) {
                                             guardedCallback.error(
                                                 "AUTO_MEASURE_VERIFY_FAILED",
-                                                "手表健康监测设置保存后校验失败",
+                                                "戒指健康监测设置保存后校验失败",
                                             )
                                             return
                                         }
@@ -5796,7 +5796,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                         if (actual != enabled) {
                                             guardedCallback.error(
                                                 "AUTO_MEASURE_NOT_PERSISTED",
-                                                "手表未保存该健康监测开关，请保持连接后重试",
+                                                "戒指未保存该健康监测开关，请保持连接后重试",
                                             )
                                             return
                                         }
@@ -5853,7 +5853,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         ensureConnected(callback) ?: return
         val setting = autoMeasureSettings[type]
         if (setting == null || !setting.isIntervalModify) {
-            callback.error("AUTO_MEASURE_INTERVAL_UNSUPPORTED", "当前手表不支持调整此项监测间隔")
+            callback.error("AUTO_MEASURE_INTERVAL_UNSUPPORTED", "当前戒指不支持调整此项监测间隔")
             return
         }
         val step = setting.stepUnit.coerceAtLeast(1)
@@ -5948,7 +5948,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     fun setHeartRateWarning(value: Int, callback: ResultCallback<Unit>) {
         ensureConnected(callback) ?: return
         if (!VpSpGetUtil.getVpSpVariInstance(appContext).isSupportHeartwaring) {
-            callback.error("HEART_WARNING_UNSUPPORTED", "当前手表不支持心率过高预警")
+            callback.error("HEART_WARNING_UNSUPPORTED", "当前戒指不支持心率过高预警")
             return
         }
         val setting = HealthAlarmInterval(
@@ -5962,7 +5962,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             writeResponse(callback, "心率预警保存失败"),
             object : IHealthAlarmIntervalListener {
                 override fun functionNotSupport() {
-                    callback.error("HEART_WARNING_UNSUPPORTED", "当前手表不支持心率过高预警")
+                    callback.error("HEART_WARNING_UNSUPPORTED", "当前戒指不支持心率过高预警")
                 }
 
                 override fun onHealthAlarmIntervalReadSuccess(
@@ -5993,7 +5993,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     fun syncHealthData(cursor: String?, callback: ResultCallback<List<Map<String, Any?>>>) {
         ensureConnected(callback) ?: return
         if (watchFaceTransferGate.isInFlight) {
-            callback.error("DEVICE_BUSY", "手表正在传送表盘，请稍后再同步数据")
+            callback.error("DEVICE_BUSY", "戒指正在传送表盘，请稍后再同步数据")
             return
         }
         if (batteryReadGate.isInFlight) {
@@ -6417,11 +6417,11 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     return@post
                 }
                 action()
-                armHealthSyncTimeout(generation, callback, deviceId, "手表手动测量历史")
+                armHealthSyncTimeout(generation, callback, deviceId, "戒指手动测量历史")
             }
         }
 
-        armHealthSyncTimeout(generation, callback, deviceId, "手表手动测量历史")
+        armHealthSyncTimeout(generation, callback, deviceId, "戒指手动测量历史")
         manager.readDeviceManualData(
             IBleWriteResponse { code ->
                 if (code != Code.REQUEST_SUCCESS) finish(readFailed = true)
@@ -6536,7 +6536,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             cursor,
                             0.7 + progress.coerceIn(0f, 1f) * 0.18,
                         )
-                        armHealthSyncTimeout(generation, callback, deviceId, "手表手动测量历史")
+                        armHealthSyncTimeout(generation, callback, deviceId, "戒指手动测量历史")
                     }
                 }
 
@@ -6915,7 +6915,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         callback,
                         deviceId,
                         "HEALTH_READ_WRITE_FAILED",
-                        "${stage}读取失败，请保持手表靠近手机后重试",
+                        "${stage}读取失败，请保持戒指靠近手机后重试",
                     )
                 }
             }
@@ -7058,7 +7058,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             return
         }
         if (activeMetric != null) {
-            callback.error("MEASUREMENT_DEVICE_BUSY", "另一项手表测量尚未结束，请稍后重试")
+            callback.error("MEASUREMENT_DEVICE_BUSY", "另一项戒指测量尚未结束，请稍后重试")
             return
         }
         activeMetric = metric
@@ -7106,7 +7106,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                         }
                                         callback.error(
                                             "HRV_MEASUREMENT_FAILED",
-                                            "手表未能开始 HRV 健康检测，请稍后重试",
+                                            "戒指未能开始 HRV 健康检测，请稍后重试",
                                         )
                                     }
                                 }
@@ -7131,7 +7131,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 }
                 else -> {
                     synchronized(this) { activeMetric = null }
-                    callback.error("MEASUREMENT_NOT_AVAILABLE", "该指标仅支持同步手表历史数据")
+                    callback.error("MEASUREMENT_NOT_AVAILABLE", "该指标仅支持同步戒指历史数据")
                 }
             }
         } catch (error: Throwable) {
@@ -7236,7 +7236,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         failPendingBloodPressureStart(
                             generation,
                             "BLOOD_PRESSURE_WEAR_CHECK_FAILED",
-                            "手表未能开始佩戴检测，请稍后重试",
+                            "戒指未能开始佩戴检测，请稍后重试",
                         )
                     }
                 }
@@ -7252,7 +7252,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 failMeasurement(
                     metric,
                     "${metric.uppercase()}_RESULT_TIMEOUT",
-                    "${measurementMetricLabel(metric)}长时间没有返回结果，请确认手表已正确佩戴并退出其他测量后重试",
+                    "${measurementMetricLabel(metric)}长时间没有返回结果，请确认戒指已正确佩戴并退出其他测量后重试",
                 )
             }
         measurementResultTimeoutTask = timeout
@@ -7368,7 +7368,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             failPendingBloodPressureStart(
                                 generation,
                                 "BLOOD_PRESSURE_NOT_WORN",
-                                "请正确佩戴手表后重新测量血压",
+                                "请正确佩戴戒指后重新测量血压",
                             )
                         }
                         data.heartStatus == EHeartStatus.STATE_LOW_BATTERY -> {
@@ -7376,7 +7376,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             failPendingBloodPressureStart(
                                 generation,
                                 "BLOOD_PRESSURE_LOW_BATTERY",
-                                "手表电量过低，充电后再测量血压",
+                                "戒指电量过低，充电后再测量血压",
                             )
                         }
                         data.heartStatus == EHeartStatus.STATE_HEART_BUSY -> {
@@ -7384,7 +7384,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             failPendingBloodPressureStart(
                                 generation,
                                 "BLOOD_PRESSURE_DEVICE_BUSY",
-                                "手表正在处理其他任务，请稍后重试",
+                                "戒指正在处理其他任务，请稍后重试",
                             )
                         }
                     }
@@ -7560,13 +7560,13 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 val (code, message) =
                     when (errorCode) {
                         EMiniCheckupTestErrorCode.WEARING_ABNORMALITY ->
-                            "BLOOD_PRESSURE_NOT_WORN" to "请正确佩戴手表后重新测量血压"
+                            "BLOOD_PRESSURE_NOT_WORN" to "请正确佩戴戒指后重新测量血压"
                         EMiniCheckupTestErrorCode.LOW_POWER ->
-                            "BLOOD_PRESSURE_LOW_BATTERY" to "手表电量过低，充电后再测量血压"
+                            "BLOOD_PRESSURE_LOW_BATTERY" to "戒指电量过低，充电后再测量血压"
                         EMiniCheckupTestErrorCode.DEVICE_BUSY ->
-                            "BLOOD_PRESSURE_DEVICE_BUSY" to "手表正在处理其他任务，请稍后重试"
+                            "BLOOD_PRESSURE_DEVICE_BUSY" to "戒指正在处理其他任务，请稍后重试"
                         EMiniCheckupTestErrorCode.FUNCTION_NOT_SUPPORT ->
-                            "BLOOD_PRESSURE_FAILED" to "当前手表暂不支持此测量方式"
+                            "BLOOD_PRESSURE_FAILED" to "当前戒指暂不支持此测量方式"
                         else ->
                             "BLOOD_PRESSURE_FAILED" to "本次血压测量未完成，请保持静止后重试"
                     }
@@ -7619,13 +7619,13 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 val (code, message) =
                     when (errorCode) {
                         EMiniCheckupTestErrorCode.WEARING_ABNORMALITY ->
-                            "HRV_NOT_WORN" to "请将手表贴合手腕并保持静止后重新测量 HRV"
+                            "HRV_NOT_WORN" to "请将戒指贴合手腕并保持静止后重新测量 HRV"
                         EMiniCheckupTestErrorCode.LOW_POWER ->
-                            "HRV_LOW_BATTERY" to "手表电量过低，充电后再测量 HRV"
+                            "HRV_LOW_BATTERY" to "戒指电量过低，充电后再测量 HRV"
                         EMiniCheckupTestErrorCode.DEVICE_BUSY ->
-                            "HRV_DEVICE_BUSY" to "手表正在处理其他任务，请稍后重试"
+                            "HRV_DEVICE_BUSY" to "戒指正在处理其他任务，请稍后重试"
                         EMiniCheckupTestErrorCode.FUNCTION_NOT_SUPPORT ->
-                            "HRV_MEASUREMENT_FAILED" to "当前手表暂不支持 HRV 健康检测"
+                            "HRV_MEASUREMENT_FAILED" to "当前戒指暂不支持 HRV 健康检测"
                         else ->
                             "HRV_MEASUREMENT_FAILED" to "HRV 测量未完成，请正确佩戴并保持静止后重试"
                     }
@@ -7708,11 +7708,11 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         }
         when (data.heartStatus) {
             EHeartStatus.STATE_HEART_WEAR_ERROR ->
-                failMeasurement("heart_rate", "HEART_NOT_WORN", "请正确佩戴手表后重新测量心率")
+                failMeasurement("heart_rate", "HEART_NOT_WORN", "请正确佩戴戒指后重新测量心率")
             EHeartStatus.STATE_HEART_BUSY ->
-                failMeasurement("heart_rate", "HEART_DEVICE_BUSY", "手表正在处理其他任务，请稍后重试")
+                failMeasurement("heart_rate", "HEART_DEVICE_BUSY", "戒指正在处理其他任务，请稍后重试")
             EHeartStatus.STATE_LOW_BATTERY ->
-                failMeasurement("heart_rate", "HEART_LOW_BATTERY", "手表电量过低，充电后再测量")
+                failMeasurement("heart_rate", "HEART_LOW_BATTERY", "戒指电量过低，充电后再测量")
             else -> Unit
         }
     }
@@ -7738,10 +7738,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         if (data.status != EBPDetectStatus.STATE_BP_NORMAL) {
             val message =
                 when (data.status) {
-                    EBPDetectStatus.STATE_BP_WEAR_OFF -> "请正确佩戴手表后重新测量血压"
-                    EBPDetectStatus.STATE_BP_LOW_BATTERY -> "手表电量过低，充电后再测量"
-                    EBPDetectStatus.STATE_BP_CHARGING -> "手表充电时无法测量血压"
-                    else -> "手表正在处理其他任务，请稍后重试"
+                    EBPDetectStatus.STATE_BP_WEAR_OFF -> "请正确佩戴戒指后重新测量血压"
+                    EBPDetectStatus.STATE_BP_LOW_BATTERY -> "戒指电量过低，充电后再测量"
+                    EBPDetectStatus.STATE_BP_CHARGING -> "戒指充电时无法测量血压"
+                    else -> "戒指正在处理其他任务，请稍后重试"
                 }
             failMeasurement("blood_pressure", "BLOOD_PRESSURE_FAILED", message)
         } else if (resultReady && (data.highPressure > 0 || data.lowPressure > 0)) {
@@ -7816,11 +7816,11 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         }
         when {
             data.spState == ESPO2HStatus.NOT_SUPPORT ->
-                failMeasurement("blood_oxygen", "OXYGEN_UNSUPPORTED", "当前手表不支持血氧测量")
+                failMeasurement("blood_oxygen", "OXYGEN_UNSUPPORTED", "当前戒指不支持血氧测量")
             data.deviceState == EDeviceStatus.UNPASS_WEAR ->
-                failMeasurement("blood_oxygen", "OXYGEN_NOT_WORN", "请正确佩戴手表后重新测量血氧")
+                failMeasurement("blood_oxygen", "OXYGEN_NOT_WORN", "请正确佩戴戒指后重新测量血氧")
             data.deviceState in setOf(EDeviceStatus.BUSY, EDeviceStatus.CHARGING, EDeviceStatus.CHARG_LOW) ->
-                failMeasurement("blood_oxygen", "OXYGEN_DEVICE_BUSY", "手表当前无法测量血氧，请稍后重试")
+                failMeasurement("blood_oxygen", "OXYGEN_DEVICE_BUSY", "戒指当前无法测量血氧，请稍后重试")
         }
     }
 
@@ -7845,9 +7845,9 @@ private class VeepooWearableAdapter(context: android.content.Context) {
         }
         when {
             data.oprate == 0 ->
-                failMeasurement("body_temperature", "TEMPERATURE_UNSUPPORTED", "当前手表不支持体温测量")
+                failMeasurement("body_temperature", "TEMPERATURE_UNSUPPORTED", "当前戒指不支持体温测量")
             data.deviceState == 8 ->
-                failMeasurement("body_temperature", "TEMPERATURE_LOW_BATTERY", "手表电量过低，充电后再测量")
+                failMeasurement("body_temperature", "TEMPERATURE_LOW_BATTERY", "戒指电量过低，充电后再测量")
             data.deviceState == 9 ->
                 failMeasurement("body_temperature", "TEMPERATURE_SENSOR_ERROR", "体温传感器暂时不可用，请重新佩戴后重试")
             data.deviceState in 1..6 && !temperatureRetryUsed && activeMetric == "body_temperature" -> {
@@ -7869,7 +7869,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                 failMeasurement(
                                     "body_temperature",
                                     "TEMPERATURE_DEVICE_BUSY",
-                                    "手表仍在处理其他任务，请退出手表其他测量后重试",
+                                    "戒指仍在处理其他任务，请退出戒指其他测量后重试",
                                 )
                             }
                         },
@@ -7879,12 +7879,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     failMeasurement(
                         "body_temperature",
                         "TEMPERATURE_DEVICE_BUSY",
-                        "手表仍在处理其他任务，请退出手表其他测量后重试",
+                        "戒指仍在处理其他任务，请退出戒指其他测量后重试",
                     )
                 }
             }
             data.deviceState in 1..6 ->
-                failMeasurement("body_temperature", "TEMPERATURE_DEVICE_BUSY", "手表仍在处理其他任务，请退出手表其他测量后重试")
+                failMeasurement("body_temperature", "TEMPERATURE_DEVICE_BUSY", "戒指仍在处理其他任务，请退出戒指其他测量后重试")
         }
     }
 
@@ -7894,13 +7894,13 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 val (code, message) =
                     when (status) {
                         EBloodGlucoseStatus.WEARING_ERROR ->
-                            "GLUCOSE_NOT_WORN" to "未检测到正确佩戴，请将手表贴合手腕后重新测量血糖"
+                            "GLUCOSE_NOT_WORN" to "未检测到正确佩戴，请将戒指贴合手腕后重新测量血糖"
                         EBloodGlucoseStatus.LOW_POWER ->
-                            "GLUCOSE_LOW_BATTERY" to "手表电量过低，充电后再测量血糖"
+                            "GLUCOSE_LOW_BATTERY" to "戒指电量过低，充电后再测量血糖"
                         EBloodGlucoseStatus.BUSY ->
-                            "GLUCOSE_DEVICE_BUSY" to "手表正在处理其他任务，请稍后再测量血糖"
+                            "GLUCOSE_DEVICE_BUSY" to "戒指正在处理其他任务，请稍后再测量血糖"
                         EBloodGlucoseStatus.NONSUPPORT ->
-                            "UNSUPPORTED_METRIC" to "当前手表不支持手动测量血糖"
+                            "UNSUPPORTED_METRIC" to "当前戒指不支持手动测量血糖"
                         else ->
                             "GLUCOSE_MEASUREMENT_FAILED" to "血糖测量未完成，请保持正确佩戴后重试"
                     }
@@ -7973,11 +7973,11 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 val (code, message) =
                     when (state) {
                         DetectState.BUSY ->
-                            "BODY_COMPOSITION_BUSY" to "手表正在处理其他任务，请稍后重试"
+                            "BODY_COMPOSITION_BUSY" to "戒指正在处理其他任务，请稍后重试"
                         DetectState.LOW_POWER ->
-                            "BODY_COMPOSITION_LOW_BATTERY" to "手表电量过低，充电后再测量身体成分"
+                            "BODY_COMPOSITION_LOW_BATTERY" to "戒指电量过低，充电后再测量身体成分"
                         else ->
-                            "BODY_COMPOSITION_NOT_WORN" to "请正确佩戴手表并保持电极接触后重新测量身体成分"
+                            "BODY_COMPOSITION_NOT_WORN" to "请正确佩戴戒指并保持电极接触后重新测量身体成分"
                     }
                 failMeasurement("body_composition", code, message)
             }
@@ -7991,12 +7991,12 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 val (code, message) =
                     when (state) {
                         EBloodComponentDetectState.WEAR_ERROR ->
-                            "BLOOD_COMPONENT_NOT_WORN" to "请正确佩戴手表并保持电极接触后重新测量血液成分"
+                            "BLOOD_COMPONENT_NOT_WORN" to "请正确佩戴戒指并保持电极接触后重新测量血液成分"
                         EBloodComponentDetectState.BUSY,
                         EBloodComponentDetectState.DETECTING,
-                        -> "BLOOD_COMPONENT_BUSY" to "手表正在处理其他任务，请稍后重试"
+                        -> "BLOOD_COMPONENT_BUSY" to "戒指正在处理其他任务，请稍后重试"
                         EBloodComponentDetectState.LOW_POWER ->
-                            "BLOOD_COMPONENT_LOW_BATTERY" to "手表电量过低，充电后再测量血液成分"
+                            "BLOOD_COMPONENT_LOW_BATTERY" to "戒指电量过低，充电后再测量血液成分"
                         else ->
                             "BLOOD_COMPONENT_FAILED" to "血液成分测量未完成，请保持正确佩戴后重试"
                     }
@@ -8419,11 +8419,11 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 val (code, message) =
                     when (state) {
                         HrvDetectState.WEAR_OFF ->
-                            "HRV_NOT_WORN" to "请将手表贴合手腕并保持静止后重新测量 HRV"
+                            "HRV_NOT_WORN" to "请将戒指贴合手腕并保持静止后重新测量 HRV"
                         HrvDetectState.BUSY ->
-                            "HRV_DEVICE_BUSY" to "手表正在处理其他任务，请稍后重试"
+                            "HRV_DEVICE_BUSY" to "戒指正在处理其他任务，请稍后重试"
                         HrvDetectState.LOW_POWER ->
-                            "HRV_LOW_BATTERY" to "手表电量过低，充电后再测量 HRV"
+                            "HRV_LOW_BATTERY" to "戒指电量过低，充电后再测量 HRV"
                         else ->
                             "HRV_MEASUREMENT_FAILED" to "HRV 测量未完成，请保持正确佩戴后重试"
                     }
@@ -8458,7 +8458,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                     failMeasurement(
                         metric,
                         "ECG_NOT_WORN",
-                        "请正确佩戴手表，并将手指持续贴在心电电极上",
+                        "请正确佩戴戒指，并将手指持续贴在心电电极上",
                     )
                 }
             }
@@ -8723,7 +8723,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             metric,
                             if (hrv) "HRV_MEASUREMENT_FAILED" else "ECG_MEASUREMENT_FAILED",
                             if (hrv) {
-                                "HRV 测量未完成，请保持手表贴合并持续接触电极后重试"
+                                "HRV 测量未完成，请保持戒指贴合并持续接触电极后重试"
                             } else {
                                 "心电测量未完成，请保持接触电极后重试"
                             },
@@ -8903,7 +8903,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
     private fun ensureConnected(callback: ResultCallback<*>): Unit? {
         val deviceId = connectedDeviceId.trim()
         if (deviceId.isBlank()) {
-            callback.error("NOT_CONNECTED", "请先连接赛电设备")
+            callback.error("NOT_CONNECTED", "请先连接Say Ring设备")
             return null
         }
         if (!runCatching { manager.isDeviceConnected(deviceId) }.getOrDefault(false)) {
@@ -8978,7 +8978,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                                     generation,
                                     activeCallback,
                                     "CONNECTION_DROPPED",
-                                    "设备连接中断，请将手表靠近手机后重试",
+                                    "设备连接中断，请将戒指靠近手机后重试",
                                 )
                             }
                             return@post

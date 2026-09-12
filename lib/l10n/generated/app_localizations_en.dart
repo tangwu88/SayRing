@@ -13,14 +13,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get scanLocationHint =>
-      'Turn on your phone’s location services to find nearby watches, then return to this page.';
+      'Turn on your phone’s location services to find nearby rings, then return to this page.';
 
   @override
   String get scanPermissionTitle => 'Allow device access';
 
   @override
   String get scanPermissionHint =>
-      'Allow the required permissions in Settings, then return to find your watch.';
+      'Allow the required permissions in Settings, then return to find your ring.';
 
   @override
   String get loginProtectionTitle => 'Sign-in protection';
@@ -31,7 +31,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get workoutStartOnWatch =>
-      'This watch cannot start workouts from the app. Start the workout directly on your watch.';
+      'This ring cannot start workouts from the app. Start the workout directly on your ring.';
 
   @override
   String get finishWorkoutConfirm => 'Finish this workout?';
@@ -51,7 +51,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get workoutDuration => 'Workout duration';
 
   @override
-  String get workoutWatchHeartRate => 'Watch heart rate';
+  String get workoutWatchHeartRate => 'Ring heart rate';
 
   @override
   String get messageSendFailed =>
@@ -156,7 +156,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Do not send verification codes, passwords or complete health records to unofficial accounts.';
 
   @override
-  String get brandHealthTitle => 'Saydian Health';
+  String get brandHealthTitle => 'Say Ring Health';
 
   @override
   String get accountAndSecurity => 'Account and security';
@@ -193,7 +193,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get reportInsufficientDataHint =>
-      'No payment order is created when data is insufficient. Wear your watch as usual, sync its data, then try again.';
+      'No payment order is created when data is insufficient. Wear your ring as usual, sync its data, then try again.';
 
   @override
   String get waitingPaymentConfirmation => 'Waiting for payment confirmation';
@@ -220,7 +220,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get calibrateOnWatchHint =>
-      'Follow the instructions on your watch to complete calibration.';
+      'Follow the instructions on your ring to complete calibration.';
 
   @override
   String get spotCheckCuffHint =>
@@ -266,7 +266,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get watchHealthReference =>
-      'Watch measurements are for everyday wellness reference.';
+      'Ring measurements are for everyday wellness reference.';
 
   @override
   String get calibrationReferenceHint =>
@@ -323,17 +323,17 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get watchAlgorithmReference =>
-      'The values below come from the watch’s algorithm and are for health trend reference only.';
+      'The values below come from the ring’s algorithm and are for health trend reference only.';
 
   @override
   String get ecgHealthReport => 'ECG health report';
 
   @override
-  String get brandedEcgReport => 'Saydian · ECG health report';
+  String get brandedEcgReport => 'Say Ring · ECG health report';
 
   @override
   String get ecgReportSafety =>
-      'Note: this report uses watch measurement data. It is for wellness reference only and cannot replace a doctor’s diagnosis.';
+      'Note: this report uses ring measurement data. It is for wellness reference only and cannot replace a doctor’s diagnosis.';
 
   @override
   String get installedWatchFaces => 'Installed watch faces';
@@ -545,7 +545,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get connectForWorkout =>
-      'Connect your watch on the Device page first. Your watch will record the workout.';
+      'Connect your ring on the Device page first. Your ring will record the workout.';
 
   @override
   String latestVersion(String version) {
@@ -865,7 +865,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get careInviteHint =>
-      'Invite an international Saydian account by email or international phone number.';
+      'Invite a Say Ring account by email or international phone number.';
 
   @override
   String get careSharingHint =>
@@ -1355,7 +1355,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get haveAccount => 'Already have an account?';
 
   @override
-  String get noAccount => 'New to Saydian?';
+  String get noAccount => 'New to Say Ring?';
 
   @override
   String get showPassword => 'Show password';
@@ -1403,7 +1403,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Rest and measure again. If you feel unwell, seek medical advice.';
 
   @override
-  String get defaultUser => 'Saydian user';
+  String get defaultUser => 'Say Ring user';
 
   @override
   String get dailyGreeting => 'Take care of yourself today';
@@ -1465,13 +1465,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get syncFailedTryAgain =>
-      'Could not sync. Keep your watch nearby and try again.';
+      'Could not sync. Keep your ring nearby and try again.';
 
   @override
   String get disconnect => 'Disconnect';
 
   @override
-  String get findWatch => 'Find watch';
+  String get findWatch => 'Find ring';
 
   @override
   String get watchFaces => 'Watch faces';
@@ -1489,7 +1489,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get searchNearbyWatch => 'Find and connect a nearby Say Ring';
 
   @override
-  String get useWatch => 'Please use this feature on your watch';
+  String get useWatch => 'Please use this feature on your ring';
 
   @override
   String get myOrders => 'My orders';
@@ -1537,7 +1537,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get customerService => 'Customer support';
 
   @override
-  String get aboutApp => 'About Saydian';
+  String get aboutApp => 'About Say Ring';
 
   @override
   String get security => 'Account security';
@@ -1582,7 +1582,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get gettingReady => 'Getting things ready…';
 
   @override
-  String get enableNotifications => 'Enable Saydian notifications';
+  String get enableNotifications => 'Enable Say Ring notifications';
 
   @override
   String get notificationExplanation =>

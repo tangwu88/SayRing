@@ -1475,7 +1475,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
       refreshToken: refresh,
       expiresAt: expiry.toUtc(),
       memberId: id,
-      displayName: '${(member as Map)['nickname'] ?? 'Saydian user'}',
+      displayName: '${(member as Map)['nickname'] ?? 'Say Ring user'}',
       accountKey: 'global:member:$id',
     );
     if (expectedSession == null) {

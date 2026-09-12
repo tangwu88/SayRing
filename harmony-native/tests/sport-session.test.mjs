@@ -63,5 +63,5 @@ test('production service serializes sport commands and saves completed data once
   assert.match(source, /save && !this\.sportSaved/);
   assert.match(source, /record\.sport = \{/);
   assert.match(source, /geoLocationManager\.on\('locationChange'/);
-  assert.match(source, /运动进行中，请先结束运动再操作手表/);
+  assert.match(source, /运动进行中，请先结束运动再操作戒指/);
 });

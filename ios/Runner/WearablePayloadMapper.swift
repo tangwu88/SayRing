@@ -137,7 +137,7 @@ enum WearablePayloadMapper {
         "type": "default",
         "index": index,
         "isCurrent": currentType == 0 && currentStyle == index,
-        "status": "手表内置",
+        "status": "戒指内置",
       ])
     }
     if marketCount > 0 && marketInstalled {

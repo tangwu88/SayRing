@@ -13,14 +13,14 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get scanLocationHint =>
-      'Aktiviere die Standortdienste deines Telefons und kehre zurück, um Uhren in der Nähe zu finden.';
+      'Aktiviere die Standortdienste deines Telefons und kehre zurück, um Ringe in der Nähe zu finden.';
 
   @override
   String get scanPermissionTitle => 'Gerätezugriff erlauben';
 
   @override
   String get scanPermissionHint =>
-      'Erlaube die erforderlichen Berechtigungen in den Einstellungen und kehre zurück, um deine Uhr zu finden.';
+      'Erlaube die erforderlichen Berechtigungen in den Einstellungen und kehre zurück, um deinen Ring zu finden.';
 
   @override
   String get loginProtectionTitle => 'Anmeldeschutz';
@@ -31,7 +31,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get workoutStartOnWatch =>
-      'Diese Uhr kann Trainings nicht über die App starten. Starten Sie das Training direkt auf Ihrer Uhr.';
+      'Dieser Ring kann Trainings nicht über die App starten. Starten Sie das Training direkt auf Ihrem Ring.';
 
   @override
   String get finishWorkoutConfirm => 'Dieses Training beenden?';
@@ -51,7 +51,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get workoutDuration => 'Trainingsdauer';
 
   @override
-  String get workoutWatchHeartRate => 'Herzfrequenz der Uhr';
+  String get workoutWatchHeartRate => 'Herzfrequenz des Rings';
 
   @override
   String get messageSendFailed =>
@@ -156,7 +156,7 @@ class AppLocalizationsDe extends AppLocalizations {
       'Senden Sie keine Bestätigungscodes, Passwörter oder vollständigen Gesundheitsaufzeichnungen an inoffizielle Konten.';
 
   @override
-  String get brandHealthTitle => 'Saydian Gesundheit';
+  String get brandHealthTitle => 'Say Ring Gesundheit';
 
   @override
   String get accountAndSecurity => 'Konto und Sicherheit';
@@ -193,7 +193,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get reportInsufficientDataHint =>
-      'Bei unzureichenden Daten wird kein Zahlungsauftrag erstellt. Tragen Sie Ihre Uhr wie gewohnt, synchronisieren Sie die Daten und versuchen Sie es erneut.';
+      'Bei unzureichenden Daten wird kein Zahlungsauftrag erstellt. Tragen Sie Ihren Ring wie gewohnt, synchronisieren Sie die Daten und versuchen Sie es erneut.';
 
   @override
   String get waitingPaymentConfirmation => 'Warten auf Zahlungsbestätigung';
@@ -220,7 +220,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get calibrateOnWatchHint =>
-      'Folgen Sie den Anweisungen auf Ihrer Uhr, um die Kalibrierung abzuschließen.';
+      'Folgen Sie den Anweisungen auf Ihrem Ring, um die Kalibrierung abzuschließen.';
 
   @override
   String get spotCheckCuffHint =>
@@ -267,7 +267,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get watchHealthReference =>
-      'Uhrenmessungen dienen der Orientierung im täglichen Gesundheitsmanagement.';
+      'Ringmessungen dienen der Orientierung im täglichen Gesundheitsmanagement.';
 
   @override
   String get calibrationReferenceHint =>
@@ -325,17 +325,17 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get watchAlgorithmReference =>
-      'Die folgenden Werte stammen aus dem Algorithmus der Uhr und dienen nur zur Orientierung bei Gesundheitstrends.';
+      'Die folgenden Werte stammen aus dem Algorithmus des Rings und dienen nur zur Orientierung bei Gesundheitstrends.';
 
   @override
   String get ecgHealthReport => 'EKG-Gesundheitsbericht';
 
   @override
-  String get brandedEcgReport => 'Saydian · EKG-Gesundheitsbericht';
+  String get brandedEcgReport => 'Say Ring · EKG-Gesundheitsbericht';
 
   @override
   String get ecgReportSafety =>
-      'Hinweis: Dieser Bericht basiert auf Messdaten der Uhr. Er dient nur zur Gesundheitsorientierung und ersetzt keine ärztliche Diagnose.';
+      'Hinweis: Dieser Bericht basiert auf Messdaten des Rings. Er dient nur zur Gesundheitsorientierung und ersetzt keine ärztliche Diagnose.';
 
   @override
   String get installedWatchFaces => 'Installierte Zifferblätter';
@@ -552,7 +552,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get connectForWorkout =>
-      'Verbinden Sie zuerst Ihre Uhr auf der Geräteseite. Ihre Uhr zeichnet das Training auf.';
+      'Verbinden Sie zuerst Ihren Ring auf der Geräteseite. Ihr Ring zeichnet das Training auf.';
 
   @override
   String latestVersion(String version) {
@@ -872,7 +872,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get careInviteHint =>
-      'Laden Sie ein internationales Saydian-Konto per E-Mail oder internationaler Telefonnummer ein.';
+      'Laden Sie ein Say Ring-Konto per E-Mail oder internationaler Telefonnummer ein.';
 
   @override
   String get careSharingHint =>
@@ -1368,7 +1368,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get haveAccount => 'Bereits ein Konto?';
 
   @override
-  String get noAccount => 'Neu bei Saydian?';
+  String get noAccount => 'Neu bei Say Ring?';
 
   @override
   String get showPassword => 'Passwort anzeigen';
@@ -1416,7 +1416,7 @@ class AppLocalizationsDe extends AppLocalizations {
       'Ruhen Sie sich aus und messen Sie erneut. Holen Sie bei Beschwerden ärztlichen Rat ein.';
 
   @override
-  String get defaultUser => 'Saydian-Nutzer';
+  String get defaultUser => 'Say Ring-Nutzer';
 
   @override
   String get dailyGreeting => 'Achten Sie heute auf sich';
@@ -1479,13 +1479,13 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get syncFailedTryAgain =>
-      'Synchronisierung fehlgeschlagen. Halten Sie die Uhr nah am Telefon und versuchen Sie es erneut.';
+      'Synchronisierung fehlgeschlagen. Halten Sie den Ring nah am Telefon und versuchen Sie es erneut.';
 
   @override
   String get disconnect => 'Trennen';
 
   @override
-  String get findWatch => 'Uhr suchen';
+  String get findWatch => 'Ring suchen';
 
   @override
   String get watchFaces => 'Zifferblätter';
@@ -1503,7 +1503,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get searchNearbyWatch => 'Say Ring in der Nähe suchen und verbinden';
 
   @override
-  String get useWatch => 'Bitte diese Funktion auf der Uhr verwenden';
+  String get useWatch => 'Bitte diese Funktion auf dem Ring verwenden';
 
   @override
   String get myOrders => 'Meine Bestellungen';
@@ -1552,7 +1552,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get customerService => 'Kundenservice';
 
   @override
-  String get aboutApp => 'Über Saydian';
+  String get aboutApp => 'Über Say Ring';
 
   @override
   String get security => 'Kontosicherheit';
@@ -1597,7 +1597,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get gettingReady => 'Wird vorbereitet…';
 
   @override
-  String get enableNotifications => 'Saydian-Mitteilungen aktivieren';
+  String get enableNotifications => 'Say Ring-Mitteilungen aktivieren';
 
   @override
   String get notificationExplanation =>

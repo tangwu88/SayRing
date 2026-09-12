@@ -136,18 +136,18 @@ function requireResult(result: SettingsResult, fallback: string): void {
 export async function readWatchUnits(port: DeviceSettingsPort, current: AssertDeviceSession): Promise<WatchUnits> {
   current();
   const result = await port.readUnits();
-  current(); requireResult(result, '手表单位暂时无法读取，请重试');
-  if (!result.data) throw new Error('手表未返回单位设置');
-  if (!completeWatchUnits(result.data)) throw new Error('手表设置不完整，请重新读取');
+  current(); requireResult(result, '戒指单位暂时无法读取，请重试');
+  if (!result.data) throw new Error('戒指未返回单位设置');
+  if (!completeWatchUnits(result.data)) throw new Error('戒指设置不完整，请重新读取');
   return copyWatchUnits(result.data);
 }
 export async function saveWatchUnit(port: DeviceSettingsPort, current: AssertDeviceSession,
   field: WatchUnitField, value: number, expected: number): Promise<WatchUnits> {
   if (!['unitSystem', 'tempUnit', 'timeFormat'].includes(field) || !supportedWatchUnit(value)) throw new Error('单位选项无效');
   const before = await readWatchUnits(port, current);
-  if (!supportedWatchUnit(before[field])) throw new Error('当前手表不支持此单位设置');
+  if (!supportedWatchUnit(before[field])) throw new Error('当前戒指不支持此单位设置');
   if (before[field] === value) return before;
-  if (before[field] !== expected) throw new Error('手表设置已变化，请重新读取后再修改');
+  if (before[field] !== expected) throw new Error('戒指设置已变化，请重新读取后再修改');
   const intended = copyWatchUnits(before);
   if (field === 'unitSystem') intended.unitSystem = value;
   else if (field === 'tempUnit') intended.tempUnit = value;
@@ -156,13 +156,13 @@ export async function saveWatchUnit(port: DeviceSettingsPort, current: AssertDev
   requireResult(written, '单位保存失败，请重新读取后重试');
   const actual = await readWatchUnits(port, current);
   if (actual[field] !== value) throw new Error('尚未确认单位已保存，请重新读取');
-  if (!sameWatchUnits(intended, actual)) throw new Error('手表其他设置已变化，请重新读取');
+  if (!sameWatchUnits(intended, actual)) throw new Error('戒指其他设置已变化，请重新读取');
   return actual;
 }
 export async function readWatchAlarms(port: DeviceSettingsPort, current: AssertDeviceSession): Promise<WatchAlarm[]> {
   current(); const result = await port.readAlarms(); current();
   requireResult(result, '闹钟暂时无法读取，请重试');
-  if (!result.data) throw new Error('手表未返回闹钟列表');
+  if (!result.data) throw new Error('戒指未返回闹钟列表');
   const ids: Set<number> = new Set();
   for (const alarm of result.data) {
     if (alarm.id < 0 || alarmDraftError(alarm) || ids.has(alarm.id)) throw new Error('闹钟数据暂时无法识别，请重新读取');

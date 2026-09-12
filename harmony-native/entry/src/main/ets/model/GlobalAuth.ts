@@ -131,5 +131,5 @@ export function parseGlobalSession(payload: Envelope, now: number, previous?: Se
   const expiresAt = Date.parse(value.expiresAt);
   if (!Number.isFinite(expiresAt) || expiresAt <= now) throw new ApiError('session_expired', 401);
   return validateStoredSession({ accessToken: value.accessToken, refreshToken: value.refreshToken,
-    expiresAt, memberId: value.member.id, displayName: value.member.nickname?.trim() || 'Saydian' });
+    expiresAt, memberId: value.member.id, displayName: value.member.nickname?.trim() || 'Say Ring' });
 }

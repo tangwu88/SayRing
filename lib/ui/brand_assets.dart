@@ -8,7 +8,7 @@ class SaydianBrandLockup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: 'Saydian',
+      label: 'Say Ring',
       excludeSemantics: true,
       child: SizedBox(
         width: width,
@@ -20,7 +20,7 @@ class SaydianBrandLockup extends StatelessWidget {
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(
-                  'Saydian',
+                  'Say Ring',
                   style: TextStyle(
                     fontSize: width * .20,
                     fontWeight: FontWeight.w800,
@@ -48,7 +48,7 @@ class SaydianBrandMark extends StatelessWidget {
       width: size,
       height: size,
       fit: BoxFit.contain,
-      semanticLabel: 'Saydian',
+      semanticLabel: 'Say Ring',
     );
   }
 }

@@ -384,7 +384,7 @@ class DeviceInfo {
     );
     if (normalized.contains('W9S')) return 'SD-Watch-W9S';
     if (normalized.contains('W9')) return 'SD-Watch-W9';
-    return cleaned.isEmpty ? '赛电设备' : cleaned;
+    return cleaned.isEmpty ? 'Say Ring device' : cleaned;
   }
 
   Map<String, Object?> toJson() => {

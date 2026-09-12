@@ -217,7 +217,7 @@ test('disconnected health cards do not repeat the same empty-state line',()=>{
   const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const cards=source.slice(source.indexOf('HealthHome()'),source.indexOf('DeviceHome()'));
   assert.ok(cards.includes('if (this.visibleWearableMetrics().length === 0)'));
-  assert.ok(cards.includes("'连接手表后可查看支持的健康数据'"));
+  assert.ok(cards.includes("'connectWatchForData'"));
   assert.ok(cards.includes('ForEach(this.visibleWearableMetrics()'));
   assert.equal(cards.includes("this.wearableSnapshot.connected ? '当前手表不支持' : '暂无记录'"),false);
   assert.equal(cards.includes("已记录' : '暂无数据"),false,
@@ -232,7 +232,7 @@ test('home tabs reset the shared scroll position and connected metadata stays re
   assert.ok(selector.includes('this.homeScroller.scrollEdge(Edge.Top)'));
   assert.ok(source.includes('this.selectHomeTab(index);'));
   const device=source.slice(source.indexOf('DeviceHome()'),source.indexOf('DeviceSearchContent()'));
-  assert.ok(device.includes("Text('已连接')"));
+  assert.ok(device.includes("Text('connected')"));
   assert.ok(device.includes('Text(this.wearableSyncTime())'));
   assert.equal(device.includes('`已连接 · ${this.wearableSyncTime()}`'),false);
 });
@@ -279,11 +279,14 @@ test('login and primary surfaces exclude decorative or internal helper copy',()=
 test('device search and profile shortcuts match the iOS navigation hierarchy',()=>{
   const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const search=source.slice(source.indexOf('DeviceSearchContent()'),source.indexOf('MineHome()'));
-  for(const marker of ['已发现设备','请选择需要连接的手表','device_search_refresh','device_search_shop']) {
+  for(const marker of ['已发现设备','searchNearbyWatch','device_search_refresh','device_search_shop']) {
     assert.ok(source.includes(marker),`Missing device search contract: ${marker}`);
   }
   assert.ok(search.includes('wearableIdentifierText(device)'));
-  assert.ok(search.includes("device.provider === 'Yuc' ? 'W8' : 'Vep'"));
+  assert.equal(search.includes("device.provider === 'Yuc' ? 'W8' : 'Vep'"),false,
+    'vendor and legacy watch badges must not be shown in Say Ring scan rows');
+  assert.equal(search.includes('${device.provider}，${this.signalText(device.rssi)}'),false,
+    'provider routing must stay internal and out of accessibility labels');
   assert.ok(search.includes("Text('连接')"));
   assert.equal(search.includes("Text('暂不支持')"),false,'Both W8 and W9 discovery rows must be connectable');
   const mineStart=source.indexOf('MineHome()');

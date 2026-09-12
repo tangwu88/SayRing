@@ -423,7 +423,7 @@ class SaydianApiClient
       expiresAt: expiresAt,
       memberId: '${memberMap['id'] ?? fallback?.memberId ?? ''}',
       displayName:
-          '${memberMap['nickname'] ?? memberMap['username'] ?? fallback?.displayName ?? '赛电用户'}',
+          '${memberMap['nickname'] ?? memberMap['username'] ?? fallback?.displayName ?? 'Say Ring user'}',
       accountKey: accountKey?.trim().isNotEmpty == true
           ? accountKey!.trim()
           : fallback?.accountKey ?? '',

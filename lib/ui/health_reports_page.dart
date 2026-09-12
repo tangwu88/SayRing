@@ -696,10 +696,10 @@ class _HealthReportDetailPageState extends State<HealthReportDetailPage> {
       final date = DateFormat('yyyyMMdd').format(DateTime.now());
       final result = await SharePlus.instance.share(
         ShareParams(
-          subject: 'Saydian赛电健康报告',
-          text: '我的 Saydian赛电健康管理参考报告',
+          subject: 'Say Ring Health Report',
+          text: 'My Say Ring wellness reference report',
           files: [XFile.fromData(bytes, mimeType: 'application/pdf')],
-          fileNameOverrides: ['Saydian健康报告-$date.pdf'],
+          fileNameOverrides: ['Say-Ring-Health-Report-$date.pdf'],
         ),
       );
       if (!mounted) return;

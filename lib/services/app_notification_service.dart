@@ -376,7 +376,7 @@ final class JPushAppNotificationService implements AppNotificationService {
     entityId: entityId,
     createdAt: createdAt,
     eventType: 'health_warning',
-    title: '赛电健康提醒',
+    title: 'Say Ring 健康提醒',
     content: '有新的健康预警，请打开 App 查看',
     badge: unreadCount,
   );
@@ -392,7 +392,7 @@ final class JPushAppNotificationService implements AppNotificationService {
     entityId: entityId,
     createdAt: createdAt,
     eventType: 'care_invitation',
-    title: '赛电远程关爱',
+    title: 'Say Ring 远程关爱',
     content: '您有新的关爱请求，请打开 App 查看',
     badge: unreadCount,
   );

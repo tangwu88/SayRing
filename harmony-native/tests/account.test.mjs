@@ -40,7 +40,7 @@ test('SMS registration uses the confirmed contract and stores only the resulting
   assert.equal(calls[1].path,'/api/v1/site/register');
   assert.deepEqual(Object.fromEntries(calls[1].fields.map(item=>[item.name,item.value])),{
     mobile:'13800138000',code:'123456',password:'register-password',password_repetition:'register-password',
-    nickname:'赛电用户8000',group:'app'
+    nickname:'Say Ring 用户8000',group:'app'
   });
   assert.equal(store.writes,1);assert.equal('password' in store.value,false);
 });

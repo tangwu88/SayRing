@@ -242,7 +242,7 @@ class YuchengWearableBridge
       await _loadDeviceInfo(generation, deviceId, publish: false);
     }
     if (!_isCurrentDeviceSession(generation, deviceId)) return null;
-    final name = _scannedNames[deviceId] ?? '赛电手表';
+    final name = _scannedNames[deviceId] ?? 'Say Ring';
     return DeviceInfo(
       id: deviceId,
       name: name,
@@ -363,7 +363,7 @@ class YuchengWearableBridge
 
   DeviceInfo _deviceDetails() {
     final deviceId = _connectedId;
-    final name = _scannedNames[deviceId] ?? '赛电手表';
+    final name = _scannedNames[deviceId] ?? 'Say Ring';
     return DeviceInfo(
       id: deviceId,
       name: name,
@@ -476,7 +476,7 @@ class YuchengWearableBridge
             healthReadTimeout,
             onTimeout: () => throw PlatformException(
               code: 'YUCHENG_SYNC_TIMEOUT',
-              message: '手表数据读取超时，请稍后重试',
+              message: '戒指数据读取超时，请稍后重试',
             ),
           );
       if (result.status == 0) {
@@ -560,7 +560,7 @@ class YuchengWearableBridge
     _connectedId;
     final type = _activeSportType;
     if (_capabilities?.supportsSportPause != true || type == null) {
-      throw _unsupported('当前手表不支持暂停运动');
+      throw _unsupported('当前戒指不支持暂停运动');
     }
     _require(await _client.sport(state: YuchengSportState.pause, type: type));
   }
@@ -570,7 +570,7 @@ class YuchengWearableBridge
     _connectedId;
     final type = _activeSportType;
     if (_capabilities?.supportsSportPause != true || type == null) {
-      throw _unsupported('当前手表不支持暂停运动');
+      throw _unsupported('当前戒指不支持暂停运动');
     }
     _require(await _client.sport(state: YuchengSportState.resume, type: type));
   }
@@ -659,18 +659,18 @@ class YuchengWearableBridge
 
   String get _connectedId =>
       _deviceId ??
-      (throw PlatformException(code: 'NOT_CONNECTED', message: '请先连接手表'));
+      (throw PlatformException(code: 'NOT_CONNECTED', message: '请先连接戒指'));
   void _require(YuchengOperationResult<Object?> result) {
     if (result.status == 2) throw _unsupported();
     if (result.status != 0) {
       throw PlatformException(
         code: 'YUCHENG_OPERATION_FAILED',
-        message: '手表操作失败，请稍后重试',
+        message: '戒指操作失败，请稍后重试',
       );
     }
   }
 
-  static PlatformException _unsupported([String message = '请在手表上操作']) =>
+  static PlatformException _unsupported([String message = '请在戒指上操作']) =>
       PlatformException(code: 'FEATURE_UNSUPPORTED', message: message);
 
   void _handleEvent(Map<String, Object?> event) {
@@ -912,7 +912,7 @@ class YuchengWearableBridge
         type: 'error',
         payload: {
           'code': 'MEASUREMENT_STOP_FAILED',
-          'message': '未收到有效测量结果，请确认手表已贴合手腕后重试',
+          'message': '未收到有效测量结果，请确认戒指已贴合手腕后重试',
         },
       ),
     );

@@ -50,6 +50,14 @@
 - `dart format --output=none --set-exit-if-changed lib test`：首次失败，准确发现 4 个需格式化文件；执行标准格式化后提交 `571725a style: format Say Ring routing sources`。
 - `flutter analyze --no-pub`：英文路径可稳定执行；首次发现 2 个旧真机测试仍引用已移除的 `YuchengDeviceClassifier`，另有 1 个可改用普通赋值避免的集合空值风格提示。已统一改用 `WearableDeviceClassifier` 的 YC 前缀规则，并修正风格提示；待紧接着复验。
 
+### 05:21 Say Ring 品牌与戒指用户文案收口
+
+- 文件/范围：八语 ARB 及生成资源、Flutter 品牌/通知/更新/报告文案、Android/iOS/HarmonyOS 原生兜底提示、戒指路由服务和品牌契约测试。
+- 结果：核心品牌统一为 `Say Ring`；扫描、连接、同步、运动、健康测量及设备错误提示统一使用戒指语境；静态表盘、屏幕等入口仍必须经过真实能力门禁，不能因存在翻译资源而展示。
+- 新增回归：`test/say_ring_brand_contract_test.dart` 检查 9 份 ARB 的产品名与关键品牌字段，并防止高频设备提示重新出现各语言的 watch/手表用词；HarmonyOS 服务源码增加旧中文品牌和“手表”兜底文案禁入断言。
+- 失败记录：HarmonyOS 全量首次在机械文案替换后出现 3 个旧正则断言失败，并使 2 个依赖旧超时提示的测试等待未释放；同步更新为“账号或戒指已变化”“旧戒指指令尚未结束”后，设备会话 56/56、全量 481/481 通过。该现象是测试钩子未命中新文案，不是 SDK 运行时死锁。
+- 工具边界：中文路径中的 Dart/Flutter 命令仍可能无输出挂起，本轮不把挂起记为通过；提交后在 `F:\xcodeplace\say-ring` 英文路径执行格式、静态分析、双时区测试和 Android 构建。
+
 ## 下一阶段门禁
 
 - 在英文最终路径执行格式化、`flutter analyze`、双时区全量 Flutter、Android Debug/QA Release、完整 HarmonyOS 宿主测试与可用构建；macOS/iOS 和真实 HarmonyOS 构建环境缺失时明确标记未执行。

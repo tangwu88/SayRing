@@ -151,7 +151,7 @@ export function parseSession(payload: Envelope, now: number, previous?: Session)
     refreshToken: typeof data.refresh_token === 'string' ? data.refresh_token : previous?.refreshToken ?? '',
     expiresAt: expiresAt,
     memberId: memberId,
-    displayName: profileName(member) || previous?.displayName || '赛电用户'
+    displayName: profileName(member) || previous?.displayName || 'Say Ring 用户'
   });
 }
 

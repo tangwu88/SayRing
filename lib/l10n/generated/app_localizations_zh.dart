@@ -12,13 +12,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get scanLocationTitle => '请开启手机定位';
 
   @override
-  String get scanLocationHint => '请在设置中开启手机定位，再返回此页面查找附近的手表。';
+  String get scanLocationHint => '请在设置中开启手机定位，再返回此页面查找附近的戒指。';
 
   @override
   String get scanPermissionTitle => '请允许相关权限';
 
   @override
-  String get scanPermissionHint => '请在设置中允许相关权限，再返回此页面查找手表。';
+  String get scanPermissionHint => '请在设置中允许相关权限，再返回此页面查找戒指。';
 
   @override
   String get loginProtectionTitle => '登录保护';
@@ -27,7 +27,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get verifyContactToReset => '验证邮箱或手机号后重新设置密码';
 
   @override
-  String get workoutStartOnWatch => '当前手表未开放由 APP 启动的运动模式，请直接在手表上开始运动。';
+  String get workoutStartOnWatch => '当前戒指未开放由 App 启动的运动模式，请直接在戒指上开始运动。';
 
   @override
   String get finishWorkoutConfirm => '结束当前运动？';
@@ -45,7 +45,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get workoutDuration => '运动时长';
 
   @override
-  String get workoutWatchHeartRate => '手表心率';
+  String get workoutWatchHeartRate => '戒指心率';
 
   @override
   String get messageSendFailed => '发送失败，请检查网络后重试';
@@ -138,7 +138,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get supportPrivacyWarning => '请勿向非官方账号发送验证码、密码或完整健康记录。';
 
   @override
-  String get brandHealthTitle => '赛电健康';
+  String get brandHealthTitle => 'Say Ring 健康';
 
   @override
   String get accountAndSecurity => '账号与安全';
@@ -171,7 +171,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get detailedHealthReport => '详细健康报告';
 
   @override
-  String get reportInsufficientDataHint => '数据不足时不会创建支付订单。请正常佩戴并同步手表数据后再试。';
+  String get reportInsufficientDataHint => '数据不足时不会创建支付订单。请正常佩戴并同步戒指数据后再试。';
 
   @override
   String get waitingPaymentConfirmation => '等待支付结果确认';
@@ -195,7 +195,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get temperatureUpperLimit => '体温上限';
 
   @override
-  String get calibrateOnWatchHint => '根据手表提示完成校准';
+  String get calibrateOnWatchHint => '根据戒指提示完成校准';
 
   @override
   String get spotCheckCuffHint => '本次仅为静态监测，结果仅供参考，如需更加准确的数据，请通过手表气泵气囊式检测';
@@ -234,7 +234,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get seekProfessionalCare => '如有明显不适，请及时咨询专业医务人员';
 
   @override
-  String get watchHealthReference => '手表测量结果用于日常健康管理参考。';
+  String get watchHealthReference => '戒指测量结果用于日常健康管理参考。';
 
   @override
   String get calibrationReferenceHint => '请使用刚刚由专业设备测得的数值';
@@ -282,16 +282,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get riskAnalysisTitle => '风险分析';
 
   @override
-  String get watchAlgorithmReference => '以下数值来自手表算法，仅作健康趋势参考。';
+  String get watchAlgorithmReference => '以下数值来自戒指算法，仅作健康趋势参考。';
 
   @override
   String get ecgHealthReport => '心电健康报告';
 
   @override
-  String get brandedEcgReport => '赛电 · 心电健康报告';
+  String get brandedEcgReport => 'Say Ring · 心电健康报告';
 
   @override
-  String get ecgReportSafety => '说明：本报告由手表测量数据生成，仅供健康管理参考，不能替代医生诊断。';
+  String get ecgReportSafety => '说明：本报告由戒指测量数据生成，仅供健康管理参考，不能替代医生诊断。';
 
   @override
   String get installedWatchFaces => '已安装表盘';
@@ -477,7 +477,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get watchCalories => '手表热量';
 
   @override
-  String get connectForWorkout => '请先在设备页连接手表，运动模式将由手表记录。';
+  String get connectForWorkout => '请先在设备页连接戒指，运动模式将由戒指记录。';
 
   @override
   String latestVersion(String version) {
@@ -791,7 +791,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get statusHigh => '偏高';
 
   @override
-  String get careInviteHint => '通过邮箱或国际手机号邀请国际版Saydian账号。';
+  String get careInviteHint => '通过邮箱或国际手机号邀请 Say Ring 账号。';
 
   @override
   String get careSharingHint => '仅共享您选择的测量项目，可随时停止共享。';
@@ -1310,7 +1310,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get healthSafetyAdvice => '请休息后复测；如有明显不适，请及时咨询医务人员。';
 
   @override
-  String get defaultUser => '赛电用户';
+  String get defaultUser => 'Say Ring 用户';
 
   @override
   String get dailyGreeting => '今天也要保持好状态';
@@ -1337,7 +1337,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get healthAlerts => '健康预警';
 
   @override
-  String get shop => '赛电商城';
+  String get shop => 'Say Ring 商城';
 
   @override
   String get connectWatch => '连接戒指';
@@ -1370,13 +1370,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get syncComplete => '数据同步完成';
 
   @override
-  String get syncFailedTryAgain => '数据同步失败，请将手表靠近手机后重试';
+  String get syncFailedTryAgain => '数据同步失败，请将戒指靠近手机后重试';
 
   @override
   String get disconnect => '断开连接';
 
   @override
-  String get findWatch => '查找手表';
+  String get findWatch => '查找戒指';
 
   @override
   String get watchFaces => '表盘';
@@ -1394,7 +1394,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get searchNearbyWatch => '搜索并连接附近的 Say Ring';
 
   @override
-  String get useWatch => '请在手表上操作';
+  String get useWatch => '请在戒指上操作';
 
   @override
   String get myOrders => '我的订单';
@@ -1487,7 +1487,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get gettingReady => '正在为你准备…';
 
   @override
-  String get enableNotifications => '开启赛电消息通知';
+  String get enableNotifications => '开启 Say Ring 消息通知';
 
   @override
   String get notificationExplanation =>
@@ -1908,13 +1908,13 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get scanLocationTitle => '请开启手机定位';
 
   @override
-  String get scanLocationHint => '请在设置中开启手机定位，再返回此页面查找附近的手表。';
+  String get scanLocationHint => '请在设置中开启手机定位，再返回此页面查找附近的戒指。';
 
   @override
   String get scanPermissionTitle => '请允许相关权限';
 
   @override
-  String get scanPermissionHint => '请在设置中允许相关权限，再返回此页面查找手表。';
+  String get scanPermissionHint => '请在设置中允许相关权限，再返回此页面查找戒指。';
 
   @override
   String get loginProtectionTitle => '登录保护';
@@ -1923,7 +1923,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get verifyContactToReset => '验证邮箱或手机号后重新设置密码';
 
   @override
-  String get workoutStartOnWatch => '当前手表未开放由 APP 启动的运动模式，请直接在手表上开始运动。';
+  String get workoutStartOnWatch => '当前戒指未开放由 App 启动的运动模式，请直接在戒指上开始运动。';
 
   @override
   String get finishWorkoutConfirm => '结束当前运动？';
@@ -1941,7 +1941,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get workoutDuration => '运动时长';
 
   @override
-  String get workoutWatchHeartRate => '手表心率';
+  String get workoutWatchHeartRate => '戒指心率';
 
   @override
   String get messageSendFailed => '发送失败，请检查网络后重试';
@@ -2034,7 +2034,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get supportPrivacyWarning => '请勿向非官方账号发送验证码、密码或完整健康记录。';
 
   @override
-  String get brandHealthTitle => '赛电健康';
+  String get brandHealthTitle => 'Say Ring 健康';
 
   @override
   String get accountAndSecurity => '账号与安全';
@@ -2067,7 +2067,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get detailedHealthReport => '详细健康报告';
 
   @override
-  String get reportInsufficientDataHint => '数据不足时不会创建支付订单。请正常佩戴并同步手表数据后再试。';
+  String get reportInsufficientDataHint => '数据不足时不会创建支付订单。请正常佩戴并同步戒指数据后再试。';
 
   @override
   String get waitingPaymentConfirmation => '等待支付结果确认';
@@ -2091,7 +2091,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get temperatureUpperLimit => '体温上限';
 
   @override
-  String get calibrateOnWatchHint => '根据手表提示完成校准';
+  String get calibrateOnWatchHint => '根据戒指提示完成校准';
 
   @override
   String get spotCheckCuffHint => '本次仅为静态监测，结果仅供参考，如需更加准确的数据，请通过手表气泵气囊式检测';
@@ -2130,7 +2130,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get seekProfessionalCare => '如有明显不适，请及时咨询专业医务人员';
 
   @override
-  String get watchHealthReference => '手表测量结果用于日常健康管理参考。';
+  String get watchHealthReference => '戒指测量结果用于日常健康管理参考。';
 
   @override
   String get calibrationReferenceHint => '请使用刚刚由专业设备测得的数值';
@@ -2178,16 +2178,16 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get riskAnalysisTitle => '风险分析';
 
   @override
-  String get watchAlgorithmReference => '以下数值来自手表算法，仅作健康趋势参考。';
+  String get watchAlgorithmReference => '以下数值来自戒指算法，仅作健康趋势参考。';
 
   @override
   String get ecgHealthReport => '心电健康报告';
 
   @override
-  String get brandedEcgReport => '赛电 · 心电健康报告';
+  String get brandedEcgReport => 'Say Ring · 心电健康报告';
 
   @override
-  String get ecgReportSafety => '说明：本报告由手表测量数据生成，仅供健康管理参考，不能替代医生诊断。';
+  String get ecgReportSafety => '说明：本报告由戒指测量数据生成，仅供健康管理参考，不能替代医生诊断。';
 
   @override
   String get installedWatchFaces => '已安装表盘';
@@ -2373,7 +2373,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get watchCalories => '手表热量';
 
   @override
-  String get connectForWorkout => '请先在设备页连接手表，运动模式将由手表记录。';
+  String get connectForWorkout => '请先在设备页连接戒指，运动模式将由戒指记录。';
 
   @override
   String latestVersion(String version) {
@@ -2687,7 +2687,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get statusHigh => '偏高';
 
   @override
-  String get careInviteHint => '通过邮箱或国际手机号邀请国际版Saydian账号。';
+  String get careInviteHint => '通过邮箱或国际手机号邀请 Say Ring 账号。';
 
   @override
   String get careSharingHint => '仅共享您选择的测量项目，可随时停止共享。';
@@ -3206,7 +3206,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get healthSafetyAdvice => '请休息后复测；如有明显不适，请及时咨询医务人员。';
 
   @override
-  String get defaultUser => '赛电用户';
+  String get defaultUser => 'Say Ring 用户';
 
   @override
   String get dailyGreeting => '今天也要保持好状态';
@@ -3233,7 +3233,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get healthAlerts => '健康预警';
 
   @override
-  String get shop => '赛电商城';
+  String get shop => 'Say Ring 商城';
 
   @override
   String get connectWatch => '连接戒指';
@@ -3266,13 +3266,13 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get syncComplete => '数据同步完成';
 
   @override
-  String get syncFailedTryAgain => '数据同步失败，请将手表靠近手机后重试';
+  String get syncFailedTryAgain => '数据同步失败，请将戒指靠近手机后重试';
 
   @override
   String get disconnect => '断开连接';
 
   @override
-  String get findWatch => '查找手表';
+  String get findWatch => '查找戒指';
 
   @override
   String get watchFaces => '表盘';
@@ -3290,7 +3290,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get searchNearbyWatch => '搜索并连接附近的 Say Ring';
 
   @override
-  String get useWatch => '请在手表上操作';
+  String get useWatch => '请在戒指上操作';
 
   @override
   String get myOrders => '我的订单';
@@ -3383,7 +3383,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get gettingReady => '正在为你准备…';
 
   @override
-  String get enableNotifications => '开启赛电消息通知';
+  String get enableNotifications => '开启 Say Ring 消息通知';
 
   @override
   String get notificationExplanation =>
@@ -3804,13 +3804,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get scanLocationTitle => '請開啟手機定位';
 
   @override
-  String get scanLocationHint => '請在設定中開啟手機定位，再返回此頁面尋找附近的手錶。';
+  String get scanLocationHint => '請在設定中開啟手機定位，再返回此頁面尋找附近的戒指。';
 
   @override
   String get scanPermissionTitle => '請允許相關權限';
 
   @override
-  String get scanPermissionHint => '請在設定中允許相關權限，再返回此頁面尋找手錶。';
+  String get scanPermissionHint => '請在設定中允許相關權限，再返回此頁面尋找戒指。';
 
   @override
   String get loginProtectionTitle => '登入保護';
@@ -3819,7 +3819,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get verifyContactToReset => '驗證電子郵件或手機號碼後重新設定密碼';
 
   @override
-  String get workoutStartOnWatch => '目前手錶不支援從 App 啟動運動，請直接在手錶上開始運動。';
+  String get workoutStartOnWatch => '目前戒指不支援從 App 啟動運動，請直接在戒指上開始運動。';
 
   @override
   String get finishWorkoutConfirm => '結束目前運動？';
@@ -3837,7 +3837,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get workoutDuration => '運動時間';
 
   @override
-  String get workoutWatchHeartRate => '手錶心率';
+  String get workoutWatchHeartRate => '戒指心率';
 
   @override
   String get messageSendFailed => '傳送失敗，請檢查網路後重試';
@@ -3930,7 +3930,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get supportPrivacyWarning => '請勿向非官方帳號傳送驗證碼、密碼或完整健康記錄。';
 
   @override
-  String get brandHealthTitle => 'Saydian 健康';
+  String get brandHealthTitle => 'Say Ring 健康';
 
   @override
   String get accountAndSecurity => '帳號與安全';
@@ -3963,7 +3963,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get detailedHealthReport => '詳細健康報告';
 
   @override
-  String get reportInsufficientDataHint => '資料不足時不會建立付款訂單。請正常佩戴並同步手錶資料後再試。';
+  String get reportInsufficientDataHint => '資料不足時不會建立付款訂單。請正常佩戴並同步戒指資料後再試。';
 
   @override
   String get waitingPaymentConfirmation => '等待付款結果確認';
@@ -3987,7 +3987,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get temperatureUpperLimit => '體溫上限';
 
   @override
-  String get calibrateOnWatchHint => '依照手錶提示完成校準';
+  String get calibrateOnWatchHint => '依照戒指提示完成校準';
 
   @override
   String get spotCheckCuffHint => '本次僅為靜態監測，結果僅供參考，如需更準確的資料，請使用手錶氣泵氣囊式檢測';
@@ -4026,7 +4026,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get seekProfessionalCare => '如有明顯不適，請及時諮詢專業醫務人員';
 
   @override
-  String get watchHealthReference => '手錶測量結果用於日常健康管理參考。';
+  String get watchHealthReference => '戒指測量結果用於日常健康管理參考。';
 
   @override
   String get calibrationReferenceHint => '請使用剛剛由專業設備測得的數值';
@@ -4074,16 +4074,16 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get riskAnalysisTitle => '風險分析';
 
   @override
-  String get watchAlgorithmReference => '以下數值來自手錶演算法，僅供健康趨勢參考。';
+  String get watchAlgorithmReference => '以下數值來自戒指演算法，僅供健康趨勢參考。';
 
   @override
   String get ecgHealthReport => '心電健康報告';
 
   @override
-  String get brandedEcgReport => 'Saydian · 心電健康報告';
+  String get brandedEcgReport => 'Say Ring · 心電健康報告';
 
   @override
-  String get ecgReportSafety => '說明：本報告由手錶測量資料產生，僅供健康管理參考，不能替代醫師診斷。';
+  String get ecgReportSafety => '說明：本報告由戒指測量資料產生，僅供健康管理參考，不能替代醫師診斷。';
 
   @override
   String get installedWatchFaces => '已安裝錶面';
@@ -4269,7 +4269,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get watchCalories => '手錶熱量';
 
   @override
-  String get connectForWorkout => '請先在裝置頁連接手錶，運動模式將由手錶記錄。';
+  String get connectForWorkout => '請先在裝置頁連接戒指，運動模式將由戒指記錄。';
 
   @override
   String latestVersion(String version) {
@@ -4583,7 +4583,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get statusHigh => '偏高';
 
   @override
-  String get careInviteHint => '透過電子郵件或國際手機號碼邀請國際版Saydian帳號。';
+  String get careInviteHint => '透過電子郵件或國際手機號碼邀請 Say Ring 帳號。';
 
   @override
   String get careSharingHint => '僅分享您選擇的測量項目，可隨時停止分享。';
@@ -5102,7 +5102,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get healthSafetyAdvice => '請休息後再測；如有明顯不適，請及時諮詢醫護人員。';
 
   @override
-  String get defaultUser => 'Saydian使用者';
+  String get defaultUser => 'Say Ring 使用者';
 
   @override
   String get dailyGreeting => '今天也要保持好狀態';
@@ -5129,7 +5129,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get healthAlerts => '健康預警';
 
   @override
-  String get shop => 'Saydian商城';
+  String get shop => 'Say Ring 商城';
 
   @override
   String get connectWatch => '連接戒指';
@@ -5162,13 +5162,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get syncComplete => '資料同步完成';
 
   @override
-  String get syncFailedTryAgain => '資料同步失敗，請將手錶靠近手機後重試';
+  String get syncFailedTryAgain => '資料同步失敗，請將戒指靠近手機後重試';
 
   @override
   String get disconnect => '中斷連接';
 
   @override
-  String get findWatch => '尋找手錶';
+  String get findWatch => '尋找戒指';
 
   @override
   String get watchFaces => '錶盤';
@@ -5186,7 +5186,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get searchNearbyWatch => '搜尋並連接附近的 Say Ring';
 
   @override
-  String get useWatch => '請在手錶上操作';
+  String get useWatch => '請在戒指上操作';
 
   @override
   String get myOrders => '我的訂單';
@@ -5279,7 +5279,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get gettingReady => '正在為你準備…';
 
   @override
-  String get enableNotifications => '開啟Saydian訊息通知';
+  String get enableNotifications => '開啟 Say Ring 訊息通知';
 
   @override
   String get notificationExplanation =>

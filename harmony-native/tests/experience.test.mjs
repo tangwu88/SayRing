@@ -116,10 +116,11 @@ test('Harmony update manifest is strict and only opens AppGallery', () => {
 
 test('Harmony home and profile follow the iOS functional information architecture', () => {
   const source = readFileSync(new URL('../entry/src/main/ets/pages/Index.ets', import.meta.url), 'utf8');
-  for (const label of ['马上提问', '远程关爱', '健康百科', '健康预警', '赛电商城', '全部数据',
+  for (const label of ['马上提问', '远程关爱', '健康百科', '健康预警', '全部数据',
     '运动与记录', '我的订单', '权限管理', '帮助反馈', '联系客服', '关于我们', '检查更新']) {
     assert.ok(source.includes(label), `missing ${label}`);
   }
+  assert.match(source, /Text\(this\.tr\('shop'\)\)/, 'the store label must use the localized Say Ring brand');
   assert.doesNotMatch(source, /原生开发验证版|查看适配进度|原生适配|接口尚未|先浏览首页|模拟记录/);
   assert.match(source, /AI 正在思考，请耐心等待/);
 });
@@ -127,5 +128,6 @@ test('Harmony home and profile follow the iOS functional information architectur
 test('vendor dial channel error is localized instead of leaking JL terminology', () => {
   const source = readFileSync(new URL('../entry/src/main/ets/services/VepWearableService.ets', import.meta.url), 'utf8');
   assert.match(source, /JL RCSP service not available/);
-  assert.match(source, /当前手表暂不支持表盘读取/);
+  assert.match(source, /当前戒指暂不支持表盘读取/);
+  assert.doesNotMatch(source, /手表|赛电/);
 });

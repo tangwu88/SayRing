@@ -459,7 +459,7 @@ class RoutedWearableBridge
         bridge is! WearableNativeWatchFaceBridge) {
       throw PlatformException(
         code: 'WATCH_FACE_MARKET_UNSUPPORTED',
-        message: '当前手表暂不支持在线表盘',
+        message: '当前戒指暂不支持在线表盘',
       );
     }
     return bridge as WearableNativeWatchFaceBridge;
@@ -522,7 +522,7 @@ class RoutedWearableBridge
     if (bridge is! WearableSportPauseBridge) {
       throw PlatformException(
         code: 'SPORT_PAUSE_UNSUPPORTED',
-        message: '当前手表不支持暂停运动',
+        message: '当前戒指不支持暂停运动',
       );
     }
     return (bridge as WearableSportPauseBridge).pauseSport();
@@ -534,7 +534,7 @@ class RoutedWearableBridge
     if (bridge is! WearableSportPauseBridge) {
       throw PlatformException(
         code: 'SPORT_PAUSE_UNSUPPORTED',
-        message: '当前手表不支持暂停运动',
+        message: '当前戒指不支持暂停运动',
       );
     }
     return (bridge as WearableSportPauseBridge).resumeSport();
@@ -566,7 +566,7 @@ class RoutedWearableBridge
     if (bridge is! WearableAutoMeasureIntervalBridge) {
       throw PlatformException(
         code: 'AUTO_MEASURE_INTERVAL_UNSUPPORTED',
-        message: '当前手表不支持调整监测间隔',
+        message: '当前戒指不支持调整监测间隔',
       );
     }
     return (bridge as WearableAutoMeasureIntervalBridge).setAutoMeasureInterval(
