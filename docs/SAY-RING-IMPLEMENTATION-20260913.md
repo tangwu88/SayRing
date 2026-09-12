@@ -94,6 +94,17 @@
 - Git 记录：主体提交 `20e91eb feat: sync ring-preferred health history`；静态分析修正提交 `7b9dd3d fix: satisfy cloud history analyzer`。两次均先在源工作副本提交，再以 `--ff-only` 同步最终英文路径，没有推送线上。
 - 尚存边界：服务端当前没有持久化“用户当天首选设备”，同类设备只能按稳定设备键和最新有效记录选择；App 本地在已连接时可优先当前设备。该差异必须在有真实多戒指样本后再决定服务端契约，不能用设备名称猜测。
 
+### 07:30 Android 重建、包体核验与安装复试
+
+- 构建源码：英文最终路径提交 `7b9dd3d`；显式使用 `SAYDIAN_API_BASE_URL=https://app.saydian.cn`、国际 V2 更新路径、空的未配置天气密钥及 `android-arm,android-arm64`，未启用本地 API。
+- Android 原生 `:app:testDebugUnitTest` 通过；4 份 XML 共 16/16，失败、错误、跳过均为 0。现有 Kotlin/AGP/flatDir/SDK XML 提示仍是后续依赖升级项，不是本轮测试失败。
+- Debug APK 构建成功：185,887,131 字节，SHA-256 `0617F464F257B14AA371D72938C961A3947F9A27E96E20F93AA89457BB7D103D`。
+- 内部 QA Release 构建成功：68,879,452 字节，SHA-256 `46A547B18498646254079A566D4FAA17770FA56EEC9284FD9838824F2018B983`。显式 `SAIDIAN_ALLOW_QA_RELEASE=true`，不具备生产发布资格。
+- 两包均为 `cn.saydian.ring`、`Say Ring`、`0.1.21 (1004)`、minSdk 26、targetSdk 36，并包含 `arm64-v8a` 与 `armeabi-v7a`。APK Signature Scheme v2 校验通过；当前仍是 Android Debug 证书，证书 SHA-256 `99b006c6394e55f78ad6d71867d5051384a0f64b839fea432e57a7ac9935819e`。
+- Release 二进制审计只发现第一方 `https://app.saydian.cn`、国际商城和国际更新路径，没有发现旧第一方 `.cc`/`.com` 主机。`https://www.vphband.com:9001` 是既有厂商表盘服务，继续作为第三方边界单列。
+- 当前华为 `PPA-LX3` 在线且 ADB 已授权；安装 Debug APK 再次被手机系统拒绝，返回 `INSTALL_FAILED_ABORTED: User rejected permissions`，随后 `pm path cn.saydian.ring` 为空。因此 Say Ring 尚未安装，不能执行或声称真实戒指三轮连接验收；未卸载、清数据、改显示样式、联系人或固件。
+- Windows 主机仍没有可用 Xcode 与 HarmonyOS HAP 工具链；iOS 编译/签名/真机、HarmonyOS HAP/真机继续标记未执行，不能用 Flutter Widget 或 HarmonyOS 宿主测试替代。
+
 ## 下一阶段门禁
 
 - 手机端允许安装后，安装已校验的 Debug APK，并用真实 YC、V/TK 戒指执行连接、同步、断开和重连；Android 自动门禁已通过，不用重复归因于源码。iOS/macOS 与 HarmonyOS HAP 工具链缺失，继续明确标记未执行。
