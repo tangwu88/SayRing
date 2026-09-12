@@ -417,7 +417,7 @@
   "accountCreated": "账号已创建",
   "passwordReset": "密码已更新",
   "haveAccount": "已有账号？",
-  "noAccount": "还没有账号？",
+  "noAccount": "还没有 Say Ring 账号？",
   "showPassword": "显示密码",
   "hidePassword": "隐藏密码",
   "selectCountry": "选择国家或地区",

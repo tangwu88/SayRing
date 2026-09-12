@@ -36,14 +36,14 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get finishLeaveWorkoutHint =>
-      '나가기 전에 워치 운동이 중지되고 기록된 운동 시간과 경로가 저장됩니다.';
+      '나가기 전에 링 운동이 중지되고 기록된 운동 시간과 경로가 저장됩니다.';
 
   @override
   String get finishAndLeave => '종료하고 나가기';
 
   @override
   String get workoutRouteMissing =>
-      '이 기록에는 휴대폰에서 기록한 경로가 없습니다. 워치 운동 데이터는 보관되어 있습니다.';
+      '이 기록에는 휴대폰에서 기록한 경로가 없습니다. 링 운동 데이터는 보관되어 있습니다.';
 
   @override
   String get workoutDuration => '운동 시간';
@@ -214,7 +214,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get spotCheckCuffHint =>
-      '이번 측정은 안정 상태의 단회 측정이며 참고용입니다. 더 정확한 수치가 필요한 경우 워치의 펌프·커프 측정 기능을 이용하세요.';
+      '이번 측정은 안정 상태의 단회 측정이며 참고용입니다. 더 정확한 수치가 필요한 경우 검증된 상완식 혈압계를 사용하세요.';
 
   @override
   String get setHealthUpperLimits => '건강 수치 상한 알림 설정';
@@ -263,7 +263,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get enableCalibration => '보정 사용';
 
   @override
-  String get calibrationDisabledHint => '끄면 워치의 일반 측정 모드로 돌아갑니다.';
+  String get calibrationDisabledHint => '끄면 링의 일반 측정 모드로 돌아갑니다.';
 
   @override
   String get diastolicLowerLabel => '이완기 혈압(낮은 수치)';
@@ -295,7 +295,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get measurementIndicators => '측정 지표';
 
   @override
-  String get riskIndicatorsMissing => '이번 측정에서는 워치가 위험 지표를 반환하지 않았습니다.';
+  String get riskIndicatorsMissing => '이번 측정에서는 링이 위험 지표를 반환하지 않았습니다.';
 
   @override
   String get riskAnalysisTitle => '위험 분석';
@@ -351,22 +351,23 @@ class AppLocalizationsKo extends AppLocalizations {
   String get noHealthAssessments => '현재 워치에는 설정 가능한 보조 평가가 없습니다.';
 
   @override
-  String get modelFeaturesVary => '지원 기능은 모델에 따라 다릅니다. 워치에 실제 표시되는 기능을 확인하세요.';
+  String get modelFeaturesVary =>
+      '지원 기능은 모델에 따라 다릅니다. 앱에는 연결된 링에서 사용할 수 있는 기능만 표시됩니다.';
 
   @override
-  String get assessmentEnabledHint => '켜면 워치가 일상적인 추세 정보를 제공합니다.';
+  String get assessmentEnabledHint => '켜면 링이 일상적인 추세 정보를 제공합니다.';
 
   @override
   String get assessmentSafety => '보조 평가는 일상적인 건강 관리 참고용이며 진단이나 치료용이 아닙니다.';
 
   @override
-  String get autoMonitorIntervalHint => '켜면 워치가 설정된 주기에 따라 자동으로 측정합니다.';
+  String get autoMonitorIntervalHint => '켜면 링이 설정된 주기에 따라 자동으로 측정합니다.';
 
   @override
-  String get watchHeartRateAlert => '워치 심박수 알림';
+  String get watchHeartRateAlert => '링 심박수 알림';
 
   @override
-  String get sustainedLimitWatchAlert => '수치가 상한을 계속 넘으면 워치가 알려드립니다.';
+  String get sustainedLimitWatchAlert => '수치가 상한을 계속 넘으면 링이 알려드립니다.';
 
   @override
   String get ecgWaveformTitle => '심전도 파형';
@@ -376,7 +377,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get ecgElectrodeHint =>
-      '심박수 및 HRV 결과는 계속 확인할 수 있습니다. 다음 측정 시에는 워치 전극에 계속 접촉해 주세요.';
+      '심박수 및 HRV 결과는 계속 확인할 수 있습니다. 다음 측정 시에는 링 전극에 계속 접촉해 주세요.';
 
   @override
   String get screenAutoTimeHint => '워치가 시간에 따라 자동으로 조절합니다.';
@@ -388,7 +389,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get watchHighHeartRate => '높은 심박수 알림';
 
   @override
-  String get watchThresholdHint => '상한에 도달하면 워치가 알려드립니다.';
+  String get watchThresholdHint => '상한에 도달하면 링이 알려드립니다.';
 
   @override
   String get watchMeasurementSafety => '측정 결과는 건강 관리 참고용이며 진단이나 치료용이 아닙니다.';
@@ -491,16 +492,16 @@ class AppLocalizationsKo extends AppLocalizations {
   String get finishWorkout => '운동 종료';
 
   @override
-  String get watchDistance => '워치 거리';
+  String get watchDistance => '링 거리';
 
   @override
-  String get watchSteps => '워치 걸음 수';
+  String get watchSteps => '링 걸음 수';
 
   @override
   String get liveHeartRate => '실시간 심박수';
 
   @override
-  String get watchCalories => '워치 칼로리';
+  String get watchCalories => '링 칼로리';
 
   @override
   String get connectForWorkout => '먼저 기기 화면에서 링을 연결하세요. 링이 운동을 기록합니다.';

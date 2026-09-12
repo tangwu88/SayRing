@@ -38,14 +38,14 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get finishLeaveWorkoutHint =>
-      'Avant de quitter, l’entraînement sur la montre s’arrêtera et la durée et le parcours enregistrés seront sauvegardés.';
+      'Avant de quitter, l’activité sur la bague s’arrêtera et la durée et le parcours enregistrés seront sauvegardés.';
 
   @override
   String get finishAndLeave => 'Terminer et quitter';
 
   @override
   String get workoutRouteMissing =>
-      'Aucun parcours enregistré par le téléphone n’est disponible pour cette séance. Les données d’entraînement de la montre sont conservées.';
+      'Aucun parcours enregistré par le téléphone n’est disponible pour cette séance. Les données d’activité de la bague sont conservées.';
 
   @override
   String get workoutDuration => 'Durée de l’entraînement';
@@ -226,7 +226,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get spotCheckCuffHint =>
-      'Il s’agit d’une mesure ponctuelle au repos, à titre indicatif. Pour une mesure plus précise, utilisez la fonction avec pompe et brassard de la montre.';
+      'Il s’agit d’une mesure ponctuelle au repos, à titre indicatif. Pour une mesure plus précise, utilisez un tensiomètre au bras validé.';
 
   @override
   String get setHealthUpperLimits =>
@@ -284,7 +284,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get calibrationDisabledHint =>
-      'La désactivation rétablit le mode de mesure général de la montre.';
+      'La désactivation rétablit le mode de mesure général de la bague.';
 
   @override
   String get diastolicLowerLabel => 'Pression diastolique (chiffre inférieur)';
@@ -320,7 +320,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get riskIndicatorsMissing =>
-      'La montre n’a pas renvoyé d’indicateurs de risque pour cette mesure.';
+      'La bague n’a pas renvoyé d’indicateurs de risque pour cette mesure.';
 
   @override
   String get riskAnalysisTitle => 'Analyse des risques';
@@ -382,11 +382,11 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get modelFeaturesVary =>
-      'Les fonctions disponibles varient selon le modèle. Référez-vous à celles affichées sur votre montre.';
+      'Les fonctions disponibles varient selon le modèle. L’app affiche uniquement celles disponibles pour la bague connectée.';
 
   @override
   String get assessmentEnabledHint =>
-      'Une fois activée, la montre fournit des informations sur les tendances quotidiennes.';
+      'Une fois activée, la bague fournit des informations sur les tendances quotidiennes.';
 
   @override
   String get assessmentSafety =>
@@ -394,15 +394,14 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get autoMonitorIntervalHint =>
-      'Une fois activée, la montre effectue les mesures automatiquement à l’intervalle configuré.';
+      'Une fois activée, la bague effectue les mesures automatiquement à l’intervalle configuré.';
 
   @override
-  String get watchHeartRateAlert =>
-      'Alerte de fréquence cardiaque de la montre';
+  String get watchHeartRateAlert => 'Alerte de fréquence cardiaque de la bague';
 
   @override
   String get sustainedLimitWatchAlert =>
-      'La montre vous avertit si la valeur reste au-dessus du seuil.';
+      'La bague vous avertit si la valeur reste au-dessus du seuil.';
 
   @override
   String get ecgWaveformTitle => 'Tracé ECG';
@@ -413,7 +412,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get ecgElectrodeHint =>
-      'Les résultats de fréquence cardiaque et de VFC restent consultables. Gardez le contact avec l’électrode de la montre pendant toute la prochaine mesure.';
+      'Les résultats de fréquence cardiaque et de VFC restent consultables. Gardez le contact avec l’électrode de la bague pendant toute la prochaine mesure.';
 
   @override
   String get screenAutoTimeHint =>
@@ -428,7 +427,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get watchThresholdHint =>
-      'La montre vous avertit lorsque le seuil est atteint.';
+      'La bague vous avertit lorsque le seuil est atteint.';
 
   @override
   String get watchMeasurementSafety =>
@@ -543,16 +542,16 @@ class AppLocalizationsFr extends AppLocalizations {
   String get finishWorkout => 'Terminer l’entraînement';
 
   @override
-  String get watchDistance => 'Distance de la montre';
+  String get watchDistance => 'Distance de la bague';
 
   @override
-  String get watchSteps => 'Pas de la montre';
+  String get watchSteps => 'Pas de la bague';
 
   @override
   String get liveHeartRate => 'Fréquence cardiaque actuelle';
 
   @override
-  String get watchCalories => 'Calories de la montre';
+  String get watchCalories => 'Calories de la bague';
 
   @override
   String get connectForWorkout =>

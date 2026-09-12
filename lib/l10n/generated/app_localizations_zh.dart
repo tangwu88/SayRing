@@ -33,13 +33,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get finishWorkoutConfirm => '结束当前运动？';
 
   @override
-  String get finishLeaveWorkoutHint => '离开前将先停止手表运动，并保存已记录的运动时长和轨迹。';
+  String get finishLeaveWorkoutHint => '离开前将先停止戒指运动，并保存已记录的运动时长和轨迹。';
 
   @override
   String get finishAndLeave => '结束并离开';
 
   @override
-  String get workoutRouteMissing => '该记录没有手机前台轨迹，仍保留手表运动数据。';
+  String get workoutRouteMissing => '该记录没有手机前台轨迹，仍保留戒指运动数据。';
 
   @override
   String get workoutDuration => '运动时长';
@@ -198,7 +198,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get calibrateOnWatchHint => '根据戒指提示完成校准';
 
   @override
-  String get spotCheckCuffHint => '本次仅为静态监测，结果仅供参考，如需更加准确的数据，请通过手表气泵气囊式检测';
+  String get spotCheckCuffHint => '本次仅为静态监测，结果仅供参考；如需更准确的数据，请使用经过验证的上臂式血压计。';
 
   @override
   String get setHealthUpperLimits => '设置健康数据上限提醒';
@@ -246,7 +246,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get enableCalibration => '启用校准';
 
   @override
-  String get calibrationDisabledHint => '关闭后恢复手表公共测量模式';
+  String get calibrationDisabledHint => '关闭后恢复戒指的常规测量模式';
 
   @override
   String get diastolicLowerLabel => '舒张压（低压）';
@@ -276,7 +276,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get measurementIndicators => '测量指标';
 
   @override
-  String get riskIndicatorsMissing => '本次手表未返回风险指标';
+  String get riskIndicatorsMissing => '本次戒指未返回风险指标';
 
   @override
   String get riskAnalysisTitle => '风险分析';
@@ -330,22 +330,22 @@ class AppLocalizationsZh extends AppLocalizations {
   String get noHealthAssessments => '当前手表没有可设置的辅助评估';
 
   @override
-  String get modelFeaturesVary => '不同型号支持的项目可能不同，请以手表实际显示为准。';
+  String get modelFeaturesVary => '不同型号支持的项目可能不同，连接后仅显示当前戒指可用的功能。';
 
   @override
-  String get assessmentEnabledHint => '开启后由手表提供日常趋势参考';
+  String get assessmentEnabledHint => '开启后由戒指提供日常趋势参考';
 
   @override
   String get assessmentSafety => '辅助评估仅供日常健康管理参考，不用于诊断或治疗。';
 
   @override
-  String get autoMonitorIntervalHint => '开启后由手表按设备设定周期自动检测';
+  String get autoMonitorIntervalHint => '开启后由戒指按设备设定周期自动检测';
 
   @override
-  String get watchHeartRateAlert => '手表心率预警';
+  String get watchHeartRateAlert => '戒指心率预警';
 
   @override
-  String get sustainedLimitWatchAlert => '持续超过阈值时由手表提醒';
+  String get sustainedLimitWatchAlert => '持续超过阈值时由戒指提醒';
 
   @override
   String get ecgWaveformTitle => '心电波形';
@@ -354,7 +354,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get ecgWaveformMissing => '本次未返回有效心电波形';
 
   @override
-  String get ecgElectrodeHint => '心率和 HRV 等结果仍可查看；下次测量时请持续接触手表电极。';
+  String get ecgElectrodeHint => '心率和 HRV 等结果仍可查看；下次测量时请持续接触戒指电极。';
 
   @override
   String get screenAutoTimeHint => '由手表根据时间自动调节';
@@ -366,7 +366,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get watchHighHeartRate => '心率过高预警';
 
   @override
-  String get watchThresholdHint => '达到阈值后由手表提醒';
+  String get watchThresholdHint => '达到阈值后由戒指提醒';
 
   @override
   String get watchMeasurementSafety => '测量结果仅供健康管理参考，不用于诊断或治疗。';
@@ -465,16 +465,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get finishWorkout => '结束运动';
 
   @override
-  String get watchDistance => '手表距离';
+  String get watchDistance => '戒指距离';
 
   @override
-  String get watchSteps => '手表步数';
+  String get watchSteps => '戒指步数';
 
   @override
   String get liveHeartRate => '实时心率';
 
   @override
-  String get watchCalories => '手表热量';
+  String get watchCalories => '戒指热量';
 
   @override
   String get connectForWorkout => '请先在设备页连接戒指，运动模式将由戒指记录。';
@@ -1265,7 +1265,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get haveAccount => '已有账号？';
 
   @override
-  String get noAccount => '还没有账号？';
+  String get noAccount => '还没有 Say Ring 账号？';
 
   @override
   String get showPassword => '显示密码';
@@ -1442,7 +1442,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get customerService => '联系客服';
 
   @override
-  String get aboutApp => '关于我们';
+  String get aboutApp => '关于 Say Ring';
 
   @override
   String get security => '账号安全';
@@ -1929,13 +1929,13 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get finishWorkoutConfirm => '结束当前运动？';
 
   @override
-  String get finishLeaveWorkoutHint => '离开前将先停止手表运动，并保存已记录的运动时长和轨迹。';
+  String get finishLeaveWorkoutHint => '离开前将先停止戒指运动，并保存已记录的运动时长和轨迹。';
 
   @override
   String get finishAndLeave => '结束并离开';
 
   @override
-  String get workoutRouteMissing => '该记录没有手机前台轨迹，仍保留手表运动数据。';
+  String get workoutRouteMissing => '该记录没有手机前台轨迹，仍保留戒指运动数据。';
 
   @override
   String get workoutDuration => '运动时长';
@@ -2094,7 +2094,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get calibrateOnWatchHint => '根据戒指提示完成校准';
 
   @override
-  String get spotCheckCuffHint => '本次仅为静态监测，结果仅供参考，如需更加准确的数据，请通过手表气泵气囊式检测';
+  String get spotCheckCuffHint => '本次仅为静态监测，结果仅供参考；如需更准确的数据，请使用经过验证的上臂式血压计。';
 
   @override
   String get setHealthUpperLimits => '设置健康数据上限提醒';
@@ -2142,7 +2142,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get enableCalibration => '启用校准';
 
   @override
-  String get calibrationDisabledHint => '关闭后恢复手表公共测量模式';
+  String get calibrationDisabledHint => '关闭后恢复戒指的常规测量模式';
 
   @override
   String get diastolicLowerLabel => '舒张压（低压）';
@@ -2172,7 +2172,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get measurementIndicators => '测量指标';
 
   @override
-  String get riskIndicatorsMissing => '本次手表未返回风险指标';
+  String get riskIndicatorsMissing => '本次戒指未返回风险指标';
 
   @override
   String get riskAnalysisTitle => '风险分析';
@@ -2226,22 +2226,22 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get noHealthAssessments => '当前手表没有可设置的辅助评估';
 
   @override
-  String get modelFeaturesVary => '不同型号支持的项目可能不同，请以手表实际显示为准。';
+  String get modelFeaturesVary => '不同型号支持的项目可能不同，连接后仅显示当前戒指可用的功能。';
 
   @override
-  String get assessmentEnabledHint => '开启后由手表提供日常趋势参考';
+  String get assessmentEnabledHint => '开启后由戒指提供日常趋势参考';
 
   @override
   String get assessmentSafety => '辅助评估仅供日常健康管理参考，不用于诊断或治疗。';
 
   @override
-  String get autoMonitorIntervalHint => '开启后由手表按设备设定周期自动检测';
+  String get autoMonitorIntervalHint => '开启后由戒指按设备设定周期自动检测';
 
   @override
-  String get watchHeartRateAlert => '手表心率预警';
+  String get watchHeartRateAlert => '戒指心率预警';
 
   @override
-  String get sustainedLimitWatchAlert => '持续超过阈值时由手表提醒';
+  String get sustainedLimitWatchAlert => '持续超过阈值时由戒指提醒';
 
   @override
   String get ecgWaveformTitle => '心电波形';
@@ -2250,7 +2250,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get ecgWaveformMissing => '本次未返回有效心电波形';
 
   @override
-  String get ecgElectrodeHint => '心率和 HRV 等结果仍可查看；下次测量时请持续接触手表电极。';
+  String get ecgElectrodeHint => '心率和 HRV 等结果仍可查看；下次测量时请持续接触戒指电极。';
 
   @override
   String get screenAutoTimeHint => '由手表根据时间自动调节';
@@ -2262,7 +2262,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get watchHighHeartRate => '心率过高预警';
 
   @override
-  String get watchThresholdHint => '达到阈值后由手表提醒';
+  String get watchThresholdHint => '达到阈值后由戒指提醒';
 
   @override
   String get watchMeasurementSafety => '测量结果仅供健康管理参考，不用于诊断或治疗。';
@@ -2361,16 +2361,16 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get finishWorkout => '结束运动';
 
   @override
-  String get watchDistance => '手表距离';
+  String get watchDistance => '戒指距离';
 
   @override
-  String get watchSteps => '手表步数';
+  String get watchSteps => '戒指步数';
 
   @override
   String get liveHeartRate => '实时心率';
 
   @override
-  String get watchCalories => '手表热量';
+  String get watchCalories => '戒指热量';
 
   @override
   String get connectForWorkout => '请先在设备页连接戒指，运动模式将由戒指记录。';
@@ -3161,7 +3161,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get haveAccount => '已有账号？';
 
   @override
-  String get noAccount => '还没有账号？';
+  String get noAccount => '还没有 Say Ring 账号？';
 
   @override
   String get showPassword => '显示密码';
@@ -3338,7 +3338,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get customerService => '联系客服';
 
   @override
-  String get aboutApp => '关于我们';
+  String get aboutApp => '关于 Say Ring';
 
   @override
   String get security => '账号安全';
@@ -3825,13 +3825,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get finishWorkoutConfirm => '結束目前運動？';
 
   @override
-  String get finishLeaveWorkoutHint => '離開前會先停止手錶運動，並儲存已記錄的運動時間和路線。';
+  String get finishLeaveWorkoutHint => '離開前會先停止戒指運動，並儲存已記錄的運動時間和路線。';
 
   @override
   String get finishAndLeave => '結束並離開';
 
   @override
-  String get workoutRouteMissing => '此記錄沒有手機前景路線，仍保留手錶運動資料。';
+  String get workoutRouteMissing => '此記錄沒有手機前景路線，仍保留戒指運動資料。';
 
   @override
   String get workoutDuration => '運動時間';
@@ -3990,7 +3990,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get calibrateOnWatchHint => '依照戒指提示完成校準';
 
   @override
-  String get spotCheckCuffHint => '本次僅為靜態監測，結果僅供參考，如需更準確的資料，請使用手錶氣泵氣囊式檢測';
+  String get spotCheckCuffHint => '本次僅為靜態監測，結果僅供參考；如需更準確的資料，請使用經過驗證的上臂式血壓計。';
 
   @override
   String get setHealthUpperLimits => '設定健康資料上限提醒';
@@ -4038,7 +4038,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get enableCalibration => '啟用校準';
 
   @override
-  String get calibrationDisabledHint => '關閉後恢復手錶一般測量模式';
+  String get calibrationDisabledHint => '關閉後恢復戒指的一般測量模式';
 
   @override
   String get diastolicLowerLabel => '舒張壓（低壓）';
@@ -4068,7 +4068,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get measurementIndicators => '測量指標';
 
   @override
-  String get riskIndicatorsMissing => '本次手錶未傳回風險指標';
+  String get riskIndicatorsMissing => '本次戒指未傳回風險指標';
 
   @override
   String get riskAnalysisTitle => '風險分析';
@@ -4122,22 +4122,22 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get noHealthAssessments => '目前手錶沒有可設定的輔助評估';
 
   @override
-  String get modelFeaturesVary => '不同型號支援的項目可能不同，請以手錶實際顯示為準。';
+  String get modelFeaturesVary => '不同型號支援的項目可能不同，連接後僅顯示目前戒指可用的功能。';
 
   @override
-  String get assessmentEnabledHint => '開啟後由手錶提供日常趨勢參考';
+  String get assessmentEnabledHint => '開啟後由戒指提供日常趨勢參考';
 
   @override
   String get assessmentSafety => '輔助評估僅供日常健康管理參考，不用於診斷或治療。';
 
   @override
-  String get autoMonitorIntervalHint => '開啟後由手錶依裝置設定週期自動檢測';
+  String get autoMonitorIntervalHint => '開啟後由戒指依裝置設定週期自動檢測';
 
   @override
-  String get watchHeartRateAlert => '手錶心率預警';
+  String get watchHeartRateAlert => '戒指心率預警';
 
   @override
-  String get sustainedLimitWatchAlert => '持續超過閾值時由手錶提醒';
+  String get sustainedLimitWatchAlert => '持續超過閾值時由戒指提醒';
 
   @override
   String get ecgWaveformTitle => '心電波形';
@@ -4146,7 +4146,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get ecgWaveformMissing => '本次未傳回有效心電波形';
 
   @override
-  String get ecgElectrodeHint => '心率和 HRV 等結果仍可查看；下次測量時請持續接觸手錶電極。';
+  String get ecgElectrodeHint => '心率和 HRV 等結果仍可查看；下次測量時請持續接觸戒指電極。';
 
   @override
   String get screenAutoTimeHint => '由手錶依時間自動調節';
@@ -4158,7 +4158,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get watchHighHeartRate => '心率過高預警';
 
   @override
-  String get watchThresholdHint => '達到閾值後由手錶提醒';
+  String get watchThresholdHint => '達到閾值後由戒指提醒';
 
   @override
   String get watchMeasurementSafety => '測量結果僅供健康管理參考，不用於診斷或治療。';
@@ -4257,16 +4257,16 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get finishWorkout => '結束運動';
 
   @override
-  String get watchDistance => '手錶距離';
+  String get watchDistance => '戒指距離';
 
   @override
-  String get watchSteps => '手錶步數';
+  String get watchSteps => '戒指步數';
 
   @override
   String get liveHeartRate => '即時心率';
 
   @override
-  String get watchCalories => '手錶熱量';
+  String get watchCalories => '戒指熱量';
 
   @override
   String get connectForWorkout => '請先在裝置頁連接戒指，運動模式將由戒指記錄。';
@@ -5057,7 +5057,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get haveAccount => '已有帳號？';
 
   @override
-  String get noAccount => '還沒有帳號？';
+  String get noAccount => '還沒有 Say Ring 帳號？';
 
   @override
   String get showPassword => '顯示密碼';
@@ -5234,7 +5234,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get customerService => '聯絡客服';
 
   @override
-  String get aboutApp => '關於我們';
+  String get aboutApp => '關於 Say Ring';
 
   @override
   String get security => '帳號安全';

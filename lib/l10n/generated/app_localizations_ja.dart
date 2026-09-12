@@ -34,14 +34,14 @@ class AppLocalizationsJa extends AppLocalizations {
   String get finishWorkoutConfirm => 'この運動を終了しますか？';
 
   @override
-  String get finishLeaveWorkoutHint => '画面を離れる前に腕時計の運動を停止し、記録済みの時間とルートを保存します。';
+  String get finishLeaveWorkoutHint => '画面を離れる前にリングの運動を停止し、記録済みの時間とルートを保存します。';
 
   @override
   String get finishAndLeave => '終了して戻る';
 
   @override
   String get workoutRouteMissing =>
-      'この記録にはスマートフォンで記録したルートがありません。腕時計の運動データは保存されています。';
+      'この記録にはスマートフォンで記録したルートがありません。リングの運動データは保存されています。';
 
   @override
   String get workoutDuration => '運動時間';
@@ -210,7 +210,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get spotCheckCuffHint =>
-      '今回は安静時の単発測定で、結果は参考用です。より正確な値が必要な場合は、腕時計のポンプ・カフ式測定を使用してください。';
+      '今回は安静時の単発測定で、結果は参考用です。より正確な値が必要な場合は、検証済みの上腕式血圧計を使用してください。';
 
   @override
   String get setHealthUpperLimits => '健康データの上限アラートを設定';
@@ -259,7 +259,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get enableCalibration => '校正を有効にする';
 
   @override
-  String get calibrationDisabledHint => '無効にすると腕時計の通常の測定モードに戻ります。';
+  String get calibrationDisabledHint => '無効にするとリングの通常の測定モードに戻ります。';
 
   @override
   String get diastolicLowerLabel => '拡張期血圧（下の値）';
@@ -291,7 +291,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get measurementIndicators => '測定指標';
 
   @override
-  String get riskIndicatorsMissing => '今回は腕時計からリスク指標が取得されませんでした。';
+  String get riskIndicatorsMissing => '今回はリングからリスク指標が取得されませんでした。';
 
   @override
   String get riskAnalysisTitle => 'リスク分析';
@@ -348,22 +348,23 @@ class AppLocalizationsJa extends AppLocalizations {
   String get noHealthAssessments => 'この腕時計には設定可能な補助評価がありません。';
 
   @override
-  String get modelFeaturesVary => '対応機能はモデルにより異なります。腕時計に表示される機能を確認してください。';
+  String get modelFeaturesVary =>
+      '対応機能はモデルにより異なります。接続中のリングで利用できる機能だけがアプリに表示されます。';
 
   @override
-  String get assessmentEnabledHint => '有効にすると、腕時計が日々の傾向を参考情報として提供します。';
+  String get assessmentEnabledHint => '有効にすると、リングが日々の傾向を参考情報として提供します。';
 
   @override
   String get assessmentSafety => '補助評価は日常の健康管理の参考用で、診断や治療には使用できません。';
 
   @override
-  String get autoMonitorIntervalHint => '有効にすると、腕時計が設定された間隔で自動測定します。';
+  String get autoMonitorIntervalHint => '有効にすると、リングが設定された間隔で自動測定します。';
 
   @override
-  String get watchHeartRateAlert => '腕時計の心拍数アラート';
+  String get watchHeartRateAlert => 'リングの心拍数アラート';
 
   @override
-  String get sustainedLimitWatchAlert => '値が上限を超えた状態が続くと、腕時計が通知します。';
+  String get sustainedLimitWatchAlert => '値が上限を超えた状態が続くと、リングが通知します。';
 
   @override
   String get ecgWaveformTitle => '心電図波形';
@@ -373,7 +374,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get ecgElectrodeHint =>
-      '心拍数やHRVなどの結果は引き続き確認できます。次回は測定中ずっと腕時計の電極に触れてください。';
+      '心拍数やHRVなどの結果は引き続き確認できます。次回は測定中ずっとリングの電極に触れてください。';
 
   @override
   String get screenAutoTimeHint => '腕時計が時刻に応じて自動調整します。';
@@ -385,7 +386,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get watchHighHeartRate => '高心拍数アラート';
 
   @override
-  String get watchThresholdHint => '設定値に達すると腕時計が通知します。';
+  String get watchThresholdHint => '設定値に達するとリングが通知します。';
 
   @override
   String get watchMeasurementSafety => '測定結果は健康管理の参考用で、診断や治療には使用できません。';
@@ -488,16 +489,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get finishWorkout => '運動を終了';
 
   @override
-  String get watchDistance => '腕時計の距離';
+  String get watchDistance => 'リングの距離';
 
   @override
-  String get watchSteps => '腕時計の歩数';
+  String get watchSteps => 'リングの歩数';
 
   @override
   String get liveHeartRate => '現在の心拍数';
 
   @override
-  String get watchCalories => '腕時計の消費カロリー';
+  String get watchCalories => 'リングの消費カロリー';
 
   @override
   String get connectForWorkout => 'まずデバイス画面でリングを接続してください。運動はリングが記録します。';

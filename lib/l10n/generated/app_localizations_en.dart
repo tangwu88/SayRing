@@ -38,14 +38,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get finishLeaveWorkoutHint =>
-      'Before leaving, the watch workout will stop and the recorded duration and route will be saved.';
+      'Before leaving, the ring workout will stop and the recorded duration and route will be saved.';
 
   @override
   String get finishAndLeave => 'Finish and leave';
 
   @override
   String get workoutRouteMissing =>
-      'No phone-recorded route is available for this session. The watch workout data is still saved.';
+      'No phone-recorded route is available for this session. The ring workout data is still saved.';
 
   @override
   String get workoutDuration => 'Workout duration';
@@ -224,7 +224,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get spotCheckCuffHint =>
-      'This is a resting spot check for reference only. For a more accurate reading, use the watch’s pump-and-cuff measurement.';
+      'This is a resting spot check for reference only. For a more accurate reading, use a validated upper-arm blood pressure monitor.';
 
   @override
   String get setHealthUpperLimits => 'Set upper-limit health alerts';
@@ -281,7 +281,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get calibrationDisabledHint =>
-      'Turning this off restores the watch’s general measurement mode.';
+      'Turning this off restores the ring’s general measurement mode.';
 
   @override
   String get diastolicLowerLabel => 'Diastolic pressure (lower number)';
@@ -316,7 +316,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get riskIndicatorsMissing =>
-      'The watch did not return risk indicators for this measurement.';
+      'The ring did not return risk indicators for this measurement.';
 
   @override
   String get riskAnalysisTitle => 'Risk analysis';
@@ -378,11 +378,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get modelFeaturesVary =>
-      'Supported features vary by model. Refer to the features shown on your watch.';
+      'Supported features vary by model. The app shows only features available for your connected ring.';
 
   @override
   String get assessmentEnabledHint =>
-      'When enabled, the watch provides daily trend information.';
+      'When enabled, the ring provides daily trend information.';
 
   @override
   String get assessmentSafety =>
@@ -390,14 +390,14 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get autoMonitorIntervalHint =>
-      'When enabled, the watch measures automatically at its configured interval.';
+      'When enabled, the ring measures automatically at its configured interval.';
 
   @override
-  String get watchHeartRateAlert => 'Watch heart rate alert';
+  String get watchHeartRateAlert => 'Ring heart rate alert';
 
   @override
   String get sustainedLimitWatchAlert =>
-      'The watch alerts you if the value stays above the limit.';
+      'The ring alerts you if the value stays above the limit.';
 
   @override
   String get ecgWaveformTitle => 'ECG waveform';
@@ -408,7 +408,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get ecgElectrodeHint =>
-      'Heart rate and HRV results remain available. Keep touching the watch electrode throughout your next measurement.';
+      'Heart rate and HRV results remain available. Keep touching the ring electrode throughout your next measurement.';
 
   @override
   String get screenAutoTimeHint =>
@@ -423,7 +423,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get watchThresholdHint =>
-      'The watch alerts you when the limit is reached.';
+      'The ring alerts you when the limit is reached.';
 
   @override
   String get watchMeasurementSafety =>
@@ -532,16 +532,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get finishWorkout => 'Finish workout';
 
   @override
-  String get watchDistance => 'Watch distance';
+  String get watchDistance => 'Ring distance';
 
   @override
-  String get watchSteps => 'Watch steps';
+  String get watchSteps => 'Ring steps';
 
   @override
   String get liveHeartRate => 'Live heart rate';
 
   @override
-  String get watchCalories => 'Watch calories';
+  String get watchCalories => 'Ring calories';
 
   @override
   String get connectForWorkout =>

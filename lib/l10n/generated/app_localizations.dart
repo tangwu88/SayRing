@@ -161,7 +161,7 @@ abstract class AppLocalizations {
   /// No description provided for @finishLeaveWorkoutHint.
   ///
   /// In en, this message translates to:
-  /// **'Before leaving, the watch workout will stop and the recorded duration and route will be saved.'**
+  /// **'Before leaving, the ring workout will stop and the recorded duration and route will be saved.'**
   String get finishLeaveWorkoutHint;
 
   /// No description provided for @finishAndLeave.
@@ -173,7 +173,7 @@ abstract class AppLocalizations {
   /// No description provided for @workoutRouteMissing.
   ///
   /// In en, this message translates to:
-  /// **'No phone-recorded route is available for this session. The watch workout data is still saved.'**
+  /// **'No phone-recorded route is available for this session. The ring workout data is still saved.'**
   String get workoutRouteMissing;
 
   /// No description provided for @workoutDuration.
@@ -491,7 +491,7 @@ abstract class AppLocalizations {
   /// No description provided for @spotCheckCuffHint.
   ///
   /// In en, this message translates to:
-  /// **'This is a resting spot check for reference only. For a more accurate reading, use the watch’s pump-and-cuff measurement.'**
+  /// **'This is a resting spot check for reference only. For a more accurate reading, use a validated upper-arm blood pressure monitor.'**
   String get spotCheckCuffHint;
 
   /// No description provided for @setHealthUpperLimits.
@@ -587,7 +587,7 @@ abstract class AppLocalizations {
   /// No description provided for @calibrationDisabledHint.
   ///
   /// In en, this message translates to:
-  /// **'Turning this off restores the watch’s general measurement mode.'**
+  /// **'Turning this off restores the ring’s general measurement mode.'**
   String get calibrationDisabledHint;
 
   /// No description provided for @diastolicLowerLabel.
@@ -647,7 +647,7 @@ abstract class AppLocalizations {
   /// No description provided for @riskIndicatorsMissing.
   ///
   /// In en, this message translates to:
-  /// **'The watch did not return risk indicators for this measurement.'**
+  /// **'The ring did not return risk indicators for this measurement.'**
   String get riskIndicatorsMissing;
 
   /// No description provided for @riskAnalysisTitle.
@@ -755,13 +755,13 @@ abstract class AppLocalizations {
   /// No description provided for @modelFeaturesVary.
   ///
   /// In en, this message translates to:
-  /// **'Supported features vary by model. Refer to the features shown on your watch.'**
+  /// **'Supported features vary by model. The app shows only features available for your connected ring.'**
   String get modelFeaturesVary;
 
   /// No description provided for @assessmentEnabledHint.
   ///
   /// In en, this message translates to:
-  /// **'When enabled, the watch provides daily trend information.'**
+  /// **'When enabled, the ring provides daily trend information.'**
   String get assessmentEnabledHint;
 
   /// No description provided for @assessmentSafety.
@@ -773,19 +773,19 @@ abstract class AppLocalizations {
   /// No description provided for @autoMonitorIntervalHint.
   ///
   /// In en, this message translates to:
-  /// **'When enabled, the watch measures automatically at its configured interval.'**
+  /// **'When enabled, the ring measures automatically at its configured interval.'**
   String get autoMonitorIntervalHint;
 
   /// No description provided for @watchHeartRateAlert.
   ///
   /// In en, this message translates to:
-  /// **'Watch heart rate alert'**
+  /// **'Ring heart rate alert'**
   String get watchHeartRateAlert;
 
   /// No description provided for @sustainedLimitWatchAlert.
   ///
   /// In en, this message translates to:
-  /// **'The watch alerts you if the value stays above the limit.'**
+  /// **'The ring alerts you if the value stays above the limit.'**
   String get sustainedLimitWatchAlert;
 
   /// No description provided for @ecgWaveformTitle.
@@ -803,7 +803,7 @@ abstract class AppLocalizations {
   /// No description provided for @ecgElectrodeHint.
   ///
   /// In en, this message translates to:
-  /// **'Heart rate and HRV results remain available. Keep touching the watch electrode throughout your next measurement.'**
+  /// **'Heart rate and HRV results remain available. Keep touching the ring electrode throughout your next measurement.'**
   String get ecgElectrodeHint;
 
   /// No description provided for @screenAutoTimeHint.
@@ -827,7 +827,7 @@ abstract class AppLocalizations {
   /// No description provided for @watchThresholdHint.
   ///
   /// In en, this message translates to:
-  /// **'The watch alerts you when the limit is reached.'**
+  /// **'The ring alerts you when the limit is reached.'**
   String get watchThresholdHint;
 
   /// No description provided for @watchMeasurementSafety.
@@ -1025,13 +1025,13 @@ abstract class AppLocalizations {
   /// No description provided for @watchDistance.
   ///
   /// In en, this message translates to:
-  /// **'Watch distance'**
+  /// **'Ring distance'**
   String get watchDistance;
 
   /// No description provided for @watchSteps.
   ///
   /// In en, this message translates to:
-  /// **'Watch steps'**
+  /// **'Ring steps'**
   String get watchSteps;
 
   /// No description provided for @liveHeartRate.
@@ -1043,7 +1043,7 @@ abstract class AppLocalizations {
   /// No description provided for @watchCalories.
   ///
   /// In en, this message translates to:
-  /// **'Watch calories'**
+  /// **'Ring calories'**
   String get watchCalories;
 
   /// No description provided for @connectForWorkout.

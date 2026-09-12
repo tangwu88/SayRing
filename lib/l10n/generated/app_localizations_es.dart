@@ -38,14 +38,14 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get finishLeaveWorkoutHint =>
-      'Antes de salir, se detendrá el entrenamiento del reloj y se guardarán la duración y la ruta registradas.';
+      'Antes de salir, se detendrá el entrenamiento del anillo y se guardarán la duración y la ruta registradas.';
 
   @override
   String get finishAndLeave => 'Finalizar y salir';
 
   @override
   String get workoutRouteMissing =>
-      'Esta sesión no tiene una ruta registrada por el teléfono. Los datos de entrenamiento del reloj siguen guardados.';
+      'Esta sesión no tiene una ruta registrada por el teléfono. Los datos de entrenamiento del anillo siguen guardados.';
 
   @override
   String get workoutDuration => 'Duración del entrenamiento';
@@ -224,7 +224,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get spotCheckCuffHint =>
-      'Esta es una medición puntual en reposo y solo orientativa. Para una lectura más precisa, utiliza la medición con bomba y manguito del reloj.';
+      'Esta es una medición puntual en reposo y solo orientativa. Para una lectura más precisa, utiliza un tensiómetro de brazo validado.';
 
   @override
   String get setHealthUpperLimits =>
@@ -282,7 +282,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get calibrationDisabledHint =>
-      'Al desactivarla, se restablece el modo de medición general del reloj.';
+      'Al desactivarla, se restablece el modo de medición general del anillo.';
 
   @override
   String get diastolicLowerLabel => 'Presión diastólica (valor inferior)';
@@ -318,7 +318,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get riskIndicatorsMissing =>
-      'El reloj no devolvió indicadores de riesgo para esta medición.';
+      'El anillo no devolvió indicadores de riesgo para esta medición.';
 
   @override
   String get riskAnalysisTitle => 'Análisis de riesgos';
@@ -380,11 +380,11 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get modelFeaturesVary =>
-      'Las funciones compatibles varían según el modelo. Consulta las que aparecen en tu reloj.';
+      'Las funciones compatibles varían según el modelo. La app muestra solo las disponibles para el anillo conectado.';
 
   @override
   String get assessmentEnabledHint =>
-      'Al activarlo, el reloj ofrece información sobre tendencias diarias.';
+      'Al activarlo, el anillo ofrece información sobre tendencias diarias.';
 
   @override
   String get assessmentSafety =>
@@ -392,14 +392,14 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get autoMonitorIntervalHint =>
-      'Al activarlo, el reloj mide automáticamente según el intervalo configurado.';
+      'Al activarlo, el anillo mide automáticamente según el intervalo configurado.';
 
   @override
-  String get watchHeartRateAlert => 'Alerta de frecuencia cardíaca del reloj';
+  String get watchHeartRateAlert => 'Alerta de frecuencia cardíaca del anillo';
 
   @override
   String get sustainedLimitWatchAlert =>
-      'El reloj avisa si el valor se mantiene por encima del límite.';
+      'El anillo avisa si el valor se mantiene por encima del límite.';
 
   @override
   String get ecgWaveformTitle => 'Onda ECG';
@@ -410,7 +410,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get ecgElectrodeHint =>
-      'Los resultados de frecuencia cardíaca y VFC siguen disponibles. Mantén el contacto con el electrodo del reloj durante toda la próxima medición.';
+      'Los resultados de frecuencia cardíaca y VFC siguen disponibles. Mantén el contacto con el electrodo del anillo durante toda la próxima medición.';
 
   @override
   String get screenAutoTimeHint =>
@@ -425,7 +425,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get watchThresholdHint =>
-      'El reloj avisa cuando se alcanza el límite.';
+      'El anillo avisa cuando se alcanza el límite.';
 
   @override
   String get watchMeasurementSafety =>
@@ -538,16 +538,16 @@ class AppLocalizationsEs extends AppLocalizations {
   String get finishWorkout => 'Finalizar entrenamiento';
 
   @override
-  String get watchDistance => 'Distancia del reloj';
+  String get watchDistance => 'Distancia del anillo';
 
   @override
-  String get watchSteps => 'Pasos del reloj';
+  String get watchSteps => 'Pasos del anillo';
 
   @override
   String get liveHeartRate => 'Frecuencia cardíaca actual';
 
   @override
-  String get watchCalories => 'Calorías del reloj';
+  String get watchCalories => 'Calorías del anillo';
 
   @override
   String get connectForWorkout =>

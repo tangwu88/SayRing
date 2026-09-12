@@ -38,14 +38,14 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get finishLeaveWorkoutHint =>
-      'Vor dem Verlassen wird das Training auf der Uhr beendet. Die erfasste Dauer und Route werden gespeichert.';
+      'Vor dem Verlassen wird das Training auf dem Ring beendet. Die erfasste Dauer und Route werden gespeichert.';
 
   @override
   String get finishAndLeave => 'Beenden und verlassen';
 
   @override
   String get workoutRouteMissing =>
-      'Für diese Einheit ist keine vom Telefon aufgezeichnete Route verfügbar. Die Trainingsdaten der Uhr bleiben gespeichert.';
+      'Für diese Einheit ist keine vom Telefon aufgezeichnete Route verfügbar. Die Trainingsdaten des Rings bleiben gespeichert.';
 
   @override
   String get workoutDuration => 'Trainingsdauer';
@@ -224,7 +224,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get spotCheckCuffHint =>
-      'Dies ist eine Einzelmessung in Ruhe, nur zur Orientierung. Für genauere Werte verwenden Sie die Pumpen- und Manschettenmessung der Uhr.';
+      'Dies ist eine Einzelmessung in Ruhe, nur zur Orientierung. Für eine genauere Messung verwenden Sie ein validiertes Oberarm-Blutdruckmessgerät.';
 
   @override
   String get setHealthUpperLimits =>
@@ -282,7 +282,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get calibrationDisabledHint =>
-      'Durch Deaktivieren wird der allgemeine Messmodus der Uhr wiederhergestellt.';
+      'Durch Deaktivieren wird der allgemeine Messmodus des Rings wiederhergestellt.';
 
   @override
   String get diastolicLowerLabel => 'Diastolischer Druck (unterer Wert)';
@@ -318,7 +318,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get riskIndicatorsMissing =>
-      'Die Uhr hat für diese Messung keine Risikoindikatoren zurückgegeben.';
+      'Der Ring hat für diese Messung keine Risikoindikatoren zurückgegeben.';
 
   @override
   String get riskAnalysisTitle => 'Risikoanalyse';
@@ -380,11 +380,11 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get modelFeaturesVary =>
-      'Die unterstützten Funktionen variieren je nach Modell. Maßgeblich sind die auf Ihrer Uhr angezeigten Funktionen.';
+      'Die unterstützten Funktionen unterscheiden sich je nach Modell. Die App zeigt nur Funktionen an, die für den verbundenen Ring verfügbar sind.';
 
   @override
   String get assessmentEnabledHint =>
-      'Nach dem Aktivieren liefert die Uhr Informationen zu täglichen Trends.';
+      'Nach dem Aktivieren liefert der Ring Informationen zu täglichen Trends.';
 
   @override
   String get assessmentSafety =>
@@ -392,14 +392,14 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get autoMonitorIntervalHint =>
-      'Nach dem Aktivieren misst die Uhr automatisch im eingestellten Intervall.';
+      'Nach dem Aktivieren misst der Ring automatisch im eingestellten Intervall.';
 
   @override
-  String get watchHeartRateAlert => 'Herzfrequenzwarnung der Uhr';
+  String get watchHeartRateAlert => 'Herzfrequenzwarnung des Rings';
 
   @override
   String get sustainedLimitWatchAlert =>
-      'Die Uhr warnt Sie, wenn der Wert länger über der Grenze bleibt.';
+      'Der Ring warnt Sie, wenn der Wert länger über der Grenze bleibt.';
 
   @override
   String get ecgWaveformTitle => 'EKG-Kurve';
@@ -410,7 +410,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get ecgElectrodeHint =>
-      'Herzfrequenz- und HRV-Ergebnisse bleiben verfügbar. Berühren Sie bei der nächsten Messung durchgehend die Elektrode der Uhr.';
+      'Herzfrequenz- und HRV-Ergebnisse bleiben verfügbar. Berühren Sie bei der nächsten Messung durchgehend die Elektrode des Rings.';
 
   @override
   String get screenAutoTimeHint =>
@@ -425,7 +425,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get watchThresholdHint =>
-      'Die Uhr warnt Sie, sobald die Grenze erreicht wird.';
+      'Der Ring warnt Sie, sobald die Grenze erreicht wird.';
 
   @override
   String get watchMeasurementSafety =>
@@ -539,16 +539,16 @@ class AppLocalizationsDe extends AppLocalizations {
   String get finishWorkout => 'Training beenden';
 
   @override
-  String get watchDistance => 'Distanz der Uhr';
+  String get watchDistance => 'Distanz des Rings';
 
   @override
-  String get watchSteps => 'Schritte der Uhr';
+  String get watchSteps => 'Schritte des Rings';
 
   @override
   String get liveHeartRate => 'Aktuelle Herzfrequenz';
 
   @override
-  String get watchCalories => 'Kalorien der Uhr';
+  String get watchCalories => 'Kalorien des Rings';
 
   @override
   String get connectForWorkout =>
