@@ -1,8 +1,8 @@
 {
   "string": [
-    { "name": "module_desc", "value": "Saydian wellness and watch management" },
-    { "name": "reason_bluetooth", "value": "Find and connect your watch to sync health records" },
-    { "name": "reason_location", "value": "Find nearby watches and record your route during a workout" },
-    { "name": "reason_camera", "value": "Use the phone camera and save photos only when you start watch remote photography" }
+    { "name": "module_desc", "value": "Say Ring wellness and ring management" },
+    { "name": "reason_bluetooth", "value": "Find and connect your ring to sync health records" },
+    { "name": "reason_location", "value": "Use your location for supported health and activity features" },
+    { "name": "reason_camera", "value": "Use the camera only when you choose to take a profile photo" }
   ]
 }

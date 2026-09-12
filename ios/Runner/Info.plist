@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Saydian</string>
+	<string>Say Ring</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Saydian</string>
+	<string>Say Ring</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -30,7 +30,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>cn.saydian.app.global.payment.wechat</string>
+			<string>cn.saydian.ring.payment.wechat</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>$(SAIDIAN_WECHAT_APP_ID)</string>
@@ -40,7 +40,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>cn.saydian.app.global.payment.alipay</string>
+			<string>cn.saydian.ring.payment.alipay</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>$(SAIDIAN_ALIPAY_URL_SCHEME)</string>
@@ -57,19 +57,19 @@
 		<string>alipayshare</string>
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Connect to your watch and sync health data you choose to share.</string>
+	<string>Connect to your ring and sync health data you choose to share.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>Connect to your watch and sync health data you choose to share.</string>
+	<string>Connect to your ring and sync health data you choose to share.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Take photos and set photo watch faces.</string>
+	<string>Take a profile photo when you choose to use the camera.</string>
 	<key>NSContactsUsageDescription</key>
-	<string>Sync only the contacts you select to your watch.</string>
+	<string>Access contacts only when a supported device feature needs them.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Use your city to sync local weather to your watch.</string>
+	<string>Use your location for supported health and activity features.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Choose photos for your watch face.</string>
+	<string>Choose a profile photo from your library.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Save photos taken with the camera remote.</string>
+	<string>Save photos only when you choose to take one.</string>
 	<key>SaidianAlipayUrlScheme</key>
 	<string>$(SAIDIAN_ALIPAY_URL_SCHEME)</string>
 	<key>SaidianWechatAppId</key>

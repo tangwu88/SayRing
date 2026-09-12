@@ -1,5 +1,6 @@
 // Discovery identity is separate from a verified hardware address. Some Vep
 // firmware uses a different manufacturer ID, as permitted by the iOS SDK.
+import { wearableProviderForName } from './WearableContracts';
 export interface DiscoveryPacket {
   id: string;
   name: string;
@@ -33,11 +34,8 @@ export function advertisedName(data: number[]): string {
   } catch { return ''; }
 }
 
-export function knownWearableName(name: string): 'Vep' | 'Yuc' | '' {
-  const normalized = name.replace(/[\u0000-\u001f\u007f]/g, '').trim();
-  if (/W8/i.test(normalized)) return 'Yuc';
-  // Explicit product names only; never expose every nearby BLE peripheral as a watch.
-  return /^(?:SD[ _-]*WATCH[ _-]*)?(?:ET488|W9S?)(?:[ _-]+[A-F0-9]{4,6})?$/i.test(normalized) ? 'Vep' : '';
+export function knownWearableName(name: string): 'Vep' | 'Yuc' | 'Moyoung' | '' {
+  return wearableProviderForName(name);
 }
 
 export function mergeAdvertisement(previous: number[], incoming: number[]): number[] {

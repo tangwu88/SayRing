@@ -1,7 +1,7 @@
 #include? "../Pods/Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"
 #include? "../Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
-SAIDIAN_BUNDLE_IDENTIFIER = cn.saydian.app.global
+SAIDIAN_BUNDLE_IDENTIFIER = cn.saydian.ring
 SAIDIAN_WECHAT_APP_ID = saidian-wechat-unconfigured
 SAIDIAN_WECHAT_UNIVERSAL_LINK = saidian-wechat-unconfigured
 SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST = saidian-unconfigured.invalid

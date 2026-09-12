@@ -59,7 +59,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get noWatchShopHint =>
-      'Noch kein Gerät? Besuchen Sie den Saydian-Shop.';
+      'Ein weiteres Gerät? Besuchen Sie den Say Ring-Shop.';
 
   @override
   String get notificationInAppHint =>
@@ -605,16 +605,16 @@ class AppLocalizationsDe extends AppLocalizations {
       'Hier können Sie Produkte ansehen. Bestellungen sind in dieser Region noch nicht möglich.';
 
   @override
-  String get appName => 'Saydian';
+  String get appName => 'Say Ring';
 
   @override
-  String get searchingNearby => 'Uhren in der Nähe werden gesucht';
+  String get searchingNearby => 'Ringe in der Nähe werden gesucht';
 
   @override
   String get noDevices => 'Keine Geräte gefunden';
 
   @override
-  String get selectWatch => 'Name und Signal prüfen, dann die Uhr auswählen';
+  String get selectWatch => 'Name und Signal prüfen, dann den Ring auswählen';
 
   @override
   String get searchingHint =>
@@ -622,11 +622,11 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get activateWatch =>
-      'Uhr zum Aktivieren laden und neben das Telefon legen';
+      'Ring zum Aktivieren laden und neben das Telefon legen';
 
   @override
   String get checkWatchConnection =>
-      'Ist die Uhr in den Bluetooth-Einstellungen dieses oder eines anderen Telefons verbunden, trennen Sie sie und suchen Sie erneut.';
+      'Ist der Ring in den Bluetooth-Einstellungen dieses oder eines anderen Telefons verbunden, trennen Sie ihn und suchen Sie erneut.';
 
   @override
   String get running => 'Laufen';
@@ -984,7 +984,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Uhr nah halten. Ist sie über System-Bluetooth oder ein anderes Telefon verbunden, zuerst trennen und erneut versuchen.';
+      'Ring nah halten. Ist er über System-Bluetooth oder ein anderes Telefon verbunden, zuerst trennen und erneut versuchen.';
 
   @override
   String get deviceName => 'Gerätename';
@@ -999,7 +999,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get firmwareVersion => 'Firmware-Version';
 
   @override
-  String get watchBattery => 'Uhrenakku';
+  String get watchBattery => 'Ringakku';
 
   @override
   String get chargingStatus => 'Ladestatus';
@@ -1063,7 +1063,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get choose => 'Auswählen';
 
   @override
-  String get connectWatchToUse => 'Zur Nutzung eine Uhr verbinden';
+  String get connectWatchToUse => 'Zur Nutzung einen Ring verbinden';
 
   @override
   String get selectPhoto => 'Foto auswählen';
@@ -1088,7 +1088,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get monitoringHint =>
-      'Nach dem Verbinden werden verfügbare Einstellungen zur Gesundheitsüberwachung angezeigt.';
+      'Nach dem Verbinden werden die für diesen Ring verfügbaren Einstellungen angezeigt.';
 
   @override
   String get previewUnavailable => 'Vorschau nicht verfügbar';
@@ -1164,11 +1164,11 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get connectionInstructions =>
-      '1. Bluetooth aktivieren und Gerätezugriff erlauben.\n2. Uhr laden und neben das Telefon legen.\n3. Geräte suchen antippen und Ihre Uhr wählen.\n4. Eine Anfrage auf der Uhr bestätigen.';
+      '1. Bluetooth aktivieren und Gerätezugriff erlauben.\n2. Ring laden und neben das Telefon legen.\n3. Geräte suchen antippen und Ihren Ring wählen.\n4. Eine Anfrage auf dem Ring bestätigen.';
 
   @override
   String get syncNearbyHint =>
-      'Uhr beim Verbinden oder Synchronisieren ausreichend laden und nahe am Telefon halten.';
+      'Ring beim Verbinden oder Synchronisieren ausreichend laden und nahe am Telefon halten.';
 
   @override
   String get invalidCode => 'Code prüfen und erneut versuchen';
@@ -1195,7 +1195,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get watchNearbyHint =>
-      'Bluetooth aktivieren und Uhr in die Nähe des Telefons bringen';
+      'Bluetooth aktivieren und Ring in die Nähe des Telefons bringen';
 
   @override
   String get startSearch => 'Geräte suchen';
@@ -1204,18 +1204,19 @@ class AppLocalizationsDe extends AppLocalizations {
   String get readingData => 'Daten werden gelesen…';
 
   @override
-  String get readingCapabilities => 'Uhrenfunktionen werden geprüft…';
+  String get readingCapabilities => 'Ringfunktionen werden geprüft…';
 
   @override
   String get capabilitiesHint =>
-      'Es werden nur verfügbare Funktionen dieser Uhr angezeigt';
+      'Es werden nur verfügbare Funktionen dieses Rings angezeigt';
 
   @override
   String get capabilitiesFailed =>
-      'Uhrenfunktionen konnten nicht gelesen werden';
+      'Ringfunktionen konnten nicht gelesen werden';
 
   @override
-  String get keepWatchNear => 'Uhr nahe am Telefon halten und erneut versuchen';
+  String get keepWatchNear =>
+      'Ring nahe am Telefon halten und erneut versuchen';
 
   @override
   String get personalizeWatch => 'Zifferblätter & Design';
@@ -1446,14 +1447,14 @@ class AppLocalizationsDe extends AppLocalizations {
   String get shop => 'Shop';
 
   @override
-  String get connectWatch => 'Uhr verbinden';
+  String get connectWatch => 'Ring verbinden';
 
   @override
   String get addDevice => 'Gerät hinzufügen';
 
   @override
   String get connectWatchForData =>
-      'Verbinden Sie Ihre Uhr, um unterstützte Gesundheitsdaten zu sehen';
+      'Verbinden Sie Ihren Ring, um unterstützte Gesundheitsdaten zu sehen';
 
   @override
   String get noHealthData => 'Noch keine Gesundheitsdaten vorhanden';
@@ -1499,8 +1500,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get connectionHelp => 'Hilfe zur Verbindung';
 
   @override
-  String get searchNearbyWatch =>
-      'Saydian-Uhr in der Nähe suchen und verbinden';
+  String get searchNearbyWatch => 'Say Ring in der Nähe suchen und verbinden';
 
   @override
   String get useWatch => 'Bitte diese Funktion auf der Uhr verwenden';

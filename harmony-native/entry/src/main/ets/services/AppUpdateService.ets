@@ -2,9 +2,11 @@ import { http } from '@kit.NetworkKit';
 import { ApiError, decodeEnvelope } from '../model/Contracts';
 import { AppUpdateInfo } from '../model/ExperienceContracts';
 import { parseGlobalUpdate } from '../model/GlobalUpdate';
-import { globalApiPath, internationalUrl } from '../model/GlobalConfiguration';
+import { GLOBAL_PRODUCT, globalApiPath, internationalUrl } from '../model/GlobalConfiguration';
 
-const UPDATE_MANIFEST_URL: string = internationalUrl(globalApiPath('/support/app-update'));
+const UPDATE_MANIFEST_URL: string = internationalUrl(
+  globalApiPath(`/support/app-update?product=${encodeURIComponent(GLOBAL_PRODUCT)}`)
+);
 export const HARMONY_VERSION_NAME: string = '0.1.4';
 export const HARMONY_VERSION_CODE: number = 9;
 

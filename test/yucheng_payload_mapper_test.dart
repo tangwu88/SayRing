@@ -78,6 +78,29 @@ void main() {
     expect(records.map((r) => r.metric), [HealthMetric.bloodOxygen]);
   });
 
+  test('same-second samples from two Yucheng devices keep distinct identities', () {
+    Map<int, List<Map<String, Object?>>> rows() => {
+      YuchengHealthDataType.heartRate: [
+        {'startTimeStamp': 1786579260, 'heartRate': 72},
+      ],
+    };
+
+    final first = YuchengPayloadMapper.healthRecords(
+      deviceId: 'yucheng:AA:01',
+      firmwareVersion: '1.2.3',
+      rowsByType: rows(),
+    ).single;
+    final second = YuchengPayloadMapper.healthRecords(
+      deviceId: 'yucheng:BB:02',
+      firmwareVersion: '1.2.3',
+      rowsByType: rows(),
+    ).single;
+
+    expect(first.id, isNot(second.id));
+    expect(first.id, isNot(contains('AA:01')));
+    expect(second.id, isNot(contains('BB:02')));
+  });
+
   test('maps W8 feature flags only when SDK reports support', () {
     final capabilities = YuchengPayloadMapper.capabilities({
       'isSupportHeartRate': true,
@@ -136,19 +159,22 @@ void main() {
   });
 
   test('maps W8 mountaineering history and its real watch values', () {
-    final records = YuchengPayloadMapper.sportRecords([
-      {
-        'startTimeStamp': 1786579320,
-        'sportType': 0x0B,
-        'sportTime': 900,
-        'steps': 1234,
-        'distance': 1680,
-        'calories': 88,
-        'heartRate': 104,
-        'minimumHeartRate': 78,
-        'maximumHeartRate': 132,
-      },
-    ]);
+    final records = YuchengPayloadMapper.sportRecords(
+      deviceId: 'yucheng:AA:01',
+      rows: [
+        {
+          'startTimeStamp': 1786579320,
+          'sportType': 0x0B,
+          'sportTime': 900,
+          'steps': 1234,
+          'distance': 1680,
+          'calories': 88,
+          'heartRate': 104,
+          'minimumHeartRate': 78,
+          'maximumHeartRate': 132,
+        },
+      ],
+    );
 
     final record = records.single;
     expect(record.mode, SportMode.mountaineering);
@@ -158,6 +184,13 @@ void main() {
     expect(record.heartRate, 104);
     expect(record.minimumHeartRate, 78);
     expect(record.maximumHeartRate, 132);
+    final otherDevice = YuchengPayloadMapper.sportRecords(
+      deviceId: 'yucheng:BB:02',
+      rows: const [
+        {'startTimeStamp': 1786579320, 'sportType': 0x0B},
+      ],
+    ).single;
+    expect(otherDevice.id, isNot(record.id));
   });
 }
 

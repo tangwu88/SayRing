@@ -59,7 +59,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get noWatchShopHint =>
-      'Besoin d’un appareil ? Visitez la boutique Saydian.';
+      'Besoin d’un autre appareil ? Visitez la boutique Say Ring.';
 
   @override
   String get notificationInAppHint =>
@@ -609,17 +609,17 @@ class AppLocalizationsFr extends AppLocalizations {
       'Consultez les produits ici. Les commandes ne sont pas encore disponibles dans cette région.';
 
   @override
-  String get appName => 'Saydian';
+  String get appName => 'Say Ring';
 
   @override
-  String get searchingNearby => 'Recherche de montres à proximité';
+  String get searchingNearby => 'Recherche de bagues à proximité';
 
   @override
   String get noDevices => 'Aucun appareil trouvé';
 
   @override
   String get selectWatch =>
-      'Vérifiez le nom et le signal, puis choisissez votre montre';
+      'Vérifiez le nom et le signal, puis choisissez votre bague';
 
   @override
   String get searchingHint =>
@@ -627,11 +627,11 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get activateWatch =>
-      'Chargez la montre pour l’activer puis placez-la près du téléphone';
+      'Chargez la bague pour l’activer puis placez-la près du téléphone';
 
   @override
   String get checkWatchConnection =>
-      'Si la montre est connectée au Bluetooth de ce téléphone ou d’un autre, déconnectez-la puis relancez la recherche';
+      'Si la bague est connectée au Bluetooth de ce téléphone ou d’un autre, déconnectez-la puis relancez la recherche';
 
   @override
   String get running => 'Course';
@@ -989,7 +989,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Gardez la montre près du téléphone. Si elle est connectée au Bluetooth système ou à un autre téléphone, déconnectez-la puis réessayez.';
+      'Gardez la bague près du téléphone. Si elle est connectée au Bluetooth système ou à un autre téléphone, déconnectez-la puis réessayez.';
 
   @override
   String get deviceName => 'Nom de l’appareil';
@@ -1004,7 +1004,7 @@ class AppLocalizationsFr extends AppLocalizations {
   String get firmwareVersion => 'Version du micrologiciel';
 
   @override
-  String get watchBattery => 'Batterie de la montre';
+  String get watchBattery => 'Batterie de la bague';
 
   @override
   String get chargingStatus => 'État de charge';
@@ -1069,7 +1069,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get connectWatchToUse =>
-      'Connectez une montre pour utiliser cette fonction';
+      'Connectez une bague pour utiliser cette fonction';
 
   @override
   String get selectPhoto => 'Choisir une photo';
@@ -1095,7 +1095,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get monitoringHint =>
-      'Les réglages de suivi de santé disponibles s’affichent après la connexion.';
+      'Les réglages disponibles pour cette bague s’affichent après la connexion.';
 
   @override
   String get previewUnavailable => 'Aperçu indisponible';
@@ -1171,11 +1171,11 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get connectionInstructions =>
-      '1. Activez le Bluetooth et l’accès aux appareils à proximité.\n2. Chargez la montre et placez-la près du téléphone.\n3. Lancez la recherche et sélectionnez votre montre.\n4. Confirmez sur la montre si nécessaire.';
+      '1. Activez le Bluetooth et l’accès aux appareils à proximité.\n2. Chargez la bague et placez-la près du téléphone.\n3. Lancez la recherche et sélectionnez votre bague.\n4. Confirmez sur la bague si nécessaire.';
 
   @override
   String get syncNearbyHint =>
-      'Gardez la montre chargée et près du téléphone pendant la connexion ou la synchronisation.';
+      'Gardez la bague chargée et près du téléphone pendant la connexion ou la synchronisation.';
 
   @override
   String get invalidCode => 'Vérifiez le code et réessayez';
@@ -1200,7 +1200,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get watchNearbyHint =>
-      'Activez le Bluetooth et gardez la montre près du téléphone';
+      'Activez le Bluetooth et gardez la bague près du téléphone';
 
   @override
   String get startSearch => 'Rechercher des appareils';
@@ -1209,18 +1209,18 @@ class AppLocalizationsFr extends AppLocalizations {
   String get readingData => 'Lecture des données…';
 
   @override
-  String get readingCapabilities => 'Vérification des fonctions de la montre…';
+  String get readingCapabilities => 'Vérification des fonctions de la bague…';
 
   @override
   String get capabilitiesHint =>
-      'Seules les fonctions disponibles sur cette montre s’afficheront';
+      'Seules les fonctions disponibles sur cette bague s’afficheront';
 
   @override
   String get capabilitiesFailed =>
-      'Impossible de lire les fonctions de cette montre';
+      'Impossible de lire les fonctions de cette bague';
 
   @override
-  String get keepWatchNear => 'Gardez la montre près du téléphone et réessayez';
+  String get keepWatchNear => 'Gardez la bague près du téléphone et réessayez';
 
   @override
   String get personalizeWatch => 'Cadrans et style';
@@ -1449,14 +1449,14 @@ class AppLocalizationsFr extends AppLocalizations {
   String get shop => 'Boutique';
 
   @override
-  String get connectWatch => 'Connecter une montre';
+  String get connectWatch => 'Connecter une bague';
 
   @override
   String get addDevice => 'Ajouter un appareil';
 
   @override
   String get connectWatchForData =>
-      'Connectez votre montre pour voir les données de santé prises en charge';
+      'Connectez votre bague pour voir les données de santé prises en charge';
 
   @override
   String get noHealthData => 'Aucune donnée de santé à afficher';
@@ -1503,7 +1503,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get searchNearbyWatch =>
-      'Recherchez et connectez une montre Saydian à proximité';
+      'Recherchez et connectez une Say Ring à proximité';
 
   @override
   String get useWatch => 'Utilisez cette fonction sur votre montre';

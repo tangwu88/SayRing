@@ -40,8 +40,8 @@ test('report history reads preserve UUID identities and the original server conc
 });
 
 test('global URL and identities fail closed outside the independent instance',()=>{
-  assert.equal(GLOBAL_BUNDLE,'cn.saydian.app.global.hm');
-  assert.equal(internationalUrl('/api/saydian-app/v2/auth/login'),'https://app.saydian.cn/api/saydian-app/v2/auth/login');
+  assert.equal(GLOBAL_BUNDLE,'cn.saydian.ring.hm');
+  assert.equal(internationalUrl('/global/api/saydian-app/v2/auth/login'),'https://app.saydian.cn/global/api/saydian-app/v2/auth/login');
   for(const path of ['https://evil.invalid/api/data','/../api/data','/api/../data','/api/v1/member','/down/files/app.hap'])assert.throws(()=>internationalUrl(path));
   assert.equal(GLOBAL_PAYMENTS_ENABLED,false);assert.equal(GLOBAL_PUSH_ENABLED,false);assert.equal(GLOBAL_WECHAT_ENABLED,false);
 });
@@ -78,7 +78,7 @@ test('no country may request SMS before an international allowlist is published'
 test('temporary registration posts no verification code and persists its session',async()=>{
   const f=fixture(()=>session());
   await f.client.registerGlobalWithoutVerification('email','test@example.com','fixture-password','fixture-password',true,'en','fixture-v2');
-  assert.equal(f.calls.length,1);assert.equal(f.calls[0][0],'/api/saydian-app/v2/auth/register');
+  assert.equal(f.calls.length,1);assert.equal(f.calls[0][0],'/global/api/saydian-app/v2/auth/register');
   assert.deepEqual(JSON.parse(f.calls[0][3]),{channel:'email',identifier:'test@example.com',password:'fixture-password',consentVersion:'fixture-v2',locale:'en'});
   assert.equal(f.vault.value.memberId,id);
 });
@@ -87,17 +87,17 @@ test('verified registration and reset submit only the returned challenge id',asy
   const f=fixture(path=>path.includes('/capabilities?')?caps():path.endsWith('/verification-code')?challenge:session());
   const issued=await f.client.sendVerificationCode('email','test@example.com','register','en');
   await f.client.registerGlobal('email','test@example.com',issued.challengeId,'123456','fixture-password','fixture-password',true,'en','fixture-v2');
-  assert.equal(f.calls[2][0],'/api/saydian-app/v2/auth/register-with-code');
+  assert.equal(f.calls[2][0],'/global/api/saydian-app/v2/auth/register-with-code');
   assert.deepEqual(JSON.parse(f.calls[2][3]),{challengeId:'challenge-fixture-1',code:'123456',password:'fixture-password',consentVersion:'fixture-v2',locale:'en'});
 
   const reset=fixture(()=>session());
   await reset.client.resetGlobalPassword('email','test@example.com','challenge-fixture-2','654321','fixture-password','fixture-password');
-  assert.equal(reset.calls[0][0],'/api/saydian-app/v2/auth/reset-password');
+  assert.equal(reset.calls[0][0],'/global/api/saydian-app/v2/auth/reset-password');
   assert.deepEqual(JSON.parse(reset.calls[0][3]),{challengeId:'challenge-fixture-2',code:'654321',password:'fixture-password'});
 });
 test('login is JSON with email or E164 and never sends a legacy session to the old server',async()=>{
   const f=fixture(()=>session());await f.client.login('Test@Example.com','fixture-password');
-  assert.equal(f.calls[0][0],'/api/saydian-app/v2/auth/login');
+  assert.equal(f.calls[0][0],'/global/api/saydian-app/v2/auth/login');
   assert.deepEqual(JSON.parse(f.calls[0][3]),{username:'test@example.com',password:'fixture-password'});
 });
 test('UUID identity and ISO expiration are required; refresh cannot change ownership',()=>{

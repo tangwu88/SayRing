@@ -12,13 +12,12 @@ import {
   WEARABLE_CONNECT_TIMEOUT_MS, WEARABLE_MEASUREMENT_STOP_TIMEOUT_MS, WEARABLE_SCAN_TIMEOUT_MS,
 } from '../entry/src/main/ets/model/WearableContracts.ts';
 
-test('all names containing W8 are classified as Yuc while Vep names remain Vep', () => {
-  for (const name of ['W8 8211', 'w8s 4DE9', 'W8-ultra 37FD', 'SD-W8-Pro']) {
-    assert.equal(wearableProviderForName(name), 'Yuc');
-  }
-  for (const name of ['ET488', 'SD-Watch-W9', 'SD-WATCH-W9S']) {
-    assert.equal(wearableProviderForName(name), 'Vep');
-  }
+test('trimmed ring prefixes select one vendor transport and unknown names fail closed', () => {
+  for (const name of ['YC Ring', '  yc-r02  ']) assert.equal(wearableProviderForName(name), 'Yuc');
+  for (const name of ['V Ring', 'v-health', 'TK Ring', ' tk-r01 ']) assert.equal(wearableProviderForName(name), 'Vep');
+  for (const name of ['D Ring', ' d-r03 ']) assert.equal(wearableProviderForName(name), 'Moyoung');
+  for (const name of ['W8 8211', 'ET488', 'SD-Watch-W9S', 'AirPods', ''])
+    assert.equal(wearableProviderForName(name), '');
 });
 
 test('device names remove control bytes and do not allow blank labels', () => {
@@ -38,21 +37,22 @@ test('only verified six-byte addresses are presented as MAC', () => {
   assert.equal(normalizeMac('9b-21-62-9f-17-bf'), '9B:21:62:9F:17:BF');
   assert.equal(normalizeMac('36CE3B81-94C2-9B3F-C30F-BE9AB1EB2C7D'), '');
   assert.equal(normalizeMac('00:00:00:00:00:00'), '');
-  const virtual = createWearableDevice('Vep', 'W9S', '36CE3B81-94C2-9B3F-C30F-BE9AB1EB2C7D', '', -42, true);
+  const virtual = createWearableDevice('Vep', 'V Ring', '36CE3B81-94C2-9B3F-C30F-BE9AB1EB2C7D', '', -42, true);
   assert.match(wearableIdentifierText(virtual), /^设备标识/);
-  const real = createWearableDevice('Vep', 'W9S', 'virtual-id', '9B:21:62:9F:17:BF', -42, true);
+  const real = createWearableDevice('Vep', 'V Ring', 'virtual-id', '9B:21:62:9F:17:BF', -42, true);
   assert.equal(wearableIdentifierText(real), 'MAC · 9B:21:62:9F:17:BF');
 });
 
 test('scan results deduplicate and update signal without mixing providers', () => {
-  const weak = createWearableDevice('Vep', 'ET488', 'transport-a', '11:22:33:44:55:66', -90, true);
-  const strong = createWearableDevice('Vep', 'ET488', 'transport-b', '11:22:33:44:55:66', -45, true);
-  const yuc = createWearableDevice('Yuc', 'W8 8211', 'transport-y', '', -60, true);
-  const merged = mergeWearableDevices([weak], [strong, yuc]);
+  const weak = createWearableDevice('Vep', 'V Ring', 'transport-a', '11:22:33:44:55:66', -90, true);
+  const yuc = createWearableDevice('Yuc', 'YC Ring', 'transport-y', '', -60, true);
+  const strong = createWearableDevice('Vep', 'V Ring', 'transport-b', '11:22:33:44:55:66', -45, true);
+  const merged = mergeWearableDevices([weak, yuc], [strong]);
   assert.equal(merged.length, 2);
   assert.equal(merged[0].provider, 'Vep');
   assert.equal(merged[0].rssi, -45);
   assert.equal(merged[1].provider, 'Yuc');
+  assert.equal(merged[1], yuc, 'RSSI refresh must not reorder rows that the user may be tapping');
 });
 
 test('capabilities follow the vendor flags including inverted heart-rate support', () => {

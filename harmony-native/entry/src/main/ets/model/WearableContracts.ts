@@ -1,6 +1,6 @@
 // Pure wearable contracts shared by ArkTS and host-side tests.
 
-export type WearableProvider = 'Vep' | 'Yuc';
+export type WearableProvider = 'Vep' | 'Yuc' | 'Moyoung';
 export type WearableConnectionPhase = 'idle' | 'permission' | 'scanning' | 'connecting' |
   'authenticating' | 'connected' | 'syncing' | 'disconnecting' | 'error';
 export type WearableMetricKey = 'activity' | 'sleep' | 'heart' | 'pressure' | 'oxygen' |
@@ -226,8 +226,13 @@ export function wearableModelText(model: string, deviceName: string): string {
   return suffix ? suffix.slice(0, 80) : '未知';
 }
 
-export function wearableProviderForName(value: string): WearableProvider {
-  return /W8/i.test(cleanDeviceName(value)) ? 'Yuc' : 'Vep';
+export function wearableProviderForName(value: string): WearableProvider | '' {
+  const normalized = typeof value === 'string' ?
+    value.replace(/[\u0000-\u001f\u007f]/g, '').trim().toUpperCase() : '';
+  if (normalized.startsWith('YC')) return 'Yuc';
+  if (normalized.startsWith('TK') || normalized.startsWith('V')) return 'Vep';
+  if (normalized.startsWith('D')) return 'Moyoung';
+  return '';
 }
 
 export function normalizeMac(value: string): string {
@@ -259,25 +264,21 @@ export function createWearableDevice(provider: WearableProvider, name: string, t
 }
 
 export function mergeWearableDevices(current: WearableDevice[], incoming: WearableDevice[]): WearableDevice[] {
-  const merged: Map<string, WearableDevice> = new Map();
-  current.forEach((device: WearableDevice) => merged.set(device.key, device));
+  const merged: WearableDevice[] = current.slice();
   incoming.forEach((device: WearableDevice) => {
-    const sameTransport = Array.from(merged.values()).find((item: WearableDevice) =>
-      item.provider === device.provider && item.transportId === device.transportId);
+    const index = merged.findIndex((item: WearableDevice) => item.key === device.key ||
+      (item.provider === device.provider && item.transportId === device.transportId));
+    const sameTransport = index >= 0 ? merged[index] : undefined;
     // A later SDK packet can add the real MAC. It must enrich the discovered
     // transport, not add a second row; later name-only packets cannot erase it.
     const mac = device.mac || sameTransport?.mac || '';
     const next = createWearableDevice(device.provider, device.name, device.transportId,
       mac, device.rssi, device.connectable);
     if (!next) return;
-    if (sameTransport) merged.delete(sameTransport.key);
-    merged.set(next.key, next);
+    if (index >= 0) merged[index] = next;
+    else merged.push(next);
   });
-  return Array.from(merged.values()).sort((a: WearableDevice, b: WearableDevice) => {
-    if (a.provider !== b.provider) return a.provider === 'Vep' ? -1 : 1;
-    if (a.rssi !== b.rssi) return b.rssi - a.rssi;
-    return a.name.localeCompare(b.name);
-  });
+  return merged;
 }
 
 export function wearableIdentifierText(device: WearableDevice): string {

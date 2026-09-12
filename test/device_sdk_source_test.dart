@@ -12,6 +12,9 @@ void main() {
     expect(veepoo.sdkSource.shortLabel, 'Vep');
     expect(veepoo.nativeId, 'AA:BB');
     expect(yucheng.sdkSource, WearableSdkSource.yucheng);
+
+    const moyoung = DeviceInfo(id: 'moyoung:ring-3', name: 'D Ring');
+    expect(moyoung.sdkSource, WearableSdkSource.moyoung);
     expect(yucheng.sdkSource.shortLabel, 'Yuc');
     expect(yucheng.nativeId, 'W8-01');
   });

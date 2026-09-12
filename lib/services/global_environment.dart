@@ -7,8 +7,11 @@ abstract final class GlobalEnvironment {
   static const origin = 'https://app.saydian.cn';
   static const apiPrefix = '/global/api/saydian-app/v2';
   static const canonicalApiPrefix = '/api/saydian-app/v2';
+  static const productId = 'say-ring';
   static String get storageNamespace => sha256
-      .convert(utf8.encode('${configuredOrigin.origin}$apiPrefix'))
+      .convert(
+        utf8.encode('${configuredOrigin.origin}$apiPrefix:$productId'),
+      )
       .toString();
 
   /// Canonical controller paths are mounted only on the isolated gateway.
@@ -26,7 +29,7 @@ abstract final class GlobalEnvironment {
     'ja',
     'ko',
   ];
-  static const packageId = 'cn.saydian.app.global';
+  static const packageId = 'cn.saydian.ring';
 
   static Uri apiOrigin(Uri? override) => override == null
       ? configuredOrigin

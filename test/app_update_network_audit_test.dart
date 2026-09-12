@@ -12,14 +12,14 @@ import 'package:saydian_app/services/app_update_service.dart';
 import 'package:saydian_app/services/network_audit.dart';
 
 const _origin = 'https://app.saydian.cn';
-const _path = '/global/down/files/Saydian-audit-private-path.apk';
+const _path = '/global/down/files/Say-Ring-audit-private-path.apk';
 const _requestId = '00000000-0000-4000-8000-000000000001';
 const _secret = 'private-value-never-log';
 const _bytes = [1, 3, 5, 7];
 
 Future<PackageInfo> _package() async => PackageInfo(
-  appName: 'Saydian',
-  packageName: 'cn.saydian.app.global',
+  appName: 'Say Ring',
+  packageName: 'cn.saydian.ring',
   version: '0.1.0',
   buildNumber: '1',
 );

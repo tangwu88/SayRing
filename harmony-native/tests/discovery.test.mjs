@@ -1,20 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createWearableDevice, mergeWearableDevices } from '../entry/src/main/ets/model/WearableContracts.ts';
-import { advertisedName, knownWearableName, mergeAdvertisement, DiscoveryPacketCache }
-  from '../entry/src/main/ets/model/WearableDiscovery.ts';
+import { registerHooks } from 'node:module';
+registerHooks({resolve(specifier,context,next){
+  return next(specifier.startsWith('.')&&context.parentURL?.endsWith('.ts')&&!/\.[a-z]+$/.test(specifier)?specifier+'.ts':specifier,context);
+}});
+const { createWearableDevice, mergeWearableDevices } =
+  await import('../entry/src/main/ets/model/WearableContracts.ts');
+const { advertisedName, knownWearableName, mergeAdvertisement, DiscoveryPacketCache } =
+  await import('../entry/src/main/ets/model/WearableDiscovery.ts');
 
 const ad = (type, bytes) => [bytes.length + 1, type, ...bytes];
 const name = text => ad(9, [...Buffer.from(text)]);
 const packet = (data, extra = {}) => ({ id: 'fixture-a', name: '', rssi: -65, connectable: true, data, ...extra });
 
-test('only known Vep models bypass manufacturer filtering and all W8 remain Yuc', () => {
-  for (const value of ['ET488', 'SD-Watch-W9', 'SD-WATCH-W9S', 'W9s', 'W9S A123'])
-    assert.equal(knownWearableName(value), 'Vep');
-  for (const value of ['w8s 4DE9', 'SD-W8-Pro', 'W8-ultra']) assert.equal(knownWearableName(value), 'Yuc');
-  for (const value of ['W90', 'W9 speaker', 'My ET488 phone', '', 'Unknown', 'AirPods'])
-    assert.equal(knownWearableName(value), '');
+test('ring discovery uses the shared YC, V/TK and D prefix contract', () => {
+  for (const value of ['V Ring', 'v-ring', 'TK R01', ' tk health ']) assert.equal(knownWearableName(value), 'Vep');
+  for (const value of ['YC Ring', ' yc-r01 ']) assert.equal(knownWearableName(value), 'Yuc');
+  for (const value of ['D Ring', ' d-r01 ']) assert.equal(knownWearableName(value), 'Moyoung');
+  for (const value of ['W8', 'W9S', 'ET488', '', 'Unknown', 'AirPods']) assert.equal(knownWearableName(value), '');
 });
 
 test('advertisement names support short/full fields, UTF-8 and malformed bytes', () => {
@@ -51,8 +55,8 @@ test('same field replaces old bytes rather than creating duplicate TLVs', () => 
   assert.deepEqual(mergeAdvertisement(name('W9'), name('W9S')), name('W9S'));
 });
 test('a verified MAC enriches the same transport row without duplicates or later downgrade', () => {
-  const fallback=createWearableDevice('Vep','W9S','transport-1','',-60,true);
-  const parsed=createWearableDevice('Vep','W9S','transport-1','11:22:33:44:55:66',-50,true);
+  const fallback=createWearableDevice('Vep','V Ring','transport-1','',-60,true);
+  const parsed=createWearableDevice('Vep','V Ring','transport-1','11:22:33:44:55:66',-50,true);
   const enriched=mergeWearableDevices([fallback],[parsed]);
   assert.equal(enriched.length,1);assert.equal(enriched[0].mac,'11:22:33:44:55:66');
   const later=mergeWearableDevices(enriched,[{...fallback,rssi:-45}]);

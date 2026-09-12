@@ -237,8 +237,8 @@ void main() {
         ),
         targetPlatform: TargetPlatform.android,
         packageInfoLoader: () async => PackageInfo(
-          appName: 'Saydian',
-          packageName: 'cn.saydian.app.global',
+          appName: 'Say Ring',
+          packageName: 'cn.saydian.ring',
           version: '0.1.0',
           buildNumber: '1',
         ),

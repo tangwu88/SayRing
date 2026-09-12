@@ -11,7 +11,7 @@ void main() {
     'production router forwards Vep native market and download only',
     () async {
       final vep = _NativeMarketBridge();
-      final yuc = _NativeMarketBridge(name: 'W8', id: 'fixture-yuc');
+      final yuc = _NativeMarketBridge(name: 'YC Ring', id: 'fixture-yuc');
       final bridge = RoutedWearableBridge(
         veepoo: vep,
         yucheng: yuc,
@@ -63,29 +63,37 @@ void main() {
     },
   );
 
-  test('routes every device name containing W8 to Yucheng', () {
-    expect(YuchengDeviceClassifier.matches('W8'), isTrue);
-    expect(YuchengDeviceClassifier.matches('w8s'), isTrue);
-    expect(YuchengDeviceClassifier.matches('W8S 983F'), isTrue);
-    expect(YuchengDeviceClassifier.matches('W8 983F'), isTrue);
-    expect(YuchengDeviceClassifier.matches(' W8  Pro '), isTrue);
-    expect(YuchengDeviceClassifier.matches('W8-Ultra'), isTrue);
-    expect(YuchengDeviceClassifier.matches('w8 ultra-r'), isTrue);
-    expect(YuchengDeviceClassifier.matches('W8 Plus 549D'), isTrue);
-    expect(YuchengDeviceClassifier.matches('W80'), isTrue);
-    expect(YuchengDeviceClassifier.matches('W8 Pro Max'), isTrue);
-    expect(YuchengDeviceClassifier.matches('SAYDIAN-W8-BLE'), isTrue);
-    expect(YuchengDeviceClassifier.matches('W9S'), isFalse);
-    expect(YuchengDeviceClassifier.matches('w9 s 1234'), isFalse);
-    expect(YuchengDeviceClassifier.matches('W9'), isFalse);
-    expect(YuchengDeviceClassifier.matches('VP-100'), isFalse);
+  test('routes ring name prefixes without guessing unknown devices', () {
+    expect(
+      WearableDeviceClassifier.transportFor(' YC Ring'),
+      WearableTransport.yucheng,
+    );
+    expect(
+      WearableDeviceClassifier.transportFor('yc-01'),
+      WearableTransport.yucheng,
+    );
+    expect(
+      WearableDeviceClassifier.transportFor('V Ring'),
+      WearableTransport.veepoo,
+    );
+    expect(
+      WearableDeviceClassifier.transportFor('tk-ring'),
+      WearableTransport.veepoo,
+    );
+    expect(
+      WearableDeviceClassifier.transportFor('D Ring'),
+      WearableTransport.moyoung,
+    );
+    expect(WearableDeviceClassifier.transportFor('W8'), isNull);
+    expect(WearableDeviceClassifier.transportFor('Ring'), isNull);
+    expect(WearableDeviceClassifier.transportFor(''), isNull);
   });
 
   test('scopes IDs without losing the vendor identifier', () {
     final routed = RoutedDevice.fromScan(
       transport: WearableTransport.yucheng,
       nativeIdentifier: 'A1-B2',
-      name: 'W8 Ultra',
+      name: 'YC Ring',
     );
 
     expect(routed.display.id, 'yucheng:A1-B2');
@@ -93,15 +101,18 @@ void main() {
     expect(routed.transport, WearableTransport.yucheng);
   });
 
-  test('prefers Yucheng for a W8 seen by both SDKs', () async {
+  test('accepts a ring only from the SDK selected by its prefix', () async {
     final veepoo = _FakeWearableBridge(
       scanned: const [
-        DeviceInfo(id: 'AA:01', name: 'W8 Ultra'),
-        DeviceInfo(id: 'AA:02', name: 'VP-100'),
+        DeviceInfo(id: 'AA:01', name: 'YC Ring'),
+        DeviceInfo(id: 'AA:02', name: 'V Ring'),
       ],
     );
     final yucheng = _FakeWearableBridge(
-      scanned: const [DeviceInfo(id: 'IOS-UUID-01', name: 'W8 Ultra')],
+      scanned: const [
+        DeviceInfo(id: 'IOS-UUID-01', name: 'YC Ring'),
+        DeviceInfo(id: 'IOS-UUID-02', name: 'V Ring'),
+      ],
     );
     final bridge = RoutedWearableBridge(veepoo: veepoo, yucheng: yucheng);
 
@@ -110,12 +121,16 @@ void main() {
     expect(devices.map((item) => item.id), contains('yucheng:IOS-UUID-01'));
     expect(devices.map((item) => item.id), isNot(contains('veepoo:AA:01')));
     expect(devices.map((item) => item.id), contains('veepoo:AA:02'));
+    expect(
+      devices.map((item) => item.id),
+      isNot(contains('yucheng:IOS-UUID-02')),
+    );
   });
 
   test('locks every later operation to the transport that connected', () async {
     final veepoo = _FakeWearableBridge(scanned: const []);
     final yucheng = _FakeWearableBridge(
-      scanned: const [DeviceInfo(id: 'YC-1', name: 'W8S')],
+      scanned: const [DeviceInfo(id: 'YC-1', name: 'YC Ring')],
     );
     final bridge = RoutedWearableBridge(veepoo: veepoo, yucheng: yucheng);
 
@@ -129,10 +144,10 @@ void main() {
     expect(veepoo.measurementCalls, isEmpty);
   });
 
-  test('hides a W8 only returned by Veepoo', () async {
+  test('hides a Yucheng-prefix ring returned only by Veepoo', () async {
     final bridge = RoutedWearableBridge(
       veepoo: _FakeWearableBridge(
-        scanned: const [DeviceInfo(id: 'W8-1', name: 'W8')],
+        scanned: const [DeviceInfo(id: 'YC-1', name: 'YC Ring')],
       ),
       yucheng: _FakeWearableBridge(scanned: const []),
     );
@@ -140,12 +155,12 @@ void main() {
     expect(await bridge.scanDevices(), isEmpty);
   });
 
-  test('keeps W9 and W9S devices on the Veepoo transport', () async {
+  test('keeps V and TK prefix rings on the Veepoo transport', () async {
     final bridge = RoutedWearableBridge(
       veepoo: _FakeWearableBridge(
         scanned: const [
-          DeviceInfo(id: 'W9-1', name: 'W9 1001'),
-          DeviceInfo(id: 'W9S-1', name: 'SD-watch-W9S'),
+          DeviceInfo(id: 'V-1', name: 'V Ring 1001'),
+          DeviceInfo(id: 'TK-1', name: 'TK Ring'),
         ],
       ),
       yucheng: _FakeWearableBridge(scanned: const []),
@@ -154,16 +169,16 @@ void main() {
     final devices = await bridge.scanDevices();
 
     expect(devices, hasLength(2));
-    expect(devices.map((device) => device.id), contains('veepoo:W9-1'));
-    expect(devices.map((device) => device.id), contains('veepoo:W9S-1'));
+    expect(devices.map((device) => device.id), contains('veepoo:V-1'));
+    expect(devices.map((device) => device.id), contains('veepoo:TK-1'));
   });
 
-  test('scopes pulled W9S details and live metadata events', () async {
+  test('scopes pulled V ring details and live metadata events', () async {
     final veepoo = _FakeWearableBridge(
-      scanned: const [DeviceInfo(id: 'W9S-1', name: 'SD-watch-W9S')],
+      scanned: const [DeviceInfo(id: 'V-1', name: 'V Ring')],
       connectedDetails: const DeviceInfo(
-        id: 'W9S-1',
-        name: 'SD-watch-W9S',
+        id: 'V-1',
+        name: 'V Ring',
         firmwareVersion: '00.20.01',
       ),
     );
@@ -175,14 +190,14 @@ void main() {
     final subscription = bridge.events.listen(received.add);
 
     await bridge.scanDevices();
-    await bridge.connect('veepoo:W9S-1', profile: _profile);
+    await bridge.connect('veepoo:V-1', profile: _profile);
     final details = await bridge.getConnectedDeviceDetails();
     veepoo.emit(
       const WearableEvent(
         type: 'deviceDetails',
         payload: {
-          'id': 'W9S-1',
-          'name': 'SD-watch-W9S',
+          'id': 'V-1',
+          'name': 'V Ring',
           'firmwareVersion': '00.20.01',
         },
       ),
@@ -190,20 +205,20 @@ void main() {
     veepoo.emit(
       const WearableEvent(
         type: 'syncProgress',
-        payload: {'deviceId': 'W9S-1', 'progress': 0.5},
+        payload: {'deviceId': 'V-1', 'progress': 0.5},
       ),
     );
     await pumpEventQueue();
 
-    expect(details?.id, 'veepoo:W9S-1');
+    expect(details?.id, 'veepoo:V-1');
     expect(details?.firmwareVersion, '00.20.01');
-    expect(received[0].payload['id'], 'veepoo:W9S-1');
-    expect(received[1].payload['deviceId'], 'veepoo:W9S-1');
+    expect(received[0].payload['id'], 'veepoo:V-1');
+    expect(received[1].payload['deviceId'], 'veepoo:V-1');
     await subscription.cancel();
     await bridge.dispose();
   });
 
-  test('drops live Veepoo W8 events and forwards the Yucheng event', () async {
+  test('drops a live ring from the wrong SDK and forwards its owner', () async {
     final veepoo = _FakeWearableBridge(scanned: const []);
     final yucheng = _FakeWearableBridge(scanned: const []);
     final bridge = RoutedWearableBridge(veepoo: veepoo, yucheng: yucheng);
@@ -211,10 +226,10 @@ void main() {
     final subscription = bridge.events.listen(received.add);
 
     veepoo.emitScan(
-      const DeviceInfo(id: '07:43:00:00:4D:E9', name: 'w8s 4DE9'),
+      const DeviceInfo(id: '07:43:00:00:4D:E9', name: 'YC Ring'),
     );
     yucheng.emitScan(
-      const DeviceInfo(id: '07:43:00:00:4D:E9', name: 'w8s 4DE9'),
+      const DeviceInfo(id: '07:43:00:00:4D:E9', name: 'YC Ring'),
     );
     await pumpEventQueue();
 
@@ -235,7 +250,7 @@ void main() {
       final subscription = bridge.events.listen((_) {});
 
       veepoo.emitScan(
-        const DeviceInfo(id: '38:23:A4:5E:CA:69', name: 'SD-watch-W9S'),
+        const DeviceInfo(id: '38:23:A4:5E:CA:69', name: 'V Ring'),
       );
       await pumpEventQueue();
       await bridge.connect('veepoo:38:23:A4:5E:CA:69', profile: _profile);
@@ -247,51 +262,52 @@ void main() {
   );
 
   test(
-    'discovers suffixed W8S through Yucheng and hides the Veepoo duplicate',
+    'hides a D-prefix ring until a Moyoung ring SDK is integrated',
     () async {
       final bridge = RoutedWearableBridge(
         veepoo: _FakeWearableBridge(
-          scanned: const [DeviceInfo(id: 'VP-W8S', name: 'w8s 4DE9')],
+          scanned: const [DeviceInfo(id: 'VP-D', name: 'D Ring')],
         ),
         yucheng: _FakeWearableBridge(
-          scanned: const [DeviceInfo(id: 'YC-W8S', name: 'w8s 4DE9')],
+          scanned: const [DeviceInfo(id: 'YC-D', name: 'D Ring')],
         ),
       );
 
       final devices = await bridge.scanDevices();
 
-      expect(devices, hasLength(1));
-      expect(devices.single.id, 'yucheng:YC-W8S');
-      expect(devices.single.name, 'w8s 4DE9');
+      expect(devices, isEmpty);
     },
   );
 
   test(
-    'routes W8 Plus through Yucheng and hides the Veepoo duplicate',
+    'routes a D-prefix ring only when a Moyoung bridge is supplied',
     () async {
       final bridge = RoutedWearableBridge(
         veepoo: _FakeWearableBridge(
-          scanned: const [DeviceInfo(id: 'VP-W8-PLUS', name: 'W8 Plus 549D')],
+          scanned: const [DeviceInfo(id: 'VP-D', name: 'D Ring')],
         ),
         yucheng: _FakeWearableBridge(
-          scanned: const [DeviceInfo(id: 'YC-W8-PLUS', name: 'W8 Plus 549D')],
+          scanned: const [DeviceInfo(id: 'YC-D', name: 'D Ring')],
+        ),
+        moyoung: _FakeWearableBridge(
+          scanned: const [DeviceInfo(id: 'MOY-D', name: 'D Ring')],
         ),
       );
 
       final devices = await bridge.scanDevices();
 
       expect(devices, hasLength(1));
-      expect(devices.single.id, 'yucheng:YC-W8-PLUS');
-      expect(devices.single.sdkSource, WearableSdkSource.yucheng);
+      expect(devices.single.id, 'moyoung:MOY-D');
+      expect(devices.single.sdkSource, WearableSdkSource.moyoung);
     },
   );
 
-  test('restores a W9S and locks later operations to Veepoo', () async {
+  test('restores a V-prefix ring and locks later operations to Veepoo', () async {
     final veepoo = _FakeWearableBridge(
       scanned: const [],
       connectedDetails: const DeviceInfo(
         id: '38:23:A4:5E:CA:69',
-        name: 'SD-watch-W9S',
+        name: 'V Ring',
       ),
     );
     final yucheng = _FakeWearableBridge(scanned: const []);
@@ -311,11 +327,11 @@ void main() {
       ..value = WearableTransport.yucheng;
     final veepoo = _FakeWearableBridge(
       scanned: const [],
-      connectedDetails: const DeviceInfo(id: 'VP-1', name: 'ET488'),
+      connectedDetails: const DeviceInfo(id: 'VP-1', name: 'V Ring'),
     );
     final yucheng = _FakeWearableBridge(
       scanned: const [],
-      connectedDetails: const DeviceInfo(id: 'YC-1', name: 'W8 Plus 549D'),
+      connectedDetails: const DeviceInfo(id: 'YC-1', name: 'YC Ring'),
     );
     final bridge = RoutedWearableBridge(
       veepoo: veepoo,
@@ -410,7 +426,7 @@ class _MemoryTransportPreference implements WearableTransportPreferenceStore {
 
 class _NativeMarketBridge extends _FakeWearableBridge
     implements WearableNativeWatchFaceBridge {
-  _NativeMarketBridge({String name = 'W9S', String id = 'fixture-watch'})
+  _NativeMarketBridge({String name = 'V Ring', String id = 'fixture-watch'})
     : super(
         scanned: [DeviceInfo(id: id, name: name)],
       );

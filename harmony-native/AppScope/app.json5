@@ -1,6 +1,6 @@
 {
   "app": {
-    "bundleName": "cn.saydian.app.global.hm",
+    "bundleName": "cn.saydian.ring.hm",
     "vendor": "SAYDIAN",
     "versionCode": 9,
     "versionName": "0.1.4",

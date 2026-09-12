@@ -119,7 +119,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "cn.saydian.app.global"
+        applicationId = "cn.saydian.ring"
         minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

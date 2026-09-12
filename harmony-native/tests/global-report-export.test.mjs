@@ -17,7 +17,7 @@ const{saveReportPdf}=await import('../entry/src/main/ets/services/ReportPdfExpor
 const{safeReportPdfHttp}=await import('../entry/src/main/ets/services/LegacySafeHttp.ets');
 function reset(){return globalThis.reportExportFixture={selected:['file://fixture/selected/report.pdf'],opens:[],writes:[],truncates:0,flushes:0,closes:0,sessions:[],requests:[],chunks:[bytes],status:200,cancels:0,networkCloses:0}}
 const save=(active=()=>true)=>saveReportPdf({},id,bytes,active);
-const url='https://app.saydian.cn/api/saydian-app/v2/health/reports/'+id+'/export';
+const url='https://app.saydian.cn/global/api/saydian-app/v2/health/reports/'+id+'/export';
 test('real PDF bytes are written only to the selected URI, then flushed, size-checked and closed',async()=>{
  const f=reset();assert.equal(await save(),true);assert.deepEqual(f.opens,[{uri:f.selected[0],mode:2}]);assert.deepEqual(f.writes,[bytes]);
  assert.equal(f.flushes,1);assert.equal(f.closes,1);assert.deepEqual(f.options.newFileNames,['saydian-health-report-'+id+'.pdf']);

@@ -422,8 +422,8 @@ class _AppShellState extends State<AppShell> {
               label: context.l10n.health,
             ),
             NavigationDestination(
-              icon: const Icon(Icons.watch_outlined),
-              selectedIcon: const Icon(Icons.watch_rounded),
+              icon: const Icon(Icons.circle_outlined),
+              selectedIcon: const Icon(Icons.circle_outlined),
               label: context.l10n.device,
             ),
             NavigationDestination(
@@ -4256,7 +4256,7 @@ class DevicePage extends StatelessWidget {
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
-                        Icons.watch_rounded,
+                        Icons.circle_outlined,
                         color: Colors.white,
                         size: 34,
                       ),
@@ -4380,7 +4380,7 @@ class DevicePage extends StatelessWidget {
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
-                      Icons.watch_outlined,
+                      Icons.circle_outlined,
                       color: SaydianColors.blue,
                       size: 62,
                     ),
@@ -5153,7 +5153,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                                           ),
                                         ),
                                         child: const Icon(
-                                          Icons.watch_rounded,
+                                          Icons.circle_outlined,
                                           color: Colors.white,
                                           size: 29,
                                         ),

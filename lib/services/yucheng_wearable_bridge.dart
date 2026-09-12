@@ -114,10 +114,13 @@ class YuchengWearableBridge
   }) async {
     await _initialize();
     final scannedName = _scannedNames[deviceId] ?? '';
-    if (!YuchengDeviceClassifier.matches(scannedName)) {
+    if (!WearableDeviceClassifier.routesTo(
+      scannedName,
+      WearableTransport.yucheng,
+    )) {
       throw PlatformException(
         code: 'YUCHENG_MODEL_MISMATCH',
-        message: '此设备暂时无法连接，请选择赛电手表',
+        message: '此设备无法使用当前连接方式，请重新选择戒指',
       );
     }
     _invalidateDeviceSession();
@@ -127,7 +130,7 @@ class YuchengWearableBridge
     if (!connected) {
       throw PlatformException(
         code: 'YUCHENG_CONNECT_FAILED',
-        message: '连接失败，请将手表靠近手机后重试',
+        message: '连接失败，请将戒指靠近手机后重试',
       );
     }
     await _rememberDevice(
@@ -176,7 +179,10 @@ class YuchengWearableBridge
     }
     if (saved == null ||
         saved.identifier.trim().isEmpty ||
-        !YuchengDeviceClassifier.matches(saved.name)) {
+        !WearableDeviceClassifier.routesTo(
+          saved.name,
+          WearableTransport.yucheng,
+        )) {
       return null;
     }
     _invalidateDeviceSession();
@@ -427,7 +433,7 @@ class YuchengWearableBridge
     }
     throw PlatformException(
       code: 'CAPABILITIES_UNAVAILABLE',
-      message: '暂时无法读取此手表的功能',
+      message: '暂时无法读取此戒指的功能',
     );
   }
 
@@ -571,10 +577,13 @@ class YuchengWearableBridge
 
   @override
   Future<List<SportRecord>> readSportRecords() async {
-    _connectedId;
+    final deviceId = _connectedId;
     final r = await _client.health(YuchengHealthDataType.sportHistory);
     _require(r);
-    return YuchengPayloadMapper.sportRecords(r.data ?? const []);
+    return YuchengPayloadMapper.sportRecords(
+      deviceId: deviceId,
+      rows: r.data ?? const [],
+    );
   }
 
   @override

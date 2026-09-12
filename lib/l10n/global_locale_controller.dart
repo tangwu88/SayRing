@@ -11,7 +11,7 @@ abstract interface class GlobalLocaleStore {
 class SecureGlobalLocaleStore implements GlobalLocaleStore {
   const SecureGlobalLocaleStore();
 
-  static const key = 'saydian.global.locale.v1';
+  static const key = 'sayring.global.locale.v1';
   static const _storage = FlutterSecureStorage();
 
   @override

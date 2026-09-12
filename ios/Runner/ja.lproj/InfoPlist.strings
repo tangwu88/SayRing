@@ -1,8 +1,8 @@
-"CFBundleDisplayName" = "Saydian";
-"NSBluetoothAlwaysUsageDescription" = "時計に接続し、許可した健康データを同期します。";
-"NSCameraUsageDescription" = "写真を撮影し、写真の文字盤を設定します。";
-"NSContactsUsageDescription" = "選択した連絡先のみを時計に同期します。";
-"NSLocationWhenInUseUsageDescription" = "お住まいの都市の天気を時計に同期します。";
-"NSPhotoLibraryUsageDescription" = "時計の文字盤に使用する写真を選択します。";
-"NSPhotoLibraryAddUsageDescription" = "カメラのリモート操作で撮影した写真を保存します。";
-"NSBluetoothPeripheralUsageDescription" = "時計に接続し、許可した健康データを同期します。";
+"CFBundleDisplayName" = "Say Ring";
+"NSBluetoothAlwaysUsageDescription" = "リングに接続し、共有を許可した健康データを同期します。";
+"NSCameraUsageDescription" = "プロフィール写真を撮影するときだけカメラを使用します。";
+"NSContactsUsageDescription" = "対応するデバイス機能に必要な場合だけ連絡先にアクセスします。";
+"NSLocationWhenInUseUsageDescription" = "対応する健康・運動機能のために位置情報を使用します。";
+"NSPhotoLibraryUsageDescription" = "写真ライブラリからプロフィール写真を選択します。";
+"NSPhotoLibraryAddUsageDescription" = "撮影を選択した場合だけ写真を保存します。";
+"NSBluetoothPeripheralUsageDescription" = "リングに接続し、共有を許可した健康データを同期します。";

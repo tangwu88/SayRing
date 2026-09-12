@@ -1,8 +1,8 @@
-"CFBundleDisplayName" = "Saydian";
-"NSBluetoothAlwaysUsageDescription" = "Connecter votre montre et synchroniser les données de santé que vous autorisez.";
-"NSCameraUsageDescription" = "Prendre des photos et créer des cadrans photo.";
-"NSContactsUsageDescription" = "Synchroniser uniquement les contacts sélectionnés avec votre montre.";
-"NSLocationWhenInUseUsageDescription" = "Utiliser votre ville pour synchroniser la météo locale avec votre montre.";
-"NSPhotoLibraryUsageDescription" = "Choisir des photos pour le cadran de votre montre.";
-"NSPhotoLibraryAddUsageDescription" = "Enregistrer les photos prises avec la télécommande de l’appareil photo.";
-"NSBluetoothPeripheralUsageDescription" = "Connecter votre montre et synchroniser les données de santé que vous autorisez.";
+"CFBundleDisplayName" = "Say Ring";
+"NSBluetoothAlwaysUsageDescription" = "Connectez votre bague et synchronisez les données de santé que vous autorisez.";
+"NSCameraUsageDescription" = "Prenez une photo de profil lorsque vous choisissez d’utiliser l’appareil photo.";
+"NSContactsUsageDescription" = "Accédez aux contacts uniquement pour une fonction d’appareil compatible.";
+"NSLocationWhenInUseUsageDescription" = "Utilisez votre position pour les fonctions de santé et d’activité compatibles.";
+"NSPhotoLibraryUsageDescription" = "Choisissez une photo de profil dans votre photothèque.";
+"NSPhotoLibraryAddUsageDescription" = "Enregistrez une photo uniquement lorsque vous choisissez de la prendre.";
+"NSBluetoothPeripheralUsageDescription" = "Connectez votre bague et synchronisez les données de santé que vous autorisez.";

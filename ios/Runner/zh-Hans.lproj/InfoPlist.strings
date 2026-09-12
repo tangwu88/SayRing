@@ -1,8 +1,8 @@
-"CFBundleDisplayName" = "Saydian";
-"NSBluetoothAlwaysUsageDescription" = "连接手表并同步您主动授权的健康数据。";
-"NSCameraUsageDescription" = "拍摄照片并设置照片表盘。";
-"NSContactsUsageDescription" = "仅将您选定的联系人同步到手表。";
-"NSLocationWhenInUseUsageDescription" = "获取所在城市并将当地天气同步到手表。";
-"NSPhotoLibraryUsageDescription" = "选择照片来设置手表表盘。";
-"NSPhotoLibraryAddUsageDescription" = "将相机遥控拍摄的照片保存到相册。";
-"NSBluetoothPeripheralUsageDescription" = "连接手表并同步您主动授权的健康数据。";
+"CFBundleDisplayName" = "Say Ring";
+"NSBluetoothAlwaysUsageDescription" = "连接戒指并同步您主动授权的健康数据。";
+"NSCameraUsageDescription" = "仅在您主动拍摄头像时使用相机。";
+"NSContactsUsageDescription" = "仅在设备支持并由您启用相关功能时读取联系人。";
+"NSLocationWhenInUseUsageDescription" = "仅为支持的健康和运动功能使用您的位置。";
+"NSPhotoLibraryUsageDescription" = "从相册中选择头像。";
+"NSPhotoLibraryAddUsageDescription" = "仅在您主动拍照时保存照片。";
+"NSBluetoothPeripheralUsageDescription" = "连接戒指并同步您主动授权的健康数据。";

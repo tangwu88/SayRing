@@ -1,8 +1,8 @@
 {
   "string": [
-    { "name": "module_desc", "value": "Saydian 건강 및 시계 관리" },
-    { "name": "reason_bluetooth", "value": "시계를 검색하고 연결하여 건강 기록을 동기화합니다" },
-    { "name": "reason_location", "value": "주변 시계를 검색하고 운동 중 경로를 기록합니다" },
-    { "name": "reason_camera", "value": "시계 원격 촬영을 시작한 경우에만 휴대전화 카메라를 사용하고 사진을 저장합니다" }
+    { "name": "module_desc", "value": "Say Ring 건강 및 링 관리" },
+    { "name": "reason_bluetooth", "value": "링을 검색하고 연결하여 건강 기록을 동기화합니다" },
+    { "name": "reason_location", "value": "지원되는 건강 및 활동 기능에 위치를 사용합니다" },
+    { "name": "reason_camera", "value": "프로필 사진을 촬영할 때만 카메라를 사용합니다" }
   ]
 }

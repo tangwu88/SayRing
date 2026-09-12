@@ -1,8 +1,8 @@
 {
   "string": [
-    { "name": "module_desc", "value": "Saydian健康与手表管理" },
-    { "name": "reason_bluetooth", "value": "搜索并连接手表，同步健康记录" },
-    { "name": "reason_location", "value": "搜索附近手表，并在运动时记录路线" },
-    { "name": "reason_camera", "value": "仅在开启手表遥控拍照时使用手机相机并保存照片" }
+    { "name": "module_desc", "value": "Say Ring健康与戒指管理" },
+    { "name": "reason_bluetooth", "value": "搜索并连接戒指，同步健康记录" },
+    { "name": "reason_location", "value": "仅为支持的健康和运动功能使用您的位置" },
+    { "name": "reason_camera", "value": "仅在您主动拍摄头像时使用相机" }
   ]
 }

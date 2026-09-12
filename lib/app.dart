@@ -497,7 +497,7 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
         listenable: _localeController,
         builder: (context, _) => MaterialApp(
           navigatorKey: _navigatorKey,
-          title: controller.isGlobalEdition ? 'Saydian' : 'Saydian赛电',
+          title: controller.isGlobalEdition ? 'Say Ring' : 'Saydian赛电',
           debugShowCheckedModeBanner: false,
           theme: buildSaydianTheme(),
           locale: _localeController.locale,

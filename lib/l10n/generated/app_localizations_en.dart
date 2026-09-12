@@ -58,7 +58,8 @@ class AppLocalizationsEn extends AppLocalizations {
       'Could not send. Check your connection and try again.';
 
   @override
-  String get noWatchShopHint => 'Need a device? Visit the Saydian store.';
+  String get noWatchShopHint =>
+      'Need another device? Visit the Say Ring store.';
 
   @override
   String get notificationInAppHint =>
@@ -597,16 +598,16 @@ class AppLocalizationsEn extends AppLocalizations {
       'Browse products here. Ordering is not available in this region yet.';
 
   @override
-  String get appName => 'Saydian';
+  String get appName => 'Say Ring';
 
   @override
-  String get searchingNearby => 'Searching for nearby watches';
+  String get searchingNearby => 'Searching for nearby rings';
 
   @override
   String get noDevices => 'No devices found';
 
   @override
-  String get selectWatch => 'Check the name and signal, then select your watch';
+  String get selectWatch => 'Check the name and signal, then select your ring';
 
   @override
   String get searchingHint =>
@@ -614,11 +615,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get activateWatch =>
-      'Charge your watch to activate it, then place it near your phone';
+      'Charge your ring to activate it, then place it near your phone';
 
   @override
   String get checkWatchConnection =>
-      'If the watch is connected in this phone\'s Bluetooth settings or on another phone, disconnect it and search again';
+      'If the ring is connected in this phone\'s Bluetooth settings or on another phone, disconnect it and search again';
 
   @override
   String get running => 'Running';
@@ -976,7 +977,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Keep the watch close. If it is connected in system Bluetooth or on another phone, disconnect it first, then try again.';
+      'Keep the ring close. If it is connected in system Bluetooth or on another phone, disconnect it first, then try again.';
 
   @override
   String get deviceName => 'Device name';
@@ -991,7 +992,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get firmwareVersion => 'Firmware version';
 
   @override
-  String get watchBattery => 'Watch battery';
+  String get watchBattery => 'Ring battery';
 
   @override
   String get chargingStatus => 'Charging status';
@@ -1055,7 +1056,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get choose => 'Select';
 
   @override
-  String get connectWatchToUse => 'Connect a watch to use this feature';
+  String get connectWatchToUse => 'Connect a ring to use this feature';
 
   @override
   String get selectPhoto => 'Select photo';
@@ -1080,7 +1081,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get monitoringHint =>
-      'Available health monitoring settings appear after connecting your watch.';
+      'Available health monitoring settings appear after connecting your ring.';
 
   @override
   String get previewUnavailable => 'Preview unavailable';
@@ -1156,11 +1157,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get connectionInstructions =>
-      '1. Turn on Bluetooth and allow nearby device access.\n2. Charge your watch and place it near your phone.\n3. Tap Find devices and select your watch.\n4. Confirm on the watch if prompted.';
+      '1. Turn on Bluetooth and allow nearby device access.\n2. Charge your ring and place it near your phone.\n3. Tap Find devices and select your ring.\n4. Confirm on the ring if prompted.';
 
   @override
   String get syncNearbyHint =>
-      'Keep your watch charged and near your phone while connecting or syncing.';
+      'Keep your ring charged and near your phone while connecting or syncing.';
 
   @override
   String get invalidCode => 'Check the code and try again';
@@ -1184,7 +1185,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get watchNearbyHint =>
-      'Turn on Bluetooth and keep your watch near your phone';
+      'Turn on Bluetooth and keep your ring near your phone';
 
   @override
   String get startSearch => 'Find devices';
@@ -1193,17 +1194,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get readingData => 'Reading data…';
 
   @override
-  String get readingCapabilities => 'Checking watch features…';
+  String get readingCapabilities => 'Checking ring features…';
 
   @override
   String get capabilitiesHint =>
-      'Only features available on this watch will be shown';
+      'Only features available on this ring will be shown';
 
   @override
-  String get capabilitiesFailed => 'Could not read this watch’s features';
+  String get capabilitiesFailed => 'Could not read this ring’s features';
 
   @override
-  String get keepWatchNear => 'Keep your watch near your phone and try again';
+  String get keepWatchNear => 'Keep your ring near your phone and try again';
 
   @override
   String get personalizeWatch => 'Watch faces & style';
@@ -1432,14 +1433,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get shop => 'Shop';
 
   @override
-  String get connectWatch => 'Connect a watch';
+  String get connectWatch => 'Connect a ring';
 
   @override
   String get addDevice => 'Add device';
 
   @override
   String get connectWatchForData =>
-      'Connect your watch to view supported health data';
+      'Connect your ring to view supported health data';
 
   @override
   String get noHealthData => 'No health data to show yet';
@@ -1485,7 +1486,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get connectionHelp => 'Connection help';
 
   @override
-  String get searchNearbyWatch => 'Find and connect a nearby Saydian watch';
+  String get searchNearbyWatch => 'Find and connect a nearby Say Ring';
 
   @override
   String get useWatch => 'Please use this feature on your watch';

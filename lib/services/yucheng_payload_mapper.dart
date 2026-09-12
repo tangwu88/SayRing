@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+
 import '../domain/feature_models.dart';
 import '../domain/models.dart';
 import 'yucheng_product_client.dart';
@@ -98,6 +102,7 @@ class YuchengPayloadMapper {
     required Map<int, List<Map<String, Object?>>> rowsByType,
   }) {
     final output = <HealthRecord>[];
+    final deviceFingerprint = _deviceFingerprint(deviceId);
     for (final entry in rowsByType.entries) {
       for (final row in entry.value) {
         final seconds = _num(row['startTimeStamp'])?.toInt();
@@ -111,7 +116,7 @@ class YuchengPayloadMapper {
           if (values.isEmpty || values.values.any((v) => v <= 0)) return;
           output.add(
             HealthRecord(
-              id: 'yc-${metric.wireName}-$seconds',
+              id: 'yc-$deviceFingerprint-${metric.wireName}-$seconds',
               metric: metric,
               values: values,
               unit: metric.defaultUnit,
@@ -167,31 +172,41 @@ class YuchengPayloadMapper {
     return output;
   }
 
-  static List<SportRecord> sportRecords(List<Map<String, Object?>> rows) =>
-      rows.map((row) {
-        final seconds = _num(row['startTimeStamp'])?.toInt() ?? 0;
-        final mode = switch (_num(row['sportType'])?.toInt()) {
-          0x03 => SportMode.cycling,
-          0x0B => SportMode.mountaineering,
-          0x10 => SportMode.walking,
-          0x1B => SportMode.hiking,
-          _ => SportMode.running,
-        };
-        return SportRecord(
-          id: 'yc-sport-$seconds',
-          mode: mode,
-          startedAt: seconds > 0
-              ? DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true)
-              : null,
-          durationSeconds: _num(row['sportTime'])?.toInt() ?? 0,
-          distanceKm: (_num(row['distance']) ?? 0) / 1000,
-          calories: (_num(row['calories']) ?? 0).toDouble(),
-          steps: _num(row['steps'] ?? row['step'])?.toInt() ?? 0,
-          heartRate: _num(row['heartRate'])?.toInt() ?? 0,
-          minimumHeartRate: _num(row['minimumHeartRate'])?.toInt() ?? 0,
-          maximumHeartRate: _num(row['maximumHeartRate'])?.toInt() ?? 0,
-        );
-      }).toList();
+  static List<SportRecord> sportRecords({
+    required String deviceId,
+    required List<Map<String, Object?>> rows,
+  }) {
+    final deviceFingerprint = _deviceFingerprint(deviceId);
+    return rows.map((row) {
+      final seconds = _num(row['startTimeStamp'])?.toInt() ?? 0;
+      final mode = switch (_num(row['sportType'])?.toInt()) {
+        0x03 => SportMode.cycling,
+        0x0B => SportMode.mountaineering,
+        0x10 => SportMode.walking,
+        0x1B => SportMode.hiking,
+        _ => SportMode.running,
+      };
+      return SportRecord(
+        id: 'yc-$deviceFingerprint-sport-${mode.wireName}-$seconds',
+        mode: mode,
+        startedAt: seconds > 0
+            ? DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true)
+            : null,
+        durationSeconds: _num(row['sportTime'])?.toInt() ?? 0,
+        distanceKm: (_num(row['distance']) ?? 0) / 1000,
+        calories: (_num(row['calories']) ?? 0).toDouble(),
+        steps: _num(row['steps'] ?? row['step'])?.toInt() ?? 0,
+        heartRate: _num(row['heartRate'])?.toInt() ?? 0,
+        minimumHeartRate: _num(row['minimumHeartRate'])?.toInt() ?? 0,
+        maximumHeartRate: _num(row['maximumHeartRate'])?.toInt() ?? 0,
+      );
+    }).toList();
+  }
+
+  static String _deviceFingerprint(String deviceId) => sha256
+      .convert(utf8.encode(deviceId.trim().toLowerCase()))
+      .toString()
+      .substring(0, 16);
 
   static num? _num(Object? value) =>
       value is num ? value : num.tryParse('$value');

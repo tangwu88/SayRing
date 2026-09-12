@@ -59,7 +59,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get noWatchShopHint =>
-      '¿Necesitas un dispositivo? Visita la tienda Saydian.';
+      '¿Necesitas otro dispositivo? Visita la tienda Say Ring.';
 
   @override
   String get notificationInAppHint =>
@@ -604,17 +604,17 @@ class AppLocalizationsEs extends AppLocalizations {
       'Aquí puede consultar los productos. Los pedidos aún no están disponibles en esta región.';
 
   @override
-  String get appName => 'Saydian';
+  String get appName => 'Say Ring';
 
   @override
-  String get searchingNearby => 'Buscando relojes cercanos';
+  String get searchingNearby => 'Buscando anillos cercanos';
 
   @override
   String get noDevices => 'No se encontraron dispositivos';
 
   @override
   String get selectWatch =>
-      'Comprueba el nombre y la señal y selecciona tu reloj';
+      'Comprueba el nombre y la señal y selecciona tu anillo';
 
   @override
   String get searchingHint =>
@@ -622,11 +622,11 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get activateWatch =>
-      'Carga el reloj para activarlo y acércalo al teléfono';
+      'Carga el anillo para activarlo y acércalo al teléfono';
 
   @override
   String get checkWatchConnection =>
-      'Si el reloj está conectado en el Bluetooth de este teléfono o de otro, desconéctalo y vuelve a buscar';
+      'Si el anillo está conectado en el Bluetooth de este teléfono o de otro, desconéctalo y vuelve a buscar';
 
   @override
   String get running => 'Correr';
@@ -984,7 +984,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Mantén el reloj cerca. Si está conectado al Bluetooth del sistema o a otro teléfono, desconéctalo y vuelve a intentarlo.';
+      'Mantén el anillo cerca. Si está conectado al Bluetooth del sistema o a otro teléfono, desconéctalo y vuelve a intentarlo.';
 
   @override
   String get deviceName => 'Nombre del dispositivo';
@@ -999,7 +999,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get firmwareVersion => 'Versión del firmware';
 
   @override
-  String get watchBattery => 'Batería del reloj';
+  String get watchBattery => 'Batería del anillo';
 
   @override
   String get chargingStatus => 'Estado de carga';
@@ -1063,7 +1063,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get choose => 'Seleccionar';
 
   @override
-  String get connectWatchToUse => 'Conecta un reloj para usar esta función';
+  String get connectWatchToUse => 'Conecta un anillo para usar esta función';
 
   @override
   String get selectPhoto => 'Seleccionar foto';
@@ -1089,7 +1089,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get monitoringHint =>
-      'Los ajustes de seguimiento de salud disponibles aparecen al conectar el reloj.';
+      'Los ajustes disponibles para este anillo aparecen al conectarlo.';
 
   @override
   String get previewUnavailable => 'Vista previa no disponible';
@@ -1165,11 +1165,11 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get connectionInstructions =>
-      '1. Activa Bluetooth y permite buscar dispositivos cercanos.\n2. Carga el reloj y acércalo al teléfono.\n3. Toca Buscar dispositivos y selecciona tu reloj.\n4. Confirma en el reloj si se solicita.';
+      '1. Activa Bluetooth y permite buscar dispositivos cercanos.\n2. Carga el anillo y acércalo al teléfono.\n3. Toca Buscar dispositivos y selecciona tu anillo.\n4. Confirma en el anillo si se solicita.';
 
   @override
   String get syncNearbyHint =>
-      'Mantén el reloj cargado y cerca del teléfono durante la conexión o sincronización.';
+      'Mantén el anillo cargado y cerca del teléfono durante la conexión o sincronización.';
 
   @override
   String get invalidCode => 'Comprueba el código e inténtalo de nuevo';
@@ -1195,7 +1195,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get watchNearbyHint =>
-      'Activa Bluetooth y acerca el reloj al teléfono';
+      'Activa Bluetooth y acerca el anillo al teléfono';
 
   @override
   String get startSearch => 'Buscar dispositivos';
@@ -1204,19 +1204,19 @@ class AppLocalizationsEs extends AppLocalizations {
   String get readingData => 'Leyendo datos…';
 
   @override
-  String get readingCapabilities => 'Comprobando funciones del reloj…';
+  String get readingCapabilities => 'Comprobando funciones del anillo…';
 
   @override
   String get capabilitiesHint =>
-      'Solo se mostrarán las funciones disponibles en este reloj';
+      'Solo se mostrarán las funciones disponibles en este anillo';
 
   @override
   String get capabilitiesFailed =>
-      'No se pudieron leer las funciones del reloj';
+      'No se pudieron leer las funciones del anillo';
 
   @override
   String get keepWatchNear =>
-      'Acerca el reloj al teléfono e inténtalo de nuevo';
+      'Acerca el anillo al teléfono e inténtalo de nuevo';
 
   @override
   String get personalizeWatch => 'Esferas y estilo';
@@ -1444,14 +1444,14 @@ class AppLocalizationsEs extends AppLocalizations {
   String get shop => 'Tienda';
 
   @override
-  String get connectWatch => 'Conectar un reloj';
+  String get connectWatch => 'Conectar un anillo';
 
   @override
   String get addDevice => 'Añadir dispositivo';
 
   @override
   String get connectWatchForData =>
-      'Conecta tu reloj para ver los datos de salud compatibles';
+      'Conecta tu anillo para ver los datos de salud compatibles';
 
   @override
   String get noHealthData => 'Aún no hay datos de salud';
@@ -1497,7 +1497,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get connectionHelp => 'Ayuda de conexión';
 
   @override
-  String get searchNearbyWatch => 'Busca y conecta un reloj Saydian cercano';
+  String get searchNearbyWatch => 'Busca y conecta un Say Ring cercano';
 
   @override
   String get useWatch => 'Usa esta función en el reloj';

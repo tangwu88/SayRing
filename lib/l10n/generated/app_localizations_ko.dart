@@ -55,7 +55,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get messageSendFailed => '전송하지 못했습니다. 네트워크를 확인한 후 다시 시도하세요.';
 
   @override
-  String get noWatchShopHint => '기기가 필요하신가요? Saydian 스토어를 둘러보세요.';
+  String get noWatchShopHint => '다른 기기가 필요하신가요? Say Ring 스토어를 둘러보세요.';
 
   @override
   String get notificationInAppHint =>
@@ -555,26 +555,26 @@ class AppLocalizationsKo extends AppLocalizations {
   String get globalShopReadOnly => '상품을 둘러볼 수 있습니다. 이 지역에서는 아직 주문할 수 없습니다.';
 
   @override
-  String get appName => 'Saydian';
+  String get appName => 'Say Ring';
 
   @override
-  String get searchingNearby => '주변 워치 검색 중';
+  String get searchingNearby => '주변 링 검색 중';
 
   @override
   String get noDevices => '기기를 찾지 못했습니다';
 
   @override
-  String get selectWatch => '이름과 신호 세기를 확인한 후 워치를 선택하세요';
+  String get selectWatch => '이름과 신호 세기를 확인한 후 링을 선택하세요';
 
   @override
   String get searchingHint => '검색 중입니다. 목록 위치는 그대로이고 신호 세기만 갱신됩니다.';
 
   @override
-  String get activateWatch => '워치를 충전해 활성화한 후 휴대전화 가까이에 두세요';
+  String get activateWatch => '링을 충전해 활성화한 후 휴대전화 가까이에 두세요';
 
   @override
   String get checkWatchConnection =>
-      '이 휴대전화의 블루투스 설정이나 다른 휴대전화에 연결되어 있으면 먼저 연결을 해제한 후 다시 검색하세요';
+      '링이 이 휴대전화의 블루투스 설정이나 다른 휴대전화에 연결되어 있으면 먼저 연결을 해제한 후 다시 검색하세요';
 
   @override
   String get running => '달리기';
@@ -927,7 +927,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      '워치를 가까이 두세요. 시스템 블루투스나 다른 휴대전화에 연결되어 있다면 먼저 해제한 후 다시 시도하세요.';
+      '링을 가까이 두세요. 시스템 블루투스나 다른 휴대전화에 연결되어 있다면 먼저 해제한 후 다시 시도하세요.';
 
   @override
   String get deviceName => '기기 이름';
@@ -942,7 +942,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get firmwareVersion => '펌웨어 버전';
 
   @override
-  String get watchBattery => '워치 배터리';
+  String get watchBattery => '링 배터리';
 
   @override
   String get chargingStatus => '충전 상태';
@@ -1005,7 +1005,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get choose => '선택하세요';
 
   @override
-  String get connectWatchToUse => '워치를 연결한 후 이용하세요';
+  String get connectWatchToUse => '링을 연결한 후 이용하세요';
 
   @override
   String get selectPhoto => '사진 선택';
@@ -1029,7 +1029,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get openSystemSettings => '시스템 앱 설정 열기';
 
   @override
-  String get monitoringHint => '워치를 연결하면 설정 가능한 건강 모니터링 항목이 표시됩니다.';
+  String get monitoringHint => '링을 연결하면 설정 가능한 건강 모니터링 항목이 표시됩니다.';
 
   @override
   String get previewUnavailable => '미리보기를 사용할 수 없습니다';
@@ -1105,10 +1105,10 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get connectionInstructions =>
-      '1. 블루투스를 켜고 주변 기기 접근을 허용하세요.\n2. 워치를 충전하고 휴대전화 가까이에 두세요.\n3. 기기 검색을 눌러 본인의 워치를 선택하세요.\n4. 워치에 확인 요청이 표시되면 승인하세요.';
+      '1. 블루투스를 켜고 주변 기기 접근을 허용하세요.\n2. 링을 충전하고 휴대전화 가까이에 두세요.\n3. 기기 검색을 눌러 본인의 링을 선택하세요.\n4. 링에 확인 요청이 표시되면 승인하세요.';
 
   @override
-  String get syncNearbyHint => '연결하거나 동기화할 때 워치를 충분히 충전하고 휴대전화 가까이에 두세요.';
+  String get syncNearbyHint => '연결하거나 동기화할 때 링을 충분히 충전하고 휴대전화 가까이에 두세요.';
 
   @override
   String get invalidCode => '코드를 확인하고 다시 시도하세요';
@@ -1131,7 +1131,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get addSmartDevice => '스마트 기기 추가';
 
   @override
-  String get watchNearbyHint => '블루투스를 켜고 워치를 휴대전화 가까이에 두세요';
+  String get watchNearbyHint => '블루투스를 켜고 링을 휴대전화 가까이에 두세요';
 
   @override
   String get startSearch => '기기 검색';
@@ -1140,16 +1140,16 @@ class AppLocalizationsKo extends AppLocalizations {
   String get readingData => '데이터 읽는 중…';
 
   @override
-  String get readingCapabilities => '워치 기능 확인 중…';
+  String get readingCapabilities => '링 기능 확인 중…';
 
   @override
-  String get capabilitiesHint => '이 워치에서 사용할 수 있는 기능만 표시됩니다';
+  String get capabilitiesHint => '이 링에서 사용할 수 있는 기능만 표시됩니다';
 
   @override
-  String get capabilitiesFailed => '워치 기능을 읽지 못했습니다';
+  String get capabilitiesFailed => '링 기능을 읽지 못했습니다';
 
   @override
-  String get keepWatchNear => '워치를 휴대전화 가까이에 두고 다시 시도하세요';
+  String get keepWatchNear => '링을 휴대전화 가까이에 두고 다시 시도하세요';
 
   @override
   String get personalizeWatch => '워치 페이스 및 꾸미기';
@@ -1369,13 +1369,13 @@ class AppLocalizationsKo extends AppLocalizations {
   String get shop => '스토어';
 
   @override
-  String get connectWatch => '워치 연결';
+  String get connectWatch => '링 연결';
 
   @override
   String get addDevice => '기기 추가';
 
   @override
-  String get connectWatchForData => '워치를 연결하면 지원되는 건강 데이터를 확인할 수 있습니다';
+  String get connectWatchForData => '링을 연결하면 지원되는 건강 데이터를 확인할 수 있습니다';
 
   @override
   String get noHealthData => '아직 표시할 건강 데이터가 없습니다';
@@ -1420,7 +1420,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get connectionHelp => '연결 도움말';
 
   @override
-  String get searchNearbyWatch => '주변 Saydian 워치를 찾아 연결하세요';
+  String get searchNearbyWatch => '주변 Say Ring을 찾아 연결하세요';
 
   @override
   String get useWatch => '워치에서 조작해 주세요';

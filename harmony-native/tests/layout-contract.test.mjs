@@ -41,7 +41,7 @@ test('package metadata meets bundled build-tool rules without overstating the ap
 
 test('international identity is separate and does not reuse domestic AGC identity',()=>{
   const app=JSON.parse(readFileSync(new URL('../AppScope/app.json5',import.meta.url),'utf8')).app;
-  assert.equal(app.bundleName,'cn.saydian.app.global.hm');
+  assert.equal(app.bundleName,'cn.saydian.ring.hm');
   assert.equal(app.bundleName.endsWith('.dev'),false);
   const module=JSON.parse(readFileSync(new URL('../entry/src/main/module.json5',import.meta.url),'utf8')).module;
   assert.equal(module.srcEntry,'./ets/abilitystage/EntryAbilityStage.ets');
@@ -191,7 +191,7 @@ test('care summary refresh and member page use the same list while all metric st
 test('launcher identity uses the requested name and a high-resolution brand icon',()=>{
   const app=JSON.parse(readFileSync(new URL('../AppScope/app.json5',import.meta.url),'utf8')).app;
   const strings=JSON.parse(readFileSync(new URL('../AppScope/resources/base/element/string.json',import.meta.url),'utf8')).string;
-  assert.equal(strings.find(item=>item.name==='app_name')?.value,'Saydian');
+  assert.equal(strings.find(item=>item.name==='app_name')?.value,'Say Ring');
   assert.equal(app.icon,'$media:app_icon_v3');
   const module=JSON.parse(readFileSync(new URL('../entry/src/main/module.json5',import.meta.url),'utf8')).module;
   assert.equal(module.abilities[0].icon,'$media:app_icon_v3');

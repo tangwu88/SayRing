@@ -1,13 +1,21 @@
-# Saydian — International App
+# Say Ring
 
-This is the independent **private international edition** (`tangwu88/saydian-app-global`), not a replacement for the domestic App. Start with [International handoff](docs/INTERNATIONAL-HANDOFF.md) and [change/test record](docs/INTERNATIONAL-IMPLEMENTATION-20260909.md). The implementation is not yet accepted for public distribution; unavailable providers, incomplete localization and platform acceptance are listed explicitly.
+Say Ring is the independent Android, iOS and native HarmonyOS companion for supported smart rings. Its repository is `tangwu88/SayRing` and must be private before any source is pushed. Start with the [Say Ring implementation record](docs/SAY-RING-IMPLEMENTATION-20260913.md) and the [change/test index](docs/CHANGE-TEST-LOG.md).
 
-Only `https://app.saydian.cn/global` is the first-party global account environment. The domestic documentation retained below describes the imported baseline, **not international deployment authorization or completed international acceptance**.
+Only `https://app.saydian.cn/global` is the first-party account environment. Say Ring shares the international account service, but has independent package IDs, local storage and update product id `say-ring`. Imported watch-App documentation is historical context, **not evidence that a ring model, provider SDK, signing identity, push channel or store release has been accepted**.
 
-## Imported domestic baseline documentation
+## Current implementation boundary
 
-赛电健康管理 App 的 Flutter 双端工程。Android 通过 Kotlin、iOS 通过
-Swift/Objective-C 适配 Veepoo SDK；Flutter 层共享页面、状态机、健康数据模型、
+- Android/iOS package: `cn.saydian.ring`; HarmonyOS bundle: `cn.saydian.ring.hm`.
+- App name: **Say Ring**; default language: English; eight existing locales remain available.
+- Ring transport routing: trimmed `YC` names use Yucheng, `V` and `TK` use VEP, `D` is reserved for Moyoung. Unknown names are not guessed.
+- Yucheng and VEP use the existing licensed integrations. Moyoung remains unavailable until the target ring SDK, health-field contract, license and HarmonyOS implementation are supplied and verified.
+- Features are shown only after the connected device reports support and the App has a real implementation. Automated tests do not replace physical ring acceptance.
+
+## Imported international baseline documentation
+
+国际版健康管理 App 的 Flutter 双端工程。Android 通过 Kotlin、iOS 通过
+Swift/Objective-C 适配已授权 SDK；Flutter 层共享页面、状态机、健康数据模型、
 加密本地存储、离线同步和现有赛电后台 API 适配。
 
 ## 当前可用范围
@@ -66,7 +74,7 @@ Remove-Item Env:SAIDIAN_ALLOW_QA_RELEASE
 `SAIDIAN_ALLOW_QA_RELEASE=false`，并同时提供正式签名、推送、API 和更新配置。
 两个模式不可同时开启；生产发布应使用受保护的 GitHub Actions 工作流。
 
-手表 SDK 同时包含 32/64 位 ARM 库，所以交付包必须显式构建
+穿戴设备 SDK 同时包含 32/64 位 ARM 库，所以交付包必须显式构建
 `android-arm,android-arm64`。设备定向调试留下的 Gradle/Flutter 缓存可能使默认
 构建只保留当前设备架构；发包前应确认 APK 同时存在
 `lib/armeabi-v7a/libflutter.so` 和 `lib/arm64-v8a/libflutter.so`。

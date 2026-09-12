@@ -53,7 +53,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get messageSendFailed => '送信できませんでした。ネットワークを確認して、もう一度お試しください。';
 
   @override
-  String get noWatchShopHint => 'デバイスをお探しですか？Saydianストアをご覧ください。';
+  String get noWatchShopHint => 'ほかのデバイスをお探しですか？Say Ringストアをご覧ください。';
 
   @override
   String get notificationInAppHint =>
@@ -552,26 +552,26 @@ class AppLocalizationsJa extends AppLocalizations {
   String get globalShopReadOnly => '商品をご覧いただけます。この地域ではまだ注文できません。';
 
   @override
-  String get appName => 'Saydian';
+  String get appName => 'Say Ring';
 
   @override
-  String get searchingNearby => '近くのウォッチを検索中';
+  String get searchingNearby => '近くのリングを検索中';
 
   @override
   String get noDevices => 'デバイスが見つかりません';
 
   @override
-  String get selectWatch => '名前と電波強度を確認してウォッチを選択してください';
+  String get selectWatch => '名前と電波強度を確認してリングを選択してください';
 
   @override
   String get searchingHint => '検索中です。リストの位置は変わらず、電波強度だけが更新されます。';
 
   @override
-  String get activateWatch => 'ウォッチを充電して起動し、スマートフォンに近づけてください';
+  String get activateWatch => 'リングを充電して起動し、スマートフォンに近づけてください';
 
   @override
   String get checkWatchConnection =>
-      'このスマートフォンのBluetooth設定または別の端末に接続中なら、接続を解除して再検索してください';
+      'リングがこのスマートフォンのBluetooth設定または別の端末に接続中なら、接続を解除して再検索してください';
 
   @override
   String get running => 'ランニング';
@@ -924,7 +924,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'ウォッチを近づけ、システムBluetoothまたは別の端末に接続中なら先に解除してから再試行してください。';
+      'リングを近づけ、システムBluetoothまたは別の端末に接続中なら先に解除してから再試行してください。';
 
   @override
   String get deviceName => 'デバイス名';
@@ -939,7 +939,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get firmwareVersion => 'ファームウェアバージョン';
 
   @override
-  String get watchBattery => 'ウォッチのバッテリー';
+  String get watchBattery => 'リングのバッテリー';
 
   @override
   String get chargingStatus => '充電状態';
@@ -1002,7 +1002,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get choose => '選択してください';
 
   @override
-  String get connectWatchToUse => 'ウォッチを接続して利用';
+  String get connectWatchToUse => 'リングを接続して利用';
 
   @override
   String get selectPhoto => '写真を選択';
@@ -1026,7 +1026,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get openSystemSettings => 'アプリのシステム設定を開く';
 
   @override
-  String get monitoringHint => '接続後、ウォッチで設定可能な健康モニタリング項目を表示します。';
+  String get monitoringHint => '接続後、このリングで設定可能な健康モニタリング項目を表示します。';
 
   @override
   String get previewUnavailable => 'プレビューを利用できません';
@@ -1102,10 +1102,10 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get connectionInstructions =>
-      '1. Bluetoothと付近のデバイスへのアクセスを有効にします。\n2. ウォッチを充電し、スマートフォンの近くに置きます。\n3. デバイスを検索し、自分のウォッチを選びます。\n4. ウォッチに確認が表示されたら承認します。';
+      '1. Bluetoothと付近のデバイスへのアクセスを有効にします。\n2. リングを充電し、スマートフォンの近くに置きます。\n3. デバイスを検索し、自分のリングを選びます。\n4. リングに確認が表示されたら承認します。';
 
   @override
-  String get syncNearbyHint => '接続・同期中はウォッチを十分に充電し、スマートフォンの近くに置いてください。';
+  String get syncNearbyHint => '接続・同期中はリングを十分に充電し、スマートフォンの近くに置いてください。';
 
   @override
   String get invalidCode => 'コードを確認して再試行してください';
@@ -1128,7 +1128,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get addSmartDevice => 'スマートデバイスを追加';
 
   @override
-  String get watchNearbyHint => 'Bluetoothを有効にしてウォッチをスマートフォンに近づけてください';
+  String get watchNearbyHint => 'Bluetoothを有効にしてリングをスマートフォンに近づけてください';
 
   @override
   String get startSearch => 'デバイスを検索';
@@ -1137,16 +1137,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get readingData => 'データを読み取り中…';
 
   @override
-  String get readingCapabilities => 'ウォッチの機能を確認中…';
+  String get readingCapabilities => 'リングの機能を確認中…';
 
   @override
-  String get capabilitiesHint => 'このウォッチで利用できる機能のみ表示します';
+  String get capabilitiesHint => 'このリングで利用できる機能のみ表示します';
 
   @override
-  String get capabilitiesFailed => 'ウォッチの機能を読み取れませんでした';
+  String get capabilitiesFailed => 'リングの機能を読み取れませんでした';
 
   @override
-  String get keepWatchNear => 'ウォッチを近づけて再試行してください';
+  String get keepWatchNear => 'リングを近づけて再試行してください';
 
   @override
   String get personalizeWatch => '文字盤とカスタマイズ';
@@ -1365,13 +1365,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get shop => 'ショップ';
 
   @override
-  String get connectWatch => 'ウォッチを接続';
+  String get connectWatch => 'リングを接続';
 
   @override
   String get addDevice => 'デバイスを追加';
 
   @override
-  String get connectWatchForData => 'ウォッチを接続すると対応する健康データを確認できます';
+  String get connectWatchForData => 'リングを接続すると対応する健康データを確認できます';
 
   @override
   String get noHealthData => '表示できる健康データはまだありません';
@@ -1416,7 +1416,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get connectionHelp => '接続ガイド';
 
   @override
-  String get searchNearbyWatch => '近くのSaydianウォッチを検索して接続';
+  String get searchNearbyWatch => '近くのSay Ringを検索して接続';
 
   @override
   String get useWatch => 'ウォッチで操作してください';

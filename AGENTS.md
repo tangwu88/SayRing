@@ -1,13 +1,14 @@
 # AGENTS.md
 
-## International edition boundary
+## Say Ring boundary
 
-- This independent repository is `tangwu88/saydian-app-global` (Private). `origin` is international; `upstream` is the domestic read-only source. Never push international code to domestic `main` or re-enable domestic release automation.
+- This independent repository is `tangwu88/SayRing`. It must be **Private before the first push**. `origin` is Say Ring; `upstream` and `source-local` are read-only imports from the international App. Never push Say Ring code to the watch App or re-enable inherited release automation.
 - Before changes: inspect branch/status, fetch `origin`, fast-forward only a clean current branch, read `docs/INTERNATIONAL-HANDOFF.md` plus the latest change/test records. Preserve other colleagues' work; checkpoint before safe integration.
-- First-party network and update requests must stay under `https://app.saydian.cn/global`; never fall back to domestic endpoints, copied credentials, database, storage or update packages. Identifiers are opaque strings.
+- First-party network and update requests must stay under `https://app.saydian.cn/global`; update requests must identify product `say-ring`. Never fall back to domestic endpoints or accept a package for another product. Account data is shared with the international realm, while local storage, package IDs and update artifacts stay isolated.
 - Record every implementation/test round in Git, including exact commands, failures, correction, skipped checks and actual build evidence. Never equate a host-side contract test with a real device/SDK/provider acceptance.
 - Registration and health-analysis consent use reviewed, published international documents; do not invent versions. Provider, market and payment availability comes from server configuration, not UI assumptions. No real OTP delivery/payment without an authorized test destination and accepted channel.
 - Existing health values and device algorithms stay unchanged. Unknown values remain unknown; unconfirmed uploads remain pending, not successful.
+- Device names are routed only by the normalized prefixes `YC` (Yucheng), `V`/`TK` (VEP) and `D` (Moyoung). Unknown names fail closed. Prefix routing never proves capabilities; only a successful vendor handshake and real capability response may enable a feature. The supplied Moyoung glasses sample is not a ring SDK and must not be shipped as one.
 
 ## 项目角色
 

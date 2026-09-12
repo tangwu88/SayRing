@@ -197,7 +197,7 @@ abstract class AppLocalizations {
   /// No description provided for @noWatchShopHint.
   ///
   /// In en, this message translates to:
-  /// **'Need a device? Visit the Saydian store.'**
+  /// **'Need another device? Visit the Say Ring store.'**
   String get noWatchShopHint;
 
   /// No description provided for @notificationInAppHint.
@@ -1121,13 +1121,13 @@ abstract class AppLocalizations {
   /// No description provided for @appName.
   ///
   /// In en, this message translates to:
-  /// **'Saydian'**
+  /// **'Say Ring'**
   String get appName;
 
   /// No description provided for @searchingNearby.
   ///
   /// In en, this message translates to:
-  /// **'Searching for nearby watches'**
+  /// **'Searching for nearby rings'**
   String get searchingNearby;
 
   /// No description provided for @noDevices.
@@ -1139,7 +1139,7 @@ abstract class AppLocalizations {
   /// No description provided for @selectWatch.
   ///
   /// In en, this message translates to:
-  /// **'Check the name and signal, then select your watch'**
+  /// **'Check the name and signal, then select your ring'**
   String get selectWatch;
 
   /// No description provided for @searchingHint.
@@ -1151,13 +1151,13 @@ abstract class AppLocalizations {
   /// No description provided for @activateWatch.
   ///
   /// In en, this message translates to:
-  /// **'Charge your watch to activate it, then place it near your phone'**
+  /// **'Charge your ring to activate it, then place it near your phone'**
   String get activateWatch;
 
   /// No description provided for @checkWatchConnection.
   ///
   /// In en, this message translates to:
-  /// **'If the watch is connected in this phone\'s Bluetooth settings or on another phone, disconnect it and search again'**
+  /// **'If the ring is connected in this phone\'s Bluetooth settings or on another phone, disconnect it and search again'**
   String get checkWatchConnection;
 
   /// No description provided for @running.
@@ -1841,7 +1841,7 @@ abstract class AppLocalizations {
   /// No description provided for @searchRecovery.
   ///
   /// In en, this message translates to:
-  /// **'Keep the watch close. If it is connected in system Bluetooth or on another phone, disconnect it first, then try again.'**
+  /// **'Keep the ring close. If it is connected in system Bluetooth or on another phone, disconnect it first, then try again.'**
   String get searchRecovery;
 
   /// No description provided for @deviceName.
@@ -1871,7 +1871,7 @@ abstract class AppLocalizations {
   /// No description provided for @watchBattery.
   ///
   /// In en, this message translates to:
-  /// **'Watch battery'**
+  /// **'Ring battery'**
   String get watchBattery;
 
   /// No description provided for @chargingStatus.
@@ -1997,7 +1997,7 @@ abstract class AppLocalizations {
   /// No description provided for @connectWatchToUse.
   ///
   /// In en, this message translates to:
-  /// **'Connect a watch to use this feature'**
+  /// **'Connect a ring to use this feature'**
   String get connectWatchToUse;
 
   /// No description provided for @selectPhoto.
@@ -2045,7 +2045,7 @@ abstract class AppLocalizations {
   /// No description provided for @monitoringHint.
   ///
   /// In en, this message translates to:
-  /// **'Available health monitoring settings appear after connecting your watch.'**
+  /// **'Available health monitoring settings appear after connecting your ring.'**
   String get monitoringHint;
 
   /// No description provided for @previewUnavailable.
@@ -2195,13 +2195,13 @@ abstract class AppLocalizations {
   /// No description provided for @connectionInstructions.
   ///
   /// In en, this message translates to:
-  /// **'1. Turn on Bluetooth and allow nearby device access.\n2. Charge your watch and place it near your phone.\n3. Tap Find devices and select your watch.\n4. Confirm on the watch if prompted.'**
+  /// **'1. Turn on Bluetooth and allow nearby device access.\n2. Charge your ring and place it near your phone.\n3. Tap Find devices and select your ring.\n4. Confirm on the ring if prompted.'**
   String get connectionInstructions;
 
   /// No description provided for @syncNearbyHint.
   ///
   /// In en, this message translates to:
-  /// **'Keep your watch charged and near your phone while connecting or syncing.'**
+  /// **'Keep your ring charged and near your phone while connecting or syncing.'**
   String get syncNearbyHint;
 
   /// No description provided for @invalidCode.
@@ -2243,7 +2243,7 @@ abstract class AppLocalizations {
   /// No description provided for @watchNearbyHint.
   ///
   /// In en, this message translates to:
-  /// **'Turn on Bluetooth and keep your watch near your phone'**
+  /// **'Turn on Bluetooth and keep your ring near your phone'**
   String get watchNearbyHint;
 
   /// No description provided for @startSearch.
@@ -2261,25 +2261,25 @@ abstract class AppLocalizations {
   /// No description provided for @readingCapabilities.
   ///
   /// In en, this message translates to:
-  /// **'Checking watch features…'**
+  /// **'Checking ring features…'**
   String get readingCapabilities;
 
   /// No description provided for @capabilitiesHint.
   ///
   /// In en, this message translates to:
-  /// **'Only features available on this watch will be shown'**
+  /// **'Only features available on this ring will be shown'**
   String get capabilitiesHint;
 
   /// No description provided for @capabilitiesFailed.
   ///
   /// In en, this message translates to:
-  /// **'Could not read this watch’s features'**
+  /// **'Could not read this ring’s features'**
   String get capabilitiesFailed;
 
   /// No description provided for @keepWatchNear.
   ///
   /// In en, this message translates to:
-  /// **'Keep your watch near your phone and try again'**
+  /// **'Keep your ring near your phone and try again'**
   String get keepWatchNear;
 
   /// No description provided for @personalizeWatch.
@@ -2717,7 +2717,7 @@ abstract class AppLocalizations {
   /// No description provided for @connectWatch.
   ///
   /// In en, this message translates to:
-  /// **'Connect a watch'**
+  /// **'Connect a ring'**
   String get connectWatch;
 
   /// No description provided for @addDevice.
@@ -2729,7 +2729,7 @@ abstract class AppLocalizations {
   /// No description provided for @connectWatchForData.
   ///
   /// In en, this message translates to:
-  /// **'Connect your watch to view supported health data'**
+  /// **'Connect your ring to view supported health data'**
   String get connectWatchForData;
 
   /// No description provided for @noHealthData.
@@ -2819,7 +2819,7 @@ abstract class AppLocalizations {
   /// No description provided for @searchNearbyWatch.
   ///
   /// In en, this message translates to:
-  /// **'Find and connect a nearby Saydian watch'**
+  /// **'Find and connect a nearby Say Ring'**
   String get searchNearbyWatch;
 
   /// No description provided for @useWatch.

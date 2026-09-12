@@ -9,15 +9,28 @@ import '../domain/models.dart';
 import 'global_storage_scope.dart';
 import 'wearable_bridge.dart';
 
-enum WearableTransport { veepoo, yucheng }
+enum WearableTransport { veepoo, yucheng, moyoung }
 
-class YuchengDeviceClassifier {
-  const YuchengDeviceClassifier._();
+/// Selects only the native transport that is allowed to attempt a handshake.
+///
+/// A name prefix is not treated as proof of device capability. The selected
+/// SDK still has to complete its real handshake and capability read before the
+/// App exposes any device feature.
+class WearableDeviceClassifier {
+  const WearableDeviceClassifier._();
 
-  static bool matches(String name) {
-    final normalized = name.toUpperCase().replaceAll(RegExp(r'[^A-Z0-9]'), '');
-    return normalized.contains('W8');
+  static WearableTransport? transportFor(String name) {
+    final normalized = name.trimLeft().toUpperCase();
+    if (normalized.startsWith('YC')) return WearableTransport.yucheng;
+    if (normalized.startsWith('TK') || normalized.startsWith('V')) {
+      return WearableTransport.veepoo;
+    }
+    if (normalized.startsWith('D')) return WearableTransport.moyoung;
+    return null;
   }
+
+  static bool routesTo(String name, WearableTransport transport) =>
+      transportFor(name) == transport;
 }
 
 class RoutedDevice {
@@ -92,6 +105,7 @@ class RoutedWearableBridge
   RoutedWearableBridge({
     required WearableBridge veepoo,
     required WearableBridge yucheng,
+    WearableBridge? moyoung,
     WearableTransportPreferenceStore? preferenceStore,
     this.restoreOnlyBoundDevice = false,
     this.recoveryOperationTimeout = const Duration(seconds: 30),
@@ -99,6 +113,7 @@ class RoutedWearableBridge
   }) : _sources = {
          WearableTransport.veepoo: veepoo,
          WearableTransport.yucheng: yucheng,
+         if (moyoung != null) WearableTransport.moyoung: moyoung,
        },
        _preferenceStore =
            preferenceStore ?? const SecureWearableTransportPreferenceStore() {
@@ -126,7 +141,7 @@ class RoutedWearableBridge
   WearableBridge get _activeBridge {
     final transport = _activeTransport;
     if (transport == null) {
-      throw PlatformException(code: 'NOT_CONNECTED', message: '请先连接手表');
+      throw PlatformException(code: 'NOT_CONNECTED', message: '请先连接戒指');
     }
     return _sources[transport]!;
   }
@@ -137,60 +152,26 @@ class RoutedWearableBridge
   @override
   Future<List<DeviceInfo>> scanDevices() async {
     _scanned.clear();
-    final results = await Future.wait([
-      _sources[WearableTransport.veepoo]!.scanDevices(),
-      _sources[WearableTransport.yucheng]!.scanDevices(),
-    ]);
-    final candidates =
-        <RoutedDevice>[
-          ...results[0].map(
-            (device) =>
-                RoutedDevice.fromDevice(WearableTransport.veepoo, device),
-          ),
-          ...results[1].map(
-            (device) =>
-                RoutedDevice.fromDevice(WearableTransport.yucheng, device),
-          ),
-        ].where((candidate) {
-          // Yucheng-family devices must use Yucheng. The two native SDKs expose
-          // different identifiers for the same watch, so filtering here avoids a
-          // duplicate Veepoo entry even when identifier-based grouping cannot.
-          return candidate.transport == WearableTransport.yucheng ||
-              !YuchengDeviceClassifier.matches(candidate.display.name);
-        }).toList();
-    final grouped = <String, List<RoutedDevice>>{};
-    for (final candidate in candidates) {
-      grouped.putIfAbsent(candidate.nativeIdentifier, () => []).add(candidate);
-    }
-
-    for (final group in grouped.values) {
-      final selected = _selectDevice(group);
-      if (selected == null) continue;
-      _scanned[selected.display.id] = selected;
+    final batches = await Future.wait(
+      _sources.entries.map((entry) async {
+        try {
+          return MapEntry(entry.key, await entry.value.scanDevices());
+        } catch (_) {
+          // One unavailable SDK must not hide rings found by another SDK.
+          return MapEntry(entry.key, const <DeviceInfo>[]);
+        }
+      }),
+    );
+    for (final batch in batches) {
+      for (final device in batch.value) {
+        if (!WearableDeviceClassifier.routesTo(device.name, batch.key)) {
+          continue;
+        }
+        final routed = RoutedDevice.fromDevice(batch.key, device);
+        _scanned[routed.display.id] = routed;
+      }
     }
     return _scanned.values.map((device) => device.display).toList();
-  }
-
-  RoutedDevice? _selectDevice(List<RoutedDevice> candidates) {
-    final hasYuchengModel = candidates.any(
-      (candidate) => YuchengDeviceClassifier.matches(candidate.display.name),
-    );
-    if (hasYuchengModel) {
-      for (final candidate in candidates) {
-        if (candidate.transport == WearableTransport.yucheng &&
-            YuchengDeviceClassifier.matches(candidate.display.name)) {
-          return candidate;
-        }
-      }
-      return candidates.firstWhere(
-        (candidate) => candidate.transport == WearableTransport.veepoo,
-        orElse: () => candidates.first,
-      );
-    }
-    for (final candidate in candidates) {
-      if (candidate.transport == WearableTransport.veepoo) return candidate;
-    }
-    return null;
   }
 
   @override
@@ -198,16 +179,14 @@ class RoutedWearableBridge
     if (_restoringGeneration == _connectionGeneration) {
       ++_connectionGeneration;
     }
-    return Future.wait([
-      _sources[WearableTransport.veepoo]!.stopScan().timeout(
-        recoveryStopScanTimeout,
-        onTimeout: () {},
+    return Future.wait(
+      _sources.values.map(
+        (source) => source.stopScan().timeout(
+          recoveryStopScanTimeout,
+          onTimeout: () {},
+        ),
       ),
-      _sources[WearableTransport.yucheng]!.stopScan().timeout(
-        recoveryStopScanTimeout,
-        onTimeout: () {},
-      ),
-    ]).then((_) {});
+    ).then((_) {});
   }
 
   @override
@@ -222,11 +201,13 @@ class RoutedWearableBridge
         message: '请重新扫描后再连接设备',
       );
     }
-    if (device.transport == WearableTransport.veepoo &&
-        YuchengDeviceClassifier.matches(device.display.name)) {
+    if (!WearableDeviceClassifier.routesTo(
+      device.display.name,
+      device.transport,
+    )) {
       throw PlatformException(
-        code: 'YUCHENG_DISCOVERY_MISMATCH',
-        message: '当前手表暂时无法连接，请重新扫描后重试',
+        code: 'DEVICE_PROVIDER_MISMATCH',
+        message: '设备信息已变化，请重新扫描后重试',
       );
     }
     _requireRecoverySourceAvailable(device.transport);
@@ -317,6 +298,10 @@ class RoutedWearableBridge
             .restoreConnection(profile: profile);
         if (generation != _connectionGeneration) return null;
         if (details == null) continue;
+        if (!WearableDeviceClassifier.routesTo(details.name, entry.key)) {
+          await bridge.disconnect();
+          continue;
+        }
         _activeTransport = entry.key;
         _activeConnectionGeneration = generation;
         return RoutedDevice.fromDevice(entry.key, details).display;
@@ -340,8 +325,9 @@ class RoutedWearableBridge
       return null;
     }
     if (saved == null || generation != _connectionGeneration) return null;
+    final source = _sources[saved.transport];
+    if (source == null) return null;
     _requireRecoverySourceAvailable(saved.transport);
-    final source = _sources[saved.transport]!;
     // Native SDKs keep installation-wide saved targets. Never ask them to
     // restore a target selected in another API environment.
     final List<DeviceInfo> scanned;
@@ -365,8 +351,7 @@ class RoutedWearableBridge
     }
     if (target == null) return null;
     final routed = RoutedDevice.fromDevice(saved.transport, target);
-    if (saved.transport == WearableTransport.veepoo &&
-        YuchengDeviceClassifier.matches(target.name)) {
+    if (!WearableDeviceClassifier.routesTo(target.name, saved.transport)) {
       return null;
     }
     _activeTransport = saved.transport;
@@ -441,7 +426,7 @@ class RoutedWearableBridge
     if (_pendingRecoveryWork.containsKey(transport)) {
       throw PlatformException(
         code: 'RECOVERY_PENDING',
-        message: '手表正在恢复连接，请稍后重试',
+        message: '戒指正在恢复连接，请稍后重试',
       );
     }
   }
@@ -642,11 +627,7 @@ class RoutedWearableBridge
     }
     if (event.type == 'scanDevice') {
       final device = DeviceInfo.fromMap(event.payload);
-      // Both Android SDKs can report the same W8-family watch while scanning.
-      // W8 devices are owned by Yucheng, so never expose the Veepoo discovery
-      // event to the controller (the completed scan is filtered the same way).
-      if (transport == WearableTransport.veepoo &&
-          YuchengDeviceClassifier.matches(device.name)) {
+      if (!WearableDeviceClassifier.routesTo(device.name, transport)) {
         return;
       }
       final routed = RoutedDevice.fromDevice(transport, device);

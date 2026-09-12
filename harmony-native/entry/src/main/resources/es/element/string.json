@@ -1,8 +1,8 @@
 {
   "string": [
-    { "name": "module_desc", "value": "Saydian: bienestar y gestión del reloj" },
-    { "name": "reason_bluetooth", "value": "Buscar y conectar el reloj para sincronizar los registros de salud" },
-    { "name": "reason_location", "value": "Buscar relojes cercanos y registrar la ruta durante el ejercicio" },
-    { "name": "reason_camera", "value": "Usar la cámara y guardar fotos solo al activar la fotografía remota desde el reloj" }
+    { "name": "module_desc", "value": "Say Ring: bienestar y gestión del anillo" },
+    { "name": "reason_bluetooth", "value": "Buscar y conectar el anillo para sincronizar los registros de salud" },
+    { "name": "reason_location", "value": "Usar la ubicación para funciones de salud y actividad compatibles" },
+    { "name": "reason_camera", "value": "Usar la cámara solo cuando elija tomar una foto de perfil" }
   ]
 }

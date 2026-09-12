@@ -48,6 +48,8 @@ void main() {
       GlobalEnvironment.storageNamespace,
       matches(RegExp(r'^[a-f0-9]{64}$')),
     );
+    expect(GlobalEnvironment.productId, 'say-ring');
+    expect(GlobalEnvironment.packageId, 'cn.saydian.ring');
   });
 
   for (final path in [

@@ -28,9 +28,9 @@ registerHooks({
   }
 });
 const { legacySafeHttp } = await import('../entry/src/main/ets/services/LegacySafeHttp.ets');
-const { API_BASE } = await import('../entry/src/main/ets/model/Contracts.ts');
+const { GLOBAL_API, GLOBAL_ORIGIN } = await import('../entry/src/main/ets/model/GlobalConfiguration.ts');
 const body = new TextEncoder().encode('{"message":"健康数据"}');
-const request = () => legacySafeHttp(`${API_BASE}/api/saydian-app/v2/members/me`, 'POST', { token: 'test-only' }, 'fixture', 15000);
+const request = () => legacySafeHttp(`${GLOBAL_ORIGIN}${GLOBAL_API}/members/me`, 'POST', { token: 'test-only' }, 'fixture', 15000);
 
 test('API 12 request disables redirects before sending credentials and preserves split UTF-8 data', async () => {
   const f = globalThis.safeHttpFixture;

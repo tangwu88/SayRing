@@ -8,8 +8,8 @@ import 'package:saydian_app/services/app_update_service.dart';
 
 Map<String, Object?> manifest({
   String realm = 'global',
-  String package = 'cn.saydian.app.global',
-  String url = '/global/down/files/Saydian-global.apk',
+  String package = 'cn.saydian.ring',
+  String url = '/global/down/files/Say-Ring.apk',
   String? hash,
 }) => {
   'realm': realm,
@@ -34,19 +34,19 @@ Map<String, Object?> manifest({
 
 GlobalAppUpdateService service(
   Object data, {
-  String package = 'cn.saydian.app.global',
+  String package = 'cn.saydian.ring',
 }) => GlobalAppUpdateService(
   client: MockClient((request) async {
     expect(
       request.url.toString(),
-      'https://app.saydian.cn/global/api/saydian-app/v2/support/app-update',
+      'https://app.saydian.cn/global/api/saydian-app/v2/support/app-update?product=say-ring',
     );
     expect(request.followRedirects, isFalse);
     return http.Response(jsonEncode({'code': 200, 'data': data}), 200);
   }),
   targetPlatform: TargetPlatform.android,
   packageInfoLoader: () async => PackageInfo(
-    appName: 'Saydian',
+    appName: 'Say Ring',
     packageName: package,
     version: '0.1.0',
     buildNumber: '1',
@@ -66,7 +66,7 @@ void main() {
           'releases': [
             {
               'platform': 'ios',
-              'packageId': 'cn.saydian.app.global',
+              'packageId': 'cn.saydian.ring',
               'versionName': '0.2.0',
               'buildNumber': 24,
               'status': 'available',
@@ -81,8 +81,8 @@ void main() {
           ),
           targetPlatform: TargetPlatform.iOS,
           packageInfoLoader: () async => PackageInfo(
-            appName: 'Saydian',
-            packageName: 'cn.saydian.app.global',
+            appName: 'Say Ring',
+            packageName: 'cn.saydian.ring',
             version: '0.1.0',
             buildNumber: '1',
           ),
@@ -104,7 +104,7 @@ void main() {
     () async {
       final info = await service(manifest()).check();
       expect(info.hasUpdate, isTrue);
-      expect(info.destinationUri.path, '/global/down/files/Saydian-global.apk');
+      expect(info.destinationUri.path, '/global/down/files/Say-Ring.apk');
       expect(info.sha256, hasLength(64));
       expect(info.forceUpdate, isFalse);
     },
@@ -140,7 +140,7 @@ void main() {
           'releases': [
             {
               'platform': 'android',
-              'packageId': 'cn.saydian.app.global',
+              'packageId': 'cn.saydian.ring',
               'status': 'coming_soon',
             },
           ],

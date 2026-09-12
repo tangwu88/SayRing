@@ -391,6 +391,15 @@ export class VepWearableService {
       this.emitPhase('error', '该设备已离开扫描范围，请重新扫描');
       return false;
     }
+    const routedProvider = wearableProviderForName(descriptor.name);
+    if (!routedProvider || routedProvider !== descriptor.provider) {
+      this.emitPhase('error', '设备信息已变化，请重新扫描');
+      return false;
+    }
+    if (descriptor.provider === 'Moyoung') {
+      this.emitPhase('error', '当前型号暂未开放连接');
+      return false;
+    }
     if (descriptor.provider === 'Yuc') {
       return this.connectYuc(descriptor, isRetry);
     }
@@ -1244,7 +1253,7 @@ export class VepWearableService {
       });
     } catch {}
     vepResults.forEach((device: BleDevice) => {
-      if (wearableProviderForName(device.deviceName) === 'Yuc') return;
+      if (wearableProviderForName(device.deviceName) !== 'Vep') return;
       const descriptor = createWearableDevice('Vep', device.deviceName, device.deviceId,
         device.mac, device.rssi, device.connectable);
       if (descriptor) {
@@ -1254,7 +1263,10 @@ export class VepWearableService {
     });
     normalized.forEach((result: ble.ScanResult) => {
       const provider = knownWearableName(result.deviceName);
-      if (!provider || vepResults.some((device: BleDevice) =>
+      // The available Moyoung sample is for glasses, not the target ring.
+      // Recognize D-prefixed devices centrally but keep them out of the UI
+      // until the licensed ring transport is integrated and verified.
+      if (!provider || provider === 'Moyoung' || vepResults.some((device: BleDevice) =>
         device.deviceId === result.deviceId && provider === 'Vep')) return;
       const raw = results.find((item: ble.ScanResult) => item.deviceId === result.deviceId) ?? result;
       const mac = provider === 'Yuc' ? this.yuc().macFromScan(raw) : '';
@@ -1301,7 +1313,7 @@ export class VepWearableService {
         try {
           const name = connection.getRemoteDeviceName(deviceId);
           const provider = knownWearableName(name);
-          if (!provider) return;
+          if (!provider || provider === 'Moyoung') return;
           const descriptor = createWearableDevice(provider, name, deviceId, '', 0, true);
           if (!descriptor) return;
           incoming.push(descriptor);

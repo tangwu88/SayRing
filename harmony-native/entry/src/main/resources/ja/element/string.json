@@ -1,8 +1,8 @@
 {
   "string": [
-    { "name": "module_desc", "value": "Saydianの健康と時計の管理" },
-    { "name": "reason_bluetooth", "value": "時計を検索して接続し、健康記録を同期します" },
-    { "name": "reason_location", "value": "近くの時計を検索し、運動中のルートを記録します" },
-    { "name": "reason_camera", "value": "時計のリモート撮影を開始した場合のみ、スマートフォンのカメラを使用して写真を保存します" }
+    { "name": "module_desc", "value": "Say Ringの健康とリング管理" },
+    { "name": "reason_bluetooth", "value": "リングを検索して接続し、健康記録を同期します" },
+    { "name": "reason_location", "value": "対応する健康・運動機能のために位置情報を使用します" },
+    { "name": "reason_camera", "value": "プロフィール写真を撮影するときだけカメラを使用します" }
   ]
 }

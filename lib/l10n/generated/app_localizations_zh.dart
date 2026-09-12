@@ -51,7 +51,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get messageSendFailed => '发送失败，请检查网络后重试';
 
   @override
-  String get noWatchShopHint => '没有设备？去赛电商城看看';
+  String get noWatchShopHint => '需要其他设备？去 Say Ring 商城看看';
 
   @override
   String get notificationInAppHint => '应用内红点和消息仍可使用，开启后可及时收到关爱邀请与健康预警。';
@@ -529,25 +529,25 @@ class AppLocalizationsZh extends AppLocalizations {
   String get globalShopReadOnly => '可浏览商品，当前地区暂未开放下单。';
 
   @override
-  String get appName => 'Saydian';
+  String get appName => 'Say Ring';
 
   @override
-  String get searchingNearby => '正在搜索附近手表';
+  String get searchingNearby => '正在搜索附近戒指';
 
   @override
   String get noDevices => '未发现设备';
 
   @override
-  String get selectWatch => '请核对名称和信号强度，再选择手表';
+  String get selectWatch => '请核对名称和信号强度，再选择戒指';
 
   @override
   String get searchingHint => '正在搜索，信号会更新，列表位置不会变化';
 
   @override
-  String get activateWatch => '请取出设备、充电激活，并将手表靠近手机';
+  String get activateWatch => '请为戒指充电激活，并将戒指靠近手机';
 
   @override
-  String get checkWatchConnection => '若手表已连到本机系统蓝牙或其他手机，请先断开后重新搜索';
+  String get checkWatchConnection => '若戒指已连到本机系统蓝牙或其他手机，请先断开后重新搜索';
 
   @override
   String get running => '跑步';
@@ -899,7 +899,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get searchAgain => '重新搜索';
 
   @override
-  String get searchRecovery => '请让手表靠近手机；若已连接本机系统蓝牙或其他手机，请先断开再重试。';
+  String get searchRecovery => '请让戒指靠近手机；若已连接本机系统蓝牙或其他手机，请先断开再重试。';
 
   @override
   String get deviceName => '设备名称';
@@ -914,7 +914,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get firmwareVersion => '固件版本';
 
   @override
-  String get watchBattery => '手表电量';
+  String get watchBattery => '戒指电量';
 
   @override
   String get chargingStatus => '充电状态';
@@ -977,7 +977,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get choose => '请选择';
 
   @override
-  String get connectWatchToUse => '连接手表后使用';
+  String get connectWatchToUse => '连接戒指后使用';
 
   @override
   String get selectPhoto => '选择照片';
@@ -1001,7 +1001,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get openSystemSettings => '打开系统应用设置';
 
   @override
-  String get monitoringHint => '连接后会显示当前手表可设置的健康检测项目。';
+  String get monitoringHint => '连接后会显示当前戒指可设置的健康检测项目。';
 
   @override
   String get previewUnavailable => '预览暂不可用';
@@ -1077,10 +1077,10 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get connectionInstructions =>
-      '1. 打开手机蓝牙并允许查找附近设备。\n2. 将手表充电激活，并放在手机旁边。\n3. 点击“开始查找”，选择自己的手表。\n4. 如果手表弹出确认，请及时确认。';
+      '1. 打开手机蓝牙并允许查找附近设备。\n2. 将戒指充电激活，并放在手机旁边。\n3. 点击“开始查找”，选择自己的戒指。\n4. 如果戒指弹出确认，请及时确认。';
 
   @override
-  String get syncNearbyHint => '连接或同步时，请让手表保持电量充足并靠近手机。';
+  String get syncNearbyHint => '连接或同步时，请让戒指保持电量充足并靠近手机。';
 
   @override
   String get invalidCode => '请检查验证码后重试';
@@ -1103,7 +1103,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get addSmartDevice => '添加智能设备';
 
   @override
-  String get watchNearbyHint => '请开启手机蓝牙并将手表靠近手机';
+  String get watchNearbyHint => '请开启手机蓝牙并将戒指靠近手机';
 
   @override
   String get startSearch => '开始查找';
@@ -1112,16 +1112,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get readingData => '正在读取数据';
 
   @override
-  String get readingCapabilities => '正在识别手表功能…';
+  String get readingCapabilities => '正在识别戒指功能…';
 
   @override
-  String get capabilitiesHint => '识别完成后只显示当前手表可用的功能';
+  String get capabilitiesHint => '识别完成后只显示当前戒指可用的功能';
 
   @override
-  String get capabilitiesFailed => '暂时无法读取此手表的功能';
+  String get capabilitiesFailed => '暂时无法读取此戒指的功能';
 
   @override
-  String get keepWatchNear => '请保持手表靠近手机后重试';
+  String get keepWatchNear => '请保持戒指靠近手机后重试';
 
   @override
   String get personalizeWatch => '表盘与个性化';
@@ -1340,13 +1340,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get shop => '赛电商城';
 
   @override
-  String get connectWatch => '连接手表';
+  String get connectWatch => '连接戒指';
 
   @override
   String get addDevice => '添加设备';
 
   @override
-  String get connectWatchForData => '连接手表后可查看支持的健康数据';
+  String get connectWatchForData => '连接戒指后可查看支持的健康数据';
 
   @override
   String get noHealthData => '暂无可显示的健康数据';
@@ -1391,7 +1391,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get connectionHelp => '连接说明';
 
   @override
-  String get searchNearbyWatch => '搜索并连接附近的赛电手表';
+  String get searchNearbyWatch => '搜索并连接附近的 Say Ring';
 
   @override
   String get useWatch => '请在手表上操作';
@@ -1947,7 +1947,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get messageSendFailed => '发送失败，请检查网络后重试';
 
   @override
-  String get noWatchShopHint => '没有设备？去赛电商城看看';
+  String get noWatchShopHint => '需要其他设备？去 Say Ring 商城看看';
 
   @override
   String get notificationInAppHint => '应用内红点和消息仍可使用，开启后可及时收到关爱邀请与健康预警。';
@@ -2425,25 +2425,25 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get globalShopReadOnly => '可浏览商品，当前地区暂未开放下单。';
 
   @override
-  String get appName => 'Saydian';
+  String get appName => 'Say Ring';
 
   @override
-  String get searchingNearby => '正在搜索附近手表';
+  String get searchingNearby => '正在搜索附近戒指';
 
   @override
   String get noDevices => '未发现设备';
 
   @override
-  String get selectWatch => '请核对名称和信号强度，再选择手表';
+  String get selectWatch => '请核对名称和信号强度，再选择戒指';
 
   @override
   String get searchingHint => '正在搜索，信号会更新，列表位置不会变化';
 
   @override
-  String get activateWatch => '请取出设备、充电激活，并将手表靠近手机';
+  String get activateWatch => '请为戒指充电激活，并将戒指靠近手机';
 
   @override
-  String get checkWatchConnection => '若手表已连到本机系统蓝牙或其他手机，请先断开后重新搜索';
+  String get checkWatchConnection => '若戒指已连到本机系统蓝牙或其他手机，请先断开后重新搜索';
 
   @override
   String get running => '跑步';
@@ -2795,7 +2795,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get searchAgain => '重新搜索';
 
   @override
-  String get searchRecovery => '请让手表靠近手机；若已连接本机系统蓝牙或其他手机，请先断开再重试。';
+  String get searchRecovery => '请让戒指靠近手机；若已连接本机系统蓝牙或其他手机，请先断开再重试。';
 
   @override
   String get deviceName => '设备名称';
@@ -2810,7 +2810,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get firmwareVersion => '固件版本';
 
   @override
-  String get watchBattery => '手表电量';
+  String get watchBattery => '戒指电量';
 
   @override
   String get chargingStatus => '充电状态';
@@ -2873,7 +2873,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get choose => '请选择';
 
   @override
-  String get connectWatchToUse => '连接手表后使用';
+  String get connectWatchToUse => '连接戒指后使用';
 
   @override
   String get selectPhoto => '选择照片';
@@ -2897,7 +2897,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get openSystemSettings => '打开系统应用设置';
 
   @override
-  String get monitoringHint => '连接后会显示当前手表可设置的健康检测项目。';
+  String get monitoringHint => '连接后会显示当前戒指可设置的健康检测项目。';
 
   @override
   String get previewUnavailable => '预览暂不可用';
@@ -2973,10 +2973,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get connectionInstructions =>
-      '1. 打开手机蓝牙并允许查找附近设备。\n2. 将手表充电激活，并放在手机旁边。\n3. 点击“开始查找”，选择自己的手表。\n4. 如果手表弹出确认，请及时确认。';
+      '1. 打开手机蓝牙并允许查找附近设备。\n2. 将戒指充电激活，并放在手机旁边。\n3. 点击“开始查找”，选择自己的戒指。\n4. 如果戒指弹出确认，请及时确认。';
 
   @override
-  String get syncNearbyHint => '连接或同步时，请让手表保持电量充足并靠近手机。';
+  String get syncNearbyHint => '连接或同步时，请让戒指保持电量充足并靠近手机。';
 
   @override
   String get invalidCode => '请检查验证码后重试';
@@ -2999,7 +2999,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get addSmartDevice => '添加智能设备';
 
   @override
-  String get watchNearbyHint => '请开启手机蓝牙并将手表靠近手机';
+  String get watchNearbyHint => '请开启手机蓝牙并将戒指靠近手机';
 
   @override
   String get startSearch => '开始查找';
@@ -3008,16 +3008,16 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get readingData => '正在读取数据';
 
   @override
-  String get readingCapabilities => '正在识别手表功能…';
+  String get readingCapabilities => '正在识别戒指功能…';
 
   @override
-  String get capabilitiesHint => '识别完成后只显示当前手表可用的功能';
+  String get capabilitiesHint => '识别完成后只显示当前戒指可用的功能';
 
   @override
-  String get capabilitiesFailed => '暂时无法读取此手表的功能';
+  String get capabilitiesFailed => '暂时无法读取此戒指的功能';
 
   @override
-  String get keepWatchNear => '请保持手表靠近手机后重试';
+  String get keepWatchNear => '请保持戒指靠近手机后重试';
 
   @override
   String get personalizeWatch => '表盘与个性化';
@@ -3236,13 +3236,13 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get shop => '赛电商城';
 
   @override
-  String get connectWatch => '连接手表';
+  String get connectWatch => '连接戒指';
 
   @override
   String get addDevice => '添加设备';
 
   @override
-  String get connectWatchForData => '连接手表后可查看支持的健康数据';
+  String get connectWatchForData => '连接戒指后可查看支持的健康数据';
 
   @override
   String get noHealthData => '暂无可显示的健康数据';
@@ -3287,7 +3287,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get connectionHelp => '连接说明';
 
   @override
-  String get searchNearbyWatch => '搜索并连接附近的赛电手表';
+  String get searchNearbyWatch => '搜索并连接附近的 Say Ring';
 
   @override
   String get useWatch => '请在手表上操作';
@@ -3843,7 +3843,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get messageSendFailed => '傳送失敗，請檢查網路後重試';
 
   @override
-  String get noWatchShopHint => '沒有裝置？前往 Saydian 商城看看';
+  String get noWatchShopHint => '需要其他裝置？前往 Say Ring 商城看看';
 
   @override
   String get notificationInAppHint => 'App 內未讀標示和訊息仍可使用，開啟通知後可及時收到關愛邀請與健康預警。';
@@ -4321,25 +4321,25 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get globalShopReadOnly => '可瀏覽商品，目前地區暫未開放下單。';
 
   @override
-  String get appName => 'Saydian';
+  String get appName => 'Say Ring';
 
   @override
-  String get searchingNearby => '正在搜尋附近手錶';
+  String get searchingNearby => '正在搜尋附近戒指';
 
   @override
   String get noDevices => '未發現裝置';
 
   @override
-  String get selectWatch => '請核對名稱和訊號強度，再選擇手錶';
+  String get selectWatch => '請核對名稱和訊號強度，再選擇戒指';
 
   @override
   String get searchingHint => '正在搜尋，訊號會更新，清單位置不會變化';
 
   @override
-  String get activateWatch => '請取出裝置、充電啟動，並將手錶靠近手機';
+  String get activateWatch => '請為戒指充電啟動，並將戒指靠近手機';
 
   @override
-  String get checkWatchConnection => '若手錶已連到本機系統藍牙或其他手機，請先中斷連線後重新搜尋';
+  String get checkWatchConnection => '若戒指已連到本機系統藍牙或其他手機，請先中斷連線後重新搜尋';
 
   @override
   String get running => '跑步';
@@ -4691,7 +4691,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get searchAgain => '重新搜尋';
 
   @override
-  String get searchRecovery => '請讓手錶靠近手機；若已連接本機系統藍牙或其他手機，請先中斷連線再重試。';
+  String get searchRecovery => '請讓戒指靠近手機；若已連接本機系統藍牙或其他手機，請先中斷連線再重試。';
 
   @override
   String get deviceName => '裝置名稱';
@@ -4706,7 +4706,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get firmwareVersion => '韌體版本';
 
   @override
-  String get watchBattery => '手錶電量';
+  String get watchBattery => '戒指電量';
 
   @override
   String get chargingStatus => '充電狀態';
@@ -4769,7 +4769,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get choose => '請選擇';
 
   @override
-  String get connectWatchToUse => '連接手錶後使用';
+  String get connectWatchToUse => '連接戒指後使用';
 
   @override
   String get selectPhoto => '選擇照片';
@@ -4793,7 +4793,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get openSystemSettings => '開啟系統應用程式設定';
 
   @override
-  String get monitoringHint => '連接後會顯示目前手錶可設定的健康監測項目。';
+  String get monitoringHint => '連接後會顯示目前戒指可設定的健康監測項目。';
 
   @override
   String get previewUnavailable => '預覽暫不可用';
@@ -4869,10 +4869,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get connectionInstructions =>
-      '1. 開啟手機藍牙並允許尋找附近裝置。\n2. 為手錶充電並放在手機旁。\n3. 點選「開始搜尋」，選擇自己的手錶。\n4. 若手錶顯示確認提示，請確認。';
+      '1. 開啟手機藍牙並允許尋找附近裝置。\n2. 為戒指充電並放在手機旁。\n3. 點選「開始搜尋」，選擇自己的戒指。\n4. 若戒指顯示確認提示，請確認。';
 
   @override
-  String get syncNearbyHint => '連接或同步時，請讓手錶保持電量充足並靠近手機。';
+  String get syncNearbyHint => '連接或同步時，請讓戒指保持電量充足並靠近手機。';
 
   @override
   String get invalidCode => '請檢查驗證碼後重試';
@@ -4895,7 +4895,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get addSmartDevice => '新增智慧裝置';
 
   @override
-  String get watchNearbyHint => '請開啟手機藍牙並將手錶靠近手機';
+  String get watchNearbyHint => '請開啟手機藍牙並將戒指靠近手機';
 
   @override
   String get startSearch => '開始搜尋';
@@ -4904,16 +4904,16 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get readingData => '正在讀取資料';
 
   @override
-  String get readingCapabilities => '正在辨識手錶功能…';
+  String get readingCapabilities => '正在辨識戒指功能…';
 
   @override
-  String get capabilitiesHint => '辨識完成後僅顯示目前手錶可用的功能';
+  String get capabilitiesHint => '辨識完成後僅顯示目前戒指可用的功能';
 
   @override
-  String get capabilitiesFailed => '暫時無法讀取此手錶的功能';
+  String get capabilitiesFailed => '暫時無法讀取此戒指的功能';
 
   @override
-  String get keepWatchNear => '請保持手錶靠近手機後重試';
+  String get keepWatchNear => '請保持戒指靠近手機後重試';
 
   @override
   String get personalizeWatch => '錶盤與個人化';
@@ -5132,13 +5132,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get shop => 'Saydian商城';
 
   @override
-  String get connectWatch => '連接手錶';
+  String get connectWatch => '連接戒指';
 
   @override
   String get addDevice => '新增裝置';
 
   @override
-  String get connectWatchForData => '連接手錶後可查看支援的健康資料';
+  String get connectWatchForData => '連接戒指後可查看支援的健康資料';
 
   @override
   String get noHealthData => '暫無可顯示的健康資料';
@@ -5183,7 +5183,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get connectionHelp => '連接說明';
 
   @override
-  String get searchNearbyWatch => '搜尋並連接附近的Saydian手錶';
+  String get searchNearbyWatch => '搜尋並連接附近的 Say Ring';
 
   @override
   String get useWatch => '請在手錶上操作';

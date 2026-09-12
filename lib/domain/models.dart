@@ -452,6 +452,7 @@ class DeviceInfo {
 enum WearableSdkSource {
   veepoo('Vep', 'Veepoo'),
   yucheng('Yuc', 'Yucheng'),
+  moyoung('Moy', 'Moyoung'),
   unknown('--', '未标识');
 
   const WearableSdkSource(this.shortLabel, this.fullLabel);
@@ -463,6 +464,7 @@ enum WearableSdkSource {
     final normalized = deviceId.trim().toLowerCase();
     if (normalized.startsWith('veepoo:')) return WearableSdkSource.veepoo;
     if (normalized.startsWith('yucheng:')) return WearableSdkSource.yucheng;
+    if (normalized.startsWith('moyoung:')) return WearableSdkSource.moyoung;
     return WearableSdkSource.unknown;
   }
 }
