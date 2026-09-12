@@ -339,7 +339,7 @@ mixin GlobalHealthApi on SaydianApiClient {
       );
     }
     final rawVersionValue = source['rawVersion'];
-    final rawVersion = rawVersionValue == null ? 1 : rawVersionValue;
+    final rawVersion = rawVersionValue ?? 1;
     if (rawVersion is! num ||
         rawVersion != rawVersion.toInt() ||
         rawVersion < 1) {
