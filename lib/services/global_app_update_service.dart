@@ -9,9 +9,7 @@ class GlobalAppUpdateService extends AppUpdateService {
   }) : super(
          endpointUri: Uri.parse(
            '${GlobalEnvironment.origin}${GlobalEnvironment.apiPrefix}/support/app-update',
-         ).replace(
-           queryParameters: {'product': GlobalEnvironment.productId},
-         ),
+         ).replace(queryParameters: {'product': GlobalEnvironment.productId}),
        );
 
   @override

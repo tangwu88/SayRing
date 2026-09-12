@@ -78,28 +78,31 @@ void main() {
     expect(records.map((r) => r.metric), [HealthMetric.bloodOxygen]);
   });
 
-  test('same-second samples from two Yucheng devices keep distinct identities', () {
-    Map<int, List<Map<String, Object?>>> rows() => {
-      YuchengHealthDataType.heartRate: [
-        {'startTimeStamp': 1786579260, 'heartRate': 72},
-      ],
-    };
+  test(
+    'same-second samples from two Yucheng devices keep distinct identities',
+    () {
+      Map<int, List<Map<String, Object?>>> rows() => {
+        YuchengHealthDataType.heartRate: [
+          {'startTimeStamp': 1786579260, 'heartRate': 72},
+        ],
+      };
 
-    final first = YuchengPayloadMapper.healthRecords(
-      deviceId: 'yucheng:AA:01',
-      firmwareVersion: '1.2.3',
-      rowsByType: rows(),
-    ).single;
-    final second = YuchengPayloadMapper.healthRecords(
-      deviceId: 'yucheng:BB:02',
-      firmwareVersion: '1.2.3',
-      rowsByType: rows(),
-    ).single;
+      final first = YuchengPayloadMapper.healthRecords(
+        deviceId: 'yucheng:AA:01',
+        firmwareVersion: '1.2.3',
+        rowsByType: rows(),
+      ).single;
+      final second = YuchengPayloadMapper.healthRecords(
+        deviceId: 'yucheng:BB:02',
+        firmwareVersion: '1.2.3',
+        rowsByType: rows(),
+      ).single;
 
-    expect(first.id, isNot(second.id));
-    expect(first.id, isNot(contains('AA:01')));
-    expect(second.id, isNot(contains('BB:02')));
-  });
+      expect(first.id, isNot(second.id));
+      expect(first.id, isNot(contains('AA:01')));
+      expect(second.id, isNot(contains('BB:02')));
+    },
+  );
 
   test('maps W8 feature flags only when SDK reports support', () {
     final capabilities = YuchengPayloadMapper.capabilities({

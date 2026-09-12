@@ -9,9 +9,7 @@ abstract final class GlobalEnvironment {
   static const canonicalApiPrefix = '/api/saydian-app/v2';
   static const productId = 'say-ring';
   static String get storageNamespace => sha256
-      .convert(
-        utf8.encode('${configuredOrigin.origin}$apiPrefix:$productId'),
-      )
+      .convert(utf8.encode('${configuredOrigin.origin}$apiPrefix:$productId'))
       .toString();
 
   /// Canonical controller paths are mounted only on the isolated gateway.

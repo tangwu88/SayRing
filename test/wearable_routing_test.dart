@@ -195,11 +195,7 @@ void main() {
     veepoo.emit(
       const WearableEvent(
         type: 'deviceDetails',
-        payload: {
-          'id': 'V-1',
-          'name': 'V Ring',
-          'firmwareVersion': '00.20.01',
-        },
+        payload: {'id': 'V-1', 'name': 'V Ring', 'firmwareVersion': '00.20.01'},
       ),
     );
     veepoo.emit(
@@ -225,9 +221,7 @@ void main() {
     final received = <WearableEvent>[];
     final subscription = bridge.events.listen(received.add);
 
-    veepoo.emitScan(
-      const DeviceInfo(id: '07:43:00:00:4D:E9', name: 'YC Ring'),
-    );
+    veepoo.emitScan(const DeviceInfo(id: '07:43:00:00:4D:E9', name: 'YC Ring'));
     yucheng.emitScan(
       const DeviceInfo(id: '07:43:00:00:4D:E9', name: 'YC Ring'),
     );
@@ -302,25 +296,28 @@ void main() {
     },
   );
 
-  test('restores a V-prefix ring and locks later operations to Veepoo', () async {
-    final veepoo = _FakeWearableBridge(
-      scanned: const [],
-      connectedDetails: const DeviceInfo(
-        id: '38:23:A4:5E:CA:69',
-        name: 'V Ring',
-      ),
-    );
-    final yucheng = _FakeWearableBridge(scanned: const []);
-    final bridge = RoutedWearableBridge(veepoo: veepoo, yucheng: yucheng);
+  test(
+    'restores a V-prefix ring and locks later operations to Veepoo',
+    () async {
+      final veepoo = _FakeWearableBridge(
+        scanned: const [],
+        connectedDetails: const DeviceInfo(
+          id: '38:23:A4:5E:CA:69',
+          name: 'V Ring',
+        ),
+      );
+      final yucheng = _FakeWearableBridge(scanned: const []);
+      final bridge = RoutedWearableBridge(veepoo: veepoo, yucheng: yucheng);
 
-    final restored = await bridge.restoreConnection(profile: _profile);
-    await bridge.startMeasurement(HealthMetric.heartRate);
+      final restored = await bridge.restoreConnection(profile: _profile);
+      await bridge.startMeasurement(HealthMetric.heartRate);
 
-    expect(restored?.id, 'veepoo:38:23:A4:5E:CA:69');
-    expect(veepoo.restoreCalls, 1);
-    expect(veepoo.measurementCalls, [HealthMetric.heartRate]);
-    expect(yucheng.measurementCalls, isEmpty);
-  });
+      expect(restored?.id, 'veepoo:38:23:A4:5E:CA:69');
+      expect(veepoo.restoreCalls, 1);
+      expect(veepoo.measurementCalls, [HealthMetric.heartRate]);
+      expect(yucheng.measurementCalls, isEmpty);
+    },
+  );
 
   test('restores only the last selected SDK transport', () async {
     final preference = _MemoryTransportPreference()
