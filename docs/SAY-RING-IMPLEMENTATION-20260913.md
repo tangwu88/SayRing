@@ -70,9 +70,20 @@
 - 格式门禁：同步至英文路径后，155 个 Dart 文件中仅 `say_ring_brand_contract_test.dart` 有 1 处标准换行排版差异；已用当前 Dart formatter 修正。formatter 随后的匿名遥测时间戳写入因沙箱权限被拒绝，但源码格式化本身已经完成；最终路径需再次以只读模式确认 155/155。
 - 后续待验：英文路径格式和静态分析、Android Debug/Release 实际构建；iOS/macOS 与 HarmonyOS HAP 工具链；真实 YC、V/TK 戒指三轮连接/同步/断开/重连；魔样目标戒指 SDK、服务端 `ringPreferred` 多来源契约，以及仓库 Private 状态和首次推送。
 
+### 06:29 英文路径门禁、Android 构建与安装边界
+
+- 执行位置：`F:\xcodeplace\say-ring`。`dart format --output=none --set-exit-if-changed lib test integration_test` 检查 155 个文件、0 个需修改；`flutter analyze --no-pub` 返回 `No issues found`。这证明英文路径静态门禁通过，也确认中文路径中的 LSP 截断不是源码诊断结果。
+- Android Debug：使用显式 `SAYDIAN_API_BASE_URL=https://app.saydian.cn`、国际 V2 更新清单和空天气密钥构建成功，耗时 147.6 秒。APK 为 `app-debug.apk`，68 位/32 位 ARM，大小 156,236,402 字节，SHA-256 `BFC0E2229F35F57DD4E5C2D0DABBBDB92CC010C417C1069807C78A025C5130F7`。
+- Android QA Release：首次命令把 `--release` 误写成 `--releaselease`，Flutter 立即拒绝参数；修正命令并显式设置 `SAIDIAN_ALLOW_QA_RELEASE=true` 后构建成功，耗时 262.9 秒。APK 为 `app-release.apk`，68 位/32 位 ARM，大小 68,863,068 字节，SHA-256 `F93C18D4F49CC82DAA454ADDBA1A8DC1874FC5F1D995C438A5F6ADE61EE87D97`。该环境变量只允许生成内部 QA 包，不代表生产签名或上架验收。
+- 包体核验：Debug/QA Release 均为包名 `cn.saydian.ring`、版本 `0.1.21 (1004)`、minSdk 26、targetSdk 36、标签 `Say Ring`；两包均通过 APK Signature Scheme v2 校验，证书 SHA-256 为 `99b006c6394e55f78ad6d71867d5051384a0f64b839fea432e57a7ac9935819e`。Release 含 `arm64-v8a` 和 `armeabi-v7a` 的 Flutter/App 动态库。
+- 域名核验：Release 二进制字符串中第一方地址仅发现 `app.saydian.cn`、国际商城路径、国际更新路径和产品标识 `say-ring`，未发现旧 `.cc`/`.com` 第一方域名。`vphband.com:9001` 仍作为厂商表盘服务存在，属于已单列的第三方服务，不视为第一方回退。
+- Android 原生单测：`:app:testDebugUnitTest` 构建成功；4 份结果文件共 16/16，通过且无失败、错误或跳过。现存 Kotlin Gradle Plugin、Android Gradle Plugin 与 Java API 弃用提示为后续升级项，不是本次失败。
+- 真机安装：在线华为 `PPA-LX3`（Android 10）尚未安装 `cn.saydian.ring`；覆盖安装 Debug APK 时手机端拒绝安装授权，ADB 返回 `INSTALL_FAILED_ABORTED: User rejected permissions`。本轮没有卸载、清数据、修改联系人/显示样式或执行 OTA，也没有因此产生真实戒指连接验收证据；需用户在手机端允许安装后再继续。
+- 平台边界：当前 Windows 主机没有 `xcodebuild`，不能执行 iOS 编译、签名或真机测试；也未找到 `hvigorw`、`hvigor`、`hdc`、`ohpm`，因此 HarmonyOS HAP 构建未执行。481/481 的 HarmonyOS 宿主测试不能替代 HAP 或真机验收。
+
 ## 下一阶段门禁
 
-- 在英文最终路径执行格式化、`flutter analyze`、双时区全量 Flutter、Android Debug/QA Release、完整 HarmonyOS 宿主测试与可用构建；macOS/iOS 和真实 HarmonyOS 构建环境缺失时明确标记未执行。
+- 手机端允许安装后，安装已校验的 Debug APK，并用真实 YC、V/TK 戒指执行连接、同步、断开和重连；Android 自动门禁已通过，不用重复归因于源码。iOS/macOS 与 HarmonyOS HAP 工具链缺失，继续明确标记未执行。
 - 继续把可见核心文案和图形改成戒指语境，并移除界面上的 SDK/供应商技术标签；能力未返回或 App 未接入时不展示入口。
 - 在独立服务端工作副本增加规范设备来源、多设备样本身份和可选 `sourcePolicy=ringPreferred`；旧 App 不传策略时保持原行为，并回归原手表 App 契约。
 - 取得真实 YC、V/TK 戒指后按“供应商 × 平台 × 型号/固件”各做至少三轮连接、同步、断开与重连。魔样必须先取得目标戒指 SDK、字段契约、授权和 HarmonyOS 资料。
