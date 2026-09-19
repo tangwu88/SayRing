@@ -38,3 +38,11 @@
 - HR01/CoolWear 真戒指、H5↔App 健康数据双向联调、Android/iOS 各三轮连接及生产服务端多来源策略仍待授权样机与联调。LuckRing 原 App 和旧简版 App 均未卸载/清数据。
 - Windows 无法执行 iOS Debug/Profile 构建或 iPhone 真机验收；HarmonyOS HAP 未在本轮编译。不能把 Flutter/宿主测试写成真机或供应商验收。
 - 未请求生产发布；没有数据库迁移、远端合并、正式签名或线上部署。
+
+## 2026-09-19 16:38 后续真机安装（仅安装与启动）
+
+- 原因：用户要求将本轮 Say Ring 测试版安装到已连接的 Android 手机；不改源码、配置、生产服务或手机上的 LuckRing。
+- 修改范围：仅追加本实施记录；安装包沿用本记录中已测试的 `build/app/outputs/flutter-apk/app-debug.apk`，安装前 SHA-256 仍为 `02571162E3D8B2ABEE22705C9BEC12A6A9C9B3062260A6ED9ED5CC3F37E2DFF3`。修改前工作树干净，HEAD 和 `origin/codex/rebuild-from-handoff` 均为 `8ceda3ae97c553d7201f184f2582cdded0aeb522`；本轮 `git fetch origin --prune` 经命令级本地 HTTP 代理成功，无远端变化。
+- 命令/结果：`adb devices -l` 显示一台已授权华为 Android；`adb install -r --no-streaming build/app/outputs/flutter-apk/app-debug.apk` 在约 18 秒后返回 `Success`，使用覆盖安装且未执行清数据。手机 `pm path cn.saydian.ring` 所得 base.apk 的 `sha256sum` 与本地 APK 完全一致；`dumpsys package` 显示 `0.1.21 (1004)`；`am start -n cn.saydian.ring/cc.saidian.saydian_app.MainActivity` 后 `pidof` 非空且焦点为该 Activity。
+- 失败与修复：本轮安装无失败；上一轮因手机进入锁屏/AOD 而等待的尝试仍保留在上文，不以本次成功改写历史。尝试查询本机固定路径的 `aapt.exe` 时该路径不存在，不影响已完成的 APK 哈希、设备包名/版本和安装核对。
+- 验收边界：只证实覆盖安装、包字节一致与主 Activity 启动；未验证微信授权、短信送达、登录、戒指连接/同步、健康页面或生产签名。未卸载/清数据，也未修改 LuckRing。Flutter/原生测试与构建结果沿用本记录前一轮同 SHA 包的证据，本轮未重跑源码测试。
