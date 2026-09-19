@@ -3793,18 +3793,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count} in stock'**
   String stockCount(int count);
-
-  /// No description provided for @wechatAuthorize.
-  ///
-  /// In en, this message translates to:
-  /// **'Continue with WeChat'**
-  String get wechatAuthorize;
-
-  /// No description provided for @wechatAppUnavailable.
-  ///
-  /// In en, this message translates to:
-  /// **'WeChat sign-in is not available yet. Use a phone number or email.'**
-  String get wechatAppUnavailable;
 }
 
 class _AppLocalizationsDelegate

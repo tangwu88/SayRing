@@ -8,6 +8,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../l10n/global_locale_controller.dart';
 import '../services/api_client.dart';
 import '../services/app_controller.dart';
+import 'brand_assets.dart';
 import 'global_legal_page.dart';
 
 /// Say Ring shares the global H5 member and one-time-code sign-in contract.
@@ -118,7 +119,6 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     'rate' => l.tooManyAttempts,
     'network' => l.networkUnavailable,
     'consent' => l.consentRequired,
-    'wechat' => l.wechatAppUnavailable,
     _ => l.serviceUnavailable,
   };
 
@@ -227,28 +227,6 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     }
   }
 
-  Future<void> _wechatLogin() async {
-    if (_busy || _capabilities?.wechatAppEnabled != true) return;
-    if (!_accepted) {
-      setState(() => _error = 'consent');
-      return;
-    }
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final success = await widget.controller.loginWithWechat(
-        privacyConsentGranted: true,
-      );
-      if (mounted && !success) setState(() => _error = 'wechat');
-    } catch (_) {
-      if (mounted) setState(() => _error = 'wechat');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
   Future<void> _openLegal(GlobalLegalDocumentType document) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -270,212 +248,154 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Theme(
-    data: ThemeData.dark(useMaterial3: true).copyWith(
-      scaffoldBackgroundColor: const Color(0xFF090B10),
-      colorScheme: const ColorScheme.dark(
-        primary: Color(0xFF79E87E),
-        onPrimary: Color(0xFF09220D),
-        surface: Color(0xFF20242C),
-        onSurface: Colors.white,
-      ),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Color(0xFF090B10),
-        foregroundColor: Colors.white,
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: const Color(0xFF20242C),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide.none,
-        ),
-      ),
-    ),
-    child: Scaffold(
-      key: const Key('global-code-login-page'),
-      appBar: AppBar(actions: const [GlobalLanguageButton()]),
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: ListView(
-              padding: const EdgeInsets.all(24),
-              children: [
-                const Center(
-                  child: Text(
-                    'SAY RING',
-                    style: TextStyle(
-                      fontSize: 32,
-                      letterSpacing: 3,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+  Widget build(BuildContext context) => Scaffold(
+    key: const Key('global-code-login-page'),
+    appBar: AppBar(actions: const [GlobalLanguageButton()]),
+    body: SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              const Center(child: SaydianBrandLockup()),
+              const SizedBox(height: 28),
+              Text(l.signIn, style: Theme.of(context).textTheme.headlineMedium),
+              const SizedBox(height: 20),
+              if (_loading) const LinearProgressIndicator(),
+              if (_capabilities == null && !_loading)
+                TextButton.icon(
+                  onPressed: _loadCapabilities,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(l.retry),
                 ),
-                const SizedBox(height: 28),
-                Text(
-                  l.signIn,
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-                const SizedBox(height: 20),
-                if (_loading) const LinearProgressIndicator(),
-                if (_capabilities == null && !_loading)
-                  TextButton.icon(
-                    onPressed: _loadCapabilities,
-                    icon: const Icon(Icons.refresh),
-                    label: Text(l.retry),
-                  ),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    ChoiceChip(
-                      label: Text(l.phoneNumber),
-                      selected: _channel == AccountChannel.sms,
-                      onSelected: _busy
-                          ? null
-                          : (_) => setState(() {
-                              _channel = AccountChannel.sms;
-                              _contact.clear();
-                              _resetChallenge();
-                            }),
-                    ),
-                    ChoiceChip(
-                      label: Text(l.email),
-                      selected: _channel == AccountChannel.email,
-                      onSelected: _busy
-                          ? null
-                          : (_) => setState(() {
-                              _channel = AccountChannel.email;
-                              _contact.clear();
-                              _resetChallenge();
-                            }),
-                    ),
-                  ],
-                ),
-                if (_channel == AccountChannel.sms)
-                  OutlinedButton(
-                    key: const Key('code-login-country'),
-                    onPressed: _busy
+              Wrap(
+                spacing: 8,
+                children: [
+                  ChoiceChip(
+                    label: Text(l.phoneNumber),
+                    selected: _channel == AccountChannel.sms,
+                    onSelected: _busy
                         ? null
-                        : () => showCountryPicker(
-                            context: context,
-                            showPhoneCode: true,
-                            countryFilter: _capabilities?.smsCountries.toList(),
-                            onSelect: (value) => setState(() {
-                              _country = value.countryCode;
-                              _phoneCode = value.phoneCode;
-                              _resetChallenge();
-                            }),
-                          ),
-                    child: Text('$_country +$_phoneCode'),
+                        : (_) => setState(() {
+                            _channel = AccountChannel.sms;
+                            _contact.clear();
+                            _resetChallenge();
+                          }),
                   ),
-                TextField(
-                  key: const Key('code-login-contact'),
-                  controller: _contact,
-                  enabled: !_busy,
-                  keyboardType: _channel == AccountChannel.sms
-                      ? TextInputType.phone
-                      : TextInputType.emailAddress,
-                  autofillHints: [
-                    _channel == AccountChannel.sms
-                        ? AutofillHints.telephoneNumber
-                        : AutofillHints.email,
-                  ],
-                  decoration: InputDecoration(
-                    labelText: _channel == AccountChannel.sms
-                        ? l.phoneNumber
-                        : l.email,
-                  ),
-                  onChanged: (_) => setState(_resetChallenge),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const Key('code-login-code'),
-                  controller: _code,
-                  enabled: !_busy,
-                  keyboardType: TextInputType.number,
-                  autofillHints: const [AutofillHints.oneTimeCode],
-                  decoration: InputDecoration(labelText: l.verificationCode),
-                ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    key: const Key('code-login-send'),
-                    onPressed: _busy || _remaining > 0 ? null : _sendCode,
-                    child: Text(
-                      _remaining > 0 ? l.resendCode(_remaining) : l.sendCode,
-                    ),
-                  ),
-                ),
-                if (_challenge != null)
-                  Text(l.verificationSentTo(_challenge!.maskedIdentifier)),
-                CheckboxListTile(
-                  key: const Key('code-login-consent'),
-                  contentPadding: EdgeInsets.zero,
-                  controlAffinity: ListTileControlAffinity.leading,
-                  value: _accepted,
-                  onChanged:
-                      _busy ||
-                          !(_capabilities?.consentVersion?.trim().isNotEmpty ??
-                              false)
-                      ? null
-                      : (value) => setState(() => _accepted = value == true),
-                  title: Text(
-                    l.agreeToTerms,
-                    style: const TextStyle(fontSize: 12, height: 1.4),
-                  ),
-                ),
-                Wrap(
-                  children: [
-                    TextButton(
-                      onPressed: () =>
-                          _openLegal(GlobalLegalDocumentType.userAgreement),
-                      child: Text(l.termsOfService),
-                    ),
-                    TextButton(
-                      onPressed: () =>
-                          _openLegal(GlobalLegalDocumentType.privacyPolicy),
-                      child: Text(l.privacyPolicy),
-                    ),
-                  ],
-                ),
-                if (_error != null)
-                  Text(
-                    _errorText(),
-                    key: const Key('code-login-error'),
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                const SizedBox(height: 12),
-                FilledButton(
-                  key: const Key('code-login-submit'),
-                  onPressed: _busy ? null : _submit,
-                  child: Text(_busy ? l.pleaseWait : l.signIn),
-                ),
-                const SizedBox(height: 14),
-                OutlinedButton.icon(
-                  key: const Key('code-login-wechat'),
-                  onPressed: !_busy && _capabilities?.wechatAppEnabled == true
-                      ? _wechatLogin
-                      : null,
-                  icon: const Icon(Icons.wechat_rounded),
-                  label: Text(l.wechatAuthorize),
-                ),
-                if (_capabilities?.wechatAppEnabled != true) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    l.wechatAppUnavailable,
-                    key: const Key('code-login-wechat-unavailable'),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Color(0xFFABB5C2),
-                      fontSize: 12,
-                    ),
+                  ChoiceChip(
+                    label: Text(l.email),
+                    selected: _channel == AccountChannel.email,
+                    onSelected: _busy
+                        ? null
+                        : (_) => setState(() {
+                            _channel = AccountChannel.email;
+                            _contact.clear();
+                            _resetChallenge();
+                          }),
                   ),
                 ],
-              ],
-            ),
+              ),
+              if (_channel == AccountChannel.sms)
+                OutlinedButton(
+                  key: const Key('code-login-country'),
+                  onPressed: _busy
+                      ? null
+                      : () => showCountryPicker(
+                          context: context,
+                          showPhoneCode: true,
+                          countryFilter: _capabilities?.smsCountries.toList(),
+                          onSelect: (value) => setState(() {
+                            _country = value.countryCode;
+                            _phoneCode = value.phoneCode;
+                            _resetChallenge();
+                          }),
+                        ),
+                  child: Text('$_country +$_phoneCode'),
+                ),
+              TextField(
+                key: const Key('code-login-contact'),
+                controller: _contact,
+                enabled: !_busy,
+                keyboardType: _channel == AccountChannel.sms
+                    ? TextInputType.phone
+                    : TextInputType.emailAddress,
+                autofillHints: [
+                  _channel == AccountChannel.sms
+                      ? AutofillHints.telephoneNumber
+                      : AutofillHints.email,
+                ],
+                decoration: InputDecoration(
+                  labelText: _channel == AccountChannel.sms
+                      ? l.phoneNumber
+                      : l.email,
+                ),
+                onChanged: (_) => setState(_resetChallenge),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('code-login-code'),
+                controller: _code,
+                enabled: !_busy,
+                keyboardType: TextInputType.number,
+                autofillHints: const [AutofillHints.oneTimeCode],
+                decoration: InputDecoration(labelText: l.verificationCode),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  key: const Key('code-login-send'),
+                  onPressed: _busy || _remaining > 0 ? null : _sendCode,
+                  child: Text(
+                    _remaining > 0 ? l.resendCode(_remaining) : l.sendCode,
+                  ),
+                ),
+              ),
+              if (_challenge != null)
+                Text(l.verificationSentTo(_challenge!.maskedIdentifier)),
+              CheckboxListTile(
+                key: const Key('code-login-consent'),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _accepted,
+                onChanged:
+                    _busy ||
+                        !(_capabilities?.consentVersion?.trim().isNotEmpty ??
+                            false)
+                    ? null
+                    : (value) => setState(() => _accepted = value == true),
+                title: Text(
+                  l.agreeToTerms,
+                  style: const TextStyle(fontSize: 12, height: 1.4),
+                ),
+              ),
+              Wrap(
+                children: [
+                  TextButton(
+                    onPressed: () =>
+                        _openLegal(GlobalLegalDocumentType.userAgreement),
+                    child: Text(l.termsOfService),
+                  ),
+                  TextButton(
+                    onPressed: () =>
+                        _openLegal(GlobalLegalDocumentType.privacyPolicy),
+                    child: Text(l.privacyPolicy),
+                  ),
+                ],
+              ),
+              if (_error != null)
+                Text(
+                  _errorText(),
+                  key: const Key('code-login-error'),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              const SizedBox(height: 12),
+              FilledButton(
+                key: const Key('code-login-submit'),
+                onPressed: _busy ? null : _submit,
+                child: Text(_busy ? l.pleaseWait : l.signIn),
+              ),
+            ],
           ),
         ),
       ),

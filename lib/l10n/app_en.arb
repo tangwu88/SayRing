@@ -771,8 +771,6 @@
   "shareProduct": "Share product",
   "customerReviews": "Customer reviews",
   "stockCount": "{count} in stock",
-  "wechatAuthorize": "Continue with WeChat",
-  "wechatAppUnavailable": "WeChat sign-in is not available yet. Use a phone number or email.",
   "@stockCount": {
     "placeholders": {
       "count": {

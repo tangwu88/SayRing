@@ -670,8 +670,6 @@
   "shareProduct": "상품 공유",
   "customerReviews": "고객 리뷰",
   "stockCount": "재고 {count}개",
-  "wechatAuthorize": "WeChat으로 로그인",
-  "wechatAppUnavailable": "WeChat 로그인은 아직 사용할 수 없습니다. 전화번호 또는 이메일을 이용해 주세요.",
   "@stockCount": {
     "placeholders": {
       "count": {

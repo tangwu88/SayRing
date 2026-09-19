@@ -1898,12 +1898,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String stockCount(int count) {
     return '库存 $count 件';
   }
-
-  @override
-  String get wechatAuthorize => '微信授權登入';
-
-  @override
-  String get wechatAppUnavailable => '微信授權尚未開通，請使用手機號碼或電子郵件登入。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -3800,12 +3794,6 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String stockCount(int count) {
     return '库存 $count 件';
   }
-
-  @override
-  String get wechatAuthorize => '微信授权登录';
-
-  @override
-  String get wechatAppUnavailable => '微信授权暂未开通，请使用手机号或邮箱登录。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5702,10 +5690,4 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String stockCount(int count) {
     return '庫存 $count 件';
   }
-
-  @override
-  String get wechatAuthorize => '微信授權登入';
-
-  @override
-  String get wechatAppUnavailable => '微信授權尚未開通，請使用手機號碼或電子郵件登入。';
 }

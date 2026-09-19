@@ -2029,11 +2029,4 @@ class AppLocalizationsEs extends AppLocalizations {
   String stockCount(int count) {
     return '$count en stock';
   }
-
-  @override
-  String get wechatAuthorize => 'Iniciar sesión con WeChat';
-
-  @override
-  String get wechatAppUnavailable =>
-      'El inicio de sesión con WeChat aún no está disponible. Usa un teléfono o correo electrónico.';
 }

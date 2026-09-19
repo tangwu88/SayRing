@@ -16,82 +16,11 @@ import 'package:saydian_app/ui/app_theme.dart';
 import 'package:saydian_app/ui/health_trend_page.dart';
 import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
-import 'package:saydian_app/ui/ring_shell.dart';
 
 void main() {
   // Legacy page hosts deliberately retain Chinese copy. DateFormat now uses
   // the explicit page locale rather than a hard-coded numeric pattern.
   setUpAll(() => initializeDateFormatting('zh_Hans'));
-
-  testWidgets(
-    'ring shell keeps unknown health values empty and exposes four destinations',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(390, 844));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      final controller = AppController(
-        MemorySessionVault(),
-        _NoopApi(),
-        MemoryHealthStore(),
-        _NoopWearable(),
-      )..enterPreview();
-      addTearDown(controller.dispose);
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildSaydianTheme(),
-          home: ListenableBuilder(
-            listenable: controller,
-            builder: (context, _) => RingShell(controller: controller),
-          ),
-        ),
-      );
-      expect(find.byKey(const Key('ring-home')), findsOneWidget);
-      expect(find.byKey(const Key('ring-overview-card')), findsOneWidget);
-      expect(find.textContaining('--'), findsWidgets);
-      expect(
-        tester.widget<NavigationBar>(find.byType(NavigationBar)).destinations,
-        hasLength(4),
-      );
-      for (final (tab, key) in <(int, String)>[
-        (3, 'ring-sleep'),
-        (4, 'ring-sport'),
-        (2, 'ring-me'),
-        (0, 'ring-home'),
-      ]) {
-        controller.selectTab(tab);
-        await tester.pump();
-        expect(find.byKey(Key(key)), findsOneWidget);
-        expect(tester.takeException(), isNull, reason: key);
-      }
-    },
-  );
-
-  testWidgets('ring shell remains usable with enlarged text', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(375, 812));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final controller = AppController(
-      MemorySessionVault(),
-      _NoopApi(),
-      MemoryHealthStore(),
-      _NoopWearable(),
-    )..enterPreview();
-    addTearDown(controller.dispose);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: MediaQuery(
-          data: const MediaQueryData(textScaler: TextScaler.linear(2)),
-          child: ListenableBuilder(
-            listenable: controller,
-            builder: (context, _) => RingShell(controller: controller),
-          ),
-        ),
-      ),
-    );
-    for (final tab in [0, 3, 4, 2]) {
-      controller.selectTab(tab);
-      await tester.pump();
-      expect(tester.takeException(), isNull, reason: 'ring tab $tab');
-    }
-  });
 
   testWidgets('home mini chart does not duplicate its parent empty status', (
     tester,

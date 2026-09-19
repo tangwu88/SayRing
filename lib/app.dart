@@ -18,7 +18,6 @@ import 'ui/brand_assets.dart';
 import 'ui/pages.dart';
 import 'ui/prototype_pages.dart';
 import 'ui/global_code_login_page.dart';
-import 'ui/ring_shell.dart';
 
 class DismissKeyboardOnBackgroundTap extends StatefulWidget {
   const DismissKeyboardOnBackgroundTap({required this.child, super.key});
@@ -661,9 +660,7 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
                     ? GlobalCodeLoginPage(controller: controller)
                     : LoginPage(controller: controller);
               }
-              return controller.isGlobalEdition
-                  ? RingShell(controller: controller)
-                  : AppShell(controller: controller);
+              return AppShell(controller: controller);
             },
           ),
         ),

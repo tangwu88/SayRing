@@ -2034,11 +2034,4 @@ class AppLocalizationsFr extends AppLocalizations {
   String stockCount(int count) {
     return '$count en stock';
   }
-
-  @override
-  String get wechatAuthorize => 'Se connecter avec WeChat';
-
-  @override
-  String get wechatAppUnavailable =>
-      'La connexion WeChat n\'est pas encore disponible. Utilisez un numéro de téléphone ou une adresse e-mail.';
 }

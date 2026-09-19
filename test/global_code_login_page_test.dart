@@ -70,18 +70,6 @@ void main() {
     expect(find.byKey(const Key('global-code-login-page')), findsOneWidget);
     expect(find.byKey(const Key('auth-password')), findsNothing);
     expect(find.byKey(const Key('auth-toggle-mode')), findsNothing);
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('code-login-wechat')),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(find.byKey(const Key('code-login-wechat')), findsOneWidget);
-    expect(
-      tester
-          .widget<OutlinedButton>(find.byKey(const Key('code-login-wechat')))
-          .onPressed,
-      isNull,
-    );
     expect(find.text('CN +86'), findsOneWidget);
     expect(
       tester

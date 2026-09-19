@@ -1937,11 +1937,4 @@ class AppLocalizationsKo extends AppLocalizations {
   String stockCount(int count) {
     return '재고 $count개';
   }
-
-  @override
-  String get wechatAuthorize => 'WeChat으로 로그인';
-
-  @override
-  String get wechatAppUnavailable =>
-      'WeChat 로그인은 아직 사용할 수 없습니다. 전화번호 또는 이메일을 이용해 주세요.';
 }

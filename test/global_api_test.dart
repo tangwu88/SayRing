@@ -57,19 +57,6 @@ Map<String, Object?> capabilities({
 };
 
 void main() {
-  test('App WeChat capability is closed unless explicitly advertised', () {
-    final closed = GlobalAuthCapabilities.fromJson(capabilities());
-    expect(closed.wechatAppEnabled, isFalse);
-    final open = GlobalAuthCapabilities.fromJson({
-      ...capabilities(),
-      'login': {
-        'sms': true,
-        'wechatApp': {'enabled': true},
-      },
-    });
-    expect(open.wechatAppEnabled, isTrue);
-  });
-
   test('shared H5 code login creates the same global member session', () async {
     final vault = MemorySessionVault();
     final paths = <String>[];

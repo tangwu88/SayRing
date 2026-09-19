@@ -670,8 +670,6 @@
   "shareProduct": "Partager le produit",
   "customerReviews": "Avis clients",
   "stockCount": "{count} en stock",
-  "wechatAuthorize": "Se connecter avec WeChat",
-  "wechatAppUnavailable": "La connexion WeChat n'est pas encore disponible. Utilisez un numéro de téléphone ou une adresse e-mail.",
   "@stockCount": {
     "placeholders": {
       "count": {
