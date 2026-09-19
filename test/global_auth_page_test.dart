@@ -284,6 +284,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Reset password'), findsWidgets);
     expect(find.byKey(const Key('auth-code')), findsOneWidget);
+    expect(find.byKey(const Key('auth-toggle-mode')), findsNothing);
     expect(find.text('Email'), findsWidgets);
     expect(tester.takeException(), isNull);
   });

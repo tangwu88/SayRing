@@ -66,6 +66,8 @@ class GlobalAuthCapabilities {
     this.legal = const {},
     this.recoveryEmail = false,
     this.recoverySms = false,
+    this.loginEmail = false,
+    this.loginSms = false,
   });
   final bool email;
   final bool sms;
@@ -76,6 +78,8 @@ class GlobalAuthCapabilities {
   final Map<String, String> legal;
   final bool recoveryEmail;
   final bool recoverySms;
+  final bool loginEmail;
+  final bool loginSms;
 
   factory GlobalAuthCapabilities.fromJson(Map<String, Object?> data) {
     if (data['realm'] != 'global') {
@@ -91,6 +95,9 @@ class GlobalAuthCapabilities {
           data['recovery'] is Map && (data['recovery'] as Map)['email'] == true,
       recoverySms:
           data['recovery'] is Map && (data['recovery'] as Map)['sms'] == true,
+      loginEmail:
+          data['login'] is Map && (data['login'] as Map)['email'] == true,
+      loginSms: data['login'] is Map && (data['login'] as Map)['sms'] == true,
       smsCountries: (data['smsCountries'] as List? ?? const [])
           .whereType<String>()
           .map((value) => value.toUpperCase())
@@ -114,6 +121,13 @@ class GlobalAuthCapabilities {
           (recovery ? recoverySms : sms) &&
               (!recovery && !verificationRequired ||
                   smsCountries.contains(identity.country)),
+      };
+
+  bool permitsLogin(GlobalAccountIdentity identity) =>
+      switch (identity.channel) {
+        AccountChannel.email => loginEmail,
+        AccountChannel.sms =>
+          loginSms && smsCountries.contains(identity.country),
       };
 }
 

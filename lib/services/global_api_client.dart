@@ -26,6 +26,20 @@ abstract interface class GlobalAccountApi {
   });
 }
 
+abstract interface class GlobalCodeAuthApi {
+  Future<VerificationChallenge> requestLoginCode({
+    required GlobalAccountIdentity identity,
+    required String locale,
+  });
+  Future<Session> loginWithCode({
+    required GlobalAccountIdentity identity,
+    required String challengeId,
+    required String code,
+    required String consentVersion,
+    required String locale,
+  });
+}
+
 abstract interface class GlobalCareApi {
   Future<List<GlobalCareRelationship>> globalCareRelationships();
   Future<void> globalInviteCare(String identifier);
@@ -136,6 +150,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     with GlobalHealthApi
     implements
         GlobalAccountApi,
+        GlobalCodeAuthApi,
         GlobalCareApi,
         GlobalContentApi,
         GlobalCommerceApi,
@@ -1314,6 +1329,80 @@ class GlobalSaydianApiClient extends SaydianApiClient
     return _data(_decode(response));
   }
 
+  Future<Map<String, Object?>> _sharedCodeAuth(
+    String path,
+    Map<String, Object?> body,
+  ) async {
+    final response = await _performRequest(
+      () => _client.post(
+        GlobalEnvironment.resolveSharedCodeAuth(_baseUri, path),
+        headers: {
+          'Accept-Language': _locale(),
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(body),
+      ),
+    );
+    return _decode(response);
+  }
+
+  @override
+  Future<VerificationChallenge> requestLoginCode({
+    required GlobalAccountIdentity identity,
+    required String locale,
+  }) async => VerificationChallenge.fromJson(
+    await _sharedCodeAuth(GlobalEnvironment.sharedCodeRequestPath, {
+      ...identity.toJson(),
+      'locale': locale,
+    }),
+  );
+
+  @override
+  Future<Session> loginWithCode({
+    required GlobalAccountIdentity identity,
+    required String challengeId,
+    required String code,
+    required String consentVersion,
+    required String locale,
+  }) async {
+    final data = await _sharedCodeAuth(GlobalEnvironment.sharedCodeLoginPath, {
+      ...identity.toJson(),
+      'challengeId': challengeId,
+      'code': code,
+      'consentVersion': consentVersion,
+      'locale': locale,
+    });
+    final user = data['user'];
+    final id = user is Map ? user['id'] : null;
+    final access = data['token'];
+    final refresh = data['refreshToken'];
+    final expiry = DateTime.tryParse('${data['expiresAt'] ?? ''}');
+    if (user is! Map ||
+        user['phoneTestMode'] == true ||
+        id is! String ||
+        id.trim().isEmpty ||
+        access is! String ||
+        access.isEmpty ||
+        refresh is! String ||
+        refresh.isEmpty ||
+        expiry == null) {
+      throw const ApiException(
+        'Unable to sign in. Please try again.',
+        code: 'AUTH_IDENTITY_MISSING',
+      );
+    }
+    final session = Session(
+      accessToken: access,
+      refreshToken: refresh,
+      expiresAt: expiry.toUtc(),
+      memberId: id,
+      displayName: '${user['nickname'] ?? 'Say Ring user'}',
+      accountKey: 'global:member:$id',
+    );
+    await _vault.writeSession(session);
+    return session;
+  }
+
   @override
   Future<GlobalAuthCapabilities> getAuthCapabilities() async =>
       GlobalAuthCapabilities.fromJson(
@@ -1550,7 +1639,12 @@ class _GlobalHttpClient extends http.BaseClient {
     if (request.url.origin != origin.origin ||
         request.url.userInfo.isNotEmpty ||
         (request.url.path != GlobalEnvironment.apiPrefix &&
-            !request.url.path.startsWith('${GlobalEnvironment.apiPrefix}/'))) {
+            !request.url.path.startsWith('${GlobalEnvironment.apiPrefix}/') &&
+            !GlobalEnvironment.allowsSharedCodeAuth(
+              request.url,
+              origin,
+              method: request.method,
+            ))) {
       NetworkAudit.record(
         request.url,
         request.method,

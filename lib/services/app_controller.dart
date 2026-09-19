@@ -425,6 +425,57 @@ class AppController extends ChangeNotifier {
   Future<GlobalAuthCapabilities> globalAuthCapabilities() =>
       (_api as GlobalAccountApi).getAuthCapabilities();
 
+  Future<VerificationChallenge> requestGlobalLoginCode({
+    required GlobalAccountIdentity identity,
+    required String locale,
+  }) => (_api as GlobalCodeAuthApi).requestLoginCode(
+    identity: identity,
+    locale: locale,
+  );
+
+  Future<bool> loginGlobalWithCode({
+    required GlobalAccountIdentity identity,
+    required VerificationChallenge challenge,
+    required String code,
+    required String locale,
+    required String consentVersion,
+    required bool privacyConsentGranted,
+  }) async {
+    if (isBusy ||
+        !privacyConsentGranted ||
+        consentVersion.trim().isEmpty ||
+        !RegExp(r'^\d{6}$').hasMatch(code.trim())) {
+      return false;
+    }
+    return _guard(() async {
+      _accountTransitioning = true;
+      try {
+        await _drainCloudSync();
+        session = await (_api as GlobalCodeAuthApi).loginWithCode(
+          identity: identity,
+          challengeId: challenge.id,
+          code: code.trim(),
+          consentVersion: consentVersion,
+          locale: locale,
+        );
+        await _prepareAuthenticatedNotificationSession(
+          privacyConsentGranted: true,
+        );
+        isPreviewMode = false;
+        await refreshCare();
+        await refreshCareInvitations();
+        await _refreshRemoteNotificationUnreadCount();
+        await refreshMemberProfile();
+        await refreshActivityGoals();
+        unawaited(refreshHealthWarningCloudState());
+        _careInvitationPollBackoffIndex = 0;
+        _scheduleCareInvitationPoll(const Duration(seconds: 30));
+      } finally {
+        await _finishAccountTransition();
+      }
+    });
+  }
+
   Future<Map<String, Object?>> globalLegalDocument(String path) =>
       (_api as GlobalAccountApi).getGlobalLegalDocument(path);
 

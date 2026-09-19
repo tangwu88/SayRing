@@ -7,6 +7,10 @@ abstract final class GlobalEnvironment {
   static const origin = 'https://app.saydian.cn';
   static const apiPrefix = '/global/api/saydian-app/v2';
   static const canonicalApiPrefix = '/api/saydian-app/v2';
+  static const sharedCodeRequestPath =
+      '/global/api/saidian-mall/v1/auth/code/request';
+  static const sharedCodeLoginPath =
+      '/global/api/saidian-mall/v1/auth/code/login';
   static const productId = 'say-ring';
   static String get storageNamespace => sha256
       .convert(utf8.encode('${configuredOrigin.origin}$apiPrefix:$productId'))
@@ -114,6 +118,31 @@ abstract final class GlobalEnvironment {
     }
     return resolved;
   }
+
+  /// The H5 and App use the same verified member for code login. These two
+  /// exact global-realm routes are the only non-V2 API exceptions.
+  static Uri resolveSharedCodeAuth(Uri origin, String path) {
+    if (path != sharedCodeRequestPath && path != sharedCodeLoginPath) {
+      throw ArgumentError('Shared code-auth path required');
+    }
+    final result = origin.resolve(path);
+    if (result.origin != origin.origin || !safeResourcePath(result)) {
+      throw ArgumentError('Invalid shared code-auth origin');
+    }
+    return result;
+  }
+
+  static bool allowsSharedCodeAuth(
+    Uri uri,
+    Uri expectedOrigin, {
+    String method = 'POST',
+  }) =>
+      method == 'POST' &&
+      uri.origin == expectedOrigin.origin &&
+      uri.userInfo.isEmpty &&
+      !uri.hasQuery &&
+      safeResourcePath(uri) &&
+      (uri.path == sharedCodeRequestPath || uri.path == sharedCodeLoginPath);
 
   static String media(String input) {
     final uri = Uri.tryParse(input.trim());

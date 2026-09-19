@@ -564,19 +564,20 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                     onPressed: _busy ? null : () => _setMode(_AuthMode.reset),
                     child: Text(l.forgotPassword),
                   ),
-                TextButton(
-                  key: const Key('auth-toggle-mode'),
-                  onPressed: _busy
-                      ? null
-                      : () => _setMode(
-                          _mode == _AuthMode.signIn
-                              ? _AuthMode.signUp
-                              : _AuthMode.signIn,
-                        ),
-                  child: Text(
-                    _mode == _AuthMode.signIn ? l.noAccount : l.haveAccount,
+                if (!widget.resetPassword)
+                  TextButton(
+                    key: const Key('auth-toggle-mode'),
+                    onPressed: _busy
+                        ? null
+                        : () => _setMode(
+                            _mode == _AuthMode.signIn
+                                ? _AuthMode.signUp
+                                : _AuthMode.signIn,
+                          ),
+                    child: Text(
+                      _mode == _AuthMode.signIn ? l.noAccount : l.haveAccount,
+                    ),
                   ),
-                ),
               ],
             ),
           ),

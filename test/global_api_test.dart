@@ -57,6 +57,98 @@ Map<String, Object?> capabilities({
 };
 
 void main() {
+  test('shared H5 code login creates the same global member session', () async {
+    final vault = MemorySessionVault();
+    final paths = <String>[];
+    final api = GlobalSaydianApiClient(
+      vault,
+      client: MockClient((request) async {
+        paths.add(request.url.path);
+        expect(request.url.origin, GlobalEnvironment.origin);
+        expect(request.followRedirects, isFalse);
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(body['channel'], 'sms');
+        expect(body['identifier'], '+8613800138000');
+        if (request.url.path == GlobalEnvironment.sharedCodeRequestPath) {
+          expect(body['locale'], 'en');
+          return http.Response(
+            jsonEncode({
+              'challengeId': 'synthetic-challenge',
+              'expiresIn': 300,
+              'retryAfter': 60,
+              'maskedIdentifier': '+86********000',
+            }),
+            200,
+          );
+        }
+        expect(request.url.path, GlobalEnvironment.sharedCodeLoginPath);
+        expect(body['challengeId'], 'synthetic-challenge');
+        expect(body['code'], '123456');
+        expect(body['consentVersion'], 'reviewed-test-v1');
+        return http.Response(
+          jsonEncode({
+            'token': 'synthetic-access',
+            'refreshToken': 'synthetic-refresh',
+            'expiresAt': '2099-01-01T00:00:00Z',
+            'user': {'id': 'shared-member-id', 'nickname': 'Shared user'},
+          }),
+          200,
+        );
+      }),
+    );
+    final identity = GlobalAccountIdentity.phone('13800138000', country: 'CN');
+    final challenge = await api.requestLoginCode(
+      identity: identity,
+      locale: 'en',
+    );
+    final session = await api.loginWithCode(
+      identity: identity,
+      challengeId: challenge.id,
+      code: '123456',
+      consentVersion: 'reviewed-test-v1',
+      locale: 'en',
+    );
+    expect(paths, [
+      GlobalEnvironment.sharedCodeRequestPath,
+      GlobalEnvironment.sharedCodeLoginPath,
+    ]);
+    expect(session.memberId, 'shared-member-id');
+    expect(session.accountKey, 'global:member:shared-member-id');
+    expect(vault.session?.memberId, 'shared-member-id');
+  });
+
+  test(
+    'temporary H5 phone-test session is never adopted by the ring App',
+    () async {
+      final vault = MemorySessionVault();
+      final api = GlobalSaydianApiClient(
+        vault,
+        client: MockClient(
+          (_) async => http.Response(
+            jsonEncode({
+              'token': 'synthetic-access',
+              'refreshToken': 'synthetic-refresh',
+              'expiresAt': '2099-01-01T00:00:00Z',
+              'user': {'id': 'test-only-member', 'phoneTestMode': true},
+            }),
+            200,
+          ),
+        ),
+      );
+      await expectLater(
+        api.loginWithCode(
+          identity: GlobalAccountIdentity.phone('13800138000', country: 'CN'),
+          challengeId: 'synthetic-challenge',
+          code: '123456',
+          consentVersion: 'reviewed-test-v1',
+          locale: 'en',
+        ),
+        throwsA(isA<ApiException>()),
+      );
+      expect(vault.session, isNull);
+    },
+  );
+
   test('legacy auth entry points never submit a global request', () async {
     var requests = 0;
     final api = GlobalSaydianApiClient(
@@ -94,6 +186,32 @@ void main() {
     expect(requests, 0);
   });
   group('identity', () {
+    test(
+      'login capabilities are separate from registration and fail closed',
+      () {
+        final caps = GlobalAuthCapabilities.fromJson({
+          ...capabilities(email: true, sms: true),
+          'login': {'email': false, 'sms': true},
+          'smsCountries': ['CN'],
+        });
+        expect(
+          caps.permitsLogin(
+            GlobalAccountIdentity.phone('13800138000', country: 'CN'),
+          ),
+          isTrue,
+        );
+        expect(
+          caps.permitsLogin(GlobalAccountIdentity.email('qa@example.com')),
+          isFalse,
+        );
+        expect(
+          GlobalAuthCapabilities.fromJson(capabilities()).permitsLogin(
+            GlobalAccountIdentity.phone('13800138000', country: 'CN'),
+          ),
+          isFalse,
+        );
+      },
+    );
     test('email normalization never merges provider-specific aliases', () {
       expect(
         GlobalAccountIdentity.email(' A.B+care@Example.com ').identifier,
@@ -163,6 +281,30 @@ void main() {
     });
   });
   group('environment', () {
+    test('only two exact global H5 code-auth paths may be shared', () {
+      final origin = Uri.parse(GlobalEnvironment.origin);
+      for (final path in [
+        GlobalEnvironment.sharedCodeRequestPath,
+        GlobalEnvironment.sharedCodeLoginPath,
+      ]) {
+        final uri = GlobalEnvironment.resolveSharedCodeAuth(origin, path);
+        expect(GlobalEnvironment.allowsSharedCodeAuth(uri, origin), isTrue);
+        expect(
+          GlobalEnvironment.allowsSharedCodeAuth(uri, origin, method: 'GET'),
+          isFalse,
+        );
+      }
+      for (final path in [
+        '/api/saidian-mall/v1/auth/code/login',
+        '/global/api/saidian-mall/v1/auth/code/login/other',
+        '/global/api/saidian-mall/v1/auth/password/login',
+      ]) {
+        expect(
+          () => GlobalEnvironment.resolveSharedCodeAuth(origin, path),
+          throwsArgumentError,
+        );
+      }
+    });
     test('all first-party paths stay inside App V2 with query preserved', () {
       final origin = Uri.parse(GlobalEnvironment.origin);
       expect(
