@@ -26,6 +26,7 @@
 - `android/gradlew.bat :app:testDebugUnitTest --offline`：16/16；`node --test harmony-native/tests` 因 Node 将目录当模块而失败，改为 PowerShell 显式展开 `*.test.mjs` 后 481/481 通过。两者均是宿主机测试，不代表真机/HAP 验收。
 - `flutter analyze --no-pub` 最终零问题；`git diff --check` 最终通过。
 - 首次 `git commit` 因本机没有 Git 作者身份而被拒绝，工作区和暂存区均保留；本次仅用命令级 `user.name=Codex`、`user.email=codex@openai.com` 提交，不修改用户全局 Git 配置或 GitHub 推送账号。
+- 提交前再次 `git fetch origin --prune`，本地基线和远端 `main` 均为 `b39c8ee0ae61e49dddcd8675f88a293f72ee3bcf`；本轮源码/测试提交 `c6557fd0e325825211f9739d7a580056d6e2c7d9` 推送到私有 `tangwu88/SayRing` 的 `codex/rebuild-from-handoff`，`git ls-remote` 回读相同 SHA。没有合并到 `main` 或执行线上部署。
 
 ## 未验收与下一轮
 
