@@ -2015,4 +2015,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String stockCount(int count) {
     return '$count in stock';
   }
+
+  @override
+  String get wechatAuthorize => 'Continue with WeChat';
+
+  @override
+  String get wechatAppUnavailable =>
+      'WeChat sign-in is not available yet. Use a phone number or email.';
 }

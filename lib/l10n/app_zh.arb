@@ -670,6 +670,8 @@
   "shareProduct": "分享商品",
   "customerReviews": "用户评价",
   "stockCount": "库存 {count} 件",
+  "wechatAuthorize": "微信授權登入",
+  "wechatAppUnavailable": "微信授權尚未開通，請使用手機號碼或電子郵件登入。",
   "@stockCount": {
     "placeholders": {
       "count": {

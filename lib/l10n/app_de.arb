@@ -670,6 +670,8 @@
   "shareProduct": "Produkt teilen",
   "customerReviews": "Kundenbewertungen",
   "stockCount": "{count} auf Lager",
+  "wechatAuthorize": "Mit WeChat anmelden",
+  "wechatAppUnavailable": "Die WeChat-Anmeldung ist noch nicht verfügbar. Melde dich per Telefonnummer oder E-Mail an.",
   "@stockCount": {
     "placeholders": {
       "count": {

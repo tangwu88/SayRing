@@ -670,6 +670,8 @@
   "shareProduct": "商品を共有",
   "customerReviews": "購入者レビュー",
   "stockCount": "在庫 {count} 点",
+  "wechatAuthorize": "WeChatでログイン",
+  "wechatAppUnavailable": "WeChatログインはまだ利用できません。電話番号またはメールを使用してください。",
   "@stockCount": {
     "placeholders": {
       "count": {

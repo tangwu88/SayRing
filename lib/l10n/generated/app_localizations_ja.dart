@@ -1930,4 +1930,11 @@ class AppLocalizationsJa extends AppLocalizations {
   String stockCount(int count) {
     return '在庫 $count 点';
   }
+
+  @override
+  String get wechatAuthorize => 'WeChatでログイン';
+
+  @override
+  String get wechatAppUnavailable =>
+      'WeChatログインはまだ利用できません。電話番号またはメールを使用してください。';
 }

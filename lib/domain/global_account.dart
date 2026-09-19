@@ -68,6 +68,8 @@ class GlobalAuthCapabilities {
     this.recoverySms = false,
     this.loginEmail = false,
     this.loginSms = false,
+    this.wechatAppEnabled = false,
+    this.wechatAppReason,
   });
   final bool email;
   final bool sms;
@@ -80,6 +82,8 @@ class GlobalAuthCapabilities {
   final bool recoverySms;
   final bool loginEmail;
   final bool loginSms;
+  final bool wechatAppEnabled;
+  final String? wechatAppReason;
 
   factory GlobalAuthCapabilities.fromJson(Map<String, Object?> data) {
     if (data['realm'] != 'global') {
@@ -98,6 +102,14 @@ class GlobalAuthCapabilities {
       loginEmail:
           data['login'] is Map && (data['login'] as Map)['email'] == true,
       loginSms: data['login'] is Map && (data['login'] as Map)['sms'] == true,
+      wechatAppEnabled:
+          data['login'] is Map &&
+          (data['login'] as Map)['wechatApp'] is Map &&
+          ((data['login'] as Map)['wechatApp'] as Map)['enabled'] == true,
+      wechatAppReason:
+          data['login'] is Map && (data['login'] as Map)['wechatApp'] is Map
+          ? '${((data['login'] as Map)['wechatApp'] as Map)['reason'] ?? ''}'
+          : null,
       smsCountries: (data['smsCountries'] as List? ?? const [])
           .whereType<String>()
           .map((value) => value.toUpperCase())

@@ -670,6 +670,8 @@
   "shareProduct": "Compartir producto",
   "customerReviews": "Reseñas de clientes",
   "stockCount": "{count} en stock",
+  "wechatAuthorize": "Iniciar sesión con WeChat",
+  "wechatAppUnavailable": "El inicio de sesión con WeChat aún no está disponible. Usa un teléfono o correo electrónico.",
   "@stockCount": {
     "placeholders": {
       "count": {
