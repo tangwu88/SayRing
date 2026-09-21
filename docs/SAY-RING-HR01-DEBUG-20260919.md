@@ -38,6 +38,7 @@
 - A/B 排查：短时使用 LuckRing 检查同一戒指，其设备页保持已连接约 40 秒；随后停止 LuckRing。将 SDK 可选的 unsolicited data channel 暂时关闭后，Say Ring 仍在手动心率测量中发生同类 HCI `0x08` 超时；该试验未改善问题，已恢复原配置。不能仅凭这组短样本断言 SDK 或硬件单方为根因。
 - 恢复原配置并重新覆盖安装后，11:54 真机手动血氧在约 15 秒收到有效 SDK 回调，弹窗正常结束，国际接口 POST HTTP 201、随后 GET HTTP 200，趋势页显示新增记录。这证明单次血氧链路可用，但前两次因断线失败，不能宣称稳定通过或每次可测。该真机测量值和设备地址未写入日志。
 - 本次覆盖安装后的 11:53:37 至 11:56:56 观察窗内未再收到本 App 的断连回调，且血氧测量成功；早前断连事实仍保留，尚缺重复长时间/不同场景测试。
+- 真机临时截屏仅用于本地页面核对；复核后已从本机 `build/qa-device` 与手机临时 Download 路径删除，未加入 Git。
 - 当前未验收：持续稳定连接与三轮重连、历史睡眠/运动/HRV 等多包数据、H5 双向核对、微信原生登录、iOS 真机。保持对应 UI/能力及同步状态 fail-closed。
 
 ### 2026-09-21 命令与构建结果
@@ -51,3 +52,4 @@
 - 同参数 `flutter build apk --release` 且 `SAIDIAN_ALLOW_QA_RELEASE=true`：首次 R8 失败、精确规则修复后通过；最终代码重跑通过（71.5 秒，66.1 MB）。`aapt dump badging` 与 `apksigner verify --print-certs` 核对 Debug/QA Release 均为 `cn.saydian.ring` 0.1.21 (1004)，证书均为 Android Debug，故 QA Release 不是正式签名/线上发布。首次因误写本机 build-tools 35.0.0 路径未执行，改为已安装的 36.0.0 后通过。
 - `git diff --check`：最终提交前通过，仅有本机 LF/CRLF 转换告警；未发现空白错误。iOS Debug/Profile：Windows 无 Xcode，未执行。
 - 首次 `git commit` 因本机未配置 `user.name`/`user.email` 失败，暂未产生提交；检查本分支最近提交均为 `Codex <codex@openai.com>`，改用仅本次命令的相同作者身份提交，不改全局 Git 配置。
+- 已核实 GitHub `tangwu88/SayRing` 为私有仓库；提交 `bc268c6` 并推送到 `codex/rebuild-from-handoff`，未合入 `main`、未触发生产部署。对应 [Actions run 35559497090](https://github.com/tangwu88/SayRing/actions/runs/35559497090) 在约 3 秒内失败：Harmony UTC/Asia-Shanghai 与 quality 三个首批 job 均 `failure`、`step_count=0`，Android/iOS job `skipped`。尝试读取 quality job 日志返回 404 `The specified blob does not exist`；无法从 API 确认账户/Runner 层具体原因，不能称远端 CI 通过，需在 GitHub Actions 页面核查调度/计费等状态后重跑。
