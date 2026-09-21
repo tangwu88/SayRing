@@ -84,6 +84,15 @@ void main() {
       WearableDeviceClassifier.transportFor('D Ring'),
       WearableTransport.moyoung,
     );
+    expect(
+      WearableDeviceClassifier.transportFor('HR01'),
+      WearableTransport.coolwear,
+    );
+    expect(
+      WearableDeviceClassifier.transportFor('hr01-1'),
+      WearableTransport.coolwear,
+    );
+    expect(WearableDeviceClassifier.transportFor('HR010'), isNull);
     expect(WearableDeviceClassifier.transportFor('W8'), isNull);
     expect(WearableDeviceClassifier.transportFor('Ring'), isNull);
     expect(WearableDeviceClassifier.transportFor(''), isNull);
@@ -92,6 +101,10 @@ void main() {
       WearableTransport.yucheng,
     );
     expect(WearableDeviceClassifier.transportForScopedId('VEP:A1-B2'), isNull);
+    expect(
+      WearableDeviceClassifier.transportForScopedId('coolwear:A1-B2'),
+      WearableTransport.coolwear,
+    );
     expect(
       WearableDeviceClassifier.transportForScopedId('ring-without-scope'),
       isNull,
@@ -180,6 +193,29 @@ void main() {
     expect(devices, hasLength(2));
     expect(devices.map((device) => device.id), contains('veepoo:V-1'));
     expect(devices.map((device) => device.id), contains('veepoo:TK-1'));
+  });
+
+  test('routes HR01 only through the CoolWear SDK', () async {
+    final coolwear = _FakeWearableBridge(
+      scanned: const [DeviceInfo(id: 'CW-1', name: 'HR01')],
+    );
+    final bridge = RoutedWearableBridge(
+      veepoo: _FakeWearableBridge(
+        scanned: const [DeviceInfo(id: 'VP-1', name: 'HR01')],
+      ),
+      yucheng: _FakeWearableBridge(scanned: const []),
+      coolwear: coolwear,
+      preferenceStore: _MemoryTransportPreference(),
+    );
+
+    final devices = await bridge.scanDevices();
+    expect(devices.map((device) => device.id), ['coolwear:CW-1']);
+    expect(devices.single.sdkSource, WearableSdkSource.coolwear);
+
+    await bridge.connect('coolwear:CW-1', profile: _profile);
+    await bridge.startMeasurement(HealthMetric.heartRate);
+    expect(coolwear.connectCalls, ['CW-1']);
+    expect(coolwear.measurementCalls, [HealthMetric.heartRate]);
   });
 
   test('scopes pulled V ring details and live metadata events', () async {

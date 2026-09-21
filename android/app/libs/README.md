@@ -24,6 +24,12 @@ Gradle 会自动检测完整文件集；只放入部分文件时会直接停止�
 
 授权范围仅限赛电 App 调用。
 
+## CoolWear 戒指 SDK
+
+`coolwear_bluesdk-release.aar` 来自项目方提供的 `Android&iOS_SDK20260910.zip` 内 `Android_SDK_DEMO_1.4.0.zip`，仅随本私有 Say Ring 工程用于 HR01 戒指调试。SHA-256：
+`AD482D5D69B99941D906038794165C1D479E5E038713954D9CA22059083D0F5F`。
+Gradle 缺少此锁定文件时停止构建；不得把调试 SDK、原始健康数据或供应商包公开分发。
+
 ## 双 SDK 依赖选择
 
 最终 App 只从云创插件目录解析共享杰理 AAR，Veepoo 的协议和蓝牙 AAR 保持不变。

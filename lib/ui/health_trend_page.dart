@@ -123,7 +123,10 @@ class HealthTrendPage extends StatefulWidget {
 
   final AppController controller;
   final HealthMetric metric;
-  final Future<void> Function()? onMeasure;
+
+  /// Receives this page's live context, not the context of the card that
+  /// opened it (which can be disposed during a device reconnect).
+  final Future<void> Function(BuildContext)? onMeasure;
 
   @override
   State<HealthTrendPage> createState() => _HealthTrendPageState();
@@ -243,7 +246,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
     if (onMeasure == null || _measuring) return;
     setState(() => _measuring = true);
     try {
-      await onMeasure();
+      await onMeasure(context);
       if (!mounted) return;
       final range = HealthTrendRange.forPeriod(_period, _anchor);
       final cached =
@@ -332,23 +335,44 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
               ],
             ),
             const SizedBox(height: 12),
-            if (widget.onMeasure != null) ...[
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  key: Key('health-measure-${widget.metric.wireName}'),
-                  onPressed: _measuring ? null : _measure,
-                  icon: _measuring
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.monitor_heart_outlined),
-                  label: Text(_measuring ? '测量中' : '手动测量'),
-                ),
+            if (widget.onMeasure != null)
+              ListenableBuilder(
+                listenable: widget.controller,
+                builder: (context, _) {
+                  if (!(widget.controller.capabilities
+                          ?.supportsManualMeasurement(widget.metric) ??
+                      false)) {
+                    return const SizedBox.shrink();
+                  }
+                  return Column(
+                    children: [
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          key: Key('health-measure-${widget.metric.wireName}'),
+                          onPressed:
+                              _measuring ||
+                                  !widget.controller.canMeasureHealthMetric(
+                                    widget.metric,
+                                  )
+                              ? null
+                              : _measure,
+                          icon: _measuring
+                              ? const SizedBox.square(
+                                  dimension: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.monitor_heart_outlined),
+                          label: Text(_measuring ? '测量中' : '手动测量'),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                  );
+                },
               ),
-              const SizedBox(height: 14),
-            ],
             if (_loading)
               const Card(
                 child: Padding(

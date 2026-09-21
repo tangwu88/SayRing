@@ -17,6 +17,11 @@
 # to the merged concrete callback class in the previous release APK.
 -keep class cc.saidian.saydian_app.VeepooWearableAdapter** { *; }
 
+# CoolWear's closed HR01 SDK dispatches callbacks through its own model and
+# proxy classes. Preserve those signatures across R8 optimization.
+-keep class ce.com.cenewbluesdk.** { *; }
+-keep interface ce.com.cenewbluesdk.** { *; }
+
 # The closed Bluetooth scanner writes scan payloads directly through
 # android.util.Log, bypassing the SDK logging flags. Remove every Android log
 # call from optimized release builds so device identifiers cannot enter logs.
@@ -35,6 +40,7 @@
 # those optional entry points. Keep R8 strict for every other missing class and
 # suppress only the exact vendor references reported by AGP.
 -dontwarn com.alibaba.fastjson.JSONObject
+-dontwarn com.alibaba.fastjson.JSONException
 -dontwarn com.alibaba.fastjson.TypeReference
 -dontwarn com.alibaba.fastjson.parser.Feature
 -dontwarn com.google.firebase.crashlytics.buildtools.reloc.org.apache.commons.codec.binary.Hex

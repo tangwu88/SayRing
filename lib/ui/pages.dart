@@ -1224,19 +1224,17 @@ class _MetricCard extends StatelessWidget {
       _HomeMetricStatus.low => context.l10n.statusLow,
       _HomeMetricStatus.high => context.l10n.statusHigh,
     };
-    final supportsManualMeasurement =
-        controller.canMeasureHealthMetric(metric) &&
-        const {
-          HealthMetric.bloodPressure,
-          HealthMetric.heartRate,
-          HealthMetric.bloodOxygen,
-          HealthMetric.bloodGlucose,
-          HealthMetric.bodyTemperature,
-          HealthMetric.ecg,
-          HealthMetric.hrv,
-          HealthMetric.bodyComposition,
-          HealthMetric.bloodComposition,
-        }.contains(metric);
+    final supportsManualMeasurement = const {
+      HealthMetric.bloodPressure,
+      HealthMetric.heartRate,
+      HealthMetric.bloodOxygen,
+      HealthMetric.bloodGlucose,
+      HealthMetric.bodyTemperature,
+      HealthMetric.ecg,
+      HealthMetric.hrv,
+      HealthMetric.bodyComposition,
+      HealthMetric.bloodComposition,
+    }.contains(metric);
     return GestureDetector(
       key: ValueKey('health-metric-${metric.name}'),
       onTap: () => Navigator.of(context).push(
@@ -1245,8 +1243,11 @@ class _MetricCard extends StatelessWidget {
             controller: controller,
             metric: metric,
             onMeasure: supportsManualMeasurement
-                ? () =>
-                      _showHealthMeasurementDialog(context, controller, metric)
+                ? (trendContext) => _showHealthMeasurementDialog(
+                    trendContext,
+                    controller,
+                    metric,
+                  )
                 : null,
           ),
         ),
@@ -1714,7 +1715,10 @@ class _HealthMeasurementDialog extends StatefulWidget {
 }
 
 class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
-  late final DateTime _startedAt = DateTime.now();
+  // Capture this when the dialog opens, even before the first record exists.
+  // A late initializer behind `record != null && ...` would only run after
+  // the vendor result arrives and incorrectly classify it as an old record.
+  final DateTime _startedAt = DateTime.now();
   bool _stopping = false;
 
   @override
@@ -3027,24 +3031,23 @@ class HealthHistoryPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canMeasure =
-        controller.canMeasureHealthMetric(metric) &&
-        const {
-          HealthMetric.heartRate,
-          HealthMetric.bloodOxygen,
-          HealthMetric.bloodPressure,
-          HealthMetric.bloodGlucose,
-          HealthMetric.bodyTemperature,
-          HealthMetric.ecg,
-          HealthMetric.hrv,
-          HealthMetric.bodyComposition,
-          HealthMetric.bloodComposition,
-        }.contains(metric);
+    final canMeasure = const {
+      HealthMetric.heartRate,
+      HealthMetric.bloodOxygen,
+      HealthMetric.bloodPressure,
+      HealthMetric.bloodGlucose,
+      HealthMetric.bodyTemperature,
+      HealthMetric.ecg,
+      HealthMetric.hrv,
+      HealthMetric.bodyComposition,
+      HealthMetric.bloodComposition,
+    }.contains(metric);
     return HealthTrendPage(
       controller: controller,
       metric: metric,
       onMeasure: canMeasure
-          ? () => _showHealthMeasurementDialog(context, controller, metric)
+          ? (trendContext) =>
+                _showHealthMeasurementDialog(trendContext, controller, metric)
           : null,
     );
   }

@@ -453,6 +453,7 @@ enum WearableSdkSource {
   veepoo('Vep', 'Veepoo'),
   yucheng('Yuc', 'Yucheng'),
   moyoung('Moy', 'Moyoung'),
+  coolwear('Coo', 'CoolWear'),
   unknown('--', '未标识');
 
   const WearableSdkSource(this.shortLabel, this.fullLabel);
@@ -465,6 +466,7 @@ enum WearableSdkSource {
     if (normalized.startsWith('veepoo:')) return WearableSdkSource.veepoo;
     if (normalized.startsWith('yucheng:')) return WearableSdkSource.yucheng;
     if (normalized.startsWith('moyoung:')) return WearableSdkSource.moyoung;
+    if (normalized.startsWith('coolwear:')) return WearableSdkSource.coolwear;
     return WearableSdkSource.unknown;
   }
 }

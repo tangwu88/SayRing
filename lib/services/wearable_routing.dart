@@ -9,7 +9,7 @@ import '../domain/models.dart';
 import 'global_storage_scope.dart';
 import 'wearable_bridge.dart';
 
-enum WearableTransport { veepoo, yucheng, moyoung }
+enum WearableTransport { veepoo, yucheng, moyoung, coolwear }
 
 /// Selects only the native transport that is allowed to attempt a handshake.
 ///
@@ -22,6 +22,9 @@ class WearableDeviceClassifier {
   static WearableTransport? transportFor(String name) {
     final normalized = name.trimLeft().toUpperCase();
     if (normalized.startsWith('YC')) return WearableTransport.yucheng;
+    if (normalized == 'HR01' || normalized.startsWith('HR01-')) {
+      return WearableTransport.coolwear;
+    }
     if (normalized.startsWith('TK') || normalized.startsWith('V')) {
       return WearableTransport.veepoo;
     }
@@ -37,6 +40,7 @@ class WearableDeviceClassifier {
       'yucheng' => WearableTransport.yucheng,
       'veepoo' => WearableTransport.veepoo,
       'moyoung' => WearableTransport.moyoung,
+      'coolwear' => WearableTransport.coolwear,
       _ => null,
     };
   }
@@ -118,6 +122,7 @@ class RoutedWearableBridge
     required WearableBridge veepoo,
     required WearableBridge yucheng,
     WearableBridge? moyoung,
+    WearableBridge? coolwear,
     WearableTransportPreferenceStore? preferenceStore,
     this.restoreOnlyBoundDevice = false,
     this.recoveryOperationTimeout = const Duration(seconds: 30),
@@ -129,6 +134,7 @@ class RoutedWearableBridge
        _preferenceStore =
            preferenceStore ?? const SecureWearableTransportPreferenceStore() {
     if (moyoung != null) _sources[WearableTransport.moyoung] = moyoung;
+    if (coolwear != null) _sources[WearableTransport.coolwear] = coolwear;
     _eventController
       ..onListen = _subscribeToSourceEvents
       ..onCancel = _cancelSourceEvents;

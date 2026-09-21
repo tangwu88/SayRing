@@ -1396,6 +1396,20 @@ void main() {
         _NoopWearable(),
       );
       await controller.initialize();
+      controller.connectedDevice = const DeviceInfo(id: 'watch-1', name: 'W9S');
+      controller.capabilities = const DeviceCapabilities(
+        metrics: {HealthMetric.ecg},
+        manualMetrics: {HealthMetric.ecg},
+      );
+      for (final state in const [
+        DeviceConnectionState.scanning,
+        DeviceConnectionState.connecting,
+        DeviceConnectionState.authenticating,
+        DeviceConnectionState.syncing,
+        DeviceConnectionState.ready,
+      ]) {
+        controller.deviceMachine.transition(state);
+      }
       addTearDown(controller.dispose);
       final now = DateTime.now();
       final measuredAt = DateTime(now.year, now.month, now.day, 12);
@@ -1422,7 +1436,7 @@ void main() {
           home: HealthTrendPage(
             controller: controller,
             metric: HealthMetric.ecg,
-            onMeasure: () async {
+            onMeasure: (_) async {
               controller.healthRecords = [
                 HealthRecord(
                   id: 'ecg-visible-before-disk',
@@ -1458,6 +1472,218 @@ void main() {
       await tester.pumpAndSettle();
     },
   );
+
+  testWidgets('health trend passes its live context to manual measurement', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    await controller.initialize();
+    controller.connectedDevice = const DeviceInfo(id: 'watch-1', name: 'W9S');
+    controller.capabilities = const DeviceCapabilities(
+      metrics: {HealthMetric.heartRate},
+      manualMetrics: {HealthMetric.heartRate},
+    );
+    for (final state in const [
+      DeviceConnectionState.scanning,
+      DeviceConnectionState.connecting,
+      DeviceConnectionState.authenticating,
+      DeviceConnectionState.syncing,
+      DeviceConnectionState.ready,
+    ]) {
+      controller.deviceMachine.transition(state);
+    }
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: HealthTrendPage(
+          controller: controller,
+          metric: HealthMetric.heartRate,
+          onMeasure: (pageContext) => showDialog<void>(
+            context: pageContext,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('测量上下文有效'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('完成'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('手动测量'));
+    await tester.pump();
+    expect(find.text('测量上下文有效'), findsOneWidget);
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('manual button enables when ring reconnects on an open trend', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    await controller.initialize();
+    addTearDown(controller.dispose);
+    var opens = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: HealthTrendPage(
+          controller: controller,
+          metric: HealthMetric.heartRate,
+          onMeasure: (_) async {
+            opens++;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final button = find.byKey(const Key('health-measure-heart_rate'));
+    expect(button, findsNothing);
+
+    controller.connectedDevice = const DeviceInfo(id: 'ring-1', name: 'HR01');
+    controller.capabilities = const DeviceCapabilities(
+      metrics: {HealthMetric.heartRate},
+      manualMetrics: {HealthMetric.heartRate},
+    );
+    for (final state in const [
+      DeviceConnectionState.scanning,
+      DeviceConnectionState.connecting,
+      DeviceConnectionState.authenticating,
+      DeviceConnectionState.syncing,
+      DeviceConnectionState.ready,
+    ]) {
+      controller.deviceMachine.transition(state);
+    }
+    controller.notifyListeners();
+    await tester.pump();
+    expect(button, findsOneWidget);
+    expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
+    await tester.tap(button);
+    await tester.pump();
+    expect(opens, 1);
+  });
+
+  testWidgets('manual result arriving after dialog opens replaces spinner', (
+    tester,
+  ) async {
+    final wearable = _EventMeasurementWearable();
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      wearable,
+    );
+    await controller.initialize();
+    controller.connectedDevice = const DeviceInfo(id: 'watch-1', name: 'HR01');
+    controller.capabilities = const DeviceCapabilities(
+      metrics: {HealthMetric.heartRate},
+      manualMetrics: {HealthMetric.heartRate},
+    );
+    for (final state in const [
+      DeviceConnectionState.scanning,
+      DeviceConnectionState.connecting,
+      DeviceConnectionState.authenticating,
+      DeviceConnectionState.syncing,
+      DeviceConnectionState.ready,
+    ]) {
+      controller.deviceMachine.transition(state);
+    }
+    addTearDown(() async {
+      controller.dispose();
+      await wearable.close();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: HealthPage(controller: controller)),
+      ),
+    );
+    await tester.tap(find.text('心率').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('手动测量'));
+    await tester.pump();
+    expect(find.text('请保持正确佩戴并静止，等待戒指返回结果'), findsOneWidget);
+
+    wearable.emit(
+      WearableEvent(
+        type: 'healthRecord',
+        payload: HealthRecord(
+          id: 'heart-from-real-ring',
+          metric: HealthMetric.heartRate,
+          values: const {'value': 72},
+          unit: 'bpm',
+          measuredAt: DateTime.now().toUtc(),
+          timezone: '+08:00',
+          deviceId: 'watch-1',
+          firmwareVersion: '758.1.1.8.0',
+          quality: 'unknown',
+          source: MeasurementSource.wearable,
+          rawVersion: 1,
+        ).toJson(),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('72 bpm'), findsWidgets);
+    expect(find.text('请保持正确佩戴并静止，等待戒指返回结果'), findsNothing);
+  });
+
+  test('a disconnected ring ends an in-flight manual measurement', () async {
+    final wearable = _EventMeasurementWearable();
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      wearable,
+    );
+    await controller.initialize();
+    controller.connectedDevice = const DeviceInfo(id: 'ring-1', name: 'HR01');
+    controller.capabilities = const DeviceCapabilities(
+      metrics: {HealthMetric.bloodOxygen},
+      manualMetrics: {HealthMetric.bloodOxygen},
+    );
+    for (final state in const [
+      DeviceConnectionState.scanning,
+      DeviceConnectionState.connecting,
+      DeviceConnectionState.authenticating,
+      DeviceConnectionState.syncing,
+      DeviceConnectionState.ready,
+    ]) {
+      controller.deviceMachine.transition(state);
+    }
+    addTearDown(() async {
+      controller.dispose();
+      await wearable.close();
+    });
+
+    expect(await controller.startMeasurement(HealthMetric.bloodOxygen), isTrue);
+    wearable.emit(
+      const WearableEvent(
+        type: 'disconnected',
+        payload: {'deviceId': 'ring-1'},
+      ),
+    );
+    expect(controller.deviceState, DeviceConnectionState.disconnected);
+    expect(controller.measurementErrorMessage, contains('连接中断'));
+    await controller.stopMeasurement(HealthMetric.bloodOxygen);
+    expect(wearable.stops, 0);
+  });
 
   test(
     'rejected ECG record releases measurement with quality guidance',

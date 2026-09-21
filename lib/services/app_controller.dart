@@ -1817,6 +1817,14 @@ class AppController extends ChangeNotifier {
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
       }
+      if (error.code == 'HISTORY_UNVERIFIED') {
+        syncStatus = '设备已连接，此戒指历史同步暂未开放';
+        if (!initial) {
+          _deviceSyncErrorMessage = '此戒指的历史数据同步尚未完成验证';
+          errorMessage = _deviceSyncErrorMessage;
+        }
+        return false;
+      }
       syncStatus = '设备已连接，${initial ? '首次数据同步失败' : '历史数据同步失败'}';
       _deviceSyncErrorMessage =
           '设备已连接，但${_wearableErrorMessage(error, fallback: initial ? '首次数据同步失败' : '历史数据同步失败')}';
@@ -2016,6 +2024,9 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> stopMeasurement(HealthMetric metric) async {
+    final canSendStop =
+        connectedDevice != null &&
+        deviceState != DeviceConnectionState.disconnected;
     _measurementTimeout?.cancel();
     _measurementTimeout = null;
     _activeMeasurementMetric = null;
@@ -2025,9 +2036,11 @@ class AppController extends ChangeNotifier {
     measurementSamples = const [];
     measurementSampleFrequency = 250;
     try {
-      await _wearable
-          .stopMeasurement(metric)
-          .timeout(const Duration(seconds: 5));
+      if (canSendStop) {
+        await _wearable
+            .stopMeasurement(metric)
+            .timeout(const Duration(seconds: 5));
+      }
     } catch (_) {
       errorMessage = '停止测量失败';
     } finally {
@@ -5040,8 +5053,9 @@ class AppController extends ChangeNotifier {
       }
       try {
         var record = HealthRecord.fromJson(event.payload);
-        String nativeId(String id) =>
-            id.replaceFirst(RegExp(r'^(veepoo|yucheng):'), '').toLowerCase();
+        String nativeId(String id) => id
+            .replaceFirst(RegExp(r'^(veepoo|yucheng|coolwear):'), '')
+            .toLowerCase();
         if (nativeId(record.deviceId) != nativeId(connectedDevice!.id)) return;
         if (_activeMeasurementMetric == record.metric &&
             record.origin == MeasurementOrigin.watchHistory) {
@@ -5126,6 +5140,15 @@ class AppController extends ChangeNotifier {
           eventDeviceId.isNotEmpty &&
           activeDeviceId.toLowerCase() != eventDeviceId.toLowerCase()) {
         return;
+      }
+      if (_activeMeasurementMetric != null) {
+        _measurementTimeout?.cancel();
+        _measurementTimeout = null;
+        _activeMeasurementMetric = null;
+        _activeMeasurementSessionGeneration = null;
+        measurementProgress = 0;
+        measurementSamples = const [];
+        measurementErrorMessage = '戒指连接中断，测量已停止；重连后请重试';
       }
       _invalidateDeviceSync();
       connectedDevice = null;

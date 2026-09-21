@@ -15,6 +15,7 @@ val veepooSdkArtifacts =
 val veepooSdkFiles = veepooSdkArtifacts.map { file("libs/$it") }
 val hasAnyVeepooArtifact = veepooSdkFiles.any { it.isFile }
 val hasCompleteVeepooSdk = veepooSdkFiles.all { it.isFile }
+val coolWearSdkFile = file("libs/coolwear_bluesdk-release.aar")
 val signingPropertiesFile = rootProject.file("key.properties")
 val signingProperties = Properties().apply {
     if (signingPropertiesFile.isFile) {
@@ -106,6 +107,9 @@ val hasCompleteProductionSigning =
 if (hasAnyVeepooArtifact && !hasCompleteVeepooSdk) {
     val missing = veepooSdkFiles.filterNot { it.isFile }.joinToString { it.name }
     throw GradleException("Veepoo SDK 文件不完整，缺少：$missing")
+}
+if (!coolWearSdkFile.isFile) {
+    throw GradleException("CoolWear SDK 文件缺失：${coolWearSdkFile.name}")
 }
 
 android {
@@ -254,6 +258,7 @@ flutter {
 }
 
 dependencies {
+    implementation(files(coolWearSdkFile))
     implementation("com.tencent.mm.opensdk:wechat-sdk-android:6.8.40")
     implementation("com.alipay.sdk:alipaysdk-android:15.8.42")
     if (hasCompleteVeepooSdk) {
