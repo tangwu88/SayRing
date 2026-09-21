@@ -53,3 +53,13 @@
 - `git diff --check`：最终提交前通过，仅有本机 LF/CRLF 转换告警；未发现空白错误。iOS Debug/Profile：Windows 无 Xcode，未执行。
 - 首次 `git commit` 因本机未配置 `user.name`/`user.email` 失败，暂未产生提交；检查本分支最近提交均为 `Codex <codex@openai.com>`，改用仅本次命令的相同作者身份提交，不改全局 Git 配置。
 - 已核实 GitHub `tangwu88/SayRing` 为私有仓库；提交 `bc268c6` 并推送到 `codex/rebuild-from-handoff`，未合入 `main`、未触发生产部署。对应 [Actions run 35559497090](https://github.com/tangwu88/SayRing/actions/runs/35559497090) 在约 3 秒内失败：Harmony UTC/Asia-Shanghai 与 quality 三个首批 job 均 `failure`、`step_count=0`，Android/iOS job `skipped`。尝试读取 quality job 日志返回 404 `The specified blob does not exist`；无法从 API 确认账户/Runner 层具体原因，不能称远端 CI 通过，需在 GitHub Actions 页面核查调度/计费等状态后重跑。
+
+### 2026-09-21 连接顺序对照与失败试验
+
+- 继续观察最终 Debug 包：11:57 与 11:58 各发生一次 HR01 断开，并分别约 9～11 秒自动重连；因此先前成功测量不能替代稳定性验收。
+- 停止 Say Ring、启动原 LuckRing 对照；其独立蓝牙进程在 12:04:39 连接同一 HR01，观察至 12:06:34 未出现该戒指断开。12:05 的 HCI reason `0x08` 经完整地址掩码关联为另一台 `07:43…` 设备，不是 HR01。真机截图仅用于核对 LuckRing 设备页的已连接状态，之后删除。
+- 重新直接读取附件 `Android_SDK_DEMO_1.4.0.zip`：官方 `BleScanActivity` 的设备点击顺序是 `stopScan()` → `BluetoothHelper.disConnect()` → `connectDev(...)`；当前桥此前只有停止扫描与连接。按该示例增加连接前 `disConnect()` 后构建、安装成功，但真机立即进入反复连接/关闭 GATT：约 40 秒内出现至少四次厂商断开回调，日志还出现同一 HR01 的并行 client/discoverServices。说明在当前 Flutter 自动恢复链路中直接照搬页面点击顺序会与 SDK 自恢复竞态，结果明显更差；该改动已撤销，不能保留。
+- 继续核对 `SdkDemoActivity`：Demo 在 `BLUE_CONNECTED` 后调用 `sendAsynInfo()` 同步时间/时区；当前桥原本已经在同一连接状态内调用该方法并继续读取设备信息，不是遗漏项。LuckRing 清单还显示其把 BLE 放在独立前台进程 `:bleToothService` 中；迁移这一架构需要设计 IPC、生命周期和权限，不能在未验证的情况下临时照搬。
+- 撤销失败试验后重新构建 Debug APK；华为安装器要求勾选风险知情并做系统身份验证，用户确认后 ADB 安装返回 `Success`。恢复包 12:20:32 完成握手并连续在线约 3 分钟；12:22 发起的心率测量在 75 秒内未收到有效样本而按既有超时停止，12:23:32 链路再次超时。该失败不覆盖此前两次真实心率成功证据，也不能写成“每次可测”。
+- 做同等时长对照：12:23:56 LuckRing 独立 BLE 进程连接同一 HR01，12:24:32（约 36 秒）系统明确记录该 HR01 地址的 HCI reason `0x08` / `GATT_CONN_TIMEOUT`，随后约 9 秒自动重连。故间歇超时并非 Say Ring 独有，当前更符合戒指/手机当下射频链路或环境问题；Say Ring 与 LuckRing 都能自动恢复，仍建议检查戒指电量、贴近距离、手机蓝牙占用及换机/换戒指交叉复现。
+- 对照结束后停止 LuckRing、重新启动已安装的 Say Ring；12:25:50 再次收到厂商已连接、设备信息握手及功能位回调，手机最终停留在 Say Ring。源码保持撤销后的已验证桥，不含强制断开试验。
