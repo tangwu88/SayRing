@@ -7,10 +7,13 @@ import 'wearable_bridge.dart';
 /// Android-only HR01 transport backed by the project-supplied CoolWear AAR.
 ///
 /// The native side waits for the vendor connection and device-info response.
-/// Historical packets are intentionally unavailable until their multi-packet
-/// completion and acknowledgement contract has been verified on a real ring.
+/// History is completed only after the vendor SDK emits its device-sync
+/// callback; individual packets are never treated as a completed sync.
 class CoolWearWearableBridge
-    implements WearableBridge, WearableDeviceDetailsBridge {
+    implements
+        WearableBridge,
+        WearableDeviceDetailsBridge,
+        WearableSportPauseBridge {
   CoolWearWearableBridge({MethodChannel? methods, EventChannel? events})
     : _methods = methods ?? const MethodChannel('cc.saidian.ring/commands'),
       _events = events ?? const EventChannel('cc.saidian.ring/events');
@@ -93,13 +96,23 @@ class CoolWearWearableBridge
   }
 
   @override
-  Future<List<HealthRecord>> syncHealthData({String? cursor}) =>
-      Future<List<HealthRecord>>.error(
-        PlatformException(
-          code: 'HISTORY_UNVERIFIED',
-          message: '此戒指的多包历史数据协议尚未完成实物验证，暂不读取',
-        ),
-      );
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) async {
+    final values =
+        await _invoke<List<Object?>>(
+          'syncHealthData',
+          cursor == null ? null : {'cursor': cursor},
+          const Duration(seconds: 35),
+        ) ??
+        const <Object?>[];
+    return values
+        .whereType<Map<Object?, Object?>>()
+        .map(
+          (value) => HealthRecord.fromJson(
+            value.map((key, item) => MapEntry('$key', item)),
+          ),
+        )
+        .toList(growable: false);
+  }
 
   @override
   Future<void> startMeasurement(HealthMetric metric) =>
@@ -110,13 +123,32 @@ class CoolWearWearableBridge
       _invoke<void>('stopMeasurement', {'metric': metric.wireName});
 
   @override
-  Future<void> startSport(SportMode mode) => _unsupported();
+  Future<void> startSport(SportMode mode) =>
+      _invoke<void>('startSport', {'mode': mode.wireName});
 
   @override
-  Future<void> stopSport() => _unsupported();
+  Future<void> stopSport() => _invoke<void>('stopSport');
 
   @override
-  Future<List<SportRecord>> readSportRecords() => _unsupported();
+  Future<void> pauseSport() => _invoke<void>('pauseSport');
+
+  @override
+  Future<void> resumeSport() => _invoke<void>('resumeSport');
+
+  @override
+  Future<List<SportRecord>> readSportRecords() async {
+    final values =
+        await _invoke<List<Object?>>(
+          'readSportRecords',
+          null,
+          const Duration(seconds: 35),
+        ) ??
+        const <Object?>[];
+    return values
+        .whereType<Map<Object?, Object?>>()
+        .map(SportRecord.fromMap)
+        .toList(growable: false);
+  }
 
   @override
   Future<Map<String, bool>> readAutoMeasureSettings() => _unsupported();
