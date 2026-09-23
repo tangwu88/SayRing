@@ -22,9 +22,10 @@ enum HealthMetric {
   bloodOxygen('blood_oxygen', '血氧', '%'),
   bloodPressure('blood_pressure', '血压', 'mmHg'),
   bloodGlucose('blood_glucose', '血糖', 'mmol/L'),
-  bodyTemperature('body_temperature', '体温', '℃'),
+  bodyTemperature('body_temperature', '皮肤温度', '℃'),
   ecg('ecg', '心电', ''),
   hrv('hrv', 'HRV', 'ms'),
+  stress('stress', '压力', ''),
   bodyComposition('body_composition', '身体成分', ''),
   bloodComposition('blood_composition', '血液成分', '');
 

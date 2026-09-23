@@ -414,6 +414,22 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
       if (data.records.isEmpty)
         const _MessageCard(icon: Icons.show_chart_rounded, title: '该时间段暂无数据')
       else ...[
+        if (widget.metric == HealthMetric.sleep) ...[
+          _SleepStructureCard(record: data.records.last),
+          const SizedBox(height: 12),
+        ],
+        if (widget.metric == HealthMetric.bodyTemperature) ...[
+          const _MessageCard(
+            icon: Icons.thermostat_rounded,
+            title: '皮肤温度不是核心体温',
+            detail: '当前显示戒指实际返回的皮肤温度。个人基线样本不足时不生成“温度波动”，也不按医用体温范围判定。',
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (widget.metric == HealthMetric.stress) ...[
+          const _StressRangeCard(),
+          const SizedBox(height: 12),
+        ],
         _SummaryCard(
           metric: widget.metric,
           summary: data.summary,
@@ -524,6 +540,127 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
           ),
         ),
       );
+}
+
+class _SleepStructureCard extends StatelessWidget {
+  const _SleepStructureCard({required this.record});
+
+  final HealthRecord record;
+
+  @override
+  Widget build(BuildContext context) {
+    final values = record.values;
+    String hours(String key) {
+      final value = values[key];
+      return value == null ? '--' : '${_number(value)} 小时';
+    }
+
+    String count(String key, String unit) {
+      final value = values[key];
+      return value == null ? '--' : '${_number(value)} $unit';
+    }
+
+    final rows = <(String, String)>[
+      ('总睡眠', hours('value')),
+      ('深睡', hours('deepHours')),
+      ('浅睡', hours('lightHours')),
+      ('体动', count('movementMinutes', '分钟')),
+      ('清醒次数', count('wakeCount', '次')),
+      ('快速眼动', '--（戒指未返回）'),
+    ];
+    return Card(
+      key: const Key('sleep-structure-card'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '睡眠结构',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 12),
+            for (var index = 0; index < rows.length; index++) ...[
+              Row(
+                children: [
+                  Expanded(child: Text(rows[index].$1)),
+                  Text(
+                    rows[index].$2,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+              if (index != rows.length - 1) const Divider(height: 20),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StressRangeCard extends StatelessWidget {
+  const _StressRangeCard();
+
+  @override
+  Widget build(BuildContext context) {
+    const ranges = <(String, String, Color)>[
+      ('放松', '1–29', Color(0xFF66B99B)),
+      ('正常', '30–59', Color(0xFF72AEE6)),
+      ('中等', '60–79', Color(0xFFE3A54D)),
+      ('偏高', '80–100', Color(0xFFE56565)),
+    ];
+    return Card(
+      key: const Key('stress-range-card'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '压力分级',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                for (final range in ranges)
+                  Expanded(
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 2),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: range.$3.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            range.$1,
+                            style: TextStyle(
+                              color: range.$3,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            range.$2,
+                            style: const TextStyle(
+                              color: SaydianColors.muted,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _MetricFieldSelector extends StatelessWidget {
@@ -973,6 +1110,7 @@ Color _metricColor(HealthMetric metric) => switch (metric) {
   HealthMetric.bodyTemperature => SaydianColors.cyan,
   HealthMetric.heartRate || HealthMetric.bloodComposition => SaydianColors.pink,
   HealthMetric.hrv || HealthMetric.sleep => const Color(0xFF8C7CF0),
+  HealthMetric.stress => const Color(0xFF5E9B78),
   HealthMetric.ecg => const Color(0xFF6E8DF5),
   _ => SaydianColors.green,
 };

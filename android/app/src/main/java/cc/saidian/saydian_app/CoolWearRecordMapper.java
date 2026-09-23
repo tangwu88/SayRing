@@ -17,6 +17,7 @@ import ce.com.cenewbluesdk.entity.k6.K6_HeartStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_MixSportType;
 import ce.com.cenewbluesdk.entity.k6.K6_Mix_sport_Struct;
 import ce.com.cenewbluesdk.entity.k6.K6_Sport;
+import ce.com.cenewbluesdk.entity.k6.K6_StressStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_TempStruct;
 import ce.com.cenewbluesdk.entity.k6.k6_RRI_HRV_DATA;
 
@@ -159,6 +160,23 @@ public final class CoolWearRecordMapper {
             measured.put("sdkQuality", value.getQuality());
             records.add(healthRecord(deviceId, firmwareVersion, "hrv", time, measured,
                     "ms", "watch_history", "device_reported"));
+        }
+        return records;
+    }
+
+    public static List<Map<String, Object>> stressRecords(
+            String deviceId,
+            String firmwareVersion,
+            List<K6_StressStruct> values) {
+        List<Map<String, Object>> records = new ArrayList<>();
+        if (values == null) return records;
+        for (K6_StressStruct value : values) {
+            if (value == null) continue;
+            long time = historyTimestamp(value.getTime());
+            int stress = value.getStressValue();
+            if (time != 0 && stress >= 1 && stress <= 100) {
+                addSingleValue(records, deviceId, firmwareVersion, "stress", time, stress, "");
+            }
         }
         return records;
     }

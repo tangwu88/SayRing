@@ -30,6 +30,7 @@ import ce.com.cenewbluesdk.entity.k6.K6_HeartStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_Mix_sport_Struct;
 import ce.com.cenewbluesdk.entity.k6.K6_SEND_APP_SPORT_STRUCT;
 import ce.com.cenewbluesdk.entity.k6.K6_Sport;
+import ce.com.cenewbluesdk.entity.k6.K6_StressStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_TempStruct;
 import ce.com.cenewbluesdk.entity.k6.k6_RRI_HRV_DATA;
 import ce.com.cenewbluesdk.proxy.interfaces.K6BleDataResult;
@@ -189,6 +190,15 @@ public final class CoolWearRingBridge
                     if (values != null) {
                         ArrayList<k6_RRI_HRV_DATA> snapshot = new ArrayList<>(values);
                         main.post(() -> onHrvValues(snapshot));
+                    }
+                    return false;
+                });
+        helper.getRcvDataManager().addBleDataResultListener(
+                K6_Action.RCVD.RCVD_STRESS_SHOW,
+                (K6BleDataResult<ArrayList<K6_StressStruct>>) values -> {
+                    if (values != null) {
+                        ArrayList<K6_StressStruct> snapshot = new ArrayList<>(values);
+                        main.post(() -> onStressValues(snapshot));
                     }
                     return false;
                 });
@@ -507,6 +517,10 @@ public final class CoolWearRingBridge
             if (flags.isHasHrvSupported()) {
                 metrics.add("hrv");
                 manual.add("hrv");
+                // The vendor SDK exposes pressure as an HRV-derived algorithm
+                // and does not publish a separate pressure capability bit.
+                metrics.add("stress");
+                manual.add("stress");
             }
             if (flags.isHasTemperature()) metrics.add("body_temperature");
         }
@@ -589,6 +603,20 @@ public final class CoolWearRingBridge
             if (value.getRri() > 0) measured.put("rri", value.getRri());
             emitMeasurement("hrv", time, measured, "ms");
             return;
+        }
+    }
+
+    private void onStressValues(List<K6_StressStruct> values) {
+        collectHealth(CoolWearRecordMapper.stressRecords(
+                connectedId, firmwareVersion, values));
+        if (!"stress".equals(activeMeasurement) || resultEmitted || !linkConnected) return;
+        for (K6_StressStruct value : values) {
+            long time = CoolWearRecordMapper.currentTimestamp(value.getTime());
+            int stress = value.getStressValue();
+            if (time != 0 && stress >= 1 && stress <= 100) {
+                emitMeasurement("stress", time, stress, "");
+                return;
+            }
         }
     }
 
@@ -842,6 +870,8 @@ public final class CoolWearRingBridge
             helper.getSendBlueData().sendBloodOxygenDetection(state);
         } else if ("hrv".equals(metric)) {
             helper.getSendBlueData().sendRriHrvCmd(state);
+        } else if ("stress".equals(metric)) {
+            helper.getSendBlueData().sendStressSwitch(state);
         }
     }
 

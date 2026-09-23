@@ -1403,6 +1403,7 @@ class SaydianApiClient
       HealthMetric.bloodGlucose,
       HealthMetric.bodyTemperature,
       HealthMetric.hrv,
+      HealthMetric.stress,
     };
     final dailyGroups = <String, List<HealthRecord>>{};
     for (final record in batch.records) {
@@ -1485,6 +1486,7 @@ class SaydianApiClient
     final glucose = primary(HealthMetric.bloodGlucose);
     final temperature = primary(HealthMetric.bodyTemperature);
     final hrv = primary(HealthMetric.hrv);
+    final stress = primary(HealthMetric.stress);
     final pressure = latest(HealthMetric.bloodPressure);
     final sleep = latest(HealthMetric.sleep);
     final sleepMinutes = ((sleep?.values['value'] ?? 0) * 60).round();
@@ -1513,7 +1515,7 @@ class SaydianApiClient
       'sleepAmountActivity': null,
       'sleepStatus': null,
       'meiTuo': null,
-      'pressure': null,
+      'pressure': stress,
       'bloodLiquid': null,
       'bloodPressure': pressure == null
           ? null
@@ -1595,6 +1597,7 @@ class SaydianApiClient
       case HealthMetric.bloodGlucose:
       case HealthMetric.bodyTemperature:
       case HealthMetric.hrv:
+      case HealthMetric.stress:
         return;
     }
     _decode(response);

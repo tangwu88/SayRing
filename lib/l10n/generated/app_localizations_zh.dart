@@ -1551,13 +1551,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get bloodGlucose => '血糖';
 
   @override
-  String get bodyTemperature => '体温';
+  String get bodyTemperature => '皮肤温度';
 
   @override
   String get ecg => '心电';
 
   @override
   String get hrv => 'HRV';
+
+  @override
+  String get stress => '压力';
 
   @override
   String get bodyComposition => '身体成分';
@@ -3477,13 +3480,16 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get bloodGlucose => '血糖';
 
   @override
-  String get bodyTemperature => '体温';
+  String get bodyTemperature => '皮肤温度';
 
   @override
   String get ecg => '心电';
 
   @override
   String get hrv => 'HRV';
+
+  @override
+  String get stress => '压力';
 
   @override
   String get bodyComposition => '身体成分';
@@ -5403,13 +5409,16 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get bloodGlucose => '血糖';
 
   @override
-  String get bodyTemperature => '體溫';
+  String get bodyTemperature => '皮膚溫度';
 
   @override
   String get ecg => '心電';
 
   @override
   String get hrv => 'HRV';
+
+  @override
+  String get stress => '壓力';
 
   @override
   String get bodyComposition => '身體成分';

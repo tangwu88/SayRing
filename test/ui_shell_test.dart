@@ -70,6 +70,7 @@ void main() {
       ),
     );
 
+    expect(find.byKey(const Key('mind-body-readiness-card')), findsOneWidget);
     expect(find.byKey(const Key('dashboard-ai-assistant')), findsOneWidget);
     expect(
       tester.getSize(find.byKey(const Key('dashboard-ai-assistant'))).height,
@@ -233,6 +234,7 @@ void main() {
               HealthMetric.bodyComposition,
               HealthMetric.bloodComposition,
               HealthMetric.sleep,
+              HealthMetric.stress,
             },
           );
     addTearDown(controller.dispose);
@@ -250,6 +252,7 @@ void main() {
       'bodyComposition',
       'bloodComposition',
       'sleep',
+      'stress',
     ]) {
       expect(find.byKey(ValueKey('health-metric-$metric')), findsOneWidget);
     }
@@ -361,6 +364,14 @@ void main() {
 
       final legalNotice = find.byKey(const Key('dashboard-health-notice'));
       final navigationBar = find.byType(NavigationBar);
+      await tester.scrollUntilVisible(
+        legalNotice,
+        300,
+        scrollable: find.descendant(
+          of: find.byType(CustomScrollView),
+          matching: find.byType(Scrollable),
+        ),
+      );
       expect(legalNotice, findsOneWidget);
       expect(
         tester.getTopLeft(navigationBar).dy -
@@ -1929,6 +1940,60 @@ void main() {
     await tester.tap(recordTiles.last);
     await tester.pumpAndSettle();
     expect(find.text('心率详情'), findsOneWidget);
+  });
+
+  testWidgets('sleep trend exposes SDK stages without inventing REM', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final now = DateTime.now();
+    final store = MemoryHealthStore();
+    await store.initialize();
+    await store.upsert([
+      HealthRecord(
+        id: 'sleep-structure',
+        metric: HealthMetric.sleep,
+        values: const {
+          'value': 7,
+          'deepHours': 2,
+          'lightHours': 4.5,
+          'movementMinutes': 30,
+          'wakeCount': 2,
+        },
+        unit: 'h',
+        measuredAt: DateTime(now.year, now.month, now.day, 7),
+        timezone: '+08:00',
+        deviceId: 'HR01',
+        firmwareVersion: 'test',
+        quality: 'device_reported',
+        source: MeasurementSource.wearable,
+        rawVersion: 1,
+      ),
+    ]);
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      store,
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: HealthTrendPage(
+          controller: controller,
+          metric: HealthMetric.sleep,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('sleep-structure-card')), findsOneWidget);
+    expect(find.text('2 小时'), findsOneWidget);
+    expect(find.text('4.5 小时'), findsOneWidget);
+    expect(find.text('--（戒指未返回）'), findsOneWidget);
   });
 
   testWidgets('care blood composition detail uses readable Chinese fields', (

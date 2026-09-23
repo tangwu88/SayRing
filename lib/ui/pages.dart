@@ -455,6 +455,7 @@ class DashboardPage extends StatelessWidget {
       HealthMetric.bodyTemperature,
       HealthMetric.ecg,
       HealthMetric.hrv,
+      HealthMetric.stress,
       HealthMetric.bodyComposition,
       HealthMetric.bloodComposition,
       HealthMetric.sleep,
@@ -475,6 +476,8 @@ class DashboardPage extends StatelessWidget {
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
                   _DashboardHeader(controller: controller),
+                  const SizedBox(height: 12),
+                  _MindBodyReadinessCard(latest: latest),
                   const SizedBox(height: 12),
                   _AiHealthAssistantCard(controller: controller),
                   const SizedBox(height: 12),
@@ -681,6 +684,79 @@ class _DashboardHeader extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _MindBodyReadinessCard extends StatelessWidget {
+  const _MindBodyReadinessCard({required this.latest});
+
+  final Map<HealthMetric, HealthRecord> latest;
+
+  @override
+  Widget build(BuildContext context) {
+    const inputs = <HealthMetric>[
+      HealthMetric.sleep,
+      HealthMetric.hrv,
+      HealthMetric.stress,
+      HealthMetric.bodyTemperature,
+    ];
+    final available = inputs.where(latest.containsKey).length;
+    return Card(
+      key: const Key('mind-body-readiness-card'),
+      clipBehavior: Clip.antiAlias,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFF3F0FF), Color(0xFFF9F7FF)],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 62,
+              height: 62,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFFD9D0F5), width: 5),
+              ),
+              child: const Text(
+                '--',
+                style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900),
+              ),
+            ),
+            const SizedBox(width: 15),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '身心准备度',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    available == inputs.length
+                        ? '正在建立个人基线，暂不生成未经确认的评分'
+                        : '数据不足 · 已具备 $available/${inputs.length} 项基线数据',
+                    style: const TextStyle(
+                      color: SaydianColors.muted,
+                      fontSize: 13,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.insights_rounded, color: Color(0xFF8C7CF0)),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1201,6 +1277,7 @@ class _MetricCard extends StatelessWidget {
       HealthMetric.bodyTemperature => Icons.thermostat_outlined,
       HealthMetric.ecg => Icons.monitor_heart_outlined,
       HealthMetric.hrv => Icons.show_chart_rounded,
+      HealthMetric.stress => Icons.spa_outlined,
       HealthMetric.bodyComposition => Icons.accessibility_new_rounded,
       HealthMetric.bloodComposition => Icons.science_outlined,
       _ => Icons.monitor_heart_outlined,
@@ -1230,6 +1307,7 @@ class _MetricCard extends StatelessWidget {
       HealthMetric.bodyTemperature,
       HealthMetric.ecg,
       HealthMetric.hrv,
+      HealthMetric.stress,
       HealthMetric.bodyComposition,
       HealthMetric.bloodComposition,
     }.contains(metric);
@@ -1399,11 +1477,6 @@ _HomeMetricStatus _homeMetricStatus(
       primary < 95) {
     return _HomeMetricStatus.low;
   }
-  if (record.metric == HealthMetric.bodyTemperature &&
-      primary != null &&
-      (primary < 36 || primary > 37.3)) {
-    return primary > 37.3 ? _HomeMetricStatus.high : _HomeMetricStatus.low;
-  }
   if (record.metric == HealthMetric.bloodPressure) {
     final systolic = record.values['systolic'];
     final diastolic = record.values['diastolic'];
@@ -1417,7 +1490,15 @@ _HomeMetricStatus _homeMetricStatus(
         ? _HomeMetricStatus.attention
         : _HomeMetricStatus.recorded;
   }
-  if (record.metric == HealthMetric.hrv) return _HomeMetricStatus.recorded;
+  if (record.metric == HealthMetric.hrv ||
+      record.metric == HealthMetric.bodyTemperature) {
+    return _HomeMetricStatus.recorded;
+  }
+  if (record.metric == HealthMetric.stress && primary != null) {
+    if (primary >= 80) return _HomeMetricStatus.high;
+    if (primary >= 60) return _HomeMetricStatus.attention;
+    return _HomeMetricStatus.normal;
+  }
   final settings = controller.healthWarningSettings;
   if (record.metric == HealthMetric.heartRate && settings.heartRateEnabled) {
     final value = record.values['value'];
@@ -1526,6 +1607,7 @@ class HealthPage extends StatelessWidget {
     HealthMetric.bodyTemperature,
     HealthMetric.ecg,
     HealthMetric.hrv,
+    HealthMetric.stress,
     HealthMetric.bodyComposition,
     HealthMetric.bloodComposition,
     HealthMetric.sleep,
@@ -1775,6 +1857,7 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                   HealthMetric.bloodPressure => '正在测量血压，请保持戒指贴合手指、手臂静止并等待结果',
                   HealthMetric.ecg => '请正确佩戴戒指，并将手指持续贴在心电电极上',
                   HealthMetric.hrv => '请将戒指贴合手指并保持静止，等待 HRV 测量结果',
+                  HealthMetric.stress => '请将戒指贴合手指并保持静止，等待压力测量结果',
                   HealthMetric.bodyComposition ||
                   HealthMetric.bloodComposition => '请按戒指提示保持正确接触，测量完成前不要移动',
                   _ => '请保持正确佩戴并静止，等待戒指返回结果',
@@ -2979,6 +3062,7 @@ class _HealthRow extends StatelessWidget {
       HealthMetric.bodyTemperature => Icons.thermostat_rounded,
       HealthMetric.ecg => Icons.monitor_heart_outlined,
       HealthMetric.hrv => Icons.show_chart_rounded,
+      HealthMetric.stress => Icons.spa_rounded,
       HealthMetric.bodyComposition => Icons.accessibility_new_rounded,
       HealthMetric.bloodComposition => Icons.bloodtype_outlined,
       HealthMetric.steps => Icons.directions_walk_rounded,
@@ -2994,6 +3078,7 @@ class _HealthRow extends StatelessWidget {
       HealthMetric.bodyTemperature => SaydianColors.cyan,
       HealthMetric.ecg => const Color(0xFF6E8DF5),
       HealthMetric.hrv => const Color(0xFF8C7CF0),
+      HealthMetric.stress => const Color(0xFF5E9B78),
       HealthMetric.bodyComposition => SaydianColors.cyan,
       HealthMetric.bloodComposition => SaydianColors.pink,
       HealthMetric.sleep => const Color(0xFF8C7CF0),
@@ -3092,6 +3177,7 @@ class HealthHistoryPage extends StatelessWidget {
       HealthMetric.bodyTemperature,
       HealthMetric.ecg,
       HealthMetric.hrv,
+      HealthMetric.stress,
       HealthMetric.bodyComposition,
       HealthMetric.bloodComposition,
     }.contains(metric);

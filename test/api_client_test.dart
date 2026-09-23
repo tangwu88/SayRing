@@ -872,6 +872,7 @@ void main() {
         expect(daily['bloodOxygen'], {
           'oxygens': [98, 0, 0],
         });
+        expect(daily['pressure'], 63);
         return http.Response('{"code":200,"data":{}}', 200);
       });
       final api = SaydianApiClient(
@@ -904,12 +905,13 @@ void main() {
           'diastolic': 79,
         }, 'mmHg'),
         record('oxygen', HealthMetric.bloodOxygen, const {'value': 98}, '%'),
+        record('stress', HealthMetric.stress, const {'value': 63}, ''),
       ];
 
       final result = await api.uploadHealthBatch(
         SyncBatch(cursor: null, records: records),
       );
-      expect(result.acceptedIds, {'heart', 'pressure', 'oxygen'});
+      expect(result.acceptedIds, {'heart', 'pressure', 'oxygen', 'stress'});
       expect(result.rejected, isEmpty);
     },
   );

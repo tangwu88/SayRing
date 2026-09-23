@@ -1581,13 +1581,16 @@ class AppLocalizationsKo extends AppLocalizations {
   String get bloodGlucose => '혈당';
 
   @override
-  String get bodyTemperature => '체온';
+  String get bodyTemperature => '피부 온도';
 
   @override
   String get ecg => '심전도';
 
   @override
   String get hrv => 'HRV';
+
+  @override
+  String get stress => '스트레스';
 
   @override
   String get bodyComposition => '체성분';

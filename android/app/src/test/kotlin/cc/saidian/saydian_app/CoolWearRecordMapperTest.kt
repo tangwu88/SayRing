@@ -4,6 +4,7 @@ import ce.com.cenewbluesdk.entity.K6_sleepData
 import ce.com.cenewbluesdk.entity.k6.K6_MixSportType
 import ce.com.cenewbluesdk.entity.k6.K6_Mix_sport_Struct
 import ce.com.cenewbluesdk.entity.k6.K6_Sport
+import ce.com.cenewbluesdk.entity.k6.K6_StressStruct
 import ce.com.cenewbluesdk.entity.k6.k6_RRI_HRV_DATA
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -65,6 +66,22 @@ class CoolWearRecordMapperTest {
 
         assertEquals(42, values.getValue("value").toInt())
         assertEquals(38, values.getValue("rmssd").toInt())
+    }
+
+    @Test
+    fun `stress keeps only valid device algorithm results`() {
+        val valid = K6_StressStruct(nowSeconds.toLong(), 63)
+        val invalid = K6_StressStruct(nowSeconds.toLong(), 101)
+
+        val records = CoolWearRecordMapper.stressRecords(
+            "ring",
+            "1.0",
+            listOf(valid, invalid),
+        )
+
+        assertEquals(1, records.size)
+        assertEquals("stress", records.single()["type"])
+        assertEquals(63.0, value(records, "stress"), 0.0001)
     }
 
     @Test

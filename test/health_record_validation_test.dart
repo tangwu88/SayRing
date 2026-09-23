@@ -31,6 +31,9 @@ void main() {
         _record(HealthMetric.bodyTemperature, {'value': 35.9}).isSane,
         isTrue,
       );
+      expect(_record(HealthMetric.stress, {'value': 0}).isSane, isFalse);
+      expect(_record(HealthMetric.stress, {'value': 44}).isSane, isTrue);
+      expect(_record(HealthMetric.stress, {'value': 101}).isSane, isFalse);
       expect(
         _record(HealthMetric.ecg, {
           'meanHeartRate': 255,

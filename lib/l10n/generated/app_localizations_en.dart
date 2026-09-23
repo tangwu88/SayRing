@@ -1646,13 +1646,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get bloodGlucose => 'Blood glucose';
 
   @override
-  String get bodyTemperature => 'Temperature';
+  String get bodyTemperature => 'Skin temperature';
 
   @override
   String get ecg => 'ECG';
 
   @override
   String get hrv => 'HRV';
+
+  @override
+  String get stress => 'Stress';
 
   @override
   String get bodyComposition => 'Body composition';

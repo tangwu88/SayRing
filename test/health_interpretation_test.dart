@@ -18,13 +18,40 @@ void main() {
         rawVersion: 1,
       );
 
-  test('high body temperature is never described as normal', () {
+  test('ring skin temperature is not interpreted as core temperature', () {
     final result = interpretHealthRecord(
       record(HealthMetric.bodyTemperature, const {'value': 40.5}),
     );
 
-    expect(result.title, contains('偏高'));
-    expect(result.detail, contains('医用体温计'));
+    expect(result.title, contains('皮肤温度'));
+    expect(result.detail, contains('不能作为核心体温'));
+  });
+
+  test('stress follows the ranges shown by LuckRing', () {
+    expect(
+      interpretHealthRecord(
+        record(HealthMetric.stress, const {'value': 29}),
+      ).title,
+      contains('放松'),
+    );
+    expect(
+      interpretHealthRecord(
+        record(HealthMetric.stress, const {'value': 44}),
+      ).title,
+      contains('正常'),
+    );
+    expect(
+      interpretHealthRecord(
+        record(HealthMetric.stress, const {'value': 70}),
+      ).title,
+      contains('中等'),
+    );
+    expect(
+      interpretHealthRecord(
+        record(HealthMetric.stress, const {'value': 85}),
+      ).title,
+      contains('偏高'),
+    );
   });
 
   test('ECG device flags produce a visible attention message', () {

@@ -30,6 +30,7 @@ extension LocalizedModelLabels on AppLocalizations {
     HealthMetric.bodyTemperature => bodyTemperature,
     HealthMetric.ecg => ecg,
     HealthMetric.hrv => hrv,
+    HealthMetric.stress => stress,
     HealthMetric.bodyComposition => bodyComposition,
     HealthMetric.bloodComposition => bloodComposition,
   };

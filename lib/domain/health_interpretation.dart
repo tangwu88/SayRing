@@ -58,21 +58,9 @@ HealthInterpretation interpretHealthRecord(HealthRecord record) {
     case HealthMetric.bodyTemperature:
       final value = values['value'];
       if (value == null) return _insufficient;
-      if (value > 37.3) {
-        return const HealthInterpretation(
-          title: '本次体温偏高',
-          detail: '戒指测量受佩戴和环境影响，请用医用体温计复核；如有不适请咨询医务人员。',
-        );
-      }
-      if (value < 36) {
-        return const HealthInterpretation(
-          title: '本次体温偏低',
-          detail: '请在室内静坐并贴合佩戴后复测；持续异常时请使用医用体温计复核。',
-        );
-      }
       return const HealthInterpretation(
-        title: '本次体温处于常见参考范围',
-        detail: '戒指结果用于健康趋势管理，不能替代医用体温计。',
+        title: '已记录本次皮肤温度',
+        detail: '皮肤温度会受环境、佩戴松紧和活动影响，适合与个人基线比较，不能作为核心体温或医用体温计读数。',
       );
     case HealthMetric.ecg:
       final riskSignals = [
@@ -97,6 +85,20 @@ HealthInterpretation interpretHealthRecord(HealthRecord record) {
       return const HealthInterpretation(
         title: 'HRV 更适合观察个人长期趋势',
         detail: '不同人的基线差异较大，请在相近时间和状态下比较，不以单次数值判断健康状况。',
+      );
+    case HealthMetric.stress:
+      final value = values['value'];
+      if (value == null) return _insufficient;
+      final title = value <= 29
+          ? '本次压力处于放松状态'
+          : value <= 59
+          ? '本次压力处于正常范围'
+          : value <= 79
+          ? '本次压力处于中等范围'
+          : '本次压力偏高';
+      return HealthInterpretation(
+        title: title,
+        detail: '该值由戒指基于 HRV 算法估算，适合观察个人趋势；运动、情绪和佩戴状态都可能影响结果。',
       );
     case HealthMetric.bodyComposition:
       return const HealthInterpretation(

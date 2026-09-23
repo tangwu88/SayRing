@@ -14,6 +14,7 @@ bool hasSaneWearableTransportValues(HealthRecord record) {
     HealthMetric.bloodOxygen => _inRange(record.values['value'], 2, 100),
     HealthMetric.bloodPressure => _hasSaneBloodPressure(record.values),
     HealthMetric.bodyTemperature => _inRange(record.values['value'], 20, 45),
+    HealthMetric.stress => _inRange(record.values['value'], 1, 100),
     HealthMetric.ecg => _hasSaneEcg(record),
     _ => true,
   };

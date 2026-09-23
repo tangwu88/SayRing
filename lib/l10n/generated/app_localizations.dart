@@ -3137,7 +3137,7 @@ abstract class AppLocalizations {
   /// No description provided for @bodyTemperature.
   ///
   /// In en, this message translates to:
-  /// **'Temperature'**
+  /// **'Skin temperature'**
   String get bodyTemperature;
 
   /// No description provided for @ecg.
@@ -3151,6 +3151,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'HRV'**
   String get hrv;
+
+  /// No description provided for @stress.
+  ///
+  /// In en, this message translates to:
+  /// **'Stress'**
+  String get stress;
 
   /// No description provided for @bodyComposition.
   ///

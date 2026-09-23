@@ -1577,13 +1577,16 @@ class AppLocalizationsJa extends AppLocalizations {
   String get bloodGlucose => '血糖';
 
   @override
-  String get bodyTemperature => '体温';
+  String get bodyTemperature => '皮膚温度';
 
   @override
   String get ecg => '心電図';
 
   @override
   String get hrv => 'HRV';
+
+  @override
+  String get stress => 'ストレス';
 
   @override
   String get bodyComposition => '体組成';
