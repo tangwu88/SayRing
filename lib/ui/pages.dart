@@ -796,8 +796,6 @@ class _AiHealthAssistantCard extends StatelessWidget {
   }
 }
 
-// Retained for the full activity-goal page; intentionally hidden on the home.
-// ignore: unused_element
 class _TodayHealthOverview extends StatelessWidget {
   const _TodayHealthOverview({
     required this.latest,
@@ -832,21 +830,21 @@ class _TodayHealthOverview extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(18, 14, 10, 14),
               child: Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '今日健康',
-                          style: TextStyle(
+                          context.l10n.todayActivity,
+                          style: const TextStyle(
                             fontSize: 19,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
-                        SizedBox(height: 2),
+                        const SizedBox(height: 2),
                         Text(
-                          '坚持完成每日活动目标',
-                          style: TextStyle(
+                          context.l10n.dailyActivityGoalHint,
+                          style: const TextStyle(
                             color: SaydianColors.muted,
                             fontSize: 12,
                           ),
@@ -1935,6 +1933,18 @@ class _SportEntryPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final latest = controller.latestByMetric;
+    final showActivity =
+        const {
+          HealthMetric.steps,
+          HealthMetric.distance,
+          HealthMetric.calories,
+        }.any(
+          (metric) =>
+              latest.containsKey(metric) ||
+              (controller.connectedDevice != null &&
+                  controller.capabilities?.supports(metric) == true),
+        );
     return Container(
       key: const Key('health-sport-entries'),
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
@@ -1952,6 +1962,21 @@ class _SportEntryPanel extends StatelessWidget {
       ),
       child: Column(
         children: [
+          if (showActivity) ...[
+            _TodayHealthOverview(
+              latest: latest,
+              stepTarget: controller.stepGoal.toDouble(),
+              distanceTarget: controller.distanceGoal,
+              calorieTarget: controller.calorieGoal.toDouble(),
+              onSetGoal: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  settings: const RouteSettings(name: 'activity-goals'),
+                  builder: (_) => GoalSettingsPage(controller: controller),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
           Visibility(
             visible: true,
             child: Column(
@@ -2084,15 +2109,31 @@ class _SportEntry extends StatelessWidget {
   Widget build(BuildContext context) {
     final icon = switch (mode) {
       SportMode.running => Icons.directions_run_rounded,
+      SportMode.indoorRunning => Icons.directions_run_rounded,
       SportMode.walking => Icons.directions_walk_rounded,
       SportMode.cycling => Icons.directions_bike_rounded,
+      SportMode.indoorCycling => Icons.pedal_bike_rounded,
+      SportMode.basketball => Icons.sports_basketball_rounded,
+      SportMode.football => Icons.sports_soccer_rounded,
+      SportMode.badminton => Icons.sports_tennis_rounded,
+      SportMode.swimming => Icons.pool_rounded,
+      SportMode.jumpRope => Icons.sync_rounded,
+      SportMode.yoga => Icons.self_improvement_rounded,
       SportMode.hiking => Icons.hiking_rounded,
       SportMode.mountaineering => Icons.landscape_rounded,
     };
     final color = switch (mode) {
       SportMode.running => SaydianColors.brandRed,
+      SportMode.indoorRunning => const Color(0xFFE4516F),
       SportMode.walking => SaydianColors.brandGoldDark,
       SportMode.cycling => const Color(0xFF9E2435),
+      SportMode.indoorCycling => const Color(0xFFBF6C34),
+      SportMode.basketball => const Color(0xFFE87825),
+      SportMode.football => const Color(0xFF3E9663),
+      SportMode.badminton => const Color(0xFF4285B8),
+      SportMode.swimming => const Color(0xFF2B9EB3),
+      SportMode.jumpRope => const Color(0xFF8B5CB5),
+      SportMode.yoga => const Color(0xFFB65F8C),
       SportMode.hiking => const Color(0xFF8A6432),
       SportMode.mountaineering => const Color(0xFF64543A),
     };
@@ -2155,8 +2196,18 @@ class _SportSessionPageState extends State<SportSessionPage> {
   @override
   void initState() {
     super.initState();
+    _locationStatus = _usesPhoneRoute ? '开始后可记录前台户外轨迹' : '本运动由戒指记录，不启用手机轨迹';
     widget.controller.addListener(_handleControllerChange);
   }
+
+  bool get _usesPhoneRoute => switch (widget.mode) {
+    SportMode.running ||
+    SportMode.walking ||
+    SportMode.cycling ||
+    SportMode.hiking ||
+    SportMode.mountaineering => true,
+    _ => false,
+  };
 
   void _handleControllerChange() {
     if (_startedAt != null &&
@@ -2191,7 +2242,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
     _elapsedSeconds = 0;
     _routePoints.clear();
     _routeDistanceKm = 0;
-    _locationStatus = '正在准备前台户外轨迹';
+    _locationStatus = _usesPhoneRoute ? '正在准备前台户外轨迹' : '本运动由戒指记录，不启用手机轨迹';
     final trackingGeneration = ++_trackingGeneration;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted &&
@@ -2201,7 +2252,9 @@ class _SportSessionPageState extends State<SportSessionPage> {
       }
     });
     setState(() {});
-    unawaited(_startLocationTracking(trackingGeneration));
+    if (_usesPhoneRoute) {
+      unawaited(_startLocationTracking(trackingGeneration));
+    }
   }
 
   Future<void> _stopAndSaveSport() async {

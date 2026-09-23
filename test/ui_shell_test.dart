@@ -240,7 +240,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildSaydianTheme(),
-        home: DashboardPage(controller: controller),
+        home: Scaffold(body: DashboardPage(controller: controller)),
       ),
     );
     await tester.pump();
@@ -254,6 +254,72 @@ void main() {
       expect(find.byKey(ValueKey('health-metric-$metric')), findsOneWidget);
     }
     expect(find.byKey(const ValueKey('health-metric-heartRate')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('health sport area shows activity goals and all reported modes', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 932));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            _NoopApi(),
+            MemoryHealthStore(),
+            _NoopWearable(),
+          )
+          ..connectedDevice = const DeviceInfo(id: 'hr01', name: 'HR01')
+          ..deviceCapabilityState = DeviceCapabilityState.ready
+          ..capabilities = DeviceCapabilities(
+            metrics: const {
+              HealthMetric.steps,
+              HealthMetric.distance,
+              HealthMetric.calories,
+              HealthMetric.sleep,
+            },
+            sportModes: SportMode.values.toSet(),
+            supportsSportPause: true,
+          );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: DashboardPage(controller: controller)),
+      ),
+    );
+    await tester.pump();
+
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -1000));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -1000));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('dashboard-today-health')), findsOneWidget);
+    expect(find.textContaining('--/10000'), findsOneWidget);
+    for (final label in const [
+      '跑步',
+      '室内跑',
+      '步行',
+      '骑行',
+      '室内骑行',
+      '篮球',
+      '足球',
+      '羽毛球',
+      '游泳',
+      '跳绳',
+      '瑜伽',
+      '徒步',
+      '登山',
+    ]) {
+      expect(find.text(label), findsOneWidget);
+    }
+
+    await tester.ensureVisible(find.text('目标'));
+    await tester.tap(find.text('目标'));
+    await tester.pumpAndSettle();
+    expect(find.text('目标设置'), findsOneWidget);
+    expect(find.text('每日步数目标（步）'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

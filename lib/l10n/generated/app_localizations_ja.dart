@@ -578,16 +578,46 @@ class AppLocalizationsJa extends AppLocalizations {
   String get running => 'ランニング';
 
   @override
+  String get indoorRunning => '屋内ランニング';
+
+  @override
   String get walking => 'ウォーキング';
 
   @override
   String get cycling => 'サイクリング';
 
   @override
+  String get indoorCycling => '屋内サイクリング';
+
+  @override
+  String get basketball => 'バスケットボール';
+
+  @override
+  String get football => 'サッカー';
+
+  @override
+  String get badminton => 'バドミントン';
+
+  @override
+  String get swimming => '水泳';
+
+  @override
+  String get jumpRope => '縄跳び';
+
+  @override
+  String get yoga => 'ヨガ';
+
+  @override
   String get hiking => 'ハイキング';
 
   @override
   String get mountaineering => '登山';
+
+  @override
+  String get todayActivity => '今日のアクティビティ';
+
+  @override
+  String get dailyActivityGoalHint => '毎日の目標に向かって体を動かしましょう';
 
   @override
   String metricAnalysis(String metric) {

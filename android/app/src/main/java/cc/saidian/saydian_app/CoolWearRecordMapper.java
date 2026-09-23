@@ -219,8 +219,9 @@ public final class CoolWearRecordMapper {
     public static String sportMode(int type) {
         switch (type) {
             case K6_MixSportType.MIX_SPORT_RUNNING_MACHINE:
-            case K6_MixSportType.MIX_SPORT_RUN:
             case K6_MixSportType.MIX_SPORT_TREADMILLS:
+                return "indoor_running";
+            case K6_MixSportType.MIX_SPORT_RUN:
             case K6_MixSportType.MIX_SPORT_OUTDOOR_RUNNING:
             case K6_MixSportType.MIX_SPORT_MARATHON:
                 return "running";
@@ -229,10 +230,25 @@ public final class CoolWearRecordMapper {
             case K6_MixSportType.MIX_SPORT_LNDOOR_WALKING:
                 return "walking";
             case K6_MixSportType.MIX_SPORT_CYCLING:
-            case K6_MixSportType.MIX_SPORT_CYCLING_INDOOR:
             case K6_MixSportType.MIX_SPORT_MOUNTAIN_BIKING:
             case K6_MixSportType.MIX_SPORT_MOUNTAIN_BIKING_1:
                 return "cycling";
+            case K6_MixSportType.MIX_SPORT_CYCLING_INDOOR:
+                return "indoor_cycling";
+            case K6_MixSportType.MIX_SPORT_BASKETBALL:
+                return "basketball";
+            case K6_MixSportType.MIX_SPORT_FOOTBALL:
+                return "football";
+            case K6_MixSportType.MIX_SPORT_BADMINTON:
+                return "badminton";
+            case K6_MixSportType.MIX_SPORT_SWIM:
+            case K6_MixSportType.MIX_SPORT_OPENWATER:
+            case K6_MixSportType.MIX_SPORT_OPEN_SWIM:
+                return "swimming";
+            case K6_MixSportType.MIX_SPORT_SKIP:
+                return "jump_rope";
+            case K6_MixSportType.MIX_SPORT_YOGA:
+                return "yoga";
             case K6_MixSportType.MIX_SPORT_ON_FOOT:
             case K6_MixSportType.MIX_SPORT_CROSSCOUNTRYRACE:
                 return "hiking";
@@ -243,6 +259,23 @@ public final class CoolWearRecordMapper {
             default:
                 return null;
         }
+    }
+
+    public static Integer sportType(String mode) {
+        if ("running".equals(mode)) return K6_MixSportType.MIX_SPORT_RUN;
+        if ("indoor_running".equals(mode)) return K6_MixSportType.MIX_SPORT_RUNNING_MACHINE;
+        if ("walking".equals(mode)) return K6_MixSportType.MIX_SPORT_WALK;
+        if ("cycling".equals(mode)) return K6_MixSportType.MIX_SPORT_CYCLING;
+        if ("indoor_cycling".equals(mode)) return K6_MixSportType.MIX_SPORT_CYCLING_INDOOR;
+        if ("basketball".equals(mode)) return K6_MixSportType.MIX_SPORT_BASKETBALL;
+        if ("football".equals(mode)) return K6_MixSportType.MIX_SPORT_FOOTBALL;
+        if ("badminton".equals(mode)) return K6_MixSportType.MIX_SPORT_BADMINTON;
+        if ("swimming".equals(mode)) return K6_MixSportType.MIX_SPORT_SWIM;
+        if ("jump_rope".equals(mode)) return K6_MixSportType.MIX_SPORT_SKIP;
+        if ("yoga".equals(mode)) return K6_MixSportType.MIX_SPORT_YOGA;
+        if ("hiking".equals(mode)) return K6_MixSportType.MIX_SPORT_ON_FOOT;
+        if ("mountaineering".equals(mode)) return K6_MixSportType.MIX_SPORT_CLIMBING;
+        return null;
     }
 
     public static Map<String, Object> healthRecord(

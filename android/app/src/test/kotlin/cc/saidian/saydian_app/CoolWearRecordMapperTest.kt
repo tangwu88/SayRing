@@ -90,6 +90,31 @@ class CoolWearRecordMapperTest {
     }
 
     @Test
+    fun `LuckRing video workout modes map to exact SDK types`() {
+        val modes = mapOf(
+            "running" to K6_MixSportType.MIX_SPORT_RUN,
+            "indoor_running" to K6_MixSportType.MIX_SPORT_RUNNING_MACHINE,
+            "walking" to K6_MixSportType.MIX_SPORT_WALK,
+            "cycling" to K6_MixSportType.MIX_SPORT_CYCLING,
+            "indoor_cycling" to K6_MixSportType.MIX_SPORT_CYCLING_INDOOR,
+            "basketball" to K6_MixSportType.MIX_SPORT_BASKETBALL,
+            "football" to K6_MixSportType.MIX_SPORT_FOOTBALL,
+            "badminton" to K6_MixSportType.MIX_SPORT_BADMINTON,
+            "swimming" to K6_MixSportType.MIX_SPORT_SWIM,
+            "jump_rope" to K6_MixSportType.MIX_SPORT_SKIP,
+            "yoga" to K6_MixSportType.MIX_SPORT_YOGA,
+            "hiking" to K6_MixSportType.MIX_SPORT_ON_FOOT,
+            "mountaineering" to K6_MixSportType.MIX_SPORT_CLIMBING,
+        )
+
+        modes.forEach { (mode, type) ->
+            assertEquals(type, CoolWearRecordMapper.sportType(mode))
+            assertEquals(mode, CoolWearRecordMapper.sportMode(type))
+        }
+        assertEquals(null, CoolWearRecordMapper.sportType("unknown"))
+    }
+
+    @Test
     fun `impossible future timestamp is rejected`() {
         val twoDaysAhead = System.currentTimeMillis() + 2 * 86_400_000L
         assertEquals(0L, CoolWearRecordMapper.historyTimestamp(twoDaysAhead))

@@ -5,8 +5,16 @@ import 'generated/app_localizations.dart';
 extension LocalizedModelLabels on AppLocalizations {
   String sportModeName(SportMode mode) => switch (mode) {
     SportMode.running => running,
+    SportMode.indoorRunning => indoorRunning,
     SportMode.walking => walking,
     SportMode.cycling => cycling,
+    SportMode.indoorCycling => indoorCycling,
+    SportMode.basketball => basketball,
+    SportMode.football => football,
+    SportMode.badminton => badminton,
+    SportMode.swimming => swimming,
+    SportMode.jumpRope => jumpRope,
+    SportMode.yoga => yoga,
     SportMode.hiking => hiking,
     SportMode.mountaineering => mountaineering,
   };

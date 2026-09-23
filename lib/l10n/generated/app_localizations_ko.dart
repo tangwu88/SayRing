@@ -581,16 +581,46 @@ class AppLocalizationsKo extends AppLocalizations {
   String get running => '달리기';
 
   @override
+  String get indoorRunning => '실내 달리기';
+
+  @override
   String get walking => '걷기';
 
   @override
   String get cycling => '자전거';
 
   @override
+  String get indoorCycling => '실내 자전거';
+
+  @override
+  String get basketball => '농구';
+
+  @override
+  String get football => '축구';
+
+  @override
+  String get badminton => '배드민턴';
+
+  @override
+  String get swimming => '수영';
+
+  @override
+  String get jumpRope => '줄넘기';
+
+  @override
+  String get yoga => '요가';
+
+  @override
   String get hiking => '하이킹';
 
   @override
   String get mountaineering => '등산';
+
+  @override
+  String get todayActivity => '오늘의 활동';
+
+  @override
+  String get dailyActivityGoalHint => '매일의 활동 목표를 향해 꾸준히 움직이세요';
 
   @override
   String metricAnalysis(String metric) {

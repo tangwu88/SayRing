@@ -637,16 +637,47 @@ class AppLocalizationsFr extends AppLocalizations {
   String get running => 'Course';
 
   @override
+  String get indoorRunning => 'Course en intérieur';
+
+  @override
   String get walking => 'Marche';
 
   @override
   String get cycling => 'Vélo';
 
   @override
+  String get indoorCycling => 'Vélo en intérieur';
+
+  @override
+  String get basketball => 'Basket-ball';
+
+  @override
+  String get football => 'Football';
+
+  @override
+  String get badminton => 'Badminton';
+
+  @override
+  String get swimming => 'Natation';
+
+  @override
+  String get jumpRope => 'Corde à sauter';
+
+  @override
+  String get yoga => 'Yoga';
+
+  @override
   String get hiking => 'Randonnée';
 
   @override
   String get mountaineering => 'Alpinisme';
+
+  @override
+  String get todayActivity => 'Activité du jour';
+
+  @override
+  String get dailyActivityGoalHint =>
+      'Progressez vers vos objectifs quotidiens';
 
   @override
   String metricAnalysis(String metric) {

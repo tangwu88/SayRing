@@ -553,16 +553,46 @@ class AppLocalizationsZh extends AppLocalizations {
   String get running => '跑步';
 
   @override
+  String get indoorRunning => '室内跑';
+
+  @override
   String get walking => '步行';
 
   @override
   String get cycling => '骑行';
 
   @override
+  String get indoorCycling => '室内骑行';
+
+  @override
+  String get basketball => '篮球';
+
+  @override
+  String get football => '足球';
+
+  @override
+  String get badminton => '羽毛球';
+
+  @override
+  String get swimming => '游泳';
+
+  @override
+  String get jumpRope => '跳绳';
+
+  @override
+  String get yoga => '瑜伽';
+
+  @override
   String get hiking => '徒步';
 
   @override
   String get mountaineering => '登山';
+
+  @override
+  String get todayActivity => '今日活动';
+
+  @override
+  String get dailyActivityGoalHint => '坚持完成每日活动目标';
 
   @override
   String metricAnalysis(String metric) {
@@ -2449,16 +2479,46 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get running => '跑步';
 
   @override
+  String get indoorRunning => '室内跑';
+
+  @override
   String get walking => '步行';
 
   @override
   String get cycling => '骑行';
 
   @override
+  String get indoorCycling => '室内骑行';
+
+  @override
+  String get basketball => '篮球';
+
+  @override
+  String get football => '足球';
+
+  @override
+  String get badminton => '羽毛球';
+
+  @override
+  String get swimming => '游泳';
+
+  @override
+  String get jumpRope => '跳绳';
+
+  @override
+  String get yoga => '瑜伽';
+
+  @override
   String get hiking => '徒步';
 
   @override
   String get mountaineering => '登山';
+
+  @override
+  String get todayActivity => '今日活动';
+
+  @override
+  String get dailyActivityGoalHint => '坚持完成每日活动目标';
 
   @override
   String metricAnalysis(String metric) {
@@ -4345,16 +4405,46 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get running => '跑步';
 
   @override
+  String get indoorRunning => '室內跑';
+
+  @override
   String get walking => '步行';
 
   @override
   String get cycling => '騎行';
 
   @override
+  String get indoorCycling => '室內騎行';
+
+  @override
+  String get basketball => '籃球';
+
+  @override
+  String get football => '足球';
+
+  @override
+  String get badminton => '羽毛球';
+
+  @override
+  String get swimming => '游泳';
+
+  @override
+  String get jumpRope => '跳繩';
+
+  @override
+  String get yoga => '瑜伽';
+
+  @override
   String get hiking => '健行';
 
   @override
   String get mountaineering => '登山';
+
+  @override
+  String get todayActivity => '今日活動';
+
+  @override
+  String get dailyActivityGoalHint => '堅持完成每日活動目標';
 
   @override
   String metricAnalysis(String metric) {

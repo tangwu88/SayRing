@@ -939,6 +939,7 @@ void main() {
       controller.deviceMachine.transition(state);
     }
     addTearDown(controller.dispose);
+    final initialReadSportCount = wearable.readSportCount;
 
     await tester.pumpWidget(
       MaterialApp(
@@ -959,6 +960,7 @@ void main() {
     expect(find.textContaining('正在记录前台户外轨迹'), findsNothing);
     expect(wearable.startCount, 1);
     expect(wearable.stopCount, 1);
+    expect(wearable.readSportCount, initialReadSportCount);
     expect(await store.localSportRecords(), hasLength(1));
   });
 

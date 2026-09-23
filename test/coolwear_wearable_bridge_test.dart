@@ -16,6 +16,28 @@ void main() {
     messenger.setMockMethodCallHandler(channel, (call) async {
       calls.add(call);
       return switch (call.method) {
+        'getCapabilities' => <Object?, Object?>{
+          'resolved': true,
+          'metrics': <Object?>['steps', 'distance', 'calories', 'sleep'],
+          'manualMetrics': <Object?>[],
+          'sportModes': <Object?>[
+            'running',
+            'indoor_running',
+            'walking',
+            'cycling',
+            'indoor_cycling',
+            'basketball',
+            'football',
+            'badminton',
+            'swimming',
+            'jump_rope',
+            'yoga',
+            'hiking',
+            'mountaineering',
+          ],
+          'features': <Object?>[],
+          'supportsSportPause': true,
+        },
         'syncHealthData' => <Object?>[
           <Object?, Object?>{
             'id': 'health-1',
@@ -82,6 +104,26 @@ void main() {
       'stopSport',
     ]);
     expect(calls.first.arguments, {'mode': 'walking'});
+  });
+
+  test('exposes the SDK-confirmed activity and LuckRing workout set', () async {
+    final bridge = CoolWearWearableBridge(methods: channel);
+
+    final capabilities = await bridge.getCapabilities();
+    await bridge.startSport(SportMode.indoorRunning);
+
+    expect(
+      capabilities.metrics,
+      containsAll(<HealthMetric>{
+        HealthMetric.steps,
+        HealthMetric.distance,
+        HealthMetric.calories,
+        HealthMetric.sleep,
+      }),
+    );
+    expect(capabilities.sportModes, containsAll(SportMode.values));
+    expect(capabilities.supportsSportPause, isTrue);
+    expect(calls.last.arguments, {'mode': 'indoor_running'});
   });
 
   test('maps vendor sport history', () async {

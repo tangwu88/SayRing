@@ -2299,7 +2299,6 @@ class AppController extends ChangeNotifier {
       if (deviceState == DeviceConnectionState.measuring) {
         deviceMachine.transition(DeviceConnectionState.ready);
       }
-      await refreshSportRecords();
     } on PlatformException catch (error) {
       errorMessage = _wearableErrorMessage(error, fallback: '结束运动失败');
     } catch (_) {
@@ -2378,7 +2377,19 @@ class AppController extends ChangeNotifier {
     final generation = _sessionGeneration;
     await _healthStore.saveSportRecord(record);
     if (!_isCurrentSessionGeneration(generation)) return;
-    await refreshSportRecords();
+    final localRecords = await _healthStore.localSportRecords();
+    if (!_isCurrentSessionGeneration(generation)) return;
+    final byId = <String, SportRecord>{
+      for (final existing in sportRecords) existing.id: existing,
+      for (final local in localRecords) local.id: local,
+    };
+    sportRecords = byId.values.toList()
+      ..sort(
+        (a, b) => (b.startedAt ?? DateTime(1970)).compareTo(
+          a.startedAt ?? DateTime(1970),
+        ),
+      );
+    notifyListeners();
   }
 
   Future<void> refreshDeviceSettings() {

@@ -27,7 +27,6 @@ import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_FUNCTION_CONTROL;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_REAL_O2;
 import ce.com.cenewbluesdk.entity.k6.K6_DevInfoStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_HeartStruct;
-import ce.com.cenewbluesdk.entity.k6.K6_MixSportType;
 import ce.com.cenewbluesdk.entity.k6.K6_Mix_sport_Struct;
 import ce.com.cenewbluesdk.entity.k6.K6_SEND_APP_SPORT_STRUCT;
 import ce.com.cenewbluesdk.entity.k6.K6_Sport;
@@ -42,15 +41,15 @@ import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 
 /**
- * Fail-closed HR01 adapter. Only real vendor callbacks prove connection,
- * features, history completion and sport state.
+ * Fail-closed HR01 adapter. A real device-info callback proves the HR01
+ * protocol baseline; function flags still gate optional health features.
+ * History completion and live sport state require their vendor callbacks.
  */
 public final class CoolWearRingBridge
         implements MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
     private static final String TAG = "CoolWearRing";
     private static final long SCAN_MS = 8_000L;
     private static final long CONNECT_MS = 28_000L;
-    private static final long CAPABILITY_MS = 7_000L;
     private static final long SYNC_MS = 30_000L;
 
     private final Activity activity;
@@ -60,12 +59,10 @@ public final class CoolWearRingBridge
     private EventChannel.EventSink sink;
     private MethodChannel.Result pendingScan;
     private MethodChannel.Result pendingConnect;
-    private MethodChannel.Result pendingCapabilities;
     private MethodChannel.Result pendingHealthSync;
     private MethodChannel.Result pendingSportSync;
     private Runnable scanDeadline;
     private Runnable connectDeadline;
-    private Runnable capabilityDeadline;
     private Runnable syncDeadline;
     private String connectedId;
     private String connectedName;
@@ -455,13 +452,6 @@ public final class CoolWearRingBridge
                 + ", oxygen=" + control.isHasO2()
                 + ", hrv=" + control.isHasHrvSupported()
                 + ", temperature=" + control.isHasTemperature());
-        if (pendingCapabilities != null) {
-            if (capabilityDeadline != null) main.removeCallbacks(capabilityDeadline);
-            capabilityDeadline = null;
-            MethodChannel.Result result = pendingCapabilities;
-            pendingCapabilities = null;
-            result.success(capabilities());
-        }
         if (linkConnected && deviceInfoReceived) emit("capabilitiesUpdated", capabilities());
     }
 
@@ -498,14 +488,14 @@ public final class CoolWearRingBridge
     private Map<String, Object> capabilities() {
         K6_DATA_TYPE_FUNCTION_CONTROL flags = functionControl;
         Map<String, Object> value = new HashMap<>();
-        value.put("resolved", flags != null && linkConnected && deviceInfoReceived);
+        value.put("resolved", linkConnected && deviceInfoReceived);
         List<String> metrics = new ArrayList<>();
         List<String> manual = new ArrayList<>();
+        metrics.add("steps");
+        metrics.add("distance");
+        metrics.add("calories");
+        metrics.add("sleep");
         if (flags != null) {
-            metrics.add("steps");
-            metrics.add("distance");
-            metrics.add("calories");
-            metrics.add("sleep");
             if (flags.isHasHR24H() || flags.isHr_measure_button()) {
                 metrics.add("heart_rate");
             }
@@ -523,16 +513,22 @@ public final class CoolWearRingBridge
         value.put("metrics", metrics);
         value.put("manualMetrics", manual);
         List<String> sportModes = new ArrayList<>();
-        if (flags != null) {
-            sportModes.add("running");
-            sportModes.add("walking");
-            sportModes.add("cycling");
-            sportModes.add("hiking");
-            sportModes.add("mountaineering");
-        }
+        sportModes.add("running");
+        sportModes.add("indoor_running");
+        sportModes.add("walking");
+        sportModes.add("cycling");
+        sportModes.add("indoor_cycling");
+        sportModes.add("basketball");
+        sportModes.add("football");
+        sportModes.add("badminton");
+        sportModes.add("swimming");
+        sportModes.add("jump_rope");
+        sportModes.add("yoga");
+        sportModes.add("hiking");
+        sportModes.add("mountaineering");
         value.put("sportModes", sportModes);
         value.put("features", new ArrayList<String>());
-        value.put("supportsSportPause", flags != null);
+        value.put("supportsSportPause", linkConnected && deviceInfoReceived);
         value.put("supportsBackgroundSync", false);
         value.put("supportsWatchFaces", false);
         value.put("supportsOta", false);
@@ -612,22 +608,13 @@ public final class CoolWearRingBridge
         emit("healthRecord", record);
     }
 
-    private static Integer sportTypeForMode(String mode) {
-        if ("running".equals(mode)) return K6_MixSportType.MIX_SPORT_RUN;
-        if ("walking".equals(mode)) return K6_MixSportType.MIX_SPORT_WALK;
-        if ("cycling".equals(mode)) return K6_MixSportType.MIX_SPORT_CYCLING;
-        if ("hiking".equals(mode)) return K6_MixSportType.MIX_SPORT_ON_FOOT;
-        if ("mountaineering".equals(mode)) return K6_MixSportType.MIX_SPORT_CLIMBING;
-        return null;
-    }
-
     private void sendSportCommand(
             MethodChannel.Result result, String mode, int status, boolean requiresActive) {
-        if (!linkConnected || !deviceInfoReceived || functionControl == null) {
+        if (!linkConnected || !deviceInfoReceived) {
             result.error("NOT_CONNECTED", "请先连接戒指", null);
             return;
         }
-        Integer type = requiresActive ? activeSportType : sportTypeForMode(mode);
+        Integer type = requiresActive ? activeSportType : CoolWearRecordMapper.sportType(mode);
         if (type == null) {
             result.error("COOLWEAR_SPORT_UNAVAILABLE", "当前没有可控制的戒指运动", null);
             return;
@@ -775,20 +762,9 @@ public final class CoolWearRingBridge
                 case "getCapabilities":
                     if (!linkConnected || !deviceInfoReceived) {
                         result.error("NOT_CONNECTED", "请先连接戒指", null);
-                    } else if (functionControl != null) {
-                        result.success(capabilities());
-                    } else if (pendingCapabilities != null) {
-                        result.error("CAPABILITIES_BUSY", "正在读取戒指功能", null);
                     } else {
-                        pendingCapabilities = result;
-                        helper.getSendDataManager().sendAsynInfo();
-                        capabilityDeadline = () -> {
-                            MethodChannel.Result pending = pendingCapabilities;
-                            pendingCapabilities = null;
-                            if (pending != null) pending.error(
-                                    "CAPABILITIES_UNAVAILABLE", "戒指未返回功能位", null);
-                        };
-                        main.postDelayed(capabilityDeadline, CAPABILITY_MS);
+                        if (functionControl == null) helper.getSendDataManager().sendAsynInfo();
+                        result.success(capabilities());
                     }
                     break;
                 case "syncHealthData":
@@ -872,7 +848,6 @@ public final class CoolWearRingBridge
     public void dispose() {
         if (scanDeadline != null) main.removeCallbacks(scanDeadline);
         if (connectDeadline != null) main.removeCallbacks(connectDeadline);
-        if (capabilityDeadline != null) main.removeCallbacks(capabilityDeadline);
         if (syncDeadline != null) main.removeCallbacks(syncDeadline);
         failPendingSync("BRIDGE_DISPOSED", "戒指连接已关闭");
         if (helper != null) {

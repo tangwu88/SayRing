@@ -73,8 +73,16 @@ enum MeasurementOrigin {
 
 enum SportMode {
   running('running', '跑步'),
+  indoorRunning('indoor_running', '室内跑'),
   walking('walking', '步行'),
   cycling('cycling', '骑行'),
+  indoorCycling('indoor_cycling', '室内骑行'),
+  basketball('basketball', '篮球'),
+  football('football', '足球'),
+  badminton('badminton', '羽毛球'),
+  swimming('swimming', '游泳'),
+  jumpRope('jump_rope', '跳绳'),
+  yoga('yoga', '瑜伽'),
   hiking('hiking', '徒步'),
   mountaineering('mountaineering', '登山');
 

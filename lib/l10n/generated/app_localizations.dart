@@ -1166,6 +1166,12 @@ abstract class AppLocalizations {
   /// **'Running'**
   String get running;
 
+  /// No description provided for @indoorRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'Indoor running'**
+  String get indoorRunning;
+
   /// No description provided for @walking.
   ///
   /// In en, this message translates to:
@@ -1178,6 +1184,48 @@ abstract class AppLocalizations {
   /// **'Cycling'**
   String get cycling;
 
+  /// No description provided for @indoorCycling.
+  ///
+  /// In en, this message translates to:
+  /// **'Indoor cycling'**
+  String get indoorCycling;
+
+  /// No description provided for @basketball.
+  ///
+  /// In en, this message translates to:
+  /// **'Basketball'**
+  String get basketball;
+
+  /// No description provided for @football.
+  ///
+  /// In en, this message translates to:
+  /// **'Football'**
+  String get football;
+
+  /// No description provided for @badminton.
+  ///
+  /// In en, this message translates to:
+  /// **'Badminton'**
+  String get badminton;
+
+  /// No description provided for @swimming.
+  ///
+  /// In en, this message translates to:
+  /// **'Swimming'**
+  String get swimming;
+
+  /// No description provided for @jumpRope.
+  ///
+  /// In en, this message translates to:
+  /// **'Jump rope'**
+  String get jumpRope;
+
+  /// No description provided for @yoga.
+  ///
+  /// In en, this message translates to:
+  /// **'Yoga'**
+  String get yoga;
+
   /// No description provided for @hiking.
   ///
   /// In en, this message translates to:
@@ -1189,6 +1237,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Mountaineering'**
   String get mountaineering;
+
+  /// No description provided for @todayActivity.
+  ///
+  /// In en, this message translates to:
+  /// **'Today\'s activity'**
+  String get todayActivity;
+
+  /// No description provided for @dailyActivityGoalHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep moving toward your daily goals'**
+  String get dailyActivityGoalHint;
 
   /// No description provided for @metricAnalysis.
   ///
