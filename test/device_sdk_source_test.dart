@@ -126,6 +126,22 @@ void main() {
     expect(capabilities.toJson()['supportsSportPause'], isTrue);
   });
 
+  test('CoolWear stress accepts both documented realtime callback names', () {
+    final source = File(
+      'android/app/src/main/java/cc/saidian/saydian_app/CoolWearRingBridge.java',
+    ).readAsStringSync();
+
+    expect(source, contains('K6_Action.RCVD.RCVD_STRESS_SHOW'));
+    expect(source, contains('K6_Action.RCVD.RCVD_SPORT_HRV_FOR_SHOW'));
+    expect(source, contains('onStressCompatValues(snapshot)'));
+    expect(source, contains('value.getHrvNums()'));
+    expect(
+      source,
+      contains('helper.getSendBlueData().sendStressSwitch(state)'),
+    );
+    expect(source, isNot(contains('java.util.Random')));
+  });
+
   test(
     'Android Veepoo sync serializes origin, manual health and ECG history',
     () {

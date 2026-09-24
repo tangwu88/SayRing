@@ -562,10 +562,50 @@ void main() {
 
       expect(controller.deviceState, DeviceConnectionState.ready);
       expect(controller.connectedDevice?.firmwareVersion, 'QA-FW-2');
+      expect(wearable.syncCount, 2);
       expect(controller.errorMessage, isNull);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
+  });
+
+  test('CoolWear connection leaves history sync as a manual action', () async {
+    const ring = DeviceInfo(
+      id: 'coolwear:42:57:50:04:AB:4C',
+      name: 'HR01',
+      model: 'HR01',
+      rssi: -40,
+    );
+    final wearable = _QaWearable(scannedDevice: ring);
+    final controller = _controller(wearable: wearable);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+
+    final scan = controller.scanDevices();
+    await Future<void>.delayed(Duration.zero);
+    await controller.connectDevice(ring);
+    await scan;
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+    expect(wearable.syncCount, 0);
+    expect(controller.syncStatus, contains('手动同步'));
+
+    wearable.emitEvent(
+      const WearableEvent(
+        type: 'disconnected',
+        payload: {'deviceId': 'coolwear:42:57:50:04:AB:4C'},
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    wearable.emitEvent(
+      WearableEvent(type: 'reconnected', payload: ring.toJson()),
+    );
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(controller.deviceState, DeviceConnectionState.ready);
+    expect(wearable.syncCount, 0);
+    expect(controller.syncStatus, contains('手动同步'));
   });
 
   test(

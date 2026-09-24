@@ -27,6 +27,7 @@ import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_FUNCTION_CONTROL;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_REAL_O2;
 import ce.com.cenewbluesdk.entity.k6.K6_DevInfoStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_HeartStruct;
+import ce.com.cenewbluesdk.entity.k6.K6_HrvStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_Mix_sport_Struct;
 import ce.com.cenewbluesdk.entity.k6.K6_SEND_APP_SPORT_STRUCT;
 import ce.com.cenewbluesdk.entity.k6.K6_Sport;
@@ -190,6 +191,18 @@ public final class CoolWearRingBridge
                     if (values != null) {
                         ArrayList<k6_RRI_HRV_DATA> snapshot = new ArrayList<>(values);
                         main.post(() -> onHrvValues(snapshot));
+                    }
+                    return false;
+                });
+        // Type 45 is named both "real HRV" and "real stress" by different
+        // CoolWear firmware/SDK generations. The payload shape is identical,
+        // so accept the alternate callback only while a stress session is active.
+        helper.getRcvDataManager().addBleDataResultListener(
+                K6_Action.RCVD.RCVD_SPORT_HRV_FOR_SHOW,
+                (K6BleDataResult<ArrayList<K6_HrvStruct>>) values -> {
+                    if (values != null) {
+                        ArrayList<K6_HrvStruct> snapshot = new ArrayList<>(values);
+                        main.post(() -> onStressCompatValues(snapshot));
                     }
                     return false;
                 });
@@ -610,6 +623,8 @@ public final class CoolWearRingBridge
         collectHealth(CoolWearRecordMapper.stressRecords(
                 connectedId, firmwareVersion, values));
         if (!"stress".equals(activeMeasurement) || resultEmitted || !linkConnected) return;
+        Log.i(TAG, "manual stress callback received; source=stress, sample count="
+                + values.size());
         for (K6_StressStruct value : values) {
             long time = CoolWearRecordMapper.currentTimestamp(value.getTime());
             int stress = value.getStressValue();
@@ -618,6 +633,23 @@ public final class CoolWearRingBridge
                 return;
             }
         }
+        Log.i(TAG, "manual stress callback had no current valid sample; source=stress");
+    }
+
+    private void onStressCompatValues(List<K6_HrvStruct> values) {
+        if (!"stress".equals(activeMeasurement) || resultEmitted || !linkConnected) return;
+        Log.i(TAG, "manual stress callback received; source=real_hrv, sample count="
+                + values.size());
+        for (K6_HrvStruct value : values) {
+            if (value == null) continue;
+            long time = CoolWearRecordMapper.currentTimestamp(value.getTime());
+            int stress = value.getHrvNums();
+            if (time != 0 && stress >= 1 && stress <= 100) {
+                emitMeasurement("stress", time, stress, "");
+                return;
+            }
+        }
+        Log.i(TAG, "manual stress callback had no current valid sample; source=real_hrv");
     }
 
     private void emitMeasurement(String metric, long time, int amount, String unit) {

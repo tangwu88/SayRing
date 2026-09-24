@@ -1691,7 +1691,17 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.ready);
       // Authentication is the connection boundary. Historical data is a
       // background follow-up and must not keep the add-device page spinning.
-      unawaited(_syncInitialDeviceData(device.id));
+      if (device.sdkSource == WearableSdkSource.coolwear) {
+        // HR01 links observed in the field can briefly reconnect before the
+        // vendor's 30-second history command completes. Starting that command
+        // automatically leaves no stable window for a manual measurement.
+        // Keep history available from the device page and prioritise live
+        // measurements immediately after connection.
+        syncStatus = '设备已连接，可手动同步历史数据';
+        notifyListeners();
+      } else {
+        unawaited(_syncInitialDeviceData(device.id));
+      }
     } on WearableSdkNotConfigured catch (_) {
       if (!isCurrent()) return;
       deviceCapabilityState = DeviceCapabilityState.disconnected;
@@ -5289,7 +5299,14 @@ class AppController extends ChangeNotifier {
       syncStatus = '设备已自动重连';
       deviceMachine.transition(DeviceConnectionState.ready);
       notifyListeners();
-      unawaited(_syncInitialDeviceData(device.id));
+      if (device.sdkSource == WearableSdkSource.coolwear) {
+        // Do not issue the vendor's long-running history command during a
+        // short recovery window. History remains available from the device
+        // page and manual measurements can start as soon as the link returns.
+        syncStatus = '设备已自动重连，可手动同步历史数据';
+      } else {
+        unawaited(_syncInitialDeviceData(device.id));
+      }
     } on PlatformException catch (error) {
       connectedDevice = null;
       _connectedDeviceSessionGeneration = null;
