@@ -218,7 +218,7 @@ void main() {
           isA<DeviceWatchFaceMarketException>().having(
             (error) => error.message,
             'message',
-            contains('请在戒指上操作'),
+            contains('当前戒指暂不支持在 App 中完成此操作'),
           ),
         ),
       );

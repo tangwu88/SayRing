@@ -1410,7 +1410,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             generation,
                             callback,
                             "PASSWORD_WRITE_FAILED",
-                            "设备确认失败，请重新连接并在戒指上确认",
+                            "设备连接校验失败，请保持戒指靠近手机后重新连接",
                         )
                     }
                 }
@@ -1459,7 +1459,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                             generation,
                             callback,
                             "CONFIRM_TIMEOUT",
-                            "设备端连接确认超时，请在戒指上确认连接",
+                            "设备连接校验超时，请保持戒指靠近手机后重新连接",
                         )
                     }
                 }
@@ -7623,7 +7623,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 val (code, message) =
                     when (errorCode) {
                         EMiniCheckupTestErrorCode.WEARING_ABNORMALITY ->
-                            "HRV_NOT_WORN" to "请将戒指贴合手腕并保持静止后重新测量 HRV"
+                            "HRV_NOT_WORN" to "请将戒指贴合手指并保持静止后重新测量 HRV"
                         EMiniCheckupTestErrorCode.LOW_POWER ->
                             "HRV_LOW_BATTERY" to "戒指电量过低，充电后再测量 HRV"
                         EMiniCheckupTestErrorCode.DEVICE_BUSY ->
@@ -7898,7 +7898,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 val (code, message) =
                     when (status) {
                         EBloodGlucoseStatus.WEARING_ERROR ->
-                            "GLUCOSE_NOT_WORN" to "未检测到正确佩戴，请将戒指贴合手腕后重新测量血糖"
+                            "GLUCOSE_NOT_WORN" to "未检测到正确佩戴，请将戒指贴合手指后重新测量血糖"
                         EBloodGlucoseStatus.LOW_POWER ->
                             "GLUCOSE_LOW_BATTERY" to "戒指电量过低，充电后再测量血糖"
                         EBloodGlucoseStatus.BUSY ->
@@ -8423,7 +8423,7 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                 val (code, message) =
                     when (state) {
                         HrvDetectState.WEAR_OFF ->
-                            "HRV_NOT_WORN" to "请将戒指贴合手腕并保持静止后重新测量 HRV"
+                            "HRV_NOT_WORN" to "请将戒指贴合手指并保持静止后重新测量 HRV"
                         HrvDetectState.BUSY ->
                             "HRV_DEVICE_BUSY" to "戒指正在处理其他任务，请稍后重试"
                         HrvDetectState.LOW_POWER ->

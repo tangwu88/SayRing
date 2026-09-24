@@ -136,6 +136,39 @@ void main() {
     }
   });
 
+  test('ring-facing source never asks for screen or on-ring confirmation', () {
+    final forbidden = RegExp(
+      r'在戒指上开始运动|戒指弹出确认|请在戒指上操作|戒指端确认|戒指保持亮屏|贴合手腕|在戒指上点击',
+    );
+    for (final path in const [
+      'lib/domain/feature_models.dart',
+      'lib/services/app_controller.dart',
+      'lib/services/device_watch_face_market_service.dart',
+      'lib/services/yucheng_wearable_bridge.dart',
+      'lib/ui/pages.dart',
+      'lib/ui/prototype_pages.dart',
+      'android/app/src/main/kotlin/cc/saidian/saydian_app/MainActivity.kt',
+    ]) {
+      expect(
+        File(path).readAsStringSync(),
+        isNot(matches(forbidden)),
+        reason: '$path must describe a screenless ring',
+      );
+    }
+
+    for (final name in const [
+      'app_zh.arb',
+      'app_zh_Hans.arb',
+      'app_zh_Hant.arb',
+    ]) {
+      expect(
+        File('lib/l10n/$name').readAsStringSync(),
+        isNot(matches(forbidden)),
+        reason: name,
+      );
+    }
+  });
+
   test('core Flutter services cannot leak the old product name', () {
     for (final path in const [
       'lib/services/app_controller.dart',

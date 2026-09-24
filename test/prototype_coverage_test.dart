@@ -39,7 +39,7 @@ void main() {
       const FeatureAvailability(
         FeatureAvailabilityStatus.serviceUnavailable,
       ).message,
-      '请在戒指上操作',
+      '当前戒指暂不支持在 App 中设置',
     );
   });
 
@@ -56,6 +56,30 @@ void main() {
       capabilities.integratedFeatures,
       containsAll([DeviceFeature.findWatch, DeviceFeature.screenDisplay]),
     );
+  });
+
+  test('screen-only wearable features stay hidden for the screenless ring', () {
+    final controller = _controller()
+      ..connectedDevice = const DeviceInfo(id: 'ring-1', name: 'HR01')
+      ..deviceCapabilityState = DeviceCapabilityState.ready
+      ..capabilities = const DeviceCapabilities(
+        metrics: {},
+        features: {
+          DeviceFeature.findWatch,
+          DeviceFeature.watchFaces,
+          DeviceFeature.photoWatchFace,
+          DeviceFeature.screenDisplay,
+        },
+        integratedFeatures: {
+          DeviceFeature.findWatch,
+          DeviceFeature.watchFaces,
+          DeviceFeature.photoWatchFace,
+          DeviceFeature.screenDisplay,
+        },
+      );
+    addTearDown(controller.dispose);
+
+    expect(controller.visibleDeviceFeatures, {DeviceFeature.findWatch});
   });
 
   testWidgets('disconnected device page shows only connection guidance', (
@@ -313,7 +337,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('请在戒指上操作'), findsOneWidget);
+    expect(find.text('当前戒指暂不支持在 App 中设置'), findsOneWidget);
     expect(find.text('当前戒指不支持此功能'), findsNothing);
     expect(tester.takeException(), isNull);
   });

@@ -31,7 +31,24 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get workoutStartOnWatch =>
-      'Cette bague ne peut pas démarrer un entraînement depuis l’application. Démarrez-le directement sur la bague.';
+      'Cette bague ne peut pas encore démarrer un entraînement depuis l’application. Les activités et entraînements synchronisés restent consultables.';
+
+  @override
+  String get showMoreSports => 'Plus d’activités';
+
+  @override
+  String get collapseSports => 'Réduire';
+
+  @override
+  String get wearRingPhoneStart =>
+      'Porter la bague · Démarrer sur le téléphone';
+
+  @override
+  String get startWorkoutToday => 'Démarrer l’activité du jour';
+
+  @override
+  String get selectWorkoutPhoneHint =>
+      'Choisissez l’activité sur le téléphone et gardez la bague connectée';
 
   @override
   String get finishWorkoutConfirm => 'Terminer cet entraînement ?';
@@ -1202,7 +1219,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get connectionInstructions =>
-      '1. Activez le Bluetooth et l’accès aux appareils à proximité.\n2. Chargez la bague et placez-la près du téléphone.\n3. Lancez la recherche et sélectionnez votre bague.\n4. Confirmez sur la bague si nécessaire.';
+      '1. Activez le Bluetooth et l’accès aux appareils à proximité.\n2. Chargez la bague et placez-la près du téléphone.\n3. Lancez la recherche et sélectionnez votre bague.\n4. Gardez la bague près du téléphone et attendez la confirmation de l’application.';
 
   @override
   String get syncNearbyHint =>
@@ -1537,7 +1554,8 @@ class AppLocalizationsFr extends AppLocalizations {
       'Recherchez et connectez une Say Ring à proximité';
 
   @override
-  String get useWatch => 'Utilisez cette fonction sur votre bague';
+  String get useWatch =>
+      'Cette bague ne prend pas encore en charge ce réglage dans l’application';
 
   @override
   String get myOrders => 'Mes commandes';

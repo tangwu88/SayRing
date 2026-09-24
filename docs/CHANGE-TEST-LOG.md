@@ -12,6 +12,7 @@
 
 ## 最近记录
 
+- [2026-09-24 无屏戒指文案、LuckRing 样式与运动折叠](SAY-RING-SCREENLESS-UI-SPORTS-20260924.md) — 清理戒指端确认/亮屏/手腕等误导提示，过滤屏幕专属入口；保留红金浅色调优化内外页，并按窄屏 2、手机 4、平板 6 项预览运动后支持展开。双时区各 873 项、Android App 原生 23 项、Debug/QA Release 与华为覆盖安装结果及第三方 CameraX 边界见正文。
 - [2026-09-23 LuckRing 健康功能重新对齐](SAY-RING-LUCKRING-HEALTH-PARITY-20260923.md) — 逐项复核压力、睡眠结构、皮肤温度、身心准备度、心理状态和生理周期；真实 SDK、页面、同步与保留边界以记录正文为准。
 - [2026-09-23 LuckRing 视频功能对齐](SAY-RING-LUCKRING-PARITY-20260923.md) — 对照用户提供的 LuckRing 操作视频，修复活动数据不可见与 HR01 运动能力门禁，并补齐 SDK 已确认的运动入口；自动化、构建与真机结果以记录正文为准。
 - [2026-09-22 HR01 健康历史与运动补充](SAY-RING-HR01-HEALTH-SPORT-20260922.md) — 对照 CoolWear SDK 与手机 LuckRing，补充健康历史、HRV 与运动控制/记录，并保留能力和真机验收门禁。

@@ -29,7 +29,22 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get workoutStartOnWatch =>
-      '현재 링은 앱에서 운동을 시작할 수 없습니다. 링에서 직접 운동을 시작하세요.';
+      '현재 이 링은 앱에서 운동 기록을 시작할 수 없습니다. 동기화된 일상 활동과 운동 기록은 계속 확인할 수 있습니다.';
+
+  @override
+  String get showMoreSports => '운동 더 보기';
+
+  @override
+  String get collapseSports => '접기';
+
+  @override
+  String get wearRingPhoneStart => '링 착용 · 휴대전화에서 시작';
+
+  @override
+  String get startWorkoutToday => '오늘 운동 시작';
+
+  @override
+  String get selectWorkoutPhoneHint => '휴대전화에서 운동을 선택하고 링 연결을 유지하세요';
 
   @override
   String get finishWorkoutConfirm => '현재 운동을 종료할까요?';
@@ -1136,7 +1151,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get connectionInstructions =>
-      '1. 블루투스를 켜고 주변 기기 접근을 허용하세요.\n2. 링을 충전하고 휴대전화 가까이에 두세요.\n3. 기기 검색을 눌러 본인의 링을 선택하세요.\n4. 링에 확인 요청이 표시되면 승인하세요.';
+      '1. 블루투스를 켜고 주변 기기 접근을 허용하세요.\n2. 링을 충전하고 휴대전화 가까이에 두세요.\n3. 기기 검색을 눌러 본인의 링을 선택하세요.\n4. 링을 휴대전화 가까이에 두고 앱에 연결 완료가 표시될 때까지 기다리세요.';
 
   @override
   String get syncNearbyHint => '연결하거나 동기화할 때 링을 충분히 충전하고 휴대전화 가까이에 두세요.';
@@ -1454,7 +1469,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get searchNearbyWatch => '주변 Say Ring을 찾아 연결하세요';
 
   @override
-  String get useWatch => '링에서 조작해 주세요';
+  String get useWatch => '현재 이 링은 앱에서 이 설정을 지원하지 않습니다';
 
   @override
   String get myOrders => '내 주문';

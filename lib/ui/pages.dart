@@ -410,28 +410,39 @@ class _AppShellState extends State<AppShell> {
       bottomNavigationBar: DecoratedBox(
         decoration: const BoxDecoration(
           color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           border: Border(top: BorderSide(color: Color(0xFFF1EAE6))),
-        ),
-        child: NavigationBar(
-          selectedIndex: selectedIndex,
-          onDestinationSelected: controller.selectTab,
-          destinations: [
-            NavigationDestination(
-              icon: const Icon(Icons.favorite_border_rounded),
-              selectedIcon: const Icon(Icons.favorite_rounded),
-              label: context.l10n.health,
-            ),
-            NavigationDestination(
-              icon: const Icon(Icons.circle_outlined),
-              selectedIcon: const Icon(Icons.circle_outlined),
-              label: context.l10n.device,
-            ),
-            NavigationDestination(
-              icon: const Icon(Icons.person_outline),
-              selectedIcon: const Icon(Icons.person),
-              label: context.l10n.profile,
+          boxShadow: [
+            BoxShadow(
+              color: Color(0x12000000),
+              blurRadius: 22,
+              offset: Offset(0, -7),
             ),
           ],
+        ),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          child: NavigationBar(
+            selectedIndex: selectedIndex,
+            onDestinationSelected: controller.selectTab,
+            destinations: [
+              NavigationDestination(
+                icon: const Icon(Icons.favorite_border_rounded),
+                selectedIcon: const Icon(Icons.favorite_rounded),
+                label: context.l10n.health,
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.circle_outlined),
+                selectedIcon: const Icon(Icons.circle_outlined),
+                label: context.l10n.device,
+              ),
+              NavigationDestination(
+                icon: const Icon(Icons.person_outline),
+                selectedIcon: const Icon(Icons.person),
+                label: context.l10n.profile,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -578,12 +589,37 @@ class DashboardPage extends StatelessWidget {
                       },
                     ),
                   const SizedBox(height: 18),
-                  Text(
-                    context.l10n.workoutsAndRecords,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900,
-                    ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: Text(
+                          context.l10n.workoutsAndRecords,
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        flex: 2,
+                        child: Padding(
+                          padding: EdgeInsets.only(bottom: 3),
+                          child: Text(
+                            context.l10n.wearRingPhoneStart,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.end,
+                            style: const TextStyle(
+                              color: SaydianColors.muted,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 12),
                   _SportEntryPanel(controller: controller),
@@ -709,7 +745,7 @@ class _MindBodyReadinessCard extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFFF3F0FF), Color(0xFFF9F7FF)],
+            colors: [Color(0xFFFFE9ED), Color(0xFFFFF7E5)],
             begin: Alignment.centerLeft,
             end: Alignment.centerRight,
           ),
@@ -723,7 +759,7 @@ class _MindBodyReadinessCard extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white,
                 shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFFD9D0F5), width: 5),
+                border: Border.all(color: const Color(0xFFF3B7BF), width: 5),
               ),
               child: const Text(
                 '--',
@@ -753,7 +789,7 @@ class _MindBodyReadinessCard extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.insights_rounded, color: Color(0xFF8C7CF0)),
+            const Icon(Icons.insights_rounded, color: SaydianColors.brandRed),
           ],
         ),
       ),
@@ -2009,13 +2045,21 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
   }
 }
 
-class _SportEntryPanel extends StatelessWidget {
+class _SportEntryPanel extends StatefulWidget {
   const _SportEntryPanel({required this.controller});
 
   final AppController controller;
 
   @override
+  State<_SportEntryPanel> createState() => _SportEntryPanelState();
+}
+
+class _SportEntryPanelState extends State<_SportEntryPanel> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
+    final controller = widget.controller;
     final latest = controller.latestByMetric;
     final showActivity =
         const {
@@ -2080,17 +2124,17 @@ class _SportEntryPanel extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '开始今日运动',
-                            style: TextStyle(fontWeight: FontWeight.w900),
+                            context.l10n.startWorkoutToday,
+                            style: const TextStyle(fontWeight: FontWeight.w900),
                           ),
                           Text(
-                            '选择运动类型，连接戒指后同步记录',
-                            style: TextStyle(
+                            context.l10n.selectWorkoutPhoneHint,
+                            style: const TextStyle(
                               color: SaydianColors.muted,
                               fontSize: 13,
                             ),
@@ -2103,35 +2147,77 @@ class _SportEntryPanel extends StatelessWidget {
                 const SizedBox(height: 14),
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final enlarged =
-                        MediaQuery.textScalerOf(context).scale(1) > 1.25;
-                    final columns = enlarged ? 2 : 4;
-                    final width = constraints.maxWidth / columns;
+                    final textScale = MediaQuery.textScalerOf(context).scale(1);
+                    final compact =
+                        constraints.maxWidth < 360 || textScale > 1.25;
+                    final columns = constraints.maxWidth >= 600
+                        ? 6
+                        : compact
+                        ? 2
+                        : 4;
+                    final previewCount = columns;
                     final modes = controller.availableSportModes;
                     if (modes.isEmpty) {
                       return _InlineNotice(
                         message: context.l10n.workoutStartOnWatch,
-                        icon: Icons.watch_rounded,
+                        icon: Icons.circle_outlined,
                         color: SaydianColors.orange,
                       );
                     }
-                    return Wrap(
+                    final hasMore = modes.length > previewCount;
+                    final visibleModes = _expanded
+                        ? modes
+                        : modes.take(previewCount).toList(growable: false);
+                    final width = constraints.maxWidth / columns;
+                    return Column(
                       children: [
-                        for (final mode in modes)
-                          SizedBox(
-                            width: width,
-                            child: _SportEntry(
-                              mode: mode,
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => SportSessionPage(
-                                    controller: controller,
+                        AnimatedSize(
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeOutCubic,
+                          alignment: Alignment.topCenter,
+                          child: Wrap(
+                            key: const Key('sport-mode-grid'),
+                            children: [
+                              for (final mode in visibleModes)
+                                SizedBox(
+                                  width: width,
+                                  child: _SportEntry(
                                     mode: mode,
+                                    onTap: () => Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => SportSessionPage(
+                                          controller: controller,
+                                          mode: mode,
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                 ),
+                            ],
+                          ),
+                        ),
+                        if (hasMore) ...[
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: TextButton.icon(
+                              key: const Key('sport-mode-more'),
+                              onPressed: () =>
+                                  setState(() => _expanded = !_expanded),
+                              iconAlignment: IconAlignment.end,
+                              icon: Icon(
+                                _expanded
+                                    ? Icons.expand_less_rounded
+                                    : Icons.chevron_right_rounded,
+                              ),
+                              label: Text(
+                                _expanded
+                                    ? context.l10n.collapseSports
+                                    : context.l10n.showMoreSports,
                               ),
                             ),
                           ),
+                        ],
                       ],
                     );
                   },
@@ -3052,7 +3138,7 @@ class _HealthRow extends StatelessWidget {
         : !connected
         ? '连接戒指后使用'
         : supported == false
-        ? '请在戒指上操作'
+        ? '当前戒指暂不支持在 App 中测量'
         : '暂无测量记录';
     final icon = switch (metric) {
       HealthMetric.heartRate => Icons.favorite_rounded,
@@ -4394,7 +4480,14 @@ class DevicePage extends StatelessWidget {
                       width: 56,
                       height: 56,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF171B2B),
+                        gradient: const LinearGradient(
+                          colors: [
+                            SaydianColors.brandRed,
+                            SaydianColors.brandRedDark,
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
@@ -4515,7 +4608,7 @@ class DevicePage extends StatelessWidget {
                     height: 118,
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [Color(0xFFDCEBFF), Color(0xFFEEF5FF)],
+                        colors: [Color(0xFFFFE7EB), Color(0xFFFFF5DD)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -4523,7 +4616,7 @@ class DevicePage extends StatelessWidget {
                     ),
                     child: const Icon(
                       Icons.circle_outlined,
-                      color: SaydianColors.blue,
+                      color: SaydianColors.brandRed,
                       size: 62,
                     ),
                   ),
@@ -4655,7 +4748,7 @@ class DevicePage extends StatelessWidget {
             _InlineNotice(
               key: const Key('device-no-integrated-features'),
               message: context.l10n.useWatch,
-              icon: Icons.watch_outlined,
+              icon: Icons.circle_outlined,
               color: SaydianColors.blue,
               compact: true,
             ),
@@ -5391,7 +5484,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                                         DeviceConnectionState.connecting ||
                                     controller.deviceState ==
                                         DeviceConnectionState.authenticating
-                                ? '正在连接；如戒指弹出确认，请在 12 秒内确认，并保持戒指靠近手机…'
+                                ? '正在完成连接，请保持戒指靠近手机并等待 App 提示…'
                                 : '正在${_deviceStateLabel(controller.deviceState)}，请保持戒指靠近手机…',
                             icon: Icons.bluetooth_connected_rounded,
                             color: SaydianColors.blue,

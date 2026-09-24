@@ -31,7 +31,23 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get workoutStartOnWatch =>
-      'Este anillo no permite iniciar entrenamientos desde la app. Inícialos directamente en el anillo.';
+      'Este anillo aún no permite iniciar entrenamientos desde la app. Puedes seguir viendo la actividad y los entrenamientos sincronizados.';
+
+  @override
+  String get showMoreSports => 'Más entrenamientos';
+
+  @override
+  String get collapseSports => 'Mostrar menos';
+
+  @override
+  String get wearRingPhoneStart => 'Ponte el anillo · Inicia en el teléfono';
+
+  @override
+  String get startWorkoutToday => 'Iniciar el entrenamiento de hoy';
+
+  @override
+  String get selectWorkoutPhoneHint =>
+      'Elige el entrenamiento en el teléfono y mantén el anillo conectado';
 
   @override
   String get finishWorkoutConfirm => '¿Finalizar este entrenamiento?';
@@ -1197,7 +1213,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get connectionInstructions =>
-      '1. Activa Bluetooth y permite buscar dispositivos cercanos.\n2. Carga el anillo y acércalo al teléfono.\n3. Toca Buscar dispositivos y selecciona tu anillo.\n4. Confirma en el anillo si se solicita.';
+      '1. Activa Bluetooth y permite buscar dispositivos cercanos.\n2. Carga el anillo y acércalo al teléfono.\n3. Toca Buscar dispositivos y selecciona tu anillo.\n4. Mantén el anillo cerca del teléfono y espera a que la app confirme la conexión.';
 
   @override
   String get syncNearbyHint =>
@@ -1532,7 +1548,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get searchNearbyWatch => 'Busca y conecta un Say Ring cercano';
 
   @override
-  String get useWatch => 'Usa esta función en el anillo';
+  String get useWatch => 'Este anillo aún no admite este ajuste en la app';
 
   @override
   String get myOrders => 'Mis pedidos';

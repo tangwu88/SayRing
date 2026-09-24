@@ -27,7 +27,22 @@ class AppLocalizationsZh extends AppLocalizations {
   String get verifyContactToReset => '验证邮箱或手机号后重新设置密码';
 
   @override
-  String get workoutStartOnWatch => '当前戒指未开放由 App 启动的运动模式，请直接在戒指上开始运动。';
+  String get workoutStartOnWatch => '当前戒指暂不支持由 App 发起运动记录，可继续查看已同步的日常活动与运动记录。';
+
+  @override
+  String get showMoreSports => '更多运动';
+
+  @override
+  String get collapseSports => '收起运动';
+
+  @override
+  String get wearRingPhoneStart => '佩戴戒指 · 手机发起';
+
+  @override
+  String get startWorkoutToday => '开始今日运动';
+
+  @override
+  String get selectWorkoutPhoneHint => '在手机选择运动，佩戴戒指并保持连接';
 
   @override
   String get finishWorkoutConfirm => '结束当前运动？';
@@ -1107,7 +1122,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get connectionInstructions =>
-      '1. 打开手机蓝牙并允许查找附近设备。\n2. 将戒指充电激活，并放在手机旁边。\n3. 点击“开始查找”，选择自己的戒指。\n4. 如果戒指弹出确认，请及时确认。';
+      '1. 打开手机蓝牙并允许查找附近设备。\n2. 将戒指充电激活，并放在手机旁边。\n3. 点击“开始查找”，选择自己的戒指。\n4. 保持戒指靠近手机，等待 App 显示连接成功。';
 
   @override
   String get syncNearbyHint => '连接或同步时，请让戒指保持电量充足并靠近手机。';
@@ -1424,7 +1439,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get searchNearbyWatch => '搜索并连接附近的 Say Ring';
 
   @override
-  String get useWatch => '请在戒指上操作';
+  String get useWatch => '当前戒指暂不支持在 App 中设置';
 
   @override
   String get myOrders => '我的订单';
@@ -1956,7 +1971,22 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get verifyContactToReset => '验证邮箱或手机号后重新设置密码';
 
   @override
-  String get workoutStartOnWatch => '当前戒指未开放由 App 启动的运动模式，请直接在戒指上开始运动。';
+  String get workoutStartOnWatch => '当前戒指暂不支持由 App 发起运动记录，可继续查看已同步的日常活动与运动记录。';
+
+  @override
+  String get showMoreSports => '更多运动';
+
+  @override
+  String get collapseSports => '收起运动';
+
+  @override
+  String get wearRingPhoneStart => '佩戴戒指 · 手机发起';
+
+  @override
+  String get startWorkoutToday => '开始今日运动';
+
+  @override
+  String get selectWorkoutPhoneHint => '在手机选择运动，佩戴戒指并保持连接';
 
   @override
   String get finishWorkoutConfirm => '结束当前运动？';
@@ -3036,7 +3066,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get connectionInstructions =>
-      '1. 打开手机蓝牙并允许查找附近设备。\n2. 将戒指充电激活，并放在手机旁边。\n3. 点击“开始查找”，选择自己的戒指。\n4. 如果戒指弹出确认，请及时确认。';
+      '1. 打开手机蓝牙并允许查找附近设备。\n2. 将戒指充电激活，并放在手机旁边。\n3. 点击“开始查找”，选择自己的戒指。\n4. 保持戒指靠近手机，等待 App 显示连接成功。';
 
   @override
   String get syncNearbyHint => '连接或同步时，请让戒指保持电量充足并靠近手机。';
@@ -3353,7 +3383,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get searchNearbyWatch => '搜索并连接附近的 Say Ring';
 
   @override
-  String get useWatch => '请在戒指上操作';
+  String get useWatch => '当前戒指暂不支持在 App 中设置';
 
   @override
   String get myOrders => '我的订单';
@@ -3885,7 +3915,22 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get verifyContactToReset => '驗證電子郵件或手機號碼後重新設定密碼';
 
   @override
-  String get workoutStartOnWatch => '目前戒指不支援從 App 啟動運動，請直接在戒指上開始運動。';
+  String get workoutStartOnWatch => '目前戒指暫不支援由 App 啟動運動記錄，仍可查看已同步的日常活動與運動記錄。';
+
+  @override
+  String get showMoreSports => '更多運動';
+
+  @override
+  String get collapseSports => '收起運動';
+
+  @override
+  String get wearRingPhoneStart => '佩戴戒指 · 手機啟動';
+
+  @override
+  String get startWorkoutToday => '開始今日運動';
+
+  @override
+  String get selectWorkoutPhoneHint => '在手機選擇運動，佩戴戒指並保持連線';
 
   @override
   String get finishWorkoutConfirm => '結束目前運動？';
@@ -4965,7 +5010,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get connectionInstructions =>
-      '1. 開啟手機藍牙並允許尋找附近裝置。\n2. 為戒指充電並放在手機旁。\n3. 點選「開始搜尋」，選擇自己的戒指。\n4. 若戒指顯示確認提示，請確認。';
+      '1. 開啟手機藍牙並允許尋找附近裝置。\n2. 為戒指充電並放在手機旁。\n3. 點選「開始搜尋」，選擇自己的戒指。\n4. 保持戒指靠近手機，等待 App 顯示連線成功。';
 
   @override
   String get syncNearbyHint => '連接或同步時，請讓戒指保持電量充足並靠近手機。';
@@ -5282,7 +5327,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get searchNearbyWatch => '搜尋並連接附近的 Say Ring';
 
   @override
-  String get useWatch => '請在戒指上操作';
+  String get useWatch => '目前戒指暫不支援在 App 中設定';
 
   @override
   String get myOrders => '我的訂單';

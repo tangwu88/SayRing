@@ -149,8 +149,38 @@ abstract class AppLocalizations {
   /// No description provided for @workoutStartOnWatch.
   ///
   /// In en, this message translates to:
-  /// **'This ring cannot start workouts from the app. Start the workout directly on your ring.'**
+  /// **'This ring cannot currently start a workout from the app. You can still view synced daily activity and workout records.'**
   String get workoutStartOnWatch;
+
+  /// No description provided for @showMoreSports.
+  ///
+  /// In en, this message translates to:
+  /// **'More workouts'**
+  String get showMoreSports;
+
+  /// No description provided for @collapseSports.
+  ///
+  /// In en, this message translates to:
+  /// **'Show fewer'**
+  String get collapseSports;
+
+  /// No description provided for @wearRingPhoneStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Wear ring · Start on phone'**
+  String get wearRingPhoneStart;
+
+  /// No description provided for @startWorkoutToday.
+  ///
+  /// In en, this message translates to:
+  /// **'Start today’s workout'**
+  String get startWorkoutToday;
+
+  /// No description provided for @selectWorkoutPhoneHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a workout on your phone and keep the ring connected'**
+  String get selectWorkoutPhoneHint;
 
   /// No description provided for @finishWorkoutConfirm.
   ///
@@ -2255,7 +2285,7 @@ abstract class AppLocalizations {
   /// No description provided for @connectionInstructions.
   ///
   /// In en, this message translates to:
-  /// **'1. Turn on Bluetooth and allow nearby device access.\n2. Charge your ring and place it near your phone.\n3. Tap Find devices and select your ring.\n4. Confirm on the ring if prompted.'**
+  /// **'1. Turn on Bluetooth and allow nearby device access.\n2. Charge your ring and place it near your phone.\n3. Tap Find devices and select your ring.\n4. Keep the ring near your phone and wait for the app to show Connected.'**
   String get connectionInstructions;
 
   /// No description provided for @syncNearbyHint.
@@ -2885,7 +2915,7 @@ abstract class AppLocalizations {
   /// No description provided for @useWatch.
   ///
   /// In en, this message translates to:
-  /// **'Please use this feature on your ring'**
+  /// **'This ring does not currently support this setting in the app'**
   String get useWatch;
 
   /// No description provided for @myOrders.

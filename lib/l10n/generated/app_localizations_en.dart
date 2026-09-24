@@ -31,7 +31,23 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get workoutStartOnWatch =>
-      'This ring cannot start workouts from the app. Start the workout directly on your ring.';
+      'This ring cannot currently start a workout from the app. You can still view synced daily activity and workout records.';
+
+  @override
+  String get showMoreSports => 'More workouts';
+
+  @override
+  String get collapseSports => 'Show fewer';
+
+  @override
+  String get wearRingPhoneStart => 'Wear ring · Start on phone';
+
+  @override
+  String get startWorkoutToday => 'Start today’s workout';
+
+  @override
+  String get selectWorkoutPhoneHint =>
+      'Choose a workout on your phone and keep the ring connected';
 
   @override
   String get finishWorkoutConfirm => 'Finish this workout?';
@@ -1187,7 +1203,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get connectionInstructions =>
-      '1. Turn on Bluetooth and allow nearby device access.\n2. Charge your ring and place it near your phone.\n3. Tap Find devices and select your ring.\n4. Confirm on the ring if prompted.';
+      '1. Turn on Bluetooth and allow nearby device access.\n2. Charge your ring and place it near your phone.\n3. Tap Find devices and select your ring.\n4. Keep the ring near your phone and wait for the app to show Connected.';
 
   @override
   String get syncNearbyHint =>
@@ -1519,7 +1535,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get searchNearbyWatch => 'Find and connect a nearby Say Ring';
 
   @override
-  String get useWatch => 'Please use this feature on your ring';
+  String get useWatch =>
+      'This ring does not currently support this setting in the app';
 
   @override
   String get myOrders => 'My orders';

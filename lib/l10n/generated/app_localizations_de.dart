@@ -31,7 +31,23 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get workoutStartOnWatch =>
-      'Dieser Ring kann Trainings nicht über die App starten. Starten Sie das Training direkt auf Ihrem Ring.';
+      'Dieser Ring kann derzeit kein Training über die App starten. Synchronisierte Aktivitäten und Trainings bleiben sichtbar.';
+
+  @override
+  String get showMoreSports => 'Weitere Trainings';
+
+  @override
+  String get collapseSports => 'Weniger anzeigen';
+
+  @override
+  String get wearRingPhoneStart => 'Ring tragen · Am Telefon starten';
+
+  @override
+  String get startWorkoutToday => 'Heutiges Training starten';
+
+  @override
+  String get selectWorkoutPhoneHint =>
+      'Training am Telefon wählen und den Ring verbunden lassen';
 
   @override
   String get finishWorkoutConfirm => 'Dieses Training beenden?';
@@ -1195,7 +1211,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get connectionInstructions =>
-      '1. Bluetooth aktivieren und Gerätezugriff erlauben.\n2. Ring laden und neben das Telefon legen.\n3. Geräte suchen antippen und Ihren Ring wählen.\n4. Eine Anfrage auf dem Ring bestätigen.';
+      '1. Bluetooth aktivieren und Gerätezugriff erlauben.\n2. Ring laden und neben das Telefon legen.\n3. Geräte suchen antippen und Ihren Ring wählen.\n4. Den Ring in Telefonnähe lassen und warten, bis die App die Verbindung bestätigt.';
 
   @override
   String get syncNearbyHint =>
@@ -1534,7 +1550,8 @@ class AppLocalizationsDe extends AppLocalizations {
   String get searchNearbyWatch => 'Say Ring in der Nähe suchen und verbinden';
 
   @override
-  String get useWatch => 'Bitte diese Funktion auf dem Ring verwenden';
+  String get useWatch =>
+      'Dieser Ring unterstützt diese Einstellung derzeit nicht in der App';
 
   @override
   String get myOrders => 'Meine Bestellungen';

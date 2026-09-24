@@ -260,7 +260,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('health sport area shows activity goals and all reported modes', (
+  testWidgets('health sport area previews reported modes and expands all', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(430, 932));
@@ -300,6 +300,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('dashboard-today-health')), findsOneWidget);
     expect(find.textContaining('--/10000'), findsOneWidget);
+    for (final label in const ['跑步', '室内跑', '步行', '骑行']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    for (final label in const [
+      '室内骑行',
+      '篮球',
+      '足球',
+      '羽毛球',
+      '游泳',
+      '跳绳',
+      '瑜伽',
+      '徒步',
+      '登山',
+    ]) {
+      expect(find.text(label), findsNothing);
+    }
+    expect(find.byKey(const Key('sport-mode-more')), findsOneWidget);
+    expect(find.text('更多运动'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('sport-mode-more')));
+    await tester.pumpAndSettle();
     for (final label in const [
       '跑步',
       '室内跑',
@@ -317,12 +338,51 @@ void main() {
     ]) {
       expect(find.text(label), findsOneWidget);
     }
+    expect(find.text('收起运动'), findsOneWidget);
 
     await tester.ensureVisible(find.text('目标'));
     await tester.tap(find.text('目标'));
     await tester.pumpAndSettle();
     expect(find.text('目标设置'), findsOneWidget);
     expect(find.text('每日步数目标（步）'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('compact screens preview one two-item sport row', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 760));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            _NoopApi(),
+            MemoryHealthStore(),
+            _NoopWearable(),
+          )
+          ..connectedDevice = const DeviceInfo(id: 'hr01', name: 'HR01')
+          ..deviceCapabilityState = DeviceCapabilityState.ready
+          ..capabilities = DeviceCapabilities(
+            metrics: const {},
+            sportModes: SportMode.values.toSet(),
+          );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: DashboardPage(controller: controller)),
+      ),
+    );
+    await tester.pump();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('health-sport-entries')),
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('跑步'), findsOneWidget);
+    expect(find.text('室内跑'), findsOneWidget);
+    expect(find.text('步行'), findsNothing);
+    expect(find.text('更多运动'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

@@ -299,40 +299,68 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
           key: Key('health-trend-${widget.metric.wireName}'),
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
           children: [
-            SegmentedButton<HealthTrendPeriod>(
-              segments: [
-                for (final period in HealthTrendPeriod.values)
-                  ButtonSegment(value: period, label: Text(period.label)),
-              ],
-              selected: {_period},
-              onSelectionChanged: (selection) {
-                setState(() => _period = selection.single);
-                _load();
-              },
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                IconButton(
-                  tooltip: '上一${_period.label}',
-                  onPressed: () => _shift(-1),
-                  icon: const Icon(Icons.chevron_left_rounded),
+            Card(
+              key: const Key('health-trend-controls'),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+                child: Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: SegmentedButton<HealthTrendPeriod>(
+                        segments: [
+                          for (final period in HealthTrendPeriod.values)
+                            ButtonSegment(
+                              value: period,
+                              label: Text(period.label),
+                            ),
+                        ],
+                        selected: {_period},
+                        showSelectedIcon: false,
+                        style: ButtonStyle(
+                          visualDensity: VisualDensity.comfortable,
+                          shape: WidgetStatePropertyAll(
+                            RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                        ),
+                        onSelectionChanged: (selection) {
+                          setState(() => _period = selection.single);
+                          _load();
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        IconButton(
+                          tooltip: '上一${_period.label}',
+                          onPressed: () => _shift(-1),
+                          icon: const Icon(Icons.chevron_left_rounded),
+                        ),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _pickDate,
+                            icon: const Icon(
+                              Icons.calendar_month_outlined,
+                              size: 18,
+                            ),
+                            label: Text(rangeLabel),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '下一${_period.label}',
+                          onPressed: range.end.isAfter(DateTime.now())
+                              ? null
+                              : () => _shift(1),
+                          icon: const Icon(Icons.chevron_right_rounded),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _pickDate,
-                    icon: const Icon(Icons.calendar_month_outlined, size: 18),
-                    label: Text(rangeLabel),
-                  ),
-                ),
-                IconButton(
-                  tooltip: '下一${_period.label}',
-                  onPressed: range.end.isAfter(DateTime.now())
-                      ? null
-                      : () => _shift(1),
-                  icon: const Icon(Icons.chevron_right_rounded),
-                ),
-              ],
+              ),
             ),
             const SizedBox(height: 12),
             if (widget.onMeasure != null)

@@ -28,7 +28,23 @@ class AppLocalizationsJa extends AppLocalizations {
   String get verifyContactToReset => 'メールアドレスまたは電話番号を確認して、パスワードを再設定します。';
 
   @override
-  String get workoutStartOnWatch => 'このリングではアプリから運動を開始できません。リングで直接開始してください。';
+  String get workoutStartOnWatch =>
+      'このリングでは現在アプリから運動記録を開始できません。同期済みの毎日の活動と運動記録は引き続き確認できます。';
+
+  @override
+  String get showMoreSports => 'その他の運動';
+
+  @override
+  String get collapseSports => '閉じる';
+
+  @override
+  String get wearRingPhoneStart => 'リングを装着 · スマートフォンで開始';
+
+  @override
+  String get startWorkoutToday => '今日の運動を開始';
+
+  @override
+  String get selectWorkoutPhoneHint => 'スマートフォンで運動を選び、リングの接続を維持してください';
 
   @override
   String get finishWorkoutConfirm => 'この運動を終了しますか？';
@@ -1133,7 +1149,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get connectionInstructions =>
-      '1. Bluetoothと付近のデバイスへのアクセスを有効にします。\n2. リングを充電し、スマートフォンの近くに置きます。\n3. デバイスを検索し、自分のリングを選びます。\n4. リングに確認が表示されたら承認します。';
+      '1. Bluetoothと付近のデバイスへのアクセスを有効にします。\n2. リングを充電し、スマートフォンの近くに置きます。\n3. デバイスを検索し、自分のリングを選びます。\n4. リングをスマートフォンの近くに置いたまま、アプリの接続完了表示を待ちます。';
 
   @override
   String get syncNearbyHint => '接続・同期中はリングを十分に充電し、スマートフォンの近くに置いてください。';
@@ -1450,7 +1466,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get searchNearbyWatch => '近くのSay Ringを検索して接続';
 
   @override
-  String get useWatch => 'リングで操作してください';
+  String get useWatch => 'このリングでは現在この設定をアプリから変更できません';
 
   @override
   String get myOrders => '注文履歴';

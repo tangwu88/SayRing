@@ -121,14 +121,14 @@ ThemeData buildSaydianTheme() {
     appBarTheme: const AppBarTheme(
       elevation: 0,
       scrolledUnderElevation: 0,
-      centerTitle: true,
+      centerTitle: false,
       backgroundColor: SaydianColors.canvas,
       foregroundColor: SaydianColors.ink,
       titleTextStyle: TextStyle(
         color: SaydianColors.ink,
-        fontSize: 20,
+        fontSize: 24,
         height: 1.35,
-        fontWeight: FontWeight.w800,
+        fontWeight: FontWeight.w900,
       ),
     ),
     cardTheme: CardThemeData(
@@ -136,7 +136,7 @@ ThemeData buildSaydianTheme() {
       shadowColor: const Color(0x17151B2B),
       margin: EdgeInsets.zero,
       color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
@@ -170,7 +170,7 @@ ThemeData buildSaydianTheme() {
       style: FilledButton.styleFrom(
         minimumSize: const Size(0, 56),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
       ),
     ),
@@ -180,7 +180,7 @@ ThemeData buildSaydianTheme() {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         foregroundColor: SaydianColors.ink,
         side: const BorderSide(color: SaydianColors.outline),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
       ),
     ),
@@ -222,12 +222,12 @@ ThemeData buildSaydianTheme() {
       space: 1,
     ),
     navigationBarTheme: NavigationBarThemeData(
-      height: 76,
+      height: 80,
       backgroundColor: Colors.white,
       elevation: 0,
-      indicatorColor: Colors.transparent,
+      indicatorColor: SaydianColors.brandRedSoft,
       indicatorShape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
       ),
       iconTheme: WidgetStateProperty.resolveWith(
         (states) => IconThemeData(

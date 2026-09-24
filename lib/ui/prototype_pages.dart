@@ -2579,7 +2579,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       setState(() {
         _cameraRemoteStarted = started;
         _cameraMessage = started
-            ? '可点击手机按钮，也可在戒指上点击拍照'
+            ? '可点击手机按钮；若戒指支持遥控拍照，请按设备说明触发'
             : widget.controller.errorMessage ?? '戒指相机遥控暂时无法开启';
       });
       if (started) {
@@ -2829,7 +2829,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     DeviceFeature.healthAssessment => _buildHealthAssessmentPanel(busy),
     DeviceFeature.healthMonitoring => _buildHealthMonitoringPanel(),
     _ => FeatureStateCard(
-      message: '请在戒指上操作',
+      message: '当前戒指暂不支持在 App 中设置',
       detail: _deviceFeatureDescription(widget.feature),
       icon: _deviceFeatureIcon(widget.feature),
     ),
@@ -4877,7 +4877,7 @@ class _ScreenSettingsPanel extends StatelessWidget {
                     SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        '当前戒指固件未开放 APP 亮度调节，请在戒指的屏幕设置中调整亮度。',
+                        '当前戒指无可由 App 调整的显示设置。',
                         style: TextStyle(fontSize: 14, height: 1.45),
                       ),
                     ),
@@ -5122,7 +5122,9 @@ class _FeedbackPageState extends State<FeedbackPage> {
                 ExpansionTile(
                   title: Text('如何连接戒指？'),
                   childrenPadding: EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  children: [Text('打开“设备”页并选择添加设备。搜索时让戒指保持亮屏、靠近手机，并在戒指端确认配对。')],
+                  children: [
+                    Text('打开“设备”页并选择添加设备。搜索前请将戒指充电激活并靠近手机，等待 App 完成连接。'),
+                  ],
                 ),
                 Divider(height: 1),
                 ExpansionTile(
@@ -5737,10 +5739,10 @@ String _deviceFeatureDescription(DeviceFeature feature) => switch (feature) {
   DeviceFeature.camera => '使用戒指控制手机拍照',
   DeviceFeature.phoneCalls => '管理戒指通话相关设置',
   DeviceFeature.contacts => '管理戒指中的常用联系人',
-  DeviceFeature.notifications => '选择需要在戒指上提醒的消息',
+  DeviceFeature.notifications => '选择需要由戒指振动提醒的消息',
   DeviceFeature.alarms => '管理戒指闹钟和重复日期',
   DeviceFeature.weather => '把所在城市天气同步到戒指',
-  DeviceFeature.worldClock => '在戒指上查看其他城市时间',
+  DeviceFeature.worldClock => '同步其他城市的时间信息',
   DeviceFeature.healthReminders => '设置久坐、饮水和日常提醒',
   DeviceFeature.healthMonitoring => '设置自动检测和健康提醒',
   DeviceFeature.healthAssessment => '查看戒指支持的辅助评估',

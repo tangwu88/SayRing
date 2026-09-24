@@ -670,8 +670,9 @@ class YuchengWearableBridge
     }
   }
 
-  static PlatformException _unsupported([String message = '请在戒指上操作']) =>
-      PlatformException(code: 'FEATURE_UNSUPPORTED', message: message);
+  static PlatformException _unsupported([
+    String message = '当前戒指暂不支持在 App 中设置',
+  ]) => PlatformException(code: 'FEATURE_UNSUPPORTED', message: message);
 
   void _handleEvent(Map<String, Object?> event) {
     const nativeEventTypes = <String>{

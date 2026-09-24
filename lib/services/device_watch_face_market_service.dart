@@ -394,7 +394,7 @@ class DeviceWatchFaceMarketService {
     required DeviceWatchFaceMarketProfile profile,
   }) async {
     if (!_directCatalogueAllowed) {
-      throw const DeviceWatchFaceMarketException('当前手机无法完成此操作，请在戒指上操作');
+      throw const DeviceWatchFaceMarketException('当前戒指暂不支持在 App 中完成此操作');
     }
     final appVersion = (await _appVersionLoader()).trim();
     final uri = Uri.parse(_endpoint).replace(
@@ -509,7 +509,7 @@ class DeviceWatchFaceMarketService {
     void Function(double progress)? onProgress,
   }) async {
     if (!_directCatalogueAllowed) {
-      throw const DeviceWatchFaceMarketException('当前手机无法完成此操作，请在戒指上操作');
+      throw const DeviceWatchFaceMarketException('当前戒指暂不支持在 App 中完成此操作');
     }
     if ((item.dialShape != null && item.dialShape != profile.dialShape) ||
         (item.binProtocol != null && item.binProtocol != profile.binProtocol) ||

@@ -725,7 +725,14 @@ class AppController extends ChangeNotifier {
     if (!_hasResolvedDeviceCapabilities || current == null) {
       return const <DeviceFeature>{};
     }
-    return current.features.intersection(current.integratedFeatures);
+    const screenOnlyFeatures = <DeviceFeature>{
+      DeviceFeature.watchFaces,
+      DeviceFeature.photoWatchFace,
+      DeviceFeature.screenDisplay,
+    };
+    return current.features
+        .intersection(current.integratedFeatures)
+        .difference(screenOnlyFeatures);
   }
 
   bool get _hasResolvedDeviceCapabilities =>
@@ -4986,7 +4993,7 @@ class AppController extends ChangeNotifier {
       'FEATURE_UNSUPPORTED' => '当前戒指不支持此功能',
       'FEATURE_UNAVAILABLE' ||
       'DEVICE_SETTINGS_NOT_CONFIGURED' ||
-      'SPORT_NOT_CONFIGURED' => '请在戒指上操作',
+      'SPORT_NOT_CONFIGURED' => '当前戒指暂不支持由 App 发起此操作',
       'SDK_NOT_CONFIGURED' => '此功能暂时无法使用，请稍后再试',
       'CONNECT_FAILED' || 'CONNECTION_DROPPED' => '连接失败，请确认戒指未连接其他手机后重试',
       'YUCHENG_SYNC_TIMEOUT' => '数据同步超时，可稍后重试',

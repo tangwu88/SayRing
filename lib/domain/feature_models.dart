@@ -23,7 +23,7 @@ class FeatureAvailability {
         FeatureAvailabilityStatus.needsDevice => '连接戒指后使用',
         FeatureAvailabilityStatus.needsPermission => '允许相关权限后使用',
         FeatureAvailabilityStatus.unsupportedDevice => '当前戒指不支持此功能',
-        FeatureAvailabilityStatus.serviceUnavailable => '请在戒指上操作',
+        FeatureAvailabilityStatus.serviceUnavailable => '当前戒指暂不支持在 App 中设置',
       };
 }
 
