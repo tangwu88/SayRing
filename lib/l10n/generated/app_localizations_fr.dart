@@ -34,7 +34,10 @@ class AppLocalizationsFr extends AppLocalizations {
       'Cette bague ne peut pas encore démarrer un entraînement depuis l’application. Les activités et entraînements synchronisés restent consultables.';
 
   @override
-  String get showMoreSports => 'Plus d’activités';
+  String get showMoreSports => 'Voir plus';
+
+  @override
+  String get allSports => 'Toutes les activités';
 
   @override
   String get collapseSports => 'Réduire';

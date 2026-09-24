@@ -24,9 +24,13 @@ class SecureGlobalLocaleStore implements GlobalLocaleStore {
 class GlobalLocaleController extends ChangeNotifier {
   GlobalLocaleController({GlobalLocaleStore? store, Locale? initialLocale})
     : _store = store ?? const SecureGlobalLocaleStore(),
-      _locale = normalize(initialLocale?.toLanguageTag()) ?? const Locale('en');
+      _locale = normalize(initialLocale?.toLanguageTag()) ?? defaultLocale;
 
   static final instance = GlobalLocaleController();
+  static const defaultLocale = Locale.fromSubtags(
+    languageCode: 'zh',
+    scriptCode: 'Hans',
+  );
   static const supportedLocales = [
     Locale('en'),
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
@@ -141,7 +145,8 @@ class GlobalLocaleScope extends InheritedNotifier<GlobalLocaleController> {
 
 extension SaydianLocalizedContext on BuildContext {
   // Existing domestic page hosts can omit the new delegate. Global App always
-  // installs it and explicitly starts in English; it never follows OS locale.
+  // installs it and explicitly starts in Simplified Chinese; it never follows
+  // the OS locale.
   AppLocalizations get l10n =>
       AppLocalizations.of(this) ??
       lookupAppLocalizations(
@@ -153,16 +158,7 @@ class GlobalLanguageButton extends StatelessWidget {
   const GlobalLanguageButton({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final controller = GlobalLocaleScope.maybeOf(context);
-    if (controller == null) return const SizedBox.shrink();
-    return TextButton.icon(
-      key: const Key('global-language-button'),
-      icon: const Icon(Icons.language),
-      label: Text(controller.languageName),
-      onPressed: () => showGlobalLanguagePicker(context),
-    );
-  }
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 Future<void> showGlobalLanguagePicker(BuildContext context) async {

@@ -155,8 +155,14 @@ abstract class AppLocalizations {
   /// No description provided for @showMoreSports.
   ///
   /// In en, this message translates to:
-  /// **'More workouts'**
+  /// **'View more'**
   String get showMoreSports;
+
+  /// No description provided for @allSports.
+  ///
+  /// In en, this message translates to:
+  /// **'All workouts'**
+  String get allSports;
 
   /// No description provided for @collapseSports.
   ///

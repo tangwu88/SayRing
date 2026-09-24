@@ -30,7 +30,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get workoutStartOnWatch => '当前戒指暂不支持由 App 发起运动记录，可继续查看已同步的日常活动与运动记录。';
 
   @override
-  String get showMoreSports => '更多运动';
+  String get showMoreSports => '查看更多';
+
+  @override
+  String get allSports => '全部运动';
 
   @override
   String get collapseSports => '收起运动';
@@ -1974,7 +1977,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get workoutStartOnWatch => '当前戒指暂不支持由 App 发起运动记录，可继续查看已同步的日常活动与运动记录。';
 
   @override
-  String get showMoreSports => '更多运动';
+  String get showMoreSports => '查看更多';
+
+  @override
+  String get allSports => '全部运动';
 
   @override
   String get collapseSports => '收起运动';
@@ -3918,7 +3924,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get workoutStartOnWatch => '目前戒指暫不支援由 App 啟動運動記錄，仍可查看已同步的日常活動與運動記錄。';
 
   @override
-  String get showMoreSports => '更多運動';
+  String get showMoreSports => '查看更多';
+
+  @override
+  String get allSports => '全部運動';
 
   @override
   String get collapseSports => '收起運動';

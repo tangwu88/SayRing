@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 
 import '../domain/global_account.dart';
 import '../l10n/generated/app_localizations.dart';
-import '../l10n/global_locale_controller.dart';
 import '../services/api_client.dart';
 import '../services/app_controller.dart';
 import 'brand_assets.dart';
@@ -311,7 +310,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
     };
     return Scaffold(
       key: const Key('global-auth-page'),
-      appBar: AppBar(actions: const [GlobalLanguageButton()]),
+      appBar: AppBar(),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(

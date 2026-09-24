@@ -32,7 +32,10 @@ class AppLocalizationsKo extends AppLocalizations {
       '현재 이 링은 앱에서 운동 기록을 시작할 수 없습니다. 동기화된 일상 활동과 운동 기록은 계속 확인할 수 있습니다.';
 
   @override
-  String get showMoreSports => '운동 더 보기';
+  String get showMoreSports => '더 보기';
+
+  @override
+  String get allSports => '전체 운동';
 
   @override
   String get collapseSports => '접기';

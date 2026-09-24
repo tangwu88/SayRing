@@ -32,7 +32,10 @@ class AppLocalizationsJa extends AppLocalizations {
       'このリングでは現在アプリから運動記録を開始できません。同期済みの毎日の活動と運動記録は引き続き確認できます。';
 
   @override
-  String get showMoreSports => 'その他の運動';
+  String get showMoreSports => 'もっと見る';
+
+  @override
+  String get allSports => 'すべての運動';
 
   @override
   String get collapseSports => '閉じる';

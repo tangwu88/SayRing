@@ -213,7 +213,7 @@ void main() {
     }
   });
 
-  testWidgets('dashboard exposes every health metric supported by the watch', (
+  testWidgets('dashboard exposes supported health metrics except hidden HRV', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
@@ -235,8 +235,25 @@ void main() {
               HealthMetric.bloodComposition,
               HealthMetric.sleep,
               HealthMetric.stress,
+              HealthMetric.hrv,
             },
           );
+    controller.healthRecords = [
+      HealthRecord(
+        id: 'stored-hrv',
+        metric: HealthMetric.hrv,
+        values: const {'value': 52},
+        unit: 'ms',
+        measuredAt: DateTime(2026, 9, 24, 8),
+        timezone: '+08:00',
+        deviceId: 'et488',
+        firmwareVersion: 'test',
+        quality: 'device_reported',
+        source: MeasurementSource.wearable,
+        origin: MeasurementOrigin.watchHistory,
+        rawVersion: 1,
+      ),
+    ];
     addTearDown(controller.dispose);
 
     await tester.pumpWidget(
@@ -256,11 +273,13 @@ void main() {
     ]) {
       expect(find.byKey(ValueKey('health-metric-$metric')), findsOneWidget);
     }
+    expect(find.byKey(const ValueKey('health-metric-hrv')), findsNothing);
+    expect(controller.latestByMetric[HealthMetric.hrv]?.values['value'], 52);
     expect(find.byKey(const ValueKey('health-metric-heartRate')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('health sport area previews reported modes and expands all', (
+  testWidgets('health sport area previews four modes and opens all sports', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(430, 932));
@@ -317,28 +336,28 @@ void main() {
       expect(find.text(label), findsNothing);
     }
     expect(find.byKey(const Key('sport-mode-more')), findsOneWidget);
-    expect(find.text('更多运动'), findsOneWidget);
+    expect(find.text('查看更多'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('sport-mode-more')));
     await tester.pumpAndSettle();
-    for (final label in const [
-      '跑步',
-      '室内跑',
-      '步行',
-      '骑行',
-      '室内骑行',
-      '篮球',
-      '足球',
-      '羽毛球',
-      '游泳',
-      '跳绳',
-      '瑜伽',
-      '徒步',
-      '登山',
-    ]) {
-      expect(find.text(label), findsOneWidget);
-    }
-    expect(find.text('收起运动'), findsOneWidget);
+    expect(find.byKey(const Key('sport-mode-selection-page')), findsOneWidget);
+    expect(find.text('全部运动'), findsOneWidget);
+    final allGrid = tester.widget<GridView>(
+      find.byKey(const Key('all-sport-mode-grid')),
+    );
+    expect(allGrid.semanticChildCount, SportMode.values.length);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('all-sport-mode-mountaineering')),
+      250,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('all-sport-mode-grid')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    expect(find.text('登山'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
 
     await tester.ensureVisible(find.text('目标'));
     await tester.tap(find.text('目标'));
@@ -348,7 +367,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('compact screens preview one two-item sport row', (tester) async {
+  testWidgets('compact screens still preview one four-item sport row', (
+    tester,
+  ) async {
     await tester.binding.setSurfaceSize(const Size(320, 760));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final controller =
@@ -381,8 +402,10 @@ void main() {
 
     expect(find.text('跑步'), findsOneWidget);
     expect(find.text('室内跑'), findsOneWidget);
-    expect(find.text('步行'), findsNothing);
-    expect(find.text('更多运动'), findsOneWidget);
+    expect(find.text('步行'), findsOneWidget);
+    expect(find.text('骑行'), findsOneWidget);
+    expect(find.text('室内骑行'), findsNothing);
+    expect(find.text('查看更多'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -2787,6 +2810,7 @@ class _PartialHealthMonitoringWearable extends _NoopWearable {
   Future<Map<String, bool>> readAutoMeasureSettings() async => const {
     'heartRate': false,
     'bloodGlucose': false,
+    'hrv': true,
   };
 
   @override

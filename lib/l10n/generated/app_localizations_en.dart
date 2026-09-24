@@ -34,7 +34,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'This ring cannot currently start a workout from the app. You can still view synced daily activity and workout records.';
 
   @override
-  String get showMoreSports => 'More workouts';
+  String get showMoreSports => 'View more';
+
+  @override
+  String get allSports => 'All workouts';
 
   @override
   String get collapseSports => 'Show fewer';

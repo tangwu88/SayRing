@@ -34,7 +34,10 @@ class AppLocalizationsEs extends AppLocalizations {
       'Este anillo aún no permite iniciar entrenamientos desde la app. Puedes seguir viendo la actividad y los entrenamientos sincronizados.';
 
   @override
-  String get showMoreSports => 'Más entrenamientos';
+  String get showMoreSports => 'Ver más';
+
+  @override
+  String get allSports => 'Todos los entrenamientos';
 
   @override
   String get collapseSports => 'Mostrar menos';

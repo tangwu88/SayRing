@@ -34,7 +34,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Dieser Ring kann derzeit kein Training über die App starten. Synchronisierte Aktivitäten und Trainings bleiben sichtbar.';
 
   @override
-  String get showMoreSports => 'Weitere Trainings';
+  String get showMoreSports => 'Mehr anzeigen';
+
+  @override
+  String get allSports => 'Alle Trainings';
 
   @override
   String get collapseSports => 'Weniger anzeigen';

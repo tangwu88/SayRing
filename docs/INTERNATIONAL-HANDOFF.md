@@ -23,7 +23,7 @@ Server workspace: `F:/xcodeplace/saydian-server-global`, branch `codex/global-ap
 | Required isolated App V2 mount | `/global/api/saydian-app/v2` (deployment acceptance tracked separately) |
 | Secure storage prefix | `saydian.global.env.<origin-and-prefix-sha256>` |
 | Flutter health database | Environment-scoped SQLCipher file; old unscoped file/key preserved without adoption |
-| First-launch locale | English; persistent manual selection |
+| First-launch locale | Simplified Chinese in Say Ring; language selection is hidden |
 | Supported locale resources | en, zh-Hans, zh-Hant, de, fr, es, ja, ko |
 
 Do not copy domestic `.env`, signing material, push secrets, account sessions, production workflow secrets or production data. Android/iOS native MethodChannel names remain stable internal ABI, not network domains. Official third-party weather/watch-face hosts remain independent of first-party API routing.
@@ -82,7 +82,7 @@ The Gradle gate rejects this switch for Release builds. The emulator validates F
 - The deployed `/api/saydian-app/v2` read endpoints are reachable, but isolation of international API/Worker/DB/Redis/storage and rejection of domestic credentials/data are not accepted. The live update response is domestic and is deliberately rejected by the global package parser.
 - Real reviewed legal documents, authorized email/SMS testing and enabled countries; no contact information or real sending credential was supplied in this task.
 - International catalog price books, tax/shipping/inventory coordination and payment rails are not implemented/accepted. Checkout remains disabled, not CNY with a new currency symbol. Full global commerce/address/order UI and remaining compatibility routes need contract migration.
-- All-screen localization is not complete: Flutter has 499 ARB keys across eight languages; the targeted reachable static-copy inventory is covered, but nested/dynamic messages and model-derived values remain. Harmony has 574 semantic rows, with 272 untranslated rows falling back to English after camera merge. Report/PDF and stored push/body translations still require completion and linguistic review. First-launch English and resource availability alone do not prove eight-language acceptance.
+- All-screen localization is not complete: Flutter retains eight language resource sets, but Say Ring now starts in Simplified Chinese and hides language selection. The targeted reachable static-copy inventory is covered, but nested/dynamic messages and model-derived values remain. Harmony has 574 semantic rows, with 272 untranslated rows falling back to English after camera merge. Report/PDF and stored push/body translations still require completion and linguistic review. Resource availability alone does not prove eight-language acceptance.
 - Harmony canonical V2 cloud health synchronization is not complete. The old minute-aggregating V1 uploader is explicitly blocked for the global build; records remain locally pending and must not be reported as uploaded. Do not enable it by removing the guard.
 - ECG waveforms require an explicitly known sample rate and confirmed V2 artifact storage. Unrepresentable waveforms must remain pending, never silently discarded as uploaded.
 - Actual iPhone/signature, Harmony SDK/HAP compilation, physical phones and two different watch firmware/model tests. International macOS CI no-codesign compilation has passed (see below), but it is not signed IPA or real-device acceptance. Do not reuse domestic historical screenshots/builds as international acceptance.

@@ -84,13 +84,19 @@ void main() {
   );
 
   test(
-    'first launch defaults to English and invalid saved locale cannot change it',
+    'first launch defaults to Simplified Chinese and invalid saved locale cannot change it',
     () async {
       final store = MemoryLocaleStore()..value = 'invalid-locale';
       final controller = GlobalLocaleController(store: store);
-      expect(controller.locale, const Locale('en'));
+      expect(
+        controller.locale,
+        const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+      );
       await controller.load();
-      expect(controller.locale, const Locale('en'));
+      expect(
+        controller.locale,
+        const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+      );
       controller.dispose();
     },
   );
@@ -124,7 +130,10 @@ void main() {
       final store = MemoryLocaleStore()..failWrite = true;
       final controller = GlobalLocaleController(store: store);
       expect(await controller.setLocale(const Locale('es')), isFalse);
-      expect(controller.locale, const Locale('en'));
+      expect(
+        controller.locale,
+        const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+      );
       expect(store.value, isNull);
       controller.dispose();
     },
@@ -160,20 +169,16 @@ void main() {
   );
 
   testWidgets(
-    'English first launch ignores phone language and selection updates the visible UI',
+    'Chinese first launch ignores phone language and hides selector',
     (tester) async {
       tester.platformDispatcher.localeTestValue = const Locale('de');
       addTearDown(tester.platformDispatcher.clearLocaleTestValue);
       final controller = GlobalLocaleController(store: MemoryLocaleStore());
       await tester.pumpWidget(localizedHost(controller));
       await tester.pumpAndSettle();
-      expect(find.text('Sign in'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('global-language-button')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('global-language-ja')));
-      await tester.pumpAndSettle();
-      expect(find.text('ログイン'), findsOneWidget);
-      expect(controller.locale, const Locale('ja'));
+      expect(find.text('登录'), findsOneWidget);
+      expect(find.byKey(const Key('global-language-button')), findsNothing);
+      expect(find.byIcon(Icons.language), findsNothing);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
       controller.dispose();
@@ -182,7 +187,7 @@ void main() {
 
   for (final scale in [1.0, 1.5, 2.0]) {
     testWidgets(
-      'language picker scrolls without overflow at 390px and text scale $scale',
+      'language selector stays hidden at 390px and text scale $scale',
       (tester) async {
         tester.view.physicalSize = const Size(390, 844);
         tester.view.devicePixelRatio = 1;
@@ -193,14 +198,9 @@ void main() {
         final controller = GlobalLocaleController(store: MemoryLocaleStore());
         await tester.pumpWidget(localizedHost(controller));
         await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('global-language-button')));
-        await tester.pumpAndSettle();
-        await tester.ensureVisible(
-          find.byKey(const ValueKey('global-language-ko')),
-        );
-        await tester.tap(find.byKey(const ValueKey('global-language-ko')));
-        await tester.pumpAndSettle();
-        expect(find.text('로그인'), findsOneWidget);
+        expect(find.byKey(const Key('global-language-button')), findsNothing);
+        expect(find.byIcon(Icons.language), findsNothing);
+        expect(find.text('登录'), findsOneWidget);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox());
         controller.dispose();

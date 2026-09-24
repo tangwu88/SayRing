@@ -733,7 +733,6 @@ class _MindBodyReadinessCard extends StatelessWidget {
   Widget build(BuildContext context) {
     const inputs = <HealthMetric>[
       HealthMetric.sleep,
-      HealthMetric.hrv,
       HealthMetric.stress,
       HealthMetric.bodyTemperature,
     ];
@@ -2045,21 +2044,13 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
   }
 }
 
-class _SportEntryPanel extends StatefulWidget {
+class _SportEntryPanel extends StatelessWidget {
   const _SportEntryPanel({required this.controller});
 
   final AppController controller;
 
   @override
-  State<_SportEntryPanel> createState() => _SportEntryPanelState();
-}
-
-class _SportEntryPanelState extends State<_SportEntryPanel> {
-  bool _expanded = false;
-
-  @override
   Widget build(BuildContext context) {
-    final controller = widget.controller;
     final latest = controller.latestByMetric;
     final showActivity =
         const {
@@ -2147,15 +2138,6 @@ class _SportEntryPanelState extends State<_SportEntryPanel> {
                 const SizedBox(height: 14),
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final textScale = MediaQuery.textScalerOf(context).scale(1);
-                    final compact =
-                        constraints.maxWidth < 360 || textScale > 1.25;
-                    final columns = constraints.maxWidth >= 600
-                        ? 6
-                        : compact
-                        ? 2
-                        : 4;
-                    final previewCount = columns;
                     final modes = controller.availableSportModes;
                     if (modes.isEmpty) {
                       return _InlineNotice(
@@ -2164,37 +2146,30 @@ class _SportEntryPanelState extends State<_SportEntryPanel> {
                         color: SaydianColors.orange,
                       );
                     }
+                    const previewCount = 4;
                     final hasMore = modes.length > previewCount;
-                    final visibleModes = _expanded
-                        ? modes
-                        : modes.take(previewCount).toList(growable: false);
-                    final width = constraints.maxWidth / columns;
+                    final visibleModes = modes
+                        .take(previewCount)
+                        .toList(growable: false);
+                    final width = constraints.maxWidth / previewCount;
                     return Column(
                       children: [
-                        AnimatedSize(
-                          duration: const Duration(milliseconds: 220),
-                          curve: Curves.easeOutCubic,
-                          alignment: Alignment.topCenter,
-                          child: Wrap(
-                            key: const Key('sport-mode-grid'),
-                            children: [
-                              for (final mode in visibleModes)
-                                SizedBox(
-                                  width: width,
-                                  child: _SportEntry(
-                                    mode: mode,
-                                    onTap: () => Navigator.of(context).push(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) => SportSessionPage(
-                                          controller: controller,
-                                          mode: mode,
-                                        ),
-                                      ),
-                                    ),
+                        Wrap(
+                          key: const Key('sport-mode-grid'),
+                          children: [
+                            for (final mode in visibleModes)
+                              SizedBox(
+                                width: width,
+                                child: _SportEntry(
+                                  mode: mode,
+                                  onTap: () => _openSportSession(
+                                    context,
+                                    controller,
+                                    mode,
                                   ),
                                 ),
-                            ],
-                          ),
+                              ),
+                          ],
                         ),
                         if (hasMore) ...[
                           const SizedBox(height: 8),
@@ -2202,19 +2177,19 @@ class _SportEntryPanelState extends State<_SportEntryPanel> {
                             width: double.infinity,
                             child: TextButton.icon(
                               key: const Key('sport-mode-more'),
-                              onPressed: () =>
-                                  setState(() => _expanded = !_expanded),
+                              onPressed: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  settings: const RouteSettings(
+                                    name: 'sport-mode-selection',
+                                  ),
+                                  builder: (_) => SportModeSelectionPage(
+                                    controller: controller,
+                                  ),
+                                ),
+                              ),
                               iconAlignment: IconAlignment.end,
-                              icon: Icon(
-                                _expanded
-                                    ? Icons.expand_less_rounded
-                                    : Icons.chevron_right_rounded,
-                              ),
-                              label: Text(
-                                _expanded
-                                    ? context.l10n.collapseSports
-                                    : context.l10n.showMoreSports,
-                              ),
+                              icon: const Icon(Icons.chevron_right_rounded),
+                              label: Text(context.l10n.showMoreSports),
                             ),
                           ),
                         ],
@@ -2268,8 +2243,79 @@ class _SportEntryPanelState extends State<_SportEntryPanel> {
   }
 }
 
+void _openSportSession(
+  BuildContext context,
+  AppController controller,
+  SportMode mode,
+) {
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      settings: RouteSettings(name: 'sport-session-${mode.name}'),
+      builder: (_) => SportSessionPage(controller: controller, mode: mode),
+    ),
+  );
+}
+
+class SportModeSelectionPage extends StatelessWidget {
+  const SportModeSelectionPage({required this.controller, super.key});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      key: const Key('sport-mode-selection-page'),
+      appBar: AppBar(title: Text(context.l10n.allSports)),
+      body: ListenableBuilder(
+        listenable: controller,
+        builder: (context, _) {
+          final modes = controller.availableSportModes;
+          if (modes.isEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: _InlineNotice(
+                  message: context.l10n.workoutStartOnWatch,
+                  icon: Icons.circle_outlined,
+                  color: SaydianColors.orange,
+                ),
+              ),
+            );
+          }
+          final width = MediaQuery.sizeOf(context).width;
+          final textScale = MediaQuery.textScalerOf(context).scale(1);
+          final columns = width >= 720
+              ? 6
+              : width >= 480
+              ? 4
+              : 3;
+          return GridView.builder(
+            key: const Key('all-sport-mode-grid'),
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+            itemCount: modes.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisExtent: 104 + (textScale - 1).clamp(0, 1) * 30,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+            ),
+            itemBuilder: (context, index) {
+              final mode = modes[index];
+              return _SportEntry(
+                key: ValueKey('all-sport-mode-${mode.name}'),
+                mode: mode,
+                onTap: () => _openSportSession(context, controller, mode),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _SportEntry extends StatelessWidget {
-  const _SportEntry({required this.mode, required this.onTap});
+  const _SportEntry({required this.mode, required this.onTap, super.key});
 
   final SportMode mode;
   final VoidCallback onTap;
@@ -2327,7 +2373,9 @@ class _SportEntry extends StatelessWidget {
             Text(
               context.l10n.sportModeName(mode),
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
             ),
           ],
         ),
@@ -7944,17 +7992,6 @@ class SettingsPage extends StatelessWidget {
       key: const Key('my-page'),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-        if (controller.isGlobalEdition)
-          Card(
-            child: ListTile(
-              key: const Key('settings-language'),
-              leading: const Icon(Icons.language),
-              title: Text(context.l10n.language),
-              subtitle: Text(GlobalLocaleScope.of(context).languageName),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => showGlobalLanguagePicker(context),
-            ),
-          ),
         if (controller.isPreviewMode) ...[
           Material(
             key: const Key('preview-login-prompt'),
@@ -10776,7 +10813,6 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
         title: '体温自动检测',
         icon: Icons.thermostat_rounded,
       ),
-      (type: 'hrv', title: 'HRV 自动检测', icon: Icons.monitor_heart_outlined),
     ];
     final tiles = <Widget>[];
 
