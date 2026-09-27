@@ -646,6 +646,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
             'installationId': _validatedInstallationId(installationId),
             'registrationId': registrationId,
             'platform': platform,
+            'product': GlobalEnvironment.productId,
             'appVersion': appVersion,
             'buildNumber': buildNumber,
             'locale': _locale(),
