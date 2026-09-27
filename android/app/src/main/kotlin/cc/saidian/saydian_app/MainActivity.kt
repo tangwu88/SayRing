@@ -652,7 +652,8 @@ class MainActivity : FlutterActivity() {
             result.error("WECHAT_AUTH_INVALID", "请重新发起微信登录", null)
             return
         }
-        val appId = BuildConfig.WECHAT_APP_ID.trim()
+        val requestedAppId = call.argument<String>("appId")?.trim().orEmpty()
+        val appId = requestedAppId.ifEmpty { BuildConfig.WECHAT_APP_ID.trim() }
         if (!WECHAT_APP_ID_PATTERN.matches(appId)) {
             result.error("WECHAT_AUTH_CONFIG_MISSING", "微信登录配置不完整", null)
             return

@@ -27,6 +27,21 @@ void main() {
     expect(second!.state, isNot(first.state));
   });
 
+  test(
+    'configured public AppID is forwarded only to the native bridge',
+    () async {
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        final arguments = call.arguments as Map;
+        expect(arguments['appId'], 'wx1234567890abcdef');
+        return {'code': 'one-time-code', 'state': arguments['state']};
+      });
+      final result = await MethodChannelWechatAuthBridge().authorize(
+        appId: 'wx1234567890abcdef',
+      );
+      expect(result?.code, 'one-time-code');
+    },
+  );
+
   test('foreign response cannot authenticate', () async {
     messenger.setMockMethodCallHandler(
       channel,

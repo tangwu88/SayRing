@@ -57,6 +57,85 @@ Map<String, Object?> capabilities({
 };
 
 void main() {
+  test(
+    'native WeChat requires phone binding before returning a session',
+    () async {
+      const ticket =
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      final requests = <http.Request>[];
+      final vault = MemorySessionVault();
+      final api = GlobalSaydianApiClient(
+        vault,
+        client: MockClient((request) async {
+          requests.add(request);
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          if (request.url.path.endsWith('/auth/wechat-login')) {
+            expect(body, {
+              'code': 'one-time-code',
+              'state': 'fresh-state',
+              'platform': 'android',
+              'consentAccepted': true,
+              'consentVersion': 'reviewed-test-v1',
+              'locale': 'zh-Hans',
+            });
+            return ok({
+              'requiresPhoneBinding': true,
+              'bindTicket': ticket,
+              'expiresIn': 300,
+              'wechatProfileProof': 'signed-profile-proof',
+            });
+          }
+          if (request.url.path.endsWith('/auth/wechat-phone-code')) {
+            expect(body['bindTicket'], ticket);
+            expect(body['identifier'], '+8613800138000');
+            expect(body, isNot(contains('openid')));
+            return ok({
+              'challengeId': 'wechat-phone-challenge',
+              'expiresIn': 300,
+              'retryAfter': 60,
+              'maskedIdentifier': '+86********000',
+            });
+          }
+          expect(request.url.path, endsWith('/auth/wechat-bind-phone'));
+          expect(body['bindTicket'], ticket);
+          expect(body['challengeId'], 'wechat-phone-challenge');
+          expect(body['code'], '123456');
+          expect(body['wechatProfileProof'], 'signed-profile-proof');
+          return ok(sessionData('wechat-member'));
+        }),
+      );
+      final result = await api.loginGlobalWithWechat(
+        code: 'one-time-code',
+        state: 'fresh-state',
+        platform: 'android',
+        consentVersion: 'reviewed-test-v1',
+        locale: 'zh-Hans',
+      );
+      expect(result.session, isNull);
+      final binding = result.binding!;
+      expect(vault.session, isNull);
+      final challenge = await api.requestGlobalWechatPhoneCode(
+        binding: binding,
+        identity: GlobalAccountIdentity.phone('13800138000', country: 'CN'),
+        consentVersion: 'reviewed-test-v1',
+        locale: 'zh-Hans',
+      );
+      final session = await api.bindGlobalWechatPhone(
+        binding: binding,
+        challenge: challenge,
+        code: '123456',
+        consentVersion: 'reviewed-test-v1',
+        locale: 'zh-Hans',
+      );
+      expect(session.memberId, 'wechat-member');
+      expect(vault.session, isNull);
+      expect(
+        requests.map((request) => request.url.path),
+        everyElement(startsWith(GlobalEnvironment.apiPrefix)),
+      );
+    },
+  );
+
   test('shared H5 code login creates the same global member session', () async {
     final vault = MemorySessionVault();
     final paths = <String>[];

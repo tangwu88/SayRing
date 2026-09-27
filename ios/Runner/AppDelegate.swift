@@ -991,6 +991,7 @@ struct IOSWechatAuthState {
   private func handleAuthCall(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     let values = call.arguments as? [String: Any]
     let state = values?["state"] as? String ?? ""
+    let requestedAppID = (values?["appId"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     if call.method == "cancelWechatAuthorization" {
       if wechatAuthState.cancel(state) {
         completeWechatAuth(["cancelled": true, "state": state])
@@ -1015,6 +1016,7 @@ struct IOSWechatAuthState {
       return
     }
     guard !configuredWechatAppID.isEmpty,
+      requestedAppID.isEmpty || requestedAppID == configuredWechatAppID,
       let link = URL(string: configuredWechatUniversalLink),
       link.scheme == "https", link.host != nil, link.query == nil, link.fragment == nil,
       configuredWechatUniversalLink.hasSuffix("/"),

@@ -68,6 +68,7 @@ class GlobalAuthCapabilities {
     this.recoverySms = false,
     this.loginEmail = false,
     this.loginSms = false,
+    this.wechatApp = const GlobalWechatAppCapability(),
   });
   final bool email;
   final bool sms;
@@ -80,6 +81,7 @@ class GlobalAuthCapabilities {
   final bool recoverySms;
   final bool loginEmail;
   final bool loginSms;
+  final GlobalWechatAppCapability wechatApp;
 
   factory GlobalAuthCapabilities.fromJson(Map<String, Object?> data) {
     if (data['realm'] != 'global') {
@@ -98,6 +100,9 @@ class GlobalAuthCapabilities {
       loginEmail:
           data['login'] is Map && (data['login'] as Map)['email'] == true,
       loginSms: data['login'] is Map && (data['login'] as Map)['sms'] == true,
+      wechatApp: GlobalWechatAppCapability.fromJson(
+        data['login'] is Map ? (data['login'] as Map)['wechatApp'] : null,
+      ),
       smsCountries: (data['smsCountries'] as List? ?? const [])
           .whereType<String>()
           .map((value) => value.toUpperCase())
@@ -129,6 +134,63 @@ class GlobalAuthCapabilities {
         AccountChannel.sms =>
           loginSms && smsCountries.contains(identity.country),
       };
+}
+
+class GlobalWechatAppCapability {
+  const GlobalWechatAppCapability({
+    this.enabled = false,
+    this.appId,
+    this.phoneBindingAvailable = false,
+  });
+
+  final bool enabled;
+  final String? appId;
+  final bool phoneBindingAvailable;
+
+  factory GlobalWechatAppCapability.fromJson(Object? value) {
+    if (value is! Map) return const GlobalWechatAppCapability();
+    final appId = '${value['appId'] ?? ''}'.trim();
+    final validAppId = RegExp(r'^wx[A-Za-z0-9]{8,64}$').hasMatch(appId);
+    final enabled = value['enabled'] == true && validAppId;
+    return GlobalWechatAppCapability(
+      enabled: enabled,
+      appId: enabled ? appId : null,
+      phoneBindingAvailable: enabled && value['phoneBindingAvailable'] == true,
+    );
+  }
+}
+
+class GlobalWechatPhoneBinding {
+  const GlobalWechatPhoneBinding({
+    required this.ticket,
+    required this.expiresIn,
+    required this.profileProof,
+  });
+
+  final String ticket;
+  final int expiresIn;
+  final String profileProof;
+
+  factory GlobalWechatPhoneBinding.fromJson(Map<String, Object?> data) {
+    final ticket = data['bindTicket'];
+    final expiresIn = data['expiresIn'];
+    final profileProof = data['wechatProfileProof'];
+    if (data['requiresPhoneBinding'] != true ||
+        ticket is! String ||
+        !RegExp(r'^[a-f0-9]{64}$').hasMatch(ticket) ||
+        expiresIn is! int ||
+        expiresIn <= 0 ||
+        profileProof is! String ||
+        profileProof.isEmpty ||
+        profileProof.length > 4096) {
+      throw const FormatException('Invalid WeChat binding response');
+    }
+    return GlobalWechatPhoneBinding(
+      ticket: ticket,
+      expiresIn: expiresIn,
+      profileProof: profileProof,
+    );
+  }
 }
 
 class VerificationChallenge {

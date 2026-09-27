@@ -580,6 +580,7 @@ class AppController extends ChangeNotifier {
   final WechatAuthBridge _wechatAuthBridge;
   int _wechatLoginGeneration = 0;
   bool isWechatLoginInProgress = false;
+  GlobalWechatPhoneBinding? pendingGlobalWechatBinding;
   bool get canCancelWechatLogin =>
       isWechatLoginInProgress && !_accountTransitioning;
   final AppNotificationService _notificationService;
@@ -1111,7 +1112,12 @@ class AppController extends ChangeNotifier {
     });
   }
 
-  Future<bool> loginWithWechat({required bool privacyConsentGranted}) async {
+  Future<bool> loginWithWechat({
+    required bool privacyConsentGranted,
+    String? appId,
+    String? consentVersion,
+    String? locale,
+  }) async {
     if (isBusy || _disposed) return false;
     if (!privacyConsentGranted) {
       errorMessage = '请先同意用户协议与隐私政策';
@@ -1128,17 +1134,48 @@ class AppController extends ChangeNotifier {
     bool isCurrent() => !_disposed && generation == _wechatLoginGeneration;
     isBusy = true;
     isWechatLoginInProgress = true;
+    pendingGlobalWechatBinding = null;
     errorMessage = null;
     notifyListeners();
     try {
       await _vault.writePrivacyConsentGranted(true);
       if (!isCurrent()) return false;
       _privacyConsentGranted = true;
-      final authorization = await _wechatAuthBridge.authorize();
+      final authorization = await _wechatAuthBridge.authorize(appId: appId);
       if (authorization == null || !isCurrent()) return false;
-      final authenticated = await (api as SaydianWechatAuthApi).loginWithWechat(
-        code: authorization.code,
-      );
+      Session authenticated;
+      if (isGlobalEdition) {
+        if (api is! GlobalWechatAuthApi ||
+            consentVersion?.trim().isEmpty != false ||
+            locale?.trim().isEmpty != false) {
+          throw const ApiException(
+            '微信登录暂不可用，请使用手机号登录',
+            code: 'WECHAT_AUTH_CONFIG_MISSING',
+          );
+        }
+        final result = await (api as GlobalWechatAuthApi).loginGlobalWithWechat(
+          code: authorization.code,
+          state: authorization.state,
+          platform: switch (defaultTargetPlatform) {
+            TargetPlatform.android => 'android',
+            TargetPlatform.iOS => 'ios',
+            _ => 'unsupported',
+          },
+          consentVersion: consentVersion!.trim(),
+          locale: locale!.trim(),
+        );
+        if (!isCurrent()) return false;
+        final binding = result.binding;
+        if (binding != null) {
+          pendingGlobalWechatBinding = binding;
+          return false;
+        }
+        authenticated = result.session!;
+      } else {
+        authenticated = await (api as SaydianWechatAuthApi).loginWithWechat(
+          code: authorization.code,
+        );
+      }
       if (!isCurrent()) return false;
       _accountTransitioning = true;
       await _drainCloudSync();
@@ -1197,6 +1234,59 @@ class AppController extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  Future<VerificationChallenge> requestGlobalWechatPhoneCode({
+    required GlobalWechatPhoneBinding binding,
+    required GlobalAccountIdentity identity,
+    required String consentVersion,
+    required String locale,
+  }) => (_api as GlobalWechatAuthApi).requestGlobalWechatPhoneCode(
+    binding: binding,
+    identity: identity,
+    consentVersion: consentVersion,
+    locale: locale,
+  );
+
+  Future<bool> bindGlobalWechatPhone({
+    required GlobalWechatPhoneBinding binding,
+    required VerificationChallenge challenge,
+    required String code,
+    required String consentVersion,
+    required String locale,
+  }) async {
+    if (isBusy || !RegExp(r'^\d{6}$').hasMatch(code.trim())) return false;
+    return _guard(() async {
+      _accountTransitioning = true;
+      try {
+        await _drainCloudSync();
+        final authenticated = await (_api as GlobalWechatAuthApi)
+            .bindGlobalWechatPhone(
+              binding: binding,
+              challenge: challenge,
+              code: code.trim(),
+              consentVersion: consentVersion,
+              locale: locale,
+            );
+        await _vault.writeSession(authenticated);
+        session = authenticated;
+        pendingGlobalWechatBinding = null;
+        await _prepareAuthenticatedNotificationSession(
+          privacyConsentGranted: true,
+        );
+        isPreviewMode = false;
+        await refreshCare();
+        await refreshCareInvitations();
+        await _refreshRemoteNotificationUnreadCount();
+        await refreshMemberProfile();
+        await refreshActivityGoals();
+        unawaited(refreshHealthWarningCloudState());
+        _careInvitationPollBackoffIndex = 0;
+        _scheduleCareInvitationPoll(const Duration(seconds: 30));
+      } finally {
+        await _finishAccountTransition();
+      }
+    });
   }
 
   void cancelWechatLogin({bool force = false}) {

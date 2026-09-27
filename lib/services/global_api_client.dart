@@ -40,6 +40,43 @@ abstract interface class GlobalCodeAuthApi {
   });
 }
 
+class GlobalWechatLoginResult {
+  const GlobalWechatLoginResult._({this.session, this.binding});
+
+  final Session? session;
+  final GlobalWechatPhoneBinding? binding;
+
+  factory GlobalWechatLoginResult.authenticated(Session session) =>
+      GlobalWechatLoginResult._(session: session);
+
+  factory GlobalWechatLoginResult.requiresPhone(
+    GlobalWechatPhoneBinding binding,
+  ) => GlobalWechatLoginResult._(binding: binding);
+}
+
+abstract interface class GlobalWechatAuthApi {
+  Future<GlobalWechatLoginResult> loginGlobalWithWechat({
+    required String code,
+    required String state,
+    required String platform,
+    required String consentVersion,
+    required String locale,
+  });
+  Future<VerificationChallenge> requestGlobalWechatPhoneCode({
+    required GlobalWechatPhoneBinding binding,
+    required GlobalAccountIdentity identity,
+    required String consentVersion,
+    required String locale,
+  });
+  Future<Session> bindGlobalWechatPhone({
+    required GlobalWechatPhoneBinding binding,
+    required VerificationChallenge challenge,
+    required String code,
+    required String consentVersion,
+    required String locale,
+  });
+}
+
 abstract interface class GlobalCareApi {
   Future<List<GlobalCareRelationship>> globalCareRelationships();
   Future<void> globalInviteCare(String identifier);
@@ -151,6 +188,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     implements
         GlobalAccountApi,
         GlobalCodeAuthApi,
+        GlobalWechatAuthApi,
         GlobalCareApi,
         GlobalContentApi,
         GlobalCommerceApi,
@@ -715,6 +753,71 @@ class GlobalSaydianApiClient extends SaydianApiClient
     const FeatureNotConfiguredException(
       'Sign in with your email address or phone number.',
     ),
+  );
+
+  @override
+  Future<GlobalWechatLoginResult> loginGlobalWithWechat({
+    required String code,
+    required String state,
+    required String platform,
+    required String consentVersion,
+    required String locale,
+  }) async {
+    final data = await _globalPublic('auth/wechat-login', {
+      'code': code,
+      'state': state,
+      'platform': platform,
+      'consentAccepted': true,
+      'consentVersion': consentVersion,
+      'locale': locale,
+    });
+    if (data['requiresPhoneBinding'] == true) {
+      return GlobalWechatLoginResult.requiresPhone(
+        GlobalWechatPhoneBinding.fromJson(data),
+      );
+    }
+    return GlobalWechatLoginResult.authenticated(_globalSession(data));
+  }
+
+  @override
+  Future<VerificationChallenge> requestGlobalWechatPhoneCode({
+    required GlobalWechatPhoneBinding binding,
+    required GlobalAccountIdentity identity,
+    required String consentVersion,
+    required String locale,
+  }) async {
+    if (identity.channel != AccountChannel.sms) {
+      throw const ApiException(
+        'Enter a valid phone number.',
+        code: 'INVALID_IDENTIFIER',
+      );
+    }
+    return VerificationChallenge.fromJson(
+      await _globalPublic('auth/wechat-phone-code', {
+        'bindTicket': binding.ticket,
+        'identifier': identity.identifier,
+        'consentVersion': consentVersion,
+        'locale': locale,
+      }),
+    );
+  }
+
+  @override
+  Future<Session> bindGlobalWechatPhone({
+    required GlobalWechatPhoneBinding binding,
+    required VerificationChallenge challenge,
+    required String code,
+    required String consentVersion,
+    required String locale,
+  }) async => _globalSession(
+    await _globalPublic('auth/wechat-bind-phone', {
+      'bindTicket': binding.ticket,
+      'challengeId': challenge.id,
+      'code': code,
+      'consentVersion': consentVersion,
+      'locale': locale,
+      'wechatProfileProof': binding.profileProof,
+    }),
   );
 
   @override
@@ -1543,6 +1646,23 @@ class GlobalSaydianApiClient extends SaydianApiClient
     Session? expectedSession,
   }) async {
     final data = await _globalPublic(path, body);
+    final session = _globalSession(data);
+    final id = session.memberId;
+    if (expectedSession == null) {
+      await _vault.writeSession(session);
+    } else {
+      if (expectedSession.memberId != id ||
+          !await _vault.writeSessionIfUnchanged(expectedSession, session)) {
+        throw const ApiException(
+          'Your account has changed. Please try again.',
+          code: 'STALE_SESSION_REFRESH',
+        );
+      }
+    }
+    return session;
+  }
+
+  Session _globalSession(Map<String, Object?> data) {
     final member = data['member'];
     final id = member is Map ? member['id'] : null;
     final access = data['accessToken'];
@@ -1568,17 +1688,6 @@ class GlobalSaydianApiClient extends SaydianApiClient
       displayName: '${(member as Map)['nickname'] ?? 'Say Ring user'}',
       accountKey: 'global:member:$id',
     );
-    if (expectedSession == null) {
-      await _vault.writeSession(session);
-    } else {
-      if (expectedSession.memberId != id ||
-          !await _vault.writeSessionIfUnchanged(expectedSession, session)) {
-        throw const ApiException(
-          'Your account has changed. Please try again.',
-          code: 'STALE_SESSION_REFRESH',
-        );
-      }
-    }
     return session;
   }
 

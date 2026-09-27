@@ -53,6 +53,82 @@ class CodeLoginController extends Fake implements AppController {
   }
 }
 
+class WechatCodeLoginController extends CodeLoginController {
+  final binding = const GlobalWechatPhoneBinding(
+    ticket: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    expiresIn: 300,
+    profileProof: 'signed-profile-proof',
+  );
+  GlobalAccountIdentity? bindingIdentity;
+  bool bound = false;
+
+  @override
+  GlobalWechatPhoneBinding? get pendingGlobalWechatBinding => binding;
+
+  @override
+  String? get errorMessage => null;
+
+  @override
+  Future<GlobalAuthCapabilities> globalAuthCapabilities() async =>
+      const GlobalAuthCapabilities(
+        email: true,
+        sms: true,
+        loginEmail: false,
+        loginSms: true,
+        smsCountries: {'CN'},
+        supportedLocales: ['zh-Hans'],
+        consentVersion: 'reviewed-test-v1',
+        wechatApp: GlobalWechatAppCapability(
+          enabled: true,
+          appId: 'wx1234567890abcdef',
+          phoneBindingAvailable: true,
+        ),
+      );
+
+  @override
+  Future<bool> loginWithWechat({
+    required bool privacyConsentGranted,
+    String? appId,
+    String? consentVersion,
+    String? locale,
+  }) async {
+    expect(privacyConsentGranted, isTrue);
+    expect(appId, 'wx1234567890abcdef');
+    expect(consentVersion, 'reviewed-test-v1');
+    return false;
+  }
+
+  @override
+  Future<VerificationChallenge> requestGlobalWechatPhoneCode({
+    required GlobalWechatPhoneBinding binding,
+    required GlobalAccountIdentity identity,
+    required String consentVersion,
+    required String locale,
+  }) async {
+    bindingIdentity = identity;
+    return const VerificationChallenge(
+      id: 'wechat-phone-challenge',
+      expiresIn: 300,
+      retryAfter: 0,
+      maskedIdentifier: '+86********000',
+    );
+  }
+
+  @override
+  Future<bool> bindGlobalWechatPhone({
+    required GlobalWechatPhoneBinding binding,
+    required VerificationChallenge challenge,
+    required String code,
+    required String consentVersion,
+    required String locale,
+  }) async {
+    expect(challenge.id, 'wechat-phone-challenge');
+    expect(code, '123456');
+    bound = true;
+    return true;
+  }
+}
+
 void main() {
   testWidgets('phone code login is default and has no registration/password', (
     tester,
@@ -117,4 +193,56 @@ void main() {
     expect(controller.signedIn?.identifier, '+8613800138000');
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'WeChat first authorization opens phone binding with send button',
+    (tester) async {
+      final controller = WechatCodeLoginController();
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: GlobalCodeLoginPage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('code-login-consent')));
+      await tester.tap(find.byType(Checkbox));
+      await tester.pump();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('global-wechat-login')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byKey(const Key('global-wechat-login')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('global-wechat-phone-binding-page')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<TextButton>(find.byKey(const Key('wechat-bind-send')))
+            .onPressed,
+        isNotNull,
+      );
+      await tester.enterText(
+        find.byKey(const Key('wechat-bind-phone')),
+        '13800138000',
+      );
+      await tester.tap(find.byKey(const Key('wechat-bind-send')));
+      await tester.pumpAndSettle();
+      expect(controller.bindingIdentity?.identifier, '+8613800138000');
+      await tester.enterText(
+        find.byKey(const Key('wechat-bind-code')),
+        '123456',
+      );
+      await tester.ensureVisible(find.byKey(const Key('wechat-bind-submit')));
+      await tester.tap(find.byKey(const Key('wechat-bind-submit')));
+      await tester.pumpAndSettle();
+      expect(controller.bound, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

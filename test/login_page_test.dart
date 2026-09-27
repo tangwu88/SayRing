@@ -592,7 +592,7 @@ class _WechatBridge implements WechatAuthBridge {
   final started = Completer<void>();
   int calls = 0;
   @override
-  Future<WechatAuthorization?> authorize() {
+  Future<WechatAuthorization?> authorize({String? appId}) {
     calls++;
     started.complete();
     return result.future;

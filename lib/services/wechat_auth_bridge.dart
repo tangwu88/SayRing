@@ -12,7 +12,7 @@ class WechatAuthorization {
 
 abstract interface class WechatAuthBridge {
   /// Null means the user cancelled. Authorization is not an app session.
-  Future<WechatAuthorization?> authorize();
+  Future<WechatAuthorization?> authorize({String? appId});
   Future<void> cancel();
 }
 
@@ -27,7 +27,7 @@ class MethodChannelWechatAuthBridge implements WechatAuthBridge {
   String? _pendingState;
 
   @override
-  Future<WechatAuthorization?> authorize() async {
+  Future<WechatAuthorization?> authorize({String? appId}) async {
     if (_pendingState != null) {
       throw PlatformException(code: 'WECHAT_AUTH_BUSY');
     }
@@ -36,7 +36,10 @@ class MethodChannelWechatAuthBridge implements WechatAuthBridge {
     _pendingState = state;
     try {
       final response = await _channel
-          .invokeMapMethod<String, Object?>('authorizeWechat', {'state': state})
+          .invokeMapMethod<String, Object?>('authorizeWechat', {
+            'state': state,
+            if (appId?.trim().isNotEmpty == true) 'appId': appId!.trim(),
+          })
           .timeout(timeout);
       if (_pendingState != state) return null;
       if (response?['state'] != state) {

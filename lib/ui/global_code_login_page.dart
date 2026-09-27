@@ -118,8 +118,56 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     'rate' => l.tooManyAttempts,
     'network' => l.networkUnavailable,
     'consent' => l.consentRequired,
+    'wechat' => widget.controller.errorMessage ?? l.serviceUnavailable,
     _ => l.serviceUnavailable,
   };
+
+  Future<void> _wechatLogin() async {
+    if (_busy) return;
+    final capability = _capabilities?.wechatApp;
+    final consentVersion = _capabilities?.consentVersion?.trim() ?? '';
+    if (!_accepted) {
+      setState(() => _error = 'consent');
+      return;
+    }
+    if (capability?.enabled != true ||
+        capability?.appId == null ||
+        consentVersion.isEmpty) {
+      setState(() => _error = 'service');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final success = await widget.controller.loginWithWechat(
+        privacyConsentGranted: true,
+        appId: capability!.appId,
+        consentVersion: consentVersion,
+        locale: _locale,
+      );
+      if (!mounted || success) return;
+      final binding = widget.controller.pendingGlobalWechatBinding;
+      if (binding == null) {
+        setState(() => _error = 'wechat');
+        return;
+      }
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => GlobalWechatPhoneBindingPage(
+            controller: widget.controller,
+            binding: binding,
+            capabilities: _capabilities!,
+            consentVersion: consentVersion,
+            locale: _locale,
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   Future<void> _sendCode() async {
     if (_busy || _remaining > 0) return;
@@ -393,6 +441,229 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                 key: const Key('code-login-submit'),
                 onPressed: _busy ? null : _submit,
                 child: Text(_busy ? l.pleaseWait : l.signIn),
+              ),
+              if (_capabilities?.wechatApp.enabled == true) ...[
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  key: const Key('global-wechat-login'),
+                  onPressed: _busy ? null : _wechatLogin,
+                  icon: const Icon(Icons.chat_bubble_outline),
+                  label: const Text('微信授权登录'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class GlobalWechatPhoneBindingPage extends StatefulWidget {
+  const GlobalWechatPhoneBindingPage({
+    super.key,
+    required this.controller,
+    required this.binding,
+    required this.capabilities,
+    required this.consentVersion,
+    required this.locale,
+  });
+
+  final AppController controller;
+  final GlobalWechatPhoneBinding binding;
+  final GlobalAuthCapabilities capabilities;
+  final String consentVersion;
+  final String locale;
+
+  @override
+  State<GlobalWechatPhoneBindingPage> createState() =>
+      _GlobalWechatPhoneBindingPageState();
+}
+
+class _GlobalWechatPhoneBindingPageState
+    extends State<GlobalWechatPhoneBindingPage> {
+  final _phone = TextEditingController();
+  final _code = TextEditingController();
+  String _country = 'CN';
+  String _phoneCode = '86';
+  VerificationChallenge? _challenge;
+  Timer? _timer;
+  int _remaining = 0;
+  bool _busy = false;
+  String? _error;
+
+  AppLocalizations get l => AppLocalizations.of(context)!;
+
+  GlobalAccountIdentity _identity() =>
+      GlobalAccountIdentity.phone(_phone.text, country: _country);
+
+  Future<void> _send() async {
+    if (_busy || _remaining > 0) return;
+    GlobalAccountIdentity identity;
+    try {
+      identity = _identity();
+    } catch (_) {
+      setState(() => _error = l.invalidPhone);
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final challenge = await widget.controller.requestGlobalWechatPhoneCode(
+        binding: widget.binding,
+        identity: identity,
+        consentVersion: widget.consentVersion,
+        locale: widget.locale,
+      );
+      if (!mounted) return;
+      _timer?.cancel();
+      setState(() {
+        _challenge = challenge;
+        _remaining = challenge.retryAfter;
+      });
+      _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted || _remaining <= 1) {
+          timer.cancel();
+          if (mounted) setState(() => _remaining = 0);
+        } else {
+          setState(() => _remaining--);
+        }
+      });
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = l.serviceUnavailable);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _bind() async {
+    final challenge = _challenge;
+    if (_busy ||
+        challenge == null ||
+        !RegExp(r'^\d{6}$').hasMatch(_code.text.trim())) {
+      setState(() => _error = l.invalidCode);
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    final success = await widget.controller.bindGlobalWechatPhone(
+      binding: widget.binding,
+      challenge: challenge,
+      code: _code.text,
+      consentVersion: widget.consentVersion,
+      locale: widget.locale,
+    );
+    if (!mounted) return;
+    if (success) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    } else {
+      setState(() {
+        _busy = false;
+        _error = widget.controller.errorMessage ?? l.serviceUnavailable;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _phone.dispose();
+    _code.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    key: const Key('global-wechat-phone-binding-page'),
+    appBar: AppBar(title: const Text('绑定手机号')),
+    body: SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              const Icon(Icons.phone_android, size: 52),
+              const SizedBox(height: 16),
+              const Text(
+                '首次使用微信登录需要验证并绑定手机号，绑定后再次微信授权可直接进入。',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              OutlinedButton(
+                key: const Key('wechat-bind-country'),
+                onPressed: _busy
+                    ? null
+                    : () => showCountryPicker(
+                        context: context,
+                        showPhoneCode: true,
+                        countryFilter: widget.capabilities.smsCountries
+                            .toList(),
+                        onSelect: (value) => setState(() {
+                          _country = value.countryCode;
+                          _phoneCode = value.phoneCode;
+                          _challenge = null;
+                          _code.clear();
+                        }),
+                      ),
+                child: Text('$_country +$_phoneCode'),
+              ),
+              TextField(
+                key: const Key('wechat-bind-phone'),
+                controller: _phone,
+                enabled: !_busy,
+                keyboardType: TextInputType.phone,
+                autofillHints: const [AutofillHints.telephoneNumber],
+                decoration: InputDecoration(labelText: l.phoneNumber),
+                onChanged: (_) => setState(() {
+                  _challenge = null;
+                  _code.clear();
+                  _error = null;
+                }),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('wechat-bind-code'),
+                controller: _code,
+                enabled: !_busy,
+                keyboardType: TextInputType.number,
+                autofillHints: const [AutofillHints.oneTimeCode],
+                decoration: InputDecoration(labelText: l.verificationCode),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  key: const Key('wechat-bind-send'),
+                  onPressed:
+                      _busy ||
+                          _remaining > 0 ||
+                          !widget.capabilities.wechatApp.phoneBindingAvailable
+                      ? null
+                      : _send,
+                  child: Text(
+                    _remaining > 0 ? l.resendCode(_remaining) : l.sendCode,
+                  ),
+                ),
+              ),
+              if (_challenge != null)
+                Text(l.verificationSentTo(_challenge!.maskedIdentifier)),
+              if (_error != null)
+                Text(
+                  _error!,
+                  key: const Key('wechat-bind-error'),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              const SizedBox(height: 16),
+              FilledButton(
+                key: const Key('wechat-bind-submit'),
+                onPressed: _busy ? null : _bind,
+                child: Text(_busy ? l.pleaseWait : '绑定并登录'),
               ),
             ],
           ),
