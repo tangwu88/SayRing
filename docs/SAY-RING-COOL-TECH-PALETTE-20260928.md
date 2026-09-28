@@ -74,6 +74,7 @@
 - 源码提交 `d1c2689` 已以普通快进方式推送到开发分支和 `main`，两条远端引用均与本地一致，未强推、未覆盖远端历史。
 - 推送后触发的 GitHub Actions `mobile-ci` #32（开发分支）和 #33（`main`）均在约 4 秒内失败：`quality` 与两组 Harmony contracts 没有分配 runner、没有执行步骤且没有生成日志，Android/iOS 因前置任务失败被跳过。现有证据只能确认是 Actions 在开始执行代码前被仓库或账号侧门禁阻断，不能据此认定代码测试失败，也不能猜测具体计费原因；本轮不能标记 CI 通过或线上发布完成。
 - 补记 Actions 状态后的首次 `git fetch origin --prune` 遇到 GitHub 连接重置并以 128 退出；命令在暂存和提交前停止，未改变本地或远端历史。保留工作区后重试，再继续最终同步。
+- 实施记录提交 `80ac7f0` 首次推送时开发分支成功、`main` 因连接重置失败；第一次重试又因人工写错预期完整 SHA 被本地保护条件提前终止，第二次重试遇到 443 暂时无法连接。改为读取实际 `HEAD` 校验且网络恢复后，`main` 最终以普通快进同步成功；各失败步骤均未强推或改写历史。
 - Android 构建仍提示 CameraX 与极光插件使用旧 Kotlin Gradle Plugin 应用方式；本轮构建成功，但未来 Flutter 强制 Built-in Kotlin 前仍需升级对应插件。
 - Windows 无法执行 iOS 构建；本轮没有重新构建 HarmonyOS 原生工程。Flutter 共享页面测试不能替代 iOS/HarmonyOS 真机视觉验收。
 - QA Release 使用测试证书，只适合内部覆盖安装和视觉确认，不能作为应用市场正式发布包。
