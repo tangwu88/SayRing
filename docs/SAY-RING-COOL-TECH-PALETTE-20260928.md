@@ -71,6 +71,9 @@
 ## 失败、修正与边界
 
 - 编辑个人页摘要颜色时曾产生重复的 `color` 命名参数；在运行测试前的源码检查中发现并删除，最终格式化、分析、测试和构建均通过。
+- 源码提交 `d1c2689` 已以普通快进方式推送到开发分支和 `main`，两条远端引用均与本地一致，未强推、未覆盖远端历史。
+- 推送后触发的 GitHub Actions `mobile-ci` #32（开发分支）和 #33（`main`）均在约 4 秒内失败：`quality` 与两组 Harmony contracts 没有分配 runner、没有执行步骤且没有生成日志，Android/iOS 因前置任务失败被跳过。现有证据只能确认是 Actions 在开始执行代码前被仓库或账号侧门禁阻断，不能据此认定代码测试失败，也不能猜测具体计费原因；本轮不能标记 CI 通过或线上发布完成。
+- 补记 Actions 状态后的首次 `git fetch origin --prune` 遇到 GitHub 连接重置并以 128 退出；命令在暂存和提交前停止，未改变本地或远端历史。保留工作区后重试，再继续最终同步。
 - Android 构建仍提示 CameraX 与极光插件使用旧 Kotlin Gradle Plugin 应用方式；本轮构建成功，但未来 Flutter 强制 Built-in Kotlin 前仍需升级对应插件。
 - Windows 无法执行 iOS 构建；本轮没有重新构建 HarmonyOS 原生工程。Flutter 共享页面测试不能替代 iOS/HarmonyOS 真机视觉验收。
 - QA Release 使用测试证书，只适合内部覆盖安装和视觉确认，不能作为应用市场正式发布包。
@@ -78,5 +81,6 @@
 ## 待处理问题
 
 - 由产品在当前华为真机确认冷色科技方向、品牌红保留比例和卡片密度是否符合最终审美。
+- 仓库管理员需恢复 GitHub Actions 的 runner/账号执行条件后，重新运行 `mobile-ci` 并核对质量、Android、iOS 与 Harmony contracts 全部结果。
 - iOS 与 HarmonyOS 需在对应环境重新构建并核对字体、状态栏、安全区和平台原生控件颜色。
 - 正式上架前替换应用市场正式签名，并重新执行覆盖升级与在线更新闭环。
