@@ -12,6 +12,7 @@
 
 ## 最近记录
 
+- [2026-09-28 Android 真机 Debug 重新启动](SAY-RING-ANDROID-DEBUG-20260928.md) — 最新 `main` 已在华为 PPA-LX3 重新构建、两阶段覆盖安装并附加 Flutter Debug；登录页正常、当前进程无崩溃/ANR、业务接口只见 `app.saydian.cn`。记录了安装坐标字符串拼接错误及修正、安全存储算法迁移 0 项、更新清单 404、冷启动跳帧和真实登录/戒指链路未验收边界。
 - [2026-09-27 Android 真机 Debug 启动](SAY-RING-ANDROID-DEBUG-20260927.md) — 最新 `main` 已在华为 PPA-LX3 覆盖安装并保持 Flutter Debug；首页与登录会话正常、当前进程无崩溃/ANR、首轮业务请求仅见 `app.saydian.cn`。更新清单 404、冷启动跳帧、空推送/天气配置和真实戒指链路继续明确未验收；同时记录并纠正 PowerShell `$PID` 保留变量误用。
 - [2026-09-27 Say Ring 在线更新与极光推送](SAY-RING-ONLINE-UPDATE-JPUSH-20260927.md) — Say Ring 推送设备登记携带独立产品标识，配合后台独立更新清单和极光配置，避免与旧 App 混用；真实凭据、正式签名升级和通知送达仍需配置后验收。
 - [2026-09-27 Say Ring 微信授权登录对接](SAY-RING-WECHAT-LOGIN-20260927.md) — Android 使用服务端公开 AppID 发起微信 SDK 授权，服务端以一次性 code 换身份；首次授权绑定已验证手机号，后续直登，并与国际 H5 会员复用。Flutter 双时区各 878 项、Android 原生单测、Debug/QA Release 双包和华为覆盖安装通过；真实微信回调、真实短信、iOS 构建及开放平台包名/签名登记仍按正文待验。
