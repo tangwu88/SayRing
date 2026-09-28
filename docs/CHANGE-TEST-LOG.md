@@ -12,6 +12,7 @@
 
 ## 最近记录
 
+- [2026-09-28 Android 模拟器 Debug](SAY-RING-ANDROID-EMULATOR-DEBUG-20260928.md) — `Saydian_API_36` / `emulator-5554` 已以显式 x86_64 Debug 开关构建、安装并附加 Flutter；最新蓝色登录页和数字键盘正常，当前进程无崩溃/ANR/缺失动态库，业务请求仅见 `app.saydian.cn`。记录了 Android 16 前台 Activity 检查差异、更新清单 404、启动/键盘跳帧及模拟器不能替代真实戒指验收的边界。
 - [2026-09-28 Say Ring 全局科技色调、设备页与个人中心统一](SAY-RING-UNIFIED-TECH-UI-20260928.md) — 去除普通界面残留的大红色，将设备页、个人中心、商城及各类二级页面统一为蓝青靛紫科技色和冷色卡片层级；双时区各 884 项、Android 原生 23 项、双 APK 构建与验签通过。手机锁屏导致最新包尚未覆盖安装，Git/CI 与平台边界见正文。
 - [2026-09-28 Say Ring 冷色科技年轻化调整](SAY-RING-COOL-TECH-PALETTE-20260928.md) — 将偏粉嫩的表面重新收拢为冷白、蓝、青、靛紫科技配色，品牌红仅保留于关键操作和选中态；新增精确配色断言，双时区各 883 项、Android 原生 23 项、双 APK 构建、验签及华为覆盖安装通过；GitHub Actions 在分配 runner 前被外部门禁阻断，不能标 CI 通过或已发布，完整边界见正文。
 - [2026-09-28 Say Ring 年轻化界面与首页健康大卡片](SAY-RING-YOUTHFUL-LUCKRING-UI-20260928.md) — 现场参考 LuckRing 的大卡片层级与留白，在保留 Say Ring 红色浅色品牌调性的前提下，将首页健康指标改为单列全宽渐变大卡片，并统一功能面板、通用卡片和输入框圆角；双时区各 882 项、Android 原生 23 项、双 APK 构建、验签与华为覆盖安装通过，iOS/HarmonyOS 和正式签名仍按正文待验。
