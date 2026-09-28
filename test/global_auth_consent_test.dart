@@ -102,6 +102,8 @@ Widget _host(
 );
 
 Future<void> _fill(WidgetTester tester, {bool reset = false}) async {
+  await tester.tap(find.text('Email').first);
+  await tester.pump();
   await tester.enterText(
     find.byKey(const Key('auth-contact')),
     'qa@example.com',

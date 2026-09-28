@@ -30,8 +30,8 @@ class FeatureAvailability {
 enum DeviceFeature {
   watchFaces('watch_faces', '显示样式'),
   photoWatchFace('photo_watch_face', '照片显示'),
-  findWatch('find_watch', '查找戒指'),
-  camera('camera', '相机遥控'),
+  findWatch('find_watch', '查找设备'),
+  camera('camera', '摇一摇拍照'),
   phoneCalls('phone_calls', '电话'),
   contacts('contacts', '常用联系人'),
   notifications('notifications', '消息通知'),
@@ -39,7 +39,7 @@ enum DeviceFeature {
   weather('weather', '天气'),
   worldClock('world_clock', '世界时钟'),
   healthReminders('health_reminders', '健康提醒'),
-  healthMonitoring('health_monitoring', '健康监测'),
+  healthMonitoring('health_monitoring', '自动健康检测'),
   healthAssessment('health_assessment', '辅助评估'),
   screenDisplay('screen_display', '屏幕显示');
 

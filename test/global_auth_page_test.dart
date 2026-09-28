@@ -228,6 +228,9 @@ void main() {
     expect(find.byKey(const Key('auth-code')), findsNothing);
     expect(find.text('Send code'), findsNothing);
 
+    await tester.tap(find.text('Email').first);
+    await tester.pumpAndSettle();
+
     await tester.scrollUntilVisible(
       find.byKey(const Key('auth-contact')),
       -250,

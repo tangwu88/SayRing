@@ -743,10 +743,9 @@ class AppController extends ChangeNotifier {
           capabilities != null);
 
   bool shouldShowHealthMetric(HealthMetric metric) =>
-      metric != HealthMetric.hrv &&
-      (latestByMetric.containsKey(metric) ||
-          (_hasResolvedDeviceCapabilities &&
-              capabilities?.supports(metric) == true));
+      latestByMetric.containsKey(metric) ||
+      (_hasResolvedDeviceCapabilities &&
+          capabilities?.supports(metric) == true);
 
   bool canMeasureHealthMetric(HealthMetric metric) =>
       connectedDevice != null &&

@@ -191,6 +191,7 @@ class AppUpdateService {
   final Duration _requestTimeout;
 
   bool get isConfigured => _endpointUri != null;
+  bool get opensProductDownloadPage => false;
 
   Future<PackageInfo> loadCurrentPackage() => _packageInfoLoader();
 

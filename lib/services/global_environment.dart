@@ -12,6 +12,8 @@ abstract final class GlobalEnvironment {
   static const sharedCodeLoginPath =
       '/global/api/saidian-mall/v1/auth/code/login';
   static const productId = 'say-ring';
+  static const downloadPagePath = '/say-ring';
+  static Uri get downloadPageUri => Uri.parse('$origin$downloadPagePath');
   static String get storageNamespace => sha256
       .convert(utf8.encode('${configuredOrigin.origin}$apiPrefix:$productId'))
       .toString();

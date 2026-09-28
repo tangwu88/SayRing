@@ -4,6 +4,7 @@ export const GLOBAL_ORIGIN: string = 'https://app.saydian.cn';
 export const GLOBAL_API: string = '/global/api/saydian-app/v2';
 export const GLOBAL_BUNDLE: string = 'cn.saydian.ring.hm';
 export const GLOBAL_PRODUCT: string = 'say-ring';
+export const GLOBAL_DOWNLOAD_PAGE: string = `${GLOBAL_ORIGIN}/say-ring`;
 export const GLOBAL_WECHAT_ENABLED: boolean = false;
 export const GLOBAL_PUSH_ENABLED: boolean = false;
 export const GLOBAL_PAYMENTS_ENABLED: boolean = false;

@@ -2036,7 +2036,7 @@ struct Index {
     if (!this.updateInfo.hasUpdate || !this.updateInfo.destinationUrl) return;
     try {
       await this.uiContext().startAbility({ action: 'ohos.want.action.viewData', uri: this.updateInfo.destinationUrl });
-    } catch { this.updateStatus = '无法打开华为应用市场，请稍后重试'; }
+    } catch { this.updateStatus = '无法打开 APP 下载页面，请稍后重试'; }
   }
 
   private openPayment(order: ShopOrder): void {

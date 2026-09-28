@@ -699,7 +699,10 @@ class _UpdateActionPageState extends State<_UpdateActionPage> {
       _progress = 0;
     });
     try {
-      if (widget.info.destinationType == AppUpdateDestinationType.androidApk) {
+      if (widget.service.opensProductDownloadPage) {
+        await widget.service.openDestination(widget.info);
+      } else if (widget.info.destinationType ==
+          AppUpdateDestinationType.androidApk) {
         await widget.installer.downloadAndInstall(
           widget.info,
           onProgress: (value) {
@@ -794,8 +797,10 @@ class _UpdateActionPageState extends State<_UpdateActionPage> {
                   FilledButton(
                     onPressed: _busy ? null : _update,
                     child: Text(
-                      widget.info.destinationType ==
-                              AppUpdateDestinationType.appStore
+                      widget.service.opensProductDownloadPage
+                          ? '前往 APP 下载页'
+                          : widget.info.destinationType ==
+                                AppUpdateDestinationType.appStore
                           ? context.l10n.updateAppStore
                           : widget.info.destinationType ==
                                 AppUpdateDestinationType.testFlight

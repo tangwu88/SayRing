@@ -109,6 +109,50 @@ void main() {
       expect(info.forceUpdate, isFalse);
     },
   );
+  test('backend package route and Android market links are accepted', () async {
+    final packageInfo = await service(
+      manifest(
+        url:
+            '/global/api/saydian-app/v2/support/app-package/say-ring-android-2.apk',
+      ),
+    ).check();
+    expect(packageInfo.destinationType, AppUpdateDestinationType.androidApk);
+
+    final marketInfo = await service({
+      ...manifest(),
+      'releases': [
+        {
+          'platform': 'android',
+          'packageId': 'cn.saydian.ring',
+          'versionName': '0.2.0',
+          'buildNumber': 24,
+          'status': 'available',
+          'destination': {
+            'kind': 'market',
+            'url': 'https://appgallery.huawei.com/app/C123456',
+          },
+        },
+      ],
+    }).check();
+    expect(marketInfo.destinationType, AppUpdateDestinationType.androidStore);
+  });
+
+  test('missing update configuration is treated as no update', () async {
+    final client = GlobalAppUpdateService(
+      client: MockClient((_) async => http.Response('', 404)),
+      targetPlatform: TargetPlatform.android,
+      packageInfoLoader: () async => PackageInfo(
+        appName: 'Say Ring',
+        packageName: 'cn.saydian.ring',
+        version: '0.1.0',
+        buildNumber: '1',
+      ),
+    );
+    final info = await client.check();
+    expect(info.hasUpdate, isFalse);
+    expect(info.latestVersion, '0.1.0');
+    expect(info.latestBuild, 1);
+  });
   test(
     'domestic package, domain, prefix, missing hash and fake realm are rejected',
     () async {
@@ -132,21 +176,21 @@ void main() {
     },
   );
   test(
-    'unpublished release does not pretend up to date or installable',
+    'unpublished release is treated as no update instead of an error',
     () async {
-      await expectLater(
-        service({
-          ...manifest(),
-          'releases': [
-            {
-              'platform': 'android',
-              'packageId': 'cn.saydian.ring',
-              'status': 'coming_soon',
-            },
-          ],
-        }).check(),
-        throwsA(isA<AppUpdateException>()),
-      );
+      final info = await service({
+        ...manifest(),
+        'releases': [
+          {
+            'platform': 'android',
+            'packageId': 'cn.saydian.ring',
+            'status': 'coming_soon',
+          },
+        ],
+      }).check();
+      expect(info.hasUpdate, isFalse);
+      expect(info.currentVersion, info.latestVersion);
+      expect(info.currentBuild, info.latestBuild);
     },
   );
 }

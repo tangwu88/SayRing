@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:country_picker/country_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../domain/global_account.dart';
 import '../l10n/generated/app_localizations.dart';
@@ -33,8 +33,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
   final _confirmation = TextEditingController();
   final _code = TextEditingController();
   _AuthMode _mode = _AuthMode.signIn;
-  AccountChannel _channel = AccountChannel.email;
-  Country? _country;
+  AccountChannel _channel = AccountChannel.sms;
   GlobalAuthCapabilities? _capabilities;
   VerificationChallenge? _challenge;
   Timer? _timer;
@@ -99,10 +98,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
 
   GlobalAccountIdentity _identity() => _channel == AccountChannel.email
       ? GlobalAccountIdentity.email(_contact.text)
-      : GlobalAccountIdentity.phone(
-          _contact.text,
-          country: _country?.countryCode,
-        );
+      : GlobalAccountIdentity.phone(_contact.text, country: 'CN');
 
   void _resetChallenge() {
     _requestGeneration++;
@@ -364,33 +360,6 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                           ),
                         ],
                       ),
-                      if (_channel == AccountChannel.sms)
-                        OutlinedButton(
-                          key: const Key('auth-country'),
-                          onPressed: _busy
-                              ? null
-                              : () => showCountryPicker(
-                                  context: context,
-                                  showPhoneCode: true,
-                                  countryFilter:
-                                      _codeRequired &&
-                                          (_capabilities
-                                                  ?.smsCountries
-                                                  .isNotEmpty ??
-                                              false)
-                                      ? _capabilities!.smsCountries.toList()
-                                      : null,
-                                  onSelect: (value) => setState(() {
-                                    _country = value;
-                                    _resetChallenge();
-                                  }),
-                                ),
-                          child: Text(
-                            _country == null
-                                ? l.selectCountry
-                                : '${_country!.countryCode} +${_country!.phoneCode}',
-                          ),
-                        ),
                       const SizedBox(height: 12),
                       TextFormField(
                         key: const Key('auth-contact'),
@@ -406,10 +375,19 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                               ? AutofillHints.email
                               : AutofillHints.telephoneNumber,
                         ],
+                        inputFormatters: _channel == AccountChannel.sms
+                            ? [
+                                FilteringTextInputFormatter.digitsOnly,
+                                LengthLimitingTextInputFormatter(11),
+                              ]
+                            : null,
                         decoration: InputDecoration(
                           labelText: _channel == AccountChannel.email
                               ? l.email
                               : l.phoneNumber,
+                          hintText: _channel == AccountChannel.sms
+                              ? '请输入11位手机号'
+                              : null,
                         ),
                         onChanged: (_) => setState(_resetChallenge),
                         validator: (_) {

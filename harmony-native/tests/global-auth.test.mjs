@@ -134,5 +134,8 @@ test('updates require published global bundle metadata and a scoped hashed packa
   const release={platform:'harmonyos',packageId:GLOBAL_BUNDLE,status:'available',versionName:'1.0.1',buildNumber:10,destination:{kind:'direct',url:'/global/down/files/global-10.hap',fileName:'global-10.hap',sizeBytes:100,sha256:'a'.repeat(64)}};
   const manifest={realm:'global',schemaVersion:1,releases:[release]};
   assert.equal(parseGlobalUpdate(manifest,9).hasUpdate,true);assert.equal(parseGlobalUpdate(manifest,10).hasUpdate,false);
-  for(const mutated of [{...manifest,realm:'domestic'},{...manifest,releases:[{...release,packageId:'domestic.fixture'}]},{...manifest,releases:[{...release,status:'coming_soon'}]},{...manifest,releases:[{...release,destination:{...release.destination,url:'/down/files/global-10.hap'}}]}])assert.throws(()=>parseGlobalUpdate(mutated,9));
+  assert.equal(parseGlobalUpdate({...manifest,releases:[{...release,status:'coming_soon'}]},9).hasUpdate,false);
+  assert.equal(parseGlobalUpdate({...manifest,releases:[{...release,destination:{...release.destination,url:'/global/api/saydian-app/v2/support/app-package/global-10.hap'}}]},9).hasUpdate,true);
+  assert.equal(parseGlobalUpdate({...manifest,releases:[{...release,destination:{kind:'market',url:'https://appgallery.huawei.com/app/C123456'}}]},9).hasUpdate,true);
+  for(const mutated of [{...manifest,realm:'domestic'},{...manifest,releases:[{...release,packageId:'domestic.fixture'}]},{...manifest,releases:[{...release,destination:{...release.destination,url:'/down/files/global-10.hap'}}]},{...manifest,releases:[{...release,destination:{kind:'market',url:'https://user:secret@appgallery.huawei.com/app/C123456'}}]}])assert.throws(()=>parseGlobalUpdate(mutated,9));
 });

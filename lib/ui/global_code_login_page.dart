@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:country_picker/country_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../domain/global_account.dart';
 import '../l10n/generated/app_localizations.dart';
@@ -25,8 +25,6 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   final _contact = TextEditingController();
   final _code = TextEditingController();
   AccountChannel _channel = AccountChannel.sms;
-  String _country = 'CN';
-  String _phoneCode = '86';
   GlobalAuthCapabilities? _capabilities;
   VerificationChallenge? _challenge;
   Timer? _timer;
@@ -81,7 +79,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
 
   GlobalAccountIdentity _identity() => _channel == AccountChannel.email
       ? GlobalAccountIdentity.email(_contact.text)
-      : GlobalAccountIdentity.phone(_contact.text, country: _country);
+      : GlobalAccountIdentity.phone(_contact.text, country: 'CN');
 
   void _resetChallenge() {
     ++_generation;
@@ -343,23 +341,6 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                   ),
                 ],
               ),
-              if (_channel == AccountChannel.sms)
-                OutlinedButton(
-                  key: const Key('code-login-country'),
-                  onPressed: _busy
-                      ? null
-                      : () => showCountryPicker(
-                          context: context,
-                          showPhoneCode: true,
-                          countryFilter: _capabilities?.smsCountries.toList(),
-                          onSelect: (value) => setState(() {
-                            _country = value.countryCode;
-                            _phoneCode = value.phoneCode;
-                            _resetChallenge();
-                          }),
-                        ),
-                  child: Text('$_country +$_phoneCode'),
-                ),
               TextField(
                 key: const Key('code-login-contact'),
                 controller: _contact,
@@ -372,10 +353,17 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                       ? AutofillHints.telephoneNumber
                       : AutofillHints.email,
                 ],
+                inputFormatters: _channel == AccountChannel.sms
+                    ? [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(11),
+                      ]
+                    : null,
                 decoration: InputDecoration(
                   labelText: _channel == AccountChannel.sms
                       ? l.phoneNumber
                       : l.email,
+                  hintText: _channel == AccountChannel.sms ? '请输入11位手机号' : null,
                 ),
                 onChanged: (_) => setState(_resetChallenge),
               ),
@@ -484,8 +472,6 @@ class _GlobalWechatPhoneBindingPageState
     extends State<GlobalWechatPhoneBindingPage> {
   final _phone = TextEditingController();
   final _code = TextEditingController();
-  String _country = 'CN';
-  String _phoneCode = '86';
   VerificationChallenge? _challenge;
   Timer? _timer;
   int _remaining = 0;
@@ -495,7 +481,7 @@ class _GlobalWechatPhoneBindingPageState
   AppLocalizations get l => AppLocalizations.of(context)!;
 
   GlobalAccountIdentity _identity() =>
-      GlobalAccountIdentity.phone(_phone.text, country: _country);
+      GlobalAccountIdentity.phone(_phone.text, country: 'CN');
 
   Future<void> _send() async {
     if (_busy || _remaining > 0) return;
@@ -596,31 +582,20 @@ class _GlobalWechatPhoneBindingPageState
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
-              OutlinedButton(
-                key: const Key('wechat-bind-country'),
-                onPressed: _busy
-                    ? null
-                    : () => showCountryPicker(
-                        context: context,
-                        showPhoneCode: true,
-                        countryFilter: widget.capabilities.smsCountries
-                            .toList(),
-                        onSelect: (value) => setState(() {
-                          _country = value.countryCode;
-                          _phoneCode = value.phoneCode;
-                          _challenge = null;
-                          _code.clear();
-                        }),
-                      ),
-                child: Text('$_country +$_phoneCode'),
-              ),
               TextField(
                 key: const Key('wechat-bind-phone'),
                 controller: _phone,
                 enabled: !_busy,
                 keyboardType: TextInputType.phone,
                 autofillHints: const [AutofillHints.telephoneNumber],
-                decoration: InputDecoration(labelText: l.phoneNumber),
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(11),
+                ],
+                decoration: InputDecoration(
+                  labelText: l.phoneNumber,
+                  hintText: '请输入11位手机号',
+                ),
                 onChanged: (_) => setState(() {
                   _challenge = null;
                   _code.clear();

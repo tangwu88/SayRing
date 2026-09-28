@@ -2793,9 +2793,10 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 _FindWatchPanel(
                   finding: _finding,
                   busy: busy,
-                  supportsStop:
-                      widget.controller.connectedDevice?.sdkSource !=
-                      WearableSdkSource.yucheng,
+                  supportsStop: !{
+                    WearableSdkSource.yucheng,
+                    WearableSdkSource.coolwear,
+                  }.contains(widget.controller.connectedDevice?.sdkSource),
                   onPressed: _toggleFind,
                 )
               else if (widget.feature == DeviceFeature.screenDisplay)
@@ -5736,7 +5737,7 @@ String _deviceFeatureDescription(DeviceFeature feature) => switch (feature) {
   DeviceFeature.watchFaces => '选择并管理戒指显示样式',
   DeviceFeature.photoWatchFace => '用自己的照片制作显示样式',
   DeviceFeature.findWatch => '让附近的戒指响铃或振动',
-  DeviceFeature.camera => '使用戒指控制手机拍照',
+  DeviceFeature.camera => '打开相机后摇动戒指控制手机拍照',
   DeviceFeature.phoneCalls => '管理戒指通话相关设置',
   DeviceFeature.contacts => '管理戒指中的常用联系人',
   DeviceFeature.notifications => '选择需要由戒指振动提醒的消息',
@@ -5744,7 +5745,7 @@ String _deviceFeatureDescription(DeviceFeature feature) => switch (feature) {
   DeviceFeature.weather => '把所在城市天气同步到戒指',
   DeviceFeature.worldClock => '同步其他城市的时间信息',
   DeviceFeature.healthReminders => '设置久坐、饮水和日常提醒',
-  DeviceFeature.healthMonitoring => '设置自动检测和健康提醒',
+  DeviceFeature.healthMonitoring => '设置心率和血氧自动健康检测',
   DeviceFeature.healthAssessment => '查看戒指支持的辅助评估',
   DeviceFeature.screenDisplay => '调节亮度和亮屏方式',
 };

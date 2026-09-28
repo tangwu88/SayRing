@@ -13,6 +13,9 @@ class GlobalAppUpdateService extends AppUpdateService {
        );
 
   @override
+  bool get opensProductDownloadPage => true;
+
+  @override
   Future<AppUpdateInfo> check() async {
     final package = await loadCurrentPackage();
     final platform = switch (_targetPlatform) {
@@ -49,6 +52,14 @@ class GlobalAppUpdateService extends AppUpdateService {
     } catch (_) {
       throw const AppUpdateException('Check your connection and try again.');
     }
+    if (response.statusCode == 404) {
+      return _currentPackageInfo(
+        package,
+        platformName: platform,
+        endpointUri: _endpointUri,
+        publishedAt: DateTime.now().toUtc(),
+      );
+    }
     if (response.statusCode != 200) {
       throw const AppUpdateException(
         'Updates are not available yet. Please try again later.',
@@ -81,10 +92,18 @@ class GlobalAppUpdateService extends AppUpdateService {
       throw const AppUpdateException('This update is not for this app.');
     }
     final release = matches.single;
-    if (release['status'] != 'available' || release['destination'] is! Map) {
-      throw const AppUpdateException(
-        'Updates are not available yet. Please try again later.',
+    if (release['status'] != 'available') {
+      return _currentPackageInfo(
+        package,
+        platformName: platform,
+        endpointUri: _endpointUri,
+        publishedAt:
+            DateTime.tryParse('${manifest['publishedAt'] ?? ''}') ??
+            DateTime.now().toUtc(),
       );
+    }
+    if (release['destination'] is! Map) {
+      throw const AppUpdateException('Unable to check for updates.');
     }
     final destination = release['destination'] as Map;
     final rawUrl = Uri.tryParse('${destination['url'] ?? ''}');
@@ -107,7 +126,9 @@ class GlobalAppUpdateService extends AppUpdateService {
         ? (destination['kind'] == 'testflight'
               ? AppUpdateDestinationType.testFlight
               : AppUpdateDestinationType.appStore)
-        : AppUpdateDestinationType.androidApk;
+        : destination['kind'] == 'direct'
+        ? AppUpdateDestinationType.androidApk
+        : AppUpdateDestinationType.androidStore;
     final info = AppUpdateInfo(
       currentVersion: package.version,
       currentBuild: int.tryParse(package.buildNumber) ?? 0,
@@ -120,7 +141,8 @@ class GlobalAppUpdateService extends AppUpdateService {
       publishedAt: published.toUtc(),
       sha256: '${destination['sha256'] ?? ''}'.toLowerCase(),
     );
-    if ((platform == 'android' && destination['kind'] != 'direct') ||
+    if ((platform == 'android' &&
+            !{'direct', 'market'}.contains(destination['kind'])) ||
         (platform == 'ios' &&
             !{'app_store', 'testflight'}.contains(destination['kind'])) ||
         !validatePersisted(info)) {
@@ -129,6 +151,16 @@ class GlobalAppUpdateService extends AppUpdateService {
       );
     }
     return info;
+  }
+
+  @override
+  Future<void> openDestination(AppUpdateInfo info) async {
+    if (!await launchUrl(
+      GlobalEnvironment.downloadPageUri,
+      mode: LaunchMode.externalApplication,
+    )) {
+      throw const AppUpdateException('无法打开 APP 下载页面');
+    }
   }
 
   @override
@@ -142,9 +174,15 @@ class GlobalAppUpdateService extends AppUpdateService {
       return false;
     }
     if (_targetPlatform == TargetPlatform.android) {
-      return info.destinationType == AppUpdateDestinationType.androidApk &&
-          _isAllowedGlobalApkUri(uri) &&
-          RegExp(r'^[a-f0-9]{64}$').hasMatch(info.sha256 ?? '');
+      if (info.destinationType == AppUpdateDestinationType.androidApk) {
+        return _isAllowedGlobalApkUri(uri) &&
+            RegExp(r'^[a-f0-9]{64}$').hasMatch(info.sha256 ?? '');
+      }
+      return info.destinationType == AppUpdateDestinationType.androidStore &&
+          uri.scheme == 'https' &&
+          uri.host.isNotEmpty &&
+          uri.userInfo.isEmpty &&
+          !uri.hasFragment;
     }
     if (_targetPlatform == TargetPlatform.iOS &&
         info.destinationType == AppUpdateDestinationType.testFlight) {
@@ -165,4 +203,6 @@ bool _isAllowedGlobalApkUri(Uri uri) =>
     uri.userInfo.isEmpty &&
     !uri.hasQuery &&
     !uri.hasFragment &&
-    RegExp(r'^/global/down/files/[A-Za-z0-9._-]+\.apk$').hasMatch(uri.path);
+    RegExp(
+      r'^/global/(down/files/|api/saydian-app/v2/support/app-package/)[A-Za-z0-9._-]+\.apk$',
+    ).hasMatch(uri.path);

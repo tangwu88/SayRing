@@ -70,7 +70,7 @@ void main() {
       ),
     );
 
-    expect(find.byKey(const Key('mind-body-readiness-card')), findsOneWidget);
+    expect(find.byKey(const Key('mind-body-readiness-card')), findsNothing);
     expect(find.byKey(const Key('dashboard-ai-assistant')), findsOneWidget);
     expect(
       tester.getSize(find.byKey(const Key('dashboard-ai-assistant'))).height,
@@ -79,7 +79,7 @@ void main() {
     expect(find.byKey(const Key('dashboard-functions')), findsOneWidget);
     expect(find.text('远程关爱'), findsOneWidget);
     expect(find.text('健康百科'), findsOneWidget);
-    expect(find.text('健康预警'), findsOneWidget);
+    expect(find.text('运动'), findsOneWidget);
     expect(find.text('Say Ring 商城'), findsOneWidget);
 
     final navigationBar = tester.widget<NavigationBar>(
@@ -117,16 +117,11 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('health-sport-entries')),
-      350,
-      scrollable: find.byType(Scrollable).first,
-    );
     expect(find.text('跑步'), findsNothing);
     expect(find.text('步行'), findsNothing);
     expect(find.text('骑行'), findsNothing);
     expect(find.text('徒步'), findsNothing);
-    expect(find.text('运动记录'), findsOneWidget);
+    expect(find.text('运动记录'), findsNothing);
 
     expect(
       find.byKey(const ValueKey('health-metric-heartRate')),
@@ -213,7 +208,7 @@ void main() {
     }
   });
 
-  testWidgets('dashboard exposes supported health metrics except hidden HRV', (
+  testWidgets('dashboard exposes every supported health metric including HRV', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
@@ -270,18 +265,16 @@ void main() {
       'bloodComposition',
       'sleep',
       'stress',
+      'hrv',
     ]) {
       expect(find.byKey(ValueKey('health-metric-$metric')), findsOneWidget);
     }
-    expect(find.byKey(const ValueKey('health-metric-hrv')), findsNothing);
     expect(controller.latestByMetric[HealthMetric.hrv]?.values['value'], 52);
     expect(find.byKey(const ValueKey('health-metric-heartRate')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('health sport area previews four modes and opens all sports', (
-    tester,
-  ) async {
+  testWidgets('home sport entry opens the complete sport page', (tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 932));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final controller =
@@ -313,61 +306,26 @@ void main() {
     );
     await tester.pump();
 
-    await tester.drag(find.byType(CustomScrollView), const Offset(0, -1000));
-    await tester.pumpAndSettle();
-    await tester.drag(find.byType(CustomScrollView), const Offset(0, -1000));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('dashboard-today-health')), findsOneWidget);
-    expect(find.textContaining('--/10000'), findsOneWidget);
-    for (final label in const ['跑步', '室内跑', '步行', '骑行']) {
-      expect(find.text(label), findsOneWidget);
-    }
-    for (final label in const [
-      '室内骑行',
-      '篮球',
-      '足球',
-      '羽毛球',
-      '游泳',
-      '跳绳',
-      '瑜伽',
-      '徒步',
-      '登山',
-    ]) {
-      expect(find.text(label), findsNothing);
-    }
-    expect(find.byKey(const Key('sport-mode-more')), findsOneWidget);
-    expect(find.text('查看更多'), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('sport-mode-more')));
+    expect(find.byKey(const Key('health-sport-entries')), findsNothing);
+    expect(find.byKey(const Key('dashboard-today-health')), findsNothing);
+    await tester.tap(find.text('运动'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('sport-mode-selection-page')), findsOneWidget);
     expect(find.text('全部运动'), findsOneWidget);
-    final allGrid = tester.widget<GridView>(
+    final allGrid = tester.widget<SliverGrid>(
       find.byKey(const Key('all-sport-mode-grid')),
     );
-    expect(allGrid.semanticChildCount, SportMode.values.length);
+    expect(allGrid.delegate.estimatedChildCount, SportMode.values.length);
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey('all-sport-mode-mountaineering')),
       250,
-      scrollable: find.descendant(
-        of: find.byKey(const Key('all-sport-mode-grid')),
-        matching: find.byType(Scrollable),
-      ),
+      scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('登山'), findsOneWidget);
-
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-
-    await tester.ensureVisible(find.text('目标'));
-    await tester.tap(find.text('目标'));
-    await tester.pumpAndSettle();
-    expect(find.text('目标设置'), findsOneWidget);
-    expect(find.text('每日步数目标（步）'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('compact screens still preview one four-item sport row', (
+  testWidgets('compact screens keep the complete sport page usable', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(320, 760));
@@ -393,19 +351,20 @@ void main() {
         home: Scaffold(body: DashboardPage(controller: controller)),
       ),
     );
-    await tester.pump();
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('health-sport-entries')),
-      500,
-      scrollable: find.byType(Scrollable).first,
-    );
-
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('health-sport-entries')), findsNothing);
+    await tester.tap(find.text('运动'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('all-sport-mode-grid')), findsOneWidget);
     expect(find.text('跑步'), findsOneWidget);
     expect(find.text('室内跑'), findsOneWidget);
     expect(find.text('步行'), findsOneWidget);
-    expect(find.text('骑行'), findsOneWidget);
-    expect(find.text('室内骑行'), findsNothing);
-    expect(find.text('查看更多'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('all-sport-mode-mountaineering')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('登山'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

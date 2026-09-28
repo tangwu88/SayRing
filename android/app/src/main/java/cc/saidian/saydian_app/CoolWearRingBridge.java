@@ -24,6 +24,7 @@ import ce.com.cenewbluesdk.entity.MyBleDevice;
 import ce.com.cenewbluesdk.entity.k6.K6_Action;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_BATTERY_INFO;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_FUNCTION_CONTROL;
+import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_HEART_AUTO_SWITCH;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_REAL_O2;
 import ce.com.cenewbluesdk.entity.k6.K6_DevInfoStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_HeartStruct;
@@ -53,6 +54,7 @@ public final class CoolWearRingBridge
     private static final long SCAN_MS = 8_000L;
     private static final long CONNECT_MS = 28_000L;
     private static final long SYNC_MS = 30_000L;
+    private static final long SETTINGS_MS = 5_000L;
 
     private final Activity activity;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -63,9 +65,11 @@ public final class CoolWearRingBridge
     private MethodChannel.Result pendingConnect;
     private MethodChannel.Result pendingHealthSync;
     private MethodChannel.Result pendingSportSync;
+    private MethodChannel.Result pendingAutoSettings;
     private Runnable scanDeadline;
     private Runnable connectDeadline;
     private Runnable syncDeadline;
+    private Runnable settingsDeadline;
     private String connectedId;
     private String connectedName;
     private String connectedVendorId;
@@ -78,6 +82,9 @@ public final class CoolWearRingBridge
     private Integer batteryPercent;
     private Boolean charging;
     private K6_DATA_TYPE_FUNCTION_CONTROL functionControl;
+    private Boolean autoHeartEnabled;
+    private Boolean autoOxygenEnabled;
+    private int autoMeasureIntervalMinutes = 5;
     private final LinkedHashMap<String, Map<String, Object>> syncedHealthRecords =
             new LinkedHashMap<>();
     private final LinkedHashMap<String, Map<String, Object>> syncedSportRecords =
@@ -126,6 +133,20 @@ public final class CoolWearRingBridge
                 K6_Action.RCVD.RCVD_BATTERY,
                 (K6BleDataResult<K6_DATA_TYPE_BATTERY_INFO>) battery -> {
                     main.post(() -> onBattery(battery));
+                    return false;
+                });
+        helper.getRcvDataManager().addBleDataResultListener(
+                K6_Action.RCVD.RCVD_K6_DATA_TYPE_HEART_AUTO_SWITCH,
+                (K6BleDataResult<K6_DATA_TYPE_HEART_AUTO_SWITCH>) settings -> {
+                    if (settings != null) main.post(() -> onAutoMeasureSettings(settings));
+                    return false;
+                });
+        helper.getRcvDataManager().addBleDataResultListener(
+                K6_Action.RCVD.RCVD_TAKE_PHOTOS,
+                (K6BleDataResult<Integer>) state -> {
+                    if (state != null && state == CEBC.OPENSTATUS.OPEN) {
+                        main.post(() -> emit("cameraShutter", new HashMap<>()));
+                    }
                     return false;
                 });
         helper.getRcvDataManager().addBleDataResultListener(
@@ -433,6 +454,9 @@ public final class CoolWearRingBridge
             linkConnected = false;
             deviceInfoReceived = false;
             functionControl = null;
+            autoHeartEnabled = null;
+            autoOxygenEnabled = null;
+            failPendingAutoSettings("CONNECTION_DROPPED", "戒指连接中断，请靠近手机后重试");
             activeMeasurement = null;
             activeSportMode = null;
             activeSportType = null;
@@ -485,6 +509,35 @@ public final class CoolWearRingBridge
         batteryPercent = percent;
         charging = value.isChargerStatus();
         if (linkConnected && deviceInfoReceived) emit("deviceDetails", deviceDetails());
+    }
+
+    private void onAutoMeasureSettings(K6_DATA_TYPE_HEART_AUTO_SWITCH settings) {
+        autoHeartEnabled = settings.getAutoHROnoff() == CEBC.OPENSTATUS.OPEN;
+        autoOxygenEnabled = settings.getAutoO2noff() == CEBC.OPENSTATUS.OPEN;
+        int interval = Byte.toUnsignedInt(settings.getTimeInterval());
+        if (interval > 0) autoMeasureIntervalMinutes = interval;
+        if (pendingAutoSettings == null) return;
+        if (settingsDeadline != null) main.removeCallbacks(settingsDeadline);
+        settingsDeadline = null;
+        MethodChannel.Result result = pendingAutoSettings;
+        pendingAutoSettings = null;
+        result.success(autoMeasureSettings());
+    }
+
+    private Map<String, Object> autoMeasureSettings() {
+        Map<String, Object> value = new HashMap<>();
+        if (autoHeartEnabled != null) value.put("heartRate", autoHeartEnabled);
+        if (autoOxygenEnabled != null) value.put("bloodOxygen", autoOxygenEnabled);
+        return value;
+    }
+
+    private void failPendingAutoSettings(String code, String message) {
+        if (settingsDeadline != null) main.removeCallbacks(settingsDeadline);
+        settingsDeadline = null;
+        if (pendingAutoSettings == null) return;
+        MethodChannel.Result result = pendingAutoSettings;
+        pendingAutoSettings = null;
+        result.error(code, message, null);
     }
 
     private Map<String, Object> deviceDetails() {
@@ -554,7 +607,13 @@ public final class CoolWearRingBridge
         sportModes.add("hiking");
         sportModes.add("mountaineering");
         value.put("sportModes", sportModes);
-        value.put("features", new ArrayList<String>());
+        List<String> features = new ArrayList<>();
+        features.add("find_watch");
+        if (flags != null && flags.isHasGestureSupported()) features.add("camera");
+        if (flags != null && (flags.isHasHR24H() || flags.isHasO2())) {
+            features.add("health_monitoring");
+        }
+        value.put("features", features);
         value.put("supportsSportPause", linkConnected && deviceInfoReceived);
         value.put("supportsBackgroundSync", false);
         value.put("supportsWatchFaces", false);
@@ -608,7 +667,8 @@ public final class CoolWearRingBridge
         for (k6_RRI_HRV_DATA value : values) {
             long time = CoolWearRecordMapper.currentTimestamp(value.getTime());
             int sdnn = value.getSdnn();
-            if (time == 0 || sdnn <= 0 || sdnn > 1_000) continue;
+            if (sdnn <= 0 || sdnn > 1_000) continue;
+            if (time == 0) time = System.currentTimeMillis();
             Map<String, Object> measured = new LinkedHashMap<>();
             measured.put("value", sdnn);
             measured.put("sdnn", sdnn);
@@ -626,9 +686,11 @@ public final class CoolWearRingBridge
         Log.i(TAG, "manual stress callback received; source=stress, sample count="
                 + values.size());
         for (K6_StressStruct value : values) {
+            if (value == null) continue;
             long time = CoolWearRecordMapper.currentTimestamp(value.getTime());
             int stress = value.getStressValue();
-            if (time != 0 && stress >= 1 && stress <= 100) {
+            if (stress >= 1 && stress <= 100) {
+                if (time == 0) time = System.currentTimeMillis();
                 emitMeasurement("stress", time, stress, "");
                 return;
             }
@@ -644,7 +706,8 @@ public final class CoolWearRingBridge
             if (value == null) continue;
             long time = CoolWearRecordMapper.currentTimestamp(value.getTime());
             int stress = value.getHrvNums();
-            if (time != 0 && stress >= 1 && stress <= 100) {
+            if (stress >= 1 && stress <= 100) {
+                if (time == 0) time = System.currentTimeMillis();
                 emitMeasurement("stress", time, stress, "");
                 return;
             }
@@ -787,6 +850,9 @@ public final class CoolWearRingBridge
                     deviceInfoReceived = false;
                     firmwareVersion = null;
                     functionControl = null;
+                    autoHeartEnabled = null;
+                    autoOxygenEnabled = null;
+                    autoMeasureIntervalMinutes = 5;
                     batteryPercent = null;
                     charging = null;
                     activeMeasurement = null;
@@ -802,6 +868,7 @@ public final class CoolWearRingBridge
                 case "disconnect":
                     finishScan();
                     failPendingSync("CONNECT_CANCELLED", "连接已断开");
+                    failPendingAutoSettings("CONNECT_CANCELLED", "连接已断开");
                     if (pendingConnect != null) failConnect("CONNECT_CANCELLED", "连接已取消");
                     else helper.disConnect();
                     connectedId = null;
@@ -811,6 +878,9 @@ public final class CoolWearRingBridge
                     deviceInfoReceived = false;
                     recoveringConnection = false;
                     functionControl = null;
+                    autoHeartEnabled = null;
+                    autoOxygenEnabled = null;
+                    autoMeasureIntervalMinutes = 5;
                     activeMeasurement = null;
                     activeSportMode = null;
                     activeSportType = null;
@@ -829,6 +899,70 @@ public final class CoolWearRingBridge
                     break;
                 case "syncHealthData":
                     startSync(result, false);
+                    break;
+                case "readAutoMeasureSettings":
+                    if (!linkConnected || !deviceInfoReceived) {
+                        result.error("NOT_CONNECTED", "请先连接戒指", null);
+                        return;
+                    }
+                    if (autoHeartEnabled != null && autoOxygenEnabled != null) {
+                        result.success(autoMeasureSettings());
+                        return;
+                    }
+                    if (pendingAutoSettings != null) {
+                        result.error("AUTO_MEASURE_READ_BUSY", "正在读取自动健康检测设置", null);
+                        return;
+                    }
+                    pendingAutoSettings = result;
+                    helper.getSendDataManager().sendAsynInfo();
+                    settingsDeadline = () -> failPendingAutoSettings(
+                            "AUTO_MEASURE_READ_FAILED", "暂时未收到戒指自动检测设置");
+                    main.postDelayed(settingsDeadline, SETTINGS_MS);
+                    break;
+                case "setAutoMeasureSetting":
+                    if (!linkConnected || !deviceInfoReceived) {
+                        result.error("NOT_CONNECTED", "请先连接戒指", null);
+                        return;
+                    }
+                    String settingType = call.argument("type");
+                    Boolean settingEnabled = call.argument("enabled");
+                    if (settingEnabled == null ||
+                            !("heartRate".equals(settingType) ||
+                                    "bloodOxygen".equals(settingType))) {
+                        result.error("COOLWEAR_FEATURE_UNVERIFIED", "此自动检测项目不受支持", null);
+                        return;
+                    }
+                    boolean heartEnabled = Boolean.TRUE.equals(autoHeartEnabled);
+                    boolean oxygenEnabled = Boolean.TRUE.equals(autoOxygenEnabled);
+                    if ("heartRate".equals(settingType)) heartEnabled = settingEnabled;
+                    if ("bloodOxygen".equals(settingType)) oxygenEnabled = settingEnabled;
+                    helper.getSendBlueData().sendHeartAutoSwitch(
+                            heartEnabled ? CEBC.OPENSTATUS.OPEN : CEBC.OPENSTATUS.CLOSE,
+                            oxygenEnabled ? CEBC.OPENSTATUS.OPEN : CEBC.OPENSTATUS.CLOSE,
+                            autoMeasureIntervalMinutes);
+                    autoHeartEnabled = heartEnabled;
+                    autoOxygenEnabled = oxygenEnabled;
+                    result.success(null);
+                    break;
+                case "triggerDeviceAction":
+                    if (!linkConnected || !deviceInfoReceived) {
+                        result.error("NOT_CONNECTED", "请先连接戒指", null);
+                        return;
+                    }
+                    String feature = call.argument("feature");
+                    Boolean actionEnabled = call.argument("enabled");
+                    boolean enabled = actionEnabled == null || actionEnabled;
+                    if ("find_watch".equals(feature)) {
+                        if (enabled) helper.getSendBlueData().sendFindDevice();
+                    } else if ("camera".equals(feature) &&
+                            functionControl != null &&
+                            functionControl.isHasGestureSupported()) {
+                        helper.getSendBlueData().sendPhotoSwitch(enabled);
+                    } else {
+                        result.error("COOLWEAR_FEATURE_UNVERIFIED", "此戒指功能不受支持", null);
+                        return;
+                    }
+                    result.success(null);
                     break;
                 case "startMeasurement":
                     String metric = call.argument("metric");
@@ -911,6 +1045,7 @@ public final class CoolWearRingBridge
         if (scanDeadline != null) main.removeCallbacks(scanDeadline);
         if (connectDeadline != null) main.removeCallbacks(connectDeadline);
         if (syncDeadline != null) main.removeCallbacks(syncDeadline);
+        failPendingAutoSettings("BRIDGE_DISPOSED", "戒指连接已关闭");
         failPendingSync("BRIDGE_DISPOSED", "戒指连接已关闭");
         if (helper != null) {
             helper.stopScan();

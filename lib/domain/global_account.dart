@@ -45,9 +45,14 @@ class GlobalAccountIdentity {
     }
   }
 
-  factory GlobalAccountIdentity.parse(String input) => input.contains('@')
-      ? GlobalAccountIdentity.email(input)
-      : GlobalAccountIdentity.phone(input);
+  factory GlobalAccountIdentity.parse(String input) {
+    final value = input.trim();
+    if (value.contains('@')) return GlobalAccountIdentity.email(value);
+    return GlobalAccountIdentity.phone(
+      value,
+      country: value.startsWith('+') ? null : 'CN',
+    );
+  }
 
   Map<String, Object?> toJson() => {
     'channel': channel.name,

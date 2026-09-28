@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
 import '../domain/global_commerce.dart';
@@ -1261,7 +1262,12 @@ class _GlobalShopAddressEditPageState extends State<GlobalShopAddressEditPage> {
       _country = countries.first;
     }
     _name = TextEditingController(text: commerceText(address['name']));
-    _phone = TextEditingController(text: commerceText(address['mobile']));
+    final savedPhone = commerceText(
+      address['mobile'],
+    ).replaceAll(RegExp(r'[\s()-]'), '');
+    _phone = TextEditingController(
+      text: savedPhone.startsWith('+86') ? savedPhone.substring(3) : savedPhone,
+    );
     _province = TextEditingController(text: commerceText(address['province']));
     _city = TextEditingController(text: commerceText(address['city']));
     _district = TextEditingController(text: commerceText(address['district']));
@@ -1290,11 +1296,7 @@ class _GlobalShopAddressEditPageState extends State<GlobalShopAddressEditPage> {
 
   String _normalizedPhone() {
     final raw = _phone.text.replaceAll(RegExp(r'[\s()-]'), '');
-    if (raw.startsWith('+')) return raw;
-    if (_country == 'CN' && RegExp(r'^1\d{10}$').hasMatch(raw)) {
-      return '+86$raw';
-    }
-    return raw;
+    return RegExp(r'^1\d{10}$').hasMatch(raw) ? '+86$raw' : raw;
   }
 
   Future<void> _save() async {
@@ -1386,14 +1388,20 @@ class _GlobalShopAddressEditPageState extends State<GlobalShopAddressEditPage> {
               controller: _phone,
               keyboardType: TextInputType.phone,
               textInputAction: TextInputAction.next,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(11),
+              ],
               decoration: InputDecoration(
                 labelText: context.l10n.phoneNumber,
-                hintText: _country == 'CN' ? '+86 13800138000' : '+12025550123',
+                hintText: '请输入11位手机号',
               ),
               validator: (value) =>
-                  RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(_normalizedPhone())
+                  RegExp(
+                    r'^1\d{10}$',
+                  ).hasMatch(value?.replaceAll(RegExp(r'[\s()-]'), '') ?? '')
                   ? null
-                  : context.l10n.invalidInternationalPhone,
+                  : context.l10n.invalidPhone,
             ),
             const SizedBox(height: 12),
             TextFormField(

@@ -139,6 +139,11 @@ void main() {
       source,
       contains('helper.getSendBlueData().sendStressSwitch(state)'),
     );
+    expect(source, contains('System.currentTimeMillis()'));
+    expect(source, contains('sendRriHrvCmd(state)'));
+    expect(source, contains('sendHeartAutoSwitch('));
+    expect(source, contains('sendFindDevice()'));
+    expect(source, contains('sendPhotoSwitch(enabled)'));
     expect(source, isNot(contains('java.util.Random')));
   });
 

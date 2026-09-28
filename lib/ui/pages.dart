@@ -488,8 +488,6 @@ class DashboardPage extends StatelessWidget {
                 delegate: SliverChildListDelegate([
                   _DashboardHeader(controller: controller),
                   const SizedBox(height: 12),
-                  _MindBodyReadinessCard(latest: latest),
-                  const SizedBox(height: 12),
                   _AiHealthAssistantCard(controller: controller),
                   const SizedBox(height: 12),
                   _FeatureEntryGrid(
@@ -510,11 +508,13 @@ class DashboardPage extends StatelessWidget {
                             ArticleCategoryPage(controller: controller),
                       ),
                     ),
-                    onWarning: () => Navigator.of(context).push(
+                    onSport: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
-                        settings: const RouteSettings(name: 'health-warnings'),
+                        settings: const RouteSettings(
+                          name: 'sport-mode-selection',
+                        ),
                         builder: (_) =>
-                            HealthWarningPage(controller: controller),
+                            SportModeSelectionPage(controller: controller),
                       ),
                     ),
                     onMall: () => Navigator.of(context).push(
@@ -588,41 +588,6 @@ class DashboardPage extends StatelessWidget {
                         );
                       },
                     ),
-                  const SizedBox(height: 18),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Expanded(
-                        flex: 3,
-                        child: Text(
-                          context.l10n.workoutsAndRecords,
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        flex: 2,
-                        child: Padding(
-                          padding: EdgeInsets.only(bottom: 3),
-                          child: Text(
-                            context.l10n.wearRingPhoneStart,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.end,
-                            style: const TextStyle(
-                              color: SaydianColors.muted,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  _SportEntryPanel(controller: controller),
                 ]),
               ),
             ),
@@ -687,6 +652,9 @@ class _DashboardHeader extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 context.l10n.dailyGreeting,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: SaydianColors.muted,
                   fontSize: 13,
@@ -724,6 +692,8 @@ class _DashboardHeader extends StatelessWidget {
   }
 }
 
+// Retained for possible use on the detailed health page; hidden on home.
+// ignore: unused_element
 class _MindBodyReadinessCard extends StatelessWidget {
   const _MindBodyReadinessCard({required this.latest});
 
@@ -1095,13 +1065,13 @@ class _FeatureEntryGrid extends StatelessWidget {
   const _FeatureEntryGrid({
     required this.onCare,
     required this.onEncyclopedia,
-    required this.onWarning,
+    required this.onSport,
     required this.onMall,
   });
 
   final VoidCallback onCare;
   final VoidCallback onEncyclopedia;
-  final VoidCallback onWarning;
+  final VoidCallback onSport;
   final VoidCallback onMall;
 
   @override
@@ -1130,10 +1100,10 @@ class _FeatureEntryGrid extends StatelessWidget {
             ),
             Expanded(
               child: _FeatureEntry(
-                label: context.l10n.healthAlerts,
-                icon: Icons.health_and_safety_rounded,
+                label: context.l10n.workouts,
+                icon: Icons.directions_run_rounded,
                 color: const Color(0xFFEF6E78),
-                onTap: onWarning,
+                onTap: onSport,
               ),
             ),
             Expanded(
@@ -1193,7 +1163,9 @@ class _FeatureEntry extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               label,
-              maxLines: 2,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontSize: 13.5,
@@ -1387,7 +1359,9 @@ class _MetricCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       context.l10n.metricName(metric),
-                      maxLines: 2,
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w800,
@@ -1411,7 +1385,7 @@ class _MetricCard extends StatelessWidget {
                       ),
                       child: Text(
                         statusLabel,
-                        maxLines: 2,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: record == null
@@ -1576,29 +1550,32 @@ class _SectionTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enlargedText = MediaQuery.textScalerOf(context).scale(1) > 1.25;
-    final heading = Wrap(
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 8,
-      runSpacing: 4,
+    final heading = Row(
       children: [
-        Text(
-          title,
-          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+        Flexible(
+          child: Text(
+            title,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+          ),
         ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.calendar_month_outlined,
-              size: 19,
-              color: SaydianColors.muted,
-            ),
-            const SizedBox(width: 5),
-            Text(
-              subtitle,
-              style: const TextStyle(color: SaydianColors.muted, fontSize: 14),
-            ),
-          ],
+        const SizedBox(width: 8),
+        const Icon(
+          Icons.calendar_month_outlined,
+          size: 19,
+          color: SaydianColors.muted,
+        ),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Text(
+            subtitle,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: SaydianColors.muted, fontSize: 14),
+          ),
         ),
       ],
     );
@@ -1608,6 +1585,8 @@ class _SectionTitle extends StatelessWidget {
       icon: const Icon(Icons.chevron_right_rounded, size: 21),
       label: Text(
         actionLabel,
+        maxLines: 1,
+        softWrap: false,
         style: const TextStyle(fontWeight: FontWeight.w800),
       ),
     );
@@ -2044,6 +2023,8 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
   }
 }
 
+// The full sport catalogue now lives on SportModeSelectionPage.
+// ignore: unused_element
 class _SportEntryPanel extends StatelessWidget {
   const _SportEntryPanel({required this.controller});
 
@@ -2282,31 +2263,71 @@ class SportModeSelectionPage extends StatelessWidget {
               ),
             );
           }
-          final width = MediaQuery.sizeOf(context).width;
           final textScale = MediaQuery.textScalerOf(context).scale(1);
-          final columns = width >= 720
-              ? 6
-              : width >= 480
-              ? 4
-              : 3;
-          return GridView.builder(
-            key: const Key('all-sport-mode-grid'),
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
-            itemCount: modes.length,
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: columns,
-              mainAxisExtent: 104 + (textScale - 1).clamp(0, 1) * 30,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
-            ),
-            itemBuilder: (context, index) {
-              final mode = modes[index];
-              return _SportEntry(
-                key: ValueKey('all-sport-mode-${mode.name}'),
-                mode: mode,
-                onTap: () => _openSportSession(context, controller, mode),
-              );
-            },
+          return CustomScrollView(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 18, 16, 12),
+                sliver: SliverLayoutBuilder(
+                  builder: (context, constraints) {
+                    final columns = constraints.crossAxisExtent >= 720
+                        ? 6
+                        : constraints.crossAxisExtent >= 480
+                        ? 4
+                        : 3;
+                    return SliverGrid.builder(
+                      key: const Key('all-sport-mode-grid'),
+                      itemCount: modes.length,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: columns,
+                        mainAxisExtent: 108 + (textScale - 1).clamp(0, 1) * 30,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                      ),
+                      itemBuilder: (context, index) {
+                        final mode = modes[index];
+                        return _SportEntry(
+                          key: ValueKey('all-sport-mode-${mode.name}'),
+                          mode: mode,
+                          onTap: () =>
+                              _openSportSession(context, controller, mode),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
+                sliver: SliverToBoxAdapter(
+                  child: Material(
+                    color: SaydianColors.brandRedSoft,
+                    borderRadius: BorderRadius.circular(17),
+                    clipBehavior: Clip.antiAlias,
+                    child: ListTile(
+                      key: const Key('all-sport-records'),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              SportRecordsPage(controller: controller),
+                        ),
+                      ),
+                      leading: const Icon(
+                        Icons.history_rounded,
+                        color: SaydianColors.brandRed,
+                      ),
+                      title: Text(
+                        context.l10n.workoutRecords,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           );
         },
       ),
@@ -2373,7 +2394,8 @@ class _SportEntry extends StatelessWidget {
             Text(
               context.l10n.sportModeName(mode),
               textAlign: TextAlign.center,
-              maxLines: 2,
+              maxLines: 1,
+              softWrap: false,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
             ),
@@ -10806,6 +10828,7 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
         title: '心率自动检测',
         icon: Icons.favorite_outline_rounded,
       ),
+      (type: 'bloodOxygen', title: '血氧自动检测', icon: Icons.water_drop_outlined),
       (type: 'bloodPressure', title: '血压自动检测', icon: Icons.speed_rounded),
       (type: 'bloodGlucose', title: '血糖自动检测', icon: Icons.water_drop_outlined),
       (

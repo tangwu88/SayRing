@@ -151,11 +151,19 @@ class CoolWearWearableBridge
   }
 
   @override
-  Future<Map<String, bool>> readAutoMeasureSettings() => _unsupported();
+  Future<Map<String, bool>> readAutoMeasureSettings() async {
+    final value =
+        await _invoke<Map<Object?, Object?>>('readAutoMeasureSettings') ??
+        const {};
+    return value.map((key, item) => MapEntry('$key', item == true));
+  }
 
   @override
   Future<void> setAutoMeasureSetting(String type, bool enabled) =>
-      _unsupported();
+      _invoke<void>('setAutoMeasureSetting', {
+        'type': type,
+        'enabled': enabled,
+      });
 
   @override
   Future<int?> readHeartRateWarning() => _unsupported();
@@ -177,5 +185,8 @@ class CoolWearWearableBridge
   Future<void> triggerDeviceAction(
     DeviceFeature feature, {
     bool enabled = true,
-  }) => _unsupported();
+  }) => _invoke<void>('triggerDeviceAction', {
+    'feature': feature.wireName,
+    'enabled': enabled,
+  });
 }

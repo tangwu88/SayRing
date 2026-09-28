@@ -24,7 +24,9 @@ export class AppUpdateService {
         maxLimit: 256 * 1024,
         usingCache: false
       });
-      if (response.responseCode === 404) throw new ApiError('暂时无法检查更新，请稍后重试', 404);
+      if (response.responseCode === 404) return { latestVersion: HARMONY_VERSION_NAME,
+        latestBuild: HARMONY_VERSION_CODE, minimumSupportedBuild: 0, releaseNotes: '',
+        destinationUrl: '', hasUpdate: false, required: false };
       if (response.responseCode < 200 || response.responseCode >= 300) {
         throw new ApiError('在线更新服务暂不可用', response.responseCode);
       }

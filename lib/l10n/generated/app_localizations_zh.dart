@@ -839,7 +839,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get statusHigh => '偏高';
 
   @override
-  String get careInviteHint => '通过邮箱或国际手机号邀请 Say Ring 账号。';
+  String get careInviteHint => '通过邮箱或中国大陆手机号邀请 Say Ring 账号。';
 
   @override
   String get careSharingHint => '仅共享您选择的测量项目，可随时停止共享。';
@@ -869,7 +869,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get invitationSent => '邀请已发送';
 
   @override
-  String get invalidCareContact => '请输入邮箱或带国家区号的手机号。';
+  String get invalidCareContact => '请输入邮箱或 11 位中国大陆手机号。';
 
   @override
   String get carePermissionDenied => '对方尚未与您共享此测量项目。';
@@ -1268,7 +1268,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get invalidEmail => '请输入有效的邮箱地址';
 
   @override
-  String get invalidPhone => '请检查国家区号和手机号';
+  String get invalidPhone => '请输入正确的 11 位中国大陆手机号';
 
   @override
   String get codeSent => '验证码已发送，请查收';
@@ -2786,7 +2786,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get statusHigh => '偏高';
 
   @override
-  String get careInviteHint => '通过邮箱或国际手机号邀请 Say Ring 账号。';
+  String get careInviteHint => '通过邮箱或中国大陆手机号邀请 Say Ring 账号。';
 
   @override
   String get careSharingHint => '仅共享您选择的测量项目，可随时停止共享。';
@@ -2816,7 +2816,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get invitationSent => '邀请已发送';
 
   @override
-  String get invalidCareContact => '请输入邮箱或带国家区号的手机号。';
+  String get invalidCareContact => '请输入邮箱或 11 位中国大陆手机号。';
 
   @override
   String get carePermissionDenied => '对方尚未与您共享此测量项目。';
@@ -3215,7 +3215,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get invalidEmail => '请输入有效的邮箱地址';
 
   @override
-  String get invalidPhone => '请检查国家区号和手机号';
+  String get invalidPhone => '请输入正确的 11 位中国大陆手机号';
 
   @override
   String get codeSent => '验证码已发送，请查收';
@@ -4733,7 +4733,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get statusHigh => '偏高';
 
   @override
-  String get careInviteHint => '透過電子郵件或國際手機號碼邀請 Say Ring 帳號。';
+  String get careInviteHint => '透過電子郵件或中國大陸手機號碼邀請 Say Ring 帳號。';
 
   @override
   String get careSharingHint => '僅分享您選擇的測量項目，可隨時停止分享。';
@@ -4763,7 +4763,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get invitationSent => '邀請已傳送';
 
   @override
-  String get invalidCareContact => '請輸入電子郵件或含國家區碼的手機號碼。';
+  String get invalidCareContact => '請輸入電子郵件或 11 位中國大陸手機號碼。';
 
   @override
   String get carePermissionDenied => '對方尚未與您分享此測量項目。';
@@ -5162,7 +5162,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get invalidEmail => '請輸入有效的電子郵件地址';
 
   @override
-  String get invalidPhone => '請檢查國家區碼和手機號碼';
+  String get invalidPhone => '請輸入正確的 11 位中國大陸手機號碼';
 
   @override
   String get codeSent => '驗證碼已傳送，請查收';

@@ -1351,20 +1351,16 @@ void main() {
       await _popRoute(tester);
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(
-        find.byKey(const Key('health-sport-entries')),
-        350,
-        scrollable: find.byType(Scrollable).first,
+      await tester.tap(find.text('运动'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('sport-mode-selection-page')),
+        findsOneWidget,
       );
-      await tester.drag(find.byType(Scrollable).first, const Offset(0, -120));
-      await tester.pumpAndSettle();
-      expect(find.text('跑步'), findsNothing);
-      expect(find.text('步行'), findsNothing);
-      expect(find.text('骑行'), findsNothing);
-      expect(find.text('徒步'), findsNothing);
-      await tester.tap(find.text('运动记录'));
-      await tester.pumpAndSettle();
-      expect(find.text('请先连接戒指后读取运动记录'), findsOneWidget);
+      expect(
+        find.text('当前戒指暂不支持由 App 发起运动记录，可继续查看已同步的日常活动与运动记录。'),
+        findsOneWidget,
+      );
       await _popRoute(tester);
       await tester.pumpAndSettle();
 
