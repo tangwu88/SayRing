@@ -9,7 +9,7 @@
 - App：Say Ring `0.1.21 (1004)`，包名 `cn.saydian.ring`。
 - 手机：华为 Android 真机，通过 USB 覆盖安装，保留原登录和本地数据。
 - 戒指：HR01，固件 `758.0.1.9.0`；调试期间处于佩戴、贴合状态。
-- 第三方 App：只临时停止可能占用蓝牙的进程；未解绑、未清除数据。HBand 在收尾后恢复系统默认启用状态。
+- 第三方 App：只临时停止可能占用蓝牙的进程；未解绑、未清除数据。HBand 在收尾后已恢复系统默认启用状态，`enabled=0`。
 - 真实健康结果属于现场隐私数据，本记录只写“收到有效值”，不保存具体数值。
 
 ## 问题、复现与修复
@@ -55,6 +55,7 @@
 ## 页面检查
 
 - 首页：运动入口可达；商城标签单行完整显示；首页底部不重复展示运动列表。
+- 最终 QA Release 冷启动：首页四个入口均完整单行显示，健康卡片标题和状态没有换行或省略。
 - 全部运动：显示跑步、室内跑、步行、骑行、室内骑行、篮球、足球、羽毛球、游泳、跳绳、瑜伽、徒步、登山共 13 项。
 - 设备页：HR01 连接状态、电量、固件和四个设备入口正常显示。
 - 健康监测：成功读取心率/血氧自动检测开关；未替用户改动已有设置。
@@ -79,7 +80,8 @@
 - Android QA Release APK：`app-release.apk`，68070628 字节，SHA-256 `8CB8C52399603258BFEE604522A7855BA00CF6D5C12621F4FADE3F73DF985B64`。
 - 两个 APK 均为包名 `cn.saydian.ring`、版本 `0.1.21 (1004)`、ARM64/ARMv7，APK Signature Scheme v2 验证通过。
 - 证书 SHA-256 为 `3ae71cff9ad924e28e4e4a5086a8b3dedf4332d9c574b5b564ed08bce2617eae`，属于现有 QA Debug 证书，不是应用市场正式签名。
-- 最终 QA Release 覆盖安装：等待华为系统安装确认后补记最终结果。
+- 最终 QA Release 覆盖安装：华为系统显示“安装成功”，`adb install -r` 返回 `Success`；保留原登录和本地健康记录。
+- 安装后冷启动：版本仍为 `0.1.21 (1004)`，首页正常显示，进程保持运行；当前启动日志未发现 `FATAL EXCEPTION`、App ANR 或 `E/flutter`。
 
 ## 失败、修正与边界
 
@@ -87,6 +89,7 @@
 - 首次调用的 Flutter 路径不可用，改用项目现有工具链 `E:\saydian\.toolchains\flutter`。
 - 首次 `JAVA_HOME` 指向 JDK 上级目录，修正为 `E:\saydian\.toolchains\jdk17\jdk-17.0.20+8` 后通过。
 - 提交前第一次 `git fetch origin --prune` 收到 GitHub 空响应；重试成功后再继续核对远端提交，不把首次失败写成已同步。
+- 华为首轮安装确认时风险复选框未实际生效，系统返回 `INSTALL_FAILED_ABORTED: User rejected permissions`；第二轮逐页确认复选框和按钮状态，再完成锁屏密码验证后安装成功。
 - 扫描到的 `TK65 9061` 不是本轮 HR01，没有把邻近设备误当目标戒指。
 - LuckRing 首次查看也未立即显示戒指，稍后才自动重连；这与 Say Ring 观察到的 HR01 链路波动一致，但不能据此把波动原因归咎于某个 App。
 - Windows 无法执行 iOS 构建；本轮也没有重做 HarmonyOS 原生构建。共享 Flutter 页面与 Android HR01 桥的结果不能冒充 iOS/HarmonyOS 真机通过。
