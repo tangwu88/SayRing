@@ -474,7 +474,6 @@ class DashboardPage extends StatelessWidget {
     final metrics = supportedMetrics
         .where(controller.shouldShowHealthMetric)
         .toList(growable: false);
-    final textScale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0);
     return SafeArea(
       bottom: false,
       child: RefreshIndicator(
@@ -569,16 +568,12 @@ class DashboardPage extends StatelessWidget {
                           : null,
                     )
                   else
-                    GridView.builder(
+                    ListView.separated(
+                      key: const Key('dashboard-health-card-list'),
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: metrics.length,
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        mainAxisExtent: 142 + (textScale - 1) * 160,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                      ),
+                      separatorBuilder: (_, _) => const SizedBox(height: 14),
                       itemBuilder: (context, index) {
                         final metric = metrics[index];
                         return _MetricCard(
@@ -855,11 +850,18 @@ class _AiHealthAssistantCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: const Color(0xFFFDF7F3),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(26),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14C42D48),
+            blurRadius: 24,
+            offset: Offset(0, 10),
+          ),
+        ],
       ),
       foregroundDecoration: BoxDecoration(
         border: Border.all(color: const Color(0x66D20B27), width: 1.2),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(26),
       ),
       child: stacked
           ? Column(
@@ -1076,10 +1078,26 @@ class _FeatureEntryGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return Container(
       key: const Key('dashboard-functions'),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFFFFFF), Color(0xFFFFF4F6)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: const Color(0xFFFFE4E9)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12C42D48),
+            blurRadius: 24,
+            offset: Offset(0, 10),
+          ),
+        ],
+      ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 13),
         child: Row(
           children: [
             Expanded(
@@ -1138,15 +1156,15 @@ class _FeatureEntry extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(18),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 3),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 47,
-              height: 47,
+              width: 50,
+              height: 50,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
@@ -1156,11 +1174,18 @@ class _FeatureEntry extends StatelessWidget {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(17),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.2),
+                    blurRadius: 13,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
               ),
-              child: Icon(icon, color: Colors.white, size: 26),
+              child: Icon(icon, color: Colors.white, size: 27),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(
@@ -1291,8 +1316,7 @@ class _MetricCard extends StatelessWidget {
       HealthMetric.bloodComposition => Icons.science_outlined,
       _ => Icons.monitor_heart_outlined,
     };
-    const iconColor = Color(0xFFE52E45);
-    const chartColor = Color(0xFF4F89F7);
+    final style = _metricCardStyle(metric);
     final status = _homeMetricStatus(controller, record);
     final needsAttention = !{
       _HomeMetricStatus.normal,
@@ -1320,147 +1344,286 @@ class _MetricCard extends StatelessWidget {
       HealthMetric.bodyComposition,
       HealthMetric.bloodComposition,
     }.contains(metric);
-    return GestureDetector(
+    final textScale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0);
+    final cardHeight = 184 + (textScale - 1) * 104;
+    return SizedBox(
       key: ValueKey('health-metric-${metric.name}'),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => HealthTrendPage(
-            controller: controller,
-            metric: metric,
-            onMeasure: supportsManualMeasurement
-                ? (trendContext) => _showHealthMeasurementDialog(
-                    trendContext,
-                    controller,
-                    metric,
-                  )
-                : null,
+      height: cardHeight,
+      child: DecoratedBox(
+        key: ValueKey('health-metric-surface-${metric.name}'),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [style.start, style.end],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.82)),
+          boxShadow: [
+            BoxShadow(
+              color: style.accent.withValues(alpha: 0.16),
+              blurRadius: 28,
+              offset: const Offset(0, 13),
+            ),
+          ],
         ),
-      ),
-      child: Card(
-        elevation: 2,
-        shadowColor: const Color(0x1A6B4C42),
-        surfaceTintColor: Colors.transparent,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(10, 9, 10, 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(28),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => HealthTrendPage(
+                  controller: controller,
+                  metric: metric,
+                  onMeasure: supportsManualMeasurement
+                      ? (trendContext) => _showHealthMeasurementDialog(
+                          trendContext,
+                          controller,
+                          metric,
+                        )
+                      : null,
+                ),
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(28),
+              child: Stack(
                 children: [
-                  Container(
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      color: iconColor.withValues(alpha: 0.11),
-                      shape: BoxShape.circle,
+                  Positioned(
+                    right: -36,
+                    top: -54,
+                    child: Container(
+                      width: 164,
+                      height: 164,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        shape: BoxShape.circle,
+                      ),
                     ),
-                    child: Icon(icon, color: iconColor, size: 18),
                   ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        context.l10n.metricName(metric),
-                        maxLines: 1,
-                        softWrap: false,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
+                  Positioned(
+                    right: 24,
+                    bottom: -58,
+                    child: Container(
+                      width: 138,
+                      height: 138,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: style.accent.withValues(alpha: 0.11),
+                          width: 24,
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 7,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: record == null
-                            ? const Color(0xFFF2EFED)
-                            : needsAttention
-                            ? const Color(0xFFFFE7E5)
-                            : const Color(0xFFE7F7E6),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          statusLabel,
-                          maxLines: 1,
-                          softWrap: false,
-                          style: TextStyle(
-                            color: record == null
-                                ? SaydianColors.muted
-                                : needsAttention
-                                ? const Color(0xFFC62828)
-                                : const Color(0xFF27852A),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 17, 18, 15),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.72),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Icon(icon, color: style.accent, size: 22),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                context.l10n.metricName(metric),
+                                maxLines: 1,
+                                softWrap: false,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 88),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.72),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    statusLabel,
+                                    maxLines: 1,
+                                    softWrap: false,
+                                    style: TextStyle(
+                                      color: record == null
+                                          ? SaydianColors.muted
+                                          : needsAttention
+                                          ? const Color(0xFFC62828)
+                                          : const Color(0xFF27852A),
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Icon(
+                              Icons.arrow_forward_ios_rounded,
+                              color: style.accent.withValues(alpha: 0.72),
+                              size: 15,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Flexible(
+                              flex: 4,
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  _healthDisplayValue(record, controller),
+                                  maxLines: 1,
+                                  style: const TextStyle(
+                                    fontSize: 36,
+                                    height: 1,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -1,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              flex: 3,
+                              child: Padding(
+                                padding: const EdgeInsets.only(bottom: 3),
+                                child: Text(
+                                  _healthDisplayUnit(
+                                    metric,
+                                    record,
+                                    controller,
+                                  ),
+                                  maxLines: 1,
+                                  softWrap: false,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: SaydianColors.ink.withValues(
+                                      alpha: 0.62,
+                                    ),
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Spacer(),
+                        Container(
+                          height: 44,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.54),
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          child: HealthMetricMiniChart(
+                            controller: controller,
+                            metric: metric,
+                            color: style.accent,
+                            showEmptyLabel: false,
                           ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 4),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Flexible(
-                    flex: 3,
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        _healthDisplayValue(record, controller),
-                        maxLines: 1,
-                        style: const TextStyle(
-                          fontSize: 23,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    flex: 2,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 3),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          _healthDisplayUnit(metric, record, controller),
-                          maxLines: 1,
-                          softWrap: false,
-                          style: const TextStyle(color: SaydianColors.muted),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              HealthMetricMiniChart(
-                controller: controller,
-                metric: metric,
-                color: chartColor,
-                showEmptyLabel: false,
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 }
+
+class _MetricCardStyle {
+  const _MetricCardStyle({
+    required this.start,
+    required this.end,
+    required this.accent,
+  });
+
+  final Color start;
+  final Color end;
+  final Color accent;
+}
+
+_MetricCardStyle _metricCardStyle(HealthMetric metric) => switch (metric) {
+  HealthMetric.heartRate || HealthMetric.ecg => const _MetricCardStyle(
+    start: Color(0xFFFFE8ED),
+    end: Color(0xFFFFF4E9),
+    accent: Color(0xFFE23658),
+  ),
+  HealthMetric.bloodOxygen => const _MetricCardStyle(
+    start: Color(0xFFE8F7FF),
+    end: Color(0xFFEDEBFF),
+    accent: Color(0xFF3C7CF4),
+  ),
+  HealthMetric.bloodPressure ||
+  HealthMetric.bloodGlucose => const _MetricCardStyle(
+    start: Color(0xFFFFF0E7),
+    end: Color(0xFFFFE8EE),
+    accent: Color(0xFFEF6A47),
+  ),
+  HealthMetric.bodyTemperature => const _MetricCardStyle(
+    start: Color(0xFFFFEEE7),
+    end: Color(0xFFFFF6D9),
+    accent: Color(0xFFF27747),
+  ),
+  HealthMetric.hrv => const _MetricCardStyle(
+    start: Color(0xFFF0ECFF),
+    end: Color(0xFFE8F5FF),
+    accent: Color(0xFF7657E8),
+  ),
+  HealthMetric.stress => const _MetricCardStyle(
+    start: Color(0xFFE6FAF3),
+    end: Color(0xFFFFF4DE),
+    accent: Color(0xFF20A37A),
+  ),
+  HealthMetric.sleep => const _MetricCardStyle(
+    start: Color(0xFFE9EDFF),
+    end: Color(0xFFF4EBFF),
+    accent: Color(0xFF5968D8),
+  ),
+  HealthMetric.bodyComposition ||
+  HealthMetric.bloodComposition => const _MetricCardStyle(
+    start: Color(0xFFE9F8F7),
+    end: Color(0xFFEAF0FF),
+    accent: Color(0xFF2A8EA1),
+  ),
+  _ => const _MetricCardStyle(
+    start: Color(0xFFFFEDF1),
+    end: Color(0xFFF1F3FF),
+    accent: SaydianColors.brandRed,
+  ),
+};
 
 enum _HomeMetricStatus {
   normal,

@@ -150,8 +150,21 @@ void main() {
       tester
           .getSize(find.byKey(const ValueKey('health-metric-heartRate')))
           .height,
-      lessThanOrEqualTo(150),
+      greaterThanOrEqualTo(184),
     );
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey('health-metric-heartRate')))
+          .width,
+      greaterThanOrEqualTo(350),
+    );
+    expect(find.byKey(const Key('dashboard-health-card-list')), findsOneWidget);
+    final metricSurface = tester.widget<DecoratedBox>(
+      find.byKey(const ValueKey('health-metric-surface-heartRate')),
+    );
+    final metricDecoration = metricSurface.decoration as BoxDecoration;
+    expect(metricDecoration.gradient, isA<LinearGradient>());
+    expect(metricDecoration.borderRadius, BorderRadius.circular(28));
     expect(
       tester.getSize(find.byKey(const Key('dashboard-health-notice'))).height,
       lessThanOrEqualTo(60),

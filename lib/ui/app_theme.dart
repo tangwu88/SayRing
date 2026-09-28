@@ -13,7 +13,7 @@ abstract final class SaydianColors {
 
   static const ink = Color(0xFF171B2B);
   static const muted = Color(0xFF5F6675);
-  static const canvas = Color(0xFFF5F7FA);
+  static const canvas = Color(0xFFF8F7FB);
   static const line = Color(0xFFDDE3EC);
   static const outline = Color(0xFF98A2B3);
   static const techBlue = Color(0xFF316EF5);
@@ -132,11 +132,11 @@ ThemeData buildSaydianTheme() {
       ),
     ),
     cardTheme: CardThemeData(
-      elevation: 1,
-      shadowColor: const Color(0x17151B2B),
+      elevation: 0,
+      shadowColor: const Color(0x12151B2B),
       margin: EdgeInsets.zero,
       color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
@@ -146,23 +146,23 @@ ThemeData buildSaydianTheme() {
       helperStyle: const TextStyle(color: SaydianColors.muted, fontSize: 14),
       contentPadding: const EdgeInsets.symmetric(horizontal: 17, vertical: 18),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         borderSide: BorderSide.none,
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         borderSide: const BorderSide(color: SaydianColors.outline),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         borderSide: const BorderSide(color: SaydianColors.brandRed, width: 2),
       ),
       errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         borderSide: const BorderSide(color: SaydianColors.danger),
       ),
       focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         borderSide: const BorderSide(color: SaydianColors.danger, width: 2),
       ),
     ),
