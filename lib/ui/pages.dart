@@ -1161,16 +1161,18 @@ class _FeatureEntry extends StatelessWidget {
               child: Icon(icon, color: Colors.white, size: 26),
             ),
             const SizedBox(height: 6),
-            Text(
-              label,
-              maxLines: 1,
-              softWrap: false,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 13.5,
-                height: 1.15,
-                fontWeight: FontWeight.w700,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                softWrap: false,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  height: 1.15,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],
@@ -1357,14 +1359,17 @@ class _MetricCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Text(
-                      context.l10n.metricName(metric),
-                      maxLines: 1,
-                      softWrap: false,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        context.l10n.metricName(metric),
+                        maxLines: 1,
+                        softWrap: false,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                     ),
                   ),
@@ -1383,18 +1388,21 @@ class _MetricCard extends StatelessWidget {
                             : const Color(0xFFE7F7E6),
                         borderRadius: BorderRadius.circular(999),
                       ),
-                      child: Text(
-                        statusLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: record == null
-                              ? SaydianColors.muted
-                              : needsAttention
-                              ? const Color(0xFFC62828)
-                              : const Color(0xFF27852A),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          statusLabel,
+                          maxLines: 1,
+                          softWrap: false,
+                          style: TextStyle(
+                            color: record == null
+                                ? SaydianColors.muted
+                                : needsAttention
+                                ? const Color(0xFFC62828)
+                                : const Color(0xFF27852A),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                     ),
@@ -1864,7 +1872,8 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
               ? switch (widget.metric) {
                   HealthMetric.ecg => '未检测到电极接触，请正确佩戴戒指并将手指持续贴在心电电极上',
                   HealthMetric.bodyComposition ||
-                  HealthMetric.bloodComposition => '未检测到正确接触，请佩戴戒指并按戒指提示接触电极',
+                  HealthMetric.bloodComposition =>
+                    '未检测到正确接触，请确认戒指贴合手指并按页面指引调整接触位置',
                   _ => '未检测到正确佩戴，请将戒指贴合手指后继续测量',
                 }
               : switch (widget.metric) {
@@ -1873,7 +1882,7 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                   HealthMetric.hrv => '请将戒指贴合手指并保持静止，等待 HRV 测量结果',
                   HealthMetric.stress => '请将戒指贴合手指并保持静止，等待压力测量结果',
                   HealthMetric.bodyComposition ||
-                  HealthMetric.bloodComposition => '请按戒指提示保持正确接触，测量完成前不要移动',
+                  HealthMetric.bloodComposition => '请保持戒指正确贴合，测量完成前不要移动',
                   _ => '请保持正确佩戴并静止，等待戒指返回结果',
                 };
           return AlertDialog(

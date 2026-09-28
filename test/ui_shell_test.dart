@@ -81,6 +81,16 @@ void main() {
     expect(find.text('健康百科'), findsOneWidget);
     expect(find.text('运动'), findsOneWidget);
     expect(find.text('Say Ring 商城'), findsOneWidget);
+    final shopEntryLabel = tester.widget<Text>(find.text('Say Ring 商城'));
+    expect(shopEntryLabel.maxLines, 1);
+    expect(shopEntryLabel.overflow, isNot(TextOverflow.ellipsis));
+    expect(
+      find.ancestor(
+        of: find.text('Say Ring 商城'),
+        matching: find.byType(FittedBox),
+      ),
+      findsOneWidget,
+    );
 
     final navigationBar = tester.widget<NavigationBar>(
       find.byType(NavigationBar),
@@ -1189,7 +1199,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('未检测到正确接触，请佩戴戒指并按戒指提示接触电极'), findsOneWidget);
+    expect(find.text('未检测到正确接触，请确认戒指贴合手指并按页面指引调整接触位置'), findsOneWidget);
     expect(find.text('测量进度 12%'), findsOneWidget);
 
     await tester.binding.handlePopRoute();

@@ -126,26 +126,37 @@ void main() {
     expect(capabilities.toJson()['supportsSportPause'], isTrue);
   });
 
-  test('CoolWear stress accepts both documented realtime callback names', () {
-    final source = File(
-      'android/app/src/main/java/cc/saidian/saydian_app/CoolWearRingBridge.java',
-    ).readAsStringSync();
+  test(
+    'CoolWear HRV and stress keep documented and HR01 compatibility paths',
+    () {
+      final source = File(
+        'android/app/src/main/java/cc/saidian/saydian_app/CoolWearRingBridge.java',
+      ).readAsStringSync();
 
-    expect(source, contains('K6_Action.RCVD.RCVD_STRESS_SHOW'));
-    expect(source, contains('K6_Action.RCVD.RCVD_SPORT_HRV_FOR_SHOW'));
-    expect(source, contains('onStressCompatValues(snapshot)'));
-    expect(source, contains('value.getHrvNums()'));
-    expect(
-      source,
-      contains('helper.getSendBlueData().sendStressSwitch(state)'),
-    );
-    expect(source, contains('System.currentTimeMillis()'));
-    expect(source, contains('sendRriHrvCmd(state)'));
-    expect(source, contains('sendHeartAutoSwitch('));
-    expect(source, contains('sendFindDevice()'));
-    expect(source, contains('sendPhotoSwitch(enabled)'));
-    expect(source, isNot(contains('java.util.Random')));
-  });
+      expect(source, contains('K6_Action.RCVD.RCVD_STRESS_SHOW'));
+      expect(source, contains('K6_Action.RCVD.RCVD_SPORT_HRV_FOR_SHOW'));
+      expect(source, contains('onStressCompatValues(snapshot)'));
+      expect(source, contains('value.getHrvNums()'));
+      expect(
+        source,
+        contains('helper.getSendBlueData().sendStressSwitch(state)'),
+      );
+      expect(source, contains('System.currentTimeMillis()'));
+      expect(source, contains('sendRriHrvCmd(state)'));
+      expect(source, contains('sendHRVSwitch(CEBC.OPENSTATUS.OPEN)'));
+      expect(source, contains('"hrv".equals(activeMeasurement)'));
+      expect(source, contains('emitMeasurement("hrv", time, hrv, "ms")'));
+      expect(source, contains('sendHeartAutoSwitch('));
+      expect(source, contains('sendFindDevice()'));
+      expect(source, contains('sendPhotoSwitch(enabled)'));
+      expect(source, contains('value.put("features", features)'));
+      expect(
+        source,
+        contains('value.put("integratedFeatures", new ArrayList<>(features))'),
+      );
+      expect(source, isNot(contains('java.util.Random')));
+    },
+  );
 
   test(
     'Android Veepoo sync serializes origin, manual health and ECG history',
@@ -189,6 +200,14 @@ void main() {
       );
     },
   );
+
+  test('ring camera guidance uses shake control instead of a watch button', () {
+    final source = File('lib/ui/prototype_pages.dart').readAsStringSync();
+
+    expect(source, contains('摇动戒指触发拍照'));
+    expect(source, isNot(contains('按戒指拍照键')));
+    expect(source, isNot(contains('戒指弹出确认')));
+  });
 
   test(
     'Android cancels a measurement before the SDK stop callback can save partial data',

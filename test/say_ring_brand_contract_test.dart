@@ -138,7 +138,7 @@ void main() {
 
   test('ring-facing source never asks for screen or on-ring confirmation', () {
     final forbidden = RegExp(
-      r'在戒指上开始运动|戒指弹出确认|请在戒指上操作|戒指端确认|戒指保持亮屏|贴合手腕|在戒指上点击',
+      r'在戒指上开始运动|戒指弹出确认|请在戒指上操作|戒指端确认|戒指保持亮屏|贴合手腕|在戒指上点击|按戒指提示',
     );
     for (final path in const [
       'lib/domain/feature_models.dart',

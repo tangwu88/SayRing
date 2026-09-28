@@ -2579,7 +2579,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       setState(() {
         _cameraRemoteStarted = started;
         _cameraMessage = started
-            ? '可点击手机按钮；若戒指支持遥控拍照，请按设备说明触发'
+            ? '相机已就绪；可点击手机快门，也可摇动戒指触发拍照'
             : widget.controller.errorMessage ?? '戒指相机遥控暂时无法开启';
       });
       if (started) {
@@ -3295,7 +3295,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                     SizedBox(width: 8),
                     Flexible(
                       child: Text(
-                        '可点击手机快门，也可按戒指拍照键；照片会保存到手机相册。',
+                        '可点击手机快门，也可摇动戒指触发拍照；照片会保存到手机相册。',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: SaydianColors.muted),
                       ),

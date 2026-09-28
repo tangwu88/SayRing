@@ -12,6 +12,7 @@
 
 ## 最近记录
 
+- [2026-09-28 HR01 实机连接、健康与运动调试](SAY-RING-HR01-LIVE-DEBUG-20260928.md) — 修复 CoolWear 设备能力入口遗漏，压力与 HRV 均取得真实戒指有效回调，HRV 增加新命令优先、旧固件命令延迟兼容；同时修正首页单行展示和无按键戒指相机提示。双时区各 882 项、Android 原生 23 项及双 APK 构建通过；物理振动、摇动成片、iOS/HarmonyOS 与正式签名仍按正文待验。
 - [2026-09-28 Android 真机 Debug 重新启动](SAY-RING-ANDROID-DEBUG-20260928.md) — 最新 `main` 已在华为 PPA-LX3 重新构建、两阶段覆盖安装并附加 Flutter Debug；登录页正常、当前进程无崩溃/ANR、业务接口只见 `app.saydian.cn`。记录了安装坐标字符串拼接错误及修正、安全存储算法迁移 0 项、更新清单 404、冷启动跳帧和真实登录/戒指链路未验收边界。
 - [2026-09-28 首页、健康、设备与独立下载页更新](SAY-RING-HOME-HEALTH-DEVICE-DOWNLOAD-20260928.md) — 修复 CoolWear 压力/HRV 有效回调因设备时间戳异常被丢弃的问题，恢复 HRV，重排首页与运动入口，补相机/查找设备/自动检测，统一中国手机号并接入 Android/HarmonyOS 独立下载页；双时区 Flutter 各 881 项、Harmony 各 481 项、Android 原生 23 项及 Debug/QA APK 构建通过，真实戒指测量与正式签名仍待真机验收。
 - [2026-09-27 Android 真机 Debug 启动](SAY-RING-ANDROID-DEBUG-20260927.md) — 最新 `main` 已在华为 PPA-LX3 覆盖安装并保持 Flutter Debug；首页与登录会话正常、当前进程无崩溃/ANR、首轮业务请求仅见 `app.saydian.cn`。更新清单 404、冷启动跳帧、空推送/天气配置和真实戒指链路继续明确未验收；同时记录并纠正 PowerShell `$PID` 保留变量误用。
