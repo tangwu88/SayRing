@@ -10,6 +10,7 @@ import '../domain/global_commerce.dart';
 import '../l10n/global_locale_controller.dart';
 import '../services/app_controller.dart';
 import '../services/global_environment.dart';
+import 'app_theme.dart';
 import 'widgets/safe_network_image.dart';
 
 String globalShopMoney(
@@ -101,7 +102,7 @@ class GlobalShopNotice extends StatelessWidget {
     width: double.infinity,
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
     decoration: BoxDecoration(
-      color: const Color(0xFFFFF7E8),
+      color: SaydianColors.techCyanSoft,
       borderRadius: BorderRadius.circular(12),
     ),
     child: Row(

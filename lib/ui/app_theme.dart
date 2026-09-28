@@ -1,16 +1,6 @@
 import 'package:flutter/material.dart';
 
 abstract final class SaydianColors {
-  // The primary red follows the current logo. Deep ink and cool silver
-  // surfaces add the restrained technology feel requested for this revision.
-  static const brandRed = Color(0xFFD20B27);
-  static const brandRedDark = Color(0xFF980018);
-  static const brandGold = Color(0xFFD6B35A);
-  static const brandGoldDark = Color(0xFF705300);
-  static const goldText = brandGoldDark;
-  static const brandRedSoft = Color(0xFFFFE8EC);
-  static const brandGoldSoft = Color(0xFFFFF6DE);
-
   static const ink = Color(0xFF171B2B);
   static const muted = Color(0xFF5F6675);
   static const canvas = Color(0xFFF4F7FB);
@@ -21,18 +11,30 @@ abstract final class SaydianColors {
   static const techIndigo = Color(0xFF4F5FE7);
   static const techIndigoSoft = Color(0xFFEBEDFF);
   static const techCyan = Color(0xFF149FB3);
+  static const techCyanDark = Color(0xFF0D7484);
   static const techCyanSoft = Color(0xFFE3F7FA);
   static const techViolet = Color(0xFF6A58E8);
   static const techVioletSoft = Color(0xFFF0EDFF);
+  static const techBlueDark = Color(0xFF244BA8);
+
+  // Compatibility aliases for older page code. Say Ring no longer uses red
+  // and gold as interface chrome; semantic errors keep their own danger red.
+  static const brandRed = techBlue;
+  static const brandRedDark = techBlueDark;
+  static const brandGold = techCyan;
+  static const brandGoldDark = techCyanDark;
+  static const goldText = techCyanDark;
+  static const brandRedSoft = techBlueSoft;
+  static const brandGoldSoft = techCyanSoft;
 
   // Semantic colors stay independent from the brand palette. This keeps a
-  // successful/normal state green and a warning amber after the chrome turns
-  // red and gold. All are dark enough for text on white.
+  // successful/normal state green and a warning amber after the interface
+  // chrome turns blue and cyan. All are dark enough for text on white.
   static const success = Color(0xFF287A3B);
   static const info = Color(0xFF2467A6);
   static const warning = Color(0xFF8A4B00);
   static const danger = Color(0xFFB3261E);
-  static const heart = Color(0xFFA83C5A);
+  static const heart = techViolet;
   static const temperature = Color(0xFF146A75);
 
   // Backwards-compatible metric aliases used by the existing pages.
@@ -139,10 +141,13 @@ ThemeData buildSaydianTheme() {
     ),
     cardTheme: CardThemeData(
       elevation: 0,
-      shadowColor: const Color(0x12151B2B),
+      shadowColor: const Color(0x12316EF5),
       margin: EdgeInsets.zero,
       color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: Color(0xFFDCE7F5)),
+        borderRadius: BorderRadius.circular(24),
+      ),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
@@ -184,8 +189,8 @@ ThemeData buildSaydianTheme() {
       style: OutlinedButton.styleFrom(
         minimumSize: const Size(0, 56),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        foregroundColor: SaydianColors.ink,
-        side: const BorderSide(color: SaydianColors.outline),
+        foregroundColor: SaydianColors.techBlue,
+        side: const BorderSide(color: Color(0xFFB8CCED)),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
       ),
@@ -228,17 +233,17 @@ ThemeData buildSaydianTheme() {
       space: 1,
     ),
     navigationBarTheme: NavigationBarThemeData(
-      height: 80,
+      height: 78,
       backgroundColor: Colors.white,
       elevation: 0,
-      indicatorColor: SaydianColors.brandRedSoft,
+      indicatorColor: SaydianColors.techBlueSoft,
       indicatorShape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
       ),
       iconTheme: WidgetStateProperty.resolveWith(
         (states) => IconThemeData(
           color: states.contains(WidgetState.selected)
-              ? const Color(0xFFD20B27)
+              ? SaydianColors.techBlue
               : SaydianColors.muted,
           size: states.contains(WidgetState.selected) ? 29 : 27,
         ),
@@ -246,7 +251,7 @@ ThemeData buildSaydianTheme() {
       labelTextStyle: WidgetStateProperty.resolveWith(
         (states) => TextStyle(
           color: states.contains(WidgetState.selected)
-              ? const Color(0xFFD20B27)
+              ? SaydianColors.techBlue
               : SaydianColors.muted,
           fontSize: 14,
           fontWeight: states.contains(WidgetState.selected)
@@ -260,12 +265,61 @@ ThemeData buildSaydianTheme() {
       linearTrackColor: SaydianColors.techBlueSoft,
       circularTrackColor: SaydianColors.techBlueSoft,
     ),
+    chipTheme: ChipThemeData(
+      backgroundColor: Colors.white,
+      selectedColor: SaydianColors.techBlueSoft,
+      side: const BorderSide(color: Color(0xFFDCE7F5)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      labelStyle: const TextStyle(
+        color: SaydianColors.ink,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected)
+            ? Colors.white
+            : SaydianColors.outline,
+      ),
+      trackColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected)
+            ? SaydianColors.techBlue
+            : SaydianColors.line,
+      ),
+    ),
+    floatingActionButtonTheme: const FloatingActionButtonThemeData(
+      backgroundColor: SaydianColors.techBlue,
+      foregroundColor: Colors.white,
+      elevation: 0,
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+    ),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      showDragHandle: true,
+    ),
   );
 }
 
 const saydianSoftGradient = LinearGradient(
   colors: [Color(0xFFF2F6FF), SaydianColors.canvas, SaydianColors.techCyanSoft],
   stops: [0, 0.5, 1],
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+);
+
+const saydianPanelGradient = LinearGradient(
+  colors: [Colors.white, Color(0xFFF0F6FF)],
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+);
+
+const saydianHeroGradient = LinearGradient(
+  colors: [SaydianColors.techBlue, SaydianColors.techIndigo],
   begin: Alignment.topLeft,
   end: Alignment.bottomRight,
 );

@@ -740,7 +740,7 @@ class _UpdateActionPageState extends State<_UpdateActionPage> {
                         ? Icons.system_update_alt_rounded
                         : Icons.new_releases_outlined,
                     size: 64,
-                    color: SaydianColors.brandRed,
+                    color: SaydianColors.techBlue,
                   ),
                   const SizedBox(height: 18),
                   Text(

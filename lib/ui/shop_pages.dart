@@ -160,7 +160,7 @@ class _ShopHomePageState extends State<ShopHomePage> {
                       Container(
                         key: const Key('shop-category-list'),
                         width: 106,
-                        color: const Color(0xFFF5F2F0),
+                        color: const Color(0xFFF0F6FF),
                         child: ListView.builder(
                           itemCount: _tabs.length,
                           itemBuilder: (_, index) {
@@ -529,7 +529,7 @@ class _ShopProductPageState extends State<ShopProductPage> {
               onRetry: _load,
             )
           : ColoredBox(
-              color: const Color(0xFFF6F4F2),
+              color: const Color(0xFFF0F6FF),
               child: ListView(
                 padding: const EdgeInsets.only(bottom: 100),
                 children: [
@@ -1586,7 +1586,7 @@ class _ShopPaymentStatusPageState extends State<ShopPaymentStatusPage>
   Widget build(BuildContext context) {
     final status = _asInt(_order['order_status']);
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F7F8),
+      backgroundColor: SaydianColors.canvas,
       appBar: AppBar(title: Text(context.l10n.paymentCheckout)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

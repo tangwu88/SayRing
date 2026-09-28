@@ -173,7 +173,7 @@ class _LoginPageState extends State<LoginPage> {
                       _InlineNotice(
                         message: controller.errorMessage!,
                         icon: Icons.error_outline,
-                        color: Colors.red,
+                        color: SaydianColors.danger,
                       ),
                       const SizedBox(height: 12),
                     ],
@@ -411,7 +411,7 @@ class _AppShellState extends State<AppShell> {
         decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border(top: BorderSide(color: Color(0xFFF1EAE6))),
+          border: Border(top: BorderSide(color: Color(0xFFDCE7F5))),
           boxShadow: [
             BoxShadow(
               color: Color(0x12000000),
@@ -667,7 +667,7 @@ class _DashboardHeader extends StatelessWidget {
                 : '${controller.notificationUnreadCount}',
           ),
           smallSize: 9,
-          backgroundColor: Color(0xFFD70B25),
+          backgroundColor: SaydianColors.danger,
           child: IconButton(
             tooltip: controller.notificationUnreadCount > 0
                 ? context.l10n.unreadMessages(
@@ -709,7 +709,7 @@ class _MindBodyReadinessCard extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFFFFE9ED), Color(0xFFFFF7E5)],
+            colors: [Color(0xFFEAF1FF), Color(0xFFE3F7FA)],
             begin: Alignment.centerLeft,
             end: Alignment.centerRight,
           ),
@@ -723,7 +723,7 @@ class _MindBodyReadinessCard extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white,
                 shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFFF3B7BF), width: 5),
+                border: Border.all(color: SaydianColors.techBlue, width: 5),
               ),
               child: const Text(
                 '--',
@@ -829,7 +829,7 @@ class _AiHealthAssistantCard extends StatelessWidget {
               ),
             ),
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFFD20B27),
+              backgroundColor: SaydianColors.techBlue,
               foregroundColor: Colors.white,
               minimumSize: const Size.fromHeight(40),
               shape: const StadiumBorder(),
@@ -2225,7 +2225,7 @@ class _SportEntryPanel extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border.all(color: const Color(0x18D20B27)),
+        border: Border.all(color: const Color(0x26316EF5)),
         borderRadius: BorderRadius.circular(22),
         boxShadow: const [
           BoxShadow(
@@ -2536,18 +2536,18 @@ class _SportEntry extends StatelessWidget {
     };
     final color = switch (mode) {
       SportMode.running => SaydianColors.brandRed,
-      SportMode.indoorRunning => const Color(0xFFE4516F),
+      SportMode.indoorRunning => SaydianColors.techIndigo,
       SportMode.walking => SaydianColors.brandGoldDark,
-      SportMode.cycling => const Color(0xFF9E2435),
-      SportMode.indoorCycling => const Color(0xFFBF6C34),
-      SportMode.basketball => const Color(0xFFE87825),
+      SportMode.cycling => SaydianColors.techCyan,
+      SportMode.indoorCycling => const Color(0xFF397AC7),
+      SportMode.basketball => const Color(0xFF6373D9),
       SportMode.football => const Color(0xFF3E9663),
       SportMode.badminton => const Color(0xFF4285B8),
       SportMode.swimming => const Color(0xFF2B9EB3),
       SportMode.jumpRope => const Color(0xFF8B5CB5),
-      SportMode.yoga => const Color(0xFFB65F8C),
-      SportMode.hiking => const Color(0xFF8A6432),
-      SportMode.mountaineering => const Color(0xFF64543A),
+      SportMode.yoga => SaydianColors.techViolet,
+      SportMode.hiking => const Color(0xFF338C82),
+      SportMode.mountaineering => const Color(0xFF536C9F),
     };
     return InkWell(
       onTap: onTap,
@@ -2980,7 +2980,9 @@ class _SportSessionPageState extends State<SportSessionPage> {
                         ? null
                         : _toggleSport,
                     style: FilledButton.styleFrom(
-                      backgroundColor: active ? Colors.red : SaydianColors.ink,
+                      backgroundColor: active
+                          ? SaydianColors.danger
+                          : SaydianColors.techBlue,
                     ),
                     icon: Icon(
                       _finalizingSport
@@ -3599,7 +3601,7 @@ class _LiveEcgPainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = const Color(0xFFFF334D)
+        ..color = SaydianColors.techViolet
         ..strokeWidth = 1.6
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round,
@@ -4403,7 +4405,7 @@ List<Widget> _articleContentWidgets(BuildContext context, String raw) {
             errorBuilder: (_, _, _) => Container(
               height: 120,
               alignment: Alignment.center,
-              color: const Color(0xFFF4F0ED),
+              color: const Color(0xFFF0F6FF),
               child: Text(context.l10n.imageUnavailable),
             ),
           ),
@@ -4510,7 +4512,7 @@ class _AiChatPageState extends State<AiChatPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(widget.app == 2 ? '运动管家' : 'AI 健康管家')),
-      backgroundColor: const Color(0xFFF7F4F1),
+      backgroundColor: SaydianColors.canvas,
       body: ListenableBuilder(
         listenable: widget.controller,
         builder: (context, _) => Column(
@@ -4701,20 +4703,22 @@ class DevicePage extends StatelessWidget {
         .where(visibleFeatures.contains)
         .toList(growable: false);
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      key: const Key('device-page'),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
       children: [
         if (connected != null)
           Container(
-            padding: const EdgeInsets.all(14),
+            key: const Key('device-overview-card'),
+            padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: Colors.white,
-              border: Border.all(color: const Color(0xFFE8E8EA)),
-              borderRadius: BorderRadius.circular(18),
+              gradient: saydianPanelGradient,
+              border: Border.all(color: const Color(0x66316EF5)),
+              borderRadius: BorderRadius.circular(26),
               boxShadow: const [
                 BoxShadow(
-                  color: Color(0x0D000000),
-                  blurRadius: 18,
-                  offset: Offset(0, 6),
+                  color: Color(0x17316EF5),
+                  blurRadius: 24,
+                  offset: Offset(0, 10),
                 ),
               ],
             ),
@@ -4723,23 +4727,23 @@ class DevicePage extends StatelessWidget {
                 Row(
                   children: [
                     Container(
-                      width: 56,
-                      height: 56,
+                      width: 62,
+                      height: 62,
                       decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [
-                            SaydianColors.brandRed,
-                            SaydianColors.brandRedDark,
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        shape: BoxShape.circle,
+                        gradient: saydianHeroGradient,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x30316EF5),
+                            blurRadius: 16,
+                            offset: Offset(0, 7),
+                          ),
+                        ],
                       ),
                       child: const Icon(
                         Icons.circle_outlined,
                         color: Colors.white,
-                        size: 34,
+                        size: 36,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -4785,7 +4789,7 @@ class DevicePage extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 Row(
                   children: [
                     Expanded(
@@ -4822,7 +4826,7 @@ class DevicePage extends StatelessWidget {
                               : context.l10n.syncData,
                         ),
                         style: FilledButton.styleFrom(
-                          minimumSize: const Size.fromHeight(44),
+                          minimumSize: const Size.fromHeight(48),
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                         ),
                       ),
@@ -4832,7 +4836,7 @@ class DevicePage extends StatelessWidget {
                       child: OutlinedButton(
                         onPressed: controller.disconnectDevice,
                         style: OutlinedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(44),
+                          minimumSize: const Size.fromHeight(48),
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                         ),
                         child: Text(context.l10n.disconnect),
@@ -4845,7 +4849,11 @@ class DevicePage extends StatelessWidget {
           )
         else ...[
           Card(
-            child: Padding(
+            key: const Key('device-empty-card'),
+            clipBehavior: Clip.antiAlias,
+            child: Container(
+              key: const Key('device-empty-card-surface'),
+              decoration: const BoxDecoration(gradient: saydianPanelGradient),
               padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
               child: Column(
                 children: [
@@ -4854,7 +4862,10 @@ class DevicePage extends StatelessWidget {
                     height: 118,
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [Color(0xFFFFE7EB), Color(0xFFFFF5DD)],
+                        colors: [
+                          SaydianColors.techBlueSoft,
+                          SaydianColors.techCyanSoft,
+                        ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -4862,7 +4873,7 @@ class DevicePage extends StatelessWidget {
                     ),
                     child: const Icon(
                       Icons.circle_outlined,
-                      color: SaydianColors.brandRed,
+                      color: SaydianColors.techBlue,
                       size: 62,
                     ),
                   ),
@@ -4945,9 +4956,9 @@ class DevicePage extends StatelessWidget {
             const SizedBox(height: 16),
           ],
           if (watchFaceFeatures.isNotEmpty) ...[
-            Text(
-              context.l10n.personalizeWatch,
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+            _TechSectionHeading(
+              icon: Icons.palette_outlined,
+              title: context.l10n.personalizeWatch,
             ),
             const SizedBox(height: 10),
             Row(
@@ -4970,9 +4981,9 @@ class DevicePage extends StatelessWidget {
             const SizedBox(height: 18),
           ],
           if (primaryFeatures.isNotEmpty) ...[
-            Text(
-              context.l10n.deviceFeatures,
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+            _TechSectionHeading(
+              icon: Icons.grid_view_rounded,
+              title: context.l10n.deviceFeatures,
             ),
             const SizedBox(height: 10),
             GridView.builder(
@@ -5065,58 +5076,61 @@ class DevicePage extends StatelessWidget {
   Widget _deviceFeatureCard(BuildContext context, DeviceFeature feature) {
     final availability = controller.availabilityFor(feature);
     return Material(
-      color: Colors.white,
+      color: Colors.transparent,
       shape: RoundedRectangleBorder(
-        side: const BorderSide(color: Color(0xFFE9E9EC)),
-        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: Color(0xFFDCE7F5)),
+        borderRadius: BorderRadius.circular(20),
       ),
       clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: () => _openDeviceFeature(context, feature),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: _featureColor(feature).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(13),
+      child: Ink(
+        decoration: const BoxDecoration(gradient: saydianPanelGradient),
+        child: InkWell(
+          onTap: () => _openDeviceFeature(context, feature),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: _featureColor(feature).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Icon(
+                    _featureIcon(feature),
+                    color: _featureColor(feature),
+                    size: 24,
+                  ),
                 ),
-                child: Icon(
-                  _featureIcon(feature),
-                  color: _featureColor(feature),
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      context.l10n.deviceFeatureName(feature),
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      availability.isReady
-                          ? context.l10n.tapToOpen
-                          : availability.message,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: SaydianColors.muted,
-                        fontSize: 12,
-                        height: 1.25,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        context.l10n.deviceFeatureName(feature),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 3),
+                      Text(
+                        availability.isReady
+                            ? context.l10n.tapToOpen
+                            : availability.message,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: SaydianColors.muted,
+                          fontSize: 12,
+                          height: 1.25,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -5165,7 +5179,7 @@ class DevicePage extends StatelessWidget {
   Color _featureColor(DeviceFeature feature) => switch (feature) {
     DeviceFeature.findWatch ||
     DeviceFeature.alarms ||
-    DeviceFeature.healthMonitoring => SaydianColors.brandRed,
+    DeviceFeature.healthMonitoring => SaydianColors.techIndigo,
     DeviceFeature.camera ||
     DeviceFeature.notifications ||
     DeviceFeature.screenDisplay => SaydianColors.blue,
@@ -5174,8 +5188,37 @@ class DevicePage extends StatelessWidget {
     DeviceFeature.healthReminders => SaydianColors.green,
     DeviceFeature.weather ||
     DeviceFeature.worldClock => const Color(0xFF0EA5E9),
-    _ => SaydianColors.brandGoldDark,
+    _ => SaydianColors.techCyan,
   };
+}
+
+class _TechSectionHeading extends StatelessWidget {
+  const _TechSectionHeading({required this.icon, required this.title});
+
+  final IconData icon;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: SaydianColors.techBlueSoft,
+          borderRadius: BorderRadius.circular(11),
+        ),
+        child: Icon(icon, color: SaydianColors.techBlue, size: 19),
+      ),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Text(
+          title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+        ),
+      ),
+    ],
+  );
 }
 
 class _BatteryBadge extends StatelessWidget {
@@ -6294,7 +6337,7 @@ class _NotificationDetailPageState extends State<NotificationDetailPage> {
     final createdAt = '${_value['created_at'] ?? _value['createdAt'] ?? ''}';
     return Scaffold(
       appBar: AppBar(title: Text(context.l10n.messageDetails)),
-      backgroundColor: const Color(0xFFF7F4F1),
+      backgroundColor: SaydianColors.canvas,
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -6303,8 +6346,8 @@ class _NotificationDetailPageState extends State<NotificationDetailPage> {
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: isHealthWarning
-                    ? const [Color(0xFF9E1025), Color(0xFFD20B27)]
-                    : const [Color(0xFF11182D), Color(0xFF344B7D)],
+                    ? const [SaydianColors.techIndigo, SaydianColors.techBlue]
+                    : const [Color(0xFF233A70), SaydianColors.techBlueDark],
               ),
               borderRadius: BorderRadius.circular(22),
             ),
@@ -6456,14 +6499,17 @@ class _CarePageState extends State<CarePage> {
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
-                        colors: [Color(0xFFA51125), Color(0xFFD72D42)],
+                        colors: [
+                          SaydianColors.techBlue,
+                          SaydianColors.techIndigo,
+                        ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
                       borderRadius: BorderRadius.circular(22),
                       boxShadow: const [
                         BoxShadow(
-                          color: Color(0x2EA51125),
+                          color: Color(0x30316EF5),
                           blurRadius: 22,
                           offset: Offset(0, 10),
                         ),
@@ -6503,7 +6549,7 @@ class _CarePageState extends State<CarePage> {
                                     ? '添加关爱成员后查看授权数据'
                                     : '正在关爱 $memberCount 位家人',
                                 style: const TextStyle(
-                                  color: Color(0xFFFFDCE1),
+                                  color: Color(0xFFDDEBFF),
                                   fontSize: 14,
                                 ),
                               ),
@@ -6519,7 +6565,7 @@ class _CarePageState extends State<CarePage> {
                               : () => _showAddCareDialog(context, controller),
                           style: IconButton.styleFrom(
                             backgroundColor: Colors.white,
-                            foregroundColor: SaydianColors.brandRed,
+                            foregroundColor: SaydianColors.techBlue,
                           ),
                           icon: const Icon(Icons.person_add_alt_1_rounded),
                         ),
@@ -8193,10 +8239,10 @@ class SettingsPage extends StatelessWidget {
         if (controller.isPreviewMode) ...[
           Material(
             key: const Key('preview-login-prompt'),
-            color: SaydianColors.brandRedSoft,
-            borderRadius: BorderRadius.circular(16),
+            color: SaydianColors.techBlueSoft,
+            borderRadius: BorderRadius.circular(18),
             child: InkWell(
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(18),
               onTap: () => unawaited(controller.logout()),
               child: const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16, vertical: 13),
@@ -8204,7 +8250,7 @@ class SettingsPage extends StatelessWidget {
                   children: [
                     Icon(
                       Icons.account_circle_outlined,
-                      color: SaydianColors.brandRed,
+                      color: SaydianColors.techBlue,
                     ),
                     SizedBox(width: 11),
                     Expanded(
@@ -8229,13 +8275,13 @@ class SettingsPage extends StatelessWidget {
                     Text(
                       '立即登录',
                       style: TextStyle(
-                        color: SaydianColors.brandRed,
+                        color: SaydianColors.techBlue,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
                     Icon(
                       Icons.chevron_right_rounded,
-                      color: SaydianColors.brandRed,
+                      color: SaydianColors.techBlue,
                     ),
                   ],
                 ),
@@ -8251,17 +8297,13 @@ class SettingsPage extends StatelessWidget {
             key: const Key('profile-header-card'),
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFF4F7FF), Color(0xFFE8F4FF)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              border: Border.all(color: const Color(0x33316EF5)),
-              borderRadius: BorderRadius.circular(24),
+              gradient: saydianPanelGradient,
+              border: Border.all(color: const Color(0x66316EF5)),
+              borderRadius: BorderRadius.circular(26),
               boxShadow: const [
                 BoxShadow(
-                  color: Color(0x18316EF5),
-                  blurRadius: 22,
+                  color: Color(0x17316EF5),
+                  blurRadius: 24,
                   offset: Offset(0, 10),
                 ),
               ],
@@ -8369,10 +8411,11 @@ class SettingsPage extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         Card(
+          key: const Key('profile-orders-card'),
           color: Colors.white,
           shape: RoundedRectangleBorder(
-            side: const BorderSide(color: Color(0x17344B7D)),
-            borderRadius: BorderRadius.circular(20),
+            side: const BorderSide(color: Color(0xFFDCE7F5)),
+            borderRadius: BorderRadius.circular(24),
           ),
           child: Column(
             children: [
@@ -8439,10 +8482,11 @@ class SettingsPage extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         Card(
+          key: const Key('profile-quick-actions-card'),
           color: Colors.white,
           shape: RoundedRectangleBorder(
-            side: const BorderSide(color: Color(0xFFE8E8EC)),
-            borderRadius: BorderRadius.circular(20),
+            side: const BorderSide(color: Color(0xFFDCE7F5)),
+            borderRadius: BorderRadius.circular(24),
           ),
           child: Column(
             children: [
@@ -8452,7 +8496,7 @@ class SettingsPage extends StatelessWidget {
                   title: context.l10n.addDevice,
                   subtitle: context.l10n.searchNearbyWatch,
                   icon: Icons.watch_outlined,
-                  color: SaydianColors.brandRed,
+                  color: SaydianColors.techBlue,
                   onTap: () => _openPage(
                     context,
                     DeviceSearchPage(controller: controller),
@@ -8465,7 +8509,7 @@ class SettingsPage extends StatelessWidget {
                 title: context.l10n.aiQuestion,
                 subtitle: context.l10n.aiQuestionHint,
                 icon: Icons.chat_bubble_outline_rounded,
-                color: SaydianColors.brandGoldDark,
+                color: SaydianColors.techViolet,
                 onTap: () => _openPage(
                   context,
                   AiChatPage(controller: controller, app: 1),
@@ -8476,7 +8520,7 @@ class SettingsPage extends StatelessWidget {
                 title: context.l10n.unitSettings,
                 subtitle: context.l10n.unitSettingsHint,
                 icon: Icons.straighten_rounded,
-                color: SaydianColors.blue,
+                color: SaydianColors.techCyan,
                 onTap: () => _openPage(
                   context,
                   UnitSettingsPage(controller: controller),
@@ -8487,10 +8531,11 @@ class SettingsPage extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         Card(
+          key: const Key('profile-services-card'),
           color: Colors.white,
           shape: RoundedRectangleBorder(
-            side: const BorderSide(color: Color(0x17344B7D)),
-            borderRadius: BorderRadius.circular(20),
+            side: const BorderSide(color: Color(0xFFDCE7F5)),
+            borderRadius: BorderRadius.circular(24),
           ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(8, 16, 8, 14),
@@ -8548,11 +8593,7 @@ class _MemberAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fallback = DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [SaydianColors.brandRed, Color(0xFFE13045)],
-        ),
-      ),
+      decoration: const BoxDecoration(gradient: saydianHeroGradient),
       child: Icon(Icons.person_rounded, color: Colors.white, size: size * 0.52),
     );
     final bytes = imageBytes;
@@ -8576,7 +8617,7 @@ class _MemberAvatar extends StatelessWidget {
               border: Border.all(color: Colors.white, width: 2),
               shape: BoxShape.circle,
               boxShadow: const [
-                BoxShadow(color: Color(0x33A51125), blurRadius: 12),
+                BoxShadow(color: Color(0x30316EF5), blurRadius: 14),
               ],
             ),
             padding: const EdgeInsets.all(2),
@@ -8592,12 +8633,12 @@ class _MemberAvatar extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0x22A51125)),
+                  border: Border.all(color: const Color(0x33316EF5)),
                 ),
                 child: Icon(
                   Icons.camera_alt_rounded,
                   size: size * 0.18,
-                  color: SaydianColors.brandRed,
+                  color: SaydianColors.techBlue,
                 ),
               ),
             ),
@@ -8649,20 +8690,24 @@ class _ProfileStat extends StatelessWidget {
     child: Container(
       constraints: const BoxConstraints(minHeight: 86),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFEAE5E2)),
-        borderRadius: BorderRadius.circular(17),
+        gradient: LinearGradient(
+          colors: [Colors.white, color.withValues(alpha: .08)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(color: const Color(0xFFDCE7F5)),
+        borderRadius: BorderRadius.circular(19),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x0D111827),
-            blurRadius: 10,
-            offset: Offset(0, 4),
+            color: Color(0x10316EF5),
+            blurRadius: 14,
+            offset: Offset(0, 6),
           ),
         ],
       ),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(17),
+        borderRadius: BorderRadius.circular(19),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
@@ -8703,7 +8748,7 @@ class _ProfileStat extends StatelessWidget {
                   child: Icon(
                     Icons.chevron_right_rounded,
                     size: 15,
-                    color: Color(0xFFB1A9A5),
+                    color: SaydianColors.outline,
                   ),
                 ),
               ],
@@ -8757,7 +8802,7 @@ class _MyServicesGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final textScale = MediaQuery.textScalerOf(context).scale(1);
-        final columns = textScale > 1.25 || constraints.maxWidth < 340 ? 3 : 5;
+        final columns = textScale > 1.25 || constraints.maxWidth < 340 ? 3 : 4;
         final width = constraints.maxWidth / columns;
         return Wrap(
           alignment: WrapAlignment.start,
@@ -8836,7 +8881,15 @@ class _OrderEntry extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Column(
           children: [
-            Icon(icon, color: SaydianColors.ink, size: 28),
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: SaydianColors.techBlueSoft,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: SaydianColors.techBlue, size: 24),
+            ),
             const SizedBox(height: 8),
             Text(
               label,
@@ -9636,7 +9689,7 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     final orderNumber = '${_order['order_sn'] ?? widget.id}';
     return Scaffold(
       appBar: AppBar(title: Text(context.l10n.orderDetails)),
-      backgroundColor: const Color(0xFFF7F4F1),
+      backgroundColor: SaydianColors.canvas,
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
@@ -9655,7 +9708,10 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: [Color(0xFF9E1025), Color(0xFFD20B27)],
+                          colors: [
+                            SaydianColors.techBlue,
+                            SaydianColors.techIndigo,
+                          ],
                         ),
                         borderRadius: BorderRadius.circular(22),
                       ),
@@ -10279,7 +10335,7 @@ class AccountSettingsPage extends StatelessWidget {
             onPressed: controller.session == null
                 ? null
                 : () => _confirmDeleteAccount(context),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            style: TextButton.styleFrom(foregroundColor: SaydianColors.danger),
             child: Text(context.l10n.deleteAccount),
           ),
         ],
@@ -10300,7 +10356,9 @@ class AccountSettingsPage extends StatelessWidget {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: SaydianColors.danger,
+            ),
             child: Text(context.l10n.confirmDelete),
           ),
         ],

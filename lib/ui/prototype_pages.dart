@@ -1869,7 +1869,7 @@ class _EcgMedicalSection extends StatelessWidget {
                         width: itemWidth,
                         child: DecoratedBox(
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF7F7F8),
+                            color: SaydianColors.canvas,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Padding(
@@ -2091,11 +2091,11 @@ class _EcgRiskOverview extends StatelessWidget {
   if (key == 'pressureIndex' || key == 'fatigueIndex') {
     if (value < 30) return (label: '较低', color: SaydianColors.green);
     if (value < 60) return (label: '中等', color: SaydianColors.orange);
-    return (label: '偏高', color: SaydianColors.brandRed);
+    return (label: '偏高', color: SaydianColors.danger);
   }
   if (value < 30) return (label: '低风险', color: SaydianColors.green);
   if (value < 60) return (label: '需关注', color: SaydianColors.orange);
-  return (label: '风险较高', color: SaydianColors.brandRed);
+  return (label: '风险较高', color: SaydianColors.danger);
 }
 
 String _ecgRiskDescription(String key, num value) {
@@ -2188,7 +2188,7 @@ class _EcgFullReportPageState extends State<_EcgFullReportPage> {
         child: RepaintBoundary(
           key: _reportKey,
           child: ColoredBox(
-            color: const Color(0xFFF6F6F7),
+            color: const Color(0xFFF0F6FF),
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Column(

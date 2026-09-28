@@ -27,10 +27,24 @@ void main() {
 
     expect(theme.colorScheme.primary, SaydianColors.techBlue);
     expect(theme.scaffoldBackgroundColor, const Color(0xFFF4F7FB));
+    expect(SaydianColors.brandRed, SaydianColors.techBlue);
+    expect(SaydianColors.brandGold, SaydianColors.techCyan);
+    expect(SaydianColors.brandRed, isNot(SaydianColors.danger));
+    expect(
+      theme.navigationBarTheme.iconTheme?.resolve({
+        WidgetState.selected,
+      })?.color,
+      SaydianColors.techBlue,
+    );
+    expect(theme.navigationBarTheme.indicatorColor, SaydianColors.techBlueSoft);
     expect(saydianSoftGradient.colors, const [
       Color(0xFFF2F6FF),
       SaydianColors.canvas,
       SaydianColors.techCyanSoft,
+    ]);
+    expect(saydianPanelGradient.colors, const [
+      Colors.white,
+      Color(0xFFF0F6FF),
     ]);
   });
 
@@ -223,6 +237,18 @@ void main() {
     controller.selectTab(1);
     await tester.pump();
     expect(find.widgetWithText(FilledButton, '开始查找'), findsOneWidget);
+    expect(find.byKey(const Key('device-page')), findsOneWidget);
+    final emptyDeviceDecoration =
+        tester
+                .widget<Container>(
+                  find.byKey(const Key('device-empty-card-surface')),
+                )
+                .decoration
+            as BoxDecoration;
+    expect(
+      (emptyDeviceDecoration.gradient as LinearGradient).colors,
+      saydianPanelGradient.colors,
+    );
 
     controller.selectTab(2);
     await tester.pump();
@@ -233,16 +259,67 @@ void main() {
                 .widget<Container>(find.byKey(const Key('profile-header-card')))
                 .decoration
             as BoxDecoration;
-    expect((profileHeaderDecoration.gradient as LinearGradient).colors, const [
-      Color(0xFFF4F7FF),
-      Color(0xFFE8F4FF),
-    ]);
+    expect(
+      (profileHeaderDecoration.gradient as LinearGradient).colors,
+      saydianPanelGradient.colors,
+    );
+    expect(find.byKey(const Key('profile-orders-card')), findsOneWidget);
+    expect(find.byKey(const Key('profile-quick-actions-card')), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('profile-services-card')),
+      260,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('my-page')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    expect(find.byKey(const Key('profile-services-card')), findsOneWidget);
 
     for (var tab = 0; tab < 3; tab++) {
       controller.selectTab(tab);
       await tester.pump();
       expect(tester.takeException(), isNull, reason: 'tab $tab overflowed');
     }
+  });
+
+  testWidgets('connected device overview uses the unified technology surface', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            _NoopApi(),
+            MemoryHealthStore(),
+            _NoopWearable(),
+          )
+          ..connectedDevice = const DeviceInfo(id: 'ring-1', name: 'HR01')
+          ..deviceCapabilityState = DeviceCapabilityState.ready
+          ..capabilities = const DeviceCapabilities(metrics: {});
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: DevicePage(controller: controller)),
+      ),
+    );
+    await tester.pump();
+
+    final overviewDecoration =
+        tester
+                .widget<Container>(
+                  find.byKey(const Key('device-overview-card')),
+                )
+                .decoration
+            as BoxDecoration;
+    expect(
+      (overviewDecoration.gradient as LinearGradient).colors,
+      saydianPanelGradient.colors,
+    );
+    expect(find.text('HR01'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('core tabs remain overflow-free at 375 x 812', (tester) async {
