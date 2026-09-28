@@ -60,6 +60,8 @@
 - Release Python 检查首次调用到 Windows Store 的 `python` 占位程序，第二次 `py -3` 指向已不存在的 Python；改用本机 NDK Python 后共执行 22 项，15 项通过、7 项因 Windows 没有原生 Bash/Posix 路径语义而报环境错误。补 Git Bash 后仍是 15 通过、7 个 Windows/Posix 环境差异错误，未绕过安全路径门禁。该检查结果不能标完整通过，也不影响 Flutter/Android 构建结果。
 - Android 原生测试实际构建成功，但首次统计脚本误读 `android/app/build`；改为读取项目根目录 `build/app/test-results/testDebugUnitTest` 后确认 23/23 通过。
 - 首次覆盖安装因手机锁屏、熄屏而停在华为系统安装确认页；已中止等待中的安装进程，未清除 App 数据、未解绑戒指、未改变 HBand/LuckRing 数据。
+- 源码提交 `d03f266` 已通过普通快进同步到 `origin/codex/home-health-device-update-download` 和 `origin/main`，未强推、未覆盖远端历史。
+- 推送触发的 GitHub Actions `mobile-ci` #36411111073（开发分支）和 #36411111410（`main`）均在约 4 秒内失败：`quality` 和两组 Harmony contracts 的 `runner_name` 为空、步骤数为 0，Android/iOS 因前置失败被跳过。代码没有进入 runner，现有证据只能说明仓库或账号侧 Actions 门禁仍未恢复，不能把这两次运行解释为代码测试失败，也不能标 CI 或线上发布完成。
 - 构建继续提示 CameraX 与极光插件沿用旧 Kotlin Gradle Plugin 应用方式；当前构建成功，未来 Flutter 强制 Built-in Kotlin 前仍需升级插件。
 - Windows 无法执行 iOS 构建；本轮未修改或重新构建 HarmonyOS 原生工程。共享 Flutter 页面测试不替代 iOS/HarmonyOS 真机视觉验收。
 - QA Release 使用测试证书，仅适合内部覆盖安装和视觉确认，不能作为应用市场正式发布包。
