@@ -13,11 +13,17 @@ abstract final class SaydianColors {
 
   static const ink = Color(0xFF171B2B);
   static const muted = Color(0xFF5F6675);
-  static const canvas = Color(0xFFF8F7FB);
+  static const canvas = Color(0xFFF4F7FB);
   static const line = Color(0xFFDDE3EC);
   static const outline = Color(0xFF98A2B3);
   static const techBlue = Color(0xFF316EF5);
   static const techBlueSoft = Color(0xFFEAF1FF);
+  static const techIndigo = Color(0xFF4F5FE7);
+  static const techIndigoSoft = Color(0xFFEBEDFF);
+  static const techCyan = Color(0xFF149FB3);
+  static const techCyanSoft = Color(0xFFE3F7FA);
+  static const techViolet = Color(0xFF6A58E8);
+  static const techVioletSoft = Color(0xFFF0EDFF);
 
   // Semantic colors stay independent from the brand palette. This keeps a
   // successful/normal state green and a warning amber after the chrome turns
@@ -39,13 +45,13 @@ abstract final class SaydianColors {
 
 ThemeData buildSaydianTheme() {
   const scheme = ColorScheme.light(
-    primary: SaydianColors.brandRed,
+    primary: SaydianColors.techBlue,
     onPrimary: Colors.white,
-    primaryContainer: SaydianColors.brandRedSoft,
-    onPrimaryContainer: SaydianColors.brandRedDark,
-    secondary: SaydianColors.goldText,
+    primaryContainer: SaydianColors.techBlueSoft,
+    onPrimaryContainer: Color(0xFF173A82),
+    secondary: SaydianColors.techViolet,
     onSecondary: Colors.white,
-    secondaryContainer: SaydianColors.brandGoldSoft,
+    secondaryContainer: SaydianColors.techVioletSoft,
     onSecondaryContainer: SaydianColors.ink,
     surface: Colors.white,
     onSurface: SaydianColors.ink,
@@ -155,7 +161,7 @@ ThemeData buildSaydianTheme() {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(18),
-        borderSide: const BorderSide(color: SaydianColors.brandRed, width: 2),
+        borderSide: const BorderSide(color: SaydianColors.techBlue, width: 2),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(18),
@@ -188,7 +194,7 @@ ThemeData buildSaydianTheme() {
       style: TextButton.styleFrom(
         minimumSize: const Size(48, 48),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        foregroundColor: SaydianColors.brandRed,
+        foregroundColor: SaydianColors.techBlue,
         textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
       ),
     ),
@@ -200,7 +206,7 @@ ThemeData buildSaydianTheme() {
       ),
     ),
     listTileTheme: const ListTileThemeData(
-      iconColor: SaydianColors.brandRed,
+      iconColor: SaydianColors.techBlue,
       textColor: SaydianColors.ink,
       minVerticalPadding: 12,
       contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -250,15 +256,15 @@ ThemeData buildSaydianTheme() {
       ),
     ),
     progressIndicatorTheme: const ProgressIndicatorThemeData(
-      color: SaydianColors.brandRed,
-      linearTrackColor: SaydianColors.brandRedSoft,
-      circularTrackColor: SaydianColors.brandRedSoft,
+      color: SaydianColors.techBlue,
+      linearTrackColor: SaydianColors.techBlueSoft,
+      circularTrackColor: SaydianColors.techBlueSoft,
     ),
   );
 }
 
 const saydianSoftGradient = LinearGradient(
-  colors: [Color(0xFFFFF1F3), SaydianColors.canvas, SaydianColors.techBlueSoft],
+  colors: [Color(0xFFF2F6FF), SaydianColors.canvas, SaydianColors.techCyanSoft],
   stops: [0, 0.5, 1],
   begin: Alignment.topLeft,
   end: Alignment.bottomRight,

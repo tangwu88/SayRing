@@ -22,6 +22,18 @@ void main() {
   // the explicit page locale rather than a hard-coded numeric pattern.
   setUpAll(() => initializeDateFormatting('zh_Hans'));
 
+  test('app theme uses a cool technology palette', () {
+    final theme = buildSaydianTheme();
+
+    expect(theme.colorScheme.primary, SaydianColors.techBlue);
+    expect(theme.scaffoldBackgroundColor, const Color(0xFFF4F7FB));
+    expect(saydianSoftGradient.colors, const [
+      Color(0xFFF2F6FF),
+      SaydianColors.canvas,
+      SaydianColors.techCyanSoft,
+    ]);
+  });
+
   testWidgets('home mini chart does not duplicate its parent empty status', (
     tester,
   ) async {
@@ -72,11 +84,31 @@ void main() {
 
     expect(find.byKey(const Key('mind-body-readiness-card')), findsNothing);
     expect(find.byKey(const Key('dashboard-ai-assistant')), findsOneWidget);
+    final assistantDecoration =
+        tester
+                .widget<Container>(
+                  find.byKey(const Key('dashboard-ai-assistant')),
+                )
+                .decoration
+            as BoxDecoration;
+    expect((assistantDecoration.gradient as LinearGradient).colors, const [
+      Color(0xFFF5F8FF),
+      Color(0xFFE8F4FF),
+    ]);
     expect(
       tester.getSize(find.byKey(const Key('dashboard-ai-assistant'))).height,
       lessThanOrEqualTo(170),
     );
     expect(find.byKey(const Key('dashboard-functions')), findsOneWidget);
+    final functionDecoration =
+        tester
+                .widget<Container>(find.byKey(const Key('dashboard-functions')))
+                .decoration
+            as BoxDecoration;
+    expect((functionDecoration.gradient as LinearGradient).colors, const [
+      Color(0xFFFFFFFF),
+      Color(0xFFEDF5FF),
+    ]);
     expect(find.text('远程关爱'), findsOneWidget);
     expect(find.text('健康百科'), findsOneWidget);
     expect(find.text('运动'), findsOneWidget);
@@ -163,7 +195,10 @@ void main() {
       find.byKey(const ValueKey('health-metric-surface-heartRate')),
     );
     final metricDecoration = metricSurface.decoration as BoxDecoration;
-    expect(metricDecoration.gradient, isA<LinearGradient>());
+    expect((metricDecoration.gradient as LinearGradient).colors, const [
+      Color(0xFFE8EDFF),
+      Color(0xFFE3F7FA),
+    ]);
     expect(metricDecoration.borderRadius, BorderRadius.circular(28));
     expect(
       tester.getSize(find.byKey(const Key('dashboard-health-notice'))).height,
@@ -193,6 +228,15 @@ void main() {
     await tester.pump();
     expect(find.byKey(const Key('my-page')), findsOneWidget);
     expect(find.text('我的订单'), findsOneWidget);
+    final profileHeaderDecoration =
+        tester
+                .widget<Container>(find.byKey(const Key('profile-header-card')))
+                .decoration
+            as BoxDecoration;
+    expect((profileHeaderDecoration.gradient as LinearGradient).colors, const [
+      Color(0xFFF4F7FF),
+      Color(0xFFE8F4FF),
+    ]);
 
     for (var tab = 0; tab < 3; tab++) {
       controller.selectTab(tab);

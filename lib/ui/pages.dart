@@ -805,7 +805,7 @@ class _AiHealthAssistantCard extends StatelessWidget {
           Text(
             context.l10n.aiAssistant,
             style: const TextStyle(
-              color: Color(0xFF9E1025),
+              color: Color(0xFF244BA8),
               fontSize: 19,
               fontWeight: FontWeight.w900,
             ),
@@ -849,18 +849,22 @@ class _AiHealthAssistantCard extends StatelessWidget {
       key: const Key('dashboard-ai-assistant'),
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: const Color(0xFFFDF7F3),
+        gradient: const LinearGradient(
+          colors: [Color(0xFFF5F8FF), Color(0xFFE8F4FF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(26),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x14C42D48),
+            color: Color(0x18316EF5),
             blurRadius: 24,
             offset: Offset(0, 10),
           ),
         ],
       ),
       foregroundDecoration: BoxDecoration(
-        border: Border.all(color: const Color(0x66D20B27), width: 1.2),
+        border: Border.all(color: const Color(0x66316EF5), width: 1.2),
         borderRadius: BorderRadius.circular(26),
       ),
       child: stacked
@@ -1082,15 +1086,15 @@ class _FeatureEntryGrid extends StatelessWidget {
       key: const Key('dashboard-functions'),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFFFFFFFF), Color(0xFFFFF4F6)],
+          colors: [Color(0xFFFFFFFF), Color(0xFFEDF5FF)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: const Color(0xFFFFE4E9)),
+        border: Border.all(color: const Color(0xFFD9E7FA)),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x12C42D48),
+            color: Color(0x14316EF5),
             blurRadius: 24,
             offset: Offset(0, 10),
           ),
@@ -1104,7 +1108,7 @@ class _FeatureEntryGrid extends StatelessWidget {
               child: _FeatureEntry(
                 label: context.l10n.remoteCare,
                 icon: Icons.family_restroom_rounded,
-                color: const Color(0xFFE84358),
+                color: const Color(0xFF4F67E8),
                 onTap: onCare,
               ),
             ),
@@ -1112,7 +1116,7 @@ class _FeatureEntryGrid extends StatelessWidget {
               child: _FeatureEntry(
                 label: context.l10n.healthLibrary,
                 icon: Icons.menu_book_rounded,
-                color: const Color(0xFFD5A03D),
+                color: const Color(0xFF149FB3),
                 onTap: onEncyclopedia,
               ),
             ),
@@ -1120,7 +1124,7 @@ class _FeatureEntryGrid extends StatelessWidget {
               child: _FeatureEntry(
                 label: context.l10n.workouts,
                 icon: Icons.directions_run_rounded,
-                color: const Color(0xFFEF6E78),
+                color: const Color(0xFF7059E8),
                 onTap: onSport,
               ),
             ),
@@ -1128,7 +1132,7 @@ class _FeatureEntryGrid extends StatelessWidget {
               child: _FeatureEntry(
                 label: context.l10n.shop,
                 icon: Icons.shopping_bag_rounded,
-                color: const Color(0xFFD99C2B),
+                color: const Color(0xFF2887D8),
                 onTap: onMall,
               ),
             ),
@@ -1577,40 +1581,40 @@ class _MetricCardStyle {
 
 _MetricCardStyle _metricCardStyle(HealthMetric metric) => switch (metric) {
   HealthMetric.heartRate || HealthMetric.ecg => const _MetricCardStyle(
-    start: Color(0xFFFFE8ED),
-    end: Color(0xFFFFF4E9),
-    accent: Color(0xFFE23658),
+    start: Color(0xFFE8EDFF),
+    end: Color(0xFFE3F7FA),
+    accent: Color(0xFF4F5FE7),
   ),
   HealthMetric.bloodOxygen => const _MetricCardStyle(
-    start: Color(0xFFE8F7FF),
-    end: Color(0xFFEDEBFF),
-    accent: Color(0xFF3C7CF4),
+    start: Color(0xFFE2F6FF),
+    end: Color(0xFFE8EDFF),
+    accent: Color(0xFF2D82E9),
   ),
   HealthMetric.bloodPressure ||
   HealthMetric.bloodGlucose => const _MetricCardStyle(
-    start: Color(0xFFFFF0E7),
-    end: Color(0xFFFFE8EE),
-    accent: Color(0xFFEF6A47),
+    start: Color(0xFFE9EEFF),
+    end: Color(0xFFF0EBFF),
+    accent: Color(0xFF6258E8),
   ),
   HealthMetric.bodyTemperature => const _MetricCardStyle(
-    start: Color(0xFFFFEEE7),
-    end: Color(0xFFFFF6D9),
-    accent: Color(0xFFF27747),
+    start: Color(0xFFE4F6F8),
+    end: Color(0xFFEDF3FF),
+    accent: Color(0xFF208EA2),
   ),
   HealthMetric.hrv => const _MetricCardStyle(
-    start: Color(0xFFF0ECFF),
-    end: Color(0xFFE8F5FF),
-    accent: Color(0xFF7657E8),
+    start: Color(0xFFEDEAFF),
+    end: Color(0xFFE5F4FF),
+    accent: Color(0xFF7059E8),
   ),
   HealthMetric.stress => const _MetricCardStyle(
-    start: Color(0xFFE6FAF3),
-    end: Color(0xFFFFF4DE),
-    accent: Color(0xFF20A37A),
+    start: Color(0xFFE1F8F4),
+    end: Color(0xFFEAF2FF),
+    accent: Color(0xFF15977F),
   ),
   HealthMetric.sleep => const _MetricCardStyle(
-    start: Color(0xFFE9EDFF),
-    end: Color(0xFFF4EBFF),
-    accent: Color(0xFF5968D8),
+    start: Color(0xFFE5EAFF),
+    end: Color(0xFFEEEDFF),
+    accent: Color(0xFF485FD3),
   ),
   HealthMetric.bodyComposition ||
   HealthMetric.bloodComposition => const _MetricCardStyle(
@@ -1619,9 +1623,9 @@ _MetricCardStyle _metricCardStyle(HealthMetric metric) => switch (metric) {
     accent: Color(0xFF2A8EA1),
   ),
   _ => const _MetricCardStyle(
-    start: Color(0xFFFFEDF1),
-    end: Color(0xFFF1F3FF),
-    accent: SaydianColors.brandRed,
+    start: Color(0xFFEAF0FF),
+    end: Color(0xFFE5F8F8),
+    accent: SaydianColors.techBlue,
   ),
 };
 
@@ -8244,18 +8248,19 @@ class SettingsPage extends StatelessWidget {
           onTap: () =>
               _openPage(context, ProfileEditPage(controller: controller)),
           child: Container(
+            key: const Key('profile-header-card'),
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xFFFFF8F3), Color(0xFFFFECEE)],
+                colors: [Color(0xFFF4F7FF), Color(0xFFE8F4FF)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              border: Border.all(color: const Color(0x22A51125)),
+              border: Border.all(color: const Color(0x33316EF5)),
               borderRadius: BorderRadius.circular(24),
               boxShadow: const [
                 BoxShadow(
-                  color: Color(0x149E1025),
+                  color: Color(0x18316EF5),
                   blurRadius: 22,
                   offset: Offset(0, 10),
                 ),
@@ -8299,7 +8304,7 @@ class SettingsPage extends StatelessWidget {
                   ),
                   child: const Icon(
                     Icons.edit_outlined,
-                    color: SaydianColors.brandRed,
+                    color: SaydianColors.techBlue,
                     size: 19,
                   ),
                 ),
@@ -8333,7 +8338,7 @@ class SettingsPage extends StatelessWidget {
                 value: context.l10n.recordCount(
                   controller.healthRecords.length,
                 ),
-                color: SaydianColors.brandRed,
+                color: SaydianColors.techViolet,
                 onTap: () => _openPage(
                   context,
                   AllHealthDataPage(
@@ -8928,14 +8933,14 @@ class _MyServiceEntry extends StatelessWidget {
               height: 46,
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [Color(0xFFFFF0EC), Color(0xFFFFF8DE)],
+                  colors: [Color(0xFFEAF1FF), Color(0xFFE4F7FA)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(15),
-                border: Border.all(color: const Color(0x22D20B27)),
+                border: Border.all(color: const Color(0x29316EF5)),
               ),
-              child: Icon(icon, color: SaydianColors.brandRedDark, size: 24),
+              child: Icon(icon, color: SaydianColors.techBlue, size: 24),
             ),
             const SizedBox(height: 7),
             Text(
