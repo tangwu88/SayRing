@@ -76,6 +76,7 @@
 
 - 本轮未出现代码、测试、构建或覆盖安装失败。
 - 提交前第一次 `git fetch origin --prune` 遇到 GitHub 连接被重置；保留工作区后直接重试成功，再继续核对远端提交，没有把首次失败写成已同步。
+- 首轮推送先后遇到 GitHub 空响应和 443 暂时无法连接；`git ls-remote` 恢复后，开发分支与 `main` 均以普通快进方式同步到源码提交 `0023a43`，未强推、未覆盖远端历史。
 - Android 构建仍提示 CameraX 与极光插件使用旧 Kotlin Gradle Plugin 应用方式；本轮构建成功，但未来 Flutter 强制 Built-in Kotlin 前需要升级对应插件。
 - Windows 无法执行 iOS 构建；本轮也没有重新构建 HarmonyOS 原生工程。Flutter 共享页面的测试结果不能替代 iOS/HarmonyOS 真机视觉验收。
 - QA Release 继续使用测试证书，只适合内部安装检查，不能作为应用市场正式包。
