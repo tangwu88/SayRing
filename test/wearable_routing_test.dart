@@ -93,6 +93,10 @@ void main() {
       WearableTransport.coolwear,
     );
     expect(
+      WearableDeviceClassifier.transportFor(' hr05 '),
+      WearableTransport.coolwear,
+    );
+    expect(
       WearableDeviceClassifier.transportFor('Q_Ring 1024'),
       WearableTransport.qring,
     );
@@ -114,6 +118,8 @@ void main() {
     expect(WearableDeviceClassifier.transportFor('Q Ring'), isNull);
     expect(WearableDeviceClassifier.transportFor('Oura Ring'), isNull);
     expect(WearableDeviceClassifier.transportFor('HR010'), isNull);
+    expect(WearableDeviceClassifier.transportFor('HR050'), isNull);
+    expect(WearableDeviceClassifier.transportFor('HR05-unknown'), isNull);
     expect(WearableDeviceClassifier.transportFor('W8'), isNull);
     expect(WearableDeviceClassifier.transportFor('Ring'), isNull);
     expect(WearableDeviceClassifier.transportFor(''), isNull);
@@ -220,13 +226,19 @@ void main() {
     expect(devices.map((device) => device.id), contains('veepoo:TK-1'));
   });
 
-  test('routes HR01 only through the CoolWear SDK', () async {
+  test('routes HR01 and HR05 only through the CoolWear SDK', () async {
     final coolwear = _FakeWearableBridge(
-      scanned: const [DeviceInfo(id: 'CW-1', name: 'HR01')],
+      scanned: const [
+        DeviceInfo(id: 'CW-1', name: 'HR01'),
+        DeviceInfo(id: 'CW-5', name: 'HR05', model: 'HR05'),
+      ],
     );
     final bridge = RoutedWearableBridge(
       veepoo: _FakeWearableBridge(
-        scanned: const [DeviceInfo(id: 'VP-1', name: 'HR01')],
+        scanned: const [
+          DeviceInfo(id: 'VP-1', name: 'HR01'),
+          DeviceInfo(id: 'VP-5', name: 'HR05'),
+        ],
       ),
       yucheng: _FakeWearableBridge(scanned: const []),
       coolwear: coolwear,
@@ -234,12 +246,18 @@ void main() {
     );
 
     final devices = await bridge.scanDevices();
-    expect(devices.map((device) => device.id), ['coolwear:CW-1']);
-    expect(devices.single.sdkSource, WearableSdkSource.coolwear);
+    expect(devices.map((device) => device.id), [
+      'coolwear:CW-1',
+      'coolwear:CW-5',
+    ]);
+    expect(
+      devices.every((device) => device.sdkSource == WearableSdkSource.coolwear),
+      isTrue,
+    );
 
-    await bridge.connect('coolwear:CW-1', profile: _profile);
+    await bridge.connect('coolwear:CW-5', profile: _profile);
     await bridge.startMeasurement(HealthMetric.heartRate);
-    expect(coolwear.connectCalls, ['CW-1']);
+    expect(coolwear.connectCalls, ['CW-5']);
     expect(coolwear.measurementCalls, [HealthMetric.heartRate]);
   });
 

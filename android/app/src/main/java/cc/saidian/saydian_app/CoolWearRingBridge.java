@@ -44,8 +44,8 @@ import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 
 /**
- * Fail-closed HR01 adapter. A real device-info callback proves the HR01
- * protocol baseline; function flags still gate optional health features.
+ * Fail-closed CoolWear ring adapter. A real device-info callback proves the
+ * vendor protocol baseline; function flags still gate optional health features.
  * History completion and live sport state require their vendor callbacks.
  */
 public final class CoolWearRingBridge
@@ -289,10 +289,12 @@ public final class CoolWearRingBridge
         return manager != null && manager.getAdapter() != null && manager.getAdapter().isEnabled();
     }
 
-    private static boolean isHr01(String name) {
-        if (name == null) return false;
+    static String supportedModel(String name) {
+        if (name == null) return null;
         String normalized = name.trim().toUpperCase(Locale.ROOT);
-        return normalized.equals("HR01") || normalized.startsWith("HR01-");
+        if (normalized.equals("HR01") || normalized.startsWith("HR01-")) return "HR01";
+        if (normalized.equals("HR05")) return "HR05";
+        return null;
     }
 
     private void receiveScannedDevices(List<MyBleDevice> devices) {
@@ -301,11 +303,12 @@ public final class CoolWearRingBridge
             if (device == null || device.getmBluetoothDevice() == null) continue;
             String name = device.getName();
             String id = device.getmBluetoothDevice().getAddress();
-            if (!isHr01(name) || id == null || id.isEmpty()) continue;
+            String model = supportedModel(name);
+            if (model == null || id == null || id.isEmpty()) continue;
             Map<String, Object> value = new HashMap<>();
             value.put("id", id);
             value.put("name", name.trim());
-            value.put("model", "HR01");
+            value.put("model", model);
             value.put("rssi", device.getRssi());
             if (device.getmK6ManufacturerInfo() != null) {
                 value.put("vendorId", device.getmK6ManufacturerInfo().name);
@@ -329,7 +332,11 @@ public final class CoolWearRingBridge
         if (pendingHealthSync == null || records == null) return;
         for (Map<String, Object> record : records) {
             Object id = record.get("id");
-            if (id != null) syncedHealthRecords.put(id.toString(), record);
+            if (id != null) {
+                String model = supportedModel(connectedName);
+                if (model != null) record.put("sourceModel", model);
+                syncedHealthRecords.put(id.toString(), record);
+            }
         }
     }
 
@@ -546,8 +553,9 @@ public final class CoolWearRingBridge
     private Map<String, Object> deviceDetails() {
         Map<String, Object> value = new HashMap<>();
         value.put("id", connectedId);
-        value.put("name", connectedName == null ? "HR01" : connectedName);
-        value.put("model", "HR01");
+        value.put("name", connectedName == null ? "CoolWear 戒指" : connectedName);
+        String model = supportedModel(connectedName);
+        if (model != null) value.put("model", model);
         value.put("hardwareAddress", connectedId);
         if (firmwareVersion != null && !firmwareVersion.isEmpty()) {
             value.put("firmwareVersion", firmwareVersion);
@@ -759,6 +767,8 @@ public final class CoolWearRingBridge
         Map<String, Object> record = CoolWearRecordMapper.healthRecord(
                 connectedId, firmwareVersion, metric, time, values, unit,
                 "app_measurement", "device_reported");
+        String model = supportedModel(connectedName);
+        if (model != null) record.put("sourceModel", model);
         emit("healthRecord", record);
     }
 
@@ -870,7 +880,7 @@ public final class CoolWearRingBridge
                 case "connect":
                     String id = call.argument("id");
                     if (id == null || !scanned.containsKey(id) || pendingConnect != null) {
-                        result.error("UNKNOWN_SCANNED_DEVICE", "请重新扫描并选择 HR01 戒指", null);
+                        result.error("UNKNOWN_SCANNED_DEVICE", "请重新扫描并选择 CoolWear 戒指", null);
                         return;
                     }
                     finishScan();

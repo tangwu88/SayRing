@@ -4,7 +4,7 @@ import '../domain/feature_models.dart';
 import '../domain/models.dart';
 import 'wearable_bridge.dart';
 
-/// Android-only HR01 transport backed by the project-supplied CoolWear AAR.
+/// Android-only HR01/HR05 transport backed by the project-supplied CoolWear AAR.
 ///
 /// The native side waits for the vendor connection and device-info response.
 /// History is completed only after the vendor SDK emits its device-sync

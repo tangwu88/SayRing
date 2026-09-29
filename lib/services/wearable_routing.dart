@@ -26,7 +26,9 @@ class WearableDeviceClassifier {
   static WearableTransport? transportFor(String name) {
     final normalized = name.trim().toUpperCase();
     if (normalized.startsWith('YC')) return WearableTransport.yucheng;
-    if (normalized == 'HR01' || normalized.startsWith('HR01-')) {
+    if (normalized == 'HR01' ||
+        normalized.startsWith('HR01-') ||
+        normalized == 'HR05') {
       return WearableTransport.coolwear;
     }
     if (normalized.startsWith('Q_') ||

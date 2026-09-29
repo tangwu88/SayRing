@@ -336,9 +336,10 @@ f9c2378 feat: integrate Veepoo wearable SDKs
 ## 12. 2026-09-29 QRing 多 SDK 路由补充
 
 - Android 已加入 `qring_sdk_1.0.0.76.aar`，iOS 已加入静态 `QCBandSDK.framework`。
-- 广播名称规范化后 `Q_`、`O_` 及 `R22_` 后恰好四位十六进制字符进入 QRing；`R22_C493` 已由 QRing App 现场发现，并在 Say Ring 通过 QRing SDK 真机扫描与握手。`YC` 仍走 Yucheng，`V`/`TK` 仍走 Veepoo，`HR01` 仍走 CoolWear，`D` 仅在 Moyoung 桥存在时启用。其他未知名称不得猜测。
+- 广播名称规范化后 `Q_`、`O_` 及 `R22_` 后恰好四位十六进制字符进入 QRing；`R22_C493` 已由 QRing App 现场发现，并在 Say Ring 通过 QRing SDK 真机扫描与握手。`YC` 仍走 Yucheng，`V`/`TK` 仍走 Veepoo，`HR01`/`HR01-` 与实机确认的精确 `HR05` 走 Android CoolWear；`D` 仅在 Moyoung 桥存在时启用。其他未知名称不得猜测。
 - Flutter 扫描结果使用 `qring:<native-id>` 隔离；用户选中后所有健康、运动与设备操作锁定到 QRing Bridge。
 - 连接成功不等于能力成功。QRing 必须完成 SDK 初始化、校时和能力读取，失败时保持不可用；健康未知值不得补零。
 - Android 的 Realtek bbpro 以 QRing 内置 1.9.4 为准；根 Gradle 只从宇辰插件的通配 JAR 中排除了未被其源码/AAR引用的旧 1.6.1，并保留 `Msc.jar`。改动此策略前必须同时回归 QRing 与宇辰设备。
 - Windows 已通过双 APK、双时区 Flutter 885 项、Android 原生 26 项和 iOS arm64 静态库结构检查；Mac/Xcode 编译和真实 QRing 全链路仍未验收。详细证据见 `docs/SAY-RING-QRING-MULTI-SDK-20260929.md`。
 - 后续 R22 扫描修复已在 Android 真机确认扫描、配对、能力握手、电量读取，以及配对后停止广播时的同一已保存设备恢复；回查必须同时核对当前环境保存的精确 ID、系统蓝牙配对和 QRing 名称，再走 SDK 握手。iOS 与健康/运动全链路仍待验证，详见 `docs/SAY-RING-R22-SCAN-20260929.md`。上一条 26 项与仅 Q_/O_ 为首次接入时的历史状态。
+- HR05 在同机 LuckRing 已连接且系统扫描名称为 `HR05`；Say Ring Android 扫描、CoolWear 设备信息握手、电量/部分功能位和冷启动恢复已通过，具体边界见 `docs/SAY-RING-HR05-DISCOVERY-20260929.md`。iOS 暂无 CoolWear 实装，不能以 Android 结果代替。
