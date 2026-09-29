@@ -53,3 +53,11 @@
 - iOS Debug/Profile/真机未执行：本机 Windows 无 Xcode/iPhone 工具链。鸿蒙显示实现验证见独立日志；无签名与设备，不声称原生鸿蒙安装成功。
 - 已推送 App 源码 `d829b81b4e12112f8ed855c887fa766031d0b5ab` 到 origin/main 与开发分支，两者远端 SHA 核对一致；GitHub API 确認 `tangwu88/SayRing` 仍为 Private。
 - App 云端 Actions `36573922061`（main）与 `36573921901`（开发分支）失败关闭；check annotations 明确是账号付款/额度限制，quality 与 Harmony jobs 未开始（steps=[]），Android/iOS skipped。不能称 App 云端 CI 通过，也未自行调整计费、权限或开放仓库。本机验证结果与云端限制分别保留。
+
+## 线上等待交接（2026-09-29 21:42 中国时区）
+
+- 后台 CI `36572298288` 的验证与镜像构建成功；发布 job `109421602679` 仍为 `in_progress`，当前步骤 `Deploy through constrained SSH receiver` 从 21:09:35 开始。尚无成功或失败结论，未取消或重复发布。
+- 公网最后确认国内为 `3dab610c447ad2ce92e63b73ed65c3781580b46b`、国际为 `ef2f64323df46ddfe6ffeb415795429d3ed3e37e`，均 ready；新 app-display 接口此前仍 404。**不能称后台开关已上线**。
+- 国际手工流程尚未派发。继续时必须先核对上述国内任务最终结果和 main 版本，再按 `deploy-production.yml` 已审输入使用国内 `37ff0faa4eaca64ee270c0bf4d804a816ab26f14` 与国际 `9e29aedff3620f14dae213e941e8f68e9468e9da`；远端有变化时重新协调，不盲目重发。完成后核对双域 ready、公开 app-display 和实际 `/admin/settings` 资源。
+- 运行中日志 REST 返回 404，公开 job 页要求登录，本机无可用服务器 SSH 身份，无法确认具体等待阶段。已有 `Export runtime images` 不能让当前 `deploy-ci.sh` 跳过镜像拉取；未改接收器、维护状态、数据库或服务器服务来绕开限制。
+- 正常安卓测试版已安装，但原账号重新登录与线上配置端到端仍待用户/服务器状态恢复；本条保留未验收状态，不宣称全部任务完成。
