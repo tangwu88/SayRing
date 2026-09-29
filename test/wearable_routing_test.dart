@@ -100,6 +100,17 @@ void main() {
       WearableDeviceClassifier.transportFor(' o_ring'),
       WearableTransport.qring,
     );
+    expect(
+      WearableDeviceClassifier.transportFor(' r22_c493'),
+      WearableTransport.qring,
+    );
+    expect(
+      WearableDeviceClassifier.transportFor('R22_C493 '),
+      WearableTransport.qring,
+    );
+    expect(WearableDeviceClassifier.transportFor('R22_'), isNull);
+    expect(WearableDeviceClassifier.transportFor('R22_C493_extra'), isNull);
+    expect(WearableDeviceClassifier.transportFor('R22_Z493'), isNull);
     expect(WearableDeviceClassifier.transportFor('Q Ring'), isNull);
     expect(WearableDeviceClassifier.transportFor('Oura Ring'), isNull);
     expect(WearableDeviceClassifier.transportFor('HR010'), isNull);
@@ -232,11 +243,12 @@ void main() {
     expect(coolwear.measurementCalls, [HealthMetric.heartRate]);
   });
 
-  test('routes Q_ and O_ rings only through the QRing SDK', () async {
+  test('routes Q_, O_ and R22 rings only through the QRing SDK', () async {
     final qring = _FakeWearableBridge(
       scanned: const [
         DeviceInfo(id: 'QR-1', name: 'Q_Ring'),
         DeviceInfo(id: 'OR-1', name: 'O_Ring'),
+        DeviceInfo(id: 'R22-1', name: 'R22_C493'),
       ],
     );
     final bridge = RoutedWearableBridge(
@@ -249,12 +261,63 @@ void main() {
     );
 
     final devices = await bridge.scanDevices();
-    expect(devices.map((device) => device.id), ['qring:QR-1', 'qring:OR-1']);
+    expect(devices.map((device) => device.id), [
+      'qring:QR-1',
+      'qring:OR-1',
+      'qring:R22-1',
+    ]);
 
     await bridge.connect('qring:QR-1', profile: _profile);
     await bridge.startMeasurement(HealthMetric.hrv);
     expect(qring.connectCalls, ['QR-1']);
     expect(qring.measurementCalls, [HealthMetric.hrv]);
+  });
+
+  test(
+    'restores only the saved QRing bond when it stops advertising',
+    () async {
+      final preference = _MemoryBoundPreference(
+        const SavedWearableBinding(WearableTransport.qring, 'R22-1'),
+      );
+      final qring = _BondedQRingBridge(
+        const DeviceInfo(id: 'R22-1', name: 'R22_C493'),
+      );
+      final bridge = RoutedWearableBridge(
+        veepoo: _FakeWearableBridge(scanned: const []),
+        yucheng: _FakeWearableBridge(scanned: const []),
+        qring: qring,
+        preferenceStore: preference,
+        restoreOnlyBoundDevice: true,
+      );
+      addTearDown(bridge.dispose);
+
+      expect(
+        (await bridge.restoreConnection(profile: _profile))?.id,
+        'qring:R22-1',
+      );
+      expect(qring.lookupCalls, ['R22-1']);
+      expect(qring.connectCalls, ['R22-1']);
+    },
+  );
+
+  test('rejects a bonded lookup for a different identifier', () async {
+    final qring = _BondedQRingBridge(
+      const DeviceInfo(id: 'other-ring', name: 'R22_C493'),
+    );
+    final bridge = RoutedWearableBridge(
+      veepoo: _FakeWearableBridge(scanned: const []),
+      yucheng: _FakeWearableBridge(scanned: const []),
+      qring: qring,
+      preferenceStore: _MemoryBoundPreference(
+        const SavedWearableBinding(WearableTransport.qring, 'R22-1'),
+      ),
+      restoreOnlyBoundDevice: true,
+    );
+    addTearDown(bridge.dispose);
+
+    expect(await bridge.restoreConnection(profile: _profile), isNull);
+    expect(qring.lookupCalls, ['R22-1']);
+    expect(qring.connectCalls, isEmpty);
   });
 
   test('scopes pulled V ring details and live metadata events', () async {
@@ -457,6 +520,9 @@ class _FakeWearableBridge extends Fake
   @override
   Future<List<DeviceInfo>> scanDevices() async => scanned;
 
+  @override
+  Future<void> stopScan() async {}
+
   void emitScan(DeviceInfo device) {
     _events.add(WearableEvent(type: 'scanDevice', payload: device.toJson()));
   }
@@ -502,6 +568,44 @@ class _MemoryTransportPreference implements WearableTransportPreferenceStore {
   @override
   Future<void> clear() async {
     value = null;
+  }
+}
+
+class _MemoryBoundPreference extends _MemoryTransportPreference
+    implements WearableBindingPreferenceStore {
+  _MemoryBoundPreference(this.binding);
+
+  SavedWearableBinding? binding;
+
+  @override
+  Future<SavedWearableBinding?> readBinding() async => binding;
+
+  @override
+  Future<void> writeBinding(SavedWearableBinding value) async {
+    binding = value;
+    await write(value.transport);
+  }
+
+  @override
+  Future<void> clear() async {
+    binding = null;
+    await super.clear();
+  }
+}
+
+class _BondedQRingBridge extends _FakeWearableBridge
+    implements WearableBoundDeviceLookupBridge {
+  _BondedQRingBridge(this.bonded) : super(scanned: const []);
+
+  final DeviceInfo? bonded;
+  final List<String> lookupCalls = [];
+
+  @override
+  Future<DeviceInfo?> lookupPreviouslyBoundDevice(
+    String nativeIdentifier,
+  ) async {
+    lookupCalls.add(nativeIdentifier);
+    return bonded;
   }
 }
 

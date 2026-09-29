@@ -75,7 +75,11 @@ typedef void (^QRingNext)(void);
 
 - (BOOL)isQRingName:(NSString *)name {
     NSString *upper = [[name ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] uppercaseString];
-    return [upper hasPrefix:@"Q_"] || [upper hasPrefix:@"O_"];
+    if ([upper hasPrefix:@"Q_"] || [upper hasPrefix:@"O_"]) { return YES; }
+    if (![upper hasPrefix:@"R22_"] || upper.length != 8) { return NO; }
+    NSString *suffix = [upper substringFromIndex:4];
+    NSCharacterSet *nonHex = [[NSCharacterSet characterSetWithCharactersInString:@"0123456789ABCDEF"] invertedSet];
+    return [suffix rangeOfCharacterFromSet:nonHex].location == NSNotFound;
 }
 
 - (BOOL)isResolved {
@@ -625,6 +629,7 @@ typedef void (^QRingNext)(void);
 - (void)handleCall:(FlutterMethodCall *)call result:(FlutterResult)result {
     NSDictionary *arguments = [call.arguments isKindOfClass:NSDictionary.class] ? call.arguments : @{};
     if ([call.method isEqualToString:@"scanDevices"]) { [self startScan:result]; }
+    else if ([call.method isEqualToString:@"lookupBondedDevice"]) { result(nil); }
     else if ([call.method isEqualToString:@"stopScan"]) { [self finishScan]; result(nil); }
     else if ([call.method isEqualToString:@"connect"]) { [self connect:arguments result:result]; }
     else if ([call.method isEqualToString:@"disconnect"]) { [self.central disconnect]; self.featureList = nil; result(nil); }

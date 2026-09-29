@@ -159,10 +159,16 @@ public final class QRingBridge
                 && bluetooth.getAdapter().isEnabled();
     }
 
-    private static boolean isQRingName(String name) {
+    static boolean isQRingName(String name) {
         if (name == null) return false;
         String normalized = name.trim().toUpperCase(Locale.ROOT);
-        return normalized.startsWith("Q_") || normalized.startsWith("O_");
+        return normalized.startsWith("Q_") || normalized.startsWith("O_")
+                || normalized.matches("R22_[0-9A-F]{4}");
+    }
+
+    static boolean isExactBondedQRing(String requestedId, String bondedId, String name) {
+        return requestedId != null && bondedId != null
+                && requestedId.equalsIgnoreCase(bondedId) && isQRingName(name);
     }
 
     private void startScan(MethodChannel.Result result) {
@@ -217,6 +223,34 @@ public final class QRingBridge
         boolean fresh = !scanned.containsKey(id);
         scanned.put(id, value);
         if (fresh) emit("scanDevice", value);
+    }
+
+    private void lookupBondedDevice(MethodCall call, MethodChannel.Result result) {
+        String id = call.argument("id");
+        if (id == null || id.isEmpty() || !hasBlePermissions()) {
+            result.success(null);
+            return;
+        }
+        BluetoothManager bluetooth =
+                (BluetoothManager) activity.getSystemService(Context.BLUETOOTH_SERVICE);
+        if (bluetooth == null || bluetooth.getAdapter() == null) {
+            result.success(null);
+            return;
+        }
+        for (BluetoothDevice device : bluetooth.getAdapter().getBondedDevices()) {
+            if (!id.equalsIgnoreCase(device.getAddress())) continue;
+            String name = device.getName();
+            if (!isExactBondedQRing(id, device.getAddress(), name)) break;
+            Map<String, Object> value = new HashMap<>();
+            value.put("id", id);
+            value.put("name", name.trim());
+            value.put("model", name.trim());
+            value.put("hardwareAddress", id);
+            scanned.put(id, value);
+            result.success(value);
+            return;
+        }
+        result.success(null);
     }
 
     private void finishScan() {
@@ -957,6 +991,7 @@ public final class QRingBridge
             ensureSdk();
             switch (call.method) {
                 case "scanDevices": startScan(result); break;
+                case "lookupBondedDevice": lookupBondedDevice(call, result); break;
                 case "stopScan": finishScan(); result.success(null); break;
                 case "connect": connect(call, result); break;
                 case "disconnect":

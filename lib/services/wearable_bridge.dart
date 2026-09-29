@@ -194,6 +194,13 @@ abstract interface class WearableConnectionRecoveryBridge {
   Future<DeviceInfo?> restoreConnection({required WearableUserProfile profile});
 }
 
+/// Optional lookup for one device previously bound in this App environment.
+/// A native adapter must verify the exact identifier against its trusted OS
+/// bond before returning it; the normal vendor handshake still follows.
+abstract interface class WearableBoundDeviceLookupBridge {
+  Future<DeviceInfo?> lookupPreviouslyBoundDevice(String nativeIdentifier);
+}
+
 class WearableSdkNotConfigured implements Exception {
   const WearableSdkNotConfigured([this.message = '此功能暂时无法使用，请稍后再试']);
 

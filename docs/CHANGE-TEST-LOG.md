@@ -12,6 +12,7 @@
 
 ## 最近记录
 
+- [2026-09-29 R22 戒指扫描修复与真机连接](SAY-RING-R22-SCAN-20260929.md) — 修复 `R22_C493` 被 Android、Flutter、iOS 三层名称规则过滤，并补 Android 已配对但不广播时的精确已保存设备恢复；华为真机已扫描、配对、握手、读取电量及升级后自动恢复，双时区 Flutter 各 887 项、Android 28 项与双 APK 构建通过；iOS 真机和健康/运动全链路仍待验。
 - [2026-09-29 Android 真机覆盖安装](SAY-RING-ANDROID-INSTALL-20260929.md) — 将 QRing 接入后的 QA APK 覆盖安装到华为手机，确认版本与短时启动存活；GitHub 连接重置导致远端最新状态未能重新核实，戒指和接口功能未在本轮验收。
 - [2026-09-29 QRing 双端 SDK 与多戒指自动路由](SAY-RING-QRING-MULTI-SDK-20260929.md) — Android/iOS 接入 QRing，按厂商 `Q_`/`O_` 广播名前缀自动选择 QRing SDK并锁定后续操作；未知名称继续关闭。双时区各 885 项、Android 原生 26 项、Debug/QA APK、权限/签名和 iOS arm64 Framework 结构检查完成；真实 QRing 与 Mac/Xcode 验收、既有 JCore 发布门禁漂移仍按正文待处理。
 - [2026-09-28 Android 模拟器 Debug](SAY-RING-ANDROID-EMULATOR-DEBUG-20260928.md) — `Saydian_API_36` / `emulator-5554` 已以显式 x86_64 Debug 开关构建、安装并附加 Flutter；最新蓝色登录页和数字键盘正常，当前进程无崩溃/ANR/缺失动态库，业务请求仅见 `app.saydian.cn`。记录了 Android 16 前台 Activity 检查差异、更新清单 404、启动/键盘跳帧及模拟器不能替代真实戒指验收的边界。

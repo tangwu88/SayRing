@@ -10,7 +10,10 @@ import 'wearable_bridge.dart';
 /// to bind the peripheral and read the vendor feature table before reporting
 /// resolved capabilities.
 class QRingWearableBridge
-    implements WearableBridge, WearableDeviceDetailsBridge {
+    implements
+        WearableBridge,
+        WearableDeviceDetailsBridge,
+        WearableBoundDeviceLookupBridge {
   QRingWearableBridge({MethodChannel? methods, EventChannel? events})
     : _methods =
           methods ?? const MethodChannel('cc.saidian.ring/qring/commands'),
@@ -57,6 +60,16 @@ class QRingWearableBridge
         .whereType<Map<Object?, Object?>>()
         .map(DeviceInfo.fromMap)
         .toList(growable: false);
+  }
+
+  @override
+  Future<DeviceInfo?> lookupPreviouslyBoundDevice(
+    String nativeIdentifier,
+  ) async {
+    final value = await _invoke<Map<Object?, Object?>>('lookupBondedDevice', {
+      'id': nativeIdentifier,
+    });
+    return value == null || value.isEmpty ? null : DeviceInfo.fromMap(value);
   }
 
   @override

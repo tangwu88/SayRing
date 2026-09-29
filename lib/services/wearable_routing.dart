@@ -19,13 +19,19 @@ enum WearableTransport { veepoo, yucheng, moyoung, coolwear, qring }
 class WearableDeviceClassifier {
   const WearableDeviceClassifier._();
 
+  // QRing's sample App does not restrict scanning to Q_/O_. Keep the newly
+  // observed R22 model narrow until its vendor handshake confirms features.
+  static final RegExp _qringR22Name = RegExp(r'^R22_[0-9A-F]{4}$');
+
   static WearableTransport? transportFor(String name) {
-    final normalized = name.trimLeft().toUpperCase();
+    final normalized = name.trim().toUpperCase();
     if (normalized.startsWith('YC')) return WearableTransport.yucheng;
     if (normalized == 'HR01' || normalized.startsWith('HR01-')) {
       return WearableTransport.coolwear;
     }
-    if (normalized.startsWith('Q_') || normalized.startsWith('O_')) {
+    if (normalized.startsWith('Q_') ||
+        normalized.startsWith('O_') ||
+        _qringR22Name.hasMatch(normalized)) {
       return WearableTransport.qring;
     }
     if (normalized.startsWith('TK') || normalized.startsWith('V')) {
@@ -372,6 +378,16 @@ class RoutedWearableBridge
         target = device;
         break;
       }
+    }
+    if (target == null && source is WearableBoundDeviceLookupBridge) {
+      // Some bonded BLE rings stop advertising after pairing. Only the exact
+      // device previously bound in this environment may be looked up, and the
+      // native adapter must validate the OS bond before normal SDK connect.
+      final bonded = await (source as WearableBoundDeviceLookupBridge)
+          .lookupPreviouslyBoundDevice(saved.nativeIdentifier)
+          .timeout(recoveryOperationTimeout);
+      if (generation != _connectionGeneration) return null;
+      if (bonded?.id == saved.nativeIdentifier) target = bonded;
     }
     if (target == null) return null;
     final routed = RoutedDevice.fromDevice(saved.transport, target);
