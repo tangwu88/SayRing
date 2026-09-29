@@ -35,3 +35,10 @@
 - 实际来电、短信/应用通知以及久坐/饮水提醒须在 HR05 真机并获得系统通知权限时逐项验证。
 - 吃药/闹钟提醒尚未接通；高德底图代码已接入但 Key 未配置，真实地图联调未验收；iOS CoolWear/HR05 原生桥仍需另行实现并在 macOS 与 iPhone SDK 环境验收。
 - 客服联系方式须由国际版后台发布 `global_support` 公开配置后才能在 App 显示。
+
+## 2026-09-29 真机覆盖安装补记
+
+- 用户要求继续安装到手机。本轮先核对仓库：`HEAD`、`origin/main` 和当前远端分支均为 `6a202e7dd6534c4bf281ec434ced2935d103295b`；保留既有界面文档空行改动，不纳入提交。
+- 安装包：`build/app/outputs/flutter-apk/app-release.apk`，`cn.saydian.ring`，`0.1.21+1004`，SHA-256 `E6710DB02811A01AC8B4822F6832F009518236B268B355D1AD4CC8E935DD4183`；`apksigner verify --print-certs` 通过，属于 QA 调试签名包，不能作为正式分发包。
+- 华为 Android 真机在安装前已存在 `cn.saydian.ring` 同版本包。执行 `adb install -r`，系统安装确认后返回 `Success`；未卸载、未清除用户数据。安装后 `dumpsys package` 显示 `versionCode=1004`、`lastUpdateTime=2026-09-29 18:48:09`，进程存在且前台窗口为 Say Ring 主页面。
+- 本次仅验收覆盖安装与启动，不把已安装等同于 HR05 提醒、运动轨迹或高德真实 Key 联调通过。
