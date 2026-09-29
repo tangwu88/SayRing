@@ -8,6 +8,7 @@ import { SessionVault } from './SessionVault';
 import { apiReadTimeout } from '../model/RequestPolicy';
 import { internationalUrl } from '../model/GlobalConfiguration';
 import { currentAppLocale } from '../model/GlobalLocale';
+import { appDisplayService } from './AppDisplayService';
 
 interface ImageKind { mime: string; extension: string; }
 
@@ -141,4 +142,4 @@ class NativeHttpTransport implements ApiTransport {
   }
 }
 
-export const saydianApi: AccountClient = new AccountClient(new NativeHttpTransport(), new SessionVault(), () => Date.now(), true);
+export const saydianApi: AccountClient = new AccountClient(new NativeHttpTransport(), new SessionVault(), () => Date.now(), true, appDisplayService.state);

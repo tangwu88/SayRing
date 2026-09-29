@@ -105,6 +105,10 @@ abstract interface class GlobalSupportApi {
   Future<Uint8List> loadGlobalSportRouteMap(List<SportRoutePoint> points);
 }
 
+abstract interface class SayRingAppDisplayApi {
+  Future<bool> getSayRingHideAi();
+}
+
 /// International commerce contract. Product, cart, address and order IDs stay
 /// opaque strings; amounts retain the server-provided currency metadata.
 abstract interface class GlobalCommerceApi {
@@ -198,6 +202,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         GlobalCareApi,
         GlobalContentApi,
         GlobalSupportApi,
+        SayRingAppDisplayApi,
         GlobalCommerceApi,
         CloudHealthRecordReader {
   GlobalSaydianApiClient(
@@ -215,6 +220,15 @@ class GlobalSaydianApiClient extends SaydianApiClient
        );
 
   final String Function() _locale;
+
+  @override
+  Future<bool> getSayRingHideAi() async {
+    final data = await _globalPublic('support/app-display?product=say-ring');
+    if (data['product'] != 'say-ring' || data['hideAi'] is! bool) {
+      throw const ApiException('页面配置暂时无法读取');
+    }
+    return data['hideAi'] as bool;
+  }
 
   @override
   Future<Map<String, Object?>> getGlobalSupportConfig() =>

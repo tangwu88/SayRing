@@ -28,6 +28,10 @@ class _GlobalPageController extends Fake implements AppController {
   @override
   bool get isGlobalEdition => true;
 
+  // These tests exercise legal-document consent with the AI feature available.
+  @override
+  bool get hideAiContent => false;
+
   @override
   Future<GlobalAuthCapabilities> globalAuthCapabilities() async =>
       const GlobalAuthCapabilities(

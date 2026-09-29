@@ -11,6 +11,7 @@ import '../domain/health_report_models.dart';
 import '../services/app_controller.dart';
 import '../services/app_payment_bridge.dart';
 import 'app_theme.dart';
+import 'ai_content_gate.dart';
 
 class HealthProfilePage extends StatefulWidget {
   const HealthProfilePage({required this.controller, super.key});
@@ -51,6 +52,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
   }
 
   Future<void> _load({bool quiet = false}) async {
+    if (widget.controller.hideAiContent) return;
     if (!quiet) {
       setState(() {
         _loading = true;
@@ -75,6 +77,7 @@ class _HealthProfilePageState extends State<HealthProfilePage>
   }
 
   Future<void> _refreshAfterResume() async {
+    if (widget.controller.hideAiContent) return;
     final payment = _pendingPayment;
     if (payment != null) {
       if (payment.channel == 'wechat_app') {
@@ -522,7 +525,10 @@ class _HealthProfilePageState extends State<HealthProfilePage>
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      AiContentGate(controller: widget.controller, builder: _buildContent);
+
+  Widget _buildContent(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(context.l10n.healthProfile),
@@ -664,6 +670,7 @@ class _HealthReportDetailPageState extends State<HealthReportDetailPage> {
   }
 
   Future<void> _load() async {
+    if (widget.controller.hideAiContent) return;
     setState(() {
       _loading = true;
       _error = null;
@@ -693,6 +700,7 @@ class _HealthReportDetailPageState extends State<HealthReportDetailPage> {
       final bytes = await widget.controller.exportHealthReport(
         widget.report.id,
       );
+      if (!mounted || widget.controller.hideAiContent) return;
       final date = DateFormat('yyyyMMdd').format(DateTime.now());
       final result = await SharePlus.instance.share(
         ShareParams(
@@ -722,7 +730,10 @@ class _HealthReportDetailPageState extends State<HealthReportDetailPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      AiContentGate(controller: widget.controller, builder: _buildContent);
+
+  Widget _buildContent(BuildContext context) {
     final content = _map(_payload?['content']);
     final trends = _maps(content['trends']);
     final suggestions = _strings(content['suggestions']);

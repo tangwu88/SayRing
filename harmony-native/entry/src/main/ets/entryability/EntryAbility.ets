@@ -8,9 +8,12 @@ import { LogLevel, VPBleSDK } from '@veepoo/vpble-sdk';
 import { vepWearable } from '../services/VepWearableService';
 import { initializeWechatAuthState, wechatAuth } from '../services/WechatAuthService';
 import { careNotifications } from '../services/CareNotificationService';
+import { appDisplayService } from '../services/AppDisplayService';
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want): void {
+    appDisplayService.attachContext(this.context);
+    appDisplayService.refresh();
     initializeNotificationNavigation();
     careNotifications.attachContext(this.context);
     initializeWechatAuthState();
@@ -60,6 +63,6 @@ export default class EntryAbility extends UIAbility {
     vepWearable.shutdown();
   }
 
-  onForeground(): void { careNotifications.setForeground(true); }
+  onForeground(): void { careNotifications.setForeground(true); appDisplayService.refresh(); }
   onBackground(): void { careNotifications.setForeground(false); }
 }

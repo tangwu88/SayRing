@@ -33,6 +33,7 @@ import type { AuthChannel, GlobalAuthCapabilities, VerificationChallenge, Verifi
 import { globalReportId, parseGlobalHealthReport, parseGlobalHealthReports, parseGlobalReportContent,
   parseReportProfile, parseReportEligibility, reportGenerationBlock, validateReportPdf } from '../model/GlobalHealthReports';
 import type { GlobalHealthReport, GlobalReportProfile, GlobalReportEligibility, GlobalAnalysisDocument } from '../model/GlobalHealthReports';
+import type { AiDisplayAccess } from '../model/AppDisplay';
 
 export interface SessionStore {
   read(): Promise<Session | undefined>;
@@ -52,6 +53,7 @@ export class AccountClient {
   private transport: ApiTransport;
   private now: () => number;
   private globalAuth: boolean;
+  private aiDisplay: AiDisplayAccess | undefined;
   private session: Session | undefined = undefined;
   private generation: number = 0;
   private blockRestore: boolean = false;
@@ -67,11 +69,12 @@ export class AccountClient {
 
   private clearCare(): void { ++this.careMemberReadGeneration; this.careTargets.clear(); this.shareSnapshots.clear(); }
 
-  constructor(transport: ApiTransport, vault: SessionStore, now: () => number = () => Date.now(), globalAuth: boolean = false) {
+  constructor(transport: ApiTransport, vault: SessionStore, now: () => number = () => Date.now(), globalAuth: boolean = false, aiDisplay?: AiDisplayAccess) {
     this.transport = transport;
     this.vault = vault;
     this.now = now;
     this.globalAuth = globalAuth;
+    this.aiDisplay = aiDisplay;
   }
 
   current(): Session | undefined { return this.session ? validateStoredSession(this.session) : undefined; }
@@ -223,6 +226,8 @@ export class AccountClient {
   }
 
   async setReportConsent(granted: boolean, document?: GlobalAnalysisDocument): Promise<void> {
+    const displayGeneration = this.aiDisplay?.generation;
+    if (granted) this.aiDisplay?.requireVisible(displayGeneration);
     if (this.reportWriteBusy) throw new ApiError('reports_pending');
     this.reportWriteBusy = true;
     const epoch = this.generation;
@@ -233,6 +238,7 @@ export class AccountClient {
         if (!document || !profile.document || document.version !== profile.availableVersion ||
           document.path !== profile.document.path || document.locale !== profile.document.locale) throw new ApiError('reports_consent_required', 409);
       }
+      if (granted) this.aiDisplay?.requireVisible(displayGeneration);
       await this.authorized(globalApiPath('/health/profile/analysis-consent'), JSON.stringify({ granted,
         version: granted ? document!.version : '', locale: granted ? document!.locale : 'en' }));
       this.assertEpoch(epoch);
@@ -240,12 +246,17 @@ export class AccountClient {
   }
 
   async generateHealthReport(retryId: string = ''): Promise<GlobalHealthReport> {
+    const displayGeneration = this.aiDisplay?.generation;
+    this.aiDisplay?.requireVisible(displayGeneration);
     if (retryId) globalReportId(retryId);
     if (this.reportWriteBusy) throw new ApiError('reports_pending');
     this.reportWriteBusy = true;
     const epoch = this.generation;
     try {
-      const profile = await this.reportProfile(), eligibility = await this.reportEligibility();
+      const profile = await this.reportProfile();
+      this.aiDisplay?.requireVisible(displayGeneration);
+      const eligibility = await this.reportEligibility();
+      this.aiDisplay?.requireVisible(displayGeneration);
       this.assertEpoch(epoch);
       const blocked = reportGenerationBlock(profile, eligibility, !!retryId);
       if (blocked) throw new ApiError(blocked, 409);
@@ -254,6 +265,7 @@ export class AccountClient {
         this.assertEpoch(epoch);
         if (current.id !== retryId || current.status !== 'failed') throw new ApiError('reports_pending', 409);
       }
+      this.aiDisplay?.requireVisible(displayGeneration);
       const report = parseGlobalHealthReport((await this.authorized(globalApiPath(retryId ?
         `/health/reports/${retryId}/retry` : '/health/reports'), '{}')).data);
       this.assertEpoch(epoch);
@@ -265,24 +277,31 @@ export class AccountClient {
   }
 
   async exportHealthReport(id: string): Promise<ArrayBuffer> {
+    const displayGeneration = this.aiDisplay?.generation;
+    this.aiDisplay?.requireVisible(displayGeneration);
     const path = globalApiPath(`/health/reports/${globalReportId(id)}/export`), epoch = this.generation;
     if (!this.transport.download) throw new ApiError('reports_export_failed', 503);
     try {
       let session = await this.ensureSession();
       this.assertEpoch(epoch);
       let bytes: ArrayBuffer;
+      this.aiDisplay?.requireVisible(displayGeneration);
       try { bytes = await this.transport.download(path, session); }
       catch (error) {
         this.assertEpoch(epoch);
+        this.aiDisplay?.requireVisible(displayGeneration);
         if (!(error instanceof ApiError) || error.status !== 401) throw error as Error;
         session = await this.ensureSession(session.accessToken);
         this.assertEpoch(epoch);
+        this.aiDisplay?.requireVisible(displayGeneration);
         bytes = await this.transport.download(path, session);
       }
       this.assertEpoch(epoch);
+      this.aiDisplay?.requireVisible(displayGeneration);
       return validateReportPdf(bytes);
     } catch (error) {
       this.assertEpoch(epoch);
+      this.aiDisplay?.requireVisible(displayGeneration);
       if (error instanceof ApiError && error.status === 401) await this.invalidate(epoch);
       throw error as Error;
     }
@@ -461,24 +480,35 @@ export class AccountClient {
   private async authorizedRequest(path: string, fields?: FormField[], jsonBody?: string,
     method?: 'GET' | 'POST' | 'PUT' | 'DELETE', readTimeoutMs?: number): Promise<Envelope> {
     const epoch = this.generation;
+    const aiContent = path.startsWith('/api/rf-article/chat/') || path.startsWith(globalApiPath('/health/reports')) ||
+      (path === globalApiPath('/health/profile/analysis-consent') && jsonBody !== undefined &&
+        (JSON.parse(jsonBody) as Record<string, Object>)['granted'] === true);
+    const displayGeneration = this.aiDisplay?.generation;
+    const checkDisplay = (): void => { if (aiContent) this.aiDisplay?.requireVisible(displayGeneration); };
+    checkDisplay();
     try {
       let session = await this.ensureSession();
       this.assertEpoch(epoch);
+      checkDisplay();
       let response: Envelope;
       try { response = await this.transport.request(path, fields, session, jsonBody, method, readTimeoutMs); }
       catch (error) {
         this.assertEpoch(epoch);
+        checkDisplay();
         if (error instanceof ApiError) {
           if (error.status !== 401) throw error;
         } else { throw new ApiError('请求失败，请稍后重试'); }
         session = await this.ensureSession(session.accessToken);
         this.assertEpoch(epoch);
+        checkDisplay();
         response = await this.transport.request(path, fields, session, jsonBody, method, readTimeoutMs);
       }
       this.assertEpoch(epoch);
+      checkDisplay();
       return response;
     } catch (error) {
       this.assertEpoch(epoch);
+      checkDisplay();
       if (error instanceof ApiError && error.status === 401) await this.invalidate(epoch);
       throw error as Error;
     }

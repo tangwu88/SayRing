@@ -111,6 +111,68 @@ class AppController extends ChangeNotifier {
   final bool _allowAutomaticWearableRestore;
   final SaydianApi _api;
 
+  bool _hideAi = true;
+  int _aiDisplayGeneration = 0;
+  bool _appDisplayCacheLoaded = false;
+  Future<void>? _appDisplayRefresh;
+
+  /// Before the first valid configuration, keep product-controlled content hidden.
+  bool get hideAiContent => _api is SayRingAppDisplayApi && _hideAi;
+
+  Future<void> refreshAppDisplayConfig() {
+    final pending = _appDisplayRefresh;
+    if (pending != null) return pending;
+    final operation = _refreshAppDisplayConfig();
+    _appDisplayRefresh = operation;
+    return operation.whenComplete(() => _appDisplayRefresh = null);
+  }
+
+  Future<void> _refreshAppDisplayConfig() async {
+    final api = _api;
+    if (api is! SayRingAppDisplayApi || _disposed) return;
+    final vault = _vault;
+    if (!_appDisplayCacheLoaded) {
+      _appDisplayCacheLoaded = true;
+      if (vault is SayRingAppDisplayVault) {
+        try {
+          final cached = await (vault as SayRingAppDisplayVault)
+              .readSayRingHideAi();
+          if (_disposed) return;
+          if (cached != null) _applyHideAi(cached);
+        } catch (_) {
+          // A missing cache keeps the first launch closed until a valid response.
+        }
+      }
+    }
+    try {
+      final value = await (api as SayRingAppDisplayApi).getSayRingHideAi();
+      if (_disposed) return;
+      _applyHideAi(value);
+      if (vault is SayRingAppDisplayVault) {
+        await (vault as SayRingAppDisplayVault).writeSayRingHideAi(value);
+      }
+    } catch (_) {
+      // Configuration outages preserve the last accepted value, including false.
+    }
+  }
+
+  void _applyHideAi(bool value) {
+    final changed = _hideAi != value;
+    _hideAi = value;
+    if (changed) _aiDisplayGeneration++;
+    if (value) {
+      aiMessages = const [];
+      _aiSessionIds.clear();
+    }
+    if (changed && !_disposed) notifyListeners();
+  }
+
+  void _requireAiVisible() {
+    if (hideAiContent) {
+      throw const FeatureNotConfiguredException('此功能暂未开放');
+    }
+  }
+
   Future<Map<String, Object?>> loadGlobalSupportConfig() async {
     final api = _api;
     if (isGlobalEdition && api is GlobalSupportApi) {
@@ -957,6 +1019,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
+    unawaited(refreshAppDisplayConfig());
     _deviceStates = deviceMachine.changes.listen((_) => notifyListeners());
     _connectivity = Connectivity().onConnectivityChanged.listen((results) {
       if (results.any((result) => result != ConnectivityResult.none) &&
@@ -3599,6 +3662,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> handleAppResumed() async {
     if (_disposed) return;
+    unawaited(refreshAppDisplayConfig());
     _appIsForeground = true;
     if (session != null && _privacyConsentGranted) {
       try {
@@ -4445,10 +4509,14 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> refreshAiMessages({required int app}) async {
+    if (hideAiContent) return;
+    final displayGeneration = _aiDisplayGeneration;
     final generation = _sessionGeneration;
     final owner = session;
     await Future<void>.delayed(Duration.zero);
-    if (!_isCurrentSessionGeneration(generation) || _accountTransitioning) {
+    if (!_isCurrentSessionGeneration(generation) ||
+        _accountTransitioning ||
+        hideAiContent) {
       return;
     }
     if (session == null) {
@@ -4460,7 +4528,11 @@ class AppController extends ChangeNotifier {
     errorMessage = null;
     try {
       final messages = await _api.getAiMessages(app: app);
-      if (!_isCurrentAccountRequest(generation, owner)) return;
+      if (!_isCurrentAccountRequest(generation, owner) ||
+          hideAiContent ||
+          displayGeneration != _aiDisplayGeneration) {
+        return;
+      }
       if (messages.isNotEmpty) {
         final sessionId = '${messages.first['session_id'] ?? ''}';
         if (sessionId.isNotEmpty) _aiSessionIds[app] = sessionId;
@@ -4481,7 +4553,11 @@ class AppController extends ChangeNotifier {
           )
           .toList(growable: false);
     } on ApiException catch (error) {
-      if (!_isCurrentAccountRequest(generation, owner)) return;
+      if (!_isCurrentAccountRequest(generation, owner) ||
+          hideAiContent ||
+          displayGeneration != _aiDisplayGeneration) {
+        return;
+      }
       errorMessage = _apiErrorMessage(error, fallback: '暂时无法开始对话');
     }
     notifyListeners();
@@ -4491,6 +4567,8 @@ class AppController extends ChangeNotifier {
     required int app,
     required String message,
   }) async {
+    if (hideAiContent) return false;
+    final displayGeneration = _aiDisplayGeneration;
     final normalized = message.trim();
     if (normalized.isEmpty || _accountTransitioning || isBusy) return false;
     final generation = _sessionGeneration;
@@ -4512,13 +4590,21 @@ class AppController extends ChangeNotifier {
         message: normalized,
         sessionId: _aiSessionIds[app],
       );
-      if (!_isCurrentAccountRequest(generation, owner)) return false;
+      if (!_isCurrentAccountRequest(generation, owner) ||
+          hideAiContent ||
+          displayGeneration != _aiDisplayGeneration) {
+        return false;
+      }
       aiMessages = [...aiMessages, reply];
       final sessionValue = reply['session_id']?.toString();
       if (sessionValue?.isNotEmpty ?? false) _aiSessionIds[app] = sessionValue!;
       return true;
     } on ApiException catch (error) {
-      if (!_isCurrentAccountRequest(generation, owner)) return false;
+      if (!_isCurrentAccountRequest(generation, owner) ||
+          hideAiContent ||
+          displayGeneration != _aiDisplayGeneration) {
+        return false;
+      }
       errorMessage = _apiErrorMessage(error, fallback: '消息发送失败，请稍后重试');
       aiMessages = [
         ...aiMessages.take(aiMessages.length - 1),
@@ -4717,6 +4803,7 @@ class AppController extends ChangeNotifier {
       defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
 
   Future<HealthReportDashboard> loadHealthReportDashboard() async {
+    _requireAiVisible();
     if (session == null) throw const ApiException('请先登录后查看健康档案');
     final api = _requiredHealthReportApi;
     final profileFuture = api.getHealthProfile();
@@ -4736,6 +4823,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> setHealthAnalysisConsent(bool granted, {String? version}) async {
+    if (granted) _requireAiVisible();
     if (session == null) throw const ApiException('请先登录后管理健康分析授权');
     if (isGlobalEdition &&
         granted &&
@@ -4753,21 +4841,25 @@ class AppController extends ChangeNotifier {
   }
 
   Future<HealthReportSummary> createHealthReport() async {
+    _requireAiVisible();
     if (session == null) throw const ApiException('请先登录后生成健康报告');
     return _requiredHealthReportApi.createHealthReport();
   }
 
   Future<HealthReportSummary> retryHealthReport(String reportId) async {
+    _requireAiVisible();
     if (session == null) throw const ApiException('请先登录后重试健康报告');
     return _requiredHealthReportApi.retryHealthReport(reportId);
   }
 
   Future<Map<String, Object?>> loadFullHealthReport(String reportId) async {
+    _requireAiVisible();
     if (session == null) throw const ApiException('请先登录后查看健康报告');
     return _requiredHealthReportApi.getFullHealthReport(reportId);
   }
 
   Future<Uint8List> exportHealthReport(String reportId) async {
+    _requireAiVisible();
     if (session == null) throw const ApiException('请先登录后导出健康报告');
     return _requiredHealthReportApi.exportHealthReport(reportId);
   }
@@ -4777,6 +4869,7 @@ class AppController extends ChangeNotifier {
     required HealthReportSummary report,
     AppPaymentProvider? androidProvider,
   }) async {
+    _requireAiVisible();
     if (session == null) throw const ApiException('请先登录后购买健康报告');
     if (!report.needsPayment) {
       throw const ApiException('当前报告不需要购买');
@@ -4802,6 +4895,7 @@ class AppController extends ChangeNotifier {
       platform: platform,
       idempotencyKey: 'health:${offer.id}:${report.id}:${const Uuid().v4()}',
     );
+    _requireAiVisible();
     if (isApple) return _startAppleHealthPurchase(intent);
     return _startAndroidHealthPurchase(intent, androidProvider!);
   }
@@ -4897,6 +4991,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<int> restoreAppleHealthPurchases() async {
+    _requireAiVisible();
     if (defaultTargetPlatform != TargetPlatform.iOS) {
       throw const FeatureNotConfiguredException('当前设备无需恢复苹果购买');
     }

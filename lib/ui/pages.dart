@@ -22,6 +22,7 @@ import '../services/app_controller.dart';
 import '../services/device_watch_face_market_service.dart';
 import '../services/notification_models.dart';
 import 'app_theme.dart';
+import 'ai_content_gate.dart';
 import 'brand_assets.dart';
 import 'global_auth_page.dart';
 import 'global_legal_page.dart';
@@ -456,7 +457,12 @@ class DashboardPage extends StatelessWidget {
   final AppController controller;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: controller,
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final latest = controller.latestByMetric;
     final disconnected = controller.connectedDevice == null;
     const supportedMetrics = [
@@ -488,8 +494,10 @@ class DashboardPage extends StatelessWidget {
                 delegate: SliverChildListDelegate([
                   _DashboardHeader(controller: controller),
                   const SizedBox(height: 12),
-                  _AiHealthAssistantCard(controller: controller),
-                  const SizedBox(height: 12),
+                  if (!controller.hideAiContent) ...[
+                    _AiHealthAssistantCard(controller: controller),
+                    const SizedBox(height: 12),
+                  ],
                   _FeatureEntryGrid(
                     onCare: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
@@ -4074,7 +4082,10 @@ class AiPage extends StatelessWidget {
   final AppController controller;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      AiContentGate(controller: controller, builder: _buildContent);
+
+  Widget _buildContent(BuildContext context) {
     return RefreshIndicator(
       onRefresh: controller.refreshAiArticles,
       child: ListView(
@@ -4962,7 +4973,10 @@ class _AiChatPageState extends State<AiChatPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      AiContentGate(controller: widget.controller, builder: _buildContent);
+
+  Widget _buildContent(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(widget.app == 2 ? '运动管家' : 'AI 健康管家')),
       backgroundColor: SaydianColors.canvas,
@@ -8678,7 +8692,12 @@ class SettingsPage extends StatelessWidget {
   final AppController controller;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: controller,
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final profile = controller.memberProfile;
     final name =
         '${profile['nickname'] ?? controller.session?.displayName ?? (controller.isPreviewMode ? '体验用户' : context.l10n.defaultUser)}';
@@ -8957,18 +8976,20 @@ class SettingsPage extends StatelessWidget {
                 ),
                 const Divider(height: 1, indent: 72),
               ],
-              _MyQuickEntry(
-                key: const Key('my-ai-question'),
-                title: context.l10n.aiQuestion,
-                subtitle: context.l10n.aiQuestionHint,
-                icon: Icons.chat_bubble_outline_rounded,
-                color: SaydianColors.techViolet,
-                onTap: () => _openPage(
-                  context,
-                  AiChatPage(controller: controller, app: 1),
+              if (!controller.hideAiContent) ...[
+                _MyQuickEntry(
+                  key: const Key('my-ai-question'),
+                  title: context.l10n.aiQuestion,
+                  subtitle: context.l10n.aiQuestionHint,
+                  icon: Icons.chat_bubble_outline_rounded,
+                  color: SaydianColors.techViolet,
+                  onTap: () => _openPage(
+                    context,
+                    AiChatPage(controller: controller, app: 1),
+                  ),
                 ),
-              ),
-              const Divider(height: 1, indent: 72),
+                const Divider(height: 1, indent: 72),
+              ],
               _MyQuickEntry(
                 title: context.l10n.unitSettings,
                 subtitle: context.l10n.unitSettingsHint,
@@ -9221,11 +9242,12 @@ class _MyServicesGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final entries = <({String label, IconData icon, Widget page})>[
-      (
-        label: context.l10n.healthProfile,
-        icon: Icons.assignment_ind_outlined,
-        page: HealthProfilePage(controller: controller),
-      ),
+      if (!controller.hideAiContent)
+        (
+          label: context.l10n.healthProfile,
+          icon: Icons.assignment_ind_outlined,
+          page: HealthProfilePage(controller: controller),
+        ),
       (
         label: context.l10n.accountSettings,
         icon: Icons.manage_accounts_outlined,

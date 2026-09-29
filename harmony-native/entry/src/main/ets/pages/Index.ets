@@ -1,6 +1,7 @@
 import { ApiError, MemberProfile, Article, ArticleBlock, Session,
   canSubmitLogin, profileName, profileField, articleBlocks } from '../model/Contracts';
 import { saydianApi } from '../services/SaydianApi';
+import { appDisplayService } from '../services/AppDisplayService';
 import { ArticleImage } from '../components/ArticleImage';
 import { CareMember, CareInvitation, CareShareSettings, CareMetric, CareRecord, CareField, CareOption,
   chinaDay, chinaDaySeconds, shiftChinaDay, careMetricLatest, careRecordText, careInvitationFallback, careInvitationNeedsConfirmation,
@@ -125,6 +126,9 @@ struct Index {
   @State private globalReportsBusy: boolean = false;
   @State private globalReportsError: string = '';
   private globalReportsGeneration: number = 0;
+  @State private hideAiContent: boolean = true;
+  private stopDisplayObserver: (() => void) | undefined = undefined;
+  private aiChatGeneration: number = 0;
   @State private globalReportProfile: GlobalReportProfile | undefined = undefined;
   @State private globalReportEligibility: GlobalReportEligibility | undefined = undefined;
   @State private globalAnalysisParagraphs: string[] = [];
@@ -376,6 +380,9 @@ struct Index {
   ];
 
   aboutToAppear(): void {
+    appDisplayService.attachContext(this.uiContext());
+    this.stopDisplayObserver = appDisplayService.state.observe((hidden: boolean) => this.applyAiDisplay(hidden));
+    appDisplayService.refresh();
     this.refreshLayoutScale();
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
     this.environmentCallbackId = this.uiContext().getApplicationContext().on('environment', {
@@ -392,6 +399,7 @@ struct Index {
     this.loadAppLocale();
   }
   onPageShow(): void {
+    appDisplayService.refresh();
     this.refreshLayoutScale();
     if (this.sportActive()) this.startSportClock();
     this.consumeNotificationRoute(); this.consumeWechatAuthResult();
@@ -400,6 +408,8 @@ struct Index {
     if (this.screen === 'sport-records') this.loadSportRecords();
   }
   aboutToDisappear(): void {
+    this.stopDisplayObserver?.(); this.stopDisplayObserver = undefined;
+    ++this.aiChatGeneration;
     ++this.pageGeneration; ++this.contentGeneration; ++this.careGeneration;
     this.clearSmsCountdown();
     this.stopSportClock();
@@ -408,6 +418,19 @@ struct Index {
     if (this.environmentCallbackId >= 0) {
       this.uiContext().getApplicationContext().off('environment', this.environmentCallbackId).catch(() => {});
       this.environmentCallbackId = -1;
+    }
+  }
+
+  private applyAiDisplay(hidden: boolean): void {
+    this.hideAiContent = hidden;
+    if (!hidden) return;
+    ++this.aiChatGeneration; ++this.globalReportsGeneration;
+    this.aiMessages = []; this.aiInput = ''; this.aiSessionId = ''; this.aiError = ''; this.aiBusy = false;
+    this.globalReports = []; this.globalReportParagraphs = []; this.globalReportsBusy = false; this.globalReportsError = '';
+    if (this.screen === 'ai-chat' || this.screen === 'health-reports') {
+      const previous = this.innerParents.get(this.screen) ?? 'home';
+      this.innerParents.delete(this.screen);
+      this.screen = previous === 'ai-chat' || previous === 'health-reports' ? 'home' : previous;
     }
   }
 
@@ -499,6 +522,7 @@ struct Index {
   }
 
   private async openGlobalReports(): Promise<void> {
+    if (this.hideAiContent) return;
     if (this.guest) { this.screen = 'login'; return; }
     if (this.screen !== 'health-reports') this.openInnerPage('health-reports');
     const epoch = this.pageGeneration, owner = saydianApi.current()?.memberId, request = ++this.globalReportsGeneration;
@@ -507,6 +531,7 @@ struct Index {
     this.globalAnalysisParagraphs = []; this.globalAnalysisDocument = undefined; this.globalAnalysisAccepted = false;
     try {
       const reports = await saydianApi.healthReports();
+      if (this.hideAiContent || request !== this.globalReportsGeneration || epoch !== this.pageGeneration) return;
       if (request === this.globalReportsGeneration && epoch === this.pageGeneration && owner === saydianApi.current()?.memberId && this.screen === 'health-reports') this.globalReports = reports;
       const profile = await saydianApi.reportProfile(), eligibility = await saydianApi.reportEligibility();
       if (request === this.globalReportsGeneration && epoch === this.pageGeneration && owner === saydianApi.current()?.memberId && this.screen === 'health-reports') {
@@ -518,6 +543,7 @@ struct Index {
   }
 
   private async openGlobalReport(report: GlobalHealthReport): Promise<void> {
+    if (this.hideAiContent) return;
     if (this.globalReportsBusy || report.status !== 'ready') return;
     const epoch = this.pageGeneration, owner = saydianApi.current()?.memberId, request = ++this.globalReportsGeneration;
     this.globalReportsBusy = true; this.globalReportsError = ''; this.globalReportParagraphs = [];
@@ -530,6 +556,7 @@ struct Index {
   }
 
   private async globalReportAction(action: 'read' | 'grant' | 'revoke' | 'generate' | 'export', id: string = ''): Promise<void> {
+    if (this.hideAiContent && action !== 'read' && action !== 'revoke') return;
     if (this.globalReportsBusy) return;
     const epoch = this.pageGeneration, session = saydianApi.healthSession(), request = ++this.globalReportsGeneration;
     const active = (): boolean => request === this.globalReportsGeneration && epoch === this.pageGeneration &&
@@ -1980,21 +2007,31 @@ struct Index {
   }
 
   private async openAiChat(): Promise<void> {
+    if (this.hideAiContent) return;
     if (this.guest) { this.showFeature('AI 健康管家', 'signInToContinue'); return; }
     this.openInnerPage('ai-chat'); this.aiBusy = true; this.aiError = '';
+    const request = ++this.aiChatGeneration, session = saydianApi.healthSession();
+    const active = (): boolean => !this.hideAiContent && request === this.aiChatGeneration &&
+      sameHealthSession(session, saydianApi.healthSession()) && this.screen === 'ai-chat';
     try {
-      this.aiMessages = await saydianApi.aiMessages();
+      const messages = await saydianApi.aiMessages();
+      if (!active()) return;
+      this.aiMessages = messages;
       const withSession = this.aiMessages.find((item: AiChatMessage) => item.sessionId.length > 0);
       this.aiSessionId = withSession?.sessionId ?? '';
       this.scrollAiToLatest();
-    } catch (error) { this.aiError = this.careFailure(error as Error); }
-    finally { this.aiBusy = false; }
+    } catch (error) { if (active()) this.aiError = this.careFailure(error as Error); }
+    finally { if (active()) this.aiBusy = false; }
   }
 
   private async sendAiChat(): Promise<void> {
+    if (this.hideAiContent || this.screen !== 'ai-chat') return;
     const message = this.aiInput.trim();
     if (this.aiBusy || !message) return;
     this.aiBusy = true; this.aiError = '';
+    const request = ++this.aiChatGeneration, session = saydianApi.healthSession();
+    const active = (): boolean => !this.hideAiContent && request === this.aiChatGeneration &&
+      sameHealthSession(session, saydianApi.healthSession()) && this.screen === 'ai-chat';
     const pending: AiChatMessage = { id: `local-${Date.now()}`, text: message, mine: true,
       sessionId: this.aiSessionId, failed: false };
     this.aiMessages = [...this.aiMessages, pending];
@@ -2002,15 +2039,17 @@ struct Index {
     this.scrollAiToLatest();
     try {
       const reply = await saydianApi.sendAiMessage(message, this.aiSessionId);
+      if (!active()) return;
       if (reply.sessionId) this.aiSessionId = reply.sessionId;
       this.aiMessages = [...this.aiMessages, reply];
       this.scrollAiToLatest();
     } catch (error) {
+      if (!active()) return;
       pending.failed = true;
       this.aiMessages = this.aiMessages.map((item: AiChatMessage) => item.id === pending.id ? pending : item);
       this.aiInput = message;
       this.aiError = this.careFailure(error as Error);
-    } finally { this.aiBusy = false; }
+    } finally { if (active()) this.aiBusy = false; }
   }
 
   private scrollAiToLatest(): void {
@@ -3062,6 +3101,7 @@ struct Index {
         }.width(50).height(50)
       }.width('100%').alignItems(VerticalAlign.Center)
 
+      if (!this.hideAiContent) {
       Row() {
         Image($r('app.media.health_doctor')).width('36%').height(140).objectFit(ImageFit.Cover)
           .accessibilityText(this.tr('appName'))
@@ -3074,6 +3114,7 @@ struct Index {
         }.width('64%').padding({ left: 4, right: 13, top: 7, bottom: 7 }).alignItems(HorizontalAlign.Start)
       }.width('100%').constraintSize({ minHeight: 140 }).borderRadius(20).backgroundColor('#FDF7F3')
         .border({ width: 1.2, color: '#66D20B27' }).clip(true)
+      }
 
       Flex({ wrap: FlexWrap.Wrap }) {
         Column({ space: 6 }) {
@@ -4110,6 +4151,7 @@ struct Index {
             .onClick(() => this.openDeviceSearch()).id('mine_add_device').accessibilityText(this.tr('添加设备'))
           Divider().color(LINE).margin({ left: 58 })
         }
+        if (!this.hideAiContent) {
         Row({ space: 12 }) {
           Column() {
             SymbolGlyph($r('sys.symbol.message')).fontSize(23).fontColor([GOLD])
@@ -4122,6 +4164,7 @@ struct Index {
         }.width('100%').constraintSize({ minHeight: 70 }).padding({ left: 12, right: 12, top: 10, bottom: 10 })
           .onClick(() => this.openAiChat()).id('mine_ai')
         Divider().color(LINE).margin({ left: 58 })
+        }
         Row({ space: 12 }) {
           Column() {
             SymbolGlyph($r('sys.symbol.ruler')).fontSize(23).fontColor([BLUE])
@@ -4928,7 +4971,9 @@ struct Index {
   AccountContent() {
     this.LanguagePicker()
     this.Notice({ message: 'language_note' })
-    this.PageRow({ title: 'reports', icon: $r('sys.symbol.doc'), action: () => this.openGlobalReports(), id: 'global_health_reports' })
+    if (!this.hideAiContent) {
+      this.PageRow({ title: 'reports', icon: $r('sys.symbol.doc'), action: () => this.openGlobalReports(), id: 'global_health_reports' })
+    }
     if (this.guest) {
       this.Notice({ message: '登录后可管理账号信息。' })
       Button(this.tr('前往登录')).width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
@@ -6056,7 +6101,7 @@ struct Index {
         } else if (this.screen === 'health-record') {
           this.HealthRecordContent()
         } else if (this.screen === 'health-reports') {
-          this.GlobalReportsContent()
+          if (!this.hideAiContent) { this.GlobalReportsContent() }
         } else if (this.screen === 'health-all') {
           this.HealthAllContent()
         } else if (this.screen === 'sport-records') {
@@ -6064,7 +6109,7 @@ struct Index {
         } else if (this.screen === 'health-alerts') {
           this.HealthAlertContent()
         } else if (this.screen === 'ai-chat') {
-          this.AiChatContent()
+          if (!this.hideAiContent) { this.AiChatContent() }
         } else if (this.screen === 'shop-home') {
           this.ShopHomeContent()
         } else if (this.screen === 'shop-product') {
@@ -6132,7 +6177,7 @@ struct Index {
       }.width('100%').constraintSize({ maxWidth: 720 }).padding({ left: this.screen === 'shop-product' ? 0 : this.screen === 'about' || this.screen === 'reset-password' ? 24 : 16,
         right: this.screen === 'shop-product' ? 0 : this.screen === 'about' || this.screen === 'reset-password' ? 24 : 16, top: this.screen === 'shop-product' ? 0 : 8, bottom: 24 })
     }.width('100%').layoutWeight(1).align(Alignment.Top).scrollBar(BarState.Off)
-      if (this.screen === 'ai-chat') {
+      if (this.screen === 'ai-chat' && !this.hideAiContent) {
         Row({ space: 10 }) {
           TextInput({ placeholder: this.tr('请输入消息…'), text: this.aiInput }).fontSize(16).height(this.controlHeight(56))
             .maxLength(AI_USER_MESSAGE_MAX_LENGTH)

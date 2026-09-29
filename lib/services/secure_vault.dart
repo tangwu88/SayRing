@@ -37,7 +37,12 @@ abstract interface class SessionVault {
   Future<String> databaseKey();
 }
 
-class SecureSessionVault implements SessionVault {
+abstract interface class SayRingAppDisplayVault {
+  Future<bool?> readSayRingHideAi();
+  Future<void> writeSayRingHideAi(bool value);
+}
+
+class SecureSessionVault implements SessionVault, SayRingAppDisplayVault {
   SecureSessionVault([FlutterSecureStorage? storage])
     : storageNamespace = null,
       _storage = storage ?? const FlutterSecureStorage();
@@ -67,6 +72,20 @@ class SecureSessionVault implements SessionVault {
   }
 
   final FlutterSecureStorage _storage;
+
+  @override
+  Future<bool?> readSayRingHideAi() async =>
+      switch (await _storage.read(key: '$_prefix.say-ring.hide-ai.v1')) {
+        'true' => true,
+        'false' => false,
+        _ => null,
+      };
+
+  @override
+  Future<void> writeSayRingHideAi(bool value) => _storage.write(
+    key: '$_prefix.say-ring.hide-ai.v1',
+    value: value.toString(),
+  );
   Future<void> _sessionMutationQueue = Future<void>.value();
 
   Future<T> _withSessionLock<T>(Future<T> Function() operation) {
@@ -239,7 +258,15 @@ class SecureSessionVault implements SessionVault {
   }
 }
 
-class MemorySessionVault implements SessionVault {
+class MemorySessionVault implements SessionVault, SayRingAppDisplayVault {
+  bool? sayRingHideAi;
+
+  @override
+  Future<bool?> readSayRingHideAi() async => sayRingHideAi;
+
+  @override
+  Future<void> writeSayRingHideAi(bool value) async => sayRingHideAi = value;
+
   Session? session;
   HealthWarningSettings healthWarningSettings = const HealthWarningSettings();
   String key = 'test-database-key-that-is-long-enough';
