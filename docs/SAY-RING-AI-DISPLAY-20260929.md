@@ -51,3 +51,5 @@
 - 正常 QA 包启动进程持续存活；仅检查该 PID 近期日志的异常计数，`FATAL EXCEPTION/ANR` 与 Flutter 未处理异常/布局溢出均为 0。登录页微信授权入口可见。未完成重新登录后的真实会员配置联动，不把受控内存测试写作生产账号端到端通过。
 - 提交前显式格式检查 9 个修改的 Dart 文件，0 项需格式化；最终 `flutter analyze --no-pub` 零问题（36.9 秒），`git diff --check` 通过，重新 fetch 后 origin/main 与开发分支均仍为基线 `de5ff796`。保留既有无关 UI 文档空行改动，不暂存。
 - iOS Debug/Profile/真机未执行：本机 Windows 无 Xcode/iPhone 工具链。鸿蒙显示实现验证见独立日志；无签名与设备，不声称原生鸿蒙安装成功。
+- 已推送 App 源码 `d829b81b4e12112f8ed855c887fa766031d0b5ab` 到 origin/main 与开发分支，两者远端 SHA 核对一致；GitHub API 确認 `tangwu88/SayRing` 仍为 Private。
+- App 云端 Actions `36573922061`（main）与 `36573921901`（开发分支）失败关闭；check annotations 明确是账号付款/额度限制，quality 与 Harmony jobs 未开始（steps=[]），Android/iOS skipped。不能称 App 云端 CI 通过，也未自行调整计费、权限或开放仓库。本机验证结果与云端限制分别保留。
