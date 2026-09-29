@@ -23,4 +23,4 @@
 - 点击 HR05 后设备页显示“已连接”、设备实报电量和由功能位开放的健康监测入口；强制结束 Say Ring 再启动后，设备页再次显示 HR05 已连接、可同步，说明本次冷启动恢复通过。未记录 MAC 或个人健康数值。
 - 安装后的首次点击测试被手机来电/短信界面打断；待其结束后重新进入 Say Ring 才确认上述连接状态。没有操作通话或短信。
 - 本轮只验收 Android 搜索、连接、基础能力和一次冷启动恢复；未执行 HR05 健康历史写入、运动启停、压力/HRV 实测、跨端同步、iOS 编译/真机或正式签名发布。Android CoolWear 接入不能冒充 iOS 已支持。
-- GitHub 首次 fetch 因连接重置失败；重试使用 HTTP/1.1 成功后，确认 `origin/main` 与当前开发分支均仍为修改前 SHA `2d5b42d393645967235cc92cf4e75b9b4decfd3e`，无他人新提交。提交和推送结果待追加。
+- GitHub 首次 fetch 因连接重置失败；重试使用 HTTP/1.1 成功后，提交前再次 fetch，确认 `origin/main` 与当前开发分支均仍为修改前 SHA `2d5b42d393645967235cc92cf4e75b9b4decfd3e`，无他人新提交。源码和本记录提交为 `cd45f01`，`git -c http.version=HTTP/1.1 push origin HEAD:refs/heads/codex/home-health-device-update-download HEAD:refs/heads/main` 返回成功，两分支均由旧 SHA 普通快进到该提交。此处仅证明 Git 同步，不等于正式商店包或线上下载页已发布。
