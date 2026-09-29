@@ -118,11 +118,13 @@ class HealthTrendPage extends StatefulWidget {
     required this.controller,
     required this.metric,
     this.onMeasure,
+    this.initialDate,
     super.key,
   });
 
   final AppController controller;
   final HealthMetric metric;
+  final DateTime? initialDate;
 
   /// Receives this page's live context, not the context of the card that
   /// opened it (which can be disposed during a device reconnect).
@@ -136,7 +138,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
   static const _analysis = HealthAnalysisService();
 
   HealthTrendPeriod _period = HealthTrendPeriod.day;
-  DateTime _anchor = DateTime.now();
+  late DateTime _anchor;
   String? _selectedValueKey;
   bool _loading = true;
   Object? _error;
@@ -156,6 +158,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
   @override
   void initState() {
     super.initState();
+    _anchor = widget.initialDate?.toLocal() ?? DateTime.now();
     widget.controller.addListener(_onControllerChanged);
     _load();
   }
@@ -443,7 +446,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
         const _MessageCard(icon: Icons.show_chart_rounded, title: '该时间段暂无数据')
       else ...[
         if (widget.metric == HealthMetric.sleep) ...[
-          _SleepStructureCard(record: data.records.last),
+          SleepStructureCard(record: data.records.last),
           const SizedBox(height: 12),
         ],
         if (widget.metric == HealthMetric.bodyTemperature) ...[
@@ -570,8 +573,8 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
       );
 }
 
-class _SleepStructureCard extends StatelessWidget {
-  const _SleepStructureCard({required this.record});
+class SleepStructureCard extends StatelessWidget {
+  const SleepStructureCard({required this.record, super.key});
 
   final HealthRecord record;
 
@@ -592,9 +595,16 @@ class _SleepStructureCard extends StatelessWidget {
       ('总睡眠', hours('value')),
       ('深睡', hours('deepHours')),
       ('浅睡', hours('lightHours')),
+      (
+        '快速眼动',
+        values.containsKey('remHours') ? hours('remHours') : '--（戒指未返回）',
+      ),
+      if (values.containsKey('awakeMinutes'))
+        ('清醒时长', count('awakeMinutes', '分钟')),
       ('体动', count('movementMinutes', '分钟')),
       ('清醒次数', count('wakeCount', '次')),
-      ('快速眼动', '--（戒指未返回）'),
+      if (values.containsKey('score')) ('设备睡眠评分', count('score', '分')),
+      if (values.containsKey('efficiency')) ('睡眠效率', count('efficiency', '%')),
     ];
     return Card(
       key: const Key('sleep-structure-card'),

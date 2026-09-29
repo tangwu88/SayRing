@@ -41,17 +41,20 @@ final class QRingRecordMapper {
         if (values == null) return result;
         for (BleStepDetails item : values) {
             if (item == null) continue;
-            long measuredAt = dayStart(dayIndex) + Math.max(0, item.getTimeIndex()) * 30L * 60_000L;
+            // The SDK's 0..95 index is a 15-minute slot, not a 30-minute slot.
+            int slot = item.getTimeIndex();
+            if (slot < 0 || slot > 95) continue;
+            long measuredAt = dayStart(dayIndex) + slot * 15L * 60_000L;
             if (item.getWalkSteps() > 0) {
-                addSingle(result, deviceId, model, firmware, "steps", measuredAt,
+                addStepSlot(result, deviceId, model, firmware, "steps", measuredAt,
                         item.getWalkSteps(), "步", "watch_history");
             }
             if (item.getDistance() > 0) {
-                addSingle(result, deviceId, model, firmware, "distance", measuredAt,
+                addStepSlot(result, deviceId, model, firmware, "distance", measuredAt,
                         item.getDistance() / 1000.0, "km", "watch_history");
             }
             if (item.getCalorie() > 0) {
-                addSingle(result, deviceId, model, firmware, "calories", measuredAt,
+                addStepSlot(result, deviceId, model, firmware, "calories", measuredAt,
                         item.getCalorie() / 1000.0, "kcal", "watch_history");
             }
         }
@@ -113,19 +116,41 @@ final class QRingRecordMapper {
     static List<Map<String, Object>> sleepRecords(
             String deviceId, String model, String firmware, int dayIndex, SleepDisplay value) {
         List<Map<String, Object>> result = new ArrayList<>();
-        if (value == null || value.getTotalSleepDuration() <= 0) return result;
+        if (value == null) return result;
+        // SleepDisplay durations are seconds; the public health contract uses hours.
+        int totalSeconds = value.getTotalSleepDuration();
+        if (totalSeconds <= 0 || totalSeconds > 24 * 60 * 60) return result;
         Map<String, Object> measured = new LinkedHashMap<>();
-        measured.put("value", value.getTotalSleepDuration() / 60.0);
-        if (value.getDeepSleepDuration() > 0) measured.put("deepHours", value.getDeepSleepDuration() / 60.0);
-        if (value.getShallowSleepDuration() > 0) measured.put("lightHours", value.getShallowSleepDuration() / 60.0);
-        if (value.getRapidDuration() > 0) measured.put("remHours", value.getRapidDuration() / 60.0);
-        if (value.getAwakeDuration() > 0) measured.put("awakeMinutes", value.getAwakeDuration());
+        measured.put("value", totalSeconds / 3600.0);
+        if (value.getDeepSleepDuration() > 0 && value.getDeepSleepDuration() <= totalSeconds)
+            measured.put("deepHours", value.getDeepSleepDuration() / 3600.0);
+        if (value.getShallowSleepDuration() > 0 && value.getShallowSleepDuration() <= totalSeconds)
+            measured.put("lightHours", value.getShallowSleepDuration() / 3600.0);
+        if (value.getRapidDuration() > 0 && value.getRapidDuration() <= totalSeconds)
+            measured.put("remHours", value.getRapidDuration() / 3600.0);
+        if (value.getAwakeDuration() > 0 && value.getAwakeDuration() <= 24 * 60 * 60)
+            measured.put("awakeMinutes", value.getAwakeDuration() / 60.0);
         if (value.getWakingCount() > 0) measured.put("wakeCount", value.getWakingCount());
-        if (value.getSleepScore() > 0) measured.put("score", value.getSleepScore());
+        if (value.getSleepScore() > 0 && value.getSleepScore() <= 100)
+            measured.put("score", value.getSleepScore());
+        if (value.getSleepEfficiency() > 0 && value.getSleepEfficiency() <= 100)
+            measured.put("efficiency", value.getSleepEfficiency());
         long measuredAt = sdkTimestamp(value.getWakeTime(), dayStart(dayIndex) + 12L * 60L * 60_000L);
-        result.add(healthRecord(deviceId, model, firmware, "sleep", measuredAt,
-                measured, "h", "watch_history", "device_reported"));
+        result.add(healthRecord(deviceId, model, firmware,
+                "sleep", measuredAt, measured, "h", "watch_history", "device_reported"));
         return result;
+    }
+
+    private static void addStepSlot(
+            List<Map<String, Object>> result, String deviceId, String model,
+            String firmware, String metric, long measuredAt,
+            Number value, String unit, String origin) {
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put("value", value);
+        Map<String, Object> record = healthRecord(deviceId, model, firmware,
+                metric, measuredAt, values, unit, origin, "device_reported");
+        record.put("rawVersion", 2);
+        result.add(record);
     }
 
     static List<Map<String, Object>> sportRecords(

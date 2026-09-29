@@ -418,56 +418,74 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('home sport entry opens the complete sport page', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(430, 932));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final controller =
-        AppController(
-            MemorySessionVault(),
-            _NoopApi(),
-            MemoryHealthStore(),
-            _NoopWearable(),
-          )
-          ..connectedDevice = const DeviceInfo(id: 'hr01', name: 'HR01')
-          ..deviceCapabilityState = DeviceCapabilityState.ready
-          ..capabilities = DeviceCapabilities(
-            metrics: const {
-              HealthMetric.steps,
-              HealthMetric.distance,
-              HealthMetric.calories,
-              HealthMetric.sleep,
-            },
-            sportModes: SportMode.values.toSet(),
-            supportsSportPause: true,
-          );
-    addTearDown(controller.dispose);
+  testWidgets(
+    'home sport entry shows activity and four modes before all sports',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(430, 932));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              _NoopWearable(),
+            )
+            ..connectedDevice = const DeviceInfo(id: 'hr01', name: 'HR01')
+            ..deviceCapabilityState = DeviceCapabilityState.ready
+            ..capabilities = DeviceCapabilities(
+              metrics: const {
+                HealthMetric.steps,
+                HealthMetric.distance,
+                HealthMetric.calories,
+                HealthMetric.sleep,
+              },
+              sportModes: SportMode.values.toSet(),
+              supportsSportPause: true,
+            );
+      addTearDown(controller.dispose);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildSaydianTheme(),
-        home: Scaffold(body: DashboardPage(controller: controller)),
-      ),
-    );
-    await tester.pump();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: Scaffold(body: DashboardPage(controller: controller)),
+        ),
+      );
+      await tester.pump();
 
-    expect(find.byKey(const Key('health-sport-entries')), findsNothing);
-    expect(find.byKey(const Key('dashboard-today-health')), findsNothing);
-    await tester.tap(find.text('运动'));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('sport-mode-selection-page')), findsOneWidget);
-    expect(find.text('全部运动'), findsOneWidget);
-    final allGrid = tester.widget<SliverGrid>(
-      find.byKey(const Key('all-sport-mode-grid')),
-    );
-    expect(allGrid.delegate.estimatedChildCount, SportMode.values.length);
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('all-sport-mode-mountaineering')),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(find.text('登山'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
+      expect(find.byKey(const Key('health-sport-entries')), findsNothing);
+      expect(find.byKey(const Key('dashboard-today-health')), findsNothing);
+      await tester.tap(find.text('运动'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('sport-overview-page')), findsOneWidget);
+      expect(find.byKey(const Key('dashboard-today-health')), findsOneWidget);
+      expect(find.byKey(const Key('sport-mode-grid')), findsOneWidget);
+      expect(
+        tester
+            .widget<Wrap>(find.byKey(const Key('sport-mode-grid')))
+            .children
+            .length,
+        4,
+      );
+      await tester.tap(find.byKey(const Key('sport-mode-more')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('sport-mode-selection-page')),
+        findsOneWidget,
+      );
+      expect(find.text('全部运动'), findsOneWidget);
+      final allGrid = tester.widget<SliverGrid>(
+        find.byKey(const Key('all-sport-mode-grid')),
+      );
+      expect(allGrid.delegate.estimatedChildCount, SportMode.values.length);
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('all-sport-mode-mountaineering')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('登山'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('compact screens keep the complete sport page usable', (
     tester,
@@ -499,6 +517,10 @@ void main() {
     expect(find.byKey(const Key('health-sport-entries')), findsNothing);
     await tester.tap(find.text('运动'));
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('sport-overview-page')), findsOneWidget);
+    expect(find.byKey(const Key('dashboard-today-health')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('sport-mode-more')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('all-sport-mode-grid')), findsOneWidget);
     expect(find.text('跑步'), findsOneWidget);
     expect(find.text('室内跑'), findsOneWidget);
@@ -510,6 +532,164 @@ void main() {
     );
     expect(find.text('登山'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('activity overview never labels yesterday values as today', (
+    tester,
+  ) async {
+    final now = DateTime.now();
+    HealthRecord steps(String id, DateTime measuredAt, int value) =>
+        HealthRecord(
+          id: id,
+          metric: HealthMetric.steps,
+          values: {'value': value},
+          unit: '步',
+          measuredAt: measuredAt,
+          timezone: '+08:00',
+          deviceId: 'ring',
+          firmwareVersion: 'test',
+          quality: 'device_reported',
+          source: MeasurementSource.wearable,
+          rawVersion: 1,
+        );
+    final records = [
+      steps('old', DateTime(now.year, now.month, now.day - 1, 23), 999),
+      steps(
+        'legacy',
+        DateTime(now.year, now.month, now.day, 10),
+        777,
+      ).copyWith(sourceVendor: 'qring'),
+      steps('today', DateTime(now.year, now.month, now.day, 8), 155),
+      steps('today-later', DateTime(now.year, now.month, now.day, 9), 45),
+    ];
+    final store = MemoryHealthStore();
+    await store.initialize();
+    await store.upsert(records);
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      store,
+      _NoopWearable(),
+    )..healthRecords = records;
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: SportOverviewPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('200/10000步'), findsOneWidget);
+    expect(find.text('999/10000步'), findsNothing);
+    expect(find.byKey(const Key('sport-mode-grid')), findsNothing);
+    expect(find.byKey(const Key('all-sport-records')), findsNothing);
+  });
+
+  testWidgets('activity total reads the full day beyond the recent cache', (
+    tester,
+  ) async {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day);
+    final records = List.generate(
+      96,
+      (slot) => HealthRecord(
+        id: 'slot-$slot',
+        metric: HealthMetric.steps,
+        values: const {'value': 1},
+        unit: '步',
+        measuredAt: start.add(Duration(minutes: slot * 15)),
+        timezone: '+08:00',
+        deviceId: 'qring:test',
+        firmwareVersion: 'test',
+        quality: 'device_reported',
+        source: MeasurementSource.wearable,
+        sourceVendor: 'qring',
+        rawVersion: 2,
+      ),
+    );
+    final store = MemoryHealthStore();
+    await store.initialize();
+    await store.upsert(records);
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      store,
+      _NoopWearable(),
+    )..healthRecords = records.take(10).toList();
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: SportOverviewPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('96/10000步'), findsOneWidget);
+  });
+
+  testWidgets('home sleep entry opens real stages and the same dated trend', (
+    tester,
+  ) async {
+    final now = DateTime.now();
+    final recordedAt = DateTime(now.year, now.month, now.day, 7);
+    final record = HealthRecord(
+      id: 'sleep-home',
+      metric: HealthMetric.sleep,
+      values: const {'value': 7.5, 'deepHours': 2, 'remHours': 1},
+      unit: 'h',
+      measuredAt: recordedAt,
+      timezone: '+08:00',
+      deviceId: 'qring:test',
+      firmwareVersion: 'test',
+      quality: 'device_reported',
+      source: MeasurementSource.wearable,
+      rawVersion: 1,
+    );
+    final store = MemoryHealthStore();
+    await store.initialize();
+    await store.upsert([record]);
+    final controller =
+        AppController(MemorySessionVault(), _NoopApi(), store, _NoopWearable())
+          ..healthRecords = [
+            record.copyWith(values: {'value': 395}),
+            record,
+          ];
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: DashboardPage(controller: controller)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final entry = find.byKey(const Key('home-sleep-overview-entry'));
+    expect(entry, findsOneWidget);
+    await tester.ensureVisible(entry);
+    await tester.tap(entry);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('sleep-overview-page')), findsOneWidget);
+    expect(find.text('7小时30分'), findsOneWidget);
+    expect(find.text('快速眼动'), findsOneWidget);
+    expect(find.text('1 小时'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('sleep-open-trend')),
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byKey(const Key('sleep-overview-page')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.tap(find.byKey(const Key('sleep-open-trend')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('health-trend-sleep')), findsOneWidget);
+    expect(find.byKey(const Key('sleep-structure-card')), findsOneWidget);
   });
 
   testWidgets(
@@ -2180,6 +2360,65 @@ void main() {
     expect(find.text('2 小时'), findsOneWidget);
     expect(find.text('4.5 小时'), findsOneWidget);
     expect(find.text('--（戒指未返回）'), findsOneWidget);
+  });
+
+  testWidgets('QRing sleep stages and score display only returned values', (
+    tester,
+  ) async {
+    final now = DateTime.now();
+    final store = MemoryHealthStore();
+    await store.initialize();
+    await store.upsert([
+      HealthRecord(
+        id: 'qring-sleep-structure',
+        metric: HealthMetric.sleep,
+        values: const {
+          'value': 7,
+          'deepHours': 2,
+          'lightHours': 4,
+          'remHours': 1,
+          'awakeMinutes': 20,
+          'score': 85,
+          'efficiency': 92,
+        },
+        unit: 'h',
+        measuredAt: DateTime(now.year, now.month, now.day, 7),
+        timezone: '+08:00',
+        deviceId: 'qring:test',
+        firmwareVersion: 'test',
+        quality: 'device_reported',
+        source: MeasurementSource.wearable,
+        rawVersion: 1,
+      ),
+    ]);
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      store,
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: HealthTrendPage(
+          controller: controller,
+          metric: HealthMetric.sleep,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('快速眼动'), findsOneWidget);
+    expect(find.text('1 小时'), findsOneWidget);
+    expect(find.text('清醒时长'), findsOneWidget);
+    expect(find.text('20 分钟'), findsOneWidget);
+    expect(find.text('设备睡眠评分'), findsOneWidget);
+    expect(find.text('85 分'), findsOneWidget);
+    expect(find.text('睡眠效率'), findsOneWidget);
+    expect(find.text('92 %'), findsOneWidget);
+    expect(find.text('--（戒指未返回）'), findsNothing);
   });
 
   testWidgets('care blood composition detail uses readable Chinese fields', (

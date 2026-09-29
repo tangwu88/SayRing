@@ -34,6 +34,18 @@ void main() {
       expect(_record(HealthMetric.stress, {'value': 0}).isSane, isFalse);
       expect(_record(HealthMetric.stress, {'value': 44}).isSane, isTrue);
       expect(_record(HealthMetric.stress, {'value': 101}).isSane, isFalse);
+      expect(_record(HealthMetric.sleep, {'value': 395}).isSane, isFalse);
+      expect(
+        _record(HealthMetric.sleep, {
+          'value': 6.58,
+          'deepHours': 2,
+          'remHours': 1.08,
+          'awakeMinutes': 10,
+          'score': 84,
+          'efficiency': 91,
+        }).isSane,
+        isTrue,
+      );
       expect(
         _record(HealthMetric.ecg, {
           'meanHeartRate': 255,
@@ -60,6 +72,18 @@ void main() {
         isTrue,
       );
     });
+
+    test(
+      'old QRing activity slot timestamps stay hidden until same-ID resync',
+      () {
+        final old = _record(HealthMetric.steps, {
+          'value': 12,
+        }).copyWith(sourceVendor: 'qring');
+        expect(old.isSane, isFalse);
+        expect(old.copyWith(rawVersion: 2).isSane, isTrue);
+        expect(_record(HealthMetric.steps, {'value': 12}).isSane, isTrue);
+      },
+    );
 
     test('rejects calibrated ECG records without a usable waveform', () {
       final invalid = _record(

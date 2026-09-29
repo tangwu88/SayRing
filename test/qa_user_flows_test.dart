@@ -1353,10 +1353,7 @@ void main() {
 
       await tester.tap(find.text('运动'));
       await tester.pumpAndSettle();
-      expect(
-        find.byKey(const Key('sport-mode-selection-page')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('sport-overview-page')), findsOneWidget);
       expect(
         find.text('当前戒指暂不支持由 App 发起运动记录，可继续查看已同步的日常活动与运动记录。'),
         findsOneWidget,

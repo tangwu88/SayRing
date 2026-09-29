@@ -16,6 +16,7 @@ import '../l10n/ui_labels.dart';
 import '../services/global_environment.dart';
 import '../domain/ecg_waveform.dart';
 import '../domain/health_interpretation.dart';
+import '../domain/health_record_validation.dart';
 import '../domain/models.dart';
 import '../services/app_controller.dart';
 import '../services/device_watch_face_market_service.dart';
@@ -509,11 +510,9 @@ class DashboardPage extends StatelessWidget {
                     ),
                     onSport: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
-                        settings: const RouteSettings(
-                          name: 'sport-mode-selection',
-                        ),
+                        settings: const RouteSettings(name: 'sport-overview'),
                         builder: (_) =>
-                            SportModeSelectionPage(controller: controller),
+                            SportOverviewPage(controller: controller),
                       ),
                     ),
                     onMall: () => Navigator.of(context).push(
@@ -529,6 +528,8 @@ class DashboardPage extends StatelessWidget {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  _SleepQuickCard(controller: controller),
                   const SizedBox(height: 16),
                   _SectionTitle(
                     title: context.l10n.healthData,
@@ -883,6 +884,184 @@ class _AiHealthAssistantCard extends StatelessWidget {
   }
 }
 
+String _sleepDurationLabel(HealthRecord? record) {
+  final hours = record?.values['value'];
+  if (hours == null || !hours.isFinite || hours <= 0) return '--';
+  final minutes = (hours * 60).round();
+  return '${minutes ~/ 60}小时${minutes % 60}分';
+}
+
+class _SleepQuickCard extends StatelessWidget {
+  const _SleepQuickCard({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final latest = controller.latestByMetric[HealthMetric.sleep];
+    return Material(
+      key: const Key('home-sleep-overview-entry'),
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(22),
+      clipBehavior: Clip.antiAlias,
+      child: Ink(
+        decoration: BoxDecoration(
+          gradient: saydianPanelGradient,
+          border: Border.all(color: const Color(0x66316EF5)),
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: InkWell(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              settings: const RouteSettings(name: 'sleep-overview'),
+              builder: (_) => SleepOverviewPage(controller: controller),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.bedtime_outlined,
+                  color: SaydianColors.techIndigo,
+                  size: 30,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '睡眠概览',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        latest == null
+                            ? '暂无睡眠记录，佩戴戒指睡眠后同步数据'
+                            : '最近一次 · ${DateFormat('M月d日').format(latest.measuredAt.toLocal())}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: SaydianColors.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  _sleepDurationLabel(latest),
+                  style: const TextStyle(
+                    color: SaydianColors.techIndigo,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: SaydianColors.techIndigo,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class SleepOverviewPage extends StatelessWidget {
+  const SleepOverviewPage({required this.controller, super.key});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    key: const Key('sleep-overview-page'),
+    appBar: AppBar(title: const Text('睡眠')),
+    body: ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final latest = controller.latestByMetric[HealthMetric.sleep];
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '最近一次睡眠',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      latest == null
+                          ? '暂无睡眠记录'
+                          : DateFormat(
+                              'yyyy年M月d日',
+                            ).format(latest.measuredAt.toLocal()),
+                      style: const TextStyle(color: SaydianColors.muted),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _sleepDurationLabel(latest),
+                      style: const TextStyle(
+                        color: SaydianColors.techIndigo,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (latest == null)
+              const _InlineNotice(
+                message: '佩戴戒指睡眠并同步数据后，这里会显示实际返回的睡眠阶段。',
+                icon: Icons.bedtime_outlined,
+                color: SaydianColors.techIndigo,
+              )
+            else ...[
+              SleepStructureCard(record: latest),
+              const SizedBox(height: 12),
+              const _InlineNotice(
+                message: '仅显示戒指实际返回的阶段和评分；未返回的项目保留为未知。',
+                icon: Icons.info_outline_rounded,
+                color: SaydianColors.techBlue,
+                compact: true,
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                key: const Key('sleep-open-trend'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    settings: const RouteSettings(name: 'sleep-trend'),
+                    builder: (_) => HealthTrendPage(
+                      controller: controller,
+                      metric: HealthMetric.sleep,
+                      initialDate: latest.measuredAt,
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.show_chart_rounded),
+                label: const Text('查看睡眠趋势与记录'),
+              ),
+            ],
+          ],
+        );
+      },
+    ),
+  );
+}
+
 class _TodayHealthOverview extends StatelessWidget {
   const _TodayHealthOverview({
     required this.latest,
@@ -890,13 +1069,15 @@ class _TodayHealthOverview extends StatelessWidget {
     required this.distanceTarget,
     required this.calorieTarget,
     required this.onSetGoal,
+    required this.onOpenMetric,
   });
 
-  final Map<HealthMetric, HealthRecord> latest;
+  final Map<HealthMetric, num> latest;
   final double stepTarget;
   final double distanceTarget;
   final double calorieTarget;
   final VoidCallback onSetGoal;
+  final ValueChanged<HealthMetric> onOpenMetric;
 
   @override
   Widget build(BuildContext context) {
@@ -908,7 +1089,7 @@ class _TodayHealthOverview extends StatelessWidget {
           DecoratedBox(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
-                colors: [Color(0xFFE8F7ED), Color(0xFFF3F8E8)],
+                colors: [Color(0xFFEAF1FF), Color(0xFFE3F7FA)],
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
               ),
@@ -954,23 +1135,26 @@ class _TodayHealthOverview extends StatelessWidget {
               children: [
                 _GoalProgressRow(
                   metric: HealthMetric.steps,
-                  record: latest[HealthMetric.steps],
+                  value: latest[HealthMetric.steps],
                   target: stepTarget,
-                  color: const Color(0xFF80BAF5),
+                  color: SaydianColors.techBlue,
+                  onTap: () => onOpenMetric(HealthMetric.steps),
                 ),
                 const SizedBox(height: 16),
                 _GoalProgressRow(
                   metric: HealthMetric.distance,
-                  record: latest[HealthMetric.distance],
+                  value: latest[HealthMetric.distance],
                   target: distanceTarget,
-                  color: const Color(0xFF6CDE53),
+                  color: SaydianColors.techCyan,
+                  onTap: () => onOpenMetric(HealthMetric.distance),
                 ),
                 const SizedBox(height: 16),
                 _GoalProgressRow(
                   metric: HealthMetric.calories,
-                  record: latest[HealthMetric.calories],
+                  value: latest[HealthMetric.calories],
                   target: calorieTarget,
-                  color: const Color(0xFFFF9949),
+                  color: SaydianColors.techIndigo,
+                  onTap: () => onOpenMetric(HealthMetric.calories),
                 ),
               ],
             ),
@@ -984,20 +1168,17 @@ class _TodayHealthOverview extends StatelessWidget {
 class _GoalProgressRow extends StatelessWidget {
   const _GoalProgressRow({
     required this.metric,
-    required this.record,
+    required this.value,
     required this.target,
     required this.color,
+    required this.onTap,
   });
 
   final HealthMetric metric;
-  final HealthRecord? record;
+  final num? value;
   final double target;
   final Color color;
-
-  num? get _value {
-    if (record == null || record!.values.isEmpty) return null;
-    return record!.values['value'] ?? record!.values.values.first;
-  }
+  final VoidCallback onTap;
 
   String _format(num value) {
     if (metric == HealthMetric.distance) return value.toStringAsFixed(2);
@@ -1006,63 +1187,67 @@ class _GoalProgressRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final value = _value;
-    final progress = value == null
+    final current = value;
+    final progress = current == null
         ? 0.0
-        : (value.toDouble() / target).clamp(0.0, 1.0).toDouble();
+        : (current.toDouble() / target).clamp(0.0, 1.0).toDouble();
     final unit = switch (metric) {
       HealthMetric.distance => '公里',
       HealthMetric.calories => '千卡',
       _ => metric.defaultUnit,
     };
-    final currentText = value == null ? '--' : _format(value);
+    final currentText = current == null ? '--' : _format(current);
     final targetText = _format(target);
 
-    return Row(
-      children: [
-        Container(
-          width: 9,
-          height: 9,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(3),
-          ),
-        ),
-        const SizedBox(width: 9),
-        SizedBox(
-          width: 34,
-          child: Text(
-            context.l10n.metricName(metric),
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 10,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Row(
+        children: [
+          Container(
+            width: 9,
+            height: 9,
+            decoration: BoxDecoration(
               color: color,
-              backgroundColor: color.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(3),
             ),
           ),
-        ),
-        const SizedBox(width: 12),
-        SizedBox(
-          width: 106,
-          child: Text(
-            '$currentText/$targetText$unit',
-            textAlign: TextAlign.right,
-            maxLines: 1,
-            style: const TextStyle(
-              color: SaydianColors.muted,
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
+          const SizedBox(width: 9),
+          SizedBox(
+            width: 34,
+            child: Text(
+              context.l10n.metricName(metric),
+              style: const TextStyle(fontWeight: FontWeight.w700),
             ),
           ),
-        ),
-      ],
+          const SizedBox(width: 10),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 10,
+                color: color,
+                backgroundColor: color.withValues(alpha: 0.16),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 106,
+            child: Text(
+              '$currentText/$targetText$unit',
+              textAlign: TextAlign.right,
+              maxLines: 1,
+              style: const TextStyle(
+                color: SaydianColors.muted,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2199,27 +2384,143 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
   }
 }
 
-// The full sport catalogue now lives on SportModeSelectionPage.
-// ignore: unused_element
-class _SportEntryPanel extends StatelessWidget {
-  const _SportEntryPanel({required this.controller});
+Map<HealthMetric, num> _todayActivityValues(
+  Iterable<HealthRecord> records,
+  DateTime now,
+) {
+  final day = now.toLocal();
+  final result = <HealthMetric, num>{};
+  for (final record in records) {
+    if (!hasSaneWearableTransportValues(record)) continue;
+    if (record.metric != HealthMetric.steps &&
+        record.metric != HealthMetric.distance &&
+        record.metric != HealthMetric.calories) {
+      continue;
+    }
+    final measured = record.measuredAt.toLocal();
+    if (measured.year != day.year ||
+        measured.month != day.month ||
+        measured.day != day.day) {
+      continue;
+    }
+    final value = record.values['value'];
+    if (value == null || !value.isFinite || value < 0) continue;
+    result.update(
+      record.metric,
+      (current) => current + value,
+      ifAbsent: () => value,
+    );
+  }
+  return result;
+}
+
+class SportOverviewPage extends StatefulWidget {
+  const SportOverviewPage({required this.controller, super.key});
 
   final AppController controller;
 
   @override
-  Widget build(BuildContext context) {
-    final latest = controller.latestByMetric;
-    final showActivity =
-        const {
+  State<SportOverviewPage> createState() => _SportOverviewPageState();
+}
+
+class _SportOverviewPageState extends State<SportOverviewPage> {
+  Map<HealthMetric, num> _activityValues = const {};
+  bool _loading = true;
+  bool _loadFailed = false;
+  int _loadGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadActivity());
+  }
+
+  Future<void> _loadActivity() async {
+    final generation = ++_loadGeneration;
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _loadFailed = false;
+      });
+    }
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day);
+    final end = DateTime(now.year, now.month, now.day + 1);
+    try {
+      final batches = await Future.wait([
+        for (final metric in const [
           HealthMetric.steps,
           HealthMetric.distance,
           HealthMetric.calories,
-        }.any(
-          (metric) =>
-              latest.containsKey(metric) ||
-              (controller.connectedDevice != null &&
-                  controller.capabilities?.supports(metric) == true),
+        ])
+          widget.controller.loadHealthRecords(
+            metric: metric,
+            start: start,
+            end: end,
+          ),
+      ]);
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() {
+        _activityValues = _todayActivityValues(
+          batches.expand((batch) => batch),
+          now,
         );
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted || generation != _loadGeneration) return;
+      setState(() {
+        _activityValues = const {};
+        _loading = false;
+        _loadFailed = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    key: const Key('sport-overview-page'),
+    appBar: AppBar(title: const Text('运动')),
+    body: ListenableBuilder(
+      listenable: widget.controller,
+      builder: (context, _) => RefreshIndicator(
+        onRefresh: () async {
+          await Future.wait([
+            widget.controller.synchronizeCloud(),
+            widget.controller.refreshSportRecords(),
+          ]);
+          await _loadActivity();
+        },
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+          children: [
+            if (_loading) const LinearProgressIndicator(),
+            if (_loadFailed)
+              _InlineNotice(
+                message: '今日活动读取失败，请下拉重试',
+                icon: Icons.refresh_rounded,
+                color: SaydianColors.orange,
+                onTap: _loadActivity,
+              ),
+            _SportEntryPanel(
+              controller: widget.controller,
+              latest: _activityValues,
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _SportEntryPanel extends StatelessWidget {
+  const _SportEntryPanel({required this.controller, required this.latest});
+
+  final AppController controller;
+  final Map<HealthMetric, num> latest;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       key: const Key('health-sport-entries'),
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
@@ -2237,21 +2538,26 @@ class _SportEntryPanel extends StatelessWidget {
       ),
       child: Column(
         children: [
-          if (showActivity) ...[
-            _TodayHealthOverview(
-              latest: latest,
-              stepTarget: controller.stepGoal.toDouble(),
-              distanceTarget: controller.distanceGoal,
-              calorieTarget: controller.calorieGoal.toDouble(),
-              onSetGoal: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  settings: const RouteSettings(name: 'activity-goals'),
-                  builder: (_) => GoalSettingsPage(controller: controller),
-                ),
+          _TodayHealthOverview(
+            latest: latest,
+            stepTarget: controller.stepGoal.toDouble(),
+            distanceTarget: controller.distanceGoal,
+            calorieTarget: controller.calorieGoal.toDouble(),
+            onSetGoal: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                settings: const RouteSettings(name: 'activity-goals'),
+                builder: (_) => GoalSettingsPage(controller: controller),
               ),
             ),
-            const SizedBox(height: 14),
-          ],
+            onOpenMetric: (metric) => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                settings: RouteSettings(name: 'activity-${metric.wireName}'),
+                builder: (_) =>
+                    HealthTrendPage(controller: controller, metric: metric),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
           Visibility(
             visible: true,
             child: Column(

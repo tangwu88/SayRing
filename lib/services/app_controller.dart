@@ -716,6 +716,10 @@ class AppController extends ChangeNotifier {
   Map<HealthMetric, HealthRecord> get latestByMetric {
     final result = <HealthMetric, HealthRecord>{};
     for (final record in healthRecords) {
+      if (record.metric == HealthMetric.sleep &&
+          !hasSaneWearableTransportValues(record)) {
+        continue;
+      }
       result.putIfAbsent(record.metric, () => record);
     }
     return result;

@@ -8,6 +8,16 @@ import 'models.dart';
 /// values (for example `1`) out of local history and cloud synchronization.
 bool hasSaneWearableTransportValues(HealthRecord record) {
   if (record.source != MeasurementSource.wearable) return true;
+  if (record.sourceVendor.toLowerCase() == 'qring' &&
+      record.rawVersion < 2 &&
+      (record.metric == HealthMetric.steps ||
+          record.metric == HealthMetric.distance ||
+          record.metric == HealthMetric.calories)) {
+    // QRing v1 mapped each 15-minute slot onto a 30-minute timestamp.
+    // Preserve the stored row, but do not show its wrong day totals/trends.
+    // Corrected SDK records use new IDs and rawVersion 2 on the next sync.
+    return false;
+  }
 
   return switch (record.metric) {
     HealthMetric.heartRate => _inRange(record.values['value'], 20, 300),
@@ -15,6 +25,7 @@ bool hasSaneWearableTransportValues(HealthRecord record) {
     HealthMetric.bloodPressure => _hasSaneBloodPressure(record.values),
     HealthMetric.bodyTemperature => _inRange(record.values['value'], 20, 45),
     HealthMetric.stress => _inRange(record.values['value'], 1, 100),
+    HealthMetric.sleep => _hasSaneSleep(record.values),
     HealthMetric.ecg => _hasSaneEcg(record),
     _ => true,
   };
@@ -63,6 +74,21 @@ bool _hasSaneBloodPressure(Map<String, num> values) {
   return _inRange(systolic, 60, 300) &&
       _inRange(diastolic, 20, 200) &&
       systolic! > diastolic!;
+}
+
+bool _hasSaneSleep(Map<String, num> values) {
+  if (!_inRange(values['value'], 0.01, 24)) return false;
+  for (final key in const ['deepHours', 'lightHours', 'remHours']) {
+    final stage = values[key];
+    if (stage != null && !_inRange(stage, 0, 24)) return false;
+  }
+  final awake = values['awakeMinutes'];
+  if (awake != null && !_inRange(awake, 0, 24 * 60)) return false;
+  for (final key in const ['score', 'efficiency']) {
+    final score = values[key];
+    if (score != null && !_inRange(score, 0, 100)) return false;
+  }
+  return true;
 }
 
 bool _inRange(num? value, num minimum, num maximum) =>
