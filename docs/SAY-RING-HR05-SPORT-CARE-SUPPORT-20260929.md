@@ -28,6 +28,7 @@
 - `SAIDIAN_ALLOW_QA_RELEASE=true flutter build apk --release --no-pub`：通过，`app-release.apk`，70046318 字节、SHA-256 `E6710DB02811A01AC8B4822F6832F009518236B268B355D1AD4CC8E935DD4183`。`apksigner verify --print-certs` 确认为 Android Debug 签名，仅 QA 使用，不作为正式商店包。
 - `git diff --check`：通过；既有行尾规范提示不影响差异检查。真机仅只读确认设备在线，当前用户在微信中，未覆盖安装/打断会话，HR05 真实提醒与运动联调仍未验收。
 - iOS 源码只读检查未找到 HR05/CoolWear 对等桥；本轮仅 Android 原生提醒实现，iOS 未接通。iOS 构建需要 macOS/Xcode，本 Windows 环境无法执行，不能视为通过。
+- 源码提交 `bbc8956` 后，常规 `git push` 两次因 GitHub 443 连接超时失败；先只读核对远端仍在原 SHA，再用单次命令 `git -c http.version=HTTP/1.1 push` 成功将功能提交快进推送到当前分支与 `main`，`git ls-remote` 核对两者均为 `bbc8956`。本日志的补记将另作仅文档提交，同样需要核对远端。
 
 ## 未验收边界
 
