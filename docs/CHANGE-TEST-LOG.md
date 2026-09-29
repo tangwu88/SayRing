@@ -12,6 +12,7 @@
 
 ## 最近记录
 
+- [2026-09-29 Android 真机覆盖安装](SAY-RING-ANDROID-INSTALL-20260929.md) — 将 QRing 接入后的 QA APK 覆盖安装到华为手机，确认版本与短时启动存活；GitHub 连接重置导致远端最新状态未能重新核实，戒指和接口功能未在本轮验收。
 - [2026-09-29 QRing 双端 SDK 与多戒指自动路由](SAY-RING-QRING-MULTI-SDK-20260929.md) — Android/iOS 接入 QRing，按厂商 `Q_`/`O_` 广播名前缀自动选择 QRing SDK并锁定后续操作；未知名称继续关闭。双时区各 885 项、Android 原生 26 项、Debug/QA APK、权限/签名和 iOS arm64 Framework 结构检查完成；真实 QRing 与 Mac/Xcode 验收、既有 JCore 发布门禁漂移仍按正文待处理。
 - [2026-09-28 Android 模拟器 Debug](SAY-RING-ANDROID-EMULATOR-DEBUG-20260928.md) — `Saydian_API_36` / `emulator-5554` 已以显式 x86_64 Debug 开关构建、安装并附加 Flutter；最新蓝色登录页和数字键盘正常，当前进程无崩溃/ANR/缺失动态库，业务请求仅见 `app.saydian.cn`。记录了 Android 16 前台 Activity 检查差异、更新清单 404、启动/键盘跳帧及模拟器不能替代真实戒指验收的边界。
 - [2026-09-28 Say Ring 全局科技色调、设备页与个人中心统一](SAY-RING-UNIFIED-TECH-UI-20260928.md) — 去除普通界面残留的大红色，将设备页、个人中心、商城及各类二级页面统一为蓝青靛紫科技色和冷色卡片层级；双时区各 884 项、Android 原生 23 项、双 APK 构建与验签通过。手机锁屏导致最新包尚未覆盖安装，Git/CI 与平台边界见正文。
