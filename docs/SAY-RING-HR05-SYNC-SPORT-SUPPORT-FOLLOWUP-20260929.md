@@ -30,3 +30,9 @@
 - 戒指佩戴后，需在真机验证 HR05 运动心率回调、今日活动包与运动历史回读。没有数据包时页面只会明确告知，不伪造数值；实时热量仍取决于 SDK 是否提供真实字段。
 - 客服后台须发布公开联系方式后才能显示可拨打/可复制的内容，本轮没有修改生产配置。
 - Android 正式签名、鸿蒙正式签名及鸿蒙 HR05 SDK 适配缺失，不能提交应用市场。iOS 需 macOS/Xcode 真机另验。
+
+## Git 与线上状态
+
+- 修复及本记录的首个提交为 `3cad02c60ff7be12f03de56ab8e8f6c09393a47c`。提交前重新 `git fetch origin --prune`，确认 `origin/main` 与当前开发分支同为基线 `d718069`；随后普通快进推送开发分支及 `main`，`git ls-remote` 核对两者均为 `3cad02c`，未强推。
+- 既有 `docs/SAY-RING-YOUTHFUL-LUCKRING-UI-20260928.md` 单行空行改动没有暂存、提交或覆盖。
+- 国际后台服务器 `/global/health/ready` 在本次最终复查时仍为旧 revision `ef2f64323df46ddfe6ffeb415795429d3ed3e37e`，因此上轮已推 Git 的高德配置还不能标为线上已部署；App Git 更新也不等于手机端自动更新。
