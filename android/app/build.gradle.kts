@@ -16,6 +16,7 @@ val veepooSdkFiles = veepooSdkArtifacts.map { file("libs/$it") }
 val hasAnyVeepooArtifact = veepooSdkFiles.any { it.isFile }
 val hasCompleteVeepooSdk = veepooSdkFiles.all { it.isFile }
 val coolWearSdkFile = file("libs/coolwear_bluesdk-release.aar")
+val qringSdkFile = file("libs/qring_sdk_1.0.0.76.aar")
 val signingPropertiesFile = rootProject.file("key.properties")
 val signingProperties = Properties().apply {
     if (signingPropertiesFile.isFile) {
@@ -110,6 +111,9 @@ if (hasAnyVeepooArtifact && !hasCompleteVeepooSdk) {
 }
 if (!coolWearSdkFile.isFile) {
     throw GradleException("CoolWear SDK 文件缺失：${coolWearSdkFile.name}")
+}
+if (!qringSdkFile.isFile) {
+    throw GradleException("QRing SDK 文件缺失：${qringSdkFile.name}")
 }
 
 android {
@@ -259,6 +263,7 @@ flutter {
 
 dependencies {
     implementation(files(coolWearSdkFile))
+    implementation(files(qringSdkFile))
     implementation("com.tencent.mm.opensdk:wechat-sdk-android:6.8.40")
     implementation("com.alipay.sdk:alipaysdk-android:15.8.42")
     if (hasCompleteVeepooSdk) {

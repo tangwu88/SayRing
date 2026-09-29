@@ -5172,7 +5172,7 @@ class AppController extends ChangeNotifier {
       try {
         var record = HealthRecord.fromJson(event.payload);
         String nativeId(String id) => id
-            .replaceFirst(RegExp(r'^(veepoo|yucheng|coolwear):'), '')
+            .replaceFirst(RegExp(r'^(veepoo|yucheng|coolwear|qring):'), '')
             .toLowerCase();
         if (nativeId(record.deviceId) != nativeId(connectedDevice!.id)) return;
         if (_activeMeasurementMetric == record.metric &&

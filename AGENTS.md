@@ -9,7 +9,7 @@
 - User delivery rule (2026-09-27): after each completed and verified change, commit the scoped files and push the current Say Ring branch to `origin`; when the change is the accepted project baseline, fast-forward `origin/main` as well. Never force-push, overwrite remote history or claim synchronization when fetch/push verification fails.
 - Registration and health-analysis consent use reviewed, published international documents; do not invent versions. Provider, market and payment availability comes from server configuration, not UI assumptions. No real OTP delivery/payment without an authorized test destination and accepted channel.
 - Existing health values and device algorithms stay unchanged. Unknown values remain unknown; unconfirmed uploads remain pending, not successful.
-- Device names are routed only by the normalized prefixes `YC` (Yucheng), `V`/`TK` (VEP) and `D` (Moyoung). Unknown names fail closed. Prefix routing never proves capabilities; only a successful vendor handshake and real capability response may enable a feature. The supplied Moyoung glasses sample is not a ring SDK and must not be shipped as one.
+- Device names are routed only by the normalized prefixes `YC` (Yucheng), `V`/`TK` (VEP), `D` (Moyoung), and `Q_`/`O_` (QRing). Unknown names fail closed. Prefix routing never proves capabilities; only a successful vendor handshake and real capability response may enable a feature. The supplied Moyoung glasses sample is not a ring SDK and must not be shipped as one.
 
 ## 项目角色
 

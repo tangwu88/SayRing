@@ -332,3 +332,12 @@ f9c2378 feat: integrate Veepoo wearable SDKs
 
 如任一账号、样机、签名或服务端能力没有实际拿到，继续标记“未配置”，不要用 Demo、假数据
 或仅有 UI 的状态代替完成验收。
+
+## 12. 2026-09-29 QRing 多 SDK 路由补充
+
+- Android 已加入 `qring_sdk_1.0.0.76.aar`，iOS 已加入静态 `QCBandSDK.framework`。
+- 广播名称规范化后仅 `Q_`、`O_` 进入 QRing；`YC` 仍走 Yucheng，`V`/`TK` 仍走 Veepoo，`HR01` 仍走 CoolWear，`D` 仅在 Moyoung 桥存在时启用。未知名称不得猜测。
+- Flutter 扫描结果使用 `qring:<native-id>` 隔离；用户选中后所有健康、运动与设备操作锁定到 QRing Bridge。
+- 连接成功不等于能力成功。QRing 必须完成 SDK 初始化、校时和能力读取，失败时保持不可用；健康未知值不得补零。
+- Android 的 Realtek bbpro 以 QRing 内置 1.9.4 为准；根 Gradle 只从宇辰插件的通配 JAR 中排除了未被其源码/AAR引用的旧 1.6.1，并保留 `Msc.jar`。改动此策略前必须同时回归 QRing 与宇辰设备。
+- Windows 已通过双 APK、双时区 Flutter 885 项、Android 原生 26 项和 iOS arm64 静态库结构检查；Mac/Xcode 编译和真实 QRing 全链路仍未验收。详细证据见 `docs/SAY-RING-QRING-MULTI-SDK-20260929.md`。

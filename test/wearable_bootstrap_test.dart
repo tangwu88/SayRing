@@ -8,7 +8,7 @@ import 'package:saydian_app/services/wearable_bridge.dart';
 
 void main() {
   test(
-    'production bridge routes YC rings to Yucheng and V rings to Veepoo',
+    'production bridge routes YC, V and QRing names to their SDKs',
     () async {
       final veepoo = _FakeBridge(const [
         DeviceInfo(id: 'VP-01', name: 'V Ring'),
@@ -16,9 +16,13 @@ void main() {
       final yucheng = _FakeBridge(const [
         DeviceInfo(id: 'YC-01', name: 'YC Ring'),
       ]);
+      final qring = _FakeBridge(const [
+        DeviceInfo(id: 'QR-01', name: 'Q_Ring'),
+      ]);
       final bridge = createProductionWearableBridge(
         veepoo: veepoo,
         yucheng: yucheng,
+        qring: qring,
       );
       final devices = await bridge.scanDevices();
       await bridge.connect(
@@ -27,6 +31,11 @@ void main() {
       );
       expect(yucheng.connectCalls, ['YC-01']);
       expect(veepoo.connectCalls, isEmpty);
+      await bridge.connect(
+        devices.singleWhere((d) => d.name == 'Q_Ring').id,
+        profile: _profile,
+      );
+      expect(qring.connectCalls, ['QR-01']);
     },
   );
 }

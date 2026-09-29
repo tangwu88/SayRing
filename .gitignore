@@ -71,8 +71,11 @@ google-services.json
 /android/app/libs/*.aar
 !/android/app/libs/vpprotocol-2.3.77.15.aar
 !/android/app/libs/coolwear_bluesdk-release.aar
+!/android/app/libs/qring_sdk_1.0.0.76.aar
 /android/app/libs/*.jar
 /ios/Runner/Vendor/*.framework/
+!/ios/Runner/Vendor/QCBandSDK.framework/
+!/ios/Runner/Vendor/QCBandSDK.framework/**
 /ios/Runner/Vendor/*.xcframework/
 /ios/Flutter/Local.xcconfig
 

@@ -8,6 +8,7 @@ const frameworkNames = [
   'GRDFUSDK',
   'JLDialUnit',
   'JL_BLEKit',
+  'QCBandSDK',
   'VeepooBleSDK',
   'ZipZap',
 ];

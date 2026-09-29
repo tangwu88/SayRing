@@ -45,6 +45,26 @@ allprojects {
     }
 }
 
+// The pinned Yucheng plugin publishes an unused Realtek bbpro 1.6.1 JAR via a
+// broad `fileTree("*.jar")` dependency. QRing 1.0.0.76 embeds bbpro 1.9.4 and
+// requires APIs that do not exist in 1.6.1, so keeping both makes D8 reject the
+// APK for duplicate classes. Replace only that broad dependency with the other
+// JAR it contains; Yucheng's AARs do not reference bbpro-core.
+project(":yc_product_plugin").afterEvaluate {
+    val apiDependencies = configurations.getByName("api").dependencies
+    val jarTreeDependency =
+        apiDependencies
+            .filterIsInstance<org.gradle.api.artifacts.FileCollectionDependency>()
+            .firstOrNull { dependency ->
+                dependency.files.files.any { it.name == "rtk-bbpro-core-1.6.1.jar" }
+            }
+    if (jarTreeDependency != null) {
+        apiDependencies.remove(jarTreeDependency)
+        val yuchengPluginSource = gradle.extra.properties["yuchengPluginSource"] as String
+        dependencies.add("api", files("$yuchengPluginSource/android/libs/Msc.jar"))
+    }
+}
+
 val newBuildDir: Directory =
     rootProject.layout.buildDirectory
         .dir("../../build")

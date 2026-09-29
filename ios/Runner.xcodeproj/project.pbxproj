@@ -24,6 +24,9 @@
 		F00000000000000000000003 /* ABParTool.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F00000000000000000000011 /* ABParTool.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		F00000000000000000000005 /* GRDFUSDK.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F00000000000000000000013 /* GRDFUSDK.framework */; };
 		F00000000000000000000006 /* GRDFUSDK.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F00000000000000000000013 /* GRDFUSDK.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		Q90000000000000000000001 /* QCBandSDK.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = Q90000000000000000000010 /* QCBandSDK.framework */; };
+		Q90000000000000000000002 /* QCCentralManager.m in Sources */ = {isa = PBXBuildFile; fileRef = Q90000000000000000000012 /* QCCentralManager.m */; };
+		Q90000000000000000000003 /* QRingWearableBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = Q90000000000000000000014 /* QRingWearableBridge.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -92,6 +95,11 @@
 		F00000000000000000000014 /* JL_BLEKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = JL_BLEKit.framework; sourceTree = "<group>"; };
 		F00000000000000000000015 /* JLDialUnit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = JLDialUnit.framework; sourceTree = "<group>"; };
 		F00000000000000000000016 /* ZipZap.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = ZipZap.framework; sourceTree = "<group>"; };
+		Q90000000000000000000010 /* QCBandSDK.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = QCBandSDK.framework; sourceTree = "<group>"; };
+		Q90000000000000000000011 /* QCCentralManager.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QCCentralManager.h; sourceTree = "<group>"; };
+		Q90000000000000000000012 /* QCCentralManager.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = QCCentralManager.m; sourceTree = "<group>"; };
+		Q90000000000000000000013 /* QRingWearableBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = QRingWearableBridge.h; sourceTree = "<group>"; };
+		Q90000000000000000000014 /* QRingWearableBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = QRingWearableBridge.m; sourceTree = "<group>"; };
 		F56025AD7DDDAE3BF5401FED /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -108,6 +116,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				Q90000000000000000000001 /* QCBandSDK.framework in Frameworks */,
 				F00000000000000000000001 /* VeepooBleSDK.framework in Frameworks */,
 				F00000000000000000000002 /* ABParTool.framework in Frameworks */,
 				F00000000000000000000005 /* GRDFUSDK.framework in Frameworks */,
@@ -170,6 +179,10 @@
 				A19000000000000000000002 /* InfoPlist.strings */,
 				1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */,
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
+				Q90000000000000000000011 /* QCCentralManager.h */,
+				Q90000000000000000000012 /* QCCentralManager.m */,
+				Q90000000000000000000013 /* QRingWearableBridge.h */,
+				Q90000000000000000000014 /* QRingWearableBridge.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				A13000012608130000000002 /* WearablePayloadMapper.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
@@ -204,6 +217,7 @@
 		F00000000000000000000020 /* Vendor */ = {
 			isa = PBXGroup;
 			children = (
+				Q90000000000000000000010 /* QCBandSDK.framework */,
 				F00000000000000000000010 /* VeepooBleSDK.framework */,
 				F00000000000000000000011 /* ABParTool.framework */,
 				F00000000000000000000012 /* DFUnits.framework */,
@@ -479,6 +493,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				Q90000000000000000000002 /* QCCentralManager.m in Sources */,
+				Q90000000000000000000003 /* QRingWearableBridge.m in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				A13000012608130000000001 /* WearablePayloadMapper.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
@@ -588,6 +604,9 @@
 				ENABLE_BITCODE = NO;
 				ENABLE_TESTABILITY = YES;
 				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = (
+					QCBandSDK.framework,
+					QCCentralManager.m,
+					QRingWearableBridge.m,
 					VeepooBleSDK.framework,
 					ABParTool.framework,
 					DFUnits.framework,
@@ -808,6 +827,9 @@
 				DEVELOPMENT_TEAM = "$(SAIDIAN_DEVELOPMENT_TEAM)";
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = (
+					QCBandSDK.framework,
+					QCCentralManager.m,
+					QRingWearableBridge.m,
 					VeepooBleSDK.framework,
 					ABParTool.framework,
 					DFUnits.framework,
@@ -854,6 +876,9 @@
 				DEVELOPMENT_TEAM = "$(SAIDIAN_DEVELOPMENT_TEAM)";
 				ENABLE_BITCODE = NO;
 				"EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]" = (
+					QCBandSDK.framework,
+					QCCentralManager.m,
+					QRingWearableBridge.m,
 					VeepooBleSDK.framework,
 					ABParTool.framework,
 					DFUnits.framework,

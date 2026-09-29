@@ -229,6 +229,7 @@ class MainActivity : FlutterActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var adapter: VeepooWearableAdapter
     private var coolWearBridge: CoolWearRingBridge? = null
+    private var qringBridge: QRingBridge? = null
     private var eventSink: EventChannel.EventSink? = null
     private var pendingPermissionCall: Pair<MethodCall, MethodChannel.Result>? = null
     private var pendingBluetoothCall: Pair<MethodCall, MethodChannel.Result>? = null
@@ -247,6 +248,7 @@ class MainActivity : FlutterActivity() {
         if (!::adapter.isInitialized) adapter = VeepooWearableAdapter(applicationContext)
         super.configureFlutterEngine(flutterEngine)
         coolWearBridge = CoolWearRingBridge(this, flutterEngine.dartExecutor.binaryMessenger)
+        qringBridge = QRingBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             METHODS_CHANNEL,
@@ -754,6 +756,8 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        qringBridge?.dispose()
+        qringBridge = null
         coolWearBridge?.dispose()
         coolWearBridge = null
         if (::adapter.isInitialized) adapter.close(preserveConnection = true)

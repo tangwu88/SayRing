@@ -835,6 +835,9 @@ struct IOSWechatAuthState {
   private var wearableAdapter: WearableAdapter?
   private var methodChannel: FlutterMethodChannel?
   private var eventChannel: FlutterEventChannel?
+  #if !targetEnvironment(simulator)
+  private var qringWearableBridge: QRingWearableBridge?
+  #endif
   private var paymentChannel: FlutterMethodChannel?
   private var authChannel: FlutterMethodChannel?
   private var wechatAuthState = IOSWechatAuthState()
@@ -888,6 +891,10 @@ struct IOSWechatAuthState {
     )
     events.setStreamHandler(wearableStreamHandler)
     eventChannel = events
+
+    #if !targetEnvironment(simulator)
+    qringWearableBridge = QRingWearableBridge(messenger: registrar.messenger())
+    #endif
 
     let payments = FlutterMethodChannel(
       name: "cc.saidian/app_payments",

@@ -92,6 +92,16 @@ void main() {
       WearableDeviceClassifier.transportFor('hr01-1'),
       WearableTransport.coolwear,
     );
+    expect(
+      WearableDeviceClassifier.transportFor('Q_Ring 1024'),
+      WearableTransport.qring,
+    );
+    expect(
+      WearableDeviceClassifier.transportFor(' o_ring'),
+      WearableTransport.qring,
+    );
+    expect(WearableDeviceClassifier.transportFor('Q Ring'), isNull);
+    expect(WearableDeviceClassifier.transportFor('Oura Ring'), isNull);
     expect(WearableDeviceClassifier.transportFor('HR010'), isNull);
     expect(WearableDeviceClassifier.transportFor('W8'), isNull);
     expect(WearableDeviceClassifier.transportFor('Ring'), isNull);
@@ -104,6 +114,10 @@ void main() {
     expect(
       WearableDeviceClassifier.transportForScopedId('coolwear:A1-B2'),
       WearableTransport.coolwear,
+    );
+    expect(
+      WearableDeviceClassifier.transportForScopedId('qring:A1-B2'),
+      WearableTransport.qring,
     );
     expect(
       WearableDeviceClassifier.transportForScopedId('ring-without-scope'),
@@ -216,6 +230,31 @@ void main() {
     await bridge.startMeasurement(HealthMetric.heartRate);
     expect(coolwear.connectCalls, ['CW-1']);
     expect(coolwear.measurementCalls, [HealthMetric.heartRate]);
+  });
+
+  test('routes Q_ and O_ rings only through the QRing SDK', () async {
+    final qring = _FakeWearableBridge(
+      scanned: const [
+        DeviceInfo(id: 'QR-1', name: 'Q_Ring'),
+        DeviceInfo(id: 'OR-1', name: 'O_Ring'),
+      ],
+    );
+    final bridge = RoutedWearableBridge(
+      veepoo: _FakeWearableBridge(
+        scanned: const [DeviceInfo(id: 'VP-1', name: 'Q_Ring')],
+      ),
+      yucheng: _FakeWearableBridge(scanned: const []),
+      qring: qring,
+      preferenceStore: _MemoryTransportPreference(),
+    );
+
+    final devices = await bridge.scanDevices();
+    expect(devices.map((device) => device.id), ['qring:QR-1', 'qring:OR-1']);
+
+    await bridge.connect('qring:QR-1', profile: _profile);
+    await bridge.startMeasurement(HealthMetric.hrv);
+    expect(qring.connectCalls, ['QR-1']);
+    expect(qring.measurementCalls, [HealthMetric.hrv]);
   });
 
   test('scopes pulled V ring details and live metadata events', () async {

@@ -463,6 +463,7 @@ enum WearableSdkSource {
   yucheng('Yuc', 'Yucheng'),
   moyoung('Moy', 'Moyoung'),
   coolwear('Coo', 'CoolWear'),
+  qring('QR', 'QRing'),
   unknown('--', '未标识');
 
   const WearableSdkSource(this.shortLabel, this.fullLabel);
@@ -476,6 +477,7 @@ enum WearableSdkSource {
     if (normalized.startsWith('yucheng:')) return WearableSdkSource.yucheng;
     if (normalized.startsWith('moyoung:')) return WearableSdkSource.moyoung;
     if (normalized.startsWith('coolwear:')) return WearableSdkSource.coolwear;
+    if (normalized.startsWith('qring:')) return WearableSdkSource.qring;
     return WearableSdkSource.unknown;
   }
 }
