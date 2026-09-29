@@ -99,6 +99,12 @@ abstract interface class GlobalContentApi {
   Future<Map<String, Object?>> getGlobalArticle(String id);
 }
 
+abstract interface class GlobalSupportApi {
+  Future<Map<String, Object?>> getGlobalSupportConfig();
+  Future<Map<String, Object?>> getGlobalSportMapConfig();
+  Future<Uint8List> loadGlobalSportRouteMap(List<SportRoutePoint> points);
+}
+
 /// International commerce contract. Product, cart, address and order IDs stay
 /// opaque strings; amounts retain the server-provided currency metadata.
 abstract interface class GlobalCommerceApi {
@@ -191,6 +197,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         GlobalWechatAuthApi,
         GlobalCareApi,
         GlobalContentApi,
+        GlobalSupportApi,
         GlobalCommerceApi,
         CloudHealthRecordReader {
   GlobalSaydianApiClient(
@@ -208,6 +215,51 @@ class GlobalSaydianApiClient extends SaydianApiClient
        );
 
   final String Function() _locale;
+
+  @override
+  Future<Map<String, Object?>> getGlobalSupportConfig() =>
+      _globalPublic('support/config');
+
+  @override
+  Future<Map<String, Object?>> getGlobalSportMapConfig() =>
+      _globalPublic('support/sport-map-config');
+
+  @override
+  Future<Uint8List> loadGlobalSportRouteMap(
+    List<SportRoutePoint> points,
+  ) async {
+    if (points.length < 2) throw const ApiException('运动轨迹点不足');
+    final sampled = points.length <= 80
+        ? points
+        : List<SportRoutePoint>.generate(
+            80,
+            (index) => points[(index * (points.length - 1) / 79).round()],
+          );
+    final response = await _authorizedPostJsonWithTimeout(
+      '/api/saydian-app/v2/support/sport-route-map',
+      {
+        'points': [
+          for (final point in sampled)
+            {'latitude': point.latitude, 'longitude': point.longitude},
+        ],
+      },
+      const Duration(seconds: 28),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      _decode(response);
+    }
+    final type = (response.headers['content-type'] ?? '')
+        .split(';')
+        .first
+        .trim()
+        .toLowerCase();
+    if (!const {'image/png', 'image/jpeg'}.contains(type) ||
+        response.bodyBytes.isEmpty ||
+        response.bodyBytes.length > 2 * 1024 * 1024) {
+      throw const ApiException('运动地图图片无效');
+    }
+    return Uint8List.fromList(response.bodyBytes);
+  }
 
   @override
   List<Map<String, Object?>> _list(Map<String, Object?> payload) {

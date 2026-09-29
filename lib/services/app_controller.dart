@@ -110,6 +110,28 @@ class AppController extends ChangeNotifier {
   final SessionVault _vault;
   final bool _allowAutomaticWearableRestore;
   final SaydianApi _api;
+
+  Future<Map<String, Object?>> loadGlobalSupportConfig() async {
+    final api = _api;
+    if (isGlobalEdition && api is GlobalSupportApi) {
+      return (api as GlobalSupportApi).getGlobalSupportConfig();
+    }
+    return const {};
+  }
+
+  Future<Uint8List?> loadSportRouteMap(List<SportRoutePoint> points) async {
+    final api = _api;
+    if (!isGlobalEdition || api is! GlobalSupportApi || points.length < 2) {
+      return null;
+    }
+    final supportApi = api as GlobalSupportApi;
+    final config = await supportApi.getGlobalSportMapConfig();
+    if (config['configured'] != true || config['provider'] != 'amap') {
+      return null;
+    }
+    return supportApi.loadGlobalSportRouteMap(points);
+  }
+
   bool get isGlobalEdition => _api is GlobalAccountApi;
 
   /// Stable API classification only; raw response bodies never reach the UI.

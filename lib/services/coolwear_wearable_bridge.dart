@@ -13,7 +13,8 @@ class CoolWearWearableBridge
     implements
         WearableBridge,
         WearableDeviceDetailsBridge,
-        WearableSportPauseBridge {
+        WearableSportPauseBridge,
+        WearableAutoMeasureIntervalBridge {
   CoolWearWearableBridge({MethodChannel? methods, EventChannel? events})
     : _methods = methods ?? const MethodChannel('cc.saidian.ring/commands'),
       _events = events ?? const EventChannel('cc.saidian.ring/events');
@@ -166,20 +167,59 @@ class CoolWearWearableBridge
       });
 
   @override
+  Future<Map<String, AutoMeasureIntervalSetting>>
+  readAutoMeasureIntervals() async {
+    final values = await _invoke<Map<Object?, Object?>>(
+      'readAutoMeasureIntervals',
+    );
+    return <String, AutoMeasureIntervalSetting>{
+      for (final entry in (values ?? const <Object?, Object?>{}).entries)
+        if (entry.value is Map)
+          '${entry.key}': AutoMeasureIntervalSetting.fromMap(
+            (entry.value as Map).cast<Object?, Object?>(),
+          ),
+    };
+  }
+
+  @override
+  Future<void> setAutoMeasureInterval(String type, int minutes) =>
+      _invoke<void>('setAutoMeasureInterval', {
+        'type': type,
+        'minutes': minutes,
+      });
+
+  @override
   Future<int?> readHeartRateWarning() => _unsupported();
 
   @override
   Future<void> setHeartRateWarning(int value) => _unsupported();
 
   @override
-  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) =>
-      _unsupported();
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async {
+    if (feature != DeviceFeature.notifications &&
+        feature != DeviceFeature.healthReminders) {
+      return _unsupported();
+    }
+    final value = await _invoke<Map<Object?, Object?>>('readDeviceFeature', {
+      'feature': feature.wireName,
+    });
+    return (value ?? const <Object?, Object?>{}).map(
+      (key, item) => MapEntry('$key', item),
+    );
+  }
 
   @override
   Future<void> writeDeviceFeature(
     DeviceFeature feature,
     Map<String, Object?> values,
-  ) => _unsupported();
+  ) =>
+      feature == DeviceFeature.notifications ||
+          feature == DeviceFeature.healthReminders
+      ? _invoke<void>('writeDeviceFeature', {
+          'feature': feature.wireName,
+          'values': values,
+        })
+      : _unsupported();
 
   @override
   Future<void> triggerDeviceAction(

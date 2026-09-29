@@ -675,7 +675,10 @@ class _ShopProductPageState extends State<ShopProductPage> {
                           settings: const RouteSettings(
                             name: 'customer-service',
                           ),
-                          builder: (_) => const CustomerServicePage(),
+                          builder: (_) => CustomerServicePage(
+                            isGlobalEdition: widget.controller.isGlobalEdition,
+                            controller: widget.controller,
+                          ),
                         ),
                       ),
                     );

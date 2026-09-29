@@ -2428,11 +2428,41 @@ class _SportOverviewPageState extends State<SportOverviewPage> {
   bool _loading = true;
   bool _loadFailed = false;
   int _loadGeneration = 0;
+  bool _wasDeviceSyncing = false;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_loadActivity());
+    _wasDeviceSyncing = widget.controller.isDeviceSyncing;
+    widget.controller.addListener(_onDeviceSyncChanged);
+    unawaited(_refreshActivity());
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onDeviceSyncChanged);
+    super.dispose();
+  }
+
+  void _onDeviceSyncChanged() {
+    final syncing = widget.controller.isDeviceSyncing;
+    if (_wasDeviceSyncing && !syncing) unawaited(_loadActivity());
+    _wasDeviceSyncing = syncing;
+  }
+
+  Future<void> _refreshActivity() async {
+    try {
+      if (widget.controller.connectedDevice != null &&
+          !widget.controller.isDeviceSyncing) {
+        await widget.controller.syncDeviceData();
+      }
+      await widget.controller.synchronizeCloud();
+      await widget.controller.refreshSportRecords();
+    } catch (_) {
+      // A failed remote sync must not hide already saved local activity.
+    } finally {
+      await _loadActivity();
+    }
   }
 
   Future<void> _loadActivity() async {
@@ -2484,13 +2514,7 @@ class _SportOverviewPageState extends State<SportOverviewPage> {
     body: ListenableBuilder(
       listenable: widget.controller,
       builder: (context, _) => RefreshIndicator(
-        onRefresh: () async {
-          await Future.wait([
-            widget.controller.synchronizeCloud(),
-            widget.controller.refreshSportRecords(),
-          ]);
-          await _loadActivity();
-        },
+        onRefresh: _refreshActivity,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
           children: [
@@ -2557,6 +2581,14 @@ class _SportEntryPanel extends StatelessWidget {
               ),
             ),
           ),
+          if (latest.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                '暂无今日活动数据，下拉可同步戒指',
+                style: TextStyle(color: SaydianColors.muted),
+              ),
+            ),
           const SizedBox(height: 14),
           Visibility(
             visible: true,
@@ -2902,12 +2934,20 @@ class SportSessionPage extends StatefulWidget {
   State<SportSessionPage> createState() => _SportSessionPageState();
 }
 
+String _sportPaceLabel(int durationSeconds, double distanceKm) {
+  if (durationSeconds <= 0 || distanceKm <= 0) return '--';
+  final seconds = (durationSeconds / distanceKm).round();
+  if (seconds <= 0 || seconds > 3599) return '--';
+  return '${(seconds ~/ 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')} /公里';
+}
+
 class _SportSessionPageState extends State<SportSessionPage> {
   Timer? _timer;
   StreamSubscription<Position>? _positionSubscription;
   int _elapsedSeconds = 0;
   DateTime? _startedAt;
   final List<SportRoutePoint> _routePoints = [];
+  final List<SportHeartRateSample> _heartRateSamples = [];
   double _routeDistanceKm = 0;
   String _locationStatus = '开始后可记录前台户外轨迹';
   bool _allowPop = false;
@@ -2931,6 +2971,20 @@ class _SportSessionPageState extends State<SportSessionPage> {
   };
 
   void _handleControllerChange() {
+    if (_startedAt != null &&
+        widget.controller.activeSport == widget.mode &&
+        !widget.controller.sportPaused) {
+      final bpm = (widget.controller.liveSportData['heartRate'] ?? 0).toInt();
+      if (bpm >= 20 &&
+          bpm <= 250 &&
+          (_heartRateSamples.isEmpty ||
+              _elapsedSeconds - _heartRateSamples.last.elapsedSeconds >= 10 ||
+              _heartRateSamples.last.bpm != bpm)) {
+        _heartRateSamples.add(
+          SportHeartRateSample(elapsedSeconds: _elapsedSeconds, bpm: bpm),
+        );
+      }
+    }
     if (_startedAt != null &&
         widget.controller.activeSport != widget.mode &&
         !_finalizingSport) {
@@ -2962,6 +3016,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
     _startedAt = DateTime.now();
     _elapsedSeconds = 0;
     _routePoints.clear();
+    _heartRateSamples.clear();
     _routeDistanceKm = 0;
     _locationStatus = _usesPhoneRoute ? '正在准备前台户外轨迹' : '本运动由戒指记录，不启用手机轨迹';
     final trackingGeneration = ++_trackingGeneration;
@@ -3026,8 +3081,14 @@ class _SportSessionPageState extends State<SportSessionPage> {
                 : _routeDistanceKm,
             calories: (watchData['calories'] ?? 0).toDouble(),
             steps: (watchData['steps'] ?? 0).toInt(),
-            heartRate: (watchData['heartRate'] ?? 0).toInt(),
+            heartRate:
+                (watchData['heartRate'] ??
+                        (_heartRateSamples.isEmpty
+                            ? 0
+                            : _heartRateSamples.last.bpm))
+                    .toInt(),
             routePoints: List.unmodifiable(_routePoints),
+            heartRateSamples: List.unmodifiable(_heartRateSamples),
           ),
         );
         recordSaved = true;
@@ -3108,7 +3169,8 @@ class _SportSessionPageState extends State<SportSessionPage> {
         ).listen(
           (position) {
             if (position.accuracy > 80 ||
-                !_isCurrentTrackingGeneration(generation)) {
+                !_isCurrentTrackingGeneration(generation) ||
+                widget.controller.sportPaused) {
               return;
             }
             final point = SportRoutePoint(
@@ -3125,7 +3187,8 @@ class _SportSessionPageState extends State<SportSessionPage> {
                 point.latitude,
                 point.longitude,
               );
-              if (meters < 500) _routeDistanceKm += meters / 1000;
+              if (meters >= 500) return;
+              _routeDistanceKm += meters / 1000;
             }
             setState(() => _routePoints.add(point));
           },
@@ -3144,6 +3207,10 @@ class _SportSessionPageState extends State<SportSessionPage> {
     final paused = active && widget.controller.sportPaused;
     final liveData = widget.controller.liveSportData;
     final watchDistanceKm = (liveData['distanceMeters'] ?? 0).toDouble() / 1000;
+    final liveDistanceKm = watchDistanceKm > 0
+        ? watchDistanceKm
+        : _routeDistanceKm;
+    final pace = _sportPaceLabel(_elapsedSeconds, liveDistanceKm);
     final duration = Duration(seconds: _elapsedSeconds);
     final time = [
       duration.inHours,
@@ -3205,30 +3272,36 @@ class _SportSessionPageState extends State<SportSessionPage> {
                 ],
               ),
             ),
-            if (active && liveData.isNotEmpty) ...[
+            if (active && (liveData.isNotEmpty || _routePoints.isNotEmpty)) ...[
               const SizedBox(height: 14),
               Wrap(
                 spacing: 10,
                 runSpacing: 10,
                 children: [
                   _SportLiveMetric(
-                    label: context.l10n.watchDistance,
-                    value: '${watchDistanceKm.toStringAsFixed(2)} km',
+                    label: '运动距离',
+                    value: liveDistanceKm > 0
+                        ? '${liveDistanceKm.toStringAsFixed(2)} km'
+                        : '--',
                   ),
                   _SportLiveMetric(
                     label: context.l10n.watchSteps,
-                    value: context.l10n.stepCount(
-                      (liveData['steps'] ?? 0).toInt(),
-                    ),
+                    value: liveData['steps'] == null
+                        ? '--'
+                        : context.l10n.stepCount(liveData['steps']!.toInt()),
                   ),
                   _SportLiveMetric(
                     label: context.l10n.liveHeartRate,
-                    value: '${(liveData['heartRate'] ?? 0).toInt()} bpm',
+                    value: (liveData['heartRate'] ?? 0) > 0
+                        ? '${(liveData['heartRate'] ?? 0).toInt()} bpm'
+                        : '--',
                   ),
+                  _SportLiveMetric(label: '平均配速', value: pace),
                   _SportLiveMetric(
                     label: context.l10n.watchCalories,
-                    value:
-                        '${(liveData['calories'] ?? 0).toDouble().toStringAsFixed(1)} kcal',
+                    value: liveData['calories'] == null
+                        ? '--'
+                        : '${liveData['calories']!.toDouble().toStringAsFixed(1)} kcal',
                   ),
                 ],
               ),
@@ -3486,6 +3559,7 @@ class SportRecordDetailPage extends StatelessWidget {
             SportRoutePreview(
               points: record.routePoints,
               distanceKm: record.distanceKm,
+              controller: controller,
             )
           else
             _InlineNotice(
@@ -3529,6 +3603,32 @@ class SportRecordDetailPage extends StatelessWidget {
                     trailing: Text('${record.heartRate} bpm'),
                   ),
                 ],
+                if (record.paceSecondsPerKm != null) ...[
+                  const Divider(indent: 16),
+                  ListTile(
+                    title: const Text('平均配速'),
+                    trailing: Text(
+                      _sportPaceLabel(
+                        record.durationSeconds,
+                        record.distanceKm,
+                      ),
+                    ),
+                  ),
+                ],
+                if (record.heartRateSamples.isNotEmpty) ...[
+                  const Divider(indent: 16),
+                  ListTile(
+                    title: const Text('心率记录'),
+                    subtitle: Text(
+                      record.heartRateSamples
+                          .map(
+                            (sample) =>
+                                '${(sample.elapsedSeconds ~/ 60).toString().padLeft(2, '0')}:${(sample.elapsedSeconds % 60).toString().padLeft(2, '0')}  ${sample.bpm} bpm',
+                          )
+                          .join(' · '),
+                    ),
+                  ),
+                ],
                 if (record.startedAt != null) ...[
                   const Divider(indent: 16),
                   ListTile(
@@ -3549,46 +3649,78 @@ class SportRecordDetailPage extends StatelessWidget {
   }
 }
 
-class SportRoutePreview extends StatelessWidget {
+class SportRoutePreview extends StatefulWidget {
   const SportRoutePreview({
     required this.points,
     required this.distanceKm,
+    this.controller,
     super.key,
   });
 
   final List<SportRoutePoint> points;
   final double distanceKm;
+  final AppController? controller;
 
   @override
-  Widget build(BuildContext context) {
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            height: 210,
-            width: double.infinity,
-            child: CustomPaint(
-              painter: _RoutePainter(points),
-              child: const SizedBox.expand(),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(13),
-            child: Text(
-              '${points.length} 个定位点 · ${distanceKm.toStringAsFixed(2)} 公里\n地图暂不可用，已保留本次运动轨迹',
-              style: const TextStyle(
-                color: SaydianColors.muted,
-                fontSize: 12,
-                height: 1.5,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+  State<SportRoutePreview> createState() => _SportRoutePreviewState();
+}
+
+class _SportRoutePreviewState extends State<SportRoutePreview> {
+  Future<Uint8List?>? _map;
+
+  @override
+  void initState() {
+    super.initState();
+    _map = widget.controller?.loadSportRouteMap(widget.points);
   }
+
+  @override
+  void didUpdateWidget(covariant SportRoutePreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller ||
+        oldWidget.points != widget.points) {
+      _map = widget.controller?.loadSportRouteMap(widget.points);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => _map == null
+      ? _content(null)
+      : FutureBuilder<Uint8List?>(
+          future: _map,
+          builder: (context, snapshot) => _content(snapshot.data),
+        );
+
+  Widget _content(Uint8List? mapImage) => Card(
+    clipBehavior: Clip.antiAlias,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          height: 210,
+          width: double.infinity,
+          child: mapImage == null
+              ? CustomPaint(
+                  painter: _RoutePainter(widget.points),
+                  child: const SizedBox.expand(),
+                )
+              : Image.memory(mapImage, fit: BoxFit.contain),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(13),
+          child: Text(
+            '${widget.points.length} 个定位点 · ${widget.distanceKm.toStringAsFixed(2)} 公里\n'
+            '${mapImage == null ? '轨迹示意（未加载地图底图）' : '地图来源：高德地图'}',
+            style: const TextStyle(
+              color: SaydianColors.muted,
+              fontSize: 12,
+              height: 1.5,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _RoutePainter extends CustomPainter {
@@ -9097,7 +9229,10 @@ class _MyServicesGrid extends StatelessWidget {
       (
         label: context.l10n.customerService,
         icon: Icons.headset_mic_outlined,
-        page: CustomerServicePage(isGlobalEdition: controller.isGlobalEdition),
+        page: CustomerServicePage(
+          isGlobalEdition: controller.isGlobalEdition,
+          controller: controller,
+        ),
       ),
       (
         label: context.l10n.aboutApp,

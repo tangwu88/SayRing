@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/services/coolwear_wearable_bridge.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 
@@ -69,6 +70,17 @@ void main() {
             'routePoints': <Object?>[],
           },
         ],
+        'readAutoMeasureIntervals' => <Object?, Object?>{
+          'heartRate': <Object?, Object?>{
+            'minutes': 30,
+            'stepMinutes': 1,
+            'canModify': true,
+          },
+        },
+        'readDeviceFeature' => <Object?, Object?>{
+          'supportedKeys': <Object?>['incomingCall', 'wechat'],
+          'notificationAccess': true,
+        },
         _ => null,
       };
     });
@@ -136,5 +148,41 @@ void main() {
     expect(records.single.durationSeconds, 600);
     expect(records.single.distanceKm, 1.2);
     expect(records.single.steps, 1500);
+  });
+
+  test('forwards HR05 monitoring interval and reminder settings', () async {
+    final bridge = CoolWearWearableBridge(methods: channel);
+    expect(bridge, isA<WearableAutoMeasureIntervalBridge>());
+    final intervals = await bridge.readAutoMeasureIntervals();
+    expect(intervals['heartRate']?.minutes, 30);
+    await bridge.setAutoMeasureInterval('heartRate', 60);
+    final notifications = await bridge.readDeviceFeature(
+      DeviceFeature.notifications,
+    );
+    expect(notifications['notificationAccess'], true);
+    await bridge.writeDeviceFeature(DeviceFeature.healthReminders, {
+      'id': 'drinking',
+      'enabled': true,
+      'startMinutes': 480,
+      'endMinutes': 1320,
+      'intervalMinutes': 30,
+    });
+    expect(calls.map((call) => call.method), [
+      'readAutoMeasureIntervals',
+      'setAutoMeasureInterval',
+      'readDeviceFeature',
+      'writeDeviceFeature',
+    ]);
+    expect(calls[1].arguments, {'type': 'heartRate', 'minutes': 60});
+    expect(calls[3].arguments['feature'], 'health_reminders');
+  });
+
+  test('keeps unsupported CoolWear controls closed', () async {
+    final bridge = CoolWearWearableBridge(methods: channel);
+    await expectLater(
+      bridge.readDeviceFeature(DeviceFeature.watchFaces),
+      throwsA(isA<PlatformException>()),
+    );
+    expect(calls, isEmpty);
   });
 }

@@ -3424,14 +3424,14 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         const <String>{};
     final entries = <(String, String, String)>[
       ('incomingCall', '来电提醒', '有电话时在戒指提醒'),
-      ('sms', '短信', '在戒指显示短信提醒'),
-      ('wechat', '微信', '在戒指显示微信消息提醒'),
-      ('qq', 'QQ', '在戒指显示 QQ 消息提醒'),
-      ('whatsapp', 'WhatsApp', '在戒指显示 WhatsApp 消息提醒'),
-      ('dingtalk', '钉钉', '在戒指显示钉钉消息提醒'),
-      ('wecom', '企业微信', '在戒指显示企业微信消息提醒'),
-      ('tiktok', '抖音', '在戒指显示抖音消息提醒'),
-      ('telegram', 'Telegram', '在戒指显示 Telegram 消息提醒'),
+      ('sms', '短信', '收到短信时由戒指提醒'),
+      ('wechat', '微信', '收到微信消息时由戒指提醒'),
+      ('qq', 'QQ', '收到 QQ 消息时由戒指提醒'),
+      ('whatsapp', 'WhatsApp', '收到 WhatsApp 消息时由戒指提醒'),
+      ('dingtalk', '钉钉', '收到钉钉消息时由戒指提醒'),
+      ('wecom', '企业微信', '收到企业微信消息时由戒指提醒'),
+      ('tiktok', '抖音', '收到抖音消息时由戒指提醒'),
+      ('telegram', 'Telegram', '收到 Telegram 消息时由戒指提醒'),
       ('otherApps', '其他应用', '接收其他已允许应用的消息提醒'),
     ];
     final visibleEntries = entries
@@ -3447,7 +3447,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               color: access ? SaydianColors.green : SaydianColors.orange,
             ),
             title: Text(access ? '手机通知权限已允许' : '还需允许手机通知权限'),
-            subtitle: Text(access ? '已开启的应用消息可以发送到戒指' : '允许后，戒指才能显示手机收到的应用消息'),
+            subtitle: Text(access ? '已开启的应用消息可以发送到戒指' : '允许后，戒指才能提醒手机收到的应用消息'),
             trailing: TextButton(
               onPressed: busy
                   ? null
@@ -4220,8 +4220,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                     title: Text('${reminders[index]['label'] ?? '健康提醒'}'),
                     subtitle: Text(
                       '${_minutesLabel((reminders[index]['startMinutes'] as num?)?.toInt() ?? 0)}–'
-                      '${_minutesLabel((reminders[index]['endMinutes'] as num?)?.toInt() ?? 0)}，'
-                      '每 ${(reminders[index]['intervalMinutes'] as num?)?.toInt() ?? 60} 分钟',
+                      '${_minutesLabel((reminders[index]['endMinutes'] as num?)?.toInt() ?? 0)}'
+                      '${reminders[index]['canEditInterval'] == false ? '' : '，每 ${(reminders[index]['intervalMinutes'] as num?)?.toInt() ?? 60} 分钟'}',
                     ),
                     trailing: Switch(
                       value: reminders[index]['enabled'] == true,
@@ -4248,15 +4248,23 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     var interval = reportedInterval >= 15 && reportedInterval <= 240
         ? reportedInterval
         : 60;
+    final reportedOptions = (reminder['intervalChoices'] as List?)
+        ?.whereType<num>()
+        .map((value) => value.toInt())
+        .toList();
     final intervalOptions = <int>{
-      15,
-      30,
-      45,
-      60,
-      90,
-      120,
-      180,
-      240,
+      if (reportedOptions != null)
+        ...reportedOptions
+      else ...[
+        15,
+        30,
+        45,
+        60,
+        90,
+        120,
+        180,
+        240,
+      ],
       interval,
     }.toList(growable: false)..sort();
     final values = await showDialog<Map<String, Object?>>(
@@ -4305,22 +4313,23 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                   }
                 },
               ),
-              DropdownButtonFormField<int>(
-                initialValue: interval,
-                decoration: InputDecoration(
-                  labelText: context.l10n.reminderInterval,
+              if (reminder['canEditInterval'] != false)
+                DropdownButtonFormField<int>(
+                  initialValue: interval,
+                  decoration: InputDecoration(
+                    labelText: context.l10n.reminderInterval,
+                  ),
+                  items: intervalOptions
+                      .map(
+                        (minutes) => DropdownMenuItem(
+                          value: minutes,
+                          child: Text('$minutes 分钟'),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) =>
+                      setDialogState(() => interval = value ?? interval),
                 ),
-                items: intervalOptions
-                    .map(
-                      (minutes) => DropdownMenuItem(
-                        value: minutes,
-                        child: Text('$minutes 分钟'),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) =>
-                    setDialogState(() => interval = value ?? interval),
-              ),
             ],
           ),
           actions: [
@@ -5145,9 +5154,14 @@ class _FeedbackPageState extends State<FeedbackPage> {
 }
 
 class CustomerServicePage extends StatelessWidget {
-  const CustomerServicePage({this.isGlobalEdition = false, super.key});
+  const CustomerServicePage({
+    this.isGlobalEdition = false,
+    this.controller,
+    super.key,
+  });
 
   final bool isGlobalEdition;
+  final AppController? controller;
 
   static const _phone = '4006386738';
   static const _officialAccount = '赛电';
@@ -5175,13 +5189,99 @@ class CustomerServicePage extends StatelessWidget {
       return Scaffold(
         key: const Key('global-customer-service'),
         appBar: AppBar(title: Text(context.l10n.customerService)),
-        body: Padding(
-          padding: const EdgeInsets.all(16),
-          child: FeatureStateCard(
-            message: context.l10n.serviceUnavailable,
-            detail: context.l10n.supportPrivacyWarning,
-            icon: Icons.support_agent,
-          ),
+        body: FutureBuilder<Map<String, Object?>>(
+          future: controller?.loadGlobalSupportConfig(),
+          builder: (context, snapshot) {
+            final config = snapshot.data ?? const <String, Object?>{};
+            final configured = config['configured'] == true;
+            final phone = configured ? '${config['phone'] ?? ''}'.trim() : '';
+            final account = configured
+                ? '${config['officialAccount'] ?? config['wechatOfficialAccount'] ?? ''}'
+                      .trim()
+                : '';
+            final hours = configured
+                ? '${config['serviceHours'] ?? ''}'.trim()
+                : '';
+            final message = configured
+                ? '${config['message'] ?? ''}'.trim()
+                : '';
+            final validPhone = RegExp(
+              r'^\+?[0-9][0-9 -]{4,20}$',
+            ).hasMatch(phone);
+            return ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                if (snapshot.connectionState == ConnectionState.waiting)
+                  const LinearProgressIndicator(),
+                if (snapshot.hasError ||
+                    !configured ||
+                    (!validPhone && account.isEmpty))
+                  FeatureStateCard(
+                    message: context.l10n.serviceUnavailable,
+                    detail: context.l10n.supportPrivacyWarning,
+                    icon: Icons.support_agent,
+                  )
+                else ...[
+                  Card(
+                    child: Column(
+                      children: [
+                        if (validPhone)
+                          ListTile(
+                            leading: const CircleAvatar(
+                              child: Icon(Icons.phone_outlined),
+                            ),
+                            title: Text(context.l10n.contactPhoneLabel),
+                            subtitle: Text(phone),
+                            trailing: FilledButton.tonal(
+                              onPressed: () =>
+                                  launchUrl(Uri(scheme: 'tel', path: phone)),
+                              child: Text(context.l10n.call),
+                            ),
+                          ),
+                        if (validPhone && account.isNotEmpty)
+                          const Divider(indent: 72),
+                        if (account.isNotEmpty)
+                          ListTile(
+                            leading: const CircleAvatar(
+                              child: Icon(Icons.wechat_rounded),
+                            ),
+                            title: Text(context.l10n.wechatOfficialAccount),
+                            subtitle: Text(account),
+                            trailing: FilledButton.tonal(
+                              onPressed: () async {
+                                await Clipboard.setData(
+                                  ClipboardData(text: account),
+                                );
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('公众号名称已复制')),
+                                  );
+                                }
+                              },
+                              child: Text(context.l10n.addSupportContact),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (hours.isNotEmpty || message.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    FeatureStateCard(
+                      message: hours.isEmpty ? message : hours,
+                      detail: hours.isEmpty ? null : message,
+                      icon: Icons.schedule_outlined,
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  FeatureStateCard(
+                    message: context.l10n.contactPreparationHint,
+                    detail: context.l10n.supportPrivacyWarning,
+                    icon: Icons.privacy_tip_outlined,
+                  ),
+                ],
+              ],
+            );
+          },
         ),
       );
     }

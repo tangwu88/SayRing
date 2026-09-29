@@ -118,6 +118,7 @@ class SportRecord {
     this.minimumHeartRate = 0,
     this.maximumHeartRate = 0,
     this.routePoints = const [],
+    this.heartRateSamples = const [],
   });
 
   final String id;
@@ -131,6 +132,12 @@ class SportRecord {
   final int minimumHeartRate;
   final int maximumHeartRate;
   final List<SportRoutePoint> routePoints;
+  final List<SportHeartRateSample> heartRateSamples;
+
+  /// Average active pace. Unknown indoor distance remains unknown.
+  double? get paceSecondsPerKm => distanceKm > 0 && durationSeconds > 0
+      ? durationSeconds / distanceKm
+      : null;
 
   factory SportRecord.fromMap(Map<Object?, Object?> map) => SportRecord(
     id: '${map['id'] ?? ''}',
@@ -153,6 +160,12 @@ class SportRecord {
               .map(SportRoutePoint.fromMap)
               .toList()
         : const [],
+    heartRateSamples: map['heartRateSamples'] is List
+        ? (map['heartRateSamples'] as List)
+              .whereType<Map>()
+              .map(SportHeartRateSample.fromMap)
+              .toList()
+        : const [],
   );
 
   static double _number(Object? value) =>
@@ -170,6 +183,27 @@ class SportRecord {
     'minimumHeartRate': minimumHeartRate,
     'maximumHeartRate': maximumHeartRate,
     'routePoints': routePoints.map((point) => point.toMap()).toList(),
+    'heartRateSamples': heartRateSamples
+        .map((sample) => sample.toMap())
+        .toList(),
+  };
+}
+
+class SportHeartRateSample {
+  const SportHeartRateSample({required this.elapsedSeconds, required this.bpm});
+
+  final int elapsedSeconds;
+  final int bpm;
+
+  factory SportHeartRateSample.fromMap(Map<Object?, Object?> map) =>
+      SportHeartRateSample(
+        elapsedSeconds: (map['elapsedSeconds'] as num?)?.toInt() ?? 0,
+        bpm: (map['bpm'] as num?)?.toInt() ?? 0,
+      );
+
+  Map<String, Object?> toMap() => {
+    'elapsedSeconds': elapsedSeconds,
+    'bpm': bpm,
   };
 }
 

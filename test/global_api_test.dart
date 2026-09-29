@@ -776,4 +776,59 @@ void main() {
       expect(records.single['id'], 'record-uuid');
     },
   );
+
+  test(
+    'Say Ring support and map use only isolated first-party paths',
+    () async {
+      final vault = MemorySessionVault()..session = session();
+      final requests = <http.Request>[];
+      final api = GlobalSaydianApiClient(
+        vault,
+        client: MockClient((request) async {
+          requests.add(request);
+          if (request.url.path.endsWith('/support/config')) {
+            return ok({'configured': true, 'phone': '4000000000'});
+          }
+          if (request.url.path.endsWith('/support/sport-map-config')) {
+            return ok({'provider': 'amap', 'configured': true});
+          }
+          if (request.url.path.endsWith('/support/sport-route-map')) {
+            expect(request.method, 'POST');
+            expect(request.headers['Authorization'], startsWith('Bearer '));
+            final body = jsonDecode(request.body) as Map<String, dynamic>;
+            expect((body['points'] as List), hasLength(2));
+            return http.Response.bytes(
+              [137, 80, 78, 71],
+              201,
+              headers: {'content-type': 'image/png'},
+            );
+          }
+          fail('Unexpected route: ${request.url}');
+        }),
+      );
+      expect((await api.getGlobalSupportConfig())['phone'], '4000000000');
+      expect((await api.getGlobalSportMapConfig())['provider'], 'amap');
+      final image = await api.loadGlobalSportRouteMap([
+        SportRoutePoint(
+          latitude: 31,
+          longitude: 121,
+          recordedAt: DateTime.utc(2026),
+        ),
+        SportRoutePoint(
+          latitude: 31.001,
+          longitude: 121.001,
+          recordedAt: DateTime.utc(2026),
+        ),
+      ]);
+      expect(image, [137, 80, 78, 71]);
+      expect(
+        requests.every(
+          (request) => request.url.path.startsWith(
+            '${GlobalEnvironment.apiPrefix}/support/',
+          ),
+        ),
+        isTrue,
+      );
+    },
+  );
 }

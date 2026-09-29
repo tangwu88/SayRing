@@ -26,8 +26,13 @@ class SaidianNotificationListener : NotificationListenerService() {
         if (item.packageName == packageName || item.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) {
             return
         }
-        val mapping = categoryFor(item.packageName) ?: return
-        val preferences = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val mapping = if (item.notification.category == Notification.CATEGORY_CALL) {
+            NotificationCategory("incomingCall", "来电", ESocailMsg.OTHER)
+        } else categoryFor(item.packageName) ?: return
+        val coolWear = CoolWearRingBridge.isConnectedHr05()
+        if (!coolWear && mapping.preference == "incomingCall") return
+        val preferences = getSharedPreferences(
+            if (coolWear) COOLWEAR_PREFS else PREFS, Context.MODE_PRIVATE)
         if (!preferences.getBoolean(mapping.preference, false)) return
         val extras = item.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim().orEmpty()
@@ -40,6 +45,10 @@ class SaidianNotificationListener : NotificationListenerService() {
         if (title.isEmpty() && content.isEmpty()) return
         val safeTitle = title.ifBlank { mapping.label }.take(48)
         val safeContent = content.ifBlank { "收到一条新消息" }.take(160)
+        if (coolWear) {
+            CoolWearRingBridge.forwardNotification(mapping.preference, safeTitle, safeContent)
+            return
+        }
         val setting =
             if (mapping.type == ESocailMsg.SMS) {
                 ContentSmsSetting(ESocailMsg.SMS, safeTitle, "", safeContent)
@@ -110,6 +119,7 @@ class SaidianNotificationListener : NotificationListenerService() {
 
     companion object {
         private const val PREFS = "saidian_notification_settings"
+        private const val COOLWEAR_PREFS = "coolwear_notification_settings"
         private const val MAX_PENDING = 20
         private const val SEND_TIMEOUT_MS = 2_000L
     }

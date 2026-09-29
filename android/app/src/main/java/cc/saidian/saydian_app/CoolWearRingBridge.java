@@ -9,7 +9,11 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
+import android.content.Intent;
 import android.util.Log;
+
+import androidx.core.app.NotificationManagerCompat;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -24,14 +28,17 @@ import ce.com.cenewbluesdk.entity.MyBleDevice;
 import ce.com.cenewbluesdk.entity.k6.K6_Action;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_BATTERY_INFO;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_FUNCTION_CONTROL;
+import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_DRINK_ALARM;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_HEART_AUTO_SWITCH;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_REAL_O2;
 import ce.com.cenewbluesdk.entity.k6.K6_DevInfoStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_HeartStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_HrvStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_Mix_sport_Struct;
+import ce.com.cenewbluesdk.entity.k6.K6_MessageNoticeStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_SEND_APP_SPORT_STRUCT;
 import ce.com.cenewbluesdk.entity.k6.K6_Sport;
+import ce.com.cenewbluesdk.entity.k6.K6_SittingRemind;
 import ce.com.cenewbluesdk.entity.k6.K6_StressStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_TempStruct;
 import ce.com.cenewbluesdk.entity.k6.k6_RRI_HRV_DATA;
@@ -56,6 +63,10 @@ public final class CoolWearRingBridge
     private static final long SYNC_MS = 30_000L;
     private static final long SETTINGS_MS = 5_000L;
     private static final long LEGACY_HRV_FALLBACK_MS = 8_000L;
+    private static final String NOTIFICATION_PREFS = "coolwear_notification_settings";
+    private static final String[] NOTIFICATION_KEYS = {"incomingCall", "sms", "wechat",
+            "qq", "whatsapp", "dingtalk", "wecom", "tiktok", "telegram", "otherApps"};
+    private static volatile CoolWearRingBridge activeBridge;
 
     private final Activity activity;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -67,6 +78,8 @@ public final class CoolWearRingBridge
     private MethodChannel.Result pendingHealthSync;
     private MethodChannel.Result pendingSportSync;
     private MethodChannel.Result pendingAutoSettings;
+    private MethodChannel.Result pendingReminders;
+    private Runnable remindersDeadline;
     private Runnable scanDeadline;
     private Runnable connectDeadline;
     private Runnable syncDeadline;
@@ -77,8 +90,8 @@ public final class CoolWearRingBridge
     private String connectedVendorId;
     private String firmwareVersion;
     private String activeMeasurement;
-    private boolean linkConnected;
-    private boolean deviceInfoReceived;
+    private volatile boolean linkConnected;
+    private volatile boolean deviceInfoReceived;
     private boolean recoveringConnection;
     private boolean resultEmitted;
     private Integer batteryPercent;
@@ -87,6 +100,8 @@ public final class CoolWearRingBridge
     private Boolean autoHeartEnabled;
     private Boolean autoOxygenEnabled;
     private int autoMeasureIntervalMinutes = 5;
+    private K6_SittingRemind sittingReminder;
+    private K6_DATA_TYPE_DRINK_ALARM drinkingReminder;
     private final LinkedHashMap<String, Map<String, Object>> syncedHealthRecords =
             new LinkedHashMap<>();
     private final LinkedHashMap<String, Map<String, Object>> syncedSportRecords =
@@ -96,6 +111,7 @@ public final class CoolWearRingBridge
 
     public CoolWearRingBridge(Activity activity, BinaryMessenger messenger) {
         this.activity = activity;
+        activeBridge = this;
         new MethodChannel(messenger, "cc.saidian.ring/commands").setMethodCallHandler(this);
         new EventChannel(messenger, "cc.saidian.ring/events").setStreamHandler(this);
     }
@@ -141,6 +157,24 @@ public final class CoolWearRingBridge
                 K6_Action.RCVD.RCVD_K6_DATA_TYPE_HEART_AUTO_SWITCH,
                 (K6BleDataResult<K6_DATA_TYPE_HEART_AUTO_SWITCH>) settings -> {
                     if (settings != null) main.post(() -> onAutoMeasureSettings(settings));
+                    return false;
+                });
+        helper.getRcvDataManager().addBleDataResultListener(
+                K6_Action.RCVD.RCVD_SITTING_REMIND,
+                (K6BleDataResult<K6_SittingRemind>) reminder -> {
+                    if (reminder != null) main.post(() -> {
+                        sittingReminder = reminder;
+                        finishReminderReadIfReady();
+                    });
+                    return false;
+                });
+        helper.getRcvDataManager().addBleDataResultListener(
+                K6_Action.RCVD.RCVD_K6_DATA_TYPE_DRINK_ALARM,
+                (K6BleDataResult<K6_DATA_TYPE_DRINK_ALARM>) reminder -> {
+                    if (reminder != null) main.post(() -> {
+                        drinkingReminder = reminder;
+                        finishReminderReadIfReady();
+                    });
                     return false;
                 });
         helper.getRcvDataManager().addBleDataResultListener(
@@ -467,6 +501,9 @@ public final class CoolWearRingBridge
             autoHeartEnabled = null;
             autoOxygenEnabled = null;
             failPendingAutoSettings("CONNECTION_DROPPED", "戒指连接中断，请靠近手机后重试");
+            cancelReminderRead();
+            sittingReminder = null;
+            drinkingReminder = null;
             activeMeasurement = null;
             activeSportMode = null;
             activeSportType = null;
@@ -539,6 +576,196 @@ public final class CoolWearRingBridge
         if (autoHeartEnabled != null) value.put("heartRate", autoHeartEnabled);
         if (autoOxygenEnabled != null) value.put("bloodOxygen", autoOxygenEnabled);
         return value;
+    }
+
+    public static boolean isConnectedHr05() {
+        CoolWearRingBridge bridge = activeBridge;
+        return bridge != null && bridge.linkConnected && bridge.deviceInfoReceived
+                && "HR05".equals(supportedModel(bridge.connectedName));
+    }
+
+    public static void forwardNotification(String category, String title, String content) {
+        CoolWearRingBridge bridge = activeBridge;
+        if (bridge == null || !isConnectedHr05()) return;
+        bridge.main.post(() -> {
+            if (!isConnectedHr05()) return;
+            try {
+                if ("incomingCall".equals(category)) {
+                    bridge.helper.getSendBlueData().sendIncomingCall(title, "");
+                    return;
+                }
+                byte type;
+                switch (category) {
+                    case "sms": type = K6_MessageNoticeStruct.TYPE_MSG; break;
+                    case "wechat": type = K6_MessageNoticeStruct.TYPE_WX; break;
+                    case "qq": type = K6_MessageNoticeStruct.TYPE_QQ; break;
+                    case "whatsapp": type = K6_MessageNoticeStruct.TYPE_WHATSAPP; break;
+                    case "telegram": type = K6_MessageNoticeStruct.TYPE_TELEGRAM; break;
+                    default: type = K6_MessageNoticeStruct.TYPE_OTHER; break;
+                }
+                bridge.helper.getSendBlueData().sendPushMessage(title, type, content);
+            } catch (RuntimeException error) {
+                Log.w(TAG, "notification relay failed", error);
+            }
+        });
+    }
+
+    private Map<String, Object> notificationSettings() {
+        Map<String, Object> value = new HashMap<>();
+        android.content.SharedPreferences prefs = activity.getSharedPreferences(
+                NOTIFICATION_PREFS, Context.MODE_PRIVATE);
+        for (String key : NOTIFICATION_KEYS) value.put(key, prefs.getBoolean(key, false));
+        value.put("supportedKeys", java.util.Arrays.asList(NOTIFICATION_KEYS));
+        value.put("notificationAccess", NotificationManagerCompat
+                .getEnabledListenerPackages(activity).contains(activity.getPackageName()));
+        return value;
+    }
+
+    private Map<String, Object> autoMeasureIntervals() {
+        Map<String, Object> values = new HashMap<>();
+        if (autoHeartEnabled != null) {
+            values.put("heartRate", intervalSetting());
+        }
+        if (autoOxygenEnabled != null) {
+            values.put("bloodOxygen", intervalSetting());
+        }
+        return values;
+    }
+
+    private Map<String, Object> intervalSetting() {
+        Map<String, Object> value = new HashMap<>();
+        value.put("minutes", autoMeasureIntervalMinutes);
+        value.put("stepMinutes", 1);
+        value.put("canModify", true);
+        return value;
+    }
+
+    private void finishReminderReadIfReady() {
+        if (pendingReminders == null || sittingReminder == null || drinkingReminder == null) return;
+        if (remindersDeadline != null) main.removeCallbacks(remindersDeadline);
+        remindersDeadline = null;
+        MethodChannel.Result result = pendingReminders;
+        pendingReminders = null;
+        result.success(reminderSettings());
+    }
+
+    private Map<String, Object> reminderSettings() {
+        List<Map<String, Object>> items = new ArrayList<>();
+        if (sittingReminder != null) {
+            Map<String, Object> sitting = new HashMap<>();
+            sitting.put("id", "sedentary");
+            sitting.put("label", "久坐提醒");
+            sitting.put("enabled", sittingReminder.getSwitch_flag() == CEBC.OPENSTATUS.OPEN);
+            sitting.put("startMinutes", sittingReminder.getStart_time_hour() * 60
+                    + sittingReminder.getStart_time_min());
+            sitting.put("endMinutes", sittingReminder.getEnd_time_hour() * 60
+                    + sittingReminder.getEnd_time_min());
+            sitting.put("repeat", Byte.toUnsignedInt(sittingReminder.getRepeat()));
+            sitting.put("canEditInterval", false);
+            items.add(sitting);
+        }
+        if (drinkingReminder != null) {
+            int index = drinkingReminder.getInterval();
+            int[] minutes = {30, 60, 120, 180};
+            Map<String, Object> drinking = new HashMap<>();
+            drinking.put("id", "drinking");
+            drinking.put("label", "喝水提醒");
+            drinking.put("enabled", drinkingReminder.getOnoff() == CEBC.OPENSTATUS.OPEN);
+            drinking.put("startMinutes", drinkingReminder.getStart_hour() * 60
+                    + drinkingReminder.getStart_min());
+            drinking.put("endMinutes", drinkingReminder.getEnd_hour() * 60
+                    + drinkingReminder.getEnd_min());
+            drinking.put("intervalMinutes", index >= 0 && index < minutes.length
+                    ? minutes[index] : 30);
+            drinking.put("intervalChoices", java.util.Arrays.asList(30, 60, 120, 180));
+            items.add(drinking);
+        }
+        Map<String, Object> value = new HashMap<>();
+        value.put("items", items);
+        return value;
+    }
+
+    private void cancelReminderRead() {
+        if (remindersDeadline != null) main.removeCallbacks(remindersDeadline);
+        remindersDeadline = null;
+        if (pendingReminders != null) {
+            pendingReminders.error("CONNECT_CANCELLED", "连接已断开", null);
+            pendingReminders = null;
+        }
+    }
+
+    private void readReminders(MethodChannel.Result result) {
+        if (sittingReminder != null && drinkingReminder != null) {
+            result.success(reminderSettings());
+            return;
+        }
+        if (pendingReminders != null) {
+            result.error("READ_BUSY", "正在读取戒指提醒设置", null);
+            return;
+        }
+        pendingReminders = result;
+        helper.getSendDataManager().sendAsynInfo();
+        remindersDeadline = () -> {
+            MethodChannel.Result pending = pendingReminders;
+            pendingReminders = null;
+            remindersDeadline = null;
+            if (pending == null) return;
+            if (sittingReminder != null || drinkingReminder != null) {
+                pending.success(reminderSettings());
+            } else {
+                pending.error("READ_FAILED", "未收到戒指提醒设置", null);
+            }
+        };
+        main.postDelayed(remindersDeadline, SETTINGS_MS);
+    }
+
+    private void writeReminder(Map<String, Object> values, MethodChannel.Result result) {
+        String id = (String) values.get("id");
+        Integer start = (Integer) values.get("startMinutes");
+        Integer end = (Integer) values.get("endMinutes");
+        boolean enabled = Boolean.TRUE.equals(values.get("enabled"));
+        if (start == null || end == null || start < 0 || end > 1439 || start >= end) {
+            result.error("INVALID_SETTINGS", "提醒时间范围无效", null);
+            return;
+        }
+        if ("sedentary".equals(id) && sittingReminder != null) {
+            int repeat = Byte.toUnsignedInt(sittingReminder.getRepeat());
+            helper.getSendBlueData().sendSittingRemind(start / 60, start % 60,
+                    end / 60, end % 60, repeat,
+                    enabled ? CEBC.OPENSTATUS.OPEN : CEBC.OPENSTATUS.CLOSE,
+                    sittingReminder.getNoon_onoff());
+            sittingReminder.setStart_time_hour(start / 60);
+            sittingReminder.setStart_time_min(start % 60);
+            sittingReminder.setEnd_time_hour(end / 60);
+            sittingReminder.setEnd_time_min(end % 60);
+            sittingReminder.setSwitch_flag(enabled
+                    ? CEBC.OPENSTATUS.OPEN : CEBC.OPENSTATUS.CLOSE);
+        } else if ("drinking".equals(id) && drinkingReminder != null) {
+            Integer interval = (Integer) values.get("intervalMinutes");
+            int[] allowed = {30, 60, 120, 180};
+            int index = -1;
+            for (int i = 0; i < allowed.length; i++) {
+                if (interval != null && allowed[i] == interval) index = i;
+            }
+            if (index < 0) {
+                result.error("INVALID_SETTINGS", "喝水提醒频率无效", null);
+                return;
+            }
+            helper.getSendBlueData().sendDrinkRemind(start / 60, start % 60,
+                    end / 60, end % 60, index,
+                    enabled ? CEBC.OPENSTATUS.OPEN : CEBC.OPENSTATUS.CLOSE);
+            drinkingReminder.setStart_hour(start / 60);
+            drinkingReminder.setStart_min(start % 60);
+            drinkingReminder.setEnd_hour(end / 60);
+            drinkingReminder.setEnd_min(end % 60);
+            drinkingReminder.setInterval(index);
+            drinkingReminder.setOnoff(enabled
+                    ? CEBC.OPENSTATUS.OPEN : CEBC.OPENSTATUS.CLOSE);
+        } else {
+            result.error("COOLWEAR_FEATURE_UNVERIFIED", "此戒指提醒尚未读取或不受支持", null);
+            return;
+        }
+        result.success(null);
     }
 
     private void failPendingAutoSettings(String code, String message) {
@@ -623,6 +850,10 @@ public final class CoolWearRingBridge
         if (flags != null && flags.isHasGestureSupported()) features.add("camera");
         if (flags != null && (flags.isHasHR24H() || flags.isHasO2())) {
             features.add("health_monitoring");
+        }
+        if ("HR05".equals(supportedModel(connectedName))) {
+            features.add("notifications");
+            features.add("health_reminders");
         }
         value.put("features", features);
         // Every feature reported above is backed by this bridge. Flutter keeps
@@ -894,6 +1125,8 @@ public final class CoolWearRingBridge
                     autoHeartEnabled = null;
                     autoOxygenEnabled = null;
                     autoMeasureIntervalMinutes = 5;
+                    sittingReminder = null;
+                    drinkingReminder = null;
                     batteryPercent = null;
                     charging = null;
                     activeMeasurement = null;
@@ -911,6 +1144,7 @@ public final class CoolWearRingBridge
                     cancelHrvFallback();
                     failPendingSync("CONNECT_CANCELLED", "连接已断开");
                     failPendingAutoSettings("CONNECT_CANCELLED", "连接已断开");
+                    cancelReminderRead();
                     if (pendingConnect != null) failConnect("CONNECT_CANCELLED", "连接已取消");
                     else helper.disConnect();
                     connectedId = null;
@@ -923,6 +1157,8 @@ public final class CoolWearRingBridge
                     autoHeartEnabled = null;
                     autoOxygenEnabled = null;
                     autoMeasureIntervalMinutes = 5;
+                    sittingReminder = null;
+                    drinkingReminder = null;
                     activeMeasurement = null;
                     activeSportMode = null;
                     activeSportType = null;
@@ -986,6 +1222,80 @@ public final class CoolWearRingBridge
                     autoOxygenEnabled = oxygenEnabled;
                     result.success(null);
                     break;
+                case "readAutoMeasureIntervals":
+                    if (!linkConnected || !deviceInfoReceived) {
+                        result.error("NOT_CONNECTED", "请先连接戒指", null);
+                        return;
+                    }
+                    if (autoHeartEnabled == null || autoOxygenEnabled == null) {
+                        result.error("AUTO_MEASURE_READ_FAILED", "请先读取戒指自动检测设置", null);
+                        return;
+                    }
+                    result.success(autoMeasureIntervals());
+                    break;
+                case "setAutoMeasureInterval":
+                    if (!linkConnected || !deviceInfoReceived) {
+                        result.error("NOT_CONNECTED", "请先连接戒指", null);
+                        return;
+                    }
+                    String intervalType = call.argument("type");
+                    Integer intervalMinutes = call.argument("minutes");
+                    if (!("heartRate".equals(intervalType) || "bloodOxygen".equals(intervalType))
+                            || intervalMinutes == null || intervalMinutes < 1 || intervalMinutes > 120
+                            || autoHeartEnabled == null || autoOxygenEnabled == null) {
+                        result.error("INVALID_INTERVAL", "请先读取设置并选择有效监测间隔", null);
+                        return;
+                    }
+                    helper.getSendBlueData().sendHeartAutoSwitch(
+                            autoHeartEnabled ? CEBC.OPENSTATUS.OPEN : CEBC.OPENSTATUS.CLOSE,
+                            autoOxygenEnabled ? CEBC.OPENSTATUS.OPEN : CEBC.OPENSTATUS.CLOSE,
+                            intervalMinutes);
+                    autoMeasureIntervalMinutes = intervalMinutes;
+                    result.success(null);
+                    break;
+                case "readDeviceFeature":
+                    if (!isConnectedHr05()) {
+                        result.error("COOLWEAR_FEATURE_UNVERIFIED", "此戒指功能不受支持", null);
+                        return;
+                    }
+                    String readFeature = call.argument("feature");
+                    if ("notifications".equals(readFeature)) {
+                        result.success(notificationSettings());
+                    } else if ("health_reminders".equals(readFeature)) {
+                        readReminders(result);
+                    } else {
+                        result.error("COOLWEAR_FEATURE_UNVERIFIED", "此戒指功能不受支持", null);
+                    }
+                    break;
+                case "writeDeviceFeature":
+                    if (!isConnectedHr05()) {
+                        result.error("COOLWEAR_FEATURE_UNVERIFIED", "此戒指功能不受支持", null);
+                        return;
+                    }
+                    String writeFeature = call.argument("feature");
+                    Map<String, Object> notificationValues = call.argument("values");
+                    if (notificationValues == null) {
+                        result.error("INVALID_SETTINGS", "消息提醒设置无效", null);
+                        return;
+                    }
+                    if ("health_reminders".equals(writeFeature)) {
+                        writeReminder(notificationValues, result);
+                        break;
+                    }
+                    if (!"notifications".equals(writeFeature)) {
+                        result.error("COOLWEAR_FEATURE_UNVERIFIED", "此戒指功能不受支持", null);
+                        return;
+                    }
+                    android.content.SharedPreferences.Editor editor = activity.getSharedPreferences(
+                            NOTIFICATION_PREFS, Context.MODE_PRIVATE).edit();
+                    for (String key : NOTIFICATION_KEYS) {
+                        if (notificationValues.containsKey(key)) {
+                            editor.putBoolean(key, Boolean.TRUE.equals(notificationValues.get(key)));
+                        }
+                    }
+                    editor.apply();
+                    result.success(null);
+                    break;
                 case "triggerDeviceAction":
                     if (!linkConnected || !deviceInfoReceived) {
                         result.error("NOT_CONNECTED", "请先连接戒指", null);
@@ -994,7 +1304,9 @@ public final class CoolWearRingBridge
                     String feature = call.argument("feature");
                     Boolean actionEnabled = call.argument("enabled");
                     boolean enabled = actionEnabled == null || actionEnabled;
-                    if ("find_watch".equals(feature)) {
+                    if ("notifications".equals(feature) && isConnectedHr05()) {
+                        activity.startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+                    } else if ("find_watch".equals(feature)) {
                         if (enabled) helper.getSendBlueData().sendFindDevice();
                     } else if ("camera".equals(feature) &&
                             functionControl != null &&
@@ -1105,11 +1417,15 @@ public final class CoolWearRingBridge
     }
 
     public void dispose() {
+        if (activeBridge == this) activeBridge = null;
+        linkConnected = false;
+        deviceInfoReceived = false;
         if (scanDeadline != null) main.removeCallbacks(scanDeadline);
         if (connectDeadline != null) main.removeCallbacks(connectDeadline);
         if (syncDeadline != null) main.removeCallbacks(syncDeadline);
         cancelHrvFallback();
         failPendingAutoSettings("BRIDGE_DISPOSED", "戒指连接已关闭");
+        cancelReminderRead();
         failPendingSync("BRIDGE_DISPOSED", "戒指连接已关闭");
         if (helper != null) {
             helper.stopScan();

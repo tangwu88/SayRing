@@ -1,11 +1,37 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../domain/models.dart';
 import '../domain/global_account.dart';
 import '../domain/global_care.dart';
 import '../l10n/global_locale_controller.dart';
 import '../services/api_client.dart';
 import '../services/app_controller.dart';
+
+const _serverCareMetrics = <String>{
+  'sleep',
+  'steps',
+  'distance',
+  'calories',
+  'heart_rate',
+  'blood_oxygen',
+  'blood_pressure',
+  'blood_glucose',
+  'temperature',
+  'hrv',
+  'ecg',
+  'body_composition',
+  'blood_composition',
+};
+
+Set<String> supportedCareMetrics(Iterable<HealthMetric> metrics) => metrics
+    .map(
+      (metric) => metric.wireName == 'body_temperature'
+          ? 'temperature'
+          : metric.wireName,
+    )
+    .where(_serverCareMetrics.contains)
+    .toSet();
 
 class GlobalCarePage extends StatefulWidget {
   const GlobalCarePage({super.key, required this.controller});
@@ -150,7 +176,10 @@ class _GlobalCarePageState extends State<GlobalCarePage> {
   }
 
   Future<void> _permissions(GlobalCareRelationship row) async {
-    final selected = {...row.metrics};
+    final supported = supportedCareMetrics(
+      widget.controller.capabilities?.metrics ?? const <HealthMetric>{},
+    );
+    final selected = row.metrics.intersection(supported);
     final result = await showDialog<Set<String>>(
       context: context,
       builder: (dialog) => StatefulBuilder(
@@ -163,7 +192,10 @@ class _GlobalCarePageState extends State<GlobalCarePage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(dialog.l10n.careSharingHint),
-                  for (final entry in _metricLabels(dialog).entries)
+                  if (supported.isEmpty) Text(dialog.l10n.connectForWorkout),
+                  for (final entry in _metricLabels(
+                    dialog,
+                  ).entries.where((entry) => supported.contains(entry.key)))
                     CheckboxListTile(
                       title: Text(entry.value),
                       value: selected.contains(entry.key),
@@ -186,7 +218,9 @@ class _GlobalCarePageState extends State<GlobalCarePage> {
               child: Text(dialog.l10n.cancel),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(dialog, selected),
+              onPressed: supported.isEmpty
+                  ? null
+                  : () => Navigator.pop(dialog, selected),
               child: Text(dialog.l10n.save),
             ),
           ],
