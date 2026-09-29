@@ -2451,13 +2451,15 @@ class _SportOverviewPageState extends State<SportOverviewPage> {
   }
 
   Future<void> _refreshActivity() async {
+    // Show already saved activity immediately. HR05 history can wait for a
+    // vendor completion event that some firmware never sends.
+    await _loadActivity();
     try {
       if (widget.controller.connectedDevice != null &&
           !widget.controller.isDeviceSyncing) {
         await widget.controller.syncDeviceData();
       }
-      await widget.controller.synchronizeCloud();
-      await widget.controller.refreshSportRecords();
+      await widget.controller.refreshSportRecords(includeDevice: false);
     } catch (_) {
       // A failed remote sync must not hide already saved local activity.
     } finally {
@@ -2582,11 +2584,16 @@ class _SportEntryPanel extends StatelessWidget {
             ),
           ),
           if (latest.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(top: 8),
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
               child: Text(
-                '暂无今日活动数据，下拉可同步戒指',
-                style: TextStyle(color: SaydianColors.muted),
+                controller.isDeviceSyncing
+                    ? '正在读取戒指活动数据，已保存的记录仍可查看'
+                    : controller.syncStatus.contains('失败') ||
+                          controller.syncStatus.contains('未确认')
+                    ? '戒指尚未返回完整活动数据，请保持连接后重试'
+                    : '暂无今日活动数据，下拉可同步戒指',
+                style: const TextStyle(color: SaydianColors.muted),
               ),
             ),
           const SizedBox(height: 14),
@@ -3272,7 +3279,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
                 ],
               ),
             ),
-            if (active && (liveData.isNotEmpty || _routePoints.isNotEmpty)) ...[
+            if (active) ...[
               const SizedBox(height: 14),
               Wrap(
                 spacing: 10,
@@ -3305,6 +3312,14 @@ class _SportSessionPageState extends State<SportSessionPage> {
                   ),
                 ],
               ),
+              if (liveData['calories'] == null &&
+                  widget.controller.connectedDevice?.model == 'HR05') ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'HR05 运动实时协议未回传热量；结束后同步戒指记录查看，不显示估算值。',
+                  style: TextStyle(color: SaydianColors.muted, fontSize: 12),
+                ),
+              ],
             ],
             const SizedBox(height: 18),
             _InlineNotice(

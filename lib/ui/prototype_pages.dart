@@ -5208,6 +5208,7 @@ class CustomerServicePage extends StatelessWidget {
             final validPhone = RegExp(
               r'^\+?[0-9][0-9 -]{4,20}$',
             ).hasMatch(phone);
+            final chinese = Localizations.localeOf(context).languageCode == 'zh';
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
@@ -5217,7 +5218,13 @@ class CustomerServicePage extends StatelessWidget {
                     !configured ||
                     (!validPhone && account.isEmpty))
                   FeatureStateCard(
-                    message: context.l10n.serviceUnavailable,
+                    message: !chinese
+                        ? context.l10n.serviceUnavailable
+                        : snapshot.hasError
+                        ? '客服信息加载失败，请检查网络后重试'
+                        : !configured
+                        ? '客服联系方式暂未配置，请稍后再试'
+                        : '客服联系方式不完整，请稍后再试',
                     detail: context.l10n.supportPrivacyWarning,
                     icon: Icons.support_agent,
                   )

@@ -203,6 +203,18 @@ void main() {
     },
   );
 
+  testWidgets('Chinese support explains that no contact is configured', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      const CustomerServicePage(isGlobalEdition: true),
+      locale: const Locale('zh'),
+    );
+    expect(find.text('客服联系方式暂未配置，请稍后再试'), findsOneWidget);
+    expect(find.text('4006386738'), findsNothing);
+  });
+
   testWidgets(
     'international security reset opens the global email and phone flow',
     (tester) async {

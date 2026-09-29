@@ -677,6 +677,7 @@ class AppController extends ChangeNotifier {
   DeviceCapabilityState deviceCapabilityState =
       DeviceCapabilityState.disconnected;
   SportMode? activeSport;
+  SportMode? _startingSport;
   bool sportPaused = false;
   Map<String, num> liveSportData = const {};
   List<DeviceInfo> scannedDevices = const [];
@@ -864,6 +865,7 @@ class AppController extends ChangeNotifier {
     activeHealthWarningAlert = null;
     activeCareInvitationAlert = null;
     activeSport = null;
+    _startingSport = null;
     sportPaused = false;
     liveSportData = const {};
     careMembers = const [];
@@ -1950,12 +1952,59 @@ class AppController extends ChangeNotifier {
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
       }
+      if (error.code == 'COOLWEAR_SYNC_TIMEOUT' && error.details is List) {
+        final partial = <HealthRecord>[];
+        for (final value in error.details as List) {
+          if (value is! Map) continue;
+          try {
+            final record = HealthRecord.fromJson(
+              value.map((key, item) => MapEntry('$key', item)),
+            );
+            final currentId = deviceId
+                .replaceFirst('coolwear:', '')
+                .toLowerCase();
+            final recordId = record.deviceId
+                .replaceFirst('coolwear:', '')
+                .toLowerCase();
+            if (currentId == recordId) partial.add(record);
+          } catch (_) {
+            // One malformed vendor packet must not erase other valid packets.
+          }
+        }
+        final records = deduplicateHealthRecords(
+          partial
+              .map(sanitizeWearableTransportRecord)
+              .where(hasSaneWearableTransportValues),
+        );
+        if (records.isNotEmpty) {
+          await _healthStore.upsert(records);
+          if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+            return false;
+          }
+          await _refreshHealthRecordCache(
+            expectedGeneration: sessionGeneration,
+          );
+          if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+            return false;
+          }
+          syncStatus = '已读取 ${records.length} 条，戒指未确认同步完成';
+          _deviceSyncErrorMessage = '已保留读到的记录，但戒指未确认同步完成；稍后可重试';
+          errorMessage = _deviceSyncErrorMessage;
+          return false;
+        }
+      }
       if (error.code == 'HISTORY_UNVERIFIED') {
         syncStatus = '设备已连接，此戒指历史同步暂未开放';
         if (!initial) {
           _deviceSyncErrorMessage = '此戒指的历史数据同步尚未完成验证';
           errorMessage = _deviceSyncErrorMessage;
         }
+        return false;
+      }
+      if (error.code == 'COOLWEAR_SYNC_TIMEOUT') {
+        syncStatus = '设备已连接，戒指暂未返回活动记录';
+        _deviceSyncErrorMessage = '本次未收到活动数据；请保持戒指靠近手机，稍后重试';
+        errorMessage = _deviceSyncErrorMessage;
         return false;
       }
       syncStatus = '设备已连接，${initial ? '首次数据同步失败' : '历史数据同步失败'}';
@@ -2402,11 +2451,15 @@ class AppController extends ChangeNotifier {
       return false;
     }
     errorMessage = null;
+    // The native bridge can deliver a live sample before the start method
+    // completes. Keep that sample instead of clearing it after the await.
+    liveSportData = const {};
+    _startingSport = mode;
     try {
       await _wearable.startSport(mode);
       activeSport = mode;
+      _startingSport = null;
       sportPaused = false;
-      liveSportData = const {};
       if (deviceState == DeviceConnectionState.ready) {
         deviceMachine.transition(DeviceConnectionState.measuring);
       }
@@ -2419,6 +2472,8 @@ class AppController extends ChangeNotifier {
     } catch (_) {
       errorMessage = '无法开始运动，请稍后重试';
     }
+    _startingSport = null;
+    liveSportData = const {};
     notifyListeners();
     return false;
   }
@@ -2428,6 +2483,7 @@ class AppController extends ChangeNotifier {
     try {
       await _wearable.stopSport();
       activeSport = null;
+      _startingSport = null;
       sportPaused = false;
       if (deviceState == DeviceConnectionState.measuring) {
         deviceMachine.transition(DeviceConnectionState.ready);
@@ -2471,13 +2527,14 @@ class AppController extends ChangeNotifier {
     return false;
   }
 
-  Future<void> refreshSportRecords() async {
+  Future<void> refreshSportRecords({bool includeDevice = true}) async {
     final generation = _sessionGeneration;
+    final deviceId = connectedDevice?.id;
     await Future<void>.delayed(Duration.zero);
     if (!_isCurrentSessionGeneration(generation)) return;
     final localRecords = await _healthStore.localSportRecords();
     if (!_isCurrentSessionGeneration(generation)) return;
-    if (connectedDevice == null) {
+    if (deviceId == null || !includeDevice) {
       sportRecords = localRecords;
       notifyListeners();
       return;
@@ -2485,7 +2542,20 @@ class AppController extends ChangeNotifier {
     sportRecords = localRecords;
     try {
       final records = await _wearable.readSportRecords();
-      if (!_isCurrentSessionGeneration(generation)) return;
+      if (!_isCurrentSessionGeneration(generation) ||
+          connectedDevice?.id != deviceId) {
+        return;
+      }
+      final localIds = localRecords.map((record) => record.id).toSet();
+      for (final record in records) {
+        if (!_isCurrentSessionGeneration(generation) ||
+            connectedDevice?.id != deviceId) {
+          return;
+        }
+        if (!localIds.contains(record.id)) {
+          await _healthStore.saveSportRecord(record);
+        }
+      }
       final byId = <String, SportRecord>{
         for (final record in records) record.id: record,
         for (final record in localRecords) record.id: record,
@@ -2497,8 +2567,53 @@ class AppController extends ChangeNotifier {
           ),
         );
     } on PlatformException catch (error) {
-      if (!_isCurrentSessionGeneration(generation)) return;
-      errorMessage = _wearableErrorMessage(error, fallback: '读取运动记录失败');
+      if (!_isCurrentSessionGeneration(generation) ||
+          connectedDevice?.id != deviceId) {
+        return;
+      }
+      if (error.code == 'COOLWEAR_SYNC_TIMEOUT' && error.details is List) {
+        final partial = <SportRecord>[];
+        for (final value in error.details as List) {
+          if (value is! Map) continue;
+          try {
+            final record = SportRecord.fromMap(value.cast<Object?, Object?>());
+            if (record.id.isNotEmpty && record.startedAt != null) {
+              partial.add(record);
+            }
+          } catch (_) {
+            // Ignore an invalid vendor packet, not the other valid records.
+          }
+        }
+        final localIds = localRecords.map((record) => record.id).toSet();
+        for (final record in partial) {
+          if (!_isCurrentSessionGeneration(generation) ||
+              connectedDevice?.id != deviceId) {
+            return;
+          }
+          if (!localIds.contains(record.id)) {
+            await _healthStore.saveSportRecord(record);
+          }
+        }
+        if (!_isCurrentSessionGeneration(generation) ||
+            connectedDevice?.id != deviceId) {
+          return;
+        }
+        final byId = <String, SportRecord>{
+          for (final record in partial) record.id: record,
+          for (final record in localRecords) record.id: record,
+        };
+        sportRecords = byId.values.toList()
+          ..sort(
+            (a, b) => (b.startedAt ?? DateTime(1970)).compareTo(
+              a.startedAt ?? DateTime(1970),
+            ),
+          );
+      }
+      errorMessage = error.code == 'COOLWEAR_SYNC_TIMEOUT'
+          ? sportRecords.length > localRecords.length
+                ? '已保留读到的运动记录，但戒指未确认同步完成；稍后可重试'
+                : '戒指暂未返回运动记录；已有记录仍可查看，稍后可重试'
+          : _wearableErrorMessage(error, fallback: '读取运动记录失败');
     } catch (_) {
       if (!_isCurrentSessionGeneration(generation)) return;
       errorMessage = '运动记录读取失败，请稍后重试';
@@ -5300,6 +5415,7 @@ class AppController extends ChangeNotifier {
       _latestDeviceDetails = null;
       capabilities = null;
       activeSport = null;
+      _startingSport = null;
       sportPaused = false;
       liveSportData = const {};
       deviceCapabilityState = DeviceCapabilityState.disconnected;
@@ -5334,7 +5450,7 @@ class AppController extends ChangeNotifier {
         }
       }
     } else if (event.type == 'sportData') {
-      if (activeSport != null) {
+      if (activeSport != null || _startingSport != null) {
         liveSportData = {
           ...liveSportData,
           for (final entry in event.payload.entries)
@@ -5346,6 +5462,7 @@ class AppController extends ChangeNotifier {
       final mode = SportMode.tryFromWire('${event.payload['mode'] ?? ''}');
       if (value == 'stopped') {
         activeSport = null;
+        _startingSport = null;
         sportPaused = false;
         if (deviceState == DeviceConnectionState.measuring) {
           deviceMachine.transition(DeviceConnectionState.ready);

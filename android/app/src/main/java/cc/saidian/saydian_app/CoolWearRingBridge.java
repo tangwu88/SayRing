@@ -228,8 +228,13 @@ public final class CoolWearRingBridge
                 (K6BleDataResult<ArrayList<K6_Sport>>) values -> {
                     if (values != null) {
                         ArrayList<K6_Sport> snapshot = new ArrayList<>(values);
-                        main.post(() -> collectHealth(CoolWearRecordMapper.activityRecords(
-                                connectedId, firmwareVersion, snapshot)));
+                        main.post(() -> {
+                            List<Map<String, Object>> records = CoolWearRecordMapper.activityRecords(
+                                    connectedId, firmwareVersion, snapshot);
+                            Log.i(TAG, "activity packet received; entries=" + snapshot.size()
+                                    + ", valid records=" + records.size());
+                            collectHealth(records);
+                        });
                     }
                     return false;
                 });
@@ -432,10 +437,21 @@ public final class CoolWearRingBridge
         MethodChannel.Result sportResult = pendingSportSync;
         pendingHealthSync = null;
         pendingSportSync = null;
+        // When the final sync callback is absent, preserve individually
+        // validated packets for the caller, but never report the whole history
+        // as synchronized without the vendor completion event.
+        List<Map<String, Object>> partialHealth = new ArrayList<>(syncedHealthRecords.values());
+        List<Map<String, Object>> partialSport = new ArrayList<>(syncedSportRecords.values());
+        if ("COOLWEAR_SYNC_TIMEOUT".equals(code)) {
+            Log.w(TAG, "vendor sync timeout; health records=" + partialHealth.size()
+                    + ", sport records=" + partialSport.size());
+        }
         syncedHealthRecords.clear();
         syncedSportRecords.clear();
-        if (healthResult != null) healthResult.error(code, message, null);
-        if (sportResult != null) sportResult.error(code, message, null);
+        if (healthResult != null) healthResult.error(code, message,
+                "COOLWEAR_SYNC_TIMEOUT".equals(code) ? partialHealth : null);
+        if (sportResult != null) sportResult.error(code, message,
+                "COOLWEAR_SYNC_TIMEOUT".equals(code) ? partialSport : null);
     }
 
     private void failConnect(String code, String message) {
@@ -870,9 +886,11 @@ public final class CoolWearRingBridge
     private void onHeartValues(List<K6_HeartStruct> values) {
         if (activeSportMode != null && linkConnected) {
             for (K6_HeartStruct value : values) {
-                long time = CoolWearRecordMapper.currentTimestamp(value.getTime());
                 int bpm = value.getHeartNums();
-                if (time != 0 && bpm > 0 && bpm <= 250) {
+                // This SDK callback is the live display channel, not history.
+                // HR05 may send a zero/firmware-local timestamp here; do not
+                // reject a valid live sample using history timestamp rules.
+                if (bpm > 0 && bpm <= 250) {
                     Map<String, Object> payload = new HashMap<>();
                     payload.put("heartRate", bpm);
                     emit("sportData", payload);

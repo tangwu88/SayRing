@@ -609,6 +609,93 @@ void main() {
   });
 
   test(
+    'CoolWear timeout preserves received activity without claiming success',
+    () async {
+      const ring = DeviceInfo(
+        id: 'coolwear:42:57:50:04:AB:4C',
+        name: 'HR05',
+        model: 'HR05',
+        rssi: -40,
+      );
+      final store = MemoryHealthStore();
+      final record = HealthRecord(
+        id: 'partial-steps',
+        metric: HealthMetric.steps,
+        values: const {'value': 521},
+        unit: 'steps',
+        measuredAt: DateTime.now().toUtc(),
+        timezone: '+08:00',
+        deviceId: ring.id,
+        firmwareVersion: 'test',
+        quality: 'device_reported',
+        source: MeasurementSource.wearable,
+        rawVersion: 1,
+      );
+      final wearable = _QaWearable(
+        scannedDevice: ring,
+        syncError: PlatformException(
+          code: 'COOLWEAR_SYNC_TIMEOUT',
+          details: [record.toJson()],
+        ),
+      );
+      final controller = _controller(wearable: wearable, store: store);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      final scan = controller.scanDevices();
+      await Future<void>.delayed(Duration.zero);
+      await controller.connectDevice(ring);
+      await scan;
+
+      expect(await controller.syncDeviceData(), isFalse);
+      expect(controller.syncStatus, contains('已读取 1 条'));
+      expect(controller.syncStatus, contains('未确认同步完成'));
+      expect((await store.recent()).single.id, record.id);
+      expect((await store.pending()).single.id, record.id);
+    },
+  );
+
+  test('CoolWear timeout rejects packets from another ring', () async {
+    const ring = DeviceInfo(
+      id: 'coolwear:42:57:50:04:AB:4C',
+      name: 'HR05',
+      model: 'HR05',
+      rssi: -40,
+    );
+    final store = MemoryHealthStore();
+    final foreignRecord = HealthRecord(
+      id: 'foreign-steps',
+      metric: HealthMetric.steps,
+      values: const {'value': 521},
+      unit: 'steps',
+      measuredAt: DateTime.now().toUtc(),
+      timezone: '+08:00',
+      deviceId: 'coolwear:OTHER',
+      firmwareVersion: 'test',
+      quality: 'device_reported',
+      source: MeasurementSource.wearable,
+      rawVersion: 1,
+    );
+    final wearable = _QaWearable(
+      scannedDevice: ring,
+      syncError: PlatformException(
+        code: 'COOLWEAR_SYNC_TIMEOUT',
+        details: [foreignRecord.toJson()],
+      ),
+    );
+    final controller = _controller(wearable: wearable, store: store);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+    final scan = controller.scanDevices();
+    await Future<void>.delayed(Duration.zero);
+    await controller.connectDevice(ring);
+    await scan;
+
+    expect(await controller.syncDeviceData(), isFalse);
+    expect(await store.recent(), isEmpty);
+    expect(controller.errorMessage, contains('本次未收到活动数据'));
+  });
+
+  test(
     'a delayed disconnect from an old watch keeps the current watch ready',
     () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
@@ -1043,9 +1130,15 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('sport-session-toggle')));
     await tester.pump(const Duration(seconds: 1));
+    expect(controller.activeSport, SportMode.walking);
     await tester.tap(find.byKey(const Key('sport-session-toggle')));
     await tester.pump();
 
+    await tester.scrollUntilVisible(
+      find.textContaining('正在结束运动并保存记录'),
+      150,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.textContaining('正在结束运动并保存记录'), findsOneWidget);
     expect(find.text('正在保存'), findsOneWidget);
     expect(
@@ -1154,6 +1247,104 @@ void main() {
     expect(controller.sportPaused, isFalse);
     expect(controller.deviceState, DeviceConnectionState.ready);
     expect(controller.liveSportData['steps'], 921);
+  });
+
+  test(
+    'live heart sample arriving before sport start completes is retained',
+    () async {
+      final startCompleter = Completer<void>();
+      final wearable = _QaSportWearable(startCompleter: startCompleter);
+      final controller = _controller(wearable: wearable);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      controller.connectedDevice = wearable.scannedDevice;
+      for (final state in const [
+        DeviceConnectionState.scanning,
+        DeviceConnectionState.connecting,
+        DeviceConnectionState.authenticating,
+        DeviceConnectionState.syncing,
+        DeviceConnectionState.ready,
+      ]) {
+        controller.deviceMachine.transition(state);
+      }
+
+      final starting = controller.startSport(SportMode.walking);
+      wearable.emitEvent(
+        const WearableEvent(type: 'sportData', payload: {'heartRate': 94}),
+      );
+      await Future<void>.delayed(Duration.zero);
+      startCompleter.complete();
+      expect(await starting, isTrue);
+      expect(controller.liveSportData['heartRate'], 94);
+    },
+  );
+
+  test(
+    'sport history timeout retains packet but not a success claim',
+    () async {
+      final record = SportRecord(
+        id: 'partial-sport',
+        mode: SportMode.walking,
+        startedAt: DateTime.now(),
+        durationSeconds: 90,
+        distanceKm: 0.12,
+        calories: 4,
+      );
+      final store = MemoryHealthStore();
+      final wearable = _QaSportWearable(
+        sportError: PlatformException(
+          code: 'COOLWEAR_SYNC_TIMEOUT',
+          details: [record.toMap()],
+        ),
+      );
+      final controller = _controller(wearable: wearable, store: store);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      controller.connectedDevice = wearable.scannedDevice;
+
+      await controller.refreshSportRecords();
+      expect(controller.sportRecords.single.id, record.id);
+      expect((await store.localSportRecords()).single.id, record.id);
+      expect(controller.errorMessage, contains('已保留读到的运动记录'));
+    },
+  );
+
+  test('late sport history from a previous device is not saved', () async {
+    final readCompleter = Completer<List<SportRecord>>();
+    final wearable = _QaSportWearable(readSportCompleter: readCompleter);
+    final store = MemoryHealthStore();
+    final controller = _controller(wearable: wearable, store: store);
+    await controller.initialize();
+    addTearDown(controller.dispose);
+    controller.connectedDevice = wearable.scannedDevice;
+
+    final pending = controller.refreshSportRecords();
+    for (
+      var attempt = 0;
+      attempt < 10 && wearable.readSportCount == 0;
+      attempt++
+    ) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(wearable.readSportCount, 1);
+    controller.connectedDevice = const DeviceInfo(
+      id: 'coolwear:OTHER',
+      name: 'HR05',
+      model: 'HR05',
+      rssi: -50,
+    );
+    readCompleter.complete([
+      SportRecord(
+        id: 'old-device-record',
+        mode: SportMode.walking,
+        startedAt: DateTime.now(),
+        durationSeconds: 60,
+        distanceKm: 0.1,
+        calories: 1,
+      ),
+    ]);
+    await pending;
+    expect(await store.localSportRecords(), isEmpty);
   });
 
   testWidgets('initial sync failure keeps the authenticated device ready', (
@@ -2184,9 +2375,17 @@ class _QaWearable extends Fake implements WearableBridge {
 }
 
 class _QaSportWearable extends _QaWearable implements WearableSportPauseBridge {
-  _QaSportWearable({this.stopCompleter});
+  _QaSportWearable({
+    this.stopCompleter,
+    this.startCompleter,
+    this.readSportCompleter,
+    this.sportError,
+  });
 
   final Completer<void>? stopCompleter;
+  final Completer<void>? startCompleter;
+  final Completer<List<SportRecord>>? readSportCompleter;
+  final PlatformException? sportError;
   int pauseCount = 0;
   int resumeCount = 0;
   int startCount = 0;
@@ -2195,6 +2394,15 @@ class _QaSportWearable extends _QaWearable implements WearableSportPauseBridge {
   @override
   Future<void> startSport(SportMode mode) async {
     startCount++;
+    if (startCompleter != null) await startCompleter!.future;
+  }
+
+  @override
+  Future<List<SportRecord>> readSportRecords() async {
+    readSportCount++;
+    if (sportError case final error?) throw error;
+    if (readSportCompleter != null) return readSportCompleter!.future;
+    return const [];
   }
 
   @override
