@@ -34,6 +34,8 @@ import { globalReportId, parseGlobalHealthReport, parseGlobalHealthReports, pars
   parseReportProfile, parseReportEligibility, reportGenerationBlock, validateReportPdf } from '../model/GlobalHealthReports';
 import type { GlobalHealthReport, GlobalReportProfile, GlobalReportEligibility, GlobalAnalysisDocument } from '../model/GlobalHealthReports';
 import type { AiDisplayAccess } from '../model/AppDisplay';
+import { parseSupportConfig } from '../model/SupportConfig';
+import type { SupportConfig } from '../model/SupportConfig';
 
 export interface SessionStore {
   read(): Promise<Session | undefined>;
@@ -191,6 +193,11 @@ export class AccountClient {
   async authCapabilities(locale: string = 'en'): Promise<GlobalAuthCapabilities> {
     const response = await this.transport.request(globalApiPath(`/auth/capabilities?locale=${encodeURIComponent(locale)}`));
     return parseAuthCapabilities(response.data);
+  }
+
+  async supportConfig(): Promise<SupportConfig> {
+    const response = await this.transport.request(globalApiPath('/support/config'));
+    return parseSupportConfig(response.data);
   }
 
   async healthReports(): Promise<GlobalHealthReport[]> {

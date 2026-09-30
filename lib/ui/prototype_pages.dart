@@ -5166,21 +5166,21 @@ class CustomerServicePage extends StatelessWidget {
   static const _phone = '4006386738';
   static const _officialAccount = '赛电';
 
-  Future<void> _call(BuildContext context) async {
-    final opened = await launchUrl(Uri(scheme: 'tel', path: _phone));
+  Future<void> _call(BuildContext context, String phone) async {
+    final opened = await launchUrl(Uri(scheme: 'tel', path: phone));
     if (!opened && context.mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('无法打开拨号界面，请手动拨打 $_phone')));
+      ).showSnackBar(SnackBar(content: Text('无法打开拨号界面，请手动拨打 $phone')));
     }
   }
 
-  Future<void> _copyAccount(BuildContext context) async {
-    await Clipboard.setData(const ClipboardData(text: _officialAccount));
+  Future<void> _copyAccount(BuildContext context, String account) async {
+    await Clipboard.setData(ClipboardData(text: account));
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('公众号“$_officialAccount”已复制，可前往微信搜索添加')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('公众号“$account”已复制，可前往微信搜索添加')));
   }
 
   @override
@@ -5192,6 +5192,9 @@ class CustomerServicePage extends StatelessWidget {
         body: FutureBuilder<Map<String, Object?>>(
           future: controller?.loadGlobalSupportConfig(),
           builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
             final config = snapshot.data ?? const <String, Object?>{};
             final configured = config['configured'] == true;
             final phone = configured ? '${config['phone'] ?? ''}'.trim() : '';
@@ -5208,12 +5211,11 @@ class CustomerServicePage extends StatelessWidget {
             final validPhone = RegExp(
               r'^\+?[0-9][0-9 -]{4,20}$',
             ).hasMatch(phone);
-            final chinese = Localizations.localeOf(context).languageCode == 'zh';
+            final chinese =
+                Localizations.localeOf(context).languageCode == 'zh';
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                if (snapshot.connectionState == ConnectionState.waiting)
-                  const LinearProgressIndicator(),
                 if (snapshot.hasError ||
                     !configured ||
                     (!validPhone && account.isEmpty))
@@ -5240,13 +5242,12 @@ class CustomerServicePage extends StatelessWidget {
                             title: Text(context.l10n.contactPhoneLabel),
                             subtitle: Text(phone),
                             trailing: FilledButton.tonal(
-                              onPressed: () =>
-                                  launchUrl(Uri(scheme: 'tel', path: phone)),
+                              onPressed: () => _call(context, phone),
                               child: Text(context.l10n.call),
                             ),
                           ),
                         if (validPhone && account.isNotEmpty)
-                          const Divider(indent: 72),
+                          const Divider(indent: 72, height: 1),
                         if (account.isNotEmpty)
                           ListTile(
                             leading: const CircleAvatar(
@@ -5256,14 +5257,7 @@ class CustomerServicePage extends StatelessWidget {
                             subtitle: Text(account),
                             trailing: FilledButton.tonal(
                               onPressed: () async {
-                                await Clipboard.setData(
-                                  ClipboardData(text: account),
-                                );
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('公众号名称已复制')),
-                                  );
-                                }
+                                await _copyAccount(context, account);
                               },
                               child: Text(context.l10n.addSupportContact),
                             ),
@@ -5272,14 +5266,14 @@ class CustomerServicePage extends StatelessWidget {
                     ),
                   ),
                   if (hours.isNotEmpty || message.isNotEmpty) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 16),
                     FeatureStateCard(
                       message: hours.isEmpty ? message : hours,
                       detail: hours.isEmpty ? null : message,
                       icon: Icons.schedule_outlined,
                     ),
                   ],
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   FeatureStateCard(
                     message: context.l10n.contactPreparationHint,
                     detail: context.l10n.supportPrivacyWarning,
@@ -5307,7 +5301,7 @@ class CustomerServicePage extends StatelessWidget {
                   title: Text(context.l10n.contactPhoneLabel),
                   subtitle: const Text(_phone),
                   trailing: FilledButton.tonal(
-                    onPressed: () => _call(context),
+                    onPressed: () => _call(context, _phone),
                     child: Text(context.l10n.call),
                   ),
                 ),
@@ -5319,7 +5313,7 @@ class CustomerServicePage extends StatelessWidget {
                   title: Text(context.l10n.wechatOfficialAccount),
                   subtitle: const Text(_officialAccount),
                   trailing: FilledButton.tonal(
-                    onPressed: () => _copyAccount(context),
+                    onPressed: () => _copyAccount(context, _officialAccount),
                     child: Text(context.l10n.addSupportContact),
                   ),
                 ),

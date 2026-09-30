@@ -204,7 +204,7 @@ test('reset password validates before using the existing iOS endpoint',async()=>
 });
 test('native inner pages keep operational forms, routes and fixed payment footer',()=>{
   const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
-  for(const id of ['save_profile','profile_birthday','submit_feedback','contact_feedback','submit_reset','account_addresses',
+  for(const id of ['save_profile','profile_birthday','submit_feedback','contact_call','contact_copy','contact_retry','submit_reset','account_addresses',
     'trend_calendar','trend_period_','health_trend_chart','all_trend_records','care_sharing','care_invitations'])assert.ok(source.includes(id),id);
   assert.equal((source.match(/id\('confirm_payment'\)/g)||[]).length,1);
   const alerts=source.slice(source.indexOf('  HealthAlertContent()'),source.indexOf('  ShopHomeContent()'));

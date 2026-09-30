@@ -169,6 +169,16 @@ class _GlobalPageController extends Fake implements AppController {
       'Unable to load health reports.';
 }
 
+class _SupportPageController extends _GlobalPageController {
+  @override
+  Future<Map<String, Object?>> loadGlobalSupportConfig() async => {
+    'configured': true,
+    'phone': '4001234567',
+    'officialAccount': '赛电国际客服',
+    'serviceHours': '工作日 09:00-18:00',
+  };
+}
+
 Future<void> _pump(
   WidgetTester tester,
   Widget page, {
@@ -218,6 +228,29 @@ void main() {
     expect(find.text('客服联系方式暂未配置，请稍后再试'), findsOneWidget);
     expect(find.text('4006386738'), findsNothing);
   });
+
+  testWidgets(
+    'configured international support matches the reference contact card',
+    (tester) async {
+      await _pump(
+        tester,
+        CustomerServicePage(
+          isGlobalEdition: true,
+          controller: _SupportPageController(),
+        ),
+        locale: const Locale('zh'),
+      );
+      expect(find.text('联系电话'), findsOneWidget);
+      expect(find.text('4001234567'), findsOneWidget);
+      expect(find.text('拨打电话'), findsOneWidget);
+      expect(find.text('公众号'), findsOneWidget);
+      expect(find.text('赛电国际客服'), findsOneWidget);
+      expect(find.text('添加客服'), findsOneWidget);
+      expect(find.text('工作日 09:00-18:00'), findsOneWidget);
+      expect(find.text('4006386738'), findsNothing);
+      expect(find.text('赛电'), findsNothing);
+    },
+  );
 
   testWidgets(
     'international security reset opens the global email and phone flow',

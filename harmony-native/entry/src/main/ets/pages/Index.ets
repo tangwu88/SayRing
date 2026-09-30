@@ -8,7 +8,7 @@ import { CareMember, CareInvitation, CareShareSettings, CareMetric, CareRecord, 
   careGroupOptions, toggleCareGroup } from '../model/CareContracts';
 import { common, Configuration } from '@kit.AbilityKit';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
-import { BusinessError } from '@kit.BasicServicesKit';
+import { BusinessError, pasteboard } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
 import { pushErrorMessage, paymentErrorMessage } from '../model/PushPaymentContracts';
 import type { PaymentProvider, ShopOrder } from '../model/PushPaymentContracts';
@@ -46,6 +46,7 @@ import { saveReportPdf } from '../services/ReportPdfExport';
 import { ShippingAddress, InboxMessage, ArticleCategory, orderStatusLabel, orderMatchesFilter } from '../model/AccountPageContracts';
 import { ProductDetail, ShopSku, ShopLine, ShopSelection, CheckoutPreview, OrderDetail, Shipment, ShipmentTrace,
   commerceMoney, commerceCents, purchaseError, checkoutError, orderHeading, orderExplanation } from '../model/CommerceContracts';
+import { SupportConfig, emptySupportConfig } from '../model/SupportConfig';
 
 import { AddressDraft, RegionCatalog, RegionChoice, emptyAddressDraft, copyAddressDraft, emptyRegions, parseRegions,
   addressRegionChoices, selectAddressRegion, addressValidation } from '../model/AddressForm';
@@ -169,6 +170,10 @@ struct Index {
   @State private feedbackContact: string = '';
   @State private expandedFaq: number = -1;
   @State private contactMessage: string = '';
+  @State private supportConfig: SupportConfig = emptySupportConfig();
+  @State private supportLoading: boolean = false;
+  @State private supportError: string = '';
+  private supportGeneration: number = 0;
   @State private addresses: ShippingAddress[] = [];
   @State private addressDraft: AddressDraft = emptyAddressDraft();
   @State private addressRegions: RegionCatalog = emptyRegions();
@@ -626,6 +631,51 @@ struct Index {
     this.innerParents.set(next, this.screen);
     this.formMessage = '';
     this.screen = next;
+  }
+
+  private openContact(): void {
+    this.openInnerPage('contact');
+    this.loadSupportConfig();
+  }
+
+  private async loadSupportConfig(): Promise<void> {
+    const generation = ++this.supportGeneration;
+    this.supportLoading = true; this.supportError = ''; this.contactMessage = '';
+    try {
+      const config = await saydianApi.supportConfig();
+      if (generation !== this.supportGeneration || this.screen !== 'contact') return;
+      this.supportConfig = config;
+      if (!config.configured) this.supportError = config.message || '客服渠道暂时无法使用，请稍后再试';
+    } catch (error) {
+      if (generation === this.supportGeneration && this.screen === 'contact') {
+        this.supportConfig = emptySupportConfig();
+        this.supportError = (error as Error).message || '客服信息加载失败，请稍后重试';
+      }
+    } finally {
+      if (generation === this.supportGeneration && this.screen === 'contact') this.supportLoading = false;
+    }
+  }
+
+  private async callSupport(): Promise<void> {
+    const phone = this.supportConfig.phone;
+    if (!phone) return;
+    try {
+      await this.uiContext().startAbility({ action: 'ohos.want.action.dial', uri: `tel:${phone.replace(/[^+0-9]/g, '')}` });
+    } catch {
+      this.contactMessage = `无法打开拨号界面，请手动拨打 ${phone}`;
+    }
+  }
+
+  private async copySupportAccount(): Promise<void> {
+    const account = this.supportConfig.officialAccount;
+    if (!account) return;
+    try {
+      const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, account);
+      await pasteboard.getSystemPasteboard().setData(data);
+      this.contactMessage = `公众号“${account}”已复制，可前往微信搜索添加`;
+    } catch {
+      this.contactMessage = `复制失败，请手动搜索公众号“${account}”`;
+    }
   }
 
   private openPasswordReset(): void {
@@ -1202,6 +1252,8 @@ struct Index {
     this.avatarPicking = false;
     this.formBusy = false; this.clearSportRecords(); this.selectedHealthRecord = undefined;
     this.feedbackContent = ''; this.feedbackContact = ''; this.innerParents.clear();
+    ++this.supportGeneration; this.supportConfig = emptySupportConfig(); this.supportLoading = false;
+    this.supportError = ''; this.contactMessage = '';
   }
 
   private accountFormFailure(error: Error): string {
@@ -2685,6 +2737,7 @@ struct Index {
     if (this.screen === 'addresses') this.selectingCheckoutAddress = false;
     this.commerceError = ''; this.commerceLoading = false;
     ++this.contentGeneration;
+    if (this.screen === 'contact') { ++this.supportGeneration; this.supportLoading = false; }
     if (this.screen === 'address-edit') { this.addressDraft = emptyAddressDraft(); this.regionsLoading = false; }
     if (this.screen === 'care-record') { this.selectedCareRecord = undefined; this.careWaveformSegment = 0; }
     if (this.screen === 'reset-password') {
@@ -4207,7 +4260,7 @@ struct Index {
               .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(GREEN_SOFT).borderRadius(14)
             Text(this.tr('联系客服')).fontSize(13).fontColor(INK).maxLines(2).textAlign(TextAlign.Center)
           }.layoutWeight(1).constraintSize({ minHeight: 82 }).justifyContent(FlexAlign.Center)
-            .onClick(() => this.screen = 'contact').id('mine_contact').accessibilityText(this.tr('联系客服'))
+            .onClick(() => this.openContact()).id('mine_contact').accessibilityText(this.tr('联系客服'))
           Column({ space: 7 }) {
             Column() { SymbolGlyph($r('sys.symbol.info_circle')).fontSize(23).fontColor([RED]) }
               .width(44).height(44).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(14)
@@ -5246,9 +5299,46 @@ struct Index {
 
   @Builder
   ContactContent() {
-    this.StateCard({ title: 'customerService', detail: 'global_support_unavailable', icon: $r('sys.symbol.message') })
-    Button(this.tr('feedback')).width('100%').constraintSize({ minHeight: 56 }).backgroundColor(RED)
-      .onClick(() => this.openInnerPage('help')).id('contact_feedback')
+    if (this.supportLoading) {
+      LoadingProgress().width(40).height(40).color(RED).margin({ top: 28, bottom: 28 })
+    } else if (this.supportError || !this.supportConfig.configured) {
+      this.StateCard({ title: 'customerService', detail: this.supportError || '客服渠道暂时无法使用，请稍后再试',
+        icon: $r('sys.symbol.message') })
+      Button(this.tr('重新加载')).width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
+        .onClick(() => this.loadSupportConfig()).id('contact_retry')
+    } else {
+      Column({ space: 0 }) {
+        if (this.supportConfig.phone) {
+          Row({ space: 14 }) {
+            Column() { SymbolGlyph($r('sys.symbol.phone')).fontSize(24).fontColor([RED]) }
+              .width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(21)
+            Column({ space: 4 }) {
+              Text(this.tr('联系电话')).fontSize(15).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+              Text(this.supportConfig.phone).fontSize(14).fontColor(MUTED).width('100%').copyOption(CopyOptions.InApp)
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            Button(this.tr('拨打电话')).constraintSize({ minHeight: 42 }).fontSize(14).fontColor(RED)
+              .backgroundColor(RED_SOFT).type(ButtonType.Normal).borderRadius(12)
+              .onClick(() => this.callSupport()).id('contact_call')
+          }.width('100%').constraintSize({ minHeight: 76 }).padding({ left: 16, right: 12, top: 10, bottom: 10 })
+        }
+        if (this.supportConfig.phone && this.supportConfig.officialAccount) { Divider().color(LINE).margin({ left: 72 }) }
+        if (this.supportConfig.officialAccount) {
+          Row({ space: 14 }) {
+            Column() { SymbolGlyph($r('sys.symbol.message')).fontSize(24).fontColor([GREEN]) }
+              .width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor(GREEN_SOFT).borderRadius(21)
+            Column({ space: 4 }) {
+              Text(this.tr('公众号')).fontSize(15).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+              Text(this.supportConfig.officialAccount).fontSize(14).fontColor(MUTED).width('100%').copyOption(CopyOptions.InApp)
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            Button(this.tr('添加客服')).constraintSize({ minHeight: 42 }).fontSize(14).fontColor(GREEN)
+              .backgroundColor(GREEN_SOFT).type(ButtonType.Normal).borderRadius(12)
+              .onClick(() => this.copySupportAccount()).id('contact_copy')
+          }.width('100%').constraintSize({ minHeight: 76 }).padding({ left: 16, right: 12, top: 10, bottom: 10 })
+        }
+      }.width('100%').backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE }).clip(true)
+      if (this.supportConfig.serviceHours) { this.Notice({ message: this.supportConfig.serviceHours, color: BLUE_SOFT }) }
+      if (this.contactMessage) { this.Notice({ message: this.contactMessage, color: GREEN_SOFT }) }
+    }
     this.StateCard({ title: 'support_prepare', detail: 'support_privacy',
       icon: $r('sys.symbol.lock_shield') })
   }
@@ -6196,7 +6286,7 @@ struct Index {
           } }.width(48).height(this.controlHeight(52)).backgroundColor(Color.Transparent).onClick(() => { this.screen = 'shop-home'; })
           Button() { Column({ space: 2 }) {
             SymbolGlyph($r('sys.symbol.phone')).fontSize(23).fontColor([INK]); Text(this.tr('客服')).fontSize(11).fontColor(INK)
-          } }.width(48).height(this.controlHeight(52)).backgroundColor(Color.Transparent).onClick(() => this.openInnerPage('contact'))
+          } }.width(48).height(this.controlHeight(52)).backgroundColor(Color.Transparent).onClick(() => this.openContact())
           Button(this.tr('加入购物车')).layoutWeight(1).height(this.controlHeight(48)).fontSize(14).fontWeight(FontWeight.Bold).fontColor(INK).backgroundColor(SURFACE)
             .type(ButtonType.Normal).border({ width: 1, color: OUTLINE, radius: 12 }).enabled(!this.commerceBusy)
             .onClick(() => this.showPurchase(true)).id('product_add_cart')
