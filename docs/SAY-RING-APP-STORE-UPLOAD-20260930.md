@@ -221,3 +221,13 @@
 - `./gradlew :app:testDebugUnitTest ...` 41 秒成功；8 份 XML 合计 32 tests / 0 failures / 0 errors / 0 skipped。既有 Kotlin/Gradle/SDK XML 版本警告保留，不借本次上传任务升级工具链。
 - Android QA Release 使用显式 `SAIDIAN_ALLOW_QA_RELEASE=true`，254 秒成功；实际 `cn.saydian.ring` / `0.1.21 (1006)`、双 ARM，APK SHA-256 `42abf1eb2e16433e5da4150345753837020d096591de44023f24488848452bd1`。v2 验签、16 KiB zipalign 通过，清单不含后台定位、读取电话状态或查询全部应用权限；它是 QA 签名门禁包，不是 Android 商店正式包。
 - 本轮手机操作仍按先前约定暂停，没有把编译结果写成真机通过。App Store 正式上传的唯一目标仍为已处理完成的 iOS `1.0 (1008)`。
+
+### 1008 iPhone 15 Pro Max 覆盖安装与启动验证
+
+- 用户随后明确要求将最新版重新安装到当前 USB 连接的苹果手机。执行前再次 fetch，当前分支、`origin/codex/macos-update-20260930` 与 `origin/main` 均为 `113b2223bc6563b0c70f6631d50ba012999992d2`，工作树干净；目标只选中连接中的 iPhone 15 Pro Max，不触碰其他已配对或不可用设备。
+- 手机上原有 Say Ring 是 `cn.saydian.ring` / `0.1.21 (1006)`。App Store Distribution IPA 没有设备列表，不能当作真机安装包；因此基于同一当前源码和同一 `1.0 (1008)` 版本，生成单独的 Profile 设备包，不更改 ID、商店版本、上传状态或审核资料。
+- 为留出构建空间，先确认没有 Flutter/Xcode/Gradle 编译进程，再仅执行本项目原生 `flutter clean --scheme Runner` 和离线 `flutter pub get --offline`；可用空间从约 1.0 GiB 升至约 4.0 GiB。既有 App Store 归档、IPA、SDK 和其他项目均未删除。
+- `flutter build ios --config-only --profile --no-codesign --no-pub --build-name=1.0 --build-number=1008 --dart-define-from-file=config/ios-app-store-no-push.json` 成功；随后以目标设备执行 `xcodebuild ... -configuration Profile -allowProvisioningUpdates ... build`，日志 `.build/sayring-1008-profile-device-{config,build}.log`，结果 `BUILD SUCCEEDED`。
+- 设备包 `Runner.app` 严格深层验签通过：`cn.saydian.ring` / arm64 / `1.0 (1008)`，`Apple Development: Xuewu Tang (9K5C433U49)`、Team `W7SXQ4A226`，内嵌 `iOS Team Provisioning Profile: cn.saydian.ring`（UUID `3ba4cada-8e17-4e61-892d-211b4ca649b8`，`get-task-allow=true`）。这是仅用于已注册真机调试的设备签名，与已上传的 App Store Distribution 正式包（`get-task-allow=false`）分开记录。
+- `xcrun devicectl device install app` 覆盖安装成功；随后 `xcrun devicectl device process launch --terminate-existing cn.saydian.ring` 成功。安装后设备清单回读为 Say Ring / `cn.saydian.ring` / `1.0 (1008)`，进程列表仍可见新安装路径的 `Runner.app/Runner`，证明安装与启动均已完成。
+- 本轮仅验收签名、覆盖安装、版本回读与冷启动，不将此结果扩展为登录、微信、蓝牙扫描、R21 连接或健康测量通过；这些需要保持戒指在旁的单独真机功能验收。
