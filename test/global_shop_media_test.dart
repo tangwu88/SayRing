@@ -22,6 +22,8 @@ const _allowedMedia = {
 
 class _ShopMediaController extends Fake implements AppController {
   @override
+  bool get commerceEnabled => true;
+  @override
   bool get isGlobalEdition => true;
   @override
   bool get isAuthenticated => false;

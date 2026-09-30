@@ -125,6 +125,12 @@ const _insufficient = HealthInterpretation(
 
 String healthValueLabel(String key, HealthMetric metric) => switch (key) {
   'value' => metric.label,
+  'deepHours' when metric == HealthMetric.sleep => '深睡时长',
+  'lightHours' when metric == HealthMetric.sleep => '浅睡时长',
+  'remHours' when metric == HealthMetric.sleep => '快速眼动时长',
+  'awakeMinutes' when metric == HealthMetric.sleep => '清醒时长',
+  'score' when metric == HealthMetric.sleep => '设备睡眠评分',
+  'efficiency' when metric == HealthMetric.sleep => '睡眠效率',
   'systolic' => '收缩压',
   'diastolic' => '舒张压',
   'skinTemperature' => '皮肤温度',
@@ -169,6 +175,12 @@ String healthValueLabel(String key, HealthMetric metric) => switch (key) {
 };
 
 String healthValueUnit(String key, HealthRecord record) => switch (key) {
+  'deepHours' ||
+  'lightHours' ||
+  'remHours' when record.metric == HealthMetric.sleep => '小时',
+  'awakeMinutes' when record.metric == HealthMetric.sleep => '分钟',
+  'score' when record.metric == HealthMetric.sleep => '分',
+  'efficiency' when record.metric == HealthMetric.sleep => '%',
   'meanHeartRate' || 'averageHeartRate' => 'bpm',
   'averageHRV' || 'hrv' || 'averageTimeInterval' || 'qt' => 'ms',
   'respiratoryRate' => '次/分',

@@ -15,13 +15,35 @@ List<HealthRecord> deduplicateHealthRecords(Iterable<HealthRecord> records) {
     final second = record.measuredAt.toUtc().millisecondsSinceEpoch ~/ 1000;
     final key = '${record.metric.wireName}|$device|$second';
     final existing = selected[key];
-    if (existing == null || _recordScore(record) > _recordScore(existing)) {
+    if (existing == null ||
+        _recordScore(record) > _recordScore(existing) ||
+        (_recordScore(record) == _recordScore(existing) &&
+            _isNewerQrActivityTotal(record, existing))) {
       selected[key] = record;
     }
   }
   final result = selected.values.toList(growable: false)
     ..sort((a, b) => b.measuredAt.compareTo(a.measuredAt));
   return result;
+}
+
+bool _isNewerQrActivityTotal(HealthRecord record, HealthRecord existing) {
+  // iOS QRing v3 contains cumulative snapshots of real SDK activity slots.
+  // The current slot can grow between syncs without changing its timestamp.
+  // Keep the largest reported total regardless of SQL/cloud return order.
+  const activity = {
+    HealthMetric.steps,
+    HealthMetric.distance,
+    HealthMetric.calories,
+  };
+  return activity.contains(record.metric) &&
+      record.source == MeasurementSource.wearable &&
+      existing.source == MeasurementSource.wearable &&
+      record.sourceVendor.toLowerCase() == 'qring' &&
+      existing.sourceVendor.toLowerCase() == 'qring' &&
+      record.rawVersion >= 3 &&
+      existing.rawVersion >= 3 &&
+      (record.values['value'] ?? 0) > (existing.values['value'] ?? 0);
 }
 
 int _recordScore(HealthRecord record) {

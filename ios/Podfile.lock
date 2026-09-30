@@ -35,6 +35,8 @@ PODS:
     - Flutter
   - permission_handler_apple (9.4.8):
     - Flutter
+  - share_plus (0.0.1):
+    - Flutter
   - sqflite_sqlcipher (0.0.1):
     - Flutter
     - FMDB/SQLCipher (~> 2.7.5)
@@ -66,6 +68,7 @@ DEPENDENCIES:
   - MJExtension (= 3.0.15.1)
   - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
+  - share_plus (from `.symlinks/plugins/share_plus/ios`)
   - sqflite_sqlcipher (from `.symlinks/plugins/sqflite_sqlcipher/ios`)
   - url_launcher_ios (from `.symlinks/plugins/url_launcher_ios/ios`)
   - WechatOpenSDK-XCFramework (= 2.0.7)
@@ -106,6 +109,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/package_info_plus/ios"
   permission_handler_apple:
     :path: ".symlinks/plugins/permission_handler_apple/ios"
+  share_plus:
+    :path: ".symlinks/plugins/share_plus/ios"
   sqflite_sqlcipher:
     :path: ".symlinks/plugins/sqflite_sqlcipher/ios"
   url_launcher_ios:
@@ -131,6 +136,7 @@ SPEC CHECKSUMS:
   MJExtension: 19bc33ce2eee2d319760f5622562cf581a6ff756
   package_info_plus: c0502532a26c7662a62a356cebe2692ec5fe4ec4
   permission_handler_apple: ee2fe0fd04551b304eb002714ff067c371c822ed
+  share_plus: 8b6f8b3447e494cca5317c8c3073de39b3600d1f
   sqflite_sqlcipher: 1c9c7ceb30cb65dab28712cb2110fdf39b37311c
   SQLCipher: eb79c64049cb002b4e9fcb30edb7979bf4706dfc
   url_launcher_ios: bb13df5870e8c4234ca12609d04010a21be43dfa

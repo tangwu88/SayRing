@@ -499,6 +499,7 @@ class DashboardPage extends StatelessWidget {
                     const SizedBox(height: 12),
                   ],
                   _FeatureEntryGrid(
+                    commerceEnabled: controller.commerceEnabled,
                     onCare: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
                         builder: (_) => Scaffold(
@@ -1262,6 +1263,7 @@ class _GoalProgressRow extends StatelessWidget {
 
 class _FeatureEntryGrid extends StatelessWidget {
   const _FeatureEntryGrid({
+    required this.commerceEnabled,
     required this.onCare,
     required this.onEncyclopedia,
     required this.onSport,
@@ -1272,6 +1274,7 @@ class _FeatureEntryGrid extends StatelessWidget {
   final VoidCallback onEncyclopedia;
   final VoidCallback onSport;
   final VoidCallback onMall;
+  final bool commerceEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -1321,14 +1324,15 @@ class _FeatureEntryGrid extends StatelessWidget {
                 onTap: onSport,
               ),
             ),
-            Expanded(
-              child: _FeatureEntry(
-                label: context.l10n.shop,
-                icon: Icons.shopping_bag_rounded,
-                color: const Color(0xFF2887D8),
-                onTap: onMall,
+            if (commerceEnabled)
+              Expanded(
+                child: _FeatureEntry(
+                  label: context.l10n.shop,
+                  icon: Icons.shopping_bag_rounded,
+                  color: const Color(0xFF2887D8),
+                  onTap: onMall,
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -2243,7 +2247,7 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                   HealthMetric.stress => '请将戒指贴合手指并保持静止，等待压力测量结果',
                   HealthMetric.bodyComposition ||
                   HealthMetric.bloodComposition => '请保持戒指正确贴合，测量完成前不要移动',
-                  _ => '请保持正确佩戴并静止，等待戒指返回结果',
+                  _ => '请戴好戒指并保持静止\n等待戒指返回测量结果',
                 };
           return AlertDialog(
             title: Text(
@@ -2382,7 +2386,15 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                 ),
               TextButton(
                 onPressed: _stopping ? null : _finish,
-                child: Text(_stopping ? '正在停止' : (failed ? '关闭' : '结束测量')),
+                child: Text(
+                  _stopping
+                      ? '正在停止'
+                      : isNew
+                      ? '完成'
+                      : failed
+                      ? '关闭'
+                      : '结束测量',
+                ),
               ),
             ],
           );
@@ -6047,6 +6059,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   }
 
   Future<void> _openShop() async {
+    if (!widget.controller.commerceEnabled) return;
     await widget.controller.stopDeviceScan();
     if (!mounted) return;
     await Navigator.of(context).push(
@@ -6274,7 +6287,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            context.l10n.findSystemPairedRingsHint,
+                            defaultTargetPlatform == TargetPlatform.iOS
+                                ? '只显示 Say Ring 曾成功连接的戒指；选择后重新验证，不会自动连接其他设备。'
+                                : context.l10n.findSystemPairedRingsHint,
                             textAlign: TextAlign.center,
                             style: const TextStyle(
                               color: SaydianColors.muted,
@@ -6300,21 +6315,23 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                       ],
                     ),
             ),
-            bottomNavigationBar: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
-                child: TextButton.icon(
-                  key: const Key('device-shop-entry'),
-                  onPressed: connecting ? null : _openShop,
-                  icon: const Icon(Icons.shopping_bag_outlined),
-                  label: Text(
-                    context.l10n.noWatchShopHint,
-                    style: TextStyle(fontWeight: FontWeight.w800),
+            bottomNavigationBar: !controller.commerceEnabled
+                ? null
+                : SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+                      child: TextButton.icon(
+                        key: const Key('device-shop-entry'),
+                        onPressed: connecting ? null : _openShop,
+                        icon: const Icon(Icons.shopping_bag_outlined),
+                        label: Text(
+                          context.l10n.noWatchShopHint,
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ),
           ),
         );
       },
@@ -8787,7 +8804,7 @@ class SettingsPage extends StatelessWidget {
             child: InkWell(
               borderRadius: BorderRadius.circular(18),
               onTap: () => unawaited(controller.logout()),
-              child: const Padding(
+              child: Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16, vertical: 13),
                 child: Row(
                   children: [
@@ -8806,7 +8823,9 @@ class SettingsPage extends StatelessWidget {
                           ),
                           SizedBox(height: 2),
                           Text(
-                            '登录后可保存健康数据、设备和订单信息',
+                            controller.commerceEnabled
+                                ? '登录后可保存健康数据、设备和订单信息'
+                                : '登录后可保存健康数据和设备信息',
                             style: TextStyle(
                               color: SaydianColors.muted,
                               fontSize: 13,
@@ -8953,77 +8972,79 @@ class SettingsPage extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 14),
-        Card(
-          key: const Key('profile-orders-card'),
-          color: Colors.white,
-          shape: RoundedRectangleBorder(
-            side: const BorderSide(color: Color(0xFFDCE7F5)),
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 15, 8, 8),
-                child: Row(
-                  children: [
-                    Text(
-                      context.l10n.myOrders,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const Spacer(),
-                    TextButton(
-                      onPressed: () => _openOrders(context, null),
-                      child: Text(context.l10n.all),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _OrderEntry(
-                        label: context.l10n.awaitingPayment,
-                        icon: Icons.account_balance_wallet_outlined,
-                        onTap: () => _openOrders(context, 0),
-                      ),
-                    ),
-                    Expanded(
-                      child: _OrderEntry(
-                        label: context.l10n.awaitingShipment,
-                        icon: Icons.inventory_2_outlined,
-                        onTap: () => _openOrders(context, 1),
-                      ),
-                    ),
-                    Expanded(
-                      child: _OrderEntry(
-                        label: context.l10n.awaitingDelivery,
-                        icon: Icons.local_shipping_outlined,
-                        onTap: () => _openOrders(context, 2),
-                      ),
-                    ),
-                    Expanded(
-                      child: _OrderEntry(
-                        label: context.l10n.afterSales,
-                        icon: Icons.support_agent_rounded,
-                        onTap: () => _openPage(
-                          context,
-                          AfterSalesPage(controller: controller),
+        if (controller.commerceEnabled) ...[
+          Card(
+            key: const Key('profile-orders-card'),
+            color: Colors.white,
+            shape: RoundedRectangleBorder(
+              side: const BorderSide(color: Color(0xFFDCE7F5)),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 15, 8, 8),
+                  child: Row(
+                    children: [
+                      Text(
+                        context.l10n.myOrders,
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
                         ),
                       ),
-                    ),
-                  ],
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () => _openOrders(context, null),
+                        child: Text(context.l10n.all),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                const Divider(),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _OrderEntry(
+                          label: context.l10n.awaitingPayment,
+                          icon: Icons.account_balance_wallet_outlined,
+                          onTap: () => _openOrders(context, 0),
+                        ),
+                      ),
+                      Expanded(
+                        child: _OrderEntry(
+                          label: context.l10n.awaitingShipment,
+                          icon: Icons.inventory_2_outlined,
+                          onTap: () => _openOrders(context, 1),
+                        ),
+                      ),
+                      Expanded(
+                        child: _OrderEntry(
+                          label: context.l10n.awaitingDelivery,
+                          icon: Icons.local_shipping_outlined,
+                          onTap: () => _openOrders(context, 2),
+                        ),
+                      ),
+                      Expanded(
+                        child: _OrderEntry(
+                          label: context.l10n.afterSales,
+                          icon: Icons.support_agent_rounded,
+                          onTap: () => _openPage(
+                            context,
+                            AfterSalesPage(controller: controller),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 14),
+          const SizedBox(height: 14),
+        ],
         Card(
           key: const Key('profile-quick-actions-card'),
           color: Colors.white,
@@ -9109,6 +9130,7 @@ class SettingsPage extends StatelessWidget {
   }
 
   void _openOrders(BuildContext context, int? status) {
+    if (!controller.commerceEnabled) return;
     _openPage(
       context,
       OrdersPage(controller: controller, initialStatus: status),
@@ -10809,19 +10831,21 @@ class AccountSettingsPage extends StatelessWidget {
                   ),
                   trailing: const Icon(Icons.chevron_right_rounded),
                 ),
-                const Divider(indent: 56),
-                ListTile(
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) =>
-                          ShopAddressBookPage(controller: controller),
+                if (controller.commerceEnabled) ...[
+                  const Divider(indent: 56),
+                  ListTile(
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            ShopAddressBookPage(controller: controller),
+                      ),
                     ),
+                    leading: const Icon(Icons.location_on_outlined),
+                    title: Text(context.l10n.deliveryAddresses),
+                    subtitle: Text(context.l10n.viewAccountAddresses),
+                    trailing: const Icon(Icons.chevron_right_rounded),
                   ),
-                  leading: const Icon(Icons.location_on_outlined),
-                  title: Text(context.l10n.deliveryAddresses),
-                  subtitle: Text(context.l10n.viewAccountAddresses),
-                  trailing: const Icon(Icons.chevron_right_rounded),
-                ),
+                ],
                 const Divider(indent: 56),
                 ListTile(
                   onTap: () => Navigator.of(context).push(
@@ -11613,6 +11637,8 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
         icon: Icons.favorite_outline_rounded,
       ),
       (type: 'bloodOxygen', title: '血氧自动检测', icon: Icons.water_drop_outlined),
+      (type: 'hrv', title: 'HRV 自动检测', icon: Icons.monitor_heart_outlined),
+      (type: 'stress', title: '压力自动检测', icon: Icons.self_improvement_rounded),
       (type: 'bloodPressure', title: '血压自动检测', icon: Icons.speed_rounded),
       (type: 'bloodGlucose', title: '血糖自动检测', icon: Icons.water_drop_outlined),
       (

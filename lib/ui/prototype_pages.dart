@@ -4409,6 +4409,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     }
     const labels = <String, String>{
       'heartRate': '心率自动检测',
+      'bloodOxygen': '血氧自动检测',
+      'hrv': 'HRV 自动检测',
+      'stress': '压力自动检测',
       'bloodPressure': '血压自动检测',
       'bloodGlucose': '血糖自动检测',
       'bodyTemperature': '体温自动检测',
@@ -5079,11 +5082,12 @@ class _FeedbackPageState extends State<FeedbackPage> {
           DropdownButtonFormField<String>(
             initialValue: _category,
             decoration: InputDecoration(labelText: context.l10n.issueType),
-            items: const [
-              DropdownMenuItem(value: '功能建议', child: Text('功能建议')),
-              DropdownMenuItem(value: '设备连接', child: Text('设备连接')),
-              DropdownMenuItem(value: '数据问题', child: Text('数据问题')),
-              DropdownMenuItem(value: '商城订单', child: Text('商城订单')),
+            items: [
+              const DropdownMenuItem(value: '功能建议', child: Text('功能建议')),
+              const DropdownMenuItem(value: '设备连接', child: Text('设备连接')),
+              const DropdownMenuItem(value: '数据问题', child: Text('数据问题')),
+              if (widget.controller?.commerceEnabled ?? false)
+                const DropdownMenuItem(value: '商城订单', child: Text('商城订单')),
             ],
             onChanged: (value) =>
                 setState(() => _category = value ?? _category),

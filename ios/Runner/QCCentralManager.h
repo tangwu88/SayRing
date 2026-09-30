@@ -80,6 +80,10 @@ typedef NS_ENUM(NSInteger, QCBluetoothState) {
 
 @property (nonatomic, weak) id<QCCentralManagerDelegate> delegate;
 
+/// The host owns environment-scoped identity and recovery. Do not adopt the
+/// demo's installation-wide saved UUID or independently reconnect it.
+@property (nonatomic, assign) BOOL appManagedConnections;
+
 @property (strong, nonatomic, readonly) CBCentralManager *centerManager;
 
 @property (strong, nonatomic, readonly) CBPeripheral *connectedPeripheral;

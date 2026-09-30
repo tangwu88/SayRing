@@ -31,6 +31,38 @@ void main() {
 
     expect(result, hasLength(3));
   });
+
+  test('QRing v3 current activity slot can grow between repeated syncs', () {
+    final date = DateTime.utc(2026, 9, 30, 5, 15);
+    for (final metric in [
+      HealthMetric.steps,
+      HealthMetric.distance,
+      HealthMetric.calories,
+    ]) {
+      final first = _record('old', date, const {
+        'value': 10,
+      }, metric: metric).copyWith(sourceVendor: 'qring', rawVersion: 3);
+      final next = _record('new', date, const {
+        'value': 20,
+      }, metric: metric).copyWith(sourceVendor: 'qring', rawVersion: 3);
+      expect(deduplicateHealthRecords([first, next]).single.id, 'new');
+      expect(deduplicateHealthRecords([next, first]).single.id, 'new');
+      expect(
+        deduplicateHealthRecords([first, next, next]).single.values['value'],
+        20,
+      );
+    }
+  });
+
+  test('QRing activity tie break does not alter other measurements', () {
+    final first = _record('old', DateTime.utc(2026, 9, 30), const {
+      'value': 72,
+    }).copyWith(sourceVendor: 'qring', rawVersion: 3);
+    final next = _record('new', first.measuredAt, const {
+      'value': 80,
+    }).copyWith(sourceVendor: 'qring', rawVersion: 3);
+    expect(deduplicateHealthRecords([first, next]).single.id, 'old');
+  });
 }
 
 HealthRecord _record(
@@ -39,9 +71,10 @@ HealthRecord _record(
   Map<String, num> values, {
   String quality = 'device_reported',
   String deviceId = 'W9S-A',
+  HealthMetric metric = HealthMetric.heartRate,
 }) => HealthRecord(
   id: id,
-  metric: HealthMetric.heartRate,
+  metric: metric,
   values: values,
   unit: 'bpm',
   measuredAt: measuredAt,

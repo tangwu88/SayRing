@@ -16,11 +16,103 @@ import 'package:saydian_app/ui/app_theme.dart';
 import 'package:saydian_app/ui/health_trend_page.dart';
 import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
+import 'package:saydian_app/ui/shop_pages.dart' show ShopHomePage;
 
 void main() {
   // Legacy page hosts deliberately retain Chinese copy. DateFormat now uses
   // the explicit page locale rather than a hard-coded numeric pattern.
   setUpAll(() => initializeDateFormatting('zh_Hans'));
+
+  test('commerce is hidden in the default release configuration', () {
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    expect(controller.commerceEnabled, isFalse);
+  });
+
+  for (final enabled in [false, true]) {
+    testWidgets('commerce visibility $enabled covers all external entry points', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+        commerceEnabled: enabled,
+      )..enterPreview();
+      addTearDown(controller.dispose);
+      Future<void> show(Widget page) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildSaydianTheme(),
+            home: Scaffold(body: page),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      }
+
+      await show(DashboardPage(controller: controller));
+      expect(find.text('Say Ring 商城'), enabled ? findsOneWidget : findsNothing);
+      expect(find.text('远程关爱'), findsOneWidget);
+      expect(find.text('运动'), findsOneWidget);
+      await show(SettingsPage(controller: controller));
+      expect(
+        find.byKey(const Key('profile-orders-card')),
+        enabled ? findsOneWidget : findsNothing,
+      );
+      expect(
+        find.text('登录后可保存健康数据和设备信息'),
+        enabled ? findsNothing : findsOneWidget,
+      );
+      await show(AccountSettingsPage(controller: controller));
+      expect(find.text('收货地址'), enabled ? findsOneWidget : findsNothing);
+      expect(find.text('个人资料'), findsOneWidget);
+      await show(DeviceSearchPage(controller: controller));
+      expect(
+        find.byKey(const Key('device-shop-entry')),
+        enabled ? findsOneWidget : findsNothing,
+      );
+      await show(FeedbackPage(controller: controller));
+      final dropdown = tester.widget<DropdownButtonFormField<String>>(
+        find.byType(DropdownButtonFormField<String>),
+      );
+      // Inspect the actual rendered dropdown, not a duplicate flag calculation.
+      expect(dropdown, isNotNull);
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+      expect(find.text('商城订单'), enabled ? findsOneWidget : findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
+  testWidgets('hidden commerce rejects a stale direct shop entry', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: ShopHomePage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('commerce-unavailable-page')), findsOneWidget);
+    expect(find.byKey(const Key('shop-page')), findsNothing);
+    expect(find.byKey(const Key('global-shop-page')), findsNothing);
+    expect(controller.errorMessage, isNull);
+  });
 
   test('app theme uses a cool technology palette', () {
     final theme = buildSaydianTheme();
@@ -73,214 +165,226 @@ void main() {
     expect(find.byType(LineChart), findsNothing);
   });
 
-  testWidgets('three-tab health shell exposes the redesigned home flows', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(390, 844));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets(
+    'commerce-enabled three-tab shell keeps the existing shop flows',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    final controller = AppController(
-      MemorySessionVault(),
-      _NoopApi(),
-      MemoryHealthStore(),
-      _NoopWearable(),
-    )..enterPreview();
-    controller.healthRecords = [_historicalHeartRateRecord()];
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildSaydianTheme(),
-        home: ListenableBuilder(
-          listenable: controller,
-          builder: (context, _) => AppShell(controller: controller),
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+        commerceEnabled: true,
+      )..enterPreview();
+      controller.healthRecords = [_historicalHeartRateRecord()];
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) => AppShell(controller: controller),
+          ),
         ),
-      ),
-    );
+      );
 
-    expect(find.byKey(const Key('mind-body-readiness-card')), findsNothing);
-    expect(find.byKey(const Key('dashboard-ai-assistant')), findsOneWidget);
-    final assistantDecoration =
+      expect(find.byKey(const Key('mind-body-readiness-card')), findsNothing);
+      expect(find.byKey(const Key('dashboard-ai-assistant')), findsOneWidget);
+      final assistantDecoration =
+          tester
+                  .widget<Container>(
+                    find.byKey(const Key('dashboard-ai-assistant')),
+                  )
+                  .decoration
+              as BoxDecoration;
+      expect((assistantDecoration.gradient as LinearGradient).colors, const [
+        Color(0xFFF5F8FF),
+        Color(0xFFE8F4FF),
+      ]);
+      expect(
+        tester.getSize(find.byKey(const Key('dashboard-ai-assistant'))).height,
+        lessThanOrEqualTo(170),
+      );
+      expect(find.byKey(const Key('dashboard-functions')), findsOneWidget);
+      final functionDecoration =
+          tester
+                  .widget<Container>(
+                    find.byKey(const Key('dashboard-functions')),
+                  )
+                  .decoration
+              as BoxDecoration;
+      expect((functionDecoration.gradient as LinearGradient).colors, const [
+        Color(0xFFFFFFFF),
+        Color(0xFFEDF5FF),
+      ]);
+      expect(find.text('远程关爱'), findsOneWidget);
+      expect(find.text('健康百科'), findsOneWidget);
+      expect(find.text('运动'), findsOneWidget);
+      expect(find.text('Say Ring 商城'), findsOneWidget);
+      final shopEntryLabel = tester.widget<Text>(find.text('Say Ring 商城'));
+      expect(shopEntryLabel.maxLines, 1);
+      expect(shopEntryLabel.overflow, isNot(TextOverflow.ellipsis));
+      expect(
+        find.ancestor(
+          of: find.text('Say Ring 商城'),
+          matching: find.byType(FittedBox),
+        ),
+        findsOneWidget,
+      );
+
+      final navigationBar = tester.widget<NavigationBar>(
+        find.byType(NavigationBar),
+      );
+      expect(navigationBar.destinations, hasLength(3));
+      expect(
+        navigationBar.destinations.cast<NavigationDestination>().map(
+          (destination) => destination.label,
+        ),
+        ['健康', '设备', '我的'],
+      );
+
+      await tester.tap(find.text('健康百科'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('article-category-page')), findsOneWidget);
+      expect(find.byKey(const Key('article-category-all')), findsOneWidget);
+      expect(find.text('心脑健康'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Say Ring 商城'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('shop-page')), findsOneWidget);
+      expect(find.text('此功能暂时无法使用，请稍后再试'), findsWidgets);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('全部数据'));
+      await tester.tap(find.text('全部数据'));
+      await tester.pumpAndSettle();
+      expect(find.text('全部健康数据'), findsOneWidget);
+      expect(find.text('健康数据总览'), findsOneWidget);
+      expect(find.byKey(const Key('health-sport-entries')), findsNothing);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(find.text('跑步'), findsNothing);
+      expect(find.text('步行'), findsNothing);
+      expect(find.text('骑行'), findsNothing);
+      expect(find.text('徒步'), findsNothing);
+      expect(find.text('运动记录'), findsNothing);
+
+      expect(
+        find.byKey(const ValueKey('health-metric-heartRate')),
+        findsOneWidget,
+      );
+      for (final metric in const [
+        'bloodPressure',
+        'bloodOxygen',
+        'bodyTemperature',
+        'ecg',
+        'hrv',
+      ]) {
+        expect(find.byKey(ValueKey('health-metric-$metric')), findsNothing);
+      }
+      expect(
         tester
-                .widget<Container>(
-                  find.byKey(const Key('dashboard-ai-assistant')),
-                )
-                .decoration
-            as BoxDecoration;
-    expect((assistantDecoration.gradient as LinearGradient).colors, const [
-      Color(0xFFF5F8FF),
-      Color(0xFFE8F4FF),
-    ]);
-    expect(
-      tester.getSize(find.byKey(const Key('dashboard-ai-assistant'))).height,
-      lessThanOrEqualTo(170),
-    );
-    expect(find.byKey(const Key('dashboard-functions')), findsOneWidget);
-    final functionDecoration =
+            .getSize(find.byKey(const ValueKey('health-metric-heartRate')))
+            .height,
+        greaterThanOrEqualTo(184),
+      );
+      expect(
         tester
-                .widget<Container>(find.byKey(const Key('dashboard-functions')))
-                .decoration
-            as BoxDecoration;
-    expect((functionDecoration.gradient as LinearGradient).colors, const [
-      Color(0xFFFFFFFF),
-      Color(0xFFEDF5FF),
-    ]);
-    expect(find.text('远程关爱'), findsOneWidget);
-    expect(find.text('健康百科'), findsOneWidget);
-    expect(find.text('运动'), findsOneWidget);
-    expect(find.text('Say Ring 商城'), findsOneWidget);
-    final shopEntryLabel = tester.widget<Text>(find.text('Say Ring 商城'));
-    expect(shopEntryLabel.maxLines, 1);
-    expect(shopEntryLabel.overflow, isNot(TextOverflow.ellipsis));
-    expect(
-      find.ancestor(
-        of: find.text('Say Ring 商城'),
-        matching: find.byType(FittedBox),
-      ),
-      findsOneWidget,
-    );
+            .getSize(find.byKey(const ValueKey('health-metric-heartRate')))
+            .width,
+        greaterThanOrEqualTo(350),
+      );
+      expect(
+        find.byKey(const Key('dashboard-health-card-list')),
+        findsOneWidget,
+      );
+      final metricSurface = tester.widget<DecoratedBox>(
+        find.byKey(const ValueKey('health-metric-surface-heartRate')),
+      );
+      final metricDecoration = metricSurface.decoration as BoxDecoration;
+      expect((metricDecoration.gradient as LinearGradient).colors, const [
+        Color(0xFFE8EDFF),
+        Color(0xFFE3F7FA),
+      ]);
+      expect(metricDecoration.borderRadius, BorderRadius.circular(28));
+      expect(
+        tester.getSize(find.byKey(const Key('dashboard-health-notice'))).height,
+        lessThanOrEqualTo(60),
+      );
+      expect(
+        find.byKey(const ValueKey('health-metric-bloodGlucose')),
+        findsNothing,
+      );
 
-    final navigationBar = tester.widget<NavigationBar>(
-      find.byType(NavigationBar),
-    );
-    expect(navigationBar.destinations, hasLength(3));
-    expect(
-      navigationBar.destinations.cast<NavigationDestination>().map(
-        (destination) => destination.label,
-      ),
-      ['健康', '设备', '我的'],
-    );
-
-    await tester.tap(find.text('健康百科'));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('article-category-page')), findsOneWidget);
-    expect(find.byKey(const Key('article-category-all')), findsOneWidget);
-    expect(find.text('心脑健康'), findsOneWidget);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Say Ring 商城'));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('shop-page')), findsOneWidget);
-    expect(find.text('此功能暂时无法使用，请稍后再试'), findsWidgets);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-
-    await tester.ensureVisible(find.text('全部数据'));
-    await tester.tap(find.text('全部数据'));
-    await tester.pumpAndSettle();
-    expect(find.text('全部健康数据'), findsOneWidget);
-    expect(find.text('健康数据总览'), findsOneWidget);
-    expect(find.byKey(const Key('health-sport-entries')), findsNothing);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-
-    expect(find.text('跑步'), findsNothing);
-    expect(find.text('步行'), findsNothing);
-    expect(find.text('骑行'), findsNothing);
-    expect(find.text('徒步'), findsNothing);
-    expect(find.text('运动记录'), findsNothing);
-
-    expect(
-      find.byKey(const ValueKey('health-metric-heartRate')),
-      findsOneWidget,
-    );
-    for (final metric in const [
-      'bloodPressure',
-      'bloodOxygen',
-      'bodyTemperature',
-      'ecg',
-      'hrv',
-    ]) {
-      expect(find.byKey(ValueKey('health-metric-$metric')), findsNothing);
-    }
-    expect(
-      tester
-          .getSize(find.byKey(const ValueKey('health-metric-heartRate')))
-          .height,
-      greaterThanOrEqualTo(184),
-    );
-    expect(
-      tester
-          .getSize(find.byKey(const ValueKey('health-metric-heartRate')))
-          .width,
-      greaterThanOrEqualTo(350),
-    );
-    expect(find.byKey(const Key('dashboard-health-card-list')), findsOneWidget);
-    final metricSurface = tester.widget<DecoratedBox>(
-      find.byKey(const ValueKey('health-metric-surface-heartRate')),
-    );
-    final metricDecoration = metricSurface.decoration as BoxDecoration;
-    expect((metricDecoration.gradient as LinearGradient).colors, const [
-      Color(0xFFE8EDFF),
-      Color(0xFFE3F7FA),
-    ]);
-    expect(metricDecoration.borderRadius, BorderRadius.circular(28));
-    expect(
-      tester.getSize(find.byKey(const Key('dashboard-health-notice'))).height,
-      lessThanOrEqualTo(60),
-    );
-    expect(
-      find.byKey(const ValueKey('health-metric-bloodGlucose')),
-      findsNothing,
-    );
-
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('health-metric-heartRate')),
-    );
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('health-metric-heartRate')));
-    await tester.pumpAndSettle();
-    expect(find.text('心率分析'), findsOneWidget);
-    expect(find.byKey(const Key('health-measure-heart_rate')), findsNothing);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-
-    controller.selectTab(1);
-    await tester.pump();
-    expect(find.widgetWithText(FilledButton, '开始查找'), findsOneWidget);
-    expect(find.byKey(const Key('device-page')), findsOneWidget);
-    final emptyDeviceDecoration =
-        tester
-                .widget<Container>(
-                  find.byKey(const Key('device-empty-card-surface')),
-                )
-                .decoration
-            as BoxDecoration;
-    expect(
-      (emptyDeviceDecoration.gradient as LinearGradient).colors,
-      saydianPanelGradient.colors,
-    );
-
-    controller.selectTab(2);
-    await tester.pump();
-    expect(find.byKey(const Key('my-page')), findsOneWidget);
-    expect(find.text('我的订单'), findsOneWidget);
-    final profileHeaderDecoration =
-        tester
-                .widget<Container>(find.byKey(const Key('profile-header-card')))
-                .decoration
-            as BoxDecoration;
-    expect(
-      (profileHeaderDecoration.gradient as LinearGradient).colors,
-      saydianPanelGradient.colors,
-    );
-    expect(find.byKey(const Key('profile-orders-card')), findsOneWidget);
-    expect(find.byKey(const Key('profile-quick-actions-card')), findsOneWidget);
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('profile-services-card')),
-      260,
-      scrollable: find.descendant(
-        of: find.byKey(const Key('my-page')),
-        matching: find.byType(Scrollable),
-      ),
-    );
-    expect(find.byKey(const Key('profile-services-card')), findsOneWidget);
-
-    for (var tab = 0; tab < 3; tab++) {
-      controller.selectTab(tab);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('health-metric-heartRate')),
+      );
       await tester.pump();
-      expect(tester.takeException(), isNull, reason: 'tab $tab overflowed');
-    }
-  });
+      await tester.tap(find.byKey(const ValueKey('health-metric-heartRate')));
+      await tester.pumpAndSettle();
+      expect(find.text('心率分析'), findsOneWidget);
+      expect(find.byKey(const Key('health-measure-heart_rate')), findsNothing);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      controller.selectTab(1);
+      await tester.pump();
+      expect(find.widgetWithText(FilledButton, '开始查找'), findsOneWidget);
+      expect(find.byKey(const Key('device-page')), findsOneWidget);
+      final emptyDeviceDecoration =
+          tester
+                  .widget<Container>(
+                    find.byKey(const Key('device-empty-card-surface')),
+                  )
+                  .decoration
+              as BoxDecoration;
+      expect(
+        (emptyDeviceDecoration.gradient as LinearGradient).colors,
+        saydianPanelGradient.colors,
+      );
+
+      controller.selectTab(2);
+      await tester.pump();
+      expect(find.byKey(const Key('my-page')), findsOneWidget);
+      expect(find.text('我的订单'), findsOneWidget);
+      final profileHeaderDecoration =
+          tester
+                  .widget<Container>(
+                    find.byKey(const Key('profile-header-card')),
+                  )
+                  .decoration
+              as BoxDecoration;
+      expect(
+        (profileHeaderDecoration.gradient as LinearGradient).colors,
+        saydianPanelGradient.colors,
+      );
+      expect(find.byKey(const Key('profile-orders-card')), findsOneWidget);
+      expect(
+        find.byKey(const Key('profile-quick-actions-card')),
+        findsOneWidget,
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('profile-services-card')),
+        260,
+        scrollable: find.descendant(
+          of: find.byKey(const Key('my-page')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      expect(find.byKey(const Key('profile-services-card')), findsOneWidget);
+
+      for (var tab = 0; tab < 3; tab++) {
+        controller.selectTab(tab);
+        await tester.pump();
+        expect(tester.takeException(), isNull, reason: 'tab $tab overflowed');
+      }
+    },
+  );
 
   testWidgets('connected device overview uses the unified technology surface', (
     tester,
@@ -1402,63 +1506,76 @@ void main() {
       find.byKey(const ValueKey('device-health-auto-bodyTemperature')),
       findsNothing,
     );
-    expect(find.byKey(const ValueKey('device-health-auto-hrv')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('device-health-auto-hrv')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('device-health-auto-stress')),
+      findsOneWidget,
+    );
+    expect(find.text('HRV 自动检测'), findsOneWidget);
+    expect(find.text('压力自动检测'), findsOneWidget);
     expect(find.text('当前设备不支持此功能'), findsNothing);
   });
 
-  testWidgets('not-worn watch error stops progress and offers retry', (
-    tester,
-  ) async {
-    final wearable = _EventMeasurementWearable();
-    final controller = AppController(
-      MemorySessionVault(),
-      _NoopApi(),
-      MemoryHealthStore(),
-      wearable,
-    );
-    await controller.initialize();
-    controller.connectedDevice = const DeviceInfo(id: 'watch-1', name: 'W9S');
-    controller.capabilities = const DeviceCapabilities(
-      metrics: {HealthMetric.heartRate},
-    );
-    for (final state in const [
-      DeviceConnectionState.scanning,
-      DeviceConnectionState.connecting,
-      DeviceConnectionState.authenticating,
-      DeviceConnectionState.syncing,
-      DeviceConnectionState.ready,
-    ]) {
-      controller.deviceMachine.transition(state);
-    }
-    addTearDown(() async {
-      controller.dispose();
-      await wearable.close();
+  for (final errorCode in [
+    'HEART_NOT_WORN',
+    'MEASUREMENT_NOT_WORN',
+    'MEASUREMENT_FAILED',
+  ]) {
+    testWidgets('$errorCode stops progress and offers retry', (tester) async {
+      final wearable = _EventMeasurementWearable();
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        wearable,
+      );
+      await controller.initialize();
+      controller.connectedDevice = const DeviceInfo(id: 'watch-1', name: 'W9S');
+      controller.capabilities = const DeviceCapabilities(
+        metrics: {HealthMetric.heartRate},
+      );
+      for (final state in const [
+        DeviceConnectionState.scanning,
+        DeviceConnectionState.connecting,
+        DeviceConnectionState.authenticating,
+        DeviceConnectionState.syncing,
+        DeviceConnectionState.ready,
+      ]) {
+        controller.deviceMachine.transition(state);
+      }
+      addTearDown(() async {
+        controller.dispose();
+        await wearable.close();
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: AllHealthDataPage(controller: controller),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('心率').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('health-measure-heart_rate')));
+      await tester.pump();
+      wearable.emit(
+        WearableEvent(
+          type: 'error',
+          payload: {'code': errorCode, 'message': '请正确佩戴戒指后重新测量心率'},
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('请正确佩戴戒指后重新测量心率'), findsOneWidget);
+      expect(find.text('重新测量'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      expect(controller.deviceState, DeviceConnectionState.ready);
     });
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildSaydianTheme(),
-        home: AllHealthDataPage(controller: controller),
-      ),
-    );
-    await tester.pump();
-    await tester.tap(find.text('心率').first);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('health-measure-heart_rate')));
-    await tester.pump();
-    wearable.emit(
-      const WearableEvent(
-        type: 'error',
-        payload: {'code': 'HEART_NOT_WORN', 'message': '请正确佩戴戒指后重新测量心率'},
-      ),
-    );
-    await tester.pump();
-
-    expect(find.text('请正确佩戴戒指后重新测量心率'), findsOneWidget);
-    expect(find.text('重新测量'), findsOneWidget);
-    expect(find.byType(LinearProgressIndicator), findsNothing);
-    expect(controller.deviceState, DeviceConnectionState.ready);
-  });
+  }
 
   testWidgets('body composition contact progress shows wearable guidance', (
     tester,
@@ -1661,6 +1778,57 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('2026-08-13 09:05'), findsOneWidget);
+  });
+
+  testWidgets('sleep record detail never labels awake minutes as hours', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    final record = HealthRecord(
+      id: 'qring-sleep-detail-units',
+      metric: HealthMetric.sleep,
+      values: const {
+        'value': 7,
+        'awakeMinutes': 20,
+        'deepHours': 2,
+        'lightHours': 4,
+        'remHours': 1,
+        'score': 85,
+        'efficiency': 92,
+      },
+      unit: 'h',
+      measuredAt: DateTime.utc(2026, 9, 30),
+      timezone: '+08:00',
+      deviceId: 'qring:test',
+      firmwareVersion: 'test',
+      quality: 'device_reported',
+      source: MeasurementSource.wearable,
+      rawVersion: 1,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: HealthRecordDetailPage(controller: controller, record: record),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('清醒时长'), findsOneWidget);
+    expect(find.text('20 分钟'), findsOneWidget);
+    expect(find.text('20 h'), findsNothing);
+    expect(find.text('awakeMinutes'), findsNothing);
+    expect(find.text('深睡时长'), findsOneWidget);
+    expect(find.text('2 小时'), findsOneWidget);
+    expect(find.text('快速眼动时长'), findsOneWidget);
+    expect(find.text('85 分'), findsOneWidget);
+    expect(find.text('92 %'), findsOneWidget);
   });
 
   test('repeated watch ECG history is shown once after later syncs', () async {
@@ -2062,7 +2230,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('手动测量'));
     await tester.pump();
-    expect(find.text('请保持正确佩戴并静止，等待戒指返回结果'), findsOneWidget);
+    expect(find.text('请戴好戒指并保持静止\n等待戒指返回测量结果'), findsOneWidget);
 
     wearable.emit(
       WearableEvent(
@@ -2084,7 +2252,8 @@ void main() {
     );
     await tester.pump();
     expect(find.text('72 bpm'), findsWidgets);
-    expect(find.text('请保持正确佩戴并静止，等待戒指返回结果'), findsNothing);
+    expect(find.text('请戴好戒指并保持静止\n等待戒指返回测量结果'), findsNothing);
+    expect(find.text('完成'), findsOneWidget);
   });
 
   test('a disconnected ring ends an in-flight manual measurement', () async {
@@ -2233,6 +2402,75 @@ void main() {
       expect(controller.deviceSettingsStatus, '设置已同步');
     },
   );
+
+  testWidgets('temperature chart has unique ticks and contained time labels', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(375, 812));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final store = MemoryHealthStore();
+    await store.initialize();
+    await store.upsert([
+      HealthRecord(
+        id: 'temperature-chart-fixture',
+        metric: HealthMetric.bodyTemperature,
+        values: const {'value': 36.9},
+        unit: '℃',
+        measuredAt: DateTime.now(),
+        timezone: '+08:00',
+        deviceId: 'qring:fixture',
+        firmwareVersion: 'test',
+        quality: 'unknown',
+        source: MeasurementSource.wearable,
+        rawVersion: 1,
+      ),
+    ]);
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      store,
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: HealthTrendPage(
+          controller: controller,
+          metric: HealthMetric.bodyTemperature,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.byType(LineChart), 250);
+    await tester.pumpAndSettle();
+    final chart = tester.widget<LineChart>(find.byType(LineChart));
+    expect(chart.data.titlesData.leftTitles.sideTitles.minIncluded, isFalse);
+    expect(chart.data.titlesData.leftTitles.sideTitles.maxIncluded, isFalse);
+    expect(chart.data.titlesData.bottomTitles.sideTitles.maxIncluded, isTrue);
+    final ticks = tester
+        .widgetList<Text>(
+          find.descendant(
+            of: find.byType(LineChart),
+            matching: find.byType(Text),
+          ),
+        )
+        .map((text) => text.data)
+        .whereType<String>()
+        .where((text) => num.tryParse(text) != null)
+        .toList();
+    expect(ticks, isNotEmpty);
+    expect(ticks.toSet().length, ticks.length);
+    final titles = tester.widgetList<SideTitleWidget>(
+      find.descendant(
+        of: find.byType(LineChart),
+        matching: find.byType(SideTitleWidget),
+      ),
+    );
+    expect(titles, isNotEmpty);
+    expect(titles.every((title) => title.fitInside.enabled), isTrue);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('health trend supports period switching and record details', (
     tester,
@@ -3153,6 +3391,7 @@ class _PartialHealthMonitoringWearable extends _NoopWearable {
     'heartRate': false,
     'bloodGlucose': false,
     'hrv': true,
+    'stress': true,
   };
 
   @override

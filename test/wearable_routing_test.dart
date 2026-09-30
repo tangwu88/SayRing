@@ -112,9 +112,21 @@ void main() {
       WearableDeviceClassifier.transportFor('R22_C493 '),
       WearableTransport.qring,
     );
-    expect(WearableDeviceClassifier.transportFor('R22_'), isNull);
-    expect(WearableDeviceClassifier.transportFor('R22_C493_extra'), isNull);
-    expect(WearableDeviceClassifier.transportFor('R22_Z493'), isNull);
+    for (final name in [
+      'R2',
+      'R21',
+      ' r210 ',
+      'R22_',
+      'R22_C493_extra',
+      'R22_Z493',
+    ]) {
+      expect(
+        WearableDeviceClassifier.transportFor(name),
+        WearableTransport.qring,
+      );
+    }
+    expect(WearableDeviceClassifier.transportFor('R1'), isNull);
+    expect(WearableDeviceClassifier.transportFor('R3'), isNull);
     expect(WearableDeviceClassifier.transportFor('Q Ring'), isNull);
     expect(WearableDeviceClassifier.transportFor('Oura Ring'), isNull);
     expect(WearableDeviceClassifier.transportFor('HR010'), isNull);
@@ -261,17 +273,22 @@ void main() {
     expect(coolwear.measurementCalls, [HealthMetric.heartRate]);
   });
 
-  test('routes Q_, O_ and R22 rings only through the QRing SDK', () async {
+  test('routes Q_, O_ and R2 rings only through the QRing SDK', () async {
     final qring = _FakeWearableBridge(
       scanned: const [
         DeviceInfo(id: 'QR-1', name: 'Q_Ring'),
         DeviceInfo(id: 'OR-1', name: 'O_Ring'),
         DeviceInfo(id: 'R22-1', name: 'R22_C493'),
+        DeviceInfo(id: 'R21-1', name: ' r21 '),
+        DeviceInfo(id: 'WRONG-SDK', name: 'HR05'),
       ],
     );
     final bridge = RoutedWearableBridge(
       veepoo: _FakeWearableBridge(
-        scanned: const [DeviceInfo(id: 'VP-1', name: 'Q_Ring')],
+        scanned: const [
+          DeviceInfo(id: 'VP-1', name: 'Q_Ring'),
+          DeviceInfo(id: 'R21-1', name: 'R21'),
+        ],
       ),
       yucheng: _FakeWearableBridge(scanned: const []),
       qring: qring,
@@ -283,11 +300,12 @@ void main() {
       'qring:QR-1',
       'qring:OR-1',
       'qring:R22-1',
+      'qring:R21-1',
     ]);
 
-    await bridge.connect('qring:QR-1', profile: _profile);
+    await bridge.connect('qring:R21-1', profile: _profile);
     await bridge.startMeasurement(HealthMetric.hrv);
-    expect(qring.connectCalls, ['QR-1']);
+    expect(qring.connectCalls, ['R21-1']);
     expect(qring.measurementCalls, [HealthMetric.hrv]);
   });
 
@@ -358,6 +376,40 @@ void main() {
 
       await bridge.connect(remembered.single.id, profile: _profile);
       expect(qring.connectCalls, ['AA:BB:CC:DD:EE:FF']);
+    },
+  );
+
+  test(
+    'iOS UUID recovery requires explicit selection, not auto adoption',
+    () async {
+      const uuid = '11111111-2222-4333-8444-555555555555';
+      final preference = _MemoryBoundPreference(
+        const SavedWearableBinding(
+          WearableTransport.qring,
+          uuid,
+          deviceName: 'R21_TEST',
+        ),
+      );
+      final qring = _BondedQRingBridge(
+        null,
+        remembered: const DeviceInfo(id: uuid, name: 'R21_TEST'),
+      );
+      final bridge = RoutedWearableBridge(
+        veepoo: _FakeWearableBridge(scanned: const []),
+        yucheng: _FakeWearableBridge(scanned: const []),
+        qring: qring,
+        preferenceStore: preference,
+        restoreOnlyBoundDevice: true,
+      );
+      addTearDown(bridge.dispose);
+      expect(await bridge.restoreConnection(profile: _profile), isNull);
+      expect(qring.rememberedLookupCalls, isEmpty);
+      final devices = await bridge.listBondedDevicesForSelection();
+      expect(devices.single.id, 'qring:$uuid');
+      expect(qring.connectCalls, isEmpty);
+      await bridge.connect(devices.single.id, profile: _profile);
+      expect(qring.connectCalls, [uuid]);
+      expect(preference.binding?.nativeIdentifier, uuid);
     },
   );
 

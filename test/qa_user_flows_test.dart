@@ -1757,6 +1757,7 @@ AppController _controller({
   api ?? _QaApi(),
   store ?? MemoryHealthStore(),
   wearable ?? _QaWearable(),
+  commerceEnabled: true,
   paymentBridge: paymentBridge,
 );
 

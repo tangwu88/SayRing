@@ -8,6 +8,8 @@ import 'package:saydian_app/ui/global_shop_pages.dart';
 import 'package:saydian_app/ui/shop_pages.dart';
 
 class _Controller extends Fake implements AppController {
+  @override
+  bool get commerceEnabled => true;
   final productRequests = <String>[];
   final filters = <String>[];
   final cartUpdates = <Map<String, Object?>>[];

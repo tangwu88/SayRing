@@ -1,9 +1,10 @@
 #include? "../Pods/Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"
 #include? "../Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
-SAIDIAN_BUNDLE_IDENTIFIER = cn.saydian.ring
 SAIDIAN_WECHAT_APP_ID = saidian-wechat-unconfigured
 SAIDIAN_WECHAT_UNIVERSAL_LINK = saidian-wechat-unconfigured
 SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST = saidian-unconfigured.invalid
 SAIDIAN_ALIPAY_URL_SCHEME = $(PRODUCT_BUNDLE_IDENTIFIER).alipay
 #include? "Local.xcconfig"
+// Product identity must not be overridden by machine-local signing settings.
+SAIDIAN_BUNDLE_IDENTIFIER = cn.saydian.ring

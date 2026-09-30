@@ -6,14 +6,21 @@ import org.junit.Test
 
 class QRingNamePolicyTest {
     @Test
-    fun `only observed QRing model shapes are accepted`() {
+    fun `user confirmed R2 family and vendor prefixes are accepted`() {
         assertTrue(QRingBridge.isQRingName("Q_Ring"))
         assertTrue(QRingBridge.isQRingName("O_Ring"))
         assertTrue(QRingBridge.isQRingName(" r22_c493 "))
-        assertFalse(QRingBridge.isQRingName("R22_"))
-        assertFalse(QRingBridge.isQRingName("R22_C493_extra"))
-        assertFalse(QRingBridge.isQRingName("R22_Z493"))
-        assertFalse(QRingBridge.isQRingName("R22"))
+        assertTrue(QRingBridge.isQRingName("R21"))
+        assertTrue(QRingBridge.isQRingName(" r210 "))
+        assertTrue(QRingBridge.isQRingName("R22_"))
+        assertTrue(QRingBridge.isQRingName("R22_C493_extra"))
+        assertTrue(QRingBridge.isQRingName("R22_Z493"))
+        assertTrue(QRingBridge.isQRingName("R22"))
+        assertFalse(QRingBridge.isQRingName("HR01"))
+        assertFalse(QRingBridge.isQRingName("HR05"))
+        assertFalse(QRingBridge.isQRingName("R1"))
+        assertFalse(QRingBridge.isQRingName("R3"))
+        assertFalse(QRingBridge.isQRingName(null))
         assertFalse(QRingBridge.isQRingName("Q Ring"))
     }
 

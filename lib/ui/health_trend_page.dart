@@ -984,7 +984,10 @@ FlTitlesData _titles(
 }) {
   final interval = _niceAxisInterval(maxY - minY);
   final textScale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0);
-  final longest = math.max(_axisLabel(minY).length, _axisLabel(maxY).length);
+  final longest = math.max(
+    _axisLabel(minY, interval).length,
+    _axisLabel(maxY, interval).length,
+  );
   final reservedSize = (longest * 7.4 * textScale + 12).clamp(42.0, 72.0);
   return FlTitlesData(
     topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -994,10 +997,12 @@ FlTitlesData _titles(
         showTitles: true,
         reservedSize: reservedSize,
         interval: interval,
+        minIncluded: false,
+        maxIncluded: false,
         getTitlesWidget: (value, meta) => Padding(
           padding: const EdgeInsets.only(right: 6),
           child: Text(
-            _axisLabel(value),
+            _axisLabel(value, interval),
             maxLines: 1,
             style: const TextStyle(fontSize: 12, color: SaydianColors.muted),
           ),
@@ -1009,6 +1014,7 @@ FlTitlesData _titles(
         showTitles: true,
         reservedSize: 30,
         interval: math.max(1, (data.points.length / 4).ceilToDouble()),
+        maxIncluded: data.points.length == 1,
         getTitlesWidget: (value, meta) {
           final index = value.round();
           if (index < 0 || index >= data.points.length) {
@@ -1018,8 +1024,10 @@ FlTitlesData _titles(
           final text = data.range.end.difference(data.range.start).inDays <= 1
               ? DateFormat('HH:mm').format(point.at)
               : DateFormat('M/d').format(point.at);
-          return Padding(
-            padding: const EdgeInsets.only(top: 7),
+          return SideTitleWidget(
+            meta: meta,
+            space: 7,
+            fitInside: SideTitleFitInsideData.fromTitleMeta(meta),
             child: Text(text, style: const TextStyle(fontSize: 13)),
           );
         },
@@ -1045,10 +1053,11 @@ double _niceAxisInterval(double span) {
   return step * magnitude;
 }
 
-String _axisLabel(double value) {
-  if (value.abs() >= 1000) return value.toStringAsFixed(0);
-  if (value.abs() >= 10) return value.toStringAsFixed(0);
-  return value.toStringAsFixed(1).replaceFirst(RegExp(r'\.0$'), '');
+String _axisLabel(double value, double interval) {
+  final decimals = interval >= 1
+      ? 0
+      : (-math.log(interval) / math.ln10).ceil().clamp(0, 6);
+  return value.toStringAsFixed(decimals);
 }
 
 class _RecordTile extends StatelessWidget {

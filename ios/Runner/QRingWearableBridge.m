@@ -1,9 +1,27 @@
 #import "QRingWearableBridge.h"
 #import "QCCentralManager.h"
+#import "QRingRecordMapping.h"
 
 #import <QCBandSDK/QCBandSDK.h>
 
 typedef void (^QRingNext)(void);
+
+static void QRingOnMain(QRingNext block) {
+    if (NSThread.isMainThread) { block(); }
+    else { dispatch_async(dispatch_get_main_queue(), block); }
+}
+
+static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL success, NSError *error, NSTimeInterval startedAt) {
+    // Explicit local QA opt-in only. Do not print raw payloads, readings, errors'
+    // userInfo, account information, or peripheral identity into the console.
+    if (![NSProcessInfo.processInfo.environment[@"SAY_RING_QA_MEASUREMENT"] isEqualToString:@"1"]) { return; }
+    NSString *kind = !value ? @"missing" : [value isKindOfClass:NSNumber.class] ? @"number" :
+        QRingIs260918StressCompletion(value) ? @"260918_stress_wrapper" :
+        [value isKindOfClass:NSDictionary.class] ? @"dictionary" : @"other";
+    NSLog(@"[QRingMeasurementQA] metric=%@ phase=%@ payload=%@ accepted=%d sdkSuccess=%d errorCode=%ld elapsedSeconds=%.1f",
+          metric, phase, kind, QRingMeasurementValues(metric, value) != nil, success,
+          (long)error.code, NSProcessInfo.processInfo.systemUptime - startedAt);
+}
 
 @interface QRingWearableBridge () <FlutterStreamHandler, QCCentralManagerDelegate>
 @property(nonatomic, strong) FlutterMethodChannel *methodChannel;
@@ -21,6 +39,11 @@ typedef void (^QRingNext)(void);
 @property(nonatomic, copy) NSString *firmware;
 @property(nonatomic, strong, nullable) NSNumber *battery;
 @property(nonatomic, strong, nullable) NSNumber *charging;
+@property(nonatomic, strong, nullable) NSDate *batteryUpdatedAt;
+@property(nonatomic, assign) NSUInteger connectionGeneration;
+@property(nonatomic, assign) NSUInteger measurementGeneration;
+@property(nonatomic, assign) NSUInteger syncGeneration;
+@property(nonatomic, assign) BOOL readingDetails;
 @property(nonatomic, strong) NSMutableArray<NSDictionary *> *syncRecords;
 @property(nonatomic, copy, nullable) NSString *activeMetric;
 @property(nonatomic, copy, nullable) NSString *activeSportMode;
@@ -39,7 +62,9 @@ typedef void (^QRingNext)(void);
     _firmware = @"";
     _activeSportType = -1;
     _central = [QCCentralManager shared];
+    _central.appManagedConnections = YES;
     _central.delegate = self;
+    [QCSDKManager shareInstance].debug = NO;
     [QCSDKManager shareInstance].disableDefaultMeasuringValues = YES;
     _methodChannel = [FlutterMethodChannel methodChannelWithName:@"cc.saidian.ring/qring/commands"
                                                  binaryMessenger:messenger];
@@ -75,11 +100,8 @@ typedef void (^QRingNext)(void);
 
 - (BOOL)isQRingName:(NSString *)name {
     NSString *upper = [[name ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] uppercaseString];
-    if ([upper hasPrefix:@"Q_"] || [upper hasPrefix:@"O_"]) { return YES; }
-    if (![upper hasPrefix:@"R22_"] || upper.length != 8) { return NO; }
-    NSString *suffix = [upper substringFromIndex:4];
-    NSCharacterSet *nonHex = [[NSCharacterSet characterSetWithCharactersInString:@"0123456789ABCDEF"] invertedSet];
-    return [suffix rangeOfCharacterFromSet:nonHex].location == NSNotFound;
+    // User-confirmed R2 family, including R21; capabilities still require a handshake.
+    return [upper hasPrefix:@"Q_"] || [upper hasPrefix:@"O_"] || [upper hasPrefix:@"R2"];
 }
 
 - (BOOL)isResolved {
@@ -124,6 +146,25 @@ typedef void (^QRingNext)(void);
     result([self scanPayloads]);
 }
 
+- (void)prepareRememberedDevice:(NSDictionary *)arguments result:(FlutterResult)result {
+    // Manual selection only: exact last successful UUID from the current App
+    // environment, never the demo's installation-wide saved target. UUID
+    // retrieval is not an OS bond and does not authorize automatic recovery.
+    NSString *identifier = [arguments[@"id"] isKindOfClass:NSString.class] ? arguments[@"id"] : nil;
+    NSUUID *uuid = identifier ? [[NSUUID alloc] initWithUUIDString:identifier] : nil;
+    if (!uuid || self.central.bleState != QCBluetoothStatePoweredOn) { result(nil); return; }
+    NSArray<CBPeripheral *> *items = [self.central.centerManager retrievePeripheralsWithIdentifiers:@[uuid]];
+    for (CBPeripheral *peripheral in items) {
+        if (![peripheral.identifier isEqual:uuid] || ![self isQRingName:peripheral.name]) { continue; }
+        QCBlePeripheral *item = [QCBlePeripheral new];
+        item.peripheral = peripheral;
+        self.scanned[identifier] = item;
+        result(@{@"id": identifier, @"name": peripheral.name, @"model": peripheral.name});
+        return;
+    }
+    result(nil);
+}
+
 - (void)connect:(NSDictionary *)arguments result:(FlutterResult)result {
     NSString *identifier = [arguments[@"id"] isKindOfClass:NSString.class] ? arguments[@"id"] : @"";
     QCBlePeripheral *item = self.scanned[identifier];
@@ -138,6 +179,11 @@ typedef void (^QRingNext)(void);
     [self finishScan];
     self.pendingConnect = result;
     self.featureList = nil;
+    self.connectionGeneration++;
+    self.battery = nil;
+    self.charging = nil;
+    self.batteryUpdatedAt = nil;
+    self.firmware = @"";
     self.profile = [arguments[@"profile"] isKindOfClass:NSDictionary.class] ? arguments[@"profile"] : @{};
     self.connectedID = identifier;
     self.connectedName = item.peripheral.name ?: @"QRing";
@@ -145,26 +191,53 @@ typedef void (^QRingNext)(void);
 }
 
 - (void)resolveCapabilities {
+    if (self.connectedID.length == 0 || ![self.central.connectedPeripheral.identifier.UUIDString isEqualToString:self.connectedID]) {
+        [self.central disconnect];
+        return;
+    }
+    NSUInteger generation = ++self.connectionGeneration;
     __weak typeof(self) weakSelf = self;
     [QCSDKCmdCreator setTime:NSDate.date success:^(NSDictionary *featureList) {
+      QRingOnMain(^{
         __strong typeof(weakSelf) self = weakSelf;
-        if (!self) { return; }
+        if (![self isCurrentConnection:generation]) { return; }
         if (featureList.count == 0) {
             [self failConnect:@"QRING_HANDSHAKE_FAILED" message:@"戒指未返回功能列表，请重试"];
             return;
         }
         self.featureList = featureList;
-        [self writeProfile];
-        [QCSDKCmdCreator alertBindingSuccess:nil fail:nil];
-        [self readDeviceDetails];
-        FlutterResult result = self.pendingConnect;
-        self.pendingConnect = nil;
-        if (result) { result(nil); }
-        [self emit:@"deviceDetails" payload:[self deviceDetails]];
-        [self emit:@"capabilitiesUpdated" payload:[self capabilities]];
+        // QRing has one command channel. Finish setup/details before Flutter
+        // can start history sync or a measurement on that channel.
+        [self writeProfileWithCompletion:^{
+          QRingOnMain(^{
+            if (![weakSelf isCurrentConnection:generation]) { return; }
+            [weakSelf readDeviceDetailsWithCompletion:^{
+                if (![weakSelf isCurrentConnection:generation]) { return; }
+                FlutterResult result = weakSelf.pendingConnect;
+                weakSelf.pendingConnect = nil;
+                if (result) { result(nil); }
+                [weakSelf emit:@"deviceDetails" payload:[weakSelf deviceDetails]];
+                [weakSelf emit:@"capabilitiesUpdated" payload:[weakSelf capabilities]];
+            }];
+          });
+        }];
+      });
     } failed:^{
-        [weakSelf failConnect:@"QRING_HANDSHAKE_FAILED" message:@"戒指能力读取失败，请靠近手机后重试"];
+      QRingOnMain(^{
+        if ([weakSelf isCurrentConnection:generation]) {
+            [weakSelf failConnect:@"QRING_HANDSHAKE_FAILED" message:@"戒指能力读取失败，请靠近手机后重试"];
+        }
+      });
     }];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 25 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if ([weakSelf isCurrentConnection:generation] && weakSelf.pendingConnect) {
+            [weakSelf failConnect:@"QRING_HANDSHAKE_TIMEOUT" message:@"戒指连接准备超时，请靠近手机后重试"];
+        }
+    });
+}
+
+- (BOOL)isCurrentConnection:(NSUInteger)generation {
+    return generation == self.connectionGeneration && self.central.deviceState == QCStateConnected;
 }
 
 - (NSInteger)profileNumber:(NSString *)key fallback:(NSInteger)fallback minimum:(NSInteger)minimum maximum:(NSInteger)maximum {
@@ -173,7 +246,7 @@ typedef void (^QRingNext)(void);
     return MIN(maximum, MAX(minimum, value));
 }
 
-- (void)writeProfile {
+- (void)writeProfileWithCompletion:(QRingNext)completion {
     NSInteger gender = [self profileNumber:@"gender" fallback:1 minimum:1 maximum:2] == 2 ? 1 : 0;
     [QCSDKCmdCreator setTimeFormatTwentyfourHourFormat:YES
                                           metricSystem:YES
@@ -182,25 +255,50 @@ typedef void (^QRingNext)(void);
                                                 height:[self profileNumber:@"heightCm" fallback:170 minimum:80 maximum:240]
                                                 weight:[self profileNumber:@"weightKg" fallback:65 minimum:20 maximum:250]
                                                sbpBase:0 dbpBase:0 hrAlarmValue:0
-                                               success:^(__unused BOOL a, __unused BOOL b, __unused NSInteger c, __unused NSInteger d, __unused NSInteger e, __unused NSInteger f, __unused NSInteger g, __unused NSInteger h, __unused NSInteger i) {}
-                                                  fail:^{}];
+                                               success:^(__unused BOOL a, __unused BOOL b, __unused NSInteger c, __unused NSInteger d, __unused NSInteger e, __unused NSInteger f, __unused NSInteger g, __unused NSInteger h, __unused NSInteger i) { completion(); }
+                                                  fail:completion];
 }
 
-- (void)readDeviceDetails {
+- (void)readDeviceDetailsWithCompletion:(QRingNext)completion {
+    NSUInteger generation = self.connectionGeneration;
+    self.readingDetails = YES;
+    __block BOOL finished = NO;
     __weak typeof(self) weakSelf = self;
+    QRingNext finish = ^{
+        if (finished) { return; }
+        finished = YES;
+        if (generation == weakSelf.connectionGeneration) { weakSelf.readingDetails = NO; }
+        completion();
+    };
+    QRingNext readFirmware = ^{
+        if (finished || ![weakSelf isCurrentConnection:generation]) { finish(); return; }
+        // The bundled SDK invokes this callback as (hardware, software).
+        [QCSDKCmdCreator getDeviceSoftAndHardVersionSuccess:^(__unused NSString *hardware, NSString *software) {
+          QRingOnMain(^{
+            if (!finished && [weakSelf isCurrentConnection:generation]) {
+                weakSelf.firmware = software ?: @"";
+            }
+            finish();
+          });
+        } fail:^{ QRingOnMain(finish); }];
+    };
     [QCSDKCmdCreator readBatterySuccess:^(int battery, BOOL charging) {
-        if (battery < 0 || battery > 100) { return; }
-        weakSelf.battery = @(battery);
-        weakSelf.charging = @(charging);
-        [weakSelf emit:@"deviceDetails" payload:[weakSelf deviceDetails]];
-    } failed:^{}];
-    [QCSDKCmdCreator getDeviceSoftAndHardVersionSuccess:^(NSString *software, __unused NSString *hardware) {
-        weakSelf.firmware = software ?: @"";
-        [weakSelf emit:@"deviceDetails" payload:[weakSelf deviceDetails]];
-    } fail:^{}];
+      QRingOnMain(^{
+        if (finished || ![weakSelf isCurrentConnection:generation]) { finish(); return; }
+        if (battery >= 0 && battery <= 100) {
+            weakSelf.battery = @(battery);
+            weakSelf.charging = @(charging);
+            weakSelf.batteryUpdatedAt = NSDate.date;
+        }
+        readFirmware();
+      });
+    } failed:^{ QRingOnMain(readFirmware); }];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), dispatch_get_main_queue(), finish);
 }
 
 - (void)failConnect:(NSString *)code message:(NSString *)message {
+    self.connectionGeneration++;
+    self.readingDetails = NO;
     FlutterResult result = self.pendingConnect;
     self.pendingConnect = nil;
     if (result) { result([self error:code message:message]); }
@@ -221,7 +319,7 @@ typedef void (^QRingNext)(void);
             @"scale": @100,
             @"isPercent": @YES,
             @"chargeState": self.charging.boolValue ? @"charging" : @"normal",
-            @"updatedAt": [self iso:NSDate.date],
+            @"updatedAt": [self iso:self.batteryUpdatedAt],
         };
     }
     return value;
@@ -294,12 +392,23 @@ typedef void (^QRingNext)(void);
         return;
     }
     self.activeMetric = metric;
-    [self emit:@"measurementProgress" payload:@{@"metric": metric, @"progress": @5}];
+    NSUInteger measurementGeneration = ++self.measurementGeneration;
+    NSUInteger connectionGeneration = self.connectionGeneration;
+    // The SDK supplies no real progress percentage; keep the UI indeterminate.
+    [self emit:@"measurementProgress" payload:@{@"metric": metric, @"progress": @0}];
     NSInteger timeout = type == QCMeasuringTypeHRV ? 80 : 30;
+    NSTimeInterval startedAt = NSProcessInfo.processInfo.systemUptime;
     __weak typeof(self) weakSelf = self;
     [[QCSDKManager shareInstance] startToMeasuringWithOperateType:type timeout:timeout measuringHandle:^(id value) {
+      QRingOnMain(^{
+        if (measurementGeneration != weakSelf.measurementGeneration || ![weakSelf isCurrentConnection:connectionGeneration]) { return; }
+        QRingMeasurementQA(metric, @"intermediate", value, YES, nil, startedAt);
         [weakSelf emitMeasurementValue:value metric:metric terminal:NO];
+      });
     } completedHandle:^(BOOL success, id value, NSError *error) {
+      QRingOnMain(^{
+        if (measurementGeneration != weakSelf.measurementGeneration || ![weakSelf isCurrentConnection:connectionGeneration]) { return; }
+        QRingMeasurementQA(metric, @"completed", value, success, error, startedAt);
         if (!success || !value) {
             [weakSelf emit:@"error" payload:@{
                 @"code": error.code == -3 ? @"MEASUREMENT_NOT_WORN" : @"MEASUREMENT_FAILED",
@@ -309,34 +418,28 @@ typedef void (^QRingNext)(void);
             [weakSelf emitMeasurementValue:value metric:metric terminal:YES];
         }
         weakSelf.activeMetric = nil;
+      });
     }];
     result(nil);
 }
 
 - (void)emitMeasurementValue:(id)value metric:(NSString *)metric terminal:(BOOL)terminal {
-    NSMutableDictionary *values = [NSMutableDictionary dictionary];
-    NSString *unit = @"";
-    if ([value isKindOfClass:NSNumber.class] && [(NSNumber *)value doubleValue] > 0) {
-        values[@"value"] = value;
-        if ([metric isEqualToString:@"heart_rate"]) { unit = @"bpm"; }
-        else if ([metric isEqualToString:@"blood_oxygen"]) { unit = @"%"; }
-        else if ([metric isEqualToString:@"hrv"]) { unit = @"ms"; }
-        else if ([metric isEqualToString:@"body_temperature"]) { unit = @"℃"; }
-    } else if ([value isKindOfClass:NSDictionary.class]) {
-        NSNumber *sbp = @([value[@"sbp"] integerValue]);
-        NSNumber *dbp = @([value[@"dbp"] integerValue]);
-        if (sbp.integerValue > 0 && dbp.integerValue > 0) {
-            values[@"systolic"] = sbp;
-            values[@"diastolic"] = dbp;
-            unit = @"mmHg";
-        }
+    // Only the SDK's completed callback can finish the Flutter measurement.
+    // A provisional/sentinel value must not stop the device before completion.
+    if (!terminal) { return; }
+    NSDictionary *values = QRingMeasurementValues(metric, value);
+    if (!values) {
+        NSString *message = [metric isEqualToString:@"stress"] ? @"本次压力测量未获得有效数据，请稍后重试" : @"戒指未返回有效测量结果，请保持正确佩戴后重试";
+        [self emit:@"error" payload:@{@"code": @"MEASUREMENT_FAILED", @"message": message}];
+        return;
     }
-    if (values.count == 0) { return; }
-    if (terminal) { [self emit:@"measurementProgress" payload:@{@"metric": metric, @"progress": @100}]; }
+    NSString *unit = @{@"heart_rate": @"bpm", @"blood_oxygen": @"%", @"hrv": @"ms", @"body_temperature": @"℃", @"blood_pressure": @"mmHg"}[metric] ?: @"";
+    [self emit:@"measurementProgress" payload:@{@"metric": metric, @"progress": @100}];
     [self emit:@"healthRecord" payload:[self record:metric date:NSDate.date values:values unit:unit origin:@"app_measurement"]];
 }
 
 - (void)stopMeasurement:(NSString *)metric result:(FlutterResult)result {
+    self.measurementGeneration++;
     QCMeasuringType type = [self measurementType:metric];
     self.activeMetric = nil;
     if (type == QCMeasuringTypeUnkown) { result(nil); return; }
@@ -463,8 +566,9 @@ typedef void (^QRingNext)(void);
 - (NSDictionary *)record:(NSString *)metric date:(NSDate *)date values:(NSDictionary *)values unit:(NSString *)unit origin:(NSString *)origin {
     NSString *scopedID = [@"qring:" stringByAppendingString:self.connectedID ?: @""];
     NSTimeInterval millis = floor(date.timeIntervalSince1970 * 1000.0);
+    BOOL activity = [@[@"steps", @"distance", @"calories"] containsObject:metric];
     return @{
-        @"id": [NSString stringWithFormat:@"%@|%@|%.0f|%@", scopedID, metric, millis, values],
+        @"id": [NSString stringWithFormat:@"%@|%@|%@%.0f|%@", scopedID, metric, activity ? @"v3|" : @"", millis, values],
         @"type": metric,
         @"values": values,
         @"unit": unit ?: @"",
@@ -475,7 +579,7 @@ typedef void (^QRingNext)(void);
         @"quality": @"device_reported",
         @"source": @"wearable",
         @"origin": origin ?: @"watch_history",
-        @"rawVersion": @1,
+        @"rawVersion": activity ? @3 : @1,
         @"sourceModel": self.connectedName.length ? self.connectedName : @"QRing",
         @"sourceVendor": @"qring",
         @"sourceDeviceCategory": @"ring",
@@ -492,8 +596,18 @@ typedef void (^QRingNext)(void);
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
     if (self.pendingSync) { result([self error:@"SYNC_BUSY" message:@"戒指数据正在同步"]); return; }
     self.pendingSync = result;
+    NSUInteger generation = ++self.syncGeneration;
     [self.syncRecords removeAllObjects];
     [self syncDay:0 phase:0];
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 150 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (weakSelf.pendingSync && generation == weakSelf.syncGeneration) {
+            FlutterResult pending = weakSelf.pendingSync;
+            weakSelf.pendingSync = nil;
+            weakSelf.syncGeneration++;
+            pending([weakSelf error:@"QRING_SYNC_TIMEOUT" message:@"戒指数据同步超时，请靠近手机后重试"]);
+        }
+    });
 }
 
 - (void)syncDay:(NSInteger)day phase:(NSInteger)phase {
@@ -501,32 +615,54 @@ typedef void (^QRingNext)(void);
     if (day >= 7) { [self finishHealthSync]; return; }
     [self emit:@"syncProgress" payload:@{@"deviceId": self.connectedID, @"progress": @(MIN(0.98, (day * 7.0 + phase) / 49.0))}];
     __weak typeof(self) weakSelf = self;
+    NSUInteger syncGeneration = self.syncGeneration;
+    NSUInteger connectionGeneration = self.connectionGeneration;
+    BOOL (^current)(void) = ^BOOL {
+        return weakSelf.pendingSync && syncGeneration == weakSelf.syncGeneration && [weakSelf isCurrentConnection:connectionGeneration];
+    };
     switch (phase) {
-        case 0:
+        case 0: {
             [QCSDKCmdCreator getSportDetailDataByDay:day sportDatas:^(NSArray<QCSportModel *> *sports) {
+                if (!current()) { return; }
+                NSMutableArray *slots = [NSMutableArray array];
                 for (QCSportModel *item in sports) {
-                    NSDate *date = [weakSelf parseDateTime:item.happenDate fallback:[weakSelf dayStart:day]];
-                    [weakSelf addSingle:@"steps" date:date value:item.totalStepCount unit:@"步" minimum:1 maximum:1000000];
-                    [weakSelf addSingle:@"distance" date:date value:item.distance / 1000.0 unit:@"km" minimum:0.001 maximum:10000];
-                    [weakSelf addSingle:@"calories" date:date value:item.calories unit:@"kcal" minimum:0.01 maximum:100000];
+                    NSDate *date = [weakSelf parseDateTime:item.happenDate fallback:nil];
+                    if (date) { [slots addObject:@{@"date": date, @"steps": @(item.totalStepCount), @"distance": @(item.distance), @"calories": @(item.calories)}]; }
+                }
+                NSDate *begin = [weakSelf dayStart:day];
+                NSDate *end = [NSCalendar.currentCalendar dateByAddingUnit:NSCalendarUnitDay value:1 toDate:begin options:0];
+                for (NSDictionary *sample in QRingCumulativeActivitySamples(slots, begin, end, NSDate.date)) {
+                    [weakSelf addSingle:@"steps" date:sample[@"date"] value:[sample[@"steps"] doubleValue] unit:@"步" minimum:0 maximum:1000000];
+                    [weakSelf addSingle:@"distance" date:sample[@"date"] value:[sample[@"distance"] doubleValue] unit:@"km" minimum:0 maximum:10000];
+                    [weakSelf addSingle:@"calories" date:sample[@"date"] value:[sample[@"calories"] doubleValue] unit:@"kcal" minimum:0 maximum:100000];
                 }
                 [weakSelf syncDay:day phase:1];
-            } fail:^{ [weakSelf syncDay:day phase:1]; }];
+            } fail:^{ if (current()) { [weakSelf syncDay:day phase:1]; } }];
             break;
-        case 1:
+        }
+        case 1: {
             [QCSDKCmdCreator getFulldaySleepDetailDataByDay:day sleepDatas:^(NSArray<QCSleepModel *> *sleeps, NSArray<QCSleepModel *> *naps) {
+                if (!current()) { return; }
                 NSMutableArray *all = [NSMutableArray arrayWithArray:sleeps ?: @[]];
                 [all addObjectsFromArray:naps ?: @[]];
-                NSInteger total = [QCSleepModel sleepDuration:all];
-                if (total > 0) {
+                NSMutableArray *segments = [NSMutableArray array];
+                for (QCSleepModel *item in all) {
+                    NSDate *begin = [weakSelf parseDateTime:item.realBeginTime fallback:nil];
+                    NSDate *end = [weakSelf parseDateTime:item.realEndTime fallback:nil];
+                    if (begin && end) { [segments addObject:@{@"type": @(item.type), @"begin": begin, @"end": end, @"minutes": @(item.realEffectiveMinutes)}]; }
+                }
+                NSDictionary *values = QRingSleepStageValues(segments);
+                if (values) {
                     NSDate *date = [weakSelf dayStart:day];
-                    [weakSelf.syncRecords addObject:[weakSelf record:@"sleep" date:date values:@{@"value": @(total / 60.0)} unit:@"h" origin:@"watch_history"]];
+                    [weakSelf.syncRecords addObject:[weakSelf record:@"sleep" date:date values:values unit:@"h" origin:@"watch_history"]];
                 }
                 [weakSelf syncDay:day phase:2];
-            } fail:^{ [weakSelf syncDay:day phase:2]; }];
+            } fail:^{ if (current()) { [weakSelf syncDay:day phase:2]; } }];
             break;
-        case 2:
+        }
+        case 2: {
             [QCSDKCmdCreator getSchedualHeartRateDataWithDayIndexs:@[@(day)] success:^(NSArray<QCSchedualHeartRateModel *> *models) {
+                if (!current()) { return; }
                 for (QCSchedualHeartRateModel *model in models) {
                     NSDate *base = [weakSelf parseDateTime:[model.date stringByAppendingString:@" 00:00:00"] fallback:[weakSelf dayStart:day]];
                     NSInteger seconds = MAX(60, model.secondInterval);
@@ -535,11 +671,13 @@ typedef void (^QRingNext)(void);
                     }];
                 }
                 [weakSelf syncDay:day phase:3];
-            } fail:^{ [weakSelf syncDay:day phase:3]; }];
+            } fail:^{ if (current()) { [weakSelf syncDay:day phase:3]; } }];
             break;
-        case 3:
+        }
+        case 3: {
             if (![self feature:QCBandFeatureBloodOxygen]) { [self syncDay:day phase:4]; return; }
             [QCSDKCmdCreator getBloodOxygenDataWithIntervalByDayIndex:day finished:^(NSInteger interval, NSArray *values, __unused NSError *error) {
+                if (!current()) { return; }
                 NSDate *base = [weakSelf dayStart:day];
                 [values enumerateObjectsUsingBlock:^(id value, NSUInteger index, BOOL *stop) {
                     double amount = [value isKindOfClass:NSNumber.class] ? [value doubleValue] : ([value isKindOfClass:QCBloodOxygenModel.class] ? [(QCBloodOxygenModel *)value soa2] : 0);
@@ -549,9 +687,11 @@ typedef void (^QRingNext)(void);
                 [weakSelf syncDay:day phase:4];
             }];
             break;
-        case 4:
+        }
+        case 4: {
             if (![self feature:QCBandFeatureStress]) { [self syncDay:day phase:5]; return; }
             [QCSDKCmdCreator getPressureSamplesWithDayIndexes:@[@(day)] finished:^(NSArray<QCPressureDayModel *> *days, __unused NSError *error) {
+                if (!current()) { return; }
                 for (QCPressureDayModel *model in days) {
                     for (QCPressureSampleModel *sample in model.samples) {
                         [weakSelf addSingle:@"stress" date:sample.time value:sample.value unit:@"" minimum:1 maximum:100];
@@ -560,9 +700,11 @@ typedef void (^QRingNext)(void);
                 [weakSelf syncDay:day phase:5];
             }];
             break;
-        case 5:
+        }
+        case 5: {
             if (![self feature:QCBandFeatureHRV]) { [self syncDay:day phase:6]; return; }
             [QCSDKCmdCreator getHRVSamplesWithDayIndexes:@[@(day)] finished:^(NSArray<QCHRVDayModel *> *days, __unused NSError *error) {
+                if (!current()) { return; }
                 for (QCHRVDayModel *model in days) {
                     for (QCHRVSampleModel *sample in model.samples) {
                         [weakSelf addSingle:@"hrv" date:sample.time value:sample.value unit:@"ms" minimum:1 maximum:1000];
@@ -571,9 +713,11 @@ typedef void (^QRingNext)(void);
                 [weakSelf syncDay:day phase:6];
             }];
             break;
-        case 6:
+        }
+        case 6: {
             if (![self feature:QCBandFeatureTemperature]) { [self syncDay:day + 1 phase:0]; return; }
             [QCSDKCmdCreator getTemperatureDataWithIntervalByDayIndex:day finished:^(NSInteger interval, NSArray *values, __unused NSError *error) {
+                if (!current()) { return; }
                 NSDate *base = [weakSelf dayStart:day];
                 [values enumerateObjectsUsingBlock:^(id value, NSUInteger index, BOOL *stop) {
                     double amount = [value isKindOfClass:NSNumber.class] ? [value doubleValue] : ([value isKindOfClass:QCTemperatureModel.class] ? [(QCTemperatureModel *)value temperature] : 0);
@@ -583,6 +727,7 @@ typedef void (^QRingNext)(void);
                 [weakSelf syncDay:day + 1 phase:0];
             }];
             break;
+        }
         default: [self syncDay:day + 1 phase:0]; break;
     }
 }
@@ -630,10 +775,20 @@ typedef void (^QRingNext)(void);
     NSDictionary *arguments = [call.arguments isKindOfClass:NSDictionary.class] ? call.arguments : @{};
     if ([call.method isEqualToString:@"scanDevices"]) { [self startScan:result]; }
     else if ([call.method isEqualToString:@"lookupBondedDevice"]) { result(nil); }
+    else if ([call.method isEqualToString:@"listBondedDevices"]) { result(@[]); }
+    else if ([call.method isEqualToString:@"prepareRememberedDevice"]) { [self prepareRememberedDevice:arguments result:result]; }
     else if ([call.method isEqualToString:@"stopScan"]) { [self finishScan]; result(nil); }
     else if ([call.method isEqualToString:@"connect"]) { [self connect:arguments result:result]; }
     else if ([call.method isEqualToString:@"disconnect"]) { [self.central disconnect]; self.featureList = nil; result(nil); }
-    else if ([call.method isEqualToString:@"getDeviceDetails"]) { result([self isResolved] ? [self deviceDetails] : nil); }
+    else if ([call.method isEqualToString:@"getDeviceDetails"]) {
+        if (![self isResolved]) { result(nil); return; }
+        BOOL fresh = self.batteryUpdatedAt && [NSDate.date timeIntervalSinceDate:self.batteryUpdatedAt] < 15;
+        if (fresh || self.pendingConnect || self.pendingSync || self.activeMetric || self.activeSportType >= 0 || self.readingDetails) {
+            result([self deviceDetails]);
+        } else {
+            [self readDeviceDetailsWithCompletion:^{ result([self isResolved] ? [self deviceDetails] : nil); }];
+        }
+    }
     else if ([call.method isEqualToString:@"getCapabilities"]) { result([self isResolved] ? [self capabilities] : [self error:@"CAPABILITIES_UNAVAILABLE" message:@"请先连接戒指"]); }
     else if ([call.method isEqualToString:@"syncHealthData"]) { [self syncHealth:result]; }
     else if ([call.method isEqualToString:@"startMeasurement"]) { [self startMeasurement:arguments[@"metric"] result:result]; }
@@ -668,6 +823,19 @@ typedef void (^QRingNext)(void);
 - (void)didState:(QCState)state {
     if (state == QCStateConnected) { [self resolveCapabilities]; return; }
     if (state == QCStateDisconnected || state == QCStateUnbind) {
+        self.connectionGeneration++;
+        self.measurementGeneration++;
+        self.syncGeneration++;
+        if (self.pendingSync) {
+            FlutterResult pending = self.pendingSync;
+            self.pendingSync = nil;
+            pending([self error:@"QRING_DISCONNECTED" message:@"戒指连接中断，请重连后同步"]);
+        }
+        self.readingDetails = NO;
+        self.battery = nil;
+        self.charging = nil;
+        self.batteryUpdatedAt = nil;
+        self.firmware = @"";
         NSString *retired = self.connectedID;
         self.featureList = nil;
         self.activeMetric = nil;

@@ -19,10 +19,6 @@ enum WearableTransport { veepoo, yucheng, moyoung, coolwear, qring }
 class WearableDeviceClassifier {
   const WearableDeviceClassifier._();
 
-  // QRing's sample App does not restrict scanning to Q_/O_. Keep the newly
-  // observed R22 model narrow until its vendor handshake confirms features.
-  static final RegExp _qringR22Name = RegExp(r'^R22_[0-9A-F]{4}$');
-
   static WearableTransport? transportFor(String name) {
     final normalized = name.trim().toUpperCase();
     if (normalized.startsWith('YC')) return WearableTransport.yucheng;
@@ -33,7 +29,7 @@ class WearableDeviceClassifier {
     }
     if (normalized.startsWith('Q_') ||
         normalized.startsWith('O_') ||
-        _qringR22Name.hasMatch(normalized)) {
+        normalized.startsWith('R2')) {
       return WearableTransport.qring;
     }
     if (normalized.startsWith('TK') || normalized.startsWith('V')) {

@@ -204,7 +204,9 @@ class QRingWearableBridge
       });
 
   @override
-  Future<int?> readHeartRateWarning() => _unsupported();
+  // No verified QRing warning-setting contract. Null means unsupported, not
+  // a failed read of otherwise supported auto-monitoring settings.
+  Future<int?> readHeartRateWarning() async => null;
 
   @override
   Future<void> setHeartRateWarning(int value) => _unsupported();

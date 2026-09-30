@@ -78,4 +78,28 @@ void main() {
     expect(healthValueLabel('uricAcid', blood.metric), '尿酸');
     expect(healthValueUnit('uricAcid', blood), 'μmol/L');
   });
+
+  test('sleep detail labels retain each field unit instead of total hours', () {
+    final sleep = record(HealthMetric.sleep, const {'value': 7});
+    const labels = {
+      'deepHours': '深睡时长',
+      'lightHours': '浅睡时长',
+      'remHours': '快速眼动时长',
+      'awakeMinutes': '清醒时长',
+      'score': '设备睡眠评分',
+      'efficiency': '睡眠效率',
+    };
+    for (final entry in labels.entries) {
+      expect(healthValueLabel(entry.key, sleep.metric), entry.value);
+    }
+    for (final key in ['deepHours', 'lightHours', 'remHours']) {
+      expect(healthValueUnit(key, sleep), '小时');
+    }
+    expect(healthValueUnit('awakeMinutes', sleep), '分钟');
+    expect(healthValueUnit('score', sleep), '分');
+    expect(healthValueUnit('efficiency', sleep), '%');
+    final other = record(HealthMetric.bodyComposition, const {'score': 80});
+    expect(healthValueLabel('score', other.metric), 'score');
+    expect(healthValueUnit('score', other), other.unit);
+  });
 }

@@ -70,6 +70,10 @@ class AppController extends ChangeNotifier {
     AppNotificationService? notificationService,
     List<Duration>? pushRegistrationRetryDelays,
     this._allowAutomaticWearableRestore = true,
+    this.commerceEnabled = const bool.fromEnvironment(
+      'SAY_RING_COMMERCE_ENABLED',
+      defaultValue: false,
+    ),
   }) : _paymentBridge = paymentBridge ?? const MethodChannelAppPaymentBridge(),
        _storeKitPurchaseBridge =
            storeKitPurchaseBridge ??
@@ -110,6 +114,10 @@ class AppController extends ChangeNotifier {
   final SessionVault _vault;
   final bool _allowAutomaticWearableRestore;
   final SaydianApi _api;
+
+  /// A release switch, independent of account state and device capabilities.
+  /// Keep commerce code/data intact; a later upgrade can explicitly enable it.
+  final bool commerceEnabled;
 
   bool _hideAi = true;
   int _aiDisplayGeneration = 0;
@@ -745,7 +753,8 @@ class AppController extends ChangeNotifier {
   List<DeviceInfo> scannedDevices = const [];
   DeviceScanIssue? deviceScanIssue;
   bool get supportsBondedDeviceSelection =>
-      defaultTargetPlatform == TargetPlatform.android &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS) &&
       _wearable is WearableBondedDeviceSelectionBridge;
   List<HealthRecord> healthRecords = const [];
   List<SportRecord> sportRecords = const [];
@@ -5354,6 +5363,8 @@ class AppController extends ChangeNotifier {
       'MEASUREMENT_START_FAILED',
       'MEASUREMENT_COMMAND_FAILED',
       'MEASUREMENT_STOP_FAILED',
+      'MEASUREMENT_NOT_WORN',
+      'MEASUREMENT_FAILED',
     };
     return measurementErrors.contains(code);
   }

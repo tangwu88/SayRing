@@ -163,7 +163,7 @@ public final class QRingBridge
         if (name == null) return false;
         String normalized = name.trim().toUpperCase(Locale.ROOT);
         return normalized.startsWith("Q_") || normalized.startsWith("O_")
-                || normalized.matches("R22_[0-9A-F]{4}");
+                || normalized.startsWith("R2");
     }
 
     static boolean isExactBondedQRing(String requestedId, String bondedId, String name) {

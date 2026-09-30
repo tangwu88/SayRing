@@ -37,7 +37,10 @@ class _ShopHomePageState extends State<ShopHomePage> {
   @override
   void initState() {
     super.initState();
-    if (!widget.controller.isGlobalEdition) unawaited(_load());
+    if (widget.controller.commerceEnabled &&
+        !widget.controller.isGlobalEdition) {
+      unawaited(_load());
+    }
   }
 
   Future<void> _load() async {
@@ -88,6 +91,13 @@ class _ShopHomePageState extends State<ShopHomePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.controller.commerceEnabled) {
+      return Scaffold(
+        key: const Key('commerce-unavailable-page'),
+        appBar: AppBar(),
+        body: const Center(child: Text('此功能暂未开放')),
+      );
+    }
     if (widget.controller.isGlobalEdition) {
       return GlobalShopHomePage(controller: widget.controller);
     }
