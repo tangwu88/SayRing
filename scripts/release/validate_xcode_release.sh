@@ -34,8 +34,8 @@ if [ "$qa_release" = "true" ]; then
   exit 0
 fi
 
-if [ "${PRODUCT_BUNDLE_IDENTIFIER:-}" != "cc.saidian.app" ]; then
-  echo "error: Production iOS Release requires PRODUCT_BUNDLE_IDENTIFIER=cc.saidian.app." >&2
+if [ "${PRODUCT_BUNDLE_IDENTIFIER:-}" != "cn.saydian.ring" ]; then
+  echo "error: Production iOS Release requires PRODUCT_BUNDLE_IDENTIFIER=cn.saydian.ring." >&2
   exit 1
 fi
 
@@ -66,7 +66,43 @@ require_https() {
   esac
 }
 
-require_value JPUSH_APP_KEY "${JPUSH_APP_KEY:-}"
+# Push remains required by default. A user-approved no-push iOS release must
+# explicitly opt out and prove the compiled Dart AppKey is empty as well.
+case "${SAIDIAN_IOS_PUSH_ENABLED:-true}" in
+  true)
+    require_value JPUSH_APP_KEY "${JPUSH_APP_KEY:-}"
+    ;;
+  false)
+    if [ -n "${JPUSH_APP_KEY:-}" ]; then
+      echo "error: Disabled iOS push requires an empty JPUSH_APP_KEY." >&2
+      exit 1
+    fi
+    python3 - <<'PY'
+import base64
+import binascii
+import os
+import sys
+
+try:
+    defines = [
+        base64.b64decode(value, validate=True).decode("utf-8")
+        for value in os.environ.get("DART_DEFINES", "").split(",")
+        if value
+    ]
+except (binascii.Error, UnicodeDecodeError):
+    sys.exit("error: Disabled iOS push requires valid DART_DEFINES.")
+
+keys = [value for value in defines if value.startswith("JPUSH_APP_KEY=")]
+if keys != ["JPUSH_APP_KEY="]:
+    sys.exit("error: Disabled iOS push requires exactly one empty Dart JPUSH_APP_KEY.")
+PY
+    echo "warning: Production iOS build explicitly disables JPush; no push delivery is available."
+    ;;
+  *)
+    echo "error: SAIDIAN_IOS_PUSH_ENABLED must be true, false, or unset." >&2
+    exit 1
+    ;;
+esac
 require_value SAIDIAN_DEVELOPMENT_TEAM "${SAIDIAN_DEVELOPMENT_TEAM:-}"
 require_value SAIDIAN_CODE_SIGN_IDENTITY "${SAIDIAN_CODE_SIGN_IDENTITY:-}"
 require_value SAIDIAN_PROVISIONING_PROFILE_SPECIFIER \

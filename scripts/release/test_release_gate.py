@@ -7,6 +7,8 @@ import base64
 import importlib.util
 import json
 import os
+import plistlib
+import re
 import subprocess
 import tempfile
 import textwrap
@@ -33,6 +35,49 @@ XCODE_RELEASE_GATE = HERE / "validate_xcode_release.sh"
 
 
 class ReleaseGateTest(unittest.TestCase):
+    def test_ios_vendor_sdk_usage_descriptions_are_explicit(self) -> None:
+        info = plistlib.loads((HERE.parents[1] / "ios/Runner/Info.plist").read_bytes())
+        for key in (
+            "NSAppleMusicUsageDescription",
+            "NSSpeechRecognitionUsageDescription",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(key, info)
+                self.assertIn("integrated device SDK", info[key])
+                self.assertIn("This version does not offer", info[key])
+                self.assertIn("you may decline access", info[key])
+                self.assertNotIn("$(", info[key])
+
+    def test_ios_vendor_sdk_usage_descriptions_cover_all_locales(self) -> None:
+        runner = HERE.parents[1] / "ios/Runner"
+        info = plistlib.loads((runner / "Info.plist").read_bytes())
+        for locale in ("en", "zh-Hans", "zh-Hant", "de", "fr", "es", "ja", "ko"):
+            entries = re.findall(
+                r'^"([^"\\]+)"\s*=\s*"((?:\\.|[^"\\])*)";$',
+                (runner / f"{locale}.lproj/InfoPlist.strings").read_text(encoding="utf-8"),
+                flags=re.MULTILINE,
+            )
+            for key in (
+                "NSAppleMusicUsageDescription",
+                "NSSpeechRecognitionUsageDescription",
+            ):
+                with self.subTest(locale=locale, key=key):
+                    values = [value for entry_key, value in entries if entry_key == key]
+                    self.assertEqual(len(values), 1)
+                    self.assertGreater(len(values[0].strip()), 20)
+                    self.assertIn("SDK", values[0])
+                    self.assertNotIn("$(", values[0])
+                    if locale == "en":
+                        self.assertEqual(info[key], values[0])
+
+    def test_ios_vendor_descriptions_do_not_add_background_permissions(self) -> None:
+        info = plistlib.loads((HERE.parents[1] / "ios/Runner/Info.plist").read_bytes())
+        self.assertEqual(info["UIBackgroundModes"], ["bluetooth-central"])
+        self.assertNotIn("NSLocationAlwaysUsageDescription", info)
+        self.assertNotIn("NSLocationAlwaysAndWhenInUseUsageDescription", info)
+        self.assertNotIn("NSMicrophoneUsageDescription", info)
+        self.assertIn("NSLocationWhenInUseUsageDescription", info)
+
     def test_apk_numeric_resources_must_resolve_uniquely_from_actual_table(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             resources = Path(directory) / "resources.txt"
@@ -594,6 +639,26 @@ class PushConfigTest(unittest.TestCase):
 
 
 class XcodeReleaseBuildGateTest(unittest.TestCase):
+    def no_push_environment(self) -> dict[str, str]:
+        return {
+            "CONFIGURATION": "Release",
+            "SAIDIAN_PRODUCTION_RELEASE": "true",
+            "SAIDIAN_IOS_PUSH_ENABLED": "false",
+            "PRODUCT_BUNDLE_IDENTIFIER": "cn.saydian.ring",
+            "APS_ENVIRONMENT": "production",
+            "SAIDIAN_DEVELOPMENT_TEAM": "TESTTEAM",
+            "SAIDIAN_CODE_SIGN_IDENTITY": "Apple Distribution",
+            "SAIDIAN_PROVISIONING_PROFILE_SPECIFIER": "Test App Store",
+            "SAYDIAN_API_BASE_URL": "https://api.example.invalid",
+            "SAYDIAN_UPDATE_MANIFEST_URL": "https://downloads.example.invalid/app-update.json",
+            "SAYDIAN_UPDATE_ALLOWED_HOSTS": "downloads.example.invalid,apps.apple.com",
+            "SAIDIAN_WECHAT_APP_ID": "wx1234567890abcdef",
+            "SAIDIAN_WECHAT_UNIVERSAL_LINK": "https://pay.example.invalid/wechat/",
+            "SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST": "pay.example.invalid",
+            "SAIDIAN_ALIPAY_URL_SCHEME": "cn.saydian.ring.alipay",
+            "DART_DEFINES": base64.b64encode(b"JPUSH_APP_KEY=").decode(),
+        }
+
     def run_gate(self, environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["/bin/sh", str(XCODE_RELEASE_GATE)],
@@ -635,7 +700,7 @@ class XcodeReleaseBuildGateTest(unittest.TestCase):
                 "CONFIGURATION": "Release",
                 "SAIDIAN_PRODUCTION_RELEASE": "true",
                 "JPUSH_APP_KEY": "test-app-key",
-                "PRODUCT_BUNDLE_IDENTIFIER": "cc.saidian.app",
+                "PRODUCT_BUNDLE_IDENTIFIER": "cn.saydian.ring",
                 "APS_ENVIRONMENT": "production",
                 "SAIDIAN_DEVELOPMENT_TEAM": "TESTTEAM",
                 "SAIDIAN_CODE_SIGN_IDENTITY": "Apple Distribution",
@@ -649,17 +714,85 @@ class XcodeReleaseBuildGateTest(unittest.TestCase):
                 "SAIDIAN_WECHAT_UNIVERSAL_LINK":
                     "https://pay.example.invalid/wechat/",
                 "SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST": "pay.example.invalid",
-                "SAIDIAN_ALIPAY_URL_SCHEME": "cc.saidian.app.alipay",
+                "SAIDIAN_ALIPAY_URL_SCHEME": "cn.saydian.ring.alipay",
             }
         )
         self.assertEqual(0, complete.returncode, complete.stderr)
+
+    def test_production_release_rejects_other_product_identifiers(self) -> None:
+        for bundle_id in ("", "cc.saidian.app", "cn.saydian.app.global"):
+            with self.subTest(bundle_id=bundle_id):
+                result = self.run_gate(
+                    {
+                        "CONFIGURATION": "Release",
+                        "SAIDIAN_PRODUCTION_RELEASE": "true",
+                        "PRODUCT_BUNDLE_IDENTIFIER": bundle_id,
+                    }
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(
+                    "requires PRODUCT_BUNDLE_IDENTIFIER=cn.saydian.ring",
+                    result.stderr,
+                )
+
+    def test_correct_product_still_requires_production_push_configuration(self) -> None:
+        result = self.run_gate(
+            {
+                "CONFIGURATION": "Release",
+                "SAIDIAN_PRODUCTION_RELEASE": "true",
+                "PRODUCT_BUNDLE_IDENTIFIER": "cn.saydian.ring",
+                "APS_ENVIRONMENT": "production",
+            }
+        )
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("requires JPUSH_APP_KEY", result.stderr)
+
+    def test_explicit_no_push_production_release_is_allowed(self) -> None:
+        result = self.run_gate(self.no_push_environment())
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("explicitly disables JPush", result.stdout)
+
+    def test_no_push_release_rejects_runtime_keys_and_invalid_defines(self) -> None:
+        for defines in (
+            "",
+            "not-base64!",
+            base64.b64encode(b"JPUSH_APP_KEY=unexpected-key").decode(),
+            ",".join(base64.b64encode(v).decode() for v in (
+                b"JPUSH_APP_KEY=", b"JPUSH_APP_KEY=unexpected-key",
+            )),
+        ):
+            with self.subTest(defines=defines):
+                environment = self.no_push_environment()
+                environment["DART_DEFINES"] = defines
+                result = self.run_gate(environment)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("Disabled iOS push requires", result.stderr)
+        environment = self.no_push_environment()
+        environment["JPUSH_APP_KEY"] = "unexpected-native-key"
+        result = self.run_gate(environment)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("empty JPUSH_APP_KEY", result.stderr)
+
+    def test_no_push_release_still_requires_signing_and_provider_configuration(self) -> None:
+        for key, value in (
+            ("CODE_SIGNING_ALLOWED", "NO"),
+            ("SAIDIAN_CODE_SIGN_IDENTITY", ""),
+            ("SAIDIAN_PROVISIONING_PROFILE_SPECIFIER", ""),
+            ("SAIDIAN_WECHAT_APP_ID", ""),
+            ("SAYDIAN_API_BASE_URL", "http://api.example.invalid"),
+            ("SAIDIAN_IOS_PUSH_ENABLED", "yes"),
+        ):
+            with self.subTest(key=key):
+                environment = self.no_push_environment()
+                environment[key] = value
+                self.assertNotEqual(0, self.run_gate(environment).returncode)
 
     def test_production_release_rejects_inconsistent_payment_configuration(self) -> None:
         environment = {
             "CONFIGURATION": "Release",
             "SAIDIAN_PRODUCTION_RELEASE": "true",
             "JPUSH_APP_KEY": "test-app-key",
-            "PRODUCT_BUNDLE_IDENTIFIER": "cc.saidian.app",
+            "PRODUCT_BUNDLE_IDENTIFIER": "cn.saydian.ring",
             "APS_ENVIRONMENT": "production",
             "SAIDIAN_DEVELOPMENT_TEAM": "TESTTEAM",
             "SAIDIAN_CODE_SIGN_IDENTITY": "Apple Distribution",
@@ -673,7 +806,7 @@ class XcodeReleaseBuildGateTest(unittest.TestCase):
             "SAIDIAN_WECHAT_UNIVERSAL_LINK":
                 "https://wrong.example.invalid/wechat/",
             "SAIDIAN_WECHAT_UNIVERSAL_LINK_HOST": "pay.example.invalid",
-            "SAIDIAN_ALIPAY_URL_SCHEME": "cc.saidian.app.alipay",
+            "SAIDIAN_ALIPAY_URL_SCHEME": "cn.saydian.ring.alipay",
         }
         result = self.run_gate(environment)
         self.assertNotEqual(0, result.returncode)

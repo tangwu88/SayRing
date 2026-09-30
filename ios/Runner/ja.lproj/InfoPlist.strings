@@ -1,4 +1,6 @@
 "CFBundleDisplayName" = "Say Ring";
+"NSAppleMusicUsageDescription" = "組み込みのデバイス SDK には音楽ライブラリのインターフェースが含まれます。このバージョンでは音楽ライブラリ機能を提供していないため、アクセスを拒否できます。";
+"NSSpeechRecognitionUsageDescription" = "組み込みのデバイス SDK には音声認識のインターフェースが含まれます。このバージョンでは音声認識機能を提供していないため、アクセスを拒否できます。";
 "NSBluetoothAlwaysUsageDescription" = "リングに接続し、共有を許可した健康データを同期します。";
 "NSCameraUsageDescription" = "プロフィール写真を撮影するときだけカメラを使用します。";
 "NSContactsUsageDescription" = "対応するデバイス機能に必要な場合だけ連絡先にアクセスします。";

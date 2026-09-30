@@ -50,6 +50,29 @@ void main() {
     });
   });
 
+  test(
+    'empty AppKey disables SDK setup, registration and permissions',
+    () async {
+      final jpush = _FakeJPush();
+      final service = JPushAppNotificationService(jpush: jpush, appKey: '');
+      addTearDown(service.dispose);
+
+      await service.initialize();
+      await service.activateAfterPrivacyConsent();
+      await service.requestPermission();
+
+      expect(service.isConfigured, isFalse);
+      expect(service.isActivated, isFalse);
+      expect(await service.registrationId(), isNull);
+      expect(await service.isPermissionEnabled(), isFalse);
+      expect(jpush.handlerInstallCount, 0);
+      expect(jpush.setupCount, 0);
+      expect(jpush.registrationIdReadCount, 0);
+      expect(jpush.launchNotificationReadCount, 0);
+      expect(jpush.authValues, isEmpty);
+    },
+  );
+
   test('SDK setup is deferred until privacy activation', () async {
     final jpush = _FakeJPush();
     final service = JPushAppNotificationService(

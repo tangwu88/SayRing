@@ -62,6 +62,10 @@
 	<string>Connect to your ring and sync health data you choose to share.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Take a profile photo when you choose to use the camera.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>The integrated device SDK includes music-library interfaces. This version does not offer music-library features; you may decline access.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>The integrated device SDK includes speech-recognition interfaces. This version does not offer speech-recognition features; you may decline access.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Access contacts only when a supported device feature needs them.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

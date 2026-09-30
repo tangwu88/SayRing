@@ -1,4 +1,6 @@
 "CFBundleDisplayName" = "Say Ring";
+"NSAppleMusicUsageDescription" = "Le SDK d’appareil intégré comprend des interfaces de bibliothèque musicale. Cette version ne propose pas de fonctions de bibliothèque musicale ; vous pouvez refuser l’accès.";
+"NSSpeechRecognitionUsageDescription" = "Le SDK d’appareil intégré comprend des interfaces de reconnaissance vocale. Cette version ne propose pas de reconnaissance vocale ; vous pouvez refuser l’accès.";
 "NSBluetoothAlwaysUsageDescription" = "Connectez votre bague et synchronisez les données de santé que vous autorisez.";
 "NSCameraUsageDescription" = "Prenez une photo de profil lorsque vous choisissez d’utiliser l’appareil photo.";
 "NSContactsUsageDescription" = "Accédez aux contacts uniquement pour une fonction d’appareil compatible.";
