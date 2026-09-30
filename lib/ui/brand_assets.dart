@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
 class SaydianBrandLockup extends StatelessWidget {
-  const SaydianBrandLockup({super.key, this.width = 190});
+  const SaydianBrandLockup({super.key, this.width = 190, this.color});
 
   final double width;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -14,7 +15,7 @@ class SaydianBrandLockup extends StatelessWidget {
         width: width,
         child: Row(
           children: [
-            SaydianBrandMark(size: width * .28),
+            SaydianBrandMark(size: width * .28, color: color),
             SizedBox(width: width * .06),
             Expanded(
               child: FittedBox(
@@ -24,7 +25,7 @@ class SaydianBrandLockup extends StatelessWidget {
                   style: TextStyle(
                     fontSize: width * .20,
                     fontWeight: FontWeight.w800,
-                    color: const Color(0xFFCA0B27),
+                    color: color ?? const Color(0xFFCA0B27),
                   ),
                 ),
               ),
@@ -37,9 +38,10 @@ class SaydianBrandLockup extends StatelessWidget {
 }
 
 class SaydianBrandMark extends StatelessWidget {
-  const SaydianBrandMark({super.key, this.size = 44});
+  const SaydianBrandMark({super.key, this.size = 44, this.color});
 
   final double size;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +50,8 @@ class SaydianBrandMark extends StatelessWidget {
       width: size,
       height: size,
       fit: BoxFit.contain,
+      color: color,
+      colorBlendMode: color == null ? null : BlendMode.srcIn,
       semanticLabel: 'Say Ring',
     );
   }

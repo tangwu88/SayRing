@@ -12,6 +12,7 @@ import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/services/wechat_auth_bridge.dart';
 import 'package:saydian_app/ui/app_theme.dart';
+import 'package:saydian_app/ui/brand_assets.dart';
 import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
 
@@ -146,7 +147,20 @@ void main() {
           );
           final button = find.byKey(const Key('wechat-login'));
           expect(find.text('快速体验'), findsNothing);
+          expect(
+            tester
+                .widget<SaydianBrandLockup>(find.byType(SaydianBrandLockup))
+                .color,
+            Colors.black,
+          );
           await tester.ensureVisible(button);
+          final wechatIcon = tester.widget<Icon>(
+            find.descendant(
+              of: button,
+              matching: find.byIcon(Icons.wechat_rounded),
+            ),
+          );
+          expect(wechatIcon.color, const Color(0xFF07C160));
           await tester.tap(button);
           await tester.pump();
           expect(auth.calls, 0);

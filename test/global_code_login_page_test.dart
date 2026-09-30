@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/global_account.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/services/app_controller.dart';
+import 'package:saydian_app/ui/brand_assets.dart';
 import 'package:saydian_app/ui/global_code_login_page.dart';
 
 class CodeLoginController extends Fake implements AppController {
@@ -208,6 +209,12 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<SaydianBrandLockup>(find.byType(SaydianBrandLockup))
+            .color,
+        Colors.black,
+      );
       await tester.ensureVisible(find.byKey(const Key('code-login-consent')));
       await tester.tap(find.byType(Checkbox));
       await tester.pump();
@@ -216,6 +223,13 @@ void main() {
         250,
         scrollable: find.byType(Scrollable).first,
       );
+      final wechatIcon = tester.widget<Icon>(
+        find.descendant(
+          of: find.byKey(const Key('global-wechat-login')),
+          matching: find.byIcon(Icons.wechat_rounded),
+        ),
+      );
+      expect(wechatIcon.color, const Color(0xFF07C160));
       await tester.tap(find.byKey(const Key('global-wechat-login')));
       await tester.pumpAndSettle();
       expect(

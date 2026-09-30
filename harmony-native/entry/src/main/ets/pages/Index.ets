@@ -2935,10 +2935,10 @@ struct Index {
   }
 
   @Builder
-  BrandLockup() {
+  BrandLockup(brandColor: ResourceColor = RED) {
     Row({ space: 12 }) {
-      Image($r('app.media.app_icon')).width(62).height(62).borderRadius(31)
-      Text(this.tr('appName')).fontSize(27).fontWeight(FontWeight.Bold).fontColor(RED).maxLines(1)
+      Image($r('app.media.app_icon')).width(62).height(62).borderRadius(31).colorFilter(brandColor)
+      Text(this.tr('appName')).fontSize(27).fontWeight(FontWeight.Bold).fontColor(brandColor).maxLines(1)
     }.width(190).height(92).justifyContent(FlexAlign.Center).alignItems(VerticalAlign.Center)
       .margin({ top: 16, bottom: 18 }).accessibilityText(this.tr('appName'))
   }
@@ -2988,7 +2988,7 @@ struct Index {
     Scroll() {
       Column({ space: 14 }) {
         this.LanguagePicker()
-        this.BrandLockup()
+        this.BrandLockup(Color.Black)
         this.AuthMethodSelector()
         Row({ space: 10 }) {
           SymbolGlyph($r('sys.symbol.phone')).fontSize(22).fontColor([MUTED]).margin({ left: 15 })
@@ -3039,7 +3039,12 @@ struct Index {
           .fontWeight(FontWeight.Medium).backgroundColor(Color.Transparent).enabled(!this.busy && !this.restoring)
           .onClick(() => this.openRegistration()).id('open_registration')
         if (GLOBAL_WECHAT_ENABLED) { Row() {
-          Button(this.tr(this.busy ? '正在打开微信…' : '微信授权登录')).width(this.singleColumn() ? '100%' : '60%').height(this.controlHeight(48)).fontSize(16)
+          Button() {
+            Row({ space: 8 }) {
+              SymbolGlyph($r('sys.symbol.wechat')).fontSize(22).fontColor(['#07C160'])
+              Text(this.tr(this.busy ? '正在打开微信…' : '微信授权登录')).fontSize(16).fontWeight(FontWeight.Medium).fontColor('#07883E')
+            }.justifyContent(FlexAlign.Center)
+          }.width(this.singleColumn() ? '100%' : '60%').height(this.controlHeight(48))
             .fontWeight(FontWeight.Medium).fontColor('#07883E').backgroundColor(Color.Transparent)
             .type(ButtonType.Normal).borderRadius(12).border({ width: 1, color: '#07883E' })
             .enabled(!this.busy && !this.restoring)

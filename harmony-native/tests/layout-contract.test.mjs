@@ -207,6 +207,10 @@ test('launcher identity uses the requested name and a high-resolution brand icon
 test('login offers registration and WeChat authorization instead of guest browsing',()=>{
   const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   for(const marker of ['微信授权登录','注册账户','register_submit','register_send_code'])assert.ok(source.includes(marker));
+  const login=source.slice(source.indexOf('  Login() {'),source.indexOf('  Registration() {'));
+  assert.ok(login.includes('this.BrandLockup(Color.Black)'));
+  assert.ok(login.includes("SymbolGlyph($r('sys.symbol.wechat'))"));
+  assert.ok(login.includes("fontColor(['#07C160'])"));
   assert.equal(source.includes('先浏览首页'),false);
   const manifest=JSON.parse(readFileSync(new URL('../entry/src/main/module.json5',import.meta.url),'utf8')).module;
   assert.deepEqual(manifest.querySchemes,['weixin','wxopensdk','https']);
@@ -256,7 +260,7 @@ test('payment order number owns a full row instead of orphan-wrapping its final 
 test('login and primary surfaces exclude decorative or internal helper copy',()=>{
   const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const login=source.slice(source.indexOf('  Login() {'),source.indexOf('  Registration() {'));
-  const wechat=login.slice(login.indexOf("Button(this.busy ? '正在打开微信…'"),login.indexOf('  Registration()'));
+  const wechat=login.slice(login.indexOf('if (GLOBAL_WECHAT_ENABLED)'),login.length);
   assert.ok(wechat.includes(".width(this.singleColumn() ? '100%' : '60%')"));
   assert.ok(login.includes("}.width('100%').justifyContent(FlexAlign.Center)"));
   for(const copy of [

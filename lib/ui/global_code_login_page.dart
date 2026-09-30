@@ -303,7 +303,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
           child: ListView(
             padding: const EdgeInsets.all(24),
             children: [
-              const Center(child: SaydianBrandLockup()),
+              const Center(child: SaydianBrandLockup(color: Colors.black)),
               const SizedBox(height: 28),
               Text(l.signIn, style: Theme.of(context).textTheme.headlineMedium),
               const SizedBox(height: 20),
@@ -435,7 +435,10 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                 OutlinedButton.icon(
                   key: const Key('global-wechat-login'),
                   onPressed: _busy ? null : _wechatLogin,
-                  icon: const Icon(Icons.chat_bubble_outline),
+                  icon: const Icon(
+                    Icons.wechat_rounded,
+                    color: Color(0xFF07C160),
+                  ),
                   label: const Text('微信授权登录'),
                 ),
               ],

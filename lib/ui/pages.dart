@@ -253,13 +253,26 @@ class _LoginPageState extends State<LoginPage> {
                                 vertical: 10,
                               ),
                             ),
-                            child: Text(
-                              controller.isWechatLoginInProgress
-                                  ? controller.canCancelWechatLogin
-                                        ? '取消微信登录'
-                                        : '正在登录'
-                                  : '微信授权登录',
-                              textAlign: TextAlign.center,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.wechat_rounded,
+                                  color: Color(0xFF07C160),
+                                  size: 22,
+                                ),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    controller.isWechatLoginInProgress
+                                        ? controller.canCancelWechatLogin
+                                              ? '取消微信登录'
+                                              : '正在登录'
+                                        : '微信授权登录',
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -308,7 +321,9 @@ class _BrandMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(child: SaydianBrandLockup(width: 190));
+    return const Center(
+      child: SaydianBrandLockup(width: 190, color: Colors.black),
+    );
   }
 }
 

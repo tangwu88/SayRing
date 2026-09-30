@@ -13,6 +13,7 @@
 ## 最近记录
 
 - [2026-09-30 iOS Universal Link 配置](SAY-RING-UNIVERSAL-LINK-20260930.md) — 本机微信参数配置、保留原 App 的独立服务器关联及静态回退页；服务器发布、微信平台保存、新机签名和回跳验收分开记录。
+- [2026-09-30 登录品牌与客服配置闭环](SAY-RING-LOGIN-BRAND-SUPPORT-CONFIG-20260930.md) — Flutter 与鸿蒙登录页使用黑色品牌标识和微信绿色图标；联系客服继续只读国际后台公开配置。双时区 Flutter 各 939、Harmony 501、Android 原生、双 APK 与 Harmony Debug/Release 编译结果及未验边界见正文。
 - [2026-09-30 Mac 更新与 iPhone 调试](SAY-RING-MAC-UPDATE-20260930.md) — 独立工作树保留固定 ID、商城默认隐藏与 R21 QRing 路由；iOS 手动恢复、电量/固件、三轮压力真实结果、取消与冷启动保存已验，睡眠中文单位及趋势标签修复。双时区 Flutter 各 939、Foundation 48、Android 原生 32、双 ARM Debug/QA Release 及 iOS Debug/Profile 本机门禁通过。用户要求先提交 Git、暂停后续手机操作；微信短信、完整同步/重连/开关恢复、生产发布门禁和 GitHub CI 费用限制仍按正文单列，不宣称全功能或正式上线通过。
 - [2026-09-30 联系客服页面对齐](SAY-RING-CONTACT-SUPPORT-20260930.md) — 按参考项目统一双联系卡片、拨号、公众号复制与隐私提示；国际版仍只使用后台公开配置，不回退到国内固定联系方式。验证与未执行边界见正文。
 - [2026-09-30 R22 手动恢复与真机复查](SAY-RING-R22-MANUAL-RECOVERY-20260930.md) — 普通扫描确认 R22 可被发现，但连接后停止广播且不一定保留系统 Bond；新增仅由用户触发、限定当前 App 上次成功连接精确标识的 QRing SDK 重新验证通道。双时区各 920 项、Android 原生单测和双 APK 构建结果及真机待验边界见正文。
