@@ -78,6 +78,20 @@ class ReleaseGateTest(unittest.TestCase):
         self.assertNotIn("NSMicrophoneUsageDescription", info)
         self.assertIn("NSLocationWhenInUseUsageDescription", info)
 
+    def test_ios_targets_iphone_only(self) -> None:
+        root = HERE.parents[1]
+        info = plistlib.loads((root / "ios/Runner/Info.plist").read_bytes())
+        project = (root / "ios/Runner.xcodeproj/project.pbxproj").read_text(
+            encoding="utf-8"
+        )
+        device_families = re.findall(
+            r"TARGETED_DEVICE_FAMILY = ([^;]+);", project
+        )
+
+        self.assertNotIn("UISupportedInterfaceOrientations~ipad", info)
+        self.assertTrue(device_families)
+        self.assertEqual(["1"] * len(device_families), device_families)
+
     def test_apk_numeric_resources_must_resolve_uniquely_from_actual_table(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             resources = Path(directory) / "resources.txt"

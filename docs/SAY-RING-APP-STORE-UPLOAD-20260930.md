@@ -231,3 +231,12 @@
 - 设备包 `Runner.app` 严格深层验签通过：`cn.saydian.ring` / arm64 / `1.0 (1008)`，`Apple Development: Xuewu Tang (9K5C433U49)`、Team `W7SXQ4A226`，内嵌 `iOS Team Provisioning Profile: cn.saydian.ring`（UUID `3ba4cada-8e17-4e61-892d-211b4ca649b8`，`get-task-allow=true`）。这是仅用于已注册真机调试的设备签名，与已上传的 App Store Distribution 正式包（`get-task-allow=false`）分开记录。
 - `xcrun devicectl device install app` 覆盖安装成功；随后 `xcrun devicectl device process launch --terminate-existing cn.saydian.ring` 成功。安装后设备清单回读为 Say Ring / `cn.saydian.ring` / `1.0 (1008)`，进程列表仍可见新安装路径的 `Runner.app/Runner`，证明安装与启动均已完成。
 - 本轮仅验收签名、覆盖安装、版本回读与冷启动，不将此结果扩展为登录、微信、蓝牙扫描、R21 连接或健康测量通过；这些需要保持戒指在旁的单独真机功能验收。
+
+### 用户确认取消 iPad 支持后的 1009 归档与上传
+
+- App Store Connect 对原 `1008` 的审核页强制要求 13 英寸 iPad 截屏；用户明确决定“不提供 iPad 版本，提交审核上架”。这项选择改变已发布二进制的受支持设备范围，因此不把 iPhone 截图伪装为 iPad 截图，也不复用仍声明 iPad 的 `1008`。
+- `Runner` 的 Debug/Profile/Release `TARGETED_DEVICE_FAMILY` 全部改为 `1`，并移除 `UISupportedInterfaceOrientations~ipad`；保留 iPhone 竖屏声明、固定 ID、蓝牙能力、微信/SDK、商城隐藏与此前的隐私用途说明。没有修改 SDK 二进制或健康业务逻辑。
+- 新增发布门禁 `test_ios_targets_iphone_only`：读取 Info.plist 断言无 iPad 方向键，并解析 Xcode 项目中全部设备族设置只为 `1`。`plutil -lint`、`python3 scripts/release/test_release_gate.py`（30 项）与 `flutter analyze --no-pub` 均通过。
+- 使用同一 App Store 发布配置构建 `1.0 (1009)`。`xcodebuild ... archive` 成功，归档为 `.build/SayRing-1.0-1009-iphone-only.xcarchive`；深层验签通过，实际为 `cn.saydian.ring` / arm64 / `Apple Distribution: Xuewu Tang (W7SXQ4A226)` / `get-task-allow=false`。编译后 Info.plist 的 `UIDeviceFamily` 仅为 `1`，iPad 方向键不存在。
+- 本地导出的 IPA 位于 `.build/SayRing-1.0-1009-iphone-only-export/Say Ring.ipa`，压缩校验通过，SHA-256 `75352d6eb29862e898dad7b7243eca6dce5cabfac9819c1a46dca1c3c28f7918`。
+- 通过 Xcode Organizer 选择 App Store Connect 的推荐上传方式，上传完成且无错误。非阻断警告仍为未来 iOS 最低版本要求，以及 14 个闭源厂商 framework 缺少 dSYM；没有伪造符号文件或在本次提交中擅自升高最低系统版本。App Store Connect 构建列表已出现 `1.0 (1009)`，当前由苹果后台处理；处理完成、选择 1009 与点击“添加以供审核”另行记录，不能提前标为已提交审核。
