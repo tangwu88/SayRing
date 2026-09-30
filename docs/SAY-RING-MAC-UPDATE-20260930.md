@@ -237,3 +237,15 @@
 - GitHub 现有基线工作流 run `36667881198` 的 quality/Harmony job 均未执行任何 step；check annotation 明确为近期支付失败或消费额度限制。保留外部门禁，不更改账单或额度，不把本机通过写成远端 CI 通过；新提交的运行状态另行回读。
 - Release 限定缓存清理 13 秒成功，约 348 MB 已回收；两个 APK 哈希均保持不变。忽略的 iOS 生成配置恢复为 Profile（config-only 成功，没有重装/启动手机），现有签名 Profile 再验通过。当前磁盘仅约 650 MiB，本轮不再新增构建或清理其他项目。
 - 提交前再次 fetch，HEAD 与 `origin/main` 仍为 `de9babfc9cb496cf3bab9b96677bb80fc79b3c3f`，没有远端分叉。按用户要求将上述已验证修复及记录提交到当前 `codex/macos-update-20260930` 分支，普通快进推送当前分支及 `main`；不强推、不改历史、不触发生产发布脚本。实际提交号及推送结果以本轮 Git 记录和远端回读为准，手机待验项继续保留。
+
+## 15:28–15:41 更换安装手机：iPhone 15 Plus 签名准备
+
+- 用户要求安装最新包，随后明确确认安装到当前插线、名为 `Nokia` 的 iPhone 15 Plus。原 iPhone 15 Pro Max 离线；未向其他可见手机安装，也未操作另一 App 项目。
+- `git status --short --branch` 为干净的 `codex/macos-update-20260930`；`git fetch --prune origin`、`git pull --ff-only origin main` 成功。HEAD、当前远端分支和 `origin/main` 均为 `724a7d792cbf92908133e69eadae3e074550f7eb`，没有更晚的运行时代码。
+- 现有 Profile `0.1.21 (1006)` / `cn.saydian.ring` 严格验签通过；Runner SHA-256 仍为 `8b31d900e05189209b6ef58363c2b4c1c6f2c260fbcc4ec04e35755f0f3d0835`，App.framework/App 仍为 `97d963848b02a839215fac2f3f0362af17a8db18606c851b0c71b71936f8f8a3`。保留原产物，在本机 `/tmp/SayRing-nokia-install-20260930.HgmkSG/Runner.app` 创建独立安装副本，尚未重签。
+- `xcrun devicectl manage pair --device <本轮设备> --timeout 45` 成功。首次 `device info details` 显示开发者模式关闭；用户操作后再次回读已为 `enabled`、DDI 可用，系统为 iOS 26.2；`device info lockState` 为 `passcodeRequired=false`。设备密码、完整标识与签名文件不提交 Git。
+- `device info apps --device <本轮设备> --filter 'bundleIdentifier == "cn.saydian.ring"'` 返回空列表。此时尚未执行安装或启动，不把配对成功写成安装成功。
+- 描述文件只读解析显示：固定应用标识与开发证书正确、APNs development 保留，含 39 台设备，但不含当前目标手机。Xcode 先提示未登记，执行 Register Device 后返回 `A device with number '<目标设备UDID>' already exists on this team`，仍提示描述文件未包含当前手机。
+- 已尝试针对当前工程刷新签名、下载团队 Manual Profiles、重新打开当前工作区，并单独选择 Profile 配置复查；15:40 回读描述文件仍未包含目标设备。未删除证书或旧 profile、未移除能力、未换团队/包名，也未重复构建或清理其他项目；安装副本与原 Runner 哈希一致。
+- 已打开苹果开发者设备列表，网页要求重新登录，已交给用户自行完成。下一步先核对目标设备的真实登记状态，再获取包含该设备的有效描述文件、只重签安装副本并验证安装/独立启动；目前不得标为已安装。
+- 本轮不修改运行时代码、微信参数、服务器或账号数据，未发送验证码。微信 AppID/Universal Link 占位与 AASA 缺少本产品关联仍是独立待办；此前全量构建/测试结果不能替代本台手机尚未完成的验收。
