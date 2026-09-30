@@ -1035,7 +1035,17 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Mantén el anillo cerca. Si está conectado al Bluetooth del sistema o a otro teléfono, desconéctalo y vuelve a intentarlo.';
+      'Mantén el anillo cerca. Si un R22 no aparece, muestra los anillos recuperables.';
+
+  @override
+  String get findSystemPairedRings => 'Mostrar anillos recuperables';
+
+  @override
+  String get findSystemPairedRingsHint =>
+      'Muestra anillos compatibles emparejados en el teléfono o conectados antes por Say Ring. La selección se verifica de nuevo con el SDK.';
+
+  @override
+  String get systemPairedDevice => 'Recuperable';
 
   @override
   String get deviceName => 'Nombre del dispositivo';

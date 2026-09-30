@@ -974,7 +974,17 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'リングを近づけ、システムBluetoothまたは別の端末に接続中なら先に解除してから再試行してください。';
+      'リングを近づけてください。R22 が検索に表示されない場合は、復元可能なリングを表示してください。';
+
+  @override
+  String get findSystemPairedRings => '復元可能なリングを表示';
+
+  @override
+  String get findSystemPairedRingsHint =>
+      '端末でペアリング済み、または Say Ring で接続済みの対応リングを表示します。選択後もリング SDK で再検証します。';
+
+  @override
+  String get systemPairedDevice => '復元可能';
 
   @override
   String get deviceName => 'デバイス名';

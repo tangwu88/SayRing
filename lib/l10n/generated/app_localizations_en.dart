@@ -1026,7 +1026,17 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Keep the ring close. If it is connected in system Bluetooth or on another phone, disconnect it first, then try again.';
+      'Keep the ring close. If an R22 does not appear in search, use Show recoverable rings.';
+
+  @override
+  String get findSystemPairedRings => 'Show recoverable rings';
+
+  @override
+  String get findSystemPairedRingsHint =>
+      'Shows supported rings paired in phone settings or previously connected by Say Ring. Selection still requires fresh ring SDK verification.';
+
+  @override
+  String get systemPairedDevice => 'Recoverable';
 
   @override
   String get deviceName => 'Device name';

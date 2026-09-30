@@ -1937,8 +1937,26 @@ abstract class AppLocalizations {
   /// No description provided for @searchRecovery.
   ///
   /// In en, this message translates to:
-  /// **'Keep the ring close. If it is connected in system Bluetooth or on another phone, disconnect it first, then try again.'**
+  /// **'Keep the ring close. If an R22 does not appear in search, use Show recoverable rings.'**
   String get searchRecovery;
+
+  /// No description provided for @findSystemPairedRings.
+  ///
+  /// In en, this message translates to:
+  /// **'Show recoverable rings'**
+  String get findSystemPairedRings;
+
+  /// No description provided for @findSystemPairedRingsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Shows supported rings paired in phone settings or previously connected by Say Ring. Selection still requires fresh ring SDK verification.'**
+  String get findSystemPairedRingsHint;
+
+  /// No description provided for @systemPairedDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Recoverable'**
+  String get systemPairedDevice;
 
   /// No description provided for @deviceName.
   ///

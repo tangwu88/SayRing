@@ -13,7 +13,9 @@ class QRingWearableBridge
     implements
         WearableBridge,
         WearableDeviceDetailsBridge,
-        WearableBoundDeviceLookupBridge {
+        WearableBoundDeviceLookupBridge,
+        WearableBondedDeviceSelectionBridge,
+        WearableRememberedDeviceSelectionBridge {
   QRingWearableBridge({MethodChannel? methods, EventChannel? events})
     : _methods =
           methods ?? const MethodChannel('cc.saidian.ring/qring/commands'),
@@ -69,6 +71,28 @@ class QRingWearableBridge
     final value = await _invoke<Map<Object?, Object?>>('lookupBondedDevice', {
       'id': nativeIdentifier,
     });
+    return value == null || value.isEmpty ? null : DeviceInfo.fromMap(value);
+  }
+
+  @override
+  Future<List<DeviceInfo>> listBondedDevicesForSelection() async {
+    final values =
+        await _invoke<List<Object?>>('listBondedDevices') ?? const <Object?>[];
+    return values
+        .whereType<Map<Object?, Object?>>()
+        .map(DeviceInfo.fromMap)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<DeviceInfo?> prepareRememberedDeviceForSelection(
+    String nativeIdentifier, {
+    String? knownName,
+  }) async {
+    final value = await _invoke<Map<Object?, Object?>>(
+      'prepareRememberedDevice',
+      {'id': nativeIdentifier, 'name': ?knownName},
+    );
     return value == null || value.isEmpty ? null : DeviceInfo.fromMap(value);
   }
 

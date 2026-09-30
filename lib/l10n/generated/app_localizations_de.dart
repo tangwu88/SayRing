@@ -1034,7 +1034,17 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Ring nah halten. Ist er über System-Bluetooth oder ein anderes Telefon verbunden, zuerst trennen und erneut versuchen.';
+      'Ring nah halten. Wenn ein R22 nicht erscheint, wiederherstellbare Ringe anzeigen.';
+
+  @override
+  String get findSystemPairedRings => 'Wiederherstellbare Ringe';
+
+  @override
+  String get findSystemPairedRingsHint =>
+      'Zeigt unterstützte, im Telefon gekoppelte oder zuvor mit Say Ring verbundene Ringe. Die Auswahl wird erneut über das Ring-SDK geprüft.';
+
+  @override
+  String get systemPairedDevice => 'Wiederherstellbar';
 
   @override
   String get deviceName => 'Gerätename';

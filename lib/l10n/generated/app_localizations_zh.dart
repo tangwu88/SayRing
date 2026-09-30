@@ -947,7 +947,17 @@ class AppLocalizationsZh extends AppLocalizations {
   String get searchAgain => '重新搜索';
 
   @override
-  String get searchRecovery => '请让戒指靠近手机；若已连接本机系统蓝牙或其他手机，请先断开再重试。';
+  String get searchRecovery => '请让戒指靠近手机；若 R22 搜索不到，请点击“显示可恢复的戒指”。';
+
+  @override
+  String get findSystemPairedRings => '显示可恢复的戒指';
+
+  @override
+  String get findSystemPairedRingsHint =>
+      '显示手机系统已配对，或曾由 Say Ring 成功连接的戒指；选择后仍会通过戒指 SDK 重新验证。';
+
+  @override
+  String get systemPairedDevice => '可恢复';
 
   @override
   String get deviceName => '设备名称';
@@ -2894,7 +2904,17 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get searchAgain => '重新搜索';
 
   @override
-  String get searchRecovery => '请让戒指靠近手机；若已连接本机系统蓝牙或其他手机，请先断开再重试。';
+  String get searchRecovery => '请让戒指靠近手机；若 R22 搜索不到，请点击“显示可恢复的戒指”。';
+
+  @override
+  String get findSystemPairedRings => '显示可恢复的戒指';
+
+  @override
+  String get findSystemPairedRingsHint =>
+      '显示手机系统已配对，或曾由 Say Ring 成功连接的戒指；选择后仍会通过戒指 SDK 重新验证。';
+
+  @override
+  String get systemPairedDevice => '可恢复';
 
   @override
   String get deviceName => '设备名称';
@@ -4841,7 +4861,17 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get searchAgain => '重新搜尋';
 
   @override
-  String get searchRecovery => '請讓戒指靠近手機；若已連接本機系統藍牙或其他手機，請先中斷連線再重試。';
+  String get searchRecovery => '請讓戒指靠近手機；若 R22 搜尋不到，請點擊「顯示可恢復的戒指」。';
+
+  @override
+  String get findSystemPairedRings => '顯示可恢復的戒指';
+
+  @override
+  String get findSystemPairedRingsHint =>
+      '顯示手機系統已配對，或曾由 Say Ring 成功連線的戒指；選擇後仍會透過戒指 SDK 重新驗證。';
+
+  @override
+  String get systemPairedDevice => '可恢復';
 
   @override
   String get deviceName => '裝置名稱';

@@ -295,7 +295,11 @@ void main() {
       expect(await a.read(), isNull);
       expect(await a.readBinding(), isNull);
       await a.writeBinding(
-        const SavedWearableBinding(WearableTransport.veepoo, 'watch-a'),
+        const SavedWearableBinding(
+          WearableTransport.veepoo,
+          'watch-a',
+          deviceName: 'V Ring',
+        ),
       );
       expect(await b.readBinding(), isNull);
       await b.writeBinding(
@@ -305,6 +309,7 @@ void main() {
         storageNamespace: _environmentA,
       );
       expect((await reopened.readBinding())?.nativeIdentifier, 'watch-a');
+      expect((await reopened.readBinding())?.deviceName, 'V Ring');
       await b.clear();
       expect((await reopened.readBinding())?.nativeIdentifier, 'watch-a');
       expect(

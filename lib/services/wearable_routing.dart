@@ -129,7 +129,8 @@ class RoutedWearableBridge
         WearableNativeWatchFaceBridge,
         WearableAutoMeasureIntervalBridge,
         WearableSportPauseBridge,
-        WearableConnectionRecoveryBridge {
+        WearableConnectionRecoveryBridge,
+        WearableBondedDeviceSelectionBridge {
   RoutedWearableBridge({
     required WearableBridge veepoo,
     required WearableBridge yucheng,
@@ -160,6 +161,7 @@ class RoutedWearableBridge
   final Duration recoveryOperationTimeout;
   final Duration recoveryStopScanTimeout;
   final Map<String, RoutedDevice> _scanned = {};
+  final Set<String> _manualRecoveryIds = {};
   final StreamController<WearableEvent> _eventController =
       StreamController<WearableEvent>.broadcast();
   final List<StreamSubscription<WearableEvent>> _subscriptions = [];
@@ -184,6 +186,7 @@ class RoutedWearableBridge
   @override
   Future<List<DeviceInfo>> scanDevices() async {
     _scanned.clear();
+    _manualRecoveryIds.clear();
     final batches = await Future.wait(
       _sources.entries.map((entry) async {
         try {
@@ -204,6 +207,64 @@ class RoutedWearableBridge
       }
     }
     return _scanned.values.map((device) => device.display).toList();
+  }
+
+  @override
+  Future<List<DeviceInfo>> listBondedDevicesForSelection() async {
+    final selected = <DeviceInfo>[];
+    final selectedIds = <String>{};
+    _manualRecoveryIds.clear();
+    for (final entry in _sources.entries) {
+      final source = entry.value;
+      if (source is! WearableBondedDeviceSelectionBridge) continue;
+      final bonded = await (source as WearableBondedDeviceSelectionBridge)
+          .listBondedDevicesForSelection();
+      for (final device in bonded) {
+        if (!WearableDeviceClassifier.routesTo(device.name, entry.key)) {
+          continue;
+        }
+        final routed = RoutedDevice.fromDevice(entry.key, device);
+        _scanned[routed.display.id] = routed;
+        if (selectedIds.add(routed.display.id)) selected.add(routed.display);
+      }
+    }
+    final preference = _preferenceStore;
+    if (preference is WearableBindingPreferenceStore) {
+      SavedWearableBinding? saved;
+      try {
+        saved = await preference.readBinding();
+      } catch (_) {
+        saved = null;
+      }
+      if (saved != null) {
+        final source = _sources[saved.transport];
+        final savedDisplayId = RoutedDevice.scopedID(
+          saved.transport,
+          saved.nativeIdentifier,
+        );
+        if (!selectedIds.contains(savedDisplayId) &&
+            source is WearableRememberedDeviceSelectionBridge) {
+          final remembered =
+              await (source as WearableRememberedDeviceSelectionBridge)
+                  .prepareRememberedDeviceForSelection(
+                    saved.nativeIdentifier,
+                    knownName: saved.deviceName,
+                  );
+          if (remembered?.id == saved.nativeIdentifier) {
+            final routed = RoutedDevice.fromDevice(
+              saved.transport,
+              remembered!,
+            );
+            _scanned[routed.display.id] = routed;
+            _manualRecoveryIds.add(routed.display.id);
+            if (selectedIds.add(routed.display.id)) {
+              selected.add(routed.display);
+            }
+          }
+        }
+      }
+    }
+    return selected;
   }
 
   @override
@@ -233,10 +294,12 @@ class RoutedWearableBridge
         message: '请重新扫描后再连接设备',
       );
     }
-    if (!WearableDeviceClassifier.routesTo(
-      device.display.name,
-      device.transport,
-    )) {
+    final isExplicitRememberedTarget = _manualRecoveryIds.contains(deviceId);
+    if (!isExplicitRememberedTarget &&
+        !WearableDeviceClassifier.routesTo(
+          device.display.name,
+          device.transport,
+        )) {
       throw PlatformException(
         code: 'DEVICE_PROVIDER_MISMATCH',
         message: '设备信息已变化，请重新扫描后重试',
@@ -252,10 +315,42 @@ class RoutedWearableBridge
       await _activeBridge.connect(device.nativeIdentifier, profile: profile);
       try {
         if (generation != _connectionGeneration) return;
+        var verifiedName =
+            WearableDeviceClassifier.routesTo(
+              device.display.name,
+              device.transport,
+            )
+            ? device.display.name
+            : null;
+        final active = _activeBridge;
+        if (active is WearableDeviceDetailsBridge) {
+          try {
+            final details = await (active as WearableDeviceDetailsBridge)
+                .getConnectedDeviceDetails();
+            if (details != null &&
+                details.id == device.nativeIdentifier &&
+                WearableDeviceClassifier.routesTo(
+                  details.name,
+                  device.transport,
+                )) {
+              verifiedName = details.name;
+              _scanned[deviceId] = RoutedDevice.fromDevice(
+                device.transport,
+                details,
+              );
+            }
+          } catch (_) {
+            // Connection success does not depend on optional display details.
+          }
+        }
         final preference = _preferenceStore;
         if (preference is WearableBindingPreferenceStore) {
           await preference.writeBinding(
-            SavedWearableBinding(device.transport, device.nativeIdentifier),
+            SavedWearableBinding(
+              device.transport,
+              device.nativeIdentifier,
+              deviceName: verifiedName,
+            ),
           );
         } else {
           await preference.write(device.transport);
@@ -754,10 +849,15 @@ abstract interface class WearableTransportPreferenceStore {
 }
 
 class SavedWearableBinding {
-  const SavedWearableBinding(this.transport, this.nativeIdentifier);
+  const SavedWearableBinding(
+    this.transport,
+    this.nativeIdentifier, {
+    this.deviceName,
+  });
 
   final WearableTransport transport;
   final String nativeIdentifier;
+  final String? deviceName;
 }
 
 abstract interface class WearableBindingPreferenceStore
@@ -805,7 +905,11 @@ class SecureWearableTransportPreferenceStore
     if (transport == null || identifier is! String || identifier.isEmpty) {
       return null;
     }
-    return SavedWearableBinding(transport, identifier);
+    final rawName = value?['deviceName'];
+    final deviceName = rawName is String && rawName.trim().isNotEmpty
+        ? rawName.trim()
+        : null;
+    return SavedWearableBinding(transport, identifier, deviceName: deviceName);
   }
 
   @override
@@ -820,6 +924,7 @@ class SecureWearableTransportPreferenceStore
     value: jsonEncode({
       'transport': binding.transport.name,
       'nativeIdentifier': binding.nativeIdentifier,
+      if (binding.deviceName != null) 'deviceName': binding.deviceName,
     }),
   );
 

@@ -24,4 +24,13 @@ class QRingNamePolicyTest {
         assertFalse(QRingBridge.isExactBondedQRing("AA:BB", "AA:BB", "V Ring"))
         assertFalse(QRingBridge.isExactBondedQRing(null, "AA:BB", "R22_C493"))
     }
+
+    @Test
+    fun `remembered recovery accepts only a complete bluetooth address`() {
+        assertTrue(QRingBridge.isValidBluetoothAddress("AA:BB:CC:DD:EE:FF"))
+        assertTrue(QRingBridge.isValidBluetoothAddress("aa:bb:cc:dd:ee:ff"))
+        assertFalse(QRingBridge.isValidBluetoothAddress("AA:BB"))
+        assertFalse(QRingBridge.isValidBluetoothAddress("R22_C493"))
+        assertFalse(QRingBridge.isValidBluetoothAddress(null))
+    }
 }

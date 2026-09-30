@@ -5957,6 +5957,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     with WidgetsBindingObserver {
   String? _connectingDeviceId;
   bool _scanInFlight = false;
+  bool _bondedLookupInFlight = false;
   bool _awaitingScanSettingsReturn = false;
 
   @override
@@ -6032,6 +6033,19 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     setState(() => _connectingDeviceId = null);
   }
 
+  Future<void> _findBondedDevices() async {
+    if (_connectingDeviceId != null || _scanInFlight || _bondedLookupInFlight) {
+      return;
+    }
+    setState(() => _bondedLookupInFlight = true);
+    try {
+      widget.controller.clearError();
+      await widget.controller.listBondedDevicesForSelection();
+    } finally {
+      if (mounted) setState(() => _bondedLookupInFlight = false);
+    }
+  }
+
   Future<void> _openShop() async {
     await widget.controller.stopDeviceScan();
     if (!mounted) return;
@@ -6057,6 +6071,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
         final scanning =
             controller.deviceState == DeviceConnectionState.scanning;
         final connecting = _connectingDeviceId != null;
+        final busy = connecting || _bondedLookupInFlight;
         return PopScope(
           canPop: true,
           child: Scaffold(
@@ -6065,7 +6080,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
               actions: [
                 IconButton(
                   tooltip: context.l10n.searchAgain,
-                  onPressed: scanning || connecting ? null : _startScan,
+                  onPressed: scanning || busy ? null : _startScan,
                   icon: const Icon(Icons.refresh_rounded),
                 ),
               ],
@@ -6077,7 +6092,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                       errorMessage: controller.errorMessage,
                       issue: controller.deviceScanIssue,
                       onOpenSettings: _openScanSettings,
-                      onRetry: scanning || connecting ? null : _startScan,
+                      onRetry: scanning || busy ? null : _startScan,
+                      supportsBondedDeviceSelection:
+                          controller.supportsBondedDeviceSelection,
+                      bondedLookupInFlight: _bondedLookupInFlight,
+                      onFindBondedDevices: busy ? null : _findBondedDevices,
                     )
                   : ListView(
                       padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
@@ -6200,7 +6219,11 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                                               ),
                                               const SizedBox(width: 4),
                                               Text(
-                                                '${device.rssi ?? '--'}',
+                                                device.rssi == null
+                                                    ? context
+                                                          .l10n
+                                                          .systemPairedDevice
+                                                    : '${device.rssi}',
                                                 style: const TextStyle(
                                                   color: SaydianColors.muted,
                                                   fontSize: 14,
@@ -6232,6 +6255,34 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                               ),
                             ),
                           ),
+                        if (controller.supportsBondedDeviceSelection) ...[
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            key: const Key('device-find-system-paired'),
+                            onPressed: scanning || busy
+                                ? null
+                                : _findBondedDevices,
+                            icon: _bondedLookupInFlight
+                                ? const SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.bluetooth_searching_rounded),
+                            label: Text(context.l10n.findSystemPairedRings),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            context.l10n.findSystemPairedRingsHint,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: SaydianColors.muted,
+                              fontSize: 12,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
                         if (connecting) ...[
                           const SizedBox(height: 8),
                           _InlineNotice(
@@ -6291,6 +6342,9 @@ class _DeviceSearchEmpty extends StatelessWidget {
     required this.issue,
     required this.onOpenSettings,
     required this.onRetry,
+    required this.supportsBondedDeviceSelection,
+    required this.bondedLookupInFlight,
+    required this.onFindBondedDevices,
   });
 
   final bool scanning;
@@ -6298,6 +6352,9 @@ class _DeviceSearchEmpty extends StatelessWidget {
   final DeviceScanIssue? issue;
   final VoidCallback onOpenSettings;
   final VoidCallback? onRetry;
+  final bool supportsBondedDeviceSelection;
+  final bool bondedLookupInFlight;
+  final VoidCallback? onFindBondedDevices;
 
   @override
   Widget build(BuildContext context) {
@@ -6373,6 +6430,20 @@ class _DeviceSearchEmpty extends StatelessWidget {
             icon: const Icon(Icons.refresh_rounded),
             label: Text(context.l10n.searchAgain),
           ),
+          if (issue == null && supportsBondedDeviceSelection) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              key: const Key('device-find-system-paired'),
+              onPressed: onFindBondedDevices,
+              icon: bondedLookupInFlight
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.bluetooth_searching_rounded),
+              label: Text(context.l10n.findSystemPairedRings),
+            ),
+          ],
           if (issue == null) ...[
             const SizedBox(height: 20),
             _InlineNotice(

@@ -171,6 +171,10 @@ public final class QRingBridge
                 && requestedId.equalsIgnoreCase(bondedId) && isQRingName(name);
     }
 
+    static boolean isValidBluetoothAddress(String id) {
+        return id != null && id.matches("(?i)(?:[0-9A-F]{2}:){5}[0-9A-F]{2}");
+    }
+
     private void startScan(MethodChannel.Result result) {
         if (!hasBlePermissions()) {
             result.error("BLE_PERMISSION_REQUIRED", "请允许附近设备权限后重试", null);
@@ -246,11 +250,83 @@ public final class QRingBridge
             value.put("name", name.trim());
             value.put("model", name.trim());
             value.put("hardwareAddress", id);
+            value.put("bonded", true);
             scanned.put(id, value);
             result.success(value);
             return;
         }
         result.success(null);
+    }
+
+    private void listBondedDevices(MethodChannel.Result result) {
+        if (!hasBlePermissions()) {
+            result.error("BLE_PERMISSION_REQUIRED", "请允许附近设备权限后重试", null);
+            return;
+        }
+        if (!isBluetoothEnabled()) {
+            result.error("BLUETOOTH_OFF", "请先开启手机蓝牙", null);
+            return;
+        }
+        BluetoothManager bluetooth =
+                (BluetoothManager) activity.getSystemService(Context.BLUETOOTH_SERVICE);
+        if (bluetooth == null || bluetooth.getAdapter() == null) {
+            result.success(new ArrayList<>());
+            return;
+        }
+        List<Map<String, Object>> values = new ArrayList<>();
+        for (BluetoothDevice device : bluetooth.getAdapter().getBondedDevices()) {
+            String id = device.getAddress();
+            String name = device.getName();
+            if (id == null || id.isEmpty() || !isQRingName(name)) continue;
+            Map<String, Object> value = new HashMap<>();
+            value.put("id", id);
+            value.put("name", name.trim());
+            value.put("model", name.trim());
+            value.put("hardwareAddress", id);
+            value.put("bonded", true);
+            scanned.put(id, value);
+            values.add(value);
+        }
+        result.success(values);
+    }
+
+    private void prepareRememberedDevice(MethodCall call, MethodChannel.Result result) {
+        if (!hasBlePermissions()) {
+            result.error("BLE_PERMISSION_REQUIRED", "请允许附近设备权限后重试", null);
+            return;
+        }
+        if (!isBluetoothEnabled()) {
+            result.error("BLUETOOTH_OFF", "请先开启手机蓝牙", null);
+            return;
+        }
+        String id = call.argument("id");
+        String knownName = call.argument("name");
+        if (!isValidBluetoothAddress(id)) {
+            result.success(null);
+            return;
+        }
+        String displayName = isQRingName(knownName)
+                ? knownName.trim() : "上次连接的 QRing 戒指";
+        Map<String, Object> value = new HashMap<>();
+        value.put("id", id);
+        value.put("name", displayName);
+        value.put("model", isQRingName(knownName) ? knownName.trim() : "QRing");
+        value.put("hardwareAddress", id);
+        value.put("remembered", true);
+        scanned.put(id, value);
+        result.success(value);
+    }
+
+    private boolean remainsBondedQRing(String id, String expectedName) {
+        BluetoothManager bluetooth =
+                (BluetoothManager) activity.getSystemService(Context.BLUETOOTH_SERVICE);
+        if (bluetooth == null || bluetooth.getAdapter() == null) return false;
+        for (BluetoothDevice device : bluetooth.getAdapter().getBondedDevices()) {
+            if (!isExactBondedQRing(id, device.getAddress(), device.getName())) continue;
+            return expectedName == null
+                    || expectedName.trim().equalsIgnoreCase(device.getName().trim());
+        }
+        return false;
     }
 
     private void finishScan() {
@@ -279,9 +355,18 @@ public final class QRingBridge
         String id = call.argument("id");
         Map<String, Object> profile = call.argument("profile");
         Map<String, Object> scannedDevice = scanned.get(id);
+        boolean remembered = scannedDevice != null
+                && Boolean.TRUE.equals(scannedDevice.get("remembered"));
         if (id == null || scannedDevice == null
-                || !isQRingName(String.valueOf(scannedDevice.get("name")))) {
+                || (!isQRingName(String.valueOf(scannedDevice.get("name")))
+                    && !(remembered && isValidBluetoothAddress(id)))) {
             result.error("QRING_DEVICE_UNVERIFIED", "请重新搜索并选择 QRing 戒指", null);
+            return;
+        }
+        if (Boolean.TRUE.equals(scannedDevice.get("bonded"))
+                && !remainsBondedQRing(id, String.valueOf(scannedDevice.get("name")))) {
+            scanned.remove(id);
+            result.error("QRING_BOND_CHANGED", "系统配对信息已变化，请重新选择戒指", null);
             return;
         }
         if (pendingConnect != null) {
@@ -992,6 +1077,8 @@ public final class QRingBridge
             switch (call.method) {
                 case "scanDevices": startScan(result); break;
                 case "lookupBondedDevice": lookupBondedDevice(call, result); break;
+                case "listBondedDevices": listBondedDevices(result); break;
+                case "prepareRememberedDevice": prepareRememberedDevice(call, result); break;
                 case "stopScan": finishScan(); result.success(null); break;
                 case "connect": connect(call, result); break;
                 case "disconnect":

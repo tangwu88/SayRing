@@ -744,6 +744,9 @@ class AppController extends ChangeNotifier {
   Map<String, num> liveSportData = const {};
   List<DeviceInfo> scannedDevices = const [];
   DeviceScanIssue? deviceScanIssue;
+  bool get supportsBondedDeviceSelection =>
+      defaultTargetPlatform == TargetPlatform.android &&
+      _wearable is WearableBondedDeviceSelectionBridge;
   List<HealthRecord> healthRecords = const [];
   List<SportRecord> sportRecords = const [];
   List<Map<String, Object?>> careMembers = const [];
@@ -1765,6 +1768,48 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.error);
     }
     notifyListeners();
+  }
+
+  Future<int> listBondedDevicesForSelection() async {
+    if (!supportsBondedDeviceSelection) return 0;
+    errorMessage = null;
+    deviceScanIssue = null;
+    try {
+      if (!await _ensureBluetoothPermissions()) {
+        deviceScanIssue = DeviceScanIssue.permissionsRequired;
+        errorMessage = '允许相关权限后使用';
+        notifyListeners();
+        return 0;
+      }
+      await stopDeviceScan();
+      await _cancelPendingWearableRestore();
+      final bridge = _wearable as WearableBondedDeviceSelectionBridge;
+      final bonded = await bridge.listBondedDevicesForSelection();
+      for (final device in bonded) {
+        _upsertScannedDevice(device);
+      }
+      sdkStatus = '设备连接服务可用';
+      if (bonded.isEmpty) {
+        errorMessage = '没有找到可恢复的戒指';
+      }
+      notifyListeners();
+      return bonded.length;
+    } on WearableSdkNotConfigured catch (_) {
+      sdkStatus = '设备连接服务暂时不可用';
+      errorMessage = '此手机暂不支持读取可恢复的戒指';
+    } on PlatformException catch (error) {
+      deviceScanIssue = switch (error.code) {
+        'BLE_PERMISSION_DENIED' ||
+        'BLE_PERMISSION_REQUIRED' ||
+        'BLUETOOTH_PERMISSION_REQUIRED' => DeviceScanIssue.permissionsRequired,
+        _ => null,
+      };
+      errorMessage = _wearableErrorMessage(error, fallback: '暂时无法读取可恢复的戒指');
+    } catch (_) {
+      errorMessage = '暂时无法读取可恢复的戒指，请稍后重试';
+    }
+    notifyListeners();
+    return 0;
   }
 
   Future<void> stopDeviceScan() async {

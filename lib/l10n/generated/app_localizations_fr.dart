@@ -1040,7 +1040,17 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Gardez la bague près du téléphone. Si elle est connectée au Bluetooth système ou à un autre téléphone, déconnectez-la puis réessayez.';
+      'Gardez la bague près du téléphone. Si une R22 n’apparaît pas, affichez les bagues récupérables.';
+
+  @override
+  String get findSystemPairedRings => 'Afficher les bagues récupérables';
+
+  @override
+  String get findSystemPairedRingsHint =>
+      'Affiche les bagues compatibles jumelées au téléphone ou déjà connectées par Say Ring. La sélection est revérifiée via le SDK.';
+
+  @override
+  String get systemPairedDevice => 'Récupérable';
 
   @override
   String get deviceName => 'Nom de l’appareil';
