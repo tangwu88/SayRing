@@ -2,6 +2,7 @@ import { readUiSource } from './support/localized-ui-source.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 
 test('all root scroll surfaces remain top aligned while loading content',()=>{
   const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
@@ -201,7 +202,10 @@ test('launcher identity uses the requested name and a high-resolution brand icon
   assert.equal(icon.readUInt32BE(16),1024);
   assert.equal(icon.readUInt32BE(20),1024);
   const iosMaster=readFileSync(new URL('../../ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png',import.meta.url));
-  assert.deepEqual(icon,iosMaster,'Harmony must keep the approved iOS master geometry and original red');
+  assert.deepEqual(icon,iosMaster,'Harmony must keep the approved iOS master artwork');
+  assert.equal(createHash('sha256').update(icon).digest('hex'),'136fab869f84fc132ab1d2a04c240c5a8e1fa2fb242800add8d448ce86875f16');
+  const source=readFileSync(new URL('../../assets/branding/app_icon_source.png',import.meta.url));
+  assert.equal(createHash('sha256').update(source).digest('hex'),'2db9100a4cc9544d057ce555e54dd87456119f991f9e2b356afd9c9296b56238');
 });
 
 test('login offers registration and WeChat authorization instead of guest browsing',()=>{

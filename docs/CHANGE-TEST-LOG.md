@@ -12,6 +12,7 @@
 
 ## 最近记录
 
+- [2026-09-30 Say Ring 新图标与 Android 覆盖安装](SAY-RING-APP-ICON-INSTALL-20260930.md) — 使用用户确认的黑白戒指图统一 Android/iOS/鸿蒙 Launcher 资源，构建、验签、安装与真机结果见正文。
 - [2026-09-30 苹果 App Store 提交前检查](SAY-RING-APP-STORE-PREFLIGHT-20260930.md) — 确认正确应用记录与 Bundle ID；TestFlight 无构建，商店资料、发布 profile、正式门禁和磁盘空间仍阻断，未上传或提交审核。
 - [2026-09-30 iOS Universal Link 配置](SAY-RING-UNIVERSAL-LINK-20260930.md) — 本机微信参数配置、保留原 App 的独立服务器关联及静态回退页；服务器发布、微信平台保存、新机签名和回跳验收分开记录。
 - [2026-09-30 登录品牌与客服配置闭环](SAY-RING-LOGIN-BRAND-SUPPORT-CONFIG-20260930.md) — Flutter 与鸿蒙登录页使用黑色品牌标识和微信绿色图标；联系客服继续只读国际后台公开配置。双时区 Flutter 各 939、Harmony 501、Android 原生、双 APK 与 Harmony Debug/Release 编译结果及未验边界见正文。
