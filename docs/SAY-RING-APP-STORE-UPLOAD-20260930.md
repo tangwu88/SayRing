@@ -240,3 +240,5 @@
 - 使用同一 App Store 发布配置构建 `1.0 (1009)`。`xcodebuild ... archive` 成功，归档为 `.build/SayRing-1.0-1009-iphone-only.xcarchive`；深层验签通过，实际为 `cn.saydian.ring` / arm64 / `Apple Distribution: Xuewu Tang (W7SXQ4A226)` / `get-task-allow=false`。编译后 Info.plist 的 `UIDeviceFamily` 仅为 `1`，iPad 方向键不存在。
 - 本地导出的 IPA 位于 `.build/SayRing-1.0-1009-iphone-only-export/Say Ring.ipa`，压缩校验通过，SHA-256 `75352d6eb29862e898dad7b7243eca6dce5cabfac9819c1a46dca1c3c28f7918`。
 - 通过 Xcode Organizer 选择 App Store Connect 的推荐上传方式，上传完成且无错误。非阻断警告仍为未来 iOS 最低版本要求，以及 14 个闭源厂商 framework 缺少 dSYM；没有伪造符号文件或在本次提交中擅自升高最低系统版本。App Store Connect 构建列表已出现 `1.0 (1009)`，当前由苹果后台处理；处理完成、选择 1009 与点击“添加以供审核”另行记录，不能提前标为已提交审核。
+- 苹果后台随后将 `1009` 标为处理完成。用户确认出口合规按“标准加密算法、非专有算法”申报，并确认 App 不在法国分发；合规阻断消失后，版本页自动绑定 `1.0 (1009)`，原 13 英寸 iPad 截屏阻断不再出现。
+- App Store Connect 已完成“添加以供审核”与正式提交。提交详情页回读为 iOS App `1.0` / 构建 `1.0 (1009)` / 状态“等待审核”，提交时间 2026-09-30 21:27，提交 ID `adc6af1e-20e4-4aff-8fbd-ce27e514f8e1`；发布方式保持“审核通过后自动发布”。这证明已进入苹果审核队列，不等同于审核通过或已在商店上线。
