@@ -1088,7 +1088,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deleteAccountHint =>
-      'You will be signed out after your account and related data have been deleted.';
+      'Your account will be disabled and you will be signed out immediately. Related data is scheduled for deletion after 7 days, except where the law requires retention.';
 
   @override
   String get confirmDelete => 'Confirm deletion';
@@ -1521,6 +1521,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get syncComplete => 'Data synced';
+
+  @override
+  String get syncUpToDate => 'Up to date—no new data';
 
   @override
   String get syncFailedTryAgain =>

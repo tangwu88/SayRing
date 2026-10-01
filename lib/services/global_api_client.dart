@@ -662,13 +662,10 @@ class GlobalSaydianApiClient extends SaydianApiClient
   @override
   Future<String> uploadImage(String filePath) async {
     final response = await _withAuthorizationRetry((session) async {
-      final request =
-          http.MultipartRequest(
-              'POST',
-              _uri('/api/saydian-app/v2/files', {'purpose': 'avatar'}),
-            )
-            ..headers.addAll(_authorizationHeaders(session))
-            ..fields['purpose'] = 'avatar';
+      final request = http.MultipartRequest(
+        'POST',
+        _uri('/api/saydian-app/v2/files/say-ring-avatar'),
+      )..headers.addAll(_authorizationHeaders(session));
       final extension = filePath.toLowerCase().split('.').last;
       final mime = switch (extension) {
         'jpg' || 'jpeg' => 'jpeg',
@@ -837,6 +834,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
       'consentAccepted': true,
       'consentVersion': consentVersion,
       'locale': locale,
+      'product': GlobalEnvironment.productId,
     });
     if (data['requiresPhoneBinding'] == true) {
       return GlobalWechatLoginResult.requiresPhone(
@@ -865,6 +863,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         'identifier': identity.identifier,
         'consentVersion': consentVersion,
         'locale': locale,
+        'product': GlobalEnvironment.productId,
       }),
     );
   }
@@ -883,6 +882,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
       'code': code,
       'consentVersion': consentVersion,
       'locale': locale,
+      'product': GlobalEnvironment.productId,
       'wechatProfileProof': binding.profileProof,
     }),
   );
@@ -1524,6 +1524,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     await _sharedCodeAuth(GlobalEnvironment.sharedCodeRequestPath, {
       ...identity.toJson(),
       'locale': locale,
+      'product': GlobalEnvironment.productId,
     }),
   );
 
@@ -1541,6 +1542,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
       'code': code,
       'consentVersion': consentVersion,
       'locale': locale,
+      'product': GlobalEnvironment.productId,
     });
     final user = data['user'];
     final id = user is Map ? user['id'] : null;
@@ -1574,12 +1576,12 @@ class GlobalSaydianApiClient extends SaydianApiClient
   }
 
   @override
-  Future<GlobalAuthCapabilities> getAuthCapabilities() async =>
-      GlobalAuthCapabilities.fromJson(
-        await _globalPublic(
-          'auth/capabilities?locale=${Uri.encodeQueryComponent(_locale())}',
-        ),
-      );
+  Future<GlobalAuthCapabilities>
+  getAuthCapabilities() async => GlobalAuthCapabilities.fromJson(
+    await _globalPublic(
+      'auth/capabilities?locale=${Uri.encodeQueryComponent(_locale())}&product=${GlobalEnvironment.productId}',
+    ),
+  );
 
   @override
   Future<Map<String, Object?>> getGlobalLegalDocument(String path) async {
@@ -1590,7 +1592,9 @@ class GlobalSaydianApiClient extends SaydianApiClient
     if (parsed.hasScheme ||
         parsed.hasAuthority ||
         !GlobalEnvironment.safeResourcePath(parsed) ||
-        !RegExp('^$prefix/content/legal/[a-z_]+\$').hasMatch(parsed.path) ||
+        !RegExp(
+          '^$prefix/content/legal/say_ring_(user_agreement|privacy_policy)\$',
+        ).hasMatch(parsed.path) ||
         parsed.queryParametersAll['version']?.length != 1 ||
         parsed.queryParameters['version']?.trim().isNotEmpty != true ||
         parsed.queryParametersAll['locale']?.length != 1 ||
@@ -1620,6 +1624,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         ...identity.toJson(),
         'purpose': purpose,
         'locale': locale,
+        'product': GlobalEnvironment.productId,
       }),
     );
   }
@@ -1636,6 +1641,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     'password': password,
     'locale': locale,
     'consentVersion': consentVersion,
+    'product': GlobalEnvironment.productId,
     if (nickname?.trim().isNotEmpty == true) 'nickname': nickname!.trim(),
   });
 
@@ -1699,8 +1705,9 @@ class GlobalSaydianApiClient extends SaydianApiClient
       'challengeId': challengeId,
       'code': code,
       'password': password,
+      'product': GlobalEnvironment.productId,
+      'locale': locale,
       if (!resetPassword) ...{
-        'locale': locale,
         'consentVersion': consentVersion ?? '',
         if (nickname?.trim().isNotEmpty == true) 'nickname': nickname!.trim(),
       },

@@ -18,6 +18,7 @@ import 'ui/brand_assets.dart';
 import 'ui/pages.dart';
 import 'ui/prototype_pages.dart';
 import 'ui/global_code_login_page.dart';
+import 'ui/review_demo_page.dart';
 
 class DismissKeyboardOnBackgroundTap extends StatefulWidget {
   const DismissKeyboardOnBackgroundTap({required this.child, super.key});
@@ -659,6 +660,9 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
                 return controller.isGlobalEdition
                     ? GlobalCodeLoginPage(controller: controller)
                     : LoginPage(controller: controller);
+              }
+              if (controller.isPreviewMode) {
+                return ReviewDemoPage(onExit: controller.exitPreview);
               }
               return AppShell(controller: controller);
             },

@@ -27,4 +27,5 @@ WearableBridge createProductionWearableBridge({
           ? QRingWearableBridge()
           : null),
   restoreOnlyBoundDevice: true,
+  requireOwnerScopedBinding: true,
 );

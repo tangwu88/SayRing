@@ -1,6 +1,8 @@
 package cc.saidian.saydian_app
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -22,6 +24,15 @@ class QRingNamePolicyTest {
         assertFalse(QRingBridge.isQRingName("R3"))
         assertFalse(QRingBridge.isQRingName(null))
         assertFalse(QRingBridge.isQRingName("Q Ring"))
+    }
+
+    @Test
+    fun `advertisement name finds R21 without a cached Bluetooth device name`() {
+        assertEquals("R21", QRingBridge.resolveScanName(null, " R21 "))
+        assertEquals("R22_C493", QRingBridge.resolveScanName("HR05", "R22_C493"))
+        assertEquals("R21", QRingBridge.resolveScanName("R21", null))
+        assertNull(QRingBridge.resolveScanName(null, "HR05"))
+        assertNull(QRingBridge.resolveScanName("HR05", null))
     }
 
     @Test

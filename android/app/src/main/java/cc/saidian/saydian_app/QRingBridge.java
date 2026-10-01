@@ -107,6 +107,16 @@ public final class QRingBridge
     private Boolean autoOxygen;
     private Boolean autoStress;
     private Boolean autoHrv;
+    private int connectionGeneration;
+    private String recoveryTargetId;
+    private String recoveryTargetName;
+    private String recoveryContext;
+    private Map<String, Object> recoveryProfile;
+    private boolean recoveryConnecting;
+    private boolean cancellingConnection;
+    private boolean handshakeStarted;
+    private MethodChannel.Result pendingDisconnect;
+    private Runnable recoveryRetry;
 
     public QRingBridge(Activity activity, BinaryMessenger messenger) {
         this.activity = activity;
@@ -121,7 +131,8 @@ public final class QRingBridge
         manager = BleOperateManager.getInstance(activity.getApplication());
         manager.init();
         manager.setManualMeasurementDefaultValuesEnabled(false);
-        manager.setAutoReconnectEnabled(true);
+        // App-scoped exact bindings, never the SDK's installation-wide target.
+        manager.setAutoReconnectEnabled(false);
         receiver = new QCBluetoothCallbackCloneReceiver() {
             @Override public void connectStatue(BluetoothDevice device, boolean connected) {
                 main.post(() -> onConnectionState(device, connected));
@@ -166,6 +177,12 @@ public final class QRingBridge
                 || normalized.startsWith("R2");
     }
 
+    static String resolveScanName(String cachedName, String advertisedName) {
+        if (isQRingName(advertisedName)) return advertisedName.trim();
+        if (isQRingName(cachedName)) return cachedName.trim();
+        return null;
+    }
+
     static boolean isExactBondedQRing(String requestedId, String bondedId, String name) {
         return requestedId != null && bondedId != null
                 && requestedId.equalsIgnoreCase(bondedId) && isQRingName(name);
@@ -196,32 +213,42 @@ public final class QRingBridge
             @Override public void onScanFailed(int errorCode) {
                 main.post(() -> failScan("QRING_SCAN_FAILED", "搜索戒指失败，请重试"));
             }
+            // onLeScan carries the same advertisement plus RSSI; handle both there.
             @Override public void onParsedData(BluetoothDevice device, ScanRecord record) { }
             @Override public void onBatchScanResults(List<ScanResult> results) { }
 
             @Override public void onLeScan(BluetoothDevice device, int rssi, byte[] scanRecord) {
                 if (device == null) return;
-                main.post(() -> receiveScan(device, rssi));
+                String name = null;
+                if (scanRecord != null) {
+                    try {
+                        ScanRecord parsed = ScanRecord.parseFromBytes(scanRecord);
+                        if (parsed != null) name = parsed.getDeviceName();
+                    } catch (RuntimeException ignored) { }
+                }
+                final String advertisedName = name;
+                main.post(() -> receiveScan(device, rssi, advertisedName));
             }
         });
         scanDeadline = this::finishScan;
         main.postDelayed(scanDeadline, SCAN_MS);
     }
 
-    private void receiveScan(BluetoothDevice device, int rssi) {
-        String name;
+    private void receiveScan(BluetoothDevice device, int rssi, String advertisedName) {
+        String cachedName;
         try {
-            name = device.getName();
+            cachedName = device.getName();
         } catch (SecurityException error) {
             failScan("BLE_PERMISSION_REQUIRED", "蓝牙权限已变化，请重新允许");
             return;
         }
+        String name = resolveScanName(cachedName, advertisedName);
         String id = device.getAddress();
-        if (!isQRingName(name) || id == null || id.isEmpty()) return;
+        if (name == null || id == null || id.isEmpty()) return;
         Map<String, Object> value = new HashMap<>();
         value.put("id", id);
-        value.put("name", name.trim());
-        value.put("model", name.trim());
+        value.put("name", name);
+        value.put("model", name);
         value.put("hardwareAddress", id);
         value.put("rssi", rssi);
         boolean fresh = !scanned.containsKey(id);
@@ -369,7 +396,7 @@ public final class QRingBridge
             result.error("QRING_BOND_CHANGED", "系统配对信息已变化，请重新选择戒指", null);
             return;
         }
-        if (pendingConnect != null) {
+        if (pendingConnect != null || recoveryConnecting || cancellingConnection) {
             result.error("CONNECT_BUSY", "戒指正在连接，请稍候", null);
             return;
         }
@@ -382,6 +409,8 @@ public final class QRingBridge
         batteryPercent = null;
         charging = null;
         pendingConnect = result;
+        connectionGeneration++;
+        handshakeStarted = false;
         DeviceManager.getInstance().setDeviceAddress(id);
         DeviceManager.getInstance().setDeviceName(connectedName);
         manager.connectDirectly(id);
@@ -391,7 +420,10 @@ public final class QRingBridge
     }
 
     private void onConnectionState(BluetoothDevice device, boolean connected) {
+        if (device != null && (connectedId == null
+                || !connectedId.equalsIgnoreCase(device.getAddress()))) return;
         if (connected) {
+            if (cancellingConnection || connectedId == null) return;
             if (device != null) {
                 connectedId = device.getAddress();
                 try {
@@ -403,6 +435,11 @@ public final class QRingBridge
             return;
         }
         String retired = connectedId;
+        connectionGeneration++;
+        if (connectDeadline != null) main.removeCallbacks(connectDeadline);
+        connectDeadline = null;
+        recoveryConnecting = false;
+        handshakeStarted = false;
         setTimeFlags = null;
         supportFlags = null;
         activeMeasurement = null;
@@ -410,20 +447,139 @@ public final class QRingBridge
         activeSportType = null;
         failPendingSync("CONNECTION_DROPPED", "戒指连接中断，请靠近手机后重试");
         if (pendingConnect != null) {
-            failConnect("QRING_DISCONNECTED", "戒指连接中断，请靠近手机后重试");
+            MethodChannel.Result pending = pendingConnect;
+            pendingConnect = null;
+            pending.error("QRING_DISCONNECTED", "戒指连接中断，请靠近手机后重试", null);
         } else if (retired != null) {
             Map<String, Object> value = new HashMap<>();
             value.put("deviceId", retired);
             emit("disconnected", value);
         }
+        connectedId = null;
+        if (pendingDisconnect != null) {
+            MethodChannel.Result pending = pendingDisconnect;
+            pendingDisconnect = null;
+            cancellingConnection = false;
+            pending.success(null);
+        } else if (cancellingConnection) {
+            cancellingConnection = false;
+        }
+        scheduleRecoveryRetry();
+    }
+
+    private boolean isCurrentConnection(int generation, String id) {
+        return generation == connectionGeneration && !cancellingConnection
+                && id != null && id.equalsIgnoreCase(connectedId);
+    }
+
+    private void scheduleRecoveryRetry() {
+        if (recoveryRetry != null) main.removeCallbacks(recoveryRetry);
+        if (recoveryTargetId == null || recoveryContext == null) return;
+        recoveryRetry = () -> { recoveryRetry = null; startAutomaticRecovery(); };
+        main.postDelayed(recoveryRetry, 5_000L);
+    }
+
+    private void startAutomaticRecovery() {
+        if (recoveryTargetId == null || recoveryContext == null || resolved()
+                || pendingConnect != null || pendingDisconnect != null
+                || cancellingConnection || recoveryConnecting
+                || !hasBlePermissions() || !isBluetoothEnabled()) return;
+        connectedId = recoveryTargetId;
+        connectedName = recoveryTargetName;
+        pendingProfile = recoveryProfile == null ? new HashMap<>() : new HashMap<>(recoveryProfile);
+        setTimeFlags = null;
+        supportFlags = null;
+        recoveryConnecting = true;
+        handshakeStarted = false;
+        final int generation = ++connectionGeneration;
+        DeviceManager.getInstance().setDeviceAddress(connectedId);
+        DeviceManager.getInstance().setDeviceName(connectedName);
+        Map<String, Object> value = new HashMap<>();
+        value.put("status", "waiting");
+        value.put("deviceId", connectedId);
+        emit("recoveryState", value);
+        manager.connectDirectly(connectedId);
+        connectDeadline = () -> {
+            if (generation == connectionGeneration) {
+                failConnect("QRING_CONNECT_TIMEOUT", "戒指暂时不在附近，靠近后会自动重连");
+            }
+        };
+        main.postDelayed(connectDeadline, CONNECT_MS);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void configureRecoveryTarget(MethodCall call, MethodChannel.Result result) {
+        String id = call.argument("id");
+        if (id == null || id.isEmpty()) {
+            recoveryTargetId = null;
+            recoveryContext = null;
+            if (recoveryRetry != null) main.removeCallbacks(recoveryRetry);
+            recoveryRetry = null;
+            if (recoveryConnecting && !resolved()) disconnectWithResult(result);
+            else { recoveryConnecting = false; result.success(null); }
+            return;
+        }
+        String name = call.argument("name");
+        String context = call.argument("context");
+        if (!isValidBluetoothAddress(id) || !isQRingName(name)
+                || context == null || context.isEmpty()) {
+            result.error("QRING_DEVICE_UNVERIFIED", "保存的戒指信息无效，请重新添加", null); return;
+        }
+        if (cancellingConnection || (recoveryConnecting && (!id.equalsIgnoreCase(recoveryTargetId)
+                || !context.equals(recoveryContext)))) {
+            result.error("RECOVERY_PENDING", "请先结束上一台戒指的连接", null); return;
+        }
+        recoveryTargetId = id;
+        recoveryTargetName = name;
+        recoveryContext = context;
+        Map<String, Object> profile = call.argument("profile");
+        recoveryProfile = profile == null ? new HashMap<>() : new HashMap<>(profile);
+        startAutomaticRecovery();
+        result.success(null);
+    }
+
+    private void disconnectWithResult(MethodChannel.Result result) {
+        recoveryTargetId = null;
+        recoveryContext = null;
+        if (recoveryRetry != null) main.removeCallbacks(recoveryRetry);
+        recoveryRetry = null;
+        if (pendingDisconnect != null || cancellingConnection) {
+            result.error("RECOVERY_PENDING", "蓝牙连接正在结束，请稍候", null); return;
+        }
+        connectionGeneration++;
+        recoveryConnecting = false;
+        if (connectDeadline != null) main.removeCallbacks(connectDeadline);
+        connectDeadline = null;
+        if (pendingConnect != null) {
+            MethodChannel.Result pending = pendingConnect;
+            pendingConnect = null;
+            pending.error("CONNECT_CANCELLED", "连接已取消", null);
+        }
+        boolean nativePending = connectedId != null;
+        setTimeFlags = null;
+        supportFlags = null;
+        if (!nativePending) { result.success(null); return; }
+        cancellingConnection = true;
+        pendingDisconnect = result;
+        manager.disconnect();
+        main.postDelayed(() -> {
+            if (pendingDisconnect != result) return;
+            pendingDisconnect = null;
+            result.error("RECOVERY_PENDING", "蓝牙连接尚未结束，请稍后重试", null);
+            // The native cancellation barrier remains until its callback.
+        }, 20_000L);
     }
 
     private void onServiceReady() {
-        if (connectedId == null) return;
+        if (connectedId == null || cancellingConnection || handshakeStarted) return;
+        handshakeStarted = true;
+        final int generation = connectionGeneration;
+        final String id = connectedId;
         LargeDataHandler.getInstance().initEnable();
         CommandHandle.getInstance().executeReqCmd(
                 new SetTimeReq(1),
                 (ICommandResponse<SetTimeRsp>) response -> main.post(() -> {
+                    if (!isCurrentConnection(generation, id)) return;
                     if (response == null || response.getStatus() != BaseRspCmd.RESULT_OK) {
                         failConnect("QRING_HANDSHAKE_FAILED", "戒指基础能力读取失败，请重试");
                         return;
@@ -434,9 +590,12 @@ public final class QRingBridge
     }
 
     private void readExtendedCapabilities() {
+        final int generation = connectionGeneration;
+        final String id = connectedId;
         CommandHandle.getInstance().executeReqCmd(
                 DeviceSupportReq.getReadInstance(),
                 (ICommandResponse<DeviceSupportFunctionRsp>) response -> main.post(() -> {
+                    if (!isCurrentConnection(generation, id)) return;
                     if (response == null || response.getStatus() != BaseRspCmd.RESULT_OK) {
                         failConnect("QRING_HANDSHAKE_FAILED", "戒指扩展能力读取失败，请重试");
                         return;
@@ -454,6 +613,8 @@ public final class QRingBridge
     }
 
     private void writeProfileThenFinish() {
+        final int generation = connectionGeneration;
+        final String id = connectedId;
         int sdkGender = profileInt("gender", 1, 1, 2) == 2 ? 1 : 0;
         TimeFormatReq request = TimeFormatReq.getWriteInstance(
                 true, 0, sdkGender,
@@ -463,11 +624,14 @@ public final class QRingBridge
                 0, 0, 0);
         CommandHandle.getInstance().executeReqCmd(
                 request,
-                (ICommandResponse<TimeFormatRsp>) ignored -> main.post(this::finishHandshake));
+                (ICommandResponse<TimeFormatRsp>) ignored -> main.post(() -> {
+                    if (isCurrentConnection(generation, id)) finishHandshake();
+                }));
     }
 
     private void finishHandshake() {
-        if (setTimeFlags == null || supportFlags == null || connectedId == null) {
+        if (setTimeFlags == null || supportFlags == null || connectedId == null
+                || !isQRingName(connectedName) || cancellingConnection) {
             failConnect("QRING_HANDSHAKE_FAILED", "戒指能力未完整返回，请重试");
             return;
         }
@@ -477,6 +641,8 @@ public final class QRingBridge
         if (connectDeadline != null) main.removeCallbacks(connectDeadline);
         connectDeadline = null;
         Map<String, Object> details = deviceDetails();
+        boolean recovered = recoveryConnecting;
+        recoveryConnecting = false;
         if (pendingConnect != null) {
             MethodChannel.Result result = pendingConnect;
             pendingConnect = null;
@@ -484,9 +650,13 @@ public final class QRingBridge
         }
         emit("deviceDetails", details);
         emit("capabilitiesUpdated", capabilities());
+        if (recovered) emit("reconnected", details);
     }
 
     private void failConnect(String code, String message) {
+        connectionGeneration++;
+        recoveryConnecting = false;
+        handshakeStarted = false;
         if (connectDeadline != null) main.removeCallbacks(connectDeadline);
         connectDeadline = null;
         if (pendingConnect != null) {
@@ -494,6 +664,9 @@ public final class QRingBridge
             pendingConnect = null;
             result.error(code, message, null);
         }
+        // A failed handshake may leave a GATT request pending. Do not allow
+        // the next target to start until the SDK reports its cancellation.
+        cancellingConnection = manager != null && connectedId != null;
         try {
             if (manager != null) manager.disconnect();
         } catch (RuntimeException ignored) { }
@@ -545,7 +718,8 @@ public final class QRingBridge
 
     private boolean resolved() {
         return manager != null && manager.isConnected()
-                && setTimeFlags != null && supportFlags != null;
+                && setTimeFlags != null && supportFlags != null
+                && pendingConnect == null && !recoveryConnecting && !cancellingConnection;
     }
 
     private Map<String, Object> capabilities() {
@@ -785,10 +959,43 @@ public final class QRingBridge
                 break;
             case 1:
                 if (!supportsMetric("sleep", false)) { syncDay(day, 2); return; }
-                manager.getSleep(day, callback(
-                        value -> collect(QRingRecordMapper.sleepRecords(
-                                connectedId, connectedName, firmwareVersion, day, value)),
-                        () -> syncDay(day, 2)));
+                final MethodChannel.Result sleepSync = pendingSync;
+                final String sleepDeviceId = connectedId;
+                final int sleepConnectionGeneration = connectionGeneration;
+                final QRingRecordMapper.SleepRequestDay sleepRequestDay = QRingRecordMapper.sleepRequestDay(day);
+                manager.getSleep(day, new BleOperateManager.HealthDataCallback<SleepDisplay>() {
+                    @Override public void onSuccess(SleepDisplay value) {
+                        main.post(() -> {
+                            if (pendingSync != sleepSync || !isCurrentConnection(sleepConnectionGeneration, sleepDeviceId)) return;
+                            Map<String, Object> timeline = QRingRecordMapper.sleepTimelineForSuccessfulRead(
+                                    sleepDeviceId, sleepRequestDay, value);
+                            boolean complete = QRingRecordMapper.sleepTimelineIsComplete(timeline);
+                            Map<String, Object> status = new HashMap<>();
+                            status.put("deviceId", "qring:" + sleepDeviceId);
+                            status.put("sdkDate", sleepRequestDay.sdkDate);
+                            status.put("status", complete
+                                    ? (QRingRecordMapper.sleepTimelineHasData(timeline) ? "complete" : "noData") : "failed");
+                            if (complete) {
+                                status.put("sleepTimeline", timeline);
+                                collect(QRingRecordMapper.sleepRecords(sleepDeviceId, connectedName, firmwareVersion, sleepRequestDay, value));
+                            }
+                            emit("sleepReadStatus", status);
+                            syncDay(day, 2);
+                        });
+                    }
+
+                    @Override public void onError(int code, String message) {
+                        main.post(() -> {
+                            if (pendingSync != sleepSync || !isCurrentConnection(sleepConnectionGeneration, sleepDeviceId)) return;
+                            Map<String, Object> status = new HashMap<>();
+                            status.put("deviceId", "qring:" + sleepDeviceId);
+                            status.put("sdkDate", sleepRequestDay.sdkDate);
+                            status.put("status", "failed");
+                            emit("sleepReadStatus", status);
+                            syncDay(day, 2);
+                        });
+                    }
+                });
                 break;
             case 2:
                 if (!supportsMetric("heart_rate", false)) { syncDay(day, 3); return; }
@@ -1073,19 +1280,21 @@ public final class QRingBridge
 
     @Override public void onMethodCall(MethodCall call, MethodChannel.Result result) {
         try {
+            if (manager == null && "configureRecoveryTarget".equals(call.method)
+                    && call.argument("id") == null) {
+                result.success(null); return;
+            }
             ensureSdk();
             switch (call.method) {
                 case "scanDevices": startScan(result); break;
                 case "lookupBondedDevice": lookupBondedDevice(call, result); break;
                 case "listBondedDevices": listBondedDevices(result); break;
                 case "prepareRememberedDevice": prepareRememberedDevice(call, result); break;
+                case "configureRecoveryTarget": configureRecoveryTarget(call, result); break;
                 case "stopScan": finishScan(); result.success(null); break;
                 case "connect": connect(call, result); break;
                 case "disconnect":
-                    manager.disconnect();
-                    setTimeFlags = null;
-                    supportFlags = null;
-                    result.success(null);
+                    disconnectWithResult(result);
                     break;
                 case "getDeviceDetails": result.success(resolved() ? deviceDetails() : null); break;
                 case "getCapabilities":
@@ -1140,6 +1349,10 @@ public final class QRingBridge
     }
 
     public void dispose() {
+        recoveryTargetId = null;
+        recoveryContext = null;
+        connectionGeneration++;
+        if (recoveryRetry != null) main.removeCallbacks(recoveryRetry);
         finishScan();
         failPendingSync("BRIDGE_DISPOSED", "戒指通信已关闭");
         if (connectDeadline != null) main.removeCallbacks(connectDeadline);

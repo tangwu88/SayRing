@@ -13,10 +13,12 @@ import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/app_theme.dart';
+import 'package:saydian_app/ui/brand_assets.dart';
 import 'package:saydian_app/ui/health_trend_page.dart';
 import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
 import 'package:saydian_app/ui/shop_pages.dart' show ShopHomePage;
+import 'package:saydian_app/ui/widgets/safe_network_image.dart';
 
 void main() {
   // Legacy page hosts deliberately retain Chinese copy. DateFormat now uses
@@ -32,6 +34,98 @@ void main() {
     );
     addTearDown(controller.dispose);
     expect(controller.commerceEnabled, isFalse);
+  });
+
+  testWidgets('home avatar and greeting follow saved personal profile', (
+    tester,
+  ) async {
+    final api = _EditableProfileApi();
+    final controller = AppController(
+      MemorySessionVault(),
+      api,
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    controller.session = Session(
+      accessToken: 'test-token',
+      refreshToken: 'test-refresh',
+      expiresAt: DateTime.now().add(const Duration(days: 1)),
+      memberId: 'test-member',
+      displayName: '登录名',
+    );
+    await controller.refreshMemberProfile();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: DashboardPage(controller: controller)),
+      ),
+    );
+    expect(find.text('你好，登录名'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('dashboard-profile-avatar')),
+        matching: find.byType(SaydianBrandMark),
+      ),
+      findsOneWidget,
+    );
+
+    final saved = await controller.saveMemberProfile(
+      nickname: '新昵称',
+      gender: 1,
+      birthday: '1990-01-01',
+      height: 170,
+      weight: 65,
+      avatarFilePath: '/test/new-avatar.png',
+    );
+    expect(saved, isTrue);
+    await tester.pump();
+    expect(find.text('你好，新昵称'), findsOneWidget);
+    final homeAvatar = tester.widget<SafeNetworkImage>(
+      find.descendant(
+        of: find.byKey(const Key('dashboard-profile-avatar')),
+        matching: find.byType(SafeNetworkImage),
+      ),
+    );
+    expect(
+      (homeAvatar.image as SafeNetworkImageProvider).url,
+      _EditableProfileApi.uploadedAvatarUrl,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: SettingsPage(controller: controller)),
+      ),
+    );
+    expect(find.text('新昵称'), findsOneWidget);
+    final profileAvatar = tester.widget<SafeNetworkImage>(
+      find.descendant(
+        of: find.byKey(const Key('profile-header-card')),
+        matching: find.byType(SafeNetworkImage),
+      ),
+    );
+    expect(
+      (profileAvatar.image as SafeNetworkImageProvider).url,
+      _EditableProfileApi.uploadedAvatarUrl,
+    );
+
+    api.profile = {'nickname': ' ', 'head_portrait': ''};
+    await controller.refreshMemberProfile();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: DashboardPage(controller: controller)),
+      ),
+    );
+    expect(find.text('你好，登录名'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('dashboard-profile-avatar')),
+        matching: find.byType(SaydianBrandMark),
+      ),
+      findsOneWidget,
+    );
   });
 
   for (final enabled in [false, true]) {
@@ -303,6 +397,7 @@ void main() {
         find.byKey(const Key('dashboard-health-card-list')),
         findsOneWidget,
       );
+      expect(find.text('近期数据'), findsOneWidget);
       final metricSurface = tester.widget<DecoratedBox>(
         find.byKey(const ValueKey('health-metric-surface-heartRate')),
       );
@@ -790,6 +885,9 @@ void main() {
           )
           .first,
     );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('sleep-open-trend')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('sleep-open-trend')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('health-trend-sleep')), findsOneWidget);
@@ -3191,6 +3289,30 @@ HealthRecord _historicalBloodPressureRecord() => HealthRecord(
   source: MeasurementSource.wearable,
   rawVersion: 1,
 );
+
+class _EditableProfileApi extends _NoopApi implements SaydianFileApi {
+  static const uploadedAvatarUrl =
+      'https://app.saydian.cn/global/media/test-new-avatar.png';
+  Map<String, Object?> profile = const {};
+
+  @override
+  Future<Map<String, Object?>> getMemberProfile() async => {...profile};
+
+  @override
+  Future<String> uploadImage(String filePath) async => uploadedAvatarUrl;
+
+  @override
+  Future<void> saveMemberProfile({
+    required String nickname,
+    required int gender,
+    required String birthday,
+    required double height,
+    required double weight,
+    String? headPortrait,
+  }) async {
+    profile = {...profile, 'nickname': nickname, 'head_portrait': headPortrait};
+  }
+}
 
 class _NoopApi implements SaydianApi, SaydianArticleApi {
   @override

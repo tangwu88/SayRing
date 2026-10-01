@@ -1102,7 +1102,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get deleteAccountHint =>
-      'Vous serez déconnecté après la suppression de votre compte et des données associées.';
+      'Votre compte sera désactivé et vous serez déconnecté immédiatement. Les données associées seront supprimées après 7 jours, sauf obligation légale de conservation.';
 
   @override
   String get confirmDelete => 'Confirmer la suppression';
@@ -1539,6 +1539,9 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get syncComplete => 'Données synchronisées';
+
+  @override
+  String get syncUpToDate => 'Données à jour, aucune nouvelle donnée';
 
   @override
   String get syncFailedTryAgain =>

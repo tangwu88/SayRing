@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import '../domain/models.dart';
+import 'sleep_health_projection.dart' show sleepRecordSdkDate;
 
 enum HealthTrendPeriod {
   day('日'),
@@ -47,7 +48,9 @@ class HealthTrendRange {
     return HealthTrendRange(
       start: start,
       end: end,
-      previousStart: start.subtract(span),
+      previousStart: period == HealthTrendPeriod.month
+          ? DateTime(start.year, start.month - 1)
+          : start.subtract(span),
       previousEnd: start,
     );
   }
@@ -147,7 +150,16 @@ class HealthAnalysisService {
       secondaryKey: secondaryKey,
     );
     return HealthTrendData(
-      records: unique..sort((a, b) => b.measuredAt.compareTo(a.measuredAt)),
+      records: unique
+        ..sort((a, b) {
+          if (metric == HealthMetric.sleep) {
+            final sdkDate = sleepRecordSdkDate(
+              b,
+            ).compareTo(sleepRecordSdkDate(a));
+            if (sdkDate != 0) return sdkDate;
+          }
+          return b.measuredAt.compareTo(a.measuredAt);
+        }),
       points: points,
       summary: _summary(points, previousPoints, recordCount: unique.length),
       range: range,

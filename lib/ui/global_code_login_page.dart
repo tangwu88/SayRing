@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -121,7 +122,9 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   };
 
   Future<void> _wechatLogin() async {
-    if (_busy) return;
+    if (_busy || (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)) {
+      return;
+    }
     final capability = _capabilities?.wechatApp;
     final consentVersion = _capabilities?.consentVersion?.trim() ?? '';
     if (!_accepted) {
@@ -430,7 +433,23 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                 onPressed: _busy ? null : _submit,
                 child: Text(_busy ? l.pleaseWait : l.signIn),
               ),
-              if (_capabilities?.wechatApp.enabled == true) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                key: const Key('review-demo-entry'),
+                onPressed: _busy ? null : widget.controller.enterPreview,
+                icon: const Icon(Icons.visibility_outlined),
+                label: const Text('无需手机号，查看只读演示'),
+              ),
+              const Padding(
+                padding: EdgeInsets.only(top: 6),
+                child: Text(
+                  '演示内容均为本机示例数据，不会连接戒指或保存资料。',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+              if (_capabilities?.wechatApp.enabled == true &&
+                  (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS)) ...[
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
                   key: const Key('global-wechat-login'),

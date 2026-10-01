@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
 
 import '../domain/models.dart';
+import '../domain/sleep_timeline.dart';
 import 'global_storage_scope.dart';
 import 'notification_inbox.dart';
 import 'secure_vault.dart';
@@ -43,6 +45,17 @@ abstract interface class HealthStore implements NotificationInboxStorage {
 abstract interface class HealthStoreRecoveryStatus {
   String? get recoveryNotice;
   bool get recoveryPending;
+}
+
+/// Detailed SDK days remain local until a verified cloud detail contract exists.
+abstract interface class SleepDetailStore {
+  Future<SleepTimeline> saveConfirmedDay(SleepTimeline timeline);
+  Future<List<SleepTimeline>> loadDays({
+    String? deviceId,
+    required String startSdkDate,
+    required String endSdkDate,
+  });
+  Future<SleepTimeline?> loadLatestDay({String? deviceId});
 }
 
 abstract interface class HealthStoreFileOperations {
@@ -106,7 +119,8 @@ bool _isUnreadableEncryptedDatabaseError(Object error) {
       message.contains('hmac check failed');
 }
 
-class EncryptedHealthStore implements HealthStore, HealthStoreRecoveryStatus {
+class EncryptedHealthStore
+    implements HealthStore, HealthStoreRecoveryStatus, SleepDetailStore {
   EncryptedHealthStore(
     this._vault, {
     this._databasePathProvider,
@@ -1107,14 +1121,177 @@ class EncryptedHealthStore implements HealthStore, HealthStoreRecoveryStatus {
       _database = null;
     });
   }
+
+  @override
+  Future<SleepTimeline> saveConfirmedDay(SleepTimeline timeline) {
+    final ownerId = _ownerId;
+    final prefix = _sleepDayPrefix(timeline.deviceId, timeline.sdkDate);
+    final latestKey = 'sleep.latest.$prefix';
+    return _enqueue(
+      () => _db.transaction((transaction) async {
+        final latest = await transaction.query(
+          'metadata',
+          columns: ['value'],
+          where: 'owner_id = ? AND key = ?',
+          whereArgs: [ownerId, latestKey],
+          limit: 1,
+        );
+        final pointer = latest.isEmpty
+            ? null
+            : _sleepPointer('${latest.single['value']}');
+        if (pointer?['hash'] == timeline.contentHash) {
+          final saved = await _sleepSnapshot(transaction, ownerId, pointer!);
+          if (saved != null) return saved;
+        }
+        final revision = ((pointer?['revision'] as num?)?.toInt() ?? 0) + 1;
+        final saved = timeline.withRevision(revision);
+        final snapshotKey = 'sleep.snapshot.$prefix.$revision';
+        await transaction.insert('metadata', {
+          'owner_id': ownerId,
+          'key': snapshotKey,
+          'value': jsonEncode(saved.toJson()),
+        });
+        await transaction.insert('metadata', {
+          'owner_id': ownerId,
+          'key': latestKey,
+          'value': jsonEncode({
+            'deviceId': saved.deviceId,
+            'sdkDate': saved.sdkDate,
+            'hash': saved.contentHash,
+            'revision': revision,
+            'hasSegments': saved.hasSegments,
+            'hasRawData': saved.hasRawData,
+            'readAt': saved.readAt.toUtc().toIso8601String(),
+            'snapshotKey': snapshotKey,
+          }),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        return saved;
+      }),
+    );
+  }
+
+  Future<List<Map<String, Object?>>> _sleepPointers(
+    DatabaseExecutor database,
+    String ownerId,
+    String? deviceId,
+  ) async {
+    final prefix = deviceId == null
+        ? 'sleep.latest.'
+        : 'sleep.latest.${_sleepDeviceHash(deviceId)}.';
+    final rows = await database.query(
+      'metadata',
+      columns: ['value'],
+      where: 'owner_id = ? AND key LIKE ?',
+      whereArgs: [ownerId, '$prefix%'],
+    );
+    return rows
+        .map((row) => _sleepPointer('${row['value']}'))
+        .whereType<Map<String, Object?>>()
+        .where((row) => deviceId == null || row['deviceId'] == deviceId)
+        .toList();
+  }
+
+  Future<SleepTimeline?> _sleepSnapshot(
+    DatabaseExecutor database,
+    String ownerId,
+    Map<String, Object?> pointer,
+  ) async {
+    final key = pointer['snapshotKey'];
+    if (key is! String || !key.startsWith('sleep.snapshot.')) return null;
+    final rows = await database.query(
+      'metadata',
+      columns: ['value'],
+      where: 'owner_id = ? AND key = ?',
+      whereArgs: [ownerId, key],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    final decoded = jsonDecode('${rows.single['value']}');
+    if (decoded is! Map) return null;
+    return SleepTimeline.fromJson(
+      decoded.map((key, value) => MapEntry('$key', value)),
+    );
+  }
+
+  @override
+  Future<List<SleepTimeline>> loadDays({
+    String? deviceId,
+    required String startSdkDate,
+    required String endSdkDate,
+  }) {
+    _validateSleepDateRange(startSdkDate, endSdkDate);
+    final ownerId = _ownerId;
+    return _enqueue(() async {
+      final pointers = await _sleepPointers(_db, ownerId, deviceId);
+      final days = <SleepTimeline>[];
+      for (final pointer in pointers) {
+        final date = '${pointer['sdkDate']}';
+        if (date.compareTo(startSdkDate) < 0 ||
+            date.compareTo(endSdkDate) > 0) {
+          continue;
+        }
+        final day = await _sleepSnapshot(_db, ownerId, pointer);
+        if (day != null) days.add(day);
+      }
+      days.sort((left, right) => right.sdkDate.compareTo(left.sdkDate));
+      return days;
+    });
+  }
+
+  @override
+  Future<SleepTimeline?> loadLatestDay({String? deviceId}) {
+    final ownerId = _ownerId;
+    return _enqueue(() async {
+      final pointers =
+          (await _sleepPointers(_db, ownerId, deviceId))
+              .where(
+                (pointer) =>
+                    (pointer['hasRawData'] ?? pointer['hasSegments']) == true,
+              )
+              .toList()
+            ..sort(_compareSleepPointers);
+      return pointers.isEmpty
+          ? null
+          : _sleepSnapshot(_db, ownerId, pointers.first);
+    });
+  }
 }
 
-class MemoryHealthStore implements HealthStore {
+String _sleepDeviceHash(String deviceId) =>
+    sha256.convert(utf8.encode(deviceId)).toString();
+String _sleepDayPrefix(String deviceId, String sdkDate) =>
+    '${_sleepDeviceHash(deviceId)}.$sdkDate';
+Map<String, Object?>? _sleepPointer(String value) {
+  final decoded = jsonDecode(value);
+  return decoded is Map
+      ? decoded.map((key, value) => MapEntry('$key', value))
+      : null;
+}
+
+int _compareSleepPointers(
+  Map<String, Object?> left,
+  Map<String, Object?> right,
+) {
+  final date = '${right['sdkDate']}'.compareTo('${left['sdkDate']}');
+  return date != 0 ? date : '${right['readAt']}'.compareTo('${left['readAt']}');
+}
+
+void _validateSleepDateRange(String start, String end) {
+  if (!SleepTimeline.isSdkDate(start) ||
+      !SleepTimeline.isSdkDate(end) ||
+      start.compareTo(end) > 0) {
+    throw ArgumentError('Invalid inclusive SDK sleep date range');
+  }
+}
+
+class MemoryHealthStore implements HealthStore, SleepDetailStore {
   String _ownerId = 'anonymous';
   final Map<String, Map<String, HealthRecord>> _recordsByOwner = {};
   final Map<String, Set<String>> _syncedByOwner = {};
   final Map<String, Set<String>> _invalidByOwner = {};
   final Map<String, String> _cursorByOwner = {};
+  final Map<String, Map<String, List<SleepTimeline>>> _sleepSnapshotsByOwner =
+      {};
   final Map<String, Map<String, SportRecord>> _sportRecordsByOwner = {};
   final Map<String, Map<String, HealthWarningAlert>>
   _healthWarningAlertsByOwner = {};
@@ -1343,4 +1520,61 @@ class MemoryHealthStore implements HealthStore {
 
   @override
   Future<void> close() async {}
+
+  @override
+  Future<SleepTimeline> saveConfirmedDay(SleepTimeline timeline) async {
+    final byDay = _sleepSnapshotsByOwner.putIfAbsent(_ownerId, () => {});
+    final snapshots = byDay.putIfAbsent(
+      _sleepDayPrefix(timeline.deviceId, timeline.sdkDate),
+      () => [],
+    );
+    if (snapshots.isNotEmpty &&
+        snapshots.last.contentHash == timeline.contentHash) {
+      return snapshots.last;
+    }
+    final saved = timeline.withRevision(snapshots.length + 1);
+    snapshots.add(saved);
+    return saved;
+  }
+
+  @override
+  Future<List<SleepTimeline>> loadDays({
+    String? deviceId,
+    required String startSdkDate,
+    required String endSdkDate,
+  }) async {
+    _validateSleepDateRange(startSdkDate, endSdkDate);
+    final days =
+        (_sleepSnapshotsByOwner[_ownerId]?.values ?? [])
+            .where((snapshots) => snapshots.isNotEmpty)
+            .map((snapshots) => snapshots.last)
+            .where(
+              (day) =>
+                  (deviceId == null || day.deviceId == deviceId) &&
+                  day.sdkDate.compareTo(startSdkDate) >= 0 &&
+                  day.sdkDate.compareTo(endSdkDate) <= 0,
+            )
+            .toList()
+          ..sort((left, right) => right.sdkDate.compareTo(left.sdkDate));
+    return days;
+  }
+
+  @override
+  Future<SleepTimeline?> loadLatestDay({String? deviceId}) async {
+    final days =
+        (_sleepSnapshotsByOwner[_ownerId]?.values ?? [])
+            .where((snapshots) => snapshots.isNotEmpty)
+            .map((snapshots) => snapshots.last)
+            .where(
+              (day) =>
+                  day.hasRawData &&
+                  (deviceId == null || day.deviceId == deviceId),
+            )
+            .toList()
+          ..sort((left, right) {
+            final date = right.sdkDate.compareTo(left.sdkDate);
+            return date != 0 ? date : right.readAt.compareTo(left.readAt);
+          });
+    return days.firstOrNull;
+  }
 }

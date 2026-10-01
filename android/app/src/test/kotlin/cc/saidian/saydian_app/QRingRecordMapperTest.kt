@@ -7,6 +7,8 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 class QRingRecordMapperTest {
     @Test
@@ -122,5 +124,128 @@ class QRingRecordMapperTest {
             ), "h", "watch_history", "device_reported",
         )
         assertNotEquals(legacy["id"], record["id"])
+    }
+
+    @Test
+    fun `current SDK stage codes retain night and nap intervals excluding awake`() {
+        assertEquals("deep", QRingRecordMapper.sleepStage(1))
+        assertEquals("light", QRingRecordMapper.sleepStage(2))
+        assertEquals("awake", QRingRecordMapper.sleepStage(3))
+        assertEquals("rem", QRingRecordMapper.sleepStage(4))
+        assertEquals("unknown", QRingRecordMapper.sleepStage(5))
+        val start = 1_700_000_000L
+        val sleep = SleepDisplay().apply {
+            list = listOf(
+                SleepDisplay.SleepDataBean(start, start + 3600, 1),
+                SleepDisplay.SleepDataBean(start + 3600, start + 4200, 3),
+                SleepDisplay.SleepDataBean(start + 4200, start + 6000, 2),
+            )
+            napList = listOf(SleepDisplay.SleepDataBean(start + 36_000, start + 36_900, 4))
+            totalSleepDuration = 6000
+            awakeDuration = 600
+        }
+        val record = QRingRecordMapper.sleepRecords("ring", "R21", "1", 0, sleep).single()
+        @Suppress("UNCHECKED_CAST")
+        val values = record["values"] as Map<String, Number>
+        assertEquals(6300 / 3600.0, values["value"]!!.toDouble(), 0.001)
+        assertEquals(10.0, values["awakeMinutes"]!!.toDouble(), 0.001)
+        @Suppress("UNCHECKED_CAST")
+        val timeline = record["sleepTimeline"] as Map<String, Any>
+        @Suppress("UNCHECKED_CAST")
+        val sessions = timeline["sessions"] as List<Map<String, Any>>
+        assertEquals(listOf("night", "nap"), sessions.map { it["kind"] })
+        assertTrue(QRingRecordMapper.sleepTimelineIsComplete(timeline))
+        assertTrue(QRingRecordMapper.sleepTimelineHasData(timeline))
+    }
+
+    @Test
+    fun `partial overlapping stages preserve valid edges and invalid cross-session data fails`() {
+        val start = 1_700_000_000L
+        val sleep = SleepDisplay().apply {
+            list = listOf(
+                SleepDisplay.SleepDataBean(start, start + 3600, 1),
+                SleepDisplay.SleepDataBean(start + 1800, start + 5400, 2),
+            )
+        }
+        val record = QRingRecordMapper.sleepRecords("ring", "R21", "1", 0, sleep).single()
+        @Suppress("UNCHECKED_CAST")
+        val values = record["values"] as Map<String, Number>
+        assertEquals(0.5, values["deepHours"]!!.toDouble(), 0.001)
+        assertEquals(0.5, values["lightHours"]!!.toDouble(), 0.001)
+        assertEquals(1.0, values["value"]!!.toDouble(), 0.001)
+        sleep.napList = listOf(SleepDisplay.SleepDataBean(start + 600, start + 900, 4))
+        assertTrue(!QRingRecordMapper.sleepTimelineIsComplete(QRingRecordMapper.sleepTimeline("ring", 0, sleep)))
+        assertTrue(QRingRecordMapper.sleepRecords("ring", "R21", "1", 0, sleep).isEmpty())
+        val empty = QRingRecordMapper.sleepTimeline("ring", 0, SleepDisplay())
+        assertTrue(QRingRecordMapper.sleepTimelineIsComplete(empty))
+        assertTrue(!QRingRecordMapper.sleepTimelineHasData(empty))
+        val absentDay = QRingRecordMapper.sleepTimelineForSuccessfulRead(
+            "ring", QRingRecordMapper.sleepRequestDay(0), null,
+        )
+        assertTrue(QRingRecordMapper.sleepTimelineIsComplete(absentDay))
+        assertTrue(!QRingRecordMapper.sleepTimelineHasData(absentDay))
+        assertTrue(!QRingRecordMapper.sleepTimelineIsComplete(
+            QRingRecordMapper.sleepTimeline("ring", 0, null),
+        ))
+        assertTrue(QRingRecordMapper.sleepRecords("ring", "R21", "1", 0, SleepDisplay()).isEmpty())
+    }
+
+    @Test
+    fun `sleep callback preserves request day and timezone after midnight`() {
+        val requested = QRingRecordMapper.sleepRequestDay(
+            LocalDate.of(2023, 11, 14), ZoneId.of("Asia/Shanghai"),
+        )
+        val laterPhoneDay = QRingRecordMapper.sleepRequestDay(
+            LocalDate.of(2023, 11, 15), ZoneId.of("America/New_York"),
+        )
+        assertNotEquals(requested.sdkDate, laterPhoneDay.sdkDate)
+        assertNotEquals(requested.timezone, laterPhoneDay.timezone)
+        val sleep = SleepDisplay().apply {
+            deepSleepDuration = 3600
+            awakeDuration = 600
+            totalSleepDuration = 4200
+        }
+        val timeline = QRingRecordMapper.sleepTimeline("ring", requested, sleep)
+        assertEquals("2023-11-14", timeline["sdkDate"])
+        assertEquals("+08:00", timeline["timezone"])
+        val record = QRingRecordMapper.sleepRecords("ring", "R21", "1", requested, sleep).single()
+        assertEquals("+08:00", record["timezone"])
+        assertEquals(
+            Instant.ofEpochMilli(requested.dayStart + 12 * 60 * 60_000L).toString(),
+            record["measuredAt"],
+        )
+        @Suppress("UNCHECKED_CAST")
+        assertEquals("2023-11-14", (record["sleepTimeline"] as Map<String, Any>)["sdkDate"])
+    }
+
+    @Test
+    fun `invalid SDK raw summary rejects day before Flutter batch parsing`() {
+        val corrupt: List<(SleepDisplay) -> Unit> = listOf(
+            { it.totalSleepDuration = -1 },
+            { it.totalSleepDuration = 86401 },
+            { it.deepSleepDuration = -1 },
+            { it.deepSleepDuration = 86401 },
+            { it.shallowSleepDuration = -1 },
+            { it.shallowSleepDuration = 86401 },
+            { it.awakeDuration = -1 },
+            { it.awakeDuration = 86401 },
+            { it.rapidDuration = -1 },
+            { it.rapidDuration = 86401 },
+            { it.napDuration = -1 },
+            { it.napDuration = 86401 },
+            { it.deepSleepDuration = 50000; it.shallowSleepDuration = 50000 },
+        )
+        val start = 1_700_000_000L
+        for (change in corrupt) {
+            val sleep = SleepDisplay().apply {
+                list = listOf(SleepDisplay.SleepDataBean(start, start + 3600, 1))
+                deepSleepDuration = 3600
+                totalSleepDuration = 3600
+            }
+            change(sleep)
+            val timeline = QRingRecordMapper.sleepTimeline("ring", 0, sleep)
+            assertTrue(!QRingRecordMapper.sleepTimelineIsComplete(timeline))
+            assertTrue(QRingRecordMapper.sleepRecords("ring", "R21", "1", 0, sleep).isEmpty())
+        }
     }
 }

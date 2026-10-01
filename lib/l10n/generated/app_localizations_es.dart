@@ -1097,7 +1097,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get deleteAccountHint =>
-      'Se cerrará tu sesión cuando se eliminen tu cuenta y los datos relacionados.';
+      'Tu cuenta se desactivará y se cerrará la sesión de inmediato. Los datos relacionados se eliminarán tras 7 días, salvo los que deban conservarse por ley.';
 
   @override
   String get confirmDelete => 'Confirmar eliminación';
@@ -1534,6 +1534,9 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get syncComplete => 'Datos sincronizados';
+
+  @override
+  String get syncUpToDate => 'Todo está actualizado; no hay datos nuevos';
 
   @override
   String get syncFailedTryAgain =>

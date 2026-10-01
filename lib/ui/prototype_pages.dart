@@ -31,6 +31,7 @@ import '../services/camera_remote_shutter_gate.dart';
 import '../services/device_weather_service.dart';
 import '../services/device_watch_face_market_service.dart';
 import '../services/health_analysis.dart';
+import '../services/say_ring_support.dart';
 import 'app_theme.dart';
 import 'app_update_gate_scope.dart';
 import 'brand_assets.dart';
@@ -5187,106 +5188,215 @@ class CustomerServicePage extends StatelessWidget {
     ).showSnackBar(SnackBar(content: Text('公众号“$account”已复制，可前往微信搜索添加')));
   }
 
+  Future<void> _copyServiceLink(BuildContext context) async {
+    await Clipboard.setData(
+      ClipboardData(text: SayRingSupport.customerServiceUri.toString()),
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('客服链接已复制，可在微信或浏览器中打开')));
+  }
+
+  Future<void> _openWechatService(BuildContext context) async {
+    var opened = false;
+    try {
+      opened = await launchUrl(
+        SayRingSupport.customerServiceUri,
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      // A missing handler and platform errors both retain a usable copy path.
+    }
+    if (opened || !context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('无法打开微信客服，请复制链接后在微信或浏览器中打开'),
+        action: SnackBarAction(
+          label: '复制链接',
+          onPressed: () => _copyServiceLink(context),
+        ),
+      ),
+    );
+  }
+
+  Widget _wechatServiceCard(BuildContext context) => Card(
+    key: const Key('say-ring-wechat-service-card'),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            '微信客服',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          const Text('设备连接、使用和售后问题，可通过企业微信客服联系我们。'),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            key: const Key('say-ring-open-wechat-service'),
+            onPressed: () => _openWechatService(context),
+            icon: const Icon(Icons.chat_bubble_outline_rounded),
+            label: const Text('联系微信客服'),
+          ),
+          TextButton.icon(
+            key: const Key('say-ring-copy-wechat-service'),
+            onPressed: () => _copyServiceLink(context),
+            icon: const Icon(Icons.copy_outlined),
+            label: const Text('复制客服链接'),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _configuredContact({
+    required String title,
+    required String value,
+    required IconData icon,
+    required String actionLabel,
+    required VoidCallback onPressed,
+  }) => Padding(
+    padding: const EdgeInsets.all(16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(child: Icon(icon)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  Text(value),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        FilledButton.tonal(onPressed: onPressed, child: Text(actionLabel)),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     if (isGlobalEdition) {
       return Scaffold(
         key: const Key('global-customer-service'),
         appBar: AppBar(title: Text(context.l10n.customerService)),
-        body: FutureBuilder<Map<String, Object?>>(
-          future: controller?.loadGlobalSupportConfig(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final config = snapshot.data ?? const <String, Object?>{};
-            final configured = config['configured'] == true;
-            final phone = configured ? '${config['phone'] ?? ''}'.trim() : '';
-            final account = configured
-                ? '${config['officialAccount'] ?? config['wechatOfficialAccount'] ?? ''}'
-                      .trim()
-                : '';
-            final hours = configured
-                ? '${config['serviceHours'] ?? ''}'.trim()
-                : '';
-            final message = configured
-                ? '${config['message'] ?? ''}'.trim()
-                : '';
-            final validPhone = RegExp(
-              r'^\+?[0-9][0-9 -]{4,20}$',
-            ).hasMatch(phone);
-            final chinese =
-                Localizations.localeOf(context).languageCode == 'zh';
-            return ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                if (snapshot.hasError ||
-                    !configured ||
-                    (!validPhone && account.isEmpty))
-                  FeatureStateCard(
-                    message: !chinese
-                        ? context.l10n.serviceUnavailable
-                        : snapshot.hasError
-                        ? '客服信息加载失败，请检查网络后重试'
-                        : !configured
-                        ? '客服联系方式暂未配置，请稍后再试'
-                        : '客服联系方式不完整，请稍后再试',
-                    detail: context.l10n.supportPrivacyWarning,
-                    icon: Icons.support_agent,
-                  )
-                else ...[
-                  Card(
-                    child: Column(
-                      children: [
-                        if (validPhone)
-                          ListTile(
-                            leading: const CircleAvatar(
-                              child: Icon(Icons.phone_outlined),
-                            ),
-                            title: Text(context.l10n.contactPhoneLabel),
-                            subtitle: Text(phone),
-                            trailing: FilledButton.tonal(
-                              onPressed: () => _call(context, phone),
-                              child: Text(context.l10n.call),
-                            ),
-                          ),
-                        if (validPhone && account.isNotEmpty)
-                          const Divider(indent: 72, height: 1),
-                        if (account.isNotEmpty)
-                          ListTile(
-                            leading: const CircleAvatar(
-                              child: Icon(Icons.wechat_rounded),
-                            ),
-                            title: Text(context.l10n.wechatOfficialAccount),
-                            subtitle: Text(account),
-                            trailing: FilledButton.tonal(
-                              onPressed: () async {
-                                await _copyAccount(context, account);
-                              },
-                              child: Text(context.l10n.addSupportContact),
-                            ),
-                          ),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _wechatServiceCard(context),
+            const SizedBox(height: 12),
+            FutureBuilder<Map<String, Object?>>(
+              future: controller?.loadGlobalSupportConfig(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.all(20),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                final config = snapshot.data ?? const <String, Object?>{};
+                final configured = config['configured'] == true;
+                final phone = configured
+                    ? '${config['phone'] ?? ''}'.trim()
+                    : '';
+                final account = configured
+                    ? '${config['officialAccount'] ?? config['wechatOfficialAccount'] ?? ''}'
+                          .trim()
+                    : '';
+                final hours = configured
+                    ? '${config['serviceHours'] ?? ''}'.trim()
+                    : '';
+                final message = configured
+                    ? '${config['message'] ?? ''}'.trim()
+                    : '';
+                final validPhone = RegExp(
+                  r'^\+?[0-9][0-9 -]{4,20}$',
+                ).hasMatch(phone);
+                final chinese =
+                    Localizations.localeOf(context).languageCode == 'zh';
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (snapshot.hasError ||
+                        !configured ||
+                        (!validPhone && account.isEmpty))
+                      FeatureStateCard(
+                        message: !chinese
+                            ? snapshot.hasError
+                                  ? 'Other contact details could not be loaded. WeChat service above remains available.'
+                                  : 'Other contact details are not configured. WeChat service above remains available.'
+                            : snapshot.hasError
+                            ? '电话及公众号信息加载失败，仍可使用上方微信客服'
+                            : !configured
+                            ? '电话及公众号暂未配置，仍可使用上方微信客服'
+                            : '电话及公众号信息不完整，仍可使用上方微信客服',
+                        detail: context.l10n.supportPrivacyWarning,
+                        icon: Icons.support_agent,
+                      )
+                    else ...[
+                      Card(
+                        child: Column(
+                          children: [
+                            if (validPhone)
+                              _configuredContact(
+                                icon: Icons.phone_outlined,
+                                title: context.l10n.contactPhoneLabel,
+                                value: phone,
+                                onPressed: () => _call(context, phone),
+                                actionLabel: context.l10n.call,
+                              ),
+                            if (validPhone && account.isNotEmpty)
+                              const Divider(
+                                indent: 16,
+                                endIndent: 16,
+                                height: 1,
+                              ),
+                            if (account.isNotEmpty)
+                              _configuredContact(
+                                icon: Icons.wechat_rounded,
+                                title: context.l10n.wechatOfficialAccount,
+                                value: account,
+                                onPressed: () async {
+                                  await _copyAccount(context, account);
+                                },
+                                actionLabel: context.l10n.addSupportContact,
+                              ),
+                          ],
+                        ),
+                      ),
+                      if (hours.isNotEmpty || message.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        FeatureStateCard(
+                          message: hours.isEmpty ? message : hours,
+                          detail: hours.isEmpty ? null : message,
+                          icon: Icons.schedule_outlined,
+                        ),
                       ],
-                    ),
-                  ),
-                  if (hours.isNotEmpty || message.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    FeatureStateCard(
-                      message: hours.isEmpty ? message : hours,
-                      detail: hours.isEmpty ? null : message,
-                      icon: Icons.schedule_outlined,
-                    ),
+                      const SizedBox(height: 16),
+                      FeatureStateCard(
+                        message: context.l10n.contactPreparationHint,
+                        detail: context.l10n.supportPrivacyWarning,
+                        icon: Icons.privacy_tip_outlined,
+                      ),
+                    ],
                   ],
-                  const SizedBox(height: 16),
-                  FeatureStateCard(
-                    message: context.l10n.contactPreparationHint,
-                    detail: context.l10n.supportPrivacyWarning,
-                    icon: Icons.privacy_tip_outlined,
-                  ),
-                ],
-              ],
-            );
-          },
+                );
+              },
+            ),
+          ],
         ),
       );
     }

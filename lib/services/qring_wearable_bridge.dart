@@ -15,7 +15,8 @@ class QRingWearableBridge
         WearableDeviceDetailsBridge,
         WearableBoundDeviceLookupBridge,
         WearableBondedDeviceSelectionBridge,
-        WearableRememberedDeviceSelectionBridge {
+        WearableRememberedDeviceSelectionBridge,
+        WearableExactTargetRecoveryBridge {
   QRingWearableBridge({MethodChannel? methods, EventChannel? events})
     : _methods =
           methods ?? const MethodChannel('cc.saidian.ring/qring/commands'),
@@ -110,6 +111,19 @@ class QRingWearableBridge
 
   @override
   Future<void> disconnect() => _invoke<void>('disconnect');
+
+  @override
+  Future<void> configureRecoveryTarget({
+    required String? nativeIdentifier,
+    String? knownName,
+    String? contextKey,
+    WearableUserProfile? profile,
+  }) => _invoke<void>('configureRecoveryTarget', {
+    'id': nativeIdentifier,
+    'name': knownName,
+    'context': contextKey,
+    if (profile != null) 'profile': profile.toMap(),
+  });
 
   @override
   Future<DeviceInfo?> getConnectedDeviceDetails() async {

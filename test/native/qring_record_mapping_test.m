@@ -78,7 +78,39 @@ int main(void) {
         assert(!QRingSleepStageValues(@[]));
         assert(!QRingSleepStageValues(@[segment(5, 0, 60)]));
         assert(!QRingSleepStageValues(@[segment(2, 0, 900), segment(3, 900, 900)]));
-        puts("QRing Foundation mapping: 48 assertions passed (synthetic inputs, not hardware acceptance)");
+        NSDictionary *overlap = QRingSleepStageValues(@[segment(3, 0, 60), segment(2, 30, 60)]);
+        assert([overlap[@"deepHours"] doubleValue] == 0.5);
+        assert([overlap[@"lightHours"] doubleValue] == 0.5);
+        assert([overlap[@"value"] doubleValue] == 1);
+        assert([QRingSleepStageValues(@[segment(3, 0, 60), segment(3, 30, 60)])[@"deepHours"] doubleValue] == 1.5);
+        NSDate *readAt = [start dateByAddingTimeInterval:86400];
+        NSDictionary *timeline = QRingSleepTimeline(@[segment(3, 0, 60)], @[segment(2, 600, 30)],
+            @"qring:device", @"2026-10-01", @"+08:00", readAt);
+        assert([timeline[@"sessions"] count] == 2);
+        assert([timeline[@"sessions"][0][@"kind"] isEqual:@"night"]);
+        assert([timeline[@"sessions"][1][@"kind"] isEqual:@"nap"]);
+        assert([timeline[@"sessions"][0][@"rawSegments"] count] == 1);
+        assert([NSJSONSerialization dataWithJSONObject:timeline options:0 error:nil]);
+        assert(!QRingSleepTimelineHasConflictingSessions(timeline));
+        assert(QRingSleepTimelineHasConflictingSessions(QRingSleepTimeline(@[segment(3, 0, 60)], @[segment(2, 30, 30)],
+            @"qring:device", @"2026-10-01", @"+08:00", readAt)));
+        assert(QRingSleepTimelineHasConflictingSessions(QRingSleepTimeline(@[segment(3, 0, 900), segment(5, 900, 900)], @[],
+            @"qring:device", @"2026-10-01", @"+08:00", [start dateByAddingTimeInterval:3 * 86400])));
+        NSDictionary *empty = QRingSleepTimeline(@[], @[], @"qring:device", @"2026-10-01", @"+08:00", readAt);
+        assert([empty[@"sessions"] count] == 0);
+        NSISO8601DateFormatter *requestFormatter = [NSISO8601DateFormatter new];
+        NSDate *requestStart = [requestFormatter dateFromString:@"2026-10-01T00:00:00+08:00"];
+        NSDictionary *requestDay = QRingSleepRequestContext(requestStart, [NSTimeZone timeZoneWithName:@"Asia/Shanghai"]);
+        NSDictionary *laterPhoneDay = QRingSleepRequestContext([requestStart dateByAddingTimeInterval:2 * 86400],
+            [NSTimeZone timeZoneWithName:@"America/New_York"]);
+        assert(![requestDay[@"sdkDate"] isEqual:laterPhoneDay[@"sdkDate"]]);
+        assert(![requestDay[@"timezone"] isEqual:laterPhoneDay[@"timezone"]]);
+        NSDictionary *lateTimeline = QRingSleepTimeline(@[segment(3, 0, 60)], @[], @"qring:device",
+            requestDay[@"sdkDate"], requestDay[@"timezone"], [requestStart dateByAddingTimeInterval:2 * 86400]);
+        assert([lateTimeline[@"sdkDate"] isEqual:@"2026-10-01"]);
+        assert([lateTimeline[@"timezone"] isEqual:@"+08:00"]);
+        assert([requestDay[@"dayStart"] isEqual:requestStart]);
+        puts("QRing Foundation mapping assertions passed (synthetic inputs, not hardware acceptance)");
     }
     return 0;
 }

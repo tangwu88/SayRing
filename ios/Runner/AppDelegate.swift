@@ -950,7 +950,7 @@ struct IOSWechatAuthState {
   }
 
   func handlePaymentOpenURL(_ url: URL) -> Bool {
-    if WXApi.handleOpen(url, delegate: self) { return true }
+    if wechatIntegrationEnabled && WXApi.handleOpen(url, delegate: self) { return true }
     guard url.scheme?.caseInsensitiveCompare(configuredAlipayScheme) == .orderedSame else {
       return false
     }
@@ -964,7 +964,7 @@ struct IOSWechatAuthState {
   }
 
   func handlePaymentUniversalLink(_ userActivity: NSUserActivity) -> Bool {
-    WXApi.handleOpenUniversalLink(userActivity, delegate: self)
+    wechatIntegrationEnabled && WXApi.handleOpenUniversalLink(userActivity, delegate: self)
   }
 
   func onResp(_ response: BaseResp) {
@@ -1008,6 +1008,10 @@ struct IOSWechatAuthState {
     }
     guard call.method == "authorizeWechat" else {
       result(FlutterMethodNotImplemented)
+      return
+    }
+    guard wechatIntegrationEnabled else {
+      result(FlutterError(code: "WECHAT_AUTH_DISABLED", message: "请使用手机号登录", details: nil))
       return
     }
     guard pendingWechatAuth == nil else {
@@ -1083,6 +1087,10 @@ struct IOSWechatAuthState {
     _ arguments: [String: Any]?,
     result: @escaping FlutterResult
   ) {
+    guard wechatIntegrationEnabled else {
+      result(FlutterError(code: "WECHAT_PAY_DISABLED", message: "当前版本不提供微信支付", details: nil))
+      return
+    }
     guard let arguments,
       let requestValues = IOSPaymentPayloadMapper.wechatRequest(arguments)
     else {
@@ -1209,11 +1217,17 @@ struct IOSWechatAuthState {
   }
 
   private func registerWechatIfConfigured() {
-    guard !configuredWechatAppID.isEmpty, !configuredWechatUniversalLink.isEmpty else { return }
+    guard wechatIntegrationEnabled,
+      !configuredWechatAppID.isEmpty,
+      !configuredWechatUniversalLink.isEmpty else { return }
     _ = WXApi.registerApp(
       configuredWechatAppID,
       universalLink: configuredWechatUniversalLink
     )
+  }
+
+  private var wechatIntegrationEnabled: Bool {
+    (Bundle.main.object(forInfoDictionaryKey: "SaidianWechatEnabled") as? Bool) == true
   }
 
   private var configuredWechatAppID: String {

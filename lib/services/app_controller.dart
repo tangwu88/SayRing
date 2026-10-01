@@ -17,6 +17,7 @@ import '../domain/health_record_validation.dart';
 import '../domain/health_record_dedup.dart';
 import '../domain/health_source_policy.dart';
 import '../domain/models.dart';
+import '../domain/sleep_timeline.dart';
 import '../domain/global_account.dart';
 import '../domain/global_care.dart';
 import '../l10n/global_locale_controller.dart';
@@ -28,6 +29,7 @@ import 'notification_inbox.dart';
 import 'notification_models.dart';
 import 'notification_route_service.dart';
 import 'secure_vault.dart';
+import 'sleep_health_projection.dart';
 import 'storekit_purchase_bridge.dart';
 import 'sync_service.dart';
 import 'wearable_bridge.dart';
@@ -704,8 +706,21 @@ class AppController extends ChangeNotifier {
   int _wearableRestoreGeneration = 0;
   Future<void>? _wearableRestoreInFlight;
   Future<void>? _wearableConnectInFlight;
+  Future<void>? _wearableReconnectInFlight;
+  int _wearableReconnectGeneration = 0;
   bool _wearableAccountRecoveryAllowed = true;
   bool _wearableNeedsDisconnect = false;
+  bool _wearableRecoverySuspended = false;
+  DeviceInfo? rememberedDevice;
+  bool _rememberedDeviceAllowsAutomaticRecovery = true;
+  bool get _canRecoverRememberedDevice =>
+      rememberedDevice != null && _rememberedDeviceAllowsAutomaticRecovery;
+  String? get _rememberedDeviceConfirmationMessage =>
+      rememberedDevice != null && !_rememberedDeviceAllowsAutomaticRecovery
+      ? '保存的戒指需要确认，请点重新连接'
+      : null;
+  bool isWearableRecovering = false;
+  String? wearableRecoveryMessage;
   String _activeHealthOwner = 'anonymous';
   ({DeviceInfo device, int generation})? _accountWearableResume;
   DeviceInfo? _latestDeviceDetails;
@@ -757,6 +772,19 @@ class AppController extends ChangeNotifier {
           defaultTargetPlatform == TargetPlatform.iOS) &&
       _wearable is WearableBondedDeviceSelectionBridge;
   List<HealthRecord> healthRecords = const [];
+  final Map<String, Map<String, String>> _sleepStatusesByDevice = {};
+  final Set<Future<void>> _pendingSleepWrites = {};
+  bool _sleepReadFailedDuringSync = false;
+  Map<String, String> get sleepReadStatuses {
+    final deviceId = connectedDevice?.id ?? rememberedDevice?.id;
+    if (deviceId != null) {
+      return Map.unmodifiable(_sleepStatusesByDevice[deviceId] ?? const {});
+    }
+    return Map.unmodifiable({
+      for (final statuses in _sleepStatusesByDevice.values) ...statuses,
+    });
+  }
+
   List<SportRecord> sportRecords = const [];
   List<Map<String, Object?>> careMembers = const [];
   List<Map<String, Object?>> careInvitations = const [];
@@ -934,6 +962,9 @@ class AppController extends ChangeNotifier {
 
   void _clearAccountScopedMemory() {
     healthRecords = const [];
+    _sleepStatusesByDevice.clear();
+    _pendingSleepWrites.clear();
+    _sleepReadFailedDuringSync = false;
     sportRecords = const [];
     healthWarningAlerts = const [];
     activeHealthWarningAlert = null;
@@ -1160,6 +1191,7 @@ class AppController extends ChangeNotifier {
       sdkStatus = '设备连接服务暂时不可用';
     }
     if (_allowAutomaticWearableRestore) {
+      await _updateWearableRecoveryContext();
       unawaited(restoreWearableConnection());
     }
     isBooting = false;
@@ -1570,8 +1602,24 @@ class AppController extends ChangeNotifier {
   }
 
   Future<bool> _pauseWearableForAccountTransition() async {
+    _wearableReconnectGeneration++;
     _accountWearableResume = null;
     _wearableAccountRecoveryAllowed = false;
+    _wearableRecoverySuspended = true;
+    rememberedDevice = null;
+    isWearableRecovering = false;
+    wearableRecoveryMessage = null;
+    final bindingBridge = _wearable;
+    if (bindingBridge is WearableBindingManagementBridge) {
+      await (bindingBridge as WearableBindingManagementBridge)
+          .setRecoveryContext(
+            ownerKey: null,
+            profile: WearableUserProfile.fromMember(
+              memberProfile,
+              targetSteps: stepGoal,
+            ),
+          );
+    }
     final hasNativeSession =
         connectedDevice != null ||
         _wearableConnectInFlight != null ||
@@ -1627,8 +1675,18 @@ class AppController extends ChangeNotifier {
   }
 
   void enterPreview() {
+    if (session != null) return;
     isPreviewMode = true;
     errorMessage = null;
+    notifyListeners();
+  }
+
+  /// Leaves the anonymous, in-memory review preview without touching account
+  /// storage, health records, Bluetooth or the backend.
+  void exitPreview() {
+    if (!isPreviewMode || session != null) return;
+    isPreviewMode = false;
+    selectedTab = 0;
     notifyListeners();
   }
 
@@ -1734,6 +1792,9 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> scanDevices() async {
+    _wearableReconnectGeneration++;
+    _wearableRecoverySuspended = true;
+    isWearableRecovering = false;
     errorMessage = null;
     deviceScanIssue = null;
     scannedDevices = const [];
@@ -1790,7 +1851,7 @@ class AppController extends ChangeNotifier {
         notifyListeners();
         return 0;
       }
-      await stopDeviceScan();
+      await stopDeviceScan(resumeRecovery: false);
       await _cancelPendingWearableRestore();
       final bridge = _wearable as WearableBondedDeviceSelectionBridge;
       final bonded = await bridge.listBondedDevicesForSelection();
@@ -1821,8 +1882,14 @@ class AppController extends ChangeNotifier {
     return 0;
   }
 
-  Future<void> stopDeviceScan() async {
-    if (deviceState != DeviceConnectionState.scanning) return;
+  Future<void> stopDeviceScan({bool resumeRecovery = true}) async {
+    if (deviceState != DeviceConnectionState.scanning) {
+      if (resumeRecovery && !_accountTransitioning) {
+        _wearableRecoverySuspended = false;
+        unawaited(restoreWearableConnection());
+      }
+      return;
+    }
     try {
       await _wearable.stopScan();
     } catch (_) {
@@ -1834,6 +1901,10 @@ class AppController extends ChangeNotifier {
           deviceMachine.transition(DeviceConnectionState.disconnected);
         }
         notifyListeners();
+      }
+      if (resumeRecovery && !_accountTransitioning) {
+        _wearableRecoverySuspended = false;
+        unawaited(restoreWearableConnection());
       }
     }
   }
@@ -1889,6 +1960,8 @@ class AppController extends ChangeNotifier {
       if (_wearableNeedsDisconnect) await disconnectDevice();
       await _cancelPendingWearableRestore();
       if (!isCurrent()) return;
+      await _updateWearableRecoveryContext(explicitConnection: true);
+      _wearableRecoverySuspended = false;
       if (deviceState == DeviceConnectionState.error) {
         deviceMachine.transition(DeviceConnectionState.disconnected);
       }
@@ -1912,7 +1985,13 @@ class AppController extends ChangeNotifier {
         ),
       );
       if (!isCurrent()) return;
+      final eligible = await _readRememberedRecoveryEligibility();
+      if (!isCurrent()) return;
       _wearableAccountRecoveryAllowed = true;
+      rememberedDevice = device;
+      _rememberedDeviceAllowsAutomaticRecovery = eligible;
+      isWearableRecovering = false;
+      wearableRecoveryMessage = null;
       _connectedDeviceSessionGeneration = sessionGeneration;
       connectedDevice = _mergeDeviceDetails(device);
       capabilities = null;
@@ -2037,6 +2116,7 @@ class AppController extends ChangeNotifier {
     if (_connectedDeviceSessionGeneration != sessionGeneration) return false;
     final generation = ++_deviceSyncGeneration;
     isDeviceSyncing = true;
+    _sleepReadFailedDuringSync = false;
     var succeeded = false;
     deviceSyncProgress = 0;
     syncStatus = '正在读取戒指数据';
@@ -2047,12 +2127,25 @@ class AppController extends ChangeNotifier {
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
       }
+      for (final record in receivedRecords) {
+        final timeline = record.sleepTimeline;
+        if (timeline != null && timeline.deviceId == deviceId) {
+          await _persistSleepDay(
+            timeline,
+            expectedGeneration: sessionGeneration,
+          );
+          if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+            return false;
+          }
+        }
+      }
       final records = deduplicateHealthRecords(
         receivedRecords
             .map(sanitizeWearableTransportRecord)
             .where(hasSaneWearableTransportValues),
       );
       await _healthStore.upsert(records);
+      await Future.wait(List<Future<void>>.of(_pendingSleepWrites));
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
       }
@@ -2063,8 +2156,14 @@ class AppController extends ChangeNotifier {
       for (final record in records) {
         _evaluateHealthWarning(record, expectedGeneration: sessionGeneration);
       }
-      syncStatus = records.isEmpty ? '设备暂无新数据' : '已同步 ${records.length} 条';
-      succeeded = true;
+      if (_sleepReadFailedDuringSync) {
+        syncStatus = '已保留读到的记录，部分睡眠数据读取失败';
+        _deviceSyncErrorMessage = '部分睡眠数据读取失败，已有记录已保留，请稍后重试';
+        errorMessage = _deviceSyncErrorMessage;
+      } else {
+        syncStatus = records.isEmpty ? '设备暂无新数据' : '已同步 ${records.length} 条';
+        succeeded = true;
+      }
     } on PlatformException catch (error) {
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
@@ -2173,6 +2272,9 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> disconnectDevice() async {
+    _wearableRecoverySuspended = true;
+    isWearableRecovering = false;
+    wearableRecoveryMessage = null;
     await _cancelPendingWearableRestore();
     _invalidateDeviceSync();
     try {
@@ -2193,6 +2295,168 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  Future<void> _updateWearableRecoveryContext({
+    bool explicitConnection = false,
+  }) async {
+    final bridge = _wearable;
+    if (bridge is! WearableBindingManagementBridge) return;
+    final binding = bridge as WearableBindingManagementBridge;
+    if (!_privacyConsentGranted && !explicitConnection) {
+      // This clears only a restoration request; the Android native nil-target
+      // path deliberately does not initialize the SDK or request permissions.
+      try {
+        await binding.setRecoveryContext(
+          ownerKey: null,
+          profile: WearableUserProfile.fromMember(
+            memberProfile,
+            targetSteps: stepGoal,
+          ),
+        );
+      } catch (_) {}
+      rememberedDevice = null;
+      _rememberedDeviceAllowsAutomaticRecovery = false;
+      return;
+    }
+    final generation = _sessionGeneration;
+    try {
+      await binding.setRecoveryContext(
+        ownerKey: _healthOwnerFor(session),
+        profile: WearableUserProfile.fromMember(
+          memberProfile,
+          targetSteps: stepGoal,
+        ),
+      );
+      final saved = await binding.readRememberedDevice();
+      final eligible = await _readRememberedRecoveryEligibility();
+      if (_isCurrentSessionGeneration(generation) && !_accountTransitioning) {
+        rememberedDevice = saved;
+        _rememberedDeviceAllowsAutomaticRecovery = eligible;
+        if (_rememberedDeviceConfirmationMessage != null) {
+          isWearableRecovering = false;
+          wearableRecoveryMessage = _rememberedDeviceConfirmationMessage;
+        }
+      }
+    } catch (_) {
+      if (_isCurrentSessionGeneration(generation)) {
+        rememberedDevice = null;
+        _rememberedDeviceAllowsAutomaticRecovery = false;
+        wearableRecoveryMessage = '保存的戒指暂时无法读取，请重新添加戒指';
+      }
+    }
+  }
+
+  Future<bool> _readRememberedRecoveryEligibility() async {
+    final bridge = _wearable;
+    if (bridge is! WearableRememberedRecoveryEligibilityBridge) return true;
+    try {
+      return await (bridge as WearableRememberedRecoveryEligibilityBridge)
+          .canAutomaticallyRecoverRememberedDevice();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// The visible action is reconnect, not the internal account-transition
+  /// disconnect. Only unbinding forgets the saved exact target.
+  Future<void> reconnectDevice() async {
+    final active = _wearableReconnectInFlight;
+    if (active != null) {
+      await active;
+      return;
+    }
+    if (_disposed ||
+        _accountTransitioning ||
+        _wearableConnectInFlight != null) {
+      return;
+    }
+    final reconnecting = _runDeviceReconnect();
+    _wearableReconnectInFlight = reconnecting;
+    try {
+      await reconnecting;
+    } finally {
+      if (identical(_wearableReconnectInFlight, reconnecting)) {
+        _wearableReconnectInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _runDeviceReconnect() async {
+    final generation = ++_wearableReconnectGeneration;
+    final sessionGeneration = _sessionGeneration;
+    bool isCurrent() =>
+        !_disposed &&
+        !_accountTransitioning &&
+        generation == _wearableReconnectGeneration &&
+        _isCurrentSessionGeneration(sessionGeneration);
+    final previous = connectedDevice ?? rememberedDevice;
+    final bridge = _wearable;
+    var disconnected = false;
+    try {
+      await disconnectDevice();
+      disconnected = true;
+      if (!isCurrent()) return;
+      await _updateWearableRecoveryContext(explicitConnection: true);
+      if (!isCurrent()) return;
+      _wearableRecoverySuspended = false;
+      isWearableRecovering = _canRecoverRememberedDevice;
+      wearableRecoveryMessage = _rememberedDeviceConfirmationMessage != null
+          ? '正在确认并重新连接保存的戒指'
+          : '正在重新连接，戒指靠近后会自动连接';
+      notifyListeners();
+      if (bridge is WearableBindingManagementBridge) {
+        final prepared = await (bridge as WearableBindingManagementBridge)
+            .prepareRememberedDevice();
+        if (!isCurrent()) return;
+        if (prepared != null) {
+          await connectDevice(prepared);
+          if (connectedDevice != null) return;
+        }
+      } else if (previous != null) {
+        await connectDevice(previous);
+        if (connectedDevice != null) return;
+      }
+      if (deviceState == DeviceConnectionState.error) {
+        deviceMachine.transition(DeviceConnectionState.disconnected);
+      }
+      await restoreWearableConnection();
+    } catch (_) {
+      if (!isCurrent()) return;
+      if (!disconnected) _wearableNeedsDisconnect = true;
+      wearableRecoveryMessage = disconnected
+          ? '等待戒指靠近，靠近后会自动连接'
+          : '正在结束上次连接，请稍后重新连接';
+    } finally {
+      if (isCurrent()) {
+        _wearableRecoverySuspended = false;
+        isWearableRecovering =
+            _canRecoverRememberedDevice && connectedDevice == null;
+        if (_rememberedDeviceConfirmationMessage != null &&
+            connectedDevice == null) {
+          wearableRecoveryMessage = _rememberedDeviceConfirmationMessage;
+        }
+        if (rememberedDevice == null && connectedDevice == null) {
+          wearableRecoveryMessage = '请先添加戒指';
+        }
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> unbindDevice() async {
+    _wearableReconnectGeneration++;
+    await disconnectDevice();
+    final bridge = _wearable;
+    if (bridge is WearableBindingManagementBridge) {
+      await (bridge as WearableBindingManagementBridge)
+          .forgetRememberedDevice();
+    }
+    rememberedDevice = null;
+    _rememberedDeviceAllowsAutomaticRecovery = false;
+    isWearableRecovering = false;
+    wearableRecoveryMessage = null;
+    if (!_disposed) notifyListeners();
+  }
+
   Future<bool> refreshConnectedDeviceDetails() async {
     final current = connectedDevice;
     final bridge = _wearable;
@@ -2204,6 +2468,7 @@ class AppController extends ChangeNotifier {
       if (_disposed) return false;
       if (details == null) {
         _invalidateDeviceSync();
+        rememberedDevice = connectedDevice ?? rememberedDevice;
         connectedDevice = null;
         _connectedDeviceSessionGeneration = null;
         _latestDeviceDetails = null;
@@ -2219,6 +2484,7 @@ class AppController extends ChangeNotifier {
           }
         }
         errorMessage = '戒指连接已断开，请重新连接';
+        if (!_wearableRecoverySuspended) unawaited(restoreWearableConnection());
         notifyListeners();
         return false;
       }
@@ -2348,6 +2614,179 @@ class AppController extends ChangeNotifier {
       }
     }
     notifyListeners();
+  }
+
+  /// Reads complete SDK-date sleep history, not the home feed's 200-row cache.
+  /// [end] includes its calendar day; callers with exclusive ranges subtract
+  /// one calendar day before calling this method.
+  Future<List<HealthRecord>> loadSleepDays({
+    required DateTime start,
+    required DateTime end,
+  }) async {
+    final generation = _sessionGeneration;
+    final preferred = connectedDevice?.id ?? rememberedDevice?.id;
+    bool current() =>
+        _isCurrentSessionGeneration(generation) &&
+        preferred == (connectedDevice?.id ?? rememberedDevice?.id);
+    String date(DateTime value) =>
+        '${value.year.toString().padLeft(4, '0')}-'
+        '${value.month.toString().padLeft(2, '0')}-'
+        '${value.day.toString().padLeft(2, '0')}';
+    final first = date(start);
+    final last = date(end);
+    if (first.compareTo(last) > 0) return const [];
+    // Saved offsets can differ from the phone's current offset. Read a padded
+    // UTC range, then select the stored SDK date without moving cross-night data.
+    final from = DateTime.utc(
+      start.year,
+      start.month,
+      start.day,
+    ).subtract(const Duration(days: 1));
+    final until = DateTime.utc(
+      end.year,
+      end.month,
+      end.day,
+    ).add(const Duration(days: 2));
+    final summaries = await _healthStore.range(
+      metric: HealthMetric.sleep,
+      start: from,
+      end: until,
+    );
+    if (!current()) return const [];
+    final store = _healthStore;
+    final timelines = store is SleepDetailStore
+        ? await (store as SleepDetailStore).loadDays(
+            deviceId: preferred,
+            startSdkDate: first,
+            endSdkDate: last,
+          )
+        : const <SleepTimeline>[];
+    if (!current()) return const [];
+    for (final timeline in timelines) {
+      _sleepStatusesByDevice
+          .putIfAbsent(timeline.deviceId, () => {})
+          .putIfAbsent(
+            timeline.sdkDate,
+            () => timeline.hasRawData ? 'complete' : 'noData',
+          );
+    }
+    return projectSleepRecords(
+      summaries: summaries.where(hasSaneWearableTransportValues).where((
+        record,
+      ) {
+        final day = sleepRecordSdkDate(record);
+        return (preferred == null || record.deviceId == preferred) &&
+            day.compareTo(first) >= 0 &&
+            day.compareTo(last) <= 0;
+      }),
+      timelines: timelines,
+    );
+  }
+
+  Future<HealthRecord?> loadLatestSleepDay() async {
+    final generation = _sessionGeneration;
+    final preferred = connectedDevice?.id ?? rememberedDevice?.id;
+    bool current() =>
+        _isCurrentSessionGeneration(generation) &&
+        preferred == (connectedDevice?.id ?? rememberedDevice?.id);
+    final summaries = await _healthStore.latestForEachMetric();
+    if (!current()) return null;
+    final store = _healthStore;
+    final timeline = store is SleepDetailStore
+        ? await (store as SleepDetailStore).loadLatestDay(deviceId: preferred)
+        : null;
+    if (!current()) return null;
+
+    Future<HealthRecord?> newest(Iterable<HealthRecord> candidates) async {
+      final rows =
+          candidates
+              .where(
+                (record) =>
+                    record.metric == HealthMetric.sleep &&
+                    hasSaneWearableTransportValues(record) &&
+                    (preferred == null || record.deviceId == preferred),
+              )
+              .toList()
+            ..sort(
+              (a, b) => sleepRecordSdkDate(b).compareTo(sleepRecordSdkDate(a)),
+            );
+      for (final row in rows) {
+        final date = sleepRecordSdkDate(row);
+        if (timeline != null && date.compareTo(timeline.sdkDate) < 0) {
+          return projectSleepRecords(
+            summaries: const [],
+            timelines: [timeline],
+          ).firstOrNull;
+        }
+        // The latest nonempty pointer cannot invalidate a newer legacy summary.
+        // Fetch that confirmed day too, including explicit empty SDK responses.
+        final confirmed = store is SleepDetailStore
+            ? await (store as SleepDetailStore).loadDays(
+                deviceId: row.deviceId,
+                startSdkDate: date,
+                endSdkDate: date,
+              )
+            : const <SleepTimeline>[];
+        if (!current()) return null;
+        final records = projectSleepRecords(
+          summaries: [row],
+          timelines: confirmed,
+        );
+        if (records.isNotEmpty) {
+          return projectSleepRecords(
+            summaries: records,
+            timelines: [?timeline],
+          ).firstOrNull;
+        }
+      }
+      return null;
+    }
+
+    final selected = await newest(summaries);
+    if (!current()) return null;
+    if (selected != null) return selected;
+    // Upgrade fallback: latest rows may belong to another device, contain an
+    // invalid legacy unit, or be suppressed by a confirmed empty SDK day.
+    final history = await _healthStore.range(
+      metric: HealthMetric.sleep,
+      start: DateTime.utc(1970),
+      end: DateTime.utc(DateTime.now().year + 1),
+    );
+    if (!current()) return null;
+    final legacy = await newest(history);
+    if (!current()) return null;
+    return legacy ??
+        projectSleepRecords(
+          summaries: const [],
+          timelines: [?timeline],
+        ).firstOrNull;
+  }
+
+  Future<void> _persistSleepDay(
+    SleepTimeline timeline, {
+    required int expectedGeneration,
+  }) async {
+    if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+    final store = _healthStore;
+    if (store is! SleepDetailStore) return;
+    try {
+      await (store as SleepDetailStore).saveConfirmedDay(timeline);
+      if (!_isCurrentSessionGeneration(expectedGeneration)) return;
+      _sleepStatusesByDevice.putIfAbsent(
+        timeline.deviceId,
+        () => {},
+      )[timeline.sdkDate] = timeline.hasRawData
+          ? 'complete'
+          : 'noData';
+    } catch (_) {
+      if (_isCurrentSessionGeneration(expectedGeneration)) {
+        if (isDeviceSyncing) _sleepReadFailedDuringSync = true;
+        _sleepStatusesByDevice.putIfAbsent(
+          timeline.deviceId,
+          () => {},
+        )[timeline.sdkDate] = 'failed';
+      }
+    }
   }
 
   Future<List<HealthRecord>> loadHealthRecords({
@@ -2924,6 +3363,7 @@ class AppController extends ChangeNotifier {
     if (!_allowAutomaticWearableRestore ||
         _disposed ||
         _accountTransitioning ||
+        _wearableRecoverySuspended ||
         !_privacyConsentGranted ||
         !_wearableAccountRecoveryAllowed ||
         connectedDevice != null ||
@@ -2936,6 +3376,14 @@ class AppController extends ChangeNotifier {
       return;
     }
     final generation = _wearableRestoreGeneration;
+    isWearableRecovering = _canRecoverRememberedDevice;
+    wearableRecoveryMessage = isWearableRecovering
+        ? '等待戒指靠近，靠近后会自动连接'
+        : _rememberedDeviceConfirmationMessage;
+    if (_rememberedDeviceConfirmationMessage != null) {
+      notifyListeners();
+      return;
+    }
     late final Future<void> restore;
     restore = _runWearableConnectionRestore(generation);
     _wearableRestoreInFlight = restore;
@@ -3718,6 +4166,10 @@ class AppController extends ChangeNotifier {
     if (_disposed) return;
     unawaited(refreshAppDisplayConfig());
     _appIsForeground = true;
+    if (!_accountTransitioning && _wearableAccountRecoveryAllowed) {
+      _wearableRecoverySuspended = false;
+      await _updateWearableRecoveryContext();
+    }
     if (session != null && _privacyConsentGranted) {
       try {
         await _notificationService.activateAfterPrivacyConsent();
@@ -5438,6 +5890,13 @@ class AppController extends ChangeNotifier {
       }
     } else if (event.type == 'reconnected') {
       unawaited(_restoreReconnectedDevice(event.payload));
+    } else if (event.type == 'recoveryState') {
+      if (!_wearableRecoverySuspended && _canRecoverRememberedDevice) {
+        isWearableRecovering = event.payload['status'] != 'connected';
+        wearableRecoveryMessage = isWearableRecovering
+            ? '等待戒指靠近，靠近后会自动连接'
+            : null;
+      }
     } else if (event.type == 'capabilitiesUpdated') {
       if (connectedDevice != null) {
         capabilities = DeviceCapabilities.fromMap(event.payload);
@@ -5451,6 +5910,47 @@ class AppController extends ChangeNotifier {
                 .clamp(0.0, 1.0)
                 .toDouble();
         syncStatus = '正在读取戒指数据 ${(deviceSyncProgress * 100).round()}%';
+      }
+    } else if (event.type == 'sleepReadStatus') {
+      final deviceId = '${event.payload['deviceId'] ?? ''}';
+      final sdkDate = '${event.payload['sdkDate'] ?? ''}';
+      final status = '${event.payload['status'] ?? ''}';
+      final generation = _connectedDeviceSessionGeneration;
+      if (connectedDevice?.id != deviceId ||
+          generation == null ||
+          !_isCurrentSessionGeneration(generation) ||
+          !SleepTimeline.isSdkDate(sdkDate) ||
+          !const {'complete', 'noData', 'failed'}.contains(status)) {
+        return;
+      }
+      _sleepStatusesByDevice.putIfAbsent(deviceId, () => {})[sdkDate] = status;
+      if (status == 'failed' && isDeviceSyncing) {
+        _sleepReadFailedDuringSync = true;
+      }
+      final value = event.payload['sleepTimeline'];
+      if (status != 'failed' && value is Map) {
+        try {
+          final timeline = SleepTimeline.fromJson(
+            value.map((key, item) => MapEntry('$key', item)),
+          );
+          if (timeline.deviceId != deviceId || timeline.sdkDate != sdkDate) {
+            throw const FormatException('Sleep event identity mismatch');
+          }
+          final write = _persistSleepDay(
+            timeline,
+            expectedGeneration: generation,
+          );
+          _pendingSleepWrites.add(write);
+          unawaited(
+            write.then((_) {
+              _pendingSleepWrites.remove(write);
+              if (_isCurrentSessionGeneration(generation)) notifyListeners();
+            }),
+          );
+        } catch (_) {
+          _sleepStatusesByDevice[deviceId]![sdkDate] = 'failed';
+          if (isDeviceSyncing) _sleepReadFailedDuringSync = true;
+        }
       }
     } else if (event.type == 'healthRecord') {
       final eventGeneration =
@@ -5561,6 +6061,7 @@ class AppController extends ChangeNotifier {
         measurementErrorMessage = '戒指连接中断，测量已停止；重连后请重试';
       }
       _invalidateDeviceSync();
+      rememberedDevice = connectedDevice ?? rememberedDevice;
       connectedDevice = null;
       _connectedDeviceSessionGeneration = null;
       _latestDeviceDetails = null;
@@ -5576,6 +6077,13 @@ class AppController extends ChangeNotifier {
         } on StateError {
           // Native disconnects are authoritative; the next scan resets state.
         }
+      }
+      if (!_wearableRecoverySuspended && _wearableAccountRecoveryAllowed) {
+        isWearableRecovering = _canRecoverRememberedDevice;
+        wearableRecoveryMessage = isWearableRecovering
+            ? '等待戒指靠近，靠近后会自动连接'
+            : _rememberedDeviceConfirmationMessage;
+        unawaited(restoreWearableConnection());
       }
     } else if (event.type == 'error') {
       final errorCode = '${event.payload['code'] ?? 'WEARABLE_ERROR'}';
@@ -5652,6 +6160,8 @@ class AppController extends ChangeNotifier {
   Future<void> _restoreReconnectedDevice(Map<String, Object?> payload) async {
     if (_disposed ||
         _accountTransitioning ||
+        _wearableRecoverySuspended ||
+        _rememberedDeviceConfirmationMessage != null ||
         !_wearableAccountRecoveryAllowed) {
       return;
     }
@@ -5668,6 +6178,10 @@ class AppController extends ChangeNotifier {
       if (!_isCurrentSessionGeneration(sessionGeneration)) return;
       _connectedDeviceSessionGeneration = sessionGeneration;
       connectedDevice = _mergeDeviceDetails(device);
+      rememberedDevice = connectedDevice;
+      _rememberedDeviceAllowsAutomaticRecovery = true;
+      isWearableRecovering = false;
+      wearableRecoveryMessage = null;
       capabilities = null;
       deviceCapabilityState = DeviceCapabilityState.loading;
       deviceMachine.transition(DeviceConnectionState.authenticating);
@@ -5756,6 +6270,11 @@ class AppController extends ChangeNotifier {
     if (!_isCurrentSessionGeneration(expectedGeneration) ||
         !hasSaneWearableTransportValues(record)) {
       return;
+    }
+    final timeline = record.sleepTimeline;
+    if (timeline != null && timeline.deviceId == record.deviceId) {
+      await _persistSleepDay(timeline, expectedGeneration: expectedGeneration);
+      if (!_isCurrentSessionGeneration(expectedGeneration)) return;
     }
     final shouldStopMeasurement = _activeMeasurementMetric == record.metric;
     if (shouldStopMeasurement) {
@@ -5918,6 +6437,21 @@ class AppController extends ChangeNotifier {
     if (isWechatLoginInProgress) unawaited(_wechatAuthBridge.cancel());
     _disposed = true;
     _wearableRestoreGeneration++;
+    final bridge = _wearable;
+    if ((_privacyConsentGranted || rememberedDevice != null) &&
+        bridge is WearableBindingManagementBridge) {
+      unawaited(
+        (bridge as WearableBindingManagementBridge)
+            .setRecoveryContext(
+              ownerKey: null,
+              profile: WearableUserProfile.fromMember(
+                memberProfile,
+                targetSteps: stepGoal,
+              ),
+            )
+            .catchError((Object _) {}),
+      );
+    }
     _measurementTimeout?.cancel();
     _careInvitationPollTimer?.cancel();
     _pushRegistrationRetryTimer?.cancel();

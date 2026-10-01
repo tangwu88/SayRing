@@ -1008,7 +1008,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get confirmDeleteAccountTitle => '确认注销账号？';
 
   @override
-  String get deleteAccountHint => '账号及相关数据删除成功后，本机会退出登录。';
+  String get deleteAccountHint => '提交后账号将立即停用并退出登录；相关数据计划于7天后删除，依法须保留的数据除外。';
 
   @override
   String get confirmDelete => '确认注销';
@@ -1426,6 +1426,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get syncComplete => '数据同步完成';
+
+  @override
+  String get syncUpToDate => '已是最新，暂无新数据';
 
   @override
   String get syncFailedTryAgain => '数据同步失败，请将戒指靠近手机后重试';
@@ -2965,7 +2968,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get confirmDeleteAccountTitle => '确认注销账号？';
 
   @override
-  String get deleteAccountHint => '账号及相关数据删除成功后，本机会退出登录。';
+  String get deleteAccountHint => '提交后账号将立即停用并退出登录；相关数据计划于7天后删除，依法须保留的数据除外。';
 
   @override
   String get confirmDelete => '确认注销';
@@ -3383,6 +3386,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get syncComplete => '数据同步完成';
+
+  @override
+  String get syncUpToDate => '已是最新，暂无新数据';
 
   @override
   String get syncFailedTryAgain => '数据同步失败，请将戒指靠近手机后重试';
@@ -4922,7 +4928,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get confirmDeleteAccountTitle => '確認刪除帳號？';
 
   @override
-  String get deleteAccountHint => '帳號及相關資料刪除成功後，本機會登出。';
+  String get deleteAccountHint => '提交後帳號會立即停用並登出；相關資料預計於7天後刪除，依法須保留的資料除外。';
 
   @override
   String get confirmDelete => '確認刪除';
@@ -5340,6 +5346,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get syncComplete => '資料同步完成';
+
+  @override
+  String get syncUpToDate => '已是最新，暫無新資料';
 
   @override
   String get syncFailedTryAgain => '資料同步失敗，請將戒指靠近手機後重試';

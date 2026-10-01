@@ -175,7 +175,9 @@ void main() {
     },
   );
 
-  testWidgets('device sync gives a clear completion message', (tester) async {
+  testWidgets('empty device sync reports up to date, not failure', (
+    tester,
+  ) async {
     final controller =
         AppController(
             MemorySessionVault(),
@@ -207,7 +209,8 @@ void main() {
     await tester.tap(find.text('Sync data'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Data synced'), findsOneWidget);
+    expect(find.text('Up to date—no new data'), findsOneWidget);
+    expect(find.text('Sync failed. Please try again.'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

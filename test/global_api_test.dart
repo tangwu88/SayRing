@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -35,6 +36,7 @@ Map<String, Object?> capabilities({
   bool verificationRequired = true,
 }) => {
   'realm': 'global',
+  'product': 'say-ring',
   'registration': {
     'email': email,
     'sms': sms,
@@ -47,16 +49,50 @@ Map<String, Object?> capabilities({
   'legal': {
     'userAgreement': {
       'path':
-          '/global/api/saydian-app/v2/content/legal/user_agreement?version=reviewed-test-v1&locale=en',
+          '/global/api/saydian-app/v2/content/legal/say_ring_user_agreement?version=reviewed-test-v1&locale=en',
     },
     'privacyPolicy': {
       'path':
-          '/global/api/saydian-app/v2/content/legal/privacy_policy?version=reviewed-test-v1&locale=en',
+          '/global/api/saydian-app/v2/content/legal/say_ring_privacy_policy?version=reviewed-test-v1&locale=en',
     },
   },
 };
 
 void main() {
+  test('Say Ring avatar uses its dedicated global multipart endpoint', () async {
+    final directory = await Directory.systemTemp.createTemp('say-ring-avatar-');
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}${Platform.pathSeparator}avatar.png');
+    await file.writeAsBytes(const [0x89, 0x50, 0x4e, 0x47]);
+    final vault = MemorySessionVault()..session = session();
+    final api = GlobalSaydianApiClient(
+      vault,
+      client: MockClient((request) async {
+        expect(request.method, 'POST');
+        expect(
+          request.url.path,
+          '/global/api/saydian-app/v2/files/say-ring-avatar',
+        );
+        expect(request.url.query, isEmpty);
+        expect(request.headers['authorization'], 'Bearer global-test-access');
+        expect(
+          request.headers['content-type'],
+          startsWith('multipart/form-data;'),
+        );
+        expect(latin1.decode(request.bodyBytes), contains('name="file"'));
+        return ok({
+          'id': 'synthetic-avatar',
+          'url':
+              '${GlobalEnvironment.origin}/global/api/saydian-app/v2/files/synthetic-avatar',
+        });
+      }),
+    );
+    expect(
+      await api.uploadImage(file.path),
+      '${GlobalEnvironment.origin}/global/api/saydian-app/v2/files/synthetic-avatar',
+    );
+  });
+
   test(
     'native WeChat requires phone binding before returning a session',
     () async {
@@ -77,6 +113,7 @@ void main() {
               'consentAccepted': true,
               'consentVersion': 'reviewed-test-v1',
               'locale': 'zh-Hans',
+              'product': 'say-ring',
             });
             return ok({
               'requiresPhoneBinding': true,
@@ -88,6 +125,7 @@ void main() {
           if (request.url.path.endsWith('/auth/wechat-phone-code')) {
             expect(body['bindTicket'], ticket);
             expect(body['identifier'], '+8613800138000');
+            expect(body['product'], 'say-ring');
             expect(body, isNot(contains('openid')));
             return ok({
               'challengeId': 'wechat-phone-challenge',
@@ -101,6 +139,7 @@ void main() {
           expect(body['challengeId'], 'wechat-phone-challenge');
           expect(body['code'], '123456');
           expect(body['wechatProfileProof'], 'signed-profile-proof');
+          expect(body['product'], 'say-ring');
           return ok(sessionData('wechat-member'));
         }),
       );
@@ -148,6 +187,7 @@ void main() {
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         expect(body['channel'], 'sms');
         expect(body['identifier'], '+8613800138000');
+        expect(body['product'], 'say-ring');
         if (request.url.path == GlobalEnvironment.sharedCodeRequestPath) {
           expect(body['locale'], 'en');
           return http.Response(
@@ -340,6 +380,13 @@ void main() {
         () => GlobalAuthCapabilities.fromJson({
           ...capabilities(),
           'realm': 'domestic',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => GlobalAuthCapabilities.fromJson({
+          ...capabilities(),
+          'product': 'saydian-global',
         }),
         throwsFormatException,
       );
@@ -547,6 +594,7 @@ void main() {
       expect(available.verificationRequired, isFalse);
       expect(requests.single.path, endsWith('/auth/capabilities'));
       expect(requests.single.queryParameters['locale'], 'de');
+      expect(requests.single.queryParameters['product'], 'say-ring');
     });
     test('verification routes keep purpose, code and consent bound', () async {
       final requests = <http.Request>[];
@@ -576,6 +624,7 @@ void main() {
         'identifier': 'a@example.com',
         'purpose': 'register',
         'locale': 'en',
+        'product': 'say-ring',
       });
       await api.completeVerification(
         challengeId: challenge.id,
@@ -592,6 +641,32 @@ void main() {
         'password': 'test-password',
         'locale': 'en',
         'consentVersion': 'reviewed-test-v1',
+        'product': 'say-ring',
+      });
+    });
+    test('password reset keeps the Say Ring product and locale', () async {
+      late http.Request request;
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault(),
+        client: MockClient((value) async {
+          request = value;
+          return ok(sessionData());
+        }),
+      );
+      await api.completeVerification(
+        challengeId: 'challenge-1',
+        code: '123456',
+        password: 'test-password',
+        resetPassword: true,
+        locale: 'zh-Hans',
+      );
+      expect(request.url.path, endsWith('/auth/reset-password'));
+      expect(jsonDecode(request.body), {
+        'challengeId': 'challenge-1',
+        'code': '123456',
+        'password': 'test-password',
+        'product': 'say-ring',
+        'locale': 'zh-Hans',
       });
     });
     test(
@@ -622,6 +697,7 @@ void main() {
           'password': 'test-password',
           'locale': 'en',
           'consentVersion': 'reviewed-test-v1',
+          'product': 'say-ring',
         });
         expect(result.memberId, 'uuid-member-α');
         expect((await vault.readSession())?.memberId, result.memberId);

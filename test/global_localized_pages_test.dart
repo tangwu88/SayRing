@@ -209,7 +209,7 @@ void main() {
       expect(find.byIcon(Icons.wechat_rounded), findsNothing);
       expect(
         find.text(
-          'This feature is temporarily unavailable. Please try again later.',
+          'Other contact details are not configured. WeChat service above remains available.',
         ),
         findsOneWidget,
       );
@@ -225,7 +225,11 @@ void main() {
       const CustomerServicePage(isGlobalEdition: true),
       locale: const Locale('zh'),
     );
-    expect(find.text('客服联系方式暂未配置，请稍后再试'), findsOneWidget);
+    expect(find.text('电话及公众号暂未配置，仍可使用上方微信客服'), findsOneWidget);
+    expect(
+      find.byKey(const Key('say-ring-open-wechat-service')),
+      findsOneWidget,
+    );
     expect(find.text('4006386738'), findsNothing);
   });
 

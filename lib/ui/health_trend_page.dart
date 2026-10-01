@@ -11,7 +11,9 @@ import '../domain/models.dart';
 import '../services/app_controller.dart';
 import '../services/health_analysis.dart';
 import 'app_theme.dart';
+import 'health_ui_owner.dart';
 import 'prototype_pages.dart';
+import 'sleep_detail_widgets.dart' show SleepTimelineCard;
 
 class HealthMetricMiniChart extends StatelessWidget {
   const HealthMetricMiniChart({
@@ -145,6 +147,9 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
   bool _measuring = false;
   List<HealthRecord> _records = const [];
   List<HealthRecord> _previousRecords = const [];
+  int _loadGeneration = 0;
+  late (bool, String?, String?) _account;
+  Timer? _sleepRefresh;
 
   HealthTrendData get _data => _analysis.analyze(
     metric: widget.metric,
@@ -159,21 +164,44 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
   void initState() {
     super.initState();
     _anchor = widget.initialDate?.toLocal() ?? DateTime.now();
+    _account = healthUiOwnerKey(widget.controller);
     widget.controller.addListener(_onControllerChanged);
     _load();
   }
 
   @override
   void dispose() {
+    _loadGeneration++;
+    _sleepRefresh?.cancel();
     widget.controller.removeListener(_onControllerChanged);
     super.dispose();
   }
 
   void _onControllerChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final account = healthUiOwnerKey(widget.controller);
+    if (_account != account) {
+      _loadGeneration++;
+      _account = account;
+      setState(() {
+        _records = const [];
+        _previousRecords = const [];
+      });
+      unawaited(_load());
+      return;
+    }
+    setState(() {});
+    if (widget.metric == HealthMetric.sleep &&
+        !widget.controller.isDeviceSyncing) {
+      _sleepRefresh?.cancel();
+      _sleepRefresh = Timer(const Duration(milliseconds: 250), () {
+        if (mounted) unawaited(_load(showLoading: false));
+      });
+    }
   }
 
   Future<void> _load({bool showLoading = true}) async {
+    final generation = ++_loadGeneration;
     if (showLoading) {
       setState(() {
         _loading = true;
@@ -181,20 +209,23 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
       });
     }
     final range = HealthTrendRange.forPeriod(_period, _anchor);
+    Future<List<HealthRecord>> load(DateTime start, DateTime end) =>
+        widget.metric == HealthMetric.sleep
+        ? widget.controller.loadSleepDays(
+            start: start,
+            end: DateTime(end.year, end.month, end.day - 1),
+          )
+        : widget.controller.loadHealthRecords(
+            metric: widget.metric,
+            start: start,
+            end: end,
+          );
     try {
       final values = await Future.wait([
-        widget.controller.loadHealthRecords(
-          metric: widget.metric,
-          start: range.start,
-          end: range.end,
-        ),
-        widget.controller.loadHealthRecords(
-          metric: widget.metric,
-          start: range.previousStart,
-          end: range.previousEnd,
-        ),
+        load(range.start, range.end),
+        load(range.previousStart, range.previousEnd),
       ]);
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _records = values[0];
         _previousRecords = values[1];
@@ -208,7 +239,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
         _loading = false;
       });
     } catch (error) {
-      if (!mounted || !showLoading) return;
+      if (!mounted || generation != _loadGeneration || !showLoading) return;
       setState(() {
         _error = error;
         _loading = false;
@@ -446,7 +477,9 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
         const _MessageCard(icon: Icons.show_chart_rounded, title: '该时间段暂无数据')
       else ...[
         if (widget.metric == HealthMetric.sleep) ...[
-          SleepStructureCard(record: data.records.last),
+          SleepStructureCard(record: data.records.first),
+          if (data.records.first.sleepTimeline?.hasSegments == true)
+            SleepTimelineCard(timeline: data.records.first.sleepTimeline!),
           const SizedBox(height: 12),
         ],
         if (widget.metric == HealthMetric.bodyTemperature) ...[
@@ -603,7 +636,10 @@ class SleepStructureCard extends StatelessWidget {
         ('清醒时长', count('awakeMinutes', '分钟')),
       ('体动', count('movementMinutes', '分钟')),
       ('清醒次数', count('wakeCount', '次')),
-      if (values.containsKey('score')) ('设备睡眠评分', count('score', '分')),
+      (
+        '设备睡眠评分',
+        values.containsKey('score') ? count('score', '分') : '未知（戒指未返回）',
+      ),
       if (values.containsKey('efficiency')) ('睡眠效率', count('efficiency', '%')),
     ];
     return Card(
@@ -619,9 +655,12 @@ class SleepStructureCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             for (var index = 0; index < rows.length; index++) ...[
-              Row(
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                spacing: 16,
+                runSpacing: 4,
                 children: [
-                  Expanded(child: Text(rows[index].$1)),
+                  Text(rows[index].$1),
                   Text(
                     rows[index].$2,
                     style: const TextStyle(fontWeight: FontWeight.w700),

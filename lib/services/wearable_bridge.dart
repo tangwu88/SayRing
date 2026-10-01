@@ -194,6 +194,35 @@ abstract interface class WearableConnectionRecoveryBridge {
   Future<DeviceInfo?> restoreConnection({required WearableUserProfile profile});
 }
 
+/// App-owned binding context. Native SDK installation-wide saved targets must
+/// never determine the account or environment entitled to recover a device.
+abstract interface class WearableBindingManagementBridge {
+  Future<void> setRecoveryContext({
+    required String? ownerKey,
+    required WearableUserProfile profile,
+  });
+  Future<DeviceInfo?> readRememberedDevice();
+  Future<DeviceInfo?> prepareRememberedDevice();
+  Future<void> forgetRememberedDevice();
+}
+
+/// A visible legacy binding can be manually selected without authorizing
+/// automatic recovery. Optional to preserve older adapters and test doubles.
+abstract interface class WearableRememberedRecoveryEligibilityBridge {
+  Future<bool> canAutomaticallyRecoverRememberedDevice();
+}
+
+/// Optional exact-target recovery, used by QRing after a successful binding.
+/// Null cancels native recovery; a target is only armed by the scoped router.
+abstract interface class WearableExactTargetRecoveryBridge {
+  Future<void> configureRecoveryTarget({
+    required String? nativeIdentifier,
+    String? knownName,
+    String? contextKey,
+    WearableUserProfile? profile,
+  });
+}
+
 /// Optional lookup for one device previously bound in this App environment.
 /// A native adapter must verify the exact identifier against its trusted OS
 /// bond before returning it; the normal vendor handshake still follows.

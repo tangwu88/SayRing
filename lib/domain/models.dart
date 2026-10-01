@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'feature_models.dart';
+import 'sleep_timeline.dart';
 
 enum DeviceConnectionState {
   disconnected,
@@ -686,6 +687,7 @@ class HealthRecord {
     this.sourceVendor = '',
     this.sourceDeviceCategory = '',
     this.sourceApp = '',
+    this.sleepTimeline,
   }) : origin = origin ?? MeasurementOrigin.fromWire(null, source: source);
 
   final String id;
@@ -705,6 +707,7 @@ class HealthRecord {
   final String sourceVendor;
   final String sourceDeviceCategory;
   final String sourceApp;
+  final SleepTimeline? sleepTimeline;
 
   factory HealthRecord.fromJson(Map<String, Object?> json) {
     final rawValues = json['values'];
@@ -740,6 +743,13 @@ class HealthRecord {
       sourceVendor: '${json['sourceVendor'] ?? ''}'.trim(),
       sourceDeviceCategory: '${json['sourceDeviceCategory'] ?? ''}'.trim(),
       sourceApp: '${json['sourceApp'] ?? ''}'.trim(),
+      sleepTimeline: json['sleepTimeline'] is Map
+          ? SleepTimeline.fromJson(
+              (json['sleepTimeline'] as Map).map(
+                (key, value) => MapEntry('$key', value),
+              ),
+            )
+          : null,
     );
   }
 
@@ -762,6 +772,7 @@ class HealthRecord {
     if (sourceDeviceCategory.isNotEmpty)
       'sourceDeviceCategory': sourceDeviceCategory,
     if (sourceApp.isNotEmpty) 'sourceApp': sourceApp,
+    if (sleepTimeline != null) 'sleepTimeline': sleepTimeline!.toJson(),
   };
 
   HealthRecord copyWith({
@@ -777,6 +788,7 @@ class HealthRecord {
     String? sourceVendor,
     String? sourceDeviceCategory,
     String? sourceApp,
+    SleepTimeline? sleepTimeline,
   }) => HealthRecord(
     id: id,
     metric: metric,
@@ -795,6 +807,7 @@ class HealthRecord {
     sourceVendor: sourceVendor ?? this.sourceVendor,
     sourceDeviceCategory: sourceDeviceCategory ?? this.sourceDeviceCategory,
     sourceApp: sourceApp ?? this.sourceApp,
+    sleepTimeline: sleepTimeline ?? this.sleepTimeline,
   );
 
   String get displayValue {

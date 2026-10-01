@@ -31,6 +31,7 @@ import 'health_reports_page.dart';
 import 'health_trend_page.dart';
 import 'prototype_pages.dart';
 import 'shop_pages.dart';
+import 'sleep_detail_widgets.dart';
 import 'watch_face_market_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -231,9 +232,7 @@ class _LoginPageState extends State<LoginPage> {
                       child: const Text('注册账户'),
                     ),
                     if (!kIsWeb &&
-                        (defaultTargetPlatform == TargetPlatform.iOS ||
-                            defaultTargetPlatform ==
-                                TargetPlatform.android)) ...[
+                        defaultTargetPlatform == TargetPlatform.android) ...[
                       const SizedBox(height: 12),
                       Center(
                         child: FractionallySizedBox(
@@ -557,9 +556,7 @@ class DashboardPage extends StatelessWidget {
                   const SizedBox(height: 16),
                   _SectionTitle(
                     title: context.l10n.healthData,
-                    subtitle: DateFormat.MMMd(
-                      context.l10n.localeName,
-                    ).format(DateTime.now()),
+                    subtitle: context.l10n.recentData,
                     actionLabel: context.l10n.allData,
                     onAction: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
@@ -642,10 +639,13 @@ class _DashboardHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = controller.session?.displayName ?? context.l10n.defaultUser;
+    final name = _memberDisplayName(context, controller);
+    final avatarUrl = '${controller.memberProfile['head_portrait'] ?? ''}'
+        .trim();
     return Row(
       children: [
         Container(
+          key: const Key('dashboard-profile-avatar'),
           width: 50,
           height: 50,
           alignment: Alignment.center,
@@ -653,7 +653,9 @@ class _DashboardHeader extends StatelessWidget {
             color: Colors.white,
             shape: BoxShape.circle,
           ),
-          child: const SaydianBrandMark(size: 46),
+          child: avatarUrl.isEmpty
+              ? const SaydianBrandMark(size: 46)
+              : _MemberAvatar(imageUrl: avatarUrl, size: 50),
         ),
         const SizedBox(width: 11),
         Expanded(
@@ -1004,84 +1006,18 @@ class SleepOverviewPage extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     key: const Key('sleep-overview-page'),
     appBar: AppBar(title: const Text('睡眠')),
-    body: ListenableBuilder(
-      listenable: controller,
-      builder: (context, _) {
-        final latest = controller.latestByMetric[HealthMetric.sleep];
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '最近一次睡眠',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      latest == null
-                          ? '暂无睡眠记录'
-                          : DateFormat(
-                              'yyyy年M月d日',
-                            ).format(latest.measuredAt.toLocal()),
-                      style: const TextStyle(color: SaydianColors.muted),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _sleepDurationLabel(latest),
-                      style: const TextStyle(
-                        color: SaydianColors.techIndigo,
-                        fontSize: 28,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (latest == null)
-              const _InlineNotice(
-                message: '佩戴戒指睡眠并同步数据后，这里会显示实际返回的睡眠阶段。',
-                icon: Icons.bedtime_outlined,
-                color: SaydianColors.techIndigo,
-              )
-            else ...[
-              SleepStructureCard(record: latest),
-              const SizedBox(height: 12),
-              const _InlineNotice(
-                message: '仅显示戒指实际返回的阶段和评分；未返回的项目保留为未知。',
-                icon: Icons.info_outline_rounded,
-                color: SaydianColors.techBlue,
-                compact: true,
-              ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                key: const Key('sleep-open-trend'),
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    settings: const RouteSettings(name: 'sleep-trend'),
-                    builder: (_) => HealthTrendPage(
-                      controller: controller,
-                      metric: HealthMetric.sleep,
-                      initialDate: latest.measuredAt,
-                    ),
-                  ),
-                ),
-                icon: const Icon(Icons.show_chart_rounded),
-                label: const Text('查看睡眠趋势与记录'),
-              ),
-            ],
-          ],
-        );
-      },
+    body: SleepDayDetails(
+      controller: controller,
+      onOpenTrend: (date) => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: 'sleep-trend'),
+          builder: (_) => HealthTrendPage(
+            controller: controller,
+            metric: HealthMetric.sleep,
+            initialDate: date,
+          ),
+        ),
+      ),
     ),
   );
 }
@@ -5185,9 +5121,32 @@ class DevicePage extends StatelessWidget {
 
   final AppController controller;
 
+  Future<void> _confirmUnbind(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('解绑设备？'),
+        content: const Text('解绑后将停止自动连接此戒指。本机已保存的健康记录不会删除。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const Key('device-confirm-unbind'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('确认解绑'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await controller.unbindDevice();
+  }
+
   @override
   Widget build(BuildContext context) {
     final connected = controller.connectedDevice;
+    final bound = connected ?? controller.rememberedDevice;
     final visibleFeatures = controller.visibleDeviceFeatures;
     final watchFaceFeatures = const [
       DeviceFeature.watchFaces,
@@ -5200,7 +5159,7 @@ class DevicePage extends StatelessWidget {
       key: const Key('device-page'),
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
       children: [
-        if (connected != null)
+        if (bound != null)
           Container(
             key: const Key('device-overview-card'),
             padding: const EdgeInsets.all(18),
@@ -5249,7 +5208,7 @@ class DevicePage extends StatelessWidget {
                             children: [
                               Expanded(
                                 child: Text(
-                                  connected.name,
+                                  bound.name,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
@@ -5258,50 +5217,71 @@ class DevicePage extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              _BatteryBadge(
-                                battery: connected.effectiveBattery,
-                              ),
+                              if (connected != null) ...[
+                                const SizedBox(width: 8),
+                                _BatteryBadge(
+                                  battery: connected.effectiveBattery,
+                                ),
+                              ],
                             ],
                           ),
                           const SizedBox(height: 5),
                           Text(
-                            connected.identifierLabel,
+                            bound.identifierLabel,
                             style: const TextStyle(
                               color: SaydianColors.muted,
                               fontSize: 13,
                             ),
                           ),
                           const SizedBox(height: 5),
-                          _ConnectionBadge(
-                            label: context.l10n.connectionState(
-                              controller.deviceState,
+                          if (connected != null)
+                            _ConnectionBadge(
+                              label: context.l10n.connectionState(
+                                controller.deviceState,
+                              ),
+                            )
+                          else
+                            Text(
+                              controller.wearableRecoveryMessage ??
+                                  (controller.isWearableRecovering
+                                      ? '正在重连'
+                                      : '等待戒指靠近'),
+                              key: const Key('device-recovery-status'),
+                              style: const TextStyle(
+                                color: SaydianColors.techBlue,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
-                Row(
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(
+                    SizedBox(
                       child: FilledButton.icon(
-                        onPressed: controller.isDeviceSyncing
+                        onPressed:
+                            connected == null || controller.isDeviceSyncing
                             ? null
                             : () async {
                                 final succeeded = await controller
                                     .syncDeviceData();
                                 if (!context.mounted) return;
+                                final feedback = succeeded
+                                    ? controller.syncStatus == '设备暂无新数据'
+                                          ? context.l10n.syncUpToDate
+                                          : context.l10n.syncComplete
+                                    : controller.errorMessage
+                                              ?.trim()
+                                              .isNotEmpty ==
+                                          true
+                                    ? controller.errorMessage!
+                                    : context.l10n.syncFailedTryAgain;
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      succeeded
-                                          ? context.l10n.syncComplete
-                                          : context.l10n.syncFailedTryAgain,
-                                    ),
-                                  ),
+                                  SnackBar(content: Text(feedback)),
                                 );
                               },
                         icon: controller.isDeviceSyncing
@@ -5325,16 +5305,27 @@ class DevicePage extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: controller.disconnectDevice,
+                    const SizedBox(height: 10),
+                    if (connected == null)
+                      OutlinedButton.icon(
+                        key: const Key('device-reconnect'),
+                        onPressed: controller.isDeviceSyncing
+                            ? null
+                            : controller.reconnectDevice,
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size.fromHeight(48),
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                         ),
-                        child: Text(context.l10n.disconnect),
+                        icon: const Icon(Icons.bluetooth_searching_rounded),
+                        label: const Text('重新连接'),
                       ),
+                    TextButton.icon(
+                      key: const Key('device-unbind'),
+                      onPressed: controller.isDeviceSyncing
+                          ? null
+                          : () => _confirmUnbind(context),
+                      icon: const Icon(Icons.link_off_rounded),
+                      label: const Text('解绑设备'),
                     ),
                   ],
                 ),
@@ -8802,8 +8793,7 @@ class SettingsPage extends StatelessWidget {
 
   Widget _buildContent(BuildContext context) {
     final profile = controller.memberProfile;
-    final name =
-        '${profile['nickname'] ?? controller.session?.displayName ?? (controller.isPreviewMode ? '体验用户' : context.l10n.defaultUser)}';
+    final name = _memberDisplayName(context, controller);
     final memberId =
         '${profile['promo_code'] ?? controller.session?.memberId ?? '--'}';
     final avatarUrl = '${profile['head_portrait'] ?? ''}'.trim();
@@ -9155,6 +9145,14 @@ class SettingsPage extends StatelessWidget {
   void _openPage(BuildContext context, Widget page) {
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
   }
+}
+
+String _memberDisplayName(BuildContext context, AppController controller) {
+  final nickname = '${controller.memberProfile['nickname'] ?? ''}'.trim();
+  if (nickname.isNotEmpty) return nickname;
+  final sessionName = controller.session?.displayName.trim() ?? '';
+  if (sessionName.isNotEmpty) return sessionName;
+  return controller.isPreviewMode ? '体验用户' : context.l10n.defaultUser;
 }
 
 class _MemberAvatar extends StatelessWidget {
@@ -10952,7 +10950,16 @@ class AccountSettingsPage extends StatelessWidget {
         ],
       ),
     );
-    if (confirmed == true) await controller.deleteAccount();
+    if (confirmed != true) return;
+    final deleted = await controller.deleteAccount();
+    if (!context.mounted) return;
+    if (deleted) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(controller.errorMessage ?? '注销失败，请稍后重试')),
+    );
   }
 }
 

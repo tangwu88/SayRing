@@ -222,7 +222,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('preview mode shows a prominent login prompt on my page', (
+  testWidgets('public review demo stays isolated and returns to login', (
     tester,
   ) async {
     final controller = _controller()..isBooting = false;
@@ -230,11 +230,12 @@ void main() {
     addTearDown(controller.dispose);
     await _pumpPhone(tester, controller);
 
-    controller.selectTab(2);
-    await tester.pump();
-    expect(find.byKey(const Key('preview-login-prompt')), findsOneWidget);
-    expect(find.text('立即登录'), findsOneWidget);
-    await tester.tap(find.byKey(const Key('preview-login-prompt')));
+    expect(find.byKey(const Key('review-demo-page')), findsOneWidget);
+    expect(find.byKey(const Key('review-demo-disclaimer')), findsOneWidget);
+    await tester.tap(find.text('我的').last);
+    await tester.pumpAndSettle();
+    expect(find.text('演示用户'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('review-demo-sign-in')));
     await tester.pumpAndSettle();
     expect(controller.isPreviewMode, isFalse);
     expect(find.widgetWithText(FilledButton, '登录'), findsOneWidget);
@@ -1487,6 +1488,8 @@ void main() {
       260,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.ensureVisible(find.text('账号设置'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('账号设置'));
     await tester.pumpAndSettle();
     expect(find.text('个人资料'), findsOneWidget);
@@ -1505,6 +1508,70 @@ void main() {
     expect(api.loggedOut, isTrue);
     expect(controller.session, isNull);
     expect(find.byType(TextField), findsNWidgets(2));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('account deletion returns to login after confirmation', (
+    tester,
+  ) async {
+    final api = _QaApi();
+    final controller = _authenticatedController(api: api);
+    addTearDown(controller.dispose);
+    await _pumpPhone(tester, controller);
+
+    controller.selectTab(2);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('账号设置'),
+      260,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(find.text('账号设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('账号设置'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('注销账号'));
+    await tester.tap(find.text('注销账号'));
+    await tester.pumpAndSettle();
+    expect(find.text('确认注销账号？'), findsOneWidget);
+    expect(find.textContaining('7天后删除'), findsOneWidget);
+    await tester.tap(find.text('确认注销'));
+    await tester.pumpAndSettle();
+
+    expect(api.accountDeleted, isTrue);
+    expect(controller.session, isNull);
+    expect(find.text('账号设置'), findsNothing);
+    expect(find.byType(TextField), findsNWidgets(2));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('failed account deletion keeps settings and explains failure', (
+    tester,
+  ) async {
+    final controller = _authenticatedController(api: _DeleteFailureApi());
+    addTearDown(controller.dispose);
+    await _pumpPhone(tester, controller);
+
+    controller.selectTab(2);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('账号设置'),
+      260,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(find.text('账号设置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('账号设置'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('注销账号'));
+    await tester.tap(find.text('注销账号'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确认注销'));
+    await tester.pumpAndSettle();
+
+    expect(controller.session, isNotNull);
+    expect(find.text('账号设置'), findsOneWidget);
+    expect(find.byType(SnackBar), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -1830,6 +1897,7 @@ class _QaApi extends Fake
   bool createdOrder = false;
   num lastOrderPoint = 0;
   bool loggedOut = false;
+  bool accountDeleted = false;
 
   @override
   Future<Session> login(String username, String password) async {
@@ -2072,7 +2140,16 @@ class _QaApi extends Fake
   }
 
   @override
-  Future<void> deleteAccount() async {}
+  Future<void> deleteAccount() async {
+    accountDeleted = true;
+  }
+}
+
+class _DeleteFailureApi extends _QaApi {
+  @override
+  Future<void> deleteAccount() async {
+    throw const ApiException('服务暂不可用', statusCode: 503);
+  }
 }
 
 class _RegressionApi extends _QaApi {

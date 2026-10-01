@@ -343,6 +343,7 @@ class _FakeController extends Fake implements AppController {
     callOrder.add('capabilities');
     return GlobalAuthCapabilities.fromJson({
       'realm': rejectRealm ? 'domestic' : 'global',
+      'product': 'say-ring',
       'registration': {'email': true, 'sms': false},
     });
   }

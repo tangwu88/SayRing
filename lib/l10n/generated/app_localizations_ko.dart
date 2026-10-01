@@ -1036,7 +1036,8 @@ class AppLocalizationsKo extends AppLocalizations {
   String get confirmDeleteAccountTitle => '계정을 삭제하시겠습니까?';
 
   @override
-  String get deleteAccountHint => '계정과 관련 데이터가 삭제되면 이 기기에서 로그아웃됩니다.';
+  String get deleteAccountHint =>
+      '신청 즉시 계정이 비활성화되고 로그아웃됩니다. 관련 데이터는 법적 보관 의무가 있는 경우를 제외하고 7일 후 삭제될 예정입니다.';
 
   @override
   String get confirmDelete => '삭제 확인';
@@ -1455,6 +1456,9 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get syncComplete => '데이터를 동기화했습니다';
+
+  @override
+  String get syncUpToDate => '최신 상태입니다. 새 데이터가 없습니다';
 
   @override
   String get syncFailedTryAgain => '동기화하지 못했습니다. 링을 휴대전화 가까이에 두고 다시 시도하세요.';

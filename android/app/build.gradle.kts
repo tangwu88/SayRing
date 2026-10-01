@@ -262,6 +262,16 @@ flutter {
 }
 
 dependencies {
+    constraints {
+        // JPush declares an open JCore range. Keep the reviewed runtime pair
+        // required by release_gate.py's controlled ARM64 libjutils exception.
+        implementation("cn.jiguang.sdk:jcore") {
+            version {
+                strictly("5.5.2")
+            }
+            because("Keep JPush 6.2.0 on the reviewed, reproducible JCore runtime")
+        }
+    }
     implementation(files(coolWearSdkFile))
     implementation(files(qringSdkFile))
     implementation("com.tencent.mm.opensdk:wechat-sdk-android:6.8.40")

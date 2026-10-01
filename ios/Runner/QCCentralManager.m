@@ -50,6 +50,11 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 /// YES after `disconnect` / `remove` until the next explicit connect. 主动断开/解绑后为 YES，直到下次主动连接
 @property (nonatomic, assign) BOOL suppressAutoReconnect;
 @property (nonatomic, assign, readwrite) BOOL isScanning;
+@property (nonatomic, assign) NSUInteger operationGeneration;
+@property (nonatomic, strong) NSArray<CBPeripheral *> *restoredPeripherals;
+@property (nonatomic, strong) NSMutableSet<NSString *> *restoredCancellationIDs;
+@property (nonatomic, assign) BOOL restorationTargetDecided;
+@property (nonatomic, copy) NSString *restorationTargetID;
 @end
 
 @implementation QCCentralManager
@@ -185,6 +190,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     [self stopScan];
     [self stopTimer];
     self.connectTimeout = timeout;
+    self.operationGeneration++;
     self.suppressAutoReconnect = NO;
     self.deviceType = deviceType;
     self.connectedPeripheral = peripheral;
@@ -200,12 +206,13 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 
     // Connecting: wait / retry via timer. 正在连接：用定时器等待或重试
     if (peripheral.state == CBPeripheralStateConnecting) {
-        [self scheduleConnectRetryTimer];
+        if (!self.appManagedConnections) { [self scheduleConnectRetryTimer]; }
         return;
     }
 
     [self connectCurrentPeripheral];
-    [self scheduleConnectRetryTimer];
+    // A host-owned recovery has one CoreBluetooth pending request.
+    if (!self.appManagedConnections) { [self scheduleConnectRetryTimer]; }
 }
 
 /// Reconnect the UUID saved in UserDefaults. 用本地保存的 UUID 重连上次绑定设备
@@ -226,6 +233,36 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     }
 
     [self connect:peripheral];
+}
+
+- (void)discardRestoredPeripheralsExceptIdentifier:(NSString *)identifier {
+    self.restorationTargetDecided = YES;
+    self.restorationTargetID = identifier;
+    if (!self.restoredCancellationIDs) { self.restoredCancellationIDs = [NSMutableSet set]; }
+    NSMutableArray *retained = [NSMutableArray array];
+    for (CBPeripheral *peripheral in self.restoredPeripherals) {
+        if (![peripheral.identifier.UUIDString isEqualToString:identifier]) {
+            if (peripheral.state == CBPeripheralStateConnected || peripheral.state == CBPeripheralStateConnecting) {
+                [self.restoredCancellationIDs addObject:peripheral.identifier.UUIDString];
+                [self.centerManager cancelPeripheralConnection:peripheral];
+            }
+        } else {
+            [retained addObject:peripheral];
+        }
+    }
+    self.restoredPeripherals = retained;
+}
+
+- (BOOL)hasPendingRestoredCancellations { return self.restoredCancellationIDs.count > 0; }
+
+- (BOOL)finishRestoredCancellation:(CBPeripheral *)peripheral {
+    NSString *identifier = peripheral.identifier.UUIDString;
+    if (![self.restoredCancellationIDs containsObject:identifier]) { return NO; }
+    [self.restoredCancellationIDs removeObject:identifier];
+    if (!self.hasPendingRestoredCancellations && !self.connectedPeripheral) {
+        self.deviceState = QCStateDisconnected;
+    }
+    return YES;
 }
 
 /// Issue CoreBluetooth `connectPeripheral`. 向系统发起 `connectPeripheral`
@@ -252,6 +289,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 
 /// Unbind: drop saved UUID and cancel the BLE connection. 解绑：清除本地 UUID 并取消 BLE 连接
 - (void)remove {
+    self.operationGeneration++;
     [self stopScan];
     [self stopTimer];
     self.suppressAutoReconnect = YES;
@@ -278,6 +316,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 
 /// Disconnect but keep the bound UUID. 仅断开连接，保留绑定 UUID
 - (void)disconnect {
+    self.operationGeneration++;
     [self stopScan];
     [self stopTimer];
     self.suppressAutoReconnect = YES;
@@ -325,6 +364,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     if(self.connectedPeripheral) {
         return self.connectedPeripheral;
     }
+    if (self.appManagedConnections) { return nil; }
 
     NSString *uuidStr = [[NSUserDefaults standardUserDefaults] objectForKey:QCLastConnectedIdentifier];
 
@@ -345,8 +385,14 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 
 /// Register the peripheral with QCSDK and persist the UUID on success. 向 QCSDK 注册外设，成功后写入本地 UUID
 - (void)registerConnectedPeripheral:(CBPeripheral *)peripheral {
+    NSUInteger generation = self.operationGeneration;
+    if ([self.delegate respondsToSelector:@selector(didConnectTransport:)]) {
+        [self.delegate didConnectTransport:peripheral];
+    }
     [[QCSDKManager shareInstance] removePeripheral:peripheral];
     [[QCSDKManager shareInstance] addPeripheral:peripheral finished:^(BOOL success) {
+        if (generation != self.operationGeneration ||
+            ![self.connectedPeripheral.identifier isEqual:peripheral.identifier]) { return; }
         [self stopTimer];
         if (success) {
             [[NSUserDefaults standardUserDefaults] setValue:peripheral.identifier.UUIDString forKey:QCLastConnectedIdentifier];
@@ -488,16 +534,30 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 
 - (void)centralManager:(CBCentralManager *)central didConnectPeripheral:(CBPeripheral *)peripheral {
     NSLog(@"QRing transport connected");
+    if (self.appManagedConnections && self.deviceState == QCStateDisconnecting) {
+        [central cancelPeripheralConnection:peripheral]; return;
+    }
+    if (self.appManagedConnections &&
+        ![self.connectedPeripheral.identifier isEqual:peripheral.identifier]) {
+        // Retain a system-restored link until its owner-scoped target is loaded.
+        return;
+    }
     self.connectedPeripheral = peripheral;
     [self registerConnectedPeripheral:peripheral];
 }
 
 - (void)centralManager:(CBCentralManager *)central didFailToConnectPeripheral:(CBPeripheral *)peripheral error:(NSError *)error {
+    if ([self finishRestoredCancellation:peripheral]) { return; }
+    if (self.appManagedConnections &&
+        ![self.connectedPeripheral.identifier isEqual:peripheral.identifier]) { return; }
     NSLog(@"QRing connection failed (code %ld)", (long)error.code);
     [self notifyConnectFailed:peripheral error:error];
 }
 
 - (void)centralManager:(CBCentralManager *)central didDisconnectPeripheral:(CBPeripheral *)peripheral error:(nullable NSError *)error {
+    if ([self finishRestoredCancellation:peripheral]) { return; }
+    if (self.appManagedConnections && self.connectedPeripheral &&
+        ![self.connectedPeripheral.identifier isEqual:peripheral.identifier]) { return; }
     NSLog(@"QRing transport disconnected (code %ld)", (long)error.code);
     [[QCSDKManager shareInstance] removeAllPeripheral];
 
@@ -540,10 +600,10 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 - (void)centralManager:(CBCentralManager *)central willRestoreState:(NSDictionary *)dict {
     NSArray *peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey];
     if (self.appManagedConnections) {
-        // The Flutter environment must explicitly select/restore its own
-        // target and perform a new SDK handshake before exposing features.
-        for (CBPeripheral *peripheral in peripherals) {
-            [central cancelPeripheralConnection:peripheral];
+        // No SDK adoption before the host validates the exact UUID/account.
+        self.restoredPeripherals = peripherals ?: @[];
+        if (self.restorationTargetDecided) {
+            [self discardRestoredPeripheralsExceptIdentifier:self.restorationTargetID ?: @""];
         }
         return;
     }

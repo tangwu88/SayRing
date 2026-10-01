@@ -38,9 +38,9 @@ class NoCodeController extends Fake implements AppController {
     consentVersion: 'reviewed-test-v1',
     legal: {
       'userAgreement':
-          '/api/saydian-app/v2/content/legal/user_agreement?version=reviewed-test-v1&locale=en',
+          '/api/saydian-app/v2/content/legal/say_ring_user_agreement?version=reviewed-test-v1&locale=en',
       'privacyPolicy':
-          '/api/saydian-app/v2/content/legal/privacy_policy?version=reviewed-test-v1&locale=en',
+          '/api/saydian-app/v2/content/legal/say_ring_privacy_policy?version=reviewed-test-v1&locale=en',
     },
   );
 

@@ -78,6 +78,8 @@
 	<string>$(SAIDIAN_ALIPAY_URL_SCHEME)</string>
 	<key>SaidianWechatAppId</key>
 	<string>$(SAIDIAN_WECHAT_APP_ID)</string>
+	<key>SaidianWechatEnabled</key>
+	<false/>
 	<key>SaidianWechatUniversalLink</key>
 	<string>$(SAIDIAN_WECHAT_UNIVERSAL_LINK)</string>
 	<key>UIBackgroundModes</key>

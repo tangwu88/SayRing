@@ -9,6 +9,10 @@ import 'package:saydian_app/ui/global_code_login_page.dart';
 class CodeLoginController extends Fake implements AppController {
   GlobalAccountIdentity? requested;
   GlobalAccountIdentity? signedIn;
+  bool enteredDemo = false;
+
+  @override
+  void enterPreview() => enteredDemo = true;
 
   @override
   Future<GlobalAuthCapabilities> globalAuthCapabilities() async =>
@@ -149,6 +153,14 @@ void main() {
     expect(find.byKey(const Key('auth-toggle-mode')), findsNothing);
     expect(find.text('CN +86'), findsNothing);
     expect(find.text('请输入11位手机号'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('review-demo-entry')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('review-demo-entry')));
+    await tester.pump();
+    expect(controller.enteredDemo, isTrue);
     expect(
       tester
           .widget<TextButton>(find.byKey(const Key('code-login-send')))
@@ -259,5 +271,26 @@ void main() {
       expect(controller.bound, isTrue);
       expect(tester.takeException(), isNull);
     },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'iOS hides WeChat while keeping phone code sign-in available',
+    (tester) async {
+      final controller = WechatCodeLoginController();
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: GlobalCodeLoginPage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('global-wechat-login')), findsNothing);
+      expect(find.byKey(const Key('code-login-send')), findsOneWidget);
+      expect(find.byKey(const Key('code-login-submit')), findsOneWidget);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
   );
 }
