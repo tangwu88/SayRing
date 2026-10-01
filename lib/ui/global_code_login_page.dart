@@ -35,6 +35,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   bool _loading = false;
   bool _busy = false;
   bool _accepted = false;
+  bool _ageConfirmed = false;
   int _generation = 0;
   int _capabilityGeneration = 0;
   int _remaining = 0;
@@ -58,6 +59,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
       _loading = true;
       _error = null;
       _accepted = false;
+      _ageConfirmed = false;
       _capabilities = null;
       _challenge = null;
       _code.clear();
@@ -93,6 +95,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   String _errorFrom(Object error) {
     if (error is FormatException) return error.message;
     if (error is ApiException) {
+      if (error.code == 'minimum_age_confirmation_required') return 'age';
       if (error.statusCode == 429) return 'rate';
       if (error.code == 'verification_invalid' ||
           error.code == 'verification_used') {
@@ -117,6 +120,10 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     'rate' => l.tooManyAttempts,
     'network' => l.networkUnavailable,
     'consent' => l.consentRequired,
+    'age' =>
+      Localizations.localeOf(context).languageCode == 'zh'
+          ? '请确认已满14周岁后继续'
+          : 'Confirm that you are at least 14 years old to continue.',
     'wechat' => widget.controller.errorMessage ?? l.serviceUnavailable,
     _ => l.serviceUnavailable,
   };
@@ -129,6 +136,10 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     final consentVersion = _capabilities?.consentVersion?.trim() ?? '';
     if (!_accepted) {
       setState(() => _error = 'consent');
+      return;
+    }
+    if (!_ageConfirmed) {
+      setState(() => _error = 'age');
       return;
     }
     if (capability?.enabled != true ||
@@ -147,6 +158,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
         appId: capability!.appId,
         consentVersion: consentVersion,
         locale: _locale,
+        ageConfirmed: true,
       );
       if (!mounted || success) return;
       final binding = widget.controller.pendingGlobalWechatBinding;
@@ -162,6 +174,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
             capabilities: _capabilities!,
             consentVersion: consentVersion,
             locale: _locale,
+            ageConfirmed: true,
           ),
         ),
       );
@@ -172,6 +185,10 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
 
   Future<void> _sendCode() async {
     if (_busy || _remaining > 0) return;
+    if (!_ageConfirmed) {
+      setState(() => _error = 'age');
+      return;
+    }
     GlobalAccountIdentity identity;
     try {
       identity = _identity();
@@ -239,6 +256,10 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
       setState(() => _error = 'consent');
       return;
     }
+    if (!_ageConfirmed) {
+      setState(() => _error = 'age');
+      return;
+    }
     if (_challenge == null || !RegExp(r'^\d{6}$').hasMatch(_code.text.trim())) {
       setState(() => _error = 'code');
       return;
@@ -260,6 +281,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
         locale: _locale,
         consentVersion: consentVersion,
         privacyConsentGranted: true,
+        ageConfirmed: true,
       );
       if (mounted && !success) {
         setState(
@@ -392,6 +414,21 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
               if (_challenge != null)
                 Text(l.verificationSentTo(_challenge!.maskedIdentifier)),
               CheckboxListTile(
+                key: const Key('code-login-minimum-age'),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _ageConfirmed,
+                onChanged: _busy
+                    ? null
+                    : (value) => setState(() => _ageConfirmed = value == true),
+                title: Text(
+                  Localizations.localeOf(context).languageCode == 'zh'
+                      ? '我确认已满14周岁'
+                      : 'I confirm that I am at least 14 years old.',
+                  style: const TextStyle(fontSize: 12, height: 1.4),
+                ),
+              ),
+              CheckboxListTile(
                 key: const Key('code-login-consent'),
                 contentPadding: EdgeInsets.zero,
                 controlAffinity: ListTileControlAffinity.leading,
@@ -477,6 +514,7 @@ class GlobalWechatPhoneBindingPage extends StatefulWidget {
     required this.capabilities,
     required this.consentVersion,
     required this.locale,
+    required this.ageConfirmed,
   });
 
   final AppController controller;
@@ -484,6 +522,7 @@ class GlobalWechatPhoneBindingPage extends StatefulWidget {
   final GlobalAuthCapabilities capabilities;
   final String consentVersion;
   final String locale;
+  final bool ageConfirmed;
 
   @override
   State<GlobalWechatPhoneBindingPage> createState() =>
@@ -566,6 +605,7 @@ class _GlobalWechatPhoneBindingPageState
       code: _code.text,
       consentVersion: widget.consentVersion,
       locale: widget.locale,
+      ageConfirmed: widget.ageConfirmed,
     );
     if (!mounted) return;
     if (success) {

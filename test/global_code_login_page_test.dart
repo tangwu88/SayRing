@@ -48,11 +48,13 @@ class CodeLoginController extends Fake implements AppController {
     required String locale,
     required String consentVersion,
     required bool privacyConsentGranted,
+    bool ageConfirmed = false,
   }) async {
     expect(challenge.id, 'synthetic-challenge');
     expect(code, '123456');
     expect(consentVersion, 'reviewed-test-v1');
     expect(privacyConsentGranted, isTrue);
+    expect(ageConfirmed, isTrue);
     signedIn = identity;
     return true;
   }
@@ -96,10 +98,12 @@ class WechatCodeLoginController extends CodeLoginController {
     String? appId,
     String? consentVersion,
     String? locale,
+    bool ageConfirmed = false,
   }) async {
     expect(privacyConsentGranted, isTrue);
     expect(appId, 'wx1234567890abcdef');
     expect(consentVersion, 'reviewed-test-v1');
+    expect(ageConfirmed, isTrue);
     return false;
   }
 
@@ -126,9 +130,11 @@ class WechatCodeLoginController extends CodeLoginController {
     required String code,
     required String consentVersion,
     required String locale,
+    bool ageConfirmed = false,
   }) async {
     expect(challenge.id, 'wechat-phone-challenge');
     expect(code, '123456');
+    expect(ageConfirmed, isTrue);
     bound = true;
     return true;
   }
@@ -195,11 +201,31 @@ void main() {
       '13800138000',
     );
     await tester.tap(find.byKey(const Key('code-login-send')));
+    await tester.pump();
+    expect(controller.requested, isNull);
+    expect(
+      find.text('Confirm that you are at least 14 years old to continue.'),
+      findsOneWidget,
+    );
+    await tester.ensureVisible(find.byKey(const Key('code-login-minimum-age')));
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('code-login-minimum-age')),
+        matching: find.byType(Checkbox),
+      ),
+    );
+    await tester.ensureVisible(find.byKey(const Key('code-login-send')));
+    await tester.tap(find.byKey(const Key('code-login-send')));
     await tester.pumpAndSettle();
     expect(controller.requested?.identifier, '+8613800138000');
     await tester.enterText(find.byKey(const Key('code-login-code')), '123456');
     await tester.ensureVisible(find.byKey(const Key('code-login-consent')));
-    await tester.tap(find.byType(Checkbox));
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('code-login-consent')),
+        matching: find.byType(Checkbox),
+      ),
+    );
     await tester.pump();
     await tester.ensureVisible(find.byKey(const Key('code-login-submit')));
     await tester.tap(find.byKey(const Key('code-login-submit')));
@@ -228,7 +254,21 @@ void main() {
         Colors.black,
       );
       await tester.ensureVisible(find.byKey(const Key('code-login-consent')));
-      await tester.tap(find.byType(Checkbox));
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('code-login-consent')),
+          matching: find.byType(Checkbox),
+        ),
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('code-login-minimum-age')),
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('code-login-minimum-age')),
+          matching: find.byType(Checkbox),
+        ),
+      );
       await tester.pump();
       await tester.scrollUntilVisible(
         find.byKey(const Key('global-wechat-login')),
@@ -289,6 +329,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('global-wechat-login')), findsNothing);
       expect(find.byKey(const Key('code-login-send')), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('code-login-submit')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.byKey(const Key('code-login-submit')), findsOneWidget);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),

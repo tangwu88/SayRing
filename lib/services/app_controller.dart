@@ -534,6 +534,7 @@ class AppController extends ChangeNotifier {
     required String locale,
     required String consentVersion,
     required bool privacyConsentGranted,
+    bool ageConfirmed = false,
   }) async {
     if (isBusy ||
         !privacyConsentGranted ||
@@ -551,6 +552,7 @@ class AppController extends ChangeNotifier {
           code: code.trim(),
           consentVersion: consentVersion,
           locale: locale,
+          ageConfirmed: ageConfirmed,
         );
         await _prepareAuthenticatedNotificationSession(
           privacyConsentGranted: true,
@@ -1251,6 +1253,7 @@ class AppController extends ChangeNotifier {
     String? appId,
     String? consentVersion,
     String? locale,
+    bool ageConfirmed = false,
   }) async {
     if (isBusy || _disposed) return false;
     if (!privacyConsentGranted) {
@@ -1297,6 +1300,7 @@ class AppController extends ChangeNotifier {
           },
           consentVersion: consentVersion!.trim(),
           locale: locale!.trim(),
+          ageConfirmed: ageConfirmed,
         );
         if (!isCurrent()) return false;
         final binding = result.binding;
@@ -1388,6 +1392,7 @@ class AppController extends ChangeNotifier {
     required String code,
     required String consentVersion,
     required String locale,
+    bool ageConfirmed = false,
   }) async {
     if (isBusy || !RegExp(r'^\d{6}$').hasMatch(code.trim())) return false;
     return _guard(() async {
@@ -1401,6 +1406,7 @@ class AppController extends ChangeNotifier {
               code: code.trim(),
               consentVersion: consentVersion,
               locale: locale,
+              ageConfirmed: ageConfirmed,
             );
         await _vault.writeSession(authenticated);
         session = authenticated;

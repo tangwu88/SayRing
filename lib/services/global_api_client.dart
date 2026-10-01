@@ -37,6 +37,7 @@ abstract interface class GlobalCodeAuthApi {
     required String code,
     required String consentVersion,
     required String locale,
+    bool ageConfirmed = false,
   });
 }
 
@@ -61,6 +62,7 @@ abstract interface class GlobalWechatAuthApi {
     required String platform,
     required String consentVersion,
     required String locale,
+    bool ageConfirmed = false,
   });
   Future<VerificationChallenge> requestGlobalWechatPhoneCode({
     required GlobalWechatPhoneBinding binding,
@@ -74,6 +76,7 @@ abstract interface class GlobalWechatAuthApi {
     required String code,
     required String consentVersion,
     required String locale,
+    bool ageConfirmed = false,
   });
 }
 
@@ -826,7 +829,14 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String platform,
     required String consentVersion,
     required String locale,
+    bool ageConfirmed = false,
   }) async {
+    if (!ageConfirmed) {
+      throw const ApiException(
+        'Confirm that you are at least 14 years old.',
+        code: 'minimum_age_confirmation_required',
+      );
+    }
     final data = await _globalPublic('auth/wechat-login', {
       'code': code,
       'state': state,
@@ -835,6 +845,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
       'consentVersion': consentVersion,
       'locale': locale,
       'product': GlobalEnvironment.productId,
+      'ageConfirmed': true,
     });
     if (data['requiresPhoneBinding'] == true) {
       return GlobalWechatLoginResult.requiresPhone(
@@ -875,17 +886,27 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String code,
     required String consentVersion,
     required String locale,
-  }) async => _globalSession(
-    await _globalPublic('auth/wechat-bind-phone', {
-      'bindTicket': binding.ticket,
-      'challengeId': challenge.id,
-      'code': code,
-      'consentVersion': consentVersion,
-      'locale': locale,
-      'product': GlobalEnvironment.productId,
-      'wechatProfileProof': binding.profileProof,
-    }),
-  );
+    bool ageConfirmed = false,
+  }) async {
+    if (!ageConfirmed) {
+      throw const ApiException(
+        'Confirm that you are at least 14 years old.',
+        code: 'minimum_age_confirmation_required',
+      );
+    }
+    return _globalSession(
+      await _globalPublic('auth/wechat-bind-phone', {
+        'bindTicket': binding.ticket,
+        'challengeId': challenge.id,
+        'code': code,
+        'consentVersion': consentVersion,
+        'locale': locale,
+        'product': GlobalEnvironment.productId,
+        'ageConfirmed': true,
+        'wechatProfileProof': binding.profileProof,
+      }),
+    );
+  }
 
   @override
   Future<Map<String, Object?>> createShopOrder({
@@ -1535,7 +1556,14 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String code,
     required String consentVersion,
     required String locale,
+    bool ageConfirmed = false,
   }) async {
+    if (!ageConfirmed) {
+      throw const ApiException(
+        'Confirm that you are at least 14 years old.',
+        code: 'minimum_age_confirmation_required',
+      );
+    }
     final data = await _sharedCodeAuth(GlobalEnvironment.sharedCodeLoginPath, {
       ...identity.toJson(),
       'challengeId': challengeId,
@@ -1543,6 +1571,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
       'consentVersion': consentVersion,
       'locale': locale,
       'product': GlobalEnvironment.productId,
+      'ageConfirmed': true,
     });
     final user = data['user'];
     final id = user is Map ? user['id'] : null;

@@ -114,6 +114,7 @@ void main() {
               'consentVersion': 'reviewed-test-v1',
               'locale': 'zh-Hans',
               'product': 'say-ring',
+              'ageConfirmed': true,
             });
             return ok({
               'requiresPhoneBinding': true,
@@ -140,6 +141,7 @@ void main() {
           expect(body['code'], '123456');
           expect(body['wechatProfileProof'], 'signed-profile-proof');
           expect(body['product'], 'say-ring');
+          expect(body['ageConfirmed'], isTrue);
           return ok(sessionData('wechat-member'));
         }),
       );
@@ -149,6 +151,7 @@ void main() {
         platform: 'android',
         consentVersion: 'reviewed-test-v1',
         locale: 'zh-Hans',
+        ageConfirmed: true,
       );
       expect(result.session, isNull);
       final binding = result.binding!;
@@ -165,6 +168,7 @@ void main() {
         code: '123456',
         consentVersion: 'reviewed-test-v1',
         locale: 'zh-Hans',
+        ageConfirmed: true,
       );
       expect(session.memberId, 'wechat-member');
       expect(vault.session, isNull);
@@ -204,6 +208,7 @@ void main() {
         expect(body['challengeId'], 'synthetic-challenge');
         expect(body['code'], '123456');
         expect(body['consentVersion'], 'reviewed-test-v1');
+        expect(body['ageConfirmed'], isTrue);
         return http.Response(
           jsonEncode({
             'token': 'synthetic-access',
@@ -226,6 +231,7 @@ void main() {
       code: '123456',
       consentVersion: 'reviewed-test-v1',
       locale: 'en',
+      ageConfirmed: true,
     );
     expect(paths, [
       GlobalEnvironment.sharedCodeRequestPath,
@@ -261,10 +267,42 @@ void main() {
           code: '123456',
           consentVersion: 'reviewed-test-v1',
           locale: 'en',
+          ageConfirmed: true,
         ),
         throwsA(isA<ApiException>()),
       );
       expect(vault.session, isNull);
+    },
+  );
+
+  test(
+    'minimum-age confirmation is required before code login sends data',
+    () async {
+      var requests = 0;
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault(),
+        client: MockClient((_) async {
+          requests++;
+          return ok({});
+        }),
+      );
+      await expectLater(
+        api.loginWithCode(
+          identity: GlobalAccountIdentity.phone('13800138000', country: 'CN'),
+          challengeId: 'synthetic-challenge',
+          code: '123456',
+          consentVersion: 'reviewed-test-v1',
+          locale: 'zh-Hans',
+        ),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.code,
+            'code',
+            'minimum_age_confirmation_required',
+          ),
+        ),
+      );
+      expect(requests, 0);
     },
   );
 
