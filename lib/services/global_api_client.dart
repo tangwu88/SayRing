@@ -27,6 +27,12 @@ abstract interface class GlobalAccountApi {
 }
 
 abstract interface class GlobalCodeAuthApi {
+  Future<Session> loginWithEmailPassword({
+    required GlobalAccountIdentity identity,
+    required String password,
+    required String consentVersion,
+    required String locale,
+  });
   Future<VerificationChallenge> requestLoginCode({
     required GlobalAccountIdentity identity,
     required String locale,
@@ -1683,6 +1689,28 @@ class GlobalSaydianApiClient extends SaydianApiClient
       else
         'mobile': identity.identifier,
       'password': password,
+    });
+  }
+
+  @override
+  Future<Session> loginWithEmailPassword({
+    required GlobalAccountIdentity identity,
+    required String password,
+    required String consentVersion,
+    required String locale,
+  }) {
+    if (identity.channel != AccountChannel.email ||
+        password.isEmpty ||
+        consentVersion.trim().isEmpty) {
+      throw const ApiException('Invalid email login request');
+    }
+    return _globalAuthenticate('auth/login', {
+      ...identity.toJson(),
+      'password': password,
+      'product': GlobalEnvironment.productId,
+      'locale': locale,
+      'consentVersion': consentVersion,
+      'consentAccepted': true,
     });
   }
 

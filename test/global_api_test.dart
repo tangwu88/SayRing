@@ -544,6 +544,37 @@ void main() {
     });
   });
   group('global auth', () {
+    test('Say Ring email password sign-in sends product consent', () async {
+      final vault = MemorySessionVault();
+      final api = GlobalSaydianApiClient(
+        vault,
+        locale: () => 'zh-Hans',
+        client: MockClient((request) async {
+          expect(
+            request.url.toString(),
+            '${GlobalEnvironment.origin}${GlobalEnvironment.apiPrefix}/auth/login',
+          );
+          expect(jsonDecode(request.body), {
+            'channel': 'email',
+            'identifier': 'review@example.com',
+            'password': 'synthetic-password',
+            'product': 'say-ring',
+            'locale': 'zh-Hans',
+            'consentVersion': 'reviewed-ring-v1',
+            'consentAccepted': true,
+          });
+          return ok(sessionData());
+        }),
+      );
+      final result = await api.loginWithEmailPassword(
+        identity: GlobalAccountIdentity.email('Review@Example.com'),
+        password: 'synthetic-password',
+        consentVersion: 'reviewed-ring-v1',
+        locale: 'zh-Hans',
+      );
+      expect(result.accountKey, 'global:member:uuid-member-α');
+    });
+
     test(
       'login preserves opaque identifiers and does not use legacy credentials',
       () async {

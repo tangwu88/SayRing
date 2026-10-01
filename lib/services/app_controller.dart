@@ -519,6 +519,48 @@ class AppController extends ChangeNotifier {
   Future<GlobalAuthCapabilities> globalAuthCapabilities() =>
       (_api as GlobalAccountApi).getAuthCapabilities();
 
+  Future<bool> loginGlobalWithEmailPassword({
+    required GlobalAccountIdentity identity,
+    required String password,
+    required String consentVersion,
+    required String locale,
+    required bool privacyConsentGranted,
+  }) async {
+    if (isBusy ||
+        identity.channel != AccountChannel.email ||
+        password.isEmpty ||
+        consentVersion.trim().isEmpty ||
+        !privacyConsentGranted) {
+      return false;
+    }
+    return _guard(() async {
+      _accountTransitioning = true;
+      try {
+        await _drainCloudSync();
+        session = await (_api as GlobalCodeAuthApi).loginWithEmailPassword(
+          identity: identity,
+          password: password,
+          consentVersion: consentVersion,
+          locale: locale,
+        );
+        await _prepareAuthenticatedNotificationSession(
+          privacyConsentGranted: true,
+        );
+        isPreviewMode = false;
+        await refreshCare();
+        await refreshCareInvitations();
+        await _refreshRemoteNotificationUnreadCount();
+        await refreshMemberProfile();
+        await refreshActivityGoals();
+        unawaited(refreshHealthWarningCloudState());
+        _careInvitationPollBackoffIndex = 0;
+        _scheduleCareInvitationPoll(const Duration(seconds: 30));
+      } finally {
+        await _finishAccountTransition();
+      }
+    });
+  }
+
   Future<VerificationChallenge> requestGlobalLoginCode({
     required GlobalAccountIdentity identity,
     required String locale,

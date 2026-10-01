@@ -11,8 +11,8 @@ import '../services/app_controller.dart';
 import 'brand_assets.dart';
 import 'global_legal_page.dart';
 
-/// Say Ring shares the global H5 member and one-time-code sign-in contract.
-/// Registration/password UI is intentionally absent from this entry point.
+/// Say Ring shares the global member account. Phone sign-in uses a one-time
+/// code; an existing email account may also sign in with its password.
 class GlobalCodeLoginPage extends StatefulWidget {
   const GlobalCodeLoginPage({super.key, required this.controller});
 
@@ -25,7 +25,9 @@ class GlobalCodeLoginPage extends StatefulWidget {
 class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   final _contact = TextEditingController();
   final _code = TextEditingController();
+  final _password = TextEditingController();
   AccountChannel _channel = AccountChannel.sms;
+  bool _emailPasswordMode = false;
   GlobalAuthCapabilities? _capabilities;
   VerificationChallenge? _challenge;
   Timer? _timer;
@@ -92,6 +94,9 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     // Editing a contact never resets the server's resend cooldown.
   }
 
+  bool get _passwordMode =>
+      _channel == AccountChannel.email && _emailPasswordMode;
+
   String _errorFrom(Object error) {
     if (error is FormatException) return error.message;
     if (error is ApiException) {
@@ -108,6 +113,9 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
           error.code == 'NETWORK_UNAVAILABLE') {
         return 'network';
       }
+      if (error.code == 'invalid_credentials' || error.statusCode == 401) {
+        return 'login';
+      }
     }
     return 'service';
   }
@@ -120,6 +128,8 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     'rate' => l.tooManyAttempts,
     'network' => l.networkUnavailable,
     'consent' => l.consentRequired,
+    'password' => l.enterPassword,
+    'login' => l.loginFailed,
     'age' =>
       Localizations.localeOf(context).languageCode == 'zh'
           ? '请确认已满14周岁后继续'
@@ -248,7 +258,9 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
       setState(() => _error = _errorFrom(error));
       return;
     }
-    if (_capabilities?.permitsLogin(identity) != true) {
+    if (_passwordMode
+        ? _capabilities == null
+        : _capabilities?.permitsLogin(identity) != true) {
       setState(() => _error = 'service');
       return;
     }
@@ -260,13 +272,19 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
       setState(() => _error = 'age');
       return;
     }
-    if (_challenge == null || !RegExp(r'^\d{6}$').hasMatch(_code.text.trim())) {
-      setState(() => _error = 'code');
-      return;
-    }
     final consentVersion = _capabilities?.consentVersion?.trim();
     if (consentVersion == null || consentVersion.isEmpty) {
       setState(() => _error = 'service');
+      return;
+    }
+    if (_passwordMode) {
+      if (_password.text.isEmpty) {
+        setState(() => _error = 'password');
+        return;
+      }
+    } else if (_challenge == null ||
+        !RegExp(r'^\d{6}$').hasMatch(_code.text.trim())) {
+      setState(() => _error = 'code');
       return;
     }
     setState(() {
@@ -274,15 +292,23 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
       _error = null;
     });
     try {
-      final success = await widget.controller.loginGlobalWithCode(
-        identity: identity,
-        challenge: _challenge!,
-        code: _code.text,
-        locale: _locale,
-        consentVersion: consentVersion,
-        privacyConsentGranted: true,
-        ageConfirmed: true,
-      );
+      final success = _passwordMode
+          ? await widget.controller.loginGlobalWithEmailPassword(
+              identity: identity,
+              password: _password.text,
+              consentVersion: consentVersion,
+              locale: _locale,
+              privacyConsentGranted: true,
+            )
+          : await widget.controller.loginGlobalWithCode(
+              identity: identity,
+              challenge: _challenge!,
+              code: _code.text,
+              locale: _locale,
+              consentVersion: consentVersion,
+              privacyConsentGranted: true,
+              ageConfirmed: true,
+            );
       if (mounted && !success) {
         setState(
           () => _error = _errorFrom(
@@ -314,6 +340,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     _timer?.cancel();
     _contact.dispose();
     _code.dispose();
+    _password.dispose();
     super.dispose();
   }
 
@@ -349,7 +376,9 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                         ? null
                         : (_) => setState(() {
                             _channel = AccountChannel.sms;
+                            _emailPasswordMode = false;
                             _contact.clear();
+                            _password.clear();
                             _resetChallenge();
                           }),
                   ),
@@ -360,7 +389,9 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                         ? null
                         : (_) => setState(() {
                             _channel = AccountChannel.email;
+                            _emailPasswordMode = true;
                             _contact.clear();
+                            _password.clear();
                             _resetChallenge();
                           }),
                   ),
@@ -392,26 +423,59 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                 ),
                 onChanged: (_) => setState(_resetChallenge),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                key: const Key('code-login-code'),
-                controller: _code,
-                enabled: !_busy,
-                keyboardType: TextInputType.number,
-                autofillHints: const [AutofillHints.oneTimeCode],
-                decoration: InputDecoration(labelText: l.verificationCode),
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  key: const Key('code-login-send'),
-                  onPressed: _busy || _remaining > 0 ? null : _sendCode,
-                  child: Text(
-                    _remaining > 0 ? l.resendCode(_remaining) : l.sendCode,
+              if (_channel == AccountChannel.email &&
+                  (_capabilities?.loginEmail == true || !_passwordMode))
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    key: const Key('email-login-mode'),
+                    onPressed: _busy
+                        ? null
+                        : () => setState(() {
+                            _emailPasswordMode = !_emailPasswordMode;
+                            _password.clear();
+                            _resetChallenge();
+                          }),
+                    child: Text(
+                      Localizations.localeOf(context).languageCode == 'zh'
+                          ? (_passwordMode ? '使用邮箱验证码登录' : '使用邮箱密码登录')
+                          : (_passwordMode
+                                ? 'Use an email code instead'
+                                : 'Use an email password instead'),
+                    ),
                   ),
                 ),
-              ),
-              if (_challenge != null)
+              const SizedBox(height: 12),
+              if (_passwordMode)
+                TextField(
+                  key: const Key('email-login-password'),
+                  controller: _password,
+                  enabled: !_busy,
+                  obscureText: true,
+                  autofillHints: const [AutofillHints.password],
+                  decoration: InputDecoration(labelText: l.password),
+                )
+              else ...[
+                TextField(
+                  key: const Key('code-login-code'),
+                  controller: _code,
+                  enabled: !_busy,
+                  keyboardType: TextInputType.number,
+                  autofillHints: const [AutofillHints.oneTimeCode],
+                  decoration: InputDecoration(labelText: l.verificationCode),
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    key: const Key('code-login-send'),
+                    onPressed: _busy || _remaining > 0 ? null : _sendCode,
+                    child: Text(
+                      _remaining > 0 ? l.resendCode(_remaining) : l.sendCode,
+                    ),
+                  ),
+                ),
+              ],
+              if (!_passwordMode && _challenge != null)
                 Text(l.verificationSentTo(_challenge!.maskedIdentifier)),
               CheckboxListTile(
                 key: const Key('code-login-minimum-age'),

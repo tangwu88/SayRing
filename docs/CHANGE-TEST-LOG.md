@@ -12,6 +12,7 @@
 
 ## 最近记录
 
+- [2026-10-01 Say Ring 邮箱登录修复](SAY-RING-EMAIL-LOGIN-20261001.md) — iOS 邮箱密码入口、专用产品同意请求与回归；生产服务专属契约和真实账号仍为独立门禁。
 - [2026-10-01 Say Ring 头像本地存储上线与待验边界](SAY-RING-AVATAR-LOCAL-20261001.md) — 仅 Say Ring 专用接口，国际 API 新 revision、私有卷、每日备份与一次恢复演练通过，写入开关已开启；真实账号上传及重启回读仍待验。
 - [2026-10-01 Say Ring App Store 拒审整改](SAY-RING-APP-STORE-REVIEW-20261001.md) — 复核 Apple 2.1 信息请求；首发地区仅中国大陆。1016 iPhone-only Apple Distribution 归档已验签、上传、后台验证并改绑版本草稿，尚未重提审核；iPhone 15 Pro Max 开发签名覆盖安装启动、Flutter 全量 1029 项通过，后台年龄分级回读 16+。Android 后续再测；线上专属协议、准确隐私标签、真机录屏及审核访问仍阻断，详见正文。
 - [2026-10-01 自动重连、企业微信客服与睡眠时间轴](SAY-RING-RECOVERY-SLEEP-SUPPORT-20261001.md) — 账号/环境精确绑定恢复、真实睡眠明细本机加密保存、企业微信入口；实施、构建和真机结果逐次追加，不变更现有 App Store 审核。

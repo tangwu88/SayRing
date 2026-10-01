@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/global_account.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
+import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/ui/brand_assets.dart';
 import 'package:saydian_app/ui/global_code_login_page.dart';
@@ -10,6 +11,31 @@ class CodeLoginController extends Fake implements AppController {
   GlobalAccountIdentity? requested;
   GlobalAccountIdentity? signedIn;
   bool enteredDemo = false;
+  String? passwordLoginEmail;
+  String? passwordLoginPassword;
+  bool passwordLoginConsent = false;
+  bool passwordLoginResult = true;
+
+  @override
+  ApiException? get lastApiError => passwordLoginResult
+      ? null
+      : const ApiException('Invalid credentials', statusCode: 401);
+
+  @override
+  Future<bool> loginGlobalWithEmailPassword({
+    required GlobalAccountIdentity identity,
+    required String password,
+    required String consentVersion,
+    required String locale,
+    required bool privacyConsentGranted,
+  }) async {
+    expect(identity.channel, AccountChannel.email);
+    expect(consentVersion, 'reviewed-test-v1');
+    passwordLoginEmail = identity.identifier;
+    passwordLoginPassword = password;
+    passwordLoginConsent = privacyConsentGranted;
+    return passwordLoginResult;
+  }
 
   @override
   void enterPreview() => enteredDemo = true;
@@ -141,6 +167,141 @@ class WechatCodeLoginController extends CodeLoginController {
 }
 
 void main() {
+  testWidgets('email password requires age and consent before sign-in', (
+    tester,
+  ) async {
+    final controller = CodeLoginController();
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: GlobalCodeLoginPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('邮箱'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('email-login-password')), findsOneWidget);
+    expect(find.byKey(const Key('code-login-send')), findsNothing);
+    await tester.enterText(
+      find.byKey(const Key('code-login-contact')),
+      'TEST@Example.com',
+    );
+    await tester.enterText(
+      find.byKey(const Key('email-login-password')),
+      'synthetic-password',
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('code-login-submit')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('code-login-submit')));
+    await tester.pump();
+    expect(controller.passwordLoginEmail, isNull);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('code-login-minimum-age')),
+      -250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('code-login-minimum-age')),
+        matching: find.byType(Checkbox),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('code-login-submit')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('code-login-submit')));
+    await tester.pump();
+    expect(controller.passwordLoginEmail, isNull);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('code-login-consent')),
+      -250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('code-login-consent')),
+        matching: find.byType(Checkbox),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('code-login-submit')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('code-login-submit')));
+    await tester.pumpAndSettle();
+    expect(controller.passwordLoginEmail, 'test@example.com');
+    expect(controller.passwordLoginPassword, 'synthetic-password');
+    expect(controller.passwordLoginConsent, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('invalid email credentials show a generic sign-in failure', (
+    tester,
+  ) async {
+    final controller = CodeLoginController()..passwordLoginResult = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: GlobalCodeLoginPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Email'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('code-login-contact')),
+      'test@example.com',
+    );
+    await tester.enterText(
+      find.byKey(const Key('email-login-password')),
+      'synthetic-password',
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('code-login-minimum-age')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('code-login-minimum-age')),
+        matching: find.byType(Checkbox),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('code-login-consent')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('code-login-consent')),
+        matching: find.byType(Checkbox),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('code-login-submit')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('code-login-submit')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Could not sign in. Please check your details and try again.'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('phone code login is default and has no registration/password', (
     tester,
   ) async {
