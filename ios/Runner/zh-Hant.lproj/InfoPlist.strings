@@ -1,5 +1,7 @@
 "CFBundleDisplayName" = "Say Ring";
 "NSBluetoothAlwaysUsageDescription" = "連接戒指並同步您主動授權的健康資料。";
+"NSAppleMusicUsageDescription" = "整合的裝置 SDK 可能宣告 Apple Music 存取。本版本不提供 Apple Music 功能，您可拒絕授權。";
+"NSSpeechRecognitionUsageDescription" = "整合的裝置 SDK 可能宣告語音辨識存取。本版本不提供語音功能，您可拒絕授權。";
 "NSCameraUsageDescription" = "僅在您選擇使用相容戒指拍照時使用相機。";
 "NSLocationWhenInUseUsageDescription" = "僅為支援的健康和運動功能使用您的位置。";
 "NSPhotoLibraryUsageDescription" = "從相簿中選擇頭像。";

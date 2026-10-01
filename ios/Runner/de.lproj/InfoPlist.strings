@@ -1,5 +1,7 @@
 "CFBundleDisplayName" = "Say Ring";
 "NSBluetoothAlwaysUsageDescription" = "Verbinden Sie Ihren Ring und synchronisieren Sie freigegebene Gesundheitsdaten.";
+"NSAppleMusicUsageDescription" = "Ein integriertes Geräte-SDK kann Apple-Music-Zugriff deklarieren. Diese Version bietet keine Apple-Music-Funktionen und Sie können den Zugriff ablehnen.";
+"NSSpeechRecognitionUsageDescription" = "Ein integriertes Geräte-SDK kann Sprachzugriff deklarieren. Diese Version bietet keine Sprachfunktionen und Sie können den Zugriff ablehnen.";
 "NSCameraUsageDescription" = "Verwenden Sie die Kamera nur, wenn Sie mit einem kompatiblen Ring ein Foto aufnehmen möchten.";
 "NSLocationWhenInUseUsageDescription" = "Verwenden Sie Ihren Standort für unterstützte Gesundheits- und Aktivitätsfunktionen.";
 "NSPhotoLibraryUsageDescription" = "Wählen Sie ein Profilfoto aus Ihrer Mediathek.";

@@ -206,3 +206,9 @@
 - 修改：iOS 全球版改为独立的本机使用入口。该入口只显示戒指本机使用、14 周岁确认和公开《用户协议》《隐私政策》链接；不显示手机号、邮箱、微信、体验模式或商城入口。用户勾选后即可进入真实设备页，不创建账户、不读取账户能力、不启用已有账户会话、资料读取、云同步、AI 内容或第三方推送。
 - 数据与兼容边界：已有安全存储中的账户记录不删除，但 iOS 本机版不会激活它们。健康、活动、睡眠和蓝牙连接数据继续使用本机加密存储；本次不改 QRing SDK、测量算法、自动重连、睡眠时间轴、Android 或鸿蒙。公开静态政策页由服务端主线提交 `792a973` 提供，线上 HTTP 回读待其 CI/部署完成。
 - 验证：新增本机入口 Widget 用例，覆盖无账户能力请求、14+ 与协议门槛、没有账号控件和成功进入本机模式。`flutter test --no-pub test/global_code_login_page_test.dart test/ui_shell_test.dart` 76/76 通过，`flutter analyze --no-pub` 零问题；随后 `TZ=Asia/Shanghai flutter test --no-pub --concurrency=2 --reporter compact` **1034/1034 通过**。本节仅记录代码回归；1018 的 Release 归档、真机覆盖安装、R21 握手和 App Store Connect 处理结果仍待执行。
+
+## 1019 iOS 审核静态声明收口
+
+- 问题与处理：1018 的本机入口已隐藏微信和商城，但发布 Plist 仍保留微信、支付宝的 URL 回调和查询声明，容易让审核静态检查将未开放能力误判为首发功能。1019 移除了这些未启用声明；不改戒指蓝牙连接、健康数据本机加密存储或关联域名。
+- 同时，发布门禁发现闭源设备 SDK 的声明要求 Apple Music 与语音识别用途文案。主 Plist 与八种本地化文案均明确：这是集成设备 SDK 的声明，本版本不提供对应功能，用户可拒绝授权。没有新增背景模式或运行时功能入口。
+- 验证：`plutil -lint`、`python3 scripts/release/test_release_gate.py`（30/30）和 76 项本机入口/壳层回归均通过，`git diff --check` 无错误。串行归档 `1.0 (1019)` 已生成；归档实物为 `cn.saydian.ring`、`UIDeviceFamily=[1]`、Apple Distribution 团队 `W7SXQ4A226`、`get-task-allow=false`，严格签名校验通过，且不含微信/支付宝 URL 或查询声明。Runner SHA-256 为 `4b87bd9d00a79295eb227c37f330be3757b8036ac98655c2e37e83870df727f3`。真机覆盖安装、上传处理和审核提交仍分别记录，不以本条替代。
