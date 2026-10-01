@@ -1,10 +1,7 @@
 "CFBundleDisplayName" = "Say Ring";
-"NSAppleMusicUsageDescription" = "組み込みのデバイス SDK には音楽ライブラリのインターフェースが含まれます。このバージョンでは音楽ライブラリ機能を提供していないため、アクセスを拒否できます。";
-"NSSpeechRecognitionUsageDescription" = "組み込みのデバイス SDK には音声認識のインターフェースが含まれます。このバージョンでは音声認識機能を提供していないため、アクセスを拒否できます。";
 "NSBluetoothAlwaysUsageDescription" = "リングに接続し、共有を許可した健康データを同期します。";
-"NSCameraUsageDescription" = "プロフィール写真を撮影するときだけカメラを使用します。";
-"NSContactsUsageDescription" = "対応するデバイス機能に必要な場合だけ連絡先にアクセスします。";
+"NSCameraUsageDescription" = "対応リングで写真を撮影することを選択した場合にのみカメラを使用します。";
 "NSLocationWhenInUseUsageDescription" = "対応する健康・運動機能のために位置情報を使用します。";
 "NSPhotoLibraryUsageDescription" = "写真ライブラリからプロフィール写真を選択します。";
-"NSPhotoLibraryAddUsageDescription" = "撮影を選択した場合だけ写真を保存します。";
+"NSPhotoLibraryAddUsageDescription" = "対応リングで撮影することを選択した写真のみを保存します。";
 "NSBluetoothPeripheralUsageDescription" = "リングに接続し、共有を許可した健康データを同期します。";

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../domain/global_account.dart';
 import '../l10n/generated/app_localizations.dart';
@@ -50,7 +51,11 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     final locale = Localizations.localeOf(context).toLanguageTag();
     if (locale != _locale) {
       _locale = locale;
-      unawaited(_loadCapabilities());
+      // The iPhone release is deliberately account-free. Do not contact the
+      // account service merely to show its local companion entry point.
+      if (!widget.controller.supportsLocalOnlyUse) {
+        unawaited(_loadCapabilities());
+      }
     }
   }
 
@@ -323,6 +328,29 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     }
   }
 
+  Future<void> _enterLocalMode() async {
+    if (_busy) return;
+    if (!_ageConfirmed) {
+      setState(() => _error = 'age');
+      return;
+    }
+    if (!_accepted) {
+      setState(() => _error = 'consent');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.controller.enterLocalMode();
+    } catch (_) {
+      if (mounted) setState(() => _error = 'service');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _openLegal(GlobalLegalDocumentType document) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -332,6 +360,114 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     );
     if (mounted) await _loadCapabilities();
   }
+
+  Future<void> _openLocalLegal(String path) async {
+    final opened = await launchUrl(
+      Uri.parse('https://app.saydian.cn$path'),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!opened && mounted) {
+      setState(() => _error = 'service');
+    }
+  }
+
+  Widget _localAgreementCheckbox({
+    required Key key,
+    required bool value,
+    required ValueChanged<bool?> onChanged,
+    required String title,
+  }) => CheckboxListTile(
+    key: key,
+    contentPadding: EdgeInsets.zero,
+    controlAffinity: ListTileControlAffinity.leading,
+    value: value,
+    onChanged: _busy ? null : onChanged,
+    title: Text(title, style: const TextStyle(fontSize: 13, height: 1.4)),
+  );
+
+  Widget _buildLocalOnlyUse(BuildContext context) => Scaffold(
+    key: const Key('global-code-login-page'),
+    appBar: AppBar(),
+    body: SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              const Center(child: SaydianBrandLockup(color: Colors.black)),
+              const SizedBox(height: 28),
+              const Text(
+                '连接智能戒指，查看本机数据',
+                style: TextStyle(fontSize: 25, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                '无需注册或登录。健康、活动和睡眠记录仅保存在这台 iPhone，不上传到云端。',
+                style: TextStyle(fontSize: 15, height: 1.55),
+              ),
+              const SizedBox(height: 24),
+              _localAgreementCheckbox(
+                key: const Key('local-ring-minimum-age'),
+                value: _ageConfirmed,
+                onChanged: (value) =>
+                    setState(() => _ageConfirmed = value == true),
+                title: '我确认已满14周岁',
+              ),
+              _localAgreementCheckbox(
+                key: const Key('local-ring-consent'),
+                value: _accepted,
+                onChanged: (value) => setState(() => _accepted = value == true),
+                title: '我已阅读并同意《用户协议》和《隐私政策》',
+              ),
+              Wrap(
+                children: [
+                  TextButton(
+                    key: const Key('local-ring-terms'),
+                    onPressed: _busy
+                        ? null
+                        : () => _openLocalLegal('/say-ring/terms'),
+                    child: const Text('用户协议'),
+                  ),
+                  TextButton(
+                    key: const Key('local-ring-privacy'),
+                    onPressed: _busy
+                        ? null
+                        : () => _openLocalLegal('/say-ring/privacy'),
+                    child: const Text('隐私政策'),
+                  ),
+                ],
+              ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    _errorText(),
+                    key: const Key('local-ring-error'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                key: const Key('local-ring-use-entry'),
+                onPressed: _busy ? null : _enterLocalMode,
+                icon: const Icon(Icons.watch_outlined),
+                label: Text(_busy ? l.pleaseWait : '开始连接戒指'),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                '健康数据仅供个人健康管理参考，不用于医疗诊断或治疗。',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, height: 1.45),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 
   @override
   void dispose() {
@@ -345,229 +481,281 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    key: const Key('global-code-login-page'),
-    appBar: AppBar(),
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: ListView(
-            padding: const EdgeInsets.all(24),
-            children: [
-              const Center(child: SaydianBrandLockup(color: Colors.black)),
-              const SizedBox(height: 28),
-              Text(l.signIn, style: Theme.of(context).textTheme.headlineMedium),
-              const SizedBox(height: 20),
-              if (_loading) const LinearProgressIndicator(),
-              if (_capabilities == null && !_loading)
-                TextButton.icon(
-                  onPressed: _loadCapabilities,
-                  icon: const Icon(Icons.refresh),
-                  label: Text(l.retry),
-                ),
-              Wrap(
-                spacing: 8,
-                children: [
-                  ChoiceChip(
-                    label: Text(l.phoneNumber),
-                    selected: _channel == AccountChannel.sms,
-                    onSelected: _busy
-                        ? null
-                        : (_) => setState(() {
-                            _channel = AccountChannel.sms;
-                            _emailPasswordMode = false;
-                            _contact.clear();
-                            _password.clear();
-                            _resetChallenge();
-                          }),
-                  ),
-                  ChoiceChip(
-                    label: Text(l.email),
-                    selected: _channel == AccountChannel.email,
-                    onSelected: _busy
-                        ? null
-                        : (_) => setState(() {
-                            _channel = AccountChannel.email;
-                            _emailPasswordMode = true;
-                            _contact.clear();
-                            _password.clear();
-                            _resetChallenge();
-                          }),
-                  ),
-                ],
-              ),
-              TextField(
-                key: const Key('code-login-contact'),
-                controller: _contact,
-                enabled: !_busy,
-                keyboardType: _channel == AccountChannel.sms
-                    ? TextInputType.phone
-                    : TextInputType.emailAddress,
-                autofillHints: [
-                  _channel == AccountChannel.sms
-                      ? AutofillHints.telephoneNumber
-                      : AutofillHints.email,
-                ],
-                inputFormatters: _channel == AccountChannel.sms
-                    ? [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(11),
-                      ]
-                    : null,
-                decoration: InputDecoration(
-                  labelText: _channel == AccountChannel.sms
-                      ? l.phoneNumber
-                      : l.email,
-                  hintText: _channel == AccountChannel.sms ? '请输入11位手机号' : null,
-                ),
-                onChanged: (_) => setState(_resetChallenge),
-              ),
-              if (_channel == AccountChannel.email &&
-                  (_capabilities?.loginEmail == true || !_passwordMode))
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    key: const Key('email-login-mode'),
-                    onPressed: _busy
-                        ? null
-                        : () => setState(() {
-                            _emailPasswordMode = !_emailPasswordMode;
-                            _password.clear();
-                            _resetChallenge();
-                          }),
-                    child: Text(
-                      Localizations.localeOf(context).languageCode == 'zh'
-                          ? (_passwordMode ? '使用邮箱验证码登录' : '使用邮箱密码登录')
-                          : (_passwordMode
-                                ? 'Use an email code instead'
-                                : 'Use an email password instead'),
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 12),
-              if (_passwordMode)
-                TextField(
-                  key: const Key('email-login-password'),
-                  controller: _password,
-                  enabled: !_busy,
-                  obscureText: true,
-                  autofillHints: const [AutofillHints.password],
-                  decoration: InputDecoration(labelText: l.password),
-                )
-              else ...[
-                TextField(
-                  key: const Key('code-login-code'),
-                  controller: _code,
-                  enabled: !_busy,
-                  keyboardType: TextInputType.number,
-                  autofillHints: const [AutofillHints.oneTimeCode],
-                  decoration: InputDecoration(labelText: l.verificationCode),
-                ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    key: const Key('code-login-send'),
-                    onPressed: _busy || _remaining > 0 ? null : _sendCode,
-                    child: Text(
-                      _remaining > 0 ? l.resendCode(_remaining) : l.sendCode,
-                    ),
-                  ),
-                ),
-              ],
-              if (!_passwordMode && _challenge != null)
-                Text(l.verificationSentTo(_challenge!.maskedIdentifier)),
-              CheckboxListTile(
-                key: const Key('code-login-minimum-age'),
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                value: _ageConfirmed,
-                onChanged: _busy
-                    ? null
-                    : (value) => setState(() => _ageConfirmed = value == true),
-                title: Text(
-                  Localizations.localeOf(context).languageCode == 'zh'
-                      ? '我确认已满14周岁'
-                      : 'I confirm that I am at least 14 years old.',
-                  style: const TextStyle(fontSize: 12, height: 1.4),
-                ),
-              ),
-              CheckboxListTile(
-                key: const Key('code-login-consent'),
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                value: _accepted,
-                onChanged:
-                    _busy ||
-                        !(_capabilities?.consentVersion?.trim().isNotEmpty ??
-                            false)
-                    ? null
-                    : (value) => setState(() => _accepted = value == true),
-                title: Text(
-                  l.agreeToTerms,
-                  style: const TextStyle(fontSize: 12, height: 1.4),
-                ),
-              ),
-              Wrap(
-                children: [
-                  TextButton(
-                    onPressed: () =>
-                        _openLegal(GlobalLegalDocumentType.userAgreement),
-                    child: Text(l.termsOfService),
-                  ),
-                  TextButton(
-                    onPressed: () =>
-                        _openLegal(GlobalLegalDocumentType.privacyPolicy),
-                    child: Text(l.privacyPolicy),
-                  ),
-                ],
-              ),
-              if (_error != null)
+  Widget build(BuildContext context) {
+    if (widget.controller.supportsLocalOnlyUse) {
+      return _buildLocalOnlyUse(context);
+    }
+    return Scaffold(
+      key: const Key('global-code-login-page'),
+      appBar: AppBar(),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: ListView(
+              padding: const EdgeInsets.all(24),
+              children: [
+                const Center(child: SaydianBrandLockup(color: Colors.black)),
+                const SizedBox(height: 28),
                 Text(
-                  _errorText(),
-                  key: const Key('code-login-error'),
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  l.signIn,
+                  style: Theme.of(context).textTheme.headlineMedium,
                 ),
-              const SizedBox(height: 12),
-              FilledButton(
-                key: const Key('code-login-submit'),
-                onPressed: _busy ? null : _submit,
-                child: Text(_busy ? l.pleaseWait : l.signIn),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                key: const Key('review-demo-entry'),
-                onPressed: _busy ? null : widget.controller.enterPreview,
-                icon: const Icon(Icons.visibility_outlined),
-                label: const Text('无需手机号，查看只读演示'),
-              ),
-              const Padding(
-                padding: EdgeInsets.only(top: 6),
-                child: Text(
-                  '演示内容均为本机示例数据，不会连接戒指或保存资料。',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12),
-                ),
-              ),
-              if (_capabilities?.wechatApp.enabled == true &&
-                  (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS)) ...[
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  key: const Key('global-wechat-login'),
-                  onPressed: _busy ? null : _wechatLogin,
-                  icon: const Icon(
-                    Icons.wechat_rounded,
-                    color: Color(0xFF07C160),
+                const SizedBox(height: 20),
+                if (_loading) const LinearProgressIndicator(),
+                if (_capabilities == null && !_loading)
+                  TextButton.icon(
+                    onPressed: _loadCapabilities,
+                    icon: const Icon(Icons.refresh),
+                    label: Text(l.retry),
                   ),
-                  label: const Text('微信授权登录'),
+                if (widget.controller.supportsLocalOnlyUse) ...[
+                  Card(
+                    key: const Key('local-ring-use-card'),
+                    color: const Color(0xFFF3F7FF),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '无需账号，先连接戒指',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            '健康和睡眠数据仅保存在本机。登录仅用于后续同步与账号服务。',
+                            style: TextStyle(fontSize: 13, height: 1.4),
+                          ),
+                          const SizedBox(height: 12),
+                          FilledButton.icon(
+                            key: const Key('local-ring-use-entry'),
+                            onPressed: _busy ? null : _enterLocalMode,
+                            icon: const Icon(Icons.watch_outlined),
+                            label: Text(_busy ? l.pleaseWait : '开始本机使用'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    '已有账号可登录同步',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    ChoiceChip(
+                      label: Text(l.phoneNumber),
+                      selected: _channel == AccountChannel.sms,
+                      onSelected: _busy
+                          ? null
+                          : (_) => setState(() {
+                              _channel = AccountChannel.sms;
+                              _emailPasswordMode = false;
+                              _contact.clear();
+                              _password.clear();
+                              _resetChallenge();
+                            }),
+                    ),
+                    ChoiceChip(
+                      label: Text(l.email),
+                      selected: _channel == AccountChannel.email,
+                      onSelected: _busy
+                          ? null
+                          : (_) => setState(() {
+                              _channel = AccountChannel.email;
+                              _emailPasswordMode = true;
+                              _contact.clear();
+                              _password.clear();
+                              _resetChallenge();
+                            }),
+                    ),
+                  ],
                 ),
+                TextField(
+                  key: const Key('code-login-contact'),
+                  controller: _contact,
+                  enabled: !_busy,
+                  keyboardType: _channel == AccountChannel.sms
+                      ? TextInputType.phone
+                      : TextInputType.emailAddress,
+                  autofillHints: [
+                    _channel == AccountChannel.sms
+                        ? AutofillHints.telephoneNumber
+                        : AutofillHints.email,
+                  ],
+                  inputFormatters: _channel == AccountChannel.sms
+                      ? [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(11),
+                        ]
+                      : null,
+                  decoration: InputDecoration(
+                    labelText: _channel == AccountChannel.sms
+                        ? l.phoneNumber
+                        : l.email,
+                    hintText: _channel == AccountChannel.sms
+                        ? '请输入11位手机号'
+                        : null,
+                  ),
+                  onChanged: (_) => setState(_resetChallenge),
+                ),
+                if (_channel == AccountChannel.email &&
+                    (_capabilities?.loginEmail == true || !_passwordMode))
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      key: const Key('email-login-mode'),
+                      onPressed: _busy
+                          ? null
+                          : () => setState(() {
+                              _emailPasswordMode = !_emailPasswordMode;
+                              _password.clear();
+                              _resetChallenge();
+                            }),
+                      child: Text(
+                        Localizations.localeOf(context).languageCode == 'zh'
+                            ? (_passwordMode ? '使用邮箱验证码登录' : '使用邮箱密码登录')
+                            : (_passwordMode
+                                  ? 'Use an email code instead'
+                                  : 'Use an email password instead'),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                if (_passwordMode)
+                  TextField(
+                    key: const Key('email-login-password'),
+                    controller: _password,
+                    enabled: !_busy,
+                    obscureText: true,
+                    autofillHints: const [AutofillHints.password],
+                    decoration: InputDecoration(labelText: l.password),
+                  )
+                else ...[
+                  TextField(
+                    key: const Key('code-login-code'),
+                    controller: _code,
+                    enabled: !_busy,
+                    keyboardType: TextInputType.number,
+                    autofillHints: const [AutofillHints.oneTimeCode],
+                    decoration: InputDecoration(labelText: l.verificationCode),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      key: const Key('code-login-send'),
+                      onPressed: _busy || _remaining > 0 ? null : _sendCode,
+                      child: Text(
+                        _remaining > 0 ? l.resendCode(_remaining) : l.sendCode,
+                      ),
+                    ),
+                  ),
+                ],
+                if (!_passwordMode && _challenge != null)
+                  Text(l.verificationSentTo(_challenge!.maskedIdentifier)),
+                CheckboxListTile(
+                  key: const Key('code-login-minimum-age'),
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  value: _ageConfirmed,
+                  onChanged: _busy
+                      ? null
+                      : (value) =>
+                            setState(() => _ageConfirmed = value == true),
+                  title: Text(
+                    Localizations.localeOf(context).languageCode == 'zh'
+                        ? '我确认已满14周岁'
+                        : 'I confirm that I am at least 14 years old.',
+                    style: const TextStyle(fontSize: 12, height: 1.4),
+                  ),
+                ),
+                CheckboxListTile(
+                  key: const Key('code-login-consent'),
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  value: _accepted,
+                  onChanged:
+                      _busy ||
+                          !(_capabilities?.consentVersion?.trim().isNotEmpty ??
+                              false)
+                      ? null
+                      : (value) => setState(() => _accepted = value == true),
+                  title: Text(
+                    l.agreeToTerms,
+                    style: const TextStyle(fontSize: 12, height: 1.4),
+                  ),
+                ),
+                Wrap(
+                  children: [
+                    TextButton(
+                      onPressed: () =>
+                          _openLegal(GlobalLegalDocumentType.userAgreement),
+                      child: Text(l.termsOfService),
+                    ),
+                    TextButton(
+                      onPressed: () =>
+                          _openLegal(GlobalLegalDocumentType.privacyPolicy),
+                      child: Text(l.privacyPolicy),
+                    ),
+                  ],
+                ),
+                if (_error != null)
+                  Text(
+                    _errorText(),
+                    key: const Key('code-login-error'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  key: const Key('code-login-submit'),
+                  onPressed: _busy ? null : _submit,
+                  child: Text(_busy ? l.pleaseWait : l.signIn),
+                ),
+                if (!widget.controller.supportsLocalOnlyUse) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    key: const Key('review-demo-entry'),
+                    onPressed: _busy ? null : widget.controller.enterPreview,
+                    icon: const Icon(Icons.visibility_outlined),
+                    label: const Text('无需手机号，查看只读演示'),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text(
+                      '演示内容均为本机示例数据，不会连接戒指或保存资料。',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
+                if (_capabilities?.wechatApp.enabled == true &&
+                    (kIsWeb ||
+                        defaultTargetPlatform != TargetPlatform.iOS)) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    key: const Key('global-wechat-login'),
+                    onPressed: _busy ? null : _wechatLogin,
+                    icon: const Icon(
+                      Icons.wechat_rounded,
+                      color: Color(0xFF07C160),
+                    ),
+                    label: const Text('微信授权登录'),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class GlobalWechatPhoneBindingPage extends StatefulWidget {

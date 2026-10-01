@@ -25,6 +25,7 @@ import 'app_theme.dart';
 import 'ai_content_gate.dart';
 import 'brand_assets.dart';
 import 'global_auth_page.dart';
+import 'global_code_login_page.dart';
 import 'global_legal_page.dart';
 import 'global_care_page.dart';
 import 'health_reports_page.dart';
@@ -8801,6 +8802,63 @@ class SettingsPage extends StatelessWidget {
       key: const Key('my-page'),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
+        if (controller.isLocalMode) ...[
+          Material(
+            key: const Key('local-mode-login-prompt'),
+            color: SaydianColors.techBlueSoft,
+            borderRadius: BorderRadius.circular(18),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(18),
+              onTap: () => _openPage(
+                context,
+                GlobalCodeLoginPage(controller: controller),
+              ),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.phone_iphone_outlined,
+                      color: SaydianColors.techBlue,
+                    ),
+                    SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '当前为本机使用',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            '戒指数据只保存在本机；登录后可使用账号同步服务。',
+                            style: TextStyle(
+                              color: SaydianColors.muted,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Text(
+                      '登录同步',
+                      style: TextStyle(
+                        color: SaydianColors.techBlue,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: SaydianColors.techBlue,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         if (controller.isPreviewMode) ...[
           Material(
             key: const Key('preview-login-prompt'),
@@ -8858,8 +8916,12 @@ class SettingsPage extends StatelessWidget {
           const SizedBox(height: 12),
         ],
         GestureDetector(
-          onTap: () =>
-              _openPage(context, ProfileEditPage(controller: controller)),
+          onTap: () => _openPage(
+            context,
+            controller.isLocalMode
+                ? GlobalCodeLoginPage(controller: controller)
+                : ProfileEditPage(controller: controller),
+          ),
           child: Container(
             key: const Key('profile-header-card'),
             padding: const EdgeInsets.all(20),
@@ -9152,6 +9214,7 @@ String _memberDisplayName(BuildContext context, AppController controller) {
   if (nickname.isNotEmpty) return nickname;
   final sessionName = controller.session?.displayName.trim() ?? '';
   if (sessionName.isNotEmpty) return sessionName;
+  if (controller.isLocalMode) return '本机使用';
   return controller.isPreviewMode ? '体验用户' : context.l10n.defaultUser;
 }
 
@@ -10821,6 +10884,54 @@ class AccountSettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (controller.isLocalMode) {
+      return Scaffold(
+        appBar: AppBar(title: Text(context.l10n.accountSettings)),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('本机使用', style: TextStyle(fontWeight: FontWeight.w800)),
+                    SizedBox(height: 8),
+                    Text('戒指连接、测量和睡眠明细可在本机使用；账号同步、资料和关爱功能需登录后开启。'),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              key: const Key('local-mode-sign-in'),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => GlobalCodeLoginPage(controller: controller),
+                ),
+              ),
+              icon: const Icon(Icons.login_rounded),
+              label: const Text('登录同步'),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => GlobalLegalPage(
+                    controller: controller,
+                    document: GlobalLegalDocumentType.privacyPolicy,
+                  ),
+                ),
+              ),
+              leading: const Icon(Icons.privacy_tip_outlined),
+              title: Text(context.l10n.privacyAgreement),
+              trailing: const Icon(Icons.chevron_right_rounded),
+            ),
+          ],
+        ),
+      );
+    }
     return Scaffold(
       appBar: AppBar(title: Text(context.l10n.accountSettings)),
       body: ListView(
@@ -11253,6 +11364,40 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.controller.isLocalMode) {
+      return Scaffold(
+        appBar: AppBar(title: Text(context.l10n.personalInfo)),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.lock_outline_rounded, size: 42),
+                const SizedBox(height: 14),
+                const Text(
+                  '本机使用不上传头像或个人资料。',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                const Text('登录后才可编辑和同步个人资料。', textAlign: TextAlign.center),
+                const SizedBox(height: 18),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pushReplacement(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          GlobalCodeLoginPage(controller: widget.controller),
+                    ),
+                  ),
+                  child: const Text('登录同步'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
     return Scaffold(
       appBar: AppBar(title: Text(context.l10n.personalInfo)),
       body: ListView(
@@ -11455,7 +11600,6 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
           Permission.notification,
           Permission.photos,
           Permission.camera,
-          Permission.contacts,
         ];
 
   @override

@@ -656,7 +656,9 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
               if (controller.isBooting) {
                 return const _BootPage();
               }
-              if (!controller.isAuthenticated && !controller.isPreviewMode) {
+              if (!controller.isAuthenticated &&
+                  !controller.isPreviewMode &&
+                  !controller.isLocalMode) {
                 return controller.isGlobalEdition
                     ? GlobalCodeLoginPage(controller: controller)
                     : LoginPage(controller: controller);

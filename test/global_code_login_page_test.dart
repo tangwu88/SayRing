@@ -15,6 +15,12 @@ class CodeLoginController extends Fake implements AppController {
   String? passwordLoginPassword;
   bool passwordLoginConsent = false;
   bool passwordLoginResult = true;
+  bool localOnlySupported = false;
+  bool enteredLocalMode = false;
+  int capabilityRequests = 0;
+
+  @override
+  bool get supportsLocalOnlyUse => localOnlySupported;
 
   @override
   ApiException? get lastApiError => passwordLoginResult
@@ -41,16 +47,21 @@ class CodeLoginController extends Fake implements AppController {
   void enterPreview() => enteredDemo = true;
 
   @override
-  Future<GlobalAuthCapabilities> globalAuthCapabilities() async =>
-      const GlobalAuthCapabilities(
-        email: true,
-        sms: true,
-        loginEmail: false,
-        loginSms: true,
-        smsCountries: {'CN'},
-        supportedLocales: ['en'],
-        consentVersion: 'reviewed-test-v1',
-      );
+  Future<void> enterLocalMode() async => enteredLocalMode = true;
+
+  @override
+  Future<GlobalAuthCapabilities> globalAuthCapabilities() async {
+    capabilityRequests++;
+    return const GlobalAuthCapabilities(
+      email: true,
+      sms: true,
+      loginEmail: false,
+      loginSms: true,
+      smsCountries: {'CN'},
+      supportedLocales: ['en'],
+      consentVersion: 'reviewed-test-v1',
+    );
+  }
 
   @override
   Future<VerificationChallenge> requestGlobalLoginCode({
@@ -167,6 +178,50 @@ class WechatCodeLoginController extends CodeLoginController {
 }
 
 void main() {
+  testWidgets('local iPhone entry is account-free and requires local consent', (
+    tester,
+  ) async {
+    final controller = CodeLoginController()..localOnlySupported = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: GlobalCodeLoginPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(controller.capabilityRequests, 0);
+    expect(find.byKey(const Key('code-login-contact')), findsNothing);
+    expect(find.byKey(const Key('email-login-password')), findsNothing);
+    expect(
+      find.text('无需注册或登录。健康、活动和睡眠记录仅保存在这台 iPhone，不上传到云端。'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('local-ring-use-entry')));
+    await tester.pump();
+    expect(controller.enteredLocalMode, isFalse);
+    expect(find.text('请确认已满14周岁后继续'), findsOneWidget);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('local-ring-minimum-age')),
+        matching: find.byType(Checkbox),
+      ),
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const Key('local-ring-consent')),
+        matching: find.byType(Checkbox),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('local-ring-use-entry')));
+    await tester.pumpAndSettle();
+    expect(controller.enteredLocalMode, isTrue);
+  });
+
   testWidgets('email password requires age and consent before sign-in', (
     tester,
   ) async {
@@ -476,9 +531,9 @@ void main() {
   );
 
   testWidgets(
-    'iOS hides WeChat while keeping phone code sign-in available',
+    'iOS hides account and WeChat sign-in for the local companion release',
     (tester) async {
-      final controller = WechatCodeLoginController();
+      final controller = WechatCodeLoginController()..localOnlySupported = true;
       await tester.pumpWidget(
         MaterialApp(
           locale: const Locale('zh'),
@@ -489,13 +544,63 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('global-wechat-login')), findsNothing);
-      expect(find.byKey(const Key('code-login-send')), findsOneWidget);
+      expect(find.byKey(const Key('code-login-send')), findsNothing);
+      expect(find.byKey(const Key('code-login-submit')), findsNothing);
+      expect(find.byKey(const Key('code-login-contact')), findsNothing);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
+  testWidgets(
+    'iOS local ring use requires age and consent but no account credentials',
+    (tester) async {
+      final controller = CodeLoginController()..localOnlySupported = true;
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: GlobalCodeLoginPage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('local-ring-use-card')), findsNothing);
+      expect(find.byKey(const Key('review-demo-entry')), findsNothing);
+      await tester.tap(find.byKey(const Key('local-ring-use-entry')));
+      await tester.pump();
+      expect(controller.enteredLocalMode, isFalse);
       await tester.scrollUntilVisible(
-        find.byKey(const Key('code-login-submit')),
+        find.byKey(const Key('local-ring-minimum-age')),
         250,
         scrollable: find.byType(Scrollable).first,
       );
-      expect(find.byKey(const Key('code-login-submit')), findsOneWidget);
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('local-ring-minimum-age')),
+          matching: find.byType(Checkbox),
+        ),
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('local-ring-consent')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('local-ring-consent')),
+          matching: find.byType(Checkbox),
+        ),
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('local-ring-use-entry')),
+        -250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.byKey(const Key('local-ring-use-entry')));
+      await tester.pumpAndSettle();
+      expect(controller.enteredLocalMode, isTrue);
+      expect(controller.passwordLoginEmail, isNull);
+      expect(tester.takeException(), isNull);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),
   );

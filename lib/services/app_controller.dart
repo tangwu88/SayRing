@@ -108,7 +108,12 @@ class AppController extends ChangeNotifier {
       ),
       EncryptedHealthStore(vault, globalEdition: true),
       createProductionWearableBridge(),
-      notificationService: JPushAppNotificationService(),
+      // The iPhone-first release has no account or push service. Keeping the
+      // native provider disabled avoids initializing a third-party push SDK
+      // before a user has entered the local companion flow.
+      notificationService: defaultTargetPlatform == TargetPlatform.iOS
+          ? const DisabledAppNotificationService()
+          : JPushAppNotificationService(),
       allowAutomaticWearableRestore: allowAutomaticWearableRestore,
     );
   }
@@ -789,6 +794,7 @@ class AppController extends ChangeNotifier {
   bool isDeviceSyncing = false;
   double deviceSyncProgress = 0;
   bool isPreviewMode = false;
+  bool _localMode = false;
   Session? session;
   int selectedTab = 0;
   String? errorMessage;
@@ -879,6 +885,13 @@ class AppController extends ChangeNotifier {
   NotificationEvent? activeCareInvitationAlert;
 
   bool get isAuthenticated => session != null;
+
+  /// iOS can use the paired ring without an account. The local health store
+  /// remains in its anonymous owner partition and cloud-only features stay
+  /// unavailable until an account signs in.
+  bool get supportsLocalOnlyUse =>
+      isGlobalEdition && defaultTargetPlatform == TargetPlatform.iOS;
+  bool get isLocalMode => _localMode && session == null;
   DeviceConnectionState get deviceState => deviceMachine.state;
   HealthMetric? get activeMeasurementMetric => _activeMeasurementMetric;
 
@@ -1106,7 +1119,9 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
-    unawaited(refreshAppDisplayConfig());
+    if (!supportsLocalOnlyUse) {
+      unawaited(refreshAppDisplayConfig());
+    }
     _deviceStates = deviceMachine.changes.listen((_) => notifyListeners());
     _connectivity = Connectivity().onConnectivityChanged.listen((results) {
       if (results.any((result) => result != ConnectivityResult.none) &&
@@ -1170,8 +1185,12 @@ class AppController extends ChangeNotifier {
     }
     var sessionReadSucceeded = false;
     try {
-      session = await _vault.readSession();
-      await _ensureStableSessionOwnerKey();
+      final persistedSession = await _vault.readSession();
+      // Do not activate an older account token in the iPhone-local release.
+      // It remains in secure storage, untouched, but cannot trigger cloud
+      // sync, profile reads, push registration or an account UI.
+      session = supportsLocalOnlyUse ? null : persistedSession;
+      if (session != null) await _ensureStableSessionOwnerKey();
       sessionReadSucceeded = true;
     } catch (_) {
       errorMessage = '安全存储初始化失败';
@@ -1181,6 +1200,8 @@ class AppController extends ChangeNotifier {
     } catch (_) {
       _privacyConsentGranted = false;
     }
+    _localMode =
+        supportsLocalOnlyUse && session == null && _privacyConsentGranted;
     if (_notificationStorageReady &&
         sessionReadSucceeded &&
         !healthStoreRecoveryPending) {
@@ -1240,7 +1261,9 @@ class AppController extends ChangeNotifier {
     }
     isBooting = false;
     notifyListeners();
-    unawaited(refreshAiArticles());
+    if (!supportsLocalOnlyUse) {
+      unawaited(refreshAiArticles());
+    }
     if (session != null) {
       if (_api is CloudHealthRecordReader) {
         unawaited(synchronizeCloud());
@@ -1614,6 +1637,7 @@ class AppController extends ChangeNotifier {
     required bool privacyConsentGranted,
     bool Function()? canContinue,
   }) async {
+    _localMode = false;
     await _ensureStableSessionOwnerKey();
     if (canContinue?.call() == false) return;
     _privacyConsentGranted = privacyConsentGranted;
@@ -1723,10 +1747,40 @@ class AppController extends ChangeNotifier {
   }
 
   void enterPreview() {
-    if (session != null) return;
+    if (session != null || isLocalMode) return;
     isPreviewMode = true;
     errorMessage = null;
     notifyListeners();
+  }
+
+  /// Enables the actual local ring companion flow after the UI has recorded
+  /// acceptance of the published terms and privacy notice. It never creates
+  /// an account, requests the account service, sends health records to the
+  /// API, or enables cloud-only features.
+  Future<void> enterLocalMode() async {
+    if (_disposed || !supportsLocalOnlyUse || session != null || isBusy) {
+      return;
+    }
+    isBusy = true;
+    errorMessage = null;
+    notifyListeners();
+    try {
+      _localMode = true;
+      isPreviewMode = false;
+      _privacyConsentGranted = true;
+      await _vault.writePrivacyConsentGranted(true);
+      if (_allowAutomaticWearableRestore) {
+        await _updateWearableRecoveryContext();
+        unawaited(restoreWearableConnection());
+      }
+    } catch (_) {
+      _localMode = false;
+      _privacyConsentGranted = false;
+      errorMessage = '本机使用暂时无法准备，请稍后重试';
+    } finally {
+      isBusy = false;
+      if (!_disposed) notifyListeners();
+    }
   }
 
   /// Leaves the anonymous, in-memory review preview without touching account
@@ -1763,6 +1817,7 @@ class AppController extends ChangeNotifier {
       }
       session = null;
       _privacyConsentGranted = false;
+      _localMode = false;
       final generation = _advanceSessionGeneration(null);
       await _switchHealthOwnerAndLoad(
         null,
@@ -1807,6 +1862,7 @@ class AppController extends ChangeNotifier {
       await _vault.writePrivacyConsentGranted(false);
       session = null;
       _privacyConsentGranted = false;
+      _localMode = false;
       final generation = _advanceSessionGeneration(null);
       await _switchHealthOwnerAndLoad(
         null,
@@ -4212,7 +4268,9 @@ class AppController extends ChangeNotifier {
 
   Future<void> handleAppResumed() async {
     if (_disposed) return;
-    unawaited(refreshAppDisplayConfig());
+    if (!supportsLocalOnlyUse) {
+      unawaited(refreshAppDisplayConfig());
+    }
     _appIsForeground = true;
     if (!_accountTransitioning && _wearableAccountRecoveryAllowed) {
       _wearableRecoverySuspended = false;

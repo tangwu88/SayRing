@@ -61,19 +61,13 @@
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Connect to your ring and sync health data you choose to share.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Take a profile photo when you choose to use the camera.</string>
-	<key>NSAppleMusicUsageDescription</key>
-	<string>The integrated device SDK includes music-library interfaces. This version does not offer music-library features; you may decline access.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>The integrated device SDK includes speech-recognition interfaces. This version does not offer speech-recognition features; you may decline access.</string>
-	<key>NSContactsUsageDescription</key>
-	<string>Access contacts only when a supported device feature needs them.</string>
+	<string>Use the camera only when you choose to take a photo with a compatible ring.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Use your location for supported health and activity features.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a profile photo from your library.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Save photos only when you choose to take one.</string>
+	<string>Save a photo only after you choose to take it with a compatible ring.</string>
 	<key>SaidianAlipayUrlScheme</key>
 	<string>$(SAIDIAN_ALIPAY_URL_SCHEME)</string>
 	<key>SaidianWechatAppId</key>
