@@ -79,6 +79,7 @@ void main() {
           .value,
       isFalse,
     );
+    expect(find.text('我确认已满14周岁'), findsOneWidget);
     expect(
       tester.getCenter(find.byKey(const Key('auth-minimum-age'))).dy,
       tester.getCenter(find.byKey(const Key('auth-consent'))).dy,

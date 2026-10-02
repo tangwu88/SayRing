@@ -45,3 +45,10 @@
 - 两份 `zh-Hans / say-ring-cn-2026-10-02-v2` 已通过后台保存并回读，用户协议记录时间 `2026-10-02T14:42:50.616Z`、隐私政策 `2026-10-02T14:45:36.226Z`；列表均为“已审核：否、启用：否”。后台“发布时间”列在草稿创建时也会出现时间，不作为已发布证据。
 - 随后的独立后台变更把 v2 两份均切换为“已审核：是、启用：是”，并停用了旧版；本轮没有执行这项后台状态变更。生产只读 `GET /global/api/saydian-app/v2/auth/capabilities?locale=zh-Hans&product=say-ring` 回读 HTTP 200 / code 200、product `say-ring`、consentVersion 和用户协议/隐私政策版本均为 v2。服务器状态是其审核标志的证据，不代表法律意见或 Apple 审核结果。
 - 当前同一响应显示注册 email/SMS 均 enabled，`verificationRequired=false`；登录 capabilities 为邮箱密码入口关闭、短信登录开启。iOS 主登录保留注册与游客入口，WeChat 不在 iOS UI 暴露。本轮没有更改注册验证、认证或安全开关，也没有更改其他产品文档。静态 `/say-ring/privacy` 和 `/say-ring/terms` 仍待与动态版本对齐；客户端本轮的登录协议入口读动态 v2。
+
+## 后续续测（2026-10-02）
+
+- 发现当前生产启用的 v2 正文年龄门槛为 14 岁，而未提交工作区有一次临时改成 13+及监护人同意的文案；为避免客户端声明与现行协议相矛盾，已恢复客户端及错误提示为现行 14 岁文案。没有启用未审核的新版本，也没有声称绕过审核政策。
+- `flutter analyze` 通过；`flutter test test/global_auth_page_test.dart test/global_code_login_page_test.dart` 最终 18/18 通过。一次包含更多测试的运行曾遇到预期文案未同步与 capabilities 请求 HTTP 503；修正断言后登录 UI 两套测试通过。
+- iOS Debug 再启动：Xcode 本机构建完成，但 `devicectl` 安装/`--start-stopped` 启动没有返回完成结果。镜像明确报告 iPhone 正在使用；用户数据未清除，未卸载 App。已中止本地 Flutter/`devicectl` 等待进程。最新只读设备回读仍显示 `cn.saydian.ring / 0.1.21 (1006)`，所以本次没有确认新 Debug 包安装、启动或 VM Service 附加，不能算真机调试通过。
+- 本续测唯一剩余 diff 是 integration smoke 加入当前 14 岁协议文案断言；已静态分析与定向 Widget 测试验证，尚未在手机运行该 integration smoke。
