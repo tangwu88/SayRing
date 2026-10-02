@@ -236,3 +236,19 @@
 - 最终安装状态：巡检结束后重新覆盖安装并启动已验签 Profile `1.0 (1020)`；`codesign --verify --deep --strict` 通过，`devicectl` 回读 `cn.saydian.ring` / `1.0 (1020)`。未卸载 App、未清除本机数据。App Store Connect 审核中的 1016 未触碰。
 - 仓库安全：提交前 `gh api repos/tangwu88/SayRing` 回读到 `public`，因此未向公开仓库推送；按项目私有仓库约束恢复为 `private` 并再次回读确认。只会推送到当前 SayRing 功能分支，不改 `main`。
 - 待验收：本轮只读页面巡检不等于硬件验收。没有重新连接 R21、测量、睡眠真实样本、三轮远近自动重连或头像上传后重开回读；这些以及登录态账号页面仍待有实际登录态/戒指时完成，不能标全 App 每页已通过。
+
+## 2026-10-02 真实本机页面巡检与登录服务阻断
+
+- 基线 `73971a291dc8085b6c49bedd531a4786e849f7db`；工作树干净，`git fetch origin && git pull --ff-only` 为 Already up to date。遵照用户最新指示正常推送 SayRing 分支，不再核对或修改仓库可见性。
+- 生产 `GET /global/api/saydian-app/v2/auth/capabilities?locale=zh-Hans&product=say-ring` 返回 200、`product=say-ring`，但 `consentVersion=null`、`legal=null`；邮箱密码 UI 因专属协议缺失正确拒绝提交。未发送真实凭据或验证码，不绕过协议验证。已沿用用户授权通知服务端任务排查并定向修复 Say Ring，其他产品不在本轮范围。最初一次 curl URL 未引用导致 zsh 通配错误；随后误用 `/global/api/auth/...` 返回 404，纠正为客户端实际 V2 地址后取得上述证据。
+- 测试用例问题：既有逐页测试在缺少会话时隐式改用演示页，无法验证真实 AppShell。增加明确 QA 模式：默认只验已有账号/本机会话，缺会话即失败；`demo` 才访问演示，`local` 通过真实登录页年龄及协议门禁进入真实本机模式。缺少入口单列，不再静默当成已验收。仅改集成测试，不改业务、健康数据、账号状态或审核包。
+- 计划：串行运行 iPhone 15 Pro Max 真机本机模式巡检；保留现场错误，再按证据修复。真实账号专区依赖线上协议；戒指链路必须取得真实握手/数据，不使用演示结果替代。
+- 首轮真实本机巡检：上述 drive 命令追加 `--dart-define=SAYRING_QA_WALKTHROUGH_MODE=local`，Debug 构建 62.2 秒、安装启动 40.0 秒，实际用例失败于测试第 188 行：设备页找不到 `notifications_none_rounded`。定位该按钮仅位于健康首页 `_DashboardHeader`；这是此前未进入 AppShell 的脚本路径错误，不是 App 按钮缺失。将消息检查移至首页，增加每页即时泛化标签和隐藏指标清单；增设可选真实扫描 UI 检查，仅计扫描，不自动改绑定或冒称握手通过。测试期间只重新激活本应用，没有终止其他 App。
+- 脚本修订第二轮静态检查发现 `pumpAndSettle` 的 timeout 实为第三个位置参数，而非命名参数；立即中止刚启动的重试，按 Flutter 本机方法签名修正，未修改业务逻辑。
+- 次轮真实巡检记录实际经过首页及心率、血氧、皮肤温度、HRV、压力、睡眠详情；随后 `ensureVisible` 对未渲染的首页消息入口报 `Bad state: No element`。根因是懒加载 SliverList 滚到健康卡后移除了顶部控件；同一问题让旧 helper 静默跳过其他首页入口。把必须存在的首页入口改为 `scrollUntilVisible`，取消这一类的静默跳过；关爱页断言改为实际 `CarePage`，不套用国内版正文。仍仅修测试，尚不计全面通过。
+- 服务端已查实线上公开协议仍声明 iOS 不提供账号及云同步，与当前登录主屏相矛盾；专属法律 API 404 且当前同意版本为空。已继续按用户已有授权编写与实际能力一致的专属草案；不把尚未确认的文本伪标已审核，不放开同意校验。
+- 完整入口重试（日志 `.build/sayring-ios-real-local-walkthrough-complete.log`）：Debug 构建 19.8 秒、安装启动 20.8 秒；实际通过首页、六项指标详情、睡眠概览、全部数据和关爱入口，失败于百科使用了仅国内页面才有的 `article-category-page` key。实际国际页面是 `ArticleCategoryPage` 包装 `GlobalArticleLibraryPage`，生产请求返回 200。统一用实际路由页面类型校验，帮助页不再错用服务格“帮助反馈”文字作为页内标题（实际为“帮助与反馈”）。同时对“我的”懒加载入口取消静默跳过，并在每次打开前复位列表滚动；只对产品明确隐藏的指标/档案记录未开放，不把它们算通过。
+- 自动化记录：`TZ=UTC flutter test --no-pub --concurrency=1 --reporter compact` 1034/1034（4分16秒），`TZ=Asia/Shanghai` 同命令 1034/1034（3分30秒）；日志分别为 `.build/sayring-qa-walkthrough-unit-utc.log`、`.build/sayring-qa-walkthrough-unit-shanghai.log`。这两轮没有业务源码改动，随后脚本修订仅涉及不由该单元测试命令执行的 integration_test 文件；脚本另由真实 iPhone drive 验证。最终脚本 `dart format --output=none --set-exit-if-changed` 和 `flutter analyze --no-pub` 通过、零问题；`python3 scripts/release/test_release_gate.py` 30/30，`git diff --check` 通过。Android/Harmony 本轮按用户优先级后置，未重建。
+- App Store Connect 只读核对：原 Say Ring 标签已转为登录页（targetUrl 为本产品 privacy，authResult=FAILED），显示 Apple 账号输入框；当前网页会话失效，未填写 Apple 密码/验证码或更改审核。不能沿用旧状态声称当前“正在审核”或重新提交成功。
+- 最终真实本机巡检：`.build/sayring-ios-real-local-walkthrough-verified.log` 实际用例 1/1（含 teardown 输出 +2）通过，运行 3 分 59 秒，未切演示模式。经过登录同意后的本机入口、健康首页、心率/血氧/皮肤温度/HRV/压力/睡眠详情、睡眠概览、全部健康数据、远程关爱、百科、运动、通知、设备、我的、账号设置、单位、权限、帮助反馈、客服、关于，共 22 个实际页面/入口。真实设备连接状态为 true、能力 ready，连接页不显示“重新连接”。这证明当时实际页面与连接态门禁，不等于新测量或三轮距离验收。
+- 明确未开放/未验：血压、血糖、心电、身体成分、血液成分由真实能力/数据门禁隐藏；已有绑定卡无空态搜索入口，未改绑定强行扫描。账号资料/头像上传回读受登录协议阻断，未退出个人账号做破坏性测试。巡检结束的 Debug 测试包不作为独立启动交付包；新增用户要求的每次连接上报修正使用新 Profile 1021 验证，独立记录见 `SAY-RING-CONNECTION-REPORTING-20261002.md`。

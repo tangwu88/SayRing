@@ -461,6 +461,22 @@ class DeviceInfo {
     return suffix.isEmpty ? '--' : suffix;
   }
 
+  /// Upload only hardware metadata, never derive a MAC from an iOS UUID.
+  String? get verifiedHardwareMacAddress {
+    final value = hardwareAddress?.trim() ?? '';
+    final separated = value.replaceAll('-', ':').toUpperCase();
+    if (RegExp(r'^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$').hasMatch(separated)) {
+      return separated;
+    }
+    if (RegExp(r'^[0-9A-Fa-f]{12}$').hasMatch(value)) {
+      return List.generate(
+        6,
+        (index) => value.substring(index * 2, index * 2 + 2),
+      ).join(':').toUpperCase();
+    }
+    return null;
+  }
+
   String? get macAddress {
     for (final candidate in [hardwareAddress, nativeId]) {
       final value = candidate?.trim() ?? '';

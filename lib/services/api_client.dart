@@ -214,6 +214,21 @@ abstract interface class SaydianNotificationApi {
   Future<bool> markNotificationEventRead({required String eventId});
 }
 
+/// Authenticated device connection metadata, using the Health App contract.
+/// The captured session prevents a late handshake being posted for a new user.
+abstract interface class SaydianDeviceBindingApi {
+  Future<void> reportDeviceConnection({
+    required Session expectedSession,
+    required String deviceId,
+    required String vendor,
+    required String model,
+    required String displayName,
+    String? firmware,
+    String? macAddress,
+    List<String> capabilities = const [],
+  });
+}
+
 abstract interface class SaydianProfileUploadApi {
   Future<String> uploadProfileImage(String filePath);
 }

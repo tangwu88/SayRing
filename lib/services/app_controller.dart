@@ -2102,6 +2102,7 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.ready);
       // Authentication is the connection boundary. Historical data is a
       // background follow-up and must not keep the add-device page spinning.
+      unawaited(_reportConnectedDevice(connectedDevice!, sessionGeneration));
       if (device.sdkSource == WearableSdkSource.coolwear) {
         // HR01 links observed in the field can briefly reconnect before the
         // vendor's 30-second history command completes. Starting that command
@@ -2178,6 +2179,60 @@ class AppController extends ChangeNotifier {
     }
     notifyListeners();
     return false;
+  }
+
+  Future<void> _reportConnectedDevice(DeviceInfo device, int generation) async {
+    final owner = session;
+    final api = _api;
+    if (api is! SaydianDeviceBindingApi ||
+        owner == null ||
+        isLocalMode ||
+        isPreviewMode ||
+        _accountTransitioning ||
+        !_isCurrentSessionGeneration(generation) ||
+        _connectedDeviceSessionGeneration != generation ||
+        connectedDevice?.id != device.id ||
+        deviceState != DeviceConnectionState.ready ||
+        device.sdkSource == WearableSdkSource.unknown) {
+      return;
+    }
+    final snapshot = capabilities;
+    final reportedCapabilities = <String>{
+      if (snapshot != null) ...[
+        ...snapshot.metrics.map((value) => 'metric:${value.wireName}'),
+        ...(snapshot.manualMetrics ?? <HealthMetric>{}).map(
+          (value) => 'manual:${value.wireName}',
+        ),
+        ...(snapshot.sportModes ?? <SportMode>{}).map(
+          (value) => 'sport:${value.wireName}',
+        ),
+        ...snapshot.features.map((value) => 'feature:${value.wireName}'),
+        ...snapshot.integratedFeatures.map(
+          (value) => 'integrated:${value.wireName}',
+        ),
+        if (snapshot.supportsSportPause) 'support:sport_pause',
+        if (snapshot.supportsBackgroundSync) 'support:background_sync',
+        if (snapshot.supportsWatchFaces) 'support:watch_faces',
+        if (snapshot.supportsOta) 'support:ota',
+      ],
+    }.toList()..sort();
+    // Unknown model remains the real advertising name, not a guessed R21/HR.
+    final model = device.model?.trim();
+    try {
+      await (api as SaydianDeviceBindingApi).reportDeviceConnection(
+        expectedSession: owner,
+        deviceId: device.id,
+        vendor: device.sdkSource.fullLabel,
+        model: model?.isNotEmpty == true ? model! : device.name,
+        displayName: device.name,
+        firmware: device.firmwareVersion,
+        macAddress: device.verifiedHardwareMacAddress,
+        capabilities: reportedCapabilities,
+      );
+    } catch (_) {
+      // Match Health App: reporting failure must not break a working BLE link.
+      // No synthetic success or raw private metadata is logged.
+    }
   }
 
   Future<void> _syncInitialDeviceData(String deviceId) async {
@@ -6296,6 +6351,7 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.syncing);
       syncStatus = '设备已自动重连';
       deviceMachine.transition(DeviceConnectionState.ready);
+      unawaited(_reportConnectedDevice(connectedDevice!, sessionGeneration));
       notifyListeners();
       if (device.sdkSource == WearableSdkSource.coolwear) {
         // Do not issue the vendor's long-running history command during a

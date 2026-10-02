@@ -211,6 +211,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         GlobalCareApi,
         GlobalContentApi,
         GlobalSupportApi,
+        SaydianDeviceBindingApi,
         SayRingAppDisplayApi,
         GlobalCommerceApi,
         CloudHealthRecordReader {
@@ -229,6 +230,76 @@ class GlobalSaydianApiClient extends SaydianApiClient
        );
 
   final String Function() _locale;
+
+  @override
+  Future<void> reportDeviceConnection({
+    required Session expectedSession,
+    required String deviceId,
+    required String vendor,
+    required String model,
+    required String displayName,
+    String? firmware,
+    String? macAddress,
+    List<String> capabilities = const [],
+  }) async {
+    final normalizedId = deviceId.trim();
+    final normalizedVendor = vendor.trim();
+    final normalizedModel = model.trim();
+    final normalizedName = displayName.trim();
+    if ([
+      normalizedId,
+      normalizedVendor,
+      normalizedModel,
+      normalizedName,
+    ].any((value) => value.isEmpty)) {
+      throw const ApiException('Device information is incomplete.');
+    }
+    final normalizedCapabilities = capabilities
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (normalizedCapabilities.length > 200) {
+      throw const ApiException('Too many device capabilities.');
+    }
+    final normalizedFirmware = firmware?.trim();
+    final normalizedMac = macAddress?.trim().toUpperCase();
+    if (normalizedMac?.isNotEmpty == true &&
+        !RegExp(r'^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$').hasMatch(normalizedMac!)) {
+      throw const ApiException('Invalid hardware MAC address.');
+    }
+    final owner = _stableSessionAccountKey(expectedSession);
+    _decode(
+      await _withAuthorizationRetry((requestSession) {
+        if (_stableSessionAccountKey(requestSession) != owner) {
+          throw const ApiException(
+            'Account changed.',
+            code: 'STALE_DEVICE_SESSION',
+          );
+        }
+        return _performRequest(
+          () => _client.post(
+            _uri('/api/saydian-app/v2/devices'),
+            headers: {
+              ..._authorizationHeaders(requestSession),
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'deviceId': normalizedId,
+              'vendor': normalizedVendor,
+              'model': normalizedModel,
+              'displayName': normalizedName,
+              if (normalizedFirmware?.isNotEmpty ?? false)
+                'firmware': normalizedFirmware,
+              if (normalizedMac?.isNotEmpty ?? false)
+                'macAddress': normalizedMac,
+              'capabilities': normalizedCapabilities,
+            }),
+          ),
+        );
+      }),
+    );
+  }
 
   @override
   Future<bool> getSayRingHideAi() async {
