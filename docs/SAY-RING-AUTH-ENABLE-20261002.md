@@ -34,6 +34,7 @@
 - Profile 1022 未卸载原 App 即覆盖安装成功，`devicectl device process launch --terminate-existing cn.saydian.ring` 启动成功。
 - 随后同参数 `flutter build ios --debug` 串行构建成功，47.4 秒；签名与 Info.plist 复核通过。`flutter run --debug --no-pub --use-application-binary=build/ios/iphoneos/Runner.app -d <已连接 iPhone> --dart-define-from-file=config/ios-app-store-no-push.json` 安装启动 20.9 秒，已输出 iPhone Dart VM Service 和 Flutter DevTools 地址并保持附加。
 - 设备回读为 `Say Ring / cn.saydian.ring / 1.0.0 / 1022`。启动日志显示认证会话恢复及资料、图片等请求 200；原测试不替换账号。未逐条比较原健康库，不能扩展为全部旧数据完整性验收。
+- 提交后的交付复核发现首个 Flutter 调试会话出现 `Lost connection to device`，设备仍为 connected；未确认断开根因，不能将首次附加等同于持续稳定性。使用同一个已签名 Debug 二进制、相同 `flutter run --use-application-binary` 命令重新覆盖启动；再次完成文件同步、Dart VM Service 和 DevTools 附加，未重编译、卸载或清除数据。
 - Xcode/Flutter 仍提示 `sqflite_sqlcipher`、`yc_product_plugin` 暂未迁移 SPM，以及微信框架缺模拟器 arm64；本轮目标为 iPhone 真机，以上未阻止构建。没有声称原生 XCTest、全部硬件测量、注册投递或 App Store 通过。
 
 ## 协议处理边界
