@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
-
 import '../domain/global_account.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/api_client.dart';
@@ -51,11 +50,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     final locale = Localizations.localeOf(context).toLanguageTag();
     if (locale != _locale) {
       _locale = locale;
-      // The iPhone release is deliberately account-free. Do not contact the
-      // account service merely to show its local companion entry point.
-      if (!widget.controller.supportsLocalOnlyUse) {
-        unawaited(_loadCapabilities());
-      }
+      unawaited(_loadCapabilities());
     }
   }
 
@@ -352,6 +347,17 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   }
 
   Future<void> _openLegal(GlobalLegalDocumentType document) async {
+    if (widget.controller.supportsLocalOnlyUse) {
+      final path = document == GlobalLegalDocumentType.userAgreement
+          ? '/say-ring/terms'
+          : '/say-ring/privacy';
+      final opened = await launchUrl(
+        Uri.parse('https://app.saydian.cn$path'),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened && mounted) setState(() => _error = 'service');
+      return;
+    }
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) =>
@@ -360,114 +366,6 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     );
     if (mounted) await _loadCapabilities();
   }
-
-  Future<void> _openLocalLegal(String path) async {
-    final opened = await launchUrl(
-      Uri.parse('https://app.saydian.cn$path'),
-      mode: LaunchMode.externalApplication,
-    );
-    if (!opened && mounted) {
-      setState(() => _error = 'service');
-    }
-  }
-
-  Widget _localAgreementCheckbox({
-    required Key key,
-    required bool value,
-    required ValueChanged<bool?> onChanged,
-    required String title,
-  }) => CheckboxListTile(
-    key: key,
-    contentPadding: EdgeInsets.zero,
-    controlAffinity: ListTileControlAffinity.leading,
-    value: value,
-    onChanged: _busy ? null : onChanged,
-    title: Text(title, style: const TextStyle(fontSize: 13, height: 1.4)),
-  );
-
-  Widget _buildLocalOnlyUse(BuildContext context) => Scaffold(
-    key: const Key('global-code-login-page'),
-    appBar: AppBar(),
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: ListView(
-            padding: const EdgeInsets.all(24),
-            children: [
-              const Center(child: SaydianBrandLockup(color: Colors.black)),
-              const SizedBox(height: 28),
-              const Text(
-                '连接智能戒指，查看本机数据',
-                style: TextStyle(fontSize: 25, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                '无需注册或登录。健康、活动和睡眠记录仅保存在这台 iPhone，不上传到云端。',
-                style: TextStyle(fontSize: 15, height: 1.55),
-              ),
-              const SizedBox(height: 24),
-              _localAgreementCheckbox(
-                key: const Key('local-ring-minimum-age'),
-                value: _ageConfirmed,
-                onChanged: (value) =>
-                    setState(() => _ageConfirmed = value == true),
-                title: '我确认已满14周岁',
-              ),
-              _localAgreementCheckbox(
-                key: const Key('local-ring-consent'),
-                value: _accepted,
-                onChanged: (value) => setState(() => _accepted = value == true),
-                title: '我已阅读并同意《用户协议》和《隐私政策》',
-              ),
-              Wrap(
-                children: [
-                  TextButton(
-                    key: const Key('local-ring-terms'),
-                    onPressed: _busy
-                        ? null
-                        : () => _openLocalLegal('/say-ring/terms'),
-                    child: const Text('用户协议'),
-                  ),
-                  TextButton(
-                    key: const Key('local-ring-privacy'),
-                    onPressed: _busy
-                        ? null
-                        : () => _openLocalLegal('/say-ring/privacy'),
-                    child: const Text('隐私政策'),
-                  ),
-                ],
-              ),
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(
-                    _errorText(),
-                    key: const Key('local-ring-error'),
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                key: const Key('local-ring-use-entry'),
-                onPressed: _busy ? null : _enterLocalMode,
-                icon: const Icon(Icons.watch_outlined),
-                label: Text(_busy ? l.pleaseWait : '开始连接戒指'),
-              ),
-              const SizedBox(height: 14),
-              const Text(
-                '健康数据仅供个人健康管理参考，不用于医疗诊断或治疗。',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, height: 1.45),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
 
   @override
   void dispose() {
@@ -482,9 +380,6 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.controller.supportsLocalOnlyUse) {
-      return _buildLocalOnlyUse(context);
-    }
     return Scaffold(
       key: const Key('global-code-login-page'),
       appBar: AppBar(),
@@ -509,42 +404,6 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                     icon: const Icon(Icons.refresh),
                     label: Text(l.retry),
                   ),
-                if (widget.controller.supportsLocalOnlyUse) ...[
-                  Card(
-                    key: const Key('local-ring-use-card'),
-                    color: const Color(0xFFF3F7FF),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            '无需账号，先连接戒指',
-                            style: TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                          const SizedBox(height: 6),
-                          const Text(
-                            '健康和睡眠数据仅保存在本机。登录仅用于后续同步与账号服务。',
-                            style: TextStyle(fontSize: 13, height: 1.4),
-                          ),
-                          const SizedBox(height: 12),
-                          FilledButton.icon(
-                            key: const Key('local-ring-use-entry'),
-                            onPressed: _busy ? null : _enterLocalMode,
-                            icon: const Icon(Icons.watch_outlined),
-                            label: Text(_busy ? l.pleaseWait : '开始本机使用'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    '已有账号可登录同步',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 8),
-                ],
                 Wrap(
                   spacing: 8,
                   children: [
@@ -681,8 +540,11 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                   value: _accepted,
                   onChanged:
                       _busy ||
-                          !(_capabilities?.consentVersion?.trim().isNotEmpty ??
-                              false)
+                          (!widget.controller.supportsLocalOnlyUse &&
+                              !(_capabilities?.consentVersion
+                                      ?.trim()
+                                      .isNotEmpty ??
+                                  false))
                       ? null
                       : (value) => setState(() => _accepted = value == true),
                   title: Text(
@@ -718,7 +580,23 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                   onPressed: _busy ? null : _submit,
                   child: Text(_busy ? l.pleaseWait : l.signIn),
                 ),
-                if (!widget.controller.supportsLocalOnlyUse) ...[
+                if (widget.controller.supportsLocalOnlyUse) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    key: const Key('local-ring-use-entry'),
+                    onPressed: _busy ? null : _enterLocalMode,
+                    icon: const Icon(Icons.watch_outlined),
+                    label: Text(_busy ? l.pleaseWait : '无需登录，连接戒指'),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text(
+                      '可直接连接戒指；本机健康记录与账号云端数据分开保存。',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ] else ...[
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     key: const Key('review-demo-entry'),

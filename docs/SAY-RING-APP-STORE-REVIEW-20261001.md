@@ -212,3 +212,16 @@
 - 问题与处理：1018 的本机入口已隐藏微信和商城，但发布 Plist 仍保留微信、支付宝的 URL 回调和查询声明，容易让审核静态检查将未开放能力误判为首发功能。1019 移除了这些未启用声明；不改戒指蓝牙连接、健康数据本机加密存储或关联域名。
 - 同时，发布门禁发现闭源设备 SDK 的声明要求 Apple Music 与语音识别用途文案。主 Plist 与八种本地化文案均明确：这是集成设备 SDK 的声明，本版本不提供对应功能，用户可拒绝授权。没有新增背景模式或运行时功能入口。
 - 验证：`plutil -lint`、`python3 scripts/release/test_release_gate.py`（30/30）和 76 项本机入口/壳层回归均通过，`git diff --check` 无错误。串行归档 `1.0 (1019)` 已生成；归档实物为 `cn.saydian.ring`、`UIDeviceFamily=[1]`、Apple Distribution 团队 `W7SXQ4A226`、`get-task-allow=false`，严格签名校验通过，且不含微信/支付宝 URL 或查询声明。Runner SHA-256 为 `4b87bd9d00a79295eb227c37f330be3757b8036ac98655c2e37e83870df727f3`。真机覆盖安装、上传处理和审核提交仍分别记录，不以本条替代。
+
+## 1020 iOS 登录优先与单一本机入口
+
+- 需求更正：用户明确首屏仍应以登录为主，只保留一个“无需登录”入口。原 1019 源码把 iOS 首屏替换为本机使用页、忽略安全存储里的旧账号会话；这不符合最新明确要求。审核中的 1016 与 App Store Connect 当前记录均未修改、撤回或替换。
+- 修改范围：`lib/ui/global_code_login_page.dart` 恢复手机号/邮箱登录表单为 iOS 首页，仅保留一个次级“无需登录，连接戒指”按钮；该按钮仍要求年龄确认和协议/隐私同意，然后才进入本机戒指模式。iOS 本机入口从不因账号能力接口失败而禁用，同意链接改为打开 Say Ring 公布的专属文档 URL。手机号/邮箱登录与 iOS 隐藏微信维持不变。
+- 会话与自动连接：`lib/services/app_controller.dart` 恢复读取已有安全会话，并正常刷新公开显示配置/百科内容。之前保存过本机同意不再把用户绕过登录页；仅当已有账号已恢复，或用户主动点入本机模式后，才在 iOS Say Ring 启动戒指恢复。该限制通过 `supportsLocalOnlyUse` 限定于 Say Ring iOS，不改变其它平台和产品的恢复路径。账号、健康历史与应用数据未清除。
+- 测试修改：`test/global_code_login_page_test.dart` 覆盖 iOS 登录优先、只显示一个免登录戒指入口、没有 review-demo 入口、服务端能力失败时仍能进入本机模式并受同意门禁约束。`test/app_controller_wearable_restore_race_test.dart` 覆盖已保存同意不自动离开登录页，显式进入访客模式后才恢复戒指。
+- 失败记录：首轮完整回归发现 5 个 iOS 自动恢复用例失败，因为最初把免登录恢复门禁扩大到所有平台/产品；定向检查定位为 `app_controller_exact_recovery_test.dart` 中既有的匿名恢复预期。已将条件收紧为仅 Say Ring iOS 登录页适用，修正测试夹具为产品全局 API 后，恢复竞态定向集合通过 19/19。`.build/sayring-login-entry-utc-serial.log` 保留了失败轮次，不覆盖失败证据；随后单 worker 最终双时区回归均通过。
+- 自动化验证：最终 `flutter analyze --no-pub` 无问题；UTC 与 Asia/Shanghai 分别执行 `flutter test --no-pub --concurrency=1 --reporter compact`，各 **1034/1034** 全部通过；`python3 scripts/release/test_release_gate.py` 为 30/30；`git diff --check` 通过。日志分别保存在忽略目录 `.build/sayring-login-entry-utc-serial-final.log` 与 `.build/sayring-login-entry-asia-serial-final.log`。
+- 真机结果：已串行签名构建开发 Profile `1.0 (1020)`，实际 `cn.saydian.ring`、`UIDeviceFamily=[1]`、Apple Development Team `W7SXQ4A226`、`get-task-allow=true`，`codesign --verify --deep --strict` 通过。`devicectl` 在 iPhone 15 Pro Max（iOS 26.6）上覆盖安装并独立启动，设备回读 1020，原位覆盖未卸载且未清本机数据。最终源码的真机 integration smoke 实际用例 1/1 通过，覆盖已登录状态下的首页、心率详情、睡眠概览、全部健康数据、设备、我的和关于/法律页面；最终 Profile 随后重新覆盖安装并启动。
+- 验收边界：iPhone 镜像不能连接，故本轮未取得逐屏截图，也未手工遍历每个二级页面；integration smoke 不是“全 App 每页”证明。保持现有用户会话，没有退出账号或发送真实 OTP。R21 本轮没有进行新的蓝牙握手、健康测量、睡眠实测或距离自动重连，也没有完成头像重新打开回读。该轮解决的是登录首页和单一本机入口，不把其余功能记为通过。
+- 构建警告：第三方插件/SDK 有弃用 API 警告，Xcode 还提示外部 DerivedData 的模块缓存 `.pcm` 缺失，未阻断最终构建、严格签名核验、安装和启动。该警告未被本轮修改。
+- 安全范围：bundle ID 继续为 `cn.saydian.ring`；没有改 Android/Harmony、App Store Connect 隐私声明、正在审核的 1016、服务器配置、商店归档或健康数据。最终签名 Profile 日志 `.build/sayring-1020-device-profile-final.log`；真机冒烟日志 `.build/sayring-1020-device-ui-smoke-final.log`。

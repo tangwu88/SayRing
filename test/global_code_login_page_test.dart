@@ -17,6 +17,7 @@ class CodeLoginController extends Fake implements AppController {
   bool passwordLoginResult = true;
   bool localOnlySupported = false;
   bool enteredLocalMode = false;
+  bool capabilitiesFail = false;
   int capabilityRequests = 0;
 
   @override
@@ -52,6 +53,7 @@ class CodeLoginController extends Fake implements AppController {
   @override
   Future<GlobalAuthCapabilities> globalAuthCapabilities() async {
     capabilityRequests++;
+    if (capabilitiesFail) throw const ApiException('Unavailable');
     return const GlobalAuthCapabilities(
       email: true,
       sms: true,
@@ -178,10 +180,12 @@ class WechatCodeLoginController extends CodeLoginController {
 }
 
 void main() {
-  testWidgets('local iPhone entry is account-free and requires local consent', (
+  testWidgets('local iPhone use is secondary to login and requires consent', (
     tester,
   ) async {
-    final controller = CodeLoginController()..localOnlySupported = true;
+    final controller = CodeLoginController()
+      ..localOnlySupported = true
+      ..capabilitiesFail = true;
     await tester.pumpWidget(
       MaterialApp(
         locale: const Locale('zh'),
@@ -192,28 +196,44 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(controller.capabilityRequests, 0);
-    expect(find.byKey(const Key('code-login-contact')), findsNothing);
-    expect(find.byKey(const Key('email-login-password')), findsNothing);
-    expect(
-      find.text('无需注册或登录。健康、活动和睡眠记录仅保存在这台 iPhone，不上传到云端。'),
-      findsOneWidget,
+    expect(controller.capabilityRequests, 1);
+    expect(find.byKey(const Key('code-login-contact')), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('code-login-submit')),
+      250,
+      scrollable: find.byType(Scrollable).first,
     );
-
+    expect(
+      tester
+          .widget<CheckboxListTile>(find.byKey(const Key('code-login-consent')))
+          .onChanged,
+      isNotNull,
+    );
+    expect(find.byKey(const Key('review-demo-entry')), findsNothing);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('local-ring-use-entry')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(find.byKey(const Key('local-ring-use-entry')));
     await tester.pump();
     expect(controller.enteredLocalMode, isFalse);
     expect(find.text('请确认已满14周岁后继续'), findsOneWidget);
 
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('code-login-minimum-age')),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(
       find.descendant(
-        of: find.byKey(const Key('local-ring-minimum-age')),
+        of: find.byKey(const Key('code-login-minimum-age')),
         matching: find.byType(Checkbox),
       ),
     );
     await tester.tap(
       find.descendant(
-        of: find.byKey(const Key('local-ring-consent')),
+        of: find.byKey(const Key('code-login-consent')),
         matching: find.byType(Checkbox),
       ),
     );
@@ -531,7 +551,7 @@ void main() {
   );
 
   testWidgets(
-    'iOS hides account and WeChat sign-in for the local companion release',
+    'iOS keeps login primary and offers one no-login ring entry',
     (tester) async {
       final controller = WechatCodeLoginController()..localOnlySupported = true;
       await tester.pumpWidget(
@@ -544,15 +564,22 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('global-wechat-login')), findsNothing);
-      expect(find.byKey(const Key('code-login-send')), findsNothing);
-      expect(find.byKey(const Key('code-login-submit')), findsNothing);
-      expect(find.byKey(const Key('code-login-contact')), findsNothing);
+      expect(find.byKey(const Key('code-login-send')), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('code-login-submit')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.byKey(const Key('code-login-submit')), findsOneWidget);
+      expect(find.byKey(const Key('code-login-contact')), findsOneWidget);
+      expect(find.byKey(const Key('local-ring-use-entry')), findsOneWidget);
+      expect(find.byKey(const Key('review-demo-entry')), findsNothing);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),
   );
 
   testWidgets(
-    'iOS local ring use requires age and consent but no account credentials',
+    'iOS login page has a single local ring option gated by consent',
     (tester) async {
       final controller = CodeLoginController()..localOnlySupported = true;
       await tester.pumpWidget(
@@ -564,30 +591,40 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('local-ring-use-card')), findsNothing);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('code-login-submit')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.byKey(const Key('code-login-submit')), findsOneWidget);
       expect(find.byKey(const Key('review-demo-entry')), findsNothing);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('local-ring-use-entry')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.byKey(const Key('local-ring-use-entry')));
       await tester.pump();
       expect(controller.enteredLocalMode, isFalse);
       await tester.scrollUntilVisible(
-        find.byKey(const Key('local-ring-minimum-age')),
+        find.byKey(const Key('code-login-minimum-age')),
         250,
         scrollable: find.byType(Scrollable).first,
       );
       await tester.tap(
         find.descendant(
-          of: find.byKey(const Key('local-ring-minimum-age')),
+          of: find.byKey(const Key('code-login-minimum-age')),
           matching: find.byType(Checkbox),
         ),
       );
       await tester.scrollUntilVisible(
-        find.byKey(const Key('local-ring-consent')),
+        find.byKey(const Key('code-login-consent')),
         250,
         scrollable: find.byType(Scrollable).first,
       );
       await tester.tap(
         find.descendant(
-          of: find.byKey(const Key('local-ring-consent')),
+          of: find.byKey(const Key('code-login-consent')),
           matching: find.byType(Checkbox),
         ),
       );

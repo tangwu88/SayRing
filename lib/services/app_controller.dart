@@ -886,9 +886,8 @@ class AppController extends ChangeNotifier {
 
   bool get isAuthenticated => session != null;
 
-  /// iOS can use the paired ring without an account. The local health store
-  /// remains in its anonymous owner partition and cloud-only features stay
-  /// unavailable until an account signs in.
+  /// iOS offers one optional local-use path from the primary login screen.
+  /// It never suppresses normal account restoration or login capabilities.
   bool get supportsLocalOnlyUse =>
       isGlobalEdition && defaultTargetPlatform == TargetPlatform.iOS;
   bool get isLocalMode => _localMode && session == null;
@@ -1119,9 +1118,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> initialize() async {
-    if (!supportsLocalOnlyUse) {
-      unawaited(refreshAppDisplayConfig());
-    }
+    unawaited(refreshAppDisplayConfig());
     _deviceStates = deviceMachine.changes.listen((_) => notifyListeners());
     _connectivity = Connectivity().onConnectivityChanged.listen((results) {
       if (results.any((result) => result != ConnectivityResult.none) &&
@@ -1186,10 +1183,7 @@ class AppController extends ChangeNotifier {
     var sessionReadSucceeded = false;
     try {
       final persistedSession = await _vault.readSession();
-      // Do not activate an older account token in the iPhone-local release.
-      // It remains in secure storage, untouched, but cannot trigger cloud
-      // sync, profile reads, push registration or an account UI.
-      session = supportsLocalOnlyUse ? null : persistedSession;
+      session = persistedSession;
       if (session != null) await _ensureStableSessionOwnerKey();
       sessionReadSucceeded = true;
     } catch (_) {
@@ -1200,8 +1194,9 @@ class AppController extends ChangeNotifier {
     } catch (_) {
       _privacyConsentGranted = false;
     }
-    _localMode =
-        supportsLocalOnlyUse && session == null && _privacyConsentGranted;
+    // Local use is an explicit secondary action, never the default startup
+    // route, even when a previous local-use consent was saved.
+    _localMode = false;
     if (_notificationStorageReady &&
         sessionReadSucceeded &&
         !healthStoreRecoveryPending) {
@@ -1255,15 +1250,14 @@ class AppController extends ChangeNotifier {
     } catch (_) {
       sdkStatus = '设备连接服务暂时不可用';
     }
-    if (_allowAutomaticWearableRestore) {
+    if (_allowAutomaticWearableRestore &&
+        (!supportsLocalOnlyUse || session != null || isLocalMode)) {
       await _updateWearableRecoveryContext();
       unawaited(restoreWearableConnection());
     }
     isBooting = false;
     notifyListeners();
-    if (!supportsLocalOnlyUse) {
-      unawaited(refreshAiArticles());
-    }
+    unawaited(refreshAiArticles());
     if (session != null) {
       if (_api is CloudHealthRecordReader) {
         unawaited(synchronizeCloud());
@@ -3466,6 +3460,7 @@ class AppController extends ChangeNotifier {
   Future<void> restoreWearableConnection() async {
     if (!_allowAutomaticWearableRestore ||
         _disposed ||
+        (supportsLocalOnlyUse && !isAuthenticated && !isLocalMode) ||
         _accountTransitioning ||
         _wearableRecoverySuspended ||
         !_privacyConsentGranted ||
@@ -4268,11 +4263,11 @@ class AppController extends ChangeNotifier {
 
   Future<void> handleAppResumed() async {
     if (_disposed) return;
-    if (!supportsLocalOnlyUse) {
-      unawaited(refreshAppDisplayConfig());
-    }
+    unawaited(refreshAppDisplayConfig());
     _appIsForeground = true;
-    if (!_accountTransitioning && _wearableAccountRecoveryAllowed) {
+    if (!_accountTransitioning &&
+        _wearableAccountRecoveryAllowed &&
+        (!supportsLocalOnlyUse || session != null || isLocalMode)) {
       _wearableRecoverySuspended = false;
       await _updateWearableRecoveryContext();
     }
