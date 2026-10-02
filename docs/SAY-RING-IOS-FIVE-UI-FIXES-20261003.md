@@ -28,4 +28,26 @@
 - 同一源码 `TMPDIR=/private/tmp flutter build ios --debug --no-pub --build-name=1.0 --build-number=1024 --dart-define-from-file=config/ios-app-store-no-push.json` 串行成功（35.8 秒），签名及 Bundle ID/版本复核通过。为保持手机可独立启动，未用 Debug 包覆盖已装的 Profile 包；本轮 Debug 附加/VM 未验。
 - iPhone 镜像提示“iPhone 使用中，镜像已结束”，QuickTime UI 预览未能建立；改用 Xcode「Devices and Simulators → Take Screenshot」成功取得 1024 真机当前健康首页截图，留在桌面而不进 Git。画面可见原账号昵称和已有睡眠/健康卡片，证明这部分会话与本机状态在覆盖后仍可见；不推断全部历史数据均已核验。启动瞬间、关于/权限/关爱页面以及真实头像上传与重开回读仍缺真机可见证据，不误报通过。
 - Android Debug `GRADLE_OPTS=-Dorg.gradle.workers.max=1 flutter build apk --debug --no-pub --target-platform=android-arm,android-arm64 --build-name=1.0 --build-number=1024 --dart-define-from-file=config/ios-app-store-no-push.json` 停在 Gradle 插件依赖下载约 3 分钟；线程转储显示 `DownloadAction` 正等待 SSL socket 读包，未生成本轮 APK，主动取消。随后 `./gradlew :app:assembleDebug --offline --max-workers=1` 立即失败，明确缺 `gradle-kotlin-dsl-plugins-6.2.0.jar`、Kotlin 2.2.20 插件及多项依赖缓存；不是本次 Dart 业务编译错误。Android QA Release 因相同前置依赖未执行，不标通过。
-- 待补：Android 依赖网络恢复后的 Debug/QA Release、真机逐页目视和真实头像上传。
+- 当时待补：Android 依赖网络恢复后的 Debug/QA Release、真机逐页目视和真实头像上传。Android 构建现状以下节续验为准。
+
+## 2026-10-03 Android 构建续验（02:13 CST）
+
+- 基线仍为 `4eaaae84dc9f87404e62867aaf204550a78bddc6`。构建前工作树干净，`git fetch --prune origin` 与 `git pull --ff-only` 成功。本节只记录构建与测试，不修改业务源码。
+- 首次在线 Debug 重试在慢速依赖下载中约 182 秒后主动取消；离线重试明确缺 `camera_android_camerax` 所需的 AGP 8.13.1、Kotlin 2.3.0 等缓存。临时为本仓库构建优先使用既有阿里云 Maven 镜像；该次进程在发现 Flutter 引擎下载较慢后主动取消，不是代码编译失败。
+- 随后核对 Flutter 引擎 `arm64_v8a_debug`：官方与 `storage.flutter-io.cn` 文件长度均为 `179828624` 字节，镜像下载的 MD5 `0c5b181febb9eefd02038efbd977ec29` 与官方响应一致。本轮后续构建仅在命令环境中设置 `FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`；临时 `~/.gradle/init.d/sayring-aliyun-priority.init.gradle` 已移除，仓库未留下镜像配置改动。
+- 磁盘不足时先保留 1024 Profile 独立签名包和已验 Debug APK；用 Xcode `clean` 清理旧 1017–1021 派生输出，再执行 `flutter clean` 清理本仓库可重建的 `build` 与 `.dart_tool`。`flutter pub get --offline` 成功；源码、真机 App/数据及原始素材均未清理。
+
+### 构建与产物
+
+- Debug：`FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn GRADLE_OPTS=-Dorg.gradle.workers.max=1 flutter build apk --debug --no-pub --target-platform=android-arm,android-arm64 --build-name=1.0 --build-number=1024 --dart-define-from-file=config/ios-app-store-no-push.json`，263.0 秒成功。
+- Debug 备份：`.build/SayRing-Android-Debug-v1.0+1024-20261003.apk`，SHA-256 `4b39ccf08420d40950648829e240b5406c05724a2c9fe0ba0ebf8841c437ebf7`，约 152 MiB。
+- 内部 QA Release：`FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn SAIDIAN_ALLOW_QA_RELEASE=true GRADLE_OPTS=-Dorg.gradle.workers.max=1 flutter build apk --release --no-pub --target-platform=android-arm,android-arm64 --build-name=1.0 --build-number=1024 --dart-define-from-file=config/ios-app-store-no-push.json`，195.8 秒成功。
+- QA 备份：`.build/SayRing-Android-QA-v1.0+1024-20261003.apk`，SHA-256 `3b944ec9eec4d57ca52145e391465d098ddad2893b6235a6283ab5a47274c29c`，约 66 MiB。
+- 两包均经 `aapt dump badging` 核对为 `cn.saydian.ring`、`1.0 (1024)`、`minSdk 26`、`targetSdk 36`，包含 `armeabi-v7a` 与 `arm64-v8a`。`apksigner verify`、`zipalign -c -P 16 4` 及 `unzip -tqq` 均通过；QA Release 明确使用 Android Debug 证书与 APK v2 签名，不是正式商店签名。QA Manifest 未包含 `READ_PHONE_STATE`、`QUERY_ALL_PACKAGES` 或后台定位权限。
+
+### 回归与边界
+
+- `flutter analyze --no-pub` 零问题；`TZ=Asia/Shanghai flutter test --no-pub --reporter compact` 和 `TZ=UTC` 同命令各 1052 项通过。
+- `FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn ./gradlew :app:testDebugUnitTest --max-workers=1` 成功；8 份测试报告合计 37 项，失败/错误/跳过均为 0。
+- Gradle 提示 `camera_android_camerax` 与 `jpush_flutter_android` 仍使用旧 Kotlin Gradle Plugin 机制；属于未来 Flutter 兼容风险，本轮未为警告改动第三方插件。SDK XML 版本与旧 API 警告不影响本轮构建结果。
+- 本轮没有 Android 真机覆盖安装或戒指实测。QA Release 只供内部测试；正式上架仍需生产签名、推送配置及独立验收。iPhone 1024 已安装结果与未完成的头像/逐页真机验证仍以本文件前节为准。
