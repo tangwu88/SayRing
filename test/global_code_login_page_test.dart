@@ -180,6 +180,44 @@ class WechatCodeLoginController extends CodeLoginController {
 }
 
 void main() {
+  testWidgets('age and legal consent checkboxes share one row on phone width', (
+    tester,
+  ) async {
+    tester.view
+      ..physicalSize = const Size(390, 1000)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: GlobalCodeLoginPage(controller: CodeLoginController()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final consentRow = find.byKey(const Key('code-login-consents-row'));
+    expect(consentRow, findsOneWidget);
+    expect(
+      find.descendant(
+        of: consentRow,
+        matching: find.byKey(const Key('code-login-minimum-age')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: consentRow,
+        matching: find.byKey(const Key('code-login-consent')),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('local iPhone use is secondary to login and requires consent', (
     tester,
   ) async {
@@ -272,6 +310,7 @@ void main() {
       250,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.ensureVisible(find.byKey(const Key('code-login-submit')));
     await tester.tap(find.byKey(const Key('code-login-submit')));
     await tester.pump();
     expect(controller.passwordLoginEmail, isNull);
@@ -310,6 +349,7 @@ void main() {
       250,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.ensureVisible(find.byKey(const Key('code-login-submit')));
     await tester.tap(find.byKey(const Key('code-login-submit')));
     await tester.pumpAndSettle();
     expect(controller.passwordLoginEmail, 'test@example.com');
@@ -321,6 +361,12 @@ void main() {
   testWidgets('invalid email credentials show a generic sign-in failure', (
     tester,
   ) async {
+    tester.view
+      ..physicalSize = const Size(390, 900)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     final controller = CodeLoginController()..passwordLoginResult = false;
     await tester.pumpWidget(
       MaterialApp(
@@ -368,6 +414,7 @@ void main() {
       250,
       scrollable: find.byType(Scrollable).first,
     );
+    await tester.ensureVisible(find.byKey(const Key('code-login-submit')));
     await tester.tap(find.byKey(const Key('code-login-submit')));
     await tester.pumpAndSettle();
     expect(
@@ -565,14 +612,21 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('global-wechat-login')), findsNothing);
       expect(find.byKey(const Key('code-login-send')), findsOneWidget);
+      expect(find.byKey(const Key('code-login-contact')), findsOneWidget);
       await tester.scrollUntilVisible(
         find.byKey(const Key('code-login-submit')),
         250,
         scrollable: find.byType(Scrollable).first,
       );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('local-ring-use-entry')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.byKey(const Key('code-login-submit')), findsOneWidget);
-      expect(find.byKey(const Key('code-login-contact')), findsOneWidget);
       expect(find.byKey(const Key('local-ring-use-entry')), findsOneWidget);
+      expect(find.text('游客进入'), findsOneWidget);
+      expect(find.text('可直接连接戒指；本机健康记录与账号云端数据分开保存。'), findsNothing);
       expect(find.byKey(const Key('review-demo-entry')), findsNothing);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),

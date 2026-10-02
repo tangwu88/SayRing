@@ -517,40 +517,52 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                 ],
                 if (!_passwordMode && _challenge != null)
                   Text(l.verificationSentTo(_challenge!.maskedIdentifier)),
-                CheckboxListTile(
-                  key: const Key('code-login-minimum-age'),
-                  contentPadding: EdgeInsets.zero,
-                  controlAffinity: ListTileControlAffinity.leading,
-                  value: _ageConfirmed,
-                  onChanged: _busy
-                      ? null
-                      : (value) =>
-                            setState(() => _ageConfirmed = value == true),
-                  title: Text(
-                    Localizations.localeOf(context).languageCode == 'zh'
-                        ? '我确认已满14周岁'
-                        : 'I confirm that I am at least 14 years old.',
-                    style: const TextStyle(fontSize: 12, height: 1.4),
-                  ),
-                ),
-                CheckboxListTile(
-                  key: const Key('code-login-consent'),
-                  contentPadding: EdgeInsets.zero,
-                  controlAffinity: ListTileControlAffinity.leading,
-                  value: _accepted,
-                  onChanged:
-                      _busy ||
-                          (!widget.controller.supportsLocalOnlyUse &&
-                              !(_capabilities?.consentVersion
-                                      ?.trim()
-                                      .isNotEmpty ??
-                                  false))
-                      ? null
-                      : (value) => setState(() => _accepted = value == true),
-                  title: Text(
-                    l.agreeToTerms,
-                    style: const TextStyle(fontSize: 12, height: 1.4),
-                  ),
+                Row(
+                  key: const Key('code-login-consents-row'),
+                  children: [
+                    Expanded(
+                      child: CheckboxListTile(
+                        key: const Key('code-login-minimum-age'),
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        visualDensity: VisualDensity.compact,
+                        value: _ageConfirmed,
+                        onChanged: _busy
+                            ? null
+                            : (value) =>
+                                  setState(() => _ageConfirmed = value == true),
+                        title: Text(
+                          Localizations.localeOf(context).languageCode == 'zh'
+                              ? '我确认已满14周岁'
+                              : 'I confirm that I am at least 14 years old.',
+                          style: const TextStyle(fontSize: 12, height: 1.4),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: CheckboxListTile(
+                        key: const Key('code-login-consent'),
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        visualDensity: VisualDensity.compact,
+                        value: _accepted,
+                        onChanged:
+                            _busy ||
+                                (!widget.controller.supportsLocalOnlyUse &&
+                                    !(_capabilities?.consentVersion
+                                            ?.trim()
+                                            .isNotEmpty ??
+                                        false))
+                            ? null
+                            : (value) =>
+                                  setState(() => _accepted = value == true),
+                        title: Text(
+                          l.agreeToTerms,
+                          style: const TextStyle(fontSize: 12, height: 1.4),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 Wrap(
                   children: [
@@ -586,15 +598,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                     key: const Key('local-ring-use-entry'),
                     onPressed: _busy ? null : _enterLocalMode,
                     icon: const Icon(Icons.watch_outlined),
-                    label: Text(_busy ? l.pleaseWait : '无需登录，连接戒指'),
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.only(top: 6),
-                    child: Text(
-                      '可直接连接戒指；本机健康记录与账号云端数据分开保存。',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12),
-                    ),
+                    label: Text(_busy ? l.pleaseWait : '游客进入'),
                   ),
                 ] else ...[
                   const SizedBox(height: 12),
