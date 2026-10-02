@@ -225,3 +225,14 @@
 - 验收边界：iPhone 镜像不能连接，故本轮未取得逐屏截图，也未手工遍历每个二级页面；integration smoke 不是“全 App 每页”证明。保持现有用户会话，没有退出账号或发送真实 OTP。R21 本轮没有进行新的蓝牙握手、健康测量、睡眠实测或距离自动重连，也没有完成头像重新打开回读。该轮解决的是登录首页和单一本机入口，不把其余功能记为通过。
 - 构建警告：第三方插件/SDK 有弃用 API 警告，Xcode 还提示外部 DerivedData 的模块缓存 `.pcm` 缺失，未阻断最终构建、严格签名核验、安装和启动。该警告未被本轮修改。
 - 安全范围：bundle ID 继续为 `cn.saydian.ring`；没有改 Android/Harmony、App Store Connect 隐私声明、正在审核的 1016、服务器配置、商店归档或健康数据。最终签名 Profile 日志 `.build/sayring-1020-device-profile-final.log`；真机冒烟日志 `.build/sayring-1020-device-ui-smoke-final.log`。
+
+## 1020 iOS 真机逐页巡检续记
+
+- 原因与范围：用户要求继续完成苹果版逐页真机检查。iPhone 15 Pro Max（iOS 26.6）在线，开始时仓库干净且 `origin/codex/macos-update-20260930` 与当前 `HEAD` 一致。新增只读集成巡检 `integration_test/ios_read_only_page_walkthrough_test.dart`；不改产品逻辑、不退出账号、不保存个人资料、不发 OTP、不执行测量、扫描连接、解绑或商城交易。
+- 失败与排查：首轮集成测试把 ReviewDemo 未选中的“设备”标签假设为已构建，失败为 0 个匹配组件；对照 `ReviewDemoPage` 真实标签切换行为后，改成先点“设备”再断言。另一次驱动在底部标签点击处只输出命中诊断、未及时返回；中断该次驱动后加逐段定位，后续完整运行稳定通过。未发现 App 页面崩溃或业务代码缺陷。
+- 真机通过路径：最终 `flutter drive --no-pub --driver=test_driver/integration_test.dart --target=integration_test/ios_read_only_page_walkthrough_test.dart -d 00008130-001C098C2290001C --keep-app-running --dart-define-from-file=config/ios-app-store-no-push.json` 通过（实际测试 1/1，加 driver teardown）。逐项访问只读演示首页、睡眠阶段时间轴、心率/血氧/步数详情、设备兼容流程说明、演示“我的”页；退出演示后回到 `global-code-login-page`，确认登录联系输入框/登录按钮为主操作，只有一个 `local-ring-use-entry`，没有演示入口和商城；未同意时点击本机入口只显示门禁错误、留在登录页。随后切换邮箱输入，并在能力允许时检查邮箱密码/验证码显示切换，未提交账号或密码。
+- 登录状态边界：集成控制器未恢复出认证或本机模式会话，因此为覆盖无账号公开路径，测试显式进入只读 ReviewDemo；本轮**没有**进入账号 AppShell。真实个人资料编辑、健康数据总表与所有指标、通知列表、远程关爱、百科详情、运动页、设备扫描/握手/同步/重连、联系客服、帮助反馈、权限页与真实关于页仍不记为本轮真机通过。账号页面需在有效登录态下继续检查；此前 1020 记录的验证范围保持为当时的独立结果，不延伸到本轮。匿名初始化期间三条 API 请求返回 HTTP 200，但没有执行登录、验证码或用户资料写入。
+- 自动化与发布构建：`TZ=UTC flutter test --no-pub --concurrency=1 --reporter compact` 与 `TZ=Asia/Shanghai flutter test --no-pub --concurrency=1 --reporter compact` 各 1034/1034；`flutter analyze --no-pub` 无问题；`python3 scripts/release/test_release_gate.py` 30/30；`git diff --check` 通过。集成构建提示 sqflite_sqlcipher 与 yc_product_plugin 尚不支持 iOS Swift Package Manager，并提示 WechatOpenSDK-XCFramework 无 Apple Silicon Simulator arm64；未阻断 iPhone 真机运行。
+- 最终安装状态：巡检结束后重新覆盖安装并启动已验签 Profile `1.0 (1020)`；`codesign --verify --deep --strict` 通过，`devicectl` 回读 `cn.saydian.ring` / `1.0 (1020)`。未卸载 App、未清除本机数据。App Store Connect 审核中的 1016 未触碰。
+- 仓库安全：提交前 `gh api repos/tangwu88/SayRing` 回读到 `public`，因此未向公开仓库推送；按项目私有仓库约束恢复为 `private` 并再次回读确认。只会推送到当前 SayRing 功能分支，不改 `main`。
+- 待验收：本轮只读页面巡检不等于硬件验收。没有重新连接 R21、测量、睡眠真实样本、三轮远近自动重连或头像上传后重开回读；这些以及登录态账号页面仍待有实际登录态/戒指时完成，不能标全 App 每页已通过。
