@@ -830,7 +830,8 @@ struct IOSWechatAuthState {
 }
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, WXApiDelegate {
+@objc class AppDelegate: FlutterAppDelegate, WXApiDelegate {
+  private(set) var flutterEngine: FlutterEngine?
   private let wearableStreamHandler = WearableStreamHandler()
   private var wearableAdapter: WearableAdapter?
   private var methodChannel: FlutterMethodChannel?
@@ -858,6 +859,12 @@ struct IOSWechatAuthState {
     wearableAdapter = UnconfiguredWearableAdapter()
     #endif
     registerWechatIfConfigured()
+    // Start the engine before UIScene creates FlutterViewController; this avoids
+    // the iOS 26 ProMotion implicit-engine VSync startup race.
+    let engine = FlutterEngine(name: "SayRingMain")
+    guard engine.run() else { return false }
+    flutterEngine = engine
+    configureFlutterEngine(engine)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -866,11 +873,9 @@ struct IOSWechatAuthState {
     wearableAdapter?.refreshDeviceDetailsIfNeeded()
   }
 
-  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
-    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    guard let registrar = engineBridge.pluginRegistry.registrar(
-      forPlugin: "SaydianWearableBridge"
-    ) else {
+  private func configureFlutterEngine(_ engine: FlutterEngine) {
+    GeneratedPluginRegistrant.register(with: engine)
+    guard let registrar = engine.registrar(forPlugin: "SaydianWearableBridge") else {
       return
     }
 
