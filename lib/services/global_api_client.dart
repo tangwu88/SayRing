@@ -213,6 +213,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         GlobalCareApi,
         GlobalContentApi,
         GlobalSupportApi,
+        SaydianAvatarProfileApi,
         SaydianDeviceBindingApi,
         SayRingAppDisplayApi,
         GlobalCommerceApi,
@@ -708,6 +709,18 @@ class GlobalSaydianApiClient extends SaydianApiClient
         if (headPortrait != null && headPortrait.isNotEmpty)
           'avatarUrl': headPortrait,
         'locale': _locale(),
+      }),
+    );
+  }
+
+  @override
+  Future<void> saveAvatarUrl(String avatarUrl) async {
+    if (!GlobalEnvironment.allowsFirstPartyResource(Uri.parse(avatarUrl))) {
+      throw const ApiException('Invalid avatar URL');
+    }
+    _decode(
+      await _authorizedPutJson('/api/saydian-app/v2/members/me', {
+        'avatarUrl': avatarUrl,
       }),
     );
   }

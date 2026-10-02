@@ -4109,6 +4109,7 @@ class AppController extends ChangeNotifier {
     String? avatarFilePath,
   }) => _guard(() async {
     if (session == null) throw const ApiException('请先登录后编辑个人资料');
+    final generation = _sessionGeneration;
     var headPortrait = memberProfile['head_portrait']?.toString();
     final normalizedAvatarPath = avatarFilePath?.trim() ?? '';
     if (normalizedAvatarPath.isNotEmpty) {
@@ -4118,6 +4119,9 @@ class AppController extends ChangeNotifier {
       headPortrait = await (_api as SaydianFileApi).uploadImage(
         normalizedAvatarPath,
       );
+      if (!_isCurrentSessionGeneration(generation)) {
+        throw const ApiException('账号已变更，请重新进入个人资料');
+      }
     }
     await _api.saveMemberProfile(
       nickname: nickname,
@@ -4127,7 +4131,45 @@ class AppController extends ChangeNotifier {
       weight: weight,
       headPortrait: headPortrait,
     );
+    if (!_isCurrentSessionGeneration(generation)) {
+      throw const ApiException('账号已变更，请重新进入个人资料');
+    }
+    if (normalizedAvatarPath.isNotEmpty && isGlobalEdition) {
+      final profile = await _api.getMemberProfile();
+      if (!_isCurrentSessionGeneration(generation)) {
+        throw const ApiException('账号已变更，请重新进入个人资料');
+      }
+      if ('${profile['head_portrait'] ?? ''}'.trim() != headPortrait) {
+        throw const ApiException('头像保存后读取不一致，请稍后重试');
+      }
+      memberProfile = profile;
+      return;
+    }
     await refreshMemberProfile();
+  });
+
+  Future<bool> saveMemberAvatar(String filePath) => _guard(() async {
+    if (session == null) throw const ApiException('请先登录后编辑个人资料');
+    if (_api is! SaydianFileApi || _api is! SaydianAvatarProfileApi) {
+      throw const FeatureNotConfiguredException('头像上传暂时无法使用，请稍后再试');
+    }
+    final generation = _sessionGeneration;
+    final url = await (_api as SaydianFileApi).uploadImage(filePath);
+    if (!_isCurrentSessionGeneration(generation)) {
+      throw const ApiException('账号已变更，请重新进入个人资料');
+    }
+    await (_api as SaydianAvatarProfileApi).saveAvatarUrl(url);
+    if (!_isCurrentSessionGeneration(generation)) {
+      throw const ApiException('账号已变更，请重新进入个人资料');
+    }
+    final profile = await _api.getMemberProfile();
+    if (!_isCurrentSessionGeneration(generation)) {
+      throw const ApiException('账号已变更，请重新进入个人资料');
+    }
+    if ('${profile['head_portrait'] ?? ''}'.trim() != url) {
+      throw const ApiException('头像保存后读取不一致，请稍后重试');
+    }
+    memberProfile = profile;
   });
 
   Future<String?> uploadProfileImage(String filePath) async {

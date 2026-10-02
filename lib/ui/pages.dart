@@ -517,10 +517,14 @@ class DashboardPage extends StatelessWidget {
                     commerceEnabled: controller.commerceEnabled,
                     onCare: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
-                        builder: (_) => Scaffold(
-                          appBar: AppBar(title: Text(context.l10n.remoteCare)),
-                          body: CarePage(controller: controller),
-                        ),
+                        builder: (_) => controller.isGlobalEdition
+                            ? CarePage(controller: controller)
+                            : Scaffold(
+                                appBar: AppBar(
+                                  title: Text(context.l10n.remoteCare),
+                                ),
+                                body: CarePage(controller: controller),
+                              ),
                       ),
                     ),
                     onEncyclopedia: () => Navigator.of(context).push(
@@ -9029,10 +9033,12 @@ class SettingsPage extends StatelessWidget {
                 color: SaydianColors.techBlue,
                 onTap: () => _openPage(
                   context,
-                  Scaffold(
-                    appBar: AppBar(title: Text(context.l10n.remoteCare)),
-                    body: CarePage(controller: controller),
-                  ),
+                  controller.isGlobalEdition
+                      ? CarePage(controller: controller)
+                      : Scaffold(
+                          appBar: AppBar(title: Text(context.l10n.remoteCare)),
+                          body: CarePage(controller: controller),
+                        ),
                 ),
               ),
             ),
@@ -11297,6 +11303,20 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
 
   Future<void> _save() async {
     if (_isPickingAvatar) return;
+    if (_avatarFilePath case final avatarFilePath?
+        when !_profileEdited && widget.controller.isGlobalEdition) {
+      final saved = await widget.controller.saveMemberAvatar(avatarFilePath);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            saved ? '头像已保存' : widget.controller.errorMessage ?? '头像保存失败',
+          ),
+        ),
+      );
+      if (saved) Navigator.of(context).pop();
+      return;
+    }
     if (_gender != 1 && _gender != 2) {
       ScaffoldMessenger.of(
         context,
@@ -11309,12 +11329,12 @@ class _ProfileEditPageState extends State<ProfileEditPage> {
         _birthday.text.isEmpty ||
         height == null ||
         height < 50 ||
-        height > 300 ||
+        height > 250 ||
         weight == null ||
         weight < 10 ||
         weight > 500) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请完整填写资料，身高 50~300 cm、体重 10~500 kg')),
+        const SnackBar(content: Text('请完整填写资料，身高 50~250 cm、体重 10~500 kg')),
       );
       return;
     }
@@ -11582,6 +11602,7 @@ class PermissionManagementPage extends StatefulWidget {
 class _PermissionManagementPageState extends State<PermissionManagementPage>
     with WidgetsBindingObserver {
   Map<Permission, PermissionStatus> _statuses = const {};
+  bool _statusesLoaded = false;
 
   List<Permission> get _permissions =>
       defaultTargetPlatform == TargetPlatform.android
@@ -11589,17 +11610,22 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
           Permission.bluetoothScan,
           Permission.bluetoothConnect,
           Permission.locationWhenInUse,
-          Permission.notification,
-          Permission.photos,
-          Permission.camera,
-          Permission.contacts,
+          if (widget.controller.visibleDeviceFeatures.contains(
+            DeviceFeature.camera,
+          ))
+            Permission.camera,
+          if (widget.controller.notificationServiceConfigured)
+            Permission.notification,
         ]
       : [
           Permission.bluetooth,
           Permission.locationWhenInUse,
-          Permission.notification,
-          Permission.photos,
-          Permission.camera,
+          if (widget.controller.visibleDeviceFeatures.contains(
+            DeviceFeature.camera,
+          ))
+            Permission.camera,
+          if (widget.controller.notificationServiceConfigured)
+            Permission.notification,
         ];
 
   @override
@@ -11631,13 +11657,25 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
   Future<void> _refresh() async {
     final statuses = <Permission, PermissionStatus>{};
     for (final permission in _permissions) {
-      statuses[permission] = await permission.status;
+      try {
+        statuses[permission] = await permission.status;
+      } catch (_) {
+        // An unavailable platform status must not be reported as denied.
+      }
     }
-    if (mounted) setState(() => _statuses = statuses);
+    if (mounted) {
+      setState(() {
+        _statuses = statuses;
+        _statusesLoaded = true;
+      });
+    }
   }
 
   Future<void> _request(Permission permission) async {
-    if (permission == Permission.notification) {
+    final status = _statuses[permission];
+    if (permission == Permission.notification ||
+        status == PermissionStatus.permanentlyDenied ||
+        status == PermissionStatus.restricted) {
       await openAppSettings();
     } else {
       await permission.request();
@@ -11649,10 +11687,8 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
     if (permission == Permission.bluetoothScan) return '附近设备扫描';
     if (permission == Permission.bluetoothConnect) return '蓝牙设备连接';
     if (permission == Permission.bluetooth) return '蓝牙';
-    if (permission == Permission.locationWhenInUse) return '位置';
-    if (permission == Permission.photos) return '照片';
-    if (permission == Permission.camera) return '相机';
-    if (permission == Permission.contacts) return '联系人';
+    if (permission == Permission.locationWhenInUse) return '位置（户外运动轨迹）';
+    if (permission == Permission.camera) return '相机（戒指遥控拍照）';
     return '通知';
   }
 
@@ -11677,25 +11713,37 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
                 child: Column(
                   children: [
                     for (final permission in _permissions) ...[
-                      ListTile(
-                        leading: Icon(
-                          _statuses[permission]?.isGranted == true
-                              ? Icons.check_circle_rounded
-                              : Icons.info_outline_rounded,
-                          color: _statuses[permission]?.isGranted == true
-                              ? SaydianColors.green
-                              : SaydianColors.orange,
-                        ),
-                        title: Text(_name(permission)),
-                        subtitle: Text(
-                          _statuses[permission]?.isGranted == true
-                              ? '已允许'
-                              : '未允许',
-                        ),
-                        trailing: TextButton(
-                          onPressed: () => _request(permission),
-                          child: Text(context.l10n.settings),
-                        ),
+                      Builder(
+                        builder: (context) {
+                          final status = _statuses[permission];
+                          final allowed =
+                              status == PermissionStatus.granted ||
+                              status == PermissionStatus.limited;
+                          return ListTile(
+                            leading: Icon(
+                              allowed
+                                  ? Icons.check_circle_rounded
+                                  : Icons.info_outline_rounded,
+                              color: allowed
+                                  ? SaydianColors.green
+                                  : SaydianColors.orange,
+                            ),
+                            title: Text(_name(permission)),
+                            subtitle: Text(
+                              status == PermissionStatus.limited
+                                  ? '已允许访问部分照片'
+                                  : status == PermissionStatus.granted
+                                  ? '已允许'
+                                  : status == null
+                                  ? (_statusesLoaded ? '状态暂不可读取' : '正在读取状态')
+                                  : '未允许',
+                            ),
+                            trailing: TextButton(
+                              onPressed: () => _request(permission),
+                              child: Text(context.l10n.settings),
+                            ),
+                          );
+                        },
                       ),
                       if (permission != _permissions.last)
                         const Divider(indent: 56),

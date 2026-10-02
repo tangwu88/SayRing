@@ -233,6 +233,11 @@ abstract interface class SaydianProfileUploadApi {
   Future<String> uploadProfileImage(String filePath);
 }
 
+/// Profile endpoints that can persist an avatar without changing other fields.
+abstract interface class SaydianAvatarProfileApi {
+  Future<void> saveAvatarUrl(String avatarUrl);
+}
+
 abstract interface class SaydianHealthCloudApi {
   Future<HealthWarningSettings?> getHealthWarningSettings();
   Future<List<HealthWarningAlert>> getHealthWarningAlerts();

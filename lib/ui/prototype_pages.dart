@@ -5544,12 +5544,14 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
         children: [
           const Center(child: SaydianBrandLockup(width: 176)),
           const SizedBox(height: 26),
-          Text(
-            context.l10n.brandHealthTitle,
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 8),
+          if (!widget.controller.isGlobalEdition) ...[
+            Text(
+              context.l10n.brandHealthTitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+          ],
           Text(
             _introduction,
             textAlign: TextAlign.center,

@@ -14,7 +14,6 @@ import 'services/notification_route_service.dart';
 import 'services/app_update_service.dart';
 import 'ui/app_theme.dart';
 import 'ui/app_update_gate_scope.dart';
-import 'ui/brand_assets.dart';
 import 'ui/pages.dart';
 import 'ui/prototype_pages.dart';
 import 'ui/global_code_login_page.dart';
@@ -834,8 +833,8 @@ class _BootPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: DecoratedBox(
-        decoration: const BoxDecoration(gradient: saydianSoftGradient),
+      body: ColoredBox(
+        color: Colors.white,
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -861,6 +860,11 @@ class _BootLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SaydianBrandLockup(width: 185);
+    return Image.asset(
+      'assets/branding/logo_en.jpg',
+      width: 320,
+      fit: BoxFit.contain,
+      semanticLabel: '赛电',
+    );
   }
 }

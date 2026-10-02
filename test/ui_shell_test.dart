@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/services.dart';
@@ -126,6 +127,169 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  test('Say Ring avatar-only save reads back the new URL', () async {
+    final api = _AvatarOnlyGlobalApi();
+    final controller = AppController(
+      MemorySessionVault(),
+      api,
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    controller.session = Session(
+      accessToken: 'test-token',
+      refreshToken: 'test-refresh',
+      expiresAt: DateTime.now().add(const Duration(days: 1)),
+      memberId: 'test-member',
+      displayName: '测试用户',
+    );
+
+    expect(await controller.saveMemberAvatar('/test/avatar.jpg'), isTrue);
+    expect(api.savedUrl, _AvatarOnlyGlobalApi.uploadedAvatarUrl);
+    expect(
+      controller.memberProfile['head_portrait'],
+      _AvatarOnlyGlobalApi.uploadedAvatarUrl,
+    );
+
+    api.persistAvatar = false;
+    expect(await controller.saveMemberAvatar('/test/avatar2.jpg'), isFalse);
+    expect(controller.errorMessage, contains('读取不一致'));
+  });
+
+  test(
+    'Say Ring profile and avatar save also requires avatar readback',
+    () async {
+      final api = _AvatarOnlyGlobalApi()..persistAvatar = false;
+      final controller = AppController(
+        MemorySessionVault(),
+        api,
+        MemoryHealthStore(),
+        _NoopWearable(),
+      );
+      addTearDown(controller.dispose);
+      controller.session = Session(
+        accessToken: 'test-token',
+        refreshToken: 'test-refresh',
+        expiresAt: DateTime.now().add(const Duration(days: 1)),
+        memberId: 'test-member',
+        displayName: '测试用户',
+      );
+
+      expect(
+        await controller.saveMemberProfile(
+          nickname: '测试用户',
+          gender: 1,
+          birthday: '1990-01-01',
+          height: 170,
+          weight: 65,
+          avatarFilePath: '/test/avatar.jpg',
+        ),
+        isFalse,
+      );
+      expect(controller.errorMessage, contains('读取不一致'));
+      api.persistAvatar = true;
+      expect(
+        await controller.saveMemberProfile(
+          nickname: '测试用户',
+          gender: 1,
+          birthday: '1990-01-01',
+          height: 170,
+          weight: 65,
+          avatarFilePath: '/test/avatar.jpg',
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  testWidgets('Say Ring care entry has a single title bar', (tester) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _AvatarOnlyGlobalApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    controller.session = Session(
+      accessToken: 'test-token',
+      refreshToken: 'test-refresh',
+      expiresAt: DateTime.now().add(const Duration(days: 1)),
+      memberId: 'test-member',
+      displayName: '测试用户',
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: DashboardPage(controller: controller)),
+      ),
+    );
+    await tester.tap(find.text('远程关爱'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('global-care-page')), findsOneWidget);
+    expect(find.byType(AppBar), findsOneWidget);
+  });
+
+  testWidgets('Say Ring About page does not repeat its brand heading', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _AvatarOnlyGlobalApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: AboutSaydianPage(controller: controller),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Say Ring 健康'), findsNothing);
+    expect(find.byType(SaydianBrandLockup), findsOneWidget);
+  });
+
+  testWidgets('iOS permissions show only available Say Ring uses', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    try {
+      final controller = AppController(
+        MemorySessionVault(),
+        _AvatarOnlyGlobalApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+      );
+      addTearDown(controller.dispose);
+      controller.session = Session(
+        accessToken: 'test-token',
+        refreshToken: 'test-refresh',
+        expiresAt: DateTime.now().add(const Duration(days: 1)),
+        memberId: 'test-member',
+        displayName: '测试用户',
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: PermissionManagementPage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('蓝牙'), findsOneWidget);
+      expect(find.text('位置（户外运动轨迹）'), findsOneWidget);
+      expect(find.text('相册（修改头像）'), findsNothing);
+      expect(find.text('相机（戒指遥控拍照）'), findsNothing);
+      expect(find.text('通知'), findsNothing);
+      expect(find.text('未允许'), findsNothing);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   for (final enabled in [false, true]) {
@@ -3312,6 +3476,44 @@ class _EditableProfileApi extends _NoopApi implements SaydianFileApi {
   }) async {
     profile = {...profile, 'nickname': nickname, 'head_portrait': headPortrait};
   }
+}
+
+class _AvatarOnlyGlobalApi extends Fake
+    implements
+        SaydianApi,
+        SaydianFileApi,
+        SaydianAvatarProfileApi,
+        GlobalAccountApi {
+  static const uploadedAvatarUrl =
+      'https://app.saydian.cn/global/api/saydian-app/v2/files/avatar-test';
+  String? savedUrl;
+  bool persistAvatar = true;
+
+  @override
+  Future<String> uploadImage(String filePath) async => uploadedAvatarUrl;
+
+  @override
+  Future<void> saveAvatarUrl(String avatarUrl) async {
+    savedUrl = avatarUrl;
+  }
+
+  @override
+  Future<void> saveMemberProfile({
+    required String nickname,
+    required int gender,
+    required String birthday,
+    required double height,
+    required double weight,
+    String? headPortrait,
+  }) async {
+    savedUrl = headPortrait;
+  }
+
+  @override
+  Future<Map<String, Object?>> getMemberProfile() async => {
+    'nickname': '测试用户',
+    'head_portrait': persistAvatar ? savedUrl : null,
+  };
 }
 
 class _NoopApi implements SaydianApi, SaydianArticleApi {

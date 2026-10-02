@@ -93,6 +93,25 @@ void main() {
     );
   });
 
+  test('avatar-only save does not overwrite incomplete profile fields', () async {
+    final api = GlobalSaydianApiClient(
+      MemorySessionVault()..session = session(),
+      client: MockClient((request) async {
+        expect(request.method, 'PUT');
+        expect(request.url.path, '/global/api/saydian-app/v2/members/me');
+        expect(request.headers['authorization'], 'Bearer global-test-access');
+        expect(jsonDecode(request.body), {
+          'avatarUrl':
+              '${GlobalEnvironment.origin}/global/api/saydian-app/v2/files/avatar-1',
+        });
+        return ok(const <String, Object?>{});
+      }),
+    );
+    await api.saveAvatarUrl(
+      '${GlobalEnvironment.origin}/global/api/saydian-app/v2/files/avatar-1',
+    );
+  });
+
   test(
     'native WeChat requires phone binding before returning a session',
     () async {
