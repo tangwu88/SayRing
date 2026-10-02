@@ -51,4 +51,4 @@
 - 发现当前生产启用的 v2 正文年龄门槛为 14 岁，而未提交工作区有一次临时改成 13+及监护人同意的文案；为避免客户端声明与现行协议相矛盾，已恢复客户端及错误提示为现行 14 岁文案。没有启用未审核的新版本，也没有声称绕过审核政策。
 - `flutter analyze` 通过；`flutter test test/global_auth_page_test.dart test/global_code_login_page_test.dart` 最终 18/18 通过。一次包含更多测试的运行曾遇到预期文案未同步与 capabilities 请求 HTTP 503；修正断言后登录 UI 两套测试通过。
 - iOS Debug 再启动：Xcode 本机构建完成，但 `devicectl` 安装/`--start-stopped` 启动没有返回完成结果。镜像明确报告 iPhone 正在使用；用户数据未清除，未卸载 App。已中止本地 Flutter/`devicectl` 等待进程。最新只读设备回读仍显示 `cn.saydian.ring / 0.1.21 (1006)`，所以本次没有确认新 Debug 包安装、启动或 VM Service 附加，不能算真机调试通过。
-- 本续测唯一剩余 diff 是 integration smoke 加入当前 14 岁协议文案断言；已静态分析与定向 Widget 测试验证，尚未在手机运行该 integration smoke。
+- 本续测唯一剩余源代码 diff 是 integration smoke 加入当前 14 岁协议文案断言；已静态分析与定向 Widget 测试验证，尚未在手机运行该 integration smoke。
