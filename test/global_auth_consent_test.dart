@@ -71,6 +71,7 @@ class _AuthController extends Fake implements AppController {
     required bool resetPassword,
     required String locale,
     required bool privacyConsentGranted,
+    bool ageConfirmed = false,
     String? consentVersion,
   }) async {
     expect(resetPassword, isTrue);

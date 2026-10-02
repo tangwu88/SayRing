@@ -26,6 +26,7 @@ class NoCodeController extends Fake implements AppController {
   GlobalAccountIdentity? registeredIdentity;
   String? registeredPassword;
   String? registeredConsent;
+  bool? registeredAge;
 
   @override
   Future<GlobalAuthCapabilities>
@@ -50,11 +51,13 @@ class NoCodeController extends Fake implements AppController {
     required String password,
     required String locale,
     required bool privacyConsentGranted,
+    bool ageConfirmed = false,
     String? consentVersion,
   }) async {
     registeredIdentity = identity;
     registeredPassword = password;
     registeredConsent = consentVersion;
+    registeredAge = ageConfirmed;
     return privacyConsentGranted;
   }
 }
@@ -253,7 +256,7 @@ void main() {
       250,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(find.byType(Checkbox));
+    await tester.tap(find.byKey(const Key('auth-consent')));
     await tester.pump();
     await tester.scrollUntilVisible(
       find.byKey(const Key('auth-submit')),
@@ -263,9 +266,22 @@ void main() {
     await tester.tap(find.byKey(const Key('auth-submit')));
     await tester.pumpAndSettle();
 
+    expect(controller.registeredIdentity, isNull);
+    expect(
+      find.textContaining('at least 14 years old to continue'),
+      findsOneWidget,
+    );
+    await tester.ensureVisible(find.byKey(const Key('auth-minimum-age')));
+    await tester.tap(find.byKey(const Key('auth-minimum-age')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('auth-submit')));
+    await tester.tap(find.byKey(const Key('auth-submit')));
+    await tester.pumpAndSettle();
+
     expect(controller.registeredIdentity?.identifier, 'qa@example.com');
     expect(controller.registeredPassword, 'Synthetic123');
     expect(controller.registeredConsent, 'reviewed-test-v1');
+    expect(controller.registeredAge, isTrue);
     expect(tester.takeException(), isNull);
   });
   testWidgets('reset entry is the same international verified-contact form', (

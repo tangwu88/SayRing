@@ -9,6 +9,7 @@ import '../l10n/generated/app_localizations.dart';
 import '../services/api_client.dart';
 import '../services/app_controller.dart';
 import 'brand_assets.dart';
+import 'global_auth_page.dart';
 import 'global_legal_page.dart';
 
 /// Say Ring shares the global member account. Phone sign-in uses a one-time
@@ -347,7 +348,10 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   }
 
   Future<void> _openLegal(GlobalLegalDocumentType document) async {
-    if (widget.controller.supportsLocalOnlyUse) {
+    final hasPublishedLegal =
+        _capabilities?.consentVersion?.trim().isNotEmpty == true &&
+        _capabilities?.legal[document.capabilityKey] != null;
+    if (!hasPublishedLegal && widget.controller.supportsLocalOnlyUse) {
       final path = document == GlobalLegalDocumentType.userAgreement
           ? '/say-ring/terms'
           : '/say-ring/privacy';
@@ -362,6 +366,21 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
       MaterialPageRoute(
         builder: (_) =>
             GlobalLegalPage(controller: widget.controller, document: document),
+      ),
+    );
+    if (mounted) await _loadCapabilities();
+  }
+
+  Future<void> _openAccountSetup({required bool resetPassword}) async {
+    if (_busy) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => GlobalAuthPage(
+          controller: widget.controller,
+          createAccount: !resetPassword,
+          resetPassword: resetPassword,
+          initialChannel: _channel,
+        ),
       ),
     );
     if (mounted) await _loadCapabilities();
@@ -591,6 +610,30 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                   key: const Key('code-login-submit'),
                   onPressed: _busy ? null : _submit,
                   child: Text(_busy ? l.pleaseWait : l.signIn),
+                ),
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  children: [
+                    if (_capabilities?.email == true ||
+                        _capabilities?.sms == true)
+                      TextButton(
+                        key: const Key('code-login-register'),
+                        onPressed: _busy
+                            ? null
+                            : () => _openAccountSetup(resetPassword: false),
+                        child: Text(l.createAccount),
+                      ),
+                    if (_channel == AccountChannel.email
+                        ? _capabilities?.recoveryEmail == true
+                        : _capabilities?.recoverySms == true)
+                      TextButton(
+                        key: const Key('code-login-recover'),
+                        onPressed: _busy
+                            ? null
+                            : () => _openAccountSetup(resetPassword: true),
+                        child: Text(l.forgotPassword),
+                      ),
+                  ],
                 ),
                 if (widget.controller.supportsLocalOnlyUse) ...[
                   const SizedBox(height: 12),

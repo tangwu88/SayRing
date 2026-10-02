@@ -702,6 +702,7 @@ void main() {
         resetPassword: false,
         locale: 'en',
         consentVersion: 'reviewed-test-v1',
+        ageConfirmed: true,
       );
       expect(requests.last.url.path, endsWith('/auth/register-with-code'));
       expect(jsonDecode(requests.last.body), {
@@ -711,6 +712,7 @@ void main() {
         'locale': 'en',
         'consentVersion': 'reviewed-test-v1',
         'product': 'say-ring',
+        'ageConfirmed': true,
       });
     });
     test('password reset keeps the Say Ring product and locale', () async {
@@ -758,6 +760,7 @@ void main() {
           password: 'test-password',
           locale: 'en',
           consentVersion: 'reviewed-test-v1',
+          ageConfirmed: true,
         );
         expect(request.url.path, endsWith('/auth/register'));
         expect(jsonDecode(request.body), {
@@ -767,6 +770,7 @@ void main() {
           'locale': 'en',
           'consentVersion': 'reviewed-test-v1',
           'product': 'say-ring',
+          'ageConfirmed': true,
         });
         expect(result.memberId, 'uuid-member-α');
         expect((await vault.readSession())?.memberId, result.memberId);

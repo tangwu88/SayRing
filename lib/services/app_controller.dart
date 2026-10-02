@@ -637,9 +637,11 @@ class AppController extends ChangeNotifier {
     required String password,
     required String locale,
     required bool privacyConsentGranted,
+    bool ageConfirmed = false,
     String? consentVersion,
   }) async {
     if (isBusy ||
+        !ageConfirmed ||
         !privacyConsentGranted ||
         consentVersion == null ||
         consentVersion.isEmpty) {
@@ -654,6 +656,7 @@ class AppController extends ChangeNotifier {
           password: password,
           locale: locale,
           consentVersion: consentVersion,
+          ageConfirmed: ageConfirmed,
         );
         await _prepareAuthenticatedNotificationSession(
           privacyConsentGranted: privacyConsentGranted,
@@ -679,9 +682,11 @@ class AppController extends ChangeNotifier {
     required bool resetPassword,
     required String locale,
     required bool privacyConsentGranted,
+    bool ageConfirmed = false,
     String? consentVersion,
   }) async {
     if (isBusy ||
+        (!resetPassword && !ageConfirmed) ||
         !privacyConsentGranted ||
         consentVersion == null ||
         consentVersion.trim().isEmpty) {
@@ -698,6 +703,7 @@ class AppController extends ChangeNotifier {
           resetPassword: resetPassword,
           locale: locale,
           consentVersion: consentVersion,
+          ageConfirmed: ageConfirmed,
         );
         await _prepareAuthenticatedNotificationSession(
           privacyConsentGranted: privacyConsentGranted,

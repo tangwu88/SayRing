@@ -5,6 +5,7 @@ import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/ui/brand_assets.dart';
+import 'package:saydian_app/ui/global_auth_page.dart';
 import 'package:saydian_app/ui/global_code_login_page.dart';
 
 class CodeLoginController extends Fake implements AppController {
@@ -19,6 +20,7 @@ class CodeLoginController extends Fake implements AppController {
   bool enteredLocalMode = false;
   bool capabilitiesFail = false;
   int capabilityRequests = 0;
+  String? openedLegalPath;
 
   @override
   bool get supportsLocalOnlyUse => localOnlySupported;
@@ -62,7 +64,27 @@ class CodeLoginController extends Fake implements AppController {
       smsCountries: {'CN'},
       supportedLocales: ['en'],
       consentVersion: 'reviewed-test-v1',
+      legal: {
+        'userAgreement':
+            '/api/saydian-app/v2/content/legal/say_ring_user_agreement?version=reviewed-test-v1&locale=zh-Hans',
+        'privacyPolicy':
+            '/api/saydian-app/v2/content/legal/say_ring_privacy_policy?version=reviewed-test-v1&locale=zh-Hans',
+      },
     );
+  }
+
+  @override
+  Future<Map<String, Object?>> globalLegalDocument(String path) async {
+    openedLegalPath = path;
+    return {
+      'documentType': path.contains('user_agreement')
+          ? 'say_ring_user_agreement'
+          : 'say_ring_privacy_policy',
+      'version': 'reviewed-test-v1',
+      'locale': 'zh-Hans',
+      'reviewed': true,
+      'contentHtml': '<p>Published Say Ring test agreement.</p>',
+    };
   }
 
   @override
@@ -180,6 +202,92 @@ class WechatCodeLoginController extends CodeLoginController {
 }
 
 void main() {
+  testWidgets('registration opens from login and returns to primary login', (
+    tester,
+  ) async {
+    final controller = CodeLoginController()..localOnlySupported = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: GlobalCodeLoginPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('邮箱').first);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('code-login-register')),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('code-login-register')));
+    await tester.pumpAndSettle();
+    final page = tester.widget<GlobalAuthPage>(find.byType(GlobalAuthPage));
+    expect(page.createAccount, isTrue);
+    expect(page.initialChannel, AccountChannel.email);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('auth-minimum-age')),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(
+      tester
+          .widget<CheckboxListTile>(find.byKey(const Key('auth-minimum-age')))
+          .value,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<CheckboxListTile>(find.byKey(const Key('auth-consent')))
+          .value,
+      isFalse,
+    );
+    final age = tester.getCenter(find.byKey(const Key('auth-minimum-age')));
+    final consent = tester.getCenter(find.byKey(const Key('auth-consent')));
+    expect(age.dy, consent.dy);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('auth-toggle-mode')),
+      240,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('auth-toggle-mode')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('global-code-login-page')), findsOneWidget);
+    expect(find.byType(GlobalAuthPage), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'iPhone account legal link uses current published product document',
+    (tester) async {
+      final controller = CodeLoginController()..localOnlySupported = true;
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: GlobalCodeLoginPage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final terms = find.widgetWithText(TextButton, '用户协议');
+      await tester.scrollUntilVisible(
+        terms,
+        240,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(terms);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('global-legal-page')), findsOneWidget);
+      expect(find.text('Published Say Ring test agreement.'), findsOneWidget);
+      expect(controller.openedLegalPath, contains('say_ring_user_agreement'));
+      expect(controller.openedLegalPath, contains('version=reviewed-test-v1'));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('age and legal consent checkboxes share one row on phone width', (
     tester,
   ) async {

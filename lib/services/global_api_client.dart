@@ -13,6 +13,7 @@ abstract interface class GlobalAccountApi {
     required String password,
     required String locale,
     required String consentVersion,
+    bool ageConfirmed = false,
     String? nickname,
   });
   Future<Session> completeVerification({
@@ -21,6 +22,7 @@ abstract interface class GlobalAccountApi {
     required String password,
     required bool resetPassword,
     required String locale,
+    bool ageConfirmed = false,
     String? nickname,
     String? consentVersion,
   });
@@ -1741,6 +1743,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String password,
     required String locale,
     required String consentVersion,
+    bool ageConfirmed = false,
     String? nickname,
   }) => _globalAuthenticate('auth/register', {
     ...identity.toJson(),
@@ -1748,6 +1751,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     'locale': locale,
     'consentVersion': consentVersion,
     'product': GlobalEnvironment.productId,
+    'ageConfirmed': ageConfirmed,
     if (nickname?.trim().isNotEmpty == true) 'nickname': nickname!.trim(),
   });
 
@@ -1825,6 +1829,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String password,
     required bool resetPassword,
     required String locale,
+    bool ageConfirmed = false,
     String? nickname,
     String? consentVersion,
   }) => _globalAuthenticate(
@@ -1837,6 +1842,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
       'locale': locale,
       if (!resetPassword) ...{
         'consentVersion': consentVersion ?? '',
+        'ageConfirmed': ageConfirmed,
         if (nickname?.trim().isNotEmpty == true) 'nickname': nickname!.trim(),
       },
     },

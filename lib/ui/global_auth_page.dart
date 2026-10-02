@@ -18,9 +18,13 @@ class GlobalAuthPage extends StatefulWidget {
     super.key,
     required this.controller,
     this.resetPassword = false,
+    this.createAccount = false,
+    this.initialChannel = AccountChannel.sms,
   });
   final AppController controller;
   final bool resetPassword;
+  final bool createAccount;
+  final AccountChannel initialChannel;
 
   @override
   State<GlobalAuthPage> createState() => _GlobalAuthPageState();
@@ -46,6 +50,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
   bool _loading = false;
   bool _busy = false;
   bool _accepted = false;
+  bool _ageConfirmed = false;
   bool _obscured = true;
 
   AppLocalizations get l => AppLocalizations.of(context)!;
@@ -60,7 +65,12 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
   @override
   void initState() {
     super.initState();
-    if (widget.resetPassword) _mode = _AuthMode.reset;
+    _channel = widget.initialChannel;
+    if (widget.resetPassword) {
+      _mode = _AuthMode.reset;
+    } else if (widget.createAccount) {
+      _mode = _AuthMode.signUp;
+    }
   }
 
   @override
@@ -80,6 +90,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
       _error = null;
       _capabilities = null;
       _accepted = false;
+      _ageConfirmed = false;
     });
     try {
       final value = await widget.controller.globalAuthCapabilities();
@@ -113,6 +124,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
     setState(() {
       _mode = mode;
       _accepted = false;
+      _ageConfirmed = false;
       _resetChallenge();
       _password.clear();
       _confirmation.clear();
@@ -129,12 +141,17 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
     'rate' => l.tooManyAttempts,
     'login' => l.loginFailed,
     'account' => l.accountAlreadyExists,
+    'age' =>
+      Localizations.localeOf(context).languageCode == 'zh'
+          ? '请确认已满14周岁后继续'
+          : 'Confirm that you are at least 14 years old to continue.',
     _ => l.serviceUnavailable,
   };
 
   String _errorFrom(Object error) {
     if (error is FormatException) return error.message;
     if (error is ApiException) {
+      if (error.code == 'minimum_age_confirmation_required') return 'age';
       if (error.statusCode == 429) return 'rate';
       if (error.code == 'verification_expired') return 'expired';
       if (error.code == 'verification_invalid' ||
@@ -155,6 +172,10 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
 
   Future<void> _sendCode() async {
     if (_busy || _remaining > 0) return;
+    if (_mode == _AuthMode.signUp && !_ageConfirmed) {
+      setState(() => _error = 'age');
+      return;
+    }
     GlobalAccountIdentity identity;
     try {
       identity = _identity();
@@ -217,6 +238,10 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
       setState(() => _error = 'consent');
       return;
     }
+    if (_mode == _AuthMode.signUp && !_ageConfirmed) {
+      setState(() => _error = 'age');
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -236,6 +261,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
               locale: _locale,
               privacyConsentGranted: _accepted,
               consentVersion: _capabilities?.consentVersion,
+              ageConfirmed: _ageConfirmed,
             )
           : await widget.controller.completeGlobalVerification(
               challenge: _challenge!,
@@ -245,6 +271,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
               locale: _locale,
               privacyConsentGranted: _accepted,
               consentVersion: _capabilities?.consentVersion,
+              ageConfirmed: _ageConfirmed,
             );
       if (mounted && !success) {
         setState(
@@ -256,6 +283,8 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(l.passwordReset)));
+        await Navigator.of(context).maybePop();
+      } else if (mounted && success && widget.createAccount) {
         await Navigator.of(context).maybePop();
       }
     } catch (error) {
@@ -485,19 +514,59 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                         ),
                       ],
                       const SizedBox(height: 16),
-                      CheckboxListTile(
-                        key: const Key('auth-consent'),
-                        contentPadding: EdgeInsets.zero,
-                        controlAffinity: ListTileControlAffinity.leading,
-                        value: _accepted,
-                        onChanged: _busy || !_consentReady
-                            ? null
-                            : (value) =>
-                                  setState(() => _accepted = value == true),
-                        title: Text(
-                          l.agreeToTerms,
-                          style: const TextStyle(fontSize: 12, height: 1.4),
-                        ),
+                      Row(
+                        key: const Key('auth-consents-row'),
+                        children: [
+                          if (_mode == _AuthMode.signUp)
+                            Expanded(
+                              child: CheckboxListTile(
+                                key: const Key('auth-minimum-age'),
+                                contentPadding: EdgeInsets.zero,
+                                controlAffinity:
+                                    ListTileControlAffinity.leading,
+                                visualDensity: VisualDensity.compact,
+                                value: _ageConfirmed,
+                                onChanged: _busy
+                                    ? null
+                                    : (value) => setState(
+                                        () => _ageConfirmed = value == true,
+                                      ),
+                                title: Text(
+                                  Localizations.localeOf(
+                                            context,
+                                          ).languageCode ==
+                                          'zh'
+                                      ? '我确认已满14周岁'
+                                      : 'I confirm that I am at least 14 years old.',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          Expanded(
+                            child: CheckboxListTile(
+                              key: const Key('auth-consent'),
+                              contentPadding: EdgeInsets.zero,
+                              controlAffinity: ListTileControlAffinity.leading,
+                              visualDensity: VisualDensity.compact,
+                              value: _accepted,
+                              onChanged: _busy || !_consentReady
+                                  ? null
+                                  : (value) => setState(
+                                      () => _accepted = value == true,
+                                    ),
+                              title: Text(
+                                l.agreeToTerms,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       Wrap(
                         children: [
@@ -546,6 +615,8 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                     key: const Key('auth-toggle-mode'),
                     onPressed: _busy
                         ? null
+                        : widget.createAccount
+                        ? () => Navigator.of(context).maybePop()
                         : () => _setMode(
                             _mode == _AuthMode.signIn
                                 ? _AuthMode.signUp
