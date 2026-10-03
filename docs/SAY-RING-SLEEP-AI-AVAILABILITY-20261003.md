@@ -24,3 +24,13 @@
 - 日志保留于 `/private/tmp/sayring-sleep-consent-{analyze-final,full-shanghai,full-newyork,ios-debug,ios-profile,android-native,android-native-retry,android-debug,android-release}.log`；未关闭已有厂商插件 KGP/SPM 未来迁移警告，也没有改 SDK 或权限来绕过检查。
 - `python3 -m unittest discover -s scripts/release -p 'test_release_gate.py'` 30/30 通过；均为合成发布门禁测试，不是对正式 App Store 分发包的验收。fixture 中打印的旧 Health 地址不代表本轮客户端请求或上线地址。
 - 服务端专属授权修复 PR #17 首轮真实数据库/镜像 CI 已通过；安全合并同事后续主线改动后正重跑集成 CI，未在本条记录时上线或发布候选说明。客户端仍只推当前 Say Ring 分支；本轮没有真实 iPhone 报告回读，不先把它升级为已接受的 main 基线。
+
+## 14:42 发布续检与阻断
+
+- 更新后的服务端分支 `be9e07c7b5d66b81edeabcc64421b4e79bd67ba3` 在 Actions `37102416098` 完成集成 CI；真实 PostgreSQL、运行镜像及原始镜像离线传输演练通过。PR #17 于 2026-10-03 14:22:39（中国标准时间）合入主线 `d350538ac53cb7c7a188405b8fc8e3917112cb29`；与已测分支源码相同，同事的国际公开页面改动保留。
+- 主线 Actions `37102848479` 的 `verify` 与不可变发布产物生成成功，自动发布失败：`Another release is running`。GitHub 中旧的 `c93eeb27a64f1f9c70ceba8aebcc1d564e2e43e5` 发布 `37101853848` 已取消，但服务器的发布锁仍未释放；不把 GitHub 任务取消当作服务器进程已退出。
+- 为排除服务器拉取镜像网络问题，临时将现有 `PRODUCTION_IMAGE_TRANSPORT` 从 `ghcr` 改为 `ssh`，对同一通过检查的主线与原始镜像触发 `37103676639`。镜像导出及 SHA 校验成功，但预装仍因同一发布锁失败，实际应用更新步骤未执行。随后核对该变量没有被别人改变并恢复原值 `ghcr`，回读确认；没有新增凭据或放宽 SSH、证书、接收器权限。
+- 两个线上 ready 路径仍显示 `50dd2abbbcad82323b7d6fef7310a4aa33a26713`、数据库正常，不能写成新版本已部署。管理后台仍没有新的睡眠分析说明类型，候选中英文说明尚未发布；没有将旧的 Health App 分析说明冒用为 Say Ring 说明。
+- 现有腾讯云终端未登录，Mac 没有该主机的 SSH 身份。按用户此前获准的服务端配合范围，请“导入-app服务端”任务仅作只读检查；其确认没有可用的既有服务器会话，未能核实持锁 PID 或阶段。没有扫描或使用其他凭据，没有杀进程、删除锁文件、修改生产权限或重复并发部署。旧脚本的镜像拉取有 3600 秒期限，但未确认实际执行阶段，因此不承诺锁一定在某个时刻自动释放。
+- `devicectl list devices` 与 `xctrace list devices` 再次显示 iPhone 15 Pro Max 离线。1026 Profile 验签及双 APK SHA 重核与前述一致，但没有覆盖安装、同意第三方健康传输、真实生成或重开回读；既有手机数据与审核中的 App Store 版本不变。
+- 本次只补记录，不改运行时代码或已验证构建。后续必须先确认发布锁可用及最新主线，通过标准发布流程核对两条线上 revision，再在后台发布专属中英文说明并从公共接口回读。最后用 1026 在真实手机上由用户确认上传后生成、回读真实 AI 报告；完成这些前，本故障仍属于待上线、待真机验收。
