@@ -34,6 +34,8 @@
 - 源码提交 `23dfaceef08156bf3a98fdbc2a525b37e1fa8eca` 已普通推送至 origin/codex/macos-update-20260930，ls-remote 与本地完全一致，工作树干净。新 [mobile-ci 37128935423](https://github.com/tangwu88/SayRing/actions/runs/37128935423) 仍 in_progress，不将上轮成功挪用为本轮 CI 成功；不提升 main，不替换审核包。
 - 原服务端任务确认已有标准部署 Actions 37128752798 成功，API/Worker/后台实际镜像与原发布清单匹配，诊断标记存在；本任务独立 GET `https://app.saydian.cn/global/health/ready` 返回 ready / database ok / revision `36197ef7e3b17a2ddbe91d8679280f4e7d4ba8d2`。原报告仍 FAILED，核查前后状态未变，不能把诊断版本上线写成原 AI 报告生成成功。
 - 1035 VM 在成功连通及状态回读之后再次 8 秒超时，Flutter 预构建调试进程尚在，没有已观察到的崩溃日志。镜像仍提示手机被使用而超时；保留独立可启动的 Profile App，不强制锁机、不清数据、不用远程执行点击代替真实 UI 验收。
+- 收尾只读 CoreDevice 进程清单仍有安装清单中 1035 Say Ring 对应的精确执行路径，未把其他 Runner 进程当本 App。后续 GitHub CI 详情请求超过一分钟未返回，结束该单一只读 gh 进程；独立 GitHub API 连接亦在 8 秒超时，因此新 CI 仍按最近的 in_progress 记录，不猜测终态。
+- 四个构建均结束且安装包哈希再次一致后，清理本项目已完成的 Android merged/stripped native-lib 与 Flutter 编译缓存约 892 MiB，剩余磁盘约 1.5 GiB；全部可重建，1035/旧版留存安装包、日志、SDK 原包、用户数据均保留。
 
 ## 原因和范围
 
