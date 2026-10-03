@@ -24,6 +24,7 @@
 - [2026-10-01 Say Ring 头像本地存储上线与待验边界](SAY-RING-AVATAR-LOCAL-20261001.md) — 仅 Say Ring 专用接口，国际 API 新 revision、私有卷、每日备份与一次恢复演练通过，写入开关已开启；真实账号上传及重启回读仍待验。
 - [2026-10-01 Say Ring App Store 拒审整改](SAY-RING-APP-STORE-REVIEW-20261001.md) — 复核 Apple 2.1 信息请求；首发地区仅中国大陆。1018 将 iOS 首发收口为无账号、本机加密数据的戒指伴侣，关闭账户、云同步与推送入口；本地全量 Flutter 1034 项通过。公开协议页已推送服务端主线，线上回读、1018 真机/归档/上传和准确隐私标签仍是送审门禁，详见正文。
 - [2026-10-01 自动重连、企业微信客服与睡眠时间轴](SAY-RING-RECOVERY-SLEEP-SUPPORT-20261001.md) — 账号/环境精确绑定恢复、真实睡眠明细本机加密保存、企业微信入口；实施、构建和真机结果逐次追加，不变更现有 App Store 审核。
+- [2026-10-03 Say Ring 源码更新与 Android 真机调试边界](SAY-RING-SOURCE-UPDATE-ANDROID-DEBUG-20261003.md) — 仅将独立 `tangwu88/SayRing` 的干净 `main` 快进 27 个提交到 `7daf53c`，复核包名/显示名仍为 `cn.saydian.ring` / `Say Ring`；SAYDIAN Health 未触碰。ADB 设备列表为空，因此本轮未构建、安装或宣称真机调试通过。
 - [2026-09-30 Say Ring 新图标与 Android 覆盖安装](SAY-RING-APP-ICON-INSTALL-20260930.md) — 使用用户确认的黑白戒指图统一 Android/iOS/鸿蒙 Launcher 资源，构建、验签、安装与真机结果见正文。
 - [2026-09-30 App Store 构建上传记录](SAY-RING-APP-STORE-UPLOAD-20260930.md) — 使用最新图标 `05fdb66`，为玉成 SDK 已链接但本版未开放的媒体/语音接口补准确用途说明；39 项图标、29 项发布检查、双时区各 940 项及 iOS Debug/Profile 通过。正式 `cn.saydian.ring` / `1.0 (1008)` 已验签、逐像素核对图标、上传并在 App Store Connect 后台处理“完成”，可用构建已出现；出口合规、商店资料、审核和手机操作按用户要求未变更。
 - [2026-09-30 苹果 App Store 提交前检查](SAY-RING-APP-STORE-PREFLIGHT-20260930.md) — 确认正确应用记录与 Bundle ID；TestFlight 无构建，商店资料、发布 profile、正式门禁和磁盘空间仍阻断，未上传或提交审核。
