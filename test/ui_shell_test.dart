@@ -38,6 +38,43 @@ void main() {
   });
 
   testWidgets(
+    'home does not suggest sleep sync when history transport is explicitly unavailable',
+    (tester) async {
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              _NoopWearable(),
+            )
+            ..capabilities = const DeviceCapabilities(
+              metrics: {HealthMetric.heartRate},
+              supportsHistorySync: false,
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: Scaffold(body: DashboardPage(controller: controller)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('home-sleep-overview-entry')),
+        250,
+        scrollable: find.descendant(
+          of: find.byType(CustomScrollView),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('当前戒指的睡眠同步暂未开放'), findsOneWidget);
+      expect(find.textContaining('佩戴戒指睡眠后同步'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'unmapped iOS history is disabled and manual measurement remains',
     (tester) async {
       tester.view.physicalSize = const Size(320, 700);

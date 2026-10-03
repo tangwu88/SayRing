@@ -12,6 +12,11 @@ import 'app_theme.dart';
 import 'health_trend_page.dart' show SleepStructureCard;
 import 'health_ui_owner.dart';
 
+bool sleepSyncUnavailable(AppController controller) {
+  // Missing capabilities keep the existing guide, never imply no support.
+  return controller.capabilities?.supportsHistorySync == false;
+}
+
 String sleepMinutesLabel(double minutes) {
   final seconds = (minutes * 60).round();
   if (seconds < 60) return '$seconds秒';
@@ -179,6 +184,7 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
         ? '--'
         : sleepMinutesLabel(hours.toDouble() * 60);
     final failed = _failed || status == 'failed';
+    final syncUnavailable = sleepSyncUnavailable(widget.controller);
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
@@ -231,7 +237,9 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
             if (failed)
               _SleepNotice(
                 message: record == null
-                    ? '睡眠数据读取失败，请重新连接戒指并同步'
+                    ? syncUnavailable
+                          ? '本机睡眠缓存读取失败，请稍后重试'
+                          : '睡眠数据读取失败，请重新连接戒指并同步'
                     : '睡眠缓存刷新失败，仍显示本机已保存的数据',
                 icon: Icons.error_outline_rounded,
               ),
@@ -239,6 +247,8 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
               _SleepNotice(
                 message: failed
                     ? '没有可显示的本机睡眠记录'
+                    : syncUnavailable
+                    ? '该日期暂无本机睡眠记录，当前戒指的睡眠同步暂未开放'
                     : status == 'noData'
                     ? '戒指本次未返回该日睡眠数据'
                     : '该日期暂无睡眠记录，佩戴戒指睡眠后请同步数据',
@@ -281,8 +291,10 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
               if (timeline?.hasSegments == true)
                 SleepTimelineCard(timeline: timeline!)
               else
-                const _SleepNotice(
-                  message: '此记录只有睡眠汇总，无法反推具体时间段。连接戒指并同步后可补充设备仍保留的明细。',
+                _SleepNotice(
+                  message: syncUnavailable
+                      ? '此记录只有睡眠汇总，无法反推具体时间段。当前戒指的睡眠同步暂未开放。'
+                      : '此记录只有睡眠汇总，无法反推具体时间段。连接戒指并同步后可补充设备仍保留的明细。',
                   icon: Icons.schedule_outlined,
                 ),
               SleepStructureCard(record: record, controller: widget.controller),

@@ -1039,7 +1039,9 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
                             : _failed
                             ? '睡眠缓存刷新失败，点击查看或重试'
                             : latest == null
-                            ? '暂无睡眠记录，佩戴戒指睡眠后同步数据'
+                            ? sleepSyncUnavailable(controller)
+                                  ? '当前戒指的睡眠同步暂未开放'
+                                  : '暂无睡眠记录，佩戴戒指睡眠后同步数据'
                             : '最近一次 · ${DateFormat('M月d日').format(DateTime.parse(sleepRecordSdkDate(latest)))}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

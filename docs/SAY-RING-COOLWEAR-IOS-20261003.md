@@ -121,3 +121,34 @@
 - 现场查看首页、心率趋势/超时弹窗、设备和信息、我的、个人资料、关于、权限、客服、远程关爱及睡眠空状态；远程关爱没有重复标题。没有真实睡眠样本，未生成睡眠/AI 假数据，未代改授权、关爱成员或个人头像。头像保存、真实新心率/血氧值、睡眠时间轴及三轮物理距离重连不标记本轮通过。
 - 源码及记录按现行分支普通提交/推送，原厂 SDK 和原 ZIP、pubspec.lock、图标及其他 App 未变；不把尚未六型号实环验收的 SDK 升级为已接受 main 基线。新 CI/远端 SHA 核对后续追加。
 - 源码提交 71a95214479471012f356afd98b01cba44ff0a82 已正常推送 origin/codex/macos-update-20260930；再次 fetch 后本地/远端一致、工作树干净。新 CI [37125186964](https://github.com/tangwu88/SayRing/actions/runs/37125186964) 为该精确源码 SHA、当前 in_progress，未声称远端所有构建已通过。追加记录前 pull --ff-only 为 Already up to date；末次活动 VM 仍在线，保留调试会话供继续验收。
+
+## 待处理问题续验（21:20 CST）
+
+- 基线 06907c0，干净工作树 fetch/pull --ff-only 成功；继续仅 Say Ring，原包和手机已有登录、绑定、记录保持不动。首次只读检查旧本机 VM 端口已关闭，curl 连接失败，后续 JSON 解析亦失败；手机 Profile App 界面仍正常，不能把调试端口不可用写成 App 崩溃。将以新预构建 Profile 恢复调试。
+- HR01 本轮从页面分别启动心率和血氧，均收到新 SDK 有效结果，点击完成后记录数增加、趋势及首页可见；不提交实际数值、设备地址或账号。上轮 75 秒无结果保留，尚不能确认其原因，不因本轮成功而删除超时记录。
+- P2 复现：联系客服外部系统打开仍返回失败，只出现复制提示；增加同一精确 HTTPS 地址的系统内置浏览器回退，外部成功时不重复打开，两种方式均失败仍提供复制。复制反馈应替换旧失败横幅，不排队掩盖复制结果；保留后台电话、公众号和链接常量，不代拨电话或发消息。
+- P2 复现：CoolWear iOS 明确禁用历史同步，但首页和睡眠空页仍提示佩戴后同步；修改 pages.dart、sleep_detail_widgets.dart 的提示，在已完成能力握手且历史同步为 false 时说明未开放，已有缓存仍显示，读取失败仍明确报告。未知能力与已集成 QRing/Android 的正常引导不变，不伪造睡眠成功。
+- 用文档技能只读核对原厂 DOCX、旧 Markdown 和 Header。旧 HRV heartNum 的具体语义由设备决定；新 RRI 扩展类型仅声明而未给完整结果/单位映射；皮肤温度 tempNum 已是摄氏度，不应再除十；sleepInfos 为状态变化和分包，只发一次。没有本轮真实睡眠样本、确认结束/分包持久化通路前不开放全部历史，后续仍需独立实现验收。未改原文档，未交付新 DOCX；本机依赖没有 bundled LibreOffice，不对文档排版作验证结论。
+- 只读命令一次猜测不存在的睡眠文件、一次 shell 通配无匹配而失败，均改用 rg 定位；DOCX 首轮提取范围过大被截断，后续按实际相关段落读取，没有将截断内容当完整协议。
+- 本轮拟构建 1034；测试、构建、安装和现场浏览器结果后补。现有 App Store 审核不动；服务端 AI 诊断发布由原任务唯一 Actions 处理，不并行手动发布、重置或重试真实报告。
+- 1034 首轮定向 104 通过、2 失败：新增首页断言尚未滚动到懒加载睡眠卡；已保存睡眠值在总计和结构各显示一次，测试误期待仅一处。只修正测试可视流程及准确数量，保留实际页面/提示断言。静态首轮另报新增测试单行 if 缺花括号，已修正；原日志保留，重跑不覆盖。第一次修正 patch 因格式化后的 if 行不匹配而整体未应用，核对后重试。
+- 第二轮定向 105 通过、1 失败：滚动找不到目标，核对实际入口后更正上述初步归因——新增夹具错误使用“全部健康数据”HealthPage，而首页实际是 DashboardPage。改为真实页面并限定其滚动器，不改生产路由。过早启动的本轮 UTC 全量仅运行部分用例，确认进程归属后 SIGINT 停止，保留记录，不计通过。静态重跑已零问题。
+- 最终定向 106/106；格式化 181 文件、零变更；静态零问题；串行 UTC 1119/1119（49 秒）、Asia/Shanghai 1119/1119（40 秒）通过。新增 7 项涵盖外部成功不重复开浏览器、失败/异常回退、页面销毁不再跳转、两次失败精确复制且反馈替换、未开放睡眠的首页/空页/缓存保留和真实读取错误。首次只读猜测旧 workflow 文件不存在，改用现行目录定位，不改 CI。
+- 本机 Node 原生/隐私 19/19、Foundation CoolWear 策略通过、发布 Python 31/31。只删除本仓库已结束的 Flutter AOT 缓存和 Android release native-lib 中间目录，约 752 MiB，可重新构建；保留 1031–1033 安装包、日志和原始 SDK，空闲空间恢复约 2.5 GiB 后串行开始 1034 iOS Profile。没有清理手机或其他项目。
+- 1034 iOS Profile 68.1 秒、Debug 36.7 秒串行通过，深度签名有效；cn.saydian.ring / 1.0.0 (1034) / UIDeviceFamily=[1]，开发签名 get-task-allow=true、团队与 Associated Domains 保持不变。Profile 独立留存并包装开发调试 IPA，SHA-256：1b44ae9ac854dec2cc975356df7821ed31b4f6e7a3266c0671399b4ea62c7532。首次 codesign --entitlements - 输出不是 plist，管道解析失败；改为 --entitlements :- 正确读取，不修改签名。Debug 未安装，手机仅覆盖 Profile；预构建 flutter run 不重新编译，App 清单确认 1034，VM/DevTools 已连接，登录、精确绑定与 4 条健康记录仍在。
+- 客服真机：点击官方链接后内置系统浏览器显示 work.weixin.qq.com，并出现打开微信确认；进入微信后实际到达赛电客服会话。没有发送消息、拨号或上传健康数据，含私人消息的界面不保存入 Git。此前外部打开失败保留，本轮回退路径已实测；离开客服时镜像工具发生 timeoutReached，随后镜像显示正在重新连接，不将其归因于 Say Ring 崩溃。
+- Profile/Debug 完成后核对 Xcode info.plist 的 WorkspacePath 精确属于本仓库，无其他 iOS 构建；清理其 652 MiB 中间缓存及 228 MiB 本仓库 Flutter 缓存，都是可重建产物，保留已签名 App/IPA、所有日志和手机数据。开始串行 Android 1034 Debug/内部 QA Release。1033 源码 CI 37125186964 已全部 success，仅作为旧基线证据，不代替 1034 本轮门禁。
+- Android 1034 Debug 23.7 秒、显式内部 QA Release 60.6 秒串行通过，均为 cn.saydian.ring / 1.0 (1034)、arm64-v8a + armeabi-v7a；两包签名验证通过，QA Release v2 签名与 16 KiB ZIP 对齐通过。原生 `JAVA_HOME=...temurin-17.jdk/Contents/Home ANDROID_HOME=.../Android/sdk ./android/gradlew :app:testDebugUnitTest -p android` 16 秒通过，XML 汇总 39/39，无失败、错误或跳过；bash -n、shellcheck、actionlint 均退出 0。本轮没有安卓安装，不把内部 QA 签名当正式商店包。保存 Debug APK 后，仅清理已结束的本仓库 debug native-lib 中间产物约 1061 MiB，Release 构建未因磁盘失败。
+- Debug APK SHA-256：60fdf3a337011628424c108727296da44cfbcfb4ad06c8c23a75d9d8c7a10804；内部 QA Release APK：de4320f275e01158d860e96ca92bb1a95d69f44ecbf6565f9c6e71e6291ae9b2。两者仅保存在 .build，不入 Git。
+- 1034 现场复验：客服可返回 Say Ring，复制链接立即显示新反馈；HR01 自动恢复连接、真实电量与能力返回，未点重连，连接后不出现重连按钮。首页和睡眠空页均显示同步暂未开放，而不是要求执行不可用同步；原账号、绑定、既有 4 条健康记录保留，重新打开趋势确认旧测量已加载，没有丢数据。此过程不等同三轮物理距离或后台锁屏重连验收。
+- 首个 Flutter 会话实际记录 Lost connection to device，旧端口 curl 不可达，未加错误门禁的 JSON 解析再次失败；iPhone 仍 connected、当前 Say Ring 进程仍在，镜像恢复后 App 界面可操作。独立 `flutter attach --profile -d ...` 仅等待连接，确认本轮 PID 后 SIGINT 取消，不计附加成功。使用同一验证过的预构建 1034 开发 IPA 恢复运行，覆盖安装 13.9 秒，未重新编译/卸载/清数据；新 VM 的只读 getVM 实际返回 VM、1 个 isolate。DevTools 打开工具返回 queued，仅确认调试器在线，不伪称面板已经显示，也不把连接中断未经证据写成 App 闪退。
+- 21:36 CST 对服务端仅做只读检查：唯一 Actions 37124706014 的 verify/resolve 成功，deploy 仍在镜像接收；线上 /global/health/ready 为 ready，revision 4abbcb4。未重启服务、并行部署、改变授权或重试真实睡眠报告；诊断提交 d67a232 尚不能写成已上线或原报告已成功。
+- 最终 1034 在活动调试会话中分别新发起心率、血氧，均收到有效 SDK 返回并点击完成；心率记录从 3 增至 4，血氧从 1 增至 2，趋势和首页同时更新。没有用旧读数冒充新测量，Git 不记录真实读数、账号、地址或私人截图。原 SDK ZIP/Framework SHA-256 再次一致。1034 当前仅开发 Profile 安装/调试验证，不更新 App Store 审核包；头像真实选择保存、真实睡眠/小睡、六型号逐一验收及三轮物理距离/锁屏/蓝牙开关重连仍待验；上轮测量超时原因未确认，不能写成已定位修复。
+
+### 1034 可重复命令及留存
+
+- iOS Profile、Debug 严格串行：`flutter build ios --profile --no-pub --build-name=1.0 --build-number=1034 --dart-define=SAYDIAN_API_BASE_URL=https://app.saydian.cn --dart-define=JPUSH_APP_KEY=`；相同参数将 `--profile` 换为 `--debug`。日志分别为 `.build/coolwear-1034-ios-profile-20261003.log`、`...-ios-debug-...`，均退出 0。
+- Android Debug、QA Release 严格串行：`flutter build apk --debug --no-pub --target-platform=android-arm,android-arm64 --build-name=1.0 --build-number=1034 --dart-define=SAYDIAN_API_BASE_URL=https://app.saydian.cn --dart-define=JPUSH_APP_KEY=`；Release 改 `--release` 且显式 `SAIDIAN_ALLOW_QA_RELEASE=true`。JAVA_HOME 指向本机 Temurin 17、ANDROID_HOME 指向本机 Android SDK；没有放宽正式签名门禁。日志分别为 `.build/coolwear-1034-android-debug-20261003.log`、`...-android-qa-release-...`。
+- `dart format --output=none --set-exit-if-changed lib test`、`flutter analyze --no-pub`、`flutter test --no-pub test/say_ring_recovery_sleep_support_ui_test.dart test/ui_shell_test.dart`；最终定向为 retry2 日志。`TMPDIR=/private/tmp TZ=UTC flutter test --no-pub`、`TMPDIR=/private/tmp TZ=Asia/Shanghai flutter test --no-pub` 分别为 UTC retry、Shanghai 日志，各 1119；初轮失败/取消日志均保留。
+- 原生与发布：`node --test tool/test_coolwear_ios_integration.mjs tool/test_native_log_privacy.mjs`、`xcrun clang -fobjc-arc -framework Foundation test/native_coolwear_policy_test.m -o .build/coolwear-1034-policy-test` 后执行该二进制；`python3 -m unittest discover -s scripts/release -p 'test_*.py'`；`bash -n scripts/release/*.sh`、`shellcheck scripts/release/*.sh`、`actionlint`；APK `aapt dump badging`、`apksigner verify --verbose`、`zipalign -c -P 16 -v 4` 和 iOS `codesign --verify --deep --strict` 均通过。本机 Python/Node 使用已配置用户运行时，原生 UI 测试不冒充真实样本验收。提交前按实际目录更正初稿隐私测试文件名，不将不存在的文件名作为已运行证据。
+- 实机预构建调试命令：`flutter run --profile --no-pub --use-application-binary=.build/SayRing-1.0-1034-Profile-debug.ipa -d <已验证 iPhone UDID> --dart-define=SAYDIAN_API_BASE_URL=https://app.saydian.cn --dart-define=JPUSH_APP_KEY=`。独立终端会话日志、App 清单与只读 VM JSON 仅在 .build，真实设备标识不写入版本文档。主分支不提升为已完成高级 SDK 验收的基线，提交推送当前工作分支，远端 SHA 后补。

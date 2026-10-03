@@ -98,9 +98,10 @@ class _UiController extends Fake implements AppController {
   int reconnects = 0;
   int unbinds = 0;
   bool syncSucceeds = true;
+  DeviceCapabilities? deviceCapabilities;
 
   @override
-  DeviceCapabilities? get capabilities => null;
+  DeviceCapabilities? get capabilities => deviceCapabilities;
 
   @override
   String syncStatus = '设备暂无新数据';
@@ -325,14 +326,14 @@ void main() {
   );
 
   testWidgets(
-    'enterprise service uses external application and failed launch can copy the exact link',
+    'enterprise service tries external then system browser and both failures can copy the exact link',
     (tester) async {
-      MethodCall? launch;
+      final launches = <MethodCall>[];
       String? copied;
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         const MethodChannel('plugins.flutter.io/url_launcher'),
         (call) async {
-          launch = call;
+          launches.add(call);
           return false;
         },
       );
@@ -363,15 +364,116 @@ void main() {
       );
       await tester.tap(find.byKey(const Key('say-ring-open-wechat-service')));
       await tester.pumpAndSettle();
-      expect(launch?.method, 'launch');
-      final arguments = launch!.arguments as Map;
+      expect(launches.length, 2);
+      expect(launches.every((call) => call.method == 'launch'), isTrue);
+      final arguments = launches.first.arguments as Map;
       expect(arguments['url'], SayRingSupport.customerServiceUri.toString());
       expect(arguments['useWebView'], isFalse);
       expect(arguments['useSafariVC'], isFalse);
+      final fallback = launches.last.arguments as Map;
+      expect(fallback['url'], SayRingSupport.customerServiceUri.toString());
+      expect(fallback['useWebView'], isTrue);
+      expect(fallback['useSafariVC'], isTrue);
       expect(find.text('无法打开微信客服，请复制链接后在微信或浏览器中打开'), findsOneWidget);
       await tester.tap(find.widgetWithText(SnackBarAction, '复制链接'));
       await tester.pumpAndSettle();
       expect(copied, 'https://work.weixin.qq.com/kfid/kfcae32196355fde04c');
+      expect(find.text('无法打开微信客服，请复制链接后在微信或浏览器中打开'), findsNothing);
+      expect(find.text('客服链接已复制，可在微信或浏览器中打开'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'enterprise service does not open a second browser after external success',
+    (tester) async {
+      final launches = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('plugins.flutter.io/url_launcher'),
+        (call) async {
+          launches.add(call);
+          return true;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/url_launcher'),
+          null,
+        ),
+      );
+      await _pump(tester, const CustomerServicePage(isGlobalEdition: true));
+      await tester.tap(find.byKey(const Key('say-ring-open-wechat-service')));
+      await tester.pumpAndSettle();
+      expect(launches, hasLength(1));
+      expect((launches.single.arguments as Map)['useSafariVC'], isFalse);
+      expect(find.byType(SnackBar), findsNothing);
+    },
+  );
+
+  for (final throws in [false, true]) {
+    testWidgets(
+      'enterprise service system browser handles external ${throws ? 'exception' : 'failure'}',
+      (tester) async {
+        final launches = <MethodCall>[];
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/url_launcher'),
+          (call) async {
+            launches.add(call);
+            if (launches.length == 1) {
+              if (throws) {
+                throw PlatformException(code: 'test_only_unavailable');
+              }
+              return false;
+            }
+            return true;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/url_launcher'),
+            null,
+          ),
+        );
+        await _pump(tester, const CustomerServicePage(isGlobalEdition: true));
+        await tester.tap(find.byKey(const Key('say-ring-open-wechat-service')));
+        await tester.pumpAndSettle();
+        expect(launches, hasLength(2));
+        expect((launches.last.arguments as Map)['useSafariVC'], isTrue);
+        expect(
+          (launches.last.arguments as Map)['url'],
+          SayRingSupport.customerServiceUri.toString(),
+        );
+        expect(find.byType(SnackBar), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets(
+    'leaving service page during external launch prevents browser fallback',
+    (tester) async {
+      final external = Completer<bool>();
+      var calls = 0;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('plugins.flutter.io/url_launcher'),
+        (call) async {
+          calls++;
+          return external.future;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/url_launcher'),
+          null,
+        ),
+      );
+      await _pump(tester, const CustomerServicePage(isGlobalEdition: true));
+      await tester.tap(find.byKey(const Key('say-ring-open-wechat-service')));
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox());
+      external.complete(false);
+      await tester.pumpAndSettle();
+      expect(calls, 1);
       expect(tester.takeException(), isNull);
     },
   );
@@ -402,6 +504,61 @@ void main() {
       await tester.scrollUntilVisible(find.text('添加客服'), 250);
       expect(find.text('赛电国际客服'), findsOneWidget);
       expect(find.text('4006386738'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'unmapped sleep has an explicit empty state and retains saved summary',
+    (tester) async {
+      final controller = _UiController()
+        ..deviceCapabilities = const DeviceCapabilities(
+          metrics: {HealthMetric.heartRate},
+          supportsHistorySync: false,
+        );
+      await _pump(
+        tester,
+        SleepOverviewPage(controller: controller),
+        width: 320,
+        scale: 2,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('该日期暂无本机睡眠记录，当前戒指的睡眠同步暂未开放'), findsOneWidget);
+      expect(find.textContaining('睡眠后请同步'), findsNothing);
+      controller.stored = [_record()];
+      controller.changed();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+      expect(find.text('7小时30分'), findsNWidgets(2));
+      await tester.scrollUntilVisible(find.textContaining('此记录只有睡眠汇总'), 250);
+      expect(find.text('此记录只有睡眠汇总，无法反推具体时间段。当前戒指的睡眠同步暂未开放。'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'unmapped sleep cache failures remain failures without unusable sync advice',
+    (tester) async {
+      final controller = _UiController()
+        ..deviceCapabilities = const DeviceCapabilities(
+          metrics: {},
+          supportsHistorySync: false,
+        )
+        ..sleepReadStatuses = {'2026-10-01': 'failed'};
+      await _pump(
+        tester,
+        Scaffold(
+          body: SleepDayDetails(
+            controller: controller,
+            initialDate: DateTime(2026, 10, 1),
+            onOpenTrend: (_) {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('本机睡眠缓存读取失败，请稍后重试'), findsOneWidget);
+      expect(find.text('没有可显示的本机睡眠记录'), findsOneWidget);
+      expect(find.textContaining('重新连接戒指并同步'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

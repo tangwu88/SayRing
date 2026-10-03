@@ -5215,22 +5215,30 @@ class CustomerServicePage extends StatelessWidget {
       ClipboardData(text: SayRingSupport.customerServiceUri.toString()),
     );
     if (!context.mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('客服链接已复制，可在微信或浏览器中打开')));
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      const SnackBar(content: Text('客服链接已复制，可在微信或浏览器中打开')),
+    );
   }
 
   Future<void> _openWechatService(BuildContext context) async {
-    var opened = false;
-    try {
-      opened = await launchUrl(
-        SayRingSupport.customerServiceUri,
-        mode: LaunchMode.externalApplication,
-      );
-    } catch (_) {
-      // A missing handler and platform errors both retain a usable copy path.
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    for (final mode in [
+      LaunchMode.externalApplication,
+      LaunchMode.inAppBrowserView,
+    ]) {
+      if (!context.mounted) return;
+      try {
+        if (await launchUrl(SayRingSupport.customerServiceUri, mode: mode)) {
+          return;
+        }
+      } catch (_) {
+        // External launch may be unavailable; try the system browser surface.
+        // If it is unavailable too, retain the exact-link copy path below.
+      }
     }
-    if (opened || !context.mounted) return;
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('无法打开微信客服，请复制链接后在微信或浏览器中打开'),
