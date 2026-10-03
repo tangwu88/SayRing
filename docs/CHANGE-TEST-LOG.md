@@ -1,5 +1,7 @@
 # 修改与测试记录索引
 
+- [2026-10-04 安卓登录后巡检、首页标题及 QRing 构建缓存](SAY-RING-ANDROID-SIGNED-IN-20261004.md) — 1039 真机登录和 R21 在线；修复首页标题截断，并在只读原 SDK 的构建副本中移除污染缓存的映射输出规则。双时区全量各 1146 项、Android 1040 Debug/QA Release/Release 后 Debug、原生 39 项及 ABI 检查通过；iOS 编译回归、AI 重试现状和用户操作手机的验收边界按正文记录，不改现有审核。
+
 - [2026-10-04 安卓 1039 构建与真机启动](SAY-RING-ANDROID-DEVICE-20261004.md) — Debug/内部 QA Release 构建、签名/QA ABI、39 项原生测试及 Analyzer 通过。首次覆盖因签名冲突失败；用户授权卸载重装后 1039 成功安装到华为 PPA_LX3，前台/进程/Dart VM/Flutter attach 和真实登录首屏已核对。旧本机数据不承诺恢复，账号及戒指实际功能待验；失败日志和重装授权均保留，不改 iOS 审核。
 
 - [2026-10-04 客户端模块整理与 iOS 减包](SAY-RING-CLIENT-CLEANUP-20261004.md) — 12277 行页面实现整理为 13 个功能模块，55 行旧入口兼容；共享提示/文本/图片 URL 明确依赖，原素材和 SDK 保留。双时区全量各 1142 项通过，1039 Profile IPA 实测减少 5.46%、未压缩 app 减少 9.47%，符号文件与二进制 UUID 一致；Debug/Release 和真机状态按正文记录，Android 本机后置，不改审核。

@@ -74,6 +74,10 @@ jobs:
         env:
           SAIDIAN_ALLOW_QA_RELEASE: "true"
       - run: cd android && ./gradlew :app:testDebugUnitTest
+      - name: Verify SDK bytes and Release-to-Debug immutable cache regression
+        run: |
+          node tool/verify_qring_sdk_copy.mjs android/app/libs/qring_sdk_1.0.0.76.aar build/app/generated/qring-sdk/qring_sdk_1.0.0.76-build.aar
+          flutter build apk --debug --target-platform=android-arm,android-arm64
 
   ios:
     runs-on: macos-26

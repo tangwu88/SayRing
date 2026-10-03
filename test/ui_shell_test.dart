@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,6 +26,61 @@ void main() {
   // Legacy page hosts deliberately retain Chinese copy. DateFormat now uses
   // the explicit page locale rather than a hard-coded numeric pattern.
   setUpAll(() => initializeDateFormatting('zh_Hans'));
+
+  for (final viewport in const [
+    (width: 360.0, scale: 1.0),
+    (width: 320.0, scale: 1.0),
+    (width: 320.0, scale: 1.5),
+    (width: 320.0, scale: 2.0),
+  ]) {
+    testWidgets(
+      'health section stays readable at ${viewport.width}px x${viewport.scale}',
+      (tester) async {
+        tester.view.physicalSize = Size(viewport.width, 1000);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final controller = AppController(
+          MemorySessionVault(),
+          _NoopApi(),
+          MemoryHealthStore(),
+          _NoopWearable(),
+        );
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildSaydianTheme(),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(viewport.scale)),
+              child: child!,
+            ),
+            home: AppShell(controller: controller),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final title = find.text('健康数据');
+        await tester.ensureVisible(title);
+        await tester.pumpAndSettle();
+        for (final label in ['健康数据', '近期数据', '全部数据']) {
+          expect(find.text(label), findsOneWidget);
+          expect(
+            tester
+                .renderObject<RenderParagraph>(find.text(label))
+                .didExceedMaxLines,
+            isFalse,
+            reason: '$label must not be ellipsized',
+          );
+        }
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('全部数据'));
+        await tester.pumpAndSettle();
+        expect(find.text('全部健康数据'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets(
     'CoolWear RRI detail identifies SDNN and separates auxiliary units',

@@ -1577,36 +1577,6 @@ class _SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final enlargedText = MediaQuery.textScalerOf(context).scale(1) > 1.25;
-    final heading = Row(
-      children: [
-        Flexible(
-          child: Text(
-            title,
-            maxLines: 1,
-            softWrap: false,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
-          ),
-        ),
-        const SizedBox(width: 8),
-        const Icon(
-          Icons.calendar_month_outlined,
-          size: 19,
-          color: SaydianColors.muted,
-        ),
-        const SizedBox(width: 5),
-        Flexible(
-          child: Text(
-            subtitle,
-            maxLines: 1,
-            softWrap: false,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: SaydianColors.muted, fontSize: 14),
-          ),
-        ),
-      ],
-    );
     final action = TextButton.icon(
       onPressed: onAction,
       iconAlignment: IconAlignment.end,
@@ -1618,19 +1588,43 @@ class _SectionTitle extends StatelessWidget {
         style: const TextStyle(fontWeight: FontWeight.w800),
       ),
     );
-    if (enlargedText) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          heading,
-          Align(alignment: Alignment.centerRight, child: action),
-        ],
-      );
-    }
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(child: heading),
-        action,
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            action,
+          ],
+        ),
+        Row(
+          children: [
+            const Icon(
+              Icons.calendar_month_outlined,
+              size: 19,
+              color: SaydianColors.muted,
+            ),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Text(
+                subtitle,
+                style: const TextStyle(
+                  color: SaydianColors.muted,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }

@@ -6,6 +6,18 @@ import crypto from 'node:crypto';
 const read = path => fs.readFileSync(path, 'utf8');
 const sha = path => crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex');
 
+test('QRing mapping outputs are removed only in a build-local SDK copy', () => {
+  assert.equal(sha('android/app/libs/qring_sdk_1.0.0.76.aar'), '0021886ae500740945cf76e61d750812b96ff54d51fd0c32ebe77083862326d4');
+  const gradle = read('android/app/build.gradle.kts');
+  assert.match(gradle, /tasks\.registering\(Zip::class\)/);
+  assert.match(gradle, /layout\.buildDirectory\.dir\("generated\/qring-sdk"\)/);
+  assert.match(gradle, /rules\.count \{ it\.trim\(\) == "-printmapping map\.txt" \} != 2/);
+  assert.match(gradle, /filesMatching\("proguard\.txt"\)/);
+  assert.match(gradle, /if \(line\.trim\(\) == "-printmapping map\.txt"\) "" else line/);
+  assert.match(gradle, /implementation\(files\(prepareQRingSdk\.flatMap \{ it\.archiveFile \}\)\)/);
+  assert.doesNotMatch(gradle, /qringSdkFile\.(write|delete)|disable.*[Ii]mmutable/);
+});
+
 test('packaging does not alter the supplied branding originals', () => {
   assert.equal(sha('assets/branding/ai-health-manager-doctor.png'), 'd57f2b5edb7ce3bed6d31cca21f47d2d2f464da9e7db19a7c36d8423219e7f3c');
   assert.equal(sha('assets/branding/saidian-brand-lockup.png'), '376bc24d9f7ea1d49f1e9b8896bc8bbd5b209d969305db480f715d181a121ebc');

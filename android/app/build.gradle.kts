@@ -116,6 +116,30 @@ if (!qringSdkFile.isFile) {
     throw GradleException("QRing SDK 文件缺失：${qringSdkFile.name}")
 }
 
+// The vendor consumer rules contain two `-printmapping map.txt` directives.
+// R8 resolves those relative to the extracted AAR, mutating Gradle's immutable
+// transform cache on Release builds. Keep the supplied SDK read-only; only
+// remove those output directives in a reproducible build-local copy. AGP still
+// writes the app's normal mapping.txt under build/app/outputs/mapping.
+val prepareQRingSdk by tasks.registering(Zip::class) {
+    inputs.file(qringSdkFile)
+    archiveFileName.set("qring_sdk_1.0.0.76-build.aar")
+    destinationDirectory.set(layout.buildDirectory.dir("generated/qring-sdk"))
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+    doFirst {
+        val rules = zipTree(qringSdkFile).matching { include("proguard.txt") }.singleFile.readLines()
+        if (rules.count { it.trim() == "-printmapping map.txt" } != 2) {
+            throw GradleException("QRing consumer rules changed; review mapping outputs before building")
+        }
+    }
+    from(zipTree(qringSdkFile)) {
+        filesMatching("proguard.txt") {
+            filter { line: String -> if (line.trim() == "-printmapping map.txt") "" else line }
+        }
+    }
+}
+
 android {
     namespace = "cc.saidian.saydian_app"
     compileSdk = flutter.compileSdkVersion
@@ -273,7 +297,7 @@ dependencies {
         }
     }
     implementation(files(coolWearSdkFile))
-    implementation(files(qringSdkFile))
+    implementation(files(prepareQRingSdk.flatMap { it.archiveFile }))
     implementation("com.tencent.mm.opensdk:wechat-sdk-android:6.8.40")
     implementation("com.alipay.sdk:alipaysdk-android:15.8.42")
     if (hasCompleteVeepooSdk) {
