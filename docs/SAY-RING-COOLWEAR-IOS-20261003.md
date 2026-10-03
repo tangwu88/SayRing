@@ -84,3 +84,9 @@
 - 三次独立冷启动均产生本应用 PID；分别在约 53 / 50 / 72 秒后仍存活，执行路径为已安装 1032 Profile。镜像仍提示 iPhone 被使用而超时；未锁定或接管用户手机，真实界面、账号/绑定显示和六型号新 SDK 扫描/测量继续待验。
 - Foundation CoolWear 策略通过；`node --test tool/test_coolwear_ios_integration.mjs tool/test_native_log_privacy.mjs`：17/17，发布 Python 工具 31/31。原 ZIP、Framework 二进制哈希与来源记录一致；pubspec.lock、图标和其他 App 未变。
 - 1032 构建期间仅清理已结束的本仓库 Debug/旧 Release 及 Android native-lib 中间目录，均可重建，保留原 SDK、源码、既有包和全部失败日志；释放空间用于重跑，不将磁盘压力未经证实地当作停滞根因。日志为本机 `.build/coolwear-1032-*`，不入 Git。
+
+### 1032 远端核对（20:29 CST）
+
+- 标签源码与上述验证记录提交 e35e9c856cb99597fc76ccf97ffb709e977f57c6，普通推送至 origin/codex/macos-update-20260930；fetch 后本地/远端 SHA 一致，工作树干净。追加记录前再次 fetch/pull --ff-only 为 Already up to date，未更改 main、仓库可见性或现有 App Store 审核。
+- [新 CI 37122947611](https://github.com/tangwu88/SayRing/actions/runs/37122947611) 已针对精确源码 SHA 启动，当前 in_progress，尚不能标记为远端全通过；本机完整测试/双端构建与 iPhone 安装独立通过。
+- iOS CoolWear 当前仅扫描、元数据/功能握手、电量、手动心率/血氧通路已实现；HRV、皮肤温度、历史及睡眠等高级数据链路尚未接入验证，继续 fail closed。本轮统一名称不表示这些通路或六型号实物验收已经通过。
