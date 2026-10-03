@@ -120,3 +120,4 @@
 - `.build/SayRing-1.0-1033-Profile.app` 和开发签名调试 IPA 已留存，手机仍是 1033 Profile、原数据保留；活动 VM 本机只读 getVM 实际返回 VM / 1 个 isolate，调试器持续在线。未关闭 VM 验证、开放远程端口、卸载或清数据，也未变动现有 App Store 审核。
 - 现场查看首页、心率趋势/超时弹窗、设备和信息、我的、个人资料、关于、权限、客服、远程关爱及睡眠空状态；远程关爱没有重复标题。没有真实睡眠样本，未生成睡眠/AI 假数据，未代改授权、关爱成员或个人头像。头像保存、真实新心率/血氧值、睡眠时间轴及三轮物理距离重连不标记本轮通过。
 - 源码及记录按现行分支普通提交/推送，原厂 SDK 和原 ZIP、pubspec.lock、图标及其他 App 未变；不把尚未六型号实环验收的 SDK 升级为已接受 main 基线。新 CI/远端 SHA 核对后续追加。
+- 源码提交 71a95214479471012f356afd98b01cba44ff0a82 已正常推送 origin/codex/macos-update-20260930；再次 fetch 后本地/远端一致、工作树干净。新 CI [37125186964](https://github.com/tangwu88/SayRing/actions/runs/37125186964) 为该精确源码 SHA、当前 in_progress，未声称远端所有构建已通过。追加记录前 pull --ff-only 为 Already up to date；末次活动 VM 仍在线，保留调试会话供继续验收。
