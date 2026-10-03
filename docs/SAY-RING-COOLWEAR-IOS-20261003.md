@@ -29,6 +29,12 @@
 - 服务端审计只读确认 21:10:30 有一次后台重试，将 outbox 计数重置后自动尝试 3 次，累计报告尝试变为 11，最终 provider_busy；本任务没有操作重试。原任务已核验 36197ef 三组件镜像与原发布清单逐一匹配，现由已有唯一 Actions 37128752798 接管，未新开重复发布。现有客户端对 FAILED 停止轮询并展示失败的测试已通过，当前手机账号没有原 R21 样本，不声称已回读同一 sourceHash 的原报告。
 - 1034 源码 CI 37126960137 已完成，quality / Harmony 双时区 / iOS / Android 全部 success；此为上一提交结果，1035 推送和新 CI 另记。App Store 审核、其他两款 App、真实照片和服务端原报告均未修改。
 
+### 1035 推送及服务端上线回执
+
+- 源码提交 `23dfaceef08156bf3a98fdbc2a525b37e1fa8eca` 已普通推送至 origin/codex/macos-update-20260930，ls-remote 与本地完全一致，工作树干净。新 [mobile-ci 37128935423](https://github.com/tangwu88/SayRing/actions/runs/37128935423) 仍 in_progress，不将上轮成功挪用为本轮 CI 成功；不提升 main，不替换审核包。
+- 原服务端任务确认已有标准部署 Actions 37128752798 成功，API/Worker/后台实际镜像与原发布清单匹配，诊断标记存在；本任务独立 GET `https://app.saydian.cn/global/health/ready` 返回 ready / database ok / revision `36197ef7e3b17a2ddbe91d8679280f4e7d4ba8d2`。原报告仍 FAILED，核查前后状态未变，不能把诊断版本上线写成原 AI 报告生成成功。
+- 1035 VM 在成功连通及状态回读之后再次 8 秒超时，Flutter 预构建调试进程尚在，没有已观察到的崩溃日志。镜像仍提示手机被使用而超时；保留独立可启动的 Profile App，不强制锁机、不清数据、不用远程执行点击代替真实 UI 验收。
+
 ## 原因和范围
 
 - P1：HR01、HR05、K80、R7、R7Y、R7Pro 在 iOS 没有实际 CoolWear 原生桥接，单补名字不能搜索或握手。安卓名称修复已在 d89f28e。
