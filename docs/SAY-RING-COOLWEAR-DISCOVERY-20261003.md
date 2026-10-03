@@ -27,3 +27,12 @@
 - iOS Debug 与开发 Profile 串行构建成功，Profile 为 1029、cn.saydian.ring、UIDeviceFamily=1，签名验证通过。验证包留在 .build/SayRing-1.0-1029-Profile.app，不覆盖 1028 产物，不上传审核。
 - 可重建的本轮临时 RunnerTests DerivedData 已清理，1028/1029 安装包和验证日志保留。没有清理用户健康数据、其他工作区或原始 SDK。
 - 当前 devicectl 显示目标 iPhone unavailable，adb 没有连接设备。因此 1029 尚未安装，六型号均未做本轮真实广播/握手验收；iOS 原生 CoolWear SDK 仍缺失，这一结果不得写成苹果端已支持。
+
+## 补充核对
+
+- d89f28eb819a8dd7e637ae07eb3d047d42c456d3 已推送至当前 Say Ring 分支。远端 CI 37116337692 全部成功：双时区质量/Harmony 检查、Android Debug/Release 与原生测试、串行 iOS Debug/Profile/Release 和 RunnerTests 编译。CI iOS 包未签名，RunnerTests 编译不是完整 XCTest 执行。
+- Profile 1029 Runner SHA-256 为 e34d6eaaf6d0e0678cc3e67672e5064d05e3ee9a919896ab5ae3f5cdbf3762ea。构建号、仅 iPhone 与签名已验证，但手机未在线，不能用构建成功代替安装或真实连接验收。
+- 只读检查原 AAR 的 BluetoothHelper、Bluetooth_5SDK_Processor 与 CEScanDev_4_Android5：当前无参数 startScan 没有 HR01 名称白名单；SDK 仍要求可解析的厂商广播信息和设备名称。因此本轮未绕过厂商广播/握手验证，也未声称所有固件广播已兼容。
+- Documents/Desktop/微信文件目录的补充文件名搜索耗时较长，已取消，不能写成全部目录搜索完成。此前相关工程、Downloads 与索引未找到 iOS SDK 的结论保留，仍不能从 Android AAR 推导 iOS 支持。
+- 首次直接调用 adb 因当前 shell PATH 没有该命令而失败，改用 android/local.properties 指向的现有 SDK /Users/saydian/Library/Android/sdk/platform-tools/adb 后正常执行，设备列表为空；没有重复安装工具或改动系统权限。
+- 补充使用 rg --files --hidden --no-ignore --maxdepth 12 查询相关工程、Downloads、Documents、Desktop 的 SDK 压缩包/CEBLE 文件名（排除 node_modules/build/.git/.gradle），未找到 CoolWear iOS 原包。微信文件目录 maxdepth 8 查询找到 QRing 原 ZIP 及重复副本，均只读保留；另一个收藏子目录返回 Interrupted system call，命令 exit 2。因此不能写成完整扫描或证明所有目录均不存在 CoolWear SDK，QRing 原包也不能替代它。
