@@ -25,7 +25,7 @@ enum HealthMetric {
   bloodGlucose('blood_glucose', '血糖', 'mmol/L'),
   bodyTemperature('body_temperature', '皮肤温度', '℃'),
   ecg('ecg', '心电', ''),
-  hrv('hrv', 'HRV', 'ms'),
+  hrv('hrv', '心率变异性（HRV）', 'ms'),
   stress('stress', '压力', ''),
   bodyComposition('body_composition', '身体成分', ''),
   bloodComposition('blood_composition', '血液成分', '');

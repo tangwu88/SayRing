@@ -1664,8 +1664,8 @@ class _MetricCard extends StatelessWidget {
                             Expanded(
                               child: Text(
                                 context.l10n.metricName(metric),
-                                maxLines: 1,
-                                softWrap: false,
+                                maxLines: metric == HealthMetric.hrv ? 2 : 1,
+                                softWrap: metric == HealthMetric.hrv,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                   fontSize: 17,
@@ -11921,13 +11921,17 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
         icon: Icons.favorite_outline_rounded,
       ),
       (type: 'bloodOxygen', title: '血氧自动检测', icon: Icons.water_drop_outlined),
-      (type: 'hrv', title: 'HRV 自动检测', icon: Icons.monitor_heart_outlined),
+      (
+        type: 'hrv',
+        title: '心率变异性（HRV）自动检测',
+        icon: Icons.monitor_heart_outlined,
+      ),
       (type: 'stress', title: '压力自动检测', icon: Icons.self_improvement_rounded),
       (type: 'bloodPressure', title: '血压自动检测', icon: Icons.speed_rounded),
       (type: 'bloodGlucose', title: '血糖自动检测', icon: Icons.water_drop_outlined),
       (
         type: 'bodyTemperature',
-        title: '体温自动检测',
+        title: '皮肤温度自动检测',
         icon: Icons.thermostat_rounded,
       ),
     ];

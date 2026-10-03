@@ -1849,7 +1849,7 @@ class _EcgMedicalSection extends StatelessWidget {
   Widget build(BuildContext context) {
     const definitions = <(String, String, String)>[
       ('meanHeartRate', '平均心率', 'bpm'),
-      ('averageHRV', '心率变异性 HRV', 'ms'),
+      ('averageHRV', '心率变异性（HRV）', 'ms'),
       ('averageTimeInterval', 'QT 间期', 'ms'),
       ('respiratoryRate', '呼吸频率', '次/分'),
       ('sdnn', 'SDNN', 'ms'),
@@ -4433,11 +4433,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     const labels = <String, String>{
       'heartRate': '心率自动检测',
       'bloodOxygen': '血氧自动检测',
-      'hrv': 'HRV 自动检测',
+      'hrv': '心率变异性（HRV）自动检测',
       'stress': '压力自动检测',
       'bloodPressure': '血压自动检测',
       'bloodGlucose': '血糖自动检测',
-      'bodyTemperature': '体温自动检测',
+      'bodyTemperature': '皮肤温度自动检测',
     };
     final entries = settings.entries.toList(growable: false);
     return Column(

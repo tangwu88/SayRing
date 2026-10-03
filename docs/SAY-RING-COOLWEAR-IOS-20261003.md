@@ -57,3 +57,30 @@
 - 只读比较原包 Android 1.4.0 AAR 和仓库现用 AAR，二者 SHA-256 均为 ad482d5d69b99941d906038794165c1d479e5e038713954d9ca22059083d0f5f，无需再次替换或更改 Android SDK。
 - 补做本机 iOS unsigned Release 首轮被既有 Production 签名门禁正确拒绝：Local.xcconfig 的 Release 仍指定 Production=true / QA=false，Shell QA 环境不能覆盖 Xcode build setting。未改本机正式签名文件或放宽脚本；改用 xcodebuild 明确参数 SAIDIAN_PRODUCTION_RELEASE=false / SAIDIAN_ALLOW_QA_RELEASE=true / CODE_SIGNING_ALLOWED=NO，内部 QA Release BUILD SUCCEEDED，日志明确 non-production QA，cn.saydian.ring / 1031 / UIDeviceFamily=[1]。此包未签名、未安装、未上传 App Store；手机仍为已验证的签名 Profile。
 - 服务端用明确标注的最小合成睡眠输入实际调用当前 glm-5.3-flash，一次 HTTP 200、约 16.7 秒，JSON 和生产解析器 ACCEPTED。没有调用真实健康数据、没有修改原 FAILED 报告、尝试次数或授权；现阶段未复现参数/解析器缺陷。服务端继续在独立分支补充固定枚举的失败类别日志，不输出内容/健康值/凭据，测试和发布另计。
+
+## CoolWear 与 QRing 健康名称统一（20:07 CST）
+
+- 用户补充：CoolWear 类设备参考 LuckRing，HRV 为心率变异性、温度为皮肤温度，页面沿用 QRing 标准。修改前 c64f219 工作树干净，fetch/pull --ff-only 成功；原 ZIP、Framework、健康数据和其他 App 保持不动。
+- P2 复现：同一戒指的健康首页/趋势已经显示皮肤温度，但自动检测、提醒及报告缺项仍显示体温；HRV 标题只有缩写或使用另一种排版。预期为统一名称和单位，不能让用户误认成核心体温或压力。
+- 涉及域模型显示名、中文本地化资源、健康详情/趋势/报告、设备自动检测与新提醒文案及相应测试；只变展示，不改 wireName、SQLCipher 数据、服务端参数、单位换算、阈值或算法。
+- HRV 统一主标题为“心率变异性（HRV）”，单位仍为 ms；皮肤温度为 ℃，无足够个人基线不生成“温度波动”。压力是独立设备算法值，不把 HRV 数字直接充当压力或准备度分数。
+- 远程关爱仍保留原接口的标题键和跨产品温度语义，不将来源未知的其他设备体温擅自改成皮肤温度。紧凑心电摘要保留 HRV 缩写，详细指标使用完整名称；旧已保存提醒不重写。
+- 只读复核 [LuckRing](https://apps.apple.com/cn/app/luckring/id6472891975) 和 [QRing](https://apps.apple.com/cn/app/qring/id6473672621) 公开页面；公开说明不能证明某型号能力。使用此前已记录的用户 LuckRing 视频/真机与本次原 SDK 交叉核对，不复制专有评分或猜测未映射 iOS HRV/温度/历史协议。
+- 此轮拟构建 1032；静态、完整 Flutter、双端构建和原位安装结果后补，1031 的测试不冒充新版验收。
+- 原包接入 a6ad892 的远端 CI 37120753039 最终全部通过（包括 Android Debug/Release/39 项原生测试和 iOS 三模式/RunnerTests 编译）；不代表新标签源码已经通过。
+- 标签首轮定向测试中 10 项通过、两个测试文件加载失败，分析同时发现报告页缺少域模型导入。补齐明确 import 后使用新的 retry 日志重跑，首轮日志保留；没有把编译失败写成业务功能通过。
+- 修复导入后定向 87 项通过，新增的两项窄屏流程测试点击发生在滚动后的布局帧更新前，坐标仍在屏外，未进入趋势页；不是设备/页面验证通过。测试补滚动后的 pumpAndSettle 和实际趋势路由断言再跑，未降低溢出检测或静默忽略 tap 警告。
+- 后一次定向 88 项通过，窄屏两项已实际进入趋势页，但测试错误地期待不含“分析”后缀的标题；改为当前趋势页 AppBar 内验证完整指标名称，保留实际路由、点击与异常断言。
+- 窄屏空数据夹具不会构建仅有真实记录时才显示的温度解释卡；测试改为核对实际“该时间段暂无数据”，不为满足断言加入伪造健康记录。皮肤温度非核心体温的语义仍由既有域解释测试覆盖。
+
+### 1032 本机回归和安装
+
+- `flutter gen-l10n` 生成中文资源；`dart format --output=none --set-exit-if-changed lib test`：181 文件、零变更；`flutter analyze --no-pub`：零问题。最终定向测试 90/90，新增 5 项名称/单位/协议契约及 HR05、R21 合成窄屏大字流程、报告摘要用例；合成设备不能作为实环能力证据。
+- `TMPDIR=/private/tmp TZ=UTC flutter test --no-pub`：1107/1107。首轮 Asia/Shanghai 停在 +1093，主测试进程和编译器无 CPU 活动，未查明原因；确认 PID 和日志归属后只对本轮进程发 SIGINT。它退出 0 并输出 +1094 / All tests passed，但用例不足，明确不接受为全量通过，原日志保留。
+- `TZ=Asia/Shanghai flutter test --no-pub test/global_localized_pages_test.dart` 隔离复核 24/24；双端构建结束后串行重新执行完整 Asia/Shanghai 测试：1107/1107，约 62 秒。版本变更的授权负例仍正确拒绝，未修改或放宽授权逻辑。
+- Android 1032 Debug 和显式内部 QA Release 两种 ARM ABI 构建成功；QA Release v2 签名和 `zipalign -c -P 16 -v 4` 通过，aapt 核对 cn.saydian.ring / 1.0 (1032)。Debug SHA-256 为 c42b2f1b76333f9cff7b161fcb303b778470682b582df27f81e8eba776763005；QA Release 为 b24f849384fd1df1f2ea4045c94b1d1b7c36c10058d5ecbe2cc34d3a5550b5e1，不是商店正式签名包。构建结束后串行 `cd android && ./gradlew :app:testDebugUnitTest`：39/39，零失败、错误或跳过。
+- iOS 1032 Profile、Debug 按生产 API 配置串行构建成功；签名 Profile 为 cn.saydian.ring / 1.0.0 (1032) / UIDeviceFamily=[1]，深度签名验证通过。使用 devicectl 从 1031 原位覆盖成功并回读安装列表确认 1032；没有卸载、改包名或清除数据，没有操作 App Store。
+- 核对保存包的 UIDeviceFamily 时，一次 `plutil -extract ... json` 遗漏 `-o -`，改写了本机生成包的 Info.plist。立即从同次 Profile 构建的原 Info.plist 恢复，cmp 字节一致，深度签名再次通过，后续只读提取均显式输出 stdout。发生在安装之后，源码和手机内已安装包未受影响，未重新签名掩盖错误。
+- 三次独立冷启动均产生本应用 PID；分别在约 53 / 50 / 72 秒后仍存活，执行路径为已安装 1032 Profile。镜像仍提示 iPhone 被使用而超时；未锁定或接管用户手机，真实界面、账号/绑定显示和六型号新 SDK 扫描/测量继续待验。
+- Foundation CoolWear 策略通过；`node --test tool/test_coolwear_ios_integration.mjs tool/test_native_log_privacy.mjs`：17/17，发布 Python 工具 31/31。原 ZIP、Framework 二进制哈希与来源记录一致；pubspec.lock、图标和其他 App 未变。
+- 1032 构建期间仅清理已结束的本仓库 Debug/旧 Release 及 Android native-lib 中间目录，均可重建，保留原 SDK、源码、既有包和全部失败日志；释放空间用于重跑，不将磁盘压力未经证实地当作停滞根因。日志为本机 `.build/coolwear-1032-*`，不入 Git。

@@ -1579,6 +1579,95 @@ void main() {
     expect(wearable.stops, 1);
   });
 
+  for (final device in const [
+    DeviceInfo(id: 'coolwear:hr05-label-fixture', name: 'HR05'),
+    DeviceInfo(id: 'qring:r21-label-fixture', name: 'R21'),
+  ]) {
+    testWidgets('${device.name} metric labels fit narrow large-text pages', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(320, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              _NoopWearable(),
+            )
+            ..connectedDevice = device
+            ..deviceCapabilityState = DeviceCapabilityState.ready
+            ..capabilities = const DeviceCapabilities(
+              metrics: {HealthMetric.hrv, HealthMetric.bodyTemperature},
+            );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(1.5)),
+            child: child!,
+          ),
+          home: Scaffold(body: DashboardPage(controller: controller)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final hrvCard = find.byKey(const ValueKey('health-metric-hrv'));
+      await tester.scrollUntilVisible(
+        hrvCard,
+        150,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: hrvCard, matching: find.text('心率变异性（HRV）')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.tap(hrvCard);
+      await tester.pumpAndSettle();
+      expect(find.byType(HealthTrendPage), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.textContaining('心率变异性（HRV）'),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      Navigator.of(tester.element(find.byType(HealthTrendPage))).pop();
+      await tester.pumpAndSettle();
+      final temperatureCard = find.byKey(
+        const ValueKey('health-metric-bodyTemperature'),
+      );
+      await tester.scrollUntilVisible(
+        temperatureCard,
+        -150,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: temperatureCard, matching: find.text('皮肤温度')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.tap(temperatureCard);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.textContaining('皮肤温度'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('该时间段暂无数据'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('HRV manual measurement does not ask for ECG electrode contact', (
     tester,
   ) async {
@@ -1618,7 +1707,7 @@ void main() {
     await tester.tap(find.byKey(const Key('health-measure-hrv')));
     await tester.pump();
 
-    expect(find.text('HRV测量'), findsOneWidget);
+    expect(find.text('心率变异性（HRV）测量'), findsOneWidget);
     expect(find.text('请将戒指贴合手指并保持静止，等待 HRV 测量结果'), findsOneWidget);
     expect(find.textContaining('心电电极'), findsNothing);
 
@@ -1782,7 +1871,7 @@ void main() {
       find.byKey(const ValueKey('device-health-auto-stress')),
       findsOneWidget,
     );
-    expect(find.text('HRV 自动检测'), findsOneWidget);
+    expect(find.text('心率变异性（HRV）自动检测'), findsOneWidget);
     expect(find.text('压力自动检测'), findsOneWidget);
     expect(find.text('当前设备不支持此功能'), findsNothing);
   });
@@ -3371,7 +3460,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.scrollUntilVisible(
-        find.text('心率变异性 HRV'),
+        find.text('心率变异性（HRV）'),
         220,
         scrollable: find.byType(Scrollable).first,
       );

@@ -210,7 +210,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get diastolicUpperLimit => '舒张压上限';
 
   @override
-  String get temperatureUpperLimit => '体温上限';
+  String get temperatureUpperLimit => '皮肤温度提醒上限';
 
   @override
   String get calibrateOnWatchHint => '根据戒指提示完成校准';
@@ -237,10 +237,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get bloodPressureAlertHint => '收缩压或舒张压超过设定值时提示';
 
   @override
-  String get temperatureAlertLabel => '体温报警';
+  String get temperatureAlertLabel => '皮肤温度提醒';
 
   @override
-  String get temperatureAlertHint => '超过设定体温时提示';
+  String get temperatureAlertHint => '超过自行设定的皮肤温度时提示，不用于判断发热';
 
   @override
   String get saveHealthAlerts => '保存预警设置';
@@ -1588,7 +1588,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get ecg => '心电';
 
   @override
-  String get hrv => 'HRV';
+  String get hrv => '心率变异性（HRV）';
 
   @override
   String get stress => '压力';
@@ -2170,7 +2170,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get diastolicUpperLimit => '舒张压上限';
 
   @override
-  String get temperatureUpperLimit => '体温上限';
+  String get temperatureUpperLimit => '皮肤温度提醒上限';
 
   @override
   String get calibrateOnWatchHint => '根据戒指提示完成校准';
@@ -2197,10 +2197,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get bloodPressureAlertHint => '收缩压或舒张压超过设定值时提示';
 
   @override
-  String get temperatureAlertLabel => '体温报警';
+  String get temperatureAlertLabel => '皮肤温度提醒';
 
   @override
-  String get temperatureAlertHint => '超过设定体温时提示';
+  String get temperatureAlertHint => '超过自行设定的皮肤温度时提示，不用于判断发热';
 
   @override
   String get saveHealthAlerts => '保存预警设置';
@@ -3548,7 +3548,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get ecg => '心电';
 
   @override
-  String get hrv => 'HRV';
+  String get hrv => '心率变异性（HRV）';
 
   @override
   String get stress => '压力';
@@ -4130,7 +4130,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get diastolicUpperLimit => '舒張壓上限';
 
   @override
-  String get temperatureUpperLimit => '體溫上限';
+  String get temperatureUpperLimit => '皮膚溫度提醒上限';
 
   @override
   String get calibrateOnWatchHint => '依照戒指提示完成校準';
@@ -4157,10 +4157,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get bloodPressureAlertHint => '收縮壓或舒張壓超過設定值時提示';
 
   @override
-  String get temperatureAlertLabel => '體溫警報';
+  String get temperatureAlertLabel => '皮膚溫度提醒';
 
   @override
-  String get temperatureAlertHint => '超過設定體溫時提示';
+  String get temperatureAlertHint => '超過自行設定的皮膚溫度時提示，不用於判斷發熱';
 
   @override
   String get saveHealthAlerts => '儲存預警設定';
@@ -5508,7 +5508,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get ecg => '心電';
 
   @override
-  String get hrv => 'HRV';
+  String get hrv => '心率變異性（HRV）';
 
   @override
   String get stress => '壓力';

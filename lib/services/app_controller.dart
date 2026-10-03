@@ -3036,7 +3036,7 @@ class AppController extends ChangeNotifier {
       return false;
     }
     if (settings.temperatureUpper < 20 || settings.temperatureUpper > 45) {
-      errorMessage = '体温报警值需设置在 20–45℃';
+      errorMessage = '皮肤温度提醒值需设置在 20–45℃';
       notifyListeners();
       return false;
     }
@@ -6634,7 +6634,7 @@ class AppController extends ChangeNotifier {
       final value = record.values['value'];
       if (value != null && value > settings.temperatureUpper) {
         message =
-            '体温 ${value.toStringAsFixed(1)}℃，超过设定值 ${settings.temperatureUpper.toStringAsFixed(1)}℃';
+            '皮肤温度 ${value.toStringAsFixed(1)}℃，超过设定值 ${settings.temperatureUpper.toStringAsFixed(1)}℃';
       }
     }
     if (message == null) return;

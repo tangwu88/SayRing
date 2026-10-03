@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../domain/health_report_models.dart';
+import '../domain/models.dart';
 import '../services/app_controller.dart';
 import '../services/app_payment_bridge.dart';
 import 'app_theme.dart';
@@ -1534,8 +1535,8 @@ String _metricLabel(String metric) => switch (metric.trim().toLowerCase()) {
   'blood_oxygen' || 'bloodoxygen' => '血氧',
   'blood_pressure' || 'bloodpressure' => '血压',
   'blood_glucose' || 'bloodglucose' => '血糖',
-  'body_temperature' || 'bodytemperature' => '体温',
-  'hrv' => 'HRV',
+  'body_temperature' || 'bodytemperature' => HealthMetric.bodyTemperature.label,
+  'hrv' => HealthMetric.hrv.label,
   'ecg' => 'ECG',
   'body_composition' => '身体成分',
   'blood_composition' => '血液成分',
