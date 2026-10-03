@@ -152,3 +152,8 @@
 - `dart format --output=none --set-exit-if-changed lib test`、`flutter analyze --no-pub`、`flutter test --no-pub test/say_ring_recovery_sleep_support_ui_test.dart test/ui_shell_test.dart`；最终定向为 retry2 日志。`TMPDIR=/private/tmp TZ=UTC flutter test --no-pub`、`TMPDIR=/private/tmp TZ=Asia/Shanghai flutter test --no-pub` 分别为 UTC retry、Shanghai 日志，各 1119；初轮失败/取消日志均保留。
 - 原生与发布：`node --test tool/test_coolwear_ios_integration.mjs tool/test_native_log_privacy.mjs`、`xcrun clang -fobjc-arc -framework Foundation test/native_coolwear_policy_test.m -o .build/coolwear-1034-policy-test` 后执行该二进制；`python3 -m unittest discover -s scripts/release -p 'test_*.py'`；`bash -n scripts/release/*.sh`、`shellcheck scripts/release/*.sh`、`actionlint`；APK `aapt dump badging`、`apksigner verify --verbose`、`zipalign -c -P 16 -v 4` 和 iOS `codesign --verify --deep --strict` 均通过。本机 Python/Node 使用已配置用户运行时，原生 UI 测试不冒充真实样本验收。提交前按实际目录更正初稿隐私测试文件名，不将不存在的文件名作为已运行证据。
 - 实机预构建调试命令：`flutter run --profile --no-pub --use-application-binary=.build/SayRing-1.0-1034-Profile-debug.ipa -d <已验证 iPhone UDID> --dart-define=SAYDIAN_API_BASE_URL=https://app.saydian.cn --dart-define=JPUSH_APP_KEY=`。独立终端会话日志、App 清单与只读 VM JSON 仅在 .build，真实设备标识不写入版本文档。主分支不提升为已完成高级 SDK 验收的基线，提交推送当前工作分支，远端 SHA 后补。
+
+### 1034 推送与最终现场回读（21:41 CST）
+
+- 源码与完整本轮记录提交 `5a27ae023ea366311bd9cf152693e6d6c16cc944`，普通 push 到 origin/codex/macos-update-20260930 成功，ls-remote SHA 与本地完全一致，工作树干净。首次 CI 查询使用短 SHA 未返回记录；换完整 SHA 找到 [37126960137](https://github.com/tangwu88/SayRing/actions/runs/37126960137)，仍 in_progress，不标记新 CI 全部通过。后续仅以 skip-ci 文档提交补充回执，不修改已安装源码，不合入 main 或改变 App Store 审核。
+- 我的页现场总记录 6 条、设备在线；权限页蓝牙已允许、位置未允许，与实际连接及未授予户外位置一致，没有代改权限；关于页显示 1.0.0 (1034)，介绍和健康数据提示无重复；最终只读 getVM 仍返回 VM、1 个 isolate。私人的头像、真实睡眠、距离测试及失败 AI 报告仍不标通过。
