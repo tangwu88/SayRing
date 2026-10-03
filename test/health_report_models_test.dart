@@ -3,6 +3,36 @@ import 'package:saydian_app/domain/health_report_models.dart';
 
 void main() {
   test(
+    'sleep retry progress is optional, bounded and distinct from the score',
+    () {
+      final old = HealthReportSummary.fromMap(const {
+        'id': 'synthetic',
+        'status': 'queued',
+      });
+      expect(old.generationAttempts, 0);
+      expect(old.progressMessage, isNull);
+      final sleep = HealthReportSummary.fromMap(const {
+        'id': 'synthetic',
+        'reportType': 'sleep',
+        'status': 'queued',
+        'generationAttempts': 2,
+        'sleepScore': 70,
+        'progressMessage': '等待自动重试。',
+      });
+      expect(sleep.progressLabel, '等待自动重试');
+      expect(sleep.sleepScore, isNull);
+      expect(sleep.progressMessage, '等待自动重试。');
+      final malformed = HealthReportSummary.fromMap({
+        'id': 'synthetic',
+        'status': 'generating',
+        'generationAttempts': double.infinity,
+        'progressMessage': {'unexpected': true},
+      });
+      expect(malformed.generationAttempts, 0);
+      expect(malformed.progressMessage, isNull);
+    },
+  );
+  test(
     'health profile preserves unknown values instead of inventing zeroes',
     () {
       final profile = HealthProfileSummary.fromMap(const {

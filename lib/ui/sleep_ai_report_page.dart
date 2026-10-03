@@ -22,26 +22,114 @@ class SleepAiReportCard extends StatefulWidget {
   State<SleepAiReportCard> createState() => _SleepAiReportCardState();
 }
 
-class _SleepAiReportCardState extends State<SleepAiReportCard> {
+class _SleepAiReportCardState extends State<SleepAiReportCard>
+    with WidgetsBindingObserver {
   HealthReportSummary? _report;
   bool _failed = false;
+  bool _foreground = true;
+  bool _showingReport = false;
+  bool _pausedPolling = false;
+  late (bool, String?, String?) _owner;
+  Timer? _poll;
+  int _request = 0;
+  int _polls = 0;
   @override
   void initState() {
     super.initState();
+    _foreground =
+        WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    _owner = healthUiOwnerKey(widget.controller);
+    widget.controller.addListener(_onControllerChanged);
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_load());
   }
 
+  void _reset() {
+    _request++;
+    _poll?.cancel();
+    _polls = 0;
+    _pausedPolling = false;
+    _report = null;
+    _failed = false;
+    _owner = healthUiOwnerKey(widget.controller);
+  }
+
+  void _onControllerChanged() {
+    if (_owner == healthUiOwnerKey(widget.controller) &&
+        widget.controller.sleepAiEnabled) {
+      return;
+    }
+    setState(_reset);
+    if (widget.controller.sleepAiEnabled) unawaited(_load());
+  }
+
+  @override
+  void didUpdateWidget(SleepAiReportCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      widget.controller.addListener(_onControllerChanged);
+    }
+    if (oldWidget.controller != widget.controller ||
+        !identical(oldWidget.record, widget.record)) {
+      _reset();
+      unawaited(_load());
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    _request++;
+    _poll?.cancel();
+    if (_foreground) {
+      _polls = 0;
+      unawaited(_load());
+    }
+  }
+
+  @override
+  void dispose() {
+    _request++;
+    _poll?.cancel();
+    widget.controller.removeListener(_onControllerChanged);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   Future<void> _load() async {
+    if (!mounted ||
+        !_foreground ||
+        _showingReport ||
+        !widget.controller.sleepAiEnabled) {
+      return;
+    }
+    _poll?.cancel();
+    final request = ++_request;
+    final record = widget.record;
     final owner = healthUiOwnerKey(widget.controller);
+    bool current() =>
+        mounted &&
+        _foreground &&
+        !_showingReport &&
+        request == _request &&
+        identical(record, widget.record) &&
+        owner == healthUiOwnerKey(widget.controller) &&
+        widget.controller.sleepAiEnabled;
     try {
-      final report = await widget.controller.loadSleepReport(widget.record);
-      if (!mounted || owner != healthUiOwnerKey(widget.controller)) return;
+      final report = await widget.controller.loadSleepReport(record);
+      if (!current()) return;
       setState(() {
         _report = report;
         _failed = false;
+        _pausedPolling = _isPending(report) && _polls >= 90;
       });
+      if (_isPending(report) && _polls++ < 90) {
+        _poll = Timer(const Duration(seconds: 5), () => unawaited(_load()));
+      }
     } catch (_) {
-      if (mounted && owner == healthUiOwnerKey(widget.controller)) {
+      if (current()) {
         setState(() => _failed = true);
       }
     }
@@ -60,18 +148,23 @@ class _SleepAiReportCardState extends State<SleepAiReportCard> {
       style: TextStyle(fontWeight: FontWeight.w800),
     ),
     subtitle: Text(
-      _report?.sleepScore != null
-          ? '${_report!.sleepScore} / 100 · 查看评分依据和建议'
-          : _failed
+      _failed
           ? '报告读取失败，点击重试；未生成评分'
+          : _report?.sleepScore != null
+          ? '${_report!.sleepScore} / 100 · 查看评分依据和建议'
           : _report == null
           ? '根据本次睡眠生成参考评分及详细建议'
           : _report!.status == HealthReportStatus.ready
           ? '查看睡眠分析与数据局限'
-          : _report!.status.label,
+          : _pausedPolling
+          ? '${_report!.progressLabel} · 点击刷新状态'
+          : _report!.progressLabel,
     ),
     trailing: const Icon(Icons.chevron_right_rounded),
     onTap: () async {
+      _showingReport = true;
+      _request++;
+      _poll?.cancel();
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           settings: const RouteSettings(name: 'sleep-ai-report'),
@@ -81,6 +174,8 @@ class _SleepAiReportCardState extends State<SleepAiReportCard> {
           ),
         ),
       );
+      _showingReport = false;
+      _polls = 0;
       if (mounted) await _load();
     },
   );
@@ -110,9 +205,14 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
   int _request = 0;
   int _polls = 0;
   bool _closed = false;
+  bool _foreground = true;
+  bool _pausedPolling = false;
   @override
   void initState() {
     super.initState();
+    _foreground =
+        WidgetsBinding.instance.lifecycleState == null ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     _owner = healthUiOwnerKey(widget.controller);
     widget.controller.addListener(_onControllerChanged);
     WidgetsBinding.instance.addObserver(this);
@@ -126,6 +226,10 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
       widget.controller.sleepAiEnabled;
   void _onControllerChanged() {
     if (_current || _closed) return;
+    _retire();
+  }
+
+  void _retire() {
     _closed = true;
     _request++;
     _poll?.cancel();
@@ -141,8 +245,23 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
   }
 
   @override
+  void didUpdateWidget(SleepAiReportPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+    }
+    if (!_closed &&
+        (oldWidget.controller != widget.controller ||
+            !identical(oldWidget.record, widget.record))) {
+      _retire();
+    }
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
     if (state != AppLifecycleState.resumed) {
+      _request++;
       _poll?.cancel();
     } else if (_current && !_working) {
       _polls = 0;
@@ -161,31 +280,30 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
   }
 
   Future<void> _load() async {
-    if (!_current) return;
+    if (!_current || !_foreground) return;
     final request = ++_request;
     _poll?.cancel();
     try {
       final report = await widget.controller.loadSleepReport(widget.record);
-      if (!_current || request != _request) return;
+      if (!_current || !_foreground || request != _request) return;
       Map<String, Object?>? content;
       if (report?.status == HealthReportStatus.ready) {
         final payload = await widget.controller.loadFullSleepReport(report!.id);
         content = _map(payload['content']);
       }
-      if (!_current || request != _request) return;
+      if (!_current || !_foreground || request != _request) return;
       setState(() {
         _report = report;
         _content = content;
         _error = null;
         _loading = false;
+        _pausedPolling = _isPending(report) && _polls >= 90;
       });
-      if ((report?.status == HealthReportStatus.queued ||
-              report?.status == HealthReportStatus.generating) &&
-          _polls++ < 30) {
-        _poll = Timer(const Duration(seconds: 4), () => unawaited(_load()));
+      if (_isPending(report) && _polls++ < 90) {
+        _poll = Timer(const Duration(seconds: 5), () => unawaited(_load()));
       }
     } catch (error) {
-      if (!_current || request != _request) return;
+      if (!_current || !_foreground || request != _request) return;
       setState(() {
         _error = _errorMessage(error);
         _loading = false;
@@ -362,7 +480,12 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
         actions: [
           IconButton(
             key: const Key('sleep-ai-refresh'),
-            onPressed: _working ? null : _load,
+            onPressed: _working
+                ? null
+                : () {
+                    _polls = 0;
+                    unawaited(_load());
+                  },
             tooltip: '刷新报告',
             icon: const Icon(Icons.refresh),
           ),
@@ -414,8 +537,14 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                     _report == null
                         ? '尚未生成本次睡眠报告。确认后上传睡眠汇总，报告同时保存在账号云端和后台健康报告中。'
                         : _report!.status == HealthReportStatus.failed
-                        ? 'AI 生成失败，未提供评分。可重试；不会用固定分数替代。'
-                        : '${_report!.status.label}。完成后自动刷新；等待较久可稍后回到此页。',
+                        ? (_report!.progressMessage ??
+                              'AI 生成失败，未提供评分。可重试；不会用固定分数替代。')
+                        : (_report!.progressMessage ??
+                              '${_report!.progressLabel}。'),
+                    if (_isPending(_report))
+                      _pausedPolling
+                          ? '自动刷新已暂停；请点击右上角刷新查看最新结果。'
+                          : '完成后自动刷新；等待较久可稍后回到此页。',
                     '原始睡眠分段时间轴仍仅保存在本机。AI 报告不能作为诊断、治疗或医疗评分。',
                   ]),
                   if (_report == null ||
@@ -476,3 +605,7 @@ List<String> _strings(Object? value) => value is List
           .where((value) => value.trim().isNotEmpty)
           .toList()
     : const [];
+
+bool _isPending(HealthReportSummary? report) =>
+    report?.status == HealthReportStatus.queued ||
+    report?.status == HealthReportStatus.generating;

@@ -30,14 +30,20 @@ Session _session(String id) => Session(
   displayName: 'Test',
   accountKey: id,
 );
-HealthReportSummary _report(String status, {int? score}) =>
-    HealthReportSummary.fromMap({
-      'id': 'synthetic',
-      'reportType': 'sleep',
-      'status': status,
-      'aiGenerated': status == 'ready',
-      'sleepScore': score,
-    });
+HealthReportSummary _report(
+  String status, {
+  int? score,
+  int attempts = 0,
+  String? progress,
+}) => HealthReportSummary.fromMap({
+  'id': 'synthetic',
+  'reportType': 'sleep',
+  'status': status,
+  'aiGenerated': status == 'ready',
+  'sleepScore': score,
+  'generationAttempts': attempts,
+  'progressMessage': progress,
+});
 
 class _Controller extends Fake implements AppController {
   final listeners = <VoidCallback>[];
@@ -49,6 +55,7 @@ class _Controller extends Fake implements AppController {
   bool staleDocument = false;
   String? unavailableReason;
   int uploads = 0, grants = 0, withdrawals = 0, retries = 0;
+  int reads = 0;
   @override
   Session? get session => owner;
   @override
@@ -72,6 +79,7 @@ class _Controller extends Fake implements AppController {
 
   @override
   Future<HealthReportSummary?> loadSleepReport(HealthRecord record) async {
+    reads++;
     if (fail) throw StateError('fixture read failure');
     return pending?.future ?? report;
   }
@@ -159,6 +167,194 @@ Future<void> _pump(
 }
 
 void main() {
+  testWidgets('a date change discards the old card request', (tester) async {
+    final pending = Completer<HealthReportSummary?>();
+    final c = _Controller()..pending = pending;
+    const key = Key('date-card');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SleepAiReportCard(key: key, controller: c, record: record),
+        ),
+      ),
+    );
+    await tester.pump();
+    c.pending = null;
+    final next = HealthRecord.fromJson({
+      ...record.toJson(),
+      'id': 'synthetic-next',
+      'measuredAt': '2026-08-05T00:00:00.000Z',
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SleepAiReportCard(key: key, controller: c, record: next),
+        ),
+      ),
+    );
+    await tester.pump();
+    pending.complete(_report('ready', score: 78));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('78 / 100'), findsNothing);
+    expect(c.reads, 2);
+    expect(c.uploads + c.grants + c.retries, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('card refreshes pending report until ready without any writes', (
+    tester,
+  ) async {
+    final c = _Controller()..report = _report('generating');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SleepAiReportCard(controller: c, record: record),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('正在生成'), findsOneWidget);
+    c.report = _report('ready', score: 78);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+    expect(find.textContaining('78 / 100'), findsOneWidget);
+    final reads = c.reads;
+    await tester.pump(const Duration(seconds: 10));
+    expect(c.reads, reads);
+    expect(c.uploads + c.grants + c.retries, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+    'queued retry has an explicit message and page polling reaches ready',
+    (tester) async {
+      final c = _Controller()
+        ..report = _report(
+          'queued',
+          attempts: 2,
+          progress: '上次分析未完成，正在等待自动重试。',
+        );
+      await _pump(tester, c);
+      expect(find.text('上次分析未完成，正在等待自动重试。'), findsOneWidget);
+      expect(find.byKey(const Key('sleep-ai-generate')), findsNothing);
+      c.report = _report('ready', score: 78);
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(find.text('78 / 100'), findsOneWidget);
+      expect(c.uploads + c.grants + c.retries, 0);
+    },
+  );
+
+  testWidgets('polling is bounded and manual refresh is readonly', (
+    tester,
+  ) async {
+    final c = _Controller()..report = _report('generating');
+    await _pump(tester, c);
+    for (var i = 0; i < 90; i++) {
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pump();
+    }
+    expect(find.textContaining('自动刷新已暂停'), findsOneWidget);
+    final reads = c.reads;
+    await tester.pump(const Duration(seconds: 30));
+    expect(c.reads, reads);
+    await tester.tap(find.byKey(const Key('sleep-ai-refresh')));
+    await tester.pump();
+    expect(c.reads, reads + 1);
+    expect(find.textContaining('自动刷新已暂停'), findsNothing);
+    expect(c.uploads + c.grants + c.retries, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+    'card and page cancel pending reads in background and refresh on resume',
+    (tester) async {
+      final c = _Controller()..report = _report('generating');
+      await _pump(tester, c);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      final reads = c.reads;
+      await tester.pump(const Duration(seconds: 30));
+      expect(c.reads, reads);
+      c.report = _report('ready', score: 78);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(find.text('78 / 100'), findsOneWidget);
+      expect(c.uploads + c.grants + c.retries, 0);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SleepAiReportCard(controller: c, record: record),
+          ),
+        ),
+      );
+      await tester.pump();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      final cardReads = c.reads;
+      await tester.pump(const Duration(seconds: 30));
+      expect(c.reads, cardReads);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(c.reads, cardReads + 1);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'card drops a late response when the selected record or account changes',
+    (tester) async {
+      final old = _Controller()..pending = Completer<HealthReportSummary?>();
+      const key = Key('same-card');
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SleepAiReportCard(key: key, controller: old, record: record),
+          ),
+        ),
+      );
+      await tester.pump();
+      final next = _Controller();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SleepAiReportCard(key: key, controller: next, record: record),
+          ),
+        ),
+      );
+      await tester.pump();
+      old.pending!.complete(_report('ready', score: 78));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('78 / 100'), findsNothing);
+      next.report = _report('generating');
+      next.owner = _session('synthetic-other');
+      next.changed();
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox.shrink());
+      final reads = next.reads;
+      await tester.pump(const Duration(seconds: 10));
+      expect(next.reads, reads);
+    },
+  );
+
+  testWidgets(
+    'a final timeout displays a failure instead of continuing to spin',
+    (tester) async {
+      final c = _Controller()
+        ..report = _report(
+          'failed',
+          attempts: 3,
+          progress: 'AI 分析超时，自动尝试已结束；可稍后手动重试。',
+        );
+      await _pump(tester, c);
+      expect(find.text('AI 分析超时，自动尝试已结束；可稍后手动重试。'), findsOneWidget);
+      expect(find.text('重试睡眠分析'), findsOneWidget);
+      expect(find.textContaining('/ 100'), findsNothing);
+      final reads = c.reads;
+      await tester.pump(const Duration(seconds: 15));
+      expect(c.reads, reads);
+      expect(c.uploads + c.grants + c.retries, 0);
+    },
+  );
+
   testWidgets('precise unavailable reason blocks both consent and upload', (
     tester,
   ) async {

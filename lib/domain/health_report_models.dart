@@ -201,10 +201,21 @@ class HealthReportSummary {
     this.sourcePolicy = 'all',
     this.reportType = 'health',
     this.sleepScore,
+    this.generationAttempts = 0,
+    this.progressMessage,
   });
 
   final String reportType;
   final int? sleepScore;
+  final int generationAttempts;
+  final String? progressMessage;
+
+  String get progressLabel =>
+      reportType == 'sleep' &&
+          status == HealthReportStatus.queued &&
+          generationAttempts > 0
+      ? '等待自动重试'
+      : status.label;
 
   final String id;
   final HealthReportStatus status;
@@ -230,6 +241,14 @@ class HealthReportSummary {
     final status = HealthReportStatus.fromWire(map['status']);
     return HealthReportSummary(
       reportType: map['reportType'] == 'sleep' ? 'sleep' : 'health',
+      generationAttempts: map['generationAttempts'] is int
+          ? (map['generationAttempts'] as int).clamp(0, 100).toInt()
+          : 0,
+      progressMessage:
+          map['progressMessage'] is String &&
+              (map['progressMessage'] as String).length <= 600
+          ? _nonEmpty(map['progressMessage'])
+          : null,
       sleepScore:
           map['reportType'] == 'sleep' &&
               map['aiGenerated'] == true &&
