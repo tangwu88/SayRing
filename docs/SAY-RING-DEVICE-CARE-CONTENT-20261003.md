@@ -63,3 +63,20 @@
 - ModuleCache 清理尝试期间路径发生变化、返回目录不存在；后续空间回收至 934 MiB。最终完整 Debug 重试 17.6 秒成功、deep/strict 验签通过，留存 `.build/SayRing-1.0-1037-Debug-final.app.zip`，ZIP 完整性通过；此前失败日志未覆盖。
 - 最终 Profile 增量 14.0 秒成功、deep/strict 签名通过，cn.saydian.ring / 1037 / UIDeviceFamily=[1]。`.build/SayRing-1.0-1037-Profile-debug.ipa` SHA-256 `005c9f35cd541c2af35cd4fecca8a891fda2912183b086f6aad12126fd15468e`；ZIP 完整性通过，25.7 秒原位安装启动，清单确认 1037，getVM 返回 VM、1 个 isolate，调试保持连接。未卸载或清除数据。
 - 服务端 PR #21 已合入 53a2bde；原始内容备份和发布演练通过。自动发布 37132383753 的镜像传输仅校验 2/44 分片，线上 /global/health/ready 仍为 36197ef、zh-CN 文章仍为 0；实际中文发布与 App 回读不标通过，服务端继续原任务处理，未另启并行部署。
+
+## iOS 优先续检：消息时间 1038
+
+- 1037 源码已提交并普通推送 `9e32fe2100a23e92db712ab4300e9fef5a0f12de`，ls-remote 与本地一致，工作树曾干净；主线未改。CI 37134194159 尚在运行，未宣称 CI 全通过。
+- Xcode 只读真机截图发现消息列表直接显示 UTC ISO 原始字符串（P2），预期应显示手机本地年月日和时分。修改 `lib/ui/pages.dart` 的列表和详情共用 notificationDisplayTime，不改后台原值/消息内容；缺失和无效时间不补当前时间。添加 3 项纯显示契约测试，定向通过。
+- 原位覆盖的 1037 仍运行，VM 保持正常；镜像明确显示“iPhone 使用中，锁定 iPhone 以连接”，未擅自锁定或代操作手机。不将正在使用的消息页截图当成整个页面操作验收。
+- 1038 初次全量 UTC 和 Debug 因 errno 28 磁盘写入失败中断，Shanghai 尚未开始；失败日志保留。仅结束已核实 PPID=1、包配置指向本仓库的 5 个遗留 flutter_tester 与已闲置的本任务 Gradle daemon，保留手机 Profile 调试进程。
+- 为足够空间，旧 1017/1018/1019 review-candidate.xcarchive 与 preserved-before-icon-1008 目录先用 ditto 归档为同名 .zip，逐一 unzip -t 成功后移除未压缩文件。所有内容可还原，不删除签名或审核版本；用户原始素材/SDK 均未动。
+- 采用 `--concurrency=2` 重跑全部 Flutter 测试，UTC、Shanghai 串行，结束后再做 iOS 构建；只降低并发，不跳过测试。Android 已暂停，无新增 Android 构建、安装或功能操作。
+- 重试全部通过：UTC、Asia/Shanghai 各 1137/1137，`flutter analyze --no-pub` 无问题；消息时间 3 项定向测试通过，改动文件 `dart format --output=none --set-exit-if-changed` 和 `git diff --check` 均退出 0。日志 `.build/ios-1038-full-UTC-retry.log`、`...-Shanghai.log`、`...-analyze.log`，先前失败日志保留。
+- 只读 Xcode 截图确认手机已回到首页，无未保存表单；账号和健康卡片仍可见。镜像仍因手机正在使用而不可交互，不能将此截图计为逐页点击验收。1038 Debug 在全量测试结束后串行重试。
+- 1038 Debug 61.1 秒、Profile 88.7 秒构建成功，deep/strict 验签通过，cn.saydian.ring / 1038 / UIDeviceFamily=[1]、开发 profile get-task-allow=true。Debug 已压缩并 `unzip -t` 通过后清理其可重建未压缩输出；Profile 留存 `.build/1038-profile/Payload/Runner.app` 和 `.build/SayRing-1.0-1038-Profile-debug.ipa`，SHA-256 `efaf8e21865843214f8845b35368c1104672e7526d421452861bce26cb8191cd`，ZIP 完整性通过。原生/隐私 Node 契约再次 21/21。
+- 已结束本任务 1037 Flutter 会话，以 devicectl 原位覆盖安装 1038；devicectl 和 Xcode 两者均回读 Say Ring / cn.saydian.ring / 1038，未卸载、清空或改账号。独立 Profile 冷启动检查继续记录；2026-10-04 的续检不改变当前 App Store 审核。
+- Profile 无 Flutter/Xcode attach 的独立启动已执行两次；每次启动 PID 与超过 30 秒后的进程清单一致，第一轮 34996、第二轮 34998。不是三轮完成，也不等同所有页面稳定性通过。第一轮之后的只读截图在第二轮启动后才被查看，发现用户已进入关爱邀请输入框；随后停止所有复启和 UI 操作，不进行第三轮，不发送邀请。后续仅尝试 attach 既有进程；不卸载、不另启应用或覆盖用户输入。
+- 原有账号态和关爱关系在 1038 画面仍可见；私人截图、手机号/邮箱和健康值不进入 Git。当前镜像被“连接期间 iPhone 被使用”限制，实体充电/拔电、完整历史样本、三轮物理距离恢复及逐页交互仍保持待验。
+- `flutter attach --profile --app-id cn.saydian.ring` 尝试附加现有独立启动进程，仍为 Waiting for a connection，未收到 VM，不能写已附加调试成功；不为获取 VM 重新启动当前用户正在操作的 App。9e32fe2 的 CI 37134194159 中 quality、两时区 Harmony 和 iOS 已通过，Android 尚运行；这不是本轮 1038 新提交的 CI 结果。
+- 结束的仅是未找到 VM、仍在等待的本任务宿主 attach 进程；之后 devicectl 确认手机原 PID 34998 仍在，未停止手机 App 或更改网络/权限。此轮以安装及独立启动证据交接，不把未附加的会话说成活动调试器。

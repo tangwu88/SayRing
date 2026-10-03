@@ -6975,7 +6975,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
                                 subtitle: Text(
                                   [
                                         _notificationPreview(item),
-                                        '${item['created_at'] ?? item['createdAt'] ?? ''}',
+                                        notificationDisplayTime(
+                                          item['created_at'] ??
+                                              item['createdAt'],
+                                        ),
                                       ]
                                       .where((value) => value.trim().isNotEmpty)
                                       .join('\n'),
@@ -6997,6 +7000,15 @@ class _NotificationsPageState extends State<NotificationsPage> {
       ),
     );
   }
+}
+
+/// Format real message timestamps in the phone's local timezone. Invalid or
+/// missing timestamps stay absent rather than becoming the current time.
+String notificationDisplayTime(Object? value) {
+  final date = value is DateTime ? value : DateTime.tryParse('${value ?? ''}');
+  return date == null
+      ? ''
+      : DateFormat('yyyy-MM-dd HH:mm').format(date.toLocal());
 }
 
 class NotificationDetailPage extends StatefulWidget {
@@ -7036,7 +7048,9 @@ class _NotificationDetailPageState extends State<NotificationDetailPage> {
     final raw = '${_value['content'] ?? _value['description'] ?? ''}';
     final content = _resolveNotificationContent(_value, raw);
     final isHealthWarning = _value['kind'] == 'health_warning';
-    final createdAt = '${_value['created_at'] ?? _value['createdAt'] ?? ''}';
+    final createdAt = notificationDisplayTime(
+      _value['created_at'] ?? _value['createdAt'],
+    );
     return Scaffold(
       appBar: AppBar(title: Text(context.l10n.messageDetails)),
       backgroundColor: SaydianColors.canvas,
