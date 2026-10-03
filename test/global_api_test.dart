@@ -59,6 +59,61 @@ Map<String, Object?> capabilities({
 };
 
 void main() {
+  test(
+    'unified avatar URL survives upload, profile save and readback',
+    () async {
+      const id = '11111111-1111-4111-8111-111111111111';
+      const url = '${GlobalEnvironment.origin}/api/saydian-app/v2/files/$id';
+      final directory = await Directory.systemTemp.createTemp(
+        'avatar-contract-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final file = File('${directory.path}${Platform.pathSeparator}avatar.png');
+      await file.writeAsBytes(const [0x89, 0x50, 0x4e, 0x47]);
+      final methods = <String>[];
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault()..session = session(),
+        client: MockClient((request) async {
+          methods.add(request.method);
+          if (request.method == 'POST') {
+            expect(
+              request.url.path,
+              '/global/api/saydian-app/v2/files/say-ring-avatar',
+            );
+            return http.Response(
+              jsonEncode({
+                'code': 200,
+                'data': {'id': id, 'url': url},
+              }),
+              201,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }
+          expect(request.url.path, '/global/api/saydian-app/v2/members/me');
+          if (request.method == 'PUT') {
+            final body = jsonDecode(request.body) as Map;
+            expect(body['avatarUrl'], url);
+            expect(body['nickname'], 'Synthetic');
+            return ok(const <String, Object?>{});
+          }
+          return ok({'avatarUrl': url, 'nickname': 'Synthetic'});
+        }),
+      );
+      final uploaded = await api.uploadImage(file.path);
+      expect(uploaded, url);
+      await api.saveMemberProfile(
+        nickname: 'Synthetic',
+        gender: 1,
+        birthday: '1991-01-01',
+        height: 170,
+        weight: 70,
+        headPortrait: uploaded,
+      );
+      expect((await api.getMemberProfile())['head_portrait'], url);
+      expect(methods, ['POST', 'PUT', 'GET']);
+    },
+  );
+
   test('Say Ring avatar uses its dedicated global multipart endpoint', () async {
     final directory = await Directory.systemTemp.createTemp('say-ring-avatar-');
     addTearDown(() => directory.delete(recursive: true));
@@ -94,22 +149,22 @@ void main() {
   });
 
   test('avatar-only save does not overwrite incomplete profile fields', () async {
-    final api = GlobalSaydianApiClient(
-      MemorySessionVault()..session = session(),
-      client: MockClient((request) async {
-        expect(request.method, 'PUT');
-        expect(request.url.path, '/global/api/saydian-app/v2/members/me');
-        expect(request.headers['authorization'], 'Bearer global-test-access');
-        expect(jsonDecode(request.body), {
-          'avatarUrl':
-              '${GlobalEnvironment.origin}/global/api/saydian-app/v2/files/avatar-1',
-        });
-        return ok(const <String, Object?>{});
-      }),
-    );
-    await api.saveAvatarUrl(
+    for (final url in [
       '${GlobalEnvironment.origin}/global/api/saydian-app/v2/files/avatar-1',
-    );
+      '${GlobalEnvironment.origin}/api/saydian-app/v2/files/11111111-1111-4111-8111-111111111111',
+    ]) {
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault()..session = session(),
+        client: MockClient((request) async {
+          expect(request.method, 'PUT');
+          expect(request.url.path, '/global/api/saydian-app/v2/members/me');
+          expect(request.headers['authorization'], 'Bearer global-test-access');
+          expect(jsonDecode(request.body), {'avatarUrl': url});
+          return ok(const <String, Object?>{});
+        }),
+      );
+      await api.saveAvatarUrl(url);
+    }
   });
 
   test(

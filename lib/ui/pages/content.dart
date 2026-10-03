@@ -469,6 +469,30 @@ class _ArticleLoadFailure extends StatelessWidget {
   }
 }
 
+String _articleDateText(Object? value) {
+  DateTime? date;
+  if (value is DateTime) {
+    date = value;
+  } else {
+    final text = value is String ? value.trim() : null;
+    final timestamp = value is num ? value : num.tryParse(text ?? '');
+    if (timestamp != null) {
+      // Legacy content uses epoch seconds; newer responses may use milliseconds.
+      if (!timestamp.isFinite || timestamp <= 0) return '';
+      final milliseconds = timestamp >= 100000000000
+          ? timestamp
+          : timestamp * 1000;
+      if (!milliseconds.isFinite || milliseconds > 8640000000000000) {
+        return '';
+      }
+      date = DateTime.fromMillisecondsSinceEpoch(milliseconds.toInt());
+    } else if (text != null && text.isNotEmpty) {
+      date = DateTime.tryParse(text);
+    }
+  }
+  return date == null ? '' : DateFormat('yyyy-MM-dd').format(date.toLocal());
+}
+
 class ArticleTile extends StatelessWidget {
   const ArticleTile({required this.article, required this.onTap, super.key});
 
@@ -480,14 +504,7 @@ class ArticleTile extends StatelessWidget {
     final title = '${article['title'] ?? context.l10n.healthLibrary}';
     final created =
         article['publishedAt'] ?? article['createdAt'] ?? article['created_at'];
-    String date = '';
-    if (created is num) {
-      date = DateFormat(
-        'yyyy-MM-dd',
-      ).format(DateTime.fromMillisecondsSinceEpoch(created.toInt() * 1000));
-    } else if (created != null) {
-      date = '$created';
-    }
+    final date = _articleDateText(created);
     return ListTile(
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),

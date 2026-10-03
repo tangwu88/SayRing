@@ -225,6 +225,98 @@ Future<void> _pump(
 }
 
 void main() {
+  final published = DateTime.utc(2026, 10, 2, 23, 30);
+  final local = published.toLocal();
+  final expectedDate =
+      '${local.year}-${local.month.toString().padLeft(2, '0')}-'
+      '${local.day.toString().padLeft(2, '0')}';
+  final dates = <String, Object>{
+    'ISO UTC': '2026-10-02T23:30:00.000Z',
+    'ISO offset': '2026-10-03T07:30:00+08:00',
+    'DateTime': published,
+    'epoch seconds': published.millisecondsSinceEpoch ~/ 1000,
+    'epoch milliseconds': published.millisecondsSinceEpoch,
+    'seconds string': '${published.millisecondsSinceEpoch ~/ 1000}',
+    'milliseconds string': '${published.millisecondsSinceEpoch}',
+  };
+  for (final entry in dates.entries) {
+    testWidgets('article ${entry.key} displays a local calendar date', (
+      tester,
+    ) async {
+      final article = <String, Object?>{
+        'title': '睡眠监测的原理',
+        'publishedAt': entry.value,
+      };
+      var opened = false;
+      await _pump(
+        tester,
+        Scaffold(
+          body: ArticleTile(article: article, onTap: () => opened = true),
+        ),
+        locale: const Locale('zh', 'Hans'),
+        viewport: const Size(320, 844),
+      );
+      expect(find.text(expectedDate), findsOneWidget);
+      expect(
+        tester.widget<ListTile>(find.byType(ListTile)).subtitle,
+        isNotNull,
+      );
+      await tester.tap(find.text('睡眠监测的原理'));
+      expect(opened, isTrue);
+      expect(article['publishedAt'], entry.value);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('article missing or invalid dates are not displayed', (
+    tester,
+  ) async {
+    for (final date in <Object?>[
+      null,
+      '',
+      'not-a-date',
+      'null',
+      0,
+      -1,
+      double.nan,
+      double.infinity,
+      8640000000000001,
+      true,
+    ]) {
+      await _pump(
+        tester,
+        Scaffold(
+          body: ArticleTile(
+            article: {'title': 'Article', 'publishedAt': date},
+            onTap: () {},
+          ),
+        ),
+      );
+      expect(tester.widget<ListTile>(find.byType(ListTile)).subtitle, isNull);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('article date aliases keep publication precedence', (
+    tester,
+  ) async {
+    for (final field in ['publishedAt', 'createdAt', 'created_at']) {
+      final article = <String, Object?>{
+        'title': 'Article',
+        'created_at': '2020-01-01T00:00:00Z',
+        field: published.toIso8601String(),
+      };
+      await _pump(
+        tester,
+        Scaffold(
+          body: ArticleTile(article: article, onTap: () {}),
+        ),
+      );
+      expect(find.text(expectedDate), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   testWidgets('category failure does not hide successful articles', (
     tester,
   ) async {

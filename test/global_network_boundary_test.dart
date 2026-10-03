@@ -13,6 +13,77 @@ void main() {
   const root = 'https://app.saydian.cn';
   const file = '$root/global/api/saydian-app/v2/files/test/content';
 
+  test(
+    'unified UUID file URL is allowed without changing API routing',
+    () async {
+      const url =
+          '$root/api/saydian-app/v2/files/11111111-1111-4111-8111-111111111111';
+      expect(GlobalEnvironment.media(url), url);
+      final client = SafeResourceClient(
+        purpose: ResourcePurpose.image,
+        inner: MockClient((request) async {
+          expect(request.url.toString(), url);
+          expect(request.followRedirects, isFalse);
+          return http.Response('synthetic-image', 200);
+        }),
+      );
+      addTearDown(client.close);
+      expect((await client.get(Uri.parse(url))).statusCode, 200);
+      expect(
+        GlobalEnvironment.deployedPath('/api/saydian-app/v2/members/me'),
+        '/global/api/saydian-app/v2/members/me',
+      );
+    },
+  );
+
+  test('unified file exception rejects other routes and unsafe addresses', () {
+    const path =
+        '/api/saydian-app/v2/files/11111111-1111-4111-8111-111111111111';
+    for (final url in [
+      'https://other.example$path',
+      'http://app.saydian.cn$path',
+      'https://app.saydian.cn:444$path',
+      '$root/api/saydian-app/v2/members/me',
+      '$root/api/saydian-app/v2/files/not-a-uuid',
+      '$root$path/other',
+      '$root$path?token=synthetic',
+      '$root$path#private',
+      'https://user@app.saydian.cn$path',
+      '$root/api/saydian-app/v2/files/%2e%2e/members/me',
+      '$root/api/saydian-app/v2/files/%252e%252e/members/me',
+    ]) {
+      expect(GlobalEnvironment.media(url), isEmpty, reason: url);
+      expect(
+        GlobalEnvironment.allowsFirstPartyResource(Uri.parse(url)),
+        isFalse,
+      );
+    }
+  });
+
+  test('unified file resources never follow redirects', () async {
+    const url =
+        '$root/api/saydian-app/v2/files/11111111-1111-4111-8111-111111111111';
+    var sent = 0;
+    final client = SafeResourceClient(
+      purpose: ResourcePurpose.image,
+      inner: MockClient((request) async {
+        sent++;
+        expect(request.followRedirects, isFalse);
+        return http.Response(
+          '',
+          302,
+          headers: {'location': 'https://other.example/avatar.png'},
+        );
+      }),
+    );
+    addTearDown(client.close);
+    await expectLater(
+      client.get(Uri.parse(url)),
+      throwsA(isA<http.ClientException>()),
+    );
+    expect(sent, 1);
+  });
+
   test('explicit client origin cannot bypass the production boundary', () {
     var sent = 0;
     final inner = MockClient((_) async {
