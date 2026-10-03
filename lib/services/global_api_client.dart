@@ -1722,7 +1722,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         parsed.hasAuthority ||
         !GlobalEnvironment.safeResourcePath(parsed) ||
         !RegExp(
-          '^$prefix/content/legal/say_ring_(user_agreement|privacy_policy)\$',
+          '^$prefix/content/legal/say_ring_(user_agreement|privacy_policy|sleep_analysis)\$',
         ).hasMatch(parsed.path) ||
         parsed.queryParametersAll['version']?.length != 1 ||
         parsed.queryParameters['version']?.trim().isNotEmpty != true ||

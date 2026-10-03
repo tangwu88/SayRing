@@ -367,6 +367,73 @@ void main() {
     });
   }
 
+  for (final prefix in [GlobalEnvironment.canonicalApiPrefix, _prefix]) {
+    for (final locale in ['zh-Hans', 'en']) {
+      test('sleep notice $prefix/$locale uses the production client', () async {
+        final requests = <http.Request>[];
+        final api = GlobalSaydianApiClient(
+          MemorySessionVault(),
+          client: MockClient((request) async {
+            requests.add(request);
+            return _ok({
+              ..._document('say_ring_sleep_analysis'),
+              'locale': locale,
+              'title': 'Published sleep analysis notice',
+            });
+          }),
+        );
+        final document = await api.getGlobalLegalDocument(
+          '$prefix/content/legal/say_ring_sleep_analysis'
+          '?version=$_version&locale=$locale',
+        );
+        expect(document['documentType'], 'say_ring_sleep_analysis');
+        expect(document['version'], _version);
+        expect(document['locale'], locale);
+        expect(
+          requests.single.url.toString(),
+          '${GlobalEnvironment.origin}$_prefix/content/legal/'
+          'say_ring_sleep_analysis?version=$_version&locale=$locale',
+        );
+        expect(requests.single.followRedirects, isFalse);
+        expect(requests.single.headers.containsKey('authorization'), isFalse);
+      });
+    }
+  }
+
+  for (final path in [
+    'https://app.saydian.cn$_prefix/content/legal/say_ring_sleep_analysis?version=v&locale=en',
+    '//app.saydian.cn$_prefix/content/legal/say_ring_sleep_analysis?version=v&locale=en',
+    '$_prefix/content/legal/../say_ring_sleep_analysis?version=v&locale=en',
+    '$_prefix/content/legal/%252e%252e/say_ring_sleep_analysis?version=v&locale=en',
+    '$_prefix/content/legal/say_ring_sleep_analysis_extra?version=v&locale=en',
+    '$_prefix/content/legal/say_ring_sleep_analysis/extra?version=v&locale=en',
+    '$_prefix/content/legal/health_profile_analysis?version=v&locale=en',
+    '$_prefix/content/legal/say_ring_sleep_analysis?locale=en',
+    '$_prefix/content/legal/say_ring_sleep_analysis?version=&locale=en',
+    '$_prefix/content/legal/say_ring_sleep_analysis?version=v&version=other&locale=en',
+    '$_prefix/content/legal/say_ring_sleep_analysis?version=v',
+    '$_prefix/content/legal/say_ring_sleep_analysis?version=v&locale=en&locale=zh-Hans',
+    '$_prefix/content/legal/say_ring_sleep_analysis?version=v&locale=unknown',
+    '$_prefix/content/legal/say_ring_sleep_analysis?version=v&locale=en&redirect=old',
+    '$_prefix/content/legal/say_ring_sleep_analysis?version=v&locale=en#fragment',
+  ]) {
+    test('unsafe sleep notice makes no request: $path', () async {
+      var requests = 0;
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault(),
+        client: MockClient((request) async {
+          requests++;
+          return _ok(_document('say_ring_sleep_analysis'));
+        }),
+      );
+      await expectLater(
+        api.getGlobalLegalDocument(path),
+        throwsA(isA<ApiException>()),
+      );
+      expect(requests, 0);
+    });
+  }
+
   for (final path in [
     'https://app.saidian.cc/api/saydian-app/v2/content/legal/say_ring_privacy_policy?version=v&locale=en',
     'https://app.saydian.cn$_prefix/content/legal/say_ring_privacy_policy?version=v&locale=en',
