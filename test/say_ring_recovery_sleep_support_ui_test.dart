@@ -113,6 +113,8 @@ class _UiController extends Fake implements AppController {
 
   @override
   bool get isGlobalEdition => globalEdition;
+  @override
+  bool get sleepAiEnabled => false;
 
   @override
   void addListener(VoidCallback listener) => listeners.add(listener);
@@ -607,7 +609,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
       expect(find.text('2026年9月15日'), findsOneWidget);
-      expect(find.text('3小时0分'), findsOneWidget);
+      expect(find.text('3小时0分'), findsNWidgets(2));
       pending.complete([_record(timeline: _timeline())]);
       await tester.pumpAndSettle();
       expect(find.text('2026年9月15日'), findsOneWidget);
@@ -633,7 +635,7 @@ void main() {
       await tester.pumpAndSettle();
       final card = find.byKey(const Key('sleep-structure-card'));
       expect(
-        find.descendant(of: card, matching: find.text('7.5 小时')),
+        find.descendant(of: card, matching: find.text('7小时30分')),
         findsOneWidget,
       );
       final pending = Completer<List<HealthRecord>>();
@@ -647,11 +649,11 @@ void main() {
         ..pendingLoad = null;
       controller.changed();
       await tester.pump();
-      expect(find.text('7.5 小时'), findsNothing);
+      expect(find.text('7小时30分'), findsNothing);
       await tester.pumpAndSettle();
       pending.complete([_record(hours: 7.5)]);
       await tester.pumpAndSettle();
-      expect(find.text('7.5 小时'), findsNothing);
+      expect(find.text('7小时30分'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
@@ -697,8 +699,8 @@ void main() {
               : SleepOverviewPage(controller: controller),
         );
         await tester.pumpAndSettle();
-        final oldValue = trend ? '7.5 小时' : '7小时30分';
-        expect(find.text(oldValue), findsOneWidget);
+        const oldValue = '7小时30分';
+        expect(find.text(oldValue), findsNWidgets(trend ? 1 : 2));
         final pending = Completer<List<HealthRecord>>();
         controller.pendingLoad = pending;
         controller.changed();
@@ -745,11 +747,11 @@ void main() {
       await tester.pumpAndSettle();
       final card = find.byKey(const Key('sleep-structure-card'));
       expect(
-        find.descendant(of: card, matching: find.text('7.5 小时')),
+        find.descendant(of: card, matching: find.text('7小时30分')),
         findsOneWidget,
       );
       expect(
-        find.descendant(of: card, matching: find.text('3 小时')),
+        find.descendant(of: card, matching: find.text('3小时0分')),
         findsNothing,
       );
     },

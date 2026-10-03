@@ -310,8 +310,16 @@ class GlobalSaydianApiClient extends SaydianApiClient
     if (data['product'] != 'say-ring' || data['hideAi'] is! bool) {
       throw const ApiException('页面配置暂时无法读取');
     }
+    if (data['sleepAiEnabled'] != null && data['sleepAiEnabled'] is! bool) {
+      throw const ApiException('睡眠分析配置暂时无法读取');
+    }
+    _sleepAiEnabled = data['sleepAiEnabled'] == true;
     return data['hideAi'] as bool;
   }
+
+  bool _sleepAiEnabled = false;
+  @override
+  bool get sleepAiEnabled => _sleepAiEnabled;
 
   @override
   Future<Map<String, Object?>> getGlobalSupportConfig() =>

@@ -36,6 +36,9 @@ import 'app_theme.dart';
 import 'app_update_gate_scope.dart';
 import 'brand_assets.dart';
 import 'watch_face_market_page.dart';
+import 'sleep_detail_widgets.dart';
+import 'health_trend_page.dart';
+import '../services/sleep_health_projection.dart';
 
 class RegistrationPage extends StatefulWidget {
   const RegistrationPage({required this.controller, super.key});
@@ -1505,6 +1508,25 @@ class HealthRecordDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (record.metric == HealthMetric.sleep) {
+      final date = DateTime.parse(sleepRecordSdkDate(record));
+      return Scaffold(
+        appBar: AppBar(title: const Text('睡眠详情')),
+        body: SleepDayDetails(
+          controller: controller,
+          initialDate: date,
+          onOpenTrend: (selected) => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => HealthTrendPage(
+                controller: controller,
+                metric: HealthMetric.sleep,
+                initialDate: selected,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     if (record.metric == HealthMetric.ecg) {
       return _EcgRecordDetailPage(record: record);
     }

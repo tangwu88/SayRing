@@ -21,6 +21,8 @@ import '../domain/models.dart';
 import '../services/app_controller.dart';
 import '../services/device_watch_face_market_service.dart';
 import '../services/notification_models.dart';
+import '../services/sleep_health_projection.dart';
+import 'health_ui_owner.dart';
 import 'app_theme.dart';
 import 'ai_content_gate.dart';
 import 'brand_assets.dart';
@@ -918,18 +920,82 @@ class _AiHealthAssistantCard extends StatelessWidget {
 String _sleepDurationLabel(HealthRecord? record) {
   final hours = record?.values['value'];
   if (hours == null || !hours.isFinite || hours <= 0) return '--';
-  final minutes = (hours * 60).round();
-  return '${minutes ~/ 60}小时${minutes % 60}分';
+  return sleepMinutesLabel(hours.toDouble() * 60);
 }
 
-class _SleepQuickCard extends StatelessWidget {
+class _SleepQuickCard extends StatefulWidget {
   const _SleepQuickCard({required this.controller});
 
   final AppController controller;
 
   @override
+  State<_SleepQuickCard> createState() => _SleepQuickCardState();
+}
+
+class _SleepQuickCardState extends State<_SleepQuickCard> {
+  HealthRecord? _latest;
+  late (bool, String?, String?) _owner;
+  Timer? _refresh;
+  int _request = 0;
+  bool _failed = false;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _owner = healthUiOwnerKey(widget.controller);
+    widget.controller.addListener(_onChanged);
+    unawaited(_load());
+  }
+
+  void _onChanged() {
+    final owner = healthUiOwnerKey(widget.controller);
+    if (owner != _owner) {
+      _owner = owner;
+      _request++;
+      setState(() {
+        _latest = null;
+        _loading = true;
+      });
+    }
+    _refresh?.cancel();
+    _refresh = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) unawaited(_load());
+    });
+  }
+
+  Future<void> _load() async {
+    final request = ++_request;
+    final owner = _owner;
+    try {
+      final latest = await widget.controller.loadLatestSleepDay();
+      if (!mounted || request != _request || owner != _owner) return;
+      setState(() {
+        _latest = latest;
+        _failed = false;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted || request != _request || owner != _owner) return;
+      setState(() {
+        _failed = true;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _request++;
+    _refresh?.cancel();
+    widget.controller.removeListener(_onChanged);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final latest = controller.latestByMetric[HealthMetric.sleep];
+    final controller = widget.controller;
+    final latest = _latest;
     return Material(
       key: const Key('home-sleep-overview-entry'),
       color: Colors.transparent,
@@ -968,9 +1034,13 @@ class _SleepQuickCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        latest == null
+                        _loading
+                            ? '正在读取睡眠记录'
+                            : _failed
+                            ? '睡眠缓存刷新失败，点击查看或重试'
+                            : latest == null
                             ? '暂无睡眠记录，佩戴戒指睡眠后同步数据'
-                            : '最近一次 · ${DateFormat('M月d日').format(latest.measuredAt.toLocal())}',
+                            : '最近一次 · ${DateFormat('M月d日').format(DateTime.parse(sleepRecordSdkDate(latest)))}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(

@@ -13,7 +13,8 @@ import '../services/health_analysis.dart';
 import 'app_theme.dart';
 import 'health_ui_owner.dart';
 import 'prototype_pages.dart';
-import 'sleep_detail_widgets.dart' show SleepTimelineCard;
+import 'sleep_detail_widgets.dart' show SleepTimelineCard, sleepMinutesLabel;
+import 'sleep_ai_report_page.dart';
 
 class HealthMetricMiniChart extends StatelessWidget {
   const HealthMetricMiniChart({
@@ -477,7 +478,10 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
         const _MessageCard(icon: Icons.show_chart_rounded, title: '该时间段暂无数据')
       else ...[
         if (widget.metric == HealthMetric.sleep) ...[
-          SleepStructureCard(record: data.records.first),
+          SleepStructureCard(
+            record: data.records.first,
+            controller: widget.controller,
+          ),
           if (data.records.first.sleepTimeline?.hasSegments == true)
             SleepTimelineCard(timeline: data.records.first.sleepTimeline!),
           const SizedBox(height: 12),
@@ -607,16 +611,18 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
 }
 
 class SleepStructureCard extends StatelessWidget {
-  const SleepStructureCard({required this.record, super.key});
+  const SleepStructureCard({required this.record, this.controller, super.key});
 
   final HealthRecord record;
+  final AppController? controller;
 
   @override
   Widget build(BuildContext context) {
     final values = record.values;
     String hours(String key) {
       final value = values[key];
-      return value == null ? '--' : '${_number(value)} 小时';
+      if (value == null) return '--';
+      return sleepMinutesLabel(value.toDouble() * 60);
     }
 
     String count(String key, String unit) {
@@ -668,6 +674,16 @@ class SleepStructureCard extends StatelessWidget {
                 ],
               ),
               if (index != rows.length - 1) const Divider(height: 20),
+            ],
+            if (controller?.sleepAiEnabled == true) ...[
+              const Divider(height: 24),
+              SleepAiReportCard(
+                key: ValueKey(
+                  '${record.id}:${record.sleepTimeline?.contentHash ?? record.values}',
+                ),
+                controller: controller!,
+                record: record,
+              ),
             ],
           ],
         ),

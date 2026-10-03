@@ -199,7 +199,12 @@ class HealthReportSummary {
     required this.createdAt,
     required this.needsPayment,
     this.sourcePolicy = 'all',
+    this.reportType = 'health',
+    this.sleepScore,
   });
+
+  final String reportType;
+  final int? sleepScore;
 
   final String id;
   final HealthReportStatus status;
@@ -224,6 +229,18 @@ class HealthReportSummary {
     final completeness = _asMap(map['dataCompleteness']);
     final status = HealthReportStatus.fromWire(map['status']);
     return HealthReportSummary(
+      reportType: map['reportType'] == 'sleep' ? 'sleep' : 'health',
+      sleepScore:
+          map['reportType'] == 'sleep' &&
+              map['aiGenerated'] == true &&
+              status == HealthReportStatus.ready &&
+              map['sleepScore'] is num &&
+              (map['sleepScore'] as num).isFinite &&
+              (map['sleepScore'] as num) >= 0 &&
+              (map['sleepScore'] as num) <= 100 &&
+              (map['sleepScore'] as num) == (map['sleepScore'] as num).round()
+          ? (map['sleepScore'] as num).toInt()
+          : null,
       id: '${map['id'] ?? ''}'.trim(),
       sourcePolicy: '${map['sourcePolicy'] ?? 'all'}'.trim(),
       status: status,

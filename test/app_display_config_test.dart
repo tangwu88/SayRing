@@ -20,6 +20,34 @@ import 'package:saydian_app/ui/pages.dart';
 
 void main() {
   setUpAll(() => initializeDateFormatting('zh_Hans'));
+  test('sleep AI flag is independent and absent flags fail closed', () async {
+    for (final value in [true, false, null]) {
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault(),
+        client: MockClient(
+          (_) async => _ok({
+            'product': 'say-ring',
+            'hideAi': true,
+            'sleepAiEnabled': ?value,
+          }),
+        ),
+      );
+      expect(await api.getSayRingHideAi(), isTrue);
+      expect(api.sleepAiEnabled, value == true);
+    }
+    final invalid = GlobalSaydianApiClient(
+      MemorySessionVault(),
+      client: MockClient(
+        (_) async => _ok({
+          'product': 'say-ring',
+          'hideAi': true,
+          'sleepAiEnabled': 'true',
+        }),
+      ),
+    );
+    await expectLater(invalid.getSayRingHideAi(), throwsA(isA<ApiException>()));
+    expect(invalid.sleepAiEnabled, isFalse);
+  });
   test('display request is public, product-bound and isolated', () async {
     for (final hidden in [true, false]) {
       final api = GlobalSaydianApiClient(

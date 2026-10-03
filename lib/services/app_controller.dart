@@ -30,6 +30,7 @@ import 'notification_models.dart';
 import 'notification_route_service.dart';
 import 'secure_vault.dart';
 import 'sleep_health_projection.dart';
+import 'sleep_report_input.dart';
 import 'storekit_purchase_bridge.dart';
 import 'sync_service.dart';
 import 'wearable_bridge.dart';
@@ -127,6 +128,8 @@ class AppController extends ChangeNotifier {
   final bool commerceEnabled;
 
   bool _hideAi = true;
+  bool _sleepAiEnabled = false;
+  bool get sleepAiEnabled => isAuthenticated && !isLocalMode && _sleepAiEnabled;
   int _aiDisplayGeneration = 0;
   bool _appDisplayCacheLoaded = false;
   Future<void>? _appDisplayRefresh;
@@ -163,6 +166,13 @@ class AppController extends ChangeNotifier {
       final value = await (api as SayRingAppDisplayApi).getSayRingHideAi();
       if (_disposed) return;
       _applyHideAi(value);
+      final sleepEnabled =
+          api is SayRingSleepReportApi &&
+          (api as SayRingSleepReportApi).sleepAiEnabled;
+      if (_sleepAiEnabled != sleepEnabled) {
+        _sleepAiEnabled = sleepEnabled;
+        notifyListeners();
+      }
       if (vault is SayRingAppDisplayVault) {
         await (vault as SayRingAppDisplayVault).writeSayRingHideAi(value);
       }
@@ -5555,6 +5565,64 @@ class AppController extends ChangeNotifier {
     if (session == null) throw const ApiException('请先登录后生成健康报告');
     return _requiredHealthReportApi.createHealthReport();
   }
+
+  SayRingSleepReportApi get _sleepReportApi {
+    final api = _api;
+    if (!sleepAiEnabled || api is! SayRingSleepReportApi) {
+      throw const FeatureNotConfiguredException('请登录后使用已开启的睡眠 AI 分析');
+    }
+    return api as SayRingSleepReportApi;
+  }
+
+  Future<T> _sleepReportOperation<T>(
+    Future<T> Function(SayRingSleepReportApi api) run,
+  ) async {
+    final generation = _sessionGeneration;
+    final result = await run(_sleepReportApi);
+    if (!_isCurrentSessionGeneration(generation) || !sleepAiEnabled) {
+      throw const ApiException('账号或睡眠分析设置已变更，请重新打开页面');
+    }
+    return result;
+  }
+
+  Future<Map<String, Object?>> loadSleepReportAvailability() =>
+      _sleepReportOperation((api) => api.getSleepReportAvailability());
+  Future<HealthReportSummary?> loadSleepReport(HealthRecord record) =>
+      _sleepReportOperation(
+        (api) => api.getSleepReport(sleepReportInput(record)),
+      );
+  Future<HealthReportSummary> createSleepReport(HealthRecord record) =>
+      _sleepReportOperation(
+        (api) => api.createSleepReport(sleepReportInput(record)),
+      );
+  Future<void> grantSleepAnalysisConsent(String version) =>
+      _sleepReportOperation(
+        (api) => _requiredHealthReportApi.setHealthAnalysisConsent(
+          granted: true,
+          version: version,
+        ),
+      );
+  Future<void> withdrawSleepAnalysisConsent() => _sleepReportOperation(
+    (api) => _requiredHealthReportApi.setHealthAnalysisConsent(
+      granted: false,
+      version: '',
+    ),
+  );
+  Future<HealthReportSummary> retrySleepReport(String reportId) =>
+      _sleepReportOperation(
+        (api) => _requiredHealthReportApi.retryHealthReport(reportId),
+      );
+  Future<Map<String, Object?>> loadFullSleepReport(String reportId) =>
+      _sleepReportOperation((api) async {
+        final payload = await _requiredHealthReportApi.getFullHealthReport(
+          reportId,
+        );
+        if (payload['reportType'] != 'sleep' ||
+            payload['aiGenerated'] != true) {
+          throw const ApiException('睡眠分析报告尚未完成');
+        }
+        return payload;
+      });
 
   Future<HealthReportSummary> retryHealthReport(String reportId) async {
     _requireAiVisible();

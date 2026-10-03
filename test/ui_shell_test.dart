@@ -1031,14 +1031,20 @@ void main() {
     await tester.pumpAndSettle();
     final entry = find.byKey(const Key('home-sleep-overview-entry'));
     expect(entry, findsOneWidget);
+    // The in-memory generic metric intentionally disagrees with persisted
+    // sleep. Both the home card and detail must use the same stored day.
+    expect(
+      find.descendant(of: entry, matching: find.text('7小时30分')),
+      findsOneWidget,
+    );
     await tester.ensureVisible(entry);
     await tester.tap(entry);
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('sleep-overview-page')), findsOneWidget);
-    expect(find.text('7小时30分'), findsOneWidget);
+    expect(find.text('7小时30分'), findsNWidgets(2));
     expect(find.text('快速眼动'), findsOneWidget);
-    expect(find.text('1 小时'), findsOneWidget);
+    expect(find.text('1小时0分'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.byKey(const Key('sleep-open-trend')),
       200,
@@ -2047,10 +2053,11 @@ void main() {
   ) async {
     await tester.binding.setSurfaceSize(const Size(430, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
+    final store = MemoryHealthStore();
     final controller = AppController(
       MemorySessionVault(),
       _NoopApi(),
-      MemoryHealthStore(),
+      store,
       _NoopWearable(),
     );
     addTearDown(controller.dispose);
@@ -2075,6 +2082,8 @@ void main() {
       source: MeasurementSource.wearable,
       rawVersion: 1,
     );
+    await store.initialize();
+    await store.upsert([record]);
     await tester.pumpWidget(
       MaterialApp(
         theme: buildSaydianTheme(),
@@ -2086,11 +2095,13 @@ void main() {
     expect(find.text('20 分钟'), findsOneWidget);
     expect(find.text('20 h'), findsNothing);
     expect(find.text('awakeMinutes'), findsNothing);
-    expect(find.text('深睡时长'), findsOneWidget);
-    expect(find.text('2 小时'), findsOneWidget);
-    expect(find.text('快速眼动时长'), findsOneWidget);
+    expect(find.text('深睡'), findsOneWidget);
+    expect(find.text('2小时0分'), findsOneWidget);
+    expect(find.text('快速眼动'), findsOneWidget);
     expect(find.text('85 分'), findsOneWidget);
     expect(find.text('92 %'), findsOneWidget);
+    expect(find.text('建议结合长期趋势观察'), findsNothing);
+    expect(find.text('查看长期趋势更有参考价值'), findsNothing);
   });
 
   test('repeated watch ECG history is shown once after later syncs', () async {
@@ -2857,8 +2868,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('sleep-structure-card')), findsOneWidget);
-    expect(find.text('2 小时'), findsOneWidget);
-    expect(find.text('4.5 小时'), findsOneWidget);
+    expect(find.text('2小时0分'), findsOneWidget);
+    expect(find.text('4小时30分'), findsOneWidget);
     expect(find.text('--（戒指未返回）'), findsOneWidget);
   });
 
@@ -2911,7 +2922,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('快速眼动'), findsOneWidget);
-    expect(find.text('1 小时'), findsOneWidget);
+    expect(find.text('1小时0分'), findsOneWidget);
     expect(find.text('清醒时长'), findsOneWidget);
     expect(find.text('20 分钟'), findsOneWidget);
     expect(find.text('设备睡眠评分'), findsOneWidget);

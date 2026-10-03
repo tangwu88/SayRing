@@ -223,10 +223,14 @@ class SleepTimeline {
   Map<String, num> get summaryValues => {
     if (hasConfirmedSummary) ...{
       'value': asleepMinutes / 60,
-      'deepHours': deepMinutes / 60,
-      'lightHours': lightMinutes / 60,
-      'remHours': remMinutes / 60,
-      'awakeMinutes': awakeMinutes,
+      if (hasSegments || rawSummary.containsKey('deepSeconds'))
+        'deepHours': deepMinutes / 60,
+      if (hasSegments || rawSummary.containsKey('lightSeconds'))
+        'lightHours': lightMinutes / 60,
+      if (hasSegments || rawSummary.containsKey('remSeconds'))
+        'remHours': remMinutes / 60,
+      if (hasSegments || rawSummary.containsKey('awakeSeconds'))
+        'awakeMinutes': awakeMinutes,
     } else if (awakeMinutes > 0)
       'awakeMinutes': awakeMinutes,
     if (hasRawData)

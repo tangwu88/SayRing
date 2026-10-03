@@ -45,11 +45,13 @@ class SleepDayDetails extends StatefulWidget {
   const SleepDayDetails({
     required this.controller,
     required this.onOpenTrend,
+    this.initialDate,
     super.key,
   });
 
   final AppController controller;
   final ValueChanged<DateTime> onOpenTrend;
+  final DateTime? initialDate;
 
   @override
   State<SleepDayDetails> createState() => _SleepDayDetailsState();
@@ -68,7 +70,8 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
   @override
   void initState() {
     super.initState();
-    _date = DateUtils.dateOnly(DateTime.now());
+    _date = DateUtils.dateOnly(widget.initialDate ?? DateTime.now());
+    _chooseLatest = widget.initialDate == null;
     _account = healthUiOwnerKey(widget.controller);
     widget.controller.addListener(_onChanged);
     unawaited(_load());
@@ -282,12 +285,13 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
                   message: '此记录只有睡眠汇总，无法反推具体时间段。连接戒指并同步后可补充设备仍保留的明细。',
                   icon: Icons.schedule_outlined,
                 ),
-              SleepStructureCard(record: record),
+              SleepStructureCard(record: record, controller: widget.controller),
             ],
           ],
           const SizedBox(height: 12),
           const _SleepNotice(
-            message: '时间明细仅保存在本机。阶段和评分仅采用戒指实际返回的数据，未返回项目保持未知。数据仅供日常健康参考。',
+            message:
+                '时间明细仅保存在本机。阶段和设备评分来自戒指，未返回项目保持未知。AI 报告需另行确认上传汇总，AI 评分与设备评分分开。数据仅供日常健康参考。',
             icon: Icons.lock_outline_rounded,
           ),
           const SizedBox(height: 12),
