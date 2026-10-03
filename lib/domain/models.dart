@@ -36,6 +36,13 @@ enum HealthMetric {
   final String label;
   final String defaultUnit;
 
+  static HealthMetric? tryFromWire(String value) {
+    for (final metric in values) {
+      if (metric.wireName == value) return metric;
+    }
+    return null;
+  }
+
   static HealthMetric fromWire(String value) => values.firstWhere(
     (metric) => metric.wireName == value,
     orElse: () => HealthMetric.steps,
@@ -277,6 +284,7 @@ class DeviceBatteryInfo {
     required this.chargeState,
     this.low,
     this.updatedAt,
+    this.chargingUpdatedAt,
   });
 
   final int value;
@@ -285,6 +293,17 @@ class DeviceBatteryInfo {
   final bool? low;
   final DeviceBatteryChargeState chargeState;
   final DateTime? updatedAt;
+  final DateTime? chargingUpdatedAt;
+
+  DeviceBatteryChargeState chargeStateAt(DateTime now) {
+    final confirmed = chargingUpdatedAt ?? updatedAt;
+    if (confirmed == null ||
+        now.difference(confirmed) > const Duration(seconds: 60) ||
+        confirmed.isAfter(now.add(const Duration(seconds: 5)))) {
+      return DeviceBatteryChargeState.unknown;
+    }
+    return chargeState;
+  }
 
   int? get percent => isPercent ? value : null;
   bool get isCharging => chargeState == DeviceBatteryChargeState.charging;
@@ -351,6 +370,9 @@ class DeviceBatteryInfo {
       low: isPercent ? rawLow as bool? : null,
       chargeState: DeviceBatteryChargeState.fromWire(map['chargeState']),
       updatedAt: updatedAt?.toUtc(),
+      chargingUpdatedAt: DateTime.tryParse(
+        '${map['chargingUpdatedAt'] ?? ''}',
+      )?.toUtc(),
     );
   }
 
@@ -361,6 +383,7 @@ class DeviceBatteryInfo {
     'low': low,
     'chargeState': chargeState.wireName,
     'updatedAt': updatedAt?.toUtc().toIso8601String(),
+    'chargingUpdatedAt': chargingUpdatedAt?.toUtc().toIso8601String(),
   };
 }
 
@@ -588,6 +611,7 @@ class DeviceCapabilities {
   const DeviceCapabilities({
     required this.metrics,
     this.manualMetrics,
+    this.historyMetrics,
     this.sportModes,
     this.features = const <DeviceFeature>{},
     this.integratedFeatures = const <DeviceFeature>{},
@@ -600,6 +624,7 @@ class DeviceCapabilities {
 
   final Set<HealthMetric> metrics;
   final Set<HealthMetric>? manualMetrics;
+  final Set<HealthMetric>? historyMetrics;
 
   /// Sports that the connected watch can enter from the phone.
   ///
@@ -621,13 +646,17 @@ class DeviceCapabilities {
   factory DeviceCapabilities.fromMap(Map<Object?, Object?> map) {
     final raw = map['metrics'];
     final metrics = raw is List
-        ? raw.map((value) => HealthMetric.fromWire('$value')).toSet()
+        ? raw
+              .map((value) => HealthMetric.tryFromWire('$value'))
+              .whereType<HealthMetric>()
+              .toSet()
         : <HealthMetric>{};
     final rawFeatures = map['features'];
     final rawManualMetrics = map['manualMetrics'];
     final manualMetrics = rawManualMetrics is List
         ? rawManualMetrics
-              .map((value) => HealthMetric.fromWire('$value'))
+              .map((value) => HealthMetric.tryFromWire('$value'))
+              .whereType<HealthMetric>()
               .toSet()
         : null;
     final rawSportModes = map['sportModes'];
@@ -656,6 +685,12 @@ class DeviceCapabilities {
     return DeviceCapabilities(
       metrics: metrics,
       manualMetrics: manualMetrics,
+      historyMetrics: map['historyMetrics'] is List
+          ? (map['historyMetrics'] as List)
+                .map((value) => HealthMetric.tryFromWire('$value'))
+                .whereType<HealthMetric>()
+                .toSet()
+          : null,
       sportModes: sportModes,
       features: features,
       integratedFeatures: integratedFeatures,
@@ -674,12 +709,20 @@ class DeviceCapabilities {
   bool supportsManualMeasurement(HealthMetric metric) =>
       manualMetrics?.contains(metric) ?? supports(metric);
 
+  bool supportsHistoryMetric(HealthMetric metric) =>
+      supportsHistorySync &&
+      (historyMetrics?.contains(metric) ?? supports(metric));
+
   bool supportsFeature(DeviceFeature feature) => features.contains(feature);
 
   Map<String, Object?> toJson() => {
     'metrics': metrics.map((metric) => metric.wireName).toList(),
     if (manualMetrics != null)
       'manualMetrics': manualMetrics!.map((metric) => metric.wireName).toList(),
+    if (historyMetrics != null)
+      'historyMetrics': historyMetrics!
+          .map((metric) => metric.wireName)
+          .toList(),
     if (sportModes != null)
       'sportModes': sportModes!.map((mode) => mode.wireName).toList(),
     'features': features.map((feature) => feature.wireName).toList(),

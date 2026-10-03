@@ -542,9 +542,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                         : (_report!.progressMessage ??
                               '${_report!.progressLabel}。'),
                     if (_isPending(_report))
-                      _pausedPolling
-                          ? '自动刷新已暂停；请点击右上角刷新查看最新结果。'
-                          : '完成后自动刷新；等待较久可稍后回到此页。',
+                      _pausedPolling ? '自动刷新已暂停，点击右上角重试' : '完成后自动刷新',
                     '原始睡眠分段时间轴仍仅保存在本机。AI 报告不能作为诊断、治疗或医疗评分。',
                   ]),
                   if (_report == null ||

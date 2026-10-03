@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../domain/models.dart';
 import '../domain/global_account.dart';
 import '../domain/global_care.dart';
 import '../l10n/global_locale_controller.dart';
-import '../services/api_client.dart';
 import '../services/app_controller.dart';
+import 'global_care_dashboard.dart';
 
 const _serverCareMetrics = <String>{
   'sleep',
@@ -176,10 +175,8 @@ class _GlobalCarePageState extends State<GlobalCarePage> {
   }
 
   Future<void> _permissions(GlobalCareRelationship row) async {
-    final supported = supportedCareMetrics(
-      widget.controller.capabilities?.metrics ?? const <HealthMetric>{},
-    );
-    final selected = row.metrics.intersection(supported);
+    final supported = _serverCareMetrics;
+    final selected = Set<String>.of(row.metrics);
     final result = await showDialog<Set<String>>(
       context: context,
       builder: (dialog) => StatefulBuilder(
@@ -267,7 +264,7 @@ class _GlobalCarePageState extends State<GlobalCarePage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  Text(l.careSharingHint),
+                  const Text('仅查看已授权的数据'),
                   const SizedBox(height: 12),
                   FilledButton.icon(
                     onPressed: _working ? null : _invite,
@@ -284,95 +281,107 @@ class _GlobalCarePageState extends State<GlobalCarePage> {
                       padding: const EdgeInsets.all(32),
                       child: Center(child: Text(l.noData)),
                     ),
-                  for (final row in _relationships)
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              row.name.isEmpty ? l.defaultUser : row.name,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            Text(
-                              row.active
-                                  ? l.careActive
-                                  : row.status == 'pending'
-                                  ? l.carePending
-                                  : l.careClosed,
-                            ),
-                            if (row.received && row.status == 'pending')
-                              Wrap(
-                                spacing: 8,
-                                children: [
-                                  FilledButton(
-                                    onPressed: _working
-                                        ? null
-                                        : () => _operate(
-                                            () => widget.controller
-                                                .globalRespondCare(
-                                                  row.id,
-                                                  true,
-                                                ),
-                                          ),
-                                    child: Text(l.accept),
-                                  ),
-                                  TextButton(
-                                    onPressed: _working
-                                        ? null
-                                        : () => _operate(
-                                            () => widget.controller
-                                                .globalRespondCare(
-                                                  row.id,
-                                                  false,
-                                                ),
-                                          ),
-                                    child: Text(l.decline),
-                                  ),
-                                ],
-                              ),
-                            if (row.active && row.received)
-                              TextButton(
-                                onPressed: _working
-                                    ? null
-                                    : () => _permissions(row),
-                                child: Text(l.sharedMeasurements),
-                              ),
-                            if (row.active && !row.received) ...[
-                              if (row.metrics.isEmpty)
-                                Text(l.carePermissionDenied),
-                              for (final metric in row.metrics.where(
-                                _metricLabels(context).containsKey,
-                              ))
-                                ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  title: Text(_metricLabels(context)[metric]!),
-                                  trailing: const Icon(Icons.chevron_right),
-                                  onTap: _working
-                                      ? null
-                                      : () => Navigator.of(context).push(
-                                          MaterialPageRoute<void>(
-                                            builder: (_) =>
-                                                _GlobalCareRecordsPage(
-                                                  controller: widget.controller,
-                                                  relationship: row,
-                                                  metric: metric,
-                                                  owner: _owner!,
-                                                ),
-                                          ),
-                                        ),
-                                ),
-                            ],
-                            if (row.active || row.status == 'pending')
-                              TextButton(
-                                onPressed: _working ? null : () => _revoke(row),
-                                child: Text(l.stopSharing),
-                              ),
-                          ],
+                  for (final received in [false, true]) ...[
+                    if (_relationships.any((row) => row.received == received))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 16, bottom: 8),
+                        child: Text(
+                          received ? '关注我的' : '我关注的',
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
                       ),
-                    ),
+                    for (final row in _relationships.where(
+                      (row) => row.received == received,
+                    ))
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                row.name.isEmpty ? l.defaultUser : row.name,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              Text(
+                                row.active
+                                    ? l.careActive
+                                    : row.status == 'pending'
+                                    ? l.carePending
+                                    : l.careClosed,
+                              ),
+                              if (row.received && row.status == 'pending')
+                                Wrap(
+                                  spacing: 8,
+                                  children: [
+                                    FilledButton(
+                                      onPressed: _working
+                                          ? null
+                                          : () => _operate(
+                                              () => widget.controller
+                                                  .globalRespondCare(
+                                                    row.id,
+                                                    true,
+                                                  ),
+                                            ),
+                                      child: Text(l.accept),
+                                    ),
+                                    TextButton(
+                                      onPressed: _working
+                                          ? null
+                                          : () => _operate(
+                                              () => widget.controller
+                                                  .globalRespondCare(
+                                                    row.id,
+                                                    false,
+                                                  ),
+                                            ),
+                                      child: Text(l.decline),
+                                    ),
+                                  ],
+                                ),
+                              if (row.active && row.received)
+                                TextButton(
+                                  onPressed: _working
+                                      ? null
+                                      : () => _permissions(row),
+                                  child: Text(l.sharedMeasurements),
+                                ),
+                              if (row.active && !row.received) ...[
+                                if (row.metrics.isEmpty)
+                                  Text(l.carePermissionDenied),
+                                if (row.metrics.isNotEmpty)
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('查看健康数据'),
+                                    trailing: const Icon(Icons.chevron_right),
+                                    onTap: _working
+                                        ? null
+                                        : () => Navigator.of(context).push(
+                                            MaterialPageRoute<void>(
+                                              builder: (_) =>
+                                                  GlobalCareDashboard(
+                                                    controller:
+                                                        widget.controller,
+                                                    relationship: row,
+                                                    owner: _owner!,
+                                                  ),
+                                            ),
+                                          ),
+                                  ),
+                              ],
+                              if (row.active || row.status == 'pending')
+                                TextButton(
+                                  onPressed: _working
+                                      ? null
+                                      : () => _revoke(row),
+                                  child: Text(l.stopSharing),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
                 ],
               ),
             ),
@@ -397,157 +406,4 @@ Map<String, String> _metricLabels(BuildContext context) {
     'body_composition': l.bodyComposition,
     'blood_composition': l.bloodComposition,
   };
-}
-
-class _GlobalCareRecordsPage extends StatefulWidget {
-  const _GlobalCareRecordsPage({
-    required this.controller,
-    required this.relationship,
-    required this.metric,
-    required this.owner,
-  });
-  final AppController controller;
-  final GlobalCareRelationship relationship;
-  final String metric;
-  final String owner;
-  @override
-  State<_GlobalCareRecordsPage> createState() => _GlobalCareRecordsPageState();
-}
-
-class _GlobalCareRecordsPageState extends State<_GlobalCareRecordsPage> {
-  DateTime _day = DateTime.now();
-  List<Map<String, Object?>> _records = const [];
-  bool _loading = true;
-  String? _error;
-  int _generation = 0;
-  bool get _sameOwner => widget.owner == widget.controller.session?.accountKey;
-  @override
-  void initState() {
-    super.initState();
-    widget.controller.addListener(_accountChanged);
-    unawaited(_load());
-  }
-
-  void _accountChanged() {
-    if (!_sameOwner && mounted) {
-      _generation++;
-      setState(() {
-        _records = const [];
-        _loading = false;
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    widget.controller.removeListener(_accountChanged);
-    _generation++;
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    if (!_sameOwner) return;
-    final generation = ++_generation;
-    setState(() {
-      _loading = true;
-      _error = null;
-      _records = const [];
-    });
-    try {
-      final rows = await widget.controller.globalCareRecords(
-        widget.relationship.id,
-        widget.metric,
-        _day,
-      );
-      if (mounted && _sameOwner && generation == _generation) {
-        setState(() => _records = rows);
-      }
-    } catch (error) {
-      if (mounted && _sameOwner && generation == _generation) {
-        setState(
-          () => _error = error is ApiException && error.statusCode == 403
-              ? 'permission'
-              : 'service',
-        );
-      }
-    } finally {
-      if (mounted && generation == _generation) {
-        setState(() => _loading = false);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l = context.l10n;
-    final locale = Localizations.localeOf(context).toString();
-    return Scaffold(
-      appBar: AppBar(title: Text(_metricLabels(context)[widget.metric]!)),
-      body: !_sameOwner
-          ? Center(child: Text(l.signInCloudHint))
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Text(widget.relationship.name),
-                TextButton.icon(
-                  icon: const Icon(Icons.calendar_month),
-                  label: Text(DateFormat.yMMMd(locale).format(_day)),
-                  onPressed: () async {
-                    final selected = await showDatePicker(
-                      context: context,
-                      initialDate: _day,
-                      firstDate: DateTime(2000),
-                      lastDate: DateTime.now(),
-                    );
-                    if (selected != null && mounted && _sameOwner) {
-                      setState(() => _day = selected);
-                      await _load();
-                    }
-                  },
-                ),
-                if (_loading) const LinearProgressIndicator(),
-                if (_error != null) ...[
-                  Text(
-                    _error == 'permission'
-                        ? l.carePermissionDenied
-                        : l.serviceUnavailable,
-                  ),
-                  TextButton(onPressed: _load, child: Text(l.retry)),
-                ],
-                if (!_loading && _error == null && _records.isEmpty)
-                  Text(l.noData),
-                for (final row in _records)
-                  ListTile(
-                    title: Text(_recordValue(row, locale)),
-                    subtitle: Text(switch (DateTime.tryParse(
-                      '${row['observedAt'] ?? ''}',
-                    )) {
-                      final DateTime date => DateFormat.jm(
-                        locale,
-                      ).format(date.toLocal()),
-                      _ => '—',
-                    }),
-                  ),
-                const SizedBox(height: 12),
-                Text(
-                  l.healthDisclaimer,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
-    );
-  }
-
-  String _recordValue(Map<String, Object?> row, String locale) {
-    final values = row['values'];
-    if (values is! Map) return '—';
-    final number = NumberFormat.decimalPattern(locale);
-    String format(Object? value) =>
-        value is num && value.isFinite ? number.format(value) : '—';
-    final text = widget.metric == 'blood_pressure'
-        ? '${format(values['systolic'])}/${format(values['diastolic'])}'
-        : format(values['value']);
-    // Missing summary values remain unknown; no synthetic interpretation of ECG or composition.
-    return '$text ${row['unit'] ?? ''}'.trim();
-  }
 }

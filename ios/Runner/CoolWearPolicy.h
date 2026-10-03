@@ -1,3 +1,4 @@
+#pragma once
 #import <Foundation/Foundation.h>
 #import <math.h>
 
@@ -53,9 +54,7 @@ static inline CoolWearCompletion CoolWearCompleteOnce(CoolWearCompletion complet
 static inline NSDictionary *CoolWearCapabilities(NSDictionary *flags, BOOL resolved) {
     NSMutableArray *metrics = [NSMutableArray array];
     NSMutableArray *manual = [NSMutableArray array];
-    // Automatic history transport is not yet mapped on iOS. A device flag by
-    // itself must not expose a metric that this bridge cannot read.
-    if (resolved && CoolWearFlag(flags, @"manualHr")) [metrics addObject:@"heart_rate"];
+    if (resolved && (CoolWearFlag(flags, @"manualHr") || CoolWearFlag(flags, @"hasHR24h"))) [metrics addObject:@"heart_rate"];
     if (resolved && CoolWearFlag(flags, @"manualHr")) [manual addObject:@"heart_rate"];
     if (resolved && CoolWearFlag(flags, @"showO2")) {
         [metrics addObject:@"blood_oxygen"];
@@ -69,11 +68,10 @@ static inline NSDictionary *CoolWearCapabilities(NSDictionary *flags, BOOL resol
     }
     // Temperature is a passive history result, never a manual command.
     if (resolved && CoolWearFlag(flags, @"temp_supported")) [metrics addObject:@"body_temperature"];
-    // A passive result is not a completed full-history read. Sleep, workouts
-    // and controls remain closed until their own transport is implemented.
     return @{@"resolved": @(resolved), @"metrics": metrics, @"manualMetrics": manual,
+             @"historyMetrics": metrics,
              @"sportModes": @[], @"features": @[], @"integratedFeatures": @[],
-             @"supportsBackgroundSync": @NO, @"supportsHistorySync": @NO,
+             @"supportsBackgroundSync": @NO, @"supportsHistorySync": @(resolved),
              @"supportsSportPause": @NO,
              @"supportsWatchFaces": @NO, @"supportsOta": @NO};
 }

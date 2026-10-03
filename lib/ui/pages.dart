@@ -559,7 +559,8 @@ class DashboardPage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _SleepQuickCard(controller: controller),
+                  if (controller.shouldShowHealthMetric(HealthMetric.sleep))
+                    _SleepQuickCard(controller: controller),
                   const SizedBox(height: 16),
                   _SectionTitle(
                     title: context.l10n.healthData,
@@ -605,7 +606,7 @@ class DashboardPage extends StatelessWidget {
                       separatorBuilder: (_, _) => const SizedBox(height: 14),
                       itemBuilder: (context, index) {
                         final metric = metrics[index];
-                        return _MetricCard(
+                        return HealthMetricCard(
                           controller: controller,
                           metric: metric,
                           record: latest[metric],
@@ -938,6 +939,7 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
   Timer? _refresh;
   int _request = 0;
   bool _failed = false;
+
   bool _loading = true;
 
   @override
@@ -1517,16 +1519,23 @@ class _DeviceHero extends StatelessWidget {
   }
 }
 
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({
+class HealthMetricCard extends StatelessWidget {
+  const HealthMetricCard({
     required this.controller,
     required this.metric,
     required this.record,
+    this.onOpen,
+    this.records,
+    this.readOnly = false,
+    super.key,
   });
 
   final AppController controller;
   final HealthMetric metric;
   final HealthRecord? record;
+  final VoidCallback? onOpen;
+  final List<HealthRecord>? records;
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -1546,7 +1555,11 @@ class _MetricCard extends StatelessWidget {
       _ => Icons.monitor_heart_outlined,
     };
     final style = _metricCardStyle(metric);
-    final status = _homeMetricStatus(controller, record);
+    final status = readOnly
+        ? (record == null
+              ? _HomeMetricStatus.noData
+              : _HomeMetricStatus.recorded)
+        : _homeMetricStatus(controller, record);
     final needsAttention = !{
       _HomeMetricStatus.normal,
       _HomeMetricStatus.recorded,
@@ -1561,18 +1574,8 @@ class _MetricCard extends StatelessWidget {
       _HomeMetricStatus.low => context.l10n.statusLow,
       _HomeMetricStatus.high => context.l10n.statusHigh,
     };
-    final supportsManualMeasurement = const {
-      HealthMetric.bloodPressure,
-      HealthMetric.heartRate,
-      HealthMetric.bloodOxygen,
-      HealthMetric.bloodGlucose,
-      HealthMetric.bodyTemperature,
-      HealthMetric.ecg,
-      HealthMetric.hrv,
-      HealthMetric.stress,
-      HealthMetric.bodyComposition,
-      HealthMetric.bloodComposition,
-    }.contains(metric);
+    final supportsManualMeasurement =
+        !readOnly && controller.canMeasureHealthMetric(metric);
     final textScale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0);
     final cardHeight = 184 + (textScale - 1) * 104;
     return SizedBox(
@@ -1600,21 +1603,23 @@ class _MetricCard extends StatelessWidget {
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(28),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => HealthTrendPage(
-                  controller: controller,
-                  metric: metric,
-                  onMeasure: supportsManualMeasurement
-                      ? (trendContext) => _showHealthMeasurementDialog(
-                          trendContext,
-                          controller,
-                          metric,
-                        )
-                      : null,
+            onTap:
+                onOpen ??
+                () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => HealthTrendPage(
+                      controller: controller,
+                      metric: metric,
+                      onMeasure: supportsManualMeasurement
+                          ? (trendContext) => _showHealthMeasurementDialog(
+                              trendContext,
+                              controller,
+                              metric,
+                            )
+                          : null,
+                    ),
+                  ),
                 ),
-              ),
-            ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(28),
               child: Stack(
@@ -1777,6 +1782,7 @@ class _MetricCard extends StatelessWidget {
                             metric: metric,
                             color: style.accent,
                             showEmptyLabel: false,
+                            records: readOnly ? records ?? const [] : records,
                           ),
                         ),
                       ],
@@ -4004,18 +4010,7 @@ class HealthHistoryPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canMeasure = const {
-      HealthMetric.heartRate,
-      HealthMetric.bloodOxygen,
-      HealthMetric.bloodPressure,
-      HealthMetric.bloodGlucose,
-      HealthMetric.bodyTemperature,
-      HealthMetric.ecg,
-      HealthMetric.hrv,
-      HealthMetric.stress,
-      HealthMetric.bodyComposition,
-      HealthMetric.bloodComposition,
-    }.contains(metric);
+    final canMeasure = controller.canMeasureHealthMetric(metric);
     return HealthTrendPage(
       controller: controller,
       metric: metric,
@@ -4321,6 +4316,10 @@ class GlobalArticleLibraryPage extends StatefulWidget {
 }
 
 class _GlobalArticleLibraryPageState extends State<GlobalArticleLibraryPage> {
+  int _page = 1;
+  bool _hasMore = false;
+  bool _loadingMore = false;
+  bool _moreFailed = false;
   List<Map<String, Object?>> _categories = const [];
   List<Map<String, Object?>> _articles = const [];
   String? _selectedCategory;
@@ -4346,26 +4345,68 @@ class _GlobalArticleLibraryPageState extends State<GlobalArticleLibraryPage> {
       _failed = false;
     });
     try {
-      final results = await Future.wait([
-        widget.controller.loadGlobalArticleCategories(),
-        widget.controller.loadGlobalArticles(categoryId: _selectedCategory),
-      ]);
+      // Optional categories must not hide articles that loaded successfully.
+      final categoriesFuture = widget.controller
+          .loadGlobalArticleCategories()
+          .catchError((Object _) => <Map<String, Object?>>[]);
+      final articles = await widget.controller.loadGlobalArticles(
+        categoryId: _selectedCategory,
+      );
+      final categories = await categoriesFuture;
       if (!mounted || generation != _generation) return;
       setState(() {
-        _categories = results[0]
+        _categories = categories
             .where((item) => '${item['id'] ?? ''}'.trim().isNotEmpty)
             .toList();
-        _articles = results[1]
+        _articles = articles
             .where((item) => '${item['id'] ?? ''}'.trim().isNotEmpty)
             .toList();
         _loading = false;
+        _page = 1;
+        _hasMore = articles.length == 30;
+        _loadingMore = false;
+        _moreFailed = false;
       });
-    } catch (error, stack) {
-      debugPrint('Global article library load failed: $error\n$stack');
+    } catch (_) {
       if (!mounted || generation != _generation) return;
       setState(() {
         _failed = true;
         _loading = false;
+      });
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore) return;
+    final generation = _generation;
+    setState(() {
+      _loadingMore = true;
+      _moreFailed = false;
+    });
+    try {
+      final rows = await widget.controller.loadGlobalArticles(
+        categoryId: _selectedCategory,
+        page: _page + 1,
+      );
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        final byId = <String, Map<String, Object?>>{
+          for (final row in _articles) '${row['id']}': row,
+        };
+        for (final row in rows) {
+          final id = '${row['id'] ?? ''}'.trim();
+          if (id.isNotEmpty) byId[id] = row;
+        }
+        _articles = byId.values.toList();
+        _page++;
+        _hasMore = rows.length == 30;
+        _loadingMore = false;
+      });
+    } catch (_) {
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _loadingMore = false;
+        _moreFailed = true;
       });
     }
   }
@@ -4439,6 +4480,18 @@ class _GlobalArticleLibraryPageState extends State<GlobalArticleLibraryPage> {
                     ),
                     const SizedBox(height: 8),
                   ],
+                if (_hasMore)
+                  TextButton(
+                    key: const Key('global-article-load-more'),
+                    onPressed: _loadingMore ? null : _loadMore,
+                    child: Text(
+                      _loadingMore
+                          ? '加载中'
+                          : _moreFailed
+                          ? '加载失败，重试'
+                          : '加载更多',
+                    ),
+                  ),
               ],
             ),
           ),
@@ -5351,10 +5404,11 @@ class DevicePage extends StatelessWidget {
                                 final succeeded = await controller
                                     .syncDeviceData();
                                 if (!context.mounted) return;
-                                final feedback = succeeded
-                                    ? controller.syncStatus == '设备暂无新数据'
-                                          ? context.l10n.syncUpToDate
-                                          : context.l10n.syncComplete
+                                final feedback =
+                                    controller.syncStatus == '暂无新增数据'
+                                    ? context.l10n.syncUpToDate
+                                    : succeeded
+                                    ? context.l10n.syncComplete
                                     : controller.errorMessage
                                               ?.trim()
                                               .isNotEmpty ==
@@ -5808,7 +5862,7 @@ class _BatteryBadge extends StatelessWidget {
     final label = value?.displayLabel ?? '--';
     final semantics = value == null
         ? '戒指电量暂未读取'
-        : '戒指电量 $label，${value.chargeState.label}';
+        : '戒指电量 $label，${value.chargeStateAt(DateTime.now()).label}';
     return Semantics(
       label: semantics,
       child: Row(
@@ -5826,7 +5880,8 @@ class _BatteryBadge extends StatelessWidget {
           Icon(
             value == null
                 ? Icons.battery_unknown_rounded
-                : value.isCharging
+                : value.chargeStateAt(DateTime.now()) ==
+                      DeviceBatteryChargeState.charging
                 ? Icons.battery_charging_full_rounded
                 : percent != null && percent <= 15
                 ? Icons.battery_1_bar_rounded
@@ -6635,7 +6690,9 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                       const Divider(indent: 16),
                       ListTile(
                         title: Text(context.l10n.chargingStatus),
-                        trailing: Text(battery.chargeState.label),
+                        trailing: Text(
+                          battery.chargeStateAt(DateTime.now()).label,
+                        ),
                       ),
                     ],
                     const Divider(indent: 16),

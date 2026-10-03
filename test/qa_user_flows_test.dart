@@ -648,8 +648,8 @@ void main() {
       await scan;
 
       expect(await controller.syncDeviceData(), isFalse);
-      expect(controller.syncStatus, contains('已读取 1 条'));
-      expect(controller.syncStatus, contains('未确认同步完成'));
+      expect(controller.syncStatus, contains('已更新 1 条'));
+      expect(controller.errorMessage, '部分数据未同步');
       expect((await store.recent()).single.id, record.id);
       expect((await store.pending()).single.id, record.id);
     },
@@ -693,7 +693,7 @@ void main() {
 
     expect(await controller.syncDeviceData(), isFalse);
     expect(await store.recent(), isEmpty);
-    expect(controller.errorMessage, contains('本次未收到活动数据'));
+    expect(controller.errorMessage, contains('其他设备数据'));
   });
 
   test(

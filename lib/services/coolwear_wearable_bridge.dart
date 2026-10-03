@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 
 import '../domain/feature_models.dart';
 import '../domain/models.dart';
+import '../domain/wearable_sync_result.dart';
 import 'wearable_bridge.dart';
 
 /// CoolWear/LuckRing transport backed by the supplied Android/iOS vendor SDKs.
@@ -98,14 +99,15 @@ class CoolWearWearableBridge
 
   @override
   Future<List<HealthRecord>> syncHealthData({String? cursor}) async {
-    final values =
-        await _invoke<List<Object?>>(
+    final response =
+        await _invoke<Object?>(
           'syncHealthData',
           cursor == null ? null : {'cursor': cursor},
           const Duration(seconds: 35),
         ) ??
         const <Object?>[];
-    return values
+    final values = response is Map ? response['records'] : response;
+    final records = (values is List ? values : const <Object?>[])
         .whereType<Map<Object?, Object?>>()
         .map(
           (value) => HealthRecord.fromJson(
@@ -113,6 +115,15 @@ class CoolWearWearableBridge
           ),
         )
         .toList(growable: false);
+    if (response is Map && response['statuses'] is Map) {
+      return WearableSyncResult(
+        records,
+        (response['statuses'] as Map).map(
+          (key, value) => MapEntry('$key', '$value'),
+        ),
+      );
+    }
+    return records;
   }
 
   @override

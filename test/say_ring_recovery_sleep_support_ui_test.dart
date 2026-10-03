@@ -104,7 +104,7 @@ class _UiController extends Fake implements AppController {
   DeviceCapabilities? get capabilities => deviceCapabilities;
 
   @override
-  String syncStatus = '设备暂无新数据';
+  String syncStatus = '暂无新增数据';
 
   @override
   String? errorMessage;

@@ -7,9 +7,12 @@ const read = (name) => readFileSync(new URL(`../${name}`, import.meta.url), 'utf
 const bridge = read('ios/Runner/CoolWearWearableBridge.m');
 const project = read('ios/Runner.xcodeproj/project.pbxproj');
 
-test('unmapped iOS history is explicitly unavailable without disabling manual samples', () => {
+test('mapped iOS history remains capability gated and reports per-metric status', () => {
   const policy = read('ios/Runner/CoolWearPolicy.h');
-  assert.match(policy, /@"supportsHistorySync": @NO/);
+  assert.match(policy, /@"supportsHistorySync": @\(resolved\)/);
+  assert.match(bridge, /@"statuses": statuses/);
+  assert.match(bridge, /if \(metric\) \[metrics addObject:metric\]/);
+  assert.match(bridge, /sync == weakSelf.syncGeneration/);
   assert.match(policy, /@"manualMetrics": manual/);
   assert.match(read('lib/services/app_controller.dart'), /capabilities\?\.supportsHistorySync == false/);
   assert.match(read('lib/ui/pages.dart'), /Key\('device-sync-data'\)/);
@@ -71,6 +74,15 @@ test('mixed data is never converted into fake history completion', () => {
   assert.match(mixed, /receiveData:child depth:/);
   assert.doesNotMatch(mixed, /result\(|completeSync|pendingSync|healthRecord/);
   assert.match(bridge, /COOLWEAR_FEATURE_UNVERIFIED/);
+  assert.match(bridge, /CoolWearUnsigned\(info\[@"DataType"\], 255\)/);
+  const history = bridge.slice(bridge.indexOf('NSString *historyKey'), bridge.indexOf('if (type.integerValue == DATA_TYPE_REAL_HRV_METRICS)'));
+  assert.doesNotMatch(history, /\[self finishSync\]/);
+  assert.match(bridge, /25 \* NSEC_PER_SEC/);
+  assert.match(bridge, /\[weakSelf finalizeSleepHistory\];\s*\[weakSelf finishSync\]/);
+  assert.match(bridge, /type.integerValue == 6 \? @\[\] : batch.rows.allValues/);
+  assert.match(bridge, /if \(!\[metric isEqual:@"sleep"\]\)/);
+  const sleep = bridge.slice(bridge.indexOf('- (void)finalizeSleepHistory'), bridge.indexOf('- (void)readBattery'));
+  assert.match(sleep, /\[\[batch status\] isEqual:@"complete"\]/);
 });
 
 test('measurement is session guarded and requires a real fresh sample', () => {
@@ -85,16 +97,16 @@ test('measurement is session guarded and requires a real fresh sample', () => {
 test('RRI uses the new command and explicit metrics, never ambiguous legacy HRV', () => {
   assert.match(bridge, /CE_SyncRRIHRVCmd \*cmd/);
   assert.match(bridge, /DATA_TYPE_REAL_HRV_METRICS/);
-  assert.match(bridge, /DATA_TYPE_HISTORY_HRV_METRICS/);
+  assert.match(read('ios/Runner/CoolWearHistory.h'), /@61:@"hrvMetricsInfos"/);
   assert.doesNotMatch(bridge, /CE_SyncHRVCmd \*|== DATA_TYPE_REAL_HRV\b|== DATA_TYPE_HISTORY_HRV\b/);
   assert.match(bridge, /CoolWearRriHrvValues\(sample\)/);
-  assert.match(bridge, /CoolWearSkinTemperatureValues\(sample\)/);
+  assert.match(read('ios/Runner/CoolWearHistory.h'), /CoolWearSkinTemperatureValues\(sample\)/);
   assert.match(bridge, /origin:@"watch_history"/);
 });
 
 test('passive handshake data is delivered only after the account-owned Dart session is ready', () => {
   assert.match(bridge, /getCapabilities[\s\S]*?\[self enableDataDelivery\]/);
-  assert.match(bridge, /!self.dataDeliveryReady \|\| !CoolWearFlag\(self.flags, flag\)/);
+  assert.match(bridge, /!self.dataDeliveryReady \|\| !\[\[self capabilities\]\[@"historyMetrics"\]/);
   const cancel = bridge.slice(bridge.indexOf('- (void)beginCancellation:'), bridge.indexOf('- (void)checkCancellation'));
   assert.match(cancel, /self.dataDeliveryReady = NO/);
   assert.match(cancel, /\[self.pendingPassiveRecords removeAllObjects\]/);

@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../domain/wearable_sync_result.dart';
 import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -531,6 +532,38 @@ class AppController extends ChangeNotifier {
     DateTime day,
   ) => (_api as GlobalCareApi).globalCareRecords(id, metric, day);
 
+  Future<List<Map<String, Object?>>> globalCareRecordsRange(
+    String id,
+    String metric,
+    DateTime start,
+    DateTime end,
+  ) async {
+    final api = _api;
+    if (api is GlobalCareRangeApi) {
+      return (api as GlobalCareRangeApi).globalCareRecordsRange(
+        id,
+        metric,
+        start,
+        end,
+      );
+    }
+    // Compatibility for older adapters; each day retains the existing server
+    // authorization check. Production uses the bounded range endpoint above.
+    final owner = session?.accountKey;
+    final rows = <Map<String, Object?>>[];
+    for (
+      var day = start;
+      day.isBefore(end);
+      day = DateTime(day.year, day.month, day.day + 1)
+    ) {
+      if (owner == null || session?.accountKey != owner) {
+        throw const ApiException('Permission changed', statusCode: 403);
+      }
+      rows.addAll(await globalCareRecords(id, metric, day));
+    }
+    return rows;
+  }
+
   Future<GlobalAuthCapabilities> globalAuthCapabilities() =>
       (_api as GlobalAccountApi).getAuthCapabilities();
 
@@ -761,6 +794,9 @@ class AppController extends ChangeNotifier {
   Timer? _careInvitationPollTimer;
   int _careInvitationPollBackoffIndex = 0;
   bool _appIsForeground = true;
+  Timer? _deviceDetailsPollTimer;
+  bool _deviceDetailsRefreshing = false;
+  bool _deviceDetailsRefreshQueued = false;
   Timer? _measurementTimeout;
   HealthMetric? _activeMeasurementMetric;
   bool _syncing = false;
@@ -1903,6 +1939,25 @@ class AppController extends ChangeNotifier {
     if (index == 1 && connectedDevice != null) {
       unawaited(refreshConnectedDeviceDetails());
     }
+    _scheduleDeviceDetailsPoll();
+  }
+
+  void _scheduleDeviceDetailsPoll() {
+    _deviceDetailsPollTimer?.cancel();
+    _deviceDetailsPollTimer = null;
+    if (_disposed || !_appIsForeground || selectedTab != 1) return;
+    _deviceDetailsPollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (_disposed || !_appIsForeground || selectedTab != 1) return;
+      // Also rebuild the battery label when its confirmation becomes stale.
+      notifyListeners();
+      unawaited(refreshConnectedDeviceDetails(quiet: true));
+    });
+  }
+
+  void _flushDeviceDetailsRefresh() {
+    if (!_deviceDetailsRefreshQueued || _disposed || !_appIsForeground) return;
+    _deviceDetailsRefreshQueued = false;
+    unawaited(refreshConnectedDeviceDetails(quiet: true));
   }
 
   Future<void> scanDevices() async {
@@ -2338,8 +2393,15 @@ class AppController extends ChangeNotifier {
         syncStatus = '已保留读到的记录，部分睡眠数据读取失败';
         _deviceSyncErrorMessage = '部分睡眠数据读取失败，已有记录已保留，请稍后重试';
         errorMessage = _deviceSyncErrorMessage;
+      } else if (receivedRecords is WearableSyncResult &&
+          !receivedRecords.complete) {
+        syncStatus = records.isEmpty ? '暂无新增数据' : '已更新 ${records.length} 条';
+        if (receivedRecords.partial) {
+          _deviceSyncErrorMessage = '部分数据未同步';
+          errorMessage = _deviceSyncErrorMessage;
+        }
       } else {
-        syncStatus = records.isEmpty ? '设备暂无新数据' : '已同步 ${records.length} 条';
+        syncStatus = records.isEmpty ? '暂无新增数据' : '已同步 ${records.length} 条';
         succeeded = true;
       }
     } on PlatformException catch (error) {
@@ -2348,6 +2410,7 @@ class AppController extends ChangeNotifier {
       }
       if (error.code == 'COOLWEAR_SYNC_TIMEOUT' && error.details is List) {
         final partial = <HealthRecord>[];
+        var rejectedDevice = false;
         for (final value in error.details as List) {
           if (value is! Map) continue;
           try {
@@ -2360,7 +2423,11 @@ class AppController extends ChangeNotifier {
             final recordId = record.deviceId
                 .replaceFirst('coolwear:', '')
                 .toLowerCase();
-            if (currentId == recordId) partial.add(record);
+            if (currentId == recordId) {
+              partial.add(record);
+            } else {
+              rejectedDevice = true;
+            }
           } catch (_) {
             // One malformed vendor packet must not erase other valid packets.
           }
@@ -2381,8 +2448,14 @@ class AppController extends ChangeNotifier {
           if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
             return false;
           }
-          syncStatus = '已读取 ${records.length} 条，戒指未确认同步完成';
-          _deviceSyncErrorMessage = '已保留读到的记录，但戒指未确认同步完成；稍后可重试';
+          syncStatus = '已更新 ${records.length} 条';
+          _deviceSyncErrorMessage = '部分数据未同步';
+          errorMessage = _deviceSyncErrorMessage;
+          return false;
+        }
+        if (rejectedDevice) {
+          syncStatus = '已忽略其他设备数据';
+          _deviceSyncErrorMessage = '收到其他设备数据，已忽略';
           errorMessage = _deviceSyncErrorMessage;
           return false;
         }
@@ -2396,9 +2469,9 @@ class AppController extends ChangeNotifier {
         return false;
       }
       if (error.code == 'COOLWEAR_SYNC_TIMEOUT') {
-        syncStatus = '设备已连接，戒指暂未返回活动记录';
-        _deviceSyncErrorMessage = '本次未收到活动数据；请保持戒指靠近手机，稍后重试';
-        errorMessage = _deviceSyncErrorMessage;
+        syncStatus = '暂无新增数据';
+        _deviceSyncErrorMessage = null;
+        errorMessage = null;
         return false;
       }
       syncStatus = '设备已连接，${initial ? '首次数据同步失败' : '历史数据同步失败'}';
@@ -2417,6 +2490,7 @@ class AppController extends ChangeNotifier {
         isDeviceSyncing = false;
         deviceSyncProgress = 0;
         if (!_disposed) notifyListeners();
+        _flushDeviceDetailsRefresh();
       }
     }
     return succeeded &&
@@ -2635,15 +2709,32 @@ class AppController extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
-  Future<bool> refreshConnectedDeviceDetails() async {
+  Future<bool> refreshConnectedDeviceDetails({bool quiet = false}) async {
     final current = connectedDevice;
     final bridge = _wearable;
     if (current == null) return false;
     if (bridge is! WearableDeviceDetailsBridge) return true;
+    if (_deviceDetailsRefreshing) return true;
+    if (_syncing ||
+        isDeviceSyncing ||
+        _activeMeasurementMetric != null ||
+        _accountTransitioning) {
+      _deviceDetailsRefreshQueued = true;
+      return true;
+    }
+    final sessionGeneration = _sessionGeneration;
+    final deviceSession = _connectedDeviceSessionGeneration;
+    bool isCurrent() =>
+        !_disposed &&
+        sessionGeneration == _sessionGeneration &&
+        deviceSession == _connectedDeviceSessionGeneration &&
+        connectedDevice?.id == current.id;
+    _deviceDetailsRefreshing = true;
+    _deviceDetailsRefreshQueued = false;
     try {
       final details = await (bridge as WearableDeviceDetailsBridge)
           .getConnectedDeviceDetails();
-      if (_disposed) return false;
+      if (!isCurrent()) return false;
       if (details == null) {
         _invalidateDeviceSync();
         rememberedDevice = connectedDevice ?? rememberedDevice;
@@ -2661,7 +2752,7 @@ class AppController extends ChangeNotifier {
             // A concurrent native disconnect may already have moved the state.
           }
         }
-        errorMessage = '戒指连接已断开，请重新连接';
+        errorMessage = null;
         if (!_wearableRecoverySuspended) unawaited(restoreWearableConnection());
         notifyListeners();
         return false;
@@ -2674,13 +2765,19 @@ class AppController extends ChangeNotifier {
       notifyListeners();
       return true;
     } on PlatformException catch (error) {
-      errorMessage = _wearableErrorMessage(error, fallback: '设备信息刷新失败，请稍后重试');
+      if (!isCurrent()) return false;
+      if (!quiet) {
+        errorMessage = _wearableErrorMessage(error, fallback: '设备信息刷新失败，重试');
+      }
       notifyListeners();
       return false;
     } catch (_) {
-      errorMessage = '设备信息刷新失败，请稍后重试';
+      if (!isCurrent()) return false;
+      if (!quiet) errorMessage = '设备信息刷新失败，重试';
       notifyListeners();
       return false;
+    } finally {
+      _deviceDetailsRefreshing = false;
     }
   }
 
@@ -2790,6 +2887,7 @@ class AppController extends ChangeNotifier {
       if (deviceState == DeviceConnectionState.measuring) {
         deviceMachine.transition(DeviceConnectionState.ready);
       }
+      _flushDeviceDetailsRefresh();
     }
     notifyListeners();
   }
@@ -3015,6 +3113,7 @@ class AppController extends ChangeNotifier {
       // The timeout result is already actionable; a stop acknowledgement is
       // best-effort and must not replace the wear guidance.
     }
+    _flushDeviceDetailsRefresh();
   }
 
   Duration _measurementTimeoutFor(HealthMetric metric) => switch (metric) {
@@ -4375,6 +4474,7 @@ class AppController extends ChangeNotifier {
 
   void setAppForeground(bool foreground) {
     _appIsForeground = foreground;
+    _scheduleDeviceDetailsPoll();
     if (!foreground) {
       _careInvitationPollTimer?.cancel();
       dismissCareInvitationAlert();
@@ -4413,6 +4513,8 @@ class AppController extends ChangeNotifier {
       unawaited(_registerPushDevice(resetBackoff: true));
     }
     await Future.wait(operations);
+    await refreshConnectedDeviceDetails(quiet: true);
+    _scheduleDeviceDetailsPoll();
     _scheduleCareInvitationPoll(const Duration(seconds: 30));
     if (!_disposed) notifyListeners();
   }
@@ -6740,6 +6842,7 @@ class AppController extends ChangeNotifier {
     }
     _measurementTimeout?.cancel();
     _careInvitationPollTimer?.cancel();
+    _deviceDetailsPollTimer?.cancel();
     _pushRegistrationRetryTimer?.cancel();
     _invalidateDeviceSync();
     unawaited(_wearableEvents?.cancel());

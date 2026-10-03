@@ -442,8 +442,9 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
             @"value": self.battery,
             @"scale": @100,
             @"isPercent": @YES,
-            @"chargeState": self.charging.boolValue ? @"charging" : @"normal",
+            @"chargeState": self.charging ? (self.charging.boolValue ? @"charging" : @"normal") : @"unknown",
             @"updatedAt": [self iso:self.batteryUpdatedAt],
+            @"chargingUpdatedAt": [self iso:self.batteryUpdatedAt],
         };
     }
     return value;

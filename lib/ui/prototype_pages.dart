@@ -1500,15 +1500,38 @@ class HealthRecordDetailPage extends StatelessWidget {
   const HealthRecordDetailPage({
     required this.controller,
     required this.record,
+    this.readOnly = false,
     super.key,
   });
 
   final AppController controller;
   final HealthRecord record;
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
-    if (record.metric == HealthMetric.sleep) {
+    if (record.metric == HealthMetric.sleep && readOnly) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(context.l10n.metricDetails(context.l10n.sleep)),
+        ),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text(
+              DateFormat(
+                'yyyy-MM-dd HH:mm',
+              ).format(HealthAnalysisService.displayTime(record)),
+            ),
+            SleepStructureCard(record: record),
+            const SizedBox(height: 12),
+            const Text('仅展示已授权的睡眠汇总'),
+            Text(context.l10n.healthDisclaimer),
+          ],
+        ),
+      );
+    }
+    if (record.metric == HealthMetric.sleep && !readOnly) {
       final date = DateTime.parse(sleepRecordSdkDate(record));
       return Scaffold(
         appBar: AppBar(title: const Text('睡眠详情')),

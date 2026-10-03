@@ -4,6 +4,7 @@ import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/services/coolwear_wearable_bridge.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
+import 'package:saydian_app/domain/wearable_sync_result.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -87,6 +88,44 @@ void main() {
   });
 
   tearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+  test(
+    'sync map preserves partial and empty completion without changing legacy list API',
+    () async {
+      messenger.setMockMethodCallHandler(
+        channel,
+        (call) async => {
+          'records': [],
+          'statuses': {'heart_rate': 'not_received'},
+        },
+      );
+      final bridge = CoolWearWearableBridge(methods: channel);
+      final missing = await bridge.syncHealthData();
+      expect(missing, isA<WearableSyncResult>());
+      expect((missing as WearableSyncResult).complete, isFalse);
+      expect(missing.partial, isFalse);
+      messenger.setMockMethodCallHandler(
+        channel,
+        (call) async => {
+          'records': [],
+          'statuses': {'heart_rate': 'no_data'},
+        },
+      );
+      final empty = await bridge.syncHealthData() as WearableSyncResult;
+      expect(empty.complete, isTrue);
+      messenger.setMockMethodCallHandler(
+        channel,
+        (call) async => {
+          'records': [],
+          'statuses': {'sleep': 'partial'},
+        },
+      );
+      expect(
+        (await bridge.syncHealthData() as WearableSyncResult).partial,
+        isTrue,
+      );
+    },
+  );
 
   test('maps vendor-completed health history', () async {
     final bridge = CoolWearWearableBridge(methods: channel);

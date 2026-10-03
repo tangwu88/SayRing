@@ -169,6 +169,32 @@ class _GlobalPageController extends Fake implements AppController {
       'Unable to load health reports.';
 }
 
+class _PagedArticleController extends _GlobalPageController {
+  bool failCategories = false;
+  bool failNext = false;
+  final requestedPages = <int>[];
+  @override
+  Future<List<Map<String, Object?>>> loadGlobalArticleCategories() async {
+    if (failCategories) throw StateError('synthetic categories failure');
+    return super.loadGlobalArticleCategories();
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> loadGlobalArticles({
+    String? categoryId,
+    int page = 1,
+  }) async {
+    requestedPages.add(page);
+    if (page == 2 && failNext) throw StateError('synthetic next-page failure');
+    return page == 1
+        ? List.generate(30, (i) => {'id': 'article-$i', 'title': 'Article $i'})
+        : [
+            {'id': 'article-29', 'title': 'Article 29'},
+            {'id': 'article-30', 'title': 'Article 30'},
+          ];
+  }
+}
+
 class _SupportPageController extends _GlobalPageController {
   @override
   Future<Map<String, Object?>> loadGlobalSupportConfig() async => {
@@ -199,6 +225,50 @@ Future<void> _pump(
 }
 
 void main() {
+  testWidgets('category failure does not hide successful articles', (
+    tester,
+  ) async {
+    final controller = _PagedArticleController()..failCategories = true;
+    await _pump(tester, GlobalArticleLibraryPage(controller: controller));
+    expect(
+      find.byKey(const ValueKey('global-article-article-0')),
+      findsOneWidget,
+    );
+    expect(find.text('Article 0'), findsOneWidget);
+    expect(controller.legacyCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'pagination retries without dropping prior pages and deduplicates IDs',
+    (tester) async {
+      final controller = _PagedArticleController()..failNext = true;
+      await _pump(tester, GlobalArticleLibraryPage(controller: controller));
+      final more = find.byKey(const Key('global-article-load-more'));
+      await tester.scrollUntilVisible(more, 450);
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      expect(find.text('加载失败，重试'), findsOneWidget);
+      controller.failNext = false;
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('global-article-article-30')),
+        300,
+      );
+      expect(controller.requestedPages, [1, 2, 2]);
+      expect(
+        find.byKey(const ValueKey('global-article-article-29')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('global-article-article-30')),
+        findsOneWidget,
+      );
+      expect(more, findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets(
     'international support does not advertise domestic phone or WeChat',
     (tester) async {

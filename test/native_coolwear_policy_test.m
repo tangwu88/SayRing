@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import "../ios/Runner/CoolWearPolicy.h"
+#import "../ios/Runner/CoolWearHistory.h"
 
 int main(void) {
     @autoreleasepool {
@@ -12,14 +13,14 @@ int main(void) {
         NSCAssert(CoolWearModel(nil) == nil, @"nil name accepted");
         NSDictionary *all = @{@"manualHr": @1, @"hasHR24h": @1, @"showO2": @1, @"hrvSupport": @1, @"temp_supported": @1, @"showBP": @1};
         NSDictionary *resolved = CoolWearCapabilities(all, YES);
-        NSCAssert([resolved[@"supportsHistorySync"] isEqual:@NO], @"unmapped history exposed");
+        NSCAssert([resolved[@"supportsHistorySync"] isEqual:@YES], @"mapped history unavailable");
         NSCAssert([CoolWearCapabilities(all, NO)[@"supportsHistorySync"] isEqual:@NO], @"pre-handshake history exposed");
         NSCAssert(([resolved[@"metrics"] isEqual:@[@"heart_rate", @"blood_oxygen", @"hrv", @"body_temperature"]]), @"unsupported metric enabled");
         NSCAssert(([resolved[@"manualMetrics"] isEqual:@[@"heart_rate", @"blood_oxygen", @"hrv"]]), @"manual mapping incorrect");
         NSCAssert([CoolWearCapabilities(all, NO)[@"metrics"] count] == 0, @"pre-handshake metrics exposed");
         NSDictionary *automatic = CoolWearCapabilities(@{@"hasHR24h": @1, @"manualHr": @0, @"showO2": @0}, YES);
         NSCAssert([automatic[@"manualMetrics"] count] == 0, @"automatic-only HR permits manual measurement");
-        NSCAssert([automatic[@"metrics"] count] == 0, @"unmapped automatic history exposed");
+        NSCAssert(([automatic[@"historyMetrics"] isEqual:@[@"heart_rate"]]), @"automatic heart history lost");
         NSCAssert([CoolWearCapabilities(@{@"manualHr": @"1", @"showO2": @2}, YES)[@"metrics"] count] == 0, @"malformed flags coerced");
         NSCAssert([CoolWearCapabilities(@{@"manualHr": @1.5, @"showO2": @(NAN)}, YES)[@"metrics"] count] == 0, @"fractional flags coerced");
         NSCAssert(CoolWearHasKnownCapabilities(@{@"manualHr": @NO, @"showO2": @YES}), @"real Boolean flags rejected");
@@ -77,7 +78,35 @@ int main(void) {
         NSCAssert([CoolWearMetricSamples(@{@"curItemCount": @2, @"hrvMetricsInfos": @[hrv]}, @"hrvMetricsInfos") count] == 0, @"incomplete batch accepted");
         NSCAssert([CoolWearMetricSamples(@{@"curItemCount": @YES, @"hrvMetricsInfos": @[hrv]}, @"hrvMetricsInfos") count] == 0, @"Boolean count accepted");
         NSCAssert([CoolWearMetricSamples(NSNull.null, @"hrvMetricsInfos") count] == 0, @"invalid batch accepted");
-        puts("CoolWear native name/capability/RRI/skin-temperature policy: PASS (synthetic inputs, not hardware acceptance)");
+        CoolWearHistoryBatch *history = [CoolWearHistoryBatch new];
+        NSCAssert([[history status] isEqual:@"not_received"], @"missing callback claimed complete");
+        NSDictionary *last = @{@"curItemCount":@1, @"remainItemCount":@0, @"heartInfos":@[@{@"time":@1791000000,@"heartNum":@76}]};
+        NSDictionary *first = @{@"curItemCount":@1, @"remainItemCount":@1, @"heartInfos":@[@{@"time":@1790999940,@"heartNum":@75}]};
+        [history accept:first key:@"heartInfos"];
+        [history accept:first key:@"heartInfos"];
+        NSCAssert(history.rows.count == 1 && [[history status] isEqual:@"partial"], @"duplicate packet completed sync");
+        [history accept:last key:@"heartInfos"];
+        NSCAssert([[history status] isEqual:@"complete"], @"complete batch lost");
+        CoolWearHistoryBatch *reverse = [CoolWearHistoryBatch new];
+        [reverse accept:last key:@"heartInfos"]; [reverse accept:first key:@"heartInfos"];
+        NSCAssert([[reverse status] isEqual:@"complete"] && reverse.rows.count == 2, @"out-of-order batch lost");
+        CoolWearHistoryBatch *empty = [CoolWearHistoryBatch new];
+        [empty accept:@{@"curItemCount":@0,@"remainItemCount":@0,@"heartInfos":@[]} key:@"heartInfos"];
+        NSCAssert([[empty status] isEqual:@"no_data"], @"empty data is failure");
+        [empty accept:@{@"curItemCount":@1,@"remainItemCount":@0,@"heartInfos":@[]} key:@"heartInfos"];
+        NSCAssert([[empty status] isEqual:@"partial"], @"missing rows claimed complete");
+        NSArray *sleep = @[@{@"SleepStartTime":@1790990000,@"SleepType":@1},
+            @{@"SleepStartTime":@1790990060,@"SleepType":@2},
+            @{@"SleepStartTime":@1790993660,@"SleepType":@3},
+            @{@"SleepStartTime":@1790997260,@"SleepType":@4}];
+        NSArray *closed = CoolWearClosedSleepSummaries(sleep, now);
+        NSCAssert(closed.count == 1 && [closed[0][@"values"][@"value"] doubleValue] == 2, @"bounded sleep durations incorrect");
+        NSCAssert(CoolWearClosedSleepSummaries([sleep subarrayWithRange:NSMakeRange(0,3)], now).count == 0, @"missing end invented");
+        NSCAssert(CoolWearClosedSleepSummaries([sleep subarrayWithRange:NSMakeRange(1,3)], now).count == 0, @"missing start invented");
+        NSMutableArray *conflicting = [sleep mutableCopy]; [conflicting addObject:@{@"SleepStartTime":@1790993660,@"SleepType":@5}];
+        NSCAssert(CoolWearClosedSleepSummaries(conflicting, now).count == 0, @"conflicting stage accepted");
+        NSCAssert(CoolWearUnsigned(@0.5,1) == nil && CoolWearUnsigned(@YES,1) == nil, @"invalid charging flag accepted");
+        puts("CoolWear native history/battery/name/capability/RRI policy: PASS (synthetic inputs, not hardware acceptance)");
     }
     return 0;
 }

@@ -88,6 +88,15 @@ abstract interface class GlobalWechatAuthApi {
   });
 }
 
+abstract interface class GlobalCareRangeApi {
+  Future<List<Map<String, Object?>>> globalCareRecordsRange(
+    String id,
+    String metric,
+    DateTime start,
+    DateTime end,
+  );
+}
+
 abstract interface class GlobalCareApi {
   Future<List<GlobalCareRelationship>> globalCareRelationships();
   Future<void> globalInviteCare(String identifier);
@@ -211,6 +220,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         GlobalCodeAuthApi,
         GlobalWechatAuthApi,
         GlobalCareApi,
+        GlobalCareRangeApi,
         GlobalContentApi,
         GlobalSupportApi,
         SaydianAvatarProfileApi,
@@ -610,12 +620,29 @@ class GlobalSaydianApiClient extends SaydianApiClient
     DateTime day,
   ) async {
     final range = globalLocalDayRange(day);
+    return globalCareRecordsRange(id, metric, range.from, range.to);
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> globalCareRecordsRange(
+    String id,
+    String metric,
+    DateTime start,
+    DateTime end,
+  ) async {
+    if (!end.isAfter(start) ||
+        end.difference(start) > const Duration(days: 32)) {
+      throw const ApiException('Invalid date range', code: 'INVALID_RANGE');
+    }
     return _list(
       _decode(
         await _authorizedGet(_carePath(id, '/health'), {
           'metric': metric,
-          'from': range.from.toIso8601String(),
-          'to': range.to.toIso8601String(),
+          'from': start.toUtc().toIso8601String(),
+          'to': end
+              .toUtc()
+              .subtract(const Duration(milliseconds: 1))
+              .toIso8601String(),
         }),
       ),
     );

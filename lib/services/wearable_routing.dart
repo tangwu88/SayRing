@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../domain/wearable_sync_result.dart';
 import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -874,7 +875,7 @@ class RoutedWearableBridge
     final generation = _connectionGeneration;
     final records = await _activeBridge.syncHealthData(cursor: cursor);
     _requireCurrentConnection(generation, message: '戒指连接已变化，请重新同步');
-    return records
+    final scoped = records
         .map((record) {
           final existingTransport =
               WearableDeviceClassifier.transportForScopedId(record.deviceId);
@@ -910,6 +911,9 @@ class RoutedWearableBridge
           );
         })
         .toList(growable: false);
+    return records is WearableSyncResult
+        ? WearableSyncResult(scoped, records.statuses)
+        : scoped;
   }
 
   @override

@@ -117,16 +117,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(
-        find.byKey(const Key('home-sleep-overview-entry')),
-        250,
-        scrollable: find.descendant(
-          of: find.byType(CustomScrollView),
-          matching: find.byType(Scrollable),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('当前戒指的睡眠同步暂未开放'), findsOneWidget);
+      expect(find.byKey(const Key('home-sleep-overview-entry')), findsNothing);
       expect(find.textContaining('佩戴戒指睡眠后同步'), findsNothing);
       expect(tester.takeException(), isNull);
     },

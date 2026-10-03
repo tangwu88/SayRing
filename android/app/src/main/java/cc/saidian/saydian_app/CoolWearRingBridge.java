@@ -102,6 +102,8 @@ public final class CoolWearRingBridge
     private boolean resultEmitted;
     private Integer batteryPercent;
     private Boolean charging;
+    private String batteryUpdatedAt;
+    private long batteryQueryAt;
     private K6_DATA_TYPE_FUNCTION_CONTROL functionControl;
     private Boolean autoHeartEnabled;
     private Boolean autoOxygenEnabled;
@@ -579,6 +581,7 @@ public final class CoolWearRingBridge
         if (percent < 0 || percent > 100) return;
         batteryPercent = percent;
         charging = value.isChargerStatus();
+        batteryUpdatedAt = java.time.Instant.now().toString();
         if (linkConnected && deviceInfoReceived) emit("deviceDetails", deviceDetails());
     }
 
@@ -816,7 +819,9 @@ public final class CoolWearRingBridge
             battery.put("value", batteryPercent);
             battery.put("scale", 100);
             battery.put("isPercent", true);
-            battery.put("chargeState", Boolean.TRUE.equals(charging) ? "charging" : "normal");
+            battery.put("chargeState", charging == null ? "unknown" : charging ? "charging" : "normal");
+            battery.put("updatedAt", batteryUpdatedAt);
+            battery.put("chargingUpdatedAt", batteryUpdatedAt);
             value.put("battery", battery);
             value.put("batteryPercent", batteryPercent);
         }
@@ -853,6 +858,7 @@ public final class CoolWearRingBridge
             if (flags.isHasTemperature()) metrics.add("body_temperature");
         }
         value.put("metrics", metrics);
+        value.put("historyMetrics", new ArrayList<>(metrics));
         value.put("manualMetrics", manual);
         List<String> sportModes = new ArrayList<>();
         sportModes.add("running");
@@ -875,8 +881,9 @@ public final class CoolWearRingBridge
         if (flags != null && (flags.isHasHR24H() || flags.isHasO2())) {
             features.add("health_monitoring");
         }
-        if ("HR05".equals(supportedModel(connectedName))) {
-            features.add("notifications");
+        // A model name cannot establish settings support. A real settings
+        // response proves this transport; unknown notification flags stay off.
+        if (sittingReminder != null || drinkingReminder != null) {
             features.add("health_reminders");
         }
         value.put("features", features);
@@ -1191,6 +1198,12 @@ public final class CoolWearRingBridge
                     result.success(null);
                     break;
                 case "getDeviceDetails":
+                    // Battery is part of this SDK's non-destructive info read.
+                    if (linkConnected && deviceInfoReceived && pendingHealthSync == null && pendingSportSync == null &&
+                            activeMeasurement == null && android.os.SystemClock.elapsedRealtime() - batteryQueryAt >= 8_000L) {
+                        batteryQueryAt = android.os.SystemClock.elapsedRealtime();
+                        helper.getSendDataManager().sendAsynInfo();
+                    }
                     result.success(linkConnected && deviceInfoReceived ? deviceDetails() : null);
                     break;
                 case "getCapabilities":

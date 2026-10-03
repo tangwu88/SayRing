@@ -1,5 +1,6 @@
 #import "CoolWearWearableBridge.h"
 #import "CoolWearPolicy.h"
+#import "CoolWearHistory.h"
 #import <BluetoothLibrary/BluetoothLibrary.h>
 #import <CommonCrypto/CommonDigest.h>
 
@@ -38,6 +39,15 @@ static void CoolWearOnMain(dispatch_block_t block) {
 @property(nonatomic, strong) NSMutableArray *observers;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSDictionary *> *pendingPassiveRecords;
 @property(nonatomic) BOOL dataDeliveryReady;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber *, CoolWearHistoryBatch *> *historyBatches;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSDictionary *> *historyRecords;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber *, CoolWearHistoryBatch *> *syncBatches;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSDictionary *> *syncRecords;
+@property(nonatomic) BOOL historySnapshotDelivered;
+@property(nonatomic, copy) FlutterResult pendingSync;
+@property(nonatomic, copy) FlutterResult pendingBattery;
+@property(nonatomic) NSUInteger syncGeneration;
+@property(nonatomic) NSUInteger batteryGeneration;
 @end
 
 @implementation CoolWearWearableBridge
@@ -48,6 +58,10 @@ static void CoolWearOnMain(dispatch_block_t block) {
     _scanServices = [NSMutableDictionary dictionary];
     _observers = [NSMutableArray array];
     _pendingPassiveRecords = [NSMutableDictionary dictionary];
+    _historyBatches = [NSMutableDictionary dictionary];
+    _historyRecords = [NSMutableDictionary dictionary];
+    _syncBatches = [NSMutableDictionary dictionary];
+    _syncRecords = [NSMutableDictionary dictionary];
     // Lazily initialize the vendor singleton only when the user requests a
     // scan/connect. Never read/adopt its installation-wide saved device.
     _methods = [FlutterMethodChannel methodChannelWithName:@"cc.saidian.ring/commands" binaryMessenger:messenger];
@@ -133,8 +147,116 @@ static void CoolWearOnMain(dispatch_block_t block) {
     if (self.battery) value[@"batteryPercent"] = self.battery;
     if (self.batteryDate) value[@"battery"] = @{@"value": self.battery, @"scale": @100, @"isPercent": @YES,
         @"chargeState": self.charging ? (self.charging.boolValue ? @"charging" : @"normal") : @"unknown",
-        @"updatedAt": [NSISO8601DateFormatter.new stringFromDate:self.batteryDate]};
+        @"updatedAt": [NSISO8601DateFormatter.new stringFromDate:self.batteryDate],
+        @"chargingUpdatedAt": [NSISO8601DateFormatter.new stringFromDate:self.batteryDate]};
     return value;
+}
+
+- (NSDictionary *)capabilities {
+    NSMutableDictionary *value = [CoolWearCapabilities(self.flags, [self isResolved]) mutableCopy];
+    NSMutableArray *metrics = [value[@"metrics"] mutableCopy];
+    if ([self isResolved]) for (NSNumber *type in @[@5, @6]) {
+        CoolWearHistoryBatch *batch = self.historyBatches[type];
+        if (batch && !batch.malformed && (batch.rows.count || batch.finalSeen)) [metrics addObject:CoolWearHistoryMetric(type.integerValue)];
+    }
+    value[@"metrics"] = metrics;
+    value[@"historyMetrics"] = metrics;
+    return value;
+}
+
+- (NSDictionary *)syncSnapshot {
+    NSMutableDictionary *statuses = [NSMutableDictionary dictionary];
+    NSMutableSet *metrics = [NSMutableSet setWithArray:[self capabilities][@"historyMetrics"]];
+    // A malformed observed batch must remain visible in the result even if
+    // it cannot enable a current device capability.
+    for (NSNumber *type in self.syncBatches) {
+        NSString *metric = CoolWearHistoryMetric(type.integerValue);
+        if (metric) [metrics addObject:metric];
+    }
+    for (NSString *metric in metrics) {
+        CoolWearHistoryBatch *batch = nil;
+        for (NSNumber *type in self.syncBatches) if ([CoolWearHistoryMetric(type.integerValue) isEqual:metric]) batch = self.syncBatches[type];
+        statuses[metric] = batch ? [batch status] : @"not_received";
+        if ([metric isEqual:@"sleep"] && batch.rows.count && CoolWearClosedSleepSummaries(batch.rows.allValues, NSDate.date).count == 0) statuses[metric] = @"partial";
+    }
+    return @{@"records": self.syncRecords.allValues, @"statuses": statuses};
+}
+
+- (void)finishSync {
+    FlutterResult result = self.pendingSync;
+    self.pendingSync = nil;
+    if (result) result([self syncSnapshot]);
+}
+
+- (void)finalizeSleepHistory {
+    CoolWearHistoryBatch *batch = self.syncBatches[@6];
+    // Do not infer stage durations across a packet gap or publish an interim
+    // summary as a second observation. Only the settled, validated batch may
+    // update a stable session-end record.
+    if (![[batch status] isEqual:@"complete"] || ![self isResolved]) return;
+    for (NSDictionary *row in batch.rows.allValues) {
+        if (!CoolWearSampleDate(row[@"SleepStartTime"], NSDate.date) || !CoolWearUnsigned(row[@"SleepType"], 255)) {
+            batch.malformed = YES;
+            return;
+        }
+    }
+    for (NSDictionary *sample in CoolWearClosedSleepSummaries(batch.rows.allValues, NSDate.date)) {
+        NSDate *date = CoolWearSampleDate(sample[@"time"], NSDate.date);
+        if (!date) continue;
+        NSDictionary *record = [self record:@"sleep" values:sample[@"values"] date:date origin:@"watch_history"];
+        self.syncRecords[record[@"id"]] = record;
+        if ([self.historyRecords[record[@"id"]] isEqual:record]) continue;
+        self.historyRecords[record[@"id"]] = record;
+        [self emitPassiveRecord:record];
+    }
+}
+
+- (void)readBattery:(FlutterResult)result {
+    if (![self isResolved]) { result(nil); return; }
+    if (self.pendingBattery || self.pendingSync || self.activeMetric) { result([self details]); return; }
+    self.pendingBattery = result;
+    NSUInteger generation = self.connectionGeneration, read = ++self.batteryGeneration;
+    CE_RequestBatteryCmd *cmd = [CE_RequestBatteryCmd new];
+    cmd.overtime = 6; cmd.repeatSendTimes = 0;
+    __weak typeof(self) weakSelf = self;
+    [self.product sendCmdToDevice:cmd complete:^(NSError *error) {
+        CoolWearOnMain(^{
+            if (!error || generation != weakSelf.connectionGeneration || read != weakSelf.batteryGeneration) return;
+            FlutterResult completion = weakSelf.pendingBattery; weakSelf.pendingBattery = nil;
+            if (completion) completion([weakSelf details]);
+        });
+    }];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (generation != weakSelf.connectionGeneration || read != weakSelf.batteryGeneration) return;
+        FlutterResult completion = weakSelf.pendingBattery; weakSelf.pendingBattery = nil;
+        if (completion) completion([weakSelf details]);
+    });
+}
+
+- (void)syncHistory:(FlutterResult)result {
+    if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
+    if (self.pendingSync || self.pendingBattery || self.activeMetric) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
+    self.pendingSync = result;
+    [self.syncBatches removeAllObjects]; [self.syncRecords removeAllObjects];
+    if (!self.historySnapshotDelivered) {
+        [self.syncBatches addEntriesFromDictionary:self.historyBatches];
+        [self.syncRecords addEntriesFromDictionary:self.historyRecords];
+        self.historySnapshotDelivered = YES;
+    }
+    NSUInteger generation = self.connectionGeneration, sync = ++self.syncGeneration;
+    [CE_SensorCmd open];
+    CE_SyncTimeCmd *cmd = [[CE_SyncTimeCmd alloc] initWithAbsTime:NSDate.date.timeIntervalSince1970
+        offset:[NSTimeZone.localTimeZone secondsFromGMT] format:1 mdFormat:0];
+    cmd.overtime = 6; cmd.repeatSendTimes = 0;
+    // The vendor pushes history automatically; this ACK is never completion.
+    [self.product sendCmdToDevice:cmd complete:^(NSError *error) {}];
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 25 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (generation == weakSelf.connectionGeneration && sync == weakSelf.syncGeneration) {
+            [weakSelf finalizeSleepHistory];
+            [weakSelf finishSync];
+        }
+    });
 }
 
 - (void)receiveScan:(id)values {
@@ -239,6 +361,10 @@ static void CoolWearOnMain(dispatch_block_t block) {
     self.awaitingInfo = NO;
     self.dataDeliveryReady = NO;
     [self.pendingPassiveRecords removeAllObjects];
+    [self.historyBatches removeAllObjects];
+    [self.historyRecords removeAllObjects];
+    [self.syncBatches removeAllObjects]; [self.syncRecords removeAllObjects];
+    self.historySnapshotDelivered = NO;
     self.pendingConnect = result;
     self.product.searchPeripheral = item;
     self.product.sid = self.scanServices[identifier] ?: @"F618";
@@ -263,7 +389,9 @@ static void CoolWearOnMain(dispatch_block_t block) {
     NSUInteger generation = self.connectionGeneration;
     __weak typeof(self) weakSelf = self;
     // Request actual metadata and mixed capability data, not just a BLE link.
-    for (CE_Cmd *cmd in @[[CE_RequestDevInfoCmd new], [CE_RequestAllInfoCmd new]]) {
+    CE_SyncTimeCmd *time = [[CE_SyncTimeCmd alloc] initWithAbsTime:NSDate.date.timeIntervalSince1970
+        offset:[NSTimeZone.localTimeZone secondsFromGMT] format:1 mdFormat:0];
+    for (CE_Cmd *cmd in @[time, [CE_RequestDevInfoCmd new], [CE_RequestAllInfoCmd new]]) {
         cmd.overtime = 8;
         cmd.repeatSendTimes = 0;
         [self.product sendCmdToDevice:cmd complete:^(NSError *error) {
@@ -281,7 +409,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
     FlutterResult result = self.pendingConnect;
     self.pendingConnect = nil;
     [self emit:@"connected" payload:[self details]];
-    [self emit:@"capabilities" payload:CoolWearCapabilities(self.flags, YES)];
+    [self emit:@"capabilities" payload:[self capabilities]];
     result(nil);
 }
 
@@ -289,7 +417,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
     if (depth > 3 || ![info isKindOfClass:NSDictionary.class] || ![self matchesTarget] ||
         self.product.status != ProductStatus_completed ||
         ([info[@"error_msg"] isKindOfClass:NSString.class] && [info[@"error_msg"] length] > 0)) return;
-    NSNumber *type = CoolWearNumber(info[@"DataType"]);
+    NSNumber *type = CoolWearUnsigned(info[@"DataType"], 255);
     if (!type) return;
     id data = info[@"Data"];
     if (type.integerValue == DATA_TYPE_DEV_SYNC) {
@@ -300,17 +428,37 @@ static void CoolWearOnMain(dispatch_block_t block) {
     // History can be pushed while metadata is still being read. Retain only
     // validated records for this exact connection, then deliver after Dart
     // has installed the account-owned connected-device session.
-    if (type.integerValue == DATA_TYPE_HISTORY_TEMP || type.integerValue == DATA_TYPE_HISTORY_HRV_METRICS) {
-        NSString *metric = type.integerValue == DATA_TYPE_HISTORY_TEMP ? @"body_temperature" : @"hrv";
-        NSString *key = type.integerValue == DATA_TYPE_HISTORY_TEMP ? @"tempInfos" : @"hrvMetricsInfos";
-        for (NSDictionary *sample in CoolWearMetricSamples(data, key)) {
-            NSDictionary *values = [metric isEqualToString:@"hrv"] ? CoolWearRriHrvValues(sample) : CoolWearSkinTemperatureValues(sample);
-            NSDate *date = CoolWearSampleDate(sample[@"time"], NSDate.date);
-            if (!values || !date) continue;
-            NSDictionary *record = [self record:metric values:values date:date origin:@"watch_history"];
-            if ([self isResolved] && self.dataDeliveryReady) [self emitPassiveRecord:record];
-            else if (self.pendingPassiveRecords.count < 16384) self.pendingPassiveRecords[record[@"id"]] = record;
+    NSString *historyKey = CoolWearHistoryKey(type.integerValue);
+    if (historyKey) {
+        CoolWearHistoryBatch *batch = self.historyBatches[type];
+        if (!batch) self.historyBatches[type] = batch = [CoolWearHistoryBatch new];
+        NSArray *packets = [data isKindOfClass:NSArray.class] ? data : @[data ?: NSNull.null];
+        if (packets.count > 512) { batch.malformed = YES; return; }
+        for (id packet in packets) [batch accept:packet key:historyKey];
+        if (self.pendingSync) {
+            CoolWearHistoryBatch *syncBatch = self.syncBatches[type];
+            if (!syncBatch) self.syncBatches[type] = syncBatch = [CoolWearHistoryBatch new];
+            if (syncBatch != batch) for (id packet in packets) [syncBatch accept:packet key:historyKey];
         }
+        NSString *metric = CoolWearHistoryMetric(type.integerValue);
+        // Sleep is finalized once the bounded sync window has settled.
+        NSArray *samples = type.integerValue == 6 ? @[] : batch.rows.allValues;
+        for (NSDictionary *sample in samples) {
+            NSDictionary *values = type.integerValue == 6 ? sample[@"values"] : CoolWearHistoryValues(type.integerValue, sample);
+            NSDate *date = CoolWearSampleDate(sample[type.integerValue == 5 ? @"startSecs" : @"time"], NSDate.date);
+            if (!values || !date) { batch.malformed = YES; self.syncBatches[type].malformed = YES; continue; }
+            NSDictionary *record = [self record:metric values:values date:date origin:@"watch_history"];
+            if (self.pendingSync) self.syncRecords[record[@"id"]] = record;
+            if (self.historyRecords[record[@"id"]]) continue;
+            if (self.historyRecords.count >= 16384) { batch.malformed = YES; break; }
+            self.historyRecords[record[@"id"]] = record;
+            if ([self isResolved] && self.dataDeliveryReady) [self emitPassiveRecord:record];
+            else self.pendingPassiveRecords[record[@"id"]] = record;
+        }
+        if ([self isResolved]) [self emit:@"capabilities" payload:[self capabilities]];
+        // A final packet may precede earlier packets. Collect the complete
+        // bounded window before evaluating each metric; never end on type 9
+        // or the first apparently complete batch.
         return;
     }
     if (type.integerValue == DATA_TYPE_REAL_HRV_METRICS) {
@@ -337,8 +485,10 @@ static void CoolWearOnMain(dispatch_block_t block) {
             self.battery = value;
             self.batteryDate = NSDate.date;
             NSNumber *charger = CoolWearNumber(data[@"charger_status"]);
-            self.charging = charger && (charger.integerValue == 0 || charger.integerValue == 1) ? charger : nil;
+            self.charging = CoolWearUnsigned(charger, 1);
             if ([self isResolved]) [self emit:@"deviceDetails" payload:[self details]];
+            FlutterResult result = self.pendingBattery; self.pendingBattery = nil;
+            if (result) result([self details]);
         }
     } else if ([self isResolved] && measurement == self.measurementGeneration && !self.emittedMeasurement) {
         NSString *metric = type.integerValue == DATA_TYPE_REAL_HEART ? @"heart_rate" : type.integerValue == DATA_TYPE_REAL_O2 ? @"blood_oxygen" : nil;
@@ -377,7 +527,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 - (NSDictionary *)record:(NSString *)metric values:(NSDictionary *)values date:(NSDate *)date origin:(NSString *)origin {
     NSString *timestamp = [NSISO8601DateFormatter.new stringFromDate:date];
     NSMutableString *key = [NSMutableString stringWithFormat:@"coolwear-v2|%@|%@|%@|%@", self.target.identifier.UUIDString, metric, timestamp, origin];
-    for (NSString *field in [[values allKeys] sortedArrayUsingSelector:@selector(compare:)]) [key appendFormat:@"|%@=%@", field, values[field]];
+    if (![metric isEqual:@"sleep"]) for (NSString *field in [[values allKeys] sortedArrayUsingSelector:@selector(compare:)]) [key appendFormat:@"|%@=%@", field, values[field]];
     NSData *bytes = [key dataUsingEncoding:NSUTF8StringEncoding];
     unsigned char digest[CC_SHA256_DIGEST_LENGTH];
     CC_SHA256(bytes.bytes, (CC_LONG)bytes.length, digest);
@@ -386,15 +536,14 @@ static void CoolWearOnMain(dispatch_block_t block) {
     NSInteger minutes = [NSTimeZone.localTimeZone secondsFromGMTForDate:date] / 60;
     NSString *offset = [NSString stringWithFormat:@"%@%02ld:%02ld", minutes < 0 ? @"-" : @"+", (long)labs(minutes) / 60, (long)labs(minutes) % 60];
     return @{@"id": identifier, @"type": metric, @"values": values,
-        @"unit": [metric isEqualToString:@"hrv"] ? @"ms" : @"℃", @"measuredAt": timestamp, @"timezone": offset,
+        @"unit": @{@"heart_rate":@"bpm", @"blood_oxygen":@"%", @"hrv":@"ms", @"body_temperature":@"℃", @"steps":@"steps", @"sleep":@"h"}[metric] ?: @"", @"measuredAt": timestamp, @"timezone": offset,
         @"deviceId": [@"coolwear:" stringByAppendingString:self.target.identifier.UUIDString], @"firmwareVersion": self.deviceInfo[@"version"] ?: @"",
         @"quality": @"device_reported", @"source": @"wearable", @"origin": origin, @"rawVersion": @2,
         @"sourceModel": CoolWearModel(self.targetName), @"sourceVendor": @"coolwear", @"sourceDeviceCategory": @"ring", @"sourceApp": @"say-ring"};
 }
 
 - (void)emitPassiveRecord:(NSDictionary *)record {
-    NSString *flag = [record[@"type"] isEqualToString:@"hrv"] ? @"hrvSupport" : @"temp_supported";
-    if (![self isResolved] || !self.dataDeliveryReady || !CoolWearFlag(self.flags, flag)) return;
+    if (![self isResolved] || !self.dataDeliveryReady || ![[self capabilities][@"historyMetrics"] containsObject:record[@"type"]]) return;
     NSMutableDictionary *resolved = [record mutableCopy];
     resolved[@"firmwareVersion"] = self.deviceInfo[@"version"] ?: @"";
     [self emit:@"healthRecord" payload:resolved];
@@ -418,10 +567,17 @@ static void CoolWearOnMain(dispatch_block_t block) {
 - (void)beginCancellation:(FlutterResult)result {
     [self finishScan];
     self.connectionGeneration++;
+    self.syncGeneration++;
+    self.batteryGeneration++;
+    [self finishSync];
+    FlutterResult batteryResult = self.pendingBattery; self.pendingBattery = nil;
+    if (batteryResult) batteryResult(nil);
     self.measurementGeneration++;
     self.activeMetric = nil;
     self.dataDeliveryReady = NO;
     [self.pendingPassiveRecords removeAllObjects];
+    [self.historyBatches removeAllObjects];
+    [self.historyRecords removeAllObjects];
     self.awaitingInfo = NO;
     self.flags = nil;
     self.deviceInfo = nil;
@@ -472,6 +628,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 - (void)measurement:(NSString *)metric enabled:(BOOL)enabled result:(FlutterResult)result {
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
     if (self.pendingMeasurement) { result([self error:@"MEASUREMENT_BUSY" message:@"测量指令正在处理"]); return; }
+    if (self.pendingSync || self.pendingBattery) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
     NSArray *manual = CoolWearCapabilities(self.flags, YES)[@"manualMetrics"];
     if (![manual containsObject:metric]) { result([self error:@"COOLWEAR_FEATURE_UNVERIFIED" message:@"此戒指未确认支持这项 iOS 测量"]); return; }
     if (enabled && self.activeMetric) { result([self error:@"MEASUREMENT_BUSY" message:@"请先结束当前测量"]); return; }
@@ -525,9 +682,10 @@ static void CoolWearOnMain(dispatch_block_t block) {
         else if ([call.method isEqualToString:@"disconnect"]) {
             if (self.cancelling) { result([self error:@"CONNECT_BUSY" message:@"戒指正在断开，请稍候"]); return; }
             [self beginCancellation:result];
-        } else if ([call.method isEqualToString:@"getDeviceDetails"]) result([self isResolved] ? [self details] : nil);
+        } else if ([call.method isEqualToString:@"getDeviceDetails"]) [self readBattery:result];
+        else if ([call.method isEqualToString:@"syncHealthData"]) [self syncHistory:result];
         else if ([call.method isEqualToString:@"getCapabilities"]) {
-            result(CoolWearCapabilities(self.flags, [self isResolved]));
+            result([self capabilities]);
             [self enableDataDelivery];
         }
         else if ([call.method isEqualToString:@"startMeasurement"] || [call.method isEqualToString:@"stopMeasurement"]) {
@@ -544,10 +702,14 @@ static void CoolWearOnMain(dispatch_block_t block) {
         if (self.pendingConnect) [pending addObject:self.pendingConnect];
         if (self.pendingMeasurement) [pending addObject:self.pendingMeasurement];
         if (self.pendingDisconnect) [pending addObject:self.pendingDisconnect];
+        if (self.pendingSync) [pending addObject:self.pendingSync];
+        if (self.pendingBattery) [pending addObject:self.pendingBattery];
         self.pendingScan = nil;
         self.pendingConnect = nil;
         self.pendingMeasurement = nil;
         self.pendingDisconnect = nil;
+        self.pendingSync = nil;
+        self.pendingBattery = nil;
         @try {
             [self beginCancellation:nil];
         } @catch (NSException *cancelException) {

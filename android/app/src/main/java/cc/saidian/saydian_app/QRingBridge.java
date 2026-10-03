@@ -108,6 +108,8 @@ public final class QRingBridge
     private Boolean autoStress;
     private Boolean autoHrv;
     private int connectionGeneration;
+    private String batteryUpdatedAt;
+    private long batteryQueryAt;
     private String recoveryTargetId;
     private String recoveryTargetName;
     private String recoveryContext;
@@ -683,14 +685,21 @@ public final class QRingBridge
     }
 
     private void readBattery() {
+        final int generation = connectionGeneration;
+        final String deviceId = connectedId;
+        if (deviceId == null || pendingSync != null || activeMeasurement != null ||
+                android.os.SystemClock.elapsedRealtime() - batteryQueryAt < 8_000L) return;
+        batteryQueryAt = android.os.SystemClock.elapsedRealtime();
         CommandHandle.getInstance().executeReqCmd(
                 new SimpleKeyReq(Constants.CMD_GET_DEVICE_ELECTRICITY_VALUE),
                 (ICommandResponse<BatteryRsp>) response -> main.post(() -> {
+                    if (!isCurrentConnection(generation, deviceId)) return;
                     if (response == null || response.getStatus() != BaseRspCmd.RESULT_OK) return;
                     int percent = response.getBatteryValue();
                     if (percent < 0 || percent > 100) return;
                     batteryPercent = percent;
                     charging = response.isCharging();
+                    batteryUpdatedAt = Instant.now().toString();
                     emit("deviceDetails", deviceDetails());
                 }));
     }
@@ -708,8 +717,9 @@ public final class QRingBridge
             battery.put("value", batteryPercent);
             battery.put("scale", 100);
             battery.put("isPercent", true);
-            battery.put("chargeState", Boolean.TRUE.equals(charging) ? "charging" : "normal");
-            battery.put("updatedAt", Instant.now().toString());
+            battery.put("chargeState", charging == null ? "unknown" : charging ? "charging" : "normal");
+            battery.put("updatedAt", batteryUpdatedAt);
+            battery.put("chargingUpdatedAt", batteryUpdatedAt);
             value.put("battery", battery);
             value.put("batteryPercent", batteryPercent);
         }
@@ -1296,7 +1306,9 @@ public final class QRingBridge
                 case "disconnect":
                     disconnectWithResult(result);
                     break;
-                case "getDeviceDetails": result.success(resolved() ? deviceDetails() : null); break;
+                case "getDeviceDetails":
+                    if (resolved()) readBattery();
+                    result.success(resolved() ? deviceDetails() : null); break;
                 case "getCapabilities":
                     if (!resolved()) result.error("CAPABILITIES_UNAVAILABLE", "请先连接戒指", null);
                     else result.success(capabilities());
