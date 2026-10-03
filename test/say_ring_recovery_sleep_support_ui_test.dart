@@ -100,6 +100,9 @@ class _UiController extends Fake implements AppController {
   bool syncSucceeds = true;
 
   @override
+  DeviceCapabilities? get capabilities => null;
+
+  @override
   String syncStatus = '设备暂无新数据';
 
   @override

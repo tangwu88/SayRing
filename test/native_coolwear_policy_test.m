@@ -12,6 +12,8 @@ int main(void) {
         NSCAssert(CoolWearModel(nil) == nil, @"nil name accepted");
         NSDictionary *all = @{@"manualHr": @1, @"hasHR24h": @1, @"showO2": @1, @"hrvSupport": @1, @"temp_supported": @1, @"showBP": @1};
         NSDictionary *resolved = CoolWearCapabilities(all, YES);
+        NSCAssert([resolved[@"supportsHistorySync"] isEqual:@NO], @"unmapped history exposed");
+        NSCAssert([CoolWearCapabilities(all, NO)[@"supportsHistorySync"] isEqual:@NO], @"pre-handshake history exposed");
         NSCAssert(([resolved[@"metrics"] isEqual:@[@"heart_rate", @"blood_oxygen"]]), @"unsupported metric enabled");
         NSCAssert(([resolved[@"manualMetrics"] isEqual:@[@"heart_rate", @"blood_oxygen"]]), @"manual mapping incorrect");
         NSCAssert([CoolWearCapabilities(all, NO)[@"metrics"] count] == 0, @"pre-handshake metrics exposed");

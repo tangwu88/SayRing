@@ -65,7 +65,8 @@ static inline NSDictionary *CoolWearCapabilities(NSDictionary *flags, BOOL resol
     // acceptance. SDK support alone is not bridge integration.
     return @{@"resolved": @(resolved), @"metrics": metrics, @"manualMetrics": manual,
              @"sportModes": @[], @"features": @[], @"integratedFeatures": @[],
-             @"supportsBackgroundSync": @NO, @"supportsSportPause": @NO,
+             @"supportsBackgroundSync": @NO, @"supportsHistorySync": @NO,
+             @"supportsSportPause": @NO,
              @"supportsWatchFaces": @NO, @"supportsOta": @NO};
 }
 

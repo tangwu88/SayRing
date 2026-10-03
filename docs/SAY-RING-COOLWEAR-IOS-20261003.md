@@ -90,3 +90,33 @@
 - 标签源码与上述验证记录提交 e35e9c856cb99597fc76ccf97ffb709e977f57c6，普通推送至 origin/codex/macos-update-20260930；fetch 后本地/远端 SHA 一致，工作树干净。追加记录前再次 fetch/pull --ff-only 为 Already up to date，未更改 main、仓库可见性或现有 App Store 审核。
 - [新 CI 37122947611](https://github.com/tangwu88/SayRing/actions/runs/37122947611) 已针对精确源码 SHA 启动，当前 in_progress，尚不能标记为远端全通过；本机完整测试/双端构建与 iPhone 安装独立通过。
 - iOS CoolWear 当前仅扫描、元数据/功能握手、电量、手动心率/血氧通路已实现；HRV、皮肤温度、历史及睡眠等高级数据链路尚未接入验证，继续 fail closed。本轮统一名称不表示这些通路或六型号实物验收已经通过。
+
+## iPhone 实际界面调试与历史同步入口修复（20:45 CST）
+
+- 本轮基线 544ab63ce0bdee4e231137da441d393b93570ede，工作树干净，fetch/pull --ff-only 成功。仅 Say Ring，保留登录、绑定和健康数据，不卸载、不操作 App Store。
+- P2：设备页 HR01 已连接时点击“同步数据”，实际提示“设备已连接，但历史数据同步失败”；预期是未实现的历史通路不开放操作、不误报读取失败。原包 iOS 历史映射仍未实现，本次不伪造同步成功或健康记录。
+- 涉及 DeviceCapabilities、CoolWearPolicy、控制器和设备页：增加独立于后台能力的显式历史同步标志，iOS CoolWear 返回 false，既有旧桥接保持原前台同步契约。控制器在命令前阻止不支持的历史调用；设备页显示未开放的禁用入口，手动心率/血氧不变。补字段往返、初次连接/手动操作和 UI/原生回归。
+- 镜像可用后已查看真实健康首页、心率趋势、设备及设备信息；当前 HR01 真实名称/电量/固件/SDK 地址可见。此前已有实际心率记录，不把该记录当成本轮新触发测量；未取得新的六型号扫描和高级数据验收。设备页面和运行日志仅本机保留，不提交地址、照片、账号或健康值。
+- 首次 `flutter run --profile --no-build` 仍触发 Xcode 编译且沿用 pubspec 默认 1006，确认进程归属后取消，未安装；`flutter attach --profile` 等待 VM 服务未连接，随后取消，旧 App 数据未动。改将已验证的 1032 开发 Profile 包成 IPA，使用 `flutter run --profile --use-application-binary=...`，明确跳过编译并原位覆盖；实际取得 Dart VM Service/DevTools，调试器连接成功。
+- 本次拟构建 1033；全量检查、签名、修正版原位安装和现场复核后补。未完成的验收继续标待验。
+- P2 新复现：HR01 实际已连接，权限页却显示蓝牙“未允许”。核对当前 permission_handler_apple 源码和 Pod 构建，权限策略宏默认关闭，状态读取退化为默认 denied。修改 Podfile 只启用已声明实际用途的蓝牙、使用期间位置、相机及通知策略，不添加相册/联系人/麦克风/始终定位权限，不请求新的系统授权；通过真实系统状态读取复核。再次 fetch 无新增，脏源码仅本机完整备份后继续，未覆盖其他修改。
+- 首轮定向 90/90、静态零问题；第一轮 UTC 全量 1108 通过、3 失败，均为既有 Fake 控制器没有实现新增 UI 读取的 capabilities getter。补齐测试夹具 null 未知能力，保留原重连、解绑、无新数据的行为断言，重新完整运行，不降低生产门禁。
+- 本轮心率指令正常进入测量，75 秒未取得有效值，显示贴合手指后重测提示且可关闭。没有写入替代结果，当前佩戴及实际新结果未确认，不能标记本轮心率测量成功。
+- 权限定向首轮 111 通过、1 失败，测试误写 locationWhenInUse 通道编号 4，实际插件枚举为 5；修正合成夹具的编号和说明，不修改生产映射。已开始的无效全量重跑单独取消，保留日志，再使用新日志执行。
+- 权限状态断言修正后均成立，但第二轮在 Flutter invariant 检查时仍因平台 override 仅在 addTearDown 重置而失败；改为与既有 iOS 用例相同的 try/finally，在用例返回前还原，不忽略测试异常。
+- 最终定向 112/112，静态零问题，Foundation 策略通过，Node 原生/隐私 19/19；Podfile Ruby 语法检查通过，Podfile.lock 仅 Podfile 校验和变动，插件版本不升级。发布 Python 首轮实际 30 通过、1 失败，日志为 fixture 文件改名失败 No space left on device；外层命令最后执行 grep 退出 0 不能替代 unittest 结果，明确更正初次统计，释放缓存后独立重跑。
+- 1033 开发签名 Profile 构建 58.8 秒通过，cn.saydian.ring / 1.0.0 (1033) / UIDeviceFamily=[1] / 深度签名通过。原位安装并回读 App 清单确认 1033，实际 Dart VM Service/DevTools 已连接。首页旧账号、绑定及既有记录保留；HR01 重新显示已连接，历史同步入口明确禁用，点击不产生失败；权限页读取蓝牙“已允许”、位置“未允许”，没有代开位置授权。状态截图仅本机保存。
+- 1033 Debug 第一轮明确失败于 macOS No space left on device，未覆盖手机 Profile。同期 UTC 全量停在 +164、进程无 CPU 活动，未完成，不接受为通过；只取消本轮进程并保留日志。清理本仓库可重建的 Flutter 构建缓存及失败 Debug 中间目录后改为串行重跑，不清除原 SDK/安装包/源码/手机数据；不将停滞原因未经验证归因于磁盘。
+- 标签基线 e35e9c8 的远端 CI 37122947611 最终各项 success（质量、双时区 Harmony、Android、iOS）；新 1033 源码仍以本轮新测试和构建结果独立验收。
+- 释放已结束且 WorkspacePath 精确匹配本仓库的 Xcode 中间缓存，Debug 重跑 35.1 秒通过、cn.saydian.ring / 1033 / 深度签名通过，未安装 Debug 替换独立可启动的 Profile。发布 Python 重跑 31/31，静态零问题，串行 UTC 1112/1112、Asia/Shanghai 1112/1112 均通过。未删除任何其他项目缓存或原始文件。
+- Android Debug 1033 构建通过。随后 QA Release 首轮 stripReleaseDebugSymbols 明确 No space left on device；保留失败日志，先保存已验证的 Debug APK，再清理已结束的 Android debug native-lib 中间产物，串行重跑 Release 和原生测试。不绕过 APK ABI、签名或隐私门禁。
+- 个人资料只读加载成功，未替换当前头像或代保存；关于页无重复说明，客服外部 launchUrl 本轮返回失败，页面提供明确复制回退。外部浏览器/微信最终打开仍未验收，不用自动测试的 mock 成功冒充现场通过。
+
+### 1033 最终验证与留存（21:08 CST）
+
+- 新增 5 项回归；最终 `dart format --output=none --set-exit-if-changed lib test` 为 181 文件、零变更；`flutter analyze --no-pub` 零问题；UTC 和 Asia/Shanghai 完整 Flutter 各 1112/1112。定向 112/112、Foundation CoolWear 策略通过、Node 原生/日志隐私 19/19、发布 Python 工具 31/31；均保留此前失败及中断记录。
+- 1033 Android QA Release 重跑 49.5 秒通过；`./android/gradlew :app:testDebugUnitTest -p android` 39/39、无失败/错误/跳过。两 APK 为 cn.saydian.ring / 1.0 (1033)、arm64-v8a + armeabi-v7a；内部 QA Release v2 签名及 16 KiB ZIP 对齐通过。未安装到安卓、未作为正式商店签名提交。
+- `.build/SayRing-1.0-1033-android-debug.apk` SHA-256：71339b182376faf2ce05ee0f7dcf7d209ff3955d7887e071f7703df1d7a8dbcb；`.build/SayRing-1.0-1033-android-internal-qa.apk`：5ceacc89f95f81342e4c6847fbd20d13f0236991b0766f84083b77eb6b3b6976。只留本机，未入 Git。
+- `.build/SayRing-1.0-1033-Profile.app` 和开发签名调试 IPA 已留存，手机仍是 1033 Profile、原数据保留；活动 VM 本机只读 getVM 实际返回 VM / 1 个 isolate，调试器持续在线。未关闭 VM 验证、开放远程端口、卸载或清数据，也未变动现有 App Store 审核。
+- 现场查看首页、心率趋势/超时弹窗、设备和信息、我的、个人资料、关于、权限、客服、远程关爱及睡眠空状态；远程关爱没有重复标题。没有真实睡眠样本，未生成睡眠/AI 假数据，未代改授权、关爱成员或个人头像。头像保存、真实新心率/血氧值、睡眠时间轴及三轮物理距离重连不标记本轮通过。
+- 源码及记录按现行分支普通提交/推送，原厂 SDK 和原 ZIP、pubspec.lock、图标及其他 App 未变；不把尚未六型号实环验收的 SDK 升级为已接受 main 基线。新 CI/远端 SHA 核对后续追加。

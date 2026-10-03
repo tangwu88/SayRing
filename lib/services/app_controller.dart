@@ -2280,6 +2280,13 @@ class AppController extends ChangeNotifier {
         isDeviceSyncing) {
       return false;
     }
+    if (capabilities?.supportsHistorySync == false) {
+      _clearDeviceSyncError();
+      syncStatus = '设备已连接，此戒指历史同步暂未开放';
+      notifyListeners();
+      // No SDK command, fake success, local overwrite or cloud upload.
+      return false;
+    }
     final sessionGeneration = _sessionGeneration;
     _connectedDeviceSessionGeneration ??= sessionGeneration;
     if (_connectedDeviceSessionGeneration != sessionGeneration) return false;

@@ -37,6 +37,81 @@ void main() {
     expect(controller.commerceEnabled, isFalse);
   });
 
+  testWidgets(
+    'unmapped iOS history is disabled and manual measurement remains',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              _NoopWearable(),
+            )
+            ..connectedDevice = const DeviceInfo(
+              id: 'coolwear:synthetic',
+              name: 'HR01',
+            )
+            ..capabilities = const DeviceCapabilities(
+              metrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
+              manualMetrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
+              supportsHistorySync: false,
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(1.5)),
+            child: child!,
+          ),
+          home: Scaffold(body: DevicePage(controller: controller)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final button = tester.widget<FilledButton>(
+        find.byKey(const Key('device-sync-data')),
+      );
+      expect(button.onPressed, isNull);
+      expect(find.text('此戒指历史同步暂未开放'), findsOneWidget);
+      expect(
+        controller.capabilities!.supportsManualMeasurement(
+          HealthMetric.heartRate,
+        ),
+        isTrue,
+      );
+      expect(
+        controller.capabilities!.supportsManualMeasurement(
+          HealthMetric.bloodOxygen,
+        ),
+        isTrue,
+      );
+      expect(tester.takeException(), isNull);
+
+      controller.capabilities = const DeviceCapabilities(metrics: {});
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: Scaffold(body: DevicePage(controller: controller)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('device-sync-data')))
+            .onPressed,
+        isNotNull,
+      );
+      expect(find.text('同步数据'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('home avatar and greeting follow saved personal profile', (
     tester,
   ) async {
@@ -291,6 +366,73 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     }
   });
+
+  testWidgets(
+    'iOS permission rows reflect real plugin status, not device names',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        const permissionsChannel = MethodChannel(
+          'flutter.baseflow.com/permissions/methods',
+        );
+        final checked = <int>[];
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          permissionsChannel,
+          (call) async {
+            if (call.method == 'checkPermissionStatus') {
+              checked.add(call.arguments as int);
+              // Actual channel enum: Bluetooth=21, locationWhenInUse=5.
+              return call.arguments == 21 ? 1 : 0;
+            }
+            throw StateError(
+              'Read-only permission test must not request access',
+            );
+          },
+        );
+        addTearDown(() {
+          debugDefaultTargetPlatformOverride = null;
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            permissionsChannel,
+            null,
+          );
+        });
+        final controller = AppController(
+          MemorySessionVault(),
+          _NoopApi(),
+          MemoryHealthStore(),
+          _NoopWearable(),
+        );
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildSaydianTheme(),
+            home: PermissionManagementPage(controller: controller),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(checked, [21, 5]);
+        final bluetooth = find.ancestor(
+          of: find.text('蓝牙'),
+          matching: find.byType(ListTile),
+        );
+        final location = find.ancestor(
+          of: find.text('位置（户外运动轨迹）'),
+          matching: find.byType(ListTile),
+        );
+        expect(
+          find.descendant(of: bluetooth, matching: find.text('已允许')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: location, matching: find.text('未允许')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
 
   for (final enabled in [false, true]) {
     testWidgets('commerce visibility $enabled covers all external entry points', (

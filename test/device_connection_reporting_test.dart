@@ -30,6 +30,45 @@ const _device = DeviceInfo(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test(
+    'unmapped history skips initial and manual reads without false failure',
+    () async {
+      final api = _Api();
+      final ring = _Ring()..supportsHistorySync = false;
+      final controller = AppController(
+        MemorySessionVault()..privacyConsentGranted = true,
+        api,
+        MemoryHealthStore(),
+        ring,
+      );
+      addTearDown(controller.dispose);
+      addTearDown(ring.source.close);
+      await controller.initialize();
+      controller.session = _owner;
+      await controller.connectDevice(_device);
+      await _settle();
+      expect(controller.deviceState, DeviceConnectionState.ready);
+      expect(
+        api.reports,
+        hasLength(1),
+        reason: 'real handshake reporting remains',
+      );
+      expect(ring.historyReads, 0);
+      expect(controller.errorMessage, isNull);
+      expect(controller.syncStatus, '设备已连接，此戒指历史同步暂未开放');
+      expect(await controller.syncDeviceData(), isFalse);
+      expect(ring.historyReads, 0);
+      expect(controller.isDeviceSyncing, isFalse);
+      expect(controller.errorMessage, isNull);
+      expect(
+        controller.capabilities?.supportsManualMeasurement(
+          HealthMetric.heartRate,
+        ),
+        isTrue,
+      );
+    },
+  );
+
   test('every manual handshake and restored handshake reports once', () async {
     final api = _Api();
     final ring = _Ring();
@@ -407,6 +446,8 @@ class _Api extends Fake implements SaydianApi, SaydianDeviceBindingApi {
 class _Ring extends Fake implements WearableBridge {
   final source = StreamController<WearableEvent>.broadcast();
   bool failConnect = false;
+  bool supportsHistorySync = true;
+  int historyReads = 0;
   Completer<DeviceCapabilities>? delayedCapabilities;
   @override
   Stream<WearableEvent> get events => source.stream;
@@ -423,9 +464,18 @@ class _Ring extends Fake implements WearableBridge {
   @override
   Future<DeviceCapabilities> getCapabilities() async =>
       delayedCapabilities?.future ??
-      Future.value(const DeviceCapabilities(metrics: {HealthMetric.heartRate}));
+      Future.value(
+        DeviceCapabilities(
+          metrics: const {HealthMetric.heartRate},
+          supportsHistorySync: supportsHistorySync,
+        ),
+      );
   @override
-  Future<List<HealthRecord>> syncHealthData({String? cursor}) async => [];
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) async {
+    historyReads++;
+    return [];
+  }
+
   @override
   Future<List<SportRecord>> readSportRecords() async => [];
 }

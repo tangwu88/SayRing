@@ -593,6 +593,7 @@ class DeviceCapabilities {
     this.integratedFeatures = const <DeviceFeature>{},
     this.supportsSportPause = false,
     this.supportsBackgroundSync = false,
+    this.supportsHistorySync = true,
     this.supportsWatchFaces = false,
     this.supportsOta = false,
   });
@@ -609,6 +610,11 @@ class DeviceCapabilities {
   final Set<DeviceFeature> integratedFeatures;
   final bool supportsSportPause;
   final bool supportsBackgroundSync;
+
+  /// Foreground history transport, independent of background execution.
+  /// Older integrated bridges omit this flag; retain their existing contract.
+  /// New bridges with unmapped history must explicitly return false.
+  final bool supportsHistorySync;
   final bool supportsWatchFaces;
   final bool supportsOta;
 
@@ -655,6 +661,9 @@ class DeviceCapabilities {
       integratedFeatures: integratedFeatures,
       supportsSportPause: map['supportsSportPause'] == true,
       supportsBackgroundSync: map['supportsBackgroundSync'] == true,
+      supportsHistorySync:
+          !map.containsKey('supportsHistorySync') ||
+          map['supportsHistorySync'] == true,
       supportsWatchFaces: map['supportsWatchFaces'] == true,
       supportsOta: map['supportsOta'] == true,
     );
@@ -679,6 +688,7 @@ class DeviceCapabilities {
         .toList(),
     'supportsSportPause': supportsSportPause,
     'supportsBackgroundSync': supportsBackgroundSync,
+    'supportsHistorySync': supportsHistorySync,
     'supportsWatchFaces': supportsWatchFaces,
     'supportsOta': supportsOta,
   };

@@ -7,6 +7,27 @@ const read = (name) => readFileSync(new URL(`../${name}`, import.meta.url), 'utf
 const bridge = read('ios/Runner/CoolWearWearableBridge.m');
 const project = read('ios/Runner.xcodeproj/project.pbxproj');
 
+test('unmapped iOS history is explicitly unavailable without disabling manual samples', () => {
+  const policy = read('ios/Runner/CoolWearPolicy.h');
+  assert.match(policy, /@"supportsHistorySync": @NO/);
+  assert.match(policy, /@"manualMetrics": manual/);
+  assert.match(read('lib/services/app_controller.dart'), /capabilities\?\.supportsHistorySync == false/);
+  assert.match(read('lib/ui/pages.dart'), /Key\('device-sync-data'\)/);
+});
+
+test('iOS permission status readers are compiled for declared uses only', () => {
+  const podfile = read('ios/Podfile');
+  assert.match(podfile, /target.name == 'permission_handler_apple'/);
+  for (const permission of ['BLUETOOTH', 'LOCATION_WHENINUSE', 'CAMERA', 'NOTIFICATIONS']) {
+    assert.ok(podfile.includes(`PERMISSION_${permission}=1`));
+  }
+  assert.doesNotMatch(podfile, /PERMISSION_(?:PHOTOS|CONTACTS|LOCATION_ALWAYS|MICROPHONE)=1/);
+  const plist = read('ios/Runner/Info.plist');
+  for (const key of ['NSBluetoothAlwaysUsageDescription', 'NSLocationWhenInUseUsageDescription', 'NSCameraUsageDescription']) {
+    assert.ok(plist.includes(key));
+  }
+});
+
 test('the shipped iPhone SDK binary is the untouched user-provided version', () => {
   const bytes = readFileSync(new URL('../ios/Runner/Vendor/BluetoothLibrary.framework/BluetoothLibrary', import.meta.url));
   assert.equal(createHash('sha256').update(bytes).digest('hex'), 'f56c39605abded5f57b7ab28f245d67218b9df9e8edbb7fe037755b8cd3ca624');

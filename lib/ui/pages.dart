@@ -5338,8 +5338,12 @@ class DevicePage extends StatelessWidget {
                   children: [
                     SizedBox(
                       child: FilledButton.icon(
+                        key: const Key('device-sync-data'),
                         onPressed:
-                            connected == null || controller.isDeviceSyncing
+                            connected == null ||
+                                controller.isDeviceSyncing ||
+                                controller.capabilities?.supportsHistorySync ==
+                                    false
                             ? null
                             : () async {
                                 final succeeded = await controller
@@ -5372,6 +5376,9 @@ class DevicePage extends StatelessWidget {
                               ? controller.deviceSyncProgress <= 0.1
                                     ? context.l10n.readingData
                                     : '${context.l10n.syncing} ${(controller.deviceSyncProgress * 100).round()}%'
+                              : controller.capabilities?.supportsHistorySync ==
+                                    false
+                              ? '此戒指历史同步暂未开放'
                               : context.l10n.syncData,
                         ),
                         style: FilledButton.styleFrom(
