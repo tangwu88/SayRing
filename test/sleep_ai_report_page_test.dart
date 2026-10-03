@@ -47,6 +47,7 @@ class _Controller extends Fake implements AppController {
   Completer<HealthReportSummary?>? pending;
   bool fail = false;
   bool staleDocument = false;
+  String? unavailableReason;
   int uploads = 0, grants = 0, withdrawals = 0, retries = 0;
   @override
   Session? get session => owner;
@@ -89,7 +90,8 @@ class _Controller extends Fake implements AppController {
   };
   @override
   Future<Map<String, Object?>> loadSleepReportAvailability() async => {
-    'available': true,
+    'available': unavailableReason == null,
+    'reason': unavailableReason,
     'analysisConsent': {
       'granted': false,
       'availableVersion': 'fixture-v1',
@@ -157,6 +159,19 @@ Future<void> _pump(
 }
 
 void main() {
+  testWidgets('precise unavailable reason blocks both consent and upload', (
+    tester,
+  ) async {
+    final c = _Controller()
+      ..unavailableReason = 'Say Ring 睡眠 AI 分析说明尚未发布，请稍后重试';
+    await _pump(tester, c);
+    await tester.tap(find.byKey(const Key('sleep-ai-generate')));
+    await tester.pumpAndSettle();
+    expect(find.text(c.unavailableReason!), findsOneWidget);
+    expect(c.grants, 0);
+    expect(c.uploads, 0);
+    expect(find.byKey(const Key('sleep-ai-upload-consent')), findsNothing);
+  });
   testWidgets(
     'reading never automatically uploads; cancel and unchecked consent block upload',
     (tester) async {
@@ -276,7 +291,7 @@ void main() {
       await tester.tap(find.text('确认撤回'));
       await tester.pumpAndSettle();
       expect(c.withdrawals, 1);
-      expect(find.text('已撤回健康 AI 分析授权'), findsOneWidget);
+      expect(find.text('已撤回睡眠 AI 分析授权'), findsOneWidget);
     },
   );
 }

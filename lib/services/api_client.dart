@@ -279,6 +279,10 @@ abstract interface class SaydianHealthReportApi {
 abstract interface class SayRingSleepReportApi {
   bool get sleepAiEnabled;
   Future<Map<String, Object?>> getSleepReportAvailability();
+  Future<void> setSleepAnalysisConsent({
+    required bool granted,
+    required String version,
+  });
   Future<HealthReportSummary?> getSleepReport(Map<String, Object?> input);
   Future<HealthReportSummary> createSleepReport(Map<String, Object?> input);
 }
@@ -1652,6 +1656,19 @@ class SaydianApiClient
       ),
     ),
   );
+
+  @override
+  Future<void> setSleepAnalysisConsent({
+    required bool granted,
+    required String version,
+  }) async {
+    _decode(
+      await _authorizedPostJson(
+        '/api/saydian-app/v2/health/sleep-reports/analysis-consent',
+        {'granted': granted, 'version': version},
+      ),
+    );
+  }
 
   @override
   Future<HealthReportSummary?> getSleepReport(

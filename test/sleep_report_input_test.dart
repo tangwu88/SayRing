@@ -208,7 +208,12 @@ void main() {
             startsWith('/global/api/saydian-app/v2/health/sleep-reports'),
           );
           if (request.method == 'POST') {
-            expect(jsonDecode(request.body), goldenSleepInput());
+            expect(
+              jsonDecode(request.body),
+              request.url.path.endsWith('analysis-consent')
+                  ? {'granted': true, 'version': 'fixture-sleep-v1'}
+                  : goldenSleepInput(),
+            );
           }
           final data = request.method == 'POST'
               ? {'id': 'synthetic', 'status': 'queued', 'reportType': 'sleep'}
@@ -230,6 +235,18 @@ void main() {
         HealthReportStatus.queued,
       );
       expect(requests.where((r) => r.method == 'POST'), hasLength(1));
+      await api.setSleepAnalysisConsent(
+        granted: true,
+        version: 'fixture-sleep-v1',
+      );
+      expect(
+        requests.last.url.path,
+        '/global/api/saydian-app/v2/health/sleep-reports/analysis-consent',
+      );
+      expect(
+        requests.where((r) => r.url.path.contains('/profile/analysis-consent')),
+        isEmpty,
+      );
     },
   );
 }

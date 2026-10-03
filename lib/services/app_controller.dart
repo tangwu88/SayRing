@@ -5597,16 +5597,10 @@ class AppController extends ChangeNotifier {
       );
   Future<void> grantSleepAnalysisConsent(String version) =>
       _sleepReportOperation(
-        (api) => _requiredHealthReportApi.setHealthAnalysisConsent(
-          granted: true,
-          version: version,
-        ),
+        (api) => api.setSleepAnalysisConsent(granted: true, version: version),
       );
   Future<void> withdrawSleepAnalysisConsent() => _sleepReportOperation(
-    (api) => _requiredHealthReportApi.setHealthAnalysisConsent(
-      granted: false,
-      version: '',
-    ),
+    (api) => api.setSleepAnalysisConsent(granted: false, version: ''),
   );
   Future<HealthReportSummary> retrySleepReport(String reportId) =>
       _sleepReportOperation(

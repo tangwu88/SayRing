@@ -200,7 +200,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
     if (version.isEmpty ||
         metadata['version'] != version ||
         '${metadata['path'] ?? ''}'.isEmpty) {
-      throw const FormatException('健康 AI 分析说明暂不可用');
+      throw const FormatException('Say Ring 睡眠 AI 分析说明暂不可用');
     }
     final document = await widget.controller.globalLegalDocument(
       '${metadata['path']}',
@@ -319,8 +319,10 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('撤回健康 AI 分析授权'),
-        content: const Text('撤回后停止新的健康与睡眠 AI 分析；已生成的账号报告不会在此操作中删除。'),
+        title: const Text('撤回睡眠 AI 分析授权'),
+        content: const Text(
+          '仅撤回 Say Ring 睡眠 AI 分析授权，停止新的睡眠分析；不改变 Health App 的授权，也不会在此操作中删除已生成的账号报告。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -340,7 +342,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
       if (mounted && _current) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('已撤回健康 AI 分析授权')));
+        ).showSnackBar(const SnackBar(content: Text('已撤回睡眠 AI 分析授权')));
       }
     } catch (error) {
       if (_current) setState(() => _error = _errorMessage(error));
@@ -437,7 +439,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                 TextButton(
                   key: const Key('sleep-ai-withdraw-consent'),
                   onPressed: _working ? null : _withdraw,
-                  child: const Text('撤回健康 AI 分析授权'),
+                  child: const Text('撤回睡眠 AI 分析授权'),
                 ),
               ],
             ),
