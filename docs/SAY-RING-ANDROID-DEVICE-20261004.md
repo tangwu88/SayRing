@@ -27,8 +27,26 @@
 - QA ABI 复核通过：真实 Gradle `releaseRuntimeClasspath` 报告确认 `jpush_flutter 3.5.1 / JPush 6.2.0 / JCore 5.5.2`，脚本接受原有 `libjutils.so` ARM64 受控例外，其余两种 ARM 库一致。没有改门禁、删原厂库或修改推送插件来换取通过。
 - 交付前再次 fetch，远端当前分支仍为 `72b3f76`；仅提交本轮两份文档，不改 main 或现有审核。最终 ADB 列表仍为空；不执行等待设备无限阻塞、无签名安装或卸载重装。
 
-## 当前交付边界
+## 首次构建轮次的交付边界（后续安装见下文）
 
 - 仅新增本轮构建/检查记录，客户端源码仍为 `72b3f76`；账户、绑定、健康数据库和 iOS 审核不变。
 - 新版真机安装与启动尚未完成：需要手机恢复 USB 调试连接，以及与旧版 1004 匹配的原签名文件。保持数据的覆盖路径未满足前，不自动改为卸载重装。
 - 手机当前安装版本最后一次可读证据为 1004，不将构建成功写成已安装 1039；二维码/戒指连接、测量、同步、充电和各页面回归仍待实物验收。
+
+## 手机重新连接后的覆盖尝试
+
+- 用户确认手机已连接后重新核对：同一华为 PPA_LX3 处于 ADB 已授权状态，原 0.1.21 (1004) 仍安装，安装/更新时间仍为 2026-09-29 00:12:40。Git `36fefb8` 工作树干净，fetch/ff-only 无更新。
+- 执行不卸载、不清数据的 `adb -s <目标序列号> install -r .build/SayRing-1.0-1039-android-debug.apk`；手机弹出 PC 工具安装风险确认。按本轮安装授权仅选择“继续安装”，未关闭系统安装保护、未授予额外权限。
+- 系统最终返回 `INSTALL_FAILED_UPDATE_INCOMPATIBLE: Package cn.saydian.ring signatures do not match previously installed version; ignoring!`。这次是实际覆盖安装失败证据，不再仅是证书预检推断；日志/截图保存在忽略目录，未进 Git。
+- 安装尝试进行中的一次回读仍为 1004；随后最终回读发现旧包已不在安装列表。手机本地日志记录 `PACKAGE_FULLY_REMOVED`，本任务未执行卸载或清数据命令，不能由此保证原本机数据保留；不把中间回读误写成最终手机状态。USB 连接正常，尚未启动新版。
+- 用户随后明确回复“卸载重装”，允许转为全新安装。确认旧包已移除后无需重复卸载，开始安装 1039 Debug；不再承诺旧登录、绑定或本机记录可恢复。原 APK 留存不等于有可恢复的健康数据库备份。
+- 既有构建/39 项原生测试仍按前节证据，不为记录更新冒称再次全量回归。新版本页面、进程及 VM 调试结果另行追加。
+
+## 用户授权重装后的安装与调试
+
+- 第二次安装返回 `Performing Streamed Install / Success`。真实包管理器回读 `cn.saydian.ring / 1.0.0 (1039)`，API 26 最低、目标 API 36。手机安装时间读数为 2026-10-03 12:55:15；手机时钟与 Mac 日期不一致，保留原读数不伪改。旧签名冲突没有被绕过，只是在用户授权重装、原包已移除后完成安装。
+- `adb shell am start -W -n cn.saydian.ring/cc.saidian.saydian_app.MainActivity` 返回 Status ok（已在前台的实例收到启动 Intent）；真实进程 PID 21970，前台 Activity 为 Say Ring。`flutter attach -d <目标序列号>` 文件同步 6.7 秒，已取得 Dart VM Service 与 DevTools 调试 URL，保留运行中的调试连接。
+- 真机截图核对登录首屏、Say Ring LOGO、手机号/邮箱入口、并排年龄/协议勾选、创建账号/忘记密码和公开只读演示入口显示。未点击登录、发送验证码、修改账号或接入戒指；不能据此宣称登录接口、全部页面或真实 SDK 功能通过。
+- 启动日志有 Android KeyStore code 7 警告，但 FlutterSecureStorage 随后报告安全算法迁移成功、迁移 0 项；没有捕获 Dart 未处理异常、E/flutter 或 FATAL EXCEPTION。复查进程 PID 与前台均保持，登录页可见。迁移成功不证明旧登录/健康记录恢复。
+- 通过 Codex 请求打开本机 DevTools，工具返回 queued；证明已建立可用调试 URL，不把 queued 当成浏览器页面已经加载。URL/真实截图/完整日志均留在忽略目录，账号、凭据与健康数据未进 Git。
+- 最终本轮完成的是 1039 Debug 安装和真机调试连接。原本机数据恢复、账号功能、真实戒指扫描/握手/同步/测量/充电与逐页交互仍为独立待验；iOS 与现有 App Store 审核未操作。
