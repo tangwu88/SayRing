@@ -66,7 +66,8 @@ test('installation-wide recovery and raw health logging are not imported', () =>
 });
 
 test('mixed data is never converted into fake history completion', () => {
-  const mixed = bridge.slice(bridge.indexOf('type.integerValue == DATA_TYPE_DEV_SYNC'), bridge.indexOf('if (![data isKindOfClass:NSDictionary.class])'));
+  const mixed = bridge.match(/if \(type.integerValue == DATA_TYPE_DEV_SYNC\) \{([\s\S]*?)\n    \}/)?.[1];
+  assert.ok(mixed);
   assert.match(mixed, /receiveData:child depth:/);
   assert.doesNotMatch(mixed, /result\(|completeSync|pendingSync|healthRecord/);
   assert.match(bridge, /COOLWEAR_FEATURE_UNVERIFIED/);
@@ -79,6 +80,25 @@ test('measurement is session guarded and requires a real fresh sample', () => {
   assert.match(bridge, /if \(!value \|\| !date/);
   assert.match(bridge, /@"origin": @"app_measurement"/);
   assert.match(bridge, /@"sourceModel": CoolWearModel\(self.targetName\)/);
+});
+
+test('RRI uses the new command and explicit metrics, never ambiguous legacy HRV', () => {
+  assert.match(bridge, /CE_SyncRRIHRVCmd \*cmd/);
+  assert.match(bridge, /DATA_TYPE_REAL_HRV_METRICS/);
+  assert.match(bridge, /DATA_TYPE_HISTORY_HRV_METRICS/);
+  assert.doesNotMatch(bridge, /CE_SyncHRVCmd \*|== DATA_TYPE_REAL_HRV\b|== DATA_TYPE_HISTORY_HRV\b/);
+  assert.match(bridge, /CoolWearRriHrvValues\(sample\)/);
+  assert.match(bridge, /CoolWearSkinTemperatureValues\(sample\)/);
+  assert.match(bridge, /origin:@"watch_history"/);
+});
+
+test('passive handshake data is delivered only after the account-owned Dart session is ready', () => {
+  assert.match(bridge, /getCapabilities[\s\S]*?\[self enableDataDelivery\]/);
+  assert.match(bridge, /!self.dataDeliveryReady \|\| !CoolWearFlag\(self.flags, flag\)/);
+  const cancel = bridge.slice(bridge.indexOf('- (void)beginCancellation:'), bridge.indexOf('- (void)checkCancellation'));
+  assert.match(cancel, /self.dataDeliveryReady = NO/);
+  assert.match(cancel, /\[self.pendingPassiveRecords removeAllObjects\]/);
+  assert.match(bridge, /resolved\[@"firmwareVersion"\] = self.deviceInfo/);
 });
 
 test('SDK exceptions cannot acknowledge a failed scan or complete a request twice', () => {

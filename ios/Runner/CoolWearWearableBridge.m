@@ -36,6 +36,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
 @property(nonatomic) NSUInteger scanGeneration;
 @property(nonatomic) NSUInteger measurementGeneration;
 @property(nonatomic, strong) NSMutableArray *observers;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSDictionary *> *pendingPassiveRecords;
+@property(nonatomic) BOOL dataDeliveryReady;
 @end
 
 @implementation CoolWearWearableBridge
@@ -45,6 +47,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
     _scanned = [NSMutableDictionary dictionary];
     _scanServices = [NSMutableDictionary dictionary];
     _observers = [NSMutableArray array];
+    _pendingPassiveRecords = [NSMutableDictionary dictionary];
     // Lazily initialize the vendor singleton only when the user requests a
     // scan/connect. Never read/adopt its installation-wide saved device.
     _methods = [FlutterMethodChannel methodChannelWithName:@"cc.saidian.ring/commands" binaryMessenger:messenger];
@@ -234,6 +237,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
     self.batteryDate = nil;
     self.charging = nil;
     self.awaitingInfo = NO;
+    self.dataDeliveryReady = NO;
+    [self.pendingPassiveRecords removeAllObjects];
     self.pendingConnect = result;
     self.product.searchPeripheral = item;
     self.product.sid = self.scanServices[identifier] ?: @"F618";
@@ -292,6 +297,35 @@ static void CoolWearOnMain(dispatch_block_t block) {
         if ([data isKindOfClass:NSArray.class]) for (id child in data) [self receiveData:child depth:depth + 1 measurement:measurement];
         return;
     }
+    // History can be pushed while metadata is still being read. Retain only
+    // validated records for this exact connection, then deliver after Dart
+    // has installed the account-owned connected-device session.
+    if (type.integerValue == DATA_TYPE_HISTORY_TEMP || type.integerValue == DATA_TYPE_HISTORY_HRV_METRICS) {
+        NSString *metric = type.integerValue == DATA_TYPE_HISTORY_TEMP ? @"body_temperature" : @"hrv";
+        NSString *key = type.integerValue == DATA_TYPE_HISTORY_TEMP ? @"tempInfos" : @"hrvMetricsInfos";
+        for (NSDictionary *sample in CoolWearMetricSamples(data, key)) {
+            NSDictionary *values = [metric isEqualToString:@"hrv"] ? CoolWearRriHrvValues(sample) : CoolWearSkinTemperatureValues(sample);
+            NSDate *date = CoolWearSampleDate(sample[@"time"], NSDate.date);
+            if (!values || !date) continue;
+            NSDictionary *record = [self record:metric values:values date:date origin:@"watch_history"];
+            if ([self isResolved] && self.dataDeliveryReady) [self emitPassiveRecord:record];
+            else if (self.pendingPassiveRecords.count < 16384) self.pendingPassiveRecords[record[@"id"]] = record;
+        }
+        return;
+    }
+    if (type.integerValue == DATA_TYPE_REAL_HRV_METRICS) {
+        if (![self isResolved] || measurement != self.measurementGeneration || self.emittedMeasurement ||
+            ![self.activeMetric isEqualToString:@"hrv"]) return;
+        for (NSDictionary *sample in CoolWearMetricSamples(data, @"hrvMetricsInfos")) {
+            NSDictionary *values = CoolWearRriHrvValues(sample);
+            NSDate *date = CoolWearSampleDate(sample[@"time"], NSDate.date);
+            if (!values || !date || [date timeIntervalSinceDate:self.measurementStart] < -2) continue;
+            self.emittedMeasurement = YES;
+            [self emit:@"healthRecord" payload:[self record:@"hrv" values:values date:date origin:@"app_measurement"]];
+            break;
+        }
+        return;
+    }
     if (![data isKindOfClass:NSDictionary.class]) return;
     if (self.pendingConnect && self.awaitingInfo && type.integerValue == DATA_TYPE_DEVINFO) {
         if ([data[@"version"] isKindOfClass:NSString.class] && [data[@"version"] length] > 0 && CoolWearNumber(data[@"hardware_id"])) self.deviceInfo = data;
@@ -340,6 +374,40 @@ static void CoolWearOnMain(dispatch_block_t block) {
     [self finishHandshakeIfReady];
 }
 
+- (NSDictionary *)record:(NSString *)metric values:(NSDictionary *)values date:(NSDate *)date origin:(NSString *)origin {
+    NSString *timestamp = [NSISO8601DateFormatter.new stringFromDate:date];
+    NSMutableString *key = [NSMutableString stringWithFormat:@"coolwear-v2|%@|%@|%@|%@", self.target.identifier.UUIDString, metric, timestamp, origin];
+    for (NSString *field in [[values allKeys] sortedArrayUsingSelector:@selector(compare:)]) [key appendFormat:@"|%@=%@", field, values[field]];
+    NSData *bytes = [key dataUsingEncoding:NSUTF8StringEncoding];
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(bytes.bytes, (CC_LONG)bytes.length, digest);
+    NSMutableString *identifier = [NSMutableString string];
+    for (NSUInteger i = 0; i < CC_SHA256_DIGEST_LENGTH; i++) [identifier appendFormat:@"%02x", digest[i]];
+    NSInteger minutes = [NSTimeZone.localTimeZone secondsFromGMTForDate:date] / 60;
+    NSString *offset = [NSString stringWithFormat:@"%@%02ld:%02ld", minutes < 0 ? @"-" : @"+", (long)labs(minutes) / 60, (long)labs(minutes) % 60];
+    return @{@"id": identifier, @"type": metric, @"values": values,
+        @"unit": [metric isEqualToString:@"hrv"] ? @"ms" : @"℃", @"measuredAt": timestamp, @"timezone": offset,
+        @"deviceId": [@"coolwear:" stringByAppendingString:self.target.identifier.UUIDString], @"firmwareVersion": self.deviceInfo[@"version"] ?: @"",
+        @"quality": @"device_reported", @"source": @"wearable", @"origin": origin, @"rawVersion": @2,
+        @"sourceModel": CoolWearModel(self.targetName), @"sourceVendor": @"coolwear", @"sourceDeviceCategory": @"ring", @"sourceApp": @"say-ring"};
+}
+
+- (void)emitPassiveRecord:(NSDictionary *)record {
+    NSString *flag = [record[@"type"] isEqualToString:@"hrv"] ? @"hrvSupport" : @"temp_supported";
+    if (![self isResolved] || !self.dataDeliveryReady || !CoolWearFlag(self.flags, flag)) return;
+    NSMutableDictionary *resolved = [record mutableCopy];
+    resolved[@"firmwareVersion"] = self.deviceInfo[@"version"] ?: @"";
+    [self emit:@"healthRecord" payload:resolved];
+}
+
+- (void)enableDataDelivery {
+    if (![self isResolved]) return;
+    self.dataDeliveryReady = YES;
+    NSArray *records = self.pendingPassiveRecords.allValues;
+    [self.pendingPassiveRecords removeAllObjects];
+    for (NSDictionary *record in records) [self emitPassiveRecord:record];
+}
+
 - (void)failConnection:(NSString *)code message:(NSString *)message {
     FlutterResult connect = self.pendingConnect;
     self.pendingConnect = nil;
@@ -352,6 +420,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
     self.connectionGeneration++;
     self.measurementGeneration++;
     self.activeMetric = nil;
+    self.dataDeliveryReady = NO;
+    [self.pendingPassiveRecords removeAllObjects];
     self.awaitingInfo = NO;
     self.flags = nil;
     self.deviceInfo = nil;
@@ -416,6 +486,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
     CE_Cmd *command;
     if ([metric isEqualToString:@"heart_rate"]) {
         CE_SyncHeartRateCmd *cmd = [CE_SyncHeartRateCmd new]; cmd.status = enabled ? 1 : 0; command = cmd;
+    } else if ([metric isEqualToString:@"hrv"]) {
+        CE_SyncRRIHRVCmd *cmd = [CE_SyncRRIHRVCmd new]; cmd.status = enabled ? 1 : 0; command = cmd;
     } else {
         CE_SyncHeartO2Cmd *cmd = [CE_SyncHeartO2Cmd new]; cmd.status = enabled ? 1 : 0; command = cmd;
     }
@@ -454,7 +526,10 @@ static void CoolWearOnMain(dispatch_block_t block) {
             if (self.cancelling) { result([self error:@"CONNECT_BUSY" message:@"戒指正在断开，请稍候"]); return; }
             [self beginCancellation:result];
         } else if ([call.method isEqualToString:@"getDeviceDetails"]) result([self isResolved] ? [self details] : nil);
-        else if ([call.method isEqualToString:@"getCapabilities"]) result(CoolWearCapabilities(self.flags, [self isResolved]));
+        else if ([call.method isEqualToString:@"getCapabilities"]) {
+            result(CoolWearCapabilities(self.flags, [self isResolved]));
+            [self enableDataDelivery];
+        }
         else if ([call.method isEqualToString:@"startMeasurement"] || [call.method isEqualToString:@"stopMeasurement"]) {
             NSString *metric = [args[@"metric"] isKindOfClass:NSString.class] ? args[@"metric"] : @"";
             [self measurement:metric enabled:[call.method isEqualToString:@"startMeasurement"] result:result];

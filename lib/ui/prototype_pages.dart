@@ -1534,7 +1534,16 @@ class HealthRecordDetailPage extends StatelessWidget {
     final date =
         '${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')} '
         '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-    final values = <MapEntry<String, num>>[...record.values.entries];
+    final isRriHrv =
+        record.metric == HealthMetric.hrv &&
+        record.sourceVendor == 'coolwear' &&
+        record.rawVersion >= 2;
+    final values = record.values.entries
+        .where(
+          (entry) =>
+              !isRriHrv || (entry.key != 'value' && entry.key != 'sdkFlags'),
+        )
+        .toList(growable: false);
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -1560,6 +1569,7 @@ class HealthRecordDetailPage extends StatelessWidget {
                     record.unit,
                     style: const TextStyle(color: SaydianColors.muted),
                   ),
+                  if (isRriHrv) const Text('HRV 指标：SDNN'),
                   const SizedBox(height: 12),
                   Text(
                     date,
@@ -1585,7 +1595,12 @@ class HealthRecordDetailPage extends StatelessWidget {
                   for (var index = 0; index < values.length; index++) ...[
                     ListTile(
                       title: Text(
-                        healthValueLabel(values[index].key, record.metric),
+                        isRriHrv && values[index].key == 'rri'
+                            ? '平均 NN 间期'
+                            : healthValueLabel(
+                                values[index].key,
+                                record.metric,
+                              ),
                       ),
                       trailing: Text(
                         '${_formatRecordNumber(values[index].value)} ${healthValueUnit(values[index].key, record)}',

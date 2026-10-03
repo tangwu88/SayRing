@@ -2125,7 +2125,9 @@ class AppController extends ChangeNotifier {
         // automatically leaves no stable window for a manual measurement.
         // Keep history available from the device page and prioritise live
         // measurements immediately after connection.
-        syncStatus = '设备已连接，可手动同步历史数据';
+        syncStatus = capabilities?.supportsHistorySync == false
+            ? '设备已连接'
+            : '设备已连接，可手动同步历史数据';
         notifyListeners();
       } else {
         unawaited(_syncInitialDeviceData(device.id));
@@ -6241,7 +6243,10 @@ class AppController extends ChangeNotifier {
             .toLowerCase();
         if (nativeId(record.deviceId) != nativeId(connectedDevice!.id)) return;
         if (_activeMeasurementMetric == record.metric &&
-            record.origin == MeasurementOrigin.watchHistory) {
+            record.origin == MeasurementOrigin.watchHistory &&
+            // CoolWear v2 distinguishes passive type 61 history from the
+            // current type 60 RRI-HRV measurement. Never promote history.
+            !(record.sourceVendor == 'coolwear' && record.rawVersion >= 2)) {
           record = record.copyWith(origin: MeasurementOrigin.appMeasurement);
         }
         record = sanitizeWearableTransportRecord(record);
@@ -6412,7 +6417,10 @@ class AppController extends ChangeNotifier {
   }
 
   void _finishRejectedWearableMeasurement(HealthRecord record) {
-    if (_activeMeasurementMetric != record.metric) return;
+    if (_activeMeasurementMetric != record.metric ||
+        record.origin != MeasurementOrigin.appMeasurement) {
+      return;
+    }
     _measurementTimeout?.cancel();
     _measurementTimeout = null;
     _activeMeasurementMetric = null;
@@ -6474,7 +6482,9 @@ class AppController extends ChangeNotifier {
         // Do not issue the vendor's long-running history command during a
         // short recovery window. History remains available from the device
         // page and manual measurements can start as soon as the link returns.
-        syncStatus = '设备已自动重连，可手动同步历史数据';
+        syncStatus = capabilities?.supportsHistorySync == false
+            ? '设备已自动重连'
+            : '设备已自动重连，可手动同步历史数据';
       } else {
         unawaited(_syncInitialDeviceData(device.id));
       }
@@ -6550,7 +6560,9 @@ class AppController extends ChangeNotifier {
       await _persistSleepDay(timeline, expectedGeneration: expectedGeneration);
       if (!_isCurrentSessionGeneration(expectedGeneration)) return;
     }
-    final shouldStopMeasurement = _activeMeasurementMetric == record.metric;
+    final shouldStopMeasurement =
+        _activeMeasurementMetric == record.metric &&
+        record.origin == MeasurementOrigin.appMeasurement;
     if (shouldStopMeasurement) {
       _measurementTimeout?.cancel();
       _measurementTimeout = null;

@@ -15,8 +15,15 @@ void main() {
   Future<
     ({AppController controller, _Wearable wearable, MemoryHealthStore store})
   >
-  setup() async {
+  setup({bool rri = false}) async {
     final wearable = _Wearable();
+    if (rri) {
+      wearable.capabilities = const DeviceCapabilities(
+        metrics: {HealthMetric.hrv, HealthMetric.bodyTemperature},
+        manualMetrics: {HealthMetric.hrv},
+        supportsHistorySync: false,
+      );
+    }
     final store = MemoryHealthStore();
     final controller = AppController(
       MemorySessionVault(),
@@ -28,7 +35,11 @@ void main() {
     addTearDown(wearable.eventsController.close);
     await controller.initialize();
     expect(await controller.login('owner-a', 'test-password'), isTrue);
-    await controller.connectDevice(_Wearable.watch);
+    await controller.connectDevice(
+      rri
+          ? const DeviceInfo(id: 'coolwear:WATCH', name: 'HR01')
+          : _Wearable.watch,
+    );
     await _settle();
     return (controller: controller, wearable: wearable, store: store);
   }
@@ -174,7 +185,97 @@ void main() {
       expect(test.controller.deviceState, DeviceConnectionState.ready);
     },
   );
+  test(
+    'RRI history cannot finish or masquerade as the active measurement',
+    () async {
+      final test = await setup(rri: true);
+      expect(await test.controller.startMeasurement(HealthMetric.hrv), isTrue);
+      test.wearable.emitRecord(_rriRecord('passive'));
+      await _settle();
+      expect(test.controller.deviceState, DeviceConnectionState.measuring);
+      expect(
+        test.wearable.operations.where((value) => value == 'stop'),
+        isEmpty,
+      );
+      expect(
+        (await test.store.recent()).single.origin,
+        MeasurementOrigin.watchHistory,
+      );
+      test.wearable.emitRecord(_rriRecord('active', manual: true));
+      await _settle();
+      expect(test.controller.deviceState, DeviceConnectionState.ready);
+      expect(
+        test.wearable.operations.where((value) => value == 'stop'),
+        hasLength(1),
+      );
+      final records = await test.store.recent();
+      expect(
+        records.singleWhere((value) => value.id == 'passive').origin,
+        MeasurementOrigin.watchHistory,
+      );
+      expect(
+        records.singleWhere((value) => value.id == 'active').origin,
+        MeasurementOrigin.appMeasurement,
+      );
+    },
+  );
+
+  test(
+    'invalid passive RRI quality neither saves nor aborts current measurement',
+    () async {
+      final test = await setup(rri: true);
+      expect(await test.controller.startMeasurement(HealthMetric.hrv), isTrue);
+      final invalid = _rriRecord('bad-history');
+      test.wearable.emitRecord(
+        invalid.copyWith(values: {...invalid.values, 'sdkQuality': 0}),
+      );
+      await _settle();
+      expect(test.controller.deviceState, DeviceConnectionState.measuring);
+      expect(test.controller.measurementErrorMessage, isNull);
+      expect(await test.store.recent(), isEmpty);
+      test.wearable.emitRecord(_rriRecord('valid-active', manual: true));
+      await _settle();
+      expect(test.controller.deviceState, DeviceConnectionState.ready);
+    },
+  );
+
+  test('passive RRI is deduplicated and rejected after logout', () async {
+    final test = await setup(rri: true);
+    test.wearable.emitRecord(_rriRecord('same-history'));
+    await _settle();
+    test.wearable.emitRecord(_rriRecord('same-history'));
+    await _settle();
+    expect(await test.store.recent(), hasLength(1));
+    await test.controller.logout();
+    test.wearable.emitRecord(_rriRecord('late-history'));
+    await _settle();
+    expect(await test.store.recent(), isEmpty);
+  });
 }
+
+HealthRecord _rriRecord(String id, {bool manual = false}) => HealthRecord(
+  id: id,
+  metric: HealthMetric.hrv,
+  values: const {
+    'value': 42,
+    'sdnn': 42,
+    'rmssd': 35,
+    'sdkQuality': 3,
+    'validCount': 80,
+  },
+  unit: 'ms',
+  measuredAt: DateTime.utc(2026, 10, 3, manual ? 2 : 1),
+  timezone: '+08:00',
+  deviceId: 'coolwear:WATCH',
+  firmwareVersion: 'test',
+  quality: 'device_reported',
+  source: MeasurementSource.wearable,
+  origin: manual
+      ? MeasurementOrigin.appMeasurement
+      : MeasurementOrigin.watchHistory,
+  rawVersion: 2,
+  sourceVendor: 'coolwear',
+);
 
 Future<void> _settle() async {
   for (var i = 0; i < 12; i++) {
@@ -239,6 +340,9 @@ class _Wearable extends Fake implements WearableBridge {
   int connectCount = 0;
   int syncCount = 0;
   bool failDisconnect = false;
+  DeviceCapabilities capabilities = const DeviceCapabilities(
+    metrics: {HealthMetric.heartRate},
+  );
 
   void emitRecord(HealthRecord record) => eventsController.add(
     WearableEvent(type: 'healthRecord', payload: record.toJson()),
@@ -265,8 +369,7 @@ class _Wearable extends Fake implements WearableBridge {
   @override
   Future<void> stopScan() async {}
   @override
-  Future<DeviceCapabilities> getCapabilities() async =>
-      const DeviceCapabilities(metrics: {HealthMetric.heartRate});
+  Future<DeviceCapabilities> getCapabilities() async => capabilities;
   @override
   Future<List<HealthRecord>> syncHealthData({String? cursor}) async {
     syncCount++;

@@ -61,8 +61,16 @@ static inline NSDictionary *CoolWearCapabilities(NSDictionary *flags, BOOL resol
         [metrics addObject:@"blood_oxygen"];
         [manual addObject:@"blood_oxygen"];
     }
-    // HRV/temperature/sleep/workouts/controls need their own real mapping and
-    // acceptance. SDK support alone is not bridge integration.
+    // Only the new RRI-HRV 60/61 results have confirmed millisecond fields.
+    // Legacy type 42/45 heartNum is deliberately not interpreted as HRV.
+    if (resolved && CoolWearFlag(flags, @"hrvSupport")) {
+        [metrics addObject:@"hrv"];
+        [manual addObject:@"hrv"];
+    }
+    // Temperature is a passive history result, never a manual command.
+    if (resolved && CoolWearFlag(flags, @"temp_supported")) [metrics addObject:@"body_temperature"];
+    // A passive result is not a completed full-history read. Sleep, workouts
+    // and controls remain closed until their own transport is implemented.
     return @{@"resolved": @(resolved), @"metrics": metrics, @"manualMetrics": manual,
              @"sportModes": @[], @"features": @[], @"integratedFeatures": @[],
              @"supportsBackgroundSync": @NO, @"supportsHistorySync": @NO,
@@ -76,4 +84,57 @@ static inline NSNumber *CoolWearMeasurementValue(NSString *metric, NSDictionary 
     double maximum = [metric isEqualToString:@"heart_rate"] ? 250 : 100;
     if (![metric isEqualToString:@"heart_rate"] && ![metric isEqualToString:@"blood_oxygen"]) return nil;
     return value && value.doubleValue > 0 && value.doubleValue <= maximum ? value : nil;
+}
+
+static inline NSNumber *CoolWearUnsigned(id value, NSUInteger maximum) {
+    NSNumber *number = CoolWearNumber(value);
+    double raw = number.doubleValue;
+    return number && raw >= 0 && raw <= maximum && floor(raw) == raw ? number : nil;
+}
+
+// SDK DataStruct.h and the supplied CE_K6Protocol parser agree on these names
+// and units. Keep them separate from the ambiguous legacy heartNum protocol.
+static inline NSDictionary *CoolWearRriHrvValues(NSDictionary *sample) {
+    if (![sample isKindOfClass:NSDictionary.class]) return nil;
+    NSDictionary *limits = @{@"meanRR": @65535, @"sdnn": @1000, @"rmssd": @65535,
+        @"pnn50": @100, @"meanHR": @255, @"validCount": @255,
+        @"rejectedCount": @255, @"quality": @3, @"flags": @255};
+    for (NSString *key in limits) {
+        if (!CoolWearUnsigned(sample[key], [limits[key] unsignedIntegerValue])) return nil;
+    }
+    if ([sample[@"sdnn"] doubleValue] <= 0 || [sample[@"meanRR"] doubleValue] <= 0 ||
+        [sample[@"validCount"] unsignedIntegerValue] < 2 || [sample[@"quality"] integerValue] == 0) return nil;
+    return @{@"value": sample[@"sdnn"], @"sdnn": sample[@"sdnn"], @"rmssd": sample[@"rmssd"],
+        @"rri": sample[@"meanRR"], @"pnn": sample[@"pnn50"], @"heartRate": sample[@"meanHR"],
+        @"validCount": sample[@"validCount"], @"rejectedCount": sample[@"rejectedCount"],
+        @"sdkQuality": sample[@"quality"], @"sdkFlags": sample[@"flags"]};
+}
+
+static inline NSDictionary *CoolWearSkinTemperatureValues(NSDictionary *sample) {
+    if (![sample isKindOfClass:NSDictionary.class]) return nil;
+    // tempNum is already Celsius (the SDK has applied /10 and one-decimal
+    // formatting). Do not divide again or relabel it as core temperature.
+    NSNumber *value = CoolWearNumber(sample[@"tempNum"]);
+    return value && value.doubleValue >= 20 && value.doubleValue <= 45 ? @{@"value": value} : nil;
+}
+
+static inline NSDate *CoolWearSampleDate(id value, NSDate *now) {
+    NSNumber *seconds = CoolWearUnsigned(value, UINT32_MAX);
+    if (!seconds || seconds.doubleValue < 1420070400 || seconds.doubleValue > now.timeIntervalSince1970 + 120) return nil;
+    return [NSDate dateWithTimeIntervalSince1970:seconds.doubleValue];
+}
+
+static inline NSArray<NSDictionary *> *CoolWearMetricSamples(id data, NSString *key) {
+    NSArray *batches = [data isKindOfClass:NSDictionary.class] ? @[data] :
+        ([data isKindOfClass:NSArray.class] ? data : @[]);
+    if (batches.count > 512) return @[];
+    NSMutableArray *samples = [NSMutableArray array];
+    for (id batch in batches) {
+        if (![batch isKindOfClass:NSDictionary.class]) continue;
+        id rows = batch[key];
+        NSNumber *count = CoolWearUnsigned(batch[@"curItemCount"], 255);
+        if (![rows isKindOfClass:NSArray.class] || !count || [rows count] != count.unsignedIntegerValue) continue;
+        for (id row in rows) if ([row isKindOfClass:NSDictionary.class]) [samples addObject:row];
+    }
+    return samples;
 }

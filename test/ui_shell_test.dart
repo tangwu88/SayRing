@@ -26,6 +26,64 @@ void main() {
   // the explicit page locale rather than a hard-coded numeric pattern.
   setUpAll(() => initializeDateFormatting('zh_Hans'));
 
+  testWidgets(
+    'CoolWear RRI detail identifies SDNN and separates auxiliary units',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 1100);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+      );
+      addTearDown(controller.dispose);
+      final record = HealthRecord(
+        id: 'synthetic-rri',
+        metric: HealthMetric.hrv,
+        values: const {
+          'value': 42,
+          'sdnn': 42,
+          'rmssd': 35,
+          'rri': 800,
+          'pnn': 0,
+          'heartRate': 75,
+          'validCount': 80,
+          'rejectedCount': 0,
+          'sdkQuality': 3,
+          'sdkFlags': 0,
+        },
+        unit: 'ms',
+        measuredAt: DateTime.utc(2026, 10, 3, 1),
+        timezone: '+08:00',
+        deviceId: 'coolwear:TEST',
+        firmwareVersion: 'test',
+        quality: 'device_reported',
+        source: MeasurementSource.wearable,
+        rawVersion: 2,
+        sourceVendor: 'coolwear',
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: HealthRecordDetailPage(controller: controller, record: record),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('HRV 指标：SDNN'), findsOneWidget);
+      expect(find.text('平均 NN 间期'), findsOneWidget);
+      expect(find.text('42 ms'), findsOneWidget);
+      expect(find.text('0 %'), findsOneWidget);
+      expect(find.text('75 bpm'), findsOneWidget);
+      expect(find.text('sdkFlags'), findsNothing);
+      await tester.scrollUntilVisible(find.text('信号质量（1–3）'), 200);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   test('commerce is hidden in the default release configuration', () {
     final controller = AppController(
       MemorySessionVault(),

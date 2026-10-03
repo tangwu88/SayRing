@@ -1,5 +1,34 @@
 # Say Ring CoolWear 原包接入
 
+## 1035 新 RRI-HRV 与皮肤温度数据通路（续办）
+
+- 基线 8030e4a，干净分支 fetch/pull --ff-only 后与 origin 一致。已核对原厂 DataStruct.h 的 16 字节 HRV 结构和 SDK 实际解析键：time、meanRR、sdnn、rmssd、pnn50、meanHR、validCount、rejectedCount、quality、flags，数组键 hrvMetricsInfos；不再把先前“未给完整字段”的初步结论当最终结论。SDNN/RMSSD/meanRR 均为毫秒，质量 0 无效、1–3 保留实际等级；旧 42/45 heartNum 含义仍不明确，不套用新协议。
+- P1：复现路径为 CoolWear 已握手后进入 HRV/皮肤温度，旧 iOS 桥接没有对应结果处理。新增原生 RRI-HRV 62 启停、60 实时/61 自动结果及 47 皮肤温度被动数据映射，能力仅按实际 hrvSupport/temp_supported 开放。皮肤温度 tempNum 已由 SDK /10，App 不二次缩放，也不改叫核心体温。历史总同步和睡眠没有确认完整性，继续独立关闭，不将混合类型 9 当完成。
+- 数据绑定精确目标和连接代次；握手期间已校验的被动结果暂存在内存，Dart 当前账号连接会话就绪后才交付既有加密库，取消时清空。不把历史 HRV 结果改成当前手动测量、提前完成测量弹窗或用历史无效包终止当前测量。QRing、其他 App、原 SDK 二进制和 App Store 审核不变。
+- 磁盘仅 373 MiB，强制删除构建缓存的命令被工具拒绝，未执行；改用不带强制选项的精确目录删除，移除本仓库已结束的 release merged/stripped native libs 与 Flutter build 缓存约 650 MiB，可全部重建，安装包/日志/原素材/手机数据保留，空间约 1 GiB。只读搜索曾猜测不存在的旧文件路径，改用 rg --files；一次复合补丁因文档上下文不匹配整体未应用，核对 diff 后重试。
+- 服务端原 Actions 37124706014 已由用户取消；原任务确认当前 main 36197ef 包含诊断，现唯一新 Actions 37126946023 仍在传输。继续由原服务端任务跟进，不发起第二次部署、不重试真实健康 AI 任务；线上和原报告结果须分别回读。
+- 后续记录实际测试、构建、安装及实环返回；本段为实施范围，不代表本轮真机验收已通过。
+- 第一轮 Foundation 策略通过；Node 原生/隐私 20/21，失败是旧测试截取范围把新 HRV 分支也包含进去，改为仅取类型 9 的完整分支后 21/21。一次新增 Flutter 测试补丁因文件末尾上下文不匹配整体未应用，按实际上下文重试；定向 99/99，初轮 UTC 1123/1123（41 秒）、Shanghai 1123/1123（36 秒）、静态零问题。
+- 复查关联页发现 P2：RRI 辅助字段会继承主值单位 ms；修正 pNN50 百分比、平均心率 bpm、间期数量、信号质量等级，详情标明 SDNN、不重复主值、不显示 SDK 位标记；同步未开放时连接状态不再提示手动历史同步。新增窄屏详情和单位测试，最终定向 100/100。全量重跑 1124 通过、1 失败：通用 rri 字段原契约必须与 HRV 分开，不能跨厂商称平均 NN；将新说明限制到已确认的 CoolWear v2 详情，保留旧通用标签及原测试，不削弱门禁，再跑完整双时区。
+- 发布工具 Python 31/31、bash -n、ShellCheck、Actionlint 退出 0；这些都是离线合成验证，没有发布商店或覆盖线上。补清理本仓库已结束的 Debug iOS 输出、重复 APK 输出和 Android 中间目录，1034 留存包 SHA-256 核对一致；空间约 1.9 GiB。均可重建，不删个人数据。
+- 真机前置检查：CoreDevice 仍识别 iPhone，但旧 VM getVM 8 秒超时，镜像显示 iPhone 正被使用。一次使用旧 AX 索引被工具要求刷新，随后重新读取仍为使用中；不强行锁机、切账号或把调试暂停误报为 App 崩溃。继续本机构建，不把未执行的 HRV/温度实环结果写成成功。
+- 最终 UTC 1125/1125（39 秒）、Asia/Shanghai 1125/1125（46 秒）通过，日志分别为 `.build/coolwear-1035-full-utc-final-retry-20261003.log` 和 `.build/coolwear-1035-full-shanghai-final-20261003.log`。iOS Profile 70.3 秒、Debug 37.0 秒串行成功，版本均为 cn.saydian.ring / 1.0.0 (1035) / UIDeviceFamily=[1]，codesign 校验通过，开发签名 Team W7SXQ4A226，未混用商店 IPA。
+- Profile 留存 `.build/SayRing-1.0-1035-Profile.app` 和 `.build/SayRing-1.0-1035-Profile-debug.ipa`，IPA SHA-256 `886a61605e8a43746d91a41f25150979454027645fc82a5d0130d11c600d9f4c`，ZIP 完整性通过。确认 1027 独立 DerivedData 的 WorkspacePath 属于本仓库且无句柄后删除该旧缓存 733 MiB；完成双 iOS 构建、保留签名 Profile 后再清理本仓库 iOS 生成目录和已结束的 DerivedData 中间文件。原始素材、SDK、手机数据及留存安装包未删除，缓存可重新构建。
+- 22:07 CST `devicectl device install app` 成功将 1035 Profile 原位安装，未卸载。旧调试会话 stdin 已关闭，尝试 detach 未执行成功；核对唯一对应旧 1034 预构建 Flutter 进程后发 SIGTERM，仅结束本任务旧调试器。镜像重新连接仍显示 iPhone 使用中，尚不能把安装成功等同于数据回读或逐页验收。Android 构建及本轮调试启动继续记录。
+- 服务端原任务补充只读证据：原报告现为 FAILED / provider_busy、无报告正文或 aiGenerated 成功标记，对应 outbox 为 DEAD_LETTER；旧实现将 429/5xx 合并到 provider_busy，现有记录不能区分具体状态码，不猜测欠费或供应商故障原因。本轮没有重试/重置真实报告。新 Actions 37126946023 也被用户取消，服务器另有同一 36197ef 预加载持有有效锁；原任务只读跟进，不重复发布，公网仍是旧 4abbcb4。
+
+### 1035 最终构建与现场核查（22:15 CST）
+
+- Android Debug 26.2 秒、显式 `SAIDIAN_ALLOW_QA_RELEASE=true` 内部 QA Release 64.7 秒串行通过；均为 cn.saydian.ring / 1.0 (1035)、arm64-v8a + armeabi-v7a，两包签名验证通过，QA Release v2 签名、16 KiB ZIP 对齐通过。Debug SHA-256 `748eca926c3be34732fe1d497cb60cd6222b4fe868c8984ae9257b309e49aa2f`，QA Release `6e18589af2a5d5045fa101364fa7a7fefaa175579979ed1d9e857b81a52c53d4`，仅内部测试，不是正式商店签名。ADB 没有设备，未安装安卓。
+- `JAVA_HOME=...temurin-17.jdk/Contents/Home ANDROID_HOME=.../Android/sdk ./android/gradlew :app:testDebugUnitTest -p android` 16 秒通过；XML 汇总 39/39、失败/错误/跳过均为 0。最后格式检查 181 文件、0 变更，analyzer 零问题；Node 原生/隐私再次 21/21，Foundation 策略再次 PASS，git diff --check 通过。原 ZIP/Framework 哈希再次与首轮一致。
+- 串行 iOS/Android 构建命令同 1034 留存节，仅 build-number 改 1035；四份日志为 `.build/coolwear-1035-{ios-profile,ios-debug,android-debug,android-qa-release}-20261003.log`。Android Debug 留存后，仅清理已结束的 debug merged/stripped native-lib 中间产物为 Release 腾出空间；所有安装包保留。
+- 预构建 1035 Profile 调试使用 `flutter run --profile --no-pub --use-application-binary=.build/SayRing-1.0-1035-Profile-debug.ipa -d <已核对 iPhone UDID> --dart-define=SAYDIAN_API_BASE_URL=https://app.saydian.cn --dart-define=JPUSH_APP_KEY=`，13.9 秒安装/启动成功；只读 getVM 返回 VM 和一个 main isolate，安装清单确认 1035。未使用 Debug 包做独立启动验收。
+- 镜像仍被手机使用状态占用，改为 Xcode Devices 的 Take Screenshot，只读取屏确认真实首页、原账号和原有健康趋势仍可见；私人图片留在本机，不进 Git。只读 VM 检查当前已登录、HR01 已自动重连，能力实报心率/血氧/HRV/皮肤温度，手动仅前三项，完整历史同步仍关闭；本轮没有点重连或更换绑定，不能把启动恢复等同于三轮物理远离测试。
+- VM 记录总数为 8（前轮 6），但继续只读分类时 8 秒超时，未取得各条新记录的类型/来源证据，不将差额臆断为 HRV 或皮肤温度返回。没有发现应用异常退出日志；调试暂停/链路超时与真实崩溃分开。头像真实保存、HRV 实测结果、皮肤温度新样本、完整睡眠/小睡及三轮物理距离/锁屏/蓝牙切换仍待验。
+- 原厂闭源 Framework 在调试输出中仍会写扫描广播字典；当前无公开日志开关，桥接层未增加原始健康日志，SDK 二进制未篡改。原始调试文件只留忽略目录；静态隐私测试覆盖的是本项目包装代码，不能冒充已证明闭源 SDK 完全无日志。这一限制保留为正式发布前检查项。
+- 服务端审计只读确认 21:10:30 有一次后台重试，将 outbox 计数重置后自动尝试 3 次，累计报告尝试变为 11，最终 provider_busy；本任务没有操作重试。原任务已核验 36197ef 三组件镜像与原发布清单逐一匹配，现由已有唯一 Actions 37128752798 接管，未新开重复发布。现有客户端对 FAILED 停止轮询并展示失败的测试已通过，当前手机账号没有原 R21 样本，不声称已回读同一 sourceHash 的原报告。
+- 1034 源码 CI 37126960137 已完成，quality / Harmony 双时区 / iOS / Android 全部 success；此为上一提交结果，1035 推送和新 CI 另记。App Store 审核、其他两款 App、真实照片和服务端原报告均未修改。
+
 ## 原因和范围
 
 - P1：HR01、HR05、K80、R7、R7Y、R7Pro 在 iOS 没有实际 CoolWear 原生桥接，单补名字不能搜索或握手。安卓名称修复已在 d89f28e。

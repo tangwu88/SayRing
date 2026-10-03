@@ -152,6 +152,11 @@ String healthValueLabel(String key, HealthMetric metric) => switch (key) {
   'stAmplitude' => 'ST 振幅',
   'sdnn' => 'SDNN',
   'rmssd' => 'RMSSD',
+  'pnn' when metric == HealthMetric.hrv => 'pNN50',
+  'heartRate' when metric == HealthMetric.hrv => '平均心率',
+  'validCount' when metric == HealthMetric.hrv => '有效间期数量',
+  'rejectedCount' when metric == HealthMetric.hrv => '剔除间期数量',
+  'sdkQuality' when metric == HealthMetric.hrv => '信号质量（1–3）',
   'bmi' || 'BMI' => 'BMI',
   'bodyFatRate' || 'bodyFatPercentage' => '体脂率',
   'fatMass' => '脂肪量',
@@ -175,6 +180,11 @@ String healthValueLabel(String key, HealthMetric metric) => switch (key) {
 };
 
 String healthValueUnit(String key, HealthRecord record) => switch (key) {
+  'rri' when record.metric == HealthMetric.hrv => 'ms',
+  'pnn' when record.metric == HealthMetric.hrv => '%',
+  'heartRate' when record.metric == HealthMetric.hrv => 'bpm',
+  'validCount' || 'rejectedCount' when record.metric == HealthMetric.hrv => '个',
+  'sdkQuality' || 'sdkFlags' when record.metric == HealthMetric.hrv => '',
   'deepHours' ||
   'lightHours' ||
   'remHours' when record.metric == HealthMetric.sleep => '小时',
