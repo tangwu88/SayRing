@@ -838,6 +838,7 @@ struct IOSWechatAuthState {
   private var eventChannel: FlutterEventChannel?
   #if !targetEnvironment(simulator)
   private var qringWearableBridge: QRingWearableBridge?
+  private var coolwearWearableBridge: CoolWearWearableBridge?
   #endif
   private var paymentChannel: FlutterMethodChannel?
   private var authChannel: FlutterMethodChannel?
@@ -899,6 +900,7 @@ struct IOSWechatAuthState {
 
     #if !targetEnvironment(simulator)
     qringWearableBridge = QRingWearableBridge(messenger: registrar.messenger())
+    coolwearWearableBridge = CoolWearWearableBridge(messenger: registrar.messenger())
     #endif
 
     let payments = FlutterMethodChannel(

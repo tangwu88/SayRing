@@ -1,0 +1,17 @@
+//
+//  CE_RemovePhotoAlbumImageCmd.h
+//  BluetoothLibrary
+//
+//  Created by coolwear on 2022/11/5.
+//  Copyright © 2022 kwan. All rights reserved.
+//
+
+#import <BluetoothLibrary/CE_Cmd.h>
+
+NS_ASSUME_NONNULL_BEGIN
+
+@interface CE_RemovePhotoAlbumImageCmd : CE_Cmd
+@property (nonatomic, assign) uint8_t idx;
+@end
+
+NS_ASSUME_NONNULL_END

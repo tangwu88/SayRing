@@ -4,6 +4,7 @@ import path from 'node:path';
 const vendorDir = path.resolve('ios/Runner/Vendor');
 const frameworkNames = [
   'ABParTool',
+  'BluetoothLibrary',
   'DFUnits',
   'GRDFUSDK',
   'JLDialUnit',

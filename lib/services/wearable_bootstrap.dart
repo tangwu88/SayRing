@@ -16,7 +16,9 @@ WearableBridge createProductionWearableBridge({
   yucheng: yucheng ?? YuchengWearableBridge(),
   coolwear:
       coolwear ??
-      (!kIsWeb && defaultTargetPlatform == TargetPlatform.android
+      (!kIsWeb &&
+              (defaultTargetPlatform == TargetPlatform.android ||
+                  defaultTargetPlatform == TargetPlatform.iOS)
           ? CoolWearWearableBridge()
           : null),
   qring:

@@ -87,6 +87,11 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter build ios --debug --no-codesign
+      - name: Check CoolWear SDK integrity and native input policy
+        run: |
+          node --test tool/test_coolwear_ios_integration.mjs
+          xcrun clang -fobjc-arc -framework Foundation test/native_coolwear_policy_test.m -o build/coolwear-policy-test
+          build/coolwear-policy-test
       - run: flutter build ios --profile --no-codesign
       - run: flutter build ios --release --no-codesign
         env:

@@ -1,12 +1,63 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/wearable_bootstrap.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'iOS registers real CoolWear transport for all confirmed ring names',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const commands = MethodChannel('cc.saidian.ring/commands');
+      const events = MethodChannel('cc.saidian.ring/events');
+      final calls = <String>[];
+      messenger.setMockMethodCallHandler(commands, (call) async {
+        calls.add(call.method);
+        if (call.method == 'scanDevices') {
+          return [
+            for (final name in [
+              'hr01',
+              'HR05_1234',
+              'K80',
+              'R7',
+              'R7y',
+              'R7Pro',
+              'K800',
+            ])
+              {'id': 'synthetic-$name', 'name': name},
+          ];
+        }
+        return null;
+      });
+      messenger.setMockMethodCallHandler(events, (_) async => null);
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+        messenger.setMockMethodCallHandler(commands, null);
+        messenger.setMockMethodCallHandler(events, null);
+      });
+      final bridge = createProductionWearableBridge(
+        veepoo: _FakeBridge(const []),
+        yucheng: _FakeBridge(const []),
+        qring: _FakeBridge(const []),
+      );
+      final devices = await bridge.scanDevices();
+      expect(
+        devices.map((d) => d.name),
+        unorderedEquals(['hr01', 'HR05_1234', 'K80', 'R7', 'R7y', 'R7Pro']),
+      );
+      expect(devices.every((d) => d.id.startsWith('coolwear:')), isTrue);
+      expect(calls, contains('scanDevices'));
+      await bridge.stopScan();
+    },
+  );
   test(
     'production bridge routes YC, V and QRing names to their SDKs',
     () async {

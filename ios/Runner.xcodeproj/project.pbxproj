@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C30000000000000000000001 /* CoolWearWearableBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = C30000000000000000000011 /* CoolWearWearableBridge.m */; };
+		C30000000000000000000002 /* BluetoothLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C30000000000000000000012 /* BluetoothLibrary.framework */; };
+		C30000000000000000000003 /* BluetoothLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C30000000000000000000012 /* BluetoothLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A19000000000000000000001 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = A19000000000000000000002 /* InfoPlist.strings */; };
 		1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */ = {isa = PBXBuildFile; fileRef = 1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
@@ -46,6 +49,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
+				C30000000000000000000003 /* BluetoothLibrary.framework in Embed Frameworks */,
 				F00000000000000000000003 /* ABParTool.framework in Embed Frameworks */,
 				F00000000000000000000006 /* GRDFUSDK.framework in Embed Frameworks */,
 			);
@@ -55,6 +59,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		C30000000000000000000010 /* CoolWearWearableBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CoolWearWearableBridge.h; sourceTree = "<group>"; };
+		C30000000000000000000011 /* CoolWearWearableBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = CoolWearWearableBridge.m; sourceTree = "<group>"; };
+		C30000000000000000000012 /* BluetoothLibrary.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = BluetoothLibrary.framework; sourceTree = "<group>"; };
+		C30000000000000000000013 /* CoolWearPolicy.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = CoolWearPolicy.h; sourceTree = "<group>"; };
 		A19000000000000000000010 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		A19000000000000000000011 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		A19000000000000000000012 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
@@ -116,6 +124,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C30000000000000000000002 /* BluetoothLibrary.framework in Frameworks */,
 				Q90000000000000000000001 /* QCBandSDK.framework in Frameworks */,
 				F00000000000000000000001 /* VeepooBleSDK.framework in Frameworks */,
 				F00000000000000000000002 /* ABParTool.framework in Frameworks */,
@@ -170,6 +179,9 @@
 		97C146F01CF9000F007C117D /* Runner */ = {
 			isa = PBXGroup;
 			children = (
+				C30000000000000000000010 /* CoolWearWearableBridge.h */,
+				C30000000000000000000011 /* CoolWearWearableBridge.m */,
+				C30000000000000000000013 /* CoolWearPolicy.h */,
 				F00000000000000000000020 /* Vendor */,
 				A13000012608130000000003 /* Runner.entitlements */,
 				97C146FA1CF9000F007C117D /* Main.storyboard */,
@@ -217,6 +229,7 @@
 		F00000000000000000000020 /* Vendor */ = {
 			isa = PBXGroup;
 			children = (
+				C30000000000000000000012 /* BluetoothLibrary.framework */,
 				Q90000000000000000000010 /* QCBandSDK.framework */,
 				F00000000000000000000010 /* VeepooBleSDK.framework */,
 				F00000000000000000000011 /* ABParTool.framework */,
@@ -493,6 +506,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C30000000000000000000001 /* CoolWearWearableBridge.m in Sources */,
 				Q90000000000000000000002 /* QCCentralManager.m in Sources */,
 				Q90000000000000000000003 /* QRingWearableBridge.m in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
@@ -607,6 +621,8 @@
 					QCBandSDK.framework,
 					QCCentralManager.m,
 					QRingWearableBridge.m,
+					BluetoothLibrary.framework,
+					CoolWearWearableBridge.m,
 					VeepooBleSDK.framework,
 					ABParTool.framework,
 					DFUnits.framework,
@@ -830,6 +846,8 @@
 					QCBandSDK.framework,
 					QCCentralManager.m,
 					QRingWearableBridge.m,
+					BluetoothLibrary.framework,
+					CoolWearWearableBridge.m,
 					VeepooBleSDK.framework,
 					ABParTool.framework,
 					DFUnits.framework,
@@ -879,6 +897,8 @@
 					QCBandSDK.framework,
 					QCCentralManager.m,
 					QRingWearableBridge.m,
+					BluetoothLibrary.framework,
+					CoolWearWearableBridge.m,
 					VeepooBleSDK.framework,
 					ABParTool.framework,
 					DFUnits.framework,

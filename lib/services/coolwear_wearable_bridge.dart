@@ -4,11 +4,11 @@ import '../domain/feature_models.dart';
 import '../domain/models.dart';
 import 'wearable_bridge.dart';
 
-/// Android-only CoolWear/LuckRing transport backed by the supplied vendor AAR.
+/// CoolWear/LuckRing transport backed by the supplied Android/iOS vendor SDKs.
 ///
 /// The native side waits for the vendor connection and device-info response.
-/// History is completed only after the vendor SDK emits its device-sync
-/// callback; individual packets are never treated as a completed sync.
+/// Android history requires its SDK completion callback. The iOS mixed-data
+/// envelope is not that callback: unverified history/controls fail explicitly.
 class CoolWearWearableBridge
     implements
         WearableBridge,
