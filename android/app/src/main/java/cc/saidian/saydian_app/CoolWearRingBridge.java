@@ -21,6 +21,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import ce.com.cenewbluesdk.CEBC;
 import ce.com.cenewbluesdk.entity.K6_sleepData;
@@ -58,6 +60,10 @@ import io.flutter.plugin.common.MethodChannel;
 public final class CoolWearRingBridge
         implements MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
     private static final String TAG = "CoolWearRing";
+    // Confirmed model families, not a substitute for vendor device-info and
+    // function-control callbacks. QRing R2* names remain on their own SDK.
+    private static final Pattern SUPPORTED_NAME = Pattern.compile(
+            "^(HR01|HR05|K80|R7PRO|R7Y|R7)(?:[-_ ](?:[0-9A-F]{1,12}|(?:[0-9A-F]{2}:){5}[0-9A-F]{2}))?$");
     private static final long SCAN_MS = 8_000L;
     private static final long CONNECT_MS = 28_000L;
     private static final long SYNC_MS = 30_000L;
@@ -331,9 +337,11 @@ public final class CoolWearRingBridge
     static String supportedModel(String name) {
         if (name == null) return null;
         String normalized = name.trim().toUpperCase(Locale.ROOT);
-        if (normalized.equals("HR01") || normalized.startsWith("HR01-")) return "HR01";
-        if (normalized.equals("HR05")) return "HR05";
-        return null;
+        if (normalized.startsWith("HR01-")) return "HR01";
+        Matcher matcher = SUPPORTED_NAME.matcher(normalized);
+        if (!matcher.matches()) return null;
+        String model = matcher.group(1);
+        return "R7PRO".equals(model) ? "R7Pro" : model;
     }
 
     private void receiveScannedDevices(List<MyBleDevice> devices) {

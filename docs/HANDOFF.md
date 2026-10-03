@@ -1,5 +1,11 @@
 # 赛电 App 开发交接说明
 
+## 2026-10-03 CoolWear/LuckRing 型号发现补充
+
+- 用户确认 HR01、HR05、K80、R7、R7Y、R7Pro 同属 CoolWear/LuckRing。Flutter 与 Android 双层过滤同步补齐准确型号和有边界的技术后缀，QRing 的 R2 系列仍保持独立 SDK、精确绑定和真实能力握手。
+- 这是候选设备识别，不是六款实物连接验收。当前 CoolWear 只有 Android 原生桥；iOS 未注册该 SDK，不能靠放开名称或借用 QRing SDK 声称支持。当前 Mac 未找到历史来源 Android&iOS_SDK20260910.zip 的 iOS 部分，必须取得厂商 SDK/Demo 后才能继续苹果端接入。
+- SDK 包、真实设备标识与健康值不进入本轮新文档；完整回归和未验边界见 docs/SAY-RING-COOLWEAR-DISCOVERY-20261003.md。
+
 ## 2026-09-05 健康档案与付费报告增量
 
 本轮新增“我的 → 健康档案”，对接新服务端健康档案、报告资格、权益、统一支付、报告全文与 PDF 接口；Android 复用现有微信/支付宝桥，iOS 新增 StoreKit 2 购买/恢复和服务端 JWS 验证。完整命令、失败尝试、修复与证据见 [`IMPLEMENTATION-LOG-20260905-HEALTH-REPORTS.md`](IMPLEMENTATION-LOG-20260905-HEALTH-REPORTS.md)。

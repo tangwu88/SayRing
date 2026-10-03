@@ -20,12 +20,24 @@ enum WearableTransport { veepoo, yucheng, moyoung, coolwear, qring }
 class WearableDeviceClassifier {
   const WearableDeviceClassifier._();
 
+  // The product owner confirmed these CoolWear/LuckRing model names. A name
+  // only chooses a candidate transport; the native handshake still gates it.
+  static final _coolwearName = RegExp(
+    r'^(HR01|HR05|K80|R7PRO|R7Y|R7)(?:[-_ ](?:[0-9A-F]{1,12}|(?:[0-9A-F]{2}:){5}[0-9A-F]{2}))?$',
+  );
+
+  static String? coolwearModelForName(String name) {
+    final normalized = name.trim().toUpperCase();
+    // Preserve the existing HR01 numbered/custom hyphen suffix convention.
+    if (normalized.startsWith('HR01-')) return 'HR01';
+    final model = _coolwearName.firstMatch(normalized)?.group(1);
+    return model == 'R7PRO' ? 'R7Pro' : model;
+  }
+
   static WearableTransport? transportFor(String name) {
     final normalized = name.trim().toUpperCase();
     if (normalized.startsWith('YC')) return WearableTransport.yucheng;
-    if (normalized == 'HR01' ||
-        normalized.startsWith('HR01-') ||
-        normalized == 'HR05') {
+    if (coolwearModelForName(normalized) != null) {
       return WearableTransport.coolwear;
     }
     if (normalized.startsWith('Q_') ||

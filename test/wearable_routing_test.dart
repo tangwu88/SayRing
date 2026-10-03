@@ -273,6 +273,104 @@ void main() {
     expect(coolwear.measurementCalls, [HealthMetric.heartRate]);
   });
 
+  test('confirmed LuckRing models route only through CoolWear', () async {
+    const names = ['hr01', 'hr05', 'k80', 'R7', 'R7y', 'R7Pro'];
+    final coolwear = _FakeWearableBridge(
+      scanned: [
+        for (var i = 0; i < names.length; i++)
+          DeviceInfo(id: 'CW-$i', name: names[i]),
+      ],
+    );
+    final qring = _FakeWearableBridge(
+      scanned: [
+        for (var i = 0; i < names.length; i++)
+          DeviceInfo(id: 'WRONG-$i', name: names[i]),
+        const DeviceInfo(id: 'QR-1', name: 'R21_4F5F'),
+      ],
+    );
+    final bridge = RoutedWearableBridge(
+      veepoo: _FakeWearableBridge(scanned: const []),
+      yucheng: _FakeWearableBridge(scanned: const []),
+      coolwear: coolwear,
+      qring: qring,
+      preferenceStore: _MemoryTransportPreference(),
+    );
+    final devices = await bridge.scanDevices();
+    expect(devices.length, 7);
+    for (var i = 0; i < names.length; i++) {
+      final device = devices.singleWhere((device) => device.name == names[i]);
+      expect(device.id, 'coolwear:CW-$i');
+      expect(device.sdkSource, WearableSdkSource.coolwear);
+      await bridge.connect(device.id, profile: _profile);
+    }
+    expect(coolwear.connectCalls, [
+      'CW-0',
+      'CW-1',
+      'CW-2',
+      'CW-3',
+      'CW-4',
+      'CW-5',
+    ]);
+    expect(qring.connectCalls, isEmpty);
+    expect(
+      devices.singleWhere((device) => device.name == 'R21_4F5F').id,
+      'qring:QR-1',
+    );
+  });
+
+  test('CoolWear aliases preserve model boundaries and canonical model', () {
+    const names = {
+      'hr01': 'HR01',
+      'hr05': 'HR05',
+      'k80': 'K80',
+      'R7': 'R7',
+      'R7y': 'R7Y',
+      ' r7Pro ': 'R7Pro',
+      'HR05_4F5F': 'HR05',
+      'HR05-1': 'HR05',
+      'K80_ABCD': 'K80',
+      'R7_1234': 'R7',
+      'R7Y_A1B2': 'R7Y',
+      'R7Pro_001122AABBCC': 'R7Pro',
+      'R7Pro_00:11:22:AA:BB:CC': 'R7Pro',
+    };
+    for (final entry in names.entries) {
+      expect(
+        WearableDeviceClassifier.coolwearModelForName(entry.key),
+        entry.value,
+      );
+      expect(
+        WearableDeviceClassifier.transportFor(entry.key),
+        WearableTransport.coolwear,
+      );
+    }
+    for (final name in [
+      'K800',
+      'K80Pro',
+      'R70',
+      'R7Y2',
+      'R7Pro2',
+      'R7Protein',
+      'R7_',
+      'R7_ABCZ',
+      'R7Pro_123456789ABCDE',
+      'HR050',
+      'HR05-unknown',
+      'Ring',
+      '',
+    ]) {
+      expect(WearableDeviceClassifier.coolwearModelForName(name), isNull);
+      expect(WearableDeviceClassifier.transportFor(name), isNull);
+    }
+    for (final name in ['R21_4F5F', 'Q_R7', 'YC_R7']) {
+      expect(WearableDeviceClassifier.coolwearModelForName(name), isNull);
+      expect(
+        WearableDeviceClassifier.transportFor(name),
+        isNot(WearableTransport.coolwear),
+      );
+    }
+  });
+
   test('routes Q_, O_ and R2 rings only through the QRing SDK', () async {
     final qring = _FakeWearableBridge(
       scanned: const [
