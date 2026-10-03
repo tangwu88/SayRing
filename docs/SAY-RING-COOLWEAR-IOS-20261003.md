@@ -49,3 +49,11 @@
 - `.build/SayRing-1.0-1031-android-debug.apk` SHA-256：15695f043ab8848e782c93112ee5e8fbc600b099b1eb1606b0cabf4538819ff7。
 - `.build/SayRing-1.0-1031-android-internal-qa.apk` SHA-256：152ca3804fee6c33d1daaea1b75b8cd722548a66946c3aa38c52e6b3c593914d。
 - 日志统一本机 `.build/coolwear-1030-*` / `.build/coolwear-1031-*`；不提交设备清单、账号、原始健康值、照片、截图或安装包。远端 Git 与新 CI 结果后续追加；没有上传/替换/撤回现有 App Store 审核。
+
+## 远端和补充验证（19:56 CST）
+
+- a6ad89217e8ac2b570d7055a49308f6901e484b5 已普通推送至 origin/codex/macos-update-20260930，fetch 后本地/远端 SHA 一致、工作树干净。没有强推、改仓库可见性或提升成已经实环验收的 main 基线。
+- 新 CI [37120753039](https://github.com/tangwu88/SayRing/actions/runs/37120753039) 的质量及双时区 Harmony 契约已通过；远端 Android/iOS 构建仍在执行，不能记为整个新 CI 已通过。
+- 只读比较原包 Android 1.4.0 AAR 和仓库现用 AAR，二者 SHA-256 均为 ad482d5d69b99941d906038794165c1d479e5e038713954d9ca22059083d0f5f，无需再次替换或更改 Android SDK。
+- 补做本机 iOS unsigned Release 首轮被既有 Production 签名门禁正确拒绝：Local.xcconfig 的 Release 仍指定 Production=true / QA=false，Shell QA 环境不能覆盖 Xcode build setting。未改本机正式签名文件或放宽脚本；改用 xcodebuild 明确参数 SAIDIAN_PRODUCTION_RELEASE=false / SAIDIAN_ALLOW_QA_RELEASE=true / CODE_SIGNING_ALLOWED=NO，内部 QA Release BUILD SUCCEEDED，日志明确 non-production QA，cn.saydian.ring / 1031 / UIDeviceFamily=[1]。此包未签名、未安装、未上传 App Store；手机仍为已验证的签名 Profile。
+- 服务端用明确标注的最小合成睡眠输入实际调用当前 glm-5.3-flash，一次 HTTP 200、约 16.7 秒，JSON 和生产解析器 ACCEPTED。没有调用真实健康数据、没有修改原 FAILED 报告、尝试次数或授权；现阶段未复现参数/解析器缺陷。服务端继续在独立分支补充固定枚举的失败类别日志，不输出内容/健康值/凭据，测试和发布另计。
