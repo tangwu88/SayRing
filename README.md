@@ -57,6 +57,19 @@ Token 和密码不得提交到代码库；合作方 SDK 二进制仅随本私有
 本轮跨端问题的共同根因与防复发约束见
 [2026-08-29 跨端问题修复复盘](docs/BUG-RETROSPECTIVE-20260829.md)。
 
+页面按功能拆分，模块入口与兼容边界见
+[客户端结构与 iOS 包体积记录](docs/SAY-RING-CLIENT-CLEANUP-20261004.md)。
+新增页面进入对应模块，不把业务实现放回 `lib/ui/pages.dart`。
+
+比较相同构建模式的本地 iOS 包，可运行：
+
+```bash
+node tool/measure_ios_bundle.mjs path/to/Runner.app path/to/app.ipa Profile
+```
+
+输出是本地未裁切 app/IPA 的字节数，不是 App Store 实际下载大小。
+Release/Profile 保留 dSYM；Debug 保留原生测试导出，不为减包删除厂商 SDK。
+
 ## 构建
 
 ```powershell

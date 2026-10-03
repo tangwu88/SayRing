@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/dart_library_source.dart';
+
 void main() {
   test('all locale catalogs keep the Say Ring identity', () {
     final catalogs = Directory('lib/l10n').listSync().whereType<File>().where(
@@ -131,7 +133,7 @@ void main() {
       'lib/ui/prototype_pages.dart',
       'lib/ui/watch_face_market_page.dart',
     ]) {
-      final source = File(path).readAsStringSync();
+      final source = readDartLibrarySource(path);
       expect(source, isNot(matches(RegExp(r'手表|表盘'))), reason: path);
     }
   });
@@ -150,7 +152,7 @@ void main() {
       'android/app/src/main/kotlin/cc/saidian/saydian_app/MainActivity.kt',
     ]) {
       expect(
-        File(path).readAsStringSync(),
+        readDartLibrarySource(path),
         isNot(matches(forbidden)),
         reason: '$path must describe a screenless ring',
       );

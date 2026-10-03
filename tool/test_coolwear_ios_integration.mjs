@@ -15,7 +15,7 @@ test('mapped iOS history remains capability gated and reports per-metric status'
   assert.match(bridge, /sync == weakSelf.syncGeneration/);
   assert.match(policy, /@"manualMetrics": manual/);
   assert.match(read('lib/services/app_controller.dart'), /capabilities\?\.supportsHistorySync == false/);
-  assert.match(read('lib/ui/pages.dart'), /Key\('device-sync-data'\)/);
+  assert.match(read('lib/ui/pages/devices.dart'), /Key\('device-sync-data'\)/);
 });
 
 test('iOS permission status readers are compiled for declared uses only', () => {

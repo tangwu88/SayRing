@@ -46,6 +46,8 @@ jobs:
       - run: flutter pub get
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
+      - name: Check client module and iOS size contracts
+        run: node --test tool/measure_ios_bundle.test.mjs tool/client_package_contract.test.mjs
       - run: TZ=UTC flutter test --coverage
       - run: TZ=Asia/Shanghai flutter test
       - run: python3 -m unittest discover -s scripts/release -p 'test_*.py'

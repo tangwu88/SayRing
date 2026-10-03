@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -16,6 +15,8 @@ import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/app_update_gate_scope.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
+
+import 'support/dart_library_source.dart';
 
 void main() {
   test('feature availability always has plain user copy', () {
@@ -684,7 +685,7 @@ void main() {
       'lib/ui/pages.dart',
       'lib/ui/shop_pages.dart',
       'lib/ui/prototype_pages.dart',
-    ].map((path) => File(path).readAsStringSync()).join('\n');
+    ].map(readDartLibrarySource).join('\n');
     for (final banned in [
       'BLE',
       '接口未配置',
