@@ -17,6 +17,19 @@ void main() {
       await tester.pumpWidget(SaydianApp(controller: controller));
       await controller.initialize();
       final owner = controller.session?.accountKey;
+      final target = controller.rememberedDevice;
+      expect(controller.isAuthenticated, isTrue);
+      expect(
+        target,
+        isNotNull,
+        reason: 'Use only an existing owner-bound ring',
+      );
+      expect(target?.name, 'HR01');
+      void expectSameTarget() {
+        expect(controller.session?.accountKey, owner);
+        expect(controller.connectedDevice?.id, target!.id);
+      }
+
       for (var attempt = 0; attempt < 120; attempt++) {
         if (controller.connectedDevice != null &&
             controller.capabilities?.supportsFeature(
@@ -29,6 +42,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
       }
       expect(controller.connectedDevice?.name, 'HR01');
+      expectSameTarget();
       expect(
         controller.availabilityFor(DeviceFeature.healthMonitoring).isReady,
         isTrue,
@@ -75,6 +89,7 @@ void main() {
       final checked = <String>[];
       try {
         for (final type in types) {
+          expectSameTarget();
           final tile = find.byKey(ValueKey('device-health-auto-$type'));
           await tester.ensureVisible(tile);
           await tester.pumpAndSettle();
@@ -124,6 +139,8 @@ void main() {
         for (final type in types) {
           for (var attempt = 0; attempt < 3; attempt++) {
             await tester.pump(const Duration(seconds: 1));
+            // Never restore one ring's values onto another owner/target.
+            expectSameTarget();
             await controller.setAutoMeasureSetting(type, original[type]!);
             debugPrint(
               'MONITORING cleanup $type: ${controller.deviceSettingsStatus}; ${controller.errorMessage}',
@@ -135,11 +152,85 @@ void main() {
         await controller.refreshDeviceSettings();
         expect(controller.autoMeasureSettings, original);
       }
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      final controls = <String>[];
+      expectSameTarget();
+      if (controller.availabilityFor(DeviceFeature.gestureControl).isReady) {
+        final entry = find.text('手势控制');
+        await tester.ensureVisible(entry);
+        await tester.tap(entry);
+        await tester.pumpAndSettle();
+        for (final label in const ['关闭', '短视频', '音乐', '阅读', '拍照', '电话']) {
+          expect(find.text(label), findsOneWidget);
+        }
+        expect(tester.takeException(), isNull);
+        controls.add('gestureOptionsReadOnly');
+        // The SDK has no reliable current-mode query. Do not change the mode
+        // because we cannot promise restoration of the user's original mode.
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+      }
+      if (controller.availabilityFor(DeviceFeature.camera).isReady) {
+        try {
+          expectSameTarget();
+          expect(
+            await controller.triggerDeviceAction(
+              DeviceFeature.camera,
+              enabled: true,
+            ),
+            isTrue,
+          );
+          controls.add('cameraEnableAck');
+        } finally {
+          // Always close remote capture, even after a start timeout. These ACKs
+          // are not evidence of a physical gesture, shutter or photo saved.
+          expectSameTarget();
+          expect(
+            await controller.triggerDeviceAction(
+              DeviceFeature.camera,
+              enabled: false,
+            ),
+            isTrue,
+          );
+          controls.add('cameraDisableAck');
+        }
+      }
+      if (controller.availabilityFor(DeviceFeature.findWatch).isReady) {
+        try {
+          expectSameTarget();
+          expect(
+            await controller.triggerDeviceAction(DeviceFeature.findWatch),
+            isTrue,
+          );
+          controls.add('findStartAck');
+        } finally {
+          expectSameTarget();
+          expect(
+            await controller.triggerDeviceAction(
+              DeviceFeature.findWatch,
+              enabled: false,
+            ),
+            isTrue,
+          );
+          controls.add('findStopAck');
+        }
+      }
+      if (!controller.availabilityFor(DeviceFeature.callReminder).isReady) {
+        expect(
+          controller.visibleDeviceFeatures,
+          isNot(contains(DeviceFeature.callReminder)),
+        );
+        controls.add('unsupportedCallReminderHidden');
+      }
       expect(controller.session?.accountKey, owner);
+      expectSameTarget();
+      expect(controller.connectedDevice?.name, 'HR01');
       expect(tester.takeException(), isNull);
       binding.reportData = {
         'verifiedSwitches': checked,
         'originalSettingsRestored': true,
+        'controlChecks': controls,
       };
     },
     timeout: const Timeout(Duration(minutes: 8)),

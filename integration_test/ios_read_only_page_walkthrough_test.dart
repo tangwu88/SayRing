@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:saydian_app/app.dart';
+import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/health_reports_page.dart';
@@ -16,6 +17,10 @@ void main() {
     final controller = AppController.production();
     addTearDown(controller.dispose);
     await controller.initialize();
+    // Start from a defined tab without changing the account or device binding.
+    // An in-place upgrade may retain the user's previous Device/My selection.
+    controller.selectTab(0);
+    final originalOwner = controller.session?.accountKey;
     final hasAppShell = controller.isAuthenticated || controller.isLocalMode;
     const mode = String.fromEnvironment(
       'SAYRING_QA_WALKTHROUGH_MODE',
@@ -188,12 +193,16 @@ void main() {
     );
 
     // The notification entry belongs to the health dashboard, not DevicePage.
-    await tester.scrollUntilVisible(
-      find.byIcon(Icons.notifications_none_rounded),
-      -280,
-      scrollable: find.byType(Scrollable).first,
+    // A partially visible header child can satisfy ensureVisible while its
+    // center is still behind the status bar. Reset before hit-testing the tap.
+    tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position
+        .jumpTo(0);
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byIcon(Icons.notifications_none_rounded).hitTestable(),
     );
-    await tester.tap(find.byIcon(Icons.notifications_none_rounded));
     await tester.pumpAndSettle(const Duration(seconds: 2));
     expect(find.text('消息'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -218,6 +227,40 @@ void main() {
     );
     if (controller.connectedDevice != null) {
       expect(find.byKey(const Key('device-reconnect')), findsNothing);
+      for (final feature in const [
+        DeviceFeature.camera,
+        DeviceFeature.gestureControl,
+        DeviceFeature.callReminder,
+      ]) {
+        if (!controller.availabilityFor(feature).isReady) {
+          expect(controller.visibleDeviceFeatures, isNot(contains(feature)));
+          unavailable.add('${feature.label}（真实能力门禁隐藏）');
+        }
+      }
+      if (controller.availabilityFor(DeviceFeature.healthMonitoring).isReady) {
+        // Read the existing ring settings only. No switch, camera permission,
+        // gesture mode, call reminder or find action is changed in this test.
+        for (
+          var attempt = 0;
+          controller.isDeviceSyncing && attempt < 120;
+          attempt++
+        ) {
+          await tester.pump(const Duration(milliseconds: 500));
+        }
+        expect(controller.isDeviceSyncing, isFalse);
+        final healthMonitoring = find.text('健康监测');
+        await tester.ensureVisible(healthMonitoring);
+        await tester.tap(healthMonitoring);
+        await tester.pumpAndSettle(const Duration(seconds: 2));
+        await controller.refreshDeviceSettings();
+        await tester.pumpAndSettle();
+        expect(controller.autoMeasureSettings, isNotEmpty);
+        expect(controller.deviceSettingsStatus, '设置已同步');
+        expect(tester.takeException(), isNull);
+        record('健康监测（真实设置只读）');
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+      }
     }
 
     if (const bool.fromEnvironment('SAYRING_QA_SCAN')) {
@@ -301,6 +344,7 @@ void main() {
     await openMyEntry('关于 Say Ring', find.byType(AboutSaydianPage));
 
     expect(tester.takeException(), isNull);
+    expect(controller.session?.accountKey, originalOwner);
     // Labels only; never print account, profile, or health values into the log.
     // ignore: avoid_print
     print('iOS read-only walkthrough pages: ${visited.join('、')}');
