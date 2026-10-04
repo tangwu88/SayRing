@@ -56,6 +56,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 @property(nonatomic) BOOL recoveryScheduled;
 @property(nonatomic) BOOL recoveryScanning;
 @property(nonatomic) BOOL recoveryConnecting;
+@property(nonatomic) BOOL passiveSleepScheduled;
 @end
 
 @implementation CoolWearWearableBridge
@@ -264,7 +265,24 @@ static void CoolWearOnMain(dispatch_block_t block) {
 }
 
 - (void)finalizeSleepHistory {
-    CoolWearHistoryBatch *batch = self.syncBatches[@6];
+    [self finalizeSleepBatch:self.syncBatches[@6] syncRecords:self.syncRecords];
+}
+
+- (void)schedulePassiveSleepHistory {
+    if (self.passiveSleepScheduled || !self.dataDeliveryReady || ![self isResolved] || !self.historyBatches[@6]) return;
+    self.passiveSleepScheduled = YES;
+    NSUInteger generation = self.connectionGeneration;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 25 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (!weakSelf || generation != weakSelf.connectionGeneration) return;
+        weakSelf.passiveSleepScheduled = NO;
+        // This only processes real packets already received. No extra BLE
+        // command or long-running sync lock may block manual measurements.
+        if (weakSelf.dataDeliveryReady) [weakSelf finalizeSleepBatch:weakSelf.historyBatches[@6] syncRecords:nil];
+    });
+}
+
+- (void)finalizeSleepBatch:(CoolWearHistoryBatch *)batch syncRecords:(NSMutableDictionary *)records {
     // Do not infer stage durations across a packet gap or publish an interim
     // summary as a second observation. Only the settled, validated batch may
     // update a stable session-end record.
@@ -279,7 +297,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
         NSDate *date = CoolWearSampleDate(sample[@"time"], NSDate.date);
         if (!date) continue;
         NSDictionary *record = [self record:@"sleep" values:sample[@"values"] date:date origin:@"watch_history"];
-        self.syncRecords[record[@"id"]] = record;
+        if (records) records[record[@"id"]] = record;
         if ([self.historyRecords[record[@"id"]] isEqual:record]) continue;
         self.historyRecords[record[@"id"]] = record;
         [self emitPassiveRecord:record];
@@ -533,7 +551,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
             if ([self isResolved] && self.dataDeliveryReady) [self emitPassiveRecord:record];
             else self.pendingPassiveRecords[record[@"id"]] = record;
         }
-        if ([self isResolved]) [self emit:@"capabilities" payload:[self capabilities]];
+        if ([self isResolved]) [self emit:@"capabilitiesUpdated" payload:[self capabilities]];
+        if (type.integerValue == 6) [self schedulePassiveSleepHistory];
         // A final packet may precede earlier packets. Collect the complete
         // bounded window before evaluating each metric; never end on type 9
         // or the first apparently complete batch.
@@ -633,6 +652,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
     NSArray *records = self.pendingPassiveRecords.allValues;
     [self.pendingPassiveRecords removeAllObjects];
     for (NSDictionary *record in records) [self emitPassiveRecord:record];
+    [self schedulePassiveSleepHistory];
 }
 
 - (void)failConnection:(NSString *)code message:(NSString *)message {
@@ -653,6 +673,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
     self.measurementGeneration++;
     self.activeMetric = nil;
     self.dataDeliveryReady = NO;
+    self.passiveSleepScheduled = NO;
     [self.pendingPassiveRecords removeAllObjects];
     [self.historyBatches removeAllObjects];
     [self.historyRecords removeAllObjects];

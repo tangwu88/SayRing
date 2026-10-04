@@ -23,6 +23,20 @@ test('owner-scoped iOS recovery continues after empty scans and repeats a fresh 
   assert.ok(disconnect.indexOf('self.recoveryID = nil') < disconnect.indexOf('[self beginCancellation:result]'));
 });
 
+test('one-shot sleep packets are processed after automatic recovery without a manual sync lock', () => {
+  const passive = bridge.slice(bridge.indexOf('- (void)schedulePassiveSleepHistory'), bridge.indexOf('- (void)finalizeSleepBatch:'));
+  assert.match(passive, /generation != weakSelf.connectionGeneration/);
+  assert.match(passive, /weakSelf\.historyBatches\[@6\] syncRecords:nil/);
+  assert.doesNotMatch(passive, /sendCmdToDevice|pendingSync\s*=/);
+  assert.match(bridge, /if \(type.integerValue == 6\) \[self schedulePassiveSleepHistory\]/);
+  assert.match(bridge, /for \(NSDictionary \*record in records\) \[self emitPassiveRecord:record\];\s*\[self schedulePassiveSleepHistory\]/);
+  assert.match(bridge, /emit:@"capabilitiesUpdated" payload:\[self capabilities\]/);
+  assert.match(bridge, /self.passiveSleepScheduled = NO/);
+  const finalize = bridge.slice(bridge.indexOf('- (void)finalizeSleepBatch:'), bridge.indexOf('- (void)readBattery'));
+  assert.match(finalize, /\[\[batch status\] isEqual:@"complete"\]/);
+  assert.match(finalize, /\[self.historyRecords\[record\[@"id"\]\] isEqual:record\]/);
+});
+
 test('mapped iOS history remains capability gated and reports per-metric status', () => {
   const policy = read('ios/Runner/CoolWearPolicy.h');
   assert.match(policy, /@"supportsHistorySync": @\(resolved\)/);

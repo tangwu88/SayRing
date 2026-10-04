@@ -171,6 +171,68 @@ void main() {
   });
 
   test(
+    'CoolWear passive sleep updates capabilities and persists without sync',
+    () async {
+      final fixture = await setup();
+      fixture.ring.capabilities = const DeviceCapabilities(
+        metrics: {HealthMetric.heartRate},
+      );
+      await fixture.controller.connectDevice(
+        const DeviceInfo(id: 'coolwear:TEST', name: 'HR01'),
+      );
+      await _settle();
+      expect(
+        fixture.controller.capabilities!.supports(HealthMetric.sleep),
+        isFalse,
+      );
+      final syncCalls = fixture.ring.syncCalls;
+      fixture.ring.emitter.add(
+        const WearableEvent(
+          type: 'capabilitiesUpdated',
+          payload: {
+            'metrics': ['heart_rate', 'sleep'],
+            'historyMetrics': ['sleep'],
+          },
+        ),
+      );
+      final record = _summary(device: 'coolwear:TEST', hours: 2).copyWith(
+        values: {'value': 2, 'deepHours': 1, 'lightHours': 1},
+        sourceVendor: 'coolwear',
+        rawVersion: 2,
+      );
+      fixture.ring.emitter.add(
+        WearableEvent(type: 'healthRecord', payload: record.toJson()),
+      );
+      fixture.ring.emitter.add(
+        WearableEvent(type: 'healthRecord', payload: record.toJson()),
+      );
+      await _settle();
+      expect(
+        fixture.controller.capabilities!.supports(HealthMetric.sleep),
+        isTrue,
+      );
+      expect(fixture.controller.isDeviceSyncing, isFalse);
+      expect(fixture.ring.syncCalls, syncCalls);
+      final sleep = await fixture.controller.loadLatestSleepDay();
+      expect(sleep!.deviceId, 'coolwear:TEST');
+      expect(sleep.values['value'], 2);
+      expect(
+        fixture.controller.healthRecords.where((r) => r.id == record.id),
+        hasLength(1),
+      );
+      expect(
+        await fixture.controller.login('owner-b', 'fixture-password'),
+        isTrue,
+      );
+      fixture.ring.emitter.add(
+        WearableEvent(type: 'healthRecord', payload: record.toJson()),
+      );
+      await _settle();
+      expect(await fixture.controller.loadLatestSleepDay(), isNull);
+    },
+  );
+
+  test(
     'preferred device newer legacy summary is not hidden by another ring',
     () async {
       final test = await setup(connect: true);
@@ -295,6 +357,10 @@ class _Api extends Fake implements SaydianApi {
 class _Wearable extends Fake implements WearableBridge {
   final emitter = StreamController<WearableEvent>.broadcast();
   Future<List<HealthRecord>>? nextSync;
+  DeviceCapabilities capabilities = const DeviceCapabilities(
+    metrics: {HealthMetric.sleep},
+  );
+  int syncCalls = 0;
   @override
   Stream<WearableEvent> get events => emitter.stream;
   @override
@@ -305,11 +371,13 @@ class _Wearable extends Fake implements WearableBridge {
   @override
   Future<void> disconnect() async {}
   @override
-  Future<DeviceCapabilities> getCapabilities() async =>
-      const DeviceCapabilities(metrics: {HealthMetric.sleep});
+  Future<DeviceCapabilities> getCapabilities() async => capabilities;
   @override
-  Future<List<HealthRecord>> syncHealthData({String? cursor}) =>
-      nextSync ?? Future.value([]);
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) {
+    syncCalls++;
+    return nextSync ?? Future.value([]);
+  }
+
   @override
   Future<List<SportRecord>> readSportRecords() async => [];
 }
