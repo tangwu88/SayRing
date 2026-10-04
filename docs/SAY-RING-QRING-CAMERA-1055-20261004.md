@@ -39,3 +39,8 @@
 - 1055 altool 校验于 18:51:19 返回 VERIFY SUCCEEDED，0 错误、1 警告；90068 是 2027 年 4 月最低 iOS 15 的未来要求，目前没有因此拒绝。上传和后台处理仍单独验证。
 - altool 上传于 18:54:26 返回 UPLOAD SUCCEEDED / 0 错误 / 1 个同类警告；40,835,343 字节传输 4.890 秒。上传收据 e1eb66b7-796c-41cb-80e3-8b498505fcff。没有改绑审核构建。
 - 18:58 查询尚未出现 1055 Build 实体。已有 1054 外部 Beta 等待审核；苹果规定同版本同时只能审核一个构建，未擅自撤回 1054 Beta 或现有 App Store 审核。不能据上传成功宣称 1055 已可安装或邀请已发送。
+- 19:03 只读 API 确认 1055 为 VALID，所属 App 6816549943 / cn.saydian.ring；沿用之前已批准且未改变的出口合规设置，保存后回读 usesNonExemptEncryption=false。
+- 中文、英文 What to Test 已保存；首次创建中文遇到苹果预建的空中文记录而返回 409，改为 PATCH 已存在的记录后成功。没有重复创建或修改别的构建。
+- 将 1055 加入既有内部、外部两个测试组并开启自动通知。按测试组的 builds 关联实读，两个组均有 1054、1055；内部状态 IN_BETA_TESTING，外部 READY_FOR_BETA_SUBMISSION。
+- 尝试提交 1055 外部 Beta 返回 HTTP 422 / ENTITY_UNPROCESSABLE.ANOTHER_BUILD_IN_REVIEW；1054 仍 WAITING_FOR_REVIEW。未撤回旧审核，也未宣称外部邀请已发出。待旧 Beta 审核结束才能提交新 Beta。
+- 初次用 builds 的 betaGroups 关系 GET 返回 403，该关系只允许 CREATE/DELETE；改用 betaGroups/{id}/builds 获取成功。此错误不是账号失去权限，不因此扩大人员或 API 密钥权限。
