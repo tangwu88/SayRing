@@ -1,5 +1,5 @@
 import 'widgets/safe_network_image.dart';
-import 'widgets/ios_ring_gesture_guide.dart';
+import 'widgets/ring_gesture_guide.dart';
 import '../l10n/global_locale_controller.dart';
 import '../l10n/ui_labels.dart';
 import 'global_care_page.dart';
@@ -2571,6 +2571,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     bool reload = true,
   }) async {
     final contextKey = _currentFeatureContext;
+    if (widget.feature == DeviceFeature.gestureControl) {
+      setState(() => _featureData = {});
+    }
     final saved = await widget.controller.writeDeviceFeature(
       widget.feature,
       values,
@@ -2585,7 +2588,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         ),
       ),
     );
-    if (saved && reload) await _loadFeature();
+    if (reload && (saved || widget.feature == DeviceFeature.gestureControl)) {
+      await _loadFeature();
+    }
     return saved;
   }
 
@@ -2946,8 +2951,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text('选择戒指手势模式。系统控制效果取决于戒指固件和手机配对。'),
-          if (defaultTargetPlatform == TargetPlatform.iOS)
-            const IosRingGestureGuide(),
+          const RingGestureGuide(),
+          if (_featureData['requiresReconnect'] == true)
+            const Text('重新连接后再设置手势'),
           const SizedBox(height: 12),
           for (final entry in const [
             (0, '关闭'),
@@ -2959,13 +2965,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           ])
             ListTile(
               title: Text(entry.$2),
-              subtitle: defaultTargetPlatform == TargetPlatform.iOS
-                  ? Text(IosRingGestureGuide.modeHint(entry.$1))
-                  : null,
+              subtitle: Text(RingGestureGuide.modeHint(entry.$1)),
               trailing: _featureData['confirmedMode'] == entry.$1
                   ? const Icon(Icons.check_rounded)
                   : null,
-              onTap: busy
+              onTap: busy || _featureData['requiresReconnect'] == true
                   ? null
                   : () => _saveFeature({'mode': entry.$1}, '手势模式指令已确认'),
             ),

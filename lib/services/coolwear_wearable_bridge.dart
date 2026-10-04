@@ -18,8 +18,7 @@ class CoolWearIosWearableBridge extends CoolWearWearableBridge
 
   @override
   Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async {
-    if (feature != DeviceFeature.gestureControl &&
-        feature != DeviceFeature.callReminder) {
+    if (feature != DeviceFeature.callReminder) {
       return super.readDeviceFeature(feature);
     }
     final value = await _invoke<Map<Object?, Object?>>('readDeviceFeature', {
@@ -34,9 +33,7 @@ class CoolWearIosWearableBridge extends CoolWearWearableBridge
   Future<void> writeDeviceFeature(
     DeviceFeature feature,
     Map<String, Object?> values,
-  ) =>
-      feature == DeviceFeature.gestureControl ||
-          feature == DeviceFeature.callReminder
+  ) => feature == DeviceFeature.callReminder
       ? _invoke<void>('writeDeviceFeature', {
           'feature': feature.wireName,
           'values': values,
@@ -275,7 +272,8 @@ class CoolWearWearableBridge
 
   @override
   Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async {
-    if (feature != DeviceFeature.notifications &&
+    if (feature != DeviceFeature.gestureControl &&
+        feature != DeviceFeature.notifications &&
         feature != DeviceFeature.healthReminders) {
       return _unsupported();
     }
@@ -291,14 +289,26 @@ class CoolWearWearableBridge
   Future<void> writeDeviceFeature(
     DeviceFeature feature,
     Map<String, Object?> values,
-  ) =>
-      feature == DeviceFeature.notifications ||
-          feature == DeviceFeature.healthReminders
-      ? _invoke<void>('writeDeviceFeature', {
-          'feature': feature.wireName,
-          'values': values,
-        })
-      : _unsupported();
+  ) {
+    if (feature == DeviceFeature.gestureControl) {
+      final mode = values['mode'];
+      if (mode is! int || mode < 0 || mode > 5) {
+        return Future.error(
+          PlatformException(
+            code: 'INVALID_GESTURE_MODE',
+            message: '请选择有效的手势模式',
+          ),
+        );
+      }
+    } else if (feature != DeviceFeature.notifications &&
+        feature != DeviceFeature.healthReminders) {
+      return _unsupported();
+    }
+    return _invoke<void>('writeDeviceFeature', {
+      'feature': feature.wireName,
+      'values': values,
+    });
+  }
 
   @override
   Future<void> triggerDeviceAction(

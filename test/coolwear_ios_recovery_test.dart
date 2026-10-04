@@ -61,7 +61,7 @@ void main() {
       ]);
       final android = CoolWearWearableBridge(methods: channel);
       await expectLater(
-        android.readDeviceFeature(DeviceFeature.gestureControl),
+        android.readDeviceFeature(DeviceFeature.callReminder),
         throwsA(isA<PlatformException>()),
       );
       await expectLater(

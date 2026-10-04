@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:saydian_app/ui/widgets/ios_ring_gesture_guide.dart';
+import 'package:saydian_app/ui/widgets/ring_gesture_guide.dart';
 
 void main() {
   for (final viewport in const [(320.0, 2.0), (390.0, 1.0)]) {
@@ -20,7 +20,7 @@ void main() {
           home: const Scaffold(
             body: SingleChildScrollView(
               padding: EdgeInsets.all(16),
-              child: IosRingGestureGuide(),
+              child: RingGestureGuide(),
             ),
           ),
         ),
@@ -42,12 +42,12 @@ void main() {
   }
 
   test('mode hints separate system gestures from camera and reminders', () {
-    expect(IosRingGestureGuide.modeHint(0), contains('关闭'));
-    expect(IosRingGestureGuide.modeHint(4), contains('摇一摇拍照'));
-    expect(IosRingGestureGuide.modeHint(5), contains('不等于开启来电提醒'));
+    expect(RingGestureGuide.modeHint(0), contains('关闭'));
+    expect(RingGestureGuide.modeHint(4), contains('摇一摇拍照'));
+    expect(RingGestureGuide.modeHint(5), contains('不等于开启来电提醒'));
     for (var mode = 0; mode <= 5; mode++) {
-      expect(IosRingGestureGuide.modeHint(mode), isNotEmpty);
+      expect(RingGestureGuide.modeHint(mode), isNotEmpty);
     }
-    expect(IosRingGestureGuide.modeHint(6), isEmpty);
+    expect(RingGestureGuide.modeHint(6), isEmpty);
   });
 }

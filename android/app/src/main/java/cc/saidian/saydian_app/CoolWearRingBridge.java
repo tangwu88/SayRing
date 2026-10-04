@@ -31,6 +31,7 @@ import ce.com.cenewbluesdk.entity.k6.K6_Action;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_BATTERY_INFO;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_FUNCTION_CONTROL;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_DRINK_ALARM;
+import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_GESTURE_CONFIG;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_HEART_AUTO_SWITCH;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_REAL_O2;
 import ce.com.cenewbluesdk.entity.k6.K6_DevInfoStruct;
@@ -85,6 +86,9 @@ public final class CoolWearRingBridge
     private MethodChannel.Result pendingSportSync;
     private MethodChannel.Result pendingAutoSettings;
     private MethodChannel.Result pendingReminders;
+    private MethodChannel.Result pendingGesture;
+    private Runnable gestureDeadline;
+    private final CoolWearGestureState gesture = new CoolWearGestureState();
     private Runnable remindersDeadline;
     private Runnable scanDeadline;
     private Runnable connectDeadline;
@@ -183,6 +187,16 @@ public final class CoolWearRingBridge
                         drinkingReminder = reminder;
                         finishReminderReadIfReady();
                     });
+                    return false;
+                });
+        helper.getRcvDataManager().addBleDataResultListener(
+                K6_Action.RCVD.RCVD_DATA_TYPE_GESTURE_DATA,
+                (K6BleDataResult<K6_DATA_TYPE_GESTURE_CONFIG>) value -> {
+                    if (value != null) {
+                        long generation = gesture.generation();
+                        int mode = value.getControlType();
+                        main.post(() -> onGestureMode(mode, generation));
+                    }
                     return false;
                 });
         helper.getRcvDataManager().addBleDataResultListener(
@@ -465,6 +479,7 @@ public final class CoolWearRingBridge
     }
 
     private void failConnect(String code, String message) {
+        resetGesture(code, message);
         if (connectDeadline != null) main.removeCallbacks(connectDeadline);
         connectDeadline = null;
         MethodChannel.Result result = pendingConnect;
@@ -519,6 +534,7 @@ public final class CoolWearRingBridge
             }
             completeConnectIfReady();
         } else if (status == K6_Action.RCVD.BLUE_DISCONNECT) {
+            resetGesture("CONNECTION_DROPPED", "戒指连接中断");
             String retiredId = connectedId;
             cancelHrvFallback();
             linkConnected = false;
@@ -878,6 +894,7 @@ public final class CoolWearRingBridge
         List<String> features = new ArrayList<>();
         features.add("find_watch");
         if (flags != null && flags.isHasGestureSupported()) features.add("camera");
+        if (canUseGesture()) features.add("gesture_control");
         if (flags != null && (flags.isHasHR24H() || flags.isHasO2())) {
             features.add("health_monitoring");
         }
@@ -896,6 +913,77 @@ public final class CoolWearRingBridge
         value.put("supportsWatchFaces", false);
         value.put("supportsOta", false);
         return value;
+    }
+
+    private boolean canUseGesture() {
+        return CoolWearGestureState.supported(linkConnected, deviceInfoReceived,
+                functionControl != null && functionControl.isHasGestureSupported());
+    }
+
+    private Map<String, Object> gestureSettings() {
+        Map<String, Object> value = new HashMap<>();
+        if (gesture.confirmedMode() != null) value.put("confirmedMode", gesture.confirmedMode());
+        value.put("requiresReconnect", gesture.requiresReconnect());
+        return value;
+    }
+
+    private void finishGesture(String code, String message) {
+        if (gestureDeadline != null) main.removeCallbacks(gestureDeadline);
+        gestureDeadline = null;
+        MethodChannel.Result result = pendingGesture;
+        pendingGesture = null;
+        if (result != null) {
+            if (code == null) result.success(null);
+            else result.error(code, message, null);
+        }
+    }
+
+    private void resetGesture(String code, String message) {
+        gesture.reset();
+        finishGesture(code, message);
+    }
+
+    private void onGestureMode(int mode, long generation) {
+        if (!canUseGesture() || pendingGesture == null ||
+                !gesture.confirm(mode, generation, android.os.SystemClock.elapsedRealtime())) return;
+        finishGesture(null, null);
+    }
+
+    private void writeGesture(Map<String, Object> values, MethodChannel.Result result) {
+        if (!canUseGesture()) {
+            result.error("COOLWEAR_FEATURE_UNVERIFIED", "当前戒指不支持手势控制", null);
+            return;
+        }
+        Integer mode = CoolWearGestureState.validMode(values == null ? null : values.get("mode"));
+        if (mode == null) {
+            result.error("INVALID_GESTURE_MODE", "请选择有效的手势模式", null);
+            return;
+        }
+        if (gesture.requiresReconnect()) {
+            result.error("GESTURE_RECONNECT_REQUIRED", "重新连接后再设置手势", null);
+            return;
+        }
+        if (pendingConnect != null || pendingScan != null || pendingHealthSync != null ||
+                pendingSportSync != null || pendingAutoSettings != null || pendingReminders != null ||
+                activeMeasurement != null || activeSportMode != null ||
+                !gesture.begin(mode, android.os.SystemClock.elapsedRealtime())) {
+            result.error("OPERATION_BUSY", "请等待当前设备操作完成", null);
+            return;
+        }
+        pendingGesture = result;
+        gestureDeadline = () -> {
+            gesture.fail();
+            finishGesture("GESTURE_CONFIRMATION_TIMEOUT", "戒指未确认，重新连接后重试");
+        };
+        main.postDelayed(gestureDeadline, CoolWearGestureState.TIMEOUT_MS);
+        try {
+            // Use the OEM send API: its actual wire type is 44. The similarly
+            // named entity.toCEDevData() emits 128 and is not this command.
+            helper.getSendBlueData().sendGestureConfig(mode);
+        } catch (RuntimeException error) {
+            gesture.fail();
+            finishGesture("GESTURE_SEND_FAILED", "手势设置失败，重新连接后重试");
+        }
     }
 
     private void onHeartValues(List<K6_HeartStruct> values) {
@@ -1125,6 +1213,14 @@ public final class CoolWearRingBridge
                 return;
             }
             ensureSdk();
+            if (gesture.pending() && !("disconnect".equals(call.method) ||
+                    "getCapabilities".equals(call.method) || "getDeviceDetails".equals(call.method) ||
+                    "stopScan".equals(call.method) ||
+                    ("readDeviceFeature".equals(call.method) &&
+                            "gesture_control".equals(call.argument("feature"))))) {
+                result.error("OPERATION_BUSY", "请等待手势指令确认", null);
+                return;
+            }
             switch (call.method) {
                 case "scanDevices":
                     if (pendingScan != null) {
@@ -1148,6 +1244,7 @@ public final class CoolWearRingBridge
                         return;
                     }
                     finishScan();
+                    resetGesture("CONNECT_CANCELLED", "连接目标已更换");
                     connectedId = id;
                     connectedName = (String) scanned.get(id).get("name");
                     connectedVendorId = (String) scanned.get(id).get("vendorId");
@@ -1173,6 +1270,7 @@ public final class CoolWearRingBridge
                     main.postDelayed(connectDeadline, CONNECT_MS);
                     break;
                 case "disconnect":
+                    resetGesture("CONNECT_CANCELLED", "连接已断开");
                     finishScan();
                     cancelHrvFallback();
                     failPendingSync("CONNECT_CANCELLED", "连接已断开");
@@ -1199,7 +1297,7 @@ public final class CoolWearRingBridge
                     break;
                 case "getDeviceDetails":
                     // Battery is part of this SDK's non-destructive info read.
-                    if (linkConnected && deviceInfoReceived && pendingHealthSync == null && pendingSportSync == null &&
+                    if (linkConnected && deviceInfoReceived && !gesture.pending() && pendingHealthSync == null && pendingSportSync == null &&
                             activeMeasurement == null && android.os.SystemClock.elapsedRealtime() - batteryQueryAt >= 8_000L) {
                         batteryQueryAt = android.os.SystemClock.elapsedRealtime();
                         helper.getSendDataManager().sendAsynInfo();
@@ -1293,6 +1391,11 @@ public final class CoolWearRingBridge
                     result.success(null);
                     break;
                 case "readDeviceFeature":
+                    if ("gesture_control".equals(call.argument("feature"))) {
+                        if (canUseGesture()) result.success(gestureSettings());
+                        else result.error("COOLWEAR_FEATURE_UNVERIFIED", "当前戒指不支持手势控制", null);
+                        return;
+                    }
                     if (!isConnectedHr05()) {
                         result.error("COOLWEAR_FEATURE_UNVERIFIED", "此戒指功能不受支持", null);
                         return;
@@ -1307,6 +1410,10 @@ public final class CoolWearRingBridge
                     }
                     break;
                 case "writeDeviceFeature":
+                    if ("gesture_control".equals(call.argument("feature"))) {
+                        writeGesture(call.argument("values"), result);
+                        return;
+                    }
                     if (!isConnectedHr05()) {
                         result.error("COOLWEAR_FEATURE_UNVERIFIED", "此戒指功能不受支持", null);
                         return;
@@ -1456,6 +1563,7 @@ public final class CoolWearRingBridge
     }
 
     public void dispose() {
+        resetGesture("BRIDGE_DISPOSED", "戒指连接已关闭");
         if (activeBridge == this) activeBridge = null;
         linkConnected = false;
         deviceInfoReceived = false;

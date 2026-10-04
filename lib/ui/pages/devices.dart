@@ -1436,6 +1436,19 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                     ),
                     const Divider(indent: 16),
                     ListTile(
+                      key: const Key('device-firmware-upgrade'),
+                      leading: const Icon(Icons.system_update_alt_rounded),
+                      title: const Text('固件升级'),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              DeviceFirmwarePage(controller: widget.controller),
+                        ),
+                      ),
+                    ),
+                    const Divider(indent: 16),
+                    ListTile(
                       title: Text(context.l10n.watchBattery),
                       subtitle: battery?.updatedAt == null
                           ? null
@@ -1475,6 +1488,105 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
       ),
     );
   }
+}
+
+/// Device firmware, not the App update flow. A transport capability alone does
+/// not establish an authenticated, hardware-compatible firmware release.
+class DeviceFirmwarePage extends StatefulWidget {
+  const DeviceFirmwarePage({required this.controller, super.key});
+  final AppController controller;
+
+  @override
+  State<DeviceFirmwarePage> createState() => _DeviceFirmwarePageState();
+}
+
+class _DeviceFirmwarePageState extends State<DeviceFirmwarePage> {
+  bool _refreshing = false;
+  String? _refreshError;
+  String? _refreshErrorDeviceId;
+
+  Future<void> _refresh() async {
+    final deviceId = widget.controller.connectedDevice?.id;
+    if (_refreshing || deviceId == null) return;
+    setState(() {
+      _refreshing = true;
+      _refreshError = null;
+      _refreshErrorDeviceId = null;
+    });
+    final success = await widget.controller.refreshConnectedDeviceDetails(
+      quiet: true,
+    );
+    if (!mounted) return;
+    setState(() {
+      _refreshing = false;
+      if (!success && widget.controller.connectedDevice?.id == deviceId) {
+        _refreshError = '设备信息刷新失败，重试';
+        _refreshErrorDeviceId = deviceId;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('固件升级')),
+    body: ListenableBuilder(
+      listenable: widget.controller,
+      builder: (context, _) {
+        final connected = widget.controller.connectedDevice;
+        final device = connected ?? widget.controller.rememberedDevice;
+        final version = device?.firmwareVersion?.trim();
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      device?.name ?? '未连接设备',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      '当前固件：${version?.isNotEmpty == true ? version : '未知'}',
+                    ),
+                    if (connected == null) const Text('连接戒指后可刷新版本'),
+                    const SizedBox(height: 16),
+                    const Text('在线固件升级暂未开放'),
+                    const SizedBox(height: 8),
+                    const Text('尚未接入经过验证的原厂固件和升级服务，不会向戒指写入固件。'),
+                  ],
+                ),
+              ),
+            ),
+            if (_refreshError != null && connected?.id == _refreshErrorDeviceId)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  _refreshError!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              key: const Key('firmware-refresh-device'),
+              onPressed: _refreshing || connected == null ? null : _refresh,
+              icon: _refreshing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh_rounded),
+              label: Text(_refreshing ? '正在刷新' : '刷新设备信息'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
 }
 
 class _ConnectionBadge extends StatelessWidget {

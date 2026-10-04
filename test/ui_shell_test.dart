@@ -2312,6 +2312,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byIcon(Icons.check_rounded), findsNothing);
+      await tester.ensureVisible(find.text('拍照'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('拍照'));
       await tester.pumpAndSettle();
       expect(bridge.lastWrite, {'mode': 4});
@@ -2320,8 +2322,167 @@ void main() {
     },
   );
 
+  testWidgets(
+    'gesture timeout removes old confirmation and blocks unsafe retry',
+    (tester) async {
+      final bridge = _TimeoutControlWearable();
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              bridge,
+            )
+            ..connectedDevice = const DeviceInfo(
+              id: 'coolwear:one',
+              name: 'HR01',
+            )
+            ..capabilities = const DeviceCapabilities(
+              metrics: {},
+              features: {DeviceFeature.gestureControl},
+              integratedFeatures: {DeviceFeature.gestureControl},
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DeviceFeaturePage(
+            controller: controller,
+            feature: DeviceFeature.gestureControl,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+      await tester.ensureVisible(find.text('拍照'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('拍照'));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.check_rounded), findsNothing);
+      expect(find.text('重新连接后再设置手势'), findsOneWidget);
+      final photoTile = tester.widget<ListTile>(
+        find.ancestor(of: find.text('拍照'), matching: find.byType(ListTile)),
+      );
+      expect(photoTile.onTap, isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('firmware entry opens without claiming an available upgrade', (
+    tester,
+  ) async {
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            _NoopApi(),
+            MemoryHealthStore(),
+            _NoopWearable(),
+          )
+          ..connectedDevice = const DeviceInfo(
+            id: 'coolwear:test-device',
+            name: 'HR01',
+            firmwareVersion: '758.2.1.9.0',
+          )
+          ..capabilities = const DeviceCapabilities(
+            metrics: {},
+            supportsOta: true,
+          );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: DeviceInfoPage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('device-firmware-upgrade')));
+    await tester.pumpAndSettle();
+    expect(find.byType(DeviceFirmwarePage), findsOneWidget);
+    expect(find.text('当前固件：758.2.1.9.0'), findsOneWidget);
+    expect(find.text('在线固件升级暂未开放'), findsOneWidget);
+    expect(find.textContaining('已是最新'), findsNothing);
+    expect(find.text('立即升级'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('firmware page clears disconnected device and refresh failures', (
+    tester,
+  ) async {
+    final bridge = _FirmwareDetailsWearable();
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      bridge,
+    )..connectedDevice = const DeviceInfo(id: 'coolwear:one', name: 'HR01');
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: DeviceFirmwarePage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('当前固件：未知'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('firmware-refresh-device')));
+    await tester.pumpAndSettle();
+    expect(find.text('设备信息刷新失败，重试'), findsOneWidget);
+    controller.connectedDevice = null;
+    controller.notifyListeners();
+    await tester.pumpAndSettle();
+    expect(find.text('设备信息刷新失败，重试'), findsNothing);
+    expect(find.text('未连接设备'), findsOneWidget);
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const Key('firmware-refresh-device')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(bridge.reads, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'firmware page shows refreshed version and fits narrow large text',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final bridge = _FirmwareDetailsWearable()
+        ..details = const DeviceInfo(
+          id: 'coolwear:one',
+          name: 'HR01',
+          firmwareVersion: '758.2.1.9.0',
+        );
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        bridge,
+      )..connectedDevice = const DeviceInfo(id: 'coolwear:one', name: 'HR01');
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: DeviceFirmwarePage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('firmware-refresh-device')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('firmware-refresh-device')));
+      await tester.pumpAndSettle();
+      expect(find.text('当前固件：758.2.1.9.0'), findsOneWidget);
+      expect(bridge.reads, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
-    testWidgets('gesture usage guide is iOS-only: $platform', (tester) async {
+    testWidgets('gesture usage guide is shared: $platform', (tester) async {
       debugDefaultTargetPlatformOverride = platform;
       try {
         final bridge = _ControlTrackingWearable();
@@ -2351,17 +2512,19 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        final guide = find.byKey(const ValueKey('ios-ring-gesture-guide'));
-        if (platform == TargetPlatform.iOS) {
-          expect(guide, findsOneWidget);
-          await tester.ensureVisible(find.text('使用说明'));
-          await tester.tap(find.text('使用说明'));
-          await tester.pumpAndSettle();
-          expect(find.text('使用前'), findsOneWidget);
-          expect(find.text('没有反应？'), findsOneWidget);
-        } else {
-          expect(guide, findsNothing);
-        }
+        final guide = find.byKey(const ValueKey('ring-gesture-guide'));
+        expect(guide, findsOneWidget);
+        await tester.ensureVisible(find.text('使用说明'));
+        await tester.tap(find.text('使用说明'));
+        await tester.pumpAndSettle();
+        expect(find.text('使用前'), findsOneWidget);
+        expect(find.text('没有反应？'), findsOneWidget);
+        expect(
+          find.textContaining(
+            platform == TargetPlatform.iOS ? '戒指靠近iPhone' : '戒指靠近安卓手机',
+          ),
+          findsOneWidget,
+        );
         expect(bridge.lastWrite, isNull);
         expect(find.byIcon(Icons.check_rounded), findsNothing);
         expect(tester.takeException(), isNull);
@@ -4436,6 +4599,33 @@ class _ControlTrackingWearable extends _NoopWearable {
     Map<String, Object?> values,
   ) async {
     lastWrite = values;
+  }
+}
+
+class _FirmwareDetailsWearable extends _NoopWearable
+    implements WearableDeviceDetailsBridge {
+  int reads = 0;
+  DeviceInfo? details;
+  @override
+  Future<DeviceInfo?> getConnectedDeviceDetails() async {
+    reads++;
+    if (details == null) throw PlatformException(code: 'READ_FAILED');
+    return details;
+  }
+}
+
+class _TimeoutControlWearable extends _ControlTrackingWearable {
+  bool timedOut = false;
+  @override
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async =>
+      timedOut ? {'requiresReconnect': true} : {'confirmedMode': 2};
+  @override
+  Future<void> writeDeviceFeature(
+    DeviceFeature feature,
+    Map<String, Object?> values,
+  ) async {
+    timedOut = true;
+    throw PlatformException(code: 'GESTURE_CONFIRMATION_TIMEOUT');
   }
 }
 
