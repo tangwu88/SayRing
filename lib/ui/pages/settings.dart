@@ -947,7 +947,11 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
 
   Future<void> _refresh() async {
     final statuses = <Permission, PermissionStatus>{};
-    for (final permission in _permissions) {
+    // Camera visibility can change after a late capability handshake. Read its
+    // OS status now without requesting access; otherwise a newly visible row
+    // would falsely look unreadable until this page is reopened.
+    final permissionsToCheck = {..._permissions, Permission.camera};
+    for (final permission in permissionsToCheck) {
       try {
         statuses[permission] = await permission.status;
       } catch (_) {

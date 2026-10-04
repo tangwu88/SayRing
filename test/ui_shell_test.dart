@@ -552,7 +552,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(checked, [21, 5]);
+        expect(checked, [21, 5, 1]);
         final bluetooth = find.ancestor(
           of: find.text('蓝牙'),
           matching: find.byType(ListTile),
@@ -575,6 +575,84 @@ void main() {
       }
     },
   );
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    testWidgets('camera permission survives a late $platform handshake', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      try {
+        const channel = MethodChannel(
+          'flutter.baseflow.com/permissions/methods',
+        );
+        final checked = <int>[];
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          (call) async {
+            if (call.method != 'checkPermissionStatus') {
+              throw StateError('Permission inspection must not request access');
+            }
+            checked.add(call.arguments as int);
+            return call.arguments == 1 ? 1 : 0;
+          },
+        );
+        addTearDown(() {
+          debugDefaultTargetPlatformOverride = null;
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            channel,
+            null,
+          );
+        });
+        final controller = AppController(
+          MemorySessionVault(),
+          _NoopApi(),
+          MemoryHealthStore(),
+          _NoopWearable(),
+        );
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(home: PermissionManagementPage(controller: controller)),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('相机（戒指遥控拍照）'), findsNothing);
+        expect(checked.where((permission) => permission == 1), hasLength(1));
+
+        controller.connectedDevice = const DeviceInfo(
+          id: 'qring:test-target',
+          name: 'R21_TEST',
+        );
+        controller.capabilities = const DeviceCapabilities(
+          metrics: {},
+          features: {DeviceFeature.camera},
+          integratedFeatures: {DeviceFeature.camera},
+        );
+        controller.deviceCapabilityState = DeviceCapabilityState.ready;
+        controller.notifyListeners();
+        await tester.pumpAndSettle();
+        final camera = find.ancestor(
+          of: find.text('相机（戒指遥控拍照）'),
+          matching: find.byType(ListTile),
+        );
+        expect(camera, findsOneWidget);
+        expect(
+          find.descendant(of: camera, matching: find.text('已允许')),
+          findsOneWidget,
+        );
+        expect(find.text('状态暂不可读取'), findsNothing);
+
+        controller.connectedDevice = null;
+        controller.capabilities = null;
+        controller.deviceCapabilityState = DeviceCapabilityState.disconnected;
+        controller.notifyListeners();
+        await tester.pumpAndSettle();
+        expect(find.text('相机（戒指遥控拍照）'), findsNothing);
+        expect(checked.where((permission) => permission == 1), hasLength(1));
+        expect(tester.takeException(), isNull);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+  }
 
   for (final enabled in [false, true]) {
     testWidgets('commerce visibility $enabled covers all external entry points', (
