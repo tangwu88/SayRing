@@ -1,4 +1,6 @@
 "CFBundleDisplayName" = "Say Ring";
+"NSHealthShareUsageDescription" = "통합 기기 SDK에 Apple 건강 읽기 API가 포함되어 있습니다. 이 버전은 해당 데이터를 읽지 않습니다. 접근을 거부해도 링 기능에 영향을 주지 않습니다.";
+"NSHealthUpdateUsageDescription" = "통합 기기 SDK에 Apple 건강 쓰기 API가 포함되어 있습니다. 이 버전은 해당 데이터를 쓰지 않습니다. 접근을 거부해도 링 기능에 영향을 주지 않습니다.";
 "NSBluetoothAlwaysUsageDescription" = "링에 연결하고 사용자가 공유를 허용한 건강 데이터를 동기화합니다.";
 "NSAppleMusicUsageDescription" = "통합 기기 SDK가 Apple Music 접근을 선언할 수 있습니다. 이 버전은 해당 기능을 제공하지 않으며 접근을 거부할 수 있습니다.";
 "NSSpeechRecognitionUsageDescription" = "통합 기기 SDK가 음성 인식 접근을 선언할 수 있습니다. 이 버전은 음성 기능을 제공하지 않으며 접근을 거부할 수 있습니다.";

@@ -34,6 +34,10 @@
 	<string>Use the camera only when you choose to take a photo with a compatible ring.</string>
 	<key>NSAppleMusicUsageDescription</key>
 	<string>An integrated device SDK may declare Apple Music access. This version does not offer Apple Music features, and you may decline access.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>An integrated device SDK includes Apple Health read APIs. This version does not read Apple Health data, and you may decline access without affecting ring features.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>An integrated device SDK includes Apple Health write APIs. This version does not write Apple Health data, and you may decline access without affecting ring features.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Use your location for supported health and activity features.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

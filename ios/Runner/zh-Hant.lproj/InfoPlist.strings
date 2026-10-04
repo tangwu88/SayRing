@@ -1,4 +1,6 @@
 "CFBundleDisplayName" = "Say Ring";
+"NSHealthShareUsageDescription" = "整合的裝置 SDK 包含 Apple 健康讀取介面。本版本不讀取 Apple 健康資料，您可拒絕授權，不影響戒指功能。";
+"NSHealthUpdateUsageDescription" = "整合的裝置 SDK 包含 Apple 健康寫入介面。本版本不寫入 Apple 健康資料，您可拒絕授權，不影響戒指功能。";
 "NSBluetoothAlwaysUsageDescription" = "連接戒指並同步您主動授權的健康資料。";
 "NSAppleMusicUsageDescription" = "整合的裝置 SDK 可能宣告 Apple Music 存取。本版本不提供 Apple Music 功能，您可拒絕授權。";
 "NSSpeechRecognitionUsageDescription" = "整合的裝置 SDK 可能宣告語音辨識存取。本版本不提供語音功能，您可拒絕授權。";

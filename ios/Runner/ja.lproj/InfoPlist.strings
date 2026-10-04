@@ -1,4 +1,6 @@
 "CFBundleDisplayName" = "Say Ring";
+"NSHealthShareUsageDescription" = "統合デバイス SDK に Apple ヘルスケアの読み取り API が含まれます。このバージョンはそのデータを読み取りません。拒否してもリングの機能は利用できます。";
+"NSHealthUpdateUsageDescription" = "統合デバイス SDK に Apple ヘルスケアの書き込み API が含まれます。このバージョンはそのデータを書き込みません。拒否してもリングの機能は利用できます。";
 "NSBluetoothAlwaysUsageDescription" = "リングに接続し、共有を許可した健康データを同期します。";
 "NSAppleMusicUsageDescription" = "統合されたデバイス SDK が Apple Music アクセスを宣言する場合があります。このバージョンでは機能を提供せず、アクセスは拒否できます。";
 "NSSpeechRecognitionUsageDescription" = "統合されたデバイス SDK が音声認識アクセスを宣言する場合があります。このバージョンでは音声機能を提供せず、アクセスは拒否できます。";

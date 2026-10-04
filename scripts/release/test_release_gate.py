@@ -70,6 +70,42 @@ class ReleaseGateTest(unittest.TestCase):
                     if locale == "en":
                         self.assertEqual(info[key], values[0])
 
+    def test_ios_health_sdk_descriptions_do_not_claim_active_integration(self) -> None:
+        runner = HERE.parents[1] / "ios/Runner"
+        info = plistlib.loads((runner / "Info.plist").read_bytes())
+        for key, action in (
+            ("NSHealthShareUsageDescription", "read"),
+            ("NSHealthUpdateUsageDescription", "write"),
+        ):
+            with self.subTest(key=key):
+                self.assertIn("integrated device SDK", info[key])
+                self.assertIn(f"This version does not {action} Apple Health data", info[key])
+                self.assertIn("you may decline access without affecting ring features", info[key])
+                self.assertNotIn("$(", info[key])
+
+        for filename in ("Runner.entitlements", "RunnerDebug.entitlements"):
+            entitlements = plistlib.loads((runner / filename).read_bytes())
+            self.assertFalse(any(key.startswith("com.apple.developer.healthkit") for key in entitlements))
+
+    def test_ios_health_sdk_descriptions_cover_all_locales(self) -> None:
+        runner = HERE.parents[1] / "ios/Runner"
+        info = plistlib.loads((runner / "Info.plist").read_bytes())
+        for locale in ("en", "zh-Hans", "zh-Hant", "de", "fr", "es", "ja", "ko"):
+            entries = re.findall(
+                r'^"([^"\\]+)"\s*=\s*"((?:\\.|[^"\\])*)";$',
+                (runner / f"{locale}.lproj/InfoPlist.strings").read_text(encoding="utf-8"),
+                flags=re.MULTILINE,
+            )
+            for key in ("NSHealthShareUsageDescription", "NSHealthUpdateUsageDescription"):
+                with self.subTest(locale=locale, key=key):
+                    values = [value for entry_key, value in entries if entry_key == key]
+                    self.assertEqual(len(values), 1)
+                    self.assertGreater(len(values[0].strip()), 20)
+                    self.assertIn("SDK", values[0])
+                    self.assertNotIn("$(", values[0])
+                    if locale == "en":
+                        self.assertEqual(info[key], values[0])
+
     def test_ios_vendor_descriptions_do_not_add_background_permissions(self) -> None:
         info = plistlib.loads((HERE.parents[1] / "ios/Runner/Info.plist").read_bytes())
         self.assertEqual(info["UIBackgroundModes"], ["bluetooth-central"])

@@ -1,4 +1,6 @@
 "CFBundleDisplayName" = "Say Ring";
+"NSHealthShareUsageDescription" = "An integrated device SDK includes Apple Health read APIs. This version does not read Apple Health data, and you may decline access without affecting ring features.";
+"NSHealthUpdateUsageDescription" = "An integrated device SDK includes Apple Health write APIs. This version does not write Apple Health data, and you may decline access without affecting ring features.";
 "NSBluetoothAlwaysUsageDescription" = "Connect to your ring and sync health data you choose to share.";
 "NSCameraUsageDescription" = "Use the camera only when you choose to take a photo with a compatible ring.";
 "NSAppleMusicUsageDescription" = "An integrated device SDK may declare Apple Music access. This version does not offer Apple Music features, and you may decline access.";

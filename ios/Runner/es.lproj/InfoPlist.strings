@@ -1,4 +1,6 @@
 "CFBundleDisplayName" = "Say Ring";
+"NSHealthShareUsageDescription" = "Un SDK de dispositivo integrado incluye API de lectura de Salud de Apple. Esta versión no lee esos datos. Puede rechazar el acceso sin afectar las funciones del anillo.";
+"NSHealthUpdateUsageDescription" = "Un SDK de dispositivo integrado incluye API de escritura de Salud de Apple. Esta versión no escribe esos datos. Puede rechazar el acceso sin afectar las funciones del anillo.";
 "NSBluetoothAlwaysUsageDescription" = "Conecte su anillo y sincronice los datos de salud que autorice.";
 "NSAppleMusicUsageDescription" = "Un SDK de dispositivo integrado puede declarar acceso a Apple Music. Esta versión no ofrece esa función y puede rechazar el acceso.";
 "NSSpeechRecognitionUsageDescription" = "Un SDK de dispositivo integrado puede declarar acceso al reconocimiento de voz. Esta versión no ofrece esa función y puede rechazar el acceso.";

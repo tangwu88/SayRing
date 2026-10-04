@@ -217,3 +217,9 @@
 - 原厂队列在 sendCallback 返回后才清理当前命令。回调内同步发回读会有清掉新 callback 的风险；无论是否已经在主线程，后续命令都应排到下一轮主线程。合成回归复现队列顺序，不是实物结果。
 - Android find 为单次指令而非 start/stop 状态机；共享 UI 不应永久禁用按钮或展示无实现的停止按钮。iOS 原厂有 0/1 指令，但 ACK 不是物理振动证据。
 - 手势/相机必须使用平台实际能力字段；来电设置回读与蓝牙 ANCS 授权不同于本 App 推送权限。切换了设备或账号后，不得让迟到读写结果更新新设备的缓存、勾选或成功提示。
+
+## 2026-10-04 追加：上传成功不等于 TestFlight 处理成功
+
+- 1053 本机验签、altool 验证和上传成功，苹果后台随后因 CoolWear BluetoothLibrary 的 HealthKit 符号而拒绝；缺少 NSHealthShareUsageDescription / NSHealthUpdateUsageDescription（90683）。必须分别验收本机构建、上传、处理、测试分发和手机安装。
+- 1054 补全准确 SDK 用途说明及既有 8 语言，不新增 HealthKit entitlement、请求或云上传。自动门禁检查字段和全语言条目，禁止为了通过静态扫描宣称本版已经读写 Apple 健康数据。
+- devicectl 的应用清单默认只列开发 App；核对 TestFlight / App Store 安装时必须包含默认应用并精确筛选包名，不能把默认列表为空当作商店 App 未安装的证据。
