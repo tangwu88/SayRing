@@ -24,3 +24,12 @@
 - 因断连未完成连续三次冷启动、Debug VM/热重载、逐页操作、真实头像上传与戒指专项；这些仍待验。手机现有安装保持为可独立启动的签名 Profile，不把没有调试器的 Debug 留在手机上。
 - 本轮未改业务源码。若真机发现需修复的问题，将另记根因、范围、递增构建号和全量回归；真实戒指、照片上传等专项没有执行时仍标待验。
 - 本轮仅新增本记录和索引；`git diff --check` 通过。业务源码仍为上述已全量回归的 1042 基线，不将先前 Android 头像真实上传的成功移作本轮 iPhone 验收结论。
+
+## 连接恢复后的续验
+
+- 用户要求“更新”后重新 fetch，当前分支与 origin 一致，工作树干净；业务版本仍为 1042，没有虚构新版本或创建无内容代码提交。磁盘可用空间约 13 GiB。
+- iPhone 15 Pro Max 恢复为 available (paired)，查询后为 connected；实际 App 清单仍为 cn.saydian.ring / 1.0.0 (1042)。截图设备页保留 HR01 绑定，显示等待靠近；本轮尚未取得新的握手或测量回包，不能标设备连接通过。
+- 未附加 Flutter 的 Profile 用 `devicectl device process launch --terminate-existing ... cn.saydian.ring` 连续重新启动三次；每次等待 20 秒后 `device info processes` 核对该次 PID 仍存活，三次均通过。没有注销、解绑或清理手机数据。
+- 严格校验已构建 Debug 签名，包名 cn.saydian.ring、版本 1.0.0 (1042)、仅 iPhone、get-task-allow=true。Flutter 本地实现确认预构建输入支持 .app 目录；首次 run 命令误用 build 专用的 --build-name/--build-number，CLI 在安装前返回不支持选项，随后移除这两个参数，实际版本由已签名 app 保持。
+- 修正 run 参数后，预构建 Debug 原位安装/启动耗时 18.4 秒，Dart VM 与文件同步出现，文件同步 354 ms；随后 Flutter 报 Lost connection to device 并结束，未完成热重载或持续 Debug 稳定性验收。该观察窗口没有 Unhandled Exception、RenderFlex overflow、SIGABRT、EXC_BAD_ACCESS 文本，但不能据此排除崩溃或把断连当作通过。
+- 用户随后要求排查安卓自动重连，结束本轮 iPhone 界面操作。先重新原位安装独立保存的签名 Profile 1042，并启动；两个 devicectl 操作实际均 success，保留数据，不将需调试器的 Debug 留给用户独立启动。Debug 短时断连根因、头像上传、完整逐页与 HR01 测量仍待后续专门验收。
