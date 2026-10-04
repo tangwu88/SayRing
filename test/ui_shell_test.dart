@@ -2320,6 +2320,57 @@ void main() {
     },
   );
 
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    testWidgets('gesture usage guide is iOS-only: $platform', (tester) async {
+      debugDefaultTargetPlatformOverride = platform;
+      try {
+        final bridge = _ControlTrackingWearable();
+        final controller =
+            AppController(
+                MemorySessionVault(),
+                _NoopApi(),
+                MemoryHealthStore(),
+                bridge,
+              )
+              ..connectedDevice = const DeviceInfo(
+                id: 'coolwear:test-device',
+                name: 'HR01',
+              )
+              ..capabilities = const DeviceCapabilities(
+                metrics: {},
+                features: {DeviceFeature.gestureControl},
+                integratedFeatures: {DeviceFeature.gestureControl},
+              );
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DeviceFeaturePage(
+              controller: controller,
+              feature: DeviceFeature.gestureControl,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final guide = find.byKey(const ValueKey('ios-ring-gesture-guide'));
+        if (platform == TargetPlatform.iOS) {
+          expect(guide, findsOneWidget);
+          await tester.ensureVisible(find.text('使用说明'));
+          await tester.tap(find.text('使用说明'));
+          await tester.pumpAndSettle();
+          expect(find.text('使用前'), findsOneWidget);
+          expect(find.text('没有反应？'), findsOneWidget);
+        } else {
+          expect(guide, findsNothing);
+        }
+        expect(bridge.lastWrite, isNull);
+        expect(find.byIcon(Icons.check_rounded), findsNothing);
+        expect(tester.takeException(), isNull);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+  }
+
   testWidgets(
     'CoolWear call reminder separates device switch from iOS authorization',
     (tester) async {

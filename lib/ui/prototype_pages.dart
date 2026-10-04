@@ -1,4 +1,5 @@
 import 'widgets/safe_network_image.dart';
+import 'widgets/ios_ring_gesture_guide.dart';
 import '../l10n/global_locale_controller.dart';
 import '../l10n/ui_labels.dart';
 import 'global_care_page.dart';
@@ -2945,6 +2946,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text('选择戒指手势模式。系统控制效果取决于戒指固件和手机配对。'),
+          if (defaultTargetPlatform == TargetPlatform.iOS)
+            const IosRingGestureGuide(),
           const SizedBox(height: 12),
           for (final entry in const [
             (0, '关闭'),
@@ -2956,6 +2959,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           ])
             ListTile(
               title: Text(entry.$2),
+              subtitle: defaultTargetPlatform == TargetPlatform.iOS
+                  ? Text(IosRingGestureGuide.modeHint(entry.$1))
+                  : null,
               trailing: _featureData['confirmedMode'] == entry.$1
                   ? const Icon(Icons.check_rounded)
                   : null,
