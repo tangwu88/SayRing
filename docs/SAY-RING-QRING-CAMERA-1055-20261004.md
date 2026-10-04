@@ -44,3 +44,16 @@
 - 将 1055 加入既有内部、外部两个测试组并开启自动通知。按测试组的 builds 关联实读，两个组均有 1054、1055；内部状态 IN_BETA_TESTING，外部 READY_FOR_BETA_SUBMISSION。
 - 尝试提交 1055 外部 Beta 返回 HTTP 422 / ENTITY_UNPROCESSABLE.ANOTHER_BUILD_IN_REVIEW；1054 仍 WAITING_FOR_REVIEW。未撤回旧审核，也未宣称外部邀请已发出。待旧 Beta 审核结束才能提交新 Beta。
 - 初次用 builds 的 betaGroups 关系 GET 返回 403，该关系只允许 CREATE/DELETE；改用 betaGroups/{id}/builds 获取成功。此错误不是账号失去权限，不因此扩大人员或 API 密钥权限。
+
+## 19:20–19:33 入口缺失反馈与 Android 实物续核
+
+- 开始时 fetch、当前分支 ff-only 和 HEAD 核对完成：7dd15eb，工作树干净。只核对/安装既有 1055 产物，本轮不改运行时代码、不重新构建；此前测试及构建仍是此前证据。
+- `devicectl list devices` 中 iPhone 均 unavailable。本轮没有 iPhone 安装或拍照效果证据。ADB 有 Huawei PPA_LX3 / Android 10，手机原包是 1.0.0 (1053)，尚未安装新增设备功能入口的 1055。
+- `aapt dump badging` 与 `apksigner verify --print-certs` 确认两个既有 APK 都为 cn.saydian.ring / 1.0.0 (1055)、同一 QA 签名。`adb install -r app-release.apk` 成功；系统安装扫描显示未发现风险，经标准确认流程继续，未关闭安全检查、未卸载或清数据。
+- 覆盖后真实登录、头像和已有健康记录可见，保存的 R21 自动重新握手。设备页有“固件升级”；进入固件页显示真实的未知版本和“在线固件升级暂未开放”，没有虚报可用固件。相机入口仍不显示，因此旧版本并不是拍照缺失的全部原因。
+- 为核对实际 SDK 能力，临时同签名覆盖既有 1055 Debug，连接 SDK 握手后通过 JDWP 只读所持 DeviceSupportFunctionRsp 字段；没有反射调用设备命令、修改字段、暂停线程、读取账号凭据或健康数据库。第一次读取早于握手，明确报 Handshake not ready；随后两次一致返回 supportGesture=true、supportRingCamera=false、supportTouch=false、supportRingCameraTouch=false、supportRt11=false、supportBlePair=true。
+- 上述结果只证明本次连接的 R21 没有报告拍照能力，不推及全部 QRing 型号，也不据此断言硬件永久不支持。现有能力门控拒绝强行启用模式 5；如原厂 App 可用，需要进一步核对同一实物的原厂功能/固件和协议，不用另一型号或合成数据替代。
+- 只读调试完成后移除本次 JDWP 端口转发，再次 `adb install -r app-release.apk` 成功，恢复普通 QA Release；`dumpsys package` 回读 1055 且无 DEBUGGABLE 标记，启动成功、R21 再次自动连接。最终 APK SHA-256：30bf13322ec873ebc6b2f4493a3dfa3a451d88bbe42f1b82f796d9c24bb784db。
+- `TZ=Asia/Shanghai flutter test --no-pub test/ui_shell_test.dart --plain-name 'QRing device functions' --reporter expanded`：2/2；`--plain-name firmware`：5/5（含上述两个用例），均通过。原生既有策略测试遍历全部 32 种功能位组合，原测试证据不冒充本轮新跑。只追加记录，不重复双端构建/全量测试或制作新构建号。
+- 真实截图、UI dump、JDWP 辅助脚本只保留在本机私有临时目录，不入 Git。未向戒指写手势模式/固件，未改 App Store 审核。固件查询/下载/写入和实际拍照仍未完成；可信原厂固件、型号适配与失败恢复资源缺失的阻断继续保留。
+- Apple API 续核：1055 内部 IN_BETA_TESTING、外部 READY_FOR_BETA_SUBMISSION；1054 仍 WAITING_FOR_REVIEW。没有外部可安装或新邀请发送证明，未撤回旧 Beta。
