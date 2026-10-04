@@ -233,6 +233,32 @@ void main() {
   );
 
   test(
+    'monitoring write cannot finish into another account and duplicate clicks are ignored',
+    () async {
+      final fixture = await setup(connect: true);
+      fixture.controller.autoMeasureSettings = {'heartRate': true};
+      final pending = Completer<void>();
+      fixture.ring.nextSetting = pending.future;
+      final writing = fixture.controller.setAutoMeasureSetting(
+        'heartRate',
+        false,
+      );
+      expect(fixture.controller.isDeviceSettingsWriting, isTrue);
+      await fixture.controller.setAutoMeasureSetting('heartRate', false);
+      expect(fixture.ring.settingCalls, 1);
+      expect(
+        await fixture.controller.login('owner-b', 'fixture-password'),
+        isTrue,
+      );
+      expect(fixture.controller.autoMeasureSettings, isEmpty);
+      pending.complete();
+      await writing;
+      expect(fixture.controller.autoMeasureSettings, isEmpty);
+      expect(fixture.controller.isDeviceSettingsWriting, isFalse);
+    },
+  );
+
+  test(
     'preferred device newer legacy summary is not hidden by another ring',
     () async {
       final test = await setup(connect: true);
@@ -361,6 +387,14 @@ class _Wearable extends Fake implements WearableBridge {
     metrics: {HealthMetric.sleep},
   );
   int syncCalls = 0;
+  Future<void>? nextSetting;
+  int settingCalls = 0;
+  @override
+  Future<void> setAutoMeasureSetting(String type, bool enabled) {
+    settingCalls++;
+    return nextSetting ?? Future.value();
+  }
+
   @override
   Stream<WearableEvent> get events => emitter.stream;
   @override

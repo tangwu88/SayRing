@@ -37,6 +37,30 @@ test('one-shot sleep packets are processed after automatic recovery without a ma
   assert.match(finalize, /\[self.historyRecords\[record\[@"id"\]\] isEqual:record\]/);
 });
 
+test('health monitoring uses complete SDK state and verifies writes with a fresh read', () => {
+  assert.match(bridge, /type.integerValue == DATA_TYPE_HEART_AUTO_SWITCH/);
+  assert.match(bridge, /CoolWearMonitoringSettings\(self.monitoringSnapshot, self.flags\).count/);
+  assert.match(bridge, /value\[@"integratedFeatures"\] = @\[@"health_monitoring"\]/);
+  for (const property of ['onoff', 'hr24hOnoff', 'O2_onoff', 'time']) {
+    assert.match(bridge, new RegExp(`command\\.${property} = \\[expected`));
+  }
+  assert.match(bridge, /snapshot isEqual:self.monitoringExpected/);
+  assert.match(bridge, /else \[weakSelf requestMonitoringReadback:operation connection:connection\]/);
+  assert.match(bridge, /operation != weakSelf.monitoringGeneration \|\| connection != weakSelf.connectionGeneration/);
+  const cancel = bridge.slice(bridge.indexOf('- (void)beginCancellation:'), bridge.indexOf('- (void)checkCancellation'));
+  assert.match(cancel, /finishMonitoring:/);
+  assert.match(cancel, /self.monitoringSnapshot = nil/);
+  assert.match(bridge, /readAutoMeasureIntervals.*result\(@\{\}\)/);
+  const queued = bridge.slice(bridge.indexOf('- (void)sendMonitoring:'), bridge.indexOf('- (NSDictionary *)syncSnapshot'));
+  assert.match(queued, /if \(self.pendingBattery\)/);
+  assert.match(queued, /250 \* NSEC_PER_MSEC/);
+  assert.match(queued, /operation != self.monitoringGeneration \|\| connection != self.connectionGeneration/);
+  assert.match(queued, /sendMonitoring:write operation:operation connection:connection/);
+  assert.match(bridge, /!self.monitoringReadbackAcknowledged \|\| !self.monitoringReadbackSnapshot/);
+  assert.match(bridge, /weakSelf.monitoringReadbackAcknowledged = YES/);
+  assert.match(bridge, /self.monitoringReadbackSnapshot = snapshot/);
+});
+
 test('mapped iOS history remains capability gated and reports per-metric status', () => {
   const policy = read('ios/Runner/CoolWearPolicy.h');
   assert.match(policy, /@"supportsHistorySync": @\(resolved\)/);

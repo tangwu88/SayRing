@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 
 import '../domain/feature_models.dart';
@@ -10,6 +12,17 @@ import 'wearable_bridge.dart';
 class CoolWearIosWearableBridge extends CoolWearWearableBridge
     implements WearableExactTargetRecoveryBridge {
   CoolWearIosWearableBridge({super.methods, super.events});
+
+  @override
+  Future<int?> readHeartRateWarning() async => null;
+
+  @override
+  Duration _commandTimeout(String method, Duration fallback) =>
+      switch (method) {
+        'setAutoMeasureSetting' => const Duration(seconds: 55),
+        'readAutoMeasureSettings' => const Duration(seconds: 35),
+        _ => fallback,
+      };
 
   @override
   Future<void> configureRecoveryTarget({
@@ -42,6 +55,8 @@ class CoolWearWearableBridge
   final MethodChannel _methods;
   final EventChannel _events;
 
+  Duration _commandTimeout(String method, Duration fallback) => fallback;
+
   @override
   Stream<WearableEvent> get events => _events
       .receiveBroadcastStream()
@@ -54,7 +69,14 @@ class CoolWearWearableBridge
     Duration timeout = const Duration(seconds: 30),
   ]) async {
     try {
-      return await _methods.invokeMethod<T>(method, arguments).timeout(timeout);
+      return await _methods
+          .invokeMethod<T>(method, arguments)
+          .timeout(_commandTimeout(method, timeout));
+    } on TimeoutException {
+      throw PlatformException(
+        code: 'COOLWEAR_OPERATION_TIMEOUT',
+        message: '戒指未响应，请重试',
+      );
     } on MissingPluginException {
       throw const WearableSdkNotConfigured('此手机尚未接入 CoolWear 戒指 SDK');
     }

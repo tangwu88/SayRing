@@ -2,6 +2,7 @@
 #import "CoolWearPolicy.h"
 #import "CoolWearHistory.h"
 #import "CoolWearRecovery.h"
+#import "CoolWearMonitoring.h"
 #import <BluetoothLibrary/BluetoothLibrary.h>
 #import <CommonCrypto/CommonDigest.h>
 
@@ -57,6 +58,14 @@ static void CoolWearOnMain(dispatch_block_t block) {
 @property(nonatomic) BOOL recoveryScanning;
 @property(nonatomic) BOOL recoveryConnecting;
 @property(nonatomic) BOOL passiveSleepScheduled;
+@property(nonatomic, copy) NSDictionary *monitoringSnapshot;
+@property(nonatomic, copy) NSDictionary *monitoringExpected;
+@property(nonatomic, copy) FlutterResult pendingMonitoringRead;
+@property(nonatomic, copy) FlutterResult pendingMonitoringWrite;
+@property(nonatomic) BOOL monitoringReadbackRequested;
+@property(nonatomic) BOOL monitoringReadbackAcknowledged;
+@property(nonatomic, copy) NSDictionary *monitoringReadbackSnapshot;
+@property(nonatomic) NSUInteger monitoringGeneration;
 @end
 
 @implementation CoolWearWearableBridge
@@ -237,7 +246,108 @@ static void CoolWearOnMain(dispatch_block_t block) {
     }
     value[@"metrics"] = metrics;
     value[@"historyMetrics"] = metrics;
+    if ([self isResolved] && CoolWearMonitoringSettings(self.monitoringSnapshot, self.flags).count) {
+        value[@"features"] = @[@"health_monitoring"];
+        value[@"integratedFeatures"] = @[@"health_monitoring"];
+    }
     return value;
+}
+
+- (void)finishMonitoring:(FlutterError *)error {
+    FlutterResult read = self.pendingMonitoringRead, write = self.pendingMonitoringWrite;
+    self.pendingMonitoringRead = nil;
+    self.pendingMonitoringWrite = nil;
+    self.monitoringExpected = nil;
+    self.monitoringReadbackRequested = NO;
+    self.monitoringReadbackAcknowledged = NO;
+    self.monitoringReadbackSnapshot = nil;
+    self.monitoringGeneration++;
+    if (read) read(error ?: CoolWearMonitoringSettings(self.monitoringSnapshot, self.flags));
+    if (write) write(error);
+}
+
+- (void)finishMonitoringReadbackIfReady {
+    if (!self.monitoringReadbackAcknowledged || !self.monitoringReadbackSnapshot ||
+        (!self.pendingMonitoringRead && !self.pendingMonitoringWrite)) return;
+    NSDictionary *snapshot = self.monitoringReadbackSnapshot;
+    BOOL matches = !self.pendingMonitoringWrite || [snapshot isEqual:self.monitoringExpected];
+    [self finishMonitoring:matches ? nil : [self error:@"AUTO_MEASURE_WRITE_FAILED" message:@"戒指未保存该设置，请刷新"]];
+}
+
+- (void)requestMonitoringReadback:(NSUInteger)operation connection:(NSUInteger)connection {
+    if (operation != self.monitoringGeneration || connection != self.connectionGeneration || ![self isResolved]) return;
+    self.monitoringReadbackRequested = YES;
+    self.monitoringReadbackAcknowledged = NO;
+    self.monitoringReadbackSnapshot = nil;
+    CE_RequestAllInfoCmd *command = [CE_RequestAllInfoCmd new];
+    command.overtime = 8; command.repeatSendTimes = 1;
+    __weak typeof(self) weakSelf = self;
+    [self.product sendCmdToDevice:command complete:^(NSError *error) {
+        CoolWearOnMain(^{
+            if (operation != weakSelf.monitoringGeneration || connection != weakSelf.connectionGeneration) return;
+            if (error) [weakSelf finishMonitoring:[weakSelf error:@"AUTO_MEASURE_READ_FAILED" message:@"读取健康监测设置失败"]];
+            else {
+                weakSelf.monitoringReadbackAcknowledged = YES;
+                [weakSelf finishMonitoringReadbackIfReady];
+            }
+        });
+    }];
+}
+
+- (void)monitoring:(NSDictionary *)args write:(BOOL)write result:(FlutterResult)result {
+    if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
+    if (self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) {
+        result([self error:@"CONNECT_BUSY" message:@"戒指忙，请稍后重试"]); return;
+    }
+    NSDictionary *expected = nil;
+    if (write) {
+        NSString *type = [args[@"type"] isKindOfClass:NSString.class] ? args[@"type"] : @"";
+        id enabled = args[@"enabled"];
+        if (![enabled isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)enabled) != CFBooleanGetTypeID()) {
+            result([self error:@"INVALID_SETTING" message:@"开关参数无效"]); return;
+        }
+        expected = CoolWearMonitoringChange(self.monitoringSnapshot, self.flags, type, [enabled boolValue]);
+        if (!expected) { result([self error:@"READ_REQUIRED" message:@"请先刷新戒指支持的监测设置"]); return; }
+    }
+    NSUInteger operation = ++self.monitoringGeneration, connection = self.connectionGeneration;
+    self.monitoringExpected = expected;
+    if (write) self.pendingMonitoringWrite = result;
+    else self.pendingMonitoringRead = result;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (write ? 48 : 28) * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (operation == weakSelf.monitoringGeneration && connection == weakSelf.connectionGeneration)
+            [weakSelf finishMonitoring:[weakSelf error:@"AUTO_MEASURE_READ_TIMEOUT" message:@"健康监测设置未确认，请刷新"]];
+    });
+    [self sendMonitoring:write operation:operation connection:connection];
+}
+
+- (void)sendMonitoring:(BOOL)write operation:(NSUInteger)operation connection:(NSUInteger)connection {
+    if (operation != self.monitoringGeneration || connection != self.connectionGeneration || ![self isResolved]) return;
+    __weak typeof(self) weakSelf = self;
+    if (self.pendingBattery) {
+        // Reserve the settings operation before waiting. Future battery polls,
+        // sync and measurement cannot steal the command queue; cancellation and
+        // the bounded operation timeout invalidate this deferred send.
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            [weakSelf sendMonitoring:write operation:operation connection:connection];
+        });
+        return;
+    }
+    if (!write) { [self requestMonitoringReadback:operation connection:connection]; return; }
+    NSDictionary *expected = self.monitoringExpected;
+    YD_SyncAutoHeartCmd *command = [YD_SyncAutoHeartCmd new];
+    command.onoff = [expected[@"onoff"] unsignedCharValue];
+    command.hr24hOnoff = [expected[@"hr24hOnoff"] unsignedCharValue];
+    command.O2_onoff = [expected[@"oxOnOff"] unsignedCharValue];
+    command.time = [expected[@"time"] unsignedCharValue];
+    command.overtime = 8; command.repeatSendTimes = 1;
+    [self.product sendCmdToDevice:command complete:^(NSError *error) {
+        CoolWearOnMain(^{
+            if (operation != weakSelf.monitoringGeneration || connection != weakSelf.connectionGeneration) return;
+            if (error) [weakSelf finishMonitoring:[weakSelf error:@"AUTO_MEASURE_WRITE_FAILED" message:@"健康监测设置保存失败"]];
+            else [weakSelf requestMonitoringReadback:operation connection:connection]; // ACK alone is not saved state.
+        });
+    }];
 }
 
 - (NSDictionary *)syncSnapshot {
@@ -306,7 +416,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)readBattery:(FlutterResult)result {
     if (![self isResolved]) { result(nil); return; }
-    if (self.pendingBattery || self.pendingSync || self.activeMetric) { result([self details]); return; }
+    if (self.pendingBattery || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self details]); return; }
     self.pendingBattery = result;
     NSUInteger generation = self.connectionGeneration, read = ++self.batteryGeneration;
     CE_RequestBatteryCmd *cmd = [CE_RequestBatteryCmd new];
@@ -328,7 +438,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)syncHistory:(FlutterResult)result {
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
-    if (self.pendingSync || self.pendingBattery || self.activeMetric) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
+    if (self.pendingSync || self.pendingBattery || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
     self.pendingSync = result;
     [self.syncBatches removeAllObjects]; [self.syncRecords removeAllObjects];
     if (!self.historySnapshotDelivered) {
@@ -456,6 +566,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
     self.charging = nil;
     self.awaitingInfo = NO;
     self.dataDeliveryReady = NO;
+    self.monitoringSnapshot = nil;
     [self.pendingPassiveRecords removeAllObjects];
     [self.historyBatches removeAllObjects];
     [self.historyRecords removeAllObjects];
@@ -516,6 +627,18 @@ static void CoolWearOnMain(dispatch_block_t block) {
     NSNumber *type = CoolWearUnsigned(info[@"DataType"], 255);
     if (!type) return;
     id data = info[@"Data"];
+    if (type.integerValue == DATA_TYPE_HEART_AUTO_SWITCH) {
+        NSDictionary *snapshot = CoolWearMonitoringSnapshot(data);
+        if (snapshot) {
+            self.monitoringSnapshot = snapshot;
+            if ([self isResolved]) [self emit:@"capabilitiesUpdated" payload:[self capabilities]];
+            if (self.monitoringReadbackRequested && (self.pendingMonitoringRead || self.pendingMonitoringWrite)) {
+                self.monitoringReadbackSnapshot = snapshot;
+                [self finishMonitoringReadbackIfReady];
+            }
+        }
+        return;
+    }
     if (type.integerValue == DATA_TYPE_DEV_SYNC) {
         // This is a mixed-data envelope, NOT a history-completion marker.
         if ([data isKindOfClass:NSArray.class]) for (id child in data) [self receiveData:child depth:depth + 1 measurement:measurement];
@@ -665,6 +788,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
 - (void)beginCancellation:(FlutterResult)result {
     [self finishScan];
     self.connectionGeneration++;
+    [self finishMonitoring:[self error:@"CONNECT_CANCELLED" message:@"连接已取消"]];
+    self.monitoringSnapshot = nil;
     self.syncGeneration++;
     self.batteryGeneration++;
     [self finishSync];
@@ -729,7 +854,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 - (void)measurement:(NSString *)metric enabled:(BOOL)enabled result:(FlutterResult)result {
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
     if (self.pendingMeasurement) { result([self error:@"MEASUREMENT_BUSY" message:@"测量指令正在处理"]); return; }
-    if (self.pendingSync || self.pendingBattery) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
+    if (self.pendingSync || self.pendingBattery || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
     NSArray *manual = CoolWearCapabilities(self.flags, YES)[@"manualMetrics"];
     if (![manual containsObject:metric]) { result([self error:@"COOLWEAR_FEATURE_UNVERIFIED" message:@"此戒指未确认支持这项 iOS 测量"]); return; }
     if (enabled && self.activeMetric) { result([self error:@"MEASUREMENT_BUSY" message:@"请先结束当前测量"]); return; }
@@ -795,6 +920,9 @@ static void CoolWearOnMain(dispatch_block_t block) {
             [self beginCancellation:result];
         } else if ([call.method isEqualToString:@"getDeviceDetails"]) [self readBattery:result];
         else if ([call.method isEqualToString:@"syncHealthData"]) [self syncHistory:result];
+        else if ([call.method isEqualToString:@"readAutoMeasureSettings"]) [self monitoring:args write:NO result:result];
+        else if ([call.method isEqualToString:@"setAutoMeasureSetting"]) [self monitoring:args write:YES result:result];
+        else if ([call.method isEqualToString:@"readAutoMeasureIntervals"]) result(@{}); // Unit is undocumented; preserve the raw byte.
         else if ([call.method isEqualToString:@"getCapabilities"]) {
             result([self capabilities]);
             [self enableDataDelivery];
@@ -815,12 +943,16 @@ static void CoolWearOnMain(dispatch_block_t block) {
         if (self.pendingDisconnect) [pending addObject:self.pendingDisconnect];
         if (self.pendingSync) [pending addObject:self.pendingSync];
         if (self.pendingBattery) [pending addObject:self.pendingBattery];
+        if (self.pendingMonitoringRead) [pending addObject:self.pendingMonitoringRead];
+        if (self.pendingMonitoringWrite) [pending addObject:self.pendingMonitoringWrite];
         self.pendingScan = nil;
         self.pendingConnect = nil;
         self.pendingMeasurement = nil;
         self.pendingDisconnect = nil;
         self.pendingSync = nil;
         self.pendingBattery = nil;
+        self.pendingMonitoringRead = nil;
+        self.pendingMonitoringWrite = nil;
         @try {
             [self beginCancellation:nil];
         } @catch (NSException *cancelException) {

@@ -986,7 +986,45 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.healthOnly ? '健康监测' : '权限管理')),
+      appBar: AppBar(
+        title: Text(widget.healthOnly ? '健康监测' : '权限管理'),
+        actions: [
+          if (widget.healthOnly)
+            ListenableBuilder(
+              listenable: widget.controller,
+              builder: (context, _) {
+                final availability = widget.controller.availabilityFor(
+                  DeviceFeature.findWatch,
+                );
+                final busy = widget.controller.deviceFeatureBusy.contains(
+                  DeviceFeature.findWatch,
+                );
+                return Tooltip(
+                  message: availability.isReady
+                      ? '查找已连接的戒指'
+                      : availability.message,
+                  child: TextButton(
+                    key: const ValueKey('health-monitoring-find-device'),
+                    onPressed: availability.isReady && !busy
+                        ? () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              settings: const RouteSettings(
+                                name: 'device-find',
+                              ),
+                              builder: (_) => DeviceFeaturePage(
+                                controller: widget.controller,
+                                feature: DeviceFeature.findWatch,
+                              ),
+                            ),
+                          )
+                        : null,
+                    child: const Text('查找设备'),
+                  ),
+                );
+              },
+            ),
+        ],
+      ),
       body: ListenableBuilder(
         listenable: widget.controller,
         builder: (context, _) => ListView(
@@ -1073,7 +1111,8 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
           value: enabled,
           onChanged:
               widget.controller.connectedDevice == null ||
-                  widget.controller.isDeviceSettingsLoading
+                  widget.controller.isDeviceSettingsLoading ||
+                  widget.controller.isDeviceSettingsWriting
               ? null
               : (value) {
                   unawaited(
@@ -1143,6 +1182,11 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
       ),
       (type: 'bloodOxygen', title: '血氧自动检测', icon: Icons.water_drop_outlined),
       (
+        type: 'heartRate24h',
+        title: '24 小时心率',
+        icon: Icons.monitor_heart_outlined,
+      ),
+      (
         type: 'hrv',
         title: '心率变异性（HRV）自动检测',
         icon: Icons.monitor_heart_outlined,
@@ -1189,7 +1233,8 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
           IconButton(
             onPressed:
                 controller.connectedDevice == null ||
-                    controller.isDeviceSettingsLoading
+                    controller.isDeviceSettingsLoading ||
+                    controller.isDeviceSettingsWriting
                 ? null
                 : controller.refreshDeviceSettings,
             tooltip: '从戒指刷新',
@@ -1218,8 +1263,14 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
           message: controller.deviceSettingsStatus,
           detail: '没有读取到可设置项目，可重新读取戒指设置。',
           icon: Icons.monitor_heart_outlined,
-          actionLabel: controller.isDeviceSettingsLoading ? null : '重新读取',
-          onAction: controller.isDeviceSettingsLoading
+          actionLabel:
+              controller.isDeviceSettingsLoading ||
+                  controller.isDeviceSettingsWriting
+              ? null
+              : '重新读取',
+          onAction:
+              controller.isDeviceSettingsLoading ||
+                  controller.isDeviceSettingsWriting
               ? null
               : controller.refreshDeviceSettings,
         )

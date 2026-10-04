@@ -827,6 +827,7 @@ class AppController extends ChangeNotifier {
   DeviceInfo? _latestDeviceDetails;
   String? _deviceSyncErrorMessage;
   Future<void>? _deviceSettingsRefresh;
+  int _deviceSettingsGeneration = 0;
   Future<void> _notificationIngestTail = Future<void>.value();
   bool _notificationStorageReady = false;
   Future<void>? _careInvitationRefresh;
@@ -925,6 +926,7 @@ class AppController extends ChangeNotifier {
   Map<String, bool> autoMeasureSettings = const {};
   Map<String, AutoMeasureIntervalSetting> autoMeasureIntervals = const {};
   bool isDeviceSettingsLoading = false;
+  bool isDeviceSettingsWriting = false;
   Map<DeviceFeature, Map<String, Object?>> deviceFeatureData = const {};
   Set<DeviceFeature> deviceFeatureBusy = const {};
   int cameraShutterSequence = 0;
@@ -2511,6 +2513,13 @@ class AppController extends ChangeNotifier {
 
   void _invalidateDeviceSync() {
     _deviceSyncGeneration++;
+    _deviceSettingsGeneration++;
+    _deviceSettingsRefresh = null;
+    autoMeasureSettings = const {};
+    autoMeasureIntervals = const {};
+    heartRateWarningSupported = false;
+    isDeviceSettingsLoading = false;
+    isDeviceSettingsWriting = false;
     isDeviceSyncing = false;
     deviceSyncProgress = 0;
     _clearDeviceSyncError();
@@ -3490,8 +3499,9 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _refreshDeviceSettings() async {
+    final settingsGeneration = _deviceSettingsGeneration;
     await Future<void>.delayed(Duration.zero);
-    if (_disposed) return;
+    if (_disposed || settingsGeneration != _deviceSettingsGeneration) return;
     if (connectedDevice == null) {
       autoMeasureSettings = const {};
       autoMeasureIntervals = const {};
@@ -3501,6 +3511,11 @@ class AppController extends ChangeNotifier {
       return;
     }
     final expectedDeviceId = connectedDevice!.id;
+    bool isCurrent() =>
+        !_disposed &&
+        !_accountTransitioning &&
+        settingsGeneration == _deviceSettingsGeneration &&
+        connectedDevice?.id == expectedDeviceId;
     isDeviceSettingsLoading = true;
     deviceSettingsStatus = '正在读取戒指设置';
     notifyListeners();
@@ -3510,22 +3525,23 @@ class AppController extends ChangeNotifier {
         settings = await _wearable.readAutoMeasureSettings();
       } on PlatformException catch (error) {
         if (!_isTransientDeviceSettingsError(error)) rethrow;
-        if (_disposed || connectedDevice?.id != expectedDeviceId) return;
+        if (!isCurrent()) return;
         deviceSettingsStatus = '戒指正在准备设置，正在重新读取';
         notifyListeners();
         await Future<void>.delayed(const Duration(milliseconds: 650));
-        if (_disposed || connectedDevice?.id != expectedDeviceId) return;
+        if (!isCurrent()) return;
         settings = await _wearable.readAutoMeasureSettings();
       }
-      if (_disposed || connectedDevice?.id != expectedDeviceId) return;
+      if (!isCurrent()) return;
       autoMeasureSettings = settings;
       var partialRead = false;
       final bridge = _wearable;
       if (bridge is WearableAutoMeasureIntervalBridge) {
         try {
-          autoMeasureIntervals =
-              await (bridge as WearableAutoMeasureIntervalBridge)
-                  .readAutoMeasureIntervals();
+          final intervals = await (bridge as WearableAutoMeasureIntervalBridge)
+              .readAutoMeasureIntervals();
+          if (!isCurrent()) return;
+          autoMeasureIntervals = intervals;
         } on PlatformException {
           partialRead = true;
         } catch (_) {
@@ -3536,6 +3552,7 @@ class AppController extends ChangeNotifier {
       }
       try {
         final warning = await _wearable.readHeartRateWarning();
+        if (!isCurrent()) return;
         heartRateWarningSupported = warning != null;
         if (warning != null && warning > 0) {
           final bounded = warning.clamp(70, 185).toInt();
@@ -3546,17 +3563,19 @@ class AppController extends ChangeNotifier {
       } catch (_) {
         partialRead = true;
       }
-      if (_disposed || connectedDevice?.id != expectedDeviceId) return;
+      if (!isCurrent()) return;
       deviceSettingsStatus = settings.isEmpty && !heartRateWarningSupported
           ? '当前戒指未提供可设置的健康检测项目'
           : partialRead
           ? '主要设置已读取，部分项目可稍后刷新'
           : '设置已同步';
     } on PlatformException catch (error) {
+      if (!isCurrent()) return;
       deviceSettingsStatus = autoMeasureSettings.isEmpty
           ? _wearableErrorMessage(error, fallback: '读取戒指设置失败，请点击重试')
           : '刷新失败，已显示上次读取的设置';
     } catch (_) {
+      if (!isCurrent()) return;
       deviceSettingsStatus = autoMeasureSettings.isEmpty
           ? '戒指设置读取失败，请稍后重试'
           : '刷新失败，已显示上次读取的设置';
@@ -3571,19 +3590,40 @@ class AppController extends ChangeNotifier {
   }.contains(error.code);
 
   Future<void> setAutoMeasureSetting(String type, bool enabled) async {
-    if (connectedDevice == null) {
+    final deviceId = connectedDevice?.id;
+    if (deviceId == null) {
       errorMessage = '请先连接戒指';
       notifyListeners();
       return;
     }
+    if (isDeviceSettingsLoading ||
+        isDeviceSettingsWriting ||
+        _accountTransitioning) {
+      return;
+    }
+    final generation = _sessionGeneration;
+    final settingsGeneration = _deviceSettingsGeneration;
+    bool isCurrent() =>
+        !_disposed &&
+        generation == _sessionGeneration &&
+        settingsGeneration == _deviceSettingsGeneration &&
+        connectedDevice?.id == deviceId;
+    isDeviceSettingsWriting = true;
+    notifyListeners();
     try {
       await _wearable.setAutoMeasureSetting(type, enabled);
+      if (!isCurrent()) return;
       autoMeasureSettings = {...autoMeasureSettings, type: enabled};
       deviceSettingsStatus = '设置已写入戒指';
     } on PlatformException catch (error) {
+      if (!isCurrent()) return;
       errorMessage = _wearableErrorMessage(error, fallback: '写入戒指设置失败');
+    } finally {
+      if (settingsGeneration == _deviceSettingsGeneration) {
+        isDeviceSettingsWriting = false;
+        if (!_disposed) notifyListeners();
+      }
     }
-    notifyListeners();
   }
 
   Future<void> setAutoMeasureInterval(String type, int minutes) async {

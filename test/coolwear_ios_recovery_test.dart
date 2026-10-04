@@ -20,6 +20,87 @@ const _profile = WearableUserProfile(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  testWidgets(
+    'iOS monitoring timeout outlives the native queue and is handled',
+    (tester) async {
+      const channel = MethodChannel('test/coolwear/ios-monitoring-deadline');
+      final response = Completer<Object?>();
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (_) => response.future);
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final ios = CoolWearIosWearableBridge(methods: channel);
+      Object? error;
+      var finished = false;
+      final pending = ios
+          .setAutoMeasureSetting('heartRate', true)
+          .then(
+            (_) {
+              finished = true;
+            },
+            onError: (Object value) {
+              error = value;
+              finished = true;
+            },
+          );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 31));
+      expect(finished, isFalse);
+      await tester.pump(const Duration(seconds: 25));
+      await pending;
+      expect(
+        error,
+        isA<PlatformException>().having(
+          (e) => e.code,
+          'code',
+          'COOLWEAR_OPERATION_TIMEOUT',
+        ),
+      );
+      response.complete(null);
+      await tester.pump();
+    },
+  );
+
+  test(
+    'iOS health monitoring forwards real settings but no unverified warning',
+    () async {
+      const channel = MethodChannel('test/coolwear/ios-monitoring');
+      final calls = <MethodCall>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        if (call.method == 'readAutoMeasureSettings') {
+          return {
+            'heartRate': true,
+            'heartRate24h': false,
+            'bloodOxygen': false,
+          };
+        }
+        if (call.method == 'readAutoMeasureIntervals') {
+          return <String, Object?>{};
+        }
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final ios = CoolWearIosWearableBridge(methods: channel);
+      expect(await ios.readAutoMeasureSettings(), {
+        'heartRate': true,
+        'heartRate24h': false,
+        'bloodOxygen': false,
+      });
+      await ios.setAutoMeasureSetting('heartRate24h', true);
+      expect(calls.last.arguments, {'type': 'heartRate24h', 'enabled': true});
+      expect(await ios.readAutoMeasureIntervals(), isEmpty);
+      expect(await ios.readHeartRateWarning(), isNull);
+      expect(calls.map((c) => c.method), [
+        'readAutoMeasureSettings',
+        'setAutoMeasureSetting',
+        'readAutoMeasureIntervals',
+      ]);
+    },
+  );
+
   test(
     'only iOS exposes exact recovery and forwards owner context and cancellation',
     () async {

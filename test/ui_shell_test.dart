@@ -2157,7 +2157,82 @@ void main() {
     );
     expect(find.text('心率变异性（HRV）自动检测'), findsOneWidget);
     expect(find.text('压力自动检测'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('device-health-auto-heartRate24h')),
+      findsOneWidget,
+    );
+    expect(find.text('24 小时心率'), findsOneWidget);
     expect(find.text('当前设备不支持此功能'), findsNothing);
+    expect(find.text('查找设备'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextButton>(
+            find.byKey(const ValueKey('health-monitoring-find-device')),
+          )
+          .onPressed,
+      isNull,
+    );
+  });
+
+  testWidgets('monitoring find entry uses resolved device capability', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _PartialHealthMonitoringWearable(),
+    )..connectedDevice = const DeviceInfo(id: 'ring-test', name: 'R21');
+    addTearDown(controller.dispose);
+    controller.capabilities = const DeviceCapabilities(
+      metrics: {},
+      features: {DeviceFeature.findWatch},
+      integratedFeatures: {DeviceFeature.findWatch},
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PermissionManagementPage(
+          controller: controller,
+          healthOnly: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final action = find.byKey(const ValueKey('health-monitoring-find-device'));
+    expect(tester.widget<TextButton>(action).onPressed, isNotNull);
+    await tester.tap(action);
+    await tester.pumpAndSettle();
+    expect(find.byType(DeviceFeaturePage), findsOneWidget);
+    expect(
+      tester.widget<DeviceFeaturePage>(find.byType(DeviceFeaturePage)).feature,
+      DeviceFeature.findWatch,
+    );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    controller.connectedDevice = null;
+    controller.notifyListeners();
+    await tester.pump();
+    expect(tester.widget<TextButton>(action).onPressed, isNull);
+  });
+
+  testWidgets('permissions page does not expose a ring find action', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: PermissionManagementPage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('health-monitoring-find-device')),
+      findsNothing,
+    );
   });
 
   for (final errorCode in [
@@ -4097,6 +4172,7 @@ class _PartialHealthMonitoringWearable extends _NoopWearable {
   @override
   Future<Map<String, bool>> readAutoMeasureSettings() async => const {
     'heartRate': false,
+    'heartRate24h': true,
     'bloodGlucose': false,
     'hrv': true,
     'stress': true,

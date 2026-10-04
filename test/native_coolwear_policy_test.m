@@ -2,6 +2,7 @@
 #import "../ios/Runner/CoolWearPolicy.h"
 #import "../ios/Runner/CoolWearRecovery.h"
 #import "../ios/Runner/CoolWearHistory.h"
+#import "../ios/Runner/CoolWearMonitoring.h"
 
 int main(void) {
     @autoreleasepool {
@@ -38,6 +39,23 @@ int main(void) {
         NSCAssert(CoolWearHasKnownCapabilities(@{@"manualHr": @NO, @"showO2": @YES}), @"real Boolean flags rejected");
         NSCAssert(!CoolWearHasKnownCapabilities(@{@"manualHr": @2, @"showO2": @1.5}), @"invalid capability response accepted");
         __block NSUInteger completions = 0;
+        NSDictionary *monitor = @{@"onoff":@1, @"hr24hOnoff":@0, @"oxOnOff":@0, @"time":@60};
+        NSDictionary *monitorFlags = @{@"hasHR24h":@1, @"O2_auto_switch":@1};
+        NSCAssert(CoolWearMonitoringSnapshot(monitor).count == 4, @"real complete setting rejected");
+        NSCAssert(([CoolWearMonitoringSettings(monitor, monitorFlags) isEqual:@{@"heartRate":@YES,@"heartRate24h":@NO,@"bloodOxygen":@NO}]), @"switch mapping incorrect");
+        NSDictionary *changed = CoolWearMonitoringChange(monitor, monitorFlags, @"bloodOxygen", YES);
+        NSCAssert(([changed isEqual:@{@"onoff":@1,@"hr24hOnoff":@0,@"oxOnOff":@1,@"time":@60}]), @"single switch reset another raw field");
+        NSCAssert(CoolWearMonitoringSettings(monitor, @{}).count == 1, @"unsupported switches exposed");
+        NSCAssert(CoolWearMonitoringChange(monitor, @{}, @"heartRate24h", YES) == nil, @"unconfirmed continuous HR enabled");
+        NSCAssert(CoolWearMonitoringChange(monitor, monitorFlags, @"sleep", YES) == nil, @"invented sleep switch");
+        for (NSString *key in monitor) {
+            NSMutableDictionary *invalid = [monitor mutableCopy]; [invalid removeObjectForKey:key];
+            NSCAssert(CoolWearMonitoringSnapshot(invalid) == nil, @"partial snapshot accepted");
+            invalid[key] = @"1";
+            NSCAssert(CoolWearMonitoringSnapshot(invalid) == nil, @"coerced string setting");
+        }
+        NSCAssert(CoolWearMonitoringSnapshot(@{@"onoff":@2,@"hr24hOnoff":@0,@"oxOnOff":@0,@"time":@60}) == nil, @"invalid switch accepted");
+        NSCAssert(CoolWearMonitoringSnapshot(@{@"onoff":@1,@"hr24hOnoff":@0,@"oxOnOff":@0,@"time":@256}) == nil, @"invalid interval byte accepted");
         __block id response = nil;
         CoolWearCompletion once = CoolWearCompleteOnce(^(id value) { completions++; response = value; });
         once(@"sdk_error");
