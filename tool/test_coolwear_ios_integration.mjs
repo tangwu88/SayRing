@@ -7,6 +7,22 @@ const read = (name) => readFileSync(new URL(`../${name}`, import.meta.url), 'utf
 const bridge = read('ios/Runner/CoolWearWearableBridge.m');
 const project = read('ios/Runner.xcodeproj/project.pbxproj');
 
+test('owner-scoped iOS recovery continues after empty scans and repeats a fresh handshake', () => {
+  const loop = bridge.slice(bridge.indexOf('- (void)configureRecovery:'), bridge.indexOf('- (BOOL)matchesTarget'));
+  assert.match(loop, /CoolWearRecoveryTargetValid\(identifier, name, context\)/);
+  assert.match(loop, /generation != weakSelf.recoveryGeneration/);
+  assert.match(loop, /CoolWearRecoveryMatches/);
+  assert.match(loop, /\[weakSelf scheduleRecovery\];\s*\}\];/);
+  assert.match(loop, /self\.pendingConnect \|\| self\.pendingScan/);
+  assert.match(loop, /\[self beginCancellation:/);
+  assert.match(bridge, /self\.recoveryConnecting \? @"reconnected" : @"connected"/);
+  assert.match(bridge, /\[self scheduleRecovery\];\s*return;\s*\}/);
+  assert.match(read('lib/services/wearable_bootstrap.dart'), /TargetPlatform\.iOS\s*\? CoolWearIosWearableBridge\(\)/);
+  assert.match(read('lib/services/wearable_routing.dart'), /_sources\[transport\] is WearableExactTargetRecoveryBridge &&/);
+  const disconnect = bridge.slice(bridge.indexOf('else if ([call.method isEqualToString:@"disconnect"])'), bridge.indexOf('else if ([call.method isEqualToString:@"getDeviceDetails"])'));
+  assert.ok(disconnect.indexOf('self.recoveryID = nil') < disconnect.indexOf('[self beginCancellation:result]'));
+});
+
 test('mapped iOS history remains capability gated and reports per-metric status', () => {
   const policy = read('ios/Runner/CoolWearPolicy.h');
   assert.match(policy, /@"supportsHistorySync": @\(resolved\)/);

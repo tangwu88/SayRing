@@ -1033,7 +1033,7 @@ class RoutedWearableBridge
 
   void _forwardEvent(WearableTransport transport, WearableEvent event) {
     if (requireOwnerScopedBinding &&
-        transport == WearableTransport.qring &&
+        _sources[transport] is WearableExactTargetRecoveryBridge &&
         event.type == 'reconnected') {
       final identifier = '${event.payload['id'] ?? ''}';
       final expected = _exactRecoveryTargets[transport];

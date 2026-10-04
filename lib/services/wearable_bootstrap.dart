@@ -19,7 +19,9 @@ WearableBridge createProductionWearableBridge({
       (!kIsWeb &&
               (defaultTargetPlatform == TargetPlatform.android ||
                   defaultTargetPlatform == TargetPlatform.iOS)
-          ? CoolWearWearableBridge()
+          ? (defaultTargetPlatform == TargetPlatform.iOS
+                ? CoolWearIosWearableBridge()
+                : CoolWearWearableBridge())
           : null),
   qring:
       qring ??

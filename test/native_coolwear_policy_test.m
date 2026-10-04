@@ -1,9 +1,21 @@
 #import <Foundation/Foundation.h>
 #import "../ios/Runner/CoolWearPolicy.h"
+#import "../ios/Runner/CoolWearRecovery.h"
 #import "../ios/Runner/CoolWearHistory.h"
 
 int main(void) {
     @autoreleasepool {
+        NSString *uuid = @"11111111-2222-4333-8444-555555555555";
+        NSCAssert(CoolWearRecoveryTargetValid(uuid, @"HR01", @"env:owner"), @"exact recovery rejected");
+        for (NSString *bad in @[@"", @"HR01", @"not-a-uuid"])
+            NSCAssert(!CoolWearRecoveryTargetValid(bad, @"HR01", @"env:owner"), @"arbitrary target accepted");
+        NSCAssert(!CoolWearRecoveryTargetValid(uuid, @"HR02", @"env:owner"), @"unconfirmed model accepted");
+        NSCAssert(!CoolWearRecoveryTargetValid(uuid, @"HR01", @""), @"missing owner accepted");
+        NSCAssert(CoolWearRecoveryMatches(uuid, @"hr01", uuid, @"HR01", @"env:owner", 2, 2), @"bound target lost");
+        NSCAssert(!CoolWearRecoveryMatches(nil, @"HR01", uuid, @"HR01", @"env:owner", 2, 2), @"missing UUID accepted");
+        NSCAssert(!CoolWearRecoveryMatches(@"AAAAAAAA-2222-4333-8444-555555555555", @"HR01", uuid, @"HR01", @"env:owner", 2, 2), @"same-name foreign ring adopted");
+        NSCAssert(!CoolWearRecoveryMatches(uuid, @"HR05", uuid, @"HR01", @"env:owner", 2, 2), @"changed model adopted");
+        NSCAssert(!CoolWearRecoveryMatches(uuid, @"HR01", uuid, @"HR01", @"env:owner", 1, 2), @"late callback adopted");
         NSDictionary *names = @{@"hr01": @"HR01", @" Hr05_12ab ": @"HR05", @"K80-7F": @"K80",
             @"r7": @"R7", @"R7y": @"R7Y", @"r7pro_001": @"R7Pro", @"HR01-legacy": @"HR01",
             @"R7_AA:BB:CC:DD:EE:FF": @"R7"};

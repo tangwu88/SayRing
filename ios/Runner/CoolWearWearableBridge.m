@@ -1,6 +1,7 @@
 #import "CoolWearWearableBridge.h"
 #import "CoolWearPolicy.h"
 #import "CoolWearHistory.h"
+#import "CoolWearRecovery.h"
 #import <BluetoothLibrary/BluetoothLibrary.h>
 #import <CommonCrypto/CommonDigest.h>
 
@@ -48,6 +49,13 @@ static void CoolWearOnMain(dispatch_block_t block) {
 @property(nonatomic, copy) FlutterResult pendingBattery;
 @property(nonatomic) NSUInteger syncGeneration;
 @property(nonatomic) NSUInteger batteryGeneration;
+@property(nonatomic, copy) NSString *recoveryID;
+@property(nonatomic, copy) NSString *recoveryName;
+@property(nonatomic, copy) NSString *recoveryContext;
+@property(nonatomic) NSUInteger recoveryGeneration;
+@property(nonatomic) BOOL recoveryScheduled;
+@property(nonatomic) BOOL recoveryScanning;
+@property(nonatomic) BOOL recoveryConnecting;
 @end
 
 @implementation CoolWearWearableBridge
@@ -118,12 +126,79 @@ static void CoolWearOnMain(dispatch_block_t block) {
     }
     for (NSString *name in @[UIApplicationDidBecomeActiveNotification, UIApplicationDidEnterBackgroundNotification]) {
         id observer = [center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
+            [weakSelf scheduleRecovery];
             if (![weakSelf isResolved]) return;
             if ([note.name isEqualToString:UIApplicationDidBecomeActiveNotification]) [CE_SensorCmd open];
             else [CE_SensorCmd close];
         }];
         [self.observers addObject:observer];
     }
+}
+
+- (void)configureRecovery:(NSDictionary *)args result:(FlutterResult)result {
+    NSString *identifier = [args[@"id"] isKindOfClass:NSString.class] ? args[@"id"] : nil;
+    NSString *name = [args[@"name"] isKindOfClass:NSString.class] ? args[@"name"] : nil;
+    NSString *context = [args[@"context"] isKindOfClass:NSString.class] ? args[@"context"] : nil;
+    if (identifier && !CoolWearRecoveryTargetValid(identifier, name, context)) {
+        result([self error:@"COOLWEAR_RECOVERY_TARGET_INVALID" message:@"请重新确认绑定设备"]); return;
+    }
+    identifier = identifier ? [[NSUUID alloc] initWithUUIDString:identifier].UUIDString : nil;
+    if ([self.recoveryID isEqual:identifier] && [self.recoveryContext isEqual:context] &&
+        [self.recoveryName isEqual:name]) { [self scheduleRecovery]; result(nil); return; }
+    BOOL retireOperation = self.recoveryScanning || self.recoveryConnecting;
+    self.recoveryGeneration++;
+    self.recoveryScheduled = NO;
+    self.recoveryScanning = NO;
+    self.recoveryConnecting = NO;
+    self.recoveryID = identifier;
+    self.recoveryName = identifier ? name : nil;
+    self.recoveryContext = identifier ? context : nil;
+    // Clearing/replacing a target drains its original SDK request before the
+    // router may start a manually selected device or another account.
+    if (retireOperation) {
+        [self beginCancellation:^(id value) { result(value); }];
+    } else result(nil);
+    if (identifier) { [self initializeSDK]; [self scheduleRecovery]; }
+}
+
+- (void)scheduleRecovery {
+    if (!self.recoveryID || self.recoveryScheduled || [self isResolved]) return;
+    self.recoveryScheduled = YES;
+    NSUInteger generation = self.recoveryGeneration;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (!weakSelf || generation != weakSelf.recoveryGeneration) return;
+        weakSelf.recoveryScheduled = NO;
+        [weakSelf attemptRecovery:generation];
+    });
+}
+
+- (void)attemptRecovery:(NSUInteger)generation {
+    if (generation != self.recoveryGeneration || !self.recoveryID || [self isResolved]) return;
+    if (self.cancelling || self.target || self.pendingConnect || self.pendingScan ||
+        self.product.state != CBManagerStatePoweredOn) { [self scheduleRecovery]; return; }
+    self.recoveryScanning = YES;
+    [self emit:@"recoveryState" payload:@{@"status": @"waiting", @"deviceId": self.recoveryID}];
+    __weak typeof(self) weakSelf = self;
+    [self handle:[FlutterMethodCall methodCallWithMethodName:@"scanDevices" arguments:nil] result:^(id response) {
+        if (!weakSelf || generation != weakSelf.recoveryGeneration) return;
+        weakSelf.recoveryScanning = NO;
+        if ([response isKindOfClass:NSArray.class]) for (NSDictionary *device in response) {
+            if (!CoolWearRecoveryMatches(device[@"id"], device[@"name"], weakSelf.recoveryID,
+                weakSelf.recoveryName, weakSelf.recoveryContext, generation, weakSelf.recoveryGeneration)) continue;
+            weakSelf.recoveryConnecting = YES;
+            [weakSelf emit:@"recoveryState" payload:@{@"status": @"connecting", @"deviceId": weakSelf.recoveryID}];
+            [weakSelf handle:[FlutterMethodCall methodCallWithMethodName:@"connect" arguments:@{@"id": weakSelf.recoveryID}] result:^(id error) {
+                if (!weakSelf || generation != weakSelf.recoveryGeneration) return;
+                weakSelf.recoveryConnecting = NO;
+                if (error) [weakSelf scheduleRecovery];
+            }];
+            return;
+        }
+        // A finite scan with no matching advertisement is not the end of the
+        // binding. Continue after a pause until cancelled by its owner.
+        [weakSelf scheduleRecovery];
+    }];
 }
 
 - (BOOL)matchesTarget {
@@ -276,6 +351,9 @@ static void CoolWearOnMain(dispatch_block_t block) {
             self.scanServices[identifier] = service;
         }
         if (fresh) [self emit:@"scanDevice" payload:[self scanPayload:item]];
+        if (self.recoveryScanning && CoolWearRecoveryMatches(identifier, item.name,
+            self.recoveryID, self.recoveryName, self.recoveryContext,
+            self.recoveryGeneration, self.recoveryGeneration)) { [self finishScan]; return; }
     }
 }
 
@@ -408,7 +486,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
     self.awaitingInfo = NO;
     FlutterResult result = self.pendingConnect;
     self.pendingConnect = nil;
-    [self emit:@"connected" payload:[self details]];
+    [self emit:self.recoveryConnecting ? @"reconnected" : @"connected" payload:[self details]];
     [self emit:@"capabilities" payload:[self capabilities]];
     result(nil);
 }
@@ -607,7 +685,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)checkCancellation {
     if (!self.cancelling) return;
-    if (!self.product.connect.peripheral || self.product.connect.peripheral.state == CBPeripheralStateDisconnected) {
+    if ((!self.product.connect.peripheral || self.product.connect.peripheral.state == CBPeripheralStateDisconnected) &&
+        (!self.target || self.target.state == CBPeripheralStateDisconnected)) {
         self.cancelling = NO;
         self.target = nil;
         self.targetName = nil;
@@ -615,6 +694,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
         FlutterResult result = self.pendingDisconnect;
         self.pendingDisconnect = nil;
         if (result) result(nil);
+        [self scheduleRecovery];
         return;
     }
     if (++self.cancellationChecks > 48) return; // Later SDK status may settle it.
@@ -676,10 +756,20 @@ static void CoolWearOnMain(dispatch_block_t block) {
     result = CoolWearCompleteOnce(result);
     NSDictionary *args = [call.arguments isKindOfClass:NSDictionary.class] ? call.arguments : @{};
     @try {
-        if ([call.method isEqualToString:@"scanDevices"]) [self startScan:result];
+        if ([call.method isEqualToString:@"configureRecoveryTarget"]) [self configureRecovery:args result:result];
+        else if ([call.method isEqualToString:@"scanDevices"]) [self startScan:result];
         else if ([call.method isEqualToString:@"stopScan"]) { [self finishScan]; result(nil); }
         else if ([call.method isEqualToString:@"connect"]) [self connect:args result:result];
         else if ([call.method isEqualToString:@"disconnect"]) {
+            // Explicit disconnect is also used by unbind/logout. Let the
+            // owner-scoped router re-arm only if a binding still exists.
+            self.recoveryGeneration++;
+            self.recoveryID = nil;
+            self.recoveryName = nil;
+            self.recoveryContext = nil;
+            self.recoveryScheduled = NO;
+            self.recoveryScanning = NO;
+            self.recoveryConnecting = NO;
             if (self.cancelling) { result([self error:@"CONNECT_BUSY" message:@"戒指正在断开，请稍候"]); return; }
             [self beginCancellation:result];
         } else if ([call.method isEqualToString:@"getDeviceDetails"]) [self readBattery:result];
@@ -732,6 +822,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
 - (FlutterError *)onListenWithArguments:(id)arguments eventSink:(FlutterEventSink)events { self.sink = events; return nil; }
 - (FlutterError *)onCancelWithArguments:(id)arguments { self.sink = nil; return nil; }
 - (void)dispose {
+    self.recoveryGeneration++;
+    self.recoveryID = nil;
     [self beginCancellation:nil];
     for (id observer in self.observers) [NSNotificationCenter.defaultCenter removeObserver:observer];
     [self.observers removeAllObjects];

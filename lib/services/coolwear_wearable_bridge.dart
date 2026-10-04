@@ -5,6 +5,25 @@ import '../domain/models.dart';
 import '../domain/wearable_sync_result.dart';
 import 'wearable_bridge.dart';
 
+/// Only iOS implements continuous, account-owned native recovery. Android
+/// retains its existing scan/connection implementation and method contract.
+class CoolWearIosWearableBridge extends CoolWearWearableBridge
+    implements WearableExactTargetRecoveryBridge {
+  CoolWearIosWearableBridge({super.methods, super.events});
+
+  @override
+  Future<void> configureRecoveryTarget({
+    required String? nativeIdentifier,
+    String? knownName,
+    String? contextKey,
+    WearableUserProfile? profile,
+  }) => _invoke<void>('configureRecoveryTarget', {
+    'id': nativeIdentifier,
+    'name': knownName,
+    'context': contextKey,
+  });
+}
+
 /// CoolWear/LuckRing transport backed by the supplied Android/iOS vendor SDKs.
 ///
 /// The native side waits for the vendor connection and device-info response.
