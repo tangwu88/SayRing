@@ -1077,7 +1077,8 @@ class RoutedWearableBridge
           event.type == 'recoveryState' ||
           event.type == 'sleepReadStatus' ||
           event.type == 'healthRecord' ||
-          event.type == 'cameraShutter') {
+          event.type == 'cameraShutter' ||
+          event.type == 'cameraRemoteStopped') {
         final payload = Map<String, Object?>.from(event.payload);
         final usesPrimaryId =
             event.type == 'deviceDetails' || event.type == 'reconnected';

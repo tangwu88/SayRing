@@ -378,19 +378,6 @@ class DevicePage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
           ],
-          Card(
-            child: ListTile(
-              key: const Key('device-functions-firmware'),
-              leading: const Icon(Icons.system_update_alt_rounded),
-              title: const Text('固件升级'),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => DeviceFirmwarePage(controller: controller),
-                ),
-              ),
-            ),
-          ),
           if (watchFaceFeatures.isEmpty && primaryFeatures.isEmpty) ...[
             InlineNotice(
               key: const Key('device-no-integrated-features'),
@@ -531,15 +518,6 @@ class DevicePage extends StatelessWidget {
   }
 
   void _openDeviceFeature(BuildContext context, DeviceFeature feature) {
-    if (feature == DeviceFeature.camera &&
-        controller.connectedDevice?.sdkSource == WearableSdkSource.qring) {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => QRingCameraPage(controller: controller),
-        ),
-      );
-      return;
-    }
     if (feature == DeviceFeature.healthMonitoring) {
       Navigator.of(context).push(
         MaterialPageRoute<void>(

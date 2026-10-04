@@ -2368,52 +2368,68 @@ void main() {
   );
 
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
-    testWidgets('QRing device functions expose photo and firmware: $platform', (
-      tester,
-    ) async {
-      debugDefaultTargetPlatformOverride = platform;
-      addTearDown(() => debugDefaultTargetPlatformOverride = null);
-      final controller =
-          AppController(
-              MemorySessionVault(),
-              _NoopApi(),
-              MemoryHealthStore(),
-              _QRingCameraWearable(),
-            )
-            ..connectedDevice = const DeviceInfo(id: 'qring:one', name: 'R21')
-            ..deviceCapabilityState = DeviceCapabilityState.ready
-            ..capabilities = const DeviceCapabilities(
-              metrics: {},
-              features: {DeviceFeature.camera},
-              integratedFeatures: {DeviceFeature.camera},
-            );
-      addTearDown(controller.dispose);
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(body: DevicePage(controller: controller)),
-        ),
-      );
-      await tester.pumpAndSettle();
-      final firmware = find.byKey(const Key('device-functions-firmware'));
-      await tester.ensureVisible(firmware);
-      await tester.tap(firmware);
-      await tester.pumpAndSettle();
-      expect(find.byType(DeviceFirmwarePage), findsOneWidget);
-      expect(find.text('在线固件升级暂未开放'), findsOneWidget);
-      expect(controller.capabilities!.supportsOta, isFalse);
-      await tester.pageBack();
-      await tester.pumpAndSettle();
-      await tester.drag(find.byType(ListView).first, const Offset(0, 600));
-      await tester.pumpAndSettle();
-      final camera = find.byKey(const Key('device-feature-camera'));
-      await tester.ensureVisible(camera);
-      await tester.tap(camera);
-      await tester.pumpAndSettle();
-      expect(find.byType(QRingCameraPage), findsOneWidget);
-      expect(find.text('未开启'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-      debugDefaultTargetPlatformOverride = null;
-    });
+    testWidgets(
+      'QRing photo opens preview; firmware is only in About Device: $platform',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final controller =
+            AppController(
+                MemorySessionVault(),
+                _NoopApi(),
+                MemoryHealthStore(),
+                _QRingCameraWearable(),
+              )
+              ..connectedDevice = const DeviceInfo(id: 'qring:one', name: 'R21')
+              ..deviceCapabilityState = DeviceCapabilityState.ready
+              ..capabilities = const DeviceCapabilities(
+                metrics: {},
+                features: {DeviceFeature.camera},
+                integratedFeatures: {DeviceFeature.camera},
+              );
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(body: DevicePage(controller: controller)),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final firmware = find.byKey(const Key('device-functions-firmware'));
+        expect(firmware, findsNothing);
+        final about = find.text('关于设备');
+        await tester.ensureVisible(about);
+        await tester.tap(about);
+        await tester.pumpAndSettle();
+        final aboutFirmware = find.byKey(const Key('device-firmware-upgrade'));
+        await tester.ensureVisible(aboutFirmware);
+        await tester.tap(aboutFirmware);
+        await tester.pumpAndSettle();
+        expect(find.byType(DeviceFirmwarePage), findsOneWidget);
+        expect(find.text('在线固件升级暂未开放'), findsOneWidget);
+        expect(controller.capabilities!.supportsOta, isFalse);
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        await tester.drag(find.byType(ListView).first, const Offset(0, 600));
+        await tester.pumpAndSettle();
+        final camera = find.byKey(const Key('device-feature-camera'));
+        await tester.ensureVisible(camera);
+        await tester.tap(camera);
+        // This navigation test has no phone camera plugin. Do not wait for an
+        // indeterminate platform camera spinner or claim a real preview.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.byType(DeviceFeaturePage), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('camera-shutter-button')),
+          findsOneWidget,
+        );
+        expect(find.byType(QRingCameraPage), findsNothing);
+        expect(tester.takeException(), isNull);
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
   }
 
   testWidgets(

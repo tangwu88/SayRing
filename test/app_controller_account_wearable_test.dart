@@ -45,6 +45,32 @@ void main() {
   }
 
   test(
+    'camera notifications reject a different device and disconnected owner',
+    () async {
+      final fixture = await setup();
+      final controller = fixture.controller;
+      void emit(String type, String id) => fixture.wearable.eventsController
+          .add(WearableEvent(type: type, payload: {'deviceId': id}));
+      emit('cameraShutter', 'qring:other');
+      emit('cameraRemoteStopped', 'qring:other');
+      await _settle();
+      expect(controller.cameraShutterSequence, 0);
+      expect(controller.cameraRemoteStopSequence, 0);
+      emit('cameraShutter', _Wearable.watch.id);
+      emit('cameraRemoteStopped', _Wearable.watch.id);
+      await _settle();
+      expect(controller.cameraShutterSequence, 1);
+      expect(controller.cameraRemoteStopSequence, 1);
+      await controller.disconnectDevice();
+      emit('cameraShutter', _Wearable.watch.id);
+      emit('cameraRemoteStopped', _Wearable.watch.id);
+      await _settle();
+      expect(controller.cameraShutterSequence, 1);
+      expect(controller.cameraRemoteStopSequence, 1);
+    },
+  );
+
+  test(
     'same account reauthentication drains disconnect and freshly connects before sync',
     () async {
       final test = await setup();

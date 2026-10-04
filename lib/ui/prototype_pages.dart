@@ -2345,9 +2345,13 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   bool _takingPhoto = false;
   bool _cameraRemoteStarted = false;
   bool _cameraInitializing = false;
+  bool _cameraSuspending = false;
   bool _cameraPermissionRequesting = false;
   bool _cameraPermissionPermanentlyDenied = false;
+  bool _galleryPermissionDenied = false;
   int _cameraGeneration = 0;
+  late int _cameraRemoteStopSequence;
+  String? _cameraOwner;
   late final CameraRemoteShutterGate _cameraShutterGate;
   XFile? _dialPhoto;
   int _dialTimePosition = 0;
@@ -2367,6 +2371,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _featureContext = _currentFeatureContext;
+    _cameraRemoteStopSequence = widget.controller.cameraRemoteStopSequence;
     _cameraShutterGate = CameraRemoteShutterGate(
       initialSequence: widget.controller.cameraShutterSequence,
     );
@@ -2436,6 +2441,10 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       _featureContext = context;
       _featureReadGeneration++;
       _featureData = {};
+      if (widget.feature == DeviceFeature.camera) {
+        unawaited(_suspendCamera(message: '连接已改变，请重新打开相机'));
+        return;
+      }
       if ((widget.feature == DeviceFeature.gestureControl ||
               widget.feature == DeviceFeature.callReminder) &&
           widget.controller.availabilityFor(widget.feature).isReady) {
@@ -2449,6 +2458,15 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       setState(() => _finding = false);
     }
     if (widget.feature == DeviceFeature.camera) {
+      if (_cameraRemoteStopSequence !=
+          widget.controller.cameraRemoteStopSequence) {
+        _cameraRemoteStopSequence = widget.controller.cameraRemoteStopSequence;
+        _cameraRemoteStarted = false;
+        _cameraShutterGate.disarm(
+          currentSequence: widget.controller.cameraShutterSequence,
+        );
+        setState(() => _cameraMessage = '遥控已停止，可点击手机快门');
+      }
       final availability = widget.controller.availabilityFor(widget.feature);
       if (!availability.isReady) {
         _cameraShutterGate.disarm(
@@ -2461,6 +2479,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       }
       if (_camera == null &&
           !_cameraInitializing &&
+          !_cameraSuspending &&
           WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
         unawaited(_resumeCamera());
       }
@@ -2595,7 +2614,10 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Future<void> _initializeCamera() async {
-    if (_cameraInitializing || _cameraPermissionRequesting || _camera != null) {
+    if (_cameraInitializing ||
+        _cameraSuspending ||
+        _cameraPermissionRequesting ||
+        _camera != null) {
       return;
     }
     final lifecycleState = WidgetsBinding.instance.lifecycleState;
@@ -2656,6 +2678,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       controller.addListener(_handleCameraState);
       _handleCameraState();
       if (controller.value.hasError) return;
+      _cameraOwner = _currentFeatureContext;
       final started = await widget.controller.triggerDeviceAction(
         DeviceFeature.camera,
       );
@@ -2670,7 +2693,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       setState(() {
         _cameraRemoteStarted = started;
         _cameraMessage = started
-            ? '相机已就绪；可点击手机快门，也可摇动戒指触发拍照'
+            ? '摇动戴戒指的手，或点击快门'
             : widget.controller.errorMessage ?? '戒指相机遥控暂时无法开启';
       });
       if (started) {
@@ -2702,12 +2725,17 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       await openAppSettings();
       return;
     }
+    if (_camera != null && !_cameraRemoteStarted) {
+      await _suspendCamera(message: '正在重新开启相机遥控');
+    }
     if (mounted) setState(() => _cameraMessage = null);
     await _initializeCamera();
   }
 
   Future<void> _suspendCamera({String message = '返回 App 后将重新打开相机'}) async {
     if (widget.feature != DeviceFeature.camera) return;
+    if (_cameraSuspending) return;
+    _cameraSuspending = true;
     final generation = ++_cameraGeneration;
     _cameraInitializing = false;
     final camera = _camera;
@@ -2725,6 +2753,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       await _stopCameraRemoteIgnoringErrors();
     }
     await camera?.dispose();
+    _cameraSuspending = false;
     if (generation != _cameraGeneration) return;
   }
 
@@ -2743,10 +2772,13 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
 
   Future<void> _stopCameraRemoteIgnoringErrors() async {
     final controller = widget.controller;
+    final owner = _cameraOwner;
+    _cameraOwner = null;
     // `dispose` runs while Flutter has the element tree locked. The controller
     // publishes its busy state synchronously, so defer that notification to
     // the next event turn instead of rebuilding listeners during unmount.
     await Future<void>.delayed(Duration.zero);
+    if (owner == null || owner != _currentFeatureContext) return;
     try {
       await controller.triggerDeviceAction(
         DeviceFeature.camera,
@@ -2806,6 +2838,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       if (mounted) {
         setState(() {
           _lastPhoto = photo;
+          _galleryPermissionDenied = false;
           _cameraMessage = '照片已保存到手机相册';
         });
       }
@@ -2815,7 +2848,10 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       }
     } on PlatformException catch (error) {
       if (mounted) {
-        setState(() => _cameraMessage = error.message ?? '照片保存失败，请检查相册权限后重试');
+        setState(() {
+          _galleryPermissionDenied = error.code == 'PHOTO_PERMISSION_DENIED';
+          _cameraMessage = error.message ?? '照片保存失败，请检查相册权限后重试';
+        });
       }
     } finally {
       if (mounted) setState(() => _takingPhoto = false);
@@ -3476,7 +3512,17 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                     ),
                   ],
                 ),
-                if (camera == null && _cameraMessage != null) ...[
+                if (_galleryPermissionDenied) ...[
+                  const SizedBox(height: 14),
+                  OutlinedButton.icon(
+                    key: const ValueKey('camera-photo-settings-button'),
+                    onPressed: openAppSettings,
+                    icon: const Icon(Icons.settings_outlined),
+                    label: const Text('允许保存照片'),
+                  ),
+                ],
+                if (_cameraMessage != null &&
+                    (camera == null || !_cameraRemoteStarted)) ...[
                   const SizedBox(height: 14),
                   OutlinedButton.icon(
                     key: const ValueKey('camera-retry-button'),

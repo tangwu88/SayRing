@@ -300,7 +300,9 @@ class QRingWearableBridge
     DeviceFeature feature, {
     bool enabled = true,
   }) {
-    if (feature != DeviceFeature.findWatch) return _unsupported();
+    if (feature != DeviceFeature.findWatch && feature != DeviceFeature.camera) {
+      return _unsupported();
+    }
     return _invoke<void>('triggerDeviceAction', {
       'feature': feature.wireName,
       'enabled': enabled,

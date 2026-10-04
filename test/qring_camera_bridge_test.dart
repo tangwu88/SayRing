@@ -36,11 +36,15 @@ void main() {
         bridge.readDeviceFeature(DeviceFeature.gestureControl),
         throwsA(isA<PlatformException>()),
       );
+      await bridge.triggerDeviceAction(DeviceFeature.camera);
+      expect(calls.last.arguments, {'feature': 'camera', 'enabled': true});
+      await bridge.triggerDeviceAction(DeviceFeature.camera, enabled: false);
+      expect(calls.last.arguments, {'feature': 'camera', 'enabled': false});
       await expectLater(
-        bridge.triggerDeviceAction(DeviceFeature.camera),
+        bridge.triggerDeviceAction(DeviceFeature.gestureControl),
         throwsA(isA<PlatformException>()),
       );
-      expect(calls, hasLength(2));
+      expect(calls, hasLength(4));
     },
   );
 

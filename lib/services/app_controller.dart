@@ -930,6 +930,7 @@ class AppController extends ChangeNotifier {
   Map<DeviceFeature, Map<String, Object?>> deviceFeatureData = const {};
   Set<DeviceFeature> deviceFeatureBusy = const {};
   int cameraShutterSequence = 0;
+  int cameraRemoteStopSequence = 0;
   int heartRateWarning = 120;
   bool heartRateWarningSupported = false;
   String deviceSettingsStatus = '连接戒指后可读取';
@@ -6475,7 +6476,12 @@ class AppController extends ChangeNotifier {
         }
       }
     } else if (event.type == 'cameraShutter') {
+      final deviceId = event.payload['deviceId'];
+      if (deviceId != null && deviceId != connectedDevice?.id) return;
       cameraShutterSequence += 1;
+    } else if (event.type == 'cameraRemoteStopped') {
+      if (event.payload['deviceId'] != connectedDevice?.id) return;
+      cameraRemoteStopSequence += 1;
     } else if (event.type == 'deviceFeatureProgress') {
       final feature = DeviceFeature.tryFromWire(
         '${event.payload['feature'] ?? ''}',
