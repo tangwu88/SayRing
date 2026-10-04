@@ -1,5 +1,12 @@
 #pragma once
 #import "CoolWearPolicy.h"
+#import <dispatch/dispatch.h>
+
+// The vendor queue clears curSendCmd/sendCallback AFTER invoking the callback.
+// Never enqueue a follow-up synchronously, even when already on the main thread.
+static inline void CoolWearAfterSDKCallback(dispatch_block_t block) {
+    dispatch_async(dispatch_get_main_queue(), block);
+}
 
 // Supplied SDK type 128. Keep all four raw bytes: changing one switch must
 // never reset the other switches or reinterpret the undocumented time unit.

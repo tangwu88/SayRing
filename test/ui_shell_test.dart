@@ -2235,6 +2235,194 @@ void main() {
     );
   });
 
+  testWidgets('CoolWear stale controls cannot overwrite a replaced device', (
+    tester,
+  ) async {
+    final bridge = _DelayedControlWearable();
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            _NoopApi(),
+            MemoryHealthStore(),
+            bridge,
+          )
+          ..connectedDevice = const DeviceInfo(id: 'coolwear:old', name: 'HR01')
+          ..capabilities = const DeviceCapabilities(
+            metrics: {},
+            features: {DeviceFeature.gestureControl},
+            integratedFeatures: {DeviceFeature.gestureControl},
+          );
+    addTearDown(controller.dispose);
+    final read = controller.readDeviceFeature(DeviceFeature.gestureControl);
+    final write = controller.writeDeviceFeature(DeviceFeature.gestureControl, {
+      'mode': 1,
+    });
+    final action = controller.triggerDeviceAction(DeviceFeature.gestureControl);
+    controller.connectedDevice = const DeviceInfo(
+      id: 'coolwear:new',
+      name: 'HR05',
+    );
+    controller.deviceFeatureData = {
+      DeviceFeature.gestureControl: {'confirmedMode': 5},
+    };
+    controller.deviceFeatureBusy = {DeviceFeature.gestureControl};
+    bridge.read.complete({'confirmedMode': 1});
+    bridge.write.complete();
+    bridge.action.complete();
+    expect(await read, isEmpty);
+    expect(await write, isFalse);
+    expect(await action, isFalse);
+    expect(controller.deviceFeatureData[DeviceFeature.gestureControl], {
+      'confirmedMode': 5,
+    });
+    expect(
+      controller.deviceFeatureBusy,
+      contains(DeviceFeature.gestureControl),
+    );
+  });
+
+  testWidgets(
+    'CoolWear gesture selection confirms a command, not a physical action',
+    (tester) async {
+      final bridge = _ControlTrackingWearable();
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              bridge,
+            )
+            ..connectedDevice = const DeviceInfo(
+              id: 'coolwear:test-device',
+              name: 'HR01',
+            )
+            ..capabilities = const DeviceCapabilities(
+              metrics: {},
+              features: {DeviceFeature.gestureControl},
+              integratedFeatures: {DeviceFeature.gestureControl},
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DeviceFeaturePage(
+            controller: controller,
+            feature: DeviceFeature.gestureControl,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.check_rounded), findsNothing);
+      await tester.tap(find.text('拍照'));
+      await tester.pumpAndSettle();
+      expect(bridge.lastWrite, {'mode': 4});
+      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+      expect(find.text('手势模式指令已确认'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'CoolWear call reminder separates device switch from iOS authorization',
+    (tester) async {
+      final bridge = _ControlTrackingWearable();
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              bridge,
+            )
+            ..connectedDevice = const DeviceInfo(
+              id: 'coolwear:test-device',
+              name: 'HR01',
+            )
+            ..capabilities = const DeviceCapabilities(
+              metrics: {},
+              features: {DeviceFeature.callReminder},
+              integratedFeatures: {DeviceFeature.callReminder},
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DeviceFeaturePage(
+            controller: controller,
+            feature: DeviceFeature.callReminder,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('蓝牙通知未授权'), findsOneWidget);
+      expect(
+        tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+        isFalse,
+      );
+      await tester.tap(find.byType(SwitchListTile));
+      await tester.pumpAndSettle();
+      expect(bridge.lastWrite?['incomingCall'], isTrue);
+      expect(
+        tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+        isTrue,
+      );
+      expect(find.text('蓝牙通知未授权'), findsOneWidget);
+      expect(find.text('手机通知权限已允许'), findsNothing);
+    },
+  );
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    testWidgets('CoolWear find controls match $platform transport', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      try {
+        final bridge = _FindTrackingWearable();
+        final controller =
+            AppController(
+                MemorySessionVault(),
+                _NoopApi(),
+                MemoryHealthStore(),
+                bridge,
+              )
+              ..connectedDevice = const DeviceInfo(
+                id: 'coolwear:test-device',
+                name: 'HR01',
+              );
+        controller.capabilities = const DeviceCapabilities(
+          metrics: {},
+          features: {DeviceFeature.findWatch},
+          integratedFeatures: {DeviceFeature.findWatch},
+        );
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DeviceFeaturePage(
+              controller: controller,
+              feature: DeviceFeature.findWatch,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final button = find.byType(FilledButton);
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        expect(bridge.commands, [true]);
+        expect(find.text('戒指正在响铃或振动'), findsNothing);
+        if (platform == TargetPlatform.iOS) {
+          expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
+          await tester.tap(button);
+          await tester.pumpAndSettle();
+          expect(bridge.commands, [true, false]);
+        } else {
+          expect(tester.widget<FilledButton>(button).onPressed, isNull);
+          await tester.pump(const Duration(seconds: 7));
+          await tester.pumpAndSettle();
+          expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
+          expect(bridge.commands, [true]);
+        }
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+  }
+
   for (final errorCode in [
     'HEART_NOT_WORN',
     'MEASUREMENT_NOT_WORN',
@@ -4166,6 +4354,57 @@ class _NoopWearable implements WearableBridge {
 
   @override
   Future<List<HealthRecord>> syncHealthData({String? cursor}) async => const [];
+}
+
+class _FindTrackingWearable extends _NoopWearable {
+  final commands = <bool>[];
+
+  @override
+  Future<void> triggerDeviceAction(
+    DeviceFeature feature, {
+    bool enabled = true,
+  }) async {
+    expect(feature, DeviceFeature.findWatch);
+    commands.add(enabled);
+  }
+}
+
+class _ControlTrackingWearable extends _NoopWearable {
+  Map<String, Object?>? lastWrite;
+  @override
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async =>
+      feature == DeviceFeature.gestureControl
+      ? {if (lastWrite?['mode'] != null) 'confirmedMode': lastWrite!['mode']}
+      : {
+          'incomingCall': lastWrite?['incomingCall'] == true,
+          'systemNotificationAuthorized': false,
+        };
+  @override
+  Future<void> writeDeviceFeature(
+    DeviceFeature feature,
+    Map<String, Object?> values,
+  ) async {
+    lastWrite = values;
+  }
+}
+
+class _DelayedControlWearable extends _NoopWearable {
+  final read = Completer<Map<String, Object?>>();
+  final write = Completer<void>();
+  final action = Completer<void>();
+  @override
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) =>
+      read.future;
+  @override
+  Future<void> writeDeviceFeature(
+    DeviceFeature feature,
+    Map<String, Object?> values,
+  ) => write.future;
+  @override
+  Future<void> triggerDeviceAction(
+    DeviceFeature feature, {
+    bool enabled = true,
+  }) => action.future;
 }
 
 class _PartialHealthMonitoringWearable extends _NoopWearable {

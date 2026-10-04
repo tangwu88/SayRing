@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/services/coolwear_wearable_bridge.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/services/wearable_routing.dart';
@@ -19,6 +20,82 @@ const _profile = WearableUserProfile(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'iOS controls forward validated feature contracts without Android fallback',
+    () async {
+      const channel = MethodChannel('test/coolwear/ios-controls');
+      final calls = <MethodCall>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        return call.method == 'readDeviceFeature'
+            ? {'incomingCall': false, 'systemNotificationAuthorized': false}
+            : null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final ios = CoolWearIosWearableBridge(methods: channel);
+      await ios.triggerDeviceAction(DeviceFeature.camera);
+      await ios.triggerDeviceAction(DeviceFeature.camera, enabled: false);
+      await ios.writeDeviceFeature(DeviceFeature.gestureControl, {'mode': 4});
+      await ios.writeDeviceFeature(DeviceFeature.callReminder, {
+        'incomingCall': true,
+      });
+      expect(await ios.readDeviceFeature(DeviceFeature.callReminder), {
+        'incomingCall': false,
+        'systemNotificationAuthorized': false,
+      });
+      expect(calls.map((call) => call.arguments), [
+        {'feature': 'camera', 'enabled': true},
+        {'feature': 'camera', 'enabled': false},
+        {
+          'feature': 'gesture_control',
+          'values': {'mode': 4},
+        },
+        {
+          'feature': 'call_reminder',
+          'values': {'incomingCall': true},
+        },
+        {'feature': 'call_reminder'},
+      ]);
+      final android = CoolWearWearableBridge(methods: channel);
+      await expectLater(
+        android.readDeviceFeature(DeviceFeature.gestureControl),
+        throwsA(isA<PlatformException>()),
+      );
+      await expectLater(
+        android.writeDeviceFeature(DeviceFeature.callReminder, {
+          'incomingCall': true,
+        }),
+        throwsA(isA<PlatformException>()),
+      );
+      expect(calls, hasLength(5));
+    },
+  );
+
+  test('iOS find forwards explicit start and stop to the same SDK', () async {
+    const channel = MethodChannel('test/coolwear/ios-find');
+    final calls = <MethodCall>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final ios = CoolWearIosWearableBridge(methods: channel);
+    await ios.triggerDeviceAction(DeviceFeature.findWatch);
+    await ios.triggerDeviceAction(DeviceFeature.findWatch, enabled: false);
+    expect(calls.map((call) => call.method), [
+      'triggerDeviceAction',
+      'triggerDeviceAction',
+    ]);
+    expect(calls.map((call) => call.arguments), [
+      {'feature': 'find_watch', 'enabled': true},
+      {'feature': 'find_watch', 'enabled': false},
+    ]);
+  });
 
   testWidgets(
     'iOS monitoring timeout outlives the native queue and is handled',

@@ -17,6 +17,33 @@ class CoolWearIosWearableBridge extends CoolWearWearableBridge
   Future<int?> readHeartRateWarning() async => null;
 
   @override
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async {
+    if (feature != DeviceFeature.gestureControl &&
+        feature != DeviceFeature.callReminder) {
+      return super.readDeviceFeature(feature);
+    }
+    final value = await _invoke<Map<Object?, Object?>>('readDeviceFeature', {
+      'feature': feature.wireName,
+    });
+    return (value ?? const <Object?, Object?>{}).map(
+      (key, item) => MapEntry('$key', item),
+    );
+  }
+
+  @override
+  Future<void> writeDeviceFeature(
+    DeviceFeature feature,
+    Map<String, Object?> values,
+  ) =>
+      feature == DeviceFeature.gestureControl ||
+          feature == DeviceFeature.callReminder
+      ? _invoke<void>('writeDeviceFeature', {
+          'feature': feature.wireName,
+          'values': values,
+        })
+      : super.writeDeviceFeature(feature, values);
+
+  @override
   Duration _commandTimeout(String method, Duration fallback) =>
       switch (method) {
         'setAutoMeasureSetting' => const Duration(seconds: 55),

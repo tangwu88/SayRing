@@ -3,9 +3,50 @@
 #import "../ios/Runner/CoolWearRecovery.h"
 #import "../ios/Runner/CoolWearHistory.h"
 #import "../ios/Runner/CoolWearMonitoring.h"
+#import "../ios/Runner/CoolWearControls.h"
+
+@interface CWCallbackQueue : NSObject
+@property(nonatomic, copy) dispatch_block_t callback;
+- (void)finish;
+@end
+@implementation CWCallbackQueue
+- (void)finish {
+    dispatch_block_t callback = self.callback;
+    if (callback) callback();
+    // Same ordering as the supplied SDK: callback before clearing current cmd.
+    self.callback = nil;
+}
+@end
 
 int main(void) {
     @autoreleasepool {
+        for (NSNumber *mode in @[@0, @1, @2, @3, @4, @5]) NSCAssert([CoolWearGestureMode(mode) isEqual:mode], @"valid gesture rejected");
+        for (id raw in @[@YES, @(-1), @6, @1.5, @"4", NSNull.null]) NSCAssert(!CoolWearGestureMode(raw), @"invalid gesture accepted");
+        NSCAssert([CoolWearCallReminder(@{@"onoff": @0}) isEqual:@0], @"disabled reminder lost");
+        NSCAssert([CoolWearCallReminder(@{@"onoff": @1}) isEqual:@1], @"enabled reminder lost");
+        NSCAssert(!CoolWearCallReminder(@{}) && !CoolWearCallReminder(@{@"onoff": @2}), @"unknown reminder fabricated");
+        for (NSUInteger mask = 0; mask < 8; mask++) {
+            NSCAssert(CoolWearCameraShutter(@{@"takePhoto": @1}, mask & 1, mask & 2, mask & 4) == (mask == 7), @"unsafe shutter event");
+        }
+        NSCAssert(!CoolWearCameraShutter(@{}, YES, YES, YES) && !CoolWearCameraShutter(@{@"takePhoto": @0}, YES, YES, YES), @"missing/stop shutter interpreted as a photo");
+        CWCallbackQueue *queue = [CWCallbackQueue new];
+        __weak CWCallbackQueue *weakQueue = queue;
+        __block BOOL followupCompleted = NO;
+        queue.callback = ^{ weakQueue.callback = ^{ followupCompleted = YES; }; };
+        [queue finish];
+        NSCAssert(queue.callback == nil && !followupCompleted, @"inline queue regression not reproduced");
+        queue.callback = ^{
+            CoolWearAfterSDKCallback(^{
+                weakQueue.callback = ^{ followupCompleted = YES; };
+                [weakQueue finish];
+            });
+        };
+        [queue finish];
+        NSCAssert(!followupCompleted, @"SDK callback deferred work ran inline");
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:1];
+        while (!followupCompleted && deadline.timeIntervalSinceNow > 0)
+            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+        NSCAssert(followupCompleted, @"deferred followup lost its callback");
         NSString *uuid = @"11111111-2222-4333-8444-555555555555";
         NSCAssert(CoolWearRecoveryTargetValid(uuid, @"HR01", @"env:owner"), @"exact recovery rejected");
         for (NSString *bad in @[@"", @"HR01", @"not-a-uuid"])

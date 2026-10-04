@@ -3796,22 +3796,33 @@ class AppController extends ChangeNotifier {
       notifyListeners();
       return const {};
     }
+    final generation = _sessionGeneration;
+    final settingsGeneration = _deviceSettingsGeneration;
+    final deviceId = connectedDevice?.id;
+    bool isCurrent() =>
+        !_disposed &&
+        generation == _sessionGeneration &&
+        settingsGeneration == _deviceSettingsGeneration &&
+        connectedDevice?.id == deviceId;
     _setDeviceFeatureBusy(feature, true);
     try {
       final value = await _wearable.readDeviceFeature(feature);
+      if (!isCurrent()) return const {};
       deviceFeatureData = {...deviceFeatureData, feature: value};
       return value;
     } on PlatformException catch (error) {
+      if (!isCurrent()) return const {};
       errorMessage = _wearableErrorMessage(
         error,
         fallback: '${feature.label}暂时无法读取',
       );
       return const {};
     } catch (_) {
+      if (!isCurrent()) return const {};
       errorMessage = '${feature.label}暂时无法读取，请稍后重试';
       return const {};
     } finally {
-      _setDeviceFeatureBusy(feature, false);
+      if (isCurrent()) _setDeviceFeatureBusy(feature, false);
     }
   }
 
@@ -3862,9 +3873,18 @@ class AppController extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+    final generation = _sessionGeneration;
+    final settingsGeneration = _deviceSettingsGeneration;
+    final deviceId = connectedDevice?.id;
+    bool isCurrent() =>
+        !_disposed &&
+        generation == _sessionGeneration &&
+        settingsGeneration == _deviceSettingsGeneration &&
+        connectedDevice?.id == deviceId;
     _setDeviceFeatureBusy(feature, true);
     try {
       await _wearable.writeDeviceFeature(feature, values);
+      if (!isCurrent()) return false;
       deviceFeatureData = {
         ...deviceFeatureData,
         feature: {...?deviceFeatureData[feature], ...values},
@@ -3872,16 +3892,18 @@ class AppController extends ChangeNotifier {
       errorMessage = null;
       return true;
     } on PlatformException catch (error) {
+      if (!isCurrent()) return false;
       errorMessage = _wearableErrorMessage(
         error,
         fallback: '${feature.label}保存失败',
       );
       return false;
     } catch (_) {
+      if (!isCurrent()) return false;
       errorMessage = '${feature.label}保存失败，请稍后重试';
       return false;
     } finally {
-      _setDeviceFeatureBusy(feature, false);
+      if (isCurrent()) _setDeviceFeatureBusy(feature, false);
     }
   }
 
@@ -3895,22 +3917,33 @@ class AppController extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+    final generation = _sessionGeneration;
+    final settingsGeneration = _deviceSettingsGeneration;
+    final deviceId = connectedDevice?.id;
+    bool isCurrent() =>
+        !_disposed &&
+        generation == _sessionGeneration &&
+        settingsGeneration == _deviceSettingsGeneration &&
+        connectedDevice?.id == deviceId;
     _setDeviceFeatureBusy(feature, true);
     try {
       await _wearable.triggerDeviceAction(feature, enabled: enabled);
+      if (!isCurrent()) return false;
       errorMessage = null;
       return true;
     } on PlatformException catch (error) {
+      if (!isCurrent()) return false;
       errorMessage = _wearableErrorMessage(
         error,
         fallback: '${feature.label}暂时无法使用',
       );
       return false;
     } catch (_) {
+      if (!isCurrent()) return false;
       errorMessage = '${feature.label}暂时无法使用，请稍后重试';
       return false;
     } finally {
-      _setDeviceFeatureBusy(feature, false);
+      if (isCurrent()) _setDeviceFeatureBusy(feature, false);
     }
   }
 

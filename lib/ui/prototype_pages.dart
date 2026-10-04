@@ -2356,11 +2356,16 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   bool _weatherRefreshing = false;
   String? _weatherMessage;
   bool _openingWatchFaceMarket = false;
+  int _featureReadGeneration = 0;
+  late String _featureContext;
+  String get _currentFeatureContext =>
+      '${widget.controller.session?.accountKey}|${widget.controller.isLocalMode}|${widget.controller.connectedDevice?.id}|${widget.controller.availabilityFor(widget.feature).isReady}';
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _featureContext = _currentFeatureContext;
     _cameraShutterGate = CameraRemoteShutterGate(
       initialSequence: widget.controller.cameraShutterSequence,
     );
@@ -2425,6 +2430,17 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
 
   void _handleControllerEvent() {
     if (!mounted) return;
+    final context = _currentFeatureContext;
+    if (context != _featureContext) {
+      _featureContext = context;
+      _featureReadGeneration++;
+      _featureData = {};
+      if ((widget.feature == DeviceFeature.gestureControl ||
+              widget.feature == DeviceFeature.callReminder) &&
+          widget.controller.availabilityFor(widget.feature).isReady) {
+        unawaited(_loadFeature());
+      }
+    }
     if (widget.feature == DeviceFeature.findWatch &&
         !widget.controller.availabilityFor(widget.feature).isReady &&
         _finding) {
@@ -2463,8 +2479,15 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Future<void> _loadFeature() async {
+    final generation = ++_featureReadGeneration;
+    final context = _currentFeatureContext;
     final value = await widget.controller.readDeviceFeature(widget.feature);
-    if (mounted && value.isNotEmpty) {
+    if (mounted &&
+        generation == _featureReadGeneration &&
+        context == _currentFeatureContext &&
+        (value.isNotEmpty ||
+            widget.feature == DeviceFeature.gestureControl ||
+            widget.feature == DeviceFeature.callReminder)) {
       setState(() => _featureData = value);
       if (widget.feature == DeviceFeature.watchFaces) {
         unawaited(_enrichWatchFacePreviews(value));
@@ -2546,11 +2569,12 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     String successMessage, {
     bool reload = true,
   }) async {
+    final contextKey = _currentFeatureContext;
     final saved = await widget.controller.writeDeviceFeature(
       widget.feature,
       values,
     );
-    if (!mounted) return saved;
+    if (!mounted || contextKey != _currentFeatureContext) return false;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -2793,9 +2817,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Future<void> _toggleFind() async {
+    final source = widget.controller.connectedDevice?.sdkSource;
     final isOneShot =
-        widget.controller.connectedDevice?.sdkSource ==
-        WearableSdkSource.yucheng;
+        source == WearableSdkSource.yucheng ||
+        (source == WearableSdkSource.coolwear &&
+            defaultTargetPlatform != TargetPlatform.iOS);
     if (isOneShot && _finding) return;
     final next = isOneShot || !_finding;
     final success = await widget.controller.triggerDeviceAction(
@@ -2816,7 +2842,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       SnackBar(
         content: Text(
           success
-              ? (isOneShot ? '已发送查找指令，请留意戒指振动' : (next ? '戒指正在响铃或振动' : '已停止查找'))
+              ? (source == WearableSdkSource.coolwear
+                    ? (next ? '查找指令已发送' : '停止指令已发送')
+                    : (isOneShot
+                          ? '已发送查找指令，请留意戒指振动'
+                          : (next ? '戒指正在响铃或振动' : '已停止查找')))
               : widget.controller.errorMessage ?? '暂时无法查找戒指',
         ),
       ),
@@ -2854,10 +2884,19 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 _FindWatchPanel(
                   finding: _finding,
                   busy: busy,
-                  supportsStop: !{
-                    WearableSdkSource.yucheng,
-                    WearableSdkSource.coolwear,
-                  }.contains(widget.controller.connectedDevice?.sdkSource),
+                  supportsStop:
+                      !{
+                        WearableSdkSource.yucheng,
+                        WearableSdkSource.coolwear,
+                      }.contains(
+                        widget.controller.connectedDevice?.sdkSource,
+                      ) ||
+                      (widget.controller.connectedDevice?.sdkSource ==
+                              WearableSdkSource.coolwear &&
+                          defaultTargetPlatform == TargetPlatform.iOS),
+                  commandOnly:
+                      widget.controller.connectedDevice?.sdkSource ==
+                      WearableSdkSource.coolwear,
                   onPressed: _toggleFind,
                 )
               else if (widget.feature == DeviceFeature.screenDisplay)
@@ -2881,6 +2920,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     DeviceFeature.watchFaces => _buildWatchFacesPanel(busy),
     DeviceFeature.photoWatchFace => _buildPhotoWatchFacePanel(busy),
     DeviceFeature.camera => _buildCameraPanel(),
+    DeviceFeature.gestureControl => _buildGesturePanel(busy),
+    DeviceFeature.callReminder => _buildCallReminderPanel(busy),
     DeviceFeature.phoneCalls => _buildPhoneCallsPanel(busy),
     DeviceFeature.contacts => _buildContactsPanel(busy),
     DeviceFeature.notifications => _buildNotificationsPanel(busy),
@@ -2896,6 +2937,68 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       icon: _deviceFeatureIcon(widget.feature),
     ),
   };
+
+  Widget _buildGesturePanel(bool busy) => Card(
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('选择戒指手势模式。系统控制效果取决于戒指固件和手机配对。'),
+          const SizedBox(height: 12),
+          for (final entry in const [
+            (0, '关闭'),
+            (1, '短视频'),
+            (2, '音乐'),
+            (3, '阅读'),
+            (4, '拍照'),
+            (5, '电话'),
+          ])
+            ListTile(
+              title: Text(entry.$2),
+              trailing: _featureData['confirmedMode'] == entry.$1
+                  ? const Icon(Icons.check_rounded)
+                  : null,
+              onTap: busy
+                  ? null
+                  : () => _saveFeature({'mode': entry.$1}, '手势模式指令已确认'),
+            ),
+          const Text(
+            '勾选表示本次连接已确认的指令，不代表已执行手势。',
+            style: TextStyle(fontSize: 12),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _buildCallReminderPanel(bool busy) {
+    if (_featureData.isEmpty) return _loadingCard(busy, '来电提醒');
+    return Card(
+      child: Column(
+        children: [
+          _featureSwitch(
+            title: '来电提醒',
+            subtitle: '在戒指提醒手机来电',
+            keyName: 'incomingCall',
+            busy: busy,
+          ),
+          ListTile(
+            title: Text(
+              _featureData['systemNotificationAuthorized'] == true
+                  ? '蓝牙通知已授权'
+                  : '蓝牙通知未授权',
+            ),
+            subtitle: const Text('在 iPhone 设置 → 蓝牙 → 戒指中允许共享系统通知。'),
+            trailing: TextButton(
+              onPressed: busy ? null : _loadFeature,
+              child: const Text('刷新'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   List<Map<String, Object?>> get _items {
     final raw = _featureData['items'];
@@ -4823,12 +4926,14 @@ class _FindWatchPanel extends StatelessWidget {
     required this.finding,
     required this.busy,
     required this.supportsStop,
+    this.commandOnly = false,
     required this.onPressed,
   });
 
   final bool finding;
   final bool busy;
   final bool supportsStop;
+  final bool commandOnly;
   final VoidCallback onPressed;
 
   @override
@@ -4847,9 +4952,11 @@ class _FindWatchPanel extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             Text(
-              finding
-                  ? (supportsStop ? '请留意附近响铃或振动的戒指' : '查找指令已发送，请留意戒指振动')
-                  : '让戒指响铃或振动，帮助你快速找到它',
+              commandOnly
+                  ? (finding ? '查找指令已发送' : '查找已连接的戒指')
+                  : (finding
+                        ? (supportsStop ? '请留意附近响铃或振动的戒指' : '查找指令已发送，请留意戒指振动')
+                        : '让戒指响铃或振动，帮助你快速找到它'),
               textAlign: TextAlign.center,
               style: const TextStyle(height: 1.5),
             ),
@@ -6006,6 +6113,8 @@ IconData _deviceFeatureIcon(DeviceFeature feature) => switch (feature) {
   DeviceFeature.photoWatchFace => Icons.photo_outlined,
   DeviceFeature.findWatch => Icons.notifications_active_outlined,
   DeviceFeature.camera => Icons.camera_alt_outlined,
+  DeviceFeature.gestureControl => Icons.gesture_rounded,
+  DeviceFeature.callReminder => Icons.phone_in_talk_outlined,
   DeviceFeature.phoneCalls => Icons.call_outlined,
   DeviceFeature.contacts => Icons.contacts_outlined,
   DeviceFeature.notifications => Icons.notifications_none_rounded,
@@ -6023,6 +6132,8 @@ String _deviceFeatureDescription(DeviceFeature feature) => switch (feature) {
   DeviceFeature.photoWatchFace => '用自己的照片制作显示样式',
   DeviceFeature.findWatch => '让附近的戒指响铃或振动',
   DeviceFeature.camera => '打开相机后摇动戒指控制手机拍照',
+  DeviceFeature.gestureControl => '设置戒指支持的手势模式',
+  DeviceFeature.callReminder => '设置戒指来电提醒',
   DeviceFeature.phoneCalls => '管理戒指通话相关设置',
   DeviceFeature.contacts => '管理戒指中的常用联系人',
   DeviceFeature.notifications => '选择需要由戒指振动提醒的消息',

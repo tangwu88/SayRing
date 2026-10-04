@@ -3,6 +3,7 @@
 #import "CoolWearHistory.h"
 #import "CoolWearRecovery.h"
 #import "CoolWearMonitoring.h"
+#import "CoolWearControls.h"
 #import <BluetoothLibrary/BluetoothLibrary.h>
 #import <CommonCrypto/CommonDigest.h>
 
@@ -66,6 +67,20 @@ static void CoolWearOnMain(dispatch_block_t block) {
 @property(nonatomic) BOOL monitoringReadbackAcknowledged;
 @property(nonatomic, copy) NSDictionary *monitoringReadbackSnapshot;
 @property(nonatomic) NSUInteger monitoringGeneration;
+@property(nonatomic, copy) FlutterResult pendingFind;
+@property(nonatomic) NSUInteger findGeneration;
+@property(nonatomic) BOOL findSupported;
+@property(nonatomic) BOOL findProbing;
+@property(nonatomic, copy) FlutterResult pendingControl;
+@property(nonatomic) NSUInteger controlGeneration;
+@property(nonatomic) BOOL cameraActive;
+@property(nonatomic, strong) NSNumber *gestureMode;
+@property(nonatomic, strong) NSNumber *callReminder;
+@property(nonatomic, strong) NSNumber *controlExpectedCall;
+@property(nonatomic, strong) NSNumber *controlReadbackCall;
+@property(nonatomic) BOOL controlReadingCall;
+@property(nonatomic) BOOL controlReadbackAcknowledged;
+@property(nonatomic) BOOL controlIsWrite;
 @end
 
 @implementation CoolWearWearableBridge
@@ -137,6 +152,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
     for (NSString *name in @[UIApplicationDidBecomeActiveNotification, UIApplicationDidEnterBackgroundNotification]) {
         id observer = [center addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) {
             [weakSelf scheduleRecovery];
+            if ([note.name isEqualToString:UIApplicationDidEnterBackgroundNotification]) weakSelf.cameraActive = NO;
             if (![weakSelf isResolved]) return;
             if ([note.name isEqualToString:UIApplicationDidBecomeActiveNotification]) [CE_SensorCmd open];
             else [CE_SensorCmd close];
@@ -246,11 +262,192 @@ static void CoolWearOnMain(dispatch_block_t block) {
     }
     value[@"metrics"] = metrics;
     value[@"historyMetrics"] = metrics;
-    if ([self isResolved] && CoolWearMonitoringSettings(self.monitoringSnapshot, self.flags).count) {
-        value[@"features"] = @[@"health_monitoring"];
-        value[@"integratedFeatures"] = @[@"health_monitoring"];
+    NSMutableArray *features = [NSMutableArray array];
+    // The SDK has no optional find flag. A real stop-command ACK after this
+    // exact handshake proves the protocol, not the presence of a vibrator.
+    if ([self isResolved] && self.findSupported) [features addObject:@"find_watch"];
+    if ([self isResolved] && CoolWearFlag(self.flags, @"gestureSupport")) {
+        [features addObjectsFromArray:@[@"camera", @"gesture_control"]];
     }
+    // Only an actual type 122 settings response proves call-reminder support.
+    if ([self isResolved] && self.callReminder) [features addObject:@"call_reminder"];
+    if ([self isResolved] && CoolWearMonitoringSettings(self.monitoringSnapshot, self.flags).count) {
+        [features addObject:@"health_monitoring"];
+    }
+    value[@"features"] = features;
+    value[@"integratedFeatures"] = features;
     return value;
+}
+
+- (NSDictionary *)callReminderSettings {
+    return self.callReminder ? @{@"incomingCall": @(self.callReminder.boolValue),
+        @"systemNotificationAuthorized": @(self.target.ancsAuthorized)} : @{};
+}
+
+- (void)finishControl:(FlutterError *)error {
+    FlutterResult result = self.pendingControl;
+    BOOL write = self.controlIsWrite;
+    self.pendingControl = nil;
+    self.controlExpectedCall = nil;
+    self.controlReadbackCall = nil;
+    self.controlReadingCall = NO;
+    self.controlReadbackAcknowledged = NO;
+    self.controlGeneration++;
+    if (result) result(error ?: (write ? nil : [self callReminderSettings]));
+}
+
+- (void)finishControlReadbackIfReady {
+    if (!self.pendingControl || !self.controlReadingCall || !self.controlReadbackAcknowledged || !self.controlReadbackCall) return;
+    BOOL matches = !self.controlExpectedCall || [self.controlExpectedCall isEqual:self.controlReadbackCall];
+    [self finishControl:matches ? nil : [self error:@"COOLWEAR_CONTROL_NOT_SAVED" message:@"戒指未保存设置，请刷新"]];
+}
+
+- (void)requestCallReadback:(NSUInteger)operation connection:(NSUInteger)connection {
+    if (operation != self.controlGeneration || connection != self.connectionGeneration || !self.pendingControl || ![self isResolved]) return;
+    self.controlReadingCall = YES;
+    self.controlReadbackCall = nil;
+    self.controlReadbackAcknowledged = NO;
+    CE_RequestAllInfoCmd *query = [CE_RequestAllInfoCmd new];
+    query.overtime = 8; query.repeatSendTimes = 0;
+    __weak typeof(self) weakSelf = self;
+    [self.product sendCmdToDevice:query complete:^(NSError *error) {
+        CoolWearAfterSDKCallback(^{
+            if (operation != weakSelf.controlGeneration || connection != weakSelf.connectionGeneration || !weakSelf.pendingControl) return;
+            if (error) [weakSelf finishControl:[weakSelf error:@"COOLWEAR_CONTROL_READ_FAILED" message:@"读取来电提醒失败"]];
+            else { weakSelf.controlReadbackAcknowledged = YES; [weakSelf finishControlReadbackIfReady]; }
+        });
+    }];
+}
+
+- (void)sendControl:(NSDictionary *)args action:(BOOL)action write:(BOOL)write operation:(NSUInteger)operation connection:(NSUInteger)connection {
+    if (operation != self.controlGeneration || connection != self.connectionGeneration || !self.pendingControl || ![self isResolved]) return;
+    __weak typeof(self) weakSelf = self;
+    if (self.pendingBattery || self.pendingFind) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            [weakSelf sendControl:args action:action write:write operation:operation connection:connection];
+        });
+        return;
+    }
+    NSString *feature = args[@"feature"];
+    if (!action && !write) { [self requestCallReadback:operation connection:connection]; return; }
+    CE_Cmd *command;
+    NSNumber *mode;
+    if (action) command = [[CE_SendPhotoCmd alloc] initWithOnoff:[args[@"enabled"] boolValue] ? 1 : 0];
+    else if ([feature isEqual:@"gesture_control"]) {
+        mode = CoolWearGestureMode(args[@"values"][@"mode"]);
+        CE_GestureCmd *gesture = [CE_GestureCmd new]; gesture.type = (Control_type)mode.unsignedIntegerValue; command = gesture;
+    } else command = [[YD_SyncCallAlarmCmd alloc] initWithOnoff:self.controlExpectedCall.integerValue];
+    command.overtime = 8; command.repeatSendTimes = 0; command.noCallback = NO;
+    [self.product sendCmdToDevice:command complete:^(NSError *error) {
+        CoolWearAfterSDKCallback(^{
+            if (operation != weakSelf.controlGeneration || connection != weakSelf.connectionGeneration || !weakSelf.pendingControl) return;
+            if (error) { [weakSelf finishControl:[weakSelf error:@"COOLWEAR_CONTROL_FAILED" message:@"戒指未确认指令，请重试"]]; return; }
+            if ([feature isEqual:@"call_reminder"]) [weakSelf requestCallReadback:operation connection:connection];
+            else {
+                if (action) weakSelf.cameraActive = [args[@"enabled"] boolValue] && UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
+                else weakSelf.gestureMode = mode;
+                [weakSelf finishControl:nil];
+            }
+        });
+    }];
+}
+
+- (void)control:(NSDictionary *)args action:(BOOL)action write:(BOOL)write result:(FlutterResult)result {
+    if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
+    NSString *feature = [args[@"feature"] isKindOfClass:NSString.class] ? args[@"feature"] : @"";
+    BOOL gesture = [feature isEqual:@"gesture_control"], photo = [feature isEqual:@"camera"], call = [feature isEqual:@"call_reminder"];
+    if (!(gesture || photo || call) || (photo != action) ||
+        ((gesture || photo) && !CoolWearFlag(self.flags, @"gestureSupport")) || (call && !self.callReminder)) {
+        result([self error:@"COOLWEAR_FEATURE_UNVERIFIED" message:@"此戒指不支持此功能"]); return;
+    }
+    NSDictionary *values = [args[@"values"] isKindOfClass:NSDictionary.class] ? args[@"values"] : @{};
+    id enabled = action ? args[@"enabled"] : values[@"incomingCall"];
+    if ((action || (call && write)) && (![enabled isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)enabled) != CFBooleanGetTypeID())) {
+        result([self error:@"INVALID_SETTING" message:@"开关参数无效"]); return;
+    }
+    if (gesture && write && !CoolWearGestureMode(values[@"mode"])) { result([self error:@"INVALID_SETTING" message:@"手势模式无效"]); return; }
+    if (gesture && !write) { result(self.gestureMode ? @{@"confirmedMode": self.gestureMode} : @{}); return; }
+    if (self.pendingControl || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite || (self.pendingFind && !self.findProbing)) {
+        result([self error:@"DEVICE_BUSY" message:@"戒指忙，请稍后重试"]); return;
+    }
+    if (photo && ![enabled boolValue]) self.cameraActive = NO;
+    self.pendingControl = result;
+    self.controlIsWrite = write || action;
+    self.controlExpectedCall = call && write ? @([enabled boolValue] ? 1 : 0) : nil;
+    NSUInteger operation = ++self.controlGeneration, connection = self.connectionGeneration;
+    __weak typeof(self) weakSelf = self;
+    // One bounded operation includes a queued optional probe and fresh readback.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 28 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (operation != weakSelf.controlGeneration || connection != weakSelf.connectionGeneration || !weakSelf.pendingControl) return;
+        [weakSelf finishControl:[weakSelf error:@"COOLWEAR_CONTROL_TIMEOUT" message:@"戒指未响应，请重试"]];
+        [weakSelf beginCancellation:nil]; [weakSelf emit:@"disconnected" payload:@{}]; [weakSelf scheduleRecovery];
+    });
+    [self sendControl:args action:action write:write operation:operation connection:connection];
+}
+
+- (void)finishFind:(FlutterError *)error {
+    FlutterResult result = self.pendingFind;
+    self.pendingFind = nil;
+    self.findProbing = NO;
+    self.findGeneration++;
+    if (result) result(error);
+}
+
+- (void)sendFind:(BOOL)enabled operation:(NSUInteger)operation connection:(NSUInteger)connection {
+    if (operation != self.findGeneration || connection != self.connectionGeneration || ![self isResolved] || !self.pendingFind) return;
+    __weak typeof(self) weakSelf = self;
+    if (self.pendingBattery) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            [weakSelf sendFind:enabled operation:operation connection:connection];
+        });
+        return;
+    }
+    YD_SyncFindDevCmd *command = [[YD_SyncFindDevCmd alloc] initWithOnoff:enabled ? 1 : 0];
+    command.overtime = 8;
+    command.repeatSendTimes = 0; // Never repeat a physical reminder automatically.
+    command.noCallback = NO; // Require the device response, not just a BLE write.
+    [self.product sendCmdToDevice:command complete:^(NSError *error) {
+        CoolWearAfterSDKCallback(^{
+            if (operation != weakSelf.findGeneration || connection != weakSelf.connectionGeneration || !weakSelf.pendingFind) return;
+            weakSelf.findSupported = error == nil;
+            [weakSelf finishFind:error ? [weakSelf error:@"COOLWEAR_FIND_FAILED" message:@"查找指令未确认，请重试"] : nil];
+            [weakSelf emit:@"capabilitiesUpdated" payload:[weakSelf capabilities]];
+        });
+    }];
+}
+
+- (void)findDevice:(NSDictionary *)args probe:(BOOL)probe result:(FlutterResult)result {
+    if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
+    id enabled = args[@"enabled"];
+    if (![args[@"feature"] isEqual:@"find_watch"] || ![enabled isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)enabled) != CFBooleanGetTypeID()) {
+        result([self error:@"INVALID_SETTING" message:@"查找参数无效"]); return;
+    }
+    if (self.pendingControl || self.pendingFind || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) {
+        result([self error:@"DEVICE_BUSY" message:@"戒指忙，请稍后重试"]); return;
+    }
+    self.pendingFind = result;
+    self.findProbing = probe;
+    NSUInteger operation = ++self.findGeneration, connection = self.connectionGeneration;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 22 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (operation != weakSelf.findGeneration || connection != weakSelf.connectionGeneration || !weakSelf.pendingFind) return;
+        BOOL probing = weakSelf.findProbing;
+        [weakSelf finishFind:[weakSelf error:@"COOLWEAR_FIND_TIMEOUT" message:@"戒指未响应查找指令"]];
+        weakSelf.findSupported = NO;
+        if (probing) {
+            // An optional stop probe must not cause endless disconnect/reconnect
+            // loops on rings that do not implement find. No physical alert ran.
+            [weakSelf.product cleanCmdQueue];
+            [weakSelf emit:@"capabilitiesUpdated" payload:[weakSelf capabilities]];
+            return;
+        }
+        // Drain stale commands before any new target or retry can use the SDK.
+        [weakSelf beginCancellation:nil];
+        [weakSelf emit:@"disconnected" payload:@{}];
+        [weakSelf scheduleRecovery];
+    });
+    [self sendFind:[enabled boolValue] operation:operation connection:connection];
 }
 
 - (void)finishMonitoring:(FlutterError *)error {
@@ -283,7 +480,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
     command.overtime = 8; command.repeatSendTimes = 1;
     __weak typeof(self) weakSelf = self;
     [self.product sendCmdToDevice:command complete:^(NSError *error) {
-        CoolWearOnMain(^{
+        CoolWearAfterSDKCallback(^{
             if (operation != weakSelf.monitoringGeneration || connection != weakSelf.connectionGeneration) return;
             if (error) [weakSelf finishMonitoring:[weakSelf error:@"AUTO_MEASURE_READ_FAILED" message:@"读取健康监测设置失败"]];
             else {
@@ -296,7 +493,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)monitoring:(NSDictionary *)args write:(BOOL)write result:(FlutterResult)result {
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
-    if (self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) {
+    if (self.pendingControl || (self.pendingFind && !self.findProbing) || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) {
         result([self error:@"CONNECT_BUSY" message:@"戒指忙，请稍后重试"]); return;
     }
     NSDictionary *expected = nil;
@@ -324,7 +521,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 - (void)sendMonitoring:(BOOL)write operation:(NSUInteger)operation connection:(NSUInteger)connection {
     if (operation != self.monitoringGeneration || connection != self.connectionGeneration || ![self isResolved]) return;
     __weak typeof(self) weakSelf = self;
-    if (self.pendingBattery) {
+    if (self.pendingBattery || self.pendingFind) {
         // Reserve the settings operation before waiting. Future battery polls,
         // sync and measurement cannot steal the command queue; cancellation and
         // the bounded operation timeout invalidate this deferred send.
@@ -342,7 +539,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
     command.time = [expected[@"time"] unsignedCharValue];
     command.overtime = 8; command.repeatSendTimes = 1;
     [self.product sendCmdToDevice:command complete:^(NSError *error) {
-        CoolWearOnMain(^{
+        CoolWearAfterSDKCallback(^{
             if (operation != weakSelf.monitoringGeneration || connection != weakSelf.connectionGeneration) return;
             if (error) [weakSelf finishMonitoring:[weakSelf error:@"AUTO_MEASURE_WRITE_FAILED" message:@"健康监测设置保存失败"]];
             else [weakSelf requestMonitoringReadback:operation connection:connection]; // ACK alone is not saved state.
@@ -416,7 +613,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)readBattery:(FlutterResult)result {
     if (![self isResolved]) { result(nil); return; }
-    if (self.pendingBattery || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self details]); return; }
+    if (self.pendingControl || self.pendingFind || self.pendingBattery || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self details]); return; }
     self.pendingBattery = result;
     NSUInteger generation = self.connectionGeneration, read = ++self.batteryGeneration;
     CE_RequestBatteryCmd *cmd = [CE_RequestBatteryCmd new];
@@ -438,7 +635,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)syncHistory:(FlutterResult)result {
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
-    if (self.pendingSync || self.pendingBattery || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
+    if (self.pendingControl || self.pendingFind || self.pendingSync || self.pendingBattery || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
     self.pendingSync = result;
     [self.syncBatches removeAllObjects]; [self.syncRecords removeAllObjects];
     if (!self.historySnapshotDelivered) {
@@ -567,6 +764,10 @@ static void CoolWearOnMain(dispatch_block_t block) {
     self.awaitingInfo = NO;
     self.dataDeliveryReady = NO;
     self.monitoringSnapshot = nil;
+    self.findSupported = NO;
+    self.cameraActive = NO;
+    self.gestureMode = nil;
+    self.callReminder = nil;
     [self.pendingPassiveRecords removeAllObjects];
     [self.historyBatches removeAllObjects];
     [self.historyRecords removeAllObjects];
@@ -618,6 +819,13 @@ static void CoolWearOnMain(dispatch_block_t block) {
     [self emit:self.recoveryConnecting ? @"reconnected" : @"connected" payload:[self details]];
     [self emit:@"capabilities" payload:[self capabilities]];
     result(nil);
+    NSUInteger connection = self.connectionGeneration;
+    __weak typeof(self) weakSelf = self;
+    CoolWearAfterSDKCallback(^{
+        if (connection != weakSelf.connectionGeneration || ![weakSelf isResolved]) return;
+        // A harmless stop probe leaves no ringing active and never chooses a target.
+        [weakSelf findDevice:@{@"feature": @"find_watch", @"enabled": @NO} probe:YES result:^(id response) {}];
+    });
 }
 
 - (void)receiveData:(NSDictionary *)info depth:(NSUInteger)depth measurement:(NSUInteger)measurement {
@@ -627,6 +835,20 @@ static void CoolWearOnMain(dispatch_block_t block) {
     NSNumber *type = CoolWearUnsigned(info[@"DataType"], 255);
     if (!type) return;
     id data = info[@"Data"];
+    if (type.integerValue == DATA_TYPE_PHOTOGRAPH_ONOFF) {
+        if (CoolWearCameraShutter(data, self.cameraActive, [self isResolved], UIApplication.sharedApplication.applicationState == UIApplicationStateActive))
+            [self emit:@"cameraShutter" payload:@{@"deviceId": self.target.identifier.UUIDString}];
+        return;
+    }
+    if (type.integerValue == DATA_TYPE_CALL_ALARM) {
+        NSNumber *value = CoolWearCallReminder(data);
+        if (value) {
+            self.callReminder = value;
+            if (self.controlReadingCall && self.pendingControl) { self.controlReadbackCall = value; [self finishControlReadbackIfReady]; }
+            if ([self isResolved]) [self emit:@"capabilitiesUpdated" payload:[self capabilities]];
+        }
+        return;
+    }
     if (type.integerValue == DATA_TYPE_HEART_AUTO_SWITCH) {
         NSDictionary *snapshot = CoolWearMonitoringSnapshot(data);
         if (snapshot) {
@@ -786,8 +1008,14 @@ static void CoolWearOnMain(dispatch_block_t block) {
 }
 
 - (void)beginCancellation:(FlutterResult)result {
+    [self finishControl:[self error:@"CONNECT_CANCELLED" message:@"连接已取消"]];
+    self.cameraActive = NO;
+    self.gestureMode = nil;
+    self.callReminder = nil;
     [self finishScan];
     self.connectionGeneration++;
+    [self finishFind:[self error:@"CONNECT_CANCELLED" message:@"连接已取消"]];
+    self.findSupported = NO;
     [self finishMonitoring:[self error:@"CONNECT_CANCELLED" message:@"连接已取消"]];
     self.monitoringSnapshot = nil;
     self.syncGeneration++;
@@ -854,7 +1082,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 - (void)measurement:(NSString *)metric enabled:(BOOL)enabled result:(FlutterResult)result {
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
     if (self.pendingMeasurement) { result([self error:@"MEASUREMENT_BUSY" message:@"测量指令正在处理"]); return; }
-    if (self.pendingSync || self.pendingBattery || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
+    if (self.pendingControl || self.pendingFind || self.pendingSync || self.pendingBattery || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
     NSArray *manual = CoolWearCapabilities(self.flags, YES)[@"manualMetrics"];
     if (![manual containsObject:metric]) { result([self error:@"COOLWEAR_FEATURE_UNVERIFIED" message:@"此戒指未确认支持这项 iOS 测量"]); return; }
     if (enabled && self.activeMetric) { result([self error:@"MEASUREMENT_BUSY" message:@"请先结束当前测量"]); return; }
@@ -919,6 +1147,12 @@ static void CoolWearOnMain(dispatch_block_t block) {
             if (self.cancelling) { result([self error:@"CONNECT_BUSY" message:@"戒指正在断开，请稍候"]); return; }
             [self beginCancellation:result];
         } else if ([call.method isEqualToString:@"getDeviceDetails"]) [self readBattery:result];
+        else if ([call.method isEqualToString:@"triggerDeviceAction"]) {
+            if ([args[@"feature"] isEqual:@"camera"]) [self control:args action:YES write:YES result:result];
+            else [self findDevice:args probe:NO result:result];
+        }
+        else if ([call.method isEqualToString:@"readDeviceFeature"] || [call.method isEqualToString:@"writeDeviceFeature"])
+            [self control:args action:NO write:[call.method isEqualToString:@"writeDeviceFeature"] result:result];
         else if ([call.method isEqualToString:@"syncHealthData"]) [self syncHistory:result];
         else if ([call.method isEqualToString:@"readAutoMeasureSettings"]) [self monitoring:args write:NO result:result];
         else if ([call.method isEqualToString:@"setAutoMeasureSetting"]) [self monitoring:args write:YES result:result];
@@ -945,6 +1179,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
         if (self.pendingBattery) [pending addObject:self.pendingBattery];
         if (self.pendingMonitoringRead) [pending addObject:self.pendingMonitoringRead];
         if (self.pendingMonitoringWrite) [pending addObject:self.pendingMonitoringWrite];
+        if (self.pendingFind) [pending addObject:self.pendingFind];
+        if (self.pendingControl) [pending addObject:self.pendingControl];
         self.pendingScan = nil;
         self.pendingConnect = nil;
         self.pendingMeasurement = nil;
@@ -953,6 +1189,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
         self.pendingBattery = nil;
         self.pendingMonitoringRead = nil;
         self.pendingMonitoringWrite = nil;
+        self.pendingFind = nil;
+        self.pendingControl = nil;
         @try {
             [self beginCancellation:nil];
         } @catch (NSException *cancelException) {

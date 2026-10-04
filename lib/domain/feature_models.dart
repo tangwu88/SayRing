@@ -32,6 +32,8 @@ enum DeviceFeature {
   photoWatchFace('photo_watch_face', '照片显示'),
   findWatch('find_watch', '查找设备'),
   camera('camera', '摇一摇拍照'),
+  gestureControl('gesture_control', '手势控制'),
+  callReminder('call_reminder', '来电提醒'),
   phoneCalls('phone_calls', '电话'),
   contacts('contacts', '常用联系人'),
   notifications('notifications', '消息通知'),

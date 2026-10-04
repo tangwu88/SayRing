@@ -438,6 +438,8 @@ class DevicePage extends StatelessWidget {
   static const _primaryFeatures = <DeviceFeature>[
     DeviceFeature.findWatch,
     DeviceFeature.camera,
+    DeviceFeature.gestureControl,
+    DeviceFeature.callReminder,
     DeviceFeature.phoneCalls,
     DeviceFeature.contacts,
     DeviceFeature.notifications,
@@ -541,6 +543,8 @@ class DevicePage extends StatelessWidget {
     DeviceFeature.photoWatchFace => Icons.photo_outlined,
     DeviceFeature.findWatch => Icons.notifications_active_outlined,
     DeviceFeature.camera => Icons.camera_alt_outlined,
+    DeviceFeature.gestureControl => Icons.gesture_rounded,
+    DeviceFeature.callReminder => Icons.phone_in_talk_outlined,
     DeviceFeature.phoneCalls => Icons.call_outlined,
     DeviceFeature.contacts => Icons.contacts_outlined,
     DeviceFeature.notifications => Icons.notifications_none_rounded,
