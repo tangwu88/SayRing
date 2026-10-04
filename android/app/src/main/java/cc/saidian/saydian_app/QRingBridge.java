@@ -10,12 +10,14 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 
 import androidx.core.content.ContextCompat;
 
 import com.oudmon.ble.base.bean.SleepDisplay;
 import com.oudmon.ble.base.bluetooth.BleAction;
+import com.oudmon.ble.base.bluetooth.BleBaseControl;
 import com.oudmon.ble.base.bluetooth.BleOperateManager;
 import com.oudmon.ble.base.bluetooth.DeviceManager;
 import com.oudmon.ble.base.bluetooth.QCBluetoothCallbackCloneReceiver;
@@ -436,6 +438,10 @@ public final class QRingBridge
             }
             return;
         }
+        finishDisconnectedSession();
+    }
+
+    private void finishDisconnectedSession() {
         String retired = connectedId;
         connectionGeneration++;
         if (connectDeadline != null) main.removeCallbacks(connectDeadline);
@@ -564,6 +570,8 @@ public final class QRingBridge
         cancellingConnection = true;
         pendingDisconnect = result;
         manager.disconnect();
+        verifyNativeCancellation(connectionGeneration, connectedId,
+                SystemClock.elapsedRealtime() + 20_000L);
         main.postDelayed(() -> {
             if (pendingDisconnect != result) return;
             pendingDisconnect = null;
@@ -672,6 +680,32 @@ public final class QRingBridge
         try {
             if (manager != null) manager.disconnect();
         } catch (RuntimeException ignored) { }
+        verifyNativeCancellation(connectionGeneration, connectedId,
+                SystemClock.elapsedRealtime() + 20_000L);
+    }
+
+    private void verifyNativeCancellation(int generation, String retiredId, long deadline) {
+        boolean sameTarget = retiredId != null && retiredId.equalsIgnoreCase(connectedId);
+        if (!cancellingConnection || generation != connectionGeneration || !sameTarget) return;
+        try {
+            // The vendor emits disconnect only for a previously published ready
+            // session. A failed pre-handshake attempt can close its GATT silently.
+            // Confirm actual SDK teardown; elapsed time alone never releases it.
+            BleBaseControl control = BleBaseControl.getInstance();
+            if (control != null && QRingCancellationGate.canFinish(
+                    generation == connectionGeneration, sameTarget, cancellingConnection,
+                    control.ismIsConnected(), control.isConnecting(),
+                    control.getGatt(retiredId) != null)) {
+                Log.i(TAG, "QRing SDK cancellation confirmed");
+                finishDisconnectedSession();
+                return;
+            }
+        } catch (RuntimeException ignored) {
+            // A failed state read does not prove teardown.
+        }
+        if (SystemClock.elapsedRealtime() < deadline) {
+            main.postDelayed(() -> verifyNativeCancellation(generation, retiredId, deadline), 250L);
+        }
     }
 
     private void onCharacteristic(String uuid, byte[] data) {
