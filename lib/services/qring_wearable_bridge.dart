@@ -24,6 +24,8 @@ class QRingWearableBridge
 
   final MethodChannel _methods;
   final EventChannel _events;
+  Future<void> _commands = Future<void>.value();
+  int _commandGeneration = 0;
 
   @override
   Stream<WearableEvent> get events => _events
@@ -36,6 +38,53 @@ class QRingWearableBridge
     Map<String, Object?>? arguments,
     Duration timeout = const Duration(seconds: 30),
   ]) async {
+    if (const {
+      'connect',
+      'disconnect',
+      'configureRecoveryTarget',
+    }.contains(method)) {
+      // Teardown/owner changes preempt the queue instead of waiting for sync.
+      _commandGeneration++;
+    }
+    const serial = {
+      'getDeviceDetails',
+      'readDeviceFeature',
+      'writeDeviceFeature',
+      'syncHealthData',
+      'startMeasurement',
+      'stopMeasurement',
+      'startSport',
+      'stopSport',
+      'readSportRecords',
+      'readAutoMeasureSettings',
+      'setAutoMeasureSetting',
+      'triggerDeviceAction',
+    };
+    if (!serial.contains(method)) {
+      return _invokeMethod<T>(method, arguments, timeout);
+    }
+    final generation = _commandGeneration;
+    final operation = _commands.then((_) async {
+      if (generation != _commandGeneration) {
+        throw PlatformException(
+          code: 'QRING_SESSION_CHANGED',
+          message: '戒指连接已改变',
+        );
+      }
+      return _invokeMethod<T>(method, arguments, timeout);
+    });
+    _commands = operation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return operation;
+  }
+
+  Future<T?> _invokeMethod<T>(
+    String method,
+    Map<String, Object?>? arguments,
+    Duration timeout,
+  ) async {
     try {
       return await _methods.invokeMethod<T>(method, arguments).timeout(timeout);
     } on MissingPluginException {
@@ -226,14 +275,25 @@ class QRingWearableBridge
   Future<void> setHeartRateWarning(int value) => _unsupported();
 
   @override
-  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) =>
-      _unsupported();
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async {
+    if (feature != DeviceFeature.camera) return _unsupported();
+    final value = await _invoke<Map<Object?, Object?>>('readDeviceFeature', {
+      'feature': feature.wireName,
+    });
+    return (value ?? const {}).map((key, item) => MapEntry('$key', item));
+  }
 
   @override
   Future<void> writeDeviceFeature(
     DeviceFeature feature,
     Map<String, Object?> values,
-  ) => _unsupported();
+  ) {
+    if (feature != DeviceFeature.camera) return _unsupported();
+    return _invoke<void>('writeDeviceFeature', {
+      'feature': feature.wireName,
+      'values': values,
+    });
+  }
 
   @override
   Future<void> triggerDeviceAction(

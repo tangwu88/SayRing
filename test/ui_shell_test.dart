@@ -2367,6 +2367,152 @@ void main() {
     },
   );
 
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    testWidgets('QRing device functions expose photo and firmware: $platform', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              _QRingCameraWearable(),
+            )
+            ..connectedDevice = const DeviceInfo(id: 'qring:one', name: 'R21')
+            ..deviceCapabilityState = DeviceCapabilityState.ready
+            ..capabilities = const DeviceCapabilities(
+              metrics: {},
+              features: {DeviceFeature.camera},
+              integratedFeatures: {DeviceFeature.camera},
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: DevicePage(controller: controller)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final firmware = find.byKey(const Key('device-functions-firmware'));
+      await tester.ensureVisible(firmware);
+      await tester.tap(firmware);
+      await tester.pumpAndSettle();
+      expect(find.byType(DeviceFirmwarePage), findsOneWidget);
+      expect(find.text('在线固件升级暂未开放'), findsOneWidget);
+      expect(controller.capabilities!.supportsOta, isFalse);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(ListView).first, const Offset(0, 600));
+      await tester.pumpAndSettle();
+      final camera = find.byKey(const Key('device-feature-camera'));
+      await tester.ensureVisible(camera);
+      await tester.tap(camera);
+      await tester.pumpAndSettle();
+      expect(find.byType(QRingCameraPage), findsOneWidget);
+      expect(find.text('未开启'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
+
+  testWidgets(
+    'QRing camera saves only after readback and clears on device change',
+    (tester) async {
+      final bridge = _QRingCameraWearable();
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              bridge,
+            )
+            ..connectedDevice = const DeviceInfo(id: 'qring:one', name: 'R21')
+            ..deviceCapabilityState = DeviceCapabilityState.ready
+            ..capabilities = const DeviceCapabilities(
+              metrics: {},
+              features: {DeviceFeature.camera},
+              integratedFeatures: {DeviceFeature.camera},
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(home: QRingCameraPage(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('qring-camera-enabled')));
+      await tester.pumpAndSettle();
+      expect(bridge.writes, [
+        {'enabled': true, 'expectedMode': 0},
+      ]);
+      expect(find.text('已开启'), findsOneWidget);
+      bridge.failWrite = true;
+      await tester.tap(find.byKey(const Key('qring-camera-enabled')));
+      await tester.pumpAndSettle();
+      expect(find.text('已开启'), findsNothing);
+      expect(find.text('状态未知'), findsOneWidget);
+      expect(
+        tester
+            .widget<SwitchListTile>(
+              find.byKey(const Key('qring-camera-enabled')),
+            )
+            .onChanged,
+        isNull,
+      );
+      controller.connectedDevice = const DeviceInfo(
+        id: 'coolwear:two',
+        name: 'HR01',
+      );
+      controller.notifyListeners();
+      await tester.pumpAndSettle();
+      expect(find.text('请连接支持拍照的 QRing 戒指'), findsOneWidget);
+      expect(find.text('拍照状态未确认，请重新连接'), findsNothing);
+    },
+  );
+
+  testWidgets('QRing camera rejects stale read and fits large narrow screens', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final delayed = Completer<Map<String, Object?>>();
+    final bridge = _QRingCameraWearable()..delayedRead = delayed;
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            _NoopApi(),
+            MemoryHealthStore(),
+            bridge,
+          )
+          ..connectedDevice = const DeviceInfo(id: 'qring:one', name: 'R21')
+          ..deviceCapabilityState = DeviceCapabilityState.ready
+          ..capabilities = const DeviceCapabilities(
+            metrics: {},
+            features: {DeviceFeature.camera},
+            integratedFeatures: {DeviceFeature.camera},
+          );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: QRingCameraPage(controller: controller),
+      ),
+    );
+    await tester.pump();
+    controller.connectedDevice = null;
+    controller.notifyListeners();
+    delayed.complete({'mode': 5, 'enabled': true, 'touch': false});
+    await tester.pumpAndSettle();
+    expect(find.text('已开启'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('firmware entry opens without claiming an available upgrade', (
     tester,
   ) async {
@@ -4498,6 +4644,34 @@ class _CarePreviewApi extends _NoopApi {
     ],
     'daily': <Object?>[],
   };
+}
+
+class _QRingCameraWearable extends _NoopWearable {
+  int mode = 0;
+  bool failWrite = false;
+  Completer<Map<String, Object?>>? delayedRead;
+  final writes = <Map<String, Object?>>[];
+
+  @override
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async =>
+      delayedRead == null
+      ? {'mode': mode, 'enabled': mode == 5, 'touch': false, 'strength': 7}
+      : delayedRead!.future;
+
+  @override
+  Future<void> writeDeviceFeature(
+    DeviceFeature feature,
+    Map<String, Object?> values,
+  ) async {
+    writes.add(Map.of(values));
+    if (failWrite) {
+      throw PlatformException(
+        code: 'QRING_CONTROL_UNCONFIRMED',
+        message: '拍照状态未确认，请重新连接',
+      );
+    }
+    mode = values['enabled'] == true ? 5 : 0;
+  }
 }
 
 class _NoopWearable implements WearableBridge {

@@ -1,0 +1,48 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {test} from 'node:test';
+
+const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
+
+test('QRing native controls require real flags, serialized stages and verified readback', () => {
+  const ios = read('ios/Runner/QRingWearableBridge.m');
+  const android = read('android/app/src/main/java/cc/saidian/saydian_app/QRingBridge.java');
+  assert.match(ios, /cameraFlag:QCBandFeatureGestureControlTakePhoto/);
+  assert.match(ios, /cameraFlag:QCBandFeatureGestureControl/);
+  assert.match(ios, /cameraFlag:QCBandFeatureTouchControl/);
+  assert.match(ios, /getTouchControlOfScreenDevieFinshed:finish/);
+  assert.match(ios, /setGestureControl:expected strength:strength/);
+  for (const stage of [0, 1, 2]) {
+    assert.ok(ios.includes(`cameraPhase != ${stage}`));
+    assert.ok(android.includes(`cameraPhase != ${stage}`));
+  }
+  assert.match(ios, /connection == weakSelf.connectionGeneration && \[weakSelf isResolved\]/);
+  assert.match(ios, /cameraPoisonGeneration = connection/);
+  assert.match(ios, /readback\[@"mode"\].*!= expected/);
+  assert.match(android, /isCurrentConnection\(connection, id\) && resolved\(\)/);
+  assert.match(android, /cameraPoisonConnection = connection/);
+  assert.match(android, /!response.isRead\(\)\s*\|\|/);
+  assert.match(android, /response.isTouch\(\) != touch/);
+  assert.match(android, /getWriteInstance\(expected, touch, strength, duration\)/);
+  assert.match(android, /expectedMode/);
+  assert.match(ios, /expectedMode/);
+  for (const bridge of [ios, android]) {
+    assert.ok(bridge.includes('QRING_CONTROL_CHANGED'));
+    assert.ok(bridge.includes('QRING_CONTROL_UNCONFIRMED'));
+  }
+  // Camera control must not change OTA availability or use watch-side camera UI.
+  assert.match(ios, /@"supportsOta": @NO/);
+  assert.match(android, /put\("supportsOta", false\)/);
+  assert.doesNotMatch(ios, /switchToPhotoUISuccess|holdPhotoUISuccess/);
+  assert.doesNotMatch(android, /new CameraReq/);
+});
+
+test('shared QRing camera flow uses confirmed ring mode, not a guessed in-App shutter', () => {
+  const page = read('lib/ui/pages/qring_camera.dart');
+  assert.match(page, /expectedMode.*mode/);
+  assert.match(page, /healthUiOwnerKey/);
+  assert.match(page, /_snapshot = null/);
+  assert.match(page, /具体动作以设备说明为准/);
+  assert.doesNotMatch(page, /CameraController|triggerDeviceAction|摇动戒指/);
+  assert.match(read('lib/ui/pages/devices.dart'), /device-functions-firmware/);
+});

@@ -1,6 +1,7 @@
 #import "QRingWearableBridge.h"
 #import "QCCentralManager.h"
 #import "QRingRecordMapping.h"
+#import "QRingCameraPolicy.h"
 
 #import <QCBandSDK/QCBandSDK.h>
 #import <CommonCrypto/CommonDigest.h>
@@ -57,6 +58,10 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 @property(nonatomic, assign) BOOL cancellingConnection;
 @property(nonatomic, copy, nullable) FlutterResult pendingDisconnect;
 @property(nonatomic, assign) NSUInteger connectDeadlineGeneration;
+@property(nonatomic, copy, nullable) FlutterResult pendingCamera;
+@property(nonatomic, assign) NSUInteger cameraOperation;
+@property(nonatomic, assign) NSInteger cameraPhase;
+@property(nonatomic, assign) NSUInteger cameraPoisonGeneration;
 @end
 
 @implementation QRingWearableBridge
@@ -90,6 +95,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)dispose {
+    [self finishCamera:[self error:@"BRIDGE_DISPOSED" message:@"戒指通信已关闭"]];
     self.recoveryTargetID = @"";
     self.recoveryContext = @"";
     self.connectionGeneration++;
@@ -246,6 +252,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)disconnectWithResult:(FlutterResult)result {
+    [self finishCamera:[self error:@"QRING_DISCONNECTED" message:@"戒指已断开"]];
     if (self.pendingDisconnect || self.cancellingConnection) {
         result([self error:@"RECOVERY_PENDING" message:@"戒指连接正在结束，请稍候"]); return;
     }
@@ -477,6 +484,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         if (appManual) { [manual addObject:@"body_temperature"]; }
     }
     [features addObject:@"health_monitoring"];
+    if ([self supportsCamera]) { [features addObject:@"camera"]; }
     NSArray *sports = @[@"running", @"indoor_running", @"walking", @"cycling", @"indoor_cycling", @"basketball", @"football", @"badminton", @"swimming", @"jump_rope", @"yoga", @"hiking", @"mountaineering"];
     return @{
         @"resolved": @([self isResolved]),
@@ -940,8 +948,126 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     }
 }
 
+- (BOOL)cameraFlag:(NSString *)key {
+    id value = self.featureList[key];
+    return [value isKindOfClass:NSNumber.class] && [value doubleValue] == 1;
+}
+
+- (BOOL)supportsCamera {
+    return [self isResolved] && [self cameraFlag:QCBandFeatureGestureControlTakePhoto] &&
+        ([self cameraFlag:QCBandFeatureGestureControl] || [self cameraFlag:QCBandFeatureTouchControl]);
+}
+
+- (void)finishCamera:(id)value {
+    FlutterResult pending = self.pendingCamera;
+    if (!pending) { return; }
+    self.pendingCamera = nil;
+    self.cameraOperation++;
+    pending(value);
+}
+
+- (void)readCameraTouch:(BOOL)touch completion:(void (^)(NSDictionary *, NSError *))completion {
+    // Start the next SDK command outside its response callback stack.
+    void (^finish)(QCTouchGestureControlType, NSInteger, BOOL, NSInteger, NSError *) =
+    ^(QCTouchGestureControlType mode, NSInteger strength, __unused BOOL sleeping, NSInteger duration, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            completion(error ? nil : QRingCameraSnapshot(mode, strength, touch, duration), error);
+        });
+    };
+    if (!touch) {
+        [QCSDKCmdCreator getGestureControlFinshed:^(QCTouchGestureControlType mode, NSInteger strength, BOOL sleeping, NSError *error) {
+            finish(mode, strength, sleeping, 0, error);
+        }];
+    } else if ([self cameraFlag:QCBandFeatureTouchControlOfScreenDevice]) {
+        [QCSDKCmdCreator getTouchControlOfScreenDevieFinshed:finish];
+    } else {
+        [QCSDKCmdCreator getTouchControlFinshed:finish];
+    }
+}
+
+- (void)cameraControl:(NSDictionary *)arguments write:(BOOL)write result:(FlutterResult)result {
+    if (![arguments[@"feature"] isEqual:@"camera"] || ![self supportsCamera]) {
+        result([self error:@"QRING_FEATURE_UNVERIFIED" message:@"此戒指不支持拍照控制"]); return;
+    }
+    NSDictionary *values = [arguments[@"values"] isKindOfClass:NSDictionary.class] ? arguments[@"values"] : @{};
+    id enabled = values[@"enabled"];
+    id expectedMode = values[@"expectedMode"];
+    if (write && (![enabled isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)enabled) != CFBooleanGetTypeID() ||
+        ![expectedMode isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)expectedMode) == CFBooleanGetTypeID() ||
+        [expectedMode doubleValue] != [expectedMode integerValue] || [expectedMode integerValue] < 0 || [expectedMode integerValue] > 9)) {
+        result([self error:@"INVALID_ARGUMENT" message:@"拍照设置无效"]); return;
+    }
+    if (self.pendingCamera || self.pendingConnect || self.pendingSync || self.readingDetails || self.activeMetric || self.activeSportType >= 0) {
+        result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return;
+    }
+    if (self.cameraPoisonGeneration == self.connectionGeneration) {
+        result([self error:@"QRING_CONTROL_RECONNECT" message:@"拍照状态未确认，请重新连接"]); return;
+    }
+    self.pendingCamera = result;
+    self.cameraPhase = 0;
+    NSUInteger operation = ++self.cameraOperation;
+    NSUInteger connection = self.connectionGeneration;
+    BOOL touch = ![self cameraFlag:QCBandFeatureGestureControl];
+    __weak typeof(self) weakSelf = self;
+    BOOL (^current)(void) = ^BOOL {
+        return weakSelf.pendingCamera && operation == weakSelf.cameraOperation &&
+            connection == weakSelf.connectionGeneration && [weakSelf isResolved];
+    };
+    void (^fail)(void) = ^{
+        if (!current()) { return; }
+        weakSelf.cameraPoisonGeneration = connection;
+        [weakSelf finishCamera:[weakSelf error:@"QRING_CONTROL_UNCONFIRMED" message:@"拍照状态未确认，请重新连接"]];
+    };
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 25 * NSEC_PER_SEC), dispatch_get_main_queue(), fail);
+    [self readCameraTouch:touch completion:^(NSDictionary *snapshot, NSError *error) {
+        if (!current() || weakSelf.cameraPhase != 0) { return; }
+        if (error || !snapshot) { fail(); return; }
+        if (!write) { [weakSelf finishCamera:snapshot]; return; }
+        NSInteger expected = [enabled boolValue] ? QCTouchGestureControlTypeTakePhoto : QCTouchGestureControlTypeOff;
+        NSInteger mode = [snapshot[@"mode"] integerValue];
+        if (mode != [expectedMode integerValue]) {
+            [weakSelf finishCamera:[weakSelf error:@"QRING_CONTROL_CHANGED" message:@"戒指控制模式已改变，请刷新"]]; return;
+        }
+        // Disabling camera must never disable a different control selected elsewhere.
+        if (![enabled boolValue] && mode != QCTouchGestureControlTypeTakePhoto && mode != QCTouchGestureControlTypeOff) {
+            [weakSelf finishCamera:[weakSelf error:@"QRING_CONTROL_CHANGED" message:@"戒指控制模式已改变，请刷新"]]; return;
+        }
+        weakSelf.cameraPhase = 1;
+        void (^finished)(NSError *) = ^(NSError *writeError) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (!current() || weakSelf.cameraPhase != 1) { return; }
+                if (writeError) { fail(); return; }
+                weakSelf.cameraPhase = 2;
+                [weakSelf readCameraTouch:touch completion:^(NSDictionary *readback, NSError *readError) {
+                    if (!current() || weakSelf.cameraPhase != 2) { return; }
+                    if (readError || !readback || [readback[@"mode"] integerValue] != expected ||
+                        ![snapshot[@"strength"] isEqual:readback[@"strength"]] ||
+                        ![snapshot[@"duration"] isEqual:readback[@"duration"]]) { fail(); return; }
+                    [weakSelf finishCamera:nil];
+                }];
+            });
+        };
+        NSInteger strength = [snapshot[@"strength"] integerValue];
+        NSInteger duration = [snapshot[@"duration"] integerValue];
+        if (!touch) {
+            [QCSDKCmdCreator setGestureControl:expected strength:strength finshed:finished];
+        } else if ([weakSelf cameraFlag:QCBandFeatureTouchControlOfScreenDevice]) {
+            [QCSDKCmdCreator setTouchControlOfScreenDevie:expected strength:strength duration:duration finshed:finished];
+        } else {
+            [QCSDKCmdCreator setTouchControl:expected strength:strength duration:duration finshed:finished];
+        }
+    }];
+}
+
 - (void)handleCall:(FlutterMethodCall *)call result:(FlutterResult)result {
     NSDictionary *arguments = [call.arguments isKindOfClass:NSDictionary.class] ? call.arguments : @{};
+    if ([@[@"connect", @"disconnect", @"configureRecoveryTarget"] containsObject:call.method]) {
+        [self finishCamera:[self error:@"QRING_DISCONNECTED" message:@"戒指连接已改变"]];
+    }
+    NSSet *commands = [NSSet setWithArray:@[@"syncHealthData", @"startMeasurement", @"startSport", @"readSportRecords", @"readAutoMeasureSettings", @"setAutoMeasureSetting", @"triggerDeviceAction"]];
+    if (self.pendingCamera && [commands containsObject:call.method]) {
+        result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return;
+    }
     if ([call.method isEqualToString:@"scanDevices"]) { [self startScan:result]; }
     else if ([call.method isEqualToString:@"lookupBondedDevice"]) { result(nil); }
     else if ([call.method isEqualToString:@"listBondedDevices"]) { result(@[]); }
@@ -953,13 +1079,15 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     else if ([call.method isEqualToString:@"getDeviceDetails"]) {
         if (![self isResolved]) { result(nil); return; }
         BOOL fresh = self.batteryUpdatedAt && [NSDate.date timeIntervalSinceDate:self.batteryUpdatedAt] < 15;
-        if (fresh || self.pendingConnect || self.pendingSync || self.activeMetric || self.activeSportType >= 0 || self.readingDetails) {
+        if (fresh || self.pendingCamera || self.pendingConnect || self.pendingSync || self.activeMetric || self.activeSportType >= 0 || self.readingDetails) {
             result([self deviceDetails]);
         } else {
             [self readDeviceDetailsWithCompletion:^{ result([self isResolved] ? [self deviceDetails] : nil); }];
         }
     }
     else if ([call.method isEqualToString:@"getCapabilities"]) { result([self isResolved] ? [self capabilities] : [self error:@"CAPABILITIES_UNAVAILABLE" message:@"请先连接戒指"]); }
+    else if ([call.method isEqualToString:@"readDeviceFeature"]) { [self cameraControl:arguments write:NO result:result]; }
+    else if ([call.method isEqualToString:@"writeDeviceFeature"]) { [self cameraControl:arguments write:YES result:result]; }
     else if ([call.method isEqualToString:@"syncHealthData"]) { [self syncHealth:result]; }
     else if ([call.method isEqualToString:@"startMeasurement"]) { [self startMeasurement:arguments[@"metric"] result:result]; }
     else if ([call.method isEqualToString:@"stopMeasurement"]) { [self stopMeasurement:arguments[@"metric"] result:result]; }
@@ -995,6 +1123,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         [self resolveCapabilities]; return;
     }
     if (state == QCStateDisconnected || state == QCStateUnbind) {
+        [self finishCamera:[self error:@"QRING_DISCONNECTED" message:@"戒指已断开"]];
         self.connectDeadlineGeneration++;
         self.recoveryConnecting = NO;
         self.cancellingConnection = NO;

@@ -38,6 +38,7 @@ import com.oudmon.ble.base.communication.req.PressureSettingReq;
 import com.oudmon.ble.base.communication.req.SetTimeReq;
 import com.oudmon.ble.base.communication.req.SimpleKeyReq;
 import com.oudmon.ble.base.communication.req.TimeFormatReq;
+import com.oudmon.ble.base.communication.req.TouchControlReq;
 import com.oudmon.ble.base.communication.rsp.AppSportRsp;
 import com.oudmon.ble.base.communication.rsp.BaseRspCmd;
 import com.oudmon.ble.base.communication.rsp.BatteryRsp;
@@ -52,6 +53,7 @@ import com.oudmon.ble.base.communication.rsp.ReadHeartRateRsp;
 import com.oudmon.ble.base.communication.rsp.SetTimeRsp;
 import com.oudmon.ble.base.communication.rsp.StartHeartRateRsp;
 import com.oudmon.ble.base.communication.rsp.TimeFormatRsp;
+import com.oudmon.ble.base.communication.rsp.TouchControlResp;
 import com.oudmon.ble.base.communication.sport.SportPlusEntity;
 import com.oudmon.ble.base.scan.BleScannerHelper;
 import com.oudmon.ble.base.scan.ScanRecord;
@@ -121,6 +123,10 @@ public final class QRingBridge
     private boolean handshakeStarted;
     private MethodChannel.Result pendingDisconnect;
     private Runnable recoveryRetry;
+    private MethodChannel.Result pendingCamera;
+    private int cameraOperation;
+    private int cameraPhase;
+    private int cameraPoisonConnection = -1;
 
     public QRingBridge(Activity activity, BinaryMessenger messenger) {
         this.activity = activity;
@@ -243,6 +249,11 @@ public final class QRingBridge
         try {
             cachedName = device.getName();
         } catch (SecurityException error) {
+            if (pendingCamera != null) {
+                cameraPoisonConnection = connectionGeneration;
+                finishCamera(null, "BLE_PERMISSION_REQUIRED", "蓝牙权限已变化，请重新允许");
+                return;
+            }
             failScan("BLE_PERMISSION_REQUIRED", "蓝牙权限已变化，请重新允许");
             return;
         }
@@ -442,6 +453,7 @@ public final class QRingBridge
     }
 
     private void finishDisconnectedSession() {
+        finishCamera(null, "QRING_DISCONNECTED", "戒指已断开");
         String retired = connectedId;
         connectionGeneration++;
         if (connectDeadline != null) main.removeCallbacks(connectDeadline);
@@ -721,7 +733,7 @@ public final class QRingBridge
     private void readBattery() {
         final int generation = connectionGeneration;
         final String deviceId = connectedId;
-        if (deviceId == null || pendingSync != null || activeMeasurement != null ||
+        if (deviceId == null || pendingCamera != null || pendingSync != null || activeMeasurement != null ||
                 android.os.SystemClock.elapsedRealtime() - batteryQueryAt < 8_000L) return;
         batteryQueryAt = android.os.SystemClock.elapsedRealtime();
         CommandHandle.getInstance().executeReqCmd(
@@ -821,6 +833,7 @@ public final class QRingBridge
             for (String sport : supported) sports.add(sport);
         }
         features.add("find_watch");
+        if (supportsCamera()) features.add("camera");
         if (supportFlags.supportIntervalHeartRate || supportFlags.supportIntervalBloodOxygen
                 || supportFlags.supportIntervalTemperature || setTimeFlags.supportsPressure()
                 || setTimeFlags.supportsHrv()) {
@@ -1322,8 +1335,115 @@ public final class QRingBridge
         }
     }
 
+    private boolean supportsCamera() {
+        return resolved() && QRingCameraPolicy.supported(supportFlags.supportGesture,
+                supportFlags.supportRingCamera, supportFlags.supportTouch,
+                supportFlags.supportRingCameraTouch, supportFlags.supportRt11);
+    }
+
+    private void finishCamera(Object value, String code, String message) {
+        MethodChannel.Result pending = pendingCamera;
+        if (pending == null) return;
+        pendingCamera = null;
+        cameraOperation++;
+        if (code == null) pending.success(value);
+        else pending.error(code, message, null);
+    }
+
+    private void cameraControl(MethodCall call, boolean write, MethodChannel.Result result) {
+        if (!"camera".equals(call.argument("feature")) || !supportsCamera()) {
+            result.error("QRING_FEATURE_UNVERIFIED", "此戒指不支持拍照控制", null); return;
+        }
+        Object raw = call.argument("values");
+        Object enabled = raw instanceof Map ? ((Map<?, ?>) raw).get("enabled") : null;
+        Object expectedMode = raw instanceof Map ? ((Map<?, ?>) raw).get("expectedMode") : null;
+        if (write && (!(enabled instanceof Boolean) || !(expectedMode instanceof Integer)
+                || (Integer) expectedMode < 0 || (Integer) expectedMode > 9)) {
+            result.error("INVALID_ARGUMENT", "拍照设置无效", null); return;
+        }
+        if (pendingCamera != null || pendingSync != null || activeMeasurement != null || activeSportType != null) {
+            result.error("DEVICE_BUSY", "设备忙，请稍后重试", null); return;
+        }
+        if (cameraPoisonConnection == connectionGeneration) {
+            result.error("QRING_CONTROL_RECONNECT", "拍照状态未确认，请重新连接", null); return;
+        }
+        pendingCamera = result;
+        cameraPhase = 0;
+        final int operation = ++cameraOperation;
+        final int connection = connectionGeneration;
+        final String id = connectedId;
+        final boolean touch = !(supportFlags.supportGesture && supportFlags.supportRingCamera);
+        final int expected = Boolean.TRUE.equals(enabled) ? QRingCameraPolicy.PHOTO_MODE : 0;
+        Runnable fail = () -> {
+            if (!currentCamera(operation, connection, id)) return;
+            cameraPoisonConnection = connection;
+            finishCamera(null, "QRING_CONTROL_UNCONFIRMED", "拍照状态未确认，请重新连接");
+        };
+        main.postDelayed(fail, 25_000L);
+        CommandHandle.getInstance().executeReqCmd(TouchControlReq.getReadInstance(touch),
+                (ICommandResponse<TouchControlResp>) response -> main.post(() -> {
+                    if (!currentCamera(operation, connection, id) || cameraPhase != 0) return;
+                    Map<String, Object> snapshot = cameraSnapshot(response, touch);
+                    if (snapshot == null) { fail.run(); return; }
+                    if (!write) { finishCamera(snapshot, null, null); return; }
+                    int mode = (Integer) snapshot.get("mode");
+                    if (!Integer.valueOf(mode).equals(expectedMode)) {
+                        finishCamera(null, "QRING_CONTROL_CHANGED", "戒指控制模式已改变，请刷新"); return;
+                    }
+                    if (!Boolean.TRUE.equals(enabled) && mode != QRingCameraPolicy.PHOTO_MODE && mode != 0) {
+                        finishCamera(null, "QRING_CONTROL_CHANGED", "戒指控制模式已改变，请刷新"); return;
+                    }
+                    int strength = touch ? 0 : (Integer) snapshot.get("strength");
+                    int duration = touch ? (Integer) snapshot.get("duration") : 0;
+                    cameraPhase = 1;
+                    CommandHandle.getInstance().executeReqCmd(
+                            TouchControlReq.getWriteInstance(expected, touch, strength, duration),
+                            (ICommandResponse<TouchControlResp>) acknowledgement -> main.post(() -> {
+                                if (!currentCamera(operation, connection, id) || cameraPhase != 1) return;
+                                if (acknowledgement == null || acknowledgement.isRead()
+                                        || acknowledgement.getStatus() != BaseRspCmd.RESULT_OK) {
+                                    fail.run(); return;
+                                }
+                                cameraPhase = 2;
+                                CommandHandle.getInstance().executeReqCmd(TouchControlReq.getReadInstance(touch),
+                                        (ICommandResponse<TouchControlResp>) readback -> main.post(() -> {
+                                            if (!currentCamera(operation, connection, id) || cameraPhase != 2) return;
+                                            Map<String, Object> actual = cameraSnapshot(readback, touch);
+                                            if (actual == null || !Integer.valueOf(expected).equals(actual.get("mode"))
+                                                    || (touch && !snapshot.get("duration").equals(actual.get("duration")))
+                                                    || (!touch && !snapshot.get("strength").equals(actual.get("strength")))) {
+                                                fail.run(); return;
+                                            }
+                                            finishCamera(null, null, null);
+                                        }));
+                            }));
+                }));
+    }
+
+    private boolean currentCamera(int operation, int connection, String id) {
+        return pendingCamera != null && cameraOperation == operation
+                && isCurrentConnection(connection, id) && resolved();
+    }
+
+    private Map<String, Object> cameraSnapshot(TouchControlResp response, boolean touch) {
+        if (response == null || response.getStatus() != BaseRspCmd.RESULT_OK || !response.isRead()
+                || response.isTouch() != touch) return null;
+        return QRingCameraPolicy.snapshot(response.getAppType(), response.getStrength(),
+                touch, response.getSleepTime());
+    }
+
     @Override public void onMethodCall(MethodCall call, MethodChannel.Result result) {
         try {
+            if (pendingCamera != null && ("syncHealthData".equals(call.method)
+                    || "startMeasurement".equals(call.method) || "startSport".equals(call.method)
+                    || "readSportRecords".equals(call.method) || "readAutoMeasureSettings".equals(call.method)
+                    || "setAutoMeasureSetting".equals(call.method) || "triggerDeviceAction".equals(call.method))) {
+                result.error("DEVICE_BUSY", "设备忙，请稍后重试", null); return;
+            }
+            if ("connect".equals(call.method) || "disconnect".equals(call.method)
+                    || "configureRecoveryTarget".equals(call.method)) {
+                finishCamera(null, "QRING_DISCONNECTED", "戒指连接已改变");
+            }
             if (manager == null && "configureRecoveryTarget".equals(call.method)
                     && call.argument("id") == null) {
                 result.success(null); return;
@@ -1347,6 +1467,8 @@ public final class QRingBridge
                     if (!resolved()) result.error("CAPABILITIES_UNAVAILABLE", "请先连接戒指", null);
                     else result.success(capabilities());
                     break;
+                case "readDeviceFeature": cameraControl(call, false, result); break;
+                case "writeDeviceFeature": cameraControl(call, true, result); break;
                 case "syncHealthData": startHealthSync(result); break;
                 case "startMeasurement": startMeasurement(call.argument("metric"), result); break;
                 case "stopMeasurement": stopMeasurement(call.argument("metric"), result); break;
@@ -1370,6 +1492,11 @@ public final class QRingBridge
         } catch (SecurityException error) {
             result.error("BLE_PERMISSION_REQUIRED", "蓝牙权限已变化，请重新允许", null);
         } catch (RuntimeException error) {
+            if (pendingCamera != null) {
+                cameraPoisonConnection = connectionGeneration;
+                finishCamera(null, "QRING_SDK_ERROR", "拍照状态未确认，请重新连接");
+                return;
+            }
             Log.e(TAG, "Vendor operation failed: " + call.method, error);
             result.error("QRING_SDK_ERROR", "戒指通信失败，请重试", null);
         }
@@ -1395,6 +1522,7 @@ public final class QRingBridge
     }
 
     public void dispose() {
+        finishCamera(null, "BRIDGE_DISPOSED", "戒指通信已关闭");
         recoveryTargetId = null;
         recoveryContext = null;
         connectionGeneration++;

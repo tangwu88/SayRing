@@ -1,5 +1,7 @@
 # 修改与测试记录索引
 
+- [2026-10-04 QRing 相机遥控与设备功能入口 1055](SAY-RING-QRING-CAMERA-1055-20261004.md) — 双端原厂相机控制模式、实际能力门控、写后回读及连接取消保护；设备功能补固件入口。完整回归与新 TestFlight 构建分开记录，可信固件和 QRing 实物拍照待验。
+
 - [2026-10-04 XR 的 1053/1054 TestFlight 替代安装](SAY-RING-XR-TESTFLIGHT-1053-20261004.md) — 开发设备注册 Processing 时建立正常内部测试分发；1053 上传后因 SDK 的 HealthKit 用途说明缺失处理失败，1054 补准确说明且不新增读写权限。构建处理、测试组分发与 XR 实际安装分别记录，不以上传成功替代安装，不改当前审核。
 
 - [2026-10-04 固件升级原厂 SDK 续核](SAY-RING-FIRMWARE-SDK-AUDIT-20261004.md) — 确认 QRing iOS 正式 OTA 发送接口及双端 CoolWear / QRing 接口；只读核对后明确固件来源、适配和恢复资源仍缺，未启用刷写。iPhone XR 仍为 Apple Processing，本轮仅记录与页面定向回归，不冒充新包或 OTA 真机通过。

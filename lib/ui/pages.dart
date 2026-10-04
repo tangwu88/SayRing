@@ -48,6 +48,7 @@ part 'pages/health.dart';
 part 'pages/sports.dart';
 part 'pages/ai.dart';
 part 'pages/devices.dart';
+part 'pages/qring_camera.dart';
 part 'pages/legacy_care.dart';
 part 'pages/profile.dart';
 part 'pages/commerce.dart';
