@@ -47,6 +47,18 @@
 - 1061 正式参数为 lib/main.dart、生产 API、通用 AI 编译开关 false、既有空推送 Key；无 SAYRING_QA_ 参数。最终 IPA 40,709,399 字节，SHA-256 `b883625a71580ea16773bb298df4f3d71c32c5abb78dc8ea944849ca60869b2a`，仅存于忽略目录。
 - 1061 altool 验证退出码 0，JSON 回执为 “No errors, 1 warnings”；唯一警告 90068 是 2027 年 4 月起最低 iOS 15 的未来要求。本轮没有因该警告拒绝验证。Flutter 的旧 LaunchImage 占位检查仍有告警，实际 LaunchScreen 源码引用 SaydianLaunchLogo；不据源码声称冷启动真机已验收。
 
+## 最终线上与送审回执
+
+- 1061 上传退出码 0，JSON 回执为 “No errors, 1 warnings, uploading archive”；交付 ID `c025db68-e705-4e5a-9147-742cefe6f70f`，实际传输 40,709,399 字节 / 4.887 秒。随后 ASC Build 处理为 VALID，uploadedDate 为 2026-10-05 12:30:22 CST；未将短暂空的 Build 列表当作失败并重复上传。
+- 当前 App Store 1.0 已选择 1.0.0 (1061)，Build ID 与交付回执一致，usesNonExemptEncryption=false 沿用用户已确认且未改变的加密范围。审核备注已使用 [1061 英文说明](APP-REVIEW-NOTES-1061.txt)，API 回读备注全文一致、既有审核账号与密码一致，仅输出核对布尔值，不写入凭据。
+- 服务端发布 60178a23a5bfa4ae5f685abc90141967c8492e4e 的 verify、resolve、deploy 均最终成功。`/health/ready` 与 `/global/health/ready` 实际回读新 SHA、ready / database=ok，不再是旧 a9a884a 版本。
+- 浏览器实际核验 `https://app.saydian.cn/say-ring/privacy`：显示正式 say-ring-cn-2026-10-02-v2、处理者 Xuewu Tang、kf@saydian.com、账号与游客模式、云端记录和独立睡眠分析说明；不再显示旧“本版本没有账号云端”的本机模式政策。未启用未审核的新草稿，其他产品页面和下载清单由服务端 10 项快照确认未变。
+- 部署后生产审核账号再次实测：密码登录 HTTP 201 / code=200、members/me HTTP 200 / code=200、仅本次测试会话退出 HTTP 201 / code=200。公开 app-display 仍为 hideAi=true / sleepAiEnabled=true；验证码能力字段仍关闭，不代表密码接口关闭，客户端密码入口与该字段独立，并有对应页面回归。
+- 2026-10-05 12:36 CST，英文整改回复实际发送，页面消息数由 4 增至 5，草稿控件消失；随后点击“重新提交至 App 审核”一次。
+- 最终 API 与页面均为 **WAITING_FOR_REVIEW / 等待审核**，提交 ID `e7a16e4d-18b9-457b-a59c-1d8e4711c702`，submittedDate `2026-10-05T04:36:21.845Z`（12:36:21.845 CST）。版本 releaseType=AFTER_APPROVAL 保持不变，仅中国大陆销售范围不变；这不是审核已批准或已公开上架。
+- 实际截图位于本机忽略目录 `.build/1061-appstore-review-submitted.jpg`、`.build/1060-app-privacy-final.jpg`（同一应用级的已发布 13 项隐私披露回执）、`.build/1061-public-policy.jpg`；不将旧截图或测试画面当作新真机验收证据。
+- 验证代码及说明已提交并推送：95ec7ab（隔离审核登录用例与 1060 记录）、5fd0766（1061 通用 AI 构建级上限和 1199 项回归）。最终送审回执另以文档提交保存；不修改原始 SDK、已有交接 ZIP、个人照片或手机数据。
+
 ## 后续真机用例复现
 
 仅在指定 iPhone 15 Pro Max 可用时运行；测试会使用用户已授权的审核账号访问生产 API，不注册、不删号、不上传健康数据。正式发包不得使用此测试目标。
