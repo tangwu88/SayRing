@@ -648,7 +648,7 @@ def locked_pub_version(path: Path, package: str) -> str:
 def resolved_maven_versions(report: str, coordinate: str) -> set[str]:
     versions: set[str] = set()
     pattern = re.compile(
-        rf"{re.escape(coordinate)}:([^\s]+)(?:\s+->\s+([0-9]+\.[0-9]+\.[0-9]+))?"
+        rf"{re.escape(coordinate)}:(\{{[^}}\r\n]+\}}|[^\s]+)(?:\s+->\s+([0-9]+\.[0-9]+\.[0-9]+))?"
     )
     for requested, resolved in pattern.findall(report):
         candidate = resolved or requested

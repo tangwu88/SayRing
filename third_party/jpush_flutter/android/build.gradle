@@ -36,5 +36,12 @@ android {
 }
 
 dependencies {
-    implementation ('cn.jiguang.sdk:jpush:6.2.0')
+    implementation ('cn.jiguang.sdk:jpush:6.2.0') {
+        exclude group: 'cn.jiguang.sdk', module: 'jcore'
+    }
+    // Keep the native ABI exception in release_gate.py reproducible.
+    // Strict resolution also rejects vendor/plugin requests that drift this baseline.
+    implementation ('cn.jiguang.sdk:jcore:5.5.2') {
+        version { strictly '5.5.2' }
+    }
 }

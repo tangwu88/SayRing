@@ -35,6 +35,22 @@ XCODE_RELEASE_GATE = HERE / "validate_xcode_release.sh"
 
 
 class ReleaseGateTest(unittest.TestCase):
+    def test_resolved_maven_versions_reads_strict_gradle_constraints(self) -> None:
+        coordinate = "cn.jiguang.sdk:jcore"
+        self.assertEqual({"5.5.2"}, gate.resolved_maven_versions(
+            "|    +--- cn.jiguang.sdk:jcore:{strictly 5.5.2} -> 5.5.2", coordinate))
+        self.assertEqual({"5.5.7"}, gate.resolved_maven_versions(
+            "|    +--- cn.jiguang.sdk:jcore:{strictly 5.5.2} -> 5.5.7", coordinate))
+        self.assertEqual(set(), gate.resolved_maven_versions(
+            "|    +--- cn.jiguang.sdk:jcore:{strictly 5.5.2} FAILED", coordinate))
+
+    def test_android_jcore_dependency_matches_approved_abi_baseline(self) -> None:
+        gradle = (HERE.parents[1] / "third_party/jpush_flutter/android/build.gradle").read_text(encoding="utf-8")
+        self.assertIn(f"cn.jiguang.sdk:jpush:{gate.CONTROLLED_JPUSH_ANDROID_VERSION}", gradle)
+        self.assertIn("exclude group: 'cn.jiguang.sdk', module: 'jcore'", gradle)
+        self.assertIn(f"cn.jiguang.sdk:jcore:{gate.CONTROLLED_JCORE_ANDROID_VERSION}", gradle)
+        self.assertIn(f"version {{ strictly '{gate.CONTROLLED_JCORE_ANDROID_VERSION}' }}", gradle)
+
     def test_ios_vendor_sdk_usage_descriptions_are_explicit(self) -> None:
         info = plistlib.loads((HERE.parents[1] / "ios/Runner/Info.plist").read_bytes())
         for key in (
