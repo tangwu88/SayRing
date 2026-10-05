@@ -80,6 +80,45 @@ void main() {
     expect(plainTextFromHtml('<p>A</p><br/><br/><p>B</p>'), 'A\n\nB');
   });
 
+  test(
+    'prototype facade retains all pages and uses shared HTML conversion',
+    () {
+      final entry = File('lib/ui/prototype_pages.dart').readAsStringSync();
+      final source = readDartLibrarySource('lib/ui/prototype_pages.dart');
+      expect(
+        RegExp(r"^part 'prototype/", multiLine: true).allMatches(entry).length,
+        9,
+      );
+      for (final name in [
+        'RegistrationPage',
+        'PasswordRecoveryPage',
+        'HealthWarningPage',
+        'SharingManagementPage',
+        'CareShareSettingsPage',
+        'CareInvitationsPage',
+        'HealthCalibrationPage',
+        'HealthRecordDetailPage',
+        'DeviceFeaturePage',
+        'FeedbackPage',
+        'CustomerServicePage',
+        'AboutSaydianPage',
+        'SecurityCenterPage',
+        'ShoppingCartPage',
+        'AfterSalesPage',
+        'FeatureStateCard',
+      ]) {
+        expect(
+          RegExp('class $name ').allMatches(source).length,
+          1,
+          reason: name,
+        );
+      }
+      expect(source, isNot(contains('_aboutPlainText')));
+      expect(source, contains('plainTextFromHtml(raw)'));
+      expect(source, contains('camera-photo-settings-button'));
+    },
+  );
+
   testWidgets('shared notice remains a single accessible action', (
     tester,
   ) async {
