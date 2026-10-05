@@ -7,8 +7,8 @@ import { GLOBAL_PRODUCT, globalApiPath, internationalUrl } from '../model/Global
 const UPDATE_MANIFEST_URL: string = internationalUrl(
   globalApiPath(`/support/app-update?product=${encodeURIComponent(GLOBAL_PRODUCT)}`)
 );
-export const HARMONY_VERSION_NAME: string = '0.1.4';
-export const HARMONY_VERSION_CODE: number = 9;
+export const HARMONY_VERSION_NAME: string = '1.0.0';
+export const HARMONY_VERSION_CODE: number = 1012;
 
 export class AppUpdateService {
   async check(): Promise<AppUpdateInfo> {

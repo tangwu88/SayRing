@@ -12,6 +12,8 @@
 
 ## 最近记录
 
+- [2026-10-05 鸿蒙首次上架 1.0.0/1012 正式签名包](SAY-RING-HARMONY-MARKET-RELEASE-20261005.md) — 正式证书/profile 核对、双时区各 501 项、Release 编译及 code/permission 签名验证通过；生成上架 APP，未进行鸿蒙真机或市场审核。
+
 - [2026-10-05 最新 Git 同步、正式 1011 重打包与同签覆盖安装](SAY-RING-GIT-SYNC-RELEASE-INSTALL-20261005.md) — App main 快进纳入已验收的 JCore 锁定；保留本地文档和后台草稿，重构建并校验 1011 正式 APK，手机同签覆盖升级保留首次安装时间。
 
 - [2026-10-05 Android 首次上架签名与极光版本锁定](SAY-RING-ANDROID-MARKET-RELEASE-20261005.md) — 修复 JCore 动态依赖漂移，保持 ABI 门禁不放宽；正式签名 APK 与验证结果见正文，商店审核与真实推送另行验收。
