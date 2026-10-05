@@ -43,6 +43,17 @@
 从 ZIP 而不是打包源目录重新解压，运行 `unzip -tq`、SHA-256 与 `IMPORT.sh` 校验。
 再核对提交、完整已跟踪文件、Git fsck，并在独立目录执行锁定依赖恢复、静态分析及交接工具测试。
 最后一轮的准确提交、ZIP 哈希与导入结果另随包提供验收说明；不要修改包后沿用旧哈希。
+
+首次实包使用代码提交 `e01fe9f453401aa9be4af73329f0b344cf36a838`，已推送并回查与远端分支完全一致。
+临时 ZIP 从新目录解压：压缩完整性、6 个内层 SHA-256、`IMPORT.sh` 离线克隆及 Git fsck 全部通过。
+1433 个已跟踪文件（含 SDK / 素材）与原源码逐一比较，0 差异；独立仓库提交一致，恢复依赖后工作树仍干净。
+
+独立目录 `flutter pub get --enforce-lockfile` 成功，`flutter analyze --no-pub` 无问题（3.7 秒）。
+`TZ=Asia/Shanghai flutter test --no-pub test/client_module_contract_test.dart test/device_sdk_source_test.dart --reporter compact`：21 项通过。
+`node --test tool/create_source_handoff.test.mjs`：2 项通过。首次实包是临时验收产物，不作为最终用户附件。
+
+将本验收记录提交后必须重新导出最终 ZIP，再次从 ZIP 校验和导入；准确源码提交与哈希以最终包及其独立验收说明为准。
+无二次手机安装、市场上传、服务端改动或 main 基线提升；实物待验边界继续保留。
 - 本轮不执行手机安装/解绑/清库；主机回归不代替新的实物验收。磁盘余量初始约 1 GiB，构建空间限制及处理如有发生须记录。
 
 ## 交付与未完成边界
