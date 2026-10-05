@@ -57,3 +57,18 @@
 - 多层路由下只读 UI helper 最初匹配到多个保留的 BackButton，返回 not_unique 而未操作；限制到当前 ModalRoute 后正常返回设备页。未修改 App 导航源码或把此诊断选择错误宣称为 App 闪退。
 - `/global/api/saydian-app/v2/auth/capabilities` 最终再次 HTTP 200；没有发送真实 OTP、上传新健康数据或修改服务端配置。
 - 既有 App Store 审核、TestFlight、下载页、服务端和其他 App 本轮均未改动。只推送当前 Say Ring 分支，不把尚未全部硬件验收的修复标为 main 接受基线。
+
+## 同日第二轮续验
+
+- 基线 7140682，工作树干净，`git fetch --prune origin` / `git pull --ff-only` 为已更新。重新核对实际手机和安装清单：同一 iPhone 15 Pro Max 已安装 1058，未运行本 App；上轮日志为 Lost connection，原 LLDB 显示正常 exit 0。不以旧 DevTools 地址冒充当前在线。
+- 原位启动已有签名 Debug，不重新构建、不重装、不卸载、不清库。`codesign --verify --deep --strict .build/1058-debug/Runner.app` 通过；`devicectl device process launch --start-stopped --console` 后按精确 App 容器核对新 PID，LLDB JIT 附加、Bonjour 新认证、`flutter attach --debug-url` 恢复成功。第一条 UI 检查早于 attach 就绪而 websocket 失败，待实际 view 连接后成功；不是 App 崩溃。
+- `flutter attach` 继续使用已验证的 host VM 64817 / DDS 64818 双端口，认证保持开启。热重载 8 / 2228 libraries，1200 ms；检查时无 Lost connection、Unhandled Exception 或布局 overflow。当前 DevTools 打开请求为 queued；实际 VM 连接和浏览器显示分开记录。
+- 正常 UI 回调检查设备页、首页睡眠、百科列表 / 第一篇正文、关爱列表及权限页；不构造隐藏路由、不修改账号、能力、分享或权限。旧登录有效、正常账号模式、绑定存在。
+- 睡眠用实际两个页面对象只读比较：加载完成且无失败；详情有本机分段；首页 / 详情记录 ID、SDK 归属日期、时间轴有效睡眠分钟和汇总值均一致。不输出实际健康值、日期或记录 ID，不把旧数据读取当成今天新戒指同步。
+- 健康百科当前实际返回 1 个分类、3 篇文章，列表非失败；从正常第一篇入口打开正文，加载结束、非失败、正文非空。不跨 API 环境兜底、不补虚构文章。
+- 远程关爱实际返回 3 条关系，账号 owner 匹配，加载结束、无失败。真机页面标题仅一处，分为我关注的 / 关注我的；当前关注对象未授权指标，正确不显示健康看板入口。未更改分享、未发送邀请、未撤销关系；有指标看板及双账号撤销仍待验。
+- 断连权限页仅显示本次适用的蓝牙、位置，相机行隐藏；蓝牙已允许、位置未允许。未自动申请或更改系统授权。设备页仍保留绑定、恢复状态，断连同步及设备功能不可操作。
+- R21 本轮未完成连接。原生只读确认 Bluetooth poweredOn=5、SDK connecting=2、recoveryConnecting=true，账号上下文和目标非空、cancelling=false、系统取消屏障为空；CoreBluetooth 外设 state=1（connecting），外设 UUID 与恢复目标、桥接目标与恢复目标的相等判断均 true。不输出标识，也不据此推断戒指已唤醒、在范围内或未被其他手机占用。
+- LLDB 只读诊断的 `id` 类型表达式初次因外部 SDK 调试模块缺失及未知 `valueForKey:` 编译失败；明确 NSObject / NSNumber 类型后成功。调试器暂停由精确 PID 的 SIGSTOP 发起，检查后继续，未将诊断暂停写成自然断连或重连验收。
+- 本轮无运行时代码修改、无新构建号、无新安装；上一节完整回归和构建属于上一轮，不冒充本轮重跑。只检查本轮文档差异及脱敏边界，提交并推送当前分支。私有 helper、日志和 Flutter inspector 图片均在忽略的 `.build`；图片仍不是完整系统截屏。
+- 最终保持 Debug 附加并停留设备页，精确目标恢复等待中。实物摇动 / 保存相册、三轮真实距离、后台 / 蓝牙开关、充电插拔、CoolWear 对应实物及可信 OTA 继续待验；未修改审核、线上配置或其他 App。
