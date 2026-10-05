@@ -1,4 +1,4 @@
-# Say Ring 1060 拒审整改与重新送审
+# Say Ring 1060 / 1061 拒审整改与重新送审
 
 ## 范围与基线
 
@@ -41,6 +41,11 @@
 - 苹果 Build 实体已处理为 VALID：`54aa6ce3-9db0-4996-abb4-141bdad591ce` / 1060。按此前用户已确认、与 1059 未改变的加密和中国大陆销售范围补齐 usesNonExemptEncryption=false；未增加算法或法国分发。
 - App Store 1.0 的 build 关系已切换至该 1060，API 回读版本、VALID 与加密字段一致。此步骤仅为选包，尚不能表示最终重新提交。
 - 专属公开政策页仍是旧本机模式说明，与现有登录和云端功能不符；合作服务端任务已推送 60178a2，验证作业成功，生产部署自 11:37 CST 开始，当前仍在原始 GHCR 镜像拉取阶段。线上 readiness 仍为 a9a884a6b74eaf5a3a60d82f4214ef7452f60f92，因此保留回复草稿，不将代码推送或 CI 验证当作公开页面已更新。
+- 追加代码检查发现：既有显示配置有意保留最近成功值，旧 hideAi=false 缓存遇刷新故障仍可能开放通用 AI。为避免把远程隐藏开关当作绝对关闭，本次追加生产构建级 `SAY_RING_GENERAL_AI_ENABLED=false` 上限。旧缓存、远程 false 与刷新故障均不能越过该上限；睡眠 AI 独立授权与开关不变。新增两项回归后定向 30 项通过，最终构建因此递增为 1061；1060 保留为真实上传记录，不冒充新源码的产物。
+- 1061 静态分析无问题；完整 Flutter UTC / Asia/Shanghai 各 1199 项通过。生产默认关闭、缓存故障与远程 false 上限、独立睡眠开关均有自动化断言；未将其冒充新一轮实体手机测试。
+- 1061 正式归档 61.9 秒、导出 8.3 秒；`cn.saydian.ring` / 1.0.0 / 1061 / UIDeviceFamily=[1]。归档与 IPA 解包 App 严格签名通过；分发描述文件 get-task-allow=false、beta-reports-active=true，无设备列表或企业全设备字段。
+- 1061 正式参数为 lib/main.dart、生产 API、通用 AI 编译开关 false、既有空推送 Key；无 SAYRING_QA_ 参数。最终 IPA 40,709,399 字节，SHA-256 `b883625a71580ea16773bb298df4f3d71c32c5abb78dc8ea944849ca60869b2a`，仅存于忽略目录。
+- 1061 altool 验证退出码 0，JSON 回执为 “No errors, 1 warnings”；唯一警告 90068 是 2027 年 4 月起最低 iOS 15 的未来要求。本轮没有因该警告拒绝验证。Flutter 的旧 LaunchImage 占位检查仍有告警，实际 LaunchScreen 源码引用 SaydianLaunchLogo；不据源码声称冷启动真机已验收。
 
 ## 后续真机用例复现
 
@@ -51,7 +56,7 @@ flutter drive --profile --no-pub \
   -d 00008130-001C098C2290001C \
   --driver=test_driver/ios_review_login.dart \
   --target=integration_test/ios_review_login_test.dart \
-  --build-name=1.0.0 --build-number=1060 \
+  --build-name=1.0.0 --build-number=1061 \
   --dart-define=SAYDIAN_API_BASE_URL=https://app.saydian.cn \
   --dart-define-from-file=.build/review-1060-auth-defines-private.json
 ```

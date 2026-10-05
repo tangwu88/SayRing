@@ -34,6 +34,7 @@ void main() {
       MemoryHealthStore(),
       createProductionWearableBridge(),
       allowAutomaticWearableRestore: false,
+      generalAiEnabled: false,
     );
     addTearDown(() async {
       try {
@@ -57,7 +58,7 @@ void main() {
     expect(find.byKey(const Key('email-login-password')), findsOneWidget);
     expect(find.byKey(const Key('code-login-code')), findsNothing);
     expect(find.byKey(const Key('code-login-send')), findsNothing);
-    await binding.takeScreenshot('sayring-1060-email-password-empty');
+    await binding.takeScreenshot('sayring-1061-email-password-empty');
 
     Future<void> reveal(Finder finder) async {
       await tester.scrollUntilVisible(

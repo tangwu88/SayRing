@@ -1,0 +1,21 @@
+Say Ring 1.0 — replacement build 1061
+
+Reviewer sign-in:
+Use the existing review email address and password in the sign-in fields above. On the first screen, select Email (邮箱). The second field is Password (密码), not Verification Code. Enter the password directly, acknowledge the displayed age confirmation and User Agreement / Privacy Policy, and tap Log In (登录). No SMS code, email verification code, or registration is needed for this account.
+
+The previous review screenshot showed our older email-verification-code form. Build 1061 uses email/password sign-in by default. The production review-account sign-in and account-profile API have been rechecked successfully. The API accepts successful HTTP 2xx responses, including HTTP 201.
+
+Without an account:
+The secondary button, “无需登录，连接戒指” (Connect a ring without signing in), opens genuine local-only use, not simulated health data. Local health records are separate from account-cloud records. New records require a compatible physical ring.
+
+Hardware:
+Say Ring is an iPhone companion app for compatible QRing and CoolWear smart rings. A physical compatible ring is needed for Bluetooth pairing and new sensor measurements. Keep the ring awake and nearby, disconnect it from other phones/apps, and allow Bluetooth. Open Device (设备), scan, select the ring's advertised name, and wait for its connection handshake. Health (健康) displays actual records returned by the ring. Features depend on the connected ring's SDK capabilities; a review account does not emulate hardware readings. Device functions and firmware checks are capability-dependent, and firmware upgrade is available under About Device (关于设备) when supported.
+
+The physical-device demonstration video previously provided in the App Review conversation remains supporting material:
+https://drive.google.com/file/d/1Slm2EIVn_hnhaHGQz8yTRtF2Zglzzzod/view?usp=sharing
+This is an existing hardware demonstration, not a recording of build 1061 and not a replacement for direct reviewer access.
+
+Privacy and user control:
+Account-cloud features and local-only ring use are distinguished in the app. Optional sleep AI analysis requires a separate confirmation before uploading a sleep summary; the original segmented sleep timeline stays on the device. The AI result is clearly separate from any device-returned sleep score. Account deletion is available from the account/settings area.
+
+The app is for everyday personal wellness reference, not diagnosis, treatment, or a medical-device substitute. It has no store or purchases in this release. iOS WeChat sign-in and general-purpose AI chat are not offered in this release. Build 1061 closes general AI entry points at the production build level as well as through product-wide configuration, for all Say Ring users, including when an older enabled setting is cached or a configuration refresh fails. The independently consented optional sleep-analysis feature remains separate. General AI will not be re-enabled merely after approval; offering it again requires a new app release and appropriate disclosure and authorization.

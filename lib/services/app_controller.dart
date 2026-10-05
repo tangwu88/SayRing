@@ -74,6 +74,7 @@ class AppController extends ChangeNotifier {
     AppNotificationService? notificationService,
     List<Duration>? pushRegistrationRetryDelays,
     this._allowAutomaticWearableRestore = true,
+    this.generalAiEnabled = true,
     this.commerceEnabled = const bool.fromEnvironment(
       'SAY_RING_COMMERCE_ENABLED',
       defaultValue: false,
@@ -110,9 +111,13 @@ class AppController extends ChangeNotifier {
       ),
       EncryptedHealthStore(vault, globalEdition: true),
       createProductionWearableBridge(),
-      // The iPhone-first release has no account or push service. Keeping the
-      // native provider disabled avoids initializing a third-party push SDK
-      // before a user has entered the local companion flow.
+      // General AI stays closed in this release even when an older enabled
+      // display setting is cached or its public refresh temporarily fails.
+      generalAiEnabled: const bool.fromEnvironment(
+        'SAY_RING_GENERAL_AI_ENABLED',
+        defaultValue: false,
+      ),
+      // Keep the iPhone native push provider disabled until it is configured.
       notificationService: defaultTargetPlatform == TargetPlatform.iOS
           ? const DisabledAppNotificationService()
           : JPushAppNotificationService(),
@@ -128,6 +133,10 @@ class AppController extends ChangeNotifier {
   /// Keep commerce code/data intact; a later upgrade can explicitly enable it.
   final bool commerceEnabled;
 
+  /// A build-time ceiling for general AI, independent of optional sleep AI.
+  /// Production defaults closed; reopening requires a reviewed app release.
+  final bool generalAiEnabled;
+
   bool _hideAi = true;
   bool _sleepAiEnabled = false;
   bool get sleepAiEnabled => isAuthenticated && !isLocalMode && _sleepAiEnabled;
@@ -136,7 +145,8 @@ class AppController extends ChangeNotifier {
   Future<void>? _appDisplayRefresh;
 
   /// Before the first valid configuration, keep product-controlled content hidden.
-  bool get hideAiContent => _api is SayRingAppDisplayApi && _hideAi;
+  bool get hideAiContent =>
+      !generalAiEnabled || (_api is SayRingAppDisplayApi && _hideAi);
 
   Future<void> refreshAppDisplayConfig() {
     final pending = _appDisplayRefresh;

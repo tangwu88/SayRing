@@ -133,6 +133,52 @@ void main() {
   );
 
   test(
+    'release ceiling blocks stale and server-enabled general AI without blocking sleep AI',
+    () async {
+      final vault = MemorySessionVault()..sayRingHideAi = false;
+      final api = _SleepDisplayApi()
+        ..hidden = false
+        ..fail = true;
+      final controller = _controller(
+        api,
+        vault: vault,
+        generalAiEnabled: false,
+      );
+      addTearDown(controller.dispose);
+      await controller.refreshAppDisplayConfig();
+      expect(controller.hideAiContent, isTrue);
+
+      api.fail = false;
+      await controller.refreshAppDisplayConfig();
+      expect(controller.hideAiContent, isTrue);
+      expect(vault.sayRingHideAi, isFalse);
+      controller.session = Session(
+        accessToken: 'test',
+        refreshToken: 'test',
+        expiresAt: DateTime.utc(2099),
+        memberId: 'test',
+        displayName: 'Test',
+        accountKey: 'test',
+      );
+      expect(controller.sleepAiEnabled, isTrue);
+      await controller.refreshAiMessages(app: 1);
+      expect(await controller.sendAiMessage(app: 1, message: 'test'), isFalse);
+      await expectLater(
+        controller.loadHealthReportDashboard(),
+        throwsA(isA<FeatureNotConfiguredException>()),
+      );
+      expect(api.aiRequests, 0);
+    },
+  );
+
+  test('production release defaults general AI closed', () {
+    final controller = AppController.production();
+    addTearDown(controller.dispose);
+    expect(controller.generalAiEnabled, isFalse);
+    expect(controller.hideAiContent, isTrue);
+  });
+
+  test(
     'hidden AI blocks chat, reports, consent and new purchases before API calls',
     () async {
       final api = _DisplayApi();
@@ -357,13 +403,17 @@ void main() {
 http.Response _ok(Map<String, Object?> data) =>
     http.Response(jsonEncode({'code': 200, 'data': data}), 200);
 
-AppController _controller(_DisplayApi api, {MemorySessionVault? vault}) =>
-    AppController(
-      vault ?? MemorySessionVault(),
-      api,
-      MemoryHealthStore(),
-      _Wearable(),
-    );
+AppController _controller(
+  _DisplayApi api, {
+  MemorySessionVault? vault,
+  bool generalAiEnabled = true,
+}) => AppController(
+  vault ?? MemorySessionVault(),
+  api,
+  MemoryHealthStore(),
+  _Wearable(),
+  generalAiEnabled: generalAiEnabled,
+);
 
 class _DisplayApi implements SaydianApi, SayRingAppDisplayApi {
   bool hidden = true;
@@ -403,4 +453,9 @@ class _DisplayApi implements SaydianApi, SayRingAppDisplayApi {
 class _Wearable implements WearableBridge {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _SleepDisplayApi extends _DisplayApi implements SayRingSleepReportApi {
+  @override
+  bool get sleepAiEnabled => true;
 }
