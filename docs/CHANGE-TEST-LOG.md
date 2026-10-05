@@ -12,6 +12,8 @@
 
 ## 最近记录
 
+- [2026-10-05 最新 Git 同步、正式 1011 重打包与同签覆盖安装](SAY-RING-GIT-SYNC-RELEASE-INSTALL-20261005.md) — App main 快进纳入已验收的 JCore 锁定；保留本地文档和后台草稿，重构建并校验 1011 正式 APK，手机同签覆盖升级保留首次安装时间。
+
 - [2026-10-05 Android 首次上架签名与极光版本锁定](SAY-RING-ANDROID-MARKET-RELEASE-20261005.md) — 修复 JCore 动态依赖漂移，保持 ABI 门禁不放宽；正式签名 APK 与验证结果见正文，商店审核与真实推送另行验收。
 
 - [2026-10-03 Say Ring 源码更新与 Android 真机调试边界](SAY-RING-SOURCE-UPDATE-ANDROID-DEBUG-20261003.md) — 仅将独立 `tangwu88/SayRing` 的干净 `main` 快进 27 个提交到 `7daf53c`，复核包名/显示名仍为 `cn.saydian.ring` / `Say Ring`；SAYDIAN Health 未触碰。ADB 设备列表为空，因此本轮未构建、安装或宣称真机调试通过。
