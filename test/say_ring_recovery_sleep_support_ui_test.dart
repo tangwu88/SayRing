@@ -96,6 +96,8 @@ class _UiController extends Fake implements AppController {
   Future<Map<String, Object?>> support = Future.value({'configured': false});
   int latestReads = 0;
   int reconnects = 0;
+  @override
+  bool isDeviceReconnecting = false;
   int unbinds = 0;
   bool syncSucceeds = true;
   DeviceCapabilities? deviceCapabilities;
@@ -284,6 +286,23 @@ void main() {
     controller.changed();
     await tester.pump();
     expect(find.byKey(const Key('device-reconnect')), findsOneWidget);
+    controller.isDeviceReconnecting = true;
+    controller.changed();
+    await tester.pump();
+    final button = tester.widget<OutlinedButton>(
+      find.byKey(const Key('device-reconnect')),
+    );
+    expect(button.onPressed, isNull);
+    expect(find.text('正在重连'), findsOneWidget);
+    controller.isDeviceReconnecting = false;
+    controller.changed();
+    await tester.pump();
+    expect(
+      tester
+          .widget<OutlinedButton>(find.byKey(const Key('device-reconnect')))
+          .onPressed,
+      isNotNull,
+    );
   });
 
   testWidgets('an empty successful sync says up to date, not failed', (

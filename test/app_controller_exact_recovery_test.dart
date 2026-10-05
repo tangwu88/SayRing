@@ -159,6 +159,7 @@ void main() {
       state.ring.delayedDisconnect = Completer<void>();
       final first = state.controller.reconnectDevice();
       await state.ring.disconnectStarted.future;
+      expect(state.controller.isDeviceReconnecting, isTrue);
       final second = state.controller.reconnectDevice();
       await _settle();
       expect(
@@ -167,6 +168,7 @@ void main() {
       );
       state.ring.delayedDisconnect!.complete();
       await Future.wait([first, second]);
+      expect(state.controller.isDeviceReconnecting, isFalse);
       expect(
         state.ring.operations.where((value) => value == 'connect').length,
         2,
@@ -183,6 +185,7 @@ void main() {
       state.ring.failDisconnect = true;
       await state.controller.reconnectDevice();
       expect(state.controller.connectedDevice, isNull);
+      expect(state.controller.isDeviceReconnecting, isFalse);
       expect(state.controller.rememberedDevice?.id, _Ring.id);
       expect(state.controller.wearableRecoveryMessage, contains('结束上次连接'));
       state.ring.failDisconnect = false;

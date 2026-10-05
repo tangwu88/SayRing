@@ -32,6 +32,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 @property(nonatomic, strong) QCCentralManager *central;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, QCBlePeripheral *> *scanned;
 @property(nonatomic, copy, nullable) FlutterResult pendingScan;
+@property(nonatomic, copy, nullable) NSString *selectionTargetID;
 @property(nonatomic, copy, nullable) FlutterResult pendingConnect;
 @property(nonatomic, copy, nullable) FlutterResult pendingSync;
 @property(nonatomic, copy, nullable) NSDictionary *featureList;
@@ -142,8 +143,9 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 
 - (void)startScan:(FlutterResult)result {
     if (self.pendingScan) {
-        self.pendingScan([self scanPayloads]);
+        [self finishScan];
     }
+    self.selectionTargetID = nil;
     [self.scanned removeAllObjects];
     self.pendingScan = result;
     [self.central scanWithTimeout:10];
@@ -168,6 +170,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 
 - (void)finishScan {
     [self.central stopScan];
+    self.selectionTargetID = nil;
     if (!self.pendingScan) { return; }
     FlutterResult result = self.pendingScan;
     self.pendingScan = nil;
@@ -184,13 +187,28 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     NSArray<CBPeripheral *> *items = [self.central.centerManager retrievePeripheralsWithIdentifiers:@[uuid]];
     for (CBPeripheral *peripheral in items) {
         if (![peripheral.identifier isEqual:uuid] || ![self isQRingName:peripheral.name]) { continue; }
-        QCBlePeripheral *item = [QCBlePeripheral new];
-        item.peripheral = peripheral;
-        self.scanned[identifier] = item;
-        result(@{@"id": identifier, @"name": peripheral.name, @"model": peripheral.name});
-        return;
+        // An existing OS link can handshake without advertising. Otherwise
+        // refresh the exact target's advertisement instead of reusing a stale
+        // retrieved object repeatedly. Do not adopt another ring by its name.
+        if (peripheral.state == CBPeripheralStateConnected) {
+            QCBlePeripheral *item = [QCBlePeripheral new];
+            item.peripheral = peripheral;
+            self.scanned[identifier] = item;
+            result(@{@"id": identifier, @"name": peripheral.name, @"model": peripheral.name});
+            return;
+        }
     }
-    result(nil);
+    [self startScan:^(id values) {
+        if ([values isKindOfClass:NSArray.class]) {
+            for (NSDictionary *device in values) {
+                if ([device[@"id"] isEqualToString:identifier]) { result(device); return; }
+            }
+        }
+        result(nil);
+    }];
+    self.selectionTargetID = identifier;
+    // scanWithTimeout may synchronously publish an existing system link.
+    if (self.scanned[identifier]) { [self finishScan]; }
 }
 
 - (void)connect:(NSDictionary *)arguments result:(FlutterResult)result {
@@ -256,6 +274,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)disconnectWithResult:(FlutterResult)result {
+    [self finishScan];
     [self finishCamera:[self error:@"QRING_DISCONNECTED" message:@"戒指已断开"]];
     if (self.pendingDisconnect || self.cancellingConnection) {
         result([self error:@"RECOVERY_PENDING" message:@"戒指连接正在结束，请稍候"]); return;
@@ -439,7 +458,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     if (result) { result([self error:code message:message]); }
     CBPeripheral *peripheral = self.central.connectedPeripheral;
     self.cancellingConnection = peripheral.state == CBPeripheralStateConnected ||
-        peripheral.state == CBPeripheralStateConnecting;
+        peripheral.state == CBPeripheralStateConnecting || peripheral.state == CBPeripheralStateDisconnecting;
     [self.central disconnect];
 }
 
@@ -1273,6 +1292,10 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         self.scanned[identifier] = item;
         if (isNew) {
             [self emit:@"scanDevice" payload:@{@"id": identifier, @"name": name, @"model": name, @"rssi": item.RSSI ?: @0}];
+        }
+        if ([identifier isEqualToString:self.selectionTargetID]) {
+            [self finishScan];
+            return;
         }
     }
 }

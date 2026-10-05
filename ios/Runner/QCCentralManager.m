@@ -9,6 +9,7 @@
 //
 
 #import "QCCentralManager.h"
+#import "QRingConnectionPolicy.h"
 #import <QCBandSDK/QCSDKManager.h>
 
 /// UserDefaults key for the last bound peripheral UUID. 上次绑定设备 UUID 的本地存储 key
@@ -323,17 +324,41 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     [[QCSDKManager shareInstance] removeAllPeripheral];
 
     CBPeripheral *peripheral = self.connectedPeripheral ?: [self lastPeripheral];
-    if (peripheral.state == CBPeripheralStateConnected || peripheral.state == CBPeripheralStateConnecting) {
+    if (peripheral.state == CBPeripheralStateConnected || peripheral.state == CBPeripheralStateConnecting ||
+        peripheral.state == CBPeripheralStateDisconnecting) {
         @try {
             [_centerManager cancelPeripheralConnection:peripheral];
         } @catch (NSException *e) {
             NSLog(@"QRing disconnection failed");
         }
         self.deviceState = QCStateDisconnecting;
+        [self reconcileCancellation:peripheral generation:self.operationGeneration attempts:80];
     } else {
+        if (self.appManagedConnections) { self.connectedPeripheral = nil; }
         self.suppressAutoReconnect = NO;
         self.deviceState = QCStateDisconnected;
     }
+}
+
+- (void)reconcileCancellation:(CBPeripheral *)peripheral generation:(NSUInteger)generation attempts:(NSUInteger)attempts {
+    if (!peripheral || generation != self.operationGeneration ||
+        self.connectedPeripheral != peripheral || self.deviceState != QCStateDisconnecting) { return; }
+    if (QRingCanFinishCancellation(generation == self.operationGeneration,
+                                  self.connectedPeripheral == peripheral,
+                                  self.deviceState == QCStateDisconnecting,
+                                  peripheral.state == CBPeripheralStateDisconnected)) {
+        self.connectedPeripheral = nil;
+        self.suppressAutoReconnect = NO;
+        self.deviceState = QCStateDisconnected;
+        return;
+    }
+    __weak typeof(self) weakSelf = self;
+    // A Flutter wait may time out before CoreBluetooth actually closes. Keep
+    // checking that same cancellation slowly; a deadline is not proof of closure.
+    int64_t delay = attempts > 0 ? NSEC_PER_SEC / 4 : NSEC_PER_SEC;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delay), dispatch_get_main_queue(), ^{
+        [weakSelf reconcileCancellation:peripheral generation:generation attempts:attempts > 0 ? attempts - 1 : 0];
+    });
 }
 
 
@@ -549,15 +574,18 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 - (void)centralManager:(CBCentralManager *)central didFailToConnectPeripheral:(CBPeripheral *)peripheral error:(NSError *)error {
     if ([self finishRestoredCancellation:peripheral]) { return; }
     if (self.appManagedConnections &&
-        ![self.connectedPeripheral.identifier isEqual:peripheral.identifier]) { return; }
+        (![self.connectedPeripheral.identifier isEqual:peripheral.identifier] ||
+         peripheral.state != CBPeripheralStateDisconnected)) { return; }
     NSLog(@"QRing connection failed (code %ld)", (long)error.code);
     [self notifyConnectFailed:peripheral error:error];
 }
 
 - (void)centralManager:(CBCentralManager *)central didDisconnectPeripheral:(CBPeripheral *)peripheral error:(nullable NSError *)error {
     if ([self finishRestoredCancellation:peripheral]) { return; }
-    if (self.appManagedConnections && self.connectedPeripheral &&
-        ![self.connectedPeripheral.identifier isEqual:peripheral.identifier]) { return; }
+    if (self.appManagedConnections &&
+        (peripheral.state != CBPeripheralStateDisconnected ||
+         (!self.connectedPeripheral && self.deviceState == QCStateDisconnected) ||
+         (self.connectedPeripheral && ![self.connectedPeripheral.identifier isEqual:peripheral.identifier]))) { return; }
     NSLog(@"QRing transport disconnected (code %ld)", (long)error.code);
     [[QCSDKManager shareInstance] removeAllPeripheral];
 

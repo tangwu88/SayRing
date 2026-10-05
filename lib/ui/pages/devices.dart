@@ -201,15 +201,26 @@ class DevicePage extends StatelessWidget {
                     if (connected == null)
                       OutlinedButton.icon(
                         key: const Key('device-reconnect'),
-                        onPressed: controller.isDeviceSyncing
+                        onPressed:
+                            controller.isDeviceSyncing ||
+                                controller.isDeviceReconnecting
                             ? null
                             : controller.reconnectDevice,
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size.fromHeight(48),
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                         ),
-                        icon: const Icon(Icons.bluetooth_searching_rounded),
-                        label: const Text('重新连接'),
+                        icon: controller.isDeviceReconnecting
+                            ? const SizedBox.square(
+                                dimension: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.bluetooth_searching_rounded),
+                        label: Text(
+                          controller.isDeviceReconnecting ? '正在重连' : '重新连接',
+                        ),
                       ),
                     TextButton.icon(
                       key: const Key('device-unbind'),

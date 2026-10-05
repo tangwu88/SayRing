@@ -845,6 +845,7 @@ class AppController extends ChangeNotifier {
   bool isBooting = true;
   bool isBusy = false;
   bool isDeviceSyncing = false;
+  bool get isDeviceReconnecting => _wearableReconnectInFlight != null;
   double deviceSyncProgress = 0;
   bool isPreviewMode = false;
   bool _localMode = false;
@@ -2633,11 +2634,13 @@ class AppController extends ChangeNotifier {
     }
     final reconnecting = _runDeviceReconnect();
     _wearableReconnectInFlight = reconnecting;
+    if (!_disposed) notifyListeners();
     try {
       await reconnecting;
     } finally {
       if (identical(_wearableReconnectInFlight, reconnecting)) {
         _wearableReconnectInFlight = null;
+        if (!_disposed) notifyListeners();
       }
     }
   }
