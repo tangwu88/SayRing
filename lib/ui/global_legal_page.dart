@@ -8,8 +8,8 @@ import '../l10n/global_locale_controller.dart';
 import '../services/app_controller.dart';
 
 enum GlobalLegalDocumentType {
-  userAgreement('userAgreement', 'user_agreement'),
-  privacyPolicy('privacyPolicy', 'privacy_policy');
+  userAgreement('userAgreement', 'say_ring_user_agreement'),
+  privacyPolicy('privacyPolicy', 'say_ring_privacy_policy');
 
   const GlobalLegalDocumentType(this.capabilityKey, this.documentType);
   final String capabilityKey;

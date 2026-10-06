@@ -2604,10 +2604,10 @@ struct Index {
       const session = this.capabilities.registration.verificationRequired ?
         await saydianApi.registerGlobal(this.authChannel, this.accountIdentifier(this.registerMobile), this.registerChallengeId,
           this.registerCode, this.registerPassword, this.registerConfirmation, this.registerAccepted,
-          this.appLocale, this.capabilities.consentVersion) :
+          this.appLocale, this.capabilities.consentVersion, this.registerAccepted) :
         await saydianApi.registerGlobalWithoutVerification(this.authChannel, this.accountIdentifier(this.registerMobile),
           this.registerPassword, this.registerConfirmation, this.registerAccepted,
-          this.appLocale, this.capabilities.consentVersion);
+          this.appLocale, this.capabilities.consentVersion, this.registerAccepted);
       if (epoch !== this.pageGeneration) return;
       this.clearSmsCountdown();
       this.account = this.registerMobile.trim();
@@ -3107,9 +3107,9 @@ struct Index {
         Row() {
           Checkbox({ name: 'register-agreement' }).select(this.registerAccepted).enabled(!this.busy)
             .selectedColor(RED).onChange((value: boolean) => this.registerAccepted = value)
-            .id('register_agreement').accessibilityText(this.tr('同意用户协议与隐私政策'))
+            .id('register_agreement').accessibilityText('同意用户协议与隐私政策，并确认已满14周岁')
           Column({ space: 0 }) {
-            Text(this.tr('我已阅读并同意')).fontSize(13).fontColor(MUTED).width('100%')
+            Text('我已阅读并同意，且确认已满14周岁').fontSize(13).fontColor(MUTED).width('100%')
             Flex({ wrap: FlexWrap.Wrap }) {
               Button(this.tr('用户协议')).height(this.controlHeight(48)).fontSize(14).fontColor(BLUE).backgroundColor(Color.Transparent)
                 .enabled(!this.busy).onClick(() => this.openArticle('2', '用户协议', true))

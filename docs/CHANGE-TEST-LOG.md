@@ -12,6 +12,8 @@
 
 ## 最近记录
 
+- [2026-10-06 Say Ring 专属隐私政策/用户协议修复与正式 1014](SAY-RING-LEGAL-PRODUCT-FIX-20261006.md) — 两端能力、认证及法律文档限定 Say Ring 产品，拒绝其它 APP 文档；显式年龄确认、双时区回归及正式签名重打包，按用户要求仅安装、不调试。
+
 - [2026-10-06 最新代码 Android/鸿蒙正式 1013 重打包](SAY-RING-FORMAL-REBUILD-20261006.md) — 同步 QRing 解绑修复，保留主目录文档改动；双时区 Flutter 各 944、鸿蒙各 501、原生 32 项及两端正式签名包验证。未安装真机或提交市场。
 
 - [2026-10-06 QRing 解除绑定与蓝牙断开修复](SAY-RING-QRING-UNBIND-DISCONNECT-20261006.md) — Android 改用厂商 `unBindDevice()`、iOS 改用 `remove`，等待真实原生终态后才清除 Flutter 绑定；双时区各 944 项、Android 原生 32 项和 Debug/QA Release 构建通过。当前无在线真机，另一台手机重新发现及 iPhone 流程明确待验。

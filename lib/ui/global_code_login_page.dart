@@ -257,6 +257,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
         locale: _locale,
         consentVersion: consentVersion,
         privacyConsentGranted: true,
+        ageConfirmed: _accepted,
       );
       if (mounted && !success) {
         setState(
@@ -400,7 +401,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                     ? null
                     : (value) => setState(() => _accepted = value == true),
                 title: Text(
-                  l.agreeToTerms,
+                  '${l.agreeToTerms}；我确认已满14周岁',
                   style: const TextStyle(fontSize: 12, height: 1.4),
                 ),
               ),
@@ -479,6 +480,7 @@ class _GlobalWechatPhoneBindingPageState
   Timer? _timer;
   int _remaining = 0;
   bool _busy = false;
+  bool _ageConfirmed = false;
   String? _error;
 
   AppLocalizations get l => AppLocalizations.of(context)!;
@@ -530,6 +532,10 @@ class _GlobalWechatPhoneBindingPageState
   }
 
   Future<void> _bind() async {
+    if (!_ageConfirmed) {
+      setState(() => _error = '请确认已满14周岁后继续');
+      return;
+    }
     final challenge = _challenge;
     if (_busy ||
         challenge == null ||
@@ -547,6 +553,7 @@ class _GlobalWechatPhoneBindingPageState
       code: _code.text,
       consentVersion: widget.consentVersion,
       locale: widget.locale,
+      ageConfirmed: _ageConfirmed,
     );
     if (!mounted) return;
     if (success) {
@@ -638,6 +645,16 @@ class _GlobalWechatPhoneBindingPageState
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               const SizedBox(height: 16),
+              CheckboxListTile(
+                key: const Key('wechat-bind-age'),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _ageConfirmed,
+                onChanged: _busy
+                    ? null
+                    : (value) => setState(() => _ageConfirmed = value == true),
+                title: const Text('我确认已满14周岁', style: TextStyle(fontSize: 12)),
+              ),
               FilledButton(
                 key: const Key('wechat-bind-submit'),
                 onPressed: _busy ? null : _bind,

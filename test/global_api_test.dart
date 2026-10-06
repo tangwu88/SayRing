@@ -35,6 +35,7 @@ Map<String, Object?> capabilities({
   bool verificationRequired = true,
 }) => {
   'realm': 'global',
+  'product': 'say-ring',
   'registration': {
     'email': email,
     'sms': sms,
@@ -47,16 +48,56 @@ Map<String, Object?> capabilities({
   'legal': {
     'userAgreement': {
       'path':
-          '/global/api/saydian-app/v2/content/legal/user_agreement?version=reviewed-test-v1&locale=en',
+          '/global/api/saydian-app/v2/content/legal/say_ring_user_agreement?version=reviewed-test-v1&locale=en',
     },
     'privacyPolicy': {
       'path':
-          '/global/api/saydian-app/v2/content/legal/privacy_policy?version=reviewed-test-v1&locale=en',
+          '/global/api/saydian-app/v2/content/legal/say_ring_privacy_policy?version=reviewed-test-v1&locale=en',
     },
   },
 };
 
 void main() {
+  test(
+    'legal capabilities request Say Ring and reject another product or its documents',
+    () async {
+      for (final mismatch in [false, true]) {
+        final api = GlobalSaydianApiClient(
+          MemorySessionVault(),
+          client: MockClient((request) async {
+            expect(request.url.queryParameters['product'], 'say-ring');
+            final data = capabilities();
+            if (mismatch) {
+              data['legal'] = {
+                'userAgreement': {
+                  'path':
+                      '/api/saydian-app/v2/content/legal/user_agreement?version=reviewed-test-v1&locale=en',
+                },
+              };
+            } else {
+              data['product'] = 'saydian-global';
+            }
+            return ok(data);
+          }),
+        );
+        await expectLater(
+          api.getAuthCapabilities(),
+          throwsA(isA<ApiException>()),
+        );
+      }
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault(),
+        client: MockClient((request) async {
+          expect(request.url.queryParameters['product'], 'say-ring');
+          return ok(capabilities());
+        }),
+      );
+      expect(
+        (await api.getAuthCapabilities()).legal['privacyPolicy'],
+        contains('/say_ring_privacy_policy?'),
+      );
+    },
+  );
   test(
     'native WeChat requires phone binding before returning a session',
     () async {
@@ -71,6 +112,7 @@ void main() {
           final body = jsonDecode(request.body) as Map<String, dynamic>;
           if (request.url.path.endsWith('/auth/wechat-login')) {
             expect(body, {
+              'product': 'say-ring',
               'code': 'one-time-code',
               'state': 'fresh-state',
               'platform': 'android',
@@ -164,6 +206,8 @@ void main() {
         expect(body['challengeId'], 'synthetic-challenge');
         expect(body['code'], '123456');
         expect(body['consentVersion'], 'reviewed-test-v1');
+        expect(body['product'], 'say-ring');
+        expect(body['ageConfirmed'], isFalse);
         return http.Response(
           jsonEncode({
             'token': 'synthetic-access',
@@ -572,6 +616,7 @@ void main() {
       );
       expect(challenge.id, 'challenge-1');
       expect(jsonDecode(requests.first.body), {
+        'product': 'say-ring',
         'channel': 'email',
         'identifier': 'a@example.com',
         'purpose': 'register',
@@ -587,6 +632,7 @@ void main() {
       );
       expect(requests.last.url.path, endsWith('/auth/register-with-code'));
       expect(jsonDecode(requests.last.body), {
+        'product': 'say-ring',
         'challengeId': 'challenge-1',
         'code': '123456',
         'password': 'test-password',
@@ -617,6 +663,7 @@ void main() {
         );
         expect(request.url.path, endsWith('/auth/register'));
         expect(jsonDecode(request.body), {
+          'product': 'say-ring',
           'channel': 'sms',
           'identifier': '+12025550123',
           'password': 'test-password',

@@ -37,6 +37,7 @@ abstract interface class GlobalCodeAuthApi {
     required String code,
     required String consentVersion,
     required String locale,
+    bool ageConfirmed = false,
   });
 }
 
@@ -74,6 +75,7 @@ abstract interface class GlobalWechatAuthApi {
     required String code,
     required String consentVersion,
     required String locale,
+    bool ageConfirmed = false,
   });
 }
 
@@ -831,6 +833,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String locale,
   }) async {
     final data = await _globalPublic('auth/wechat-login', {
+      'product': GlobalEnvironment.productId,
       'code': code,
       'state': state,
       'platform': platform,
@@ -861,6 +864,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     }
     return VerificationChallenge.fromJson(
       await _globalPublic('auth/wechat-phone-code', {
+        'product': GlobalEnvironment.productId,
         'bindTicket': binding.ticket,
         'identifier': identity.identifier,
         'consentVersion': consentVersion,
@@ -876,8 +880,11 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String code,
     required String consentVersion,
     required String locale,
+    bool ageConfirmed = false,
   }) async => _globalSession(
     await _globalPublic('auth/wechat-bind-phone', {
+      'product': GlobalEnvironment.productId,
+      'ageConfirmed': ageConfirmed,
       'bindTicket': binding.ticket,
       'challengeId': challenge.id,
       'code': code,
@@ -1522,6 +1529,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String locale,
   }) async => VerificationChallenge.fromJson(
     await _sharedCodeAuth(GlobalEnvironment.sharedCodeRequestPath, {
+      'product': GlobalEnvironment.productId,
       ...identity.toJson(),
       'locale': locale,
     }),
@@ -1534,8 +1542,11 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String code,
     required String consentVersion,
     required String locale,
+    bool ageConfirmed = false,
   }) async {
     final data = await _sharedCodeAuth(GlobalEnvironment.sharedCodeLoginPath, {
+      'product': GlobalEnvironment.productId,
+      'ageConfirmed': ageConfirmed,
       ...identity.toJson(),
       'challengeId': challengeId,
       'code': code,
@@ -1574,12 +1585,26 @@ class GlobalSaydianApiClient extends SaydianApiClient
   }
 
   @override
-  Future<GlobalAuthCapabilities> getAuthCapabilities() async =>
-      GlobalAuthCapabilities.fromJson(
-        await _globalPublic(
-          'auth/capabilities?locale=${Uri.encodeQueryComponent(_locale())}',
-        ),
-      );
+  Future<GlobalAuthCapabilities> getAuthCapabilities() async {
+    final data = await _globalPublic(
+      'auth/capabilities?locale=${Uri.encodeQueryComponent(_locale())}&product=${GlobalEnvironment.productId}',
+    );
+    if (data['product'] != GlobalEnvironment.productId) {
+      throw const ApiException('Say Ring documents are unavailable.');
+    }
+    final caps = GlobalAuthCapabilities.fromJson(data);
+    for (final entry in caps.legal.entries) {
+      final expected = entry.key == 'userAgreement'
+          ? 'say_ring_user_agreement'
+          : 'say_ring_privacy_policy';
+      final uri = Uri.tryParse(entry.value);
+      if (uri?.pathSegments.lastOrNull != expected ||
+          uri?.queryParameters['version'] != caps.consentVersion) {
+        throw const ApiException('Say Ring document mismatch.');
+      }
+    }
+    return caps;
+  }
 
   @override
   Future<Map<String, Object?>> getGlobalLegalDocument(String path) async {
@@ -1591,6 +1616,11 @@ class GlobalSaydianApiClient extends SaydianApiClient
         parsed.hasAuthority ||
         !GlobalEnvironment.safeResourcePath(parsed) ||
         !RegExp('^$prefix/content/legal/[a-z_]+\$').hasMatch(parsed.path) ||
+        !{
+          'say_ring_user_agreement',
+          'say_ring_privacy_policy',
+          'health_ai_analysis',
+        }.contains(parsed.pathSegments.lastOrNull) ||
         parsed.queryParametersAll['version']?.length != 1 ||
         parsed.queryParameters['version']?.trim().isNotEmpty != true ||
         parsed.queryParametersAll['locale']?.length != 1 ||
@@ -1617,6 +1647,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     }
     return VerificationChallenge.fromJson(
       await _globalPublic('auth/verification-code', {
+        'product': GlobalEnvironment.productId,
         ...identity.toJson(),
         'purpose': purpose,
         'locale': locale,
@@ -1632,6 +1663,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String consentVersion,
     String? nickname,
   }) => _globalAuthenticate('auth/register', {
+    'product': GlobalEnvironment.productId,
     ...identity.toJson(),
     'password': password,
     'locale': locale,
@@ -1700,6 +1732,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
       'code': code,
       'password': password,
       if (!resetPassword) ...{
+        'product': GlobalEnvironment.productId,
         'locale': locale,
         'consentVersion': consentVersion ?? '',
         if (nickname?.trim().isNotEmpty == true) 'nickname': nickname!.trim(),

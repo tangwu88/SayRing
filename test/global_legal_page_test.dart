@@ -24,12 +24,13 @@ const _prefix = GlobalEnvironment.apiPrefix;
 
 Map<String, Object?> _capabilities() => {
   'realm': 'global',
+  'product': 'say-ring',
   'registration': {'email': false, 'sms': false},
   'consentVersion': _version,
   'legal': {
     for (final entry in {
-      'userAgreement': 'user_agreement',
-      'privacyPolicy': 'privacy_policy',
+      'userAgreement': 'say_ring_user_agreement',
+      'privacyPolicy': 'say_ring_privacy_policy',
     }.entries)
       entry.key: {
         'path':
@@ -44,7 +45,9 @@ Map<String, Object?> _document(String type) => {
   'version': _version,
   'locale': 'en',
   'reviewed': true,
-  'title': type == 'privacy_policy' ? 'Published privacy' : 'Published terms',
+  'title': type == 'say_ring_privacy_policy'
+      ? 'Published privacy'
+      : 'Published terms',
   'contentHtml': '<p>Published test document.</p><p>Second paragraph.</p>',
 };
 
@@ -86,8 +89,9 @@ void main() {
         if (request.url.path == '$_prefix/auth/capabilities') {
           return _ok(_capabilities());
         }
-        if (request.url.path == '$_prefix/content/legal/privacy_policy') {
-          return _ok(_document('privacy_policy'));
+        if (request.url.path ==
+            '$_prefix/content/legal/say_ring_privacy_policy') {
+          return _ok(_document('say_ring_privacy_policy'));
         }
         return http.Response('', 404);
       }),
@@ -101,7 +105,7 @@ void main() {
     expect(find.textContaining('Published test document.'), findsOneWidget);
     expect(requests.map((r) => r.url.path), [
       '$_prefix/auth/capabilities',
-      '$_prefix/content/legal/privacy_policy',
+      '$_prefix/content/legal/say_ring_privacy_policy',
     ]);
     expect(requests.last.url.queryParameters, {
       'version': _version,
@@ -220,7 +224,7 @@ void main() {
           if (!fixed && failure == 'server unavailable') {
             return http.Response('', 503);
           }
-          final data = _document('privacy_policy');
+          final data = _document('say_ring_privacy_policy');
           if (!fixed) {
             switch (failure) {
               case 'blank content':
@@ -232,7 +236,7 @@ void main() {
               case 'wrong document version':
                 data['version'] = 'different-reviewed-version';
               case 'wrong type':
-                data['documentType'] = 'user_agreement';
+                data['documentType'] = 'say_ring_user_agreement';
               case 'wrong locale':
                 data['locale'] = 'de';
               case 'not reviewed':
@@ -316,7 +320,7 @@ void main() {
           request.url.path.endsWith('/auth/capabilities')
               ? _capabilities()
               : {
-                  ..._document('privacy_policy'),
+                  ..._document('say_ring_privacy_policy'),
                   'contentHtml': '<p>${'Readable legal paragraph. ' * 60}</p>',
                 },
         ),
@@ -349,34 +353,36 @@ void main() {
         MemorySessionVault(),
         client: MockClient((request) async {
           requests.add(request);
-          return _ok(_document('privacy_policy'));
+          return _ok(_document('say_ring_privacy_policy'));
         }),
       );
       await api.getGlobalLegalDocument(
-        '$prefix/content/legal/privacy_policy?version=$_version&locale=en',
+        '$prefix/content/legal/say_ring_privacy_policy?version=$_version&locale=en',
       );
       expect(
         requests.single.url.toString(),
-        '${GlobalEnvironment.origin}$_prefix/content/legal/privacy_policy?version=$_version&locale=en',
+        '${GlobalEnvironment.origin}$_prefix/content/legal/say_ring_privacy_policy?version=$_version&locale=en',
       );
       expect(requests.single.followRedirects, isFalse);
     });
   }
 
   for (final path in [
-    'https://app.saidian.cc/api/saydian-app/v2/content/legal/privacy_policy?version=v&locale=en',
-    'https://app.saydian.cn$_prefix/content/legal/privacy_policy?version=v&locale=en',
-    '//app.saydian.cn$_prefix/content/legal/privacy_policy?version=v&locale=en',
+    '$_prefix/content/legal/user_agreement?version=v&locale=en',
+    '$_prefix/content/legal/privacy_policy?version=v&locale=en',
+    'https://app.saidian.cc/api/saydian-app/v2/content/legal/say_ring_privacy_policy?version=v&locale=en',
+    'https://app.saydian.cn$_prefix/content/legal/say_ring_privacy_policy?version=v&locale=en',
+    '//app.saydian.cn$_prefix/content/legal/say_ring_privacy_policy?version=v&locale=en',
     '/api/v1/articles/3',
     '$_prefix/content/articles/3?version=v&locale=en',
     '$_prefix/content/legal/../../members/me?version=v&locale=en',
     '$_prefix/content/legal/%252e%252e/members?version=v&locale=en',
-    '$_prefix/content/legal/privacy_policy?locale=en',
-    '$_prefix/content/legal/privacy_policy?version=&locale=en',
-    '$_prefix/content/legal/privacy_policy?version=v&version=other&locale=en',
-    '$_prefix/content/legal/privacy_policy?version=v&locale=unknown',
-    '$_prefix/content/legal/privacy_policy?version=v&locale=en&redirect=old',
-    '$_prefix/content/legal/privacy_policy?version=v&locale=en#fragment',
+    '$_prefix/content/legal/say_ring_privacy_policy?locale=en',
+    '$_prefix/content/legal/say_ring_privacy_policy?version=&locale=en',
+    '$_prefix/content/legal/say_ring_privacy_policy?version=v&version=other&locale=en',
+    '$_prefix/content/legal/say_ring_privacy_policy?version=v&locale=unknown',
+    '$_prefix/content/legal/say_ring_privacy_policy?version=v&locale=en&redirect=old',
+    '$_prefix/content/legal/say_ring_privacy_policy?version=v&locale=en#fragment',
   ]) {
     test('unsafe legal reference rejected before any send: $path', () async {
       var requests = 0;
@@ -384,7 +390,7 @@ void main() {
         MemorySessionVault(),
         client: MockClient((request) async {
           requests++;
-          return _ok(_document('privacy_policy'));
+          return _ok(_document('say_ring_privacy_policy'));
         }),
       );
       await expectLater(

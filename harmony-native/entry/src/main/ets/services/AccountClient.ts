@@ -26,7 +26,7 @@ import type { ProductDetail, ShopLine, ShopSelection, CheckoutPreview, OrderDeta
 import type { HealthOwnerSession, HealthUploadRequest } from '../model/HealthUpload';
 import { assertHealthUploadAccepted, sameHealthSession } from '../model/HealthUpload';
 import { AI_API_READ_TIMEOUT_MS } from '../model/RequestPolicy';
-import { globalApiPath } from '../model/GlobalConfiguration';
+import { globalApiPath, GLOBAL_PRODUCT } from '../model/GlobalConfiguration';
 import { normalizeIdentifier, parseAuthCapabilities, parseGlobalSession, parseVerificationChallenge,
   globalRegistrationValidation, globalUnverifiedRegistrationValidation, parseGlobalProfile, validGlobalPassword } from '../model/GlobalAuth';
 import type { AuthChannel, GlobalAuthCapabilities, VerificationChallenge, VerificationPurpose } from '../model/GlobalAuth';
@@ -191,8 +191,21 @@ export class AccountClient {
   }
 
   async authCapabilities(locale: string = 'en'): Promise<GlobalAuthCapabilities> {
-    const response = await this.transport.request(globalApiPath(`/auth/capabilities?locale=${encodeURIComponent(locale)}`));
-    return parseAuthCapabilities(response.data);
+    const response = await this.transport.request(globalApiPath(`/auth/capabilities?locale=${encodeURIComponent(locale)}&product=${GLOBAL_PRODUCT}`));
+    if ((response.data as Record<string, Object>)?.['product'] !== GLOBAL_PRODUCT) throw new ApiError('legal_unavailable', 503);
+    const capabilities = parseAuthCapabilities(response.data);
+    if (capabilities.legal) {
+      const documents = [capabilities.legal.userAgreement, capabilities.legal.privacyPolicy];
+      const types = ['say_ring_user_agreement', 'say_ring_privacy_policy'];
+      for (let i = 0; i < documents.length; i++) {
+        const document = documents[i];
+        if (!document || !document.version || document.version !== capabilities.consentVersion ||
+          document.path !== `/api/saydian-app/v2/content/legal/${types[i]}?version=${encodeURIComponent(document.version)}&locale=${encodeURIComponent(document.locale)}`) {
+          throw new ApiError('legal_unavailable', 503);
+        }
+      }
+    }
+    return capabilities;
   }
 
   async supportConfig(): Promise<SupportConfig> {
@@ -318,12 +331,13 @@ export class AccountClient {
     const capabilities = await this.authCapabilities(locale);
     const document = privacy ? capabilities.legal?.privacyPolicy : capabilities.legal?.userAgreement;
     if (!document || document.version !== capabilities.consentVersion ||
-      !/^\/api\/saydian-app\/v2\/content\/legal\/(user_agreement|privacy_policy)\?/.test(document.path) ||
+      !document.path.startsWith(`/api/saydian-app/v2/content/legal/${privacy ? 'say_ring_privacy_policy' : 'say_ring_user_agreement'}?`) ||
       document.path.includes('..') || document.path.includes('://')) throw new ApiError('legal_unavailable', 503);
-    const response = await this.transport.request(document.path);
+    const response = await this.transport.request(globalApiPath(document.path.substring('/api/saydian-app/v2'.length)));
     const data = response.data as Record<string, Object>;
     if (!data || typeof data['contentHtml'] !== 'string' || !String(data['contentHtml']).trim() ||
-      data['version'] !== document.version) throw new ApiError('legal_unavailable', 503);
+      data['version'] !== document.version || data['locale'] !== document.locale || data['reviewed'] !== true ||
+      data['documentType'] !== (privacy ? 'say_ring_privacy_policy' : 'say_ring_user_agreement')) throw new ApiError('legal_unavailable', 503);
     return { title: String(data['title'] ?? ''), content: String(data['contentHtml']) };
   }
 
@@ -337,25 +351,25 @@ export class AccountClient {
       throw new ApiError('channel_unavailable', 503);
     }
     const response = await this.transport.request(globalApiPath('/auth/verification-code'), undefined, undefined,
-      JSON.stringify({ channel, identifier, purpose, locale }));
+      JSON.stringify({ channel, identifier, purpose, locale, product: GLOBAL_PRODUCT }));
     return parseVerificationChallenge(response.data);
   }
 
   async registerGlobal(channel: AuthChannel, rawIdentifier: string, challengeId: string, code: string, password: string,
-    confirmation: string, accepted: boolean, locale: string = 'en', consentVersion: string = ''): Promise<Session> {
+    confirmation: string, accepted: boolean, locale: string = 'en', consentVersion: string = '', ageConfirmed: boolean = false): Promise<Session> {
     const validation = globalRegistrationValidation(rawIdentifier, channel, code, password, confirmation, accepted);
     if (validation) throw new ApiError(validation, 422);
     return this.authenticate(globalApiPath('/auth/register-with-code'), undefined,
-      JSON.stringify({ challengeId, code: code.trim(), password, consentVersion, locale }));
+      JSON.stringify({ challengeId, code: code.trim(), password, consentVersion, locale, product: GLOBAL_PRODUCT, ageConfirmed }));
   }
 
   async registerGlobalWithoutVerification(channel: AuthChannel, rawIdentifier: string, password: string,
-    confirmation: string, accepted: boolean, locale: string = 'en', consentVersion: string = ''): Promise<Session> {
+    confirmation: string, accepted: boolean, locale: string = 'en', consentVersion: string = '', ageConfirmed: boolean = false): Promise<Session> {
     const validation = globalUnverifiedRegistrationValidation(rawIdentifier, channel, password, confirmation, accepted);
     if (validation) throw new ApiError(validation, 422);
     const identifier = normalizeIdentifier(channel, rawIdentifier);
     return this.authenticate(globalApiPath('/auth/register'), undefined,
-      JSON.stringify({ channel, identifier, password, consentVersion, locale }));
+      JSON.stringify({ channel, identifier, password, consentVersion, locale, product: GLOBAL_PRODUCT, ageConfirmed }));
   }
 
   async resetGlobalPassword(channel: AuthChannel, rawIdentifier: string, challengeId: string, code: string, password: string,

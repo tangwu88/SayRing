@@ -13,13 +13,23 @@ const { parseGlobalUpdate } = await import('../entry/src/main/ets/model/GlobalUp
 const now = Date.UTC(2026,8,9), id = '10000000-0000-4000-8000-000000000001';
 const session = () => ({ accessToken: 'synthetic-access', refreshToken: 'synthetic-refresh', expiresAt: new Date(now+3600000).toISOString(), member:{id,nickname:'Synthetic member'} });
 const doc = type => ({path:'/api/saydian-app/v2/content/legal/'+type+'?version=fixture-v2&locale=en',locale:'en',version:'fixture-v2'});
-const caps = (verificationRequired=true) => ({realm:'global',defaultLocale:'en',supportedLocales:APP_LOCALES,registration:{email:true,sms:true,verificationRequired},recovery:{email:true,sms:true},smsCountries:['US','GB'],verification:{codeLength:6,expiresIn:300,retryAfter:60},consentVersion:'fixture-v2',legal:{userAgreement:doc('user_agreement'),privacyPolicy:doc('privacy_policy')}});
+const caps = (verificationRequired=true) => ({realm:'global',product:'say-ring',defaultLocale:'en',supportedLocales:APP_LOCALES,registration:{email:true,sms:true,verificationRequired},recovery:{email:true,sms:true},smsCountries:['US','GB'],verification:{codeLength:6,expiresIn:300,retryAfter:60},consentVersion:'fixture-v2',legal:{userAgreement:doc('say_ring_user_agreement'),privacyPolicy:doc('say_ring_privacy_policy')}});
 const envelope = data => ({code:200,data});
 function fixture(handler) {
   const calls=[], vault={value:undefined,async read(){return this.value},async write(value){this.value=value},async clear(){this.value=undefined}};
   const client=new AccountClient({async request(...args){calls.push(args);return envelope(await handler(...args))}},vault,()=>now,true);
   return {client,calls,vault};
 }
+
+test('Say Ring legal content uses ring metadata and the deployed path, never another app', async () => {
+  const f=fixture(path=>path.includes('/capabilities?')?caps():{documentType:'say_ring_privacy_policy',version:'fixture-v2',locale:'en',reviewed:true,title:'Ring privacy',contentHtml:'<p>Ring-only reviewed text</p>'});
+  assert.equal((await f.client.globalLegal(true)).title,'Ring privacy');
+  assert.match(f.calls[0][0],/product=say-ring/);
+  assert.equal(f.calls[1][0],'/global/api/saydian-app/v2/content/legal/say_ring_privacy_policy?version=fixture-v2&locale=en');
+  for(const data of [{...caps(),product:'saydian-global'},{...caps(),legal:{...caps().legal,privacyPolicy:doc('privacy_policy')}}]) {
+    const wrong=fixture(()=>data);await assert.rejects(wrong.client.globalLegal(true),/legal_unavailable/);assert.equal(wrong.calls.length,1);
+  }
+});
 
 
 test('account recovery stays closed when the deployed capability contract disables delivery',async()=>{
@@ -67,7 +77,7 @@ test('capability parsing and the deployed client preserve the verification mode'
   const f=fixture(()=>caps(false));const available=await f.client.authCapabilities('en');
   assert.equal(available.registration.email,true);assert.equal(available.registration.sms,true);
   assert.equal(available.registration.verificationRequired,false);assert.equal(f.calls.length,1);
-  assert.match(f.calls[0][0],/\/auth\/capabilities\?locale=en$/);
+  assert.match(f.calls[0][0],/\/auth\/capabilities\?locale=en&product=say-ring$/);
 });
 test('no country may request SMS before an international allowlist is published',async()=>{
   const f=fixture(()=>({...caps(),smsCountries:[]}));
@@ -79,7 +89,7 @@ test('temporary registration posts no verification code and persists its session
   const f=fixture(()=>session());
   await f.client.registerGlobalWithoutVerification('email','test@example.com','fixture-password','fixture-password',true,'en','fixture-v2');
   assert.equal(f.calls.length,1);assert.equal(f.calls[0][0],'/global/api/saydian-app/v2/auth/register');
-  assert.deepEqual(JSON.parse(f.calls[0][3]),{channel:'email',identifier:'test@example.com',password:'fixture-password',consentVersion:'fixture-v2',locale:'en'});
+  assert.deepEqual(JSON.parse(f.calls[0][3]),{channel:'email',identifier:'test@example.com',password:'fixture-password',consentVersion:'fixture-v2',locale:'en',product:'say-ring',ageConfirmed:false});
   assert.equal(f.vault.value.memberId,id);
 });
 test('verified registration and reset submit only the returned challenge id',async()=>{
@@ -88,7 +98,7 @@ test('verified registration and reset submit only the returned challenge id',asy
   const issued=await f.client.sendVerificationCode('email','test@example.com','register','en');
   await f.client.registerGlobal('email','test@example.com',issued.challengeId,'123456','fixture-password','fixture-password',true,'en','fixture-v2');
   assert.equal(f.calls[2][0],'/global/api/saydian-app/v2/auth/register-with-code');
-  assert.deepEqual(JSON.parse(f.calls[2][3]),{challengeId:'challenge-fixture-1',code:'123456',password:'fixture-password',consentVersion:'fixture-v2',locale:'en'});
+  assert.deepEqual(JSON.parse(f.calls[2][3]),{challengeId:'challenge-fixture-1',code:'123456',password:'fixture-password',consentVersion:'fixture-v2',locale:'en',product:'say-ring',ageConfirmed:false});
 
   const reset=fixture(()=>session());
   await reset.client.resetGlobalPassword('email','test@example.com','challenge-fixture-2','654321','fixture-password','fixture-password');
@@ -108,7 +118,7 @@ test('UUID identity and ISO expiration are required; refresh cannot change owner
 test('missing published legal metadata never guesses a document path',async()=>{
   const f=fixture(()=>({...caps(),legal:null,consentVersion:null}));
   await assert.rejects(f.client.globalLegal(true,'en'),/legal_unavailable/);
-  assert.equal(f.calls.length,1);assert.match(f.calls[0][0],/\/auth\/capabilities\?locale=en$/);
+  assert.equal(f.calls.length,1);assert.match(f.calls[0][0],/\/auth\/capabilities\?locale=en&product=say-ring$/);
 });
 test('eight UI locales default to English without applying a language command to the watch',()=>{
   assert.equal(currentAppLocale(),'en');assert.equal(APP_LOCALES.length,8);assert.equal(normalizeAppLocale('unknown'),'en');

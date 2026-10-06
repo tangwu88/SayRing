@@ -44,11 +44,13 @@ class CodeLoginController extends Fake implements AppController {
     required String locale,
     required String consentVersion,
     required bool privacyConsentGranted,
+    bool ageConfirmed = false,
   }) async {
     expect(challenge.id, 'synthetic-challenge');
     expect(code, '123456');
     expect(consentVersion, 'reviewed-test-v1');
     expect(privacyConsentGranted, isTrue);
+    expect(ageConfirmed, isTrue);
     signedIn = identity;
     return true;
   }
@@ -122,6 +124,7 @@ class WechatCodeLoginController extends CodeLoginController {
     required String code,
     required String consentVersion,
     required String locale,
+    bool ageConfirmed = false,
   }) async {
     expect(challenge.id, 'wechat-phone-challenge');
     expect(code, '123456');
@@ -253,6 +256,8 @@ void main() {
         find.byKey(const Key('wechat-bind-code')),
         '123456',
       );
+      await tester.ensureVisible(find.byKey(const Key('wechat-bind-age')));
+      await tester.tap(find.byKey(const Key('wechat-bind-age')));
       await tester.ensureVisible(find.byKey(const Key('wechat-bind-submit')));
       await tester.tap(find.byKey(const Key('wechat-bind-submit')));
       await tester.pumpAndSettle();
