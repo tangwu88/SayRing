@@ -67,6 +67,7 @@ iOS 对所有账号、本机模式和设备统一限定活动与睡眠：步数�
 - 服务端发布 `48d493275205a4e755805080494dd5b6fe42c51d` 已在线，`/health/ready` 返回 ready / database ok。公开 `/say-ring/privacy` 与 `/say-ring/terms` 均 HTTP 200，含 `data-min-build="1062"` 的 iOS 活动与睡眠适用说明；处理者 Xuewu Tang、联系邮箱 kf@saydian.com 保持正确。Android／历史版本政策、App 内同意版本和其他产品配置未随本次网页说明调整。
 - 01:40:26（北京时间）通过 Apple 官方 App Store Connect API 将已整改的原审核项更新为 READY_FOR_REVIEW，再正式重新提交。提交 `e7a16e4d-18b9-457b-a59c-1d8e4711c702` 和 App Store 1.0 版本均回读为 WAITING_FOR_REVIEW；选中构建仍为 1062 / VALID。销售地区保持仅中国大陆、发布方式 AFTER_APPROVAL，不撤回、不新建另一份提交。
 - 最终只读回执保存在忽略目录 `.build/1062-review-submission-final-receipt.json`、`.build/1062-app-store-version-final-receipt.json`。苹果网页当时加载缓慢，使用已核对官方文档的 `resolved` / `submitted` 字段完成提交；没有通过猜测状态或上传成功替代审核状态。
+- 苹果网页随后恢复，原提交详情实际显示 1.0.0 (1062)／等待审核／消息 (8)，与 API 一致。可见页面凭据 `.build/1062-waiting-for-review-20261007.png` 已私有保存，审核页保留为浏览器交付结果；不包含审核凭据或个人健康数据。
 
 ## 交付状态与验证边界
 
