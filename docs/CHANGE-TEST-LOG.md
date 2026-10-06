@@ -12,6 +12,8 @@
 
 ## 最近记录
 
+- [2026-10-06 最新代码 Android/鸿蒙正式 1013 重打包](SAY-RING-FORMAL-REBUILD-20261006.md) — 同步 QRing 解绑修复，保留主目录文档改动；双时区 Flutter 各 944、鸿蒙各 501、原生 32 项及两端正式签名包验证。未安装真机或提交市场。
+
 - [2026-10-06 QRing 解除绑定与蓝牙断开修复](SAY-RING-QRING-UNBIND-DISCONNECT-20261006.md) — Android 改用厂商 `unBindDevice()`、iOS 改用 `remove`，等待真实原生终态后才清除 Flutter 绑定；双时区各 944 项、Android 原生 32 项和 Debug/QA Release 构建通过。当前无在线真机，另一台手机重新发现及 iPhone 流程明确待验。
 
 - [2026-10-05 鸿蒙首次上架 1.0.0/1012 正式签名包](SAY-RING-HARMONY-MARKET-RELEASE-20261005.md) — 正式证书/profile 核对、双时区各 501 项、Release 编译及 code/permission 签名验证通过；生成上架 APP，未进行鸿蒙真机或市场审核。
