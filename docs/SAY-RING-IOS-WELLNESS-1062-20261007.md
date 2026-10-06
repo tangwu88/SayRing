@@ -24,7 +24,7 @@ iOS 对所有账号、本机模式和设备统一限定活动与睡眠：步数�
 - 2026-10-07：已发送经用户确认的澄清回复，审核页面消息数由 6 增至 7。请求苹果指出具体功能和对收敛版本仍需的证据，没有声称整改已构建完成。
 - 审核回复凭据保存在忽略目录 `.build/1062-review-clarification-20261007.png`。
 - 设备只读检查：iPhone 15 Pro Max 为 available (paired)，其他历史 iPhone 不可用；尚未将可识别记为安装或真机验收通过。
-- ASC 最新构建仍为 1061 / VALID，本轮候选构建号为 1062。
+- 初始检查时 ASC 最新构建为 1061 / VALID；后续 1062 上传、处理和选包结果见下文。
 
 ### 代码与非真机回归
 
@@ -39,7 +39,7 @@ iOS 对所有账号、本机模式和设备统一限定活动与睡眠：步数�
 ### 设备与构建边界
 
 - iPhone 15 Pro Max，iOS 26.6，已配对的无线开发连接；锁屏状态检查为无需密码、已解锁。原有 1059 App 的 Documents / Library 在停止进程后私有备份成功，不包含完整 Keychain 备份。
-- 1062 初始生产 main Profile 构建通过并核验 `cn.saydian.ring`、`UIDeviceFamily=[1]`；随后测试入口原位覆盖，不卸载，不清除旧数据。最终需重装普通生产 main。
+- 1062 初始生产 main Profile 构建通过并核验 `cn.saydian.ring`、`UIDeviceFamily=[1]`；随后测试入口原位覆盖，不卸载，不清除旧数据；测试结束已恢复普通生产 main。
 - 两次 integration_test 假时钟方式的审核登录未通过，不能记为真机登录成功。Mac 独立生产 API 登录、资料读取和该测试会话退出均成功，但不替代 iPhone UI 验证；改用无假时钟的 FlutterDriver 实际 UI 驱动继续排查。
 - 首次实时驱动入口在 `enableFlutterDriverExtension` 前初始化 WidgetsBinding，导致 `ext.flutter.exit` 重复注册；这是测试入口错误，并非生产 main 的登录错误。将驱动扩展改为 main 的首次绑定初始化后重新构建 Profile，通过（73.8 秒），签名、包名、1062 和仅 iPhone 均核验。
 - 修正后的测试 UI 已进入，但生产认证能力读取失败，审核密码登录未通过，继续排查，不上传该失败登录页作为商店截图。
@@ -48,13 +48,13 @@ iOS 对所有账号、本机模式和设备统一限定活动与睡眠：步数�
 - 最后原位安装普通生产 main Profile 1062 成功，并以不附加调试器的方式启动；对应已安装容器进程 PID 13232 存活。旧账号、绑定和睡眠缓存前已用真实生产数据源读回，测试仅使用内存会话，不退出/替换个人账号。
 - 使用实际 `AppController.production`、真实安全存储/加密数据的独立实时入口原位验收通过：原账号已登录、绑定存在；生理指标不可见、预警和睡眠 AI 均关闭。真实睡眠、设备、关于页均实际打开并截图。没有测得新连接成功或硬件准确性，不扩写验收结果。
 - 已检查手机现存夜睡、小睡卡和结构合计一致。交接只保留验收结论，不记录真实数值。这是现存缓存页面检查，未与戒指原厂 App 核对，不视为本轮新测小睡或医学准确性验收。
-- 生产 main iOS Debug 构建通过（35.6 秒）、最终 Profile 构建通过（62.2 秒）并验签；Debug 未独立启动，最终将覆盖安装 Profile，不留下测试入口。
+- 生产 main iOS Debug 构建通过（35.6 秒）、最终 Profile 构建通过（62.2 秒）并验签；Debug 未独立启动，最终已覆盖安装 Profile，不留下测试入口。
 - Android 首轮 Release 与一次真机驱动日志受到磁盘写满影响。核对活动进程和 lsof 后，只删除明确可重建、未使用的 Flutter hash 缓存和 Android merged native 中间产物；安装包、SDK、源材料和设备备份均保留。实际 df 回读确认空间增加后重跑，Android QA Release 成功。
 
 ### App Store Connect 修改
 
 - 已写入并回读确认 `APP-STORE-DESCRIPTION-1062.txt` 和 `APP-REVIEW-NOTES-1062.txt`；副标题为“智能戒指活动与睡眠记录”，分类为健康与健身。现有审核账号未改动。
-- 目前仅元数据和澄清消息已提交；1062 尚未上传、选择或重新提交审核。旧生理测量截图必须由本次真实页面替换后再送审。
+- 元数据和澄清消息先行提交；当时 1062 尚未上传或选择。后续已用本次真实页面替换旧生理测量截图，并完成下述上传、处理及选包。
 - 1062 正式 main IPA 归档导出成功，40,666,708 字节；SHA-256 `9592161a790b5a21aeec43f89d85b316b2cc6ade9fba64490caab1f3711b3be0`。包名 `cn.saydian.ring`，版本 `1.0.0 (1062)`，仅 iPhone，分发签名校验通过，`get-task-allow=false`、`beta-reports-active=true`。最终 App.framework 未包含测试驱动扩展或审核测试状态键。
 - Apple `altool --validate-app` 验证成功，无错误；90068 是 2027 年 4 月开始要求 iOS 15 的未来规则警告，本包最低 iOS 13 当前未被拒绝。Flutter 的默认 LaunchImage 检查警告另行核对：实际 LaunchScreen 使用 `SaydianLaunchLogo`，不是旧占位资产。
 - 三张 1062 设备现存睡眠/小睡和关于页面截图均为 COMPLETE；替换删除三张旧 1013 截图（含心率、健康监测）。原材料、设备数据、备份未删除。
@@ -63,12 +63,16 @@ iOS 对所有账号、本机模式和设备统一限定活动与睡眠：步数�
 - 01:13（北京时间）Apple 返回 UPLOAD SUCCEEDED，无错误、同一未来兼容警告；Delivery UUID `e44f6e08-7838-45a8-87f1-499eed5eee69`，实际传输 40,666,708 字节。随后等待 ASC 列出和处理，不重复上传。
 - 正常登录页新截图已为 COMPLETE；共四张新版截图，不含头像、昵称或凭据。
 - 01:19 Apple 处理完成：1062 为 VALID，构建 ID `e44f6e08-7838-45a8-87f1-499eed5eee69`。已选择到 App Store 的 1.0 版本页并回读确认；沿用既有构建 1061 的非豁免加密声明值 false，未增加新的加密行为或销售地区。
+- 01:38 整改回复实际发送成功，原审核对话消息数由 7 增至 8；内容见 `APP-REVIEW-REPLY-1062.txt`。说明实际功能调整、真实 iPhone 登录结果及证据边界；没有把历史录屏作为 1062 或医学验证材料。
+- 服务端发布 `48d493275205a4e755805080494dd5b6fe42c51d` 已在线，`/health/ready` 返回 ready / database ok。公开 `/say-ring/privacy` 与 `/say-ring/terms` 均 HTTP 200，含 `data-min-build="1062"` 的 iOS 活动与睡眠适用说明；处理者 Xuewu Tang、联系邮箱 kf@saydian.com 保持正确。Android／历史版本政策、App 内同意版本和其他产品配置未随本次网页说明调整。
+- 01:40:26（北京时间）通过 Apple 官方 App Store Connect API 将已整改的原审核项更新为 READY_FOR_REVIEW，再正式重新提交。提交 `e7a16e4d-18b9-457b-a59c-1d8e4711c702` 和 App Store 1.0 版本均回读为 WAITING_FOR_REVIEW；选中构建仍为 1062 / VALID。销售地区保持仅中国大陆、发布方式 AFTER_APPROVAL，不撤回、不新建另一份提交。
+- 最终只读回执保存在忽略目录 `.build/1062-review-submission-final-receipt.json`、`.build/1062-app-store-version-final-receipt.json`。苹果网页当时加载缓慢，使用已核对官方文档的 `resolved` / `submitted` 字段完成提交；没有通过猜测状态或上传成功替代审核状态。
 
-## 待完成门禁
+## 交付状态与验证边界
 
 客户端静态分析、完整双时区 Flutter 测试、原生策略、Android 构建回归、串行 iOS Debug/Profile/分发构建、原位页面和审核账号登录均已按上述实际结果记录。
-剩余为上传后的 ASC 处理、选择 1062、公开政策发布回读、重新提交审核及代码提交/推送回读。
-没有 1062 新硬件录屏、原厂对照或准确性研究，不声称已完成这些项目；现有审核仍未重新提交，更不是审核通过。
+上传、ASC VALID、选择 1062、公开政策发布回读、整改回复发送、正式重新提交及 WAITING_FOR_REVIEW 状态回读已完成。代码与最终记录按下述发布分支推送。
+等待 Apple 实际审核；不保证一次通过或具体审核时间。没有 1062 新硬件录屏、原厂对照或准确性研究，不声称已完成这些项目；等待审核不是审核通过或公开上架。
 
 ## Git 边界
 
