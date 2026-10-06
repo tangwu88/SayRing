@@ -309,6 +309,66 @@ void main() {
     expect(qring.measurementCalls, [HealthMetric.hrv]);
   });
 
+  test(
+    'clears the saved QRing binding only after native unbind completes',
+    () async {
+      final preference = _MemoryBoundPreference(null);
+      final qring = _FakeWearableBridge(
+        scanned: const [DeviceInfo(id: 'QR-1', name: 'Q_Ring 1024')],
+      )..disconnectResult = Completer<void>();
+      final bridge = RoutedWearableBridge(
+        veepoo: _FakeWearableBridge(scanned: const []),
+        yucheng: _FakeWearableBridge(scanned: const []),
+        qring: qring,
+        preferenceStore: preference,
+      );
+      addTearDown(bridge.dispose);
+
+      await bridge.scanDevices();
+      await bridge.connect('qring:QR-1', profile: _profile);
+      final disconnecting = bridge.disconnect();
+      await pumpEventQueue();
+
+      expect(qring.disconnectCalls, 1);
+      expect(preference.binding?.nativeIdentifier, 'QR-1');
+
+      qring.disconnectResult!.complete();
+      await disconnecting;
+      expect(preference.binding, isNull);
+    },
+  );
+
+  test('keeps the QRing binding when native unbind fails', () async {
+    final preference = _MemoryBoundPreference(null);
+    final qring = _FakeWearableBridge(
+      scanned: const [DeviceInfo(id: 'QR-1', name: 'Q_Ring 1024')],
+    )..disconnectError = PlatformException(code: 'QRING_DISCONNECT_TIMEOUT');
+    final bridge = RoutedWearableBridge(
+      veepoo: _FakeWearableBridge(scanned: const []),
+      yucheng: _FakeWearableBridge(scanned: const []),
+      qring: qring,
+      preferenceStore: preference,
+    );
+    addTearDown(bridge.dispose);
+
+    await bridge.scanDevices();
+    await bridge.connect('qring:QR-1', profile: _profile);
+    await expectLater(
+      bridge.disconnect(),
+      throwsA(
+        isA<PlatformException>().having(
+          (error) => error.code,
+          'code',
+          'QRING_DISCONNECT_TIMEOUT',
+        ),
+      ),
+    );
+
+    expect(preference.binding?.nativeIdentifier, 'QR-1');
+    await bridge.startMeasurement(HealthMetric.heartRate);
+    expect(qring.measurementCalls, [HealthMetric.heartRate]);
+  });
+
   test('lists an OS-bonded R22 only after explicit selection lookup', () async {
     final preference = _MemoryBoundPreference(null);
     final qring = _BondedQRingBridge(
@@ -694,6 +754,9 @@ class _FakeWearableBridge extends Fake
   final _events = StreamController<WearableEvent>.broadcast();
   final List<String> connectCalls = [];
   final List<HealthMetric> measurementCalls = [];
+  Completer<void>? disconnectResult;
+  Object? disconnectError;
+  int disconnectCalls = 0;
   int restoreCalls = 0;
 
   @override
@@ -717,6 +780,14 @@ class _FakeWearableBridge extends Fake
     required WearableUserProfile profile,
   }) async {
     connectCalls.add(deviceId);
+  }
+
+  @override
+  Future<void> disconnect() async {
+    disconnectCalls++;
+    final error = disconnectError;
+    if (error != null) throw error;
+    await disconnectResult?.future;
   }
 
   @override

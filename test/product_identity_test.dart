@@ -33,6 +33,38 @@ void main() {
     expect(android, contains('normalized.startsWith("R2")'));
   });
 
+  test('QRing unbind uses vendor removal and waits for native state', () {
+    final android = File(
+      'android/app/src/main/java/cc/saidian/saydian_app/QRingBridge.java',
+    ).readAsStringSync();
+    final ios = File('ios/Runner/QRingWearableBridge.m').readAsStringSync();
+    final central = File('ios/Runner/QCCentralManager.m').readAsStringSync();
+    final remove = central.substring(
+      central.indexOf('- (void)remove'),
+      central.indexOf('- (void)disconnect'),
+    );
+
+    expect(android, contains('case "disconnect": startUnbind(result);'));
+    expect(android, contains('manager.unBindDevice();'));
+    expect(
+      android,
+      contains('private MethodChannel.Result pendingDisconnect;'),
+    );
+    expect(ios, contains('[self.central remove];'));
+    expect(ios, contains('self.pendingDisconnect = result;'));
+    expect(
+      remove.indexOf('cancelPeripheralConnection:peripheral'),
+      lessThan(remove.indexOf('self.connectedPeripheral = nil;')),
+      reason: 'Keep the peripheral reference until CoreBluetooth disconnects.',
+    );
+    expect(
+      central,
+      contains(
+        'self.deviceState = [self isBindDevice] ? QCStateDisconnected : QCStateUnbind;',
+      ),
+    );
+  });
+
   test('iOS QRing recovery stays explicit and environment scoped', () {
     final bridge = File('ios/Runner/QRingWearableBridge.m').readAsStringSync();
     final central = File('ios/Runner/QCCentralManager.m').readAsStringSync();

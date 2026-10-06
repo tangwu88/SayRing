@@ -365,29 +365,23 @@ class RoutedWearableBridge
 
   @override
   Future<void> disconnect() async {
-    final disconnectGeneration = ++_connectionGeneration;
+    ++_connectionGeneration;
     final transport = _activeTransport;
     if (transport == null) return;
     final connectionOwner = _activeConnectionGeneration;
+    final pending = _pendingRecoveryWork[transport];
+    if (pending == null) {
+      await _sources[transport]!.disconnect();
+    } else {
+      await pending.timeout(recoveryOperationTimeout);
+    }
+    if (_activeConnectionGeneration != connectionOwner) return;
+    _activeTransport = null;
+    _activeConnectionGeneration = null;
     try {
-      final pending = _pendingRecoveryWork[transport];
-      if (pending == null) {
-        await _sources[transport]!.disconnect();
-      } else {
-        await pending.timeout(recoveryOperationTimeout);
-      }
-    } finally {
-      if (_activeConnectionGeneration == connectionOwner) {
-        _activeTransport = null;
-        _activeConnectionGeneration = null;
-      }
-      if (disconnectGeneration == _connectionGeneration) {
-        try {
-          await _preferenceStore.clear();
-        } catch (_) {
-          // The explicit disconnect has already completed.
-        }
-      }
+      await _preferenceStore.clear();
+    } catch (_) {
+      // Native disconnect is complete even if the local preference write fails.
     }
   }
 

@@ -261,7 +261,6 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     [[NSUserDefaults standardUserDefaults] synchronize];
 
     CBPeripheral *peripheral = self.connectedPeripheral ?: [self lastPeripheral];
-    self.connectedPeripheral = nil;
 
     if (peripheral.state == CBPeripheralStateConnected || peripheral.state == CBPeripheralStateConnecting) {
         @try {
@@ -271,6 +270,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
         }
         self.deviceState = QCStateDisconnecting;
     } else {
+        self.connectedPeripheral = nil;
         self.suppressAutoReconnect = NO;
         self.deviceState = QCStateUnbind;
     }
@@ -504,7 +504,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     if (self.appManagedConnections) {
         [self stopTimer];
         self.connectedPeripheral = nil;
-        self.deviceState = QCStateDisconnected;
+        self.deviceState = [self isBindDevice] ? QCStateDisconnected : QCStateUnbind;
         return;
     }
 

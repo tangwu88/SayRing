@@ -377,7 +377,7 @@ class _FakeController extends Fake implements AppController {
   }
 
   @override
-  Future<void> disconnectDevice() async {
+  Future<void> disconnectDevice({bool clearLocalStateOnFailure = false}) async {
     disconnectCount++;
     deviceMachine.transition(DeviceConnectionState.disconnected);
     connectedDevice = null;

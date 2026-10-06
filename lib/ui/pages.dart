@@ -5328,7 +5328,14 @@ class DevicePage extends StatelessWidget {
                     const SizedBox(width: 10),
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: controller.disconnectDevice,
+                        onPressed: () async {
+                          try {
+                            await controller.disconnectDevice();
+                          } catch (_) {
+                            // The controller keeps the active device visible and
+                            // exposes a retryable, user-facing error.
+                          }
+                        },
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size.fromHeight(48),
                           padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -6001,7 +6008,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     WidgetsBinding.instance.removeObserver(this);
     unawaited(widget.controller.stopDeviceScan());
     if (_connectingDeviceId != null) {
-      unawaited(widget.controller.disconnectDevice());
+      unawaited(widget.controller.disconnectDevice().catchError((Object _) {}));
     }
     super.dispose();
   }

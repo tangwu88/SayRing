@@ -31,6 +31,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 @property(nonatomic, strong) NSMutableDictionary<NSString *, QCBlePeripheral *> *scanned;
 @property(nonatomic, copy, nullable) FlutterResult pendingScan;
 @property(nonatomic, copy, nullable) FlutterResult pendingConnect;
+@property(nonatomic, copy, nullable) FlutterResult pendingDisconnect;
 @property(nonatomic, copy, nullable) FlutterResult pendingSync;
 @property(nonatomic, copy, nullable) NSDictionary *featureList;
 @property(nonatomic, copy, nullable) NSDictionary *profile;
@@ -41,6 +42,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 @property(nonatomic, strong, nullable) NSNumber *charging;
 @property(nonatomic, strong, nullable) NSDate *batteryUpdatedAt;
 @property(nonatomic, assign) NSUInteger connectionGeneration;
+@property(nonatomic, assign) NSUInteger disconnectGeneration;
 @property(nonatomic, assign) NSUInteger measurementGeneration;
 @property(nonatomic, assign) NSUInteger syncGeneration;
 @property(nonatomic, assign) BOOL readingDetails;
@@ -82,6 +84,11 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 
 - (void)dispose {
     [self.central stopScan];
+    if (self.pendingDisconnect) {
+        FlutterResult pending = self.pendingDisconnect;
+        self.pendingDisconnect = nil;
+        pending([self error:@"BRIDGE_DISPOSED" message:@"戒指通信已关闭"]);
+    }
     self.central.delegate = nil;
     [self.methodChannel setMethodCallHandler:nil];
     [self.eventChannel setStreamHandler:nil];
@@ -303,6 +310,48 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     self.pendingConnect = nil;
     if (result) { result([self error:code message:message]); }
     [self.central disconnect];
+}
+
+- (void)startUnbind:(FlutterResult)result {
+    if (self.pendingDisconnect) {
+        result([self error:@"DISCONNECT_BUSY" message:@"正在解除绑定，请稍候"]);
+        return;
+    }
+    [self finishScan];
+    self.connectionGeneration++;
+    if (self.pendingConnect) {
+        FlutterResult pending = self.pendingConnect;
+        self.pendingConnect = nil;
+        pending([self error:@"QRING_CONNECT_CANCELLED" message:@"已取消戒指连接"]);
+    }
+    self.pendingDisconnect = result;
+    NSUInteger generation = ++self.disconnectGeneration;
+    // `disconnect` preserves the local UUID. The App action is an unbind, so
+    // remove the saved UUID and cancel CoreBluetooth before reporting success.
+    [self.central remove];
+    if (self.central.deviceState == QCStateUnbind) {
+        [self finishUnbind:generation];
+        return;
+    }
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        __strong typeof(weakSelf) self = weakSelf;
+        if (!self || generation != self.disconnectGeneration || !self.pendingDisconnect) { return; }
+        if (self.central.deviceState == QCStateUnbind) {
+            [self finishUnbind:generation];
+            return;
+        }
+        FlutterResult pending = self.pendingDisconnect;
+        self.pendingDisconnect = nil;
+        pending([self error:@"QRING_DISCONNECT_TIMEOUT" message:@"戒指仍在连接，请靠近手机后重试"]);
+    });
+}
+
+- (void)finishUnbind:(NSUInteger)generation {
+    if (generation != self.disconnectGeneration || !self.pendingDisconnect) { return; }
+    FlutterResult pending = self.pendingDisconnect;
+    self.pendingDisconnect = nil;
+    pending(nil);
 }
 
 - (NSDictionary *)deviceDetails {
@@ -779,7 +828,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     else if ([call.method isEqualToString:@"prepareRememberedDevice"]) { [self prepareRememberedDevice:arguments result:result]; }
     else if ([call.method isEqualToString:@"stopScan"]) { [self finishScan]; result(nil); }
     else if ([call.method isEqualToString:@"connect"]) { [self connect:arguments result:result]; }
-    else if ([call.method isEqualToString:@"disconnect"]) { [self.central disconnect]; self.featureList = nil; result(nil); }
+    else if ([call.method isEqualToString:@"disconnect"]) { [self startUnbind:result]; }
     else if ([call.method isEqualToString:@"getDeviceDetails"]) {
         if (![self isResolved]) { result(nil); return; }
         BOOL fresh = self.batteryUpdatedAt && [NSDate.date timeIntervalSinceDate:self.batteryUpdatedAt] < 15;
@@ -837,11 +886,17 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         self.batteryUpdatedAt = nil;
         self.firmware = @"";
         NSString *retired = self.connectedID;
+        self.connectedID = @"";
+        self.connectedName = @"";
         self.featureList = nil;
         self.activeMetric = nil;
+        self.activeSportMode = nil;
         self.activeSportType = -1;
         if (self.pendingConnect) { [self failConnect:@"QRING_DISCONNECTED" message:@"戒指连接中断，请靠近手机后重试"]; }
         else if (retired.length) { [self emit:@"disconnected" payload:@{@"deviceId": retired}]; }
+        if (state == QCStateUnbind && self.pendingDisconnect) {
+            [self finishUnbind:self.disconnectGeneration];
+        }
     }
 }
 

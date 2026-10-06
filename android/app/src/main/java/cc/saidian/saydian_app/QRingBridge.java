@@ -74,6 +74,7 @@ public final class QRingBridge
     private static final String TAG = "QRingBridge";
     private static final long SCAN_MS = 10_000L;
     private static final long CONNECT_MS = 35_000L;
+    private static final long DISCONNECT_MS = 15_000L;
     private static final long SYNC_MS = 165_000L;
 
     private final Activity activity;
@@ -86,9 +87,11 @@ public final class QRingBridge
     private boolean receiverRegistered;
     private MethodChannel.Result pendingScan;
     private MethodChannel.Result pendingConnect;
+    private MethodChannel.Result pendingDisconnect;
     private MethodChannel.Result pendingSync;
     private Runnable scanDeadline;
     private Runnable connectDeadline;
+    private Runnable disconnectDeadline;
     private Runnable syncDeadline;
     private String connectedId;
     private String connectedName;
@@ -403,19 +406,99 @@ public final class QRingBridge
             return;
         }
         String retired = connectedId;
+        retireConnection();
+        failPendingSync("CONNECTION_DROPPED", "戒指连接中断，请靠近手机后重试");
+        if (pendingConnect != null) {
+            failConnect("QRING_DISCONNECTED", "戒指连接中断，请靠近手机后重试");
+        } else if (pendingDisconnect != null) {
+            finishUnbind(retired);
+        } else if (retired != null) {
+            emitDisconnected(retired);
+        }
+    }
+
+    private void startUnbind(MethodChannel.Result result) {
+        if (pendingDisconnect != null) {
+            result.error("DISCONNECT_BUSY", "正在解除绑定，请稍候", null);
+            return;
+        }
+        finishScan();
+        cancelPendingConnectForUnbind();
+        pendingDisconnect = result;
+        final String retired = connectedId;
+        final boolean wasConnected = manager.isConnected();
+        try {
+            // `disconnect()` deliberately keeps the vendor bond and can let the
+            // SDK reconnect. The App action is an unbind, so use the SDK's
+            // explicit unbind path and do not report success until transport
+            // disconnection is observed.
+            manager.unBindDevice();
+        } catch (RuntimeException error) {
+            pendingDisconnect = null;
+            result.error("QRING_UNBIND_FAILED", "解除绑定失败，请重试", null);
+            return;
+        }
+        if (!wasConnected) {
+            retireConnection();
+            finishUnbind(retired);
+            return;
+        }
+        disconnectDeadline = () -> {
+            if (pendingDisconnect == null) return;
+            if (!manager.isConnected()) {
+                retireConnection();
+                finishUnbind(retired);
+                return;
+            }
+            MethodChannel.Result pending = pendingDisconnect;
+            pendingDisconnect = null;
+            disconnectDeadline = null;
+            pending.error(
+                    "QRING_DISCONNECT_TIMEOUT",
+                    "戒指仍在连接，请靠近手机后重试",
+                    null);
+        };
+        main.postDelayed(disconnectDeadline, DISCONNECT_MS);
+    }
+
+    private void cancelPendingConnectForUnbind() {
+        if (connectDeadline != null) main.removeCallbacks(connectDeadline);
+        connectDeadline = null;
+        if (pendingConnect == null) return;
+        MethodChannel.Result pending = pendingConnect;
+        pendingConnect = null;
+        pending.error("QRING_CONNECT_CANCELLED", "已取消戒指连接", null);
+    }
+
+    private void retireConnection() {
+        connectedId = null;
+        connectedName = null;
+        firmwareVersion = "";
+        hardwareVersion = "";
+        batteryPercent = null;
+        charging = null;
         setTimeFlags = null;
         supportFlags = null;
         activeMeasurement = null;
         activeSportMode = null;
         activeSportType = null;
-        failPendingSync("CONNECTION_DROPPED", "戒指连接中断，请靠近手机后重试");
-        if (pendingConnect != null) {
-            failConnect("QRING_DISCONNECTED", "戒指连接中断，请靠近手机后重试");
-        } else if (retired != null) {
-            Map<String, Object> value = new HashMap<>();
-            value.put("deviceId", retired);
-            emit("disconnected", value);
-        }
+    }
+
+    private void finishUnbind(String retired) {
+        if (disconnectDeadline != null) main.removeCallbacks(disconnectDeadline);
+        disconnectDeadline = null;
+        MethodChannel.Result pending = pendingDisconnect;
+        pendingDisconnect = null;
+        if (pending == null) return;
+        pending.success(null);
+        emitDisconnected(retired);
+    }
+
+    private void emitDisconnected(String retired) {
+        if (retired == null) return;
+        Map<String, Object> value = new HashMap<>();
+        value.put("deviceId", retired);
+        emit("disconnected", value);
     }
 
     private void onServiceReady() {
@@ -1081,12 +1164,7 @@ public final class QRingBridge
                 case "prepareRememberedDevice": prepareRememberedDevice(call, result); break;
                 case "stopScan": finishScan(); result.success(null); break;
                 case "connect": connect(call, result); break;
-                case "disconnect":
-                    manager.disconnect();
-                    setTimeFlags = null;
-                    supportFlags = null;
-                    result.success(null);
-                    break;
+                case "disconnect": startUnbind(result); break;
                 case "getDeviceDetails": result.success(resolved() ? deviceDetails() : null); break;
                 case "getCapabilities":
                     if (!resolved()) result.error("CAPABILITIES_UNAVAILABLE", "请先连接戒指", null);
@@ -1145,6 +1223,12 @@ public final class QRingBridge
         if (connectDeadline != null) main.removeCallbacks(connectDeadline);
         connectDeadline = null;
         pendingConnect = null;
+        if (disconnectDeadline != null) main.removeCallbacks(disconnectDeadline);
+        disconnectDeadline = null;
+        if (pendingDisconnect != null) {
+            pendingDisconnect.error("BRIDGE_DISPOSED", "戒指通信已关闭", null);
+            pendingDisconnect = null;
+        }
         if (receiverRegistered && receiver != null) {
             try {
                 activity.getApplicationContext().unregisterReceiver(receiver);

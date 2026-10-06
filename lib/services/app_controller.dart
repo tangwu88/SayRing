@@ -1599,7 +1599,7 @@ class AppController extends ChangeNotifier {
       }
     }
     try {
-      await disconnectDevice();
+      await disconnectDevice(clearLocalStateOnFailure: true);
       // A connect/authentication callback may finish after native disconnect.
       // Drain it before opening another account or reconnecting the same owner.
       await _wearableConnectInFlight;
@@ -2172,25 +2172,47 @@ class AppController extends ChangeNotifier {
     _deviceSyncErrorMessage = null;
   }
 
-  Future<void> disconnectDevice() async {
+  Future<void> disconnectDevice({bool clearLocalStateOnFailure = false}) async {
     await _cancelPendingWearableRestore();
     _invalidateDeviceSync();
+    _wearableNeedsDisconnect = true;
     try {
       await _wearable.disconnect();
       _wearableNeedsDisconnect = false;
-    } finally {
-      connectedDevice = null;
-      _connectedDeviceSessionGeneration = null;
-      _latestDeviceDetails = null;
-      capabilities = null;
-      deviceCapabilityState = DeviceCapabilityState.disconnected;
-      deviceFeatureData = const {};
-      deviceFeatureBusy = const {};
-      if (deviceState != DeviceConnectionState.disconnected) {
-        deviceMachine.transition(DeviceConnectionState.disconnected);
+      _clearConnectedDeviceState();
+    } on PlatformException catch (error) {
+      errorMessage = _wearableErrorMessage(error, fallback: '解除绑定失败，请重试');
+      sdkStatus = errorMessage!;
+      if (clearLocalStateOnFailure) {
+        _clearConnectedDeviceState();
+      } else {
+        notifyListeners();
       }
-      notifyListeners();
+      rethrow;
+    } catch (_) {
+      errorMessage = '解除绑定失败，请重试';
+      sdkStatus = errorMessage!;
+      if (clearLocalStateOnFailure) {
+        _clearConnectedDeviceState();
+      } else {
+        notifyListeners();
+      }
+      rethrow;
     }
+  }
+
+  void _clearConnectedDeviceState() {
+    connectedDevice = null;
+    _connectedDeviceSessionGeneration = null;
+    _latestDeviceDetails = null;
+    capabilities = null;
+    deviceCapabilityState = DeviceCapabilityState.disconnected;
+    deviceFeatureData = const {};
+    deviceFeatureBusy = const {};
+    if (deviceState != DeviceConnectionState.disconnected) {
+      deviceMachine.transition(DeviceConnectionState.disconnected);
+    }
+    notifyListeners();
   }
 
   Future<bool> refreshConnectedDeviceDetails() async {

@@ -137,6 +137,29 @@ void main() {
   );
 
   test(
+    'explicit unbind failure keeps the connected device for retry',
+    () async {
+      final test = await setup();
+      test.wearable.failDisconnect = true;
+
+      await expectLater(
+        test.controller.disconnectDevice(),
+        throwsA(
+          isA<PlatformException>().having(
+            (error) => error.code,
+            'code',
+            'DISCONNECT_FAILED',
+          ),
+        ),
+      );
+
+      expect(test.controller.connectedDevice, _Wearable.watch);
+      expect(test.controller.deviceState, DeviceConnectionState.ready);
+      expect(test.controller.errorMessage, isNotEmpty);
+    },
+  );
+
+  test(
     'another device result is rejected while the active native identifier is accepted',
     () async {
       final test = await setup();
