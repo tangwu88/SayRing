@@ -1,8 +1,35 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/device_state_machine.dart';
 import '../domain/feature_models.dart';
 import '../domain/models.dart';
+import '../domain/wellness_release_policy.dart';
+
+/// A second boundary before parsing native records: the legacy model parser
+/// defaults unknown metric names to steps. Never apply that fallback on iOS.
+WellnessReleasePolicy get wearableHealthReleasePolicy => WellnessReleasePolicy(
+  enabled: !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
+);
+
+List<HealthRecord> parseWearableHealthRecords(Iterable<Object?> values) {
+  final policy = wearableHealthReleasePolicy;
+  return values
+      .whereType<Map<Object?, Object?>>()
+      .where((value) {
+        if (!policy.enabled) return true;
+        final type = value['type'];
+        return type is String && policy.allowsWireMetric(type);
+      })
+      .map(
+        (value) => HealthRecord.fromJson(
+          value.map((key, item) => MapEntry('$key', item)),
+        ),
+      )
+      .map(policy.projectRecord)
+      .whereType<HealthRecord>()
+      .toList(growable: false);
+}
 
 abstract interface class WearableBridge {
   Stream<WearableEvent> get events;
@@ -397,14 +424,7 @@ class MethodChannelWearableBridge
               'cursor': cursor,
             }) ??
             const [];
-        return result
-            .whereType<Map<Object?, Object?>>()
-            .map(
-              (item) => HealthRecord.fromJson(
-                item.map((key, value) => MapEntry('$key', value)),
-              ),
-            )
-            .toList();
+        return parseWearableHealthRecords(result);
       });
 
   @override

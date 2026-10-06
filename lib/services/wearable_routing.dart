@@ -144,8 +144,8 @@ class RoutedWearableBridge
         WearableRememberedRecoveryEligibilityBridge,
         WearableBondedDeviceSelectionBridge {
   RoutedWearableBridge({
-    required WearableBridge veepoo,
-    required WearableBridge yucheng,
+    WearableBridge? veepoo,
+    WearableBridge? yucheng,
     WearableBridge? moyoung,
     WearableBridge? coolwear,
     WearableBridge? qring,
@@ -155,8 +155,8 @@ class RoutedWearableBridge
     this.recoveryOperationTimeout = const Duration(seconds: 30),
     this.recoveryStopScanTimeout = const Duration(seconds: 3),
   }) : _sources = {
-         WearableTransport.veepoo: veepoo,
-         WearableTransport.yucheng: yucheng,
+         WearableTransport.veepoo: ?veepoo,
+         WearableTransport.yucheng: ?yucheng,
        },
        _preferenceStore =
            preferenceStore ?? const SecureWearableTransportPreferenceStore() {
@@ -294,6 +294,12 @@ class RoutedWearableBridge
     final saved = await _readVisibleBinding();
     if (saved == null) return null;
     final source = _sources[saved.transport];
+    if (source == null) {
+      throw PlatformException(
+        code: 'DEVICE_SDK_UNAVAILABLE',
+        message: '此版本不支持该设备，请连接 QRing 或 CoolWear 戒指',
+      );
+    }
     if (source is! WearableRememberedDeviceSelectionBridge) return null;
     final device = await (source as WearableRememberedDeviceSelectionBridge)
         .prepareRememberedDeviceForSelection(
@@ -659,7 +665,12 @@ class RoutedWearableBridge
       return null;
     }
     final source = _sources[saved.transport];
-    if (source == null) return null;
+    if (source == null) {
+      throw PlatformException(
+        code: 'DEVICE_SDK_UNAVAILABLE',
+        message: '此版本不支持该设备，请连接 QRing 或 CoolWear 戒指',
+      );
+    }
     _requireRecoverySourceAvailable(saved.transport);
     if (source is WearableExactTargetRecoveryBridge &&
         saved.deviceName != null) {

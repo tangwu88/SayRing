@@ -41,6 +41,7 @@ import 'sleep_detail_widgets.dart';
 import 'health_trend_page.dart';
 import '../services/sleep_health_projection.dart';
 import 'html_text.dart';
+import 'wellness_release.dart';
 
 // Compatibility facade: parts retain the existing public API and private helpers.
 part 'prototype/legacy_auth.dart';

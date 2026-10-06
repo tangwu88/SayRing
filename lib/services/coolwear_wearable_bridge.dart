@@ -172,20 +172,17 @@ class CoolWearWearableBridge
         ) ??
         const <Object?>[];
     final values = response is Map ? response['records'] : response;
-    final records = (values is List ? values : const <Object?>[])
-        .whereType<Map<Object?, Object?>>()
-        .map(
-          (value) => HealthRecord.fromJson(
-            value.map((key, item) => MapEntry('$key', item)),
-          ),
-        )
-        .toList(growable: false);
+    final records = parseWearableHealthRecords(
+      values is List ? values : const <Object?>[],
+    );
     if (response is Map && response['statuses'] is Map) {
       return WearableSyncResult(
         records,
-        (response['statuses'] as Map).map(
-          (key, value) => MapEntry('$key', '$value'),
-        ),
+        {
+          for (final entry in (response['statuses'] as Map).entries)
+            if (wearableHealthReleasePolicy.allowsWireMetric('${entry.key}'))
+              '${entry.key}': '${entry.value}',
+        },
       );
     }
     return records;

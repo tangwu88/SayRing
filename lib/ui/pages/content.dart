@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../widgets/safe_network_image.dart';
 import '../html_text.dart';
 import '../media_url.dart';
+import '../wellness_release.dart';
 
 /// International content uses opaque string IDs and the global content service.
 /// Language changes reload content instead of displaying the previous language
@@ -44,6 +45,7 @@ class _GlobalArticleLibraryPageState extends State<GlobalArticleLibraryPage> {
   }
 
   Future<void> _load() async {
+    if (widget.controller.isWellnessOnly) return;
     final generation = ++_generation;
     setState(() {
       _loading = true;
@@ -82,6 +84,7 @@ class _GlobalArticleLibraryPageState extends State<GlobalArticleLibraryPage> {
   }
 
   Future<void> _loadMore() async {
+    if (widget.controller.isWellnessOnly) return;
     if (_loadingMore || !_hasMore) return;
     final generation = _generation;
     setState(() {
@@ -123,84 +126,89 @@ class _GlobalArticleLibraryPageState extends State<GlobalArticleLibraryPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    key: const Key('global-article-library'),
-    appBar: AppBar(title: Text(context.l10n.healthLibrary)),
-    body: _loading
-        ? const Center(child: CircularProgressIndicator())
-        : _failed
-        ? _ArticleLoadFailure(onRetry: _load)
-        : RefreshIndicator(
-            onRefresh: _load,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              children: [
-                if (_categories.isNotEmpty) ...[
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+  Widget build(BuildContext context) => widget.controller.isWellnessOnly
+      ? const WellnessReleaseUnavailablePage()
+      : Scaffold(
+          key: const Key('global-article-library'),
+          appBar: AppBar(title: Text(context.l10n.healthLibrary)),
+          body: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _failed
+              ? _ArticleLoadFailure(onRetry: _load)
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                     children: [
-                      ChoiceChip(
-                        key: const Key('global-article-category-all'),
-                        label: Text(context.l10n.all),
-                        selected: _selectedCategory == null,
-                        onSelected: (_) => _select(null),
-                      ),
-                      for (final category in _categories)
-                        ChoiceChip(
-                          key: ValueKey(
-                            'global-article-category-${category['id']}',
+                      if (_categories.isNotEmpty) ...[
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ChoiceChip(
+                              key: const Key('global-article-category-all'),
+                              label: Text(context.l10n.all),
+                              selected: _selectedCategory == null,
+                              onSelected: (_) => _select(null),
+                            ),
+                            for (final category in _categories)
+                              ChoiceChip(
+                                key: ValueKey(
+                                  'global-article-category-${category['id']}',
+                                ),
+                                label: Text(
+                                  '${category['title'] ?? category['name'] ?? context.l10n.healthLibrary}',
+                                ),
+                                selected:
+                                    _selectedCategory == '${category['id']}',
+                                onSelected: (_) => _select('${category['id']}'),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (_articles.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 64),
+                          child: Center(
+                            child: Text(context.l10n.articlesEmpty),
                           ),
-                          label: Text(
-                            '${category['title'] ?? category['name'] ?? context.l10n.healthLibrary}',
+                        )
+                      else
+                        for (final article in _articles) ...[
+                          Card(
+                            key: ValueKey('global-article-${article['id']}'),
+                            child: ArticleTile(
+                              article: article,
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => ArticleDetailPage(
+                                    controller: widget.controller,
+                                    article: article,
+                                  ),
+                                ),
+                              ),
+                            ),
                           ),
-                          selected: _selectedCategory == '${category['id']}',
-                          onSelected: (_) => _select('${category['id']}'),
+                          const SizedBox(height: 8),
+                        ],
+                      if (_hasMore)
+                        TextButton(
+                          key: const Key('global-article-load-more'),
+                          onPressed: _loadingMore ? null : _loadMore,
+                          child: Text(
+                            _loadingMore
+                                ? '加载中'
+                                : _moreFailed
+                                ? '加载失败，重试'
+                                : '加载更多',
+                          ),
                         ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                ],
-                if (_articles.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 64),
-                    child: Center(child: Text(context.l10n.articlesEmpty)),
-                  )
-                else
-                  for (final article in _articles) ...[
-                    Card(
-                      key: ValueKey('global-article-${article['id']}'),
-                      child: ArticleTile(
-                        article: article,
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => ArticleDetailPage(
-                              controller: widget.controller,
-                              article: article,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                if (_hasMore)
-                  TextButton(
-                    key: const Key('global-article-load-more'),
-                    onPressed: _loadingMore ? null : _loadMore,
-                    child: Text(
-                      _loadingMore
-                          ? '加载中'
-                          : _moreFailed
-                          ? '加载失败，重试'
-                          : '加载更多',
-                    ),
-                  ),
-              ],
-            ),
-          ),
-  );
+                ),
+        );
 }
 
 class ArticleCategoryPage extends StatefulWidget {
@@ -225,6 +233,7 @@ class _ArticleCategoryPageState extends State<ArticleCategoryPage> {
   }
 
   Future<void> _load() async {
+    if (widget.controller.isWellnessOnly) return;
     if (mounted) setState(() => _loading = true);
     final categories = await widget.controller.loadArticleCategories();
     final articles = await widget.controller.loadArticlesByCategory(
@@ -239,6 +248,7 @@ class _ArticleCategoryPageState extends State<ArticleCategoryPage> {
   }
 
   Future<void> _selectCategory(int? categoryId) async {
+    if (widget.controller.isWellnessOnly) return;
     if (_selectedCategoryId == categoryId && !_loading) return;
     setState(() {
       _selectedCategoryId = categoryId;
@@ -256,6 +266,9 @@ class _ArticleCategoryPageState extends State<ArticleCategoryPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.controller.isWellnessOnly) {
+      return const WellnessReleaseUnavailablePage();
+    }
     if (widget.controller.isGlobalEdition) {
       return GlobalArticleLibraryPage(controller: widget.controller);
     }
@@ -386,6 +399,7 @@ class _ArticleListPageState extends State<ArticleListPage> {
   }
 
   Future<void> _load() async {
+    if (widget.controller.isWellnessOnly) return;
     if (mounted) setState(() => _loading = true);
     final articles = await widget.controller.loadArticlesByCategory(
       categoryId: widget.categoryId,
@@ -399,6 +413,9 @@ class _ArticleListPageState extends State<ArticleListPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.controller.isWellnessOnly) {
+      return const WellnessReleaseUnavailablePage();
+    }
     if (widget.controller.isGlobalEdition) {
       return GlobalArticleLibraryPage(controller: widget.controller);
     }
@@ -571,6 +588,7 @@ class _ArticleDetailPageState extends State<ArticleDetailPage> {
   }
 
   Future<void> _load() async {
+    if (widget.controller.isWellnessOnly) return;
     final id = _articleId;
     if (id == null) return;
     if (widget.controller.isGlobalEdition) {
@@ -611,6 +629,9 @@ class _ArticleDetailPageState extends State<ArticleDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.controller.isWellnessOnly) {
+      return const WellnessReleaseUnavailablePage();
+    }
     final title = '${_article['title'] ?? context.l10n.healthLibrary}';
     final raw =
         '${_article['contentHtml'] ?? _article['content'] ?? _article['description'] ?? ''}';

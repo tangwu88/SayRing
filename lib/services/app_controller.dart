@@ -18,6 +18,7 @@ import '../domain/health_record_validation.dart';
 import '../domain/health_record_dedup.dart';
 import '../domain/health_source_policy.dart';
 import '../domain/models.dart';
+import '../domain/wellness_release_policy.dart';
 import '../domain/sleep_timeline.dart';
 import '../domain/global_account.dart';
 import '../domain/global_care.dart';
@@ -75,11 +76,13 @@ class AppController extends ChangeNotifier {
     List<Duration>? pushRegistrationRetryDelays,
     this._allowAutomaticWearableRestore = true,
     this.generalAiEnabled = true,
+    bool wellnessOnly = false,
     this.commerceEnabled = const bool.fromEnvironment(
       'SAY_RING_COMMERCE_ENABLED',
       defaultValue: false,
     ),
-  }) : _paymentBridge = paymentBridge ?? const MethodChannelAppPaymentBridge(),
+  }) : healthReleasePolicy = WellnessReleasePolicy(enabled: wellnessOnly),
+       _paymentBridge = paymentBridge ?? const MethodChannelAppPaymentBridge(),
        _storeKitPurchaseBridge =
            storeKitPurchaseBridge ??
            const MethodChannelStoreKitPurchaseBridge(),
@@ -89,7 +92,11 @@ class AppController extends ChangeNotifier {
        _pushRegistrationRetryDelays = List.unmodifiable(
          pushRegistrationRetryDelays ?? _defaultPushRegistrationRetryDelays,
        ),
-       _syncService = HealthSyncService(_healthStore, _api) {
+       _syncService = HealthSyncService(
+         _healthStore,
+         _api,
+         policy: WellnessReleasePolicy(enabled: wellnessOnly),
+       ) {
     _notificationInboxRepository = StoredNotificationInboxRepository(
       _healthStore,
       ownerId: _notificationOwnerId,
@@ -103,14 +110,17 @@ class AppController extends ChangeNotifier {
     bool allowAutomaticWearableRestore = true,
   }) {
     final vault = SecureSessionVault.global();
+    final wellnessOnly = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
     return AppController(
       vault,
       GlobalSaydianApiClient(
         vault,
         locale: () => GlobalLocaleController.instance.locale.toLanguageTag(),
+        healthReleasePolicy: WellnessReleasePolicy(enabled: wellnessOnly),
       ),
       EncryptedHealthStore(vault, globalEdition: true),
       createProductionWearableBridge(),
+      wellnessOnly: wellnessOnly,
       // General AI stays closed in this release even when an older enabled
       // display setting is cached or its public refresh temporarily fails.
       generalAiEnabled: const bool.fromEnvironment(
@@ -128,6 +138,45 @@ class AppController extends ChangeNotifier {
   final SessionVault _vault;
   final bool _allowAutomaticWearableRestore;
   final SaydianApi _api;
+  final WellnessReleasePolicy healthReleasePolicy;
+  bool get isWellnessOnly => healthReleasePolicy.enabled;
+  bool get healthAlertsAvailable => !isWellnessOnly;
+  bool isMetricAvailableInRelease(HealthMetric metric) =>
+      healthReleasePolicy.allowsMetric(metric);
+
+  Iterable<HealthRecord> _releaseRecords(Iterable<HealthRecord> records) =>
+      records.map(healthReleasePolicy.projectRecord).whereType<HealthRecord>();
+
+  DeviceCapabilities _releaseCapabilities(DeviceCapabilities value) {
+    if (!isWellnessOnly) return value;
+    return DeviceCapabilities.fromMap({
+      ...value.toJson(),
+      'metrics': value.metrics
+          .where(isMetricAvailableInRelease)
+          .map((m) => m.wireName)
+          .toList(),
+      'manualMetrics': <String>[],
+      if (value.historyMetrics != null)
+        'historyMetrics': value.historyMetrics!
+            .where(isMetricAvailableInRelease)
+            .map((m) => m.wireName)
+            .toList(),
+      'features': value.features
+          .where(healthReleasePolicy.allowsFeature)
+          .map((f) => f.wireName)
+          .toList(),
+      'integratedFeatures': value.integratedFeatures
+          .where(healthReleasePolicy.allowsFeature)
+          .map((f) => f.wireName)
+          .toList(),
+    });
+  }
+
+  void _requireFullHealthRelease() {
+    if (isWellnessOnly) {
+      throw const FeatureNotConfiguredException('此版本仅提供活动与睡眠记录');
+    }
+  }
 
   /// A release switch, independent of account state and device capabilities.
   /// Keep commerce code/data intact; a later upgrade can explicitly enable it.
@@ -139,14 +188,17 @@ class AppController extends ChangeNotifier {
 
   bool _hideAi = true;
   bool _sleepAiEnabled = false;
-  bool get sleepAiEnabled => isAuthenticated && !isLocalMode && _sleepAiEnabled;
+  bool get sleepAiEnabled =>
+      !isWellnessOnly && isAuthenticated && !isLocalMode && _sleepAiEnabled;
   int _aiDisplayGeneration = 0;
   bool _appDisplayCacheLoaded = false;
   Future<void>? _appDisplayRefresh;
 
   /// Before the first valid configuration, keep product-controlled content hidden.
   bool get hideAiContent =>
-      !generalAiEnabled || (_api is SayRingAppDisplayApi && _hideAi);
+      isWellnessOnly ||
+      !generalAiEnabled ||
+      (_api is SayRingAppDisplayApi && _hideAi);
 
   Future<void> refreshAppDisplayConfig() {
     final pending = _appDisplayRefresh;
@@ -526,21 +578,74 @@ class AppController extends ChangeNotifier {
     ),
   );
 
-  Future<List<GlobalCareRelationship>> globalCareRelationships() =>
-      (_api as GlobalCareApi).globalCareRelationships();
+  Future<List<GlobalCareRelationship>> globalCareRelationships() async {
+    final generation = _sessionGeneration;
+    final rows = await (_api as GlobalCareApi).globalCareRelationships();
+    if (!_isCurrentSessionGeneration(generation)) return const [];
+    if (!isWellnessOnly) return rows;
+    return rows
+        .map(
+          (row) => GlobalCareRelationship(
+            id: row.id,
+            status: row.status,
+            received: row.received,
+            name: row.name,
+            expiresAt: row.expiresAt,
+            metrics: row.metrics
+                .where(healthReleasePolicy.allowsWireMetric)
+                .toSet(),
+          ),
+        )
+        .toList();
+  }
+
   Future<void> globalInviteCare(String identifier) =>
       (_api as GlobalCareApi).globalInviteCare(identifier);
   Future<void> globalRespondCare(String id, bool accepted) =>
       (_api as GlobalCareApi).globalRespondCare(id, accepted);
-  Future<void> globalShareCare(String id, Set<String> metrics) =>
-      (_api as GlobalCareApi).globalShareCare(id, metrics);
+  Future<void> globalShareCare(String id, Set<String> metrics) async {
+    if (isWellnessOnly &&
+        metrics.any(
+          (metric) => !healthReleasePolicy.allowsWireMetric(metric),
+        )) {
+      throw const FeatureNotConfiguredException('此版本仅支持活动与睡眠分享');
+    }
+    final api = _api as GlobalCareApi;
+    if (!isWellnessOnly) return api.globalShareCare(id, metrics);
+    final generation = _sessionGeneration;
+    final existing = (await api.globalCareRelationships())
+        .where((row) => row.id == id)
+        .firstOrNull;
+    if (!_isCurrentSessionGeneration(generation)) return;
+    // This release may edit its own metrics, but must not revoke grants used
+    // by another client. Explicit relation revocation remains a separate action.
+    await api.globalShareCare(id, {
+      ...metrics,
+      ...?existing?.metrics.where(
+        (metric) => !healthReleasePolicy.allowsWireMetric(metric),
+      ),
+    });
+  }
+
   Future<void> globalRevokeCare(String id) =>
       (_api as GlobalCareApi).globalRevokeCare(id);
   Future<List<Map<String, Object?>>> globalCareRecords(
     String id,
     String metric,
     DateTime day,
-  ) => (_api as GlobalCareApi).globalCareRecords(id, metric, day);
+  ) async {
+    if (isWellnessOnly && !healthReleasePolicy.allowsWireMetric(metric)) {
+      return const [];
+    }
+    final generation = _sessionGeneration;
+    final rows = await (_api as GlobalCareApi).globalCareRecords(
+      id,
+      metric,
+      day,
+    );
+    if (!_isCurrentSessionGeneration(generation)) return const [];
+    return rows;
+  }
 
   Future<List<Map<String, Object?>>> globalCareRecordsRange(
     String id,
@@ -548,14 +653,19 @@ class AppController extends ChangeNotifier {
     DateTime start,
     DateTime end,
   ) async {
+    if (isWellnessOnly && !healthReleasePolicy.allowsWireMetric(metric)) {
+      return const [];
+    }
     final api = _api;
     if (api is GlobalCareRangeApi) {
-      return (api as GlobalCareRangeApi).globalCareRecordsRange(
+      final generation = _sessionGeneration;
+      final rows = await (api as GlobalCareRangeApi).globalCareRecordsRange(
         id,
         metric,
         start,
         end,
       );
+      return _isCurrentSessionGeneration(generation) ? rows : const [];
     }
     // Compatibility for older adapters; each day retains the existing server
     // authorization check. Production uses the bounded range endpoint above.
@@ -963,6 +1073,7 @@ class AppController extends ChangeNotifier {
   Map<HealthMetric, HealthRecord> get latestByMetric {
     final result = <HealthMetric, HealthRecord>{};
     for (final record in healthRecords) {
+      if (!isMetricAvailableInRelease(record.metric)) continue;
       if (record.metric == HealthMetric.sleep &&
           !hasSaneWearableTransportValues(record)) {
         continue;
@@ -984,7 +1095,9 @@ class AppController extends ChangeNotifier {
     };
     return current.features
         .intersection(current.integratedFeatures)
-        .difference(screenOnlyFeatures);
+        .difference(screenOnlyFeatures)
+        .where(healthReleasePolicy.allowsFeature)
+        .toSet();
   }
 
   bool get _hasResolvedDeviceCapabilities =>
@@ -994,11 +1107,13 @@ class AppController extends ChangeNotifier {
           capabilities != null);
 
   bool shouldShowHealthMetric(HealthMetric metric) =>
-      latestByMetric.containsKey(metric) ||
-      (_hasResolvedDeviceCapabilities &&
-          capabilities?.supports(metric) == true);
+      isMetricAvailableInRelease(metric) &&
+      (latestByMetric.containsKey(metric) ||
+          (_hasResolvedDeviceCapabilities &&
+              capabilities?.supports(metric) == true));
 
   bool canMeasureHealthMetric(HealthMetric metric) =>
+      !isWellnessOnly &&
       connectedDevice != null &&
       _hasResolvedDeviceCapabilities &&
       capabilities?.supportsManualMeasurement(metric) == true;
@@ -1122,8 +1237,8 @@ class AppController extends ChangeNotifier {
       if (!_isCurrentSessionGeneration(expectedGeneration)) return false;
       final sports = await _healthStore.localSportRecords();
       if (!_isCurrentSessionGeneration(expectedGeneration)) return false;
-      healthWarningAlerts = alerts;
-      sportRecords = sports;
+      healthWarningAlerts = healthAlertsAvailable ? alerts : const [];
+      sportRecords = sports.map(healthReleasePolicy.projectSport).toList();
       return true;
     } catch (_) {
       if (_isCurrentSessionGeneration(expectedGeneration)) {
@@ -2247,7 +2362,7 @@ class AppController extends ChangeNotifier {
     try {
       final reported = await _wearable.getCapabilities();
       if (!isCurrent()) return false;
-      capabilities = reported;
+      capabilities = _releaseCapabilities(reported);
       deviceCapabilityState = DeviceCapabilityState.ready;
       notifyListeners();
       return true;
@@ -2374,7 +2489,7 @@ class AppController extends ChangeNotifier {
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
       }
-      for (final record in receivedRecords) {
+      for (final record in _releaseRecords(receivedRecords)) {
         final timeline = record.sleepTimeline;
         if (timeline != null && timeline.deviceId == deviceId) {
           await _persistSleepDay(
@@ -2387,7 +2502,7 @@ class AppController extends ChangeNotifier {
         }
       }
       final records = deduplicateHealthRecords(
-        receivedRecords
+        _releaseRecords(receivedRecords)
             .map(sanitizeWearableTransportRecord)
             .where(hasSaneWearableTransportValues),
       );
@@ -2428,6 +2543,12 @@ class AppController extends ChangeNotifier {
         for (final value in error.details as List) {
           if (value is! Map) continue;
           try {
+            if (isWellnessOnly &&
+                !healthReleasePolicy.allowsWireMetric(
+                  '${value['type'] ?? ''}',
+                )) {
+              continue;
+            }
             final record = HealthRecord.fromJson(
               value.map((key, item) => MapEntry('$key', item)),
             );
@@ -2447,7 +2568,7 @@ class AppController extends ChangeNotifier {
           }
         }
         final records = deduplicateHealthRecords(
-          partial
+          _releaseRecords(partial)
               .map(sanitizeWearableTransportRecord)
               .where(hasSaneWearableTransportValues),
         );
@@ -2805,6 +2926,11 @@ class AppController extends ChangeNotifier {
   }
 
   Future<bool> startMeasurement(HealthMetric metric) async {
+    if (isWellnessOnly) {
+      errorMessage = '此版本仅提供活动与睡眠记录';
+      notifyListeners();
+      return false;
+    }
     if (_activeMeasurementMetric != null ||
         deviceState == DeviceConnectionState.measuring) {
       measurementErrorMessage = '另一项戒指测量尚未结束，请稍后重试';
@@ -2969,17 +3095,19 @@ class AppController extends ChangeNotifier {
             () => timeline.hasRawData ? 'complete' : 'noData',
           );
     }
-    return projectSleepRecords(
-      summaries: summaries.where(hasSaneWearableTransportValues).where((
-        record,
-      ) {
-        final day = sleepRecordSdkDate(record);
-        return (preferred == null || record.deviceId == preferred) &&
-            day.compareTo(first) >= 0 &&
-            day.compareTo(last) <= 0;
-      }),
-      timelines: timelines,
-    );
+    return _releaseRecords(
+      projectSleepRecords(
+        summaries: summaries.where(hasSaneWearableTransportValues).where((
+          record,
+        ) {
+          final day = sleepRecordSdkDate(record);
+          return (preferred == null || record.deviceId == preferred) &&
+              day.compareTo(first) >= 0 &&
+              day.compareTo(last) <= 0;
+        }),
+        timelines: timelines,
+      ),
+    ).toList();
   }
 
   Future<HealthRecord?> loadLatestSleepDay() async {
@@ -3043,7 +3171,7 @@ class AppController extends ChangeNotifier {
 
     final selected = await newest(summaries);
     if (!current()) return null;
-    if (selected != null) return selected;
+    if (selected != null) return healthReleasePolicy.projectRecord(selected);
     // Upgrade fallback: latest rows may belong to another device, contain an
     // invalid legacy unit, or be suppressed by a confirmed empty SDK day.
     final history = await _healthStore.range(
@@ -3054,17 +3182,20 @@ class AppController extends ChangeNotifier {
     if (!current()) return null;
     final legacy = await newest(history);
     if (!current()) return null;
-    return legacy ??
+    final result =
+        legacy ??
         projectSleepRecords(
           summaries: const [],
           timelines: [?timeline],
         ).firstOrNull;
+    return result == null ? null : healthReleasePolicy.projectRecord(result);
   }
 
   Future<void> _persistSleepDay(
     SleepTimeline timeline, {
     required int expectedGeneration,
   }) async {
+    timeline = healthReleasePolicy.projectTimeline(timeline);
     if (!_isCurrentSessionGeneration(expectedGeneration)) return;
     final store = _healthStore;
     if (store is! SleepDetailStore) return;
@@ -3093,6 +3224,7 @@ class AppController extends ChangeNotifier {
     required DateTime start,
     required DateTime end,
   }) async {
+    if (!isMetricAvailableInRelease(metric)) return const [];
     final generation = _sessionGeneration;
     final records = await _healthStore.range(
       metric: metric,
@@ -3102,7 +3234,7 @@ class AppController extends ChangeNotifier {
     if (!_isCurrentSessionGeneration(generation)) return const [];
     return deduplicateHealthRecords(
       ringPreferredHealthRecords(
-        records.where(hasSaneWearableTransportValues),
+        _releaseRecords(records.where(hasSaneWearableTransportValues)),
         preferredDeviceId: connectedDevice?.id,
       ),
     );
@@ -3151,6 +3283,7 @@ class AppController extends ChangeNotifier {
   };
 
   Future<bool> saveHealthWarningSettings(HealthWarningSettings settings) async {
+    if (!healthAlertsAvailable) return false;
     if (settings.heartRateUpper < 20 || settings.heartRateUpper > 300) {
       errorMessage = '心率报警值需设置在 20–300 bpm';
       notifyListeners();
@@ -3198,6 +3331,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> refreshHealthWarningCloudState() async {
+    if (!healthAlertsAvailable) return;
     final api = _api;
     if (api is! SaydianHealthCloudApi || session == null) return;
     final expectedGeneration = _sessionGeneration;
@@ -3388,7 +3522,9 @@ class AppController extends ChangeNotifier {
     final deviceId = connectedDevice?.id;
     await Future<void>.delayed(Duration.zero);
     if (!_isCurrentSessionGeneration(generation)) return;
-    final localRecords = await _healthStore.localSportRecords();
+    final localRecords = (await _healthStore.localSportRecords())
+        .map(healthReleasePolicy.projectSport)
+        .toList();
     if (!_isCurrentSessionGeneration(generation)) return;
     if (deviceId == null || !includeDevice) {
       sportRecords = localRecords;
@@ -3397,7 +3533,9 @@ class AppController extends ChangeNotifier {
     }
     sportRecords = localRecords;
     try {
-      final records = await _wearable.readSportRecords();
+      final records = (await _wearable.readSportRecords())
+          .map(healthReleasePolicy.projectSport)
+          .toList();
       if (!_isCurrentSessionGeneration(generation) ||
           connectedDevice?.id != deviceId) {
         return;
@@ -3434,7 +3572,7 @@ class AppController extends ChangeNotifier {
           try {
             final record = SportRecord.fromMap(value.cast<Object?, Object?>());
             if (record.id.isNotEmpty && record.startedAt != null) {
-              partial.add(record);
+              partial.add(healthReleasePolicy.projectSport(record));
             }
           } catch (_) {
             // Ignore an invalid vendor packet, not the other valid records.
@@ -3478,6 +3616,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> saveLocalSportRecord(SportRecord record) async {
+    record = healthReleasePolicy.projectSport(record);
     final generation = _sessionGeneration;
     await _healthStore.saveSportRecord(record);
     if (!_isCurrentSessionGeneration(generation)) return;
@@ -3485,7 +3624,8 @@ class AppController extends ChangeNotifier {
     if (!_isCurrentSessionGeneration(generation)) return;
     final byId = <String, SportRecord>{
       for (final existing in sportRecords) existing.id: existing,
-      for (final local in localRecords) local.id: local,
+      for (final local in localRecords)
+        local.id: healthReleasePolicy.projectSport(local),
     };
     sportRecords = byId.values.toList()
       ..sort(
@@ -3513,6 +3653,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _refreshDeviceSettings() async {
+    if (isWellnessOnly) return;
     final settingsGeneration = _deviceSettingsGeneration;
     await Future<void>.delayed(Duration.zero);
     if (_disposed || settingsGeneration != _deviceSettingsGeneration) return;
@@ -3604,6 +3745,7 @@ class AppController extends ChangeNotifier {
   }.contains(error.code);
 
   Future<void> setAutoMeasureSetting(String type, bool enabled) async {
+    _requireFullHealthRelease();
     final deviceId = connectedDevice?.id;
     if (deviceId == null) {
       errorMessage = '请先连接戒指';
@@ -3641,6 +3783,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> setAutoMeasureInterval(String type, int minutes) async {
+    _requireFullHealthRelease();
     if (connectedDevice == null) {
       errorMessage = '请先连接戒指';
       notifyListeners();
@@ -3765,6 +3908,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> setHeartRateWarning(int value) async {
+    _requireFullHealthRelease();
     if (connectedDevice == null) {
       errorMessage = '请先连接戒指';
       notifyListeners();
@@ -3781,6 +3925,11 @@ class AppController extends ChangeNotifier {
   }
 
   FeatureAvailability availabilityFor(DeviceFeature feature) {
+    if (!healthReleasePolicy.allowsFeature(feature)) {
+      return const FeatureAvailability(
+        FeatureAvailabilityStatus.serviceUnavailable,
+      );
+    }
     if (connectedDevice == null) {
       return const FeatureAvailability(FeatureAvailabilityStatus.needsDevice);
     }
@@ -4030,9 +4179,10 @@ class AppController extends ChangeNotifier {
       if (!_isCurrentSessionGeneration(generation)) return received;
       final page = await reader.getCloudHealthRecords(before: before);
       if (!_isCurrentSessionGeneration(generation)) return received;
-      await _healthStore.upsertSynced(page.records);
+      final records = _releaseRecords(page.records).toList();
+      await _healthStore.upsertSynced(records);
       if (!_isCurrentSessionGeneration(generation)) return received;
-      received += page.records.length;
+      received += records.length;
       final next = page.nextCursor;
       if (next == null) {
         await _refreshHealthRecordCache(expectedGeneration: generation);
@@ -4612,6 +4762,10 @@ class AppController extends ChangeNotifier {
     if (value == null) return null;
     pendingNotificationRoute = null;
     notifyListeners();
+    if (!healthAlertsAvailable &&
+        value.target == NotificationRouteTarget.healthWarningHistory) {
+      return null;
+    }
     return value;
   }
 
@@ -4652,6 +4806,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> markAllHealthWarningsRead() async {
+    if (!healthAlertsAvailable) return;
     if (!_notificationStorageReady) return;
     final generation = _sessionGeneration;
     final unread = notificationInboxEvents
@@ -5032,6 +5187,8 @@ class AppController extends ChangeNotifier {
           // those events; an aggregate zero is not an acknowledgement.
           if (event.source != NotificationEventSource.device &&
               event.type != NotificationEventType.careInvitation &&
+              (healthAlertsAvailable ||
+                  event.type != NotificationEventType.healthWarning) &&
               !event.isRead) {
             await repository.markRead(eventId: event.eventId, readAt: readAt);
           }
@@ -5049,7 +5206,9 @@ class AppController extends ChangeNotifier {
     final generation = _sessionGeneration;
     if (!_notificationStorageReady) {
       notificationInboxEvents = const [];
-      notificationUnreadCount = remoteNotificationUnreadCount ?? 0;
+      notificationUnreadCount = healthAlertsAvailable
+          ? remoteNotificationUnreadCount ?? 0
+          : 0;
       return;
     }
     final repository = _notificationInboxRepository;
@@ -5058,7 +5217,13 @@ class AppController extends ChangeNotifier {
         !identical(repository, _notificationInboxRepository)) {
       return;
     }
-    notificationInboxEvents = events;
+    notificationInboxEvents = events
+        .where(
+          (event) =>
+              healthAlertsAvailable ||
+              event.type != NotificationEventType.healthWarning,
+        )
+        .toList();
     final activeCareEventId = activeCareInvitationAlert?.eventId;
     if (activeCareEventId != null &&
         !events.any(
@@ -5080,7 +5245,9 @@ class AppController extends ChangeNotifier {
               event.source != NotificationEventSource.device && !event.isRead,
         )
         .length;
-    final remoteUnread = remoteNotificationUnreadCount;
+    final remoteUnread = healthAlertsAvailable
+        ? remoteNotificationUnreadCount
+        : null;
     // Aggregate counts have no IDs with which to calculate an exact union.
     // Keep known unread events as a floor, without summing duplicate mirrors.
     final serverUnread =
@@ -5120,6 +5287,11 @@ class AppController extends ChangeNotifier {
     required bool showLocalNotification,
     required int expectedGeneration,
   }) async {
+    if (!healthAlertsAvailable &&
+        NotificationEvent.tryParse(payload)?.type ==
+            NotificationEventType.healthWarning) {
+      return null;
+    }
     if (!_notificationStorageReady ||
         !_isCurrentSessionGeneration(expectedGeneration) ||
         session == null) {
@@ -5185,6 +5357,10 @@ class AppController extends ChangeNotifier {
     final normalizedPayload = Map<String, Object?>.from(payload);
     if ('${normalizedPayload['event_id'] ?? ''}'.trim().isEmpty) return;
     final parsed = NotificationEvent.tryParse(normalizedPayload);
+    if (!healthAlertsAvailable &&
+        parsed?.type == NotificationEventType.healthWarning) {
+      return;
+    }
     if (kDebugMode) {
       debugPrint(
         '[push-route] opened=$opened parsed=${parsed != null} '
@@ -6295,6 +6471,7 @@ class AppController extends ChangeNotifier {
       'BLE_PERMISSION_DENIED' => '允许相关权限后使用',
       'LOCATION_SERVICE_DISABLED' => '请开启手机定位后再查找戒指',
       'DEVICE_NOT_FOUND' => '戒指已离开搜索范围，请重新搜索',
+      'DEVICE_SDK_UNAVAILABLE' => '此版本不支持该设备，请连接 QRing 或 CoolWear 戒指',
       'NOT_CONNECTED' => '连接戒指后使用',
       'UNSUPPORTED_METRIC' ||
       'MEASUREMENT_NOT_AVAILABLE' ||
@@ -6363,7 +6540,9 @@ class AppController extends ChangeNotifier {
       }
     } else if (event.type == 'capabilitiesUpdated') {
       if (connectedDevice != null) {
-        capabilities = DeviceCapabilities.fromMap(event.payload);
+        capabilities = _releaseCapabilities(
+          DeviceCapabilities.fromMap(event.payload),
+        );
         deviceCapabilityState = DeviceCapabilityState.ready;
       }
     } else if (event.type == 'syncProgress') {
@@ -6426,6 +6605,12 @@ class AppController extends ChangeNotifier {
         return;
       }
       try {
+        if (isWellnessOnly &&
+            !healthReleasePolicy.allowsWireMetric(
+              '${event.payload['type'] ?? ''}',
+            )) {
+          return;
+        }
         var record = HealthRecord.fromJson(event.payload);
         String nativeId(String id) => id
             .replaceFirst(RegExp(r'^(veepoo|yucheng|coolwear|qring):'), '')
@@ -6456,6 +6641,7 @@ class AppController extends ChangeNotifier {
         unawaited(syncDeviceData());
       }
     } else if (event.type == 'measurementProgress') {
+      if (isWellnessOnly) return;
       final metric = HealthMetric.fromWire(
         '${event.payload['metric'] ?? _activeMeasurementMetric?.wireName ?? ''}',
       );
@@ -6582,11 +6768,11 @@ class AppController extends ChangeNotifier {
       }
     } else if (event.type == 'sportData') {
       if (activeSport != null || _startingSport != null) {
-        liveSportData = {
+        liveSportData = healthReleasePolicy.projectSportValues({
           ...liveSportData,
           for (final entry in event.payload.entries)
             if (entry.value is num) entry.key: entry.value! as num,
-        };
+        });
       }
     } else if (event.type == 'sportState') {
       final value = '${event.payload['value'] ?? ''}';
@@ -6745,6 +6931,9 @@ class AppController extends ChangeNotifier {
     HealthRecord record, {
     required int expectedGeneration,
   }) async {
+    final projected = healthReleasePolicy.projectRecord(record);
+    if (projected == null) return;
+    record = projected;
     if (!_isCurrentSessionGeneration(expectedGeneration) ||
         !hasSaneWearableTransportValues(record)) {
       return;
@@ -6811,6 +7000,7 @@ class AppController extends ChangeNotifier {
     HealthRecord record, {
     required int expectedGeneration,
   }) {
+    if (!healthAlertsAvailable) return;
     if (!_isCurrentSessionGeneration(expectedGeneration)) return;
     if (record.measuredAt.isBefore(
       DateTime.now().toUtc().subtract(const Duration(minutes: 5)),
@@ -6890,6 +7080,7 @@ class AppController extends ChangeNotifier {
     final storedLatest = await _healthStore.latestForEachMetric();
     if (!_isCurrentSessionGeneration(expectedGeneration)) return;
     final invalidIds = [...storedRecent, ...storedLatest]
+        .where((record) => isMetricAvailableInRelease(record.metric))
         .where((record) => !hasSaneWearableTransportValues(record))
         .map((record) => record.id)
         .toSet();
@@ -6905,7 +7096,7 @@ class AppController extends ChangeNotifier {
     };
     healthRecords = deduplicateHealthRecords(
       ringPreferredHealthRecords(
-        byId.values,
+        _releaseRecords(byId.values),
         preferredDeviceId: connectedDevice?.id,
       ),
     );

@@ -301,9 +301,10 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
             ],
           ],
           const SizedBox(height: 12),
-          const _SleepNotice(
-            message:
-                '时间明细仅保存在本机。阶段和设备评分来自戒指，未返回项目保持未知。AI 报告需另行确认上传汇总，AI 评分与设备评分分开。数据仅供日常健康参考。',
+          _SleepNotice(
+            message: widget.controller.isWellnessOnly
+                ? '睡眠时长和阶段为戒指估算，仅供日常作息参考。时间明细仅保存在本机。'
+                : '时间明细仅保存在本机。阶段和设备评分来自戒指，未返回项目保持未知。AI 报告需另行确认上传汇总，AI 评分与设备评分分开。数据仅供日常健康参考。',
             icon: Icons.lock_outline_rounded,
           ),
           const SizedBox(height: 12),

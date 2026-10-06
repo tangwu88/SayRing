@@ -205,14 +205,7 @@ class QRingWearableBridge
           const Duration(minutes: 3),
         ) ??
         const <Object?>[];
-    return values
-        .whereType<Map<Object?, Object?>>()
-        .map(
-          (value) => HealthRecord.fromJson(
-            value.map((key, item) => MapEntry('$key', item)),
-          ),
-        )
-        .toList(growable: false);
+    return parseWearableHealthRecords(values);
   }
 
   @override

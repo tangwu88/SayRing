@@ -22,7 +22,15 @@ class HealthPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final latest = controller.latestByMetric;
-    final visibleMetrics = coreMetrics
+    final releaseMetrics = [
+      if (controller.isWellnessOnly) ...[
+        HealthMetric.steps,
+        HealthMetric.distance,
+        HealthMetric.calories,
+      ],
+      ...coreMetrics,
+    ];
+    final visibleMetrics = releaseMetrics
         .where(controller.shouldShowHealthMetric)
         .toList(growable: false);
     final calibrationMetrics = <HealthMetric>[
@@ -179,12 +187,14 @@ Future<void> _showHealthMeasurementDialog(
   BuildContext context,
   AppController controller,
   HealthMetric metric,
-) => showDialog<void>(
-  context: context,
-  barrierDismissible: false,
-  builder: (_) =>
-      _HealthMeasurementDialog(controller: controller, metric: metric),
-);
+) => !controller.isMetricAvailableInRelease(metric)
+    ? Future.value()
+    : showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) =>
+            _HealthMeasurementDialog(controller: controller, metric: metric),
+      );
 
 class _HealthMeasurementDialog extends StatefulWidget {
   const _HealthMeasurementDialog({
@@ -240,6 +250,9 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.controller.isMetricAvailableInRelease(widget.metric)) {
+      return const AlertDialog(content: Text('此版本提供活动和睡眠记录。'));
+    }
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {

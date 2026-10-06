@@ -175,7 +175,13 @@ class _GlobalCarePageState extends State<GlobalCarePage> {
   }
 
   Future<void> _permissions(GlobalCareRelationship row) async {
-    final supported = _serverCareMetrics;
+    final supported = widget.controller.isWellnessOnly
+        ? supportedCareMetrics(
+            HealthMetric.values.where(
+              widget.controller.isMetricAvailableInRelease,
+            ),
+          )
+        : _serverCareMetrics;
     final selected = Set<String>.of(row.metrics);
     final result = await showDialog<Set<String>>(
       context: context,

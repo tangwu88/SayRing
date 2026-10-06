@@ -70,6 +70,7 @@ class _GlobalCareDashboardState extends State<GlobalCareDashboard> {
     try {
       await _source.revalidate();
       final metrics = HealthMetric.values
+          .where(widget.controller.isMetricAvailableInRelease)
           .where(
             (metric) => _source.metrics.contains(
               metric == HealthMetric.bodyTemperature

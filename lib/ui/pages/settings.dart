@@ -925,7 +925,9 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
     WidgetsBinding.instance.addObserver(this);
     if (widget.healthOnly) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(widget.controller.refreshDeviceSettings());
+        if (mounted && !widget.controller.isWellnessOnly) {
+          unawaited(widget.controller.refreshDeviceSettings());
+        }
       });
     } else {
       unawaited(_refresh());
@@ -989,6 +991,9 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
 
   @override
   Widget build(BuildContext context) {
+    if (widget.healthOnly && widget.controller.isWellnessOnly) {
+      return const WellnessReleaseUnavailablePage();
+    }
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.healthOnly ? '健康监测' : '权限管理'),

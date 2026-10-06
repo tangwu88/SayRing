@@ -47,6 +47,16 @@ abstract interface class HealthStoreRecoveryStatus {
   bool get recoveryPending;
 }
 
+/// Optional extension so legacy store adapters remain source compatible.
+/// Filtering happens before LIMIT: deferred metrics must not block newer
+/// activity records in an existing account's pending queue.
+abstract interface class MetricFilteredPendingHealthStore {
+  Future<List<HealthRecord>> pendingForMetrics(
+    Set<HealthMetric> metrics, {
+    int limit = 200,
+  });
+}
+
 /// Detailed SDK days remain local until a verified cloud detail contract exists.
 abstract interface class SleepDetailStore {
   Future<SleepTimeline> saveConfirmedDay(SleepTimeline timeline);
@@ -120,7 +130,11 @@ bool _isUnreadableEncryptedDatabaseError(Object error) {
 }
 
 class EncryptedHealthStore
-    implements HealthStore, HealthStoreRecoveryStatus, SleepDetailStore {
+    implements
+        HealthStore,
+        HealthStoreRecoveryStatus,
+        SleepDetailStore,
+        MetricFilteredPendingHealthStore {
   EncryptedHealthStore(
     this._vault, {
     this._databasePathProvider,
@@ -1045,6 +1059,28 @@ class EncryptedHealthStore
     return _decodeRows(rows);
   }
 
+  @override
+  Future<List<HealthRecord>> pendingForMetrics(
+    Set<HealthMetric> metrics, {
+    int limit = 200,
+  }) async {
+    if (metrics.isEmpty) return const [];
+    final ownerId = _ownerId;
+    final wires = metrics.map((metric) => metric.wireName).toList();
+    final placeholders = List.filled(wires.length, '?').join(',');
+    final rows = await _enqueue(
+      () => _db.query(
+        'health_records',
+        columns: ['payload'],
+        where: 'owner_id = ? AND synced = 0 AND metric IN ($placeholders)',
+        whereArgs: [ownerId, ...wires],
+        orderBy: 'measured_at ASC',
+        limit: limit,
+      ),
+    );
+    return _decodeRows(rows);
+  }
+
   List<HealthRecord> _decodeRows(List<Map<String, Object?>> rows) => rows
       .map((row) => jsonDecode('${row['payload']}'))
       .whereType<Map>()
@@ -1284,7 +1320,8 @@ void _validateSleepDateRange(String start, String end) {
   }
 }
 
-class MemoryHealthStore implements HealthStore, SleepDetailStore {
+class MemoryHealthStore
+    implements HealthStore, SleepDetailStore, MetricFilteredPendingHealthStore {
   String _ownerId = 'anonymous';
   final Map<String, Map<String, HealthRecord>> _recordsByOwner = {};
   final Map<String, Set<String>> _syncedByOwner = {};
@@ -1501,6 +1538,20 @@ class MemoryHealthStore implements HealthStore, SleepDetailStore {
       .where(
         (record) =>
             !_synced.contains(record.id) && !_invalid.contains(record.id),
+      )
+      .take(limit)
+      .toList();
+
+  @override
+  Future<List<HealthRecord>> pendingForMetrics(
+    Set<HealthMetric> metrics, {
+    int limit = 200,
+  }) async => _records.values
+      .where(
+        (record) =>
+            metrics.contains(record.metric) &&
+            !_synced.contains(record.id) &&
+            !_invalid.contains(record.id),
       )
       .take(limit)
       .toList();

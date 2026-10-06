@@ -547,7 +547,9 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
             const SizedBox(height: 8),
           ],
           Text(
-            _introduction,
+            widget.controller.isWellnessOnly
+                ? '连接智能戒指，记录日常活动和睡眠作息。'
+                : _introduction,
             textAlign: TextAlign.center,
             style: TextStyle(color: SaydianColors.muted, height: 1.6),
           ),
@@ -594,7 +596,9 @@ class _AboutSaydianPageState extends State<AboutSaydianPage> {
           const SizedBox(height: 18),
           FeatureStateCard(
             message: context.l10n.healthDataExplanation,
-            detail: context.l10n.watchMeasurementSafety,
+            detail: widget.controller.isWellnessOnly
+                ? '活动与睡眠数据为消费级戒指估算，不用于诊断或治疗。作出医疗决定前请咨询医生。'
+                : context.l10n.watchMeasurementSafety,
             icon: Icons.info_outline_rounded,
           ),
         ],

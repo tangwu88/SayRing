@@ -64,7 +64,8 @@
 仅在指定 iPhone 15 Pro Max 可用时运行；测试会使用用户已授权的审核账号访问生产 API，不注册、不删号、不上传健康数据。正式发包不得使用此测试目标。
 
 ```sh
-flutter drive --profile --no-pub \
+node tool/drive_ios_preserving_data.mjs --profile --no-pub \
+  --use-application-binary=.build/review-1060-login-test/Runner.app \
   -d 00008130-001C098C2290001C \
   --driver=test_driver/ios_review_login.dart \
   --target=integration_test/ios_review_login_test.dart \
@@ -72,6 +73,8 @@ flutter drive --profile --no-pub \
   --dart-define=SAYDIAN_API_BASE_URL=https://app.saydian.cn \
   --dart-define-from-file=.build/review-1060-auth-defines-private.json
 ```
+
+先备份 App 容器，并核验指定 Profile 测试包的签名、入口和版本。驱动强制保留 App，禁止直接使用会在清理阶段卸载 App 的默认 flutter drive。上方历史路径必须以本次实际核验的测试包为准。
 
 私有参数文件包含 `SAYRING_QA_REVIEW_EMAIL`、`SAYRING_QA_REVIEW_PASSWORD` 及生产 API / 既有空推送配置，权限为 0600，始终处于 Git 忽略目录；不要将文件、测试包、账号资料或设备备份加入交接包。此命令在本轮未完成真机执行，待设备重新可用后才能记为通过。
 

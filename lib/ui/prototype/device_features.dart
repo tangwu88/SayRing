@@ -44,6 +44,13 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   String? _weatherMessage;
   bool _openingWatchFaceMarket = false;
   int _featureReadGeneration = 0;
+  bool get _availableInRelease =>
+      !widget.controller.isWellnessOnly ||
+      !const {
+        DeviceFeature.healthMonitoring,
+        DeviceFeature.healthAssessment,
+        DeviceFeature.healthReminders,
+      }.contains(widget.feature);
   late String _featureContext;
   String get _currentFeatureContext =>
       '${widget.controller.session?.accountKey}|${widget.controller.isLocalMode}|${widget.controller.connectedDevice?.id}|${widget.controller.availabilityFor(widget.feature).isReady}';
@@ -60,6 +67,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     widget.controller.addListener(_handleControllerEvent);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
+          !_availableInRelease ||
           !widget.controller.availabilityFor(widget.feature).isReady) {
         return;
       }
@@ -181,6 +189,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Future<void> _loadFeature() async {
+    if (!_availableInRelease) return;
     final generation = ++_featureReadGeneration;
     final context = _currentFeatureContext;
     final value = await widget.controller.readDeviceFeature(widget.feature);
@@ -579,6 +588,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
 
   @override
   Widget build(BuildContext context) {
+    if (!_availableInRelease) return const WellnessReleaseUnavailablePage();
     return ListenableBuilder(
       listenable: widget.controller,
       builder: (context, _) {

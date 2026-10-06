@@ -38,6 +38,7 @@ class _HealthCalibrationPageState extends State<HealthCalibrationPage> {
   }
 
   Future<void> _save() async {
+    if (!widget.controller.isMetricAvailableInRelease(widget.metric)) return;
     if (_saving || !(_formKey.currentState?.validate() ?? false)) return;
     setState(() => _saving = true);
     final values = widget.metric == HealthMetric.bloodPressure
@@ -71,6 +72,9 @@ class _HealthCalibrationPageState extends State<HealthCalibrationPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.controller.isMetricAvailableInRelease(widget.metric)) {
+      return const WellnessReleaseUnavailablePage();
+    }
     final isBloodPressure = widget.metric == HealthMetric.bloodPressure;
     return Scaffold(
       appBar: AppBar(
@@ -191,6 +195,9 @@ class HealthRecordDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!controller.isMetricAvailableInRelease(record.metric)) {
+      return const WellnessReleaseUnavailablePage();
+    }
     if (record.metric == HealthMetric.sleep && readOnly) {
       return Scaffold(
         appBar: AppBar(
@@ -204,7 +211,10 @@ class HealthRecordDetailPage extends StatelessWidget {
                 'yyyy-MM-dd HH:mm',
               ).format(HealthAnalysisService.displayTime(record)),
             ),
-            SleepStructureCard(record: record),
+            SleepStructureCard(
+              record: record,
+              wellnessOnly: controller.isWellnessOnly,
+            ),
             const SizedBox(height: 12),
             const Text('仅展示已授权的睡眠汇总'),
             Text(context.l10n.healthDisclaimer),
@@ -245,7 +255,8 @@ class HealthRecordDetailPage extends StatelessWidget {
     final values = record.values.entries
         .where(
           (entry) =>
-              !isRriHrv || (entry.key != 'value' && entry.key != 'sdkFlags'),
+              (!controller.isWellnessOnly || entry.key == 'value') &&
+              (!isRriHrv || (entry.key != 'value' && entry.key != 'sdkFlags')),
         )
         .toList(growable: false);
     return Scaffold(

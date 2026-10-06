@@ -854,11 +854,9 @@ struct IOSWechatAuthState {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    #if canImport(VeepooBleSDK) && !targetEnvironment(simulator)
-    wearableAdapter = VeepooWearableAdapter(events: wearableStreamHandler)
-    #else
+    // QRing and CoolWear own this iOS release's activity/sleep transports.
+    // Do not initialize the inherited watch SDK or its saved connection state.
     wearableAdapter = UnconfiguredWearableAdapter()
-    #endif
     registerWechatIfConfigured()
     // Start the engine before UIScene creates FlutterViewController; this avoids
     // the iOS 26 ProMotion implicit-engine VSync startup race.
@@ -1308,6 +1306,15 @@ struct IOSWechatAuthState {
     _ call: FlutterMethodCall,
     result: @escaping FlutterResult
   ) {
+    let policyArguments = call.arguments as? [String: Any] ?? [:]
+    guard SRActivitySleepCommandAllowed(call.method, policyArguments) else {
+      result(FlutterError(code: "FEATURE_UNAVAILABLE", message: "此版本仅提供活动与睡眠记录", details: nil))
+      return
+    }
+    let completion = result
+    let result: FlutterResult = { value in
+      completion(SRActivitySleepResult(call.method, value))
+    }
     if call.method == "saveGalleryImage" {
       saveGalleryImage(call.arguments as? [String: Any], result: result)
       return
@@ -5258,8 +5265,9 @@ private final class WearableStreamHandler: NSObject, FlutterStreamHandler {
   }
 
   func emit(type: String, payload: [String: Any]) {
+    guard let permitted = SRActivitySleepEvent(type, payload) else { return }
     DispatchQueue.main.async { [weak self] in
-      self?.eventSink?(["type": type, "payload": payload])
+      self?.eventSink?(["type": type, "payload": permitted])
     }
   }
 }

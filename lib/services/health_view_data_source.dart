@@ -82,7 +82,9 @@ class CareHealthDataSource extends HealthViewDataSource
         _invalidate();
         throw const ApiException('Permission changed', statusCode: 403);
       }
-      final next = matches.first.metrics;
+      final next = matches.first.metrics
+          .where(controller.healthReleasePolicy.allowsWireMetric)
+          .toSet();
       if (metrics.isNotEmpty && !next.containsAll(metrics)) {
         // Clear all already displayed data on any grant reduction. A fresh
         // dashboard may be opened for the remaining server-approved grants.
@@ -102,6 +104,9 @@ class CareHealthDataSource extends HealthViewDataSource
     DateTime start,
     DateTime end,
   ) async {
+    if (!controller.healthReleasePolicy.allowsMetric(metric)) {
+      throw const FeatureNotConfiguredException('此版本未提供该项目');
+    }
     final generation = _generation;
     final wire = metric == HealthMetric.bodyTemperature
         ? 'temperature'
@@ -123,6 +128,8 @@ class CareHealthDataSource extends HealthViewDataSource
       }
       return rows
           .map((row) => careHealthRecord(row, metric, relationshipId))
+          .whereType<HealthRecord>()
+          .map(controller.healthReleasePolicy.projectRecord)
           .whereType<HealthRecord>()
           .toList(growable: false);
     } on ApiException catch (error) {

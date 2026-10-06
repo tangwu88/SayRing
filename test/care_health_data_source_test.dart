@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/domain/global_care.dart';
+import 'package:saydian_app/domain/wellness_release_policy.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/health_view_data_source.dart';
@@ -27,6 +28,13 @@ Map<String, Object?> sample(String metric) => {
 };
 
 class Controller extends Fake implements AppController {
+  @override
+  WellnessReleasePolicy get healthReleasePolicy =>
+      const WellnessReleasePolicy();
+  @override
+  bool get isWellnessOnly => false;
+  @override
+  bool isMetricAvailableInRelease(HealthMetric metric) => true;
   @override
   Session? session = account('one');
   final listeners = <VoidCallback>[];

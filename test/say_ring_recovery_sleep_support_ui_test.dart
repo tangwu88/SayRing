@@ -82,6 +82,10 @@ Session _session(String account, {String? memberId}) => Session(
 );
 
 class _UiController extends Fake implements AppController {
+  @override
+  bool get isWellnessOnly => false;
+  @override
+  bool isMetricAvailableInRelease(HealthMetric metric) => true;
   final listeners = <VoidCallback>[];
   List<HealthRecord> stored = [];
   Session? currentSession;

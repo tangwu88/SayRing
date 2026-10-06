@@ -16,6 +16,7 @@ import 'health_ui_owner.dart';
 import 'prototype_pages.dart';
 import 'sleep_detail_widgets.dart' show SleepTimelineCard, sleepMinutesLabel;
 import 'sleep_ai_report_page.dart';
+import 'wellness_release.dart';
 
 class HealthMetricMiniChart extends StatelessWidget {
   const HealthMetricMiniChart({
@@ -35,6 +36,9 @@ class HealthMetricMiniChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!controller.isMetricAvailableInRelease(metric)) {
+      return const SizedBox.shrink();
+    }
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day);
     return SizedBox(
@@ -223,6 +227,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
   }
 
   Future<void> _load({bool showLoading = true}) async {
+    if (!widget.controller.isMetricAvailableInRelease(widget.metric)) return;
     final generation = ++_loadGeneration;
     if (showLoading) {
       setState(() {
@@ -342,6 +347,9 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.controller.isMetricAvailableInRelease(widget.metric)) {
+      return const WellnessReleaseUnavailablePage();
+    }
     final range = HealthTrendRange.forPeriod(_period, _anchor);
     final rangeLabel = switch (_period) {
       HealthTrendPeriod.day => DateFormat('yyyy年M月d日').format(range.start),
@@ -517,6 +525,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
           SleepStructureCard(
             record: data.records.first,
             controller: widget.dataSource == null ? widget.controller : null,
+            wellnessOnly: widget.controller.isWellnessOnly,
           ),
           if (widget.dataSource != null) const Text('仅展示已授权的睡眠汇总'),
           if (data.records.first.sleepTimeline?.hasSegments == true)
@@ -665,10 +674,16 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
 }
 
 class SleepStructureCard extends StatelessWidget {
-  const SleepStructureCard({required this.record, this.controller, super.key});
+  const SleepStructureCard({
+    required this.record,
+    this.controller,
+    this.wellnessOnly = false,
+    super.key,
+  });
 
   final HealthRecord record;
   final AppController? controller;
+  final bool wellnessOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -696,11 +711,15 @@ class SleepStructureCard extends StatelessWidget {
         ('清醒时长', count('awakeMinutes', '分钟')),
       ('体动', count('movementMinutes', '分钟')),
       ('清醒次数', count('wakeCount', '次')),
-      (
-        '设备睡眠评分',
-        values.containsKey('score') ? count('score', '分') : '未知（戒指未返回）',
-      ),
-      if (values.containsKey('efficiency')) ('睡眠效率', count('efficiency', '%')),
+      if (!wellnessOnly && controller?.isWellnessOnly != true)
+        (
+          '设备睡眠评分',
+          values.containsKey('score') ? count('score', '分') : '未知（戒指未返回）',
+        ),
+      if (!wellnessOnly &&
+          controller?.isWellnessOnly != true &&
+          values.containsKey('efficiency'))
+        ('睡眠效率', count('efficiency', '%')),
     ];
     return Card(
       key: const Key('sleep-structure-card'),

@@ -9,6 +9,7 @@ import '../services/app_controller.dart';
 import '../services/sleep_health_projection.dart';
 import 'app_theme.dart';
 import 'health_ui_owner.dart';
+import 'wellness_release.dart';
 
 class SleepAiReportCard extends StatefulWidget {
   const SleepAiReportCard({
@@ -136,49 +137,51 @@ class _SleepAiReportCardState extends State<SleepAiReportCard>
   }
 
   @override
-  Widget build(BuildContext context) => ListTile(
-    key: const Key('sleep-ai-report-entry'),
-    contentPadding: EdgeInsets.zero,
-    leading: const Icon(
-      Icons.auto_awesome_outlined,
-      color: SaydianColors.techBlue,
-    ),
-    title: const Text(
-      'AI 睡眠评分与分析报告',
-      style: TextStyle(fontWeight: FontWeight.w800),
-    ),
-    subtitle: Text(
-      _failed
-          ? '报告读取失败，点击重试；未生成评分'
-          : _report?.sleepScore != null
-          ? '${_report!.sleepScore} / 100 · 查看评分依据和建议'
-          : _report == null
-          ? '根据本次睡眠生成参考评分及详细建议'
-          : _report!.status == HealthReportStatus.ready
-          ? '查看睡眠分析与数据局限'
-          : _pausedPolling
-          ? '${_report!.progressLabel} · 点击刷新状态'
-          : _report!.progressLabel,
-    ),
-    trailing: const Icon(Icons.chevron_right_rounded),
-    onTap: () async {
-      _showingReport = true;
-      _request++;
-      _poll?.cancel();
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          settings: const RouteSettings(name: 'sleep-ai-report'),
-          builder: (_) => SleepAiReportPage(
-            controller: widget.controller,
-            record: widget.record,
+  Widget build(BuildContext context) => widget.controller.isWellnessOnly
+      ? const SizedBox.shrink()
+      : ListTile(
+          key: const Key('sleep-ai-report-entry'),
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(
+            Icons.auto_awesome_outlined,
+            color: SaydianColors.techBlue,
           ),
-        ),
-      );
-      _showingReport = false;
-      _polls = 0;
-      if (mounted) await _load();
-    },
-  );
+          title: const Text(
+            'AI 睡眠评分与分析报告',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+          subtitle: Text(
+            _failed
+                ? '报告读取失败，点击重试；未生成评分'
+                : _report?.sleepScore != null
+                ? '${_report!.sleepScore} / 100 · 查看评分依据和建议'
+                : _report == null
+                ? '根据本次睡眠生成参考评分及详细建议'
+                : _report!.status == HealthReportStatus.ready
+                ? '查看睡眠分析与数据局限'
+                : _pausedPolling
+                ? '${_report!.progressLabel} · 点击刷新状态'
+                : _report!.progressLabel,
+          ),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () async {
+            _showingReport = true;
+            _request++;
+            _poll?.cancel();
+            await Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                settings: const RouteSettings(name: 'sleep-ai-report'),
+                builder: (_) => SleepAiReportPage(
+                  controller: widget.controller,
+                  record: widget.record,
+                ),
+              ),
+            );
+            _showingReport = false;
+            _polls = 0;
+            if (mounted) await _load();
+          },
+        );
 }
 
 class SleepAiReportPage extends StatefulWidget {
@@ -471,6 +474,9 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
 
   @override
   Widget build(BuildContext context) {
+    if (widget.controller.isWellnessOnly) {
+      return const WellnessReleaseUnavailablePage();
+    }
     if (_closed) return const Scaffold(body: SizedBox.shrink());
     final content = _content ?? const <String, Object?>{};
     final score = _map(content['sleepScore']);

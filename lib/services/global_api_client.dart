@@ -233,6 +233,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     http.Client? client,
     Uri? baseUri,
     String Function()? locale,
+    this.healthReleasePolicy = const WellnessReleasePolicy(),
   }) : _locale = locale ?? (() => 'en'),
        super(
          baseUri: GlobalEnvironment.apiOrigin(baseUri),
@@ -243,6 +244,8 @@ class GlobalSaydianApiClient extends SaydianApiClient
        );
 
   final String Function() _locale;
+  @override
+  final WellnessReleasePolicy healthReleasePolicy;
 
   @override
   Future<void> reportDeviceConnection({

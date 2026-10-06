@@ -594,7 +594,8 @@ class _SportSessionPageState extends State<SportSessionPage> {
   };
 
   void _handleControllerChange() {
-    if (_startedAt != null &&
+    if (!widget.controller.isWellnessOnly &&
+        _startedAt != null &&
         widget.controller.activeSport == widget.mode &&
         !widget.controller.sportPaused) {
       final bpm = (widget.controller.liveSportData['heartRate'] ?? 0).toInt();
@@ -704,14 +705,17 @@ class _SportSessionPageState extends State<SportSessionPage> {
                 : _routeDistanceKm,
             calories: (watchData['calories'] ?? 0).toDouble(),
             steps: (watchData['steps'] ?? 0).toInt(),
-            heartRate:
-                (watchData['heartRate'] ??
-                        (_heartRateSamples.isEmpty
-                            ? 0
-                            : _heartRateSamples.last.bpm))
-                    .toInt(),
+            heartRate: widget.controller.isWellnessOnly
+                ? 0
+                : (watchData['heartRate'] ??
+                          (_heartRateSamples.isEmpty
+                              ? 0
+                              : _heartRateSamples.last.bpm))
+                      .toInt(),
             routePoints: List.unmodifiable(_routePoints),
-            heartRateSamples: List.unmodifiable(_heartRateSamples),
+            heartRateSamples: widget.controller.isWellnessOnly
+                ? const []
+                : List.unmodifiable(_heartRateSamples),
           ),
         );
         recordSaved = true;
@@ -913,12 +917,13 @@ class _SportSessionPageState extends State<SportSessionPage> {
                         ? '--'
                         : context.l10n.stepCount(liveData['steps']!.toInt()),
                   ),
-                  _SportLiveMetric(
-                    label: context.l10n.liveHeartRate,
-                    value: (liveData['heartRate'] ?? 0) > 0
-                        ? '${(liveData['heartRate'] ?? 0).toInt()} bpm'
-                        : '--',
-                  ),
+                  if (!widget.controller.isWellnessOnly)
+                    _SportLiveMetric(
+                      label: context.l10n.liveHeartRate,
+                      value: (liveData['heartRate'] ?? 0) > 0
+                          ? '${(liveData['heartRate'] ?? 0).toInt()} bpm'
+                          : '--',
+                    ),
                   _SportLiveMetric(label: '平均配速', value: pace),
                   _SportLiveMetric(
                     label: context.l10n.watchCalories,
@@ -1227,7 +1232,7 @@ class SportRecordDetailPage extends StatelessWidget {
                     trailing: Text('${record.steps} 步'),
                   ),
                 ],
-                if (record.heartRate > 0) ...[
+                if (!controller.isWellnessOnly && record.heartRate > 0) ...[
                   const Divider(indent: 16),
                   ListTile(
                     title: Text(context.l10n.workoutWatchHeartRate),
@@ -1246,7 +1251,8 @@ class SportRecordDetailPage extends StatelessWidget {
                     ),
                   ),
                 ],
-                if (record.heartRateSamples.isNotEmpty) ...[
+                if (!controller.isWellnessOnly &&
+                    record.heartRateSamples.isNotEmpty) ...[
                   const Divider(indent: 16),
                   ListTile(
                     title: const Text('心率记录'),

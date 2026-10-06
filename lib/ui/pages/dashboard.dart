@@ -104,7 +104,12 @@ class DashboardPage extends StatelessWidget {
   Widget _buildContent(BuildContext context) {
     final latest = controller.latestByMetric;
     final disconnected = controller.connectedDevice == null;
-    const supportedMetrics = [
+    final supportedMetrics = [
+      if (controller.isWellnessOnly) ...[
+        HealthMetric.steps,
+        HealthMetric.distance,
+        HealthMetric.calories,
+      ],
       HealthMetric.bloodPressure,
       HealthMetric.heartRate,
       HealthMetric.bloodOxygen,
@@ -139,6 +144,7 @@ class DashboardPage extends StatelessWidget {
                   ],
                   _FeatureEntryGrid(
                     commerceEnabled: controller.commerceEnabled,
+                    encyclopediaEnabled: !controller.isWellnessOnly,
                     onCare: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
                         builder: (_) => controller.isGlobalEdition
@@ -246,7 +252,9 @@ class DashboardPage extends StatelessWidget {
                   alignment: Alignment.bottomCenter,
                   child: InlineNotice(
                     key: const Key('dashboard-health-notice'),
-                    message: context.l10n.healthDisclaimer,
+                    message: controller.isWellnessOnly
+                        ? '活动和睡眠为戒指估算，仅供日常作息参考。'
+                        : context.l10n.healthDisclaimer,
                     icon: Icons.health_and_safety_outlined,
                     color: SaydianColors.green,
                     compact: true,
@@ -916,6 +924,7 @@ class _GoalProgressRow extends StatelessWidget {
 class _FeatureEntryGrid extends StatelessWidget {
   const _FeatureEntryGrid({
     required this.commerceEnabled,
+    this.encyclopediaEnabled = true,
     required this.onCare,
     required this.onEncyclopedia,
     required this.onSport,
@@ -927,6 +936,7 @@ class _FeatureEntryGrid extends StatelessWidget {
   final VoidCallback onSport;
   final VoidCallback onMall;
   final bool commerceEnabled;
+  final bool encyclopediaEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -960,14 +970,15 @@ class _FeatureEntryGrid extends StatelessWidget {
                 onTap: onCare,
               ),
             ),
-            Expanded(
-              child: _FeatureEntry(
-                label: context.l10n.healthLibrary,
-                icon: Icons.menu_book_rounded,
-                color: const Color(0xFF149FB3),
-                onTap: onEncyclopedia,
+            if (encyclopediaEnabled)
+              Expanded(
+                child: _FeatureEntry(
+                  label: context.l10n.healthLibrary,
+                  icon: Icons.menu_book_rounded,
+                  color: const Color(0xFF149FB3),
+                  onTap: onEncyclopedia,
+                ),
               ),
-            ),
             Expanded(
               child: _FeatureEntry(
                 label: context.l10n.workouts,
@@ -1161,6 +1172,9 @@ class HealthMetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (!controller.isMetricAvailableInRelease(metric)) {
+      return const SizedBox.shrink();
+    }
     final icon = switch (metric) {
       HealthMetric.steps => Icons.directions_walk,
       HealthMetric.sleep => Icons.bedtime_outlined,
@@ -1177,7 +1191,7 @@ class HealthMetricCard extends StatelessWidget {
       _ => Icons.monitor_heart_outlined,
     };
     final style = _metricCardStyle(metric);
-    final status = readOnly
+    final status = readOnly || controller.isWellnessOnly
         ? (record == null
               ? _HomeMetricStatus.noData
               : _HomeMetricStatus.recorded)

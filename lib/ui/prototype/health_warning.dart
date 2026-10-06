@@ -32,8 +32,10 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
       text: settings.temperatureUpper.toStringAsFixed(1),
     );
     widget.controller.addListener(_refresh);
-    unawaited(widget.controller.refreshNotificationHistory(allPages: true));
-    unawaited(widget.controller.markAllHealthWarningsRead());
+    if (widget.controller.healthAlertsAvailable) {
+      unawaited(widget.controller.refreshNotificationHistory(allPages: true));
+      unawaited(widget.controller.markAllHealthWarningsRead());
+    }
   }
 
   @override
@@ -51,6 +53,7 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
   }
 
   Future<void> _saveSettings() async {
+    if (!widget.controller.healthAlertsAvailable) return;
     final heartRate = int.tryParse(_heartRateUpper.text.trim());
     final systolic = int.tryParse(_systolicUpper.text.trim());
     final diastolic = int.tryParse(_diastolicUpper.text.trim());
@@ -121,6 +124,9 @@ class _HealthWarningPageState extends State<HealthWarningPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.controller.healthAlertsAvailable) {
+      return const WellnessReleaseUnavailablePage();
+    }
     final warnings = widget.controller.notifications
         .where(_isExplicitHealthWarning)
         .toList();

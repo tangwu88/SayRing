@@ -2,6 +2,7 @@
 #import "QCCentralManager.h"
 #import "QRingRecordMapping.h"
 #import "QRingCameraPolicy.h"
+#import "SayRingActivitySleepPolicy.h"
 
 #import <QCBandSDK/QCBandSDK.h>
 #import <CommonCrypto/CommonDigest.h>
@@ -121,8 +122,9 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)emit:(NSString *)type payload:(NSDictionary *)payload {
-    if (self.eventSink) {
-        self.eventSink(@{@"type": type, @"payload": payload ?: @{}});
+    NSDictionary *permitted = SRActivitySleepEvent(type, payload ?: @{});
+    if (self.eventSink && permitted) {
+        self.eventSink(@{@"type": type, @"payload": permitted});
     }
 }
 
@@ -772,7 +774,9 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 - (void)syncDay:(NSInteger)day phase:(NSInteger)phase {
     if (!self.pendingSync) { return; }
     if (day >= 7) { [self finishHealthSync]; return; }
-    [self emit:@"syncProgress" payload:@{@"deviceId": self.connectedID, @"progress": @(MIN(0.98, (day * 7.0 + phase) / 49.0))}];
+    // This release requests only activity and sleep history from QRing.
+    if (phase >= 2) { [self syncDay:day + 1 phase:0]; return; }
+    [self emit:@"syncProgress" payload:@{@"deviceId": self.connectedID, @"progress": @(MIN(0.98, (day * 2.0 + phase) / 14.0))}];
     __weak typeof(self) weakSelf = self;
     NSUInteger syncGeneration = self.syncGeneration;
     NSUInteger connectionGeneration = self.connectionGeneration;
@@ -1233,6 +1237,11 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 
 - (void)handleCall:(FlutterMethodCall *)call result:(FlutterResult)result {
     NSDictionary *arguments = [call.arguments isKindOfClass:NSDictionary.class] ? call.arguments : @{};
+    if (!SRActivitySleepCommandAllowed(call.method, arguments)) {
+        result([self error:@"FEATURE_UNAVAILABLE" message:@"此版本仅提供活动与睡眠记录"]); return;
+    }
+    FlutterResult completion = result;
+    result = ^(id value) { completion(SRActivitySleepResult(call.method, value)); };
     if ([@[@"connect", @"disconnect", @"configureRecoveryTarget"] containsObject:call.method]) {
         [self resetRemoteCamera];
         if (![call.method isEqualToString:@"configureRecoveryTarget"]) { self.remoteCameraSupported = NO; }

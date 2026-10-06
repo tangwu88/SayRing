@@ -15,6 +15,12 @@ const _categoryId = '736c4aad-0fe2-4602-98c5-9e1973fc08ec';
 const _articleId = '1b31a3cb-77ee-4cc6-ad93-0a640e496817';
 
 class _GlobalPageController extends Fake implements AppController {
+  @override
+  bool get isWellnessOnly => false;
+  @override
+  bool get healthAlertsAvailable => true;
+  @override
+  bool isMetricAvailableInRelease(HealthMetric metric) => true;
   bool reviewed = false;
   bool mismatch = false;
   bool granted = false;

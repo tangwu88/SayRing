@@ -254,6 +254,10 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
     if (navigator == null) return;
     final intent = controller.consumePendingNotificationRoute();
     if (intent == null) return;
+    if (!controller.healthAlertsAvailable &&
+        intent.target == NotificationRouteTarget.healthWarningHistory) {
+      return;
+    }
     _notificationRouteRunning = true;
     if (kDebugMode) {
       debugPrint(

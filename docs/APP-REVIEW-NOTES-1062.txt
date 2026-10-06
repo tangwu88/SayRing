@@ -1,0 +1,17 @@
+Say Ring 1.0.0 (1062) is an activity and sleep companion for compatible QRing and CoolWear rings.
+
+Changes addressing Guideline 1.4.1:
+This iOS release presents steps, distance, calories and device-reported sleep duration/stages only. Physiological measurement and history, automatic health monitoring, physiological threshold alerts, ECG disease-risk interpretation, health assessments, device sleep scores and AI analysis/scoring have been removed from the available iOS product. These restrictions apply to every account, local mode, supported ring and build mode. Server settings cannot reopen them. Native command/event boundaries, stored-record views, cloud uploads and shared-record views enforce the same scope. Existing stored records are retained without exposing the removed functions in this release.
+
+The app does not provide diagnosis, treatment, disease-risk estimates or medical monitoring. Sleep stages are wearable estimates for observing daily routines, not clinical sleep measurements. The description and About page remind users to consult a doctor before making any medical decision. We do not claim regulatory clearance or medical measurement accuracy, and do not present SDK manuals or software demonstrations as clinical validation.
+
+Review access:
+The initial screen is the normal sign-in page. Select Email to use the existing review email/password supplied in the dedicated Review Information fields. This is password login; do not enter the password as a verification code. The public Guest entry is also available after the age and agreement checkboxes. Guest mode uses real local ring data; it is not a simulated demo. Without a paired ring or prior records, empty states are expected.
+
+Account mode supports profile editing, activity/sleep account synchronization and authorized activity/sleep sharing. Guest records remain local. A compatible ring is needed to test BLE pairing, actual sleep/activity records and supported remote camera/gesture controls. Available controls depend on the actual SDK handshake. No remote measurement is offered. The firmware page does not claim an available update without a compatible, verified firmware package.
+
+The review account's actual email/password UI login and profile read succeeded on a physical iPhone 15 Pro Max running this source. We also opened the revised sleep, device and About pages while preserving the existing account, binding and local records. The new screenshots show the revised UI, including its doctor reminder. These software checks are not hardware accuracy studies. The previously supplied hardware video is historical, not a recording of 1062 or medical validation.
+
+Only iPhone is declared in the binary; the same reduced feature scope applies when Apple runs the compatible iPhone app on iPad. The launch logo, Bundle ID cn.saydian.ring and existing sign-in methods are retained. Distribution is limited to China mainland.
+
+Please assess the revised activity/sleep scope. If a particular remaining function still requires hardware regulatory or accuracy evidence under 1.4.1, please identify that function and the necessary evidence so we can respond precisely.

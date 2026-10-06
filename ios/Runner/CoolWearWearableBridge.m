@@ -4,6 +4,7 @@
 #import "CoolWearRecovery.h"
 #import "CoolWearMonitoring.h"
 #import "CoolWearControls.h"
+#import "SayRingActivitySleepPolicy.h"
 #import <BluetoothLibrary/BluetoothLibrary.h>
 #import <CommonCrypto/CommonDigest.h>
 
@@ -112,7 +113,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
 }
 
 - (void)emit:(NSString *)type payload:(NSDictionary *)payload {
-    if (self.sink) self.sink(@{@"type": type, @"payload": payload ?: @{}});
+    NSDictionary *permitted = SRActivitySleepEvent(type, payload ?: @{});
+    if (self.sink && permitted) self.sink(@{@"type": type, @"payload": permitted});
 }
 
 - (void)disableVendorRecovery {
@@ -871,6 +873,9 @@ static void CoolWearOnMain(dispatch_block_t block) {
     // has installed the account-owned connected-device session.
     NSString *historyKey = CoolWearHistoryKey(type.integerValue);
     if (historyKey) {
+        // The SDK can push mixed history on connection. Do not retain or
+        // publish physiological child packets in this iOS release.
+        if (!SRActivitySleepMetricAllowed(CoolWearHistoryMetric(type.integerValue))) return;
         CoolWearHistoryBatch *batch = self.historyBatches[type];
         if (!batch) self.historyBatches[type] = batch = [CoolWearHistoryBatch new];
         NSArray *packets = [data isKindOfClass:NSArray.class] ? data : @[data ?: NSNull.null];
@@ -1129,6 +1134,11 @@ static void CoolWearOnMain(dispatch_block_t block) {
 - (void)handle:(FlutterMethodCall *)call result:(FlutterResult)result {
     result = CoolWearCompleteOnce(result);
     NSDictionary *args = [call.arguments isKindOfClass:NSDictionary.class] ? call.arguments : @{};
+    if (!SRActivitySleepCommandAllowed(call.method, args)) {
+        result([self error:@"FEATURE_UNAVAILABLE" message:@"此版本仅提供活动与睡眠记录"]); return;
+    }
+    FlutterResult completion = result;
+    result = ^(id value) { completion(SRActivitySleepResult(call.method, value)); };
     @try {
         if ([call.method isEqualToString:@"configureRecoveryTarget"]) [self configureRecovery:args result:result];
         else if ([call.method isEqualToString:@"scanDevices"]) [self startScan:result];
