@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:uuid/uuid.dart';
 
 import '../domain/models.dart';
+import '../domain/home_health_cards.dart';
 import 'global_storage_scope.dart';
 
 abstract interface class SessionVault {
@@ -42,7 +43,13 @@ abstract interface class SayRingAppDisplayVault {
   Future<void> writeSayRingHideAi(bool value);
 }
 
-class SecureSessionVault implements SessionVault, SayRingAppDisplayVault {
+abstract interface class HomeHealthCardsVault {
+  Future<HomeHealthCardLayout> readHomeHealthCards(String owner);
+  Future<void> writeHomeHealthCards(String owner, HomeHealthCardLayout layout);
+}
+
+class SecureSessionVault
+    implements SessionVault, SayRingAppDisplayVault, HomeHealthCardsVault {
   SecureSessionVault([FlutterSecureStorage? storage])
     : storageNamespace = null,
       _storage = storage ?? const FlutterSecureStorage();
@@ -72,6 +79,29 @@ class SecureSessionVault implements SessionVault, SayRingAppDisplayVault {
   }
 
   final FlutterSecureStorage _storage;
+
+  String _homeHealthCardsKey(String owner) =>
+      '$_prefix.say-ring.home-health-cards.v1.${sha256.convert(utf8.encode(owner))}';
+
+  @override
+  Future<HomeHealthCardLayout> readHomeHealthCards(String owner) async {
+    final raw = await _storage.read(key: _homeHealthCardsKey(owner));
+    if (raw == null) return HomeHealthCardLayout();
+    try {
+      return HomeHealthCardLayout.fromJson(jsonDecode(raw));
+    } on FormatException {
+      return HomeHealthCardLayout();
+    }
+  }
+
+  @override
+  Future<void> writeHomeHealthCards(
+    String owner,
+    HomeHealthCardLayout layout,
+  ) => _storage.write(
+    key: _homeHealthCardsKey(owner),
+    value: jsonEncode(layout.toJson()),
+  );
 
   @override
   Future<bool?> readSayRingHideAi() async =>
@@ -258,7 +288,22 @@ class SecureSessionVault implements SessionVault, SayRingAppDisplayVault {
   }
 }
 
-class MemorySessionVault implements SessionVault, SayRingAppDisplayVault {
+class MemorySessionVault
+    implements SessionVault, SayRingAppDisplayVault, HomeHealthCardsVault {
+  final Map<String, HomeHealthCardLayout> homeHealthCards = {};
+
+  @override
+  Future<HomeHealthCardLayout> readHomeHealthCards(String owner) async =>
+      homeHealthCards[owner] ?? HomeHealthCardLayout();
+
+  @override
+  Future<void> writeHomeHealthCards(
+    String owner,
+    HomeHealthCardLayout layout,
+  ) async {
+    homeHealthCards[owner] = layout;
+  }
+
   bool? sayRingHideAi;
 
   @override

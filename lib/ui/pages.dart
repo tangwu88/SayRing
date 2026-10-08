@@ -29,6 +29,7 @@ import 'global_legal_page.dart';
 import 'global_care_page.dart';
 import 'health_reports_page.dart';
 import 'health_trend_page.dart';
+import 'home_health_cards_page.dart';
 import 'prototype_pages.dart';
 import 'shop_pages.dart';
 import 'watch_face_market_page.dart';
@@ -480,22 +481,10 @@ class DashboardPage extends StatelessWidget {
   Widget _buildContent(BuildContext context) {
     final latest = controller.latestByMetric;
     final disconnected = controller.connectedDevice == null;
-    const supportedMetrics = [
-      HealthMetric.bloodPressure,
-      HealthMetric.heartRate,
-      HealthMetric.bloodOxygen,
-      HealthMetric.bloodGlucose,
-      HealthMetric.bodyTemperature,
-      HealthMetric.ecg,
-      HealthMetric.hrv,
-      HealthMetric.stress,
-      HealthMetric.bodyComposition,
-      HealthMetric.bloodComposition,
-      HealthMetric.sleep,
-    ];
-    final metrics = supportedMetrics
-        .where(controller.shouldShowHealthMetric)
-        .toList(growable: false);
+    final metrics = controller.homeHealthCardMetrics;
+    final hasEligibleCards = controller.homeHealthCardLayout.order.any(
+      controller.shouldShowHealthMetric,
+    );
     return SafeArea(
       bottom: false,
       child: RefreshIndicator(
@@ -553,14 +542,29 @@ class DashboardPage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _SleepQuickCard(controller: controller),
-                  const SizedBox(height: 16),
+                  if (!controller.homeHealthCardLayout.hidden.contains(
+                    HealthMetric.sleep,
+                  )) ...[
+                    _SleepQuickCard(controller: controller),
+                    const SizedBox(height: 16),
+                  ],
                   _SectionTitle(
                     title: context.l10n.healthData,
                     subtitle: DateFormat.MMMd(
                       context.l10n.localeName,
                     ).format(DateTime.now()),
                     actionLabel: context.l10n.allData,
+                    onEdit: controller.homeHealthCardsLoading
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              settings: const RouteSettings(
+                                name: 'home-health-card-editor',
+                              ),
+                              builder: (_) =>
+                                  HomeHealthCardsPage(controller: controller),
+                            ),
+                          ),
                     onAction: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
                         settings: const RouteSettings(name: 'all-health-data'),
@@ -573,14 +577,16 @@ class DashboardPage extends StatelessWidget {
                   if (metrics.isEmpty)
                     _InlineNotice(
                       key: const Key('dashboard-health-empty-notice'),
-                      message: disconnected
+                      message: hasEligibleCards
+                          ? '首页暂无卡片，点击编辑添加'
+                          : disconnected
                           ? context.l10n.connectWatchForData
                           : context.l10n.noHealthData,
                       icon: Icons.watch_outlined,
                       color: SaydianColors.blue,
                       compact: true,
                       centered: true,
-                      onTap: disconnected
+                      onTap: !hasEligibleCards && disconnected
                           ? () => Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 settings: const RouteSettings(
@@ -601,10 +607,13 @@ class DashboardPage extends StatelessWidget {
                       separatorBuilder: (_, _) => const SizedBox(height: 14),
                       itemBuilder: (context, index) {
                         final metric = metrics[index];
-                        return _MetricCard(
-                          controller: controller,
-                          metric: metric,
-                          record: latest[metric],
+                        return KeyedSubtree(
+                          key: ValueKey('home-health-card-${metric.wireName}'),
+                          child: _MetricCard(
+                            controller: controller,
+                            metric: metric,
+                            record: latest[metric],
+                          ),
                         );
                       },
                     ),
@@ -1927,12 +1936,14 @@ class _SectionTitle extends StatelessWidget {
     required this.subtitle,
     required this.actionLabel,
     required this.onAction,
+    this.onEdit,
   });
 
   final String title;
   final String subtitle;
   final String actionLabel;
   final VoidCallback onAction;
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -1966,7 +1977,7 @@ class _SectionTitle extends StatelessWidget {
         ),
       ],
     );
-    final action = TextButton.icon(
+    final allDataAction = TextButton.icon(
       onPressed: onAction,
       iconAlignment: IconAlignment.end,
       icon: const Icon(Icons.chevron_right_rounded, size: 21),
@@ -1977,7 +1988,20 @@ class _SectionTitle extends StatelessWidget {
         style: const TextStyle(fontWeight: FontWeight.w800),
       ),
     );
-    if (enlargedText) {
+    final action = Wrap(
+      alignment: WrapAlignment.end,
+      children: [
+        if (onEdit != null)
+          TextButton(
+            key: const Key('edit-home-health-cards'),
+            onPressed: onEdit,
+            child: const Text('编辑'),
+          ),
+        allDataAction,
+      ],
+    );
+    if (enlargedText ||
+        (onEdit != null && MediaQuery.sizeOf(context).width < 420)) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

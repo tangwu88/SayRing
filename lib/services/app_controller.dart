@@ -22,6 +22,7 @@ import '../domain/global_care.dart';
 import '../l10n/global_locale_controller.dart';
 import 'api_client.dart';
 import 'ai_chat_failure.dart';
+import '../domain/home_health_cards.dart';
 import 'app_payment_bridge.dart';
 import 'app_notification_service.dart';
 import 'local_health_store.dart';
@@ -851,6 +852,79 @@ class AppController extends ChangeNotifier {
       (_hasResolvedDeviceCapabilities &&
           capabilities?.supports(metric) == true);
 
+  HomeHealthCardLayout homeHealthCardLayout = HomeHealthCardLayout();
+  bool homeHealthCardsLoading = false;
+  bool _homeHealthCardsSaving = false;
+  int _homeHealthCardsRevision = 0;
+  String get homeHealthCardOwner => _healthOwnerFor(session);
+
+  List<HealthMetric> get homeHealthCardMetrics => homeHealthCardLayout.visible
+      .where(shouldShowHealthMetric)
+      .toList(growable: false);
+
+  Future<void> loadHomeHealthCards() async {
+    final vault = _vault;
+    final owner = homeHealthCardOwner;
+    final generation = _sessionGeneration;
+    final revision = ++_homeHealthCardsRevision;
+    homeHealthCardsLoading = true;
+    var layout = HomeHealthCardLayout();
+    try {
+      if (vault is HomeHealthCardsVault) {
+        layout = await (vault as HomeHealthCardsVault).readHomeHealthCards(
+          owner,
+        );
+      }
+    } catch (_) {
+      // A display preference read must not prevent login or access to records.
+    }
+    if (_disposed ||
+        generation != _sessionGeneration ||
+        owner != homeHealthCardOwner ||
+        revision != _homeHealthCardsRevision) {
+      return;
+    }
+    homeHealthCardLayout = layout;
+    homeHealthCardsLoading = false;
+    notifyListeners();
+  }
+
+  Future<bool> saveHomeHealthCards(
+    HomeHealthCardLayout layout, {
+    required String expectedOwner,
+  }) async {
+    final vault = _vault;
+    if (homeHealthCardsLoading ||
+        _homeHealthCardsSaving ||
+        expectedOwner != homeHealthCardOwner ||
+        vault is! HomeHealthCardsVault) {
+      return false;
+    }
+    final generation = _sessionGeneration;
+    _homeHealthCardsSaving = true;
+    ++_homeHealthCardsRevision;
+    try {
+      await (vault as HomeHealthCardsVault).writeHomeHealthCards(
+        expectedOwner,
+        layout,
+      );
+      if (_disposed ||
+          generation != _sessionGeneration ||
+          expectedOwner != homeHealthCardOwner) {
+        return false;
+      }
+      ++_homeHealthCardsRevision;
+      homeHealthCardsLoading = false;
+      homeHealthCardLayout = layout;
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      _homeHealthCardsSaving = false;
+    }
+  }
+
   bool canMeasureHealthMetric(HealthMetric metric) =>
       connectedDevice != null &&
       _hasResolvedDeviceCapabilities &&
@@ -932,6 +1006,8 @@ class AppController extends ChangeNotifier {
     measurementSamples = const [];
     _clearAccountScopedMemory();
     _switchNotificationOwner(value);
+    homeHealthCardLayout = HomeHealthCardLayout();
+    unawaited(loadHomeHealthCards());
     return _sessionGeneration;
   }
 
