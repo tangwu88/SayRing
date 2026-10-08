@@ -20,5 +20,5 @@
 - 已通过已有 Export runtime images 工作流 37720696923 导出最新已通过 verify 的原始镜像作为备用（upload_to_server=false），不导入、不重启服务、不修改数据库。旧服务器进程/发布锁尚需服务器端只读检查；没有强删锁、强杀未知进程或盲目重复发布。待用户提供准确 docker pull 进程信息或配置现有服务器诊断权限后继续。
 - 最终回执（本轮只更新记录，不改源码/供应商配置）：用户终端截图的 docker pull 查询无匹配进程；重新核对 Deploy production 37725106453 已 success，双 readiness 均 ready/revision=57d7abc3218be208145975bd65a37abdb144c082，该提交包含 AI 修复。发布阻塞已解除，本轮未再次发布、未杀进程/删锁；未将其他任务的部署操作写成本轮执行。
 - Git 首次直连 fetch 连接重置，使用本机既有代理重试成功；保留独立服务端分支与其他任务的后续 main，不覆盖。SayRing fetch 成功且基线 57fcbae 干净。
-- Android 1015 真机仅发送一次简单“你好”，约 3 秒捕获明确 AI_PROVIDER_LIMIT、HTTP 429、providerCode=1113 的失败气泡和提示。智谱官方错误码 https://docs.bigmodel.cn/cn/api/api-code 定义 1113 为账户欠费；当次页面重新抓取超时，先前已成功读取的官方表与后续检索作为依据。真实根因已定位，不断言 AI 成功回复。
+- Android 1015 真机仅发送一次简单“你好”，约 3 秒捕获明确 AI_PROVIDER_LIMIT、HTTP 429、providerCode=1113 的失败气泡和提示。智谱官方错误码 https://docs.bigmodel.cn/cn/api/api-code 定义 1113 为账户欠费；当次页面重新抓取超时，后续检索未命中，依据本次对话先前已成功读取的官方错误码表。真实根因已定位，不断言 AI 成功回复。
 - 新版提示实机验收通过；没有调整 Key、模型、余额、会话/健康数据或重复发送测试。需用户处理后台 Key 所属智谱账户欠费后再获成功回复验收。iOS/鸿蒙仍未构建或复测。仅文档变更执行 git diff --check，无重新运行源码构建；1015 源码/签名保持原验证结果。
