@@ -12,3 +12,7 @@
 - Flutter analyze 无问题；全量测试 UTC 与 Asia/Shanghai 均 952/952 通过。首次 analyze 的四处大括号规则已修正，失败日志保留。首次 Android Debug 因 QRing Gradle 缓存完整性检查失败；停止构建守护进程后，仅将该准确缓存目录内可重建内容移到 gradle-quarantine，保留锁文件与失败日志，不更改 SDK 或关闭校验。
 - Rebuild-SayRing-20261006.ps1 -BuildNumber 1015 -OutputDirectory E:\SayRing-market-artifacts-20261008\ai-1015 -ResumeBuild 成功，Debug/原生 32 项/正式 Release 均通过。Verify-SayRingAndroid 与 Verify-SayRing-20261006 验证 cn.saydian.ring、1.0.0/1015、production JPush、正式 RSA4096 原证书及双 ARM ABI；保留既有受控 JPush libjutils arm64-only 例外，不新增例外。临时 key.properties 已清除。
 - APK 69,044,934 字节，SHA256 CA082FE8260BDBEB65A6E1FF9DE3A895CCEBADA269099E1000C9ED0931267931，仅保存在 Git 外。git diff --check 通过。服务端 4095410 的 CI verify 已通过，自动部署进行中；安装和最终手机回执待补，不宣称供应商联调成功。
+- Android 1015 以 adb install -r 覆盖安装成功，华为安装风险确认已完成，没有卸载或清除数据。dumpsys 核对 1.0.0/1015，回读手机 base.apk 的 SHA256 与正式包完全一致，启动成功；没有操作戒指、健康检测、支付或发送验证码。
+- 源码提交 c5e3096 已推送 SayRing 当前分支与 origin/main；服务端 4095410 已推送 saydianserver 当前分支与 main。Actions 37717399767 verify 与 auto-deploy/resolve 成功，auto-deploy/deploy 仍在运行；两处 readiness 曾核对仍为旧基线 f037228，未宣称部署或 AI 联调完成。
+- 自动部署在服务器步骤运行超过 25 分钟，运行中日志 API 尚不可用；本机没有服务器 SSH 身份，浏览器控制组件不可用。已请用户在腾讯云终端执行仅查看 docker pull 进程的只读命令，等待确认具体卡点。没有盲目取消发布、重新开放写入、更换供应商配置或重复发送提问。
+- 未验收：服务端新版部署成功与版本回读、新版服务端的 AI 真机安全错误码、真实供应商成功回复；iOS 和原生鸿蒙未构建/联调。错误提示修复通过自动测试，不等于 AI 已恢复。
