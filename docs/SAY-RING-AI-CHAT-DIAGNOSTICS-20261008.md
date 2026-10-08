@@ -16,3 +16,5 @@
 - 源码提交 c5e3096 已推送 SayRing 当前分支与 origin/main；服务端 4095410 已推送 saydianserver 当前分支与 main。Actions 37717399767 verify 与 auto-deploy/resolve 成功，auto-deploy/deploy 仍在运行；两处 readiness 曾核对仍为旧基线 f037228，未宣称部署或 AI 联调完成。
 - 自动部署在服务器步骤运行超过 25 分钟，运行中日志 API 尚不可用；本机没有服务器 SSH 身份，浏览器控制组件不可用。已请用户在腾讯云终端执行仅查看 docker pull 进程的只读命令，等待确认具体卡点。没有盲目取消发布、重新开放写入、更换供应商配置或重复发送提问。
 - 未验收：服务端新版部署成功与版本回读、新版服务端的 AI 真机安全错误码、真实供应商成功回复；iOS 和原生鸿蒙未构建/联调。错误提示修复通过自动测试，不等于 AI 已恢复。
+- 后续并行任务在 main 增加 57d7abc（未覆盖，merge-base 确认包含 4095410 的 AI 修复），其 verify 也通过。仅取消本轮已被取代的 37717399767；已结束旧流水线的日志确认停在 Pulling runtime image api。最新 37719753485 发布失败，明确 Another release is running，线上仍 f037228；不能把 verify 通过写成整条 CI/发布成功。
+- 已通过已有 Export runtime images 工作流 37720696923 导出最新已通过 verify 的原始镜像作为备用（upload_to_server=false），不导入、不重启服务、不修改数据库。旧服务器进程/发布锁尚需服务器端只读检查；没有强删锁、强杀未知进程或盲目重复发布。待用户提供准确 docker pull 进程信息或配置现有服务器诊断权限后继续。
