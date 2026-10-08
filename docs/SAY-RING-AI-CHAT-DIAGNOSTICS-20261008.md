@@ -1,0 +1,14 @@
+# AI 对话失败提示与脱敏诊断
+
+- 用户明确允许修正 AI 错误提示、服务端增加脱敏分类/耗时、更新后手机复测。此前真机捕获约 3 秒内的统一英文失败提示，不是 60 秒超时证据；历史已保存提问但没有回复。供应商准确原因仍未确定。
+- App 基线 fetch 成功为 5946b581f473aff9f1b169e6e2850d76177907ac，干净构建工作树新建 codex/ai-chat-diagnostics-20261008。E:\SayRing 既有文档改动和旧基线保留。
+- 修改 `ai_chat_failure.dart`、`app_controller.dart`、`pages.dart` 和测试：仅允许固定错误类别转明确提示；保留发送失败状态，将安全提示放入失败气泡。未知错误不显示原始响应，真实网络错误才提示检查网络；登录/权限、服务未启用、供应商鉴权、额度/限流、拒绝、繁忙、超时、连接失败、无效回复区分。
+- 不读取/打印 Token，不更换模型或 Key，不修改会话、健康算法、设备连接、法律授权、睡眠分析或 H5。不自动重发提问，不伪造成功回复。
+- 服务端实现和验证见独立 saydianserver 的 2026-10-08-ai-chat-safe-diagnostics 记录。历史客户端仍兼容；供应商原始内容不回传。
+- 待补充 Android 正式包/签名、部署与真机回执。Windows 无 iOS 构建；原生鸿蒙有独立 AI 对话实现，本轮没有修改或验收该实现，也未构建新鸿蒙包。
+
+- API 仅 AI 固定错误类别允许读取受限 HTTP 状态和 3–6 位数字服务错误码，严格校验后用于失败气泡。其它字段/原始 message 丢弃；不用读取 Token 即可真机确认类别。
+- dart format 仅本轮八个文件；首次定向 41 通过/1 失败，因新增页面测试先发送失败再打开页面，被正常历史刷新清空。调整测试为先打开页面再发合成提问，不改生产历史刷新。定向完整 43/43 通过。
+- Flutter analyze 无问题；全量测试 UTC 与 Asia/Shanghai 均 952/952 通过。首次 analyze 的四处大括号规则已修正，失败日志保留。首次 Android Debug 因 QRing Gradle 缓存完整性检查失败；停止构建守护进程后，仅将该准确缓存目录内可重建内容移到 gradle-quarantine，保留锁文件与失败日志，不更改 SDK 或关闭校验。
+- Rebuild-SayRing-20261006.ps1 -BuildNumber 1015 -OutputDirectory E:\SayRing-market-artifacts-20261008\ai-1015 -ResumeBuild 成功，Debug/原生 32 项/正式 Release 均通过。Verify-SayRingAndroid 与 Verify-SayRing-20261006 验证 cn.saydian.ring、1.0.0/1015、production JPush、正式 RSA4096 原证书及双 ARM ABI；保留既有受控 JPush libjutils arm64-only 例外，不新增例外。临时 key.properties 已清除。
+- APK 69,044,934 字节，SHA256 CA082FE8260BDBEB65A6E1FF9DE3A895CCEBADA269099E1000C9ED0931267931，仅保存在 Git 外。git diff --check 通过。服务端 4095410 的 CI verify 已通过，自动部署进行中；安装和最终手机回执待补，不宣称供应商联调成功。

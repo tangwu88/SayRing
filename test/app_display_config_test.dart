@@ -166,6 +166,49 @@ void main() {
     },
   );
 
+  testWidgets(
+    'failed chat bubble shows the fixed provider reason, not phone network',
+    (tester) async {
+      final api = _DisplayApi()..hidden = false;
+      final controller = _controller(api);
+      addTearDown(controller.dispose);
+      await controller.refreshAppDisplayConfig();
+      controller.session = Session(
+        accessToken: 'test',
+        refreshToken: 'test',
+        expiresAt: DateTime.utc(2099),
+        memberId: 'test',
+        displayName: 'Test',
+        accountKey: 'test',
+      );
+      api.reply = Completer<Map<String, Object?>>();
+      await tester.pumpWidget(
+        MaterialApp(home: AiChatPage(controller: controller, app: 1)),
+      );
+      await tester.pumpAndSettle();
+      final sending = controller.sendAiMessage(
+        app: 1,
+        message: 'Synthetic question',
+      );
+      api.reply!.completeError(
+        const AiProviderApiException(
+          'PRIVATE_SENTINEL',
+          statusCode: 503,
+          code: 'AI_PROVIDER_REJECTED',
+          upstreamStatus: 400,
+          providerCode: '1211',
+        ),
+      );
+      expect(await sending, isFalse);
+      expect(controller.aiMessages.single['send_failed'], isTrue);
+      expect(controller.aiMessages.single['send_error'], contains('服务代码 1211'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('服务代码 1211'), findsOneWidget);
+      expect(find.textContaining('检查网络'), findsNothing);
+      expect(find.textContaining('PRIVATE_SENTINEL'), findsNothing);
+    },
+  );
+
   testWidgets('home hides AI while health, sport and encyclopedia remain', (
     tester,
   ) async {

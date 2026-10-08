@@ -569,13 +569,38 @@ class GlobalSaydianApiClient extends SaydianApiClient
       return super._decode(response);
     } on ApiException catch (error) {
       String? key;
+      int? upstreamStatus;
+      String? providerCode;
       try {
         final json = jsonDecode(response.body);
         if (json is Map && json['errorKey'] is String) {
           key = json['errorKey'] as String;
+          final data = json['data'];
+          if (data is Map) {
+            final status = data['upstreamStatus'];
+            if (status is int && status >= 100 && status <= 599) {
+              upstreamStatus = status;
+            }
+            final value = data['providerCode'];
+            if (value is String && RegExp(r'^\d{3,6}$').hasMatch(value)) {
+              providerCode = value;
+            }
+          }
         }
       } on FormatException {
         /* Never expose raw upstream responses. */
+      }
+      if (key != null &&
+          RegExp(
+            r'^AI_PROVIDER_(AUTH|LIMIT|REJECTED|UNAVAILABLE|TIMEOUT|NETWORK|INVALID_RESPONSE)$',
+          ).hasMatch(key)) {
+        throw AiProviderApiException(
+          'AI service unavailable.',
+          statusCode: error.statusCode,
+          code: key,
+          upstreamStatus: upstreamStatus,
+          providerCode: providerCode,
+        );
       }
       throw ApiException(
         'This action could not be completed. Please try again.',

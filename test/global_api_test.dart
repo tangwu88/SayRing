@@ -59,6 +59,43 @@ Map<String, Object?> capabilities({
 
 void main() {
   test(
+    'AI errors preserve only safe typed diagnostics through global decoding',
+    () async {
+      for (final forged in [false, true]) {
+        final vault = MemorySessionVault();
+        await vault.writeSession(session());
+        final api = GlobalSaydianApiClient(
+          vault,
+          client: MockClient((request) async {
+            expect(request.url.path, '/global/api/saydian-app/v2/ai/messages');
+            return http.Response(
+              jsonEncode({
+                'code': 503,
+                'message': 'PRIVATE_RESPONSE_SENTINEL',
+                'errorKey': 'AI_PROVIDER_REJECTED',
+                'data': {
+                  'upstreamStatus': forged ? 'PRIVATE_SENTINEL' : 400,
+                  'providerCode': forged ? 'PRIVATE_SENTINEL' : '1211',
+                },
+              }),
+              503,
+            );
+          }),
+        );
+        try {
+          await api.sendAiMessage(app: 1, message: 'Synthetic question');
+          fail('Provider failure must not be reported as success');
+        } on AiProviderApiException catch (error) {
+          expect(error.code, 'AI_PROVIDER_REJECTED');
+          expect(error.statusCode, 503);
+          expect(error.upstreamStatus, forged ? null : 400);
+          expect(error.providerCode, forged ? null : '1211');
+          expect(error.message, isNot(contains('PRIVATE')));
+        }
+      }
+    },
+  );
+  test(
     'legal capabilities request Say Ring and reject another product or its documents',
     () async {
       for (final mismatch in [false, true]) {

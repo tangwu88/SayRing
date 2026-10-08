@@ -21,6 +21,7 @@ import '../domain/global_account.dart';
 import '../domain/global_care.dart';
 import '../l10n/global_locale_controller.dart';
 import 'api_client.dart';
+import 'ai_chat_failure.dart';
 import 'app_payment_bridge.dart';
 import 'app_notification_service.dart';
 import 'local_health_store.dart';
@@ -4685,10 +4686,14 @@ class AppController extends ChangeNotifier {
           displayGeneration != _aiDisplayGeneration) {
         return false;
       }
-      errorMessage = _apiErrorMessage(error, fallback: '消息发送失败，请稍后重试');
+      errorMessage = aiChatFailureMessage(error);
       aiMessages = [
         ...aiMessages.take(aiMessages.length - 1),
-        <String, Object?>{...aiMessages.last, 'send_failed': true},
+        <String, Object?>{
+          ...aiMessages.last,
+          'send_failed': true,
+          'send_error': errorMessage,
+        },
       ];
       return false;
     } finally {

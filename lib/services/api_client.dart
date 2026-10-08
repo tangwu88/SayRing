@@ -33,6 +33,18 @@ class FeatureNotConfiguredException extends ApiException {
   const FeatureNotConfiguredException(super.message, {super.statusCode});
 }
 
+class AiProviderApiException extends ApiException {
+  const AiProviderApiException(
+    super.message, {
+    super.statusCode,
+    super.code,
+    this.upstreamStatus,
+    this.providerCode,
+  });
+  final int? upstreamStatus;
+  final String? providerCode;
+}
+
 class BatchUploadResult {
   const BatchUploadResult({
     required this.acceptedIds,

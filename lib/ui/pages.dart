@@ -5089,7 +5089,8 @@ class _AiChatPageState extends State<AiChatPage> {
                               if (failed) ...[
                                 const SizedBox(height: 5),
                                 Text(
-                                  context.l10n.messageSendFailed,
+                                  message['send_error']?.toString() ??
+                                      '消息发送失败，请稍后重试',
                                   style: TextStyle(
                                     color: Color(0xFFFFD7D7),
                                     fontSize: 12,
