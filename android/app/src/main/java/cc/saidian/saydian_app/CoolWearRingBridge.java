@@ -333,6 +333,7 @@ public final class CoolWearRingBridge
         String normalized = name.trim().toUpperCase(Locale.ROOT);
         if (normalized.equals("HR01") || normalized.startsWith("HR01-")) return "HR01";
         if (normalized.equals("HR05")) return "HR05";
+        if (normalized.equals("SD-RING-R7ULTRA")) return "R7Ultra";
         return null;
     }
 

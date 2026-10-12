@@ -24,7 +24,8 @@ class WearableDeviceClassifier {
     if (normalized.startsWith('YC')) return WearableTransport.yucheng;
     if (normalized == 'HR01' ||
         normalized.startsWith('HR01-') ||
-        normalized == 'HR05') {
+        normalized == 'HR05' ||
+        normalized == 'SD-RING-R7ULTRA') {
       return WearableTransport.coolwear;
     }
     if (normalized.startsWith('Q_') ||

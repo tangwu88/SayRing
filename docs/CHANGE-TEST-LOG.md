@@ -12,6 +12,8 @@
 
 ## 最近记录
 
+- [2026-10-12 SD-RING-R7Ultra LuckRing 路由](SAY-RING-R7ULTRA-LUCKRING-ROUTING-20261012.md) — 按用户确认的精确广播名将该型号纳入现有 CoolWear/LuckRing Android 通道；未知 `SD-RING-*` 继续关闭，能力仍以真实握手为准。测试、构建和真机边界见正文。
+
 - [2026-10-08 首页健康卡片编辑](SAY-RING-HOME-HEALTH-CARDS-20261008.md) — 显示/隐藏、长按排序与按账号持久化，仅影响首页，不改变能力或健康数据。
 
 - [2026-10-08 AI 对话失败提示与安全诊断](SAY-RING-AI-CHAT-DIAGNOSTICS-20261008.md) — 区分供应商错误与真实网络故障，失败气泡显示固定安全原因，不泄露响应或凭据；上线/手机结果以记录为准。
