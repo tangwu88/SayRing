@@ -1,5 +1,9 @@
 # 2026-10-13 保持已上架活动/睡眠范围并提交新审核版本
 
+## 最新交付结果
+
+`1.0.1 (1064)` 已于 2026-10-13 21:59 上传成功，出口合规已保存；22:08 正式提交 App Store 审核，服务器确认“正在等待审核”。审核提交 ID `1dec14c5-2df3-48ca-8f9d-dad0345575b8`。以上时间均为 Asia/Shanghai；后续历史段落中的失败和待办描述保留为当时的检查点，最终状态以本段及文末回执为准。真机 1064 调试仍因用户暂时无法连接 iPhone 而待续。
+
 ## 授权、基线与实施范围
 
 - 用户确认新审核版本保持已上架 1062 的活动和睡眠范围；当前暂时无法连接 iPhone，不阻断可独立完成的源代码、构建、上传和审核提交。
@@ -66,3 +70,22 @@
 - The final archive CreationDate is 2026-10-13 19:21:04 Asia/Shanghai. Organizer opened with the top final 1.0.1 (1064) selected, correct cn.saydian.ring / W7SXQ4A226 / arm64 verified from the visible window. The other 1064 archive is superseded and must not be uploaded.
 - No callable native window-control capability was available; plugin discovery found no Xcode integration. Requested the user complete Organizer's Distribute App → App Store Connect → Upload for the already selected final archive, including native authentication if needed. Subsequent compliance, build selection and final App Store submission remain authorized for the agent.
 - At this checkpoint no 1064 upload success or review submission has been verified. Source, tests, signed Debug and final Release archive remain unchanged; this is an authentication/distribution continuation only.
+
+## Successful Organizer upload and restored distribution session
+
+- User completed native authentication and Organizer distribution. Native log `Runner_2026-10-13_21-53-12.169.xcdistributionlogs/ContentDelivery.log` confirms `UPLOAD SUCCEEDED with no errors` at 21:59:19 Asia/Shanghai, delivery UUID `1324af6b-1b73-480b-ae98-fae5cd2cf0ca`.
+- Organizer used `/Users/saydian/Library/Developer/Xcode/Archives/2026-10-13/SayRing-1.0.1-1064-final 2.xcarchive`, its managed copy of the final archive. Native Runner SHA-256 `0ddac354b3d17e7c8a8a7ca1dcb4a7113a9fd50178f486e2d9f84418b89d7472` and Flutter App.framework/App SHA-256 `d0a1124550f5ddc735e258ac2199e5c57883b2545882bf7e42142423b635af15` match the original final archive exactly.
+- Preserved the actual outgoing package as `.build/SayRing-1.0.1-1064-organizer-uploaded.ipa`: 38,032,243 bytes, SHA-256 `a27bbdfa2990c54b1f2f2fe8dbeb43a416db386866e66bf75cf606f8426062ea`. ZIP integrity passed; actual bundle is cn.saydian.ring / 1.0.1 / 1064 / iOS 15 / iPhone only.
+- Strict deep codesign verification of the actual uploaded IPA passed. Entitlements: application-identifier W7SXQ4A226.cn.saydian.ring, correct team, get-task-allow=false, aps-environment=production, beta-reports-active=true, and applinks:app.saydian.cn. Private signing keys were not exported.
+- The native account list now contains one account. A separate local export of the unchanged final archive succeeded with `-exportPath .build/SayRing-1.0.1-1064-export-session-restored`; no duplicate upload was started. `export-session-restored.log` records EXPORT SUCCEEDED. This separately signed recovery IPA is 38,032,117 bytes / SHA-256 `42f2407ba22782ca1fb848890fb06077d4fa70a7ebc70bb488e71ad2a5bbeb5c`; its hash is not the hash of the actually uploaded IPA.
+- Live TestFlight first showed 1064 processing, then exposed build ID `1324af6b-1b73-480b-ae98-fae5cd2cf0ca` with missing compliance. Saved the accurate standard-encryption / no-France declaration consistent with bundled SQLCipher and the existing distribution scope; 1064 now shows ready to submit. 1063 remains untouched.
+- Selected 1064 in the 1.0.1 build picker. Final App Store review submission and its server-confirmed state are recorded separately below; a build-picker selection is not a final submission.
+
+## Final App Store review submission
+
+- Saved version 1.0.1 with the verified build 1064 / build ID `1324af6b-1b73-480b-ae98-fae5cd2cf0ca`. Existing approved activity/sleep metadata, accurate 1064 review notes and the existing automatic-after-approval release choice remain in the submitted version.
+- Clicked Add for Review, verified the draft submission contained exactly `1.0.1 (1064)`, then clicked the final Submit for Review button. Apple returned “1 item submitted”; the version page then showed “正在等待审核” with build 1064 still linked. This is an actual final submission, not a saved draft.
+- The App Review submissions page confirms iOS 1.0.1 submitted today at 22:08 Asia/Shanghai, status Waiting for Review, submission ID `1dec14c5-2df3-48ca-8f9d-dad0345575b8`, observed URL `https://appstoreconnect.apple.com/apps/6816549943/distribution/reviewsubmissions/details/1dec14c5-2df3-48ca-8f9d-dad0345575b8`.
+- Local receipt screenshot: `build/ios-wellness-1064-20261013/app-review-1064-waiting.png`; TestFlight processing and compliance screenshots are preserved in the same ignored directory. No reviewer password or verification code was read or written to Git.
+- Re-verified GitHub's public repository metadata without credentials: tangwu88/SayRing, private=false, visibility=public, default branch main. Distribution tests used `codesign --verify --deep --strict --verbose=2` on the actual uploaded app and selected entitlement assertions; all passed. This continuation changed documentation and App Store metadata only; previous complete source regressions remain applicable.
+- Final boundary: TestFlight upload/processing, export compliance and App Store review submission are complete. Apple approval is pending. Signed Debug 1064 and its local launch command remain ready, but this build has not been installed or attached to the unavailable physical iPhone.
