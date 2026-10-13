@@ -13,7 +13,7 @@ enum WearableTransport { veepoo, yucheng, moyoung, coolwear, qring }
 
 /// Selects only the native transport that is allowed to attempt a handshake.
 ///
-/// A name prefix is not treated as proof of device capability. The selected
+/// A name match is not treated as proof of device capability. The selected
 /// SDK still has to complete its real handshake and capability read before the
 /// App exposes any device feature.
 class WearableDeviceClassifier {
@@ -21,13 +21,19 @@ class WearableDeviceClassifier {
 
   static WearableTransport? transportFor(String name) {
     final normalized = name.trim().toUpperCase();
+    final qring = const ['R8', 'R21', 'R22'].any(normalized.contains);
+    final luckring = const [
+      'R7',
+      'K80',
+      'HR01',
+      'HR05',
+    ].any(normalized.contains);
+    // User-confirmed model markers take priority over inherited SDK prefixes.
+    // A conflicting name cannot select either SDK without clarification.
+    if (qring && luckring) return null;
+    if (qring) return WearableTransport.qring;
+    if (luckring) return WearableTransport.coolwear;
     if (normalized.startsWith('YC')) return WearableTransport.yucheng;
-    if (normalized == 'HR01' ||
-        normalized.startsWith('HR01-') ||
-        normalized == 'HR05' ||
-        normalized == 'SD-RING-R7ULTRA') {
-      return WearableTransport.coolwear;
-    }
     if (normalized.startsWith('Q_') ||
         normalized.startsWith('O_') ||
         normalized.startsWith('R2')) {

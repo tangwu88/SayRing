@@ -1,6 +1,7 @@
 #import "QRingWearableBridge.h"
 #import "QCCentralManager.h"
 #import "QRingRecordMapping.h"
+#import "QRingNamePolicy.h"
 
 #import <QCBandSDK/QCBandSDK.h>
 
@@ -106,9 +107,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (BOOL)isQRingName:(NSString *)name {
-    NSString *upper = [[name ?: @"" stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] uppercaseString];
-    // User-confirmed R2 family, including R21; capabilities still require a handshake.
-    return [upper hasPrefix:@"Q_"] || [upper hasPrefix:@"O_"] || [upper hasPrefix:@"R2"];
+    return QRingIsSupportedName(name);
 }
 
 - (BOOL)isResolved {

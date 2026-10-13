@@ -12,6 +12,8 @@
 
 ## 最近记录
 
+- [2026-10-13 蓝牙名称包含字符路由](SAY-RING-NAME-ROUTING-20261013.md) — R8/R21/R22 走 QRing，R7/K80/HR01/HR05 走 LuckRing；更新 Flutter、Android、iOS 名称过滤，保留真实握手门禁和未接入 SDK 的平台边界。
+
 - [2026-10-12 SD-RING-R7Ultra LuckRing 路由](SAY-RING-R7ULTRA-LUCKRING-ROUTING-20261012.md) — 按用户确认的精确广播名将该型号纳入现有 CoolWear/LuckRing Android 通道；未知 `SD-RING-*` 继续关闭，能力仍以真实握手为准。测试、构建和真机边界见正文。
 
 - [2026-10-08 首页健康卡片编辑](SAY-RING-HOME-HEALTH-CARDS-20261008.md) — 显示/隐藏、长按排序与按账号持久化，仅影响首页，不改变能力或健康数据。

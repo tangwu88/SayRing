@@ -1,6 +1,6 @@
 # Say Ring
 
-Say Ring is the independent Android, iOS and native HarmonyOS companion for supported smart rings. Its repository is `tangwu88/SayRing` and must be private before any source is pushed. Start with the [Say Ring implementation record](docs/SAY-RING-IMPLEMENTATION-20260913.md) and the [change/test index](docs/CHANGE-TEST-LOG.md).
+Say Ring is the independent Android, iOS and native HarmonyOS companion for supported smart rings. Its repository is `tangwu88/SayRing`; on 2026-10-13 the user explicitly authorized keeping it public and pushing verified changes. Start with the [Say Ring implementation record](docs/SAY-RING-IMPLEMENTATION-20260913.md) and the [change/test index](docs/CHANGE-TEST-LOG.md).
 
 Only `https://app.saydian.cn/global` is the first-party account environment. Say Ring shares the international account service, but has independent package IDs, local storage and update product id `say-ring`. Imported watch-App documentation is historical context, **not evidence that a ring model, provider SDK, signing identity, push channel or store release has been accepted**.
 
@@ -9,6 +9,7 @@ Only `https://app.saydian.cn/global` is the first-party account environment. Say
 - Android/iOS package: `cn.saydian.ring`; HarmonyOS bundle: `cn.saydian.ring.hm`.
 - App name: **Say Ring**; default language: English; eight existing locales remain available.
 - Ring transport routing: trimmed `YC` names use Yucheng, `V` and `TK` use VEP, `D` is reserved for Moyoung. Unknown names are not guessed.
+- Case-insensitive Bluetooth name markers take priority: names containing `R8`, `R21` or `R22` use QRing; names containing `R7`, `K80`, `HR01` or `HR05` use LuckRing (CoolWear). A name matching both families is rejected. QRing is integrated on Android/iOS; LuckRing is currently integrated on Android only. HarmonyOS does not route these names to another SDK.
 - Yucheng and VEP use the existing licensed integrations. Moyoung remains unavailable until the target ring SDK, health-field contract, license and HarmonyOS implementation are supplied and verified.
 - Features are shown only after the connected device reports support and the App has a real implementation. Automated tests do not replace physical ring acceptance.
 

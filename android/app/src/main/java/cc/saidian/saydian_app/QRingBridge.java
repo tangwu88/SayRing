@@ -163,10 +163,7 @@ public final class QRingBridge
     }
 
     static boolean isQRingName(String name) {
-        if (name == null) return false;
-        String normalized = name.trim().toUpperCase(Locale.ROOT);
-        return normalized.startsWith("Q_") || normalized.startsWith("O_")
-                || normalized.startsWith("R2");
+        return RingNamePolicy.isQRingName(name);
     }
 
     static boolean isExactBondedQRing(String requestedId, String bondedId, String name) {

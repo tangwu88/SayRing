@@ -25,8 +25,20 @@ class QRingNamePolicyTest {
     }
 
     @Test
+    fun `confirmed QRing markers match inside names and reject LuckRing conflicts`() {
+        for (name in listOf("R8", " device-r8-123 ", "YC-R21-123", "V-R22-123")) {
+            assertTrue(name, QRingBridge.isQRingName(name))
+        }
+        for (name in listOf("Q_R7", "O_K80", "Q_HR01", "R2-HR05", "R8-R7", "R21-K80", "R22-HR05")) {
+            assertFalse(name, QRingBridge.isQRingName(name))
+        }
+    }
+
+    @Test
     fun `bonded fallback requires exact saved address and QRing name`() {
         assertTrue(QRingBridge.isExactBondedQRing("AA:BB", "aa:bb", "R22_C493"))
+        assertTrue(QRingBridge.isExactBondedQRing("AA:BB", "aa:bb", "device-r8-123"))
+        assertFalse(QRingBridge.isExactBondedQRing("AA:BB", "AA:BB", "R8-R7"))
         assertFalse(QRingBridge.isExactBondedQRing("AA:BB", "AA:CC", "R22_C493"))
         assertFalse(QRingBridge.isExactBondedQRing("AA:BB", "AA:BB", "V Ring"))
         assertFalse(QRingBridge.isExactBondedQRing(null, "AA:BB", "R22_C493"))

@@ -25,6 +25,14 @@ test('device names remove control bytes and do not allow blank labels', () => {
   assert.equal(cleanDeviceName(' \n '), '未知设备');
 });
 
+test('QRing and LuckRing model markers cannot fall back to an unrelated Harmony SDK', () => {
+  for (const marker of ['R8', 'R21', 'R22', 'R7', 'K80', 'HR01', 'HR05']) {
+    for (const name of [marker, `yc-${marker.toLowerCase()}-123`, `V-${marker}`, `D-${marker}`]) {
+      assert.equal(wearableProviderForName(name), '', name);
+    }
+  }
+});
+
 test('missing device model falls back to the final Bluetooth name segment', () => {
   assert.equal(wearableModelText('VP-900', 'SD-Watch-W9S'), 'VP-900');
   assert.equal(wearableModelText('', 'SD-Watch-W9S'), 'W9S');

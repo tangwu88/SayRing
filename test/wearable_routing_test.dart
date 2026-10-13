@@ -133,13 +133,17 @@ void main() {
     expect(WearableDeviceClassifier.transportFor('R3'), isNull);
     expect(WearableDeviceClassifier.transportFor('Q Ring'), isNull);
     expect(WearableDeviceClassifier.transportFor('Oura Ring'), isNull);
-    expect(WearableDeviceClassifier.transportFor('HR010'), isNull);
-    expect(WearableDeviceClassifier.transportFor('HR050'), isNull);
-    expect(WearableDeviceClassifier.transportFor('HR05-unknown'), isNull);
-    expect(
-      WearableDeviceClassifier.transportFor('SD-RING-R7ULTRA-UNKNOWN'),
-      isNull,
-    );
+    for (final name in [
+      'HR010',
+      'HR050',
+      'HR05-unknown',
+      'SD-RING-R7ULTRA-UNKNOWN',
+    ]) {
+      expect(
+        WearableDeviceClassifier.transportFor(name),
+        WearableTransport.coolwear,
+      );
+    }
     expect(WearableDeviceClassifier.transportFor('W8'), isNull);
     expect(WearableDeviceClassifier.transportFor('Ring'), isNull);
     expect(WearableDeviceClassifier.transportFor(''), isNull);
@@ -160,6 +164,81 @@ void main() {
       WearableDeviceClassifier.transportForScopedId('ring-without-scope'),
       isNull,
     );
+  });
+
+  test('user-confirmed model markers match anywhere before SDK prefixes', () {
+    for (final marker in ['R8', 'R21', 'R22']) {
+      for (final name in [
+        marker,
+        ' sd-$marker-123 ',
+        'yc-${marker.toLowerCase()}',
+      ]) {
+        expect(
+          WearableDeviceClassifier.transportFor(name),
+          WearableTransport.qring,
+          reason: name,
+        );
+      }
+    }
+    for (final marker in ['R7', 'K80', 'HR01', 'HR05']) {
+      for (final name in [
+        marker,
+        ' sd-$marker-123 ',
+        'Q_${marker.toLowerCase()}',
+      ]) {
+        expect(
+          WearableDeviceClassifier.transportFor(name),
+          WearableTransport.coolwear,
+          reason: name,
+        );
+      }
+    }
+    for (final name in ['R8-R7', 'YC-R21-K80', 'Q_R22-HR05', 'unknown-R 8']) {
+      expect(WearableDeviceClassifier.transportFor(name), isNull, reason: name);
+    }
+  });
+
+  test('each confirmed model connects only through its selected SDK', () async {
+    const families = {
+      'prefix-r8-001': WearableTransport.qring,
+      'YC-R21-002': WearableTransport.qring,
+      'device-R22-003': WearableTransport.qring,
+      'Q_R7-004': WearableTransport.coolwear,
+      'prefix-k80-005': WearableTransport.coolwear,
+      'device-HR01-006': WearableTransport.coolwear,
+      'V-HR05-007': WearableTransport.coolwear,
+    };
+    final scanned = [
+      for (final name in families.keys) DeviceInfo(id: name, name: name),
+      const DeviceInfo(id: 'ambiguous', name: 'R8-R7'),
+    ];
+    final qring = _FakeWearableBridge(scanned: scanned);
+    final coolwear = _FakeWearableBridge(scanned: scanned);
+    final veepoo = _FakeWearableBridge(scanned: scanned);
+    final yucheng = _FakeWearableBridge(scanned: scanned);
+    final bridge = RoutedWearableBridge(
+      veepoo: veepoo,
+      yucheng: yucheng,
+      qring: qring,
+      coolwear: coolwear,
+      preferenceStore: _MemoryTransportPreference(),
+    );
+    addTearDown(bridge.dispose);
+
+    final devices = await bridge.scanDevices();
+    expect(devices, hasLength(families.length));
+    for (final entry in families.entries) {
+      final device = devices.singleWhere((item) => item.name == entry.key);
+      expect(device.id, '${entry.value.name}:${entry.key}');
+      await bridge.connect(device.id, profile: _profile);
+      await bridge.startMeasurement(HealthMetric.heartRate);
+    }
+    expect(veepoo.connectCalls, isEmpty);
+    expect(yucheng.connectCalls, isEmpty);
+    expect(qring.connectCalls, families.keys.take(3).toList());
+    expect(coolwear.connectCalls, families.keys.skip(3).toList());
+    expect(qring.measurementCalls, hasLength(3));
+    expect(coolwear.measurementCalls, hasLength(4));
   });
 
   test('scopes IDs without losing the vendor identifier', () {

@@ -24,14 +24,8 @@ void main() {
     }
   });
 
-  test('native QRing name gates include the user confirmed R2 family', () {
-    final ios = File('ios/Runner/QRingWearableBridge.m').readAsStringSync();
-    final android = File(
-      'android/app/src/main/java/cc/saidian/saydian_app/QRingBridge.java',
-    ).readAsStringSync();
-    expect(ios, contains('[upper hasPrefix:@"R2"]'));
-    expect(android, contains('normalized.startsWith("R2")'));
-  });
+  // Native name behavior, including legacy R2 compatibility, is exercised by
+  // QRingNamePolicyTest.kt and test/native/qring_name_policy_test.m.
 
   test('QRing unbind uses vendor removal and waits for native state', () {
     final android = File(

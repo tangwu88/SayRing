@@ -11,10 +11,21 @@ class CoolWearNamePolicyTest {
         assertEquals("HR01", CoolWearRingBridge.supportedModel("hr01-1"))
         assertEquals("HR05", CoolWearRingBridge.supportedModel(" hr05 "))
         assertEquals("R7Ultra", CoolWearRingBridge.supportedModel(" sd-ring-r7ultra "))
-        assertNull(CoolWearRingBridge.supportedModel("HR050"))
-        assertNull(CoolWearRingBridge.supportedModel("HR05-unknown"))
-        assertNull(CoolWearRingBridge.supportedModel("SD-RING-R7ULTRA-UNKNOWN"))
+        assertEquals("HR05", CoolWearRingBridge.supportedModel("HR050"))
+        assertEquals("HR05", CoolWearRingBridge.supportedModel("HR05-unknown"))
+        assertEquals("R7Ultra", CoolWearRingBridge.supportedModel("SD-RING-R7ULTRA-UNKNOWN"))
+        assertEquals("R7", CoolWearRingBridge.supportedModel("Q_device-r7-123"))
+        assertEquals("K80", CoolWearRingBridge.supportedModel("V-device-k80-123"))
+        assertEquals("HR01", CoolWearRingBridge.supportedModel("device-hr01-123"))
         assertNull(CoolWearRingBridge.supportedModel("R22_C493"))
         assertNull(CoolWearRingBridge.supportedModel(null))
+    }
+
+    @Test
+    fun `QRing model markers never enter the LuckRing SDK`() {
+        for (name in listOf("R8", "device-R21", "YC-R22", "R7-R8", "K80-R21", "HR05-R22")) {
+            assertNull(name, CoolWearRingBridge.supportedModel(name))
+        }
+        assertNull(CoolWearRingBridge.supportedModel("unknown"))
     }
 }
