@@ -42,3 +42,10 @@
 - App Store Connect 1.0.1 draft is Preparing for Submission, inherited automatic release after approval; QRing release notes saved. No review submission has been sent while scope clarification is pending.
 - Distribution profile is iOS Team Store Provisioning Profile: cn.saydian.ring, UUID e3952987-a785-4e72-ab17-50213d653737, no device restriction, correct team W7SXQ4A226.
 - iPhone remains unavailable; no attempt to install on another device or erase data. The ready-to-run local Terminal command is `.build/run-sayring-ios-debug.command`.
+
+## 当前待完成项
+
+- 17:39 左右，苹果上传详情仍为 Processing，只有已有的 90683 后台定位用途警告，没有上传错误；本版仍只声明前台定位和蓝牙后台模式，未据警告扩张权限。
+- 审核草稿保存成功，但当前 Git 的生理指标功能与已上架 1062 的活动/睡眠描述不一致；功能范围问题尚未收到回复，未提交不实审核资料。
+- iPhone 仍为 unavailable；初次 Debug 曾成功附加，最终 1063 的调试恢复需重新 USB 连接并解锁。
+- Git Data API 创建与本地完全相同的文件树并快进 main/任务分支；原始本地提交保留在 checkpoint 分支。首次普通分支删除因 API 提交元数据不同而拒绝，改为保留并重命名 checkpoint，再创建远端跟踪分支，没有丢弃提交或强推。
