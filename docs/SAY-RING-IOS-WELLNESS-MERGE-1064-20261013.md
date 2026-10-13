@@ -40,3 +40,9 @@
 - Final production archive `.build/SayRing-1.0.1-1064-final.xcarchive` succeeded. Actual Info.plist: cn.saydian.ring, 1.0.1 (1064), iOS 15.0, UIDeviceFamily [1], arm64, production main target.
 - Final export and direct upload both returned 70: No Accounts and no local iOS Distribution private key. Earlier 1063 export/upload had succeeded using Xcode cloud signing; current Xcode authorization is unavailable. Opened Xcode and requested native account refresh, without requesting a password in chat or creating any API key.
 - 1064 is not yet exported or uploaded; the existing 1063 is not selected for review. The 1.0.1 draft keeps the accepted 1062 description/screenshots and has new accurate 1064 notes; submission remains authorized and pending Xcode authentication.
+
+## Git delivery and deferred device debug
+
+- Connected GitHub Git Data API used the exact locally verified tree `361967db894105a60226bff545ce6359e367f419`. The remote merge commit `79c5c620bf7e17ff0979dd1253a52a8f940b6937` keeps both the existing main and published macOS branch as parents; fetch verifies both task branch and main. Local original commits remain on a checkpoint branch.
+- Signed Debug 1064 build succeeded in 18.7 seconds; strict deep verification passed with correct app/team and get-task-allow=true. `.build/SayRing-1.0.1-1064-debug.ipa` and the updated local `.build/run-sayring-ios-debug.command` are ready for a future USB connection. No installation or resumed attachment has occurred.
+- Xcode native authentication refresh is still pending. Review notes are saved with the accepted activity/sleep scope; 1064 upload and App Store review submission remain unfinished.
