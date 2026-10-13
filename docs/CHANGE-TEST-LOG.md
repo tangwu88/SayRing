@@ -12,6 +12,8 @@
 
 ## 最近记录
 
+- [2026-10-13 iPhone 调试与 TestFlight 新构建](SAY-RING-IOS-DEBUG-TESTFLIGHT-20261013.md) — 固定 Say Ring 产品 ID，核对线上版本后进行真机附加调试和新构建上传；实际结果见正文。
+
 - [2026-10-13 蓝牙名称包含字符路由](SAY-RING-NAME-ROUTING-20261013.md) — R8/R21/R22 走 QRing，R7/K80/HR01/HR05 走 LuckRing；更新 Flutter、Android、iOS 名称过滤，保留真实握手门禁和未接入 SDK 的平台边界。
 
 - [2026-10-12 SD-RING-R7Ultra LuckRing 路由](SAY-RING-R7ULTRA-LUCKRING-ROUTING-20261012.md) — 按用户确认的精确广播名将该型号纳入现有 CoolWear/LuckRing Android 通道；未知 `SD-RING-*` 继续关闭，能力仍以真实握手为准。测试、构建和真机边界见正文。
