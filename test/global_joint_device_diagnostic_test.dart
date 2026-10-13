@@ -343,6 +343,7 @@ class _FakeController extends Fake implements AppController {
     callOrder.add('capabilities');
     return GlobalAuthCapabilities.fromJson({
       'realm': rejectRealm ? 'domestic' : 'global',
+      'product': 'say-ring',
       'registration': {'email': true, 'sms': false},
     });
   }
@@ -384,7 +385,8 @@ class _FakeController extends Fake implements AppController {
   }
 
   @override
-  Future<bool> refreshConnectedDeviceDetails() async => true;
+  Future<bool> refreshConnectedDeviceDetails({bool quiet = false}) async =>
+      true;
   @override
   Future<bool> syncDeviceData() async {
     syncCount++;

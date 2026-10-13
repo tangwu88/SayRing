@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../domain/wearable_sync_result.dart';
 import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../domain/feature_models.dart';
 import '../domain/models.dart';
+import '../domain/sleep_timeline.dart';
 import 'global_storage_scope.dart';
 import 'wearable_bridge.dart';
 
@@ -18,6 +20,21 @@ enum WearableTransport { veepoo, yucheng, moyoung, coolwear, qring }
 /// App exposes any device feature.
 class WearableDeviceClassifier {
   const WearableDeviceClassifier._();
+
+  // The product owner confirmed these CoolWear/LuckRing model names. A name
+  // only chooses a candidate transport; the native handshake still gates it.
+  static String? coolwearModelForName(String name) {
+    final normalized = name.trim().toUpperCase();
+    if (const ['R8', 'R21', 'R22'].any(normalized.contains)) return null;
+    if (normalized.contains('HR01')) return 'HR01';
+    if (normalized.contains('HR05')) return 'HR05';
+    if (normalized.contains('R7ULTRA')) return 'R7Ultra';
+    if (normalized.contains('R7PRO')) return 'R7Pro';
+    if (normalized.contains('R7Y')) return 'R7Y';
+    if (normalized.contains('R7')) return 'R7';
+    if (normalized.contains('K80')) return 'K80';
+    return null;
+  }
 
   static WearableTransport? transportFor(String name) {
     final normalized = name.trim().toUpperCase();
@@ -133,20 +150,23 @@ class RoutedWearableBridge
         WearableAutoMeasureIntervalBridge,
         WearableSportPauseBridge,
         WearableConnectionRecoveryBridge,
+        WearableBindingManagementBridge,
+        WearableRememberedRecoveryEligibilityBridge,
         WearableBondedDeviceSelectionBridge {
   RoutedWearableBridge({
-    required WearableBridge veepoo,
-    required WearableBridge yucheng,
+    WearableBridge? veepoo,
+    WearableBridge? yucheng,
     WearableBridge? moyoung,
     WearableBridge? coolwear,
     WearableBridge? qring,
     WearableTransportPreferenceStore? preferenceStore,
     this.restoreOnlyBoundDevice = false,
+    this.requireOwnerScopedBinding = false,
     this.recoveryOperationTimeout = const Duration(seconds: 30),
     this.recoveryStopScanTimeout = const Duration(seconds: 3),
   }) : _sources = {
-         WearableTransport.veepoo: veepoo,
-         WearableTransport.yucheng: yucheng,
+         WearableTransport.veepoo: ?veepoo,
+         WearableTransport.yucheng: ?yucheng,
        },
        _preferenceStore =
            preferenceStore ?? const SecureWearableTransportPreferenceStore() {
@@ -161,6 +181,7 @@ class RoutedWearableBridge
   final Map<WearableTransport, WearableBridge> _sources;
   final WearableTransportPreferenceStore _preferenceStore;
   final bool restoreOnlyBoundDevice;
+  final bool requireOwnerScopedBinding;
   final Duration recoveryOperationTimeout;
   final Duration recoveryStopScanTimeout;
   final Map<String, RoutedDevice> _scanned = {};
@@ -174,6 +195,162 @@ class RoutedWearableBridge
   final Map<WearableTransport, int> _sourceConnectionGenerations = {};
   final Map<WearableTransport, Future<void>> _pendingRecoveryWork = {};
   int? _restoringGeneration;
+  String? _recoveryOwnerKey;
+  int _recoveryContextGeneration = 0;
+  final Map<WearableTransport, String> _exactRecoveryTargets = {};
+  Future<void> _bindingMutationTail = Future<void>.value();
+
+  Future<void> _serializeBindingMutation(Future<void> Function() operation) {
+    final mutation = _bindingMutationTail.then((_) => operation());
+    _bindingMutationTail = mutation.catchError((Object _) {});
+    return mutation;
+  }
+
+  Future<bool> _writeCurrentBinding(
+    WearableBindingPreferenceStore store,
+    SavedWearableBinding binding,
+    bool Function() isCurrent,
+  ) async {
+    var saved = false;
+    await _serializeBindingMutation(() async {
+      if (!isCurrent()) return;
+      final previous = await store.readBinding();
+      if (!isCurrent()) return;
+      await store.writeBinding(binding);
+      if (isCurrent()) {
+        saved = true;
+        return;
+      }
+      // Secure storage has no CAS primitive. Serialize all bridge mutations
+      // and roll back a write whose session changed while storage awaited.
+      if (previous == null) {
+        await _preferenceStore.clear();
+      } else {
+        await store.writeBinding(previous);
+      }
+    });
+    return saved;
+  }
+
+  bool _bindingBelongsToOwner(SavedWearableBinding binding) =>
+      !requireOwnerScopedBinding ||
+      (_recoveryOwnerKey != null && binding.ownerKey == _recoveryOwnerKey);
+
+  @override
+  Future<void> setRecoveryContext({
+    required String? ownerKey,
+    required WearableUserProfile profile,
+  }) async {
+    final changesOwner = _recoveryOwnerKey != ownerKey || ownerKey == null;
+    final contextGeneration = changesOwner
+        ? ++_recoveryContextGeneration
+        : _recoveryContextGeneration;
+    if (changesOwner) {
+      ++_connectionGeneration;
+      _exactRecoveryTargets.clear();
+      for (final source in _sources.values) {
+        if (source is WearableExactTargetRecoveryBridge) {
+          await (source as WearableExactTargetRecoveryBridge)
+              .configureRecoveryTarget(nativeIdentifier: null);
+        }
+      }
+    }
+    if (contextGeneration != _recoveryContextGeneration) return;
+    _recoveryOwnerKey = ownerKey;
+  }
+
+  Future<SavedWearableBinding?> _readVisibleBinding() async {
+    final store = _preferenceStore;
+    if (store is! WearableBindingPreferenceStore) return null;
+    final saved = await store.readBinding();
+    if (saved == null) return null;
+    if (requireOwnerScopedBinding &&
+        saved.ownerKey != null &&
+        saved.ownerKey != _recoveryOwnerKey) {
+      return null;
+    }
+    return saved;
+  }
+
+  @override
+  Future<DeviceInfo?> readRememberedDevice() async {
+    final saved = await _readVisibleBinding();
+    if (saved == null || saved.deviceName == null) return null;
+    if (!WearableDeviceClassifier.routesTo(
+      saved.deviceName!,
+      saved.transport,
+    )) {
+      return null;
+    }
+    return DeviceInfo(
+      id: RoutedDevice.scopedID(saved.transport, saved.nativeIdentifier),
+      name: saved.deviceName!,
+      model: saved.deviceName,
+    );
+  }
+
+  @override
+  Future<bool> canAutomaticallyRecoverRememberedDevice() async {
+    final saved = await _readVisibleBinding();
+    return saved != null &&
+        _bindingBelongsToOwner(saved) &&
+        saved.deviceName != null &&
+        _sources.containsKey(saved.transport) &&
+        WearableDeviceClassifier.routesTo(saved.deviceName!, saved.transport);
+  }
+
+  @override
+  Future<DeviceInfo?> prepareRememberedDevice() async {
+    final saved = await _readVisibleBinding();
+    if (saved == null) return null;
+    final source = _sources[saved.transport];
+    if (source == null) {
+      throw PlatformException(
+        code: 'DEVICE_SDK_UNAVAILABLE',
+        message: '此版本不支持该设备，请连接 QRing 或 CoolWear 戒指',
+      );
+    }
+    if (source is! WearableRememberedDeviceSelectionBridge) return null;
+    final device = await (source as WearableRememberedDeviceSelectionBridge)
+        .prepareRememberedDeviceForSelection(
+          saved.nativeIdentifier,
+          knownName: saved.deviceName,
+        );
+    if (device?.id != saved.nativeIdentifier) return null;
+    final routed = RoutedDevice.fromDevice(saved.transport, device!);
+    _scanned[routed.display.id] = routed;
+    _manualRecoveryIds.add(routed.display.id);
+    return routed.display;
+  }
+
+  @override
+  Future<void> forgetRememberedDevice() async {
+    await disconnect();
+    await _serializeBindingMutation(_preferenceStore.clear);
+  }
+
+  Future<void> _armExactRecovery(
+    WearableBridge source,
+    SavedWearableBinding binding,
+    WearableUserProfile profile,
+  ) async {
+    if (source is! WearableExactTargetRecoveryBridge ||
+        !_bindingBelongsToOwner(binding) ||
+        binding.deviceName == null) {
+      return;
+    }
+    final store = _preferenceStore;
+    final environment = store is SecureWearableTransportPreferenceStore
+        ? globalStorageNamespace(store.storageNamespace)
+        : 'local';
+    _exactRecoveryTargets[binding.transport] = binding.nativeIdentifier;
+    await (source as WearableExactTargetRecoveryBridge).configureRecoveryTarget(
+      nativeIdentifier: binding.nativeIdentifier,
+      knownName: binding.deviceName,
+      contextKey: '$environment:${binding.ownerKey ?? 'compatibility'}',
+      profile: profile,
+    );
+  }
 
   WearableBridge get _activeBridge {
     final transport = _activeTransport;
@@ -188,6 +365,13 @@ class RoutedWearableBridge
 
   @override
   Future<List<DeviceInfo>> scanDevices() async {
+    _exactRecoveryTargets.clear();
+    for (final source in _sources.values) {
+      if (source is WearableExactTargetRecoveryBridge) {
+        await (source as WearableExactTargetRecoveryBridge)
+            .configureRecoveryTarget(nativeIdentifier: null);
+      }
+    }
     _scanned.clear();
     _manualRecoveryIds.clear();
     final batches = await Future.wait(
@@ -239,7 +423,10 @@ class RoutedWearableBridge
       } catch (_) {
         saved = null;
       }
-      if (saved != null) {
+      if (saved != null &&
+          (!requireOwnerScopedBinding ||
+              saved.ownerKey == null ||
+              saved.ownerKey == _recoveryOwnerKey)) {
         final source = _sources[saved.transport];
         final savedDisplayId = RoutedDevice.scopedID(
           saved.transport,
@@ -310,14 +497,33 @@ class RoutedWearableBridge
     }
     _requireRecoverySourceAvailable(device.transport);
 
+    final connectionOwnerKey = _recoveryOwnerKey;
+    final contextGeneration = _recoveryContextGeneration;
+    final previous = _activeTransport == null
+        ? null
+        : _sources[_activeTransport];
+    if (previous is WearableExactTargetRecoveryBridge) {
+      _exactRecoveryTargets.remove(_activeTransport);
+      await (previous as WearableExactTargetRecoveryBridge)
+          .configureRecoveryTarget(nativeIdentifier: null);
+    }
+    if (contextGeneration != _recoveryContextGeneration ||
+        connectionOwnerKey != _recoveryOwnerKey) {
+      return;
+    }
+
     final generation = ++_connectionGeneration;
+    bool isCurrent() =>
+        generation == _connectionGeneration &&
+        contextGeneration == _recoveryContextGeneration &&
+        connectionOwnerKey == _recoveryOwnerKey;
     _activeTransport = device.transport;
     _activeConnectionGeneration = generation;
     _sourceConnectionGenerations[device.transport] = generation;
     try {
       await _activeBridge.connect(device.nativeIdentifier, profile: profile);
       try {
-        if (generation != _connectionGeneration) return;
+        if (!isCurrent()) return;
         var verifiedName =
             WearableDeviceClassifier.routesTo(
               device.display.name,
@@ -330,6 +536,7 @@ class RoutedWearableBridge
           try {
             final details = await (active as WearableDeviceDetailsBridge)
                 .getConnectedDeviceDetails();
+            if (!isCurrent()) return;
             if (details != null &&
                 details.id == device.nativeIdentifier &&
                 WearableDeviceClassifier.routesTo(
@@ -346,16 +553,22 @@ class RoutedWearableBridge
             // Connection success does not depend on optional display details.
           }
         }
+        if (!isCurrent()) return;
         final preference = _preferenceStore;
         if (preference is WearableBindingPreferenceStore) {
-          await preference.writeBinding(
-            SavedWearableBinding(
-              device.transport,
-              device.nativeIdentifier,
-              deviceName: verifiedName,
-            ),
+          final binding = SavedWearableBinding(
+            device.transport,
+            device.nativeIdentifier,
+            deviceName: verifiedName,
+            ownerKey: connectionOwnerKey,
           );
+          if (!await _writeCurrentBinding(preference, binding, isCurrent) ||
+              !isCurrent()) {
+            return;
+          }
+          await _armExactRecovery(active, binding, profile);
         } else {
+          if (!isCurrent()) return;
           await preference.write(device.transport);
         }
       } catch (_) {
@@ -372,8 +585,9 @@ class RoutedWearableBridge
 
   @override
   Future<void> disconnect() async {
-    ++_connectionGeneration;
+    final disconnectGeneration = ++_connectionGeneration;
     final transport = _activeTransport;
+    if (transport != null) _exactRecoveryTargets.remove(transport);
     if (transport == null) return;
     final connectionOwner = _activeConnectionGeneration;
     final pending = _pendingRecoveryWork[transport];
@@ -385,10 +599,13 @@ class RoutedWearableBridge
     if (_activeConnectionGeneration != connectionOwner) return;
     _activeTransport = null;
     _activeConnectionGeneration = null;
-    try {
-      await _preferenceStore.clear();
-    } catch (_) {
-      // Native disconnect is complete even if the local preference write fails.
+    if (!requireOwnerScopedBinding &&
+        disconnectGeneration == _connectionGeneration) {
+      try {
+        await _serializeBindingMutation(_preferenceStore.clear);
+      } catch (_) {
+        // The SDK disconnect has completed; storage remains retryable.
+      }
     }
   }
 
@@ -448,10 +665,44 @@ class RoutedWearableBridge
     } catch (_) {
       return null;
     }
-    if (saved == null || generation != _connectionGeneration) return null;
+    if (saved == null ||
+        generation != _connectionGeneration ||
+        !_bindingBelongsToOwner(saved)) {
+      return null;
+    }
     final source = _sources[saved.transport];
-    if (source == null) return null;
+    if (source == null) {
+      throw PlatformException(
+        code: 'DEVICE_SDK_UNAVAILABLE',
+        message: '此版本不支持该设备，请连接 QRing 或 CoolWear 戒指',
+      );
+    }
     _requireRecoverySourceAvailable(saved.transport);
+    if (source is WearableExactTargetRecoveryBridge &&
+        saved.deviceName != null) {
+      if (!WearableDeviceClassifier.routesTo(
+        saved.deviceName!,
+        saved.transport,
+      )) {
+        return null;
+      }
+      _activeTransport = saved.transport;
+      _activeConnectionGeneration = generation;
+      _sourceConnectionGenerations[saved.transport] = generation;
+      await _armExactRecovery(source, saved, profile);
+      if (generation != _connectionGeneration) return null;
+      if (source is WearableDeviceDetailsBridge) {
+        final current = await (source as WearableDeviceDetailsBridge)
+            .getConnectedDeviceDetails();
+        if (current?.id == saved.nativeIdentifier &&
+            WearableDeviceClassifier.routesTo(current!.name, saved.transport)) {
+          final routed = RoutedDevice.fromDevice(saved.transport, current);
+          _scanned[routed.display.id] = routed;
+          return routed.display;
+        }
+      }
+      return null;
+    }
     // Native SDKs keep installation-wide saved targets. Never ask them to
     // restore a target selected in another API environment.
     final List<DeviceInfo> scanned;
@@ -574,7 +825,7 @@ class RoutedWearableBridge
     final details = await (bridge as WearableDeviceDetailsBridge)
         .getConnectedDeviceDetails();
     if (details == null) {
-      _activeTransport = null;
+      if (bridge is! WearableExactTargetRecoveryBridge) _activeTransport = null;
       return null;
     }
     return RoutedDevice.fromDevice(transport, details).display;
@@ -641,7 +892,7 @@ class RoutedWearableBridge
     final generation = _connectionGeneration;
     final records = await _activeBridge.syncHealthData(cursor: cursor);
     _requireCurrentConnection(generation, message: '戒指连接已变化，请重新同步');
-    return records
+    final scoped = records
         .map((record) {
           final existingTransport =
               WearableDeviceClassifier.transportForScopedId(record.deviceId);
@@ -654,14 +905,32 @@ class RoutedWearableBridge
           final deviceId = record.deviceId.isEmpty || existingTransport != null
               ? record.deviceId
               : RoutedDevice.scopedID(transport, record.deviceId);
+          final timeline = record.sleepTimeline == null
+              ? null
+              : SleepTimeline.fromJson(
+                  _scopeSleepTimeline(
+                    record.sleepTimeline!.toJson(),
+                    transport,
+                  ),
+                );
+          if (timeline != null && timeline.deviceId != deviceId) {
+            throw PlatformException(
+              code: 'DEVICE_PROVIDER_MISMATCH',
+              message: '睡眠数据来源已变化，请重新同步',
+            );
+          }
           return record.copyWith(
             deviceId: deviceId,
+            sleepTimeline: timeline,
             sourceVendor: transport.name,
             sourceDeviceCategory: 'ring',
             sourceApp: 'say-ring',
           );
         })
         .toList(growable: false);
+    return records is WearableSyncResult
+        ? WearableSyncResult(scoped, records.statuses)
+        : scoped;
   }
 
   @override
@@ -780,6 +1049,18 @@ class RoutedWearableBridge
   }
 
   void _forwardEvent(WearableTransport transport, WearableEvent event) {
+    if (requireOwnerScopedBinding &&
+        _sources[transport] is WearableExactTargetRecoveryBridge &&
+        event.type == 'reconnected') {
+      final identifier = '${event.payload['id'] ?? ''}';
+      final expected = _exactRecoveryTargets[transport];
+      if (_recoveryOwnerKey == null ||
+          expected == null ||
+          (identifier != expected &&
+              identifier != RoutedDevice.scopedID(transport, expected))) {
+        return;
+      }
+    }
     if (_pendingRecoveryWork.containsKey(transport) &&
         (_sourceConnectionGenerations[transport] != _connectionGeneration ||
             _activeTransport != transport)) {
@@ -810,20 +1091,42 @@ class RoutedWearableBridge
           event.type == 'reconnected' ||
           event.type == 'disconnected' ||
           event.type == 'syncProgress' ||
-          event.type == 'cameraShutter') {
+          event.type == 'recoveryState' ||
+          event.type == 'sleepReadStatus' ||
+          event.type == 'healthRecord' ||
+          event.type == 'cameraShutter' ||
+          event.type == 'cameraRemoteStopped') {
         final payload = Map<String, Object?>.from(event.payload);
         final usesPrimaryId =
             event.type == 'deviceDetails' || event.type == 'reconnected';
         final nativeValue = usesPrimaryId ? payload['id'] : payload['deviceId'];
         final nativeIdentifier = '${nativeValue ?? ''}';
         if (nativeIdentifier.isNotEmpty) {
+          final existing = WearableDeviceClassifier.transportForScopedId(
+            nativeIdentifier,
+          );
+          if (existing != null && existing != transport) return;
           final prefix = '${transport.name}:';
           final scopedIdentifier = nativeIdentifier.startsWith(prefix)
               ? nativeIdentifier
               : RoutedDevice.scopedID(transport, nativeIdentifier);
-          if (payload.containsKey('id')) payload['id'] = scopedIdentifier;
+          if (usesPrimaryId && payload.containsKey('id')) {
+            payload['id'] = scopedIdentifier;
+          }
           if (payload.containsKey('deviceId')) {
             payload['deviceId'] = scopedIdentifier;
+          }
+        }
+        if (payload['sleepTimeline'] is Map) {
+          try {
+            final timeline = _scopeSleepTimeline(
+              Map<String, Object?>.from(payload['sleepTimeline'] as Map),
+              transport,
+            );
+            if (timeline['deviceId'] != payload['deviceId']) return;
+            payload['sleepTimeline'] = timeline;
+          } on PlatformException {
+            return;
           }
         }
         _eventController.add(WearableEvent(type: event.type, payload: payload));
@@ -831,6 +1134,29 @@ class RoutedWearableBridge
       }
       _eventController.add(event);
     }
+  }
+
+  Map<String, Object?> _scopeSleepTimeline(
+    Map<String, Object?> timeline,
+    WearableTransport transport,
+  ) {
+    final identifier = '${timeline['deviceId'] ?? ''}';
+    if (identifier.isEmpty) return timeline;
+    final currentTransport = WearableDeviceClassifier.transportForScopedId(
+      identifier,
+    );
+    if (currentTransport != null && currentTransport != transport) {
+      throw PlatformException(
+        code: 'DEVICE_PROVIDER_MISMATCH',
+        message: '睡眠数据来源已变化，请重新同步',
+      );
+    }
+    return {
+      ...timeline,
+      'deviceId': currentTransport == null
+          ? RoutedDevice.scopedID(transport, identifier)
+          : identifier,
+    };
   }
 
   Future<void> dispose() async {
@@ -850,11 +1176,13 @@ class SavedWearableBinding {
     this.transport,
     this.nativeIdentifier, {
     this.deviceName,
+    this.ownerKey,
   });
 
   final WearableTransport transport;
   final String nativeIdentifier;
   final String? deviceName;
+  final String? ownerKey;
 }
 
 abstract interface class WearableBindingPreferenceStore
@@ -897,6 +1225,10 @@ class SecureWearableTransportPreferenceStore
   @override
   Future<SavedWearableBinding?> readBinding() async {
     final value = await _readValue();
+    if (value?['schemaVersion'] == 2 &&
+        value?['environment'] != globalStorageNamespace(storageNamespace)) {
+      return null;
+    }
     final transport = _transport(value?['transport']);
     final identifier = value?['nativeIdentifier'];
     if (transport == null || identifier is! String || identifier.isEmpty) {
@@ -906,7 +1238,13 @@ class SecureWearableTransportPreferenceStore
     final deviceName = rawName is String && rawName.trim().isNotEmpty
         ? rawName.trim()
         : null;
-    return SavedWearableBinding(transport, identifier, deviceName: deviceName);
+    final owner = value?['ownerKey'];
+    return SavedWearableBinding(
+      transport,
+      identifier,
+      deviceName: deviceName,
+      ownerKey: owner is String && owner.isNotEmpty ? owner : null,
+    );
   }
 
   @override
@@ -919,6 +1257,11 @@ class SecureWearableTransportPreferenceStore
   Future<void> writeBinding(SavedWearableBinding binding) => _storage.write(
     key: _key,
     value: jsonEncode({
+      'schemaVersion': binding.ownerKey == null ? 1 : 2,
+      if (binding.ownerKey != null) ...{
+        'environment': globalStorageNamespace(storageNamespace),
+        'ownerKey': binding.ownerKey,
+      },
       'transport': binding.transport.name,
       'nativeIdentifier': binding.nativeIdentifier,
       if (binding.deviceName != null) 'deviceName': binding.deviceName,

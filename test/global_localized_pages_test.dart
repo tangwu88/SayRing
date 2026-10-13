@@ -15,6 +15,12 @@ const _categoryId = '736c4aad-0fe2-4602-98c5-9e1973fc08ec';
 const _articleId = '1b31a3cb-77ee-4cc6-ad93-0a640e496817';
 
 class _GlobalPageController extends Fake implements AppController {
+  @override
+  bool get isWellnessOnly => false;
+  @override
+  bool get healthAlertsAvailable => true;
+  @override
+  bool isMetricAvailableInRelease(HealthMetric metric) => true;
   bool reviewed = false;
   bool mismatch = false;
   bool granted = false;
@@ -169,6 +175,32 @@ class _GlobalPageController extends Fake implements AppController {
       'Unable to load health reports.';
 }
 
+class _PagedArticleController extends _GlobalPageController {
+  bool failCategories = false;
+  bool failNext = false;
+  final requestedPages = <int>[];
+  @override
+  Future<List<Map<String, Object?>>> loadGlobalArticleCategories() async {
+    if (failCategories) throw StateError('synthetic categories failure');
+    return super.loadGlobalArticleCategories();
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> loadGlobalArticles({
+    String? categoryId,
+    int page = 1,
+  }) async {
+    requestedPages.add(page);
+    if (page == 2 && failNext) throw StateError('synthetic next-page failure');
+    return page == 1
+        ? List.generate(30, (i) => {'id': 'article-$i', 'title': 'Article $i'})
+        : [
+            {'id': 'article-29', 'title': 'Article 29'},
+            {'id': 'article-30', 'title': 'Article 30'},
+          ];
+  }
+}
+
 class _SupportPageController extends _GlobalPageController {
   @override
   Future<Map<String, Object?>> loadGlobalSupportConfig() async => {
@@ -199,6 +231,142 @@ Future<void> _pump(
 }
 
 void main() {
+  final published = DateTime.utc(2026, 10, 2, 23, 30);
+  final local = published.toLocal();
+  final expectedDate =
+      '${local.year}-${local.month.toString().padLeft(2, '0')}-'
+      '${local.day.toString().padLeft(2, '0')}';
+  final dates = <String, Object>{
+    'ISO UTC': '2026-10-02T23:30:00.000Z',
+    'ISO offset': '2026-10-03T07:30:00+08:00',
+    'DateTime': published,
+    'epoch seconds': published.millisecondsSinceEpoch ~/ 1000,
+    'epoch milliseconds': published.millisecondsSinceEpoch,
+    'seconds string': '${published.millisecondsSinceEpoch ~/ 1000}',
+    'milliseconds string': '${published.millisecondsSinceEpoch}',
+  };
+  for (final entry in dates.entries) {
+    testWidgets('article ${entry.key} displays a local calendar date', (
+      tester,
+    ) async {
+      final article = <String, Object?>{
+        'title': '睡眠监测的原理',
+        'publishedAt': entry.value,
+      };
+      var opened = false;
+      await _pump(
+        tester,
+        Scaffold(
+          body: ArticleTile(article: article, onTap: () => opened = true),
+        ),
+        locale: const Locale('zh', 'Hans'),
+        viewport: const Size(320, 844),
+      );
+      expect(find.text(expectedDate), findsOneWidget);
+      expect(
+        tester.widget<ListTile>(find.byType(ListTile)).subtitle,
+        isNotNull,
+      );
+      await tester.tap(find.text('睡眠监测的原理'));
+      expect(opened, isTrue);
+      expect(article['publishedAt'], entry.value);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('article missing or invalid dates are not displayed', (
+    tester,
+  ) async {
+    for (final date in <Object?>[
+      null,
+      '',
+      'not-a-date',
+      'null',
+      0,
+      -1,
+      double.nan,
+      double.infinity,
+      8640000000000001,
+      true,
+    ]) {
+      await _pump(
+        tester,
+        Scaffold(
+          body: ArticleTile(
+            article: {'title': 'Article', 'publishedAt': date},
+            onTap: () {},
+          ),
+        ),
+      );
+      expect(tester.widget<ListTile>(find.byType(ListTile)).subtitle, isNull);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('article date aliases keep publication precedence', (
+    tester,
+  ) async {
+    for (final field in ['publishedAt', 'createdAt', 'created_at']) {
+      final article = <String, Object?>{
+        'title': 'Article',
+        'created_at': '2020-01-01T00:00:00Z',
+        field: published.toIso8601String(),
+      };
+      await _pump(
+        tester,
+        Scaffold(
+          body: ArticleTile(article: article, onTap: () {}),
+        ),
+      );
+      expect(find.text(expectedDate), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('category failure does not hide successful articles', (
+    tester,
+  ) async {
+    final controller = _PagedArticleController()..failCategories = true;
+    await _pump(tester, GlobalArticleLibraryPage(controller: controller));
+    expect(
+      find.byKey(const ValueKey('global-article-article-0')),
+      findsOneWidget,
+    );
+    expect(find.text('Article 0'), findsOneWidget);
+    expect(controller.legacyCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'pagination retries without dropping prior pages and deduplicates IDs',
+    (tester) async {
+      final controller = _PagedArticleController()..failNext = true;
+      await _pump(tester, GlobalArticleLibraryPage(controller: controller));
+      final more = find.byKey(const Key('global-article-load-more'));
+      await tester.scrollUntilVisible(more, 450);
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      expect(find.text('加载失败，重试'), findsOneWidget);
+      controller.failNext = false;
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('global-article-article-30')),
+        300,
+      );
+      expect(controller.requestedPages, [1, 2, 2]);
+      expect(
+        find.byKey(const ValueKey('global-article-article-29')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('global-article-article-30')),
+        findsOneWidget,
+      );
+      expect(more, findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets(
     'international support does not advertise domestic phone or WeChat',
     (tester) async {
@@ -209,7 +377,7 @@ void main() {
       expect(find.byIcon(Icons.wechat_rounded), findsNothing);
       expect(
         find.text(
-          'This feature is temporarily unavailable. Please try again later.',
+          'Other contact details are not configured. WeChat service above remains available.',
         ),
         findsOneWidget,
       );
@@ -225,7 +393,11 @@ void main() {
       const CustomerServicePage(isGlobalEdition: true),
       locale: const Locale('zh'),
     );
-    expect(find.text('客服联系方式暂未配置，请稍后再试'), findsOneWidget);
+    expect(find.text('电话及公众号暂未配置，仍可使用上方微信客服'), findsOneWidget);
+    expect(
+      find.byKey(const Key('say-ring-open-wechat-service')),
+      findsOneWidget,
+    );
     expect(find.text('4006386738'), findsNothing);
   });
 

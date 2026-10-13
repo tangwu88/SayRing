@@ -46,6 +46,8 @@ jobs:
       - run: flutter pub get
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
+      - name: Check client module and iOS size contracts
+        run: node --test tool/measure_ios_bundle.test.mjs tool/client_package_contract.test.mjs
       - run: TZ=UTC flutter test --coverage
       - run: TZ=Asia/Shanghai flutter test
       - run: python3 -m unittest discover -s scripts/release -p 'test_*.py'
@@ -72,6 +74,10 @@ jobs:
         env:
           SAIDIAN_ALLOW_QA_RELEASE: "true"
       - run: cd android && ./gradlew :app:testDebugUnitTest
+      - name: Verify SDK bytes and Release-to-Debug immutable cache regression
+        run: |
+          node tool/verify_qring_sdk_copy.mjs android/app/libs/qring_sdk_1.0.0.76.aar build/app/generated/qring-sdk/qring_sdk_1.0.0.76-build.aar
+          flutter build apk --debug --target-platform=android-arm,android-arm64
 
   ios:
     runs-on: macos-26
@@ -87,6 +93,11 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: flutter build ios --debug --no-codesign
+      - name: Check CoolWear SDK integrity and native input policy
+        run: |
+          node --test tool/test_coolwear_ios_integration.mjs
+          xcrun clang -fobjc-arc -framework Foundation test/native_coolwear_policy_test.m -o build/coolwear-policy-test
+          build/coolwear-policy-test
       - run: flutter build ios --profile --no-codesign
       - run: flutter build ios --release --no-codesign
         env:

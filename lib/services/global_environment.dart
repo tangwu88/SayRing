@@ -196,5 +196,16 @@ abstract final class GlobalEnvironment {
       safeResourcePath(uri) &&
       (uri.path.startsWith('$apiPrefix/') ||
           uri.path.startsWith('/global/media/') ||
-          uri.path.startsWith('/global/assets/'));
+          uri.path.startsWith('/global/assets/') ||
+          _isUnifiedFileResource(uri));
+
+  // The unified server returns canonical file URLs. Accept only an exact UUID
+  // file resource, not other canonical APIs; authenticated routing stays global.
+  static bool _isUnifiedFileResource(Uri uri) =>
+      !uri.hasQuery && _unifiedFilePath.hasMatch(uri.path);
+
+  static final _unifiedFilePath = RegExp(
+    r'^/api/saydian-app/v2/files/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-'
+    r'[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  );
 }

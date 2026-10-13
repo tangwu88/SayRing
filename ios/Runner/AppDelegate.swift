@@ -830,13 +830,15 @@ struct IOSWechatAuthState {
 }
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, WXApiDelegate {
+@objc class AppDelegate: FlutterAppDelegate, WXApiDelegate {
+  private(set) var flutterEngine: FlutterEngine?
   private let wearableStreamHandler = WearableStreamHandler()
   private var wearableAdapter: WearableAdapter?
   private var methodChannel: FlutterMethodChannel?
   private var eventChannel: FlutterEventChannel?
   #if !targetEnvironment(simulator)
   private var qringWearableBridge: QRingWearableBridge?
+  private var coolwearWearableBridge: CoolWearWearableBridge?
   #endif
   private var paymentChannel: FlutterMethodChannel?
   private var authChannel: FlutterMethodChannel?
@@ -852,12 +854,16 @@ struct IOSWechatAuthState {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    #if canImport(VeepooBleSDK) && !targetEnvironment(simulator)
-    wearableAdapter = VeepooWearableAdapter(events: wearableStreamHandler)
-    #else
+    // QRing and CoolWear own this iOS release's activity/sleep transports.
+    // Do not initialize the inherited watch SDK or its saved connection state.
     wearableAdapter = UnconfiguredWearableAdapter()
-    #endif
     registerWechatIfConfigured()
+    // Start the engine before UIScene creates FlutterViewController; this avoids
+    // the iOS 26 ProMotion implicit-engine VSync startup race.
+    let engine = FlutterEngine(name: "SayRingMain")
+    guard engine.run() else { return false }
+    flutterEngine = engine
+    configureFlutterEngine(engine)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -866,11 +872,9 @@ struct IOSWechatAuthState {
     wearableAdapter?.refreshDeviceDetailsIfNeeded()
   }
 
-  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
-    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    guard let registrar = engineBridge.pluginRegistry.registrar(
-      forPlugin: "SaydianWearableBridge"
-    ) else {
+  private func configureFlutterEngine(_ engine: FlutterEngine) {
+    GeneratedPluginRegistrant.register(with: engine)
+    guard let registrar = engine.registrar(forPlugin: "SaydianWearableBridge") else {
       return
     }
 
@@ -894,6 +898,7 @@ struct IOSWechatAuthState {
 
     #if !targetEnvironment(simulator)
     qringWearableBridge = QRingWearableBridge(messenger: registrar.messenger())
+    coolwearWearableBridge = CoolWearWearableBridge(messenger: registrar.messenger())
     #endif
 
     let payments = FlutterMethodChannel(
@@ -950,7 +955,7 @@ struct IOSWechatAuthState {
   }
 
   func handlePaymentOpenURL(_ url: URL) -> Bool {
-    if WXApi.handleOpen(url, delegate: self) { return true }
+    if wechatIntegrationEnabled && WXApi.handleOpen(url, delegate: self) { return true }
     guard url.scheme?.caseInsensitiveCompare(configuredAlipayScheme) == .orderedSame else {
       return false
     }
@@ -964,7 +969,7 @@ struct IOSWechatAuthState {
   }
 
   func handlePaymentUniversalLink(_ userActivity: NSUserActivity) -> Bool {
-    WXApi.handleOpenUniversalLink(userActivity, delegate: self)
+    wechatIntegrationEnabled && WXApi.handleOpenUniversalLink(userActivity, delegate: self)
   }
 
   func onResp(_ response: BaseResp) {
@@ -1008,6 +1013,10 @@ struct IOSWechatAuthState {
     }
     guard call.method == "authorizeWechat" else {
       result(FlutterMethodNotImplemented)
+      return
+    }
+    guard wechatIntegrationEnabled else {
+      result(FlutterError(code: "WECHAT_AUTH_DISABLED", message: "请使用手机号登录", details: nil))
       return
     }
     guard pendingWechatAuth == nil else {
@@ -1083,6 +1092,10 @@ struct IOSWechatAuthState {
     _ arguments: [String: Any]?,
     result: @escaping FlutterResult
   ) {
+    guard wechatIntegrationEnabled else {
+      result(FlutterError(code: "WECHAT_PAY_DISABLED", message: "当前版本不提供微信支付", details: nil))
+      return
+    }
     guard let arguments,
       let requestValues = IOSPaymentPayloadMapper.wechatRequest(arguments)
     else {
@@ -1209,11 +1222,17 @@ struct IOSWechatAuthState {
   }
 
   private func registerWechatIfConfigured() {
-    guard !configuredWechatAppID.isEmpty, !configuredWechatUniversalLink.isEmpty else { return }
+    guard wechatIntegrationEnabled,
+      !configuredWechatAppID.isEmpty,
+      !configuredWechatUniversalLink.isEmpty else { return }
     _ = WXApi.registerApp(
       configuredWechatAppID,
       universalLink: configuredWechatUniversalLink
     )
+  }
+
+  private var wechatIntegrationEnabled: Bool {
+    (Bundle.main.object(forInfoDictionaryKey: "SaidianWechatEnabled") as? Bool) == true
   }
 
   private var configuredWechatAppID: String {
@@ -1287,6 +1306,15 @@ struct IOSWechatAuthState {
     _ call: FlutterMethodCall,
     result: @escaping FlutterResult
   ) {
+    let policyArguments = call.arguments as? [String: Any] ?? [:]
+    guard SRActivitySleepCommandAllowed(call.method, policyArguments) else {
+      result(FlutterError(code: "FEATURE_UNAVAILABLE", message: "此版本仅提供活动与睡眠记录", details: nil))
+      return
+    }
+    let completion = result
+    let result: FlutterResult = { value in
+      completion(SRActivitySleepResult(call.method, value))
+    }
     if call.method == "saveGalleryImage" {
       saveGalleryImage(call.arguments as? [String: Any], result: result)
       return
@@ -5237,8 +5265,9 @@ private final class WearableStreamHandler: NSObject, FlutterStreamHandler {
   }
 
   func emit(type: String, payload: [String: Any]) {
+    guard let permitted = SRActivitySleepEvent(type, payload) else { return }
     DispatchQueue.main.async { [weak self] in
-      self?.eventSink?(["type": type, "payload": payload])
+      self?.eventSink?(["type": type, "payload": permitted])
     }
   }
 }

@@ -1,0 +1,254 @@
+# 2026-10-01 Say Ring 拒审整改与重新提交记录
+
+## 范围与先决条件
+
+- 用户要求先完成仅 Say Ring 的服务器本地头像上线验证，再分析右侧 App Store Connect 拒审、构建新版本并重新提交审核。目标是尽量一次通过，不将审核决定当作可保证结果。
+- 修改前 `origin/codex/macos-update-20260930` 与本地 HEAD 均为 `7daf53cca6b9d11a9d2229b56456bc1fce9cb009`，`git fetch --prune origin` 成功；工作树已有自动重连、睡眠、客服及头像专用接口等未提交改动，全部保留，不执行脏树 pull。
+- 当前 App Store 审核中的 `cn.saydian.ring` 为 iOS App 1.0，已将原被拒的构建 1009 替换为已上传的 1013；审核状态仍为“已拒绝／问题未解决”，尚未回复 Apple 或重新提交。
+
+## 拒审原文所需材料
+
+- App Store Connect 提交 `adc6af1e-20e4-4aff-8fbd-ce27e514f8e1` 标记 2.1.0 Performance: App Completeness；Apple 实际消息标题为 `Guideline 2.1 - Information Needed - New App Submission`，未指认某个具体崩溃。
+- Apple 要求：最新系统真机从启动开始的典型流程录屏；若适用，要包含注册、登录、账号删除、UGC 举报/屏蔽、付费功能。还需说明用途/用户、设置和主功能、可用审核账号或素材、核心外部服务、地区差异、适用的授权材料。回复审核消息，并在 App 审核信息备注保留同一套内容。
+- 提交前须用新包在受支持实体设备完成 QA。录屏、附件、账号、线上服务和版本应彼此一致；截图必须展示当前真实 App，而不是已经隐藏的商城或旧页面。
+
+## 当前核对到的独立风险
+
+1. 版本页“需要登录”未勾选、审核备注为空；Release 没有 Debug 的快速体验入口，主流程需要账号。线上验证码登录只支持中国大陆号码，当前没有可向 Apple 提供的已验收审核账号。
+2. 用户已确认从销售地区移除法国，并申报“标准加密算法、非专有算法；不在法国分发”。2026-10-01 在 App Store Connect 将法国取消勾选并保存；供应范围由 175 改为 174 个国家/地区，法国单项回读“未供应”。1013 构建元数据中“App 使用非豁免类加密”为“否”。
+3. 线上 `auth/capabilities` 开启微信主账号登录；iOS 尚无符合 Apple Guideline 4.8 的等效隐私登录选项。已向用户询问保留微信时增加 Apple 登录，还是本次 iOS 暂时隐藏微信。
+4. App Store 隐私标签目前公开显示“未收集数据”；实际 App 有账号、头像和健康同步服务。其隐私政策 URL 为通用“Saydian赛电”政策；App 内国际法律文档仍标为 `Pre-release`，内容称短信服务未启用，与线上能力不符。必须核对实际采集/用途并取得合规确认后更新，不写未经确认的声明。
+5. 当前截图 A1 展示“Say Ring 商城”入口，但本版默认隐藏商城；应在新 iPhone 包上重新采集并替换所有过时截图。
+6. App Store Connect 的 Mac 和 Vision Pro 兼容分发原本开启，与此前仅 iPhone 范围不符；本轮已关闭并回读“已保存”。175 个销售地区暂未更改。
+7. 国际服务当前 `WORKER_OUTBOUND_PAUSED=true`。源码中到期注销由该 Worker 调度，暂停时不会执行。现有注销请求会立即停用账号并撤销会话，但七天后的实际数据删除尚未得到保障；不能以界面测试代替端到端注销验收，也不能为修复 Say Ring 而擅自启动其他 App 共用的全部后台任务。
+
+## 隐私填报事实清单（草案，不可直接发布）
+
+- 账号接口处理手机号或邮箱、会员 ID、昵称、性别、生日、身高、体重、头像；Say Ring 专用头像上传和公开 URL 读取在国际 API 上。实际线上开关/保存结果必须另验。
+- `uploadHealthBatch` 将步数、距离、热量和睡眠、心率、血氧、血压、血糖、体温、HRV、压力等已取得的健康记录发送到账号所属国际 API；新的详细睡眠时间轴仍只在本机 SQLCipher 保存，不等于全部健康数据不出设备。
+- App 可在用户主动请求天气时读取位置并请求天气服务；可在用户同意且功能配置有效时初始化 JPush。iOS 构建包含微信 SDK、JPush、地理定位和多个戒指厂商 SDK。是否在当前正式包中实际初始化、各 SDK 独立收集哪些数据及其用途，尚需逐一核实；不能据此勾选“没有收集数据”。
+- 戒指蓝牙扫描与连接处理精确设备标识和能力信息；资料头像来自用户主动选择的照片。账号删除有服务端接口及“我的→账号设置→注销账号”入口，但新包必须真机演示成功及失败提示。
+- App Store 隐私答案、公开政策和 App 内法律文本涉及法律/合规声明。以上仅是源码审计事实，未取得完整 SDK 数据声明、运营留存规则和最终销售地区确认前，不发布或签署准确性声明。
+
+## 送审门禁与状态
+
+| 门禁 | 当前状态 |
+| --- | --- |
+| Say Ring 头像服务端双读取上线，持久卷、备份恢复、专用账号上传、重启复读 | 新 revision、持久卷、备份恢复和写入开关已验；真实登录账号上传、头像回读及重启复读仍待验 |
+| 登录方式与发行地区一致，微信符合 4.8 或本版不暴露 | 等用户选择；不可擅自删除已要求的微信功能 |
+| 正式隐私政策、App 内法律文本、App 隐私标签一致 | 待实际数据处理盘点和合规确认 |
+| 审核专用账号或其他可复现登录方式 | 待准备及独立验证；不在 Git 记录凭据 |
+| 新 iPhone 构建、签名、安装、主流程、账号删除及戒指功能 | 1012 开发签名 Profile 已原位覆盖 1010 并启动；旧登录、资料和历史健康记录可见。头像上传、戒指、睡眠及注销仍待逐项验收；1009 旧证据不可外推 |
+| 最新 iOS 真机录屏、当前真实截图、审核附件 | 待采集；不可伪造屏幕或样本 |
+| App Store Connect 新构建处理完成、资料保存、回复与重新提交 | 未执行 |
+
+## 本轮追加验证与发布事故（2026-10-01）
+
+- 客户端先执行 `flutter build ios --config-only --debug --no-codesign --no-pub --build-name=1.0 --build-number=1011 --dart-define-from-file=config/ios-app-store-no-push.json`，再串行执行 `xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath build/ios-derived-data -jobs 1 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build`。两步成功；实际 Info.plist 为 `cn.saydian.ring`、构建 `1011`、`UIDeviceFamily=[1]`。这是无签名主机构建，尚未安装真机，也不能上传 App Store。日志：`.build/sayring-1011-ios-debug.log`。
+- 构建前本机仅余约 1.6 GiB。核对无 Gradle/Flutter 构建和打开句柄后，删除本工作树 `.build/task-gradle-cache-20261001/caches` 约 5.2 GiB 的可重建缓存；源码、SDK、APK、归档未删除。`df -h /` 升至约 6.9 GiB，Debug 构建后约 4.9 GiB。该缓存不能从废纸篓恢复，重新构建 Android 时需重新下载。
+- 国际服务发布分支快进后，服务器 `saydian-global-auto-deploy.service` 自动构建期间系统盘由 2.6 GiB 可用降至 0，旧版 `/global/health/ready` 仍返回 ready、revision `660cf1b70ad26eb1553751c0475084e12ae037cf`。为了避免持续满盘，停止该次服务，并暂时停止定时器；没有关闭现役容器或开启头像写入。
+- 核对 Docker 镜像与容器占用后，删除数份未被容器使用的旧国际 API 镜像及无标签构建层；一次误选的 `daf00ce4c842` 实际被国内生产 API 使用，Docker 默认保护拒绝删除，未强制。随后 `docker image prune --force --filter until=1h` 只回收一小时前的无标签镜像，Docker 报告回收 1.612 GiB；最终 `df -h /` 显示约 7.8 GiB 可用。删除的镜像/构建缓存可从镜像仓库重新拉取或重建，未触碰卷、数据库或用户文件。
+- 在容量恢复后，手动启动一次 `saydian-global-auto-deploy.service` 重新发布；本条记录时尚在构建中、定时器暂停。最终结果见下节，不能把推送代码当成上线完成。
+
+## 发布与新增流程检查续记
+
+- 重新发布最终成功：公网 `/global/health/ready` 返回 `ready`、revision `6ea9dd9de91c3f27a452efc1a23ad2f77e88a1b5`；专用头像上传路由匿名请求返回 401，国内健康检查仍为 200。生产头像卷、备份容器、一次测试文件恢复演练及清洁备份的 SHA-256 均已验证；仅国际环境的 Say Ring 本地头像写入已开启，定时器恢复 active/enabled。详细证据见 `SAY-RING-AVATAR-LOCAL-20261001.md`；真实账号头像上传未验。
+- 账号删除界面测试先证实成功删除后仍滞留“账号设置”路由；修复为成功后清空路由返回登录页，失败则留在设置页并显示错误。两条界面测试通过，`flutter analyze --no-pub` 零问题，`flutter test --no-pub` 全量 1022/1022 通过。此前 iOS 1011 无签名 Debug 构建早于此修复，需重新构建、签名并真机验证，不能用于送审。
+- 服务器当前剩余约 2.7 GiB；构建峰值曾写满，删除的旧镜像可从 GHCR 再拉取但不在废纸篓。后续新版本发布前仍需扩容或严格容量预检，不能以本次成功推断以后都可安全构建。
+- 注销修复后重新配置 iOS `1.0 (1012)`，串行 Xcode Profile 无签名构建明确 `BUILD SUCCEEDED`；实际 Runner 为 `cn.saydian.ring`、构建号 `1012`、`UIDeviceFamily=[1]`，日志 `.build/sayring-1012-ios-profile.log`。发布脚本 30 项测试通过，`TZ=UTC flutter test --no-pub --concurrency=2 --reporter expanded` 1022/1022 通过，日志 `.build/sayring-1012-flutter-utc.log`。此产物仍不能安装或上传，正式归档和真机验收未做。
+- 核实服务端注销契约后，将九种语言的注销提示改为“立即停用并退出，相关数据计划于七天后删除，依法须保留的除外”，避免再声称即时删除；新增中文文案断言。国际后台当前暂停通用 Worker，故七天后执行仍是发布阻断项，待明确限制范围后修复并验证。
+- 2026-10-01 在修改后执行 `flutter test --no-pub test/qa_user_flows_test.dart --plain-name 'account deletion returns to login after confirmation'` 和失败分支同名定向测试，各 1/1 通过；`flutter analyze --no-pub` 零问题，`flutter test --no-pub --concurrency=2 --reporter compact` 全量 1022/1022 通过。此前一次以不存在的测试名 `deleting account` 过滤，返回 79 且没有执行测试，随后使用准确名称重跑成功。
+- 串行 Xcode Release 归档 `.build/SayRing-1.0-1012-review-candidate.xcarchive` 成功，日志 `.build/sayring-1012-review-candidate-archive.log` 包含 `ARCHIVE SUCCEEDED`。归档实际 Bundle ID `cn.saydian.ring`、版本 `1.0 (1012)`、`UIDeviceFamily=[1]`；Apple Distribution 签名团队 `W7SXQ4A226`，`codesign --verify --deep --strict` 成功、`get-task-allow=false`。归档的 `Assets.car` 含 `AppIcon`，源图标最近一次 Git 提交为 `05fdb66` 且工作树中图标资源未改。这是候选归档，不等于 App Store Connect 已上传或审核已提交；尚未在 iPhone 上安装。
+- 归档后再查公网国际 API 仍为 ready、revision `6ea9dd9de91c3f27a452efc1a23ad2f77e88a1b5`；`xcrun devicectl list devices` 中 iPhone 15 Pro Max 显示 `unavailable`，无法安装录屏。App Store Connect 登录会话到期，右侧只出现 Apple 登录页，已请用户自行重新登录；不读取或代填密码、验证码。
+- 归档保存并验签后，`build/ios-derived-data` 为约 2.2 GiB、被 Git 忽略且没有进程打开；为预留 Android 构建空间，使用精确目录的 `find ... -depth -delete` 清除这份可重建的 Xcode 中间产物，系统可用空间由约 2.6 GiB 升至 4.7 GiB。签名归档、SDK、源码、APK 未删除；中间产物不能从废纸篓恢复，若再编译 iOS 会重新生成。曾尝试 `rm -rf`，命令工具拒绝执行，未造成删除。
+- 基于最新 Flutter/注销文案代码，`GRADLE_OPTS=-Dorg.gradle.workers.max=1 flutter build apk --debug --no-pub` 成功，`SAIDIAN_ALLOW_QA_RELEASE=true GRADLE_OPTS=-Dorg.gradle.workers.max=1 flutter build apk --release --no-pub` 成功；两个 APK 均为 `cn.saydian.ring`、`0.1.21 (1006)`。QA Release 证书仍为 Android Debug，绝不可作为 Android 市场正式包。Debug SHA-256 为 `cb4fbc3bbbc12eea0582ca758b14471005e0ad05cfd37d5ded2bac871377e47b`，QA Release SHA-256 为 `ea467a1b180d5b5f6c493746d2c12d28fdb4cdbcca25ec3911c2945eb74609c6`。`./gradlew :app:testDebugUnitTest --offline --max-workers=1` 成功。构建出现 Flutter/Kotlin 插件未来兼容警告，不影响本次成功结果。
+- 安卓 Huawei ELS-AN00 仍连接电脑，但前台是游戏/通知栏，用户之前要求稍后测试；本轮没有切换、安装或声称头像真机验收。iPhone 15 Pro Max 仍不可用。上述构建测试不能替代真实头像上传、戒指或 Apple 审核录屏。
+- Android 测试后本机空间降到约 1.6 GiB。确认没有相关构建进程或打开句柄后，只清除被 Git 忽略的本工作树 `build/app/intermediates` 约 1.9 GiB；Debug 与 QA Release APK 均保留且 SHA-256 复核未变，可用空间回升约 3.6 GiB。此目录也是无法从废纸篓恢复、但可由 Gradle 重建的中间产物。
+- 使用已有本机 App Store 导出配置（`destination=export`，不含上传）导出候选 IPA：`.build/SayRing-1.0-1012-review-candidate-export/Say Ring.ipa`。`xcodebuild -exportArchive` 明确 `EXPORT SUCCEEDED`，ZIP 完整性通过；包内仍是 `cn.saydian.ring`、`1.0 (1012)`、`UIDeviceFamily=[1]`。临时解包再验证签名，Apple Distribution 团队 `W7SXQ4A226` 且 `get-task-allow=false`；临时目录已清除。IPA SHA-256 为 `0bc05774b6044ee02c345a982186fc87e8ab211556a231bcc33a191a124f6375`。仅是本地候选文件，未上传 App Store Connect。
+
+## 1012 iPhone 15 Pro Max 真机覆盖验收续记
+
+- 2026-10-01 16:34（北京时间）前再次 `git fetch --prune origin`，本地和远端分支均为 `7daf53cca6b9d11a9d2229b56456bc1fce9cb009`；工作树已有他人/前序未提交改动，未执行脏树 pull、重置或清理。`devicectl` 读取目标 iPhone 15 Pro Max 为 connected、iOS 26.6、开发者模式可用；安装前同一包名版本为 `1.0 (1010)`。
+- `TMPDIR=/private/tmp flutter build ios --config-only --profile --no-codesign --no-pub --build-name=1.0 --build-number=1012 --dart-define-from-file=config/ios-app-store-no-push.json` 成功；随后单独串行执行 `xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Profile -destination 'id=<目标 iPhone CoreDevice ID>' -derivedDataPath build/ios-profile-1012-derived-data -jobs 1 -allowProvisioningUpdates FLUTTER_BUILD_NAME=1.0 FLUTTER_BUILD_NUMBER=1012 build` 成功，日志 `.build/sayring-1012-device-profile-build.log` 包含 `BUILD SUCCEEDED`。未把 App Store 分发 IPA 当作真机测试包。
+- 产物 `build/ios-profile-1012-derived-data/Build/Products/Profile-iphoneos/Runner.app` 实际为 `cn.saydian.ring`、`1.0 (1012)`、`UIDeviceFamily=[1]`；`codesign --verify --deep --strict` 成功，Apple Development 团队 `W7SXQ4A226`、`get-task-allow=true`，嵌入的同包名开发描述文件包含目标 iPhone。Runner SHA-256 `41946618e5dfb25d493ad6fd70bc404969ac5bb3b7d6f6df52a34d74e61990b3`。
+- `xcrun devicectl device install app --device <目标 iPhone CoreDevice ID> <Runner.app>` 在未卸载 1010 的情况下成功；设备回读 `1.0 (1012)`，`device process launch --terminate-existing cn.saydian.ring` 成功且独立进程仍存活。现有登录会话、资料和历史健康记录在真机页面可见；这只证实原位升级后的可用性，不等于全部本地数据逐条校验。
+- 复用此前已安装的开发签名 WebDriverAgent 辅助 App，真机 `/status` 为 ready；仅将真机截图保存在 `/private/tmp`，没有将账号、健康数值或相册照片写入 Git。进入个人资料页后打开系统照片选择器；为了避免代选私密照片，已请求用户亲自选择愿意公开作头像的非敏感照片，保存及回读待后续记录。
+
+## 待证据补齐后填写的英文审核答复结构
+
+> This is a companion app for compatible Saydian smart rings. It helps ring owners connect their device and review personal wellness measurements, activity and sleep trends. It is not a medical diagnosis or treatment service.
+>
+> Reviewer access: [填写经真机验证的公开可用登录方式或专用审核账号；不要填个人账号]。
+>
+> Walkthrough: launch the app, accept the published terms and privacy notice, sign in, allow Bluetooth, select the demonstrated compatible ring, wait for the SDK handshake, then open the health, sleep detail, device and profile screens. Account deletion is under [真机核对路径] and is shown in the attached physical-device recording.
+>
+> Core external services: [按最终包及线上配置核对第一方国际 API、实际启用的厂商蓝牙 SDK、微信/Apple 登录等；未启用的支付、AI 和推送不写成活动服务]。
+>
+> Regional availability and feature differences: [与最终销售地区、验证码、语言和账号方式一致填写]。
+>
+> Protected material/regulated service: [核对实际厂商授权和医疗定位后填写；没有证据不声称已获得授权]。
+>
+> The attached recording was captured on [真机机型/iOS 版本] from launch through [已实际录到的流程]. The current screenshots correspond to the submitted build [新构建号].
+
+以上只是事实框架，方括号是待证据项，不能原样提交 Apple。
+
+## 1013 上传、地区与真机续记
+
+- 2026-10-01 对 1012 真机看到的睡眠时间轴起止标签靠左问题，改为两端对齐并加入正常及 2 倍字号的 Widget 回归。针对性 2/2、整文件 21/21、Flutter 全量 1024/1024、`flutter analyze --no-pub` 零问题；发布门禁测试 30/30。构建仅串行执行。
+- 以生产 API 配置和 `1.0 (1013)` 制作 App Store Release 归档 `.build/SayRing-1.0-1013-review-candidate.xcarchive`，`ARCHIVE SUCCEEDED`、`codesign --verify --deep --strict` 均通过。实际 Bundle ID `cn.saydian.ring`、`UIDeviceFamily=[1]`、Apple Distribution 团队 `W7SXQ4A226`、`get-task-allow=false`；Runner SHA-256 `eaa02c9ae96608bb17fc3313a1caf3a66f742d830f73df0ae62c2da30cf85d82`。
+- 命令行上传因 Xcode 账号服务返回 `Failed to Use Accounts` 未完成；随后在 Xcode Organizer 对同一归档执行 App Store Connect 分发，界面显示 `Uploaded with warnings`。警告为未来最低 iOS 版本要求与部分厂商闭源框架 dSYM 缺失；上传未被阻止。
+- App Store Connect 的 1013 构建 UUID 为 `01fbed8c-6581-49a8-b79e-f547af84d206`，上传时间 17:20，二进制状态“已验证”，Bundle ID `cn.saydian.ring`、设备系列 iPhone、构建号 1013。版本页已将被拒构建 1009 替换为 1013 并保存；原审核仍为“已拒绝／问题未解决”，不是“已提交审核”。
+- 经用户明确确认，将法国从供应地区取消并完成 App Store Connect 的确认步骤；回读 174 个国家/地区、法国“未供应”。App Store Connect 提示地区更改可能在 24 小时内生效。1013 构建元数据回读“App 使用非豁免类加密：否”；尚未把弹窗中未实际保存的选择冒充为独立申报成功。
+- 从同源码串行构建开发签名 Profile `1.0 (1013)`，签名为 Apple Development、Bundle ID `cn.saydian.ring`。在不卸载、不清除 1012 的条件下原位覆盖 iPhone 15 Pro Max；`devicectl` 回读已安装 1013、启动成功。原登录仍在，首页旧健康记录及真实睡眠明细仍可访问；这不等于健康数据逐条比对。
+- 在 1012 上用户亲自选图并保存头像后，首页和“我的”显示同一头像，杀进程重开后仍在；设备 R21_4F5F 曾从等待靠近恢复到已连接并继续同步一次。没有完成要求的三轮受控远离/靠近、锁屏后台和蓝牙开关验收，不能称自动重连全通过。1013 的睡眠详情 17 段时间轴可访问，起止与阶段值来自真机戒指记录；未取得真实小睡样本。
+- Apple 2.1 信息请求要求最新系统实体设备录屏，从启动覆盖典型流程，含适用的注册、登录、注销；并要求用途/受众、设置和主功能、审核账号、核心外部服务、地区差异及必要授权说明。当前 1013 只有上传和绑定证据，没有完整录屏、专用可复现审核账号。版本页“需要登录”仍未勾选，备注为空；现有截屏含当前 App 已隐藏的商城入口。
+- App 隐私页现仍公开显示“未收集数据”，与账号资料、头像和健康摘要上传事实不符；旧技术支持 URL `https://app.saidian.cc/sdys.html` 实际标题为“赛电APP隐私政策”，不是客服页。已把版本页简体中文描述改成基于当前功能的非医疗说明，并把技术支持 URL 改为用户提供的企业微信客服链接，保存回读成功。登录方案、准确隐私披露、审核访问、真实截屏与注销到期任务核验尚未闭环，故未点击“更新审核”或“重新提交至 App 审核”。
+- 用户授权联络既有“导入-app服务端”任务，要求仅为 Say Ring 审计并准备独立隐私政策；现行通用政策的主体写“广州领科网络科技有限公司”，而 App Store Connect 账号界面显示“Mpcms Beijing Xuewu Tang”，两者不能未经核实就认定一致。用户随后明确答复 Say Ring 的个人信息处理者为 `Xuewu Tang`；公开隐私联系邮箱仍未提供，不猜填。已把确认结果和用户提供的企业微信客服链接发给服务端任务；其他关键事实未确认前只准备草稿、不公开发布。
+- 1013 真机睡眠详情的阶段图和 23:55／07:14 两端标签已目视核对，修复后的起止标签分别靠左右边缘；画面不含姓名和头像。用户明确允许把这台 iPhone 的真实睡眠/健康数值作为公开 App Store 截屏；未经授权的首页姓名/头像和设备精确标识未上传。
+- 用 iPhone 15 Pro Max 的 1290×2796 原始真机截屏，在 App Store Connect 的 6.9 英寸栏上传睡眠详情、心率分析、健康监测设置三张，顺序如列；Apple 官方截屏规格将该尺寸列为 iPhone 15 Pro Max 可接受规格。旧 6.5 英寸 A1–A4 四张先从页面可见原图完整备份到 `/Users/mycodex/电商/SayRing-appstore-screenshots-backup-20261001`，每张为 1242×2688 且 SHA-256 已记录，再从页面删除。回读 6.9 英寸 3/10，6.5 英寸“使用 6.9 英寸显示屏文件”，不再显示旧商城图。
+- 1013 血氧详情页当天显示“该时间段暂无数据”；切换到前一天后可见与首页相同的真实记录和时间点，故不是数据读取丢失。实际问题是首页“健康数据”标题旁标当天日期，下面卡片却按各指标展示跨日最新值，容易误认为旧值在当天测得。已将该标题改为本地化的“近期数据”并加入 Widget 回归；此改动尚未进入已上传的 1013，必须提高构建号重新打包上传后才可送审。
+- 用户已确认 Say Ring 个人信息处理者 `Xuewu Tang`，公开隐私联系邮箱 `kf@saydian.com`，已转交既有服务端任务。公开政策及 App Store 隐私披露仍须在事实审计后回读核对。
+- 用户选择本次 iOS 暂时隐藏微信授权登录，保留现有手机号验证码登录，以避免在尚无等效隐私登录时触发 Apple 4.8 风险；Android 微信入口保持后台能力控制。已修改两处 iOS 登录页面及回归测试，同时用 `SaidianWechatEnabled=false` 阻止 iOS 原生 SDK 在启动时注册及通过方法通道发起微信登录/支付。此改动不在已上传的 1013 内，须随下一构建验收。旧服务端政策草稿中“1013 可选微信”仅描述旧包，最终政策要以新包实际可见功能为准。
+- 以 1.0 (1014) 和生产 API 配置串行生成开发签名 Profile 真机包。`xcodebuild` 返回 0，实际 Runner 为 `cn.saydian.ring`、`UIDeviceFamily=[1]`、`SaidianWechatEnabled=false`，Apple Development 团队 `W7SXQ4A226`；严格深层验签通过。未卸载旧 App，直接覆盖安装到 iPhone 15 Pro Max 并启动；设备回读构建号 1014，原登录仍在，首页可见“健康数据／近期数据”。这只验证首页改动及原位安装，不等于新登录页的真机登出/重登验收；目前仅 Widget 测试证明 iOS 隐藏微信、Android 保留。
+- 1014 目前是开发签名测试包，**尚未制作或上传 App Store Distribution 归档**；App Store Connect 仍绑定已上传的 1013。公开隐私页仍指向旧通用政策，App 隐私仍显示“未收集数据”，未修正前不提交审核。
+- 1014 客户端改动复跑 `flutter analyze --no-pub` 零问题，`TZ=UTC flutter test --no-pub --concurrency=2 --reporter compact` 1023/1023 通过。iOS 原生 Profile 真机编译返回 0；闭源厂商框架仍输出缺失开发者本机 `.pcm` 的调试符号警告，非本次 Swift 语法错误。
+- 服务端任务已生成独立但明确“禁止发布”的英文 Say Ring 政策草稿，未部署；其审计发现 1013 没有 `say-ring` 法律能力标识、注销 Worker 未清理邮箱和微信 OpenID/头像文件、第三方穿戴 SDK 数据行为与保留期限仍需核实。已请服务端继续实现产品隔离接口及精确注销清理，客户端待其给出契约后接入。不能用这份草稿 URL 代替线上正式隐私政策。
+
+## 1015 候选变更：公开只读演示及单一区域
+
+- 用户选择在正式 App 提供无需审核账号的公开只读演示，且首版仅在中国大陆供应。App Store Connect “管理供应情况”中先选择“无”，再只勾选“中国大陆”，关闭未来地区自动供应；确认弹窗明确显示将移除其他 173 个地区。保存回读“供应情况（1 个国家或地区）”，中国大陆“App 发布时供应”、法国及其他地区“未供应”；Apple 提示变更可在 24 小时内生效。此前 1013 二进制仍为当前绑定包，没有因此提交审核。
+- 新登录页增加“无需手机号，查看只读演示”。演示页仅由本机静态、明确标注的虚构数据构成，包含健康指标、可展开的睡眠阶段与小睡、设备连接流程及资料/注销说明。演示路由不持有 API、账号、数据库或蓝牙桥接；演示模式不声称已连接真实 R21。退出只改变内存中的展示状态，不清理真实登录和健康数据；登录账号不能进入演示模式。
+- 修改文件：`lib/ui/global_code_login_page.dart`、`lib/app.dart`、`lib/ui/review_demo_page.dart`、`lib/ui/sleep_detail_widgets.dart`、`lib/services/app_controller.dart` 及对应 Widget 测试；范围为 Say Ring 国际入口 iOS/Android 共享 UI，真实健康 SDK 算法和云协议未改。睡眠组件的真实模式文案未改，演示模式另用“示例”标识，避免把虚构时间轴写成 SDK 实测。
+- 首次定向测试因新页误把非 const `ListView` 写成 `const` 而编译失败；移除 `const` 后 `flutter test --no-pub test/review_demo_page_test.dart test/global_code_login_page_test.dart --reporter compact` 全部通过（6/6）。`flutter analyze --no-pub` 零问题；`flutter test --no-pub test/qa_user_flows_test.dart test/login_page_test.dart --reporter compact` 全部通过（62/62）。全量测试、原生构建、真机与正式上传仍须按后续记录判定。
+- Apple 当前 [App Review Guidelines 2.1(a)](https://developer.apple.com/app-store/review/guidelines/) 对用内置演示代替审核账号写有“需事先获 Apple 批准”及展示完整功能的条件。新只读演示虽提供核心页面和时间轴，不能替代实体戒指握手/测量；正式审核说明必须请求 Apple 接受该审核方式，并附真实硬件录屏，不可称已获事先批准。
+- 一次 `TZ=UTC flutter test --no-pub --concurrency=2 --reporter compact` 在运行到 258 项时与服务端本机 Colima 镜像构建同时遭遇系统盘仅余约 101 MiB，停留在 `old registration response cannot clear a new pending marker`；主动中止，**不计为全量通过**。服务端任务随后仅清理其本轮创建的 Colima 虚拟磁盘，系统可用空间回升至约 5.6 GiB。同名单测独立执行 1/1 通过。待产品专属法律接口改动完成后重新运行全量测试。
+
+## 1015 产品协议与构建验证续记
+
+- 服务端候选契约见 `/Users/mycodex/电商/赛电APP服务端/docs/say-ring-legal-client-contract.md`，仍未合并部署。客户端能力 GET 显式增加 `product=say-ring`，只接受响应 `data.product=say-ring`，法律文档路径只允许 `say_ring_user_agreement` 与 `say_ring_privacy_policy`；共用验证码、注册/重置和 Android 微信三步同意请求显式带产品，适用请求带语言与当前协议版本。修改 `lib/domain/global_account.dart`、`lib/services/global_api_client.dart`、`lib/ui/global_legal_page.dart` 和相关测试；跨产品返回时拒绝继续同意，旧通用协议不被冒充为本 App 协议。
+- 产品协议定向回归第一次因旧测试桩仍返回通用协议且未包含产品字段而失败，修正为专属契约并增加通用协议拒绝断言；补重置密码语言字段及测试。`dart format lib/services/global_api_client.dart test/global_api_test.dart` 无格式变化；`flutter test --no-pub test/global_api_test.dart test/global_legal_page_test.dart test/global_auth_consent_test.dart test/global_joint_device_diagnostic_test.dart --reporter compact` 为 83/83 通过，`flutter analyze --no-pub` 零问题。
+- 2026-10-01 重新执行 `TZ=UTC flutter test --no-pub --concurrency=2 --reporter compact`，**1028/1028 通过**。`git diff --check` 无空白错误。这个结果不替代尚未部署的服务器契约和真机验证码/戒指验收。
+- Android 原生测试 `./gradlew :app:testDebugUnitTest --offline --max-workers=1 --console=plain` 首次因本机离线缓存缺少 `org.gradle.kotlin.kotlin-dsl:6.2.0` 在配置期失败。改用在线解析后，Gradle 进入远端依赖元数据读取但长时间无响应；线程栈位于 HTTPS 响应头读取，主动中止，退出码 130。尚无 Android 原生单测通过或 APK 构建结论，待网络/缓存恢复后重跑。
+- `TMPDIR=/private/tmp flutter build ios --config-only --release --no-codesign --no-pub --build-name=1.0 --build-number=1015 --dart-define-from-file=config/ios-app-store-no-push.json` 成功；随后**串行**运行 `xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release -destination 'generic/platform=iOS' -derivedDataPath build/ios-profile-1012-derived-data -archivePath .build/SayRing-1.0-1015-review-candidate.xcarchive -jobs 1 -allowProvisioningUpdates FLUTTER_BUILD_NAME=1.0 FLUTTER_BUILD_NUMBER=1015 archive -quiet` 退出码 0。归档实际 `cn.saydian.ring`、`1.0 (1015)`、`UIDeviceFamily=[1]`、`SaidianWechatEnabled=false`；`codesign --verify --deep --strict` 通过，Apple Distribution 团队 `W7SXQ4A226`、`get-task-allow=false`。第三方 SDK 的弃用和预置 dSYM 模块缓存警告仍存在，未冒称消除。
+- 归档原件保留在 `.build/SayRing-1.0-1015-review-candidate.xcarchive`，另复制到 Xcode Organizer 归档目录供上传；Organizer 可见 1015。当前 iPhone 15 Pro Max 仍装 1014，1015 是 App Store 分发签名归档，**未拿它直接覆盖真机**。上传及 App Store Connect 后台处理结果在后续条目单独记录。
+- 用户确认首版最低年龄 13 岁，13–17 岁可在监护人同意后使用；已转交既有服务端任务。用户要求自行核对腾讯云合同，签约主体、备份与安全日志保留期限仍需以合同/配置证据查实，不从公开材料推定。隐私政策草稿禁止发布；App Store 隐私标签现有“未收集数据”尚未更正，未经核实不点击重新送审。
+- Xcode Organizer 对 1015 归档选择 App Store Connect 分发，回执为 `Upload completed with warnings`，随后归档列表显示 1015 `Uploaded with warnings`（18:50）。警告包括从 2027 年 4 月起最低 iOS 15 的未来要求（当前实际目标 iOS 13）及 14 个闭源厂商框架 dSYM 缺失；本次上传未被阻断。App Store Connect TestFlight→“构建版本上传”回读 `1.0 (1015)` 于 18:50 创建、状态“正在处理”；**版本页仍绑定 1013，未把 1015 处理中的状态写成已验证或已送审**。
+- 2026-10-01 18:50 后直接读取公开生产 `GET https://app.saydian.cn/global/api/saydian-app/v2/auth/capabilities?locale=zh-Hans&product=say-ring`：HTTP 200 但 `data.product=null`，返回旧通用 `user_agreement`/`privacy_policy` 和版本 `global-qa-2026-09-10`。因此 1015 客户端会按设计拒绝将通用协议当作戒指协议，**线上验证码登录在服务端专属契约/已审文档部署前不可用**；公开只读演示不依赖该 API。绝不能将现时 1015 提交审核或上线给用户。
+- 既有服务端任务只读核对发现：腾讯云控制台的预设合同甲方为“微销通(北京)科技有限公司”，但合同记录为 0，不能称已签署合同或直接写成当前分包服务商主体；数据库备份仓库配置保留 30 天、Restic 源码策略为 14 个日备份/8 个周备份/12 个月备份，尚无生产运行值证明；安全日志期限未知。穿戴 SDK 的独立网络行为和供应商主体仍无证明。13 岁用户在中国大陆属于不满 14 周岁，现有客户端缺少监护人同意留痕；已向用户询问首发改为 14+ 或补监护人核验流程。法律、隐私标签及最终上架仍待事实和实现闭环。
+- Android 原生单测第二次离线重试已通过 Flutter Gradle 插件配置，但在 `camera_android_camerax` 配置期缺多项 AGP/Kotlin 依赖缓存而失败；在线重试需要补齐依赖，尚无 Android 构建通过证据。本轮 iOS 上传不等于 Android 回归通过。
+- 之后使用仅置于 `/private/tmp` 的 Gradle 初始化脚本，给各项目 buildscript 增加阿里云 Google/Central/插件镜像，执行 `./gradlew -I /private/tmp/sayring-gradle-mirrors.init.gradle :app:testDebugUnitTest --max-workers=1 --console=plain -Dorg.gradle.internal.http.connectionTimeout=15000 -Dorg.gradle.internal.http.socketTimeout=15000`，耗时约 5 分 34 秒，`BUILD SUCCESSFUL`，300 项任务中 25 项执行、275 项最新。首次初始化脚本试图设置 project.repositories，因仓库集中管理模式失败；移除该设置后才通过。此项纠正了上一条“尚无 Android 原生单测通过”的中间状态，不等于当前源码新 APK 已生成。
+- 随后 `GRADLE_OPTS=-Dorg.gradle.workers.max=1 flutter build apk --debug --no-pub` 在 Maven Central 获取 `org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.3.20` 时遇 TLS 握手失败；Flutter 自动重试持续等待，已主动终止。原 `build/app/outputs/flutter-apk/app-debug.apk` 时间戳仍为 15:59，不能当作本轮新包。为回收构建空间，仅在确认无进程句柄、签名归档另存后删除被 Git 忽略的 `build/ios-profile-1012-derived-data`（约 1.4 GiB）；签名归档、源码、SDK、旧 APK 均保留。该中间目录可重建，但不能从废纸篓恢复；余量回到约 2.6 GiB。
+- 1015 在 App Store Connect 的后台处理已完成。首次回读为“缺少出口合规证明”，随后按用户此前确认的事实，在 1015 加密问卷申报“标准加密算法、非专有算法”及“不在法国分发”并保存；TestFlight 回读构建 `1.0 (1015)` 为“准备提交”。此前已核对正式供应地区仅中国大陆。**App Store 版本页仍绑定 1013，1015 未绑定版本、未提交审核，更未上架。**
+- 2026-10-01 19:07 再执行 `git fetch --prune origin`，本地与 `origin/codex/macos-update-20260930` 同为 `7daf53cca6b9d11a9d2229b56456bc1fce9cb009`；大量在途改动仍在工作树，未对脏树 pull、reset 或覆盖。用户指示自行查腾讯云合同：控制台只有预设甲方、合同记录为 0，不能认定签署主体；生产备份及安全日志实际期限、穿戴 SDK 数据披露也不能推断，政策仍未发布。
+
+## 1015 后台验证、Android 回归与审核沟通续记
+
+- App Store Connect→TestFlight→1015“构建版本元数据”回读二进制状态“已验证”，`1.0 (1015)`、`cn.saydian.ring`、设备系列 `iPhone`、非豁免类加密“否”、Apple Distribution entitlement `get-task-allow=false`；这比“上传完成”进一步证实服务器处理结果，但不代表 App Store 版本已改绑或审核通过。
+- 采用前述临时镜像脚本执行 `./gradlew -I /private/tmp/sayring-gradle-mirrors.init.gradle :app:assembleDebug --max-workers=1 --console=plain -Dorg.gradle.internal.http.connectionTimeout=15000 -Dorg.gradle.internal.http.socketTimeout=15000`：1 分 13 秒，`BUILD SUCCESSFUL`，384 项任务中 38 项执行。新 `build/app/outputs/apk/debug/app-debug.apk` 时间戳 19:09:14，SHA-256 `9daa0e76fdcec2e50397359babbfd99ac4effa0dc876efe71f182131624b7969`；包名 `cn.saydian.ring`、`0.1.21 (1006)`、minSdk 26、targetSdk 36，ZIP 完整性通过。这个是新 Gradle 输出，不以较早的 `outputs/flutter-apk` 副本代替。
+- Debug 构建一度将系统盘压到约 145 MiB，构建结束后回收部分临时空间至约 2.1 GiB。为保证下一步回归，核实 `build/app/intermediates` 被 Git 忽略、无打开句柄且新 Debug APK 已验后，仅删除这 1.3 GiB 可重建的 Gradle 中间目录；没有删除 APK、签名归档、源码或 SDK。该中间目录不能从废纸篓恢复。
+- 使用 `SAIDIAN_ALLOW_QA_RELEASE=true ./gradlew -I /private/tmp/sayring-gradle-mirrors.init.gradle :app:assembleRelease --max-workers=1 --console=plain -Dorg.gradle.internal.http.connectionTimeout=15000 -Dorg.gradle.internal.http.socketTimeout=15000`：2 分 20 秒，`BUILD SUCCESSFUL`，656 项任务中 67 项执行；`verifySaidianReleaseMode` 明示 `QA RELEASE - NOT FOR DISTRIBUTION`。新 `build/app/outputs/apk/release/app-release.apk` 时间戳 19:14:05，SHA-256 `3f3799fea5e84137e779084d53f5125c684bc9c5f2f2164f7ac1fc3baf4ea63c`；包名 `cn.saydian.ring`、`0.1.21 (1006)`，ZIP 完整，`apksigner` 证书为 Android Debug。**不能作为 Android 商店正式包。** R8/JPush/微信闭源包的栈映射警告仍在，但本次构建返回 0。
+- QA Release 验证后确认无构建进程/打开句柄，仅清除再生成的 `build/app/intermediates` 约 623 MiB，系统盘约 1.6 GiB 可用；Debug/QA Release APK 和 1015 iOS 分发归档保留。中间目录可重建、不能从废纸篓恢复，后续构建前仍须预留更多空间。
+- App Store Connect“App 隐私”实查仍指向旧 `https://app.saidian.cc/sdys.html`，公开标签“未收集数据”；与账号、头像、健康摘要上传事实不符，**尚未修改或发布新的合规声明**。既有 2.1 拒审仍显示“问题未解决”，已提交项目依旧是 `1.0 (1013)`。
+- 19:15 通过原拒审会话的“回复 App 审核”向 Apple 如实询问：1015 拟提供的明确标注只读虚构数据演示及完整真机录屏，是否可替代审核账号；如不行，是否需要审核账号、实体戒指或两者。页面回读消息数由 1 增至 2，显示我方英文询问全文。**这只是询问，不是批准或重提审核**；Apple 答复仍待到达。苹果 [2.1(a) 指南](https://developer.apple.com/app-store/review/guidelines/)要求无法提供演示账号时，内置演示模式取代账号需事先获 Apple 批准且展示完整功能，当前只读模式不自认满足。
+- `python3 -m unittest scripts/release/test_release_gate.py` 为 30/30 通过。针对刚生成的 QA Release APK，首次 `apk-manifest` 因未设置供 QA 对比用的 `JPUSH_APP_KEY`/`JPUSH_CHANNEL` 环境值退出，未把这次失败写成通过；按构建脚本的禁用推送占位符 `debug-disabled`／`developer-disabled` 重跑后通过。基于 APK 实际 manifest 和 aapt2 资源表核对包名/版本、权限与安全配置。
+- 同一 QA Release 的 `:app:dependencies --configuration releaseRuntimeClasspath` exit 0、报告无 `FAILED`，解析为 JPush 6.2.0／JCore 5.5.2；报告 SHA-256 `e666939ac5a4958f8c7cdcf42ec16bcf06b59155073156303a0a48343e81801a`。用该报告、`pubspec.lock` 和实际 APK 跑 `apk-abis` 通过：仅双 ARM，并只接受被精确锁定的 ARM64 `libjutils.so` 例外。`zipalign -c -P 16 4` 和 `apksigner verify --verbose` 也通过，签名为 v2 调试证书。上述 QA 门禁不改变“不可正式分发”边界。
+- 19:16 再次只读请求公开生产能力接口，仍返回 `data.product=null` 与通用协议；`/global/health/ready` 为 ready、revision `6ea9dd9de91c3f27a452efc1a23ad2f77e88a1b5`。服务器专属协议仍未部署，1015 正式登录仍被安全拒绝；不把苹果后台“已验证”误当成用户可登录或可送审。
+- Git 提交前通过 `gh repo view` 与 `gh api repos/tangwu88/SayRing` 双重只读核实：当前 `origin` 对应仓库 `private=false`／`visibility=public`，与仓库 `AGENTS.md` 的私有仓库约束冲突。先保留本机改动，不将这批代码推到公开远端；已询问用户是否允许恢复私有。`git ls-remote` 核实远端 `main` 与当前工作分支均仍为 `7daf53cca6b9d11a9d2229b56456bc1fce9cb009`。
+
+## 1016 年龄门槛与送审门禁续记
+
+- 用户确认继续自行排除剩余问题；先通过 GitHub 仓库设置将 `tangwu88/SayRing` 恢复为私有，随后双重回读 `private=true`／`visibility=private`，提交并推送上一轮已验证的 1015 客户端改动到 `origin/codex/macos-update-20260930`，提交 `a41aa4f`。未修改 `main` 或任何其他 App 仓库。
+- Bug 名称：首发最低年龄与中国大陆未满 14 周岁监护人同意缺口。复现：旧登录页未询问年龄，服务端旧通用登录也未记录年龄确认。预期：首发仅已满 14 周岁可创建 Say Ring 账号；更低年龄须有可核验监护人流程。实际：旧流程无法证明此条件。影响等级 P1（法律与送审）。本轮按 14+ 首发保护实现年龄确认，不伪造监护人核验；13 岁用户暂不开放注册。
+- 与服务端候选契约 `/Users/mycodex/电商/赛电APP服务端/docs/say-ring-legal-client-contract.md` 对齐：验证码、Android 微信登录／手机号绑定增加 `ageConfirmed`，客户端未勾选则本地拒绝发送认证请求，提交 JSON 时为 `true`；登录页展示中英双语“已满 14 周岁”确认，切换能力时清除旧勾选。接口实现不代替线上部署；服务端候选仍在独立功能分支、未部署。服务端仅在新建账号时要求该确认；客户端每次登录均显式确认，偏保守但不伪造出生日期。
+- Apple App Store Connect 中已将本 App 年龄问卷的健康／医疗相关题目按实际功能更新，并保存与回读首发评级 `16+`（旧系统显示 `17+`）。本机核对截图 `/private/tmp/sayring-app-age-16plus-20261001.png`，仅证明后台设置，不代表审核通过。销售地区仍限中国大陆。
+- App 隐私表单已暂存 11 类可从源码直接确认的数据类别，但它们仍是**未发布的待完善选择**；公开商品页仍显示“未收集数据”，旧通用隐私政策 URL 未改。健康数据用途和关联性虽已开始填写，但在闭源穿戴 SDK 独立网络行为、供应商主体、生产备份／日志留存与法律文本发布事实未核实前，没有作出公开的最终隐私准确性声明。私有服务端政策草稿明确禁止发布，`Xuewu Tang` 与 `kf@saydian.com` 为用户确认事实；腾讯云控制台合同记录为 0，不能将预设甲方冒充签约主体。
+- `dart format` 已执行，`flutter analyze --no-pub` 零问题；定向 `flutter test --no-pub test/global_api_test.dart test/global_code_login_page_test.dart --reporter compact` 32/32；`TZ=UTC flutter test --no-pub --concurrency=2 --reporter compact` 全量 1029/1029，日志 `.build/sayring-age-full-flutter-test.log`。之后将 API 发送字段由恒真三元表达式机械简化为字面量 `true`，再跑静态检查及定向 32/32 均通过；此次简化不改变请求内容。
+- 以同一源码和生产 API 配置串行构建开发签名 Profile `1.0 (1016)`，`xcodebuild` 退出 0，日志 `.build/sayring-1016-device-profile-build.log`。实际 App 为 `cn.saydian.ring`、`UIDeviceFamily=[1]`、`SaidianWechatEnabled=false`，严格签名检查通过，Apple Development 团队 `W7SXQ4A226`、`get-task-allow=true`。没有卸载 iPhone 旧版，直接覆盖安装 1016 并成功启动；设备应用列表回读 1016，进程仍存活。未做真实退出／重登、R21 三轮重连、头像重开回读或健康数据逐条验收，不将安装启动当作这些功能通过。
+- 再读生产 `auth/capabilities?locale=zh-Hans&product=say-ring`，仍是 `data.product=null` 的旧通用协议响应；客户端按设计拒绝将其作为戒指专属协议。1016 只是开发签名真机候选，**尚无 1016 分发归档或 App Store Connect 上传**。App Store Connect 1015 虽已验证，但版本页仍绑定 1013；原 2.1 拒审尚未重新提交。Apple 关于只读演示能否替代审核账号的问题尚无批准回执。上述线上登录、隐私声明和审核访问未闭环前，不点击重新送审。
+- 字面量简化后再次执行 `TZ=UTC flutter test --no-pub --concurrency=2 --reporter compact`，最终 1029/1029 通过，日志 `.build/sayring-age-full-flutter-test-final.log`。Android 原生 `:app:testDebugUnitTest` 本轮重新启动，前一次命令的日志路径误写为 `android/.build` 而立即失败，纠正为 `../.build` 后才真正开始。此次 Gradle 在第 279 项任务 `:app:compileDebugKotlin` 时将系统盘余量压至约 195 MiB；为防主机写满，主动向本轮 Gradle 进程发中断和终止信号，最终退出码 130。**本轮当前源码的 Android 原生单测未完成，不能沿用上一版 1015 的通过记录。**
+- 为恢复主机空间，确认相关构建／测试进程已退出、目录被 Git 忽略且没有打开句柄，先用 Xcode `clean` 清除 1016 的部分 DerivedData，再仅删除本轮生成、可重建的 `build/test_cache`、`build/app/intermediates`、剩余 `build/ios-profile-1016-derived-data`、`.build/task-gradle-cache-20261001`、`.build/task-pub-cache-20261001`。保留源码、Git、既有 APK、1015 分发归档、测试日志与手机已安装 1016；这些缓存不能从废纸篓恢复，未来构建需重新生成。系统盘余量回升至约 1.5 GiB；没有继续冒险启动 Android 打包或 iOS 分发归档。
+
+## 1016 iOS 优先与 App Store Connect 上传续记
+
+- 用户明确将 Android 回归与打包放到后续，先争取 iOS 尽快上架。本段没有运行 Android 构建或测试；前述 Android 原生单测中断状态保持“未验证”。
+- 2026-10-01 再执行 `git fetch --prune origin`，当前分支与 `origin/codex/macos-update-20260930` 同为 `e226653`，开始时工作树干净。因先前专用 Pub 缓存已删除，运行 `PUB_CACHE=/Users/saydian/.pub-cache flutter pub get --offline` 成功，仅重建忽略的包解析元数据，无受控源码变更。
+- 串行执行 `TMPDIR=/private/tmp flutter build ios --config-only --release --no-codesign --no-pub --build-name=1.0 --build-number=1016 --dart-define-from-file=config/ios-app-store-no-push.json` 成功；然后执行 `xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release -destination 'generic/platform=iOS' -derivedDataPath build/ios-release-1016-derived-data -archivePath .build/SayRing-1.0-1016-review-candidate.xcarchive -jobs 1 -allowProvisioningUpdates FLUTTER_BUILD_NAME=1.0 FLUTTER_BUILD_NUMBER=1016 archive -quiet`，退出码 0。构建日志 `.build/sayring-1016-appstore-archive.log`；此前另一款 App 的 Xcode 归档完成后才启动，未并行占用 iOS 编译资源。
+- 归档实物核对为 `cn.saydian.ring`、`1.0 (1016)`、`UIDeviceFamily=[1]`、`SaidianWechatEnabled=false`；严格签名验证通过，Apple Distribution: Xuewu Tang，团队 `W7SXQ4A226`，`get-task-allow=false`。Runner SHA-256 为 `a8d59d2cb7926fd071ca3342f302526217e6458dc4fabcdecd828edf9618c4da`。同一归档复制至 Xcode Organizer 可见的 `/Users/saydian/Library/Developer/Xcode/Archives/2026-10-01/SayRing-1.0-1016-review-candidate.xcarchive`，复制前后 Runner 哈希一致；没有替换手机上的开发签名测试包。
+- Xcode Organizer 对该归档执行 App Store Connect 分发后显示 `Uploaded with warnings`（20:51）。警告是未来 2027 年 4 月目标最低 iOS 15 要求和 14 个闭源厂商 framework 的 dSYM 缺失；此次上传未被阻断。App Store Connect→TestFlight→“构建版本上传”回读 `1.0 (1016)` 创建时间 Oct 1, 2026 8:51 PM，状态“正在处理”，因此仅确认已收到上传，**尚未确认后台验证完成**。原 App Store 版本页仍绑定 1013、原 2.1 拒审仍未重新提交。
+- App 内户外运动会在用户主动开始时读取高精度位置以形成轨迹；生产 `support/sport-map-config` 当前返回地图服务 `configured=false`。已将这一事实交由现有服务端任务补进 Say Ring 待审隐私政策，不把“地图服务未启用”误述成“App 不使用位置”。App Store 隐私标签的公开状态仍与实际数据处理不符，未提交不准确声明。
+- 苹果随后将 1016 标为“缺少出口合规证明”。依据用户此前对同一发布范围的明确确认，在该构建问卷选择“标准加密算法、非专有算法”及“不在法国分发”，保存后 TestFlight 回读 1016 为“准备提交”。其“构建版本元数据”进一步回读二进制状态“已验证”、Bundle ID `cn.saydian.ring`、版本 `1.0 (1016)`、设备系列 `iPhone`、`get-task-allow=false`。构建 UUID `f67f6824-e1e4-4d1b-966d-26231c97510a`；[App Store Connect 构建元数据](https://appstoreconnect.apple.com/teams/69a6de89-863e-47e3-e053-5b8c7c11a4d1/apps/6816549943/testflight/ios/f67f6824-e1e4-4d1b-966d-26231c97510a/metadata)。**这只完成上传和校验，不等于已改绑版本、重新提交审核或上架。**
+- 为缩短后续重提审核时间，在 App Store Connect 的 iOS 1.0 版本草稿中将旧构建 1013 改为已验证的 1016，保存并刷新页面后回读构建行 UUID 与号均为 1016；旧 1013 二进制未删除。仍未点击“更新审核”，原审核会话消息数 2、Apple 尚未回复演示模式问题；**此操作只是改绑待审核草稿，不是重新提交审核**。版本页审核备注仍空，公开隐私标签仍错误显示“未收集数据”，须继续处理。
+
+## 1017 iOS 最小权限整改与归档验收
+
+- 问题/复现：iPhone 版资料页从相册选择头像，兼容戒指可主动遥控相机并保存照片，运动才在用户主动开始时请求前台位置；但 `Info.plist` 和“权限管理”仍列出通讯录、音乐资料库和语音识别。审核人员或用户可因此看到本版没有提供的敏感权限用途，且与隐私说明难以一致。
+- 预期/实际：iOS 仅显示并声明蓝牙、前台位置、通知、相册读取，以及用户主动使用兼容戒指遥控拍照所需的相机和照片保存；Android 保持原有的设备扫描、相机和联系人路径。实际源码此前在 iOS 也展示联系人，且保留音乐、语音识别和联系人三种无本版功能入口的 iOS 用途说明。
+- 修改与影响：移除 iOS `PermissionManagementPage` 的联系人项目；删除主 Plist 与八种本地化 Plist 中音乐、语音识别和通讯录用途说明，并将保留的相机/相册写入文案改为兼容戒指遥控拍照的实际用途。保留蓝牙、相册读取、运动所需前台位置与已实现的拍照能力。未改变戒指 SDK、健康算法、网络协议、Android、鸿蒙或已上传的 1016 二进制；后续必须以更高构建号重新归档。
+- 归档验收：八个本地化 Plist 与主文件均通过 `plutil -lint`，且静态检查确认三类未使用用途键无残留。串行 Release 归档 `1.0 (1017)` 成功，归档为 `cn.saydian.ring`、`UIDeviceFamily=[1]`，采用 Apple Distribution: Xuewu Tang（团队 `W7SXQ4A226`），`codesign --verify --deep --strict` 通过且 `get-task-allow=false`。归档 Runner SHA-256 为 `f5d4d70814bfafb7c26d669fcf85c9e97caf1879ff2ced5902d5d3a3e5411978`，同时保存至 Xcode Organizer 日期目录；尚未上传或重新提交。
+
+## 1017 无账号本机使用路径与回归
+
+- 问题/复现：原 iOS 首次启动要求先完成账号登录，审核人员无法在没有短信验证码或有效审核账号的情况下复现戒指的核心使用路径，构成 2.1 信息请求的高风险点。
+- 修改：仅 iOS 全球版在协议和隐私声明被用户勾选后提供“开始本机使用”。该路径进入同一套真实设备、测量、历史和睡眠页面，健康数据保存在匿名本机分区；不会创建账号、启用资料上传、云同步、关爱或商城。登录保留为账号同步和资料服务的可选入口；既有 Android 行为不变。
+- 边界：无账号路径仍要求发布且可读取的协议版本，不能用静态演示或伪造数据代替设备功能；首次实际设备连接、自动重连和睡眠阶段仍须在 iPhone 与 R21 上单独验收。原“体验模式”继续可用，但不会被误判为本机模式。
+- 代码验证：八个 iOS `Info.plist` 本地化文件与主文件均通过 `plutil -lint`；权限静态检查、`flutter analyze --no-pub` 均无问题。`test/ui_shell_test.dart` 69 项和 `test/global_code_login_page_test.dart` 6 项通过。
+- 全量回归：第一次全量运行发现体验模式资料页被错误拦截的 1 项失败，已将拦截条件收窄为 `isLocalMode`，并用该失败用例单独复验通过。随后执行 `TZ=Asia/Shanghai flutter test --no-pub --concurrency=2 --reporter compact`，最终 **1033/1033 通过**，日志 `.build/sayring-1017-flutter-full.log`。这证明代码回归，不替代归档、真机或 Apple 审核结果。
+
+## 1017 审核入口与送审边界续记
+
+- 审核风险整改：iOS 已将微信登录和商城入口关闭；本机使用路径不创建账号、不上传资料或健康数据，也不伪造演示健康数据。登录与云同步仍为可选功能。系统仍需要用户先阅读并勾选线上发布的协议和隐私声明，因此在专属公开协议实际发布前，不把此路径当作可供审核的入口。
+- 物理设备：当前 iPhone 15 Pro Max（iPhone16,2）已被 `devicectl` 识别为 connected。1017 尚未覆盖安装到该设备，未完成账号、R21、头像回读、睡眠或三轮自动重连验证，不能用 1016 的旧记录替代。
+- 送审仍需完成：线上公开法律文本和 App Privacy 标签一致性、1017 的 App Store Connect 上传/处理/改绑、当前 iPhone 实机录屏、审核备注和回复 Apple。上述项目完成并在版本页实际提交前，不称为已重新送审或已上架。
+
+## 1018 iOS 本机版审核收口
+
+- 问题/复现：1017 已提供“开始本机使用”，但仍在页面启动时读取账户能力，且协议勾选依赖服务端 `consentVersion`。线上 `product=say-ring` 能力响应没有已发布的专属法律版本，导致本机入口被禁用；同一页还保留手机号、邮箱与云同步登录，使审核员无法确定实际首发范围。
+- 修改：iOS 全球版改为独立的本机使用入口。该入口只显示戒指本机使用、14 周岁确认和公开《用户协议》《隐私政策》链接；不显示手机号、邮箱、微信、体验模式或商城入口。用户勾选后即可进入真实设备页，不创建账户、不读取账户能力、不启用已有账户会话、资料读取、云同步、AI 内容或第三方推送。
+- 数据与兼容边界：已有安全存储中的账户记录不删除，但 iOS 本机版不会激活它们。健康、活动、睡眠和蓝牙连接数据继续使用本机加密存储；本次不改 QRing SDK、测量算法、自动重连、睡眠时间轴、Android 或鸿蒙。公开静态政策页由服务端主线提交 `792a973` 提供，线上 HTTP 回读待其 CI/部署完成。
+- 验证：新增本机入口 Widget 用例，覆盖无账户能力请求、14+ 与协议门槛、没有账号控件和成功进入本机模式。`flutter test --no-pub test/global_code_login_page_test.dart test/ui_shell_test.dart` 76/76 通过，`flutter analyze --no-pub` 零问题；随后 `TZ=Asia/Shanghai flutter test --no-pub --concurrency=2 --reporter compact` **1034/1034 通过**。本节仅记录代码回归；1018 的 Release 归档、真机覆盖安装、R21 握手和 App Store Connect 处理结果仍待执行。
+
+## 1019 iOS 审核静态声明收口
+
+- 问题与处理：1018 的本机入口已隐藏微信和商城，但发布 Plist 仍保留微信、支付宝的 URL 回调和查询声明，容易让审核静态检查将未开放能力误判为首发功能。1019 移除了这些未启用声明；不改戒指蓝牙连接、健康数据本机加密存储或关联域名。
+- 同时，发布门禁发现闭源设备 SDK 的声明要求 Apple Music 与语音识别用途文案。主 Plist 与八种本地化文案均明确：这是集成设备 SDK 的声明，本版本不提供对应功能，用户可拒绝授权。没有新增背景模式或运行时功能入口。
+- 验证：`plutil -lint`、`python3 scripts/release/test_release_gate.py`（30/30）和 76 项本机入口/壳层回归均通过，`git diff --check` 无错误。串行归档 `1.0 (1019)` 已生成；归档实物为 `cn.saydian.ring`、`UIDeviceFamily=[1]`、Apple Distribution 团队 `W7SXQ4A226`、`get-task-allow=false`，严格签名校验通过，且不含微信/支付宝 URL 或查询声明。Runner SHA-256 为 `4b87bd9d00a79295eb227c37f330be3757b8036ac98655c2e37e83870df727f3`。真机覆盖安装、上传处理和审核提交仍分别记录，不以本条替代。
+
+## 1020 iOS 登录优先与单一本机入口
+
+- 需求更正：用户明确首屏仍应以登录为主，只保留一个“无需登录”入口。原 1019 源码把 iOS 首屏替换为本机使用页、忽略安全存储里的旧账号会话；这不符合最新明确要求。审核中的 1016 与 App Store Connect 当前记录均未修改、撤回或替换。
+- 修改范围：`lib/ui/global_code_login_page.dart` 恢复手机号/邮箱登录表单为 iOS 首页，仅保留一个次级“无需登录，连接戒指”按钮；该按钮仍要求年龄确认和协议/隐私同意，然后才进入本机戒指模式。iOS 本机入口从不因账号能力接口失败而禁用，同意链接改为打开 Say Ring 公布的专属文档 URL。手机号/邮箱登录与 iOS 隐藏微信维持不变。
+- 会话与自动连接：`lib/services/app_controller.dart` 恢复读取已有安全会话，并正常刷新公开显示配置/百科内容。之前保存过本机同意不再把用户绕过登录页；仅当已有账号已恢复，或用户主动点入本机模式后，才在 iOS Say Ring 启动戒指恢复。该限制通过 `supportsLocalOnlyUse` 限定于 Say Ring iOS，不改变其它平台和产品的恢复路径。账号、健康历史与应用数据未清除。
+- 测试修改：`test/global_code_login_page_test.dart` 覆盖 iOS 登录优先、只显示一个免登录戒指入口、没有 review-demo 入口、服务端能力失败时仍能进入本机模式并受同意门禁约束。`test/app_controller_wearable_restore_race_test.dart` 覆盖已保存同意不自动离开登录页，显式进入访客模式后才恢复戒指。
+- 失败记录：首轮完整回归发现 5 个 iOS 自动恢复用例失败，因为最初把免登录恢复门禁扩大到所有平台/产品；定向检查定位为 `app_controller_exact_recovery_test.dart` 中既有的匿名恢复预期。已将条件收紧为仅 Say Ring iOS 登录页适用，修正测试夹具为产品全局 API 后，恢复竞态定向集合通过 19/19。`.build/sayring-login-entry-utc-serial.log` 保留了失败轮次，不覆盖失败证据；随后单 worker 最终双时区回归均通过。
+- 自动化验证：最终 `flutter analyze --no-pub` 无问题；UTC 与 Asia/Shanghai 分别执行 `flutter test --no-pub --concurrency=1 --reporter compact`，各 **1034/1034** 全部通过；`python3 scripts/release/test_release_gate.py` 为 30/30；`git diff --check` 通过。日志分别保存在忽略目录 `.build/sayring-login-entry-utc-serial-final.log` 与 `.build/sayring-login-entry-asia-serial-final.log`。
+- 真机结果：已串行签名构建开发 Profile `1.0 (1020)`，实际 `cn.saydian.ring`、`UIDeviceFamily=[1]`、Apple Development Team `W7SXQ4A226`、`get-task-allow=true`，`codesign --verify --deep --strict` 通过。`devicectl` 在 iPhone 15 Pro Max（iOS 26.6）上覆盖安装并独立启动，设备回读 1020，原位覆盖未卸载且未清本机数据。最终源码的真机 integration smoke 实际用例 1/1 通过，覆盖已登录状态下的首页、心率详情、睡眠概览、全部健康数据、设备、我的和关于/法律页面；最终 Profile 随后重新覆盖安装并启动。
+- 验收边界：iPhone 镜像不能连接，故本轮未取得逐屏截图，也未手工遍历每个二级页面；integration smoke 不是“全 App 每页”证明。保持现有用户会话，没有退出账号或发送真实 OTP。R21 本轮没有进行新的蓝牙握手、健康测量、睡眠实测或距离自动重连，也没有完成头像重新打开回读。该轮解决的是登录首页和单一本机入口，不把其余功能记为通过。
+- 构建警告：第三方插件/SDK 有弃用 API 警告，Xcode 还提示外部 DerivedData 的模块缓存 `.pcm` 缺失，未阻断最终构建、严格签名核验、安装和启动。该警告未被本轮修改。
+- 安全范围：bundle ID 继续为 `cn.saydian.ring`；没有改 Android/Harmony、App Store Connect 隐私声明、正在审核的 1016、服务器配置、商店归档或健康数据。最终签名 Profile 日志 `.build/sayring-1020-device-profile-final.log`；真机冒烟日志 `.build/sayring-1020-device-ui-smoke-final.log`。
+
+## 1020 iOS 真机逐页巡检续记
+
+- 原因与范围：用户要求继续完成苹果版逐页真机检查。iPhone 15 Pro Max（iOS 26.6）在线，开始时仓库干净且 `origin/codex/macos-update-20260930` 与当前 `HEAD` 一致。新增只读集成巡检 `integration_test/ios_read_only_page_walkthrough_test.dart`；不改产品逻辑、不退出账号、不保存个人资料、不发 OTP、不执行测量、扫描连接、解绑或商城交易。
+- 失败与排查：首轮集成测试把 ReviewDemo 未选中的“设备”标签假设为已构建，失败为 0 个匹配组件；对照 `ReviewDemoPage` 真实标签切换行为后，改成先点“设备”再断言。另一次驱动在底部标签点击处只输出命中诊断、未及时返回；中断该次驱动后加逐段定位，后续完整运行稳定通过。未发现 App 页面崩溃或业务代码缺陷。
+- 真机通过路径：最终 `flutter drive --no-pub --driver=test_driver/integration_test.dart --target=integration_test/ios_read_only_page_walkthrough_test.dart -d 00008130-001C098C2290001C --keep-app-running --dart-define-from-file=config/ios-app-store-no-push.json` 通过（实际测试 1/1，加 driver teardown）。逐项访问只读演示首页、睡眠阶段时间轴、心率/血氧/步数详情、设备兼容流程说明、演示“我的”页；退出演示后回到 `global-code-login-page`，确认登录联系输入框/登录按钮为主操作，只有一个 `local-ring-use-entry`，没有演示入口和商城；未同意时点击本机入口只显示门禁错误、留在登录页。随后切换邮箱输入，并在能力允许时检查邮箱密码/验证码显示切换，未提交账号或密码。
+- 登录状态边界：集成控制器未恢复出认证或本机模式会话，因此为覆盖无账号公开路径，测试显式进入只读 ReviewDemo；本轮**没有**进入账号 AppShell。真实个人资料编辑、健康数据总表与所有指标、通知列表、远程关爱、百科详情、运动页、设备扫描/握手/同步/重连、联系客服、帮助反馈、权限页与真实关于页仍不记为本轮真机通过。账号页面需在有效登录态下继续检查；此前 1020 记录的验证范围保持为当时的独立结果，不延伸到本轮。匿名初始化期间三条 API 请求返回 HTTP 200，但没有执行登录、验证码或用户资料写入。
+- 自动化与发布构建：`TZ=UTC flutter test --no-pub --concurrency=1 --reporter compact` 与 `TZ=Asia/Shanghai flutter test --no-pub --concurrency=1 --reporter compact` 各 1034/1034；`flutter analyze --no-pub` 无问题；`python3 scripts/release/test_release_gate.py` 30/30；`git diff --check` 通过。集成构建提示 sqflite_sqlcipher 与 yc_product_plugin 尚不支持 iOS Swift Package Manager，并提示 WechatOpenSDK-XCFramework 无 Apple Silicon Simulator arm64；未阻断 iPhone 真机运行。
+- 最终安装状态：巡检结束后重新覆盖安装并启动已验签 Profile `1.0 (1020)`；`codesign --verify --deep --strict` 通过，`devicectl` 回读 `cn.saydian.ring` / `1.0 (1020)`。未卸载 App、未清除本机数据。App Store Connect 审核中的 1016 未触碰。
+- 仓库安全：提交前 `gh api repos/tangwu88/SayRing` 回读到 `public`，因此未向公开仓库推送；按项目私有仓库约束恢复为 `private` 并再次回读确认。只会推送到当前 SayRing 功能分支，不改 `main`。
+- 待验收：本轮只读页面巡检不等于硬件验收。没有重新连接 R21、测量、睡眠真实样本、三轮远近自动重连或头像上传后重开回读；这些以及登录态账号页面仍待有实际登录态/戒指时完成，不能标全 App 每页已通过。
+
+## 2026-10-02 真实本机页面巡检与登录服务阻断
+
+- 基线 `73971a291dc8085b6c49bedd531a4786e849f7db`；工作树干净，`git fetch origin && git pull --ff-only` 为 Already up to date。遵照用户最新指示正常推送 SayRing 分支，不再核对或修改仓库可见性。
+- 生产 `GET /global/api/saydian-app/v2/auth/capabilities?locale=zh-Hans&product=say-ring` 返回 200、`product=say-ring`，但 `consentVersion=null`、`legal=null`；邮箱密码 UI 因专属协议缺失正确拒绝提交。未发送真实凭据或验证码，不绕过协议验证。已沿用用户授权通知服务端任务排查并定向修复 Say Ring，其他产品不在本轮范围。最初一次 curl URL 未引用导致 zsh 通配错误；随后误用 `/global/api/auth/...` 返回 404，纠正为客户端实际 V2 地址后取得上述证据。
+- 测试用例问题：既有逐页测试在缺少会话时隐式改用演示页，无法验证真实 AppShell。增加明确 QA 模式：默认只验已有账号/本机会话，缺会话即失败；`demo` 才访问演示，`local` 通过真实登录页年龄及协议门禁进入真实本机模式。缺少入口单列，不再静默当成已验收。仅改集成测试，不改业务、健康数据、账号状态或审核包。
+- 计划：串行运行 iPhone 15 Pro Max 真机本机模式巡检；保留现场错误，再按证据修复。真实账号专区依赖线上协议；戒指链路必须取得真实握手/数据，不使用演示结果替代。
+- 首轮真实本机巡检：上述 drive 命令追加 `--dart-define=SAYRING_QA_WALKTHROUGH_MODE=local`，Debug 构建 62.2 秒、安装启动 40.0 秒，实际用例失败于测试第 188 行：设备页找不到 `notifications_none_rounded`。定位该按钮仅位于健康首页 `_DashboardHeader`；这是此前未进入 AppShell 的脚本路径错误，不是 App 按钮缺失。将消息检查移至首页，增加每页即时泛化标签和隐藏指标清单；增设可选真实扫描 UI 检查，仅计扫描，不自动改绑定或冒称握手通过。测试期间只重新激活本应用，没有终止其他 App。
+- 脚本修订第二轮静态检查发现 `pumpAndSettle` 的 timeout 实为第三个位置参数，而非命名参数；立即中止刚启动的重试，按 Flutter 本机方法签名修正，未修改业务逻辑。
+- 次轮真实巡检记录实际经过首页及心率、血氧、皮肤温度、HRV、压力、睡眠详情；随后 `ensureVisible` 对未渲染的首页消息入口报 `Bad state: No element`。根因是懒加载 SliverList 滚到健康卡后移除了顶部控件；同一问题让旧 helper 静默跳过其他首页入口。把必须存在的首页入口改为 `scrollUntilVisible`，取消这一类的静默跳过；关爱页断言改为实际 `CarePage`，不套用国内版正文。仍仅修测试，尚不计全面通过。
+- 服务端已查实线上公开协议仍声明 iOS 不提供账号及云同步，与当前登录主屏相矛盾；专属法律 API 404 且当前同意版本为空。已继续按用户已有授权编写与实际能力一致的专属草案；不把尚未确认的文本伪标已审核，不放开同意校验。
+- 完整入口重试（日志 `.build/sayring-ios-real-local-walkthrough-complete.log`）：Debug 构建 19.8 秒、安装启动 20.8 秒；实际通过首页、六项指标详情、睡眠概览、全部数据和关爱入口，失败于百科使用了仅国内页面才有的 `article-category-page` key。实际国际页面是 `ArticleCategoryPage` 包装 `GlobalArticleLibraryPage`，生产请求返回 200。统一用实际路由页面类型校验，帮助页不再错用服务格“帮助反馈”文字作为页内标题（实际为“帮助与反馈”）。同时对“我的”懒加载入口取消静默跳过，并在每次打开前复位列表滚动；只对产品明确隐藏的指标/档案记录未开放，不把它们算通过。
+- 自动化记录：`TZ=UTC flutter test --no-pub --concurrency=1 --reporter compact` 1034/1034（4分16秒），`TZ=Asia/Shanghai` 同命令 1034/1034（3分30秒）；日志分别为 `.build/sayring-qa-walkthrough-unit-utc.log`、`.build/sayring-qa-walkthrough-unit-shanghai.log`。这两轮没有业务源码改动，随后脚本修订仅涉及不由该单元测试命令执行的 integration_test 文件；脚本另由真实 iPhone drive 验证。最终脚本 `dart format --output=none --set-exit-if-changed` 和 `flutter analyze --no-pub` 通过、零问题；`python3 scripts/release/test_release_gate.py` 30/30，`git diff --check` 通过。Android/Harmony 本轮按用户优先级后置，未重建。
+- App Store Connect 只读核对：原 Say Ring 标签已转为登录页（targetUrl 为本产品 privacy，authResult=FAILED），显示 Apple 账号输入框；当前网页会话失效，未填写 Apple 密码/验证码或更改审核。不能沿用旧状态声称当前“正在审核”或重新提交成功。
+- 最终真实本机巡检：`.build/sayring-ios-real-local-walkthrough-verified.log` 实际用例 1/1（含 teardown 输出 +2）通过，运行 3 分 59 秒，未切演示模式。经过登录同意后的本机入口、健康首页、心率/血氧/皮肤温度/HRV/压力/睡眠详情、睡眠概览、全部健康数据、远程关爱、百科、运动、通知、设备、我的、账号设置、单位、权限、帮助反馈、客服、关于，共 22 个实际页面/入口。真实设备连接状态为 true、能力 ready，连接页不显示“重新连接”。这证明当时实际页面与连接态门禁，不等于新测量或三轮距离验收。
+- 明确未开放/未验：血压、血糖、心电、身体成分、血液成分由真实能力/数据门禁隐藏；已有绑定卡无空态搜索入口，未改绑定强行扫描。账号资料/头像上传回读受登录协议阻断，未退出个人账号做破坏性测试。巡检结束的 Debug 测试包不作为独立启动交付包；新增用户要求的每次连接上报修正使用新 Profile 1021 验证，独立记录见 `SAY-RING-CONNECTION-REPORTING-20261002.md`。

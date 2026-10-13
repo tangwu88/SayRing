@@ -8,6 +8,18 @@ import 'models.dart';
 /// values (for example `1`) out of local history and cloud synchronization.
 bool hasSaneWearableTransportValues(HealthRecord record) {
   if (record.source != MeasurementSource.wearable) return true;
+  if (record.sourceVendor.toLowerCase() == 'coolwear' &&
+      record.rawVersion >= 2 &&
+      record.metric == HealthMetric.hrv) {
+    final values = record.values;
+    return record.unit == 'ms' &&
+        _inRange(values['value'], 1, 1000) &&
+        values['value'] == values['sdnn'] &&
+        _inRange(values['sdkQuality'], 1, 3) &&
+        values['sdkQuality']! % 1 == 0 &&
+        _inRange(values['validCount'], 2, 255) &&
+        values['validCount']! % 1 == 0;
+  }
   if (record.sourceVendor.toLowerCase() == 'qring' &&
       record.rawVersion < 2 &&
       (record.metric == HealthMetric.steps ||

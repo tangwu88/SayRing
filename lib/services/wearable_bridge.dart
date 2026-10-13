@@ -1,8 +1,35 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/device_state_machine.dart';
 import '../domain/feature_models.dart';
 import '../domain/models.dart';
+import '../domain/wellness_release_policy.dart';
+
+/// A second boundary before parsing native records: the legacy model parser
+/// defaults unknown metric names to steps. Never apply that fallback on iOS.
+WellnessReleasePolicy get wearableHealthReleasePolicy => WellnessReleasePolicy(
+  enabled: !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
+);
+
+List<HealthRecord> parseWearableHealthRecords(Iterable<Object?> values) {
+  final policy = wearableHealthReleasePolicy;
+  return values
+      .whereType<Map<Object?, Object?>>()
+      .where((value) {
+        if (!policy.enabled) return true;
+        final type = value['type'];
+        return type is String && policy.allowsWireMetric(type);
+      })
+      .map(
+        (value) => HealthRecord.fromJson(
+          value.map((key, item) => MapEntry('$key', item)),
+        ),
+      )
+      .map(policy.projectRecord)
+      .whereType<HealthRecord>()
+      .toList(growable: false);
+}
 
 abstract interface class WearableBridge {
   Stream<WearableEvent> get events;
@@ -194,6 +221,35 @@ abstract interface class WearableConnectionRecoveryBridge {
   Future<DeviceInfo?> restoreConnection({required WearableUserProfile profile});
 }
 
+/// App-owned binding context. Native SDK installation-wide saved targets must
+/// never determine the account or environment entitled to recover a device.
+abstract interface class WearableBindingManagementBridge {
+  Future<void> setRecoveryContext({
+    required String? ownerKey,
+    required WearableUserProfile profile,
+  });
+  Future<DeviceInfo?> readRememberedDevice();
+  Future<DeviceInfo?> prepareRememberedDevice();
+  Future<void> forgetRememberedDevice();
+}
+
+/// A visible legacy binding can be manually selected without authorizing
+/// automatic recovery. Optional to preserve older adapters and test doubles.
+abstract interface class WearableRememberedRecoveryEligibilityBridge {
+  Future<bool> canAutomaticallyRecoverRememberedDevice();
+}
+
+/// Optional exact-target recovery, used by QRing after a successful binding.
+/// Null cancels native recovery; a target is only armed by the scoped router.
+abstract interface class WearableExactTargetRecoveryBridge {
+  Future<void> configureRecoveryTarget({
+    required String? nativeIdentifier,
+    String? knownName,
+    String? contextKey,
+    WearableUserProfile? profile,
+  });
+}
+
 /// Optional lookup for one device previously bound in this App environment.
 /// A native adapter must verify the exact identifier against its trusted OS
 /// bond before returning it; the normal vendor handshake still follows.
@@ -368,14 +424,7 @@ class MethodChannelWearableBridge
               'cursor': cursor,
             }) ??
             const [];
-        return result
-            .whereType<Map<Object?, Object?>>()
-            .map(
-              (item) => HealthRecord.fromJson(
-                item.map((key, value) => MapEntry('$key', value)),
-              ),
-            )
-            .toList();
+        return parseWearableHealthRecords(result);
       });
 
   @override

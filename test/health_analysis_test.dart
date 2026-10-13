@@ -1,15 +1,59 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/sleep_timeline.dart';
 import 'package:saydian_app/services/health_analysis.dart';
 import 'package:saydian_app/services/local_health_store.dart';
 
 void main() {
+  test(
+    'month ranges use whole previous calendar month across unequal lengths',
+    () {
+      for (final example in [
+        (anchor: DateTime(2026, 10, 15), previous: DateTime(2026, 9, 1)),
+        (anchor: DateTime(2026, 3, 15), previous: DateTime(2026, 2, 1)),
+        (anchor: DateTime(2024, 3, 15), previous: DateTime(2024, 2, 1)),
+        (anchor: DateTime(2026, 1, 15), previous: DateTime(2025, 12, 1)),
+      ]) {
+        final range = HealthTrendRange.forPeriod(
+          HealthTrendPeriod.month,
+          example.anchor,
+        );
+        expect(
+          range.start,
+          DateTime(example.anchor.year, example.anchor.month),
+        );
+        expect(
+          range.end,
+          DateTime(example.anchor.year, example.anchor.month + 1),
+        );
+        expect(range.previousStart, example.previous);
+        expect(range.previousEnd, range.start);
+      }
+    },
+  );
+
+  test('day and week range boundaries remain unchanged', () {
+    final anchor = DateTime(2026, 10, 1, 15);
+    final day = HealthTrendRange.forPeriod(HealthTrendPeriod.day, anchor);
+    expect(day.start, DateTime(2026, 10, 1));
+    expect(day.end, DateTime(2026, 10, 2));
+    expect(day.previousStart, DateTime(2026, 9, 30));
+    expect(day.previousEnd, day.start);
+    final week = HealthTrendRange.forPeriod(HealthTrendPeriod.week, anchor);
+    expect(week.start, DateTime(2026, 9, 28));
+    expect(week.end, DateTime(2026, 10, 5));
+    expect(week.previousStart, DateTime(2026, 9, 21));
+    expect(week.previousEnd, week.start);
+  });
+
   HealthRecord record({
     required String id,
     required HealthMetric metric,
     required DateTime at,
     required Map<String, num> values,
     String timezone = '+08:00',
+    String deviceId = 'watch',
+    SleepTimeline? sleepTimeline,
   }) => HealthRecord(
     id: id,
     metric: metric,
@@ -17,11 +61,118 @@ void main() {
     unit: metric.defaultUnit,
     measuredAt: at,
     timezone: timezone,
-    deviceId: 'watch',
+    deviceId: deviceId,
     firmwareVersion: '1',
     quality: 'good',
     source: MeasurementSource.wearable,
     rawVersion: 1,
+    sleepTimeline: sleepTimeline,
+  );
+
+  test(
+    'sleep orders adjacent SDK dates before UTC across +14 and -12 offsets',
+    () {
+      // Rendering fixtures only: the newer saved SDK day has an earlier UTC start.
+      const device = 'qring:00000000-0000-0000-0000-000000000001';
+      final newer = record(
+        id: 'newer-sdk-day',
+        metric: HealthMetric.sleep,
+        at: DateTime.utc(2026, 9, 30, 10),
+        values: const {'value': 6},
+        timezone: '+14:00',
+        deviceId: device,
+        sleepTimeline: SleepTimeline(
+          deviceId: device,
+          sdkDate: '2026-10-01',
+          timezone: '+14:00',
+          readAt: DateTime.utc(2026, 10, 1),
+          sessions: const [],
+        ),
+      );
+      final older = record(
+        id: 'older-sdk-day',
+        metric: HealthMetric.sleep,
+        at: DateTime.utc(2026, 9, 30, 12),
+        values: const {'value': 7},
+        timezone: '-12:00',
+        deviceId: device,
+        sleepTimeline: SleepTimeline(
+          deviceId: device,
+          sdkDate: '2026-09-30',
+          timezone: '-12:00',
+          readAt: DateTime.utc(2026, 10, 1),
+          sessions: const [],
+        ),
+      );
+      expect(newer.measuredAt.isBefore(older.measuredAt), isTrue);
+      final data = const HealthAnalysisService().analyze(
+        metric: HealthMetric.sleep,
+        records: [older, newer],
+        previousRecords: const [],
+        period: HealthTrendPeriod.week,
+        anchor: DateTime(2026, 10, 1),
+      );
+      expect(data.records.map((row) => row.id), [
+        'newer-sdk-day',
+        'older-sdk-day',
+      ]);
+    },
+  );
+
+  test('legacy sleep also sorts by its saved-offset SDK date', () {
+    final newer = record(
+      id: 'newer-legacy-day',
+      metric: HealthMetric.sleep,
+      at: DateTime.utc(2026, 9, 30, 10),
+      values: const {'value': 6},
+      timezone: '+14:00',
+    );
+    final older = record(
+      id: 'older-legacy-day',
+      metric: HealthMetric.sleep,
+      at: DateTime.utc(2026, 9, 30, 12),
+      values: const {'value': 7},
+      timezone: '-12:00',
+    );
+    final data = const HealthAnalysisService().analyze(
+      metric: HealthMetric.sleep,
+      records: [older, newer],
+      previousRecords: const [],
+      period: HealthTrendPeriod.week,
+      anchor: DateTime(2026, 10, 1),
+    );
+    expect(data.records.map((row) => row.id), [
+      'newer-legacy-day',
+      'older-legacy-day',
+    ]);
+  });
+
+  test(
+    'non-sleep records retain UTC measurement ordering across saved offsets',
+    () {
+      final earlier = record(
+        id: 'earlier-utc',
+        metric: HealthMetric.heartRate,
+        at: DateTime.utc(2026, 9, 30, 10),
+        values: const {'value': 70},
+        timezone: '+14:00',
+      );
+      final later = record(
+        id: 'later-utc',
+        metric: HealthMetric.heartRate,
+        at: DateTime.utc(2026, 9, 30, 12),
+        values: const {'value': 80},
+        timezone: '-12:00',
+      );
+      final data = const HealthAnalysisService().analyze(
+        metric: HealthMetric.heartRate,
+        records: [earlier, later],
+        previousRecords: const [],
+        period: HealthTrendPeriod.week,
+        anchor: DateTime(2026, 10, 1),
+      );
+      expect(data.records.map((row) => row.id), ['later-utc', 'earlier-utc']);
+    },
   );
 
   test('day analysis deduplicates records and keeps timezone display time', () {

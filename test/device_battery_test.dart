@@ -3,6 +3,40 @@ import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/wearable_routing.dart';
 
 void main() {
+  test(
+    'charging expires independently of cached battery and rejects future confirmation',
+    () {
+      final now = DateTime.utc(2026, 10, 3, 12);
+      DeviceBatteryInfo battery(DateTime? confirmed) => DeviceBatteryInfo(
+        value: 60,
+        scale: 100,
+        isPercent: true,
+        chargeState: DeviceBatteryChargeState.charging,
+        updatedAt: now,
+        chargingUpdatedAt: confirmed,
+      );
+      expect(
+        battery(now).chargeStateAt(now),
+        DeviceBatteryChargeState.charging,
+      );
+      expect(
+        battery(now.subtract(const Duration(seconds: 61))).chargeStateAt(now),
+        DeviceBatteryChargeState.unknown,
+      );
+      expect(
+        battery(now.add(const Duration(seconds: 6))).chargeStateAt(now),
+        DeviceBatteryChargeState.unknown,
+      );
+      final unknown = DeviceBatteryInfo(
+        value: 60,
+        scale: 100,
+        isPercent: true,
+        chargeState: DeviceBatteryChargeState.normal,
+      );
+      expect(unknown.chargeStateAt(now), DeviceBatteryChargeState.unknown);
+      expect(battery(now).toJson()['chargingUpdatedAt'], now.toIso8601String());
+    },
+  );
   test('parses percentage battery without losing low or charge state', () {
     final device = DeviceInfo.fromMap({
       'id': 'watch-1',

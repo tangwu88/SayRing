@@ -43,6 +43,17 @@ post_install do |installer|
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+      if target.name == 'permission_handler_apple'
+        # The plugin defaults to disabled strategies, which otherwise report
+        # denied even when CoreBluetooth has already been authorized.
+        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+        config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] += [
+          'PERMISSION_BLUETOOTH=1',
+          'PERMISSION_LOCATION_WHENINUSE=1',
+          'PERMISSION_CAMERA=1',
+          'PERMISSION_NOTIFICATIONS=1',
+        ]
+      end
     end
   end
 

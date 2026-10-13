@@ -40,6 +40,10 @@ extension LocalizedModelLabels on AppLocalizations {
     DeviceFeature.photoWatchFace => photoWatchFace,
     DeviceFeature.findWatch => findWatch,
     DeviceFeature.camera => cameraRemote,
+    DeviceFeature.gestureControl =>
+      localeName.startsWith('zh') ? '手势控制' : 'Gesture control',
+    DeviceFeature.callReminder =>
+      localeName.startsWith('zh') ? '来电提醒' : 'Call reminder',
     DeviceFeature.phoneCalls => phoneCalls,
     DeviceFeature.contacts => contacts,
     DeviceFeature.notifications => notifications,

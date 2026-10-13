@@ -1096,7 +1096,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get deleteAccountHint =>
-      'Nach dem Löschen Ihres Kontos und der zugehörigen Daten werden Sie abgemeldet.';
+      'Ihr Konto wird sofort deaktiviert und Sie werden abgemeldet. Zugehörige Daten sollen nach 7 Tagen gelöscht werden, soweit keine gesetzliche Aufbewahrungspflicht besteht.';
 
   @override
   String get confirmDelete => 'Löschung bestätigen';
@@ -1536,6 +1536,9 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get syncComplete => 'Daten synchronisiert';
+
+  @override
+  String get syncUpToDate => 'Aktuell, keine neuen Daten';
 
   @override
   String get syncFailedTryAgain =>

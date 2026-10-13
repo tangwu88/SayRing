@@ -68,6 +68,39 @@ void main() {
     expect(find.byKey(const Key('health-payment-refresh')), findsOneWidget);
   });
 
+  testWidgets('ring report summary retains protocol keys and unified labels', (
+    tester,
+  ) async {
+    final api = _HealthReportApi(
+      eligibility: _eligibility(eligible: false, distinctDays: 1),
+      profileMetrics: const [
+        HealthProfileMetric(
+          metric: 'hrv',
+          recordCount: 2,
+          latestObservedAt: null,
+          latestValue: 48,
+        ),
+        HealthProfileMetric(
+          metric: 'body_temperature',
+          recordCount: 3,
+          latestObservedAt: null,
+          latestValue: 32.4,
+        ),
+      ],
+    );
+    final controller = _controller(api);
+    addTearDown(controller.dispose);
+    await _pumpPage(tester, controller);
+    expect(find.text('心率变异性（HRV） 2条'), findsOneWidget);
+    expect(find.text('皮肤温度 3条'), findsOneWidget);
+    expect(find.text('体温 3条'), findsNothing);
+    expect(api.profileMetrics.map((metric) => metric.metric), [
+      'hrv',
+      'body_temperature',
+    ]);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('ready report opens evidence-bounded detail and safety notice', (
     tester,
   ) async {
@@ -173,10 +206,22 @@ const _readyReport = HealthReportSummary(
 
 class _HealthReportApi extends Fake
     implements SaydianApi, SaydianHealthReportApi {
-  _HealthReportApi({required this.eligibility, this.reports = const []});
+  _HealthReportApi({
+    required this.eligibility,
+    this.reports = const [],
+    this.profileMetrics = const [
+      HealthProfileMetric(
+        metric: 'heart_rate',
+        recordCount: 8,
+        latestObservedAt: null,
+        latestValue: 72,
+      ),
+    ],
+  });
 
   final HealthReportEligibility eligibility;
   final List<HealthReportSummary> reports;
+  final List<HealthProfileMetric> profileMetrics;
   int paymentCreateCalls = 0;
 
   @override
@@ -187,14 +232,7 @@ class _HealthReportApi extends Fake
     validRecordCount: eligibility.validRecordCount,
     distinctDays: eligibility.distinctDays,
     metricCount: eligibility.eligible ? 2 : 1,
-    metrics: const [
-      HealthProfileMetric(
-        metric: 'heart_rate',
-        recordCount: 8,
-        latestObservedAt: null,
-        latestValue: 72,
-      ),
-    ],
+    metrics: profileMetrics,
     devices: const [],
     activeWarningCount: 0,
     analysisConsentGranted: true,

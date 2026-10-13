@@ -39,13 +39,20 @@ void main() {
         final wearable = _DelayedRecoveryWearable();
         final controller = AppController(
           MemorySessionVault()..privacyConsentGranted = true,
-          _NoopApi(),
+          _GlobalNoopApi(),
           MemoryHealthStore(),
           wearable,
         );
         addTearDown(controller.dispose);
 
         await controller.initialize();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          wearable.restoreStarted.isCompleted,
+          isFalse,
+          reason: 'remembered consent alone does not leave the login screen',
+        );
+        await controller.enterLocalMode();
         await wearable.restoreStarted.future;
 
         final scan = controller.scanDevices();
@@ -73,6 +80,8 @@ class _NoopApi extends Fake implements SaydianApi {
   @override
   Future<List<Map<String, Object?>>> getArticles() async => const [];
 }
+
+class _GlobalNoopApi extends _NoopApi implements GlobalAccountApi {}
 
 class _DelayedRecoveryWearable extends Fake
     implements WearableBridge, WearableConnectionRecoveryBridge {

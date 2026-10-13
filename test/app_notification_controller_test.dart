@@ -1680,6 +1680,7 @@ class _ConsentApi extends _NotificationApi implements GlobalAccountApi {
     required String password,
     required bool resetPassword,
     required String locale,
+    bool ageConfirmed = false,
     String? nickname,
     String? consentVersion,
   }) async {

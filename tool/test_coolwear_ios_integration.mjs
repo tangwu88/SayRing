@@ -1,0 +1,221 @@
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {readFileSync} from 'node:fs';
+import {test} from 'node:test';
+
+const read = (name) => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
+const bridge = read('ios/Runner/CoolWearWearableBridge.m');
+
+test('CoolWear controls use real flags, vendor commands and guarded photo events', () => {
+  assert.match(bridge, /CoolWearFlag\(self.flags, @"gestureSupport"\)/);
+  assert.match(bridge, /@\[@"camera", @"gesture_control"\]/);
+  assert.match(bridge, /isResolved\] && self.callReminder.*addObject:@"call_reminder"/);
+  for (const command of ['CE_SendPhotoCmd', 'CE_GestureCmd', 'YD_SyncCallAlarmCmd']) assert.ok(bridge.includes(command));
+  assert.match(bridge, /type.integerValue == DATA_TYPE_PHOTOGRAPH_ONOFF/);
+  assert.match(bridge, /CoolWearCameraShutter\(data, self.cameraActive, \[self isResolved\], UIApplication.sharedApplication.applicationState == UIApplicationStateActive\)/);
+  assert.match(bridge, /self.target.ancsAuthorized/);
+  assert.match(bridge, /controlReadbackAcknowledged \|\| !self.controlReadbackCall/);
+  assert.match(bridge, /controlExpectedCall isEqual:self.controlReadbackCall/);
+  assert.match(bridge, /requestCallReadback:operation connection:connection/);
+  assert.match(bridge, /operation != weakSelf.controlGeneration \|\| connection != weakSelf.connectionGeneration/);
+  const cancel = bridge.slice(bridge.indexOf('- (void)beginCancellation:'), bridge.indexOf('- (void)checkCancellation'));
+  for (const state of ['cameraActive = NO', 'gestureMode = nil', 'callReminder = nil', 'finishControl:']) assert.ok(cancel.includes(state));
+  const controls = bridge.slice(bridge.indexOf('- (void)sendControl:'), bridge.indexOf('- (void)finishFind:'));
+  assert.match(controls, /repeatSendTimes = 0; command.noCallback = NO/);
+  assert.doesNotMatch(controls, /NSUserDefaults|sendOriginalData|setUserInfo/);
+});
+const project = read('ios/Runner.xcodeproj/project.pbxproj');
+
+test('owner-scoped iOS recovery continues after empty scans and repeats a fresh handshake', () => {
+  const loop = bridge.slice(bridge.indexOf('- (void)configureRecovery:'), bridge.indexOf('- (BOOL)matchesTarget'));
+  assert.match(loop, /CoolWearRecoveryTargetValid\(identifier, name, context\)/);
+  assert.match(loop, /generation != weakSelf.recoveryGeneration/);
+  assert.match(loop, /CoolWearRecoveryMatches/);
+  assert.match(loop, /\[weakSelf scheduleRecovery\];\s*\}\];/);
+  assert.match(loop, /self\.pendingConnect \|\| self\.pendingScan/);
+  assert.match(loop, /\[self beginCancellation:/);
+  assert.match(bridge, /self\.recoveryConnecting \? @"reconnected" : @"connected"/);
+  assert.match(bridge, /\[self scheduleRecovery\];\s*return;\s*\}/);
+  assert.match(read('lib/services/wearable_bootstrap.dart'), /TargetPlatform\.iOS\s*\? CoolWearIosWearableBridge\(\)/);
+  assert.match(read('lib/services/wearable_routing.dart'), /_sources\[transport\] is WearableExactTargetRecoveryBridge &&/);
+  const disconnect = bridge.slice(bridge.indexOf('else if ([call.method isEqualToString:@"disconnect"])'), bridge.indexOf('else if ([call.method isEqualToString:@"getDeviceDetails"])'));
+  assert.ok(disconnect.indexOf('self.recoveryID = nil') < disconnect.indexOf('[self beginCancellation:result]'));
+});
+
+test('one-shot sleep packets are processed after automatic recovery without a manual sync lock', () => {
+  const passive = bridge.slice(bridge.indexOf('- (void)schedulePassiveSleepHistory'), bridge.indexOf('- (void)finalizeSleepBatch:'));
+  assert.match(passive, /generation != weakSelf.connectionGeneration/);
+  assert.match(passive, /weakSelf\.historyBatches\[@6\] syncRecords:nil/);
+  assert.doesNotMatch(passive, /sendCmdToDevice|pendingSync\s*=/);
+  assert.match(bridge, /if \(type.integerValue == 6\) \[self schedulePassiveSleepHistory\]/);
+  assert.match(bridge, /for \(NSDictionary \*record in records\) \[self emitPassiveRecord:record\];\s*\[self schedulePassiveSleepHistory\]/);
+  assert.match(bridge, /emit:@"capabilitiesUpdated" payload:\[self capabilities\]/);
+  assert.match(bridge, /self.passiveSleepScheduled = NO/);
+  const finalize = bridge.slice(bridge.indexOf('- (void)finalizeSleepBatch:'), bridge.indexOf('- (void)readBattery'));
+  assert.match(finalize, /\[\[batch status\] isEqual:@"complete"\]/);
+  assert.match(finalize, /\[self.historyRecords\[record\[@"id"\]\] isEqual:record\]/);
+});
+
+test('health monitoring uses complete SDK state and verifies writes with a fresh read', () => {
+  assert.match(bridge, /type.integerValue == DATA_TYPE_HEART_AUTO_SWITCH/);
+  assert.match(bridge, /CoolWearMonitoringSettings\(self.monitoringSnapshot, self.flags\).count/);
+  assert.match(bridge, /features addObject:@"health_monitoring"/);
+  assert.match(bridge, /value\[@"integratedFeatures"\] = features/);
+  for (const property of ['onoff', 'hr24hOnoff', 'O2_onoff', 'time']) {
+    assert.match(bridge, new RegExp(`command\\.${property} = \\[expected`));
+  }
+  assert.match(bridge, /snapshot isEqual:self.monitoringExpected/);
+  assert.match(bridge, /else \[weakSelf requestMonitoringReadback:operation connection:connection\]/);
+  assert.match(bridge, /operation != weakSelf.monitoringGeneration \|\| connection != weakSelf.connectionGeneration/);
+  const cancel = bridge.slice(bridge.indexOf('- (void)beginCancellation:'), bridge.indexOf('- (void)checkCancellation'));
+  assert.match(cancel, /finishMonitoring:/);
+  assert.match(cancel, /self.monitoringSnapshot = nil/);
+  assert.match(bridge, /readAutoMeasureIntervals.*result\(@\{\}\)/);
+  const queued = bridge.slice(bridge.indexOf('- (void)sendMonitoring:'), bridge.indexOf('- (NSDictionary *)syncSnapshot'));
+  assert.match(queued, /if \(self.pendingBattery \|\| self.pendingFind\)/);
+  assert.match(queued, /250 \* NSEC_PER_MSEC/);
+  assert.match(queued, /operation != self.monitoringGeneration \|\| connection != self.connectionGeneration/);
+  assert.match(queued, /sendMonitoring:write operation:operation connection:connection/);
+  assert.match(bridge, /!self.monitoringReadbackAcknowledged \|\| !self.monitoringReadbackSnapshot/);
+  assert.match(bridge, /weakSelf.monitoringReadbackAcknowledged = YES/);
+  const monitoring = bridge.slice(bridge.indexOf('- (void)requestMonitoringReadback:'), bridge.indexOf('- (NSDictionary *)syncSnapshot'));
+  assert.equal((monitoring.match(/CoolWearAfterSDKCallback\(/g) ?? []).length, 2);
+  assert.doesNotMatch(monitoring, /complete:\^\(NSError \*error\) \{\s*CoolWearOnMain/);
+  assert.match(read('ios/Runner/CoolWearMonitoring.h'), /dispatch_async\(dispatch_get_main_queue\(\), block\)/);
+  assert.match(bridge, /self.monitoringReadbackSnapshot = snapshot/);
+});
+
+test('mapped iOS history remains capability gated and reports per-metric status', () => {
+  const policy = read('ios/Runner/CoolWearPolicy.h');
+  assert.match(policy, /@"supportsHistorySync": @\(resolved\)/);
+  assert.match(bridge, /@"statuses": statuses/);
+  assert.match(bridge, /if \(metric\) \[metrics addObject:metric\]/);
+  assert.match(bridge, /sync == weakSelf.syncGeneration/);
+  assert.match(policy, /@"manualMetrics": manual/);
+  assert.match(read('lib/services/app_controller.dart'), /capabilities\?\.supportsHistorySync == false/);
+  assert.match(read('lib/ui/pages/devices.dart'), /Key\('device-sync-data'\)/);
+});
+
+test('iOS permission status readers are compiled for declared uses only', () => {
+  const podfile = read('ios/Podfile');
+  assert.match(podfile, /target.name == 'permission_handler_apple'/);
+  for (const permission of ['BLUETOOTH', 'LOCATION_WHENINUSE', 'CAMERA', 'NOTIFICATIONS']) {
+    assert.ok(podfile.includes(`PERMISSION_${permission}=1`));
+  }
+  assert.doesNotMatch(podfile, /PERMISSION_(?:PHOTOS|CONTACTS|LOCATION_ALWAYS|MICROPHONE)=1/);
+  const plist = read('ios/Runner/Info.plist');
+  for (const key of ['NSBluetoothAlwaysUsageDescription', 'NSLocationWhenInUseUsageDescription', 'NSCameraUsageDescription']) {
+    assert.ok(plist.includes(key));
+  }
+});
+
+test('the shipped iPhone SDK binary is the untouched user-provided version', () => {
+  const bytes = readFileSync(new URL('../ios/Runner/Vendor/BluetoothLibrary.framework/BluetoothLibrary', import.meta.url));
+  assert.equal(createHash('sha256').update(bytes).digest('hex'), 'f56c39605abded5f57b7ab28f245d67218b9df9e8edbb7fe037755b8cd3ca624');
+  assert.match(read('ios/Runner/Vendor/COOLWEAR-README.md'), /no simulator slice/);
+});
+
+test('the real bridge and framework are registered linked and signed for every device build', () => {
+  assert.match(read('ios/Runner/AppDelegate.swift'), /coolwearWearableBridge = CoolWearWearableBridge\(messenger:/);
+  assert.match(read('ios/Runner/Runner-Bridging-Header.h'), /#import "CoolWearWearableBridge.h"/);
+  assert.match(project, /BluetoothLibrary.framework in Embed Frameworks[^\n]+CodeSignOnCopy/);
+  assert.equal((project.match(/\n\s+BluetoothLibrary.framework,/g) ?? []).length, 3);
+  assert.equal((project.match(/\n\s+CoolWearWearableBridge.m,/g) ?? []).length, 3);
+});
+
+test('discovery uses vendor peripheral models and two declared services', () => {
+  assert.match(bridge, /isKindOfClass:SearchPeripheral.class/);
+  assert.match(bridge, /self.product.sid = @"F618"/);
+  assert.match(bridge, /weakSelf.product.sid = @"F818"/);
+  assert.match(bridge, /self.product.sid = self.scanServices\[identifier\]/);
+  assert.match(bridge, /startScanWhenReady:generation attempt:0/);
+});
+
+test('connection completion requires metadata and flags from the exact real target', () => {
+  assert.match(bridge, /product.peripheral.identifier isEqual:self.target.identifier/);
+  assert.match(bridge, /self.product.status == ProductStatus_completed/);
+  assert.match(bridge, /self.deviceInfo.count > 0 && self.flags.count > 0/);
+  assert.match(bridge, /generation != weakSelf.connectionGeneration/);
+  assert.match(bridge, /30 \* NSEC_PER_SEC/);
+});
+
+test('installation-wide recovery and raw health logging are not imported', () => {
+  assert.doesNotMatch(bridge, /\[(?:self\.|weakSelf\.)?product (?:startAutoConnect|saveConnectedUUid|releaseBind)\]/);
+  assert.doesNotMatch(bridge, /NSLog\(|NSUserDefaults|receiveOriginalDataHandler\s*=|sendOriginalDataHandler\s*=/);
+  assert.match(bridge, /lastConnectUUId = nil/);
+  assert.match(bridge, /UUIDStr = nil/);
+});
+
+test('mixed data is never converted into fake history completion', () => {
+  const mixed = bridge.match(/if \(type.integerValue == DATA_TYPE_DEV_SYNC\) \{([\s\S]*?)\n    \}/)?.[1];
+  assert.ok(mixed);
+  assert.match(mixed, /receiveData:child depth:/);
+  assert.doesNotMatch(mixed, /result\(|completeSync|pendingSync|healthRecord/);
+  assert.match(bridge, /COOLWEAR_FEATURE_UNVERIFIED/);
+  assert.match(bridge, /CoolWearUnsigned\(info\[@"DataType"\], 255\)/);
+  const history = bridge.slice(bridge.indexOf('NSString *historyKey'), bridge.indexOf('if (type.integerValue == DATA_TYPE_REAL_HRV_METRICS)'));
+  assert.doesNotMatch(history, /\[self finishSync\]/);
+  assert.match(bridge, /25 \* NSEC_PER_SEC/);
+  assert.match(bridge, /\[weakSelf finalizeSleepHistory\];\s*\[weakSelf finishSync\]/);
+  assert.match(bridge, /type.integerValue == 6 \? @\[\] : batch.rows.allValues/);
+  assert.match(bridge, /if \(!\[metric isEqual:@"sleep"\]\)/);
+  const sleep = bridge.slice(bridge.indexOf('- (void)finalizeSleepHistory'), bridge.indexOf('- (void)readBattery'));
+  assert.match(sleep, /\[\[batch status\] isEqual:@"complete"\]/);
+});
+
+test('measurement is session guarded and requires a real fresh sample', () => {
+  assert.match(bridge, /measurement == self.measurementGeneration/);
+  assert.match(bridge, /CoolWearMeasurementValue\(metric, sample\)/);
+  assert.match(bridge, /timeIntervalSinceDate:self.measurementStart/);
+  assert.match(bridge, /if \(!value \|\| !date/);
+  assert.match(bridge, /@"origin": @"app_measurement"/);
+  assert.match(bridge, /@"sourceModel": CoolWearModel\(self.targetName\)/);
+});
+
+test('RRI uses the new command and explicit metrics, never ambiguous legacy HRV', () => {
+  assert.match(bridge, /CE_SyncRRIHRVCmd \*cmd/);
+  assert.match(bridge, /DATA_TYPE_REAL_HRV_METRICS/);
+  assert.match(read('ios/Runner/CoolWearHistory.h'), /@61:@"hrvMetricsInfos"/);
+  assert.doesNotMatch(bridge, /CE_SyncHRVCmd \*|== DATA_TYPE_REAL_HRV\b|== DATA_TYPE_HISTORY_HRV\b/);
+  assert.match(bridge, /CoolWearRriHrvValues\(sample\)/);
+  assert.match(read('ios/Runner/CoolWearHistory.h'), /CoolWearSkinTemperatureValues\(sample\)/);
+  assert.match(bridge, /origin:@"watch_history"/);
+});
+
+test('passive handshake data is delivered only after the account-owned Dart session is ready', () => {
+  assert.match(bridge, /getCapabilities[\s\S]*?\[self enableDataDelivery\]/);
+  assert.match(bridge, /!self.dataDeliveryReady \|\| !\[\[self capabilities\]\[@"historyMetrics"\]/);
+  const cancel = bridge.slice(bridge.indexOf('- (void)beginCancellation:'), bridge.indexOf('- (void)checkCancellation'));
+  assert.match(cancel, /self.dataDeliveryReady = NO/);
+  assert.match(cancel, /\[self.pendingPassiveRecords removeAllObjects\]/);
+  assert.match(bridge, /resolved\[@"firmwareVersion"\] = self.deviceInfo/);
+});
+
+test('SDK exceptions cannot acknowledge a failed scan or complete a request twice', () => {
+  assert.match(bridge, /result = CoolWearCompleteOnce\(result\)/);
+  const exception = bridge.slice(bridge.indexOf('@catch (NSException *exception)'));
+  assert.ok(exception.indexOf('self.pendingScan = nil') < exception.indexOf('[self beginCancellation:nil]'));
+  assert.match(exception, /for \(CoolWearCompletion completion in pending\) completion\(failure\)/);
+  assert.match(exception, /self.cancelling = YES/);
+  assert.match(bridge, /CoolWearHasKnownCapabilities\(data\)/);
+});
+
+test('find protocol requires a fresh stop ACK and cancels bounded operations', () => {
+  const capability = bridge.slice(bridge.indexOf('- (NSDictionary *)capabilities'), bridge.indexOf('- (void)finishFind:'));
+  assert.match(capability, /\[self isResolved\] && self.findSupported/);
+  const find = bridge.slice(bridge.indexOf('- (void)sendFind:'), bridge.indexOf('- (void)finishMonitoring:'));
+  assert.match(find, /YD_SyncFindDevCmd.*initWithOnoff:enabled \? 1 : 0/);
+  assert.match(find, /command.noCallback = NO/);
+  assert.match(find, /command.repeatSendTimes = 0/);
+  assert.match(find, /weakSelf.findSupported = error == nil/);
+  assert.match(find, /22 \* NSEC_PER_SEC/);
+  assert.match(find, /operation != weakSelf.findGeneration \|\| connection != weakSelf.connectionGeneration/);
+  const probeTimeout = find.slice(find.indexOf('if (probing)'), find.indexOf('// Drain stale'));
+  assert.match(probeTimeout, /cleanCmdQueue/);
+  assert.doesNotMatch(probeTimeout, /beginCancellation|scheduleRecovery/);
+  assert.match(bridge, /@"enabled": @NO\} probe:YES/);
+  const cancel = bridge.slice(bridge.indexOf('- (void)beginCancellation:'), bridge.indexOf('- (void)checkCancellation'));
+  assert.match(cancel, /finishFind:/);
+  assert.match(cancel, /self.findSupported = NO/);
+  assert.match(bridge, /triggerDeviceAction[\s\S]*?else \[self findDevice:args probe:NO result:result\]/);
+});

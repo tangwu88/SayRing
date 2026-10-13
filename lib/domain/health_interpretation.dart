@@ -83,7 +83,7 @@ HealthInterpretation interpretHealthRecord(HealthRecord record) {
       );
     case HealthMetric.hrv:
       return const HealthInterpretation(
-        title: 'HRV 更适合观察个人长期趋势',
+        title: '心率变异性（HRV）更适合观察个人长期趋势',
         detail: '不同人的基线差异较大，请在相近时间和状态下比较，不以单次数值判断健康状况。',
       );
     case HealthMetric.stress:
@@ -135,7 +135,7 @@ String healthValueLabel(String key, HealthMetric metric) => switch (key) {
   'diastolic' => '舒张压',
   'skinTemperature' => '皮肤温度',
   'meanHeartRate' || 'averageHeartRate' => '平均心率',
-  'averageHRV' || 'hrv' => 'HRV',
+  'averageHRV' || 'hrv' => HealthMetric.hrv.label,
   'averageTimeInterval' || 'qt' => 'QT 间期',
   'respiratoryRate' => '平均呼吸率',
   'sampleFrequency' => '采样频率',
@@ -152,6 +152,11 @@ String healthValueLabel(String key, HealthMetric metric) => switch (key) {
   'stAmplitude' => 'ST 振幅',
   'sdnn' => 'SDNN',
   'rmssd' => 'RMSSD',
+  'pnn' when metric == HealthMetric.hrv => 'pNN50',
+  'heartRate' when metric == HealthMetric.hrv => '平均心率',
+  'validCount' when metric == HealthMetric.hrv => '有效间期数量',
+  'rejectedCount' when metric == HealthMetric.hrv => '剔除间期数量',
+  'sdkQuality' when metric == HealthMetric.hrv => '信号质量（1–3）',
   'bmi' || 'BMI' => 'BMI',
   'bodyFatRate' || 'bodyFatPercentage' => '体脂率',
   'fatMass' => '脂肪量',
@@ -175,6 +180,11 @@ String healthValueLabel(String key, HealthMetric metric) => switch (key) {
 };
 
 String healthValueUnit(String key, HealthRecord record) => switch (key) {
+  'rri' when record.metric == HealthMetric.hrv => 'ms',
+  'pnn' when record.metric == HealthMetric.hrv => '%',
+  'heartRate' when record.metric == HealthMetric.hrv => 'bpm',
+  'validCount' || 'rejectedCount' when record.metric == HealthMetric.hrv => '个',
+  'sdkQuality' || 'sdkFlags' when record.metric == HealthMetric.hrv => '',
   'deepHours' ||
   'lightHours' ||
   'remHours' when record.metric == HealthMetric.sleep => '小时',

@@ -38,7 +38,7 @@ void main() {
       central.indexOf('- (void)disconnect'),
     );
 
-    expect(android, contains('case "disconnect": startUnbind(result);'));
+    expect(android, contains('disconnectWithResult(result);'));
     expect(android, contains('manager.unBindDevice();'));
     expect(
       android,

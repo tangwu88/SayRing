@@ -13,6 +13,7 @@ abstract interface class GlobalAccountApi {
     required String password,
     required String locale,
     required String consentVersion,
+    bool ageConfirmed = false,
     String? nickname,
   });
   Future<Session> completeVerification({
@@ -21,12 +22,19 @@ abstract interface class GlobalAccountApi {
     required String password,
     required bool resetPassword,
     required String locale,
+    bool ageConfirmed = false,
     String? nickname,
     String? consentVersion,
   });
 }
 
 abstract interface class GlobalCodeAuthApi {
+  Future<Session> loginWithEmailPassword({
+    required GlobalAccountIdentity identity,
+    required String password,
+    required String consentVersion,
+    required String locale,
+  });
   Future<VerificationChallenge> requestLoginCode({
     required GlobalAccountIdentity identity,
     required String locale,
@@ -62,6 +70,7 @@ abstract interface class GlobalWechatAuthApi {
     required String platform,
     required String consentVersion,
     required String locale,
+    bool ageConfirmed = false,
   });
   Future<VerificationChallenge> requestGlobalWechatPhoneCode({
     required GlobalWechatPhoneBinding binding,
@@ -77,6 +86,15 @@ abstract interface class GlobalWechatAuthApi {
     required String locale,
     bool ageConfirmed = false,
   });
+}
+
+abstract interface class GlobalCareRangeApi {
+  Future<List<Map<String, Object?>>> globalCareRecordsRange(
+    String id,
+    String metric,
+    DateTime start,
+    DateTime end,
+  );
 }
 
 abstract interface class GlobalCareApi {
@@ -202,8 +220,11 @@ class GlobalSaydianApiClient extends SaydianApiClient
         GlobalCodeAuthApi,
         GlobalWechatAuthApi,
         GlobalCareApi,
+        GlobalCareRangeApi,
         GlobalContentApi,
         GlobalSupportApi,
+        SaydianAvatarProfileApi,
+        SaydianDeviceBindingApi,
         SayRingAppDisplayApi,
         GlobalCommerceApi,
         CloudHealthRecordReader {
@@ -212,6 +233,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     http.Client? client,
     Uri? baseUri,
     String Function()? locale,
+    this.healthReleasePolicy = const WellnessReleasePolicy(),
   }) : _locale = locale ?? (() => 'en'),
        super(
          baseUri: GlobalEnvironment.apiOrigin(baseUri),
@@ -222,6 +244,78 @@ class GlobalSaydianApiClient extends SaydianApiClient
        );
 
   final String Function() _locale;
+  @override
+  final WellnessReleasePolicy healthReleasePolicy;
+
+  @override
+  Future<void> reportDeviceConnection({
+    required Session expectedSession,
+    required String deviceId,
+    required String vendor,
+    required String model,
+    required String displayName,
+    String? firmware,
+    String? macAddress,
+    List<String> capabilities = const [],
+  }) async {
+    final normalizedId = deviceId.trim();
+    final normalizedVendor = vendor.trim();
+    final normalizedModel = model.trim();
+    final normalizedName = displayName.trim();
+    if ([
+      normalizedId,
+      normalizedVendor,
+      normalizedModel,
+      normalizedName,
+    ].any((value) => value.isEmpty)) {
+      throw const ApiException('Device information is incomplete.');
+    }
+    final normalizedCapabilities = capabilities
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (normalizedCapabilities.length > 200) {
+      throw const ApiException('Too many device capabilities.');
+    }
+    final normalizedFirmware = firmware?.trim();
+    final normalizedMac = macAddress?.trim().toUpperCase();
+    if (normalizedMac?.isNotEmpty == true &&
+        !RegExp(r'^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$').hasMatch(normalizedMac!)) {
+      throw const ApiException('Invalid hardware MAC address.');
+    }
+    final owner = _stableSessionAccountKey(expectedSession);
+    _decode(
+      await _withAuthorizationRetry((requestSession) {
+        if (_stableSessionAccountKey(requestSession) != owner) {
+          throw const ApiException(
+            'Account changed.',
+            code: 'STALE_DEVICE_SESSION',
+          );
+        }
+        return _performRequest(
+          () => _client.post(
+            _uri('/api/saydian-app/v2/devices'),
+            headers: {
+              ..._authorizationHeaders(requestSession),
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'deviceId': normalizedId,
+              'vendor': normalizedVendor,
+              'model': normalizedModel,
+              'displayName': normalizedName,
+              if (normalizedFirmware?.isNotEmpty ?? false)
+                'firmware': normalizedFirmware,
+              if (normalizedMac?.isNotEmpty ?? false)
+                'macAddress': normalizedMac,
+              'capabilities': normalizedCapabilities,
+            }),
+          ),
+        );
+      }),
+    );
+  }
 
   @override
   Future<bool> getSayRingHideAi() async {
@@ -229,8 +323,16 @@ class GlobalSaydianApiClient extends SaydianApiClient
     if (data['product'] != 'say-ring' || data['hideAi'] is! bool) {
       throw const ApiException('页面配置暂时无法读取');
     }
+    if (data['sleepAiEnabled'] != null && data['sleepAiEnabled'] is! bool) {
+      throw const ApiException('睡眠分析配置暂时无法读取');
+    }
+    _sleepAiEnabled = data['sleepAiEnabled'] == true;
     return data['hideAi'] as bool;
   }
+
+  bool _sleepAiEnabled = false;
+  @override
+  bool get sleepAiEnabled => _sleepAiEnabled;
 
   @override
   Future<Map<String, Object?>> getGlobalSupportConfig() =>
@@ -521,12 +623,29 @@ class GlobalSaydianApiClient extends SaydianApiClient
     DateTime day,
   ) async {
     final range = globalLocalDayRange(day);
+    return globalCareRecordsRange(id, metric, range.from, range.to);
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> globalCareRecordsRange(
+    String id,
+    String metric,
+    DateTime start,
+    DateTime end,
+  ) async {
+    if (!end.isAfter(start) ||
+        end.difference(start) > const Duration(days: 32)) {
+      throw const ApiException('Invalid date range', code: 'INVALID_RANGE');
+    }
     return _list(
       _decode(
         await _authorizedGet(_carePath(id, '/health'), {
           'metric': metric,
-          'from': range.from.toIso8601String(),
-          'to': range.to.toIso8601String(),
+          'from': start.toUtc().toIso8601String(),
+          'to': end
+              .toUtc()
+              .subtract(const Duration(milliseconds: 1))
+              .toIso8601String(),
         }),
       ),
     );
@@ -658,6 +777,18 @@ class GlobalSaydianApiClient extends SaydianApiClient
   }
 
   @override
+  Future<void> saveAvatarUrl(String avatarUrl) async {
+    if (!GlobalEnvironment.allowsFirstPartyResource(Uri.parse(avatarUrl))) {
+      throw const ApiException('Invalid avatar URL');
+    }
+    _decode(
+      await _authorizedPutJson('/api/saydian-app/v2/members/me', {
+        'avatarUrl': avatarUrl,
+      }),
+    );
+  }
+
+  @override
   Future<Map<String, Object?>> getActivityGoals() async {
     final data = _data(
       _decode(await _authorizedGet('/api/saydian-app/v2/members/me/goals')),
@@ -689,13 +820,10 @@ class GlobalSaydianApiClient extends SaydianApiClient
   @override
   Future<String> uploadImage(String filePath) async {
     final response = await _withAuthorizationRetry((session) async {
-      final request =
-          http.MultipartRequest(
-              'POST',
-              _uri('/api/saydian-app/v2/files', {'purpose': 'avatar'}),
-            )
-            ..headers.addAll(_authorizationHeaders(session))
-            ..fields['purpose'] = 'avatar';
+      final request = http.MultipartRequest(
+        'POST',
+        _uri('/api/saydian-app/v2/files/say-ring-avatar'),
+      )..headers.addAll(_authorizationHeaders(session));
       final extension = filePath.toLowerCase().split('.').last;
       final mime = switch (extension) {
         'jpg' || 'jpeg' => 'jpeg',
@@ -856,7 +984,14 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String platform,
     required String consentVersion,
     required String locale,
+    bool ageConfirmed = false,
   }) async {
+    if (!ageConfirmed) {
+      throw const ApiException(
+        'Confirm that you are at least 14 years old.',
+        code: 'minimum_age_confirmation_required',
+      );
+    }
     final data = await _globalPublic('auth/wechat-login', {
       'product': GlobalEnvironment.productId,
       'code': code,
@@ -865,6 +1000,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
       'consentAccepted': true,
       'consentVersion': consentVersion,
       'locale': locale,
+      'ageConfirmed': true,
     });
     if (data['requiresPhoneBinding'] == true) {
       return GlobalWechatLoginResult.requiresPhone(
@@ -906,18 +1042,26 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String consentVersion,
     required String locale,
     bool ageConfirmed = false,
-  }) async => _globalSession(
-    await _globalPublic('auth/wechat-bind-phone', {
-      'product': GlobalEnvironment.productId,
-      'ageConfirmed': ageConfirmed,
-      'bindTicket': binding.ticket,
-      'challengeId': challenge.id,
-      'code': code,
-      'consentVersion': consentVersion,
-      'locale': locale,
-      'wechatProfileProof': binding.profileProof,
-    }),
-  );
+  }) async {
+    if (!ageConfirmed) {
+      throw const ApiException(
+        'Confirm that you are at least 14 years old.',
+        code: 'minimum_age_confirmation_required',
+      );
+    }
+    return _globalSession(
+      await _globalPublic('auth/wechat-bind-phone', {
+        'bindTicket': binding.ticket,
+        'challengeId': challenge.id,
+        'code': code,
+        'consentVersion': consentVersion,
+        'locale': locale,
+        'product': GlobalEnvironment.productId,
+        'ageConfirmed': true,
+        'wechatProfileProof': binding.profileProof,
+      }),
+    );
+  }
 
   @override
   Future<Map<String, Object?>> createShopOrder({
@@ -1569,6 +1713,12 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String locale,
     bool ageConfirmed = false,
   }) async {
+    if (!ageConfirmed) {
+      throw const ApiException(
+        'Confirm that you are at least 14 years old.',
+        code: 'minimum_age_confirmation_required',
+      );
+    }
     final data = await _sharedCodeAuth(GlobalEnvironment.sharedCodeLoginPath, {
       'product': GlobalEnvironment.productId,
       'ageConfirmed': ageConfirmed,
@@ -1645,6 +1795,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
           'say_ring_user_agreement',
           'say_ring_privacy_policy',
           'health_ai_analysis',
+          'say_ring_sleep_analysis',
         }.contains(parsed.pathSegments.lastOrNull) ||
         parsed.queryParametersAll['version']?.length != 1 ||
         parsed.queryParameters['version']?.trim().isNotEmpty != true ||
@@ -1686,6 +1837,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String password,
     required String locale,
     required String consentVersion,
+    bool ageConfirmed = false,
     String? nickname,
   }) => _globalAuthenticate('auth/register', {
     'product': GlobalEnvironment.productId,
@@ -1693,6 +1845,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     'password': password,
     'locale': locale,
     'consentVersion': consentVersion,
+    'ageConfirmed': ageConfirmed,
     if (nickname?.trim().isNotEmpty == true) 'nickname': nickname!.trim(),
   });
 
@@ -1705,6 +1858,28 @@ class GlobalSaydianApiClient extends SaydianApiClient
       else
         'mobile': identity.identifier,
       'password': password,
+    });
+  }
+
+  @override
+  Future<Session> loginWithEmailPassword({
+    required GlobalAccountIdentity identity,
+    required String password,
+    required String consentVersion,
+    required String locale,
+  }) {
+    if (identity.channel != AccountChannel.email ||
+        password.isEmpty ||
+        consentVersion.trim().isEmpty) {
+      throw const ApiException('Invalid email login request');
+    }
+    return _globalAuthenticate('auth/login', {
+      ...identity.toJson(),
+      'password': password,
+      'product': GlobalEnvironment.productId,
+      'locale': locale,
+      'consentVersion': consentVersion,
+      'consentAccepted': true,
     });
   }
 
@@ -1748,6 +1923,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     required String password,
     required bool resetPassword,
     required String locale,
+    bool ageConfirmed = false,
     String? nickname,
     String? consentVersion,
   }) => _globalAuthenticate(
@@ -1756,10 +1932,11 @@ class GlobalSaydianApiClient extends SaydianApiClient
       'challengeId': challengeId,
       'code': code,
       'password': password,
+      'product': GlobalEnvironment.productId,
+      'locale': locale,
       if (!resetPassword) ...{
-        'product': GlobalEnvironment.productId,
-        'locale': locale,
         'consentVersion': consentVersion ?? '',
+        'ageConfirmed': ageConfirmed,
         if (nickname?.trim().isNotEmpty == true) 'nickname': nickname!.trim(),
       },
     },

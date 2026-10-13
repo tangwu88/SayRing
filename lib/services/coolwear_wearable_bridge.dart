@@ -1,15 +1,71 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 
 import '../domain/feature_models.dart';
 import '../domain/models.dart';
+import '../domain/wearable_sync_result.dart';
 import 'wearable_bridge.dart';
 
-/// Android-only LuckRing-family transport backed by the project-supplied
-/// CoolWear AAR.
+/// Only iOS implements continuous, account-owned native recovery. Android
+/// retains its existing scan/connection implementation and method contract.
+class CoolWearIosWearableBridge extends CoolWearWearableBridge
+    implements WearableExactTargetRecoveryBridge {
+  CoolWearIosWearableBridge({super.methods, super.events});
+
+  @override
+  Future<int?> readHeartRateWarning() async => null;
+
+  @override
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async {
+    if (feature != DeviceFeature.callReminder) {
+      return super.readDeviceFeature(feature);
+    }
+    final value = await _invoke<Map<Object?, Object?>>('readDeviceFeature', {
+      'feature': feature.wireName,
+    });
+    return (value ?? const <Object?, Object?>{}).map(
+      (key, item) => MapEntry('$key', item),
+    );
+  }
+
+  @override
+  Future<void> writeDeviceFeature(
+    DeviceFeature feature,
+    Map<String, Object?> values,
+  ) => feature == DeviceFeature.callReminder
+      ? _invoke<void>('writeDeviceFeature', {
+          'feature': feature.wireName,
+          'values': values,
+        })
+      : super.writeDeviceFeature(feature, values);
+
+  @override
+  Duration _commandTimeout(String method, Duration fallback) =>
+      switch (method) {
+        'setAutoMeasureSetting' => const Duration(seconds: 55),
+        'readAutoMeasureSettings' => const Duration(seconds: 35),
+        _ => fallback,
+      };
+
+  @override
+  Future<void> configureRecoveryTarget({
+    required String? nativeIdentifier,
+    String? knownName,
+    String? contextKey,
+    WearableUserProfile? profile,
+  }) => _invoke<void>('configureRecoveryTarget', {
+    'id': nativeIdentifier,
+    'name': knownName,
+    'context': contextKey,
+  });
+}
+
+/// CoolWear/LuckRing transport backed by the supplied Android/iOS vendor SDKs.
 ///
 /// The native side waits for the vendor connection and device-info response.
-/// History is completed only after the vendor SDK emits its device-sync
-/// callback; individual packets are never treated as a completed sync.
+/// Android history requires its SDK completion callback. The iOS mixed-data
+/// envelope is not that callback: unverified history/controls fail explicitly.
 class CoolWearWearableBridge
     implements
         WearableBridge,
@@ -23,6 +79,8 @@ class CoolWearWearableBridge
   final MethodChannel _methods;
   final EventChannel _events;
 
+  Duration _commandTimeout(String method, Duration fallback) => fallback;
+
   @override
   Stream<WearableEvent> get events => _events
       .receiveBroadcastStream()
@@ -35,7 +93,14 @@ class CoolWearWearableBridge
     Duration timeout = const Duration(seconds: 30),
   ]) async {
     try {
-      return await _methods.invokeMethod<T>(method, arguments).timeout(timeout);
+      return await _methods
+          .invokeMethod<T>(method, arguments)
+          .timeout(_commandTimeout(method, timeout));
+    } on TimeoutException {
+      throw PlatformException(
+        code: 'COOLWEAR_OPERATION_TIMEOUT',
+        message: '戒指未响应，请重试',
+      );
     } on MissingPluginException {
       throw const WearableSdkNotConfigured('此手机尚未接入 CoolWear 戒指 SDK');
     }
@@ -99,21 +164,25 @@ class CoolWearWearableBridge
 
   @override
   Future<List<HealthRecord>> syncHealthData({String? cursor}) async {
-    final values =
-        await _invoke<List<Object?>>(
+    final response =
+        await _invoke<Object?>(
           'syncHealthData',
           cursor == null ? null : {'cursor': cursor},
           const Duration(seconds: 35),
         ) ??
         const <Object?>[];
-    return values
-        .whereType<Map<Object?, Object?>>()
-        .map(
-          (value) => HealthRecord.fromJson(
-            value.map((key, item) => MapEntry('$key', item)),
-          ),
-        )
-        .toList(growable: false);
+    final values = response is Map ? response['records'] : response;
+    final records = parseWearableHealthRecords(
+      values is List ? values : const <Object?>[],
+    );
+    if (response is Map && response['statuses'] is Map) {
+      return WearableSyncResult(records, {
+        for (final entry in (response['statuses'] as Map).entries)
+          if (wearableHealthReleasePolicy.allowsWireMetric('${entry.key}'))
+            '${entry.key}': '${entry.value}',
+      });
+    }
+    return records;
   }
 
   @override
@@ -197,7 +266,8 @@ class CoolWearWearableBridge
 
   @override
   Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async {
-    if (feature != DeviceFeature.notifications &&
+    if (feature != DeviceFeature.gestureControl &&
+        feature != DeviceFeature.notifications &&
         feature != DeviceFeature.healthReminders) {
       return _unsupported();
     }
@@ -213,14 +283,26 @@ class CoolWearWearableBridge
   Future<void> writeDeviceFeature(
     DeviceFeature feature,
     Map<String, Object?> values,
-  ) =>
-      feature == DeviceFeature.notifications ||
-          feature == DeviceFeature.healthReminders
-      ? _invoke<void>('writeDeviceFeature', {
-          'feature': feature.wireName,
-          'values': values,
-        })
-      : _unsupported();
+  ) {
+    if (feature == DeviceFeature.gestureControl) {
+      final mode = values['mode'];
+      if (mode is! int || mode < 0 || mode > 5) {
+        return Future.error(
+          PlatformException(
+            code: 'INVALID_GESTURE_MODE',
+            message: '请选择有效的手势模式',
+          ),
+        );
+      }
+    } else if (feature != DeviceFeature.notifications &&
+        feature != DeviceFeature.healthReminders) {
+      return _unsupported();
+    }
+    return _invoke<void>('writeDeviceFeature', {
+      'feature': feature.wireName,
+      'values': values,
+    });
+  }
 
   @override
   Future<void> triggerDeviceAction(

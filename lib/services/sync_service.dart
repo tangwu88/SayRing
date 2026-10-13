@@ -1,5 +1,6 @@
 import '../domain/models.dart';
 import '../domain/health_record_validation.dart';
+import '../domain/wellness_release_policy.dart';
 import 'api_client.dart';
 import 'local_health_store.dart';
 
@@ -16,10 +17,15 @@ class SyncOutcome {
 }
 
 class HealthSyncService {
-  const HealthSyncService(this._store, this._api);
+  const HealthSyncService(
+    this._store,
+    this._api, {
+    this.policy = const WellnessReleasePolicy(),
+  });
 
   final HealthStore _store;
   final SaydianApi _api;
+  final WellnessReleasePolicy policy;
 
   Future<SyncOutcome> synchronizeNow({bool Function()? isCurrent}) async {
     bool canContinue() => isCurrent?.call() ?? true;
@@ -34,7 +40,21 @@ class HealthSyncService {
       // ordinary health rows. Keep cloud batches small so reading an old
       // offline queue never delays a freshly completed manual measurement for
       // tens of seconds. Uploads still continue until the queue is empty.
-      final pending = await _store.pending(limit: 10);
+      final allowed = policy.allowedMetrics;
+      final store = _store;
+      if (allowed != null && store is! MetricFilteredPendingHealthStore) {
+        return SyncOutcome(
+          uploaded: uploaded,
+          rejected: rejected,
+          message: '本机同步暂不可用，已有记录已保留',
+        );
+      }
+      final pending = allowed == null
+          ? await store.pending(limit: 10)
+          : await (store as MetricFilteredPendingHealthStore).pendingForMetrics(
+              allowed,
+              limit: 10,
+            );
       if (!canContinue()) {
         return SyncOutcome(uploaded: uploaded, rejected: rejected);
       }
@@ -45,7 +65,16 @@ class HealthSyncService {
           message: quarantined == 0 ? null : '已隔离 $quarantined 条无效设备数据',
         );
       }
-      final invalid = pending
+      final projected = pending
+          .map(policy.projectRecord)
+          .whereType<HealthRecord>()
+          .toList();
+      // Product-disabled records remain stored and pending. They are not
+      // invalid measurements and must never be removed or acknowledged.
+      if (projected.isEmpty) {
+        return SyncOutcome(uploaded: uploaded, rejected: rejected);
+      }
+      final invalid = projected
           .where((record) => !hasSaneWearableTransportValues(record))
           .toList();
       if (invalid.isNotEmpty) {
@@ -56,7 +85,7 @@ class HealthSyncService {
         quarantined += invalid.length;
         rejected += invalid.length;
       }
-      final records = pending.where(hasSaneWearableTransportValues).toList();
+      final records = projected.where(hasSaneWearableTransportValues).toList();
       if (records.isEmpty) continue;
       final cursor = await _store.readCursor();
       if (!canContinue()) {

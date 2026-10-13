@@ -1,10 +1,11 @@
 "CFBundleDisplayName" = "Say Ring";
-"NSAppleMusicUsageDescription" = "El SDK de dispositivo integrado incluye interfaces de biblioteca musical. Esta versión no ofrece funciones de biblioteca musical; puede rechazar el acceso.";
-"NSSpeechRecognitionUsageDescription" = "El SDK de dispositivo integrado incluye interfaces de reconocimiento de voz. Esta versión no ofrece reconocimiento de voz; puede rechazar el acceso.";
+"NSHealthShareUsageDescription" = "Un SDK de dispositivo integrado incluye API de lectura de Salud de Apple. Esta versión no lee esos datos. Puede rechazar el acceso sin afectar las funciones del anillo.";
+"NSHealthUpdateUsageDescription" = "Un SDK de dispositivo integrado incluye API de escritura de Salud de Apple. Esta versión no escribe esos datos. Puede rechazar el acceso sin afectar las funciones del anillo.";
 "NSBluetoothAlwaysUsageDescription" = "Conecte su anillo y sincronice los datos de salud que autorice.";
-"NSCameraUsageDescription" = "Tome una foto de perfil cuando decida usar la cámara.";
-"NSContactsUsageDescription" = "Acceda a los contactos solo para una función compatible del dispositivo.";
+"NSAppleMusicUsageDescription" = "Un SDK de dispositivo integrado puede declarar acceso a Apple Music. Esta versión no ofrece esa función y puede rechazar el acceso.";
+"NSSpeechRecognitionUsageDescription" = "Un SDK de dispositivo integrado puede declarar acceso al reconocimiento de voz. Esta versión no ofrece esa función y puede rechazar el acceso.";
+"NSCameraUsageDescription" = "Use la cámara solo cuando elija tomar una foto con un anillo compatible.";
 "NSLocationWhenInUseUsageDescription" = "Use su ubicación para funciones de salud y actividad compatibles.";
 "NSPhotoLibraryUsageDescription" = "Elija una foto de perfil de su fototeca.";
-"NSPhotoLibraryAddUsageDescription" = "Guarde fotos solo cuando decida tomar una.";
+"NSPhotoLibraryAddUsageDescription" = "Guarde una foto solo después de tomarla con un anillo compatible.";
 "NSBluetoothPeripheralUsageDescription" = "Conecte su anillo y sincronice los datos de salud que autorice.";

@@ -1,17 +1,19 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
+import 'package:url_launcher/url_launcher.dart';
 import '../domain/global_account.dart';
 import '../l10n/generated/app_localizations.dart';
 import '../services/api_client.dart';
 import '../services/app_controller.dart';
 import 'brand_assets.dart';
+import 'global_auth_page.dart';
 import 'global_legal_page.dart';
 
-/// Say Ring shares the global H5 member and one-time-code sign-in contract.
-/// Registration/password UI is intentionally absent from this entry point.
+/// Say Ring shares the global member account. Phone sign-in uses a one-time
+/// code; an existing email account may also sign in with its password.
 class GlobalCodeLoginPage extends StatefulWidget {
   const GlobalCodeLoginPage({super.key, required this.controller});
 
@@ -24,7 +26,9 @@ class GlobalCodeLoginPage extends StatefulWidget {
 class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   final _contact = TextEditingController();
   final _code = TextEditingController();
+  final _password = TextEditingController();
   AccountChannel _channel = AccountChannel.sms;
+  bool _emailPasswordMode = false;
   GlobalAuthCapabilities? _capabilities;
   VerificationChallenge? _challenge;
   Timer? _timer;
@@ -34,6 +38,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   bool _loading = false;
   bool _busy = false;
   bool _accepted = false;
+  bool _ageConfirmed = false;
   int _generation = 0;
   int _capabilityGeneration = 0;
   int _remaining = 0;
@@ -57,6 +62,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
       _loading = true;
       _error = null;
       _accepted = false;
+      _ageConfirmed = false;
       _capabilities = null;
       _challenge = null;
       _code.clear();
@@ -89,9 +95,13 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     // Editing a contact never resets the server's resend cooldown.
   }
 
+  bool get _passwordMode =>
+      _channel == AccountChannel.email && _emailPasswordMode;
+
   String _errorFrom(Object error) {
     if (error is FormatException) return error.message;
     if (error is ApiException) {
+      if (error.code == 'minimum_age_confirmation_required') return 'age';
       if (error.statusCode == 429) return 'rate';
       if (error.code == 'verification_invalid' ||
           error.code == 'verification_used') {
@@ -103,6 +113,9 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
       if (error.code == 'NETWORK_TIMEOUT' ||
           error.code == 'NETWORK_UNAVAILABLE') {
         return 'network';
+      }
+      if (error.code == 'invalid_credentials' || error.statusCode == 401) {
+        return 'login';
       }
     }
     return 'service';
@@ -116,16 +129,28 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     'rate' => l.tooManyAttempts,
     'network' => l.networkUnavailable,
     'consent' => l.consentRequired,
+    'password' => l.enterPassword,
+    'login' => l.loginFailed,
+    'age' =>
+      Localizations.localeOf(context).languageCode == 'zh'
+          ? '请确认已满14周岁后继续'
+          : 'Confirm that you are at least 14 years old to continue.',
     'wechat' => widget.controller.errorMessage ?? l.serviceUnavailable,
     _ => l.serviceUnavailable,
   };
 
   Future<void> _wechatLogin() async {
-    if (_busy) return;
+    if (_busy || (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS)) {
+      return;
+    }
     final capability = _capabilities?.wechatApp;
     final consentVersion = _capabilities?.consentVersion?.trim() ?? '';
     if (!_accepted) {
       setState(() => _error = 'consent');
+      return;
+    }
+    if (!_ageConfirmed) {
+      setState(() => _error = 'age');
       return;
     }
     if (capability?.enabled != true ||
@@ -144,6 +169,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
         appId: capability!.appId,
         consentVersion: consentVersion,
         locale: _locale,
+        ageConfirmed: true,
       );
       if (!mounted || success) return;
       final binding = widget.controller.pendingGlobalWechatBinding;
@@ -159,6 +185,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
             capabilities: _capabilities!,
             consentVersion: consentVersion,
             locale: _locale,
+            ageConfirmed: true,
           ),
         ),
       );
@@ -169,6 +196,10 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
 
   Future<void> _sendCode() async {
     if (_busy || _remaining > 0) return;
+    if (!_ageConfirmed) {
+      setState(() => _error = 'age');
+      return;
+    }
     GlobalAccountIdentity identity;
     try {
       identity = _identity();
@@ -228,7 +259,9 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
       setState(() => _error = _errorFrom(error));
       return;
     }
-    if (_capabilities?.permitsLogin(identity) != true) {
+    if (_passwordMode
+        ? _capabilities == null
+        : _capabilities?.permitsLogin(identity) != true) {
       setState(() => _error = 'service');
       return;
     }
@@ -236,8 +269,8 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
       setState(() => _error = 'consent');
       return;
     }
-    if (_challenge == null || !RegExp(r'^\d{6}$').hasMatch(_code.text.trim())) {
-      setState(() => _error = 'code');
+    if (!_ageConfirmed) {
+      setState(() => _error = 'age');
       return;
     }
     final consentVersion = _capabilities?.consentVersion?.trim();
@@ -245,20 +278,38 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
       setState(() => _error = 'service');
       return;
     }
+    if (_passwordMode) {
+      if (_password.text.isEmpty) {
+        setState(() => _error = 'password');
+        return;
+      }
+    } else if (_challenge == null ||
+        !RegExp(r'^\d{6}$').hasMatch(_code.text.trim())) {
+      setState(() => _error = 'code');
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final success = await widget.controller.loginGlobalWithCode(
-        identity: identity,
-        challenge: _challenge!,
-        code: _code.text,
-        locale: _locale,
-        consentVersion: consentVersion,
-        privacyConsentGranted: true,
-        ageConfirmed: _accepted,
-      );
+      final success = _passwordMode
+          ? await widget.controller.loginGlobalWithEmailPassword(
+              identity: identity,
+              password: _password.text,
+              consentVersion: consentVersion,
+              locale: _locale,
+              privacyConsentGranted: true,
+            )
+          : await widget.controller.loginGlobalWithCode(
+              identity: identity,
+              challenge: _challenge!,
+              code: _code.text,
+              locale: _locale,
+              consentVersion: consentVersion,
+              privacyConsentGranted: true,
+              ageConfirmed: true,
+            );
       if (mounted && !success) {
         setState(
           () => _error = _errorFrom(
@@ -273,11 +324,63 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     }
   }
 
+  Future<void> _enterLocalMode() async {
+    if (_busy) return;
+    if (!_ageConfirmed) {
+      setState(() => _error = 'age');
+      return;
+    }
+    if (!_accepted) {
+      setState(() => _error = 'consent');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.controller.enterLocalMode();
+    } catch (_) {
+      if (mounted) setState(() => _error = 'service');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _openLegal(GlobalLegalDocumentType document) async {
+    final hasPublishedLegal =
+        _capabilities?.consentVersion?.trim().isNotEmpty == true &&
+        _capabilities?.legal[document.capabilityKey] != null;
+    if (!hasPublishedLegal && widget.controller.supportsLocalOnlyUse) {
+      final path = document == GlobalLegalDocumentType.userAgreement
+          ? '/say-ring/terms'
+          : '/say-ring/privacy';
+      final opened = await launchUrl(
+        Uri.parse('https://app.saydian.cn$path'),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened && mounted) setState(() => _error = 'service');
+      return;
+    }
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) =>
             GlobalLegalPage(controller: widget.controller, document: document),
+      ),
+    );
+    if (mounted) await _loadCapabilities();
+  }
+
+  Future<void> _openAccountSetup({required bool resetPassword}) async {
+    if (_busy) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => GlobalAuthPage(
+          controller: widget.controller,
+          createAccount: !resetPassword,
+          resetPassword: resetPassword,
+          initialChannel: _channel,
+        ),
       ),
     );
     if (mounted) await _loadCapabilities();
@@ -290,165 +393,294 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     _timer?.cancel();
     _contact.dispose();
     _code.dispose();
+    _password.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    key: const Key('global-code-login-page'),
-    appBar: AppBar(),
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: ListView(
-            padding: const EdgeInsets.all(24),
-            children: [
-              const Center(child: SaydianBrandLockup(color: Colors.black)),
-              const SizedBox(height: 28),
-              Text(l.signIn, style: Theme.of(context).textTheme.headlineMedium),
-              const SizedBox(height: 20),
-              if (_loading) const LinearProgressIndicator(),
-              if (_capabilities == null && !_loading)
-                TextButton.icon(
-                  onPressed: _loadCapabilities,
-                  icon: const Icon(Icons.refresh),
-                  label: Text(l.retry),
-                ),
-              Wrap(
-                spacing: 8,
-                children: [
-                  ChoiceChip(
-                    label: Text(l.phoneNumber),
-                    selected: _channel == AccountChannel.sms,
-                    onSelected: _busy
-                        ? null
-                        : (_) => setState(() {
-                            _channel = AccountChannel.sms;
-                            _contact.clear();
-                            _resetChallenge();
-                          }),
-                  ),
-                  ChoiceChip(
-                    label: Text(l.email),
-                    selected: _channel == AccountChannel.email,
-                    onSelected: _busy
-                        ? null
-                        : (_) => setState(() {
-                            _channel = AccountChannel.email;
-                            _contact.clear();
-                            _resetChallenge();
-                          }),
-                  ),
-                ],
-              ),
-              TextField(
-                key: const Key('code-login-contact'),
-                controller: _contact,
-                enabled: !_busy,
-                keyboardType: _channel == AccountChannel.sms
-                    ? TextInputType.phone
-                    : TextInputType.emailAddress,
-                autofillHints: [
-                  _channel == AccountChannel.sms
-                      ? AutofillHints.telephoneNumber
-                      : AutofillHints.email,
-                ],
-                inputFormatters: _channel == AccountChannel.sms
-                    ? [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(11),
-                      ]
-                    : null,
-                decoration: InputDecoration(
-                  labelText: _channel == AccountChannel.sms
-                      ? l.phoneNumber
-                      : l.email,
-                  hintText: _channel == AccountChannel.sms ? '请输入11位手机号' : null,
-                ),
-                onChanged: (_) => setState(_resetChallenge),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                key: const Key('code-login-code'),
-                controller: _code,
-                enabled: !_busy,
-                keyboardType: TextInputType.number,
-                autofillHints: const [AutofillHints.oneTimeCode],
-                decoration: InputDecoration(labelText: l.verificationCode),
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  key: const Key('code-login-send'),
-                  onPressed: _busy || _remaining > 0 ? null : _sendCode,
-                  child: Text(
-                    _remaining > 0 ? l.resendCode(_remaining) : l.sendCode,
-                  ),
-                ),
-              ),
-              if (_challenge != null)
-                Text(l.verificationSentTo(_challenge!.maskedIdentifier)),
-              CheckboxListTile(
-                key: const Key('code-login-consent'),
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                value: _accepted,
-                onChanged:
-                    _busy ||
-                        !(_capabilities?.consentVersion?.trim().isNotEmpty ??
-                            false)
-                    ? null
-                    : (value) => setState(() => _accepted = value == true),
-                title: Text(
-                  '${l.agreeToTerms}；我确认已满14周岁',
-                  style: const TextStyle(fontSize: 12, height: 1.4),
-                ),
-              ),
-              Wrap(
-                children: [
-                  TextButton(
-                    onPressed: () =>
-                        _openLegal(GlobalLegalDocumentType.userAgreement),
-                    child: Text(l.termsOfService),
-                  ),
-                  TextButton(
-                    onPressed: () =>
-                        _openLegal(GlobalLegalDocumentType.privacyPolicy),
-                    child: Text(l.privacyPolicy),
-                  ),
-                ],
-              ),
-              if (_error != null)
+  Widget build(BuildContext context) {
+    return Scaffold(
+      key: const Key('global-code-login-page'),
+      appBar: AppBar(),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: ListView(
+              padding: const EdgeInsets.all(24),
+              children: [
+                const Center(child: SaydianBrandLockup(color: Colors.black)),
+                const SizedBox(height: 28),
                 Text(
-                  _errorText(),
-                  key: const Key('code-login-error'),
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  l.signIn,
+                  style: Theme.of(context).textTheme.headlineMedium,
                 ),
-              const SizedBox(height: 12),
-              FilledButton(
-                key: const Key('code-login-submit'),
-                onPressed: _busy ? null : _submit,
-                child: Text(_busy ? l.pleaseWait : l.signIn),
-              ),
-              if (_capabilities?.wechatApp.enabled == true) ...[
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  key: const Key('global-wechat-login'),
-                  onPressed: _busy ? null : _wechatLogin,
-                  icon: const Icon(
-                    Icons.wechat_rounded,
-                    color: Color(0xFF07C160),
+                const SizedBox(height: 20),
+                if (_loading) const LinearProgressIndicator(),
+                if (_capabilities == null && !_loading)
+                  TextButton.icon(
+                    onPressed: _loadCapabilities,
+                    icon: const Icon(Icons.refresh),
+                    label: Text(l.retry),
                   ),
-                  label: const Text('微信授权登录'),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    ChoiceChip(
+                      label: Text(l.phoneNumber),
+                      selected: _channel == AccountChannel.sms,
+                      onSelected: _busy
+                          ? null
+                          : (_) => setState(() {
+                              _channel = AccountChannel.sms;
+                              _emailPasswordMode = false;
+                              _contact.clear();
+                              _password.clear();
+                              _resetChallenge();
+                            }),
+                    ),
+                    ChoiceChip(
+                      label: Text(l.email),
+                      selected: _channel == AccountChannel.email,
+                      onSelected: _busy
+                          ? null
+                          : (_) => setState(() {
+                              _channel = AccountChannel.email;
+                              _emailPasswordMode = true;
+                              _contact.clear();
+                              _password.clear();
+                              _resetChallenge();
+                            }),
+                    ),
+                  ],
                 ),
+                TextField(
+                  key: const Key('code-login-contact'),
+                  controller: _contact,
+                  enabled: !_busy,
+                  keyboardType: _channel == AccountChannel.sms
+                      ? TextInputType.phone
+                      : TextInputType.emailAddress,
+                  autofillHints: [
+                    _channel == AccountChannel.sms
+                        ? AutofillHints.telephoneNumber
+                        : AutofillHints.email,
+                  ],
+                  inputFormatters: _channel == AccountChannel.sms
+                      ? [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(11),
+                        ]
+                      : null,
+                  decoration: InputDecoration(
+                    labelText: _channel == AccountChannel.sms
+                        ? l.phoneNumber
+                        : l.email,
+                    hintText: _channel == AccountChannel.sms
+                        ? '请输入11位手机号'
+                        : null,
+                  ),
+                  onChanged: (_) => setState(_resetChallenge),
+                ),
+                if (_channel == AccountChannel.email &&
+                    (_capabilities?.loginEmail == true || !_passwordMode))
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      key: const Key('email-login-mode'),
+                      onPressed: _busy
+                          ? null
+                          : () => setState(() {
+                              _emailPasswordMode = !_emailPasswordMode;
+                              _password.clear();
+                              _resetChallenge();
+                            }),
+                      child: Text(
+                        Localizations.localeOf(context).languageCode == 'zh'
+                            ? (_passwordMode ? '使用邮箱验证码登录' : '使用邮箱密码登录')
+                            : (_passwordMode
+                                  ? 'Use an email code instead'
+                                  : 'Use an email password instead'),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                if (_passwordMode)
+                  TextField(
+                    key: const Key('email-login-password'),
+                    controller: _password,
+                    enabled: !_busy,
+                    obscureText: true,
+                    autofillHints: const [AutofillHints.password],
+                    decoration: InputDecoration(labelText: l.password),
+                  )
+                else ...[
+                  TextField(
+                    key: const Key('code-login-code'),
+                    controller: _code,
+                    enabled: !_busy,
+                    keyboardType: TextInputType.number,
+                    autofillHints: const [AutofillHints.oneTimeCode],
+                    decoration: InputDecoration(labelText: l.verificationCode),
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      key: const Key('code-login-send'),
+                      onPressed: _busy || _remaining > 0 ? null : _sendCode,
+                      child: Text(
+                        _remaining > 0 ? l.resendCode(_remaining) : l.sendCode,
+                      ),
+                    ),
+                  ),
+                ],
+                if (!_passwordMode && _challenge != null)
+                  Text(l.verificationSentTo(_challenge!.maskedIdentifier)),
+                Row(
+                  key: const Key('code-login-consents-row'),
+                  children: [
+                    Expanded(
+                      child: CheckboxListTile(
+                        key: const Key('code-login-minimum-age'),
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        visualDensity: VisualDensity.compact,
+                        value: _ageConfirmed,
+                        onChanged: _busy
+                            ? null
+                            : (value) =>
+                                  setState(() => _ageConfirmed = value == true),
+                        title: Text(
+                          Localizations.localeOf(context).languageCode == 'zh'
+                              ? '我确认已满14周岁'
+                              : 'I confirm that I am at least 14 years old.',
+                          style: const TextStyle(fontSize: 12, height: 1.4),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: CheckboxListTile(
+                        key: const Key('code-login-consent'),
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        visualDensity: VisualDensity.compact,
+                        value: _accepted,
+                        onChanged:
+                            _busy ||
+                                (!widget.controller.supportsLocalOnlyUse &&
+                                    !(_capabilities?.consentVersion
+                                            ?.trim()
+                                            .isNotEmpty ??
+                                        false))
+                            ? null
+                            : (value) =>
+                                  setState(() => _accepted = value == true),
+                        title: Text(
+                          l.agreeToTerms,
+                          style: const TextStyle(fontSize: 12, height: 1.4),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Wrap(
+                  children: [
+                    TextButton(
+                      onPressed: () =>
+                          _openLegal(GlobalLegalDocumentType.userAgreement),
+                      child: Text(l.termsOfService),
+                    ),
+                    TextButton(
+                      onPressed: () =>
+                          _openLegal(GlobalLegalDocumentType.privacyPolicy),
+                      child: Text(l.privacyPolicy),
+                    ),
+                  ],
+                ),
+                if (_error != null)
+                  Text(
+                    _errorText(),
+                    key: const Key('code-login-error'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  key: const Key('code-login-submit'),
+                  onPressed: _busy ? null : _submit,
+                  child: Text(_busy ? l.pleaseWait : l.signIn),
+                ),
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  children: [
+                    if (_capabilities?.email == true ||
+                        _capabilities?.sms == true)
+                      TextButton(
+                        key: const Key('code-login-register'),
+                        onPressed: _busy
+                            ? null
+                            : () => _openAccountSetup(resetPassword: false),
+                        child: Text(l.createAccount),
+                      ),
+                    if (_channel == AccountChannel.email
+                        ? _capabilities?.recoveryEmail == true
+                        : _capabilities?.recoverySms == true)
+                      TextButton(
+                        key: const Key('code-login-recover'),
+                        onPressed: _busy
+                            ? null
+                            : () => _openAccountSetup(resetPassword: true),
+                        child: Text(l.forgotPassword),
+                      ),
+                  ],
+                ),
+                if (widget.controller.supportsLocalOnlyUse) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    key: const Key('local-ring-use-entry'),
+                    onPressed: _busy ? null : _enterLocalMode,
+                    icon: const Icon(Icons.watch_outlined),
+                    label: Text(_busy ? l.pleaseWait : '游客进入'),
+                  ),
+                ] else ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    key: const Key('review-demo-entry'),
+                    onPressed: _busy ? null : widget.controller.enterPreview,
+                    icon: const Icon(Icons.visibility_outlined),
+                    label: const Text('无需手机号，查看只读演示'),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text(
+                      '演示内容均为本机示例数据，不会连接戒指或保存资料。',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
+                if (_capabilities?.wechatApp.enabled == true &&
+                    (kIsWeb ||
+                        defaultTargetPlatform != TargetPlatform.iOS)) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    key: const Key('global-wechat-login'),
+                    onPressed: _busy ? null : _wechatLogin,
+                    icon: const Icon(
+                      Icons.wechat_rounded,
+                      color: Color(0xFF07C160),
+                    ),
+                    label: const Text('微信授权登录'),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class GlobalWechatPhoneBindingPage extends StatefulWidget {
@@ -459,6 +691,7 @@ class GlobalWechatPhoneBindingPage extends StatefulWidget {
     required this.capabilities,
     required this.consentVersion,
     required this.locale,
+    required this.ageConfirmed,
   });
 
   final AppController controller;
@@ -466,6 +699,7 @@ class GlobalWechatPhoneBindingPage extends StatefulWidget {
   final GlobalAuthCapabilities capabilities;
   final String consentVersion;
   final String locale;
+  final bool ageConfirmed;
 
   @override
   State<GlobalWechatPhoneBindingPage> createState() =>
@@ -553,7 +787,7 @@ class _GlobalWechatPhoneBindingPageState
       code: _code.text,
       consentVersion: widget.consentVersion,
       locale: widget.locale,
-      ageConfirmed: _ageConfirmed,
+      ageConfirmed: widget.ageConfirmed,
     );
     if (!mounted) return;
     if (success) {

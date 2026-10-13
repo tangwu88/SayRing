@@ -14,10 +14,10 @@ import 'services/notification_route_service.dart';
 import 'services/app_update_service.dart';
 import 'ui/app_theme.dart';
 import 'ui/app_update_gate_scope.dart';
-import 'ui/brand_assets.dart';
 import 'ui/pages.dart';
 import 'ui/prototype_pages.dart';
 import 'ui/global_code_login_page.dart';
+import 'ui/review_demo_page.dart';
 
 class DismissKeyboardOnBackgroundTap extends StatefulWidget {
   const DismissKeyboardOnBackgroundTap({required this.child, super.key});
@@ -254,6 +254,10 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
     if (navigator == null) return;
     final intent = controller.consumePendingNotificationRoute();
     if (intent == null) return;
+    if (!controller.healthAlertsAvailable &&
+        intent.target == NotificationRouteTarget.healthWarningHistory) {
+      return;
+    }
     _notificationRouteRunning = true;
     if (kDebugMode) {
       debugPrint(
@@ -655,10 +659,15 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
               if (controller.isBooting) {
                 return const _BootPage();
               }
-              if (!controller.isAuthenticated && !controller.isPreviewMode) {
+              if (!controller.isAuthenticated &&
+                  !controller.isPreviewMode &&
+                  !controller.isLocalMode) {
                 return controller.isGlobalEdition
                     ? GlobalCodeLoginPage(controller: controller)
                     : LoginPage(controller: controller);
+              }
+              if (controller.isPreviewMode) {
+                return ReviewDemoPage(onExit: controller.exitPreview);
               }
               return AppShell(controller: controller);
             },
@@ -828,8 +837,8 @@ class _BootPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: DecoratedBox(
-        decoration: const BoxDecoration(gradient: saydianSoftGradient),
+      body: ColoredBox(
+        color: Colors.white,
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -855,6 +864,11 @@ class _BootLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SaydianBrandLockup(width: 185);
+    return Image.asset(
+      'assets/branding/logo_en.jpg',
+      width: 320,
+      fit: BoxFit.contain,
+      semanticLabel: '赛电',
+    );
   }
 }

@@ -2057,7 +2057,7 @@ abstract class AppLocalizations {
   /// No description provided for @deleteAccountHint.
   ///
   /// In en, this message translates to:
-  /// **'You will be signed out after your account and related data have been deleted.'**
+  /// **'Your account will be disabled and you will be signed out immediately. Related data is scheduled for deletion after 7 days, except where the law requires retention.'**
   String get deleteAccountHint;
 
   /// No description provided for @confirmDelete.
@@ -2887,6 +2887,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Data synced'**
   String get syncComplete;
+
+  /// No description provided for @syncUpToDate.
+  ///
+  /// In en, this message translates to:
+  /// **'Up to date—no new data'**
+  String get syncUpToDate;
 
   /// No description provided for @syncFailedTryAgain.
   ///

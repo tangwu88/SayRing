@@ -27,6 +27,24 @@ void main() {
     expect(result.detail, contains('不能作为核心体温'));
   });
 
+  test('RRI-HRV auxiliary values have their own labels and units', () {
+    final hrv = record(HealthMetric.hrv, const {'value': 42});
+    const fields = {
+      'rri': ('rri', 'ms'),
+      'pnn': ('pNN50', '%'),
+      'heartRate': ('平均心率', 'bpm'),
+      'validCount': ('有效间期数量', '个'),
+      'rejectedCount': ('剔除间期数量', '个'),
+      'sdkQuality': ('信号质量（1–3）', ''),
+    };
+    for (final entry in fields.entries) {
+      expect(healthValueLabel(entry.key, hrv.metric), entry.value.$1);
+      expect(healthValueUnit(entry.key, hrv), entry.value.$2);
+    }
+    expect(healthValueUnit('sdnn', hrv), 'ms');
+    expect(healthValueUnit('rmssd', hrv), 'ms');
+  });
+
   test('stress follows the ranges shown by LuckRing', () {
     expect(
       interpretHealthRecord(

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'feature_models.dart';
+import 'sleep_timeline.dart';
 
 enum DeviceConnectionState {
   disconnected,
@@ -24,7 +25,7 @@ enum HealthMetric {
   bloodGlucose('blood_glucose', '血糖', 'mmol/L'),
   bodyTemperature('body_temperature', '皮肤温度', '℃'),
   ecg('ecg', '心电', ''),
-  hrv('hrv', 'HRV', 'ms'),
+  hrv('hrv', '心率变异性（HRV）', 'ms'),
   stress('stress', '压力', ''),
   bodyComposition('body_composition', '身体成分', ''),
   bloodComposition('blood_composition', '血液成分', '');
@@ -34,6 +35,13 @@ enum HealthMetric {
   final String wireName;
   final String label;
   final String defaultUnit;
+
+  static HealthMetric? tryFromWire(String value) {
+    for (final metric in values) {
+      if (metric.wireName == value) return metric;
+    }
+    return null;
+  }
 
   static HealthMetric fromWire(String value) => values.firstWhere(
     (metric) => metric.wireName == value,
@@ -276,6 +284,7 @@ class DeviceBatteryInfo {
     required this.chargeState,
     this.low,
     this.updatedAt,
+    this.chargingUpdatedAt,
   });
 
   final int value;
@@ -284,6 +293,17 @@ class DeviceBatteryInfo {
   final bool? low;
   final DeviceBatteryChargeState chargeState;
   final DateTime? updatedAt;
+  final DateTime? chargingUpdatedAt;
+
+  DeviceBatteryChargeState chargeStateAt(DateTime now) {
+    final confirmed = chargingUpdatedAt ?? updatedAt;
+    if (confirmed == null ||
+        now.difference(confirmed) > const Duration(seconds: 60) ||
+        confirmed.isAfter(now.add(const Duration(seconds: 5)))) {
+      return DeviceBatteryChargeState.unknown;
+    }
+    return chargeState;
+  }
 
   int? get percent => isPercent ? value : null;
   bool get isCharging => chargeState == DeviceBatteryChargeState.charging;
@@ -350,6 +370,9 @@ class DeviceBatteryInfo {
       low: isPercent ? rawLow as bool? : null,
       chargeState: DeviceBatteryChargeState.fromWire(map['chargeState']),
       updatedAt: updatedAt?.toUtc(),
+      chargingUpdatedAt: DateTime.tryParse(
+        '${map['chargingUpdatedAt'] ?? ''}',
+      )?.toUtc(),
     );
   }
 
@@ -360,6 +383,7 @@ class DeviceBatteryInfo {
     'low': low,
     'chargeState': chargeState.wireName,
     'updatedAt': updatedAt?.toUtc().toIso8601String(),
+    'chargingUpdatedAt': chargingUpdatedAt?.toUtc().toIso8601String(),
   };
 }
 
@@ -458,6 +482,22 @@ class DeviceInfo {
     if (separator < 0) return '--';
     final suffix = name.substring(separator + 1).trim();
     return suffix.isEmpty ? '--' : suffix;
+  }
+
+  /// Upload only hardware metadata, never derive a MAC from an iOS UUID.
+  String? get verifiedHardwareMacAddress {
+    final value = hardwareAddress?.trim() ?? '';
+    final separated = value.replaceAll('-', ':').toUpperCase();
+    if (RegExp(r'^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$').hasMatch(separated)) {
+      return separated;
+    }
+    if (RegExp(r'^[0-9A-Fa-f]{12}$').hasMatch(value)) {
+      return List.generate(
+        6,
+        (index) => value.substring(index * 2, index * 2 + 2),
+      ).join(':').toUpperCase();
+    }
+    return null;
   }
 
   String? get macAddress {
@@ -571,17 +611,20 @@ class DeviceCapabilities {
   const DeviceCapabilities({
     required this.metrics,
     this.manualMetrics,
+    this.historyMetrics,
     this.sportModes,
     this.features = const <DeviceFeature>{},
     this.integratedFeatures = const <DeviceFeature>{},
     this.supportsSportPause = false,
     this.supportsBackgroundSync = false,
+    this.supportsHistorySync = true,
     this.supportsWatchFaces = false,
     this.supportsOta = false,
   });
 
   final Set<HealthMetric> metrics;
   final Set<HealthMetric>? manualMetrics;
+  final Set<HealthMetric>? historyMetrics;
 
   /// Sports that the connected watch can enter from the phone.
   ///
@@ -592,19 +635,28 @@ class DeviceCapabilities {
   final Set<DeviceFeature> integratedFeatures;
   final bool supportsSportPause;
   final bool supportsBackgroundSync;
+
+  /// Foreground history transport, independent of background execution.
+  /// Older integrated bridges omit this flag; retain their existing contract.
+  /// New bridges with unmapped history must explicitly return false.
+  final bool supportsHistorySync;
   final bool supportsWatchFaces;
   final bool supportsOta;
 
   factory DeviceCapabilities.fromMap(Map<Object?, Object?> map) {
     final raw = map['metrics'];
     final metrics = raw is List
-        ? raw.map((value) => HealthMetric.fromWire('$value')).toSet()
+        ? raw
+              .map((value) => HealthMetric.tryFromWire('$value'))
+              .whereType<HealthMetric>()
+              .toSet()
         : <HealthMetric>{};
     final rawFeatures = map['features'];
     final rawManualMetrics = map['manualMetrics'];
     final manualMetrics = rawManualMetrics is List
         ? rawManualMetrics
-              .map((value) => HealthMetric.fromWire('$value'))
+              .map((value) => HealthMetric.tryFromWire('$value'))
+              .whereType<HealthMetric>()
               .toSet()
         : null;
     final rawSportModes = map['sportModes'];
@@ -633,11 +685,20 @@ class DeviceCapabilities {
     return DeviceCapabilities(
       metrics: metrics,
       manualMetrics: manualMetrics,
+      historyMetrics: map['historyMetrics'] is List
+          ? (map['historyMetrics'] as List)
+                .map((value) => HealthMetric.tryFromWire('$value'))
+                .whereType<HealthMetric>()
+                .toSet()
+          : null,
       sportModes: sportModes,
       features: features,
       integratedFeatures: integratedFeatures,
       supportsSportPause: map['supportsSportPause'] == true,
       supportsBackgroundSync: map['supportsBackgroundSync'] == true,
+      supportsHistorySync:
+          !map.containsKey('supportsHistorySync') ||
+          map['supportsHistorySync'] == true,
       supportsWatchFaces: map['supportsWatchFaces'] == true,
       supportsOta: map['supportsOta'] == true,
     );
@@ -648,12 +709,20 @@ class DeviceCapabilities {
   bool supportsManualMeasurement(HealthMetric metric) =>
       manualMetrics?.contains(metric) ?? supports(metric);
 
+  bool supportsHistoryMetric(HealthMetric metric) =>
+      supportsHistorySync &&
+      (historyMetrics?.contains(metric) ?? supports(metric));
+
   bool supportsFeature(DeviceFeature feature) => features.contains(feature);
 
   Map<String, Object?> toJson() => {
     'metrics': metrics.map((metric) => metric.wireName).toList(),
     if (manualMetrics != null)
       'manualMetrics': manualMetrics!.map((metric) => metric.wireName).toList(),
+    if (historyMetrics != null)
+      'historyMetrics': historyMetrics!
+          .map((metric) => metric.wireName)
+          .toList(),
     if (sportModes != null)
       'sportModes': sportModes!.map((mode) => mode.wireName).toList(),
     'features': features.map((feature) => feature.wireName).toList(),
@@ -662,6 +731,7 @@ class DeviceCapabilities {
         .toList(),
     'supportsSportPause': supportsSportPause,
     'supportsBackgroundSync': supportsBackgroundSync,
+    'supportsHistorySync': supportsHistorySync,
     'supportsWatchFaces': supportsWatchFaces,
     'supportsOta': supportsOta,
   };
@@ -686,6 +756,7 @@ class HealthRecord {
     this.sourceVendor = '',
     this.sourceDeviceCategory = '',
     this.sourceApp = '',
+    this.sleepTimeline,
   }) : origin = origin ?? MeasurementOrigin.fromWire(null, source: source);
 
   final String id;
@@ -705,6 +776,7 @@ class HealthRecord {
   final String sourceVendor;
   final String sourceDeviceCategory;
   final String sourceApp;
+  final SleepTimeline? sleepTimeline;
 
   factory HealthRecord.fromJson(Map<String, Object?> json) {
     final rawValues = json['values'];
@@ -740,6 +812,13 @@ class HealthRecord {
       sourceVendor: '${json['sourceVendor'] ?? ''}'.trim(),
       sourceDeviceCategory: '${json['sourceDeviceCategory'] ?? ''}'.trim(),
       sourceApp: '${json['sourceApp'] ?? ''}'.trim(),
+      sleepTimeline: json['sleepTimeline'] is Map
+          ? SleepTimeline.fromJson(
+              (json['sleepTimeline'] as Map).map(
+                (key, value) => MapEntry('$key', value),
+              ),
+            )
+          : null,
     );
   }
 
@@ -762,6 +841,7 @@ class HealthRecord {
     if (sourceDeviceCategory.isNotEmpty)
       'sourceDeviceCategory': sourceDeviceCategory,
     if (sourceApp.isNotEmpty) 'sourceApp': sourceApp,
+    if (sleepTimeline != null) 'sleepTimeline': sleepTimeline!.toJson(),
   };
 
   HealthRecord copyWith({
@@ -777,6 +857,7 @@ class HealthRecord {
     String? sourceVendor,
     String? sourceDeviceCategory,
     String? sourceApp,
+    SleepTimeline? sleepTimeline,
   }) => HealthRecord(
     id: id,
     metric: metric,
@@ -795,6 +876,7 @@ class HealthRecord {
     sourceVendor: sourceVendor ?? this.sourceVendor,
     sourceDeviceCategory: sourceDeviceCategory ?? this.sourceDeviceCategory,
     sourceApp: sourceApp ?? this.sourceApp,
+    sleepTimeline: sleepTimeline ?? this.sleepTimeline,
   );
 
   String get displayValue {

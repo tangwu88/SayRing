@@ -4,6 +4,43 @@ import 'package:saydian_app/domain/models.dart';
 
 void main() {
   group('wearable transport sanity', () {
+    test(
+      'CoolWear RRI-HRV keeps SDK quality and SDNN millisecond contract',
+      () {
+        final base = _record(HealthMetric.hrv, {
+          'value': 42,
+          'sdnn': 42,
+          'sdkQuality': 3,
+          'validCount': 80,
+        }, rawVersion: 2).copyWith(sourceVendor: 'coolwear');
+        expect(base.isSane, isTrue);
+        for (final entry in <Map<String, num>>[
+          {'sdkQuality': 0},
+          {'sdkQuality': 4},
+          {'sdkQuality': 1.5},
+          {'validCount': 0},
+          {'validCount': 1},
+          {'validCount': 2.5},
+          {'sdnn': 41},
+          {'value': 1001},
+          {'value': double.nan},
+        ]) {
+          expect(
+            base.copyWith(values: {...base.values, ...entry}).isSane,
+            isFalse,
+          );
+        }
+        expect(base.copyWith(values: {'value': 42}).isSane, isFalse);
+        expect(
+          base.copyWith(values: {'value': 42}, rawVersion: 1).isSane,
+          isTrue,
+        );
+        expect(
+          base.copyWith(values: {'value': 42}, sourceVendor: 'qring').isSane,
+          isTrue,
+        );
+      },
+    );
     test('rejects SDK sentinel values but keeps completed measurements', () {
       expect(_record(HealthMetric.heartRate, {'value': 1}).isSane, isFalse);
       expect(_record(HealthMetric.heartRate, {'value': 78}).isSane, isTrue);

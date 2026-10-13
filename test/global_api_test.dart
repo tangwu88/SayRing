@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -136,6 +137,114 @@ void main() {
     },
   );
   test(
+    'unified avatar URL survives upload, profile save and readback',
+    () async {
+      const id = '11111111-1111-4111-8111-111111111111';
+      const url = '${GlobalEnvironment.origin}/api/saydian-app/v2/files/$id';
+      final directory = await Directory.systemTemp.createTemp(
+        'avatar-contract-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final file = File('${directory.path}${Platform.pathSeparator}avatar.png');
+      await file.writeAsBytes(const [0x89, 0x50, 0x4e, 0x47]);
+      final methods = <String>[];
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault()..session = session(),
+        client: MockClient((request) async {
+          methods.add(request.method);
+          if (request.method == 'POST') {
+            expect(
+              request.url.path,
+              '/global/api/saydian-app/v2/files/say-ring-avatar',
+            );
+            return http.Response(
+              jsonEncode({
+                'code': 200,
+                'data': {'id': id, 'url': url},
+              }),
+              201,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }
+          expect(request.url.path, '/global/api/saydian-app/v2/members/me');
+          if (request.method == 'PUT') {
+            final body = jsonDecode(request.body) as Map;
+            expect(body['avatarUrl'], url);
+            expect(body['nickname'], 'Synthetic');
+            return ok(const <String, Object?>{});
+          }
+          return ok({'avatarUrl': url, 'nickname': 'Synthetic'});
+        }),
+      );
+      final uploaded = await api.uploadImage(file.path);
+      expect(uploaded, url);
+      await api.saveMemberProfile(
+        nickname: 'Synthetic',
+        gender: 1,
+        birthday: '1991-01-01',
+        height: 170,
+        weight: 70,
+        headPortrait: uploaded,
+      );
+      expect((await api.getMemberProfile())['head_portrait'], url);
+      expect(methods, ['POST', 'PUT', 'GET']);
+    },
+  );
+
+  test('Say Ring avatar uses its dedicated global multipart endpoint', () async {
+    final directory = await Directory.systemTemp.createTemp('say-ring-avatar-');
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}${Platform.pathSeparator}avatar.png');
+    await file.writeAsBytes(const [0x89, 0x50, 0x4e, 0x47]);
+    final vault = MemorySessionVault()..session = session();
+    final api = GlobalSaydianApiClient(
+      vault,
+      client: MockClient((request) async {
+        expect(request.method, 'POST');
+        expect(
+          request.url.path,
+          '/global/api/saydian-app/v2/files/say-ring-avatar',
+        );
+        expect(request.url.query, isEmpty);
+        expect(request.headers['authorization'], 'Bearer global-test-access');
+        expect(
+          request.headers['content-type'],
+          startsWith('multipart/form-data;'),
+        );
+        expect(latin1.decode(request.bodyBytes), contains('name="file"'));
+        return ok({
+          'id': 'synthetic-avatar',
+          'url':
+              '${GlobalEnvironment.origin}/global/api/saydian-app/v2/files/synthetic-avatar',
+        });
+      }),
+    );
+    expect(
+      await api.uploadImage(file.path),
+      '${GlobalEnvironment.origin}/global/api/saydian-app/v2/files/synthetic-avatar',
+    );
+  });
+
+  test('avatar-only save does not overwrite incomplete profile fields', () async {
+    for (final url in [
+      '${GlobalEnvironment.origin}/global/api/saydian-app/v2/files/avatar-1',
+      '${GlobalEnvironment.origin}/api/saydian-app/v2/files/11111111-1111-4111-8111-111111111111',
+    ]) {
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault()..session = session(),
+        client: MockClient((request) async {
+          expect(request.method, 'PUT');
+          expect(request.url.path, '/global/api/saydian-app/v2/members/me');
+          expect(request.headers['authorization'], 'Bearer global-test-access');
+          expect(jsonDecode(request.body), {'avatarUrl': url});
+          return ok(const <String, Object?>{});
+        }),
+      );
+      await api.saveAvatarUrl(url);
+    }
+  });
+
+  test(
     'native WeChat requires phone binding before returning a session',
     () async {
       const ticket =
@@ -156,6 +265,7 @@ void main() {
               'consentAccepted': true,
               'consentVersion': 'reviewed-test-v1',
               'locale': 'zh-Hans',
+              'ageConfirmed': true,
             });
             return ok({
               'requiresPhoneBinding': true,
@@ -167,6 +277,7 @@ void main() {
           if (request.url.path.endsWith('/auth/wechat-phone-code')) {
             expect(body['bindTicket'], ticket);
             expect(body['identifier'], '+8613800138000');
+            expect(body['product'], 'say-ring');
             expect(body, isNot(contains('openid')));
             return ok({
               'challengeId': 'wechat-phone-challenge',
@@ -180,6 +291,8 @@ void main() {
           expect(body['challengeId'], 'wechat-phone-challenge');
           expect(body['code'], '123456');
           expect(body['wechatProfileProof'], 'signed-profile-proof');
+          expect(body['product'], 'say-ring');
+          expect(body['ageConfirmed'], isTrue);
           return ok(sessionData('wechat-member'));
         }),
       );
@@ -189,6 +302,7 @@ void main() {
         platform: 'android',
         consentVersion: 'reviewed-test-v1',
         locale: 'zh-Hans',
+        ageConfirmed: true,
       );
       expect(result.session, isNull);
       final binding = result.binding!;
@@ -205,6 +319,7 @@ void main() {
         code: '123456',
         consentVersion: 'reviewed-test-v1',
         locale: 'zh-Hans',
+        ageConfirmed: true,
       );
       expect(session.memberId, 'wechat-member');
       expect(vault.session, isNull);
@@ -227,6 +342,7 @@ void main() {
         final body = jsonDecode(request.body) as Map<String, dynamic>;
         expect(body['channel'], 'sms');
         expect(body['identifier'], '+8613800138000');
+        expect(body['product'], 'say-ring');
         if (request.url.path == GlobalEnvironment.sharedCodeRequestPath) {
           expect(body['locale'], 'en');
           return http.Response(
@@ -244,7 +360,7 @@ void main() {
         expect(body['code'], '123456');
         expect(body['consentVersion'], 'reviewed-test-v1');
         expect(body['product'], 'say-ring');
-        expect(body['ageConfirmed'], isFalse);
+        expect(body['ageConfirmed'], isTrue);
         return http.Response(
           jsonEncode({
             'token': 'synthetic-access',
@@ -267,6 +383,7 @@ void main() {
       code: '123456',
       consentVersion: 'reviewed-test-v1',
       locale: 'en',
+      ageConfirmed: true,
     );
     expect(paths, [
       GlobalEnvironment.sharedCodeRequestPath,
@@ -302,10 +419,42 @@ void main() {
           code: '123456',
           consentVersion: 'reviewed-test-v1',
           locale: 'en',
+          ageConfirmed: true,
         ),
         throwsA(isA<ApiException>()),
       );
       expect(vault.session, isNull);
+    },
+  );
+
+  test(
+    'minimum-age confirmation is required before code login sends data',
+    () async {
+      var requests = 0;
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault(),
+        client: MockClient((_) async {
+          requests++;
+          return ok({});
+        }),
+      );
+      await expectLater(
+        api.loginWithCode(
+          identity: GlobalAccountIdentity.phone('13800138000', country: 'CN'),
+          challengeId: 'synthetic-challenge',
+          code: '123456',
+          consentVersion: 'reviewed-test-v1',
+          locale: 'zh-Hans',
+        ),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.code,
+            'code',
+            'minimum_age_confirmation_required',
+          ),
+        ),
+      );
+      expect(requests, 0);
     },
   );
 
@@ -421,6 +570,13 @@ void main() {
         () => GlobalAuthCapabilities.fromJson({
           ...capabilities(),
           'realm': 'domestic',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => GlobalAuthCapabilities.fromJson({
+          ...capabilities(),
+          'product': 'saydian-global',
         }),
         throwsFormatException,
       );
@@ -540,6 +696,37 @@ void main() {
     });
   });
   group('global auth', () {
+    test('Say Ring email password sign-in sends product consent', () async {
+      final vault = MemorySessionVault();
+      final api = GlobalSaydianApiClient(
+        vault,
+        locale: () => 'zh-Hans',
+        client: MockClient((request) async {
+          expect(
+            request.url.toString(),
+            '${GlobalEnvironment.origin}${GlobalEnvironment.apiPrefix}/auth/login',
+          );
+          expect(jsonDecode(request.body), {
+            'channel': 'email',
+            'identifier': 'review@example.com',
+            'password': 'synthetic-password',
+            'product': 'say-ring',
+            'locale': 'zh-Hans',
+            'consentVersion': 'reviewed-ring-v1',
+            'consentAccepted': true,
+          });
+          return ok(sessionData());
+        }),
+      );
+      final result = await api.loginWithEmailPassword(
+        identity: GlobalAccountIdentity.email('Review@Example.com'),
+        password: 'synthetic-password',
+        consentVersion: 'reviewed-ring-v1',
+        locale: 'zh-Hans',
+      );
+      expect(result.accountKey, 'global:member:uuid-member-α');
+    });
+
     test(
       'login preserves opaque identifiers and does not use legacy credentials',
       () async {
@@ -628,6 +815,7 @@ void main() {
       expect(available.verificationRequired, isFalse);
       expect(requests.single.path, endsWith('/auth/capabilities'));
       expect(requests.single.queryParameters['locale'], 'de');
+      expect(requests.single.queryParameters['product'], 'say-ring');
     });
     test('verification routes keep purpose, code and consent bound', () async {
       final requests = <http.Request>[];
@@ -666,6 +854,7 @@ void main() {
         resetPassword: false,
         locale: 'en',
         consentVersion: 'reviewed-test-v1',
+        ageConfirmed: true,
       );
       expect(requests.last.url.path, endsWith('/auth/register-with-code'));
       expect(jsonDecode(requests.last.body), {
@@ -675,6 +864,32 @@ void main() {
         'password': 'test-password',
         'locale': 'en',
         'consentVersion': 'reviewed-test-v1',
+        'ageConfirmed': true,
+      });
+    });
+    test('password reset keeps the Say Ring product and locale', () async {
+      late http.Request request;
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault(),
+        client: MockClient((value) async {
+          request = value;
+          return ok(sessionData());
+        }),
+      );
+      await api.completeVerification(
+        challengeId: 'challenge-1',
+        code: '123456',
+        password: 'test-password',
+        resetPassword: true,
+        locale: 'zh-Hans',
+      );
+      expect(request.url.path, endsWith('/auth/reset-password'));
+      expect(jsonDecode(request.body), {
+        'challengeId': 'challenge-1',
+        'code': '123456',
+        'password': 'test-password',
+        'product': 'say-ring',
+        'locale': 'zh-Hans',
       });
     });
     test(
@@ -697,6 +912,7 @@ void main() {
           password: 'test-password',
           locale: 'en',
           consentVersion: 'reviewed-test-v1',
+          ageConfirmed: true,
         );
         expect(request.url.path, endsWith('/auth/register'));
         expect(jsonDecode(request.body), {
@@ -706,6 +922,7 @@ void main() {
           'password': 'test-password',
           'locale': 'en',
           'consentVersion': 'reviewed-test-v1',
+          'ageConfirmed': true,
         });
         expect(result.memberId, 'uuid-member-α');
         expect((await vault.readSession())?.memberId, result.memberId);

@@ -32,6 +32,8 @@ final class RingNamePolicy {
         if (normalized.contains("HR01")) return "HR01";
         if (normalized.contains("HR05")) return "HR05";
         if (normalized.contains("R7ULTRA")) return "R7Ultra";
+        if (normalized.contains("R7PRO")) return "R7Pro";
+        if (normalized.contains("R7Y")) return "R7Y";
         if (normalized.contains("R7")) return "R7";
         if (normalized.contains("K80")) return "K80";
         return null;

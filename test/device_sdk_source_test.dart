@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
 
+import 'support/dart_library_source.dart';
+
 void main() {
   test('routed device identifiers expose their SDK source and native id', () {
     const veepoo = DeviceInfo(id: 'veepoo:AA:BB', name: 'ET488');
@@ -202,7 +204,7 @@ void main() {
   );
 
   test('ring camera guidance uses shake control instead of a watch button', () {
-    final source = File('lib/ui/prototype_pages.dart').readAsStringSync();
+    final source = readDartLibrarySource('lib/ui/prototype_pages.dart');
 
     expect(source, contains('摇动戒指触发拍照'));
     expect(source, isNot(contains('按戒指拍照键')));

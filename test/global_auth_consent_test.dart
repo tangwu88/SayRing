@@ -19,9 +19,9 @@ GlobalAuthCapabilities _capabilities({
   consentVersion: version,
   legal: {
     'userAgreement':
-        '/global/api/saydian-app/v2/content/legal/user_agreement?version=$version&locale=en',
+        '/global/api/saydian-app/v2/content/legal/say_ring_user_agreement?version=$version&locale=en',
     'privacyPolicy':
-        '/global/api/saydian-app/v2/content/legal/privacy_policy?version=$version&locale=en',
+        '/global/api/saydian-app/v2/content/legal/say_ring_privacy_policy?version=$version&locale=en',
   },
 );
 
@@ -71,6 +71,7 @@ class _AuthController extends Fake implements AppController {
     required bool resetPassword,
     required String locale,
     required bool privacyConsentGranted,
+    bool ageConfirmed = false,
     String? consentVersion,
   }) async {
     expect(resetPassword, isTrue);
@@ -82,7 +83,7 @@ class _AuthController extends Fake implements AppController {
 
   @override
   Future<Map<String, Object?>> globalLegalDocument(String path) async => {
-    'documentType': 'user_agreement',
+    'documentType': 'say_ring_user_agreement',
     'version': 'reviewed-test-v1',
     'locale': 'en',
     'reviewed': true,

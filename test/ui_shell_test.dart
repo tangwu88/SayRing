@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,15 +15,130 @@ import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/app_theme.dart';
+import 'package:saydian_app/ui/brand_assets.dart';
 import 'package:saydian_app/ui/health_trend_page.dart';
 import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
 import 'package:saydian_app/ui/shop_pages.dart' show ShopHomePage;
+import 'package:saydian_app/ui/widgets/safe_network_image.dart';
 
 void main() {
   // Legacy page hosts deliberately retain Chinese copy. DateFormat now uses
   // the explicit page locale rather than a hard-coded numeric pattern.
   setUpAll(() => initializeDateFormatting('zh_Hans'));
+
+  for (final viewport in const [
+    (width: 360.0, scale: 1.0),
+    (width: 320.0, scale: 1.0),
+    (width: 320.0, scale: 1.5),
+    (width: 320.0, scale: 2.0),
+  ]) {
+    testWidgets(
+      'health section stays readable at ${viewport.width}px x${viewport.scale}',
+      (tester) async {
+        tester.view.physicalSize = Size(viewport.width, 1000);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final controller = AppController(
+          MemorySessionVault(),
+          _NoopApi(),
+          MemoryHealthStore(),
+          _NoopWearable(),
+        );
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildSaydianTheme(),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(viewport.scale)),
+              child: child!,
+            ),
+            home: AppShell(controller: controller),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final title = find.text('健康数据');
+        await tester.ensureVisible(title);
+        await tester.pumpAndSettle();
+        for (final label in ['健康数据', '近期数据', '全部数据']) {
+          expect(find.text(label), findsOneWidget);
+          expect(
+            tester
+                .renderObject<RenderParagraph>(find.text(label))
+                .didExceedMaxLines,
+            isFalse,
+            reason: '$label must not be ellipsized',
+          );
+        }
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('全部数据'));
+        await tester.pumpAndSettle();
+        expect(find.text('全部健康数据'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets(
+    'CoolWear RRI detail identifies SDNN and separates auxiliary units',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 1100);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+      );
+      addTearDown(controller.dispose);
+      final record = HealthRecord(
+        id: 'synthetic-rri',
+        metric: HealthMetric.hrv,
+        values: const {
+          'value': 42,
+          'sdnn': 42,
+          'rmssd': 35,
+          'rri': 800,
+          'pnn': 0,
+          'heartRate': 75,
+          'validCount': 80,
+          'rejectedCount': 0,
+          'sdkQuality': 3,
+          'sdkFlags': 0,
+        },
+        unit: 'ms',
+        measuredAt: DateTime.utc(2026, 10, 3, 1),
+        timezone: '+08:00',
+        deviceId: 'coolwear:TEST',
+        firmwareVersion: 'test',
+        quality: 'device_reported',
+        source: MeasurementSource.wearable,
+        rawVersion: 2,
+        sourceVendor: 'coolwear',
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: HealthRecordDetailPage(controller: controller, record: record),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('HRV 指标：SDNN'), findsOneWidget);
+      expect(find.text('平均 NN 间期'), findsOneWidget);
+      expect(find.text('42 ms'), findsOneWidget);
+      expect(find.text('0 %'), findsOneWidget);
+      expect(find.text('75 bpm'), findsOneWidget);
+      expect(find.text('sdkFlags'), findsNothing);
+      await tester.scrollUntilVisible(find.text('信号质量（1–3）'), 200);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   test('commerce is hidden in the default release configuration', () {
     final controller = AppController(
@@ -33,6 +150,509 @@ void main() {
     addTearDown(controller.dispose);
     expect(controller.commerceEnabled, isFalse);
   });
+
+  testWidgets(
+    'home does not suggest sleep sync when history transport is explicitly unavailable',
+    (tester) async {
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              _NoopWearable(),
+            )
+            ..capabilities = const DeviceCapabilities(
+              metrics: {HealthMetric.heartRate},
+              supportsHistorySync: false,
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: Scaffold(body: DashboardPage(controller: controller)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('home-sleep-overview-entry')), findsNothing);
+      expect(find.textContaining('佩戴戒指睡眠后同步'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'unmapped iOS history is disabled and manual measurement remains',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              _NoopWearable(),
+            )
+            ..connectedDevice = const DeviceInfo(
+              id: 'coolwear:synthetic',
+              name: 'HR01',
+            )
+            ..capabilities = const DeviceCapabilities(
+              metrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
+              manualMetrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
+              supportsHistorySync: false,
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(1.5)),
+            child: child!,
+          ),
+          home: Scaffold(body: DevicePage(controller: controller)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final button = tester.widget<FilledButton>(
+        find.byKey(const Key('device-sync-data')),
+      );
+      expect(button.onPressed, isNull);
+      expect(find.text('此戒指历史同步暂未开放'), findsOneWidget);
+      expect(
+        controller.capabilities!.supportsManualMeasurement(
+          HealthMetric.heartRate,
+        ),
+        isTrue,
+      );
+      expect(
+        controller.capabilities!.supportsManualMeasurement(
+          HealthMetric.bloodOxygen,
+        ),
+        isTrue,
+      );
+      expect(tester.takeException(), isNull);
+
+      controller.capabilities = const DeviceCapabilities(metrics: {});
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: Scaffold(body: DevicePage(controller: controller)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('device-sync-data')))
+            .onPressed,
+        isNotNull,
+      );
+      expect(find.text('同步数据'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('home avatar and greeting follow saved personal profile', (
+    tester,
+  ) async {
+    final api = _EditableProfileApi();
+    final controller = AppController(
+      MemorySessionVault(),
+      api,
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    controller.session = Session(
+      accessToken: 'test-token',
+      refreshToken: 'test-refresh',
+      expiresAt: DateTime.now().add(const Duration(days: 1)),
+      memberId: 'test-member',
+      displayName: '登录名',
+    );
+    await controller.refreshMemberProfile();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: DashboardPage(controller: controller)),
+      ),
+    );
+    expect(find.text('你好，登录名'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('dashboard-profile-avatar')),
+        matching: find.byType(SaydianBrandMark),
+      ),
+      findsOneWidget,
+    );
+
+    final saved = await controller.saveMemberProfile(
+      nickname: '新昵称',
+      gender: 1,
+      birthday: '1990-01-01',
+      height: 170,
+      weight: 65,
+      avatarFilePath: '/test/new-avatar.png',
+    );
+    expect(saved, isTrue);
+    await tester.pump();
+    expect(find.text('你好，新昵称'), findsOneWidget);
+    final homeAvatar = tester.widget<SafeNetworkImage>(
+      find.descendant(
+        of: find.byKey(const Key('dashboard-profile-avatar')),
+        matching: find.byType(SafeNetworkImage),
+      ),
+    );
+    expect(
+      (homeAvatar.image as SafeNetworkImageProvider).url,
+      _EditableProfileApi.uploadedAvatarUrl,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: SettingsPage(controller: controller)),
+      ),
+    );
+    expect(find.text('新昵称'), findsOneWidget);
+    final profileAvatar = tester.widget<SafeNetworkImage>(
+      find.descendant(
+        of: find.byKey(const Key('profile-header-card')),
+        matching: find.byType(SafeNetworkImage),
+      ),
+    );
+    expect(
+      (profileAvatar.image as SafeNetworkImageProvider).url,
+      _EditableProfileApi.uploadedAvatarUrl,
+    );
+
+    api.profile = {'nickname': ' ', 'head_portrait': ''};
+    await controller.refreshMemberProfile();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: DashboardPage(controller: controller)),
+      ),
+    );
+    expect(find.text('你好，登录名'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('dashboard-profile-avatar')),
+        matching: find.byType(SaydianBrandMark),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  test('Say Ring avatar-only save reads back the new URL', () async {
+    final api = _AvatarOnlyGlobalApi();
+    final controller = AppController(
+      MemorySessionVault(),
+      api,
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    controller.session = Session(
+      accessToken: 'test-token',
+      refreshToken: 'test-refresh',
+      expiresAt: DateTime.now().add(const Duration(days: 1)),
+      memberId: 'test-member',
+      displayName: '测试用户',
+    );
+
+    expect(await controller.saveMemberAvatar('/test/avatar.jpg'), isTrue);
+    expect(api.savedUrl, _AvatarOnlyGlobalApi.uploadedAvatarUrl);
+    expect(
+      controller.memberProfile['head_portrait'],
+      _AvatarOnlyGlobalApi.uploadedAvatarUrl,
+    );
+
+    api.persistAvatar = false;
+    expect(await controller.saveMemberAvatar('/test/avatar2.jpg'), isFalse);
+    expect(controller.errorMessage, contains('读取不一致'));
+  });
+
+  test(
+    'Say Ring profile and avatar save also requires avatar readback',
+    () async {
+      final api = _AvatarOnlyGlobalApi()..persistAvatar = false;
+      final controller = AppController(
+        MemorySessionVault(),
+        api,
+        MemoryHealthStore(),
+        _NoopWearable(),
+      );
+      addTearDown(controller.dispose);
+      controller.session = Session(
+        accessToken: 'test-token',
+        refreshToken: 'test-refresh',
+        expiresAt: DateTime.now().add(const Duration(days: 1)),
+        memberId: 'test-member',
+        displayName: '测试用户',
+      );
+
+      expect(
+        await controller.saveMemberProfile(
+          nickname: '测试用户',
+          gender: 1,
+          birthday: '1990-01-01',
+          height: 170,
+          weight: 65,
+          avatarFilePath: '/test/avatar.jpg',
+        ),
+        isFalse,
+      );
+      expect(controller.errorMessage, contains('读取不一致'));
+      api.persistAvatar = true;
+      expect(
+        await controller.saveMemberProfile(
+          nickname: '测试用户',
+          gender: 1,
+          birthday: '1990-01-01',
+          height: 170,
+          weight: 65,
+          avatarFilePath: '/test/avatar.jpg',
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  testWidgets('Say Ring care entry has a single title bar', (tester) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _AvatarOnlyGlobalApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    controller.session = Session(
+      accessToken: 'test-token',
+      refreshToken: 'test-refresh',
+      expiresAt: DateTime.now().add(const Duration(days: 1)),
+      memberId: 'test-member',
+      displayName: '测试用户',
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: DashboardPage(controller: controller)),
+      ),
+    );
+    await tester.tap(find.text('远程关爱'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('global-care-page')), findsOneWidget);
+    expect(find.byType(AppBar), findsOneWidget);
+  });
+
+  testWidgets('Say Ring About page does not repeat its brand heading', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _AvatarOnlyGlobalApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: AboutSaydianPage(controller: controller),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Say Ring 健康'), findsNothing);
+    expect(find.byType(SaydianBrandLockup), findsOneWidget);
+  });
+
+  testWidgets('iOS permissions show only available Say Ring uses', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    try {
+      final controller = AppController(
+        MemorySessionVault(),
+        _AvatarOnlyGlobalApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+      );
+      addTearDown(controller.dispose);
+      controller.session = Session(
+        accessToken: 'test-token',
+        refreshToken: 'test-refresh',
+        expiresAt: DateTime.now().add(const Duration(days: 1)),
+        memberId: 'test-member',
+        displayName: '测试用户',
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: PermissionManagementPage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('蓝牙'), findsOneWidget);
+      expect(find.text('位置（户外运动轨迹）'), findsOneWidget);
+      expect(find.text('相册（修改头像）'), findsNothing);
+      expect(find.text('相机（戒指遥控拍照）'), findsNothing);
+      expect(find.text('通知'), findsNothing);
+      expect(find.text('未允许'), findsNothing);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets(
+    'iOS permission rows reflect real plugin status, not device names',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        const permissionsChannel = MethodChannel(
+          'flutter.baseflow.com/permissions/methods',
+        );
+        final checked = <int>[];
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          permissionsChannel,
+          (call) async {
+            if (call.method == 'checkPermissionStatus') {
+              checked.add(call.arguments as int);
+              // Actual channel enum: Bluetooth=21, locationWhenInUse=5.
+              return call.arguments == 21 ? 1 : 0;
+            }
+            throw StateError(
+              'Read-only permission test must not request access',
+            );
+          },
+        );
+        addTearDown(() {
+          debugDefaultTargetPlatformOverride = null;
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            permissionsChannel,
+            null,
+          );
+        });
+        final controller = AppController(
+          MemorySessionVault(),
+          _NoopApi(),
+          MemoryHealthStore(),
+          _NoopWearable(),
+        );
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildSaydianTheme(),
+            home: PermissionManagementPage(controller: controller),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(checked, [21, 5, 1]);
+        final bluetooth = find.ancestor(
+          of: find.text('蓝牙'),
+          matching: find.byType(ListTile),
+        );
+        final location = find.ancestor(
+          of: find.text('位置（户外运动轨迹）'),
+          matching: find.byType(ListTile),
+        );
+        expect(
+          find.descendant(of: bluetooth, matching: find.text('已允许')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: location, matching: find.text('未允许')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    testWidgets('camera permission survives a late $platform handshake', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      try {
+        const channel = MethodChannel(
+          'flutter.baseflow.com/permissions/methods',
+        );
+        final checked = <int>[];
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          (call) async {
+            if (call.method != 'checkPermissionStatus') {
+              throw StateError('Permission inspection must not request access');
+            }
+            checked.add(call.arguments as int);
+            return call.arguments == 1 ? 1 : 0;
+          },
+        );
+        addTearDown(() {
+          debugDefaultTargetPlatformOverride = null;
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            channel,
+            null,
+          );
+        });
+        final controller = AppController(
+          MemorySessionVault(),
+          _NoopApi(),
+          MemoryHealthStore(),
+          _NoopWearable(),
+        );
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(home: PermissionManagementPage(controller: controller)),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('相机（戒指遥控拍照）'), findsNothing);
+        expect(checked.where((permission) => permission == 1), hasLength(1));
+
+        controller.connectedDevice = const DeviceInfo(
+          id: 'qring:test-target',
+          name: 'R21_TEST',
+        );
+        controller.capabilities = const DeviceCapabilities(
+          metrics: {},
+          features: {DeviceFeature.camera},
+          integratedFeatures: {DeviceFeature.camera},
+        );
+        controller.deviceCapabilityState = DeviceCapabilityState.ready;
+        controller.notifyListeners();
+        await tester.pumpAndSettle();
+        final camera = find.ancestor(
+          of: find.text('相机（戒指遥控拍照）'),
+          matching: find.byType(ListTile),
+        );
+        expect(camera, findsOneWidget);
+        expect(
+          find.descendant(of: camera, matching: find.text('已允许')),
+          findsOneWidget,
+        );
+        expect(find.text('状态暂不可读取'), findsNothing);
+
+        controller.connectedDevice = null;
+        controller.capabilities = null;
+        controller.deviceCapabilityState = DeviceCapabilityState.disconnected;
+        controller.notifyListeners();
+        await tester.pumpAndSettle();
+        expect(find.text('相机（戒指遥控拍照）'), findsNothing);
+        expect(checked.where((permission) => permission == 1), hasLength(1));
+        expect(tester.takeException(), isNull);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+  }
 
   for (final enabled in [false, true]) {
     testWidgets('commerce visibility $enabled covers all external entry points', (
@@ -303,6 +923,7 @@ void main() {
         find.byKey(const Key('dashboard-health-card-list')),
         findsOneWidget,
       );
+      expect(find.text('近期数据'), findsOneWidget);
       final metricSurface = tester.widget<DecoratedBox>(
         find.byKey(const ValueKey('health-metric-surface-heartRate')),
       );
@@ -772,14 +1393,20 @@ void main() {
     await tester.pumpAndSettle();
     final entry = find.byKey(const Key('home-sleep-overview-entry'));
     expect(entry, findsOneWidget);
+    // The in-memory generic metric intentionally disagrees with persisted
+    // sleep. Both the home card and detail must use the same stored day.
+    expect(
+      find.descendant(of: entry, matching: find.text('7小时30分')),
+      findsOneWidget,
+    );
     await tester.ensureVisible(entry);
     await tester.tap(entry);
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('sleep-overview-page')), findsOneWidget);
-    expect(find.text('7小时30分'), findsOneWidget);
+    expect(find.text('7小时30分'), findsNWidgets(2));
     expect(find.text('快速眼动'), findsOneWidget);
-    expect(find.text('1 小时'), findsOneWidget);
+    expect(find.text('1小时0分'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.byKey(const Key('sleep-open-trend')),
       200,
@@ -790,6 +1417,9 @@ void main() {
           )
           .first,
     );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('sleep-open-trend')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('sleep-open-trend')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('health-trend-sleep')), findsOneWidget);
@@ -1311,6 +1941,95 @@ void main() {
     expect(wearable.stops, 1);
   });
 
+  for (final device in const [
+    DeviceInfo(id: 'coolwear:hr05-label-fixture', name: 'HR05'),
+    DeviceInfo(id: 'qring:r21-label-fixture', name: 'R21'),
+  ]) {
+    testWidgets('${device.name} metric labels fit narrow large-text pages', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(320, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              _NoopWearable(),
+            )
+            ..connectedDevice = device
+            ..deviceCapabilityState = DeviceCapabilityState.ready
+            ..capabilities = const DeviceCapabilities(
+              metrics: {HealthMetric.hrv, HealthMetric.bodyTemperature},
+            );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(1.5)),
+            child: child!,
+          ),
+          home: Scaffold(body: DashboardPage(controller: controller)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final hrvCard = find.byKey(const ValueKey('health-metric-hrv'));
+      await tester.scrollUntilVisible(
+        hrvCard,
+        150,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: hrvCard, matching: find.text('心率变异性（HRV）')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.tap(hrvCard);
+      await tester.pumpAndSettle();
+      expect(find.byType(HealthTrendPage), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.textContaining('心率变异性（HRV）'),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      Navigator.of(tester.element(find.byType(HealthTrendPage))).pop();
+      await tester.pumpAndSettle();
+      final temperatureCard = find.byKey(
+        const ValueKey('health-metric-bodyTemperature'),
+      );
+      await tester.scrollUntilVisible(
+        temperatureCard,
+        -150,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: temperatureCard, matching: find.text('皮肤温度')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.tap(temperatureCard);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.textContaining('皮肤温度'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('该时间段暂无数据'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('HRV manual measurement does not ask for ECG electrode contact', (
     tester,
   ) async {
@@ -1350,7 +2069,7 @@ void main() {
     await tester.tap(find.byKey(const Key('health-measure-hrv')));
     await tester.pump();
 
-    expect(find.text('HRV测量'), findsOneWidget);
+    expect(find.text('心率变异性（HRV）测量'), findsOneWidget);
     expect(find.text('请将戒指贴合手指并保持静止，等待 HRV 测量结果'), findsOneWidget);
     expect(find.textContaining('心电电极'), findsNothing);
 
@@ -1514,10 +2233,649 @@ void main() {
       find.byKey(const ValueKey('device-health-auto-stress')),
       findsOneWidget,
     );
-    expect(find.text('HRV 自动检测'), findsOneWidget);
+    expect(find.text('心率变异性（HRV）自动检测'), findsOneWidget);
     expect(find.text('压力自动检测'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('device-health-auto-heartRate24h')),
+      findsOneWidget,
+    );
+    expect(find.text('24 小时心率'), findsOneWidget);
     expect(find.text('当前设备不支持此功能'), findsNothing);
+    expect(find.text('查找设备'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextButton>(
+            find.byKey(const ValueKey('health-monitoring-find-device')),
+          )
+          .onPressed,
+      isNull,
+    );
   });
+
+  testWidgets('monitoring find entry uses resolved device capability', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _PartialHealthMonitoringWearable(),
+    )..connectedDevice = const DeviceInfo(id: 'ring-test', name: 'R21');
+    addTearDown(controller.dispose);
+    controller.capabilities = const DeviceCapabilities(
+      metrics: {},
+      features: {DeviceFeature.findWatch},
+      integratedFeatures: {DeviceFeature.findWatch},
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PermissionManagementPage(
+          controller: controller,
+          healthOnly: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final action = find.byKey(const ValueKey('health-monitoring-find-device'));
+    expect(tester.widget<TextButton>(action).onPressed, isNotNull);
+    await tester.tap(action);
+    await tester.pumpAndSettle();
+    expect(find.byType(DeviceFeaturePage), findsOneWidget);
+    expect(
+      tester.widget<DeviceFeaturePage>(find.byType(DeviceFeaturePage)).feature,
+      DeviceFeature.findWatch,
+    );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    controller.connectedDevice = null;
+    controller.notifyListeners();
+    await tester.pump();
+    expect(tester.widget<TextButton>(action).onPressed, isNull);
+  });
+
+  testWidgets('permissions page does not expose a ring find action', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: PermissionManagementPage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('health-monitoring-find-device')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('CoolWear stale controls cannot overwrite a replaced device', (
+    tester,
+  ) async {
+    final bridge = _DelayedControlWearable();
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            _NoopApi(),
+            MemoryHealthStore(),
+            bridge,
+          )
+          ..connectedDevice = const DeviceInfo(id: 'coolwear:old', name: 'HR01')
+          ..capabilities = const DeviceCapabilities(
+            metrics: {},
+            features: {DeviceFeature.gestureControl},
+            integratedFeatures: {DeviceFeature.gestureControl},
+          );
+    addTearDown(controller.dispose);
+    final read = controller.readDeviceFeature(DeviceFeature.gestureControl);
+    final write = controller.writeDeviceFeature(DeviceFeature.gestureControl, {
+      'mode': 1,
+    });
+    final action = controller.triggerDeviceAction(DeviceFeature.gestureControl);
+    controller.connectedDevice = const DeviceInfo(
+      id: 'coolwear:new',
+      name: 'HR05',
+    );
+    controller.deviceFeatureData = {
+      DeviceFeature.gestureControl: {'confirmedMode': 5},
+    };
+    controller.deviceFeatureBusy = {DeviceFeature.gestureControl};
+    bridge.read.complete({'confirmedMode': 1});
+    bridge.write.complete();
+    bridge.action.complete();
+    expect(await read, isEmpty);
+    expect(await write, isFalse);
+    expect(await action, isFalse);
+    expect(controller.deviceFeatureData[DeviceFeature.gestureControl], {
+      'confirmedMode': 5,
+    });
+    expect(
+      controller.deviceFeatureBusy,
+      contains(DeviceFeature.gestureControl),
+    );
+  });
+
+  testWidgets(
+    'CoolWear gesture selection confirms a command, not a physical action',
+    (tester) async {
+      final bridge = _ControlTrackingWearable();
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              bridge,
+            )
+            ..connectedDevice = const DeviceInfo(
+              id: 'coolwear:test-device',
+              name: 'HR01',
+            )
+            ..capabilities = const DeviceCapabilities(
+              metrics: {},
+              features: {DeviceFeature.gestureControl},
+              integratedFeatures: {DeviceFeature.gestureControl},
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DeviceFeaturePage(
+            controller: controller,
+            feature: DeviceFeature.gestureControl,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.check_rounded), findsNothing);
+      await tester.ensureVisible(find.text('拍照'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('拍照'));
+      await tester.pumpAndSettle();
+      expect(bridge.lastWrite, {'mode': 4});
+      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+      expect(find.text('手势模式指令已确认'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'gesture timeout removes old confirmation and blocks unsafe retry',
+    (tester) async {
+      final bridge = _TimeoutControlWearable();
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              bridge,
+            )
+            ..connectedDevice = const DeviceInfo(
+              id: 'coolwear:one',
+              name: 'HR01',
+            )
+            ..capabilities = const DeviceCapabilities(
+              metrics: {},
+              features: {DeviceFeature.gestureControl},
+              integratedFeatures: {DeviceFeature.gestureControl},
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DeviceFeaturePage(
+            controller: controller,
+            feature: DeviceFeature.gestureControl,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+      await tester.ensureVisible(find.text('拍照'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('拍照'));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.check_rounded), findsNothing);
+      expect(find.text('重新连接后再设置手势'), findsOneWidget);
+      final photoTile = tester.widget<ListTile>(
+        find.ancestor(of: find.text('拍照'), matching: find.byType(ListTile)),
+      );
+      expect(photoTile.onTap, isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    testWidgets(
+      'QRing photo opens preview; firmware is only in About Device: $platform',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = platform;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        final controller =
+            AppController(
+                MemorySessionVault(),
+                _NoopApi(),
+                MemoryHealthStore(),
+                _QRingCameraWearable(),
+              )
+              ..connectedDevice = const DeviceInfo(id: 'qring:one', name: 'R21')
+              ..deviceCapabilityState = DeviceCapabilityState.ready
+              ..capabilities = const DeviceCapabilities(
+                metrics: {},
+                features: {DeviceFeature.camera},
+                integratedFeatures: {DeviceFeature.camera},
+              );
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(body: DevicePage(controller: controller)),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final firmware = find.byKey(const Key('device-functions-firmware'));
+        expect(firmware, findsNothing);
+        final about = find.text('关于设备');
+        await tester.ensureVisible(about);
+        await tester.tap(about);
+        await tester.pumpAndSettle();
+        final aboutFirmware = find.byKey(const Key('device-firmware-upgrade'));
+        await tester.ensureVisible(aboutFirmware);
+        await tester.tap(aboutFirmware);
+        await tester.pumpAndSettle();
+        expect(find.byType(DeviceFirmwarePage), findsOneWidget);
+        expect(find.text('在线固件升级暂未开放'), findsOneWidget);
+        expect(controller.capabilities!.supportsOta, isFalse);
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        await tester.drag(find.byType(ListView).first, const Offset(0, 600));
+        await tester.pumpAndSettle();
+        final camera = find.byKey(const Key('device-feature-camera'));
+        await tester.ensureVisible(camera);
+        await tester.tap(camera);
+        // This navigation test has no phone camera plugin. Do not wait for an
+        // indeterminate platform camera spinner or claim a real preview.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.byType(DeviceFeaturePage), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('camera-shutter-button')),
+          findsOneWidget,
+        );
+        expect(find.byType(QRingCameraPage), findsNothing);
+        expect(tester.takeException(), isNull);
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+  }
+
+  testWidgets(
+    'QRing camera saves only after readback and clears on device change',
+    (tester) async {
+      final bridge = _QRingCameraWearable();
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              bridge,
+            )
+            ..connectedDevice = const DeviceInfo(id: 'qring:one', name: 'R21')
+            ..deviceCapabilityState = DeviceCapabilityState.ready
+            ..capabilities = const DeviceCapabilities(
+              metrics: {},
+              features: {DeviceFeature.camera},
+              integratedFeatures: {DeviceFeature.camera},
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(home: QRingCameraPage(controller: controller)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('qring-camera-enabled')));
+      await tester.pumpAndSettle();
+      expect(bridge.writes, [
+        {'enabled': true, 'expectedMode': 0},
+      ]);
+      expect(find.text('已开启'), findsOneWidget);
+      bridge.failWrite = true;
+      await tester.tap(find.byKey(const Key('qring-camera-enabled')));
+      await tester.pumpAndSettle();
+      expect(find.text('已开启'), findsNothing);
+      expect(find.text('状态未知'), findsOneWidget);
+      expect(
+        tester
+            .widget<SwitchListTile>(
+              find.byKey(const Key('qring-camera-enabled')),
+            )
+            .onChanged,
+        isNull,
+      );
+      controller.connectedDevice = const DeviceInfo(
+        id: 'coolwear:two',
+        name: 'HR01',
+      );
+      controller.notifyListeners();
+      await tester.pumpAndSettle();
+      expect(find.text('请连接支持拍照的 QRing 戒指'), findsOneWidget);
+      expect(find.text('拍照状态未确认，请重新连接'), findsNothing);
+    },
+  );
+
+  testWidgets('QRing camera rejects stale read and fits large narrow screens', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final delayed = Completer<Map<String, Object?>>();
+    final bridge = _QRingCameraWearable()..delayedRead = delayed;
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            _NoopApi(),
+            MemoryHealthStore(),
+            bridge,
+          )
+          ..connectedDevice = const DeviceInfo(id: 'qring:one', name: 'R21')
+          ..deviceCapabilityState = DeviceCapabilityState.ready
+          ..capabilities = const DeviceCapabilities(
+            metrics: {},
+            features: {DeviceFeature.camera},
+            integratedFeatures: {DeviceFeature.camera},
+          );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: QRingCameraPage(controller: controller),
+      ),
+    );
+    await tester.pump();
+    controller.connectedDevice = null;
+    controller.notifyListeners();
+    delayed.complete({'mode': 5, 'enabled': true, 'touch': false});
+    await tester.pumpAndSettle();
+    expect(find.text('已开启'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('firmware entry opens without claiming an available upgrade', (
+    tester,
+  ) async {
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            _NoopApi(),
+            MemoryHealthStore(),
+            _NoopWearable(),
+          )
+          ..connectedDevice = const DeviceInfo(
+            id: 'coolwear:test-device',
+            name: 'HR01',
+            firmwareVersion: '758.2.1.9.0',
+          )
+          ..capabilities = const DeviceCapabilities(
+            metrics: {},
+            supportsOta: true,
+          );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: DeviceInfoPage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('device-firmware-upgrade')));
+    await tester.pumpAndSettle();
+    expect(find.byType(DeviceFirmwarePage), findsOneWidget);
+    expect(find.text('当前固件：758.2.1.9.0'), findsOneWidget);
+    expect(find.text('在线固件升级暂未开放'), findsOneWidget);
+    expect(find.textContaining('已是最新'), findsNothing);
+    expect(find.text('立即升级'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('firmware page clears disconnected device and refresh failures', (
+    tester,
+  ) async {
+    final bridge = _FirmwareDetailsWearable();
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      bridge,
+    )..connectedDevice = const DeviceInfo(id: 'coolwear:one', name: 'HR01');
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: DeviceFirmwarePage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('当前固件：未知'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('firmware-refresh-device')));
+    await tester.pumpAndSettle();
+    expect(find.text('设备信息刷新失败，重试'), findsOneWidget);
+    controller.connectedDevice = null;
+    controller.notifyListeners();
+    await tester.pumpAndSettle();
+    expect(find.text('设备信息刷新失败，重试'), findsNothing);
+    expect(find.text('未连接设备'), findsOneWidget);
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const Key('firmware-refresh-device')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(bridge.reads, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'firmware page shows refreshed version and fits narrow large text',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final bridge = _FirmwareDetailsWearable()
+        ..details = const DeviceInfo(
+          id: 'coolwear:one',
+          name: 'HR01',
+          firmwareVersion: '758.2.1.9.0',
+        );
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        bridge,
+      )..connectedDevice = const DeviceInfo(id: 'coolwear:one', name: 'HR01');
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: DeviceFirmwarePage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('firmware-refresh-device')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('firmware-refresh-device')));
+      await tester.pumpAndSettle();
+      expect(find.text('当前固件：758.2.1.9.0'), findsOneWidget);
+      expect(bridge.reads, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    testWidgets('gesture usage guide is shared: $platform', (tester) async {
+      debugDefaultTargetPlatformOverride = platform;
+      try {
+        final bridge = _ControlTrackingWearable();
+        final controller =
+            AppController(
+                MemorySessionVault(),
+                _NoopApi(),
+                MemoryHealthStore(),
+                bridge,
+              )
+              ..connectedDevice = const DeviceInfo(
+                id: 'coolwear:test-device',
+                name: 'HR01',
+              )
+              ..capabilities = const DeviceCapabilities(
+                metrics: {},
+                features: {DeviceFeature.gestureControl},
+                integratedFeatures: {DeviceFeature.gestureControl},
+              );
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DeviceFeaturePage(
+              controller: controller,
+              feature: DeviceFeature.gestureControl,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final guide = find.byKey(const ValueKey('ring-gesture-guide'));
+        expect(guide, findsOneWidget);
+        await tester.ensureVisible(find.text('使用说明'));
+        await tester.tap(find.text('使用说明'));
+        await tester.pumpAndSettle();
+        expect(find.text('使用前'), findsOneWidget);
+        expect(find.text('没有反应？'), findsOneWidget);
+        expect(
+          find.textContaining(
+            platform == TargetPlatform.iOS ? '戒指靠近iPhone' : '戒指靠近安卓手机',
+          ),
+          findsOneWidget,
+        );
+        expect(bridge.lastWrite, isNull);
+        expect(find.byIcon(Icons.check_rounded), findsNothing);
+        expect(tester.takeException(), isNull);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+  }
+
+  testWidgets(
+    'CoolWear call reminder separates device switch from iOS authorization',
+    (tester) async {
+      final bridge = _ControlTrackingWearable();
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              bridge,
+            )
+            ..connectedDevice = const DeviceInfo(
+              id: 'coolwear:test-device',
+              name: 'HR01',
+            )
+            ..capabilities = const DeviceCapabilities(
+              metrics: {},
+              features: {DeviceFeature.callReminder},
+              integratedFeatures: {DeviceFeature.callReminder},
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DeviceFeaturePage(
+            controller: controller,
+            feature: DeviceFeature.callReminder,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('蓝牙通知未授权'), findsOneWidget);
+      expect(
+        tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+        isFalse,
+      );
+      await tester.tap(find.byType(SwitchListTile));
+      await tester.pumpAndSettle();
+      expect(bridge.lastWrite?['incomingCall'], isTrue);
+      expect(
+        tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+        isTrue,
+      );
+      expect(find.text('蓝牙通知未授权'), findsOneWidget);
+      expect(find.text('手机通知权限已允许'), findsNothing);
+    },
+  );
+
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    testWidgets('CoolWear find controls match $platform transport', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      try {
+        final bridge = _FindTrackingWearable();
+        final controller =
+            AppController(
+                MemorySessionVault(),
+                _NoopApi(),
+                MemoryHealthStore(),
+                bridge,
+              )
+              ..connectedDevice = const DeviceInfo(
+                id: 'coolwear:test-device',
+                name: 'HR01',
+              );
+        controller.capabilities = const DeviceCapabilities(
+          metrics: {},
+          features: {DeviceFeature.findWatch},
+          integratedFeatures: {DeviceFeature.findWatch},
+        );
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DeviceFeaturePage(
+              controller: controller,
+              feature: DeviceFeature.findWatch,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final button = find.byType(FilledButton);
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        expect(bridge.commands, [true]);
+        expect(find.text('戒指正在响铃或振动'), findsNothing);
+        if (platform == TargetPlatform.iOS) {
+          expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
+          await tester.tap(button);
+          await tester.pumpAndSettle();
+          expect(bridge.commands, [true, false]);
+        } else {
+          expect(tester.widget<FilledButton>(button).onPressed, isNull);
+          await tester.pump(const Duration(seconds: 7));
+          await tester.pumpAndSettle();
+          expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
+          expect(bridge.commands, [true]);
+        }
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+  }
 
   for (final errorCode in [
     'HEART_NOT_WORN',
@@ -1785,10 +3143,11 @@ void main() {
   ) async {
     await tester.binding.setSurfaceSize(const Size(430, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
+    final store = MemoryHealthStore();
     final controller = AppController(
       MemorySessionVault(),
       _NoopApi(),
-      MemoryHealthStore(),
+      store,
       _NoopWearable(),
     );
     addTearDown(controller.dispose);
@@ -1813,6 +3172,8 @@ void main() {
       source: MeasurementSource.wearable,
       rawVersion: 1,
     );
+    await store.initialize();
+    await store.upsert([record]);
     await tester.pumpWidget(
       MaterialApp(
         theme: buildSaydianTheme(),
@@ -1824,11 +3185,13 @@ void main() {
     expect(find.text('20 分钟'), findsOneWidget);
     expect(find.text('20 h'), findsNothing);
     expect(find.text('awakeMinutes'), findsNothing);
-    expect(find.text('深睡时长'), findsOneWidget);
-    expect(find.text('2 小时'), findsOneWidget);
-    expect(find.text('快速眼动时长'), findsOneWidget);
+    expect(find.text('深睡'), findsOneWidget);
+    expect(find.text('2小时0分'), findsOneWidget);
+    expect(find.text('快速眼动'), findsOneWidget);
     expect(find.text('85 分'), findsOneWidget);
     expect(find.text('92 %'), findsOneWidget);
+    expect(find.text('建议结合长期趋势观察'), findsNothing);
+    expect(find.text('查看长期趋势更有参考价值'), findsNothing);
   });
 
   test('repeated watch ECG history is shown once after later syncs', () async {
@@ -2595,8 +3958,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('sleep-structure-card')), findsOneWidget);
-    expect(find.text('2 小时'), findsOneWidget);
-    expect(find.text('4.5 小时'), findsOneWidget);
+    expect(find.text('2小时0分'), findsOneWidget);
+    expect(find.text('4小时30分'), findsOneWidget);
     expect(find.text('--（戒指未返回）'), findsOneWidget);
   });
 
@@ -2649,7 +4012,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('快速眼动'), findsOneWidget);
-    expect(find.text('1 小时'), findsOneWidget);
+    expect(find.text('1小时0分'), findsOneWidget);
     expect(find.text('清醒时长'), findsOneWidget);
     expect(find.text('20 分钟'), findsOneWidget);
     expect(find.text('设备睡眠评分'), findsOneWidget);
@@ -3098,7 +4461,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.scrollUntilVisible(
-        find.text('心率变异性 HRV'),
+        find.text('心率变异性（HRV）'),
         220,
         scrollable: find.byType(Scrollable).first,
       );
@@ -3191,6 +4554,68 @@ HealthRecord _historicalBloodPressureRecord() => HealthRecord(
   source: MeasurementSource.wearable,
   rawVersion: 1,
 );
+
+class _EditableProfileApi extends _NoopApi implements SaydianFileApi {
+  static const uploadedAvatarUrl =
+      'https://app.saydian.cn/global/media/test-new-avatar.png';
+  Map<String, Object?> profile = const {};
+
+  @override
+  Future<Map<String, Object?>> getMemberProfile() async => {...profile};
+
+  @override
+  Future<String> uploadImage(String filePath) async => uploadedAvatarUrl;
+
+  @override
+  Future<void> saveMemberProfile({
+    required String nickname,
+    required int gender,
+    required String birthday,
+    required double height,
+    required double weight,
+    String? headPortrait,
+  }) async {
+    profile = {...profile, 'nickname': nickname, 'head_portrait': headPortrait};
+  }
+}
+
+class _AvatarOnlyGlobalApi extends Fake
+    implements
+        SaydianApi,
+        SaydianFileApi,
+        SaydianAvatarProfileApi,
+        GlobalAccountApi {
+  static const uploadedAvatarUrl =
+      'https://app.saydian.cn/global/api/saydian-app/v2/files/avatar-test';
+  String? savedUrl;
+  bool persistAvatar = true;
+
+  @override
+  Future<String> uploadImage(String filePath) async => uploadedAvatarUrl;
+
+  @override
+  Future<void> saveAvatarUrl(String avatarUrl) async {
+    savedUrl = avatarUrl;
+  }
+
+  @override
+  Future<void> saveMemberProfile({
+    required String nickname,
+    required int gender,
+    required String birthday,
+    required double height,
+    required double weight,
+    String? headPortrait,
+  }) async {
+    savedUrl = headPortrait;
+  }
+
+  @override
+  Future<Map<String, Object?>> getMemberProfile() async => {
+    'nickname': '测试用户',
+    'head_portrait': persistAvatar ? savedUrl : null,
+  };
+}
 
 class _NoopApi implements SaydianApi, SaydianArticleApi {
   @override
@@ -3315,6 +4740,34 @@ class _CarePreviewApi extends _NoopApi {
   };
 }
 
+class _QRingCameraWearable extends _NoopWearable {
+  int mode = 0;
+  bool failWrite = false;
+  Completer<Map<String, Object?>>? delayedRead;
+  final writes = <Map<String, Object?>>[];
+
+  @override
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async =>
+      delayedRead == null
+      ? {'mode': mode, 'enabled': mode == 5, 'touch': false, 'strength': 7}
+      : delayedRead!.future;
+
+  @override
+  Future<void> writeDeviceFeature(
+    DeviceFeature feature,
+    Map<String, Object?> values,
+  ) async {
+    writes.add(Map.of(values));
+    if (failWrite) {
+      throw PlatformException(
+        code: 'QRING_CONTROL_UNCONFIRMED',
+        message: '拍照状态未确认，请重新连接',
+      );
+    }
+    mode = values['enabled'] == true ? 5 : 0;
+  }
+}
+
 class _NoopWearable implements WearableBridge {
   @override
   Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async =>
@@ -3385,10 +4838,89 @@ class _NoopWearable implements WearableBridge {
   Future<List<HealthRecord>> syncHealthData({String? cursor}) async => const [];
 }
 
+class _FindTrackingWearable extends _NoopWearable {
+  final commands = <bool>[];
+
+  @override
+  Future<void> triggerDeviceAction(
+    DeviceFeature feature, {
+    bool enabled = true,
+  }) async {
+    expect(feature, DeviceFeature.findWatch);
+    commands.add(enabled);
+  }
+}
+
+class _ControlTrackingWearable extends _NoopWearable {
+  Map<String, Object?>? lastWrite;
+  @override
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async =>
+      feature == DeviceFeature.gestureControl
+      ? {if (lastWrite?['mode'] != null) 'confirmedMode': lastWrite!['mode']}
+      : {
+          'incomingCall': lastWrite?['incomingCall'] == true,
+          'systemNotificationAuthorized': false,
+        };
+  @override
+  Future<void> writeDeviceFeature(
+    DeviceFeature feature,
+    Map<String, Object?> values,
+  ) async {
+    lastWrite = values;
+  }
+}
+
+class _FirmwareDetailsWearable extends _NoopWearable
+    implements WearableDeviceDetailsBridge {
+  int reads = 0;
+  DeviceInfo? details;
+  @override
+  Future<DeviceInfo?> getConnectedDeviceDetails() async {
+    reads++;
+    if (details == null) throw PlatformException(code: 'READ_FAILED');
+    return details;
+  }
+}
+
+class _TimeoutControlWearable extends _ControlTrackingWearable {
+  bool timedOut = false;
+  @override
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async =>
+      timedOut ? {'requiresReconnect': true} : {'confirmedMode': 2};
+  @override
+  Future<void> writeDeviceFeature(
+    DeviceFeature feature,
+    Map<String, Object?> values,
+  ) async {
+    timedOut = true;
+    throw PlatformException(code: 'GESTURE_CONFIRMATION_TIMEOUT');
+  }
+}
+
+class _DelayedControlWearable extends _NoopWearable {
+  final read = Completer<Map<String, Object?>>();
+  final write = Completer<void>();
+  final action = Completer<void>();
+  @override
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) =>
+      read.future;
+  @override
+  Future<void> writeDeviceFeature(
+    DeviceFeature feature,
+    Map<String, Object?> values,
+  ) => write.future;
+  @override
+  Future<void> triggerDeviceAction(
+    DeviceFeature feature, {
+    bool enabled = true,
+  }) => action.future;
+}
+
 class _PartialHealthMonitoringWearable extends _NoopWearable {
   @override
   Future<Map<String, bool>> readAutoMeasureSettings() async => const {
     'heartRate': false,
+    'heartRate24h': true,
     'bloodGlucose': false,
     'hrv': true,
     'stress': true,

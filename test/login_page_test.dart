@@ -113,7 +113,7 @@ void main() {
     },
   );
 
-  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+  for (final platform in [TargetPlatform.android]) {
     for (final width in [320.0, 375.0, 430.0]) {
       testWidgets(
         '${platform.name} WeChat consent and cancel work at width $width with large text',
@@ -185,6 +185,28 @@ void main() {
       );
     }
   }
+
+  testWidgets(
+    'legacy iOS login does not show WeChat authorization',
+    (tester) async {
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+      );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: LoginPage(controller: controller),
+        ),
+      );
+      expect(find.byKey(const Key('wechat-login')), findsNothing);
+      expect(find.text('手机号 / 账号'), findsOneWidget);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
 
   testWidgets('login page renders the required account and privacy controls', (
     tester,

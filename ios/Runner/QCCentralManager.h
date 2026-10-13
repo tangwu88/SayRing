@@ -62,6 +62,9 @@ typedef NS_ENUM(NSInteger, QCBluetoothState) {
 /// Device bind/connect state changed. 设备绑定/连接状态变化
 - (void)didState:(QCState)state;
 
+/// CoreBluetooth is online; SDK registration and preparation start now.
+- (void)didConnectTransport:(CBPeripheral *)peripheral;
+
 /// System Bluetooth state changed. 系统蓝牙开关状态变化
 - (void)didBluetoothState:(QCBluetoothState)state;
 
@@ -81,8 +84,10 @@ typedef NS_ENUM(NSInteger, QCBluetoothState) {
 @property (nonatomic, weak) id<QCCentralManagerDelegate> delegate;
 
 /// The host owns environment-scoped identity and recovery. Do not adopt the
-/// demo's installation-wide saved UUID or independently reconnect it.
+/// demo's installation-wide saved UUID or independently reconnect it. The host
+/// may submit one exact pending CoreBluetooth request for background recovery.
 @property (nonatomic, assign) BOOL appManagedConnections;
+@property (nonatomic, assign, readonly) BOOL hasPendingRestoredCancellations;
 
 @property (strong, nonatomic, readonly) CBCentralManager *centerManager;
 
@@ -137,6 +142,9 @@ typedef NS_ENUM(NSInteger, QCBluetoothState) {
 
 /// Reconnect the last bound device without scanning. 不扫描，重连上次绑定的设备
 - (void)reconnectLastDevice;
+
+/// Cancel restored candidates other than the exact App-owned target.
+- (void)discardRestoredPeripheralsExceptIdentifier:(NSString *)identifier;
 
 /// Whether a device UUID is saved locally. 本地是否已保存绑定设备 UUID
 - (BOOL)isBindDevice;

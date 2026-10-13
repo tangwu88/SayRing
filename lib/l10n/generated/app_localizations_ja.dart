@@ -1035,7 +1035,8 @@ class AppLocalizationsJa extends AppLocalizations {
   String get confirmDeleteAccountTitle => 'アカウントを削除しますか？';
 
   @override
-  String get deleteAccountHint => 'アカウントと関連データの削除後、この端末からログアウトします。';
+  String get deleteAccountHint =>
+      '申請後すぐにアカウントが無効になり、ログアウトします。関連データは法令上の保存義務があるものを除き、7日後に削除する予定です。';
 
   @override
   String get confirmDelete => '削除を確認';
@@ -1453,6 +1454,9 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get syncComplete => 'データを同期しました';
+
+  @override
+  String get syncUpToDate => '最新です。新しいデータはありません';
 
   @override
   String get syncFailedTryAgain => '同期できませんでした。リングをスマートフォンに近づけて再試行してください。';

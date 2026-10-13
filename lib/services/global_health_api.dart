@@ -5,6 +5,9 @@ part of 'api_client.dart';
 mixin GlobalHealthApi on SaydianApiClient {
   static const _healthRoot = '/api/saydian-app/v2/health';
 
+  WellnessReleasePolicy get healthReleasePolicy =>
+      const WellnessReleasePolicy();
+
   Future<http.Response> _globalHealthRequest(
     String owner,
     String method,
@@ -71,7 +74,13 @@ mixin GlobalHealthApi on SaydianApiClient {
             _ => null,
           }
         : null;
-    for (final record in batch.records) {
+    for (final original in batch.records) {
+      final record = healthReleasePolicy.projectRecord(original);
+      if (record == null) {
+        rejected[original.id] =
+            'This record is retained locally in this release.';
+        continue;
+      }
       final offset = _globalTimezoneOffset(record.timezone);
       final transport = WearableDeviceClassifier.transportForScopedId(
         record.deviceId,

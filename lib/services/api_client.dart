@@ -7,12 +7,14 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart' as http_parser;
 
 import '../domain/models.dart';
+import '../domain/wellness_release_policy.dart';
 import '../domain/global_account.dart';
 import '../domain/global_care.dart';
 import '../domain/health_report_models.dart';
 import 'global_environment.dart';
 import 'network_audit.dart';
 import 'secure_vault.dart';
+import 'sleep_report_input.dart';
 import 'wearable_routing.dart';
 
 part 'global_api_client.dart';
@@ -226,8 +228,28 @@ abstract interface class SaydianNotificationApi {
   Future<bool> markNotificationEventRead({required String eventId});
 }
 
+/// Authenticated device connection metadata, using the Health App contract.
+/// The captured session prevents a late handshake being posted for a new user.
+abstract interface class SaydianDeviceBindingApi {
+  Future<void> reportDeviceConnection({
+    required Session expectedSession,
+    required String deviceId,
+    required String vendor,
+    required String model,
+    required String displayName,
+    String? firmware,
+    String? macAddress,
+    List<String> capabilities = const [],
+  });
+}
+
 abstract interface class SaydianProfileUploadApi {
   Future<String> uploadProfileImage(String filePath);
+}
+
+/// Profile endpoints that can persist an avatar without changing other fields.
+abstract interface class SaydianAvatarProfileApi {
+  Future<void> saveAvatarUrl(String avatarUrl);
 }
 
 abstract interface class SaydianHealthCloudApi {
@@ -267,6 +289,17 @@ abstract interface class SaydianHealthReportApi {
   });
 }
 
+abstract interface class SayRingSleepReportApi {
+  bool get sleepAiEnabled;
+  Future<Map<String, Object?>> getSleepReportAvailability();
+  Future<void> setSleepAnalysisConsent({
+    required bool granted,
+    required String version,
+  });
+  Future<HealthReportSummary?> getSleepReport(Map<String, Object?> input);
+  Future<HealthReportSummary> createSleepReport(Map<String, Object?> input);
+}
+
 abstract interface class SaydianFeedbackApi {
   Future<String> submitFeedback({
     required String category,
@@ -294,6 +327,7 @@ class SaydianApiClient
         SaydianProfileUploadApi,
         SaydianHealthCloudApi,
         SaydianHealthReportApi,
+        SayRingSleepReportApi,
         SaydianFeedbackApi {
   SaydianApiClient(this._vault, {http.Client? client, Uri? baseUri})
     : _client = client ?? http.Client(),
@@ -1623,6 +1657,66 @@ class SaydianApiClient
     );
     return HealthProfileSummary.fromMap(_data(_decode(response)));
   }
+
+  @override
+  bool get sleepAiEnabled => false;
+
+  @override
+  Future<Map<String, Object?>> getSleepReportAvailability() async => _data(
+    _decode(
+      await _authorizedGet(
+        '/api/saydian-app/v2/health/sleep-reports/availability',
+      ),
+    ),
+  );
+
+  @override
+  Future<void> setSleepAnalysisConsent({
+    required bool granted,
+    required String version,
+  }) async {
+    _decode(
+      await _authorizedPostJson(
+        '/api/saydian-app/v2/health/sleep-reports/analysis-consent',
+        {'granted': granted, 'version': version},
+      ),
+    );
+  }
+
+  @override
+  Future<HealthReportSummary?> getSleepReport(
+    Map<String, Object?> input,
+  ) async {
+    final data = _data(
+      _decode(
+        await _authorizedGet('/api/saydian-app/v2/health/sleep-reports', {
+          'sdkDate': '${input['sdkDate']}',
+          'sourceKey': '${input['sourceKey']}',
+          'sourceHash': sleepReportSourceHash(input),
+        }),
+      ),
+    );
+    final row = data['report'];
+    return row is Map
+        ? HealthReportSummary.fromMap(
+            row.map((key, value) => MapEntry('$key', value)),
+          )
+        : null;
+  }
+
+  @override
+  Future<HealthReportSummary> createSleepReport(
+    Map<String, Object?> input,
+  ) async => HealthReportSummary.fromMap(
+    _data(
+      _decode(
+        await _authorizedPostJson(
+          '/api/saydian-app/v2/health/sleep-reports',
+          input,
+        ),
+      ),
+    ),
+  );
 
   @override
   Future<void> setHealthAnalysisConsent({

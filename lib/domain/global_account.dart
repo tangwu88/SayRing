@@ -92,6 +92,9 @@ class GlobalAuthCapabilities {
     if (data['realm'] != 'global') {
       throw const FormatException('Unexpected account environment');
     }
+    if (data['product'] != 'say-ring') {
+      throw const FormatException('Unexpected legal product');
+    }
     final methods = data['registration'];
     if (methods is! Map) throw const FormatException('Missing capabilities');
     return GlobalAuthCapabilities(

@@ -10,8 +10,13 @@ import 'package:intl/intl.dart';
 import '../domain/models.dart';
 import '../services/app_controller.dart';
 import '../services/health_analysis.dart';
+import '../services/health_view_data_source.dart';
 import 'app_theme.dart';
+import 'health_ui_owner.dart';
 import 'prototype_pages.dart';
+import 'sleep_detail_widgets.dart' show SleepTimelineCard, sleepMinutesLabel;
+import 'sleep_ai_report_page.dart';
+import 'wellness_release.dart';
 
 class HealthMetricMiniChart extends StatelessWidget {
   const HealthMetricMiniChart({
@@ -19,6 +24,7 @@ class HealthMetricMiniChart extends StatelessWidget {
     required this.metric,
     required this.color,
     this.showEmptyLabel = true,
+    this.records,
     super.key,
   });
 
@@ -26,19 +32,25 @@ class HealthMetricMiniChart extends StatelessWidget {
   final HealthMetric metric;
   final Color color;
   final bool showEmptyLabel;
+  final List<HealthRecord>? records;
 
   @override
   Widget build(BuildContext context) {
+    if (!controller.isMetricAvailableInRelease(metric)) {
+      return const SizedBox.shrink();
+    }
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day);
     return SizedBox(
       height: 38,
       child: FutureBuilder<List<HealthRecord>>(
-        future: controller.loadHealthRecords(
-          metric: metric,
-          start: start,
-          end: start.add(const Duration(days: 1)),
-        ),
+        future: records != null
+            ? Future.value(records)
+            : controller.loadHealthRecords(
+                metric: metric,
+                start: start,
+                end: start.add(const Duration(days: 1)),
+              ),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const SizedBox.shrink();
@@ -119,12 +131,14 @@ class HealthTrendPage extends StatefulWidget {
     required this.metric,
     this.onMeasure,
     this.initialDate,
+    this.dataSource,
     super.key,
   });
 
   final AppController controller;
   final HealthMetric metric;
   final DateTime? initialDate;
+  final HealthViewDataSource? dataSource;
 
   /// Receives this page's live context, not the context of the card that
   /// opened it (which can be disposed during a device reconnect).
@@ -145,6 +159,9 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
   bool _measuring = false;
   List<HealthRecord> _records = const [];
   List<HealthRecord> _previousRecords = const [];
+  int _loadGeneration = 0;
+  late (bool, String?, String?) _account;
+  Timer? _sleepRefresh;
 
   HealthTrendData get _data => _analysis.analyze(
     metric: widget.metric,
@@ -159,21 +176,59 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
   void initState() {
     super.initState();
     _anchor = widget.initialDate?.toLocal() ?? DateTime.now();
+    _account = healthUiOwnerKey(widget.controller);
     widget.controller.addListener(_onControllerChanged);
+    widget.dataSource?.addListener(_onSourceChanged);
     _load();
   }
 
   @override
   void dispose() {
+    _loadGeneration++;
+    _sleepRefresh?.cancel();
     widget.controller.removeListener(_onControllerChanged);
+    widget.dataSource?.removeListener(_onSourceChanged);
     super.dispose();
   }
 
   void _onControllerChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final account = healthUiOwnerKey(widget.controller);
+    if (_account != account) {
+      _loadGeneration++;
+      _account = account;
+      setState(() {
+        _records = const [];
+        _previousRecords = const [];
+      });
+      unawaited(_load());
+      return;
+    }
+    setState(() {});
+    if (widget.dataSource == null &&
+        widget.metric == HealthMetric.sleep &&
+        !widget.controller.isDeviceSyncing) {
+      _sleepRefresh?.cancel();
+      _sleepRefresh = Timer(const Duration(milliseconds: 250), () {
+        if (mounted) unawaited(_load(showLoading: false));
+      });
+    }
+  }
+
+  void _onSourceChanged() {
+    if (!mounted || widget.dataSource?.valid != false) return;
+    _loadGeneration++;
+    setState(() {
+      _records = const [];
+      _previousRecords = const [];
+      _loading = false;
+      _error = StateError('permission');
+    });
   }
 
   Future<void> _load({bool showLoading = true}) async {
+    if (!widget.controller.isMetricAvailableInRelease(widget.metric)) return;
+    final generation = ++_loadGeneration;
     if (showLoading) {
       setState(() {
         _loading = true;
@@ -181,20 +236,25 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
       });
     }
     final range = HealthTrendRange.forPeriod(_period, _anchor);
+    Future<List<HealthRecord>> load(DateTime start, DateTime end) =>
+        widget.dataSource != null
+        ? widget.dataSource!.load(widget.metric, start, end)
+        : widget.metric == HealthMetric.sleep
+        ? widget.controller.loadSleepDays(
+            start: start,
+            end: DateTime(end.year, end.month, end.day - 1),
+          )
+        : widget.controller.loadHealthRecords(
+            metric: widget.metric,
+            start: start,
+            end: end,
+          );
     try {
       final values = await Future.wait([
-        widget.controller.loadHealthRecords(
-          metric: widget.metric,
-          start: range.start,
-          end: range.end,
-        ),
-        widget.controller.loadHealthRecords(
-          metric: widget.metric,
-          start: range.previousStart,
-          end: range.previousEnd,
-        ),
+        load(range.start, range.end),
+        load(range.previousStart, range.previousEnd),
       ]);
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _records = values[0];
         _previousRecords = values[1];
@@ -208,8 +268,12 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
         _loading = false;
       });
     } catch (error) {
-      if (!mounted || !showLoading) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
+        if (widget.dataSource != null) {
+          _records = const [];
+          _previousRecords = const [];
+        }
         _error = error;
         _loading = false;
       });
@@ -283,6 +347,9 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.controller.isMetricAvailableInRelease(widget.metric)) {
+      return const WellnessReleaseUnavailablePage();
+    }
     final range = HealthTrendRange.forPeriod(_period, _anchor);
     final rangeLabel = switch (_period) {
       HealthTrendPeriod.day => DateFormat('yyyy年M月d日').format(range.start),
@@ -293,136 +360,145 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          context.l10n.metricAnalysis(context.l10n.metricName(widget.metric)),
+          widget.dataSource == null
+              ? context.l10n.metricAnalysis(
+                  context.l10n.metricName(widget.metric),
+                )
+              : '${widget.dataSource!.label} · ${context.l10n.metricName(widget.metric)}',
         ),
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          key: Key('health-trend-${widget.metric.wireName}'),
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-          children: [
-            Card(
-              key: const Key('health-trend-controls'),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
-                child: Column(
-                  children: [
-                    SizedBox(
-                      width: double.infinity,
-                      child: SegmentedButton<HealthTrendPeriod>(
-                        segments: [
-                          for (final period in HealthTrendPeriod.values)
-                            ButtonSegment(
-                              value: period,
-                              label: Text(period.label),
-                            ),
-                        ],
-                        selected: {_period},
-                        showSelectedIcon: false,
-                        style: ButtonStyle(
-                          visualDensity: VisualDensity.comfortable,
-                          shape: WidgetStatePropertyAll(
-                            RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
+      body: widget.dataSource?.valid == false
+          ? Center(child: Text(context.l10n.carePermissionDenied))
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+                key: Key('health-trend-${widget.metric.wireName}'),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+                children: [
+                  Card(
+                    key: const Key('health-trend-controls'),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+                      child: Column(
+                        children: [
+                          SizedBox(
+                            width: double.infinity,
+                            child: SegmentedButton<HealthTrendPeriod>(
+                              segments: [
+                                for (final period in HealthTrendPeriod.values)
+                                  ButtonSegment(
+                                    value: period,
+                                    label: Text(period.label),
+                                  ),
+                              ],
+                              selected: {_period},
+                              showSelectedIcon: false,
+                              style: ButtonStyle(
+                                visualDensity: VisualDensity.comfortable,
+                                shape: WidgetStatePropertyAll(
+                                  RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                ),
+                              ),
+                              onSelectionChanged: (selection) {
+                                setState(() => _period = selection.single);
+                                _load();
+                              },
                             ),
                           ),
-                        ),
-                        onSelectionChanged: (selection) {
-                          setState(() => _period = selection.single);
-                          _load();
-                        },
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              IconButton(
+                                tooltip: '上一${_period.label}',
+                                onPressed: () => _shift(-1),
+                                icon: const Icon(Icons.chevron_left_rounded),
+                              ),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _pickDate,
+                                  icon: const Icon(
+                                    Icons.calendar_month_outlined,
+                                    size: 18,
+                                  ),
+                                  label: Text(rangeLabel),
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: '下一${_period.label}',
+                                onPressed: range.end.isAfter(DateTime.now())
+                                    ? null
+                                    : () => _shift(1),
+                                icon: const Icon(Icons.chevron_right_rounded),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        IconButton(
-                          tooltip: '上一${_period.label}',
-                          onPressed: () => _shift(-1),
-                          icon: const Icon(Icons.chevron_left_rounded),
-                        ),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _pickDate,
-                            icon: const Icon(
-                              Icons.calendar_month_outlined,
-                              size: 18,
+                  ),
+                  const SizedBox(height: 12),
+                  if (widget.dataSource == null && widget.onMeasure != null)
+                    ListenableBuilder(
+                      listenable: widget.controller,
+                      builder: (context, _) {
+                        if (!(widget.controller.capabilities
+                                ?.supportsManualMeasurement(widget.metric) ??
+                            false)) {
+                          return const SizedBox.shrink();
+                        }
+                        return Column(
+                          children: [
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                key: Key(
+                                  'health-measure-${widget.metric.wireName}',
+                                ),
+                                onPressed:
+                                    _measuring ||
+                                        !widget.controller
+                                            .canMeasureHealthMetric(
+                                              widget.metric,
+                                            )
+                                    ? null
+                                    : _measure,
+                                icon: _measuring
+                                    ? const SizedBox.square(
+                                        dimension: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.monitor_heart_outlined),
+                                label: Text(_measuring ? '测量中' : '手动测量'),
+                              ),
                             ),
-                            label: Text(rangeLabel),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: '下一${_period.label}',
-                          onPressed: range.end.isAfter(DateTime.now())
-                              ? null
-                              : () => _shift(1),
-                          icon: const Icon(Icons.chevron_right_rounded),
-                        ),
-                      ],
+                            const SizedBox(height: 14),
+                          ],
+                        );
+                      },
                     ),
-                  ],
-                ),
+                  if (_loading)
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(36),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                    )
+                  else if (_error != null)
+                    _MessageCard(
+                      icon: Icons.error_outline_rounded,
+                      title: '数据读取失败',
+                      detail: '请稍后重试，本机记录不会被删除。',
+                      action: _load,
+                    )
+                  else
+                    ..._content(_data),
+                ],
               ),
             ),
-            const SizedBox(height: 12),
-            if (widget.onMeasure != null)
-              ListenableBuilder(
-                listenable: widget.controller,
-                builder: (context, _) {
-                  if (!(widget.controller.capabilities
-                          ?.supportsManualMeasurement(widget.metric) ??
-                      false)) {
-                    return const SizedBox.shrink();
-                  }
-                  return Column(
-                    children: [
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          key: Key('health-measure-${widget.metric.wireName}'),
-                          onPressed:
-                              _measuring ||
-                                  !widget.controller.canMeasureHealthMetric(
-                                    widget.metric,
-                                  )
-                              ? null
-                              : _measure,
-                          icon: _measuring
-                              ? const SizedBox.square(
-                                  dimension: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.monitor_heart_outlined),
-                          label: Text(_measuring ? '测量中' : '手动测量'),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-                  );
-                },
-              ),
-            if (_loading)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(36),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-              )
-            else if (_error != null)
-              _MessageCard(
-                icon: Icons.error_outline_rounded,
-                title: '数据读取失败',
-                detail: '请稍后重试，本机记录不会被删除。',
-                action: _load,
-              )
-            else
-              ..._content(_data),
-          ],
-        ),
-      ),
     );
   }
 
@@ -446,7 +522,14 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
         const _MessageCard(icon: Icons.show_chart_rounded, title: '该时间段暂无数据')
       else ...[
         if (widget.metric == HealthMetric.sleep) ...[
-          SleepStructureCard(record: data.records.last),
+          SleepStructureCard(
+            record: data.records.first,
+            controller: widget.dataSource == null ? widget.controller : null,
+            wellnessOnly: widget.controller.isWellnessOnly,
+          ),
+          if (widget.dataSource != null) const Text('仅展示已授权的睡眠汇总'),
+          if (data.records.first.sleepTimeline?.hasSegments == true)
+            SleepTimelineCard(timeline: data.records.first.sleepTimeline!),
           const SizedBox(height: 12),
         ],
         if (widget.metric == HealthMetric.bodyTemperature) ...[
@@ -492,6 +575,8 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
               controller: widget.controller,
               record: record,
               valueKey: data.valueKey,
+              readOnly: widget.dataSource != null,
+              dataSource: widget.dataSource,
             ),
           ),
         if (data.records.length > 6)
@@ -520,70 +605,93 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
         context: context,
         isScrollControlled: true,
         showDragHandle: true,
-        builder: (context) => FractionallySizedBox(
-          heightFactor: .86,
-          child: SafeArea(
-            top: false,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 12, 10),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          context.l10n.metricAllData(
-                            context.l10n.metricName(widget.metric),
-                          ),
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
+        builder: (context) => _permissionGuard(
+          FractionallySizedBox(
+            heightFactor: .86,
+            child: SafeArea(
+              top: false,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 12, 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            context.l10n.metricAllData(
+                              context.l10n.metricName(widget.metric),
+                            ),
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                         ),
-                      ),
-                      Text(
-                        '${data.records.length} 条',
-                        style: const TextStyle(color: SaydianColors.muted),
-                      ),
-                      IconButton(
-                        tooltip: '关闭',
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close_rounded),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(),
-                Expanded(
-                  child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                    itemCount: data.records.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 9),
-                    itemBuilder: (context, index) => _RecordTile(
-                      controller: widget.controller,
-                      record: data.records[index],
-                      valueKey: data.valueKey,
+                        Text(
+                          '${data.records.length} 条',
+                          style: const TextStyle(color: SaydianColors.muted),
+                        ),
+                        IconButton(
+                          tooltip: '关闭',
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ],
+                  const Divider(),
+                  Expanded(
+                    child: ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                      itemCount: data.records.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 9),
+                      itemBuilder: (context, index) => _RecordTile(
+                        controller: widget.controller,
+                        record: data.records[index],
+                        valueKey: data.valueKey,
+                        readOnly: widget.dataSource != null,
+                        dataSource: widget.dataSource,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
       );
+
+  Widget _permissionGuard(Widget child) {
+    final source = widget.dataSource;
+    if (source == null) return child;
+    return AnimatedBuilder(
+      animation: source,
+      builder: (context, _) => source.valid
+          ? child
+          : Center(child: Text(context.l10n.carePermissionDenied)),
+    );
+  }
 }
 
 class SleepStructureCard extends StatelessWidget {
-  const SleepStructureCard({required this.record, super.key});
+  const SleepStructureCard({
+    required this.record,
+    this.controller,
+    this.wellnessOnly = false,
+    super.key,
+  });
 
   final HealthRecord record;
+  final AppController? controller;
+  final bool wellnessOnly;
 
   @override
   Widget build(BuildContext context) {
     final values = record.values;
     String hours(String key) {
       final value = values[key];
-      return value == null ? '--' : '${_number(value)} 小时';
+      if (value == null) return '--';
+      return sleepMinutesLabel(value.toDouble() * 60);
     }
 
     String count(String key, String unit) {
@@ -603,8 +711,15 @@ class SleepStructureCard extends StatelessWidget {
         ('清醒时长', count('awakeMinutes', '分钟')),
       ('体动', count('movementMinutes', '分钟')),
       ('清醒次数', count('wakeCount', '次')),
-      if (values.containsKey('score')) ('设备睡眠评分', count('score', '分')),
-      if (values.containsKey('efficiency')) ('睡眠效率', count('efficiency', '%')),
+      if (!wellnessOnly && controller?.isWellnessOnly != true)
+        (
+          '设备睡眠评分',
+          values.containsKey('score') ? count('score', '分') : '未知（戒指未返回）',
+        ),
+      if (!wellnessOnly &&
+          controller?.isWellnessOnly != true &&
+          values.containsKey('efficiency'))
+        ('睡眠效率', count('efficiency', '%')),
     ];
     return Card(
       key: const Key('sleep-structure-card'),
@@ -619,9 +734,12 @@ class SleepStructureCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             for (var index = 0; index < rows.length; index++) ...[
-              Row(
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                spacing: 16,
+                runSpacing: 4,
                 children: [
-                  Expanded(child: Text(rows[index].$1)),
+                  Text(rows[index].$1),
                   Text(
                     rows[index].$2,
                     style: const TextStyle(fontWeight: FontWeight.w700),
@@ -629,6 +747,16 @@ class SleepStructureCard extends StatelessWidget {
                 ],
               ),
               if (index != rows.length - 1) const Divider(height: 20),
+            ],
+            if (controller?.sleepAiEnabled == true) ...[
+              const Divider(height: 24),
+              SleepAiReportCard(
+                key: ValueKey(
+                  '${record.id}:${record.sleepTimeline?.contentHash ?? record.values}',
+                ),
+                controller: controller!,
+                record: record,
+              ),
             ],
           ],
         ),
@@ -1065,11 +1193,15 @@ class _RecordTile extends StatelessWidget {
     required this.controller,
     required this.record,
     required this.valueKey,
+    this.readOnly = false,
+    this.dataSource,
   });
 
   final AppController controller;
   final HealthRecord record;
   final String valueKey;
+  final bool readOnly;
+  final HealthViewDataSource? dataSource;
 
   @override
   Widget build(BuildContext context) {
@@ -1081,8 +1213,27 @@ class _RecordTile extends StatelessWidget {
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(
             settings: const RouteSettings(name: 'health-record-detail'),
-            builder: (_) =>
-                HealthRecordDetailPage(controller: controller, record: record),
+            builder: (_) => dataSource == null
+                ? HealthRecordDetailPage(
+                    controller: controller,
+                    record: record,
+                    readOnly: readOnly,
+                  )
+                : AnimatedBuilder(
+                    animation: dataSource!,
+                    builder: (context, _) => dataSource!.valid
+                        ? HealthRecordDetailPage(
+                            controller: controller,
+                            record: record,
+                            readOnly: true,
+                          )
+                        : Scaffold(
+                            appBar: AppBar(title: Text(dataSource!.label)),
+                            body: Center(
+                              child: Text(context.l10n.carePermissionDenied),
+                            ),
+                          ),
+                  ),
           ),
         ),
         leading: CircleAvatar(
@@ -1169,7 +1320,7 @@ String _fieldLabel(String key) => switch (key) {
   'pulse' => '脉搏',
   'meanHeartRate' || 'averageHeartRate' => '平均心率',
   'averageTimeInterval' || 'qt' => 'QT间期',
-  'averageHRV' || 'hrv' => 'HRV',
+  'averageHRV' || 'hrv' => HealthMetric.hrv.label,
   'BMI' || 'bmi' => 'BMI',
   'bodyFatRate' || 'bodyFatPercentage' => '体脂率',
   'fatMass' => '脂肪量',
