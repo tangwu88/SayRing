@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/app.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/wearable_sync_result.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/app_payment_bridge.dart';
@@ -654,6 +655,75 @@ void main() {
       expect((await store.pending()).single.id, record.id);
     },
   );
+
+  for (final response in ['not_received', 'current', 'no_data', 'timeout']) {
+    test(
+      'CoolWear $response keeps sync feedback truthful and data intact',
+      () async {
+        const ring = DeviceInfo(
+          id: 'coolwear:42:57:50:04:AB:4C',
+          name: 'R7 Ultra',
+          model: 'R7 Ultra',
+          rssi: -40,
+        );
+        final store = MemoryHealthStore();
+        final saved = HealthRecord(
+          id: 'saved-steps',
+          metric: HealthMetric.steps,
+          values: const {'value': 100},
+          unit: 'steps',
+          measuredAt: DateTime.now().toUtc(),
+          timezone: '+08:00',
+          deviceId: ring.id,
+          firmwareVersion: 'test',
+          quality: 'device_reported',
+          source: MeasurementSource.wearable,
+          sourceVendor: 'coolwear',
+          rawVersion: 2,
+        );
+        await store.upsert([saved]);
+        final current = HealthRecord.fromJson({
+          ...saved.toJson(),
+          'id': 'fresh-steps',
+          'values': {'value': 160},
+        });
+        final wearable = _QaWearable(
+          scannedDevice: ring,
+          syncRecords: WearableSyncResult(
+            response == 'current' ? [current] : [],
+            response == 'not_received' ? {} : {'steps': response},
+          ),
+          syncError: response == 'timeout'
+              ? PlatformException(code: 'COOLWEAR_SYNC_TIMEOUT', details: [])
+              : null,
+        );
+        final controller = _controller(wearable: wearable, store: store);
+        await controller.initialize();
+        addTearDown(controller.dispose);
+        final scan = controller.scanDevices();
+        await Future<void>.delayed(Duration.zero);
+        await controller.connectDevice(ring);
+        await scan;
+        // Let the fake's unsupported find probe settle before testing sync.
+        await Future<void>.delayed(Duration.zero);
+        controller.errorMessage = null;
+        expect(await controller.syncDeviceData(), response == 'no_data');
+        final rows = await store.recent();
+        expect(rows.any((r) => r.id == saved.id), isTrue);
+        if (response == 'current') {
+          expect(rows.any((r) => r.id == current.id), isTrue);
+          expect(controller.syncStatus, '活动数据已更新，历史记录尚未确认');
+          expect(controller.errorMessage, contains('历史记录尚未确认'));
+        } else if (response == 'no_data') {
+          expect(controller.syncStatus, '暂无新增数据');
+          expect(controller.errorMessage, isNull);
+        } else {
+          expect(controller.syncStatus, isNot('暂无新增数据'));
+          expect(controller.errorMessage, isNotNull);
+        }
+      },
+    );
+  }
 
   test('CoolWear timeout rejects packets from another ring', () async {
     const ring = DeviceInfo(

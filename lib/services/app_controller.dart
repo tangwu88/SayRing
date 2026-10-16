@@ -2603,11 +2603,18 @@ class AppController extends ChangeNotifier {
         errorMessage = _deviceSyncErrorMessage;
       } else if (receivedRecords is WearableSyncResult &&
           !receivedRecords.complete) {
-        syncStatus = records.isEmpty ? '暂无新增数据' : '已更新 ${records.length} 条';
-        if (receivedRecords.partial) {
+        if (records.isNotEmpty &&
+            receivedRecords.statuses.values.contains('current')) {
+          syncStatus = '活动数据已更新，历史记录尚未确认';
+          _deviceSyncErrorMessage = '活动数据已更新，历史记录尚未确认';
+        } else if (receivedRecords.partial) {
+          syncStatus = records.isEmpty ? '部分数据未同步' : '已更新 ${records.length} 条';
           _deviceSyncErrorMessage = '部分数据未同步';
-          errorMessage = _deviceSyncErrorMessage;
+        } else {
+          syncStatus = '戒指尚未确认数据读取完成';
+          _deviceSyncErrorMessage = '戒指尚未确认数据读取完成，请稍后重试';
         }
+        errorMessage = _deviceSyncErrorMessage;
       } else {
         syncStatus = records.isEmpty ? '暂无新增数据' : '已同步 ${records.length} 条';
         succeeded = true;
@@ -2683,9 +2690,9 @@ class AppController extends ChangeNotifier {
         return false;
       }
       if (error.code == 'COOLWEAR_SYNC_TIMEOUT') {
-        syncStatus = '暂无新增数据';
-        _deviceSyncErrorMessage = null;
-        errorMessage = null;
+        syncStatus = '戒指数据读取超时';
+        _deviceSyncErrorMessage = '未收到戒指的完整数据，请稍后重试';
+        errorMessage = _deviceSyncErrorMessage;
         return false;
       }
       syncStatus = '设备已连接，${initial ? '首次数据同步失败' : '历史数据同步失败'}';

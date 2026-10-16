@@ -68,6 +68,26 @@ static inline NSDictionary *CoolWearHistoryValues(NSInteger type, NSDictionary *
     return nil;
 }
 
+// REAL_SPORT (type 4) is a current cumulative snapshot, not the type 5
+// history-completion protocol. Its count/remaining fields cannot prove that
+// all activity or sleep history has been transferred.
+static inline NSArray<NSDictionary *> *CoolWearCurrentActivitySamples(id data, NSDate *now) {
+    NSArray *samples = CoolWearMetricSamples(data, @"sportInfos");
+    if (samples.count > 16384) return @[];
+    NSMutableArray *valid = [NSMutableArray array];
+    for (NSDictionary *sample in samples) {
+        NSDate *date = CoolWearSampleDate(sample[@"startSecs"], now);
+        NSDictionary *values = CoolWearHistoryValues(5, sample);
+        if (date && values) [valid addObject:@{@"date": date, @"values": values}];
+    }
+    return valid;
+}
+
+static inline NSString *CoolWearActivitySyncStatus(NSString *historyStatus, BOOL freshCurrent) {
+    if (freshCurrent && (!historyStatus || [historyStatus isEqual:@"not_received"])) return @"current";
+    return historyStatus ?: @"not_received";
+}
+
 // The supplied guide explicitly frames START(1) -> WAKEUP(4). Only bounded
 // DEEP(2)/LIGHT(3) intervals count as sleep. Unknown codes stay unknown. No
 // guessed terminal timestamp, REM, naps or SDK ownership date are produced.

@@ -151,6 +151,22 @@ int main(void) {
         NSCAssert([CoolWearMetricSamples(@{@"curItemCount": @2, @"hrvMetricsInfos": @[hrv]}, @"hrvMetricsInfos") count] == 0, @"incomplete batch accepted");
         NSCAssert([CoolWearMetricSamples(@{@"curItemCount": @YES, @"hrvMetricsInfos": @[hrv]}, @"hrvMetricsInfos") count] == 0, @"Boolean count accepted");
         NSCAssert([CoolWearMetricSamples(NSNull.null, @"hrvMetricsInfos") count] == 0, @"invalid batch accepted");
+        NSDictionary *sport = @{@"startSecs":@1791000000,@"walkSteps":@120};
+        NSDictionary *realSport = @{@"curItemCount":@1,@"remainItemCount":@1,@"sportInfos":@[sport]};
+        NSArray *current = CoolWearCurrentActivitySamples(realSport, now);
+        NSCAssert(current.count == 1 && [current[0][@"values"][@"value"] isEqual:@120], @"current activity discarded");
+        NSCAssert(CoolWearHistoryKey(4) == nil && CoolWearHistoryMetric(4) == nil, @"current snapshot fabricated history completion");
+        for (id bad in @[@YES,@(-1),@0.5,@1000001,@"120",@(NAN),NSNull.null]) {
+            NSMutableDictionary *invalid = [sport mutableCopy]; invalid[@"walkSteps"] = bad;
+            NSCAssert(CoolWearCurrentActivitySamples(@{@"curItemCount":@1,@"sportInfos":@[invalid]}, now).count == 0, @"invalid current steps accepted");
+        }
+        NSCAssert(CoolWearCurrentActivitySamples(@{@"curItemCount":@2,@"sportInfos":@[sport]}, now).count == 0, @"missing current samples accepted");
+        NSCAssert(CoolWearCurrentActivitySamples(@{@"curItemCount":@1,@"sportInfos":@[@{@"walkSteps":@0,@"startSecs":@0}]}, now).count == 0, @"invented activity date");
+        NSCAssert(CoolWearCurrentActivitySamples(@{@"curItemCount":@1,@"sportInfos":@[@{@"walkSteps":@0,@"startSecs":@1791000000}]}, now).count == 1, @"real zero steps discarded");
+        NSCAssert([CoolWearActivitySyncStatus(nil, YES) isEqual:@"current"], @"fresh current snapshot hidden");
+        NSCAssert([CoolWearActivitySyncStatus(nil, NO) isEqual:@"not_received"], @"stale snapshot claimed fresh");
+        for (NSString *status in @[@"complete",@"partial",@"no_data"])
+            NSCAssert([CoolWearActivitySyncStatus(status, YES) isEqual:status], @"current snapshot overwrote history evidence");
         CoolWearHistoryBatch *history = [CoolWearHistoryBatch new];
         NSCAssert([[history status] isEqual:@"not_received"], @"missing callback claimed complete");
         NSDictionary *last = @{@"curItemCount":@1, @"remainItemCount":@0, @"heartInfos":@[@{@"time":@1791000000,@"heartNum":@76}]};

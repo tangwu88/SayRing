@@ -76,6 +76,30 @@ void main() {
     expect(selected.map((record) => record.id), ['ring', 'legacy']);
   });
 
+  test('daily activity keeps the growing SDK snapshot before id ordering', () {
+    for (final vendor in ['coolwear', 'qring']) {
+      final first = _record('a-old', metric: HealthMetric.steps, value: 100)
+          .copyWith(
+            sourceVendor: vendor,
+            rawVersion: vendor == 'coolwear' ? 2 : 3,
+          );
+      final next = _record('z-new', metric: HealthMetric.steps, value: 160)
+          .copyWith(
+            sourceVendor: vendor,
+            rawVersion: vendor == 'coolwear' ? 2 : 3,
+          );
+      for (final rows in [
+        [first, next],
+        [next, first],
+      ]) {
+        final selected = ringPreferredHealthRecords(rows);
+        expect(selected, hasLength(1));
+        expect(selected.single.id, 'z-new');
+        expect(selected.single.values['value'], 160);
+      }
+    }
+  });
+
   test(
     'record timezone separates local dates and preferred device is honored',
     () {

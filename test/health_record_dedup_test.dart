@@ -63,6 +63,44 @@ void main() {
     }).copyWith(sourceVendor: 'qring', rawVersion: 3);
     expect(deduplicateHealthRecords([first, next]).single.id, 'old');
   });
+
+  test('CoolWear cumulative steps grow without duplicate counting', () {
+    final first = _record(
+      'old',
+      DateTime.utc(2026, 10, 16),
+      const {'value': 100},
+      metric: HealthMetric.steps,
+    ).copyWith(sourceVendor: 'coolwear', rawVersion: 2);
+    final next = HealthRecord.fromJson({
+      ...first.toJson(),
+      'id': 'new',
+      'values': {'value': 160},
+    });
+    for (final rows in [
+      [first, next],
+      [next, first],
+      [first, next, next],
+    ]) {
+      final result = deduplicateHealthRecords(rows);
+      expect(result, hasLength(1));
+      expect(result.single.values['value'], 160);
+    }
+    // Do not reinterpret another vendor or the old transport's samples.
+    expect(
+      deduplicateHealthRecords([
+        first.copyWith(rawVersion: 1),
+        next.copyWith(rawVersion: 1),
+      ]).single.id,
+      'old',
+    );
+    expect(
+      deduplicateHealthRecords([
+        first,
+        next.copyWith(sourceVendor: 'another'),
+      ]).single.id,
+      'old',
+    );
+  });
 }
 
 HealthRecord _record(

@@ -48,6 +48,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
 @property(nonatomic, strong) NSMutableDictionary<NSNumber *, CoolWearHistoryBatch *> *syncBatches;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSDictionary *> *syncRecords;
 @property(nonatomic) BOOL historySnapshotDelivered;
+@property(nonatomic) BOOL currentActivitySeen;
+@property(nonatomic) BOOL freshActivityInSync;
 @property(nonatomic, copy) FlutterResult pendingSync;
 @property(nonatomic, copy) FlutterResult pendingBattery;
 @property(nonatomic) NSUInteger syncGeneration;
@@ -262,8 +264,11 @@ static void CoolWearOnMain(dispatch_block_t block) {
         CoolWearHistoryBatch *batch = self.historyBatches[type];
         if (batch && !batch.malformed && (batch.rows.count || batch.finalSeen)) [metrics addObject:CoolWearHistoryMetric(type.integerValue)];
     }
+    // A real current step response enables the activity display without
+    // inventing proof that the history transport has completed.
+    value[@"historyMetrics"] = [metrics copy];
+    if ([self isResolved] && self.currentActivitySeen && ![metrics containsObject:@"steps"]) [metrics addObject:@"steps"];
     value[@"metrics"] = metrics;
-    value[@"historyMetrics"] = metrics;
     NSMutableArray *features = [NSMutableArray array];
     // The SDK has no optional find flag. A real stop-command ACK after this
     // exact handshake proves the protocol, not the presence of a vibrator.
@@ -564,6 +569,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
         statuses[metric] = batch ? [batch status] : @"not_received";
         if ([metric isEqual:@"sleep"] && batch.rows.count && CoolWearClosedSleepSummaries(batch.rows.allValues, NSDate.date).count == 0) statuses[metric] = @"partial";
     }
+    if (self.freshActivityInSync) statuses[@"steps"] = CoolWearActivitySyncStatus(statuses[@"steps"], YES);
     return @{@"records": self.syncRecords.allValues, @"statuses": statuses};
 }
 
@@ -637,15 +643,34 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)syncHistory:(FlutterResult)result {
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
-    if (self.pendingControl || self.pendingFind || self.pendingSync || self.pendingBattery || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
+    if (self.pendingControl || self.pendingFind || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
     self.pendingSync = result;
+    self.freshActivityInSync = NO;
     [self.syncBatches removeAllObjects]; [self.syncRecords removeAllObjects];
+    [self startHistorySync:self.connectionGeneration operation:++self.syncGeneration batteryWaits:0];
+}
+
+- (void)startHistorySync:(NSUInteger)generation operation:(NSUInteger)sync batteryWaits:(NSUInteger)waits {
+    if (generation != self.connectionGeneration || sync != self.syncGeneration || !self.pendingSync || ![self isResolved]) return;
+    if (self.pendingBattery) {
+        // Reserve sync first so subsequent polls cannot take the command queue.
+        // Battery has an 8 s bound; 8 + the 25 s read fits Dart's 35 s bound.
+        if (waits >= 32) {
+            FlutterResult result = self.pendingSync; self.pendingSync = nil;
+            result([self error:@"DEVICE_BUSY" message:@"电量读取尚未结束，请稍后重试"]);
+            return;
+        }
+        __weak typeof(self) weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            [weakSelf startHistorySync:generation operation:sync batteryWaits:waits + 1];
+        });
+        return;
+    }
     if (!self.historySnapshotDelivered) {
         [self.syncBatches addEntriesFromDictionary:self.historyBatches];
         [self.syncRecords addEntriesFromDictionary:self.historyRecords];
         self.historySnapshotDelivered = YES;
     }
-    NSUInteger generation = self.connectionGeneration, sync = ++self.syncGeneration;
     [CE_SensorCmd open];
     CE_SyncTimeCmd *cmd = [[CE_SyncTimeCmd alloc] initWithAbsTime:NSDate.date.timeIntervalSince1970
         offset:[NSTimeZone.localTimeZone secondsFromGMT] format:1 mdFormat:0];
@@ -775,6 +800,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
     [self.historyRecords removeAllObjects];
     [self.syncBatches removeAllObjects]; [self.syncRecords removeAllObjects];
     self.historySnapshotDelivered = NO;
+    self.currentActivitySeen = NO;
+    self.freshActivityInSync = NO;
     self.pendingConnect = result;
     self.product.searchPeripheral = item;
     self.product.sid = self.scanServices[identifier] ?: @"F618";
@@ -866,6 +893,22 @@ static void CoolWearOnMain(dispatch_block_t block) {
     if (type.integerValue == DATA_TYPE_DEV_SYNC) {
         // This is a mixed-data envelope, NOT a history-completion marker.
         if ([data isKindOfClass:NSArray.class]) for (id child in data) [self receiveData:child depth:depth + 1 measurement:measurement];
+        return;
+    }
+    if (type.integerValue == DATA_TYPE_REAL_SPORT) {
+        NSArray *samples = CoolWearCurrentActivitySamples(data, NSDate.date);
+        if (!samples.count) return;
+        self.currentActivitySeen = YES;
+        if ([self isResolved]) [self emit:@"capabilitiesUpdated" payload:[self capabilities]];
+        for (NSDictionary *sample in samples) {
+            NSDictionary *record = [self record:@"steps" values:sample[@"values"] date:sample[@"date"] origin:@"watch_history"];
+            if (self.pendingSync) {
+                self.syncRecords[record[@"id"]] = record;
+                self.freshActivityInSync = YES;
+            }
+            if ([self isResolved] && self.dataDeliveryReady) [self emitPassiveRecord:record];
+            else if (self.pendingPassiveRecords.count < 16384) self.pendingPassiveRecords[record[@"id"]] = record;
+        }
         return;
     }
     // History can be pushed while metadata is still being read. Retain only
@@ -990,7 +1033,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 }
 
 - (void)emitPassiveRecord:(NSDictionary *)record {
-    if (![self isResolved] || !self.dataDeliveryReady || ![[self capabilities][@"historyMetrics"] containsObject:record[@"type"]]) return;
+    if (![self isResolved] || !self.dataDeliveryReady || ![[self capabilities][@"metrics"] containsObject:record[@"type"]]) return;
     NSMutableDictionary *resolved = [record mutableCopy];
     resolved[@"firmwareVersion"] = self.deviceInfo[@"version"] ?: @"";
     [self emit:@"healthRecord" payload:resolved];
@@ -1032,6 +1075,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
     self.activeMetric = nil;
     self.dataDeliveryReady = NO;
     self.passiveSleepScheduled = NO;
+    self.currentActivitySeen = NO;
+    self.freshActivityInSync = NO;
     [self.pendingPassiveRecords removeAllObjects];
     [self.historyBatches removeAllObjects];
     [self.historyRecords removeAllObjects];

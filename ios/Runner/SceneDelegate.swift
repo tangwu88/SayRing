@@ -22,6 +22,9 @@ class SceneDelegate: FlutterSceneDelegate {
     )
     self.window = window
     window.makeKeyAndVisible()
+    // Let Flutter associate the pre-warmed engine and its plugins with this
+    // scene before UIKit sends foreground/active lifecycle callbacks.
+    super.scene(scene, willConnectTo: session, options: connectionOptions)
   }
 
   override func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {

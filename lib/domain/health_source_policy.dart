@@ -1,3 +1,4 @@
+import 'health_record_dedup.dart';
 import 'health_record_validation.dart';
 import 'models.dart';
 
@@ -81,7 +82,11 @@ List<HealthRecord> _collapseCumulative(List<HealthRecord> records) {
       .where((record) => record.deviceId.isEmpty)
       .toList(growable: false);
   final latest = <String, HealthRecord>{};
-  for (final record in records.where((record) => record.deviceId.isNotEmpty)) {
+  // Resolve repeated snapshots before choosing the daily cumulative row;
+  // otherwise an id tie-break can discard a larger total at the same time.
+  for (final record in deduplicateHealthRecords(
+    records,
+  ).where((record) => record.deviceId.isNotEmpty)) {
     if (!cumulative.contains(record.metric)) {
       latest['record:${record.id}'] = record;
       continue;

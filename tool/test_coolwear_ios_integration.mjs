@@ -184,7 +184,7 @@ test('RRI uses the new command and explicit metrics, never ambiguous legacy HRV'
 
 test('passive handshake data is delivered only after the account-owned Dart session is ready', () => {
   assert.match(bridge, /getCapabilities[\s\S]*?\[self enableDataDelivery\]/);
-  assert.match(bridge, /!self.dataDeliveryReady \|\| !\[\[self capabilities\]\[@"historyMetrics"\]/);
+  assert.match(bridge, /!self.dataDeliveryReady \|\| !\[\[self capabilities\]\[@"metrics"\]/);
   const cancel = bridge.slice(bridge.indexOf('- (void)beginCancellation:'), bridge.indexOf('- (void)checkCancellation'));
   assert.match(cancel, /self.dataDeliveryReady = NO/);
   assert.match(cancel, /\[self.pendingPassiveRecords removeAllObjects\]/);
