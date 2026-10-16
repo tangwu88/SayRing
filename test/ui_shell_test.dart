@@ -2401,6 +2401,49 @@ void main() {
   );
 
   testWidgets(
+    'QRing gestures show reported modes and send raw expected state',
+    (tester) async {
+      final bridge = _QRingControlWearable();
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              bridge,
+            )
+            ..connectedDevice = const DeviceInfo(id: 'qring:owned', name: 'R21')
+            ..capabilities = const DeviceCapabilities(
+              metrics: {},
+              features: {DeviceFeature.gestureControl},
+              integratedFeatures: {DeviceFeature.gestureControl},
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DeviceFeaturePage(
+            controller: controller,
+            feature: DeviceFeature.gestureControl,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('gesture-mode-1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('gesture-mode-2')), findsNothing);
+      expect(find.byKey(const ValueKey('gesture-mode-5')), findsNothing);
+      await tester.ensureVisible(find.byKey(const ValueKey('gesture-mode-4')));
+      await tester.tap(find.byKey(const ValueKey('gesture-mode-4')));
+      await tester.pumpAndSettle();
+      expect(bridge.lastWrite, {'mode': 4, 'expectedMode': 2});
+      expect(find.text('手势模式已保存并读回确认'), findsOneWidget);
+      final tile = tester.widget<ListTile>(
+        find.byKey(const ValueKey('gesture-mode-4')),
+      );
+      expect(tile.trailing, isA<Icon>());
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'gesture timeout removes old confirmation and blocks unsafe retry',
     (tester) async {
       final bridge = _TimeoutControlWearable();
@@ -5055,4 +5098,15 @@ class _NotWornBloodPressureWearable extends _NoopWearable {
       message: '未检测到有效佩戴状态，请将戒指贴合手指后重新测量血压',
     );
   }
+}
+
+class _QRingControlWearable extends _ControlTrackingWearable {
+  @override
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async =>
+      {
+        'rawMode': lastWrite == null ? 2 : 5,
+        'confirmedMode': lastWrite == null ? 1 : 4,
+        'availableModes': [0, 1, 4],
+        'readbackVerified': true,
+      };
 }

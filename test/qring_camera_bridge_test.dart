@@ -40,7 +40,7 @@ void main() {
   );
 
   test(
-    'only the mapped QRing camera feature reaches native commands',
+    'mapped QRing controls reach native and unmapped features stay closed',
     () async {
       final calls = <MethodCall>[];
       messenger.setMockMethodCallHandler(methods, (call) async {
@@ -60,7 +60,7 @@ void main() {
         'values': {'enabled': false, 'expectedMode': 5},
       });
       await expectLater(
-        bridge.readDeviceFeature(DeviceFeature.gestureControl),
+        bridge.readDeviceFeature(DeviceFeature.screenDisplay),
         throwsA(isA<PlatformException>()),
       );
       await bridge.triggerDeviceAction(DeviceFeature.camera);

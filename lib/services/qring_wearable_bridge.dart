@@ -294,7 +294,10 @@ class QRingWearableBridge
 
   @override
   Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async {
-    if (feature != DeviceFeature.camera) return _unsupported();
+    if (feature != DeviceFeature.camera &&
+        feature != DeviceFeature.gestureControl) {
+      return _unsupported();
+    }
     final value = await _invoke<Map<Object?, Object?>>('readDeviceFeature', {
       'feature': feature.wireName,
     });
@@ -306,7 +309,24 @@ class QRingWearableBridge
     DeviceFeature feature,
     Map<String, Object?> values,
   ) {
-    if (feature != DeviceFeature.camera) return _unsupported();
+    if (feature != DeviceFeature.camera &&
+        feature != DeviceFeature.gestureControl) {
+      return _unsupported();
+    }
+    if (feature == DeviceFeature.gestureControl &&
+        (values['mode'] is! int ||
+            (values['mode'] as int) < 0 ||
+            (values['mode'] as int) > 5 ||
+            values['expectedMode'] is! int ||
+            (values['expectedMode'] as int) < 0 ||
+            (values['expectedMode'] as int) > 9)) {
+      return Future.error(
+        PlatformException(
+          code: 'INVALID_GESTURE_MODE',
+          message: '请刷新戒指状态后选择有效的手势模式',
+        ),
+      );
+    }
     return _invoke<void>('writeDeviceFeature', {
       'feature': feature.wireName,
       'values': values,

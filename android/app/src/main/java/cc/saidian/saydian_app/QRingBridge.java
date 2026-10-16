@@ -970,6 +970,7 @@ public final class QRingBridge
         }
         features.add("find_watch");
         if (remoteCameraSupported) features.add("camera");
+        if (supportsGesture()) features.add("gesture_control");
         if (supportFlags.supportIntervalHeartRate || supportFlags.supportIntervalBloodOxygen
                 || supportFlags.supportIntervalTemperature || setTimeFlags.supportsPressure()
                 || setTimeFlags.supportsHrv()) {
@@ -1533,6 +1534,111 @@ public final class QRingBridge
         else pending.error(code, message, null);
     }
 
+    private boolean supportsGesture() {
+        return resolved() && (supportFlags.supportGesture
+                || (supportFlags.supportTouch && !supportFlags.supportRt11));
+    }
+
+    private List<Integer> gestureModes(boolean touch) {
+        List<Integer> modes = new ArrayList<>();
+        modes.add(0);
+        boolean[] flags = touch ? new boolean[] {supportFlags.supportRingVideoTouch,
+                supportFlags.supportRingMusicTouch, supportFlags.supportRingEbookTouch,
+                supportFlags.supportRingCameraTouch, supportFlags.supportRingPhoneCallTouch}
+                : new boolean[] {supportFlags.supportRingVideo, supportFlags.supportRingMusic,
+                supportFlags.supportRingEbook, supportFlags.supportRingCamera, supportFlags.supportRingPhoneCall};
+        for (int index = 0; index < flags.length; index++) if (flags[index]) modes.add(index + 1);
+        return modes;
+    }
+
+    private void gestureControl(MethodCall call, boolean write, MethodChannel.Result result) {
+        if (!supportsGesture()) {
+            result.error("QRING_FEATURE_UNVERIFIED", "此戒指未确认支持手势控制", null); return;
+        }
+        boolean touch = !supportFlags.supportGesture;
+        List<Integer> modes = gestureModes(touch);
+        Object raw = call.argument("values");
+        Object mode = raw instanceof Map ? ((Map<?, ?>) raw).get("mode") : null;
+        Object expectedMode = raw instanceof Map ? ((Map<?, ?>) raw).get("expectedMode") : null;
+        if (write && (!(mode instanceof Integer) || !modes.contains(mode)
+                || !(expectedMode instanceof Integer) || (Integer) expectedMode < 0 || (Integer) expectedMode > 9)) {
+            result.error("INVALID_GESTURE_MODE", "请刷新后选择戒指支持的手势模式", null); return;
+        }
+        if (pendingCamera != null || pendingSync != null || activeMeasurement != null || activeSportType != null) {
+            result.error("DEVICE_BUSY", "设备忙，请稍后重试", null); return;
+        }
+        if (cameraPoisonConnection == connectionGeneration) {
+            result.error("QRING_CONTROL_RECONNECT", "手势状态未确认，请重新连接", null); return;
+        }
+        pendingCamera = result;
+        cameraPhase = 0;
+        final int operation = ++cameraOperation, connection = connectionGeneration;
+        final String id = connectedId;
+        final int expected = write ? QRingGesturePolicy.rawMode((Integer) mode) : -1;
+        Runnable fail = () -> {
+            if (!currentCamera(operation, connection, id)) return;
+            cameraPoisonConnection = connection;
+            finishCamera(null, "QRING_CONTROL_UNCONFIRMED", "手势状态未确认，请重新连接");
+        };
+        main.postDelayed(fail, 20_000L);
+        main.postDelayed(() -> {
+            if (!currentCamera(operation, connection, id)) return;
+            CommandHandle.getInstance().executeReqCmd(TouchControlReq.getReadInstance(touch),
+                    (ICommandResponse<TouchControlResp>) response -> main.post(() -> {
+                if (!currentCamera(operation, connection, id) || cameraPhase != 0) return;
+                Map<String, Object> snapshot = cameraSnapshot(response, touch);
+                if (snapshot == null) { fail.run(); return; }
+                if (!write) {
+                    finishGestureAfterSettling(operation, connection, id,
+                            QRingGesturePolicy.snapshot(snapshot, modes)); return;
+                }
+                if (!snapshot.get("mode").equals(expectedMode)) {
+                    finishCamera(null, "QRING_CONTROL_CHANGED", "戒指控制模式已改变，请刷新"); return;
+                }
+                cameraPhase = 1;
+                int strength = touch ? 0 : (Integer) snapshot.get("strength");
+                int duration = touch ? (Integer) snapshot.get("duration") : 0;
+                main.postDelayed(() -> {
+                    if (!currentCamera(operation, connection, id) || cameraPhase != 1) return;
+                    CommandHandle.getInstance().executeReqCmd(
+                            TouchControlReq.getWriteInstance(expected, touch, strength, duration),
+                            (ICommandResponse<TouchControlResp>) ack -> main.postDelayed(() -> {
+                        if (!currentCamera(operation, connection, id) || cameraPhase != 1) return;
+                        if (ack == null || ack.isRead() || ack.getStatus() != BaseRspCmd.RESULT_OK) {
+                            fail.run(); return;
+                        }
+                        cameraPhase = 2;
+                        readGestureBack(operation, connection, id, touch, expected, snapshot, 0, fail);
+                    }, 400L));
+                }, 200L);
+            }));
+        }, 200L);
+    }
+
+    private void finishGestureAfterSettling(int operation, int connection, String id, Object value) {
+        main.postDelayed(() -> {
+            if (currentCamera(operation, connection, id)) finishCamera(value, null, null);
+        }, 200L);
+    }
+
+    private void readGestureBack(int operation, int connection, String id, boolean touch,
+                                 int expected, Map<String, Object> original, int attempt, Runnable fail) {
+        if (!currentCamera(operation, connection, id) || cameraPhase != 2) return;
+        CommandHandle.getInstance().executeReqCmd(TouchControlReq.getReadInstance(touch),
+                (ICommandResponse<TouchControlResp>) response -> main.post(() -> {
+            if (!currentCamera(operation, connection, id) || cameraPhase != 2) return;
+            Map<String, Object> actual = cameraSnapshot(response, touch);
+            if (actual != null && Integer.valueOf(expected).equals(actual.get("mode"))
+                    && (touch ? original.get("duration").equals(actual.get("duration"))
+                              : original.get("strength").equals(actual.get("strength")))) {
+                finishGestureAfterSettling(operation, connection, id, null); return;
+            }
+            if (attempt >= 2) { fail.run(); return; }
+            main.postDelayed(() -> readGestureBack(operation, connection, id, touch,
+                    expected, original, attempt + 1, fail), 400L);
+        }));
+    }
+
     private void cameraControl(MethodCall call, boolean write, MethodChannel.Result result) {
         if (!"camera".equals(call.argument("feature")) || !supportsCamera()) {
             result.error("QRING_FEATURE_UNVERIFIED", "此戒指不支持拍照控制", null); return;
@@ -1660,8 +1766,12 @@ public final class QRingBridge
                     if (!resolved()) result.error("CAPABILITIES_UNAVAILABLE", "请先连接戒指", null);
                     else result.success(capabilities());
                     break;
-                case "readDeviceFeature": cameraControl(call, false, result); break;
-                case "writeDeviceFeature": cameraControl(call, true, result); break;
+                case "readDeviceFeature":
+                case "writeDeviceFeature":
+                    if ("gesture_control".equals(call.argument("feature")))
+                        gestureControl(call, "writeDeviceFeature".equals(call.method), result);
+                    else cameraControl(call, "writeDeviceFeature".equals(call.method), result);
+                    break;
                 case "syncHealthData": startHealthSync(result); break;
                 case "startMeasurement": startMeasurement(call.argument("metric"), result); break;
                 case "stopMeasurement": stopMeasurement(call.argument("metric"), result); break;
