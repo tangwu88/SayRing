@@ -57,12 +57,12 @@ python3 -m unittest discover -s scripts/release -p 'test_*.py'
 # android 目录，JAVA_HOME 为已安装 Java 17
 ./gradlew :app:testDebugUnitTest -Ptarget-platform=android-arm,android-arm64 --offline --max-workers=1 --console=plain
 # 先私有备份容器并独立构建、验签、核对当前目标资格；端口需先检查空闲
-FLUTTER_BIN=flutter node tool/drive_ios_preserving_data.mjs --profile --keep-app-running --no-pub -d "$SAYRING_DEVICE_UDID" --target=integration_test/ios_qring_gesture_test.dart --driver=test_driver/ios_qring_gesture.dart --use-application-binary=.build/SayRing-1.0.1-1097-integration-profile.ipa --host-vmservice-port=53571 --dds-port=53572 --dart-define-from-file=config/ios-app-store-no-push.json
+FLUTTER_BIN=flutter node tool/drive_ios_preserving_data.mjs --profile --keep-app-running --no-pub -d "$SAYRING_DEVICE_UDID" --target=integration_test/ios_qring_gesture_test.dart --driver=test_driver/ios_qring_gesture.dart --use-application-binary=.build/SayRing-1.0.1-1099-integration-profile.ipa --host-vmservice-port=53575 --dds-port=53576 --dart-define-from-file=config/ios-app-store-no-push.json
 ```
 
-构建命令统一 --no-pub、--target=lib/main.dart（集成包则为对应 integration_test 入口）、--build-name=1.0.1、--build-number=1096（集成 1095/1097）、--dart-define-from-file=config/ios-app-store-no-push.json；iOS 分别 flutter build ios --debug / --profile，Android 分别 flutter build apk --debug / --release --target-platform=android-arm,android-arm64，QA Release 显式 SAIDIAN_ALLOW_QA_RELEASE=true。私有覆盖配置指定原开发团队及已接受的 iOS 15 最低目标，无签名配置提交到 Git。
+构建命令统一 --no-pub、--target=lib/main.dart（集成包则为对应 integration_test 入口）、--build-name=1.0.1、--build-number=1100（iOS 正常 main）/1099（集成）/1096（Android QA）、--dart-define-from-file=config/ios-app-store-no-push.json；iOS 分别 flutter build ios --debug / --profile，Android 分别 flutter build apk --debug / --release --target-platform=android-arm,android-arm64，QA Release 显式 SAIDIAN_ALLOW_QA_RELEASE=true。私有覆盖配置指定原开发团队及已接受的 iOS 15 最低目标，无签名配置提交到 Git。
 
-实物动作控制其他 App、触控款/RT11、Android QRing 实机尚未逐项验收；不能用模式保存/回读替代系统配对与实际手势动作。没有上传新商店包、提交审核、发布下载或生成/上传健康 AI 报告。
+R21 音乐手势的实物结果已在文末补充；短视频/阅读的具体动作、触控款/RT11、Android QRing 实机尚未逐项验收。没有上传新商店包、提交审核、发布下载或生成/上传健康 AI 报告。
 
 - 1097 真机增加 enabled 类型断言后失败：iOS NSNumber 将 C 比较结果装箱为 int 1，MethodChannel 传成数字而非布尔。失败发生在初次只读断言，尚未改戒指模式；原始音乐模式仍保留。修正为显式 @YES/@NO，并在 Foundation 用 CFBooleanGetTypeID 核对类型，再构建 1099 真机重测。
 - 1098 main 曾完成 Debug/Profile 构建验签，但发现上述类型问题后不作为最终交付。另补取消/断连后的重试引用释放；最终正常 main 改为 1100，必须在真机回归通过后从最新源码独立重建。
@@ -76,6 +76,7 @@ FLUTTER_BIN=flutter node tool/drive_ios_preserving_data.mjs --profile --keep-app
 - 正常 main 1100 Debug 已原位覆盖安装并附加 Flutter/LLDB；CoreDevice 回读 cn.saydian.ring、1.0.1（1100），安装/启动 25.1 秒、文件同步 94 ms。没有卸载、解绑、清理登录或替换健康数据库。
 - 最终只读 VM：一个 main isolate、一个 AppController、root package:saydian_app/main.dart、Resume；已登录、启动完成、QRing/R21 真实连接/能力 ready，gestureVisible/gestureReady 均 true。睡眠 AI 配置和原活动数据仍可用，通用 AI 与生理指标入口仍关闭。
 - 热重载实际 Reloaded 0 libraries in 302ms；随后没有 Lost connection / 未处理异常。CoreDevice 对正常 main 的截图可正常显示产品首页，进一步区分了集成截图全黑与正常 App 渲染；截图私有保留，不提交用户画面。
-- 用户已收到音乐播放器实物动作确认请求；若尚无反馈，跨 App 实际动作保持待验，不把设置回读代替 HID/系统配对效果。
+- 2026-10-17 用户确认 iPhone 已打开并保持前台，并对 1100 调试版、R21 音乐模式下在音乐播放器操作手势的验证问题回复“能控制”。R21 音乐手势的实际控制场景通过用户实物验收；反馈未分别区分播放/暂停与切歌，不据此扩展为每一种动作或其他模式均已验收。
+- 本次仅补充用户实物验收结果及最终可复现命令；没有修改产品代码、重装设备或重跑构建，沿用前述已验证的 1100 调试版和回归结果。
 
 本轮 Git 交付包含源码、测试、回归清单和本文；不含安装包、签名材料、用户数据、原始 SDK 日志、设备唯一标识或 VM 链接。公开 main 的远端接收回执留在本机忽略目录，最终同步状态另经 fetch 核对。
