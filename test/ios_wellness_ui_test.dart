@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/services/api_client.dart';
@@ -150,6 +149,23 @@ void main() {
     expect(find.text('91 分'), findsOneWidget);
   });
 
+  testWidgets('iOS monitoring settings open with honest disconnected state', (
+    tester,
+  ) async {
+    final controller = _controller();
+    addTearDown(controller.dispose);
+    await _pump(
+      tester,
+      PermissionManagementPage(controller: controller, healthOnly: true),
+    );
+    expect(find.text('健康监测'), findsOneWidget);
+    expect(find.byType(WellnessReleaseUnavailablePage), findsNothing);
+    expect(
+      find.byKey(const ValueKey('device-health-interval-heartRate')),
+      findsNothing,
+    );
+  });
+
   testWidgets('sport history hides physiology and retains activity', (
     tester,
   ) async {
@@ -177,16 +193,11 @@ void main() {
   });
 
   testWidgets(
-    'direct monitoring, alert, AI, calibration and content routes are closed',
+    'alert, unavailable sleep AI, calibration and content routes remain closed',
     (tester) async {
       final controller = _controller();
       addTearDown(controller.dispose);
       final pages = <Widget>[
-        DeviceFeaturePage(
-          controller: controller,
-          feature: DeviceFeature.healthMonitoring,
-        ),
-        PermissionManagementPage(controller: controller, healthOnly: true),
         HealthWarningPage(controller: controller),
         SleepAiReportPage(
           controller: controller,

@@ -26,8 +26,8 @@ test('device names remove control bytes and do not allow blank labels', () => {
 });
 
 test('QRing and LuckRing model markers cannot fall back to an unrelated Harmony SDK', () => {
-  for (const marker of ['R8', 'R21', 'R22', 'R7', 'K80', 'HR01', 'HR05']) {
-    for (const name of [marker, `yc-${marker.toLowerCase()}-123`, `V-${marker}`, `D-${marker}`]) {
+  for (const marker of ['R1', 'R12', 'R18', 'R20', 'R7C', 'R99', 'R8', 'R21', 'R22', 'R7', 'K80', 'HR01', 'HR05']) {
+    for (const name of (['R1', 'R12', 'R18', 'R20', 'R99'].includes(marker) ? [marker] : [marker, `yc-${marker.toLowerCase()}-123`, `V-${marker}`, `D-${marker}`])) {
       assert.equal(wearableProviderForName(name), '', name);
     }
   }

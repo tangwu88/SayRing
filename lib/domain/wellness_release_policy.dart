@@ -32,7 +32,6 @@ class WellnessReleasePolicy {
   bool allowsFeature(DeviceFeature feature) =>
       !enabled ||
       !const {
-        DeviceFeature.healthMonitoring,
         DeviceFeature.healthAssessment,
         DeviceFeature.healthReminders,
       }.contains(feature);

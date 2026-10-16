@@ -69,6 +69,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 @property(nonatomic, assign) BOOL remoteCameraSupported;
 @property(nonatomic, assign) BOOL remoteCameraActive;
 @property(nonatomic, assign) NSUInteger remoteCameraEpoch;
+@property(nonatomic) NSUInteger monitoringPoisonGeneration;
 @end
 
 @implementation QRingWearableBridge
@@ -996,7 +997,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
     NSMutableDictionary *values = [NSMutableDictionary dictionary];
     __weak typeof(self) weakSelf = self;
-    [QCSDKCmdCreator getSchedualHeartRateStatusWithSuccess:^(BOOL enabled) {
+    [QCSDKCmdCreator getSchedualHeartRateInfoWithSuccess:^(BOOL enabled, __unused NSInteger interval, __unused NSInteger minimum, __unused NSInteger low, __unused NSInteger high) {
         values[@"heartRate"] = @(enabled);
         [QCSDKCmdCreator getSchedualBOInfoSuccess:^(BOOL oxygen) {
             if ([weakSelf feature:QCBandFeatureBloodOxygen]) { values[@"bloodOxygen"] = @(oxygen); }
@@ -1011,9 +1012,95 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     } fail:^{ result(values); }];
 }
 
+// The SDK documents minutes and a device-reported minimum. Never guess an
+// interval from historical sample spacing. The newer `interval:` overload
+// serializes a zero minimum/reserved byte (and its short form zeroes tips).
+// The documented `timeInterval:` selector writes only enable/interval; verify
+// a fresh complete response so firmware constraints and tips remain intact.
+- (void)monitoringInterval:(NSNumber *)minutes type:(NSString *)type enabled:(NSNumber *)desiredEnabled result:(FlutterResult)result {
+    if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
+    if (self.monitoringPoisonGeneration == self.connectionGeneration) { result([self error:@"QRING_SETTING_UNCONFIRMED" message:@"请重新连接后读取监测设置"]); return; }
+    if ((minutes || desiredEnabled) && (![type isEqualToString:@"heartRate"] || (minutes && (![minutes isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)minutes) == CFBooleanGetTypeID() ||
+        minutes.doubleValue != minutes.integerValue || minutes.integerValue < 1 || minutes.integerValue > 255)))) {
+        result([self error:@"UNSUPPORTED" message:@"此监测间隔未获戒指确认"]); return;
+    }
+    NSUInteger connection = self.connectionGeneration;
+    __weak typeof(self) weakSelf = self;
+    __block BOOL done = NO;
+    __block void (^readback)(NSInteger) = nil;
+    void (^finish)(id) = ^(id value) {
+        if (NSThread.isMainThread) {
+            if (done) return;
+            done = YES;
+            readback = nil;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ result(value); });
+        } else {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (done) return;
+                done = YES;
+                readback = nil;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ result(value); });
+            });
+        }
+    };
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (!done && [weakSelf isCurrentConnection:connection]) weakSelf.monitoringPoisonGeneration = connection;
+        finish([weakSelf error:@"QRING_SETTING_TIMEOUT" message:@"监测设置未确认，请重连后刷新"]);
+    });
+    [QCSDKCmdCreator getSchedualHeartRateInfoWithSuccess:^(BOOL enabled, NSInteger interval, NSInteger minimum, NSInteger low, NSInteger high) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            if (done) return;
+            if (![weakSelf isCurrentConnection:connection]) { finish([weakSelf error:@"QRING_SESSION_CHANGED" message:@"戒指连接已改变"]); return; }
+            if (minimum < 1 || minimum > 255 || interval < minimum || interval > 255) {
+                finish((minutes || desiredEnabled) ? [weakSelf error:@"UNSUPPORTED" message:@"戒指未返回有效监测间隔"] : @{}); return;
+            }
+            if (!minutes && !desiredEnabled) {
+                finish(@{@"heartRate": @{@"minutes": @(interval), @"stepMinutes": @1,
+                    @"minMinutes": @(minimum), @"maxMinutes": @255, @"canModify": @YES}}); return;
+            }
+            if ((minutes && !enabled) || (minutes && minutes.integerValue < minimum)) {
+                finish([weakSelf error:@"UNSUPPORTED" message:@"请先开启监测并选择戒指允许的间隔"]); return;
+            }
+            BOOL expectedEnabled = desiredEnabled ? desiredEnabled.boolValue : enabled;
+            NSInteger expectedInterval = minutes ? minutes.integerValue : interval;
+            [QCSDKCmdCreator setSchedualHeartRateStatus:expectedEnabled timeInterval:expectedInterval success:^ {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (done) return;
+                    if (![weakSelf isCurrentConnection:connection]) { finish([weakSelf error:@"QRING_SESSION_CHANGED" message:@"戒指连接已改变"]); return; }
+                    // This SDK also accepts a delayed write ACK as a read
+                    // response, yielding its default all-zero fields. Let the
+                    // prior command retire, then require a real complete read.
+                    readback = ^(NSInteger retries) {
+                        if (done || ![weakSelf isCurrentConnection:connection]) return;
+                        [QCSDKCmdCreator getSchedualHeartRateInfoWithSuccess:^(BOOL confirmed, NSInteger saved, NSInteger savedMinimum, NSInteger savedLow, NSInteger savedHigh) {
+                            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+                                if (done) return;
+                                if (![weakSelf isCurrentConnection:connection]) { finish([weakSelf error:@"QRING_SESSION_CHANGED" message:@"戒指连接已改变"]); return; }
+                                BOOL matches = confirmed == expectedEnabled && saved == expectedInterval && savedMinimum == minimum && savedLow == low && savedHigh == high;
+                                if (!matches && retries > 0) {
+                                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 400 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ if (!done && readback) readback(retries - 1); });
+                                    return;
+                                }
+                                if (matches) { finish(nil); }
+                                else finish([FlutterError errorWithCode:@"READBACK_MISMATCH" message:@"戒指返回的监测配置与设置不一致，请刷新后重试" details:@{
+                                    @"before": @{@"enabled": @(enabled), @"minutes": @(interval), @"minimum": @(minimum), @"lowTip": @(low), @"highTip": @(high)},
+                                    @"expected": @{@"enabled": @(expectedEnabled), @"minutes": @(expectedInterval)},
+                                    @"actual": @{@"enabled": @(confirmed), @"minutes": @(saved), @"minimum": @(savedMinimum), @"lowTip": @(savedLow), @"highTip": @(savedHigh)}
+                                }]);
+                            });
+                        } fail:^{ finish([weakSelf error:@"QRING_SETTING_FAILED" message:@"监测设置读回失败"]); }];
+                    };
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 400 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ if (!done && readback) readback(2); });
+                });
+            } fail:^{ finish([weakSelf error:@"QRING_SETTING_FAILED" message:@"监测间隔写入失败"]); }];
+        });
+    } fail:^{ finish((minutes || desiredEnabled) ? [weakSelf error:@"QRING_SETTING_FAILED" message:@"监测间隔读取失败"] : @{}); }];
+}
+
 - (void)setAutoSetting:(NSString *)type enabled:(BOOL)enabled result:(FlutterResult)result {
     if ([type isEqualToString:@"heartRate"]) {
-        [QCSDKCmdCreator setSchedualHeartRateStatus:enabled success:^(__unused BOOL state) { result(nil); } fail:^{ result([self error:@"QRING_SETTING_FAILED" message:@"自动心率设置失败"]); }];
+        [self monitoringInterval:nil type:type enabled:@(enabled) result:result];
     } else if ([type isEqualToString:@"bloodOxygen"] && [self feature:QCBandFeatureBloodOxygen]) {
         [QCSDKCmdCreator setSchedualBOInfoOn:enabled success:^(__unused BOOL state) { result(nil); } fail:^{ result([self error:@"QRING_SETTING_FAILED" message:@"自动血氧设置失败"]); }];
     } else if ([type isEqualToString:@"stress"] && [self feature:QCBandFeatureStress]) {
@@ -1297,7 +1384,11 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     if ([call.method isEqualToString:@"triggerDeviceAction"] && [arguments[@"feature"] isEqualToString:@"camera"] && [arguments[@"enabled"] isEqual:@NO]) {
         [self stopRemoteCamera:result]; return;
     }
-    NSSet *commands = [NSSet setWithArray:@[@"syncHealthData", @"startMeasurement", @"startSport", @"readSportRecords", @"readAutoMeasureSettings", @"setAutoMeasureSetting", @"triggerDeviceAction", @"readDeviceFeature", @"writeDeviceFeature"]];
+    if (self.monitoringPoisonGeneration == self.connectionGeneration &&
+        [@[@"readAutoMeasureSettings", @"setAutoMeasureSetting", @"readAutoMeasureIntervals", @"setAutoMeasureInterval"] containsObject:call.method]) {
+        result([self error:@"QRING_SETTING_UNCONFIRMED" message:@"请重新连接后读取监测设置"]); return;
+    }
+    NSSet *commands = [NSSet setWithArray:@[@"syncHealthData", @"startMeasurement", @"startSport", @"readSportRecords", @"readAutoMeasureSettings", @"setAutoMeasureSetting", @"readAutoMeasureIntervals", @"setAutoMeasureInterval", @"triggerDeviceAction", @"readDeviceFeature", @"writeDeviceFeature"]];
     if ((self.pendingCamera || self.remoteCameraActive) && [commands containsObject:call.method]) {
         result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return;
     }
@@ -1327,6 +1418,8 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     else if ([call.method isEqualToString:@"startSport"]) { [self startSport:arguments[@"mode"] result:result]; }
     else if ([call.method isEqualToString:@"stopSport"]) { [self stopSport:result]; }
     else if ([call.method isEqualToString:@"readSportRecords"]) { [self readSportRecords:result]; }
+    else if ([call.method isEqualToString:@"readAutoMeasureIntervals"]) { [self monitoringInterval:nil type:nil enabled:nil result:result]; }
+    else if ([call.method isEqualToString:@"setAutoMeasureInterval"]) { [self monitoringInterval:arguments[@"minutes"] type:arguments[@"type"] enabled:nil result:result]; }
     else if ([call.method isEqualToString:@"readAutoMeasureSettings"]) { [self readAutoSettings:result]; }
     else if ([call.method isEqualToString:@"setAutoMeasureSetting"]) { [self setAutoSetting:arguments[@"type"] enabled:[arguments[@"enabled"] boolValue] result:result]; }
     else if ([call.method isEqualToString:@"triggerDeviceAction"] && [arguments[@"feature"] isEqualToString:@"camera"]) {

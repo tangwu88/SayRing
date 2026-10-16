@@ -227,35 +227,40 @@ void main() {
     },
   );
 
-  test('direct measurement and health settings never call SDK', () async {
-    final fixture = await setup(connect: true);
-    fixture.ring.calls.clear();
-    expect(
-      await fixture.controller.startMeasurement(HealthMetric.heartRate),
-      isFalse,
-    );
-    await fixture.controller.refreshDeviceSettings();
-    await expectLater(
-      fixture.controller.setAutoMeasureSetting('heartRate', true),
-      throwsA(isA<FeatureNotConfiguredException>()),
-    );
-    await expectLater(
-      fixture.controller.setHeartRateWarning(130),
-      throwsA(isA<FeatureNotConfiguredException>()),
-    );
-    expect(
-      await fixture.controller.readDeviceFeature(
-        DeviceFeature.healthMonitoring,
-      ),
-      isEmpty,
-    );
-    expect(fixture.controller.visibleDeviceFeatures, isEmpty);
-    expect(
-      fixture.controller.canMeasureHealthMetric(HealthMetric.heartRate),
-      isFalse,
-    );
-    expect(fixture.ring.calls, isEmpty);
-  });
+  test(
+    'manual measurement remains blocked while monitoring settings read SDK',
+    () async {
+      final fixture = await setup(connect: true);
+      fixture.ring.calls.clear();
+      expect(
+        await fixture.controller.startMeasurement(HealthMetric.heartRate),
+        isFalse,
+      );
+      await fixture.controller.refreshDeviceSettings();
+      expect(fixture.ring.calls, contains('readMonitoring'));
+      fixture.controller.autoMeasureSettings = {'heartRate': false};
+      await fixture.controller.setAutoMeasureSetting('heartRate', true);
+      await expectLater(
+        fixture.controller.setHeartRateWarning(130),
+        throwsA(isA<FeatureNotConfiguredException>()),
+      );
+      expect(
+        await fixture.controller.readDeviceFeature(
+          DeviceFeature.healthMonitoring,
+        ),
+        isEmpty,
+      );
+      expect(
+        fixture.controller.visibleDeviceFeatures,
+        contains(DeviceFeature.healthMonitoring),
+      );
+      expect(
+        fixture.controller.canMeasureHealthMetric(HealthMetric.heartRate),
+        isFalse,
+      );
+      expect(fixture.ring.calls, isNot(contains('measure')));
+    },
+  );
 
   test('warning notification route is consumed without opening it', () async {
     final fixture = await setup();

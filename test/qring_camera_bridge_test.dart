@@ -13,6 +13,33 @@ void main() {
   tearDown(() => messenger.setMockMethodCallHandler(methods, null));
 
   test(
+    'QRing interval adapter keeps firmware minimum distinct from increments',
+    () async {
+      final calls = <MethodCall>[];
+      messenger.setMockMethodCallHandler(methods, (call) async {
+        calls.add(call);
+        if (call.method == 'readAutoMeasureIntervals') {
+          return {
+            'heartRate': {
+              'minutes': 45,
+              'stepMinutes': 1,
+              'minMinutes': 20,
+              'maxMinutes': 255,
+              'canModify': true,
+            },
+          };
+        }
+        return null;
+      });
+      final bridge = QRingWearableBridge(methods: methods);
+      final setting = (await bridge.readAutoMeasureIntervals())['heartRate']!;
+      expect(setting.choices, [20, 30, 45, 60, 120]);
+      await bridge.setAutoMeasureInterval('heartRate', 60);
+      expect(calls.last.arguments, {'type': 'heartRate', 'minutes': 60});
+    },
+  );
+
+  test(
     'only the mapped QRing camera feature reaches native commands',
     () async {
       final calls = <MethodCall>[];

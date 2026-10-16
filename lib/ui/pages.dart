@@ -39,7 +39,6 @@ import 'pages/content.dart';
 import 'pages/notifications.dart';
 import 'media_url.dart';
 import 'widgets/inline_notice.dart';
-import 'wellness_release.dart';
 
 export 'pages/content.dart';
 export 'pages/notifications.dart';

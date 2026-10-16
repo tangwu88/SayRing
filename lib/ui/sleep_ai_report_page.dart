@@ -137,7 +137,7 @@ class _SleepAiReportCardState extends State<SleepAiReportCard>
   }
 
   @override
-  Widget build(BuildContext context) => widget.controller.isWellnessOnly
+  Widget build(BuildContext context) => !widget.controller.sleepAiEnabled
       ? const SizedBox.shrink()
       : ListTile(
           key: const Key('sleep-ai-report-entry'),
@@ -474,7 +474,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
 
   @override
   Widget build(BuildContext context) {
-    if (widget.controller.isWellnessOnly) {
+    if (!widget.controller.sleepAiEnabled) {
       return const WellnessReleaseUnavailablePage();
     }
     if (_closed) return const Scaffold(body: SizedBox.shrink());

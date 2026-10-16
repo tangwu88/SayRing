@@ -21,11 +21,17 @@ enum WearableTransport { veepoo, yucheng, moyoung, coolwear, qring }
 class WearableDeviceClassifier {
   const WearableDeviceClassifier._();
 
+  static bool _explicitQRing(String name) =>
+      name.startsWith('R1') || name.startsWith('R2') || name.contains('R7C');
+
   // The product owner confirmed these CoolWear/LuckRing model names. A name
   // only chooses a candidate transport; the native handshake still gates it.
   static String? coolwearModelForName(String name) {
     final normalized = name.trim().toUpperCase();
-    if (const ['R8', 'R21', 'R22'].any(normalized.contains)) return null;
+    if (_explicitQRing(normalized) ||
+        const ['R8', 'R21', 'R22'].any(normalized.contains)) {
+      return null;
+    }
     if (normalized.contains('HR01')) return 'HR01';
     if (normalized.contains('HR05')) return 'HR05';
     if (normalized.contains('R7ULTRA')) return 'R7Ultra';
@@ -38,6 +44,8 @@ class WearableDeviceClassifier {
 
   static WearableTransport? transportFor(String name) {
     final normalized = name.trim().toUpperCase();
+    // Explicit prefix rules override inherited substring matches (R7C/R7).
+    if (_explicitQRing(normalized)) return WearableTransport.qring;
     final qring = const ['R8', 'R21', 'R22'].any(normalized.contains);
     final luckring = const [
       'R7',
@@ -50,6 +58,7 @@ class WearableDeviceClassifier {
     if (qring && luckring) return null;
     if (qring) return WearableTransport.qring;
     if (luckring) return WearableTransport.coolwear;
+    if (normalized.startsWith('R')) return WearableTransport.qring;
     if (normalized.startsWith('YC')) return WearableTransport.yucheng;
     if (normalized.startsWith('Q_') ||
         normalized.startsWith('O_') ||

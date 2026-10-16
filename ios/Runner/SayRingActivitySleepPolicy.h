@@ -15,12 +15,11 @@ static inline BOOL SRActivitySleepFeatureAllowed(id feature) {
         [@[@"find_watch", @"camera", @"gesture_control", @"call_reminder",
            @"notifications", @"phone_calls", @"contacts", @"alarms", @"weather",
            @"world_clock", @"screen_display", @"watch_faces", @"photo_watch_face",
-           @"firmware_upgrade", @"units"] containsObject:feature];
+           @"firmware_upgrade", @"units", @"health_monitoring"] containsObject:feature];
 }
 
 static inline BOOL SRActivitySleepCommandAllowed(NSString *method, NSDictionary *arguments) {
-    if ([@[@"startMeasurement", @"stopMeasurement", @"readAutoMeasureSettings",
-           @"setAutoMeasureSetting", @"readAutoMeasureIntervals", @"setAutoMeasureInterval",
+    if ([@[@"startMeasurement", @"stopMeasurement",
            @"readHeartRateWarning", @"setHeartRateWarning", @"calibrateBloodPressure",
            @"calibrateBloodGlucose", @"readHealthAssessment", @"writeHealthAssessment"] containsObject:method]) return NO;
     if ([@[@"readDeviceFeature", @"writeDeviceFeature", @"triggerDeviceAction"] containsObject:method])
@@ -29,7 +28,8 @@ static inline BOOL SRActivitySleepCommandAllowed(NSString *method, NSDictionary 
         @"getCapabilities", @"syncHealthData", @"startSport", @"stopSport", @"readSportRecords",
         @"configureRecoveryTarget", @"prepareRememberedDevice", @"lookupBondedDevice",
         @"listBondedDevices", @"getWatchFaceProfile", @"getNativeWatchFaceCatalog",
-        @"downloadNativeWatchFace", @"saveGalleryImage"] containsObject:method];
+        @"downloadNativeWatchFace", @"saveGalleryImage", @"readAutoMeasureSettings",
+        @"setAutoMeasureSetting", @"readAutoMeasureIntervals", @"setAutoMeasureInterval"] containsObject:method];
 }
 
 static inline NSArray *SRActivitySleepFilterNames(id source, BOOL features) {

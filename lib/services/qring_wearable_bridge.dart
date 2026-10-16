@@ -13,6 +13,7 @@ class QRingWearableBridge
     implements
         WearableBridge,
         WearableDeviceDetailsBridge,
+        WearableAutoMeasureIntervalBridge,
         WearableBoundDeviceLookupBridge,
         WearableBondedDeviceSelectionBridge,
         WearableRememberedDeviceSelectionBridge,
@@ -56,6 +57,8 @@ class QRingWearableBridge
       'startSport',
       'stopSport',
       'readSportRecords',
+      'readAutoMeasureIntervals',
+      'setAutoMeasureInterval',
       'readAutoMeasureSettings',
       'setAutoMeasureSetting',
       'triggerDeviceAction',
@@ -257,6 +260,28 @@ class QRingWearableBridge
       _invoke<void>('setAutoMeasureSetting', {
         'type': type,
         'enabled': enabled,
+      });
+
+  @override
+  Future<Map<String, AutoMeasureIntervalSetting>>
+  readAutoMeasureIntervals() async {
+    final values =
+        await _invoke<Map<Object?, Object?>>('readAutoMeasureIntervals') ??
+        const {};
+    return {
+      for (final entry in values.entries)
+        if (entry.value is Map)
+          '${entry.key}': AutoMeasureIntervalSetting.fromMap(
+            entry.value as Map<Object?, Object?>,
+          ),
+    };
+  }
+
+  @override
+  Future<void> setAutoMeasureInterval(String type, int minutes) =>
+      _invoke<void>('setAutoMeasureInterval', {
+        'type': type,
+        'minutes': minutes,
       });
 
   @override

@@ -7,7 +7,7 @@ import 'package:intl/intl.dart';
 import '../domain/models.dart';
 import '../domain/sleep_timeline.dart';
 import '../services/app_controller.dart';
-import '../services/health_analysis.dart';
+import '../services/sleep_health_projection.dart';
 import 'app_theme.dart';
 import 'health_trend_page.dart' show SleepStructureCard;
 import 'health_ui_owner.dart';
@@ -109,8 +109,7 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
   }
 
   DateTime _recordDate(HealthRecord record) =>
-      DateTime.tryParse(record.sleepTimeline?.sdkDate ?? '') ??
-      DateUtils.dateOnly(HealthAnalysisService.displayTime(record));
+      DateTime.parse(sleepRecordSdkDate(record));
 
   Future<void> _load() async {
     final request = ++_request;
@@ -190,6 +189,31 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
         children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _chooseLatest ? '最近一次睡眠' : '按日期查看',
+                  key: const Key('sleep-selection-mode'),
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              if (!_chooseLatest)
+                TextButton.icon(
+                  key: const Key('sleep-latest-day'),
+                  onPressed: () {
+                    setState(() {
+                      _chooseLatest = true;
+                      _loading = true;
+                      _records = const [];
+                    });
+                    unawaited(_load());
+                  },
+                  icon: const Icon(Icons.history_rounded, size: 18),
+                  label: const Text('最近一次'),
+                ),
+            ],
+          ),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(12),
@@ -261,6 +285,20 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const Row(
+                        children: [
+                          Icon(
+                            Icons.bedtime_rounded,
+                            color: SaydianColors.techIndigo,
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            '睡眠时长',
+                            style: TextStyle(color: SaydianColors.muted),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
                       const Text(
                         '总睡眠',
                         style: TextStyle(
@@ -297,14 +335,14 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
                       : '此记录只有睡眠汇总，无法反推具体时间段。连接戒指并同步后可补充设备仍保留的明细。',
                   icon: Icons.schedule_outlined,
                 ),
+              _SleepStageDistribution(record: record),
               SleepStructureCard(record: record, controller: widget.controller),
             ],
           ],
           const SizedBox(height: 12),
           _SleepNotice(
-            message: widget.controller.isWellnessOnly
-                ? '睡眠时长和阶段为戒指估算，仅供日常作息参考。时间明细仅保存在本机。'
-                : '时间明细仅保存在本机。阶段和设备评分来自戒指，未返回项目保持未知。AI 报告需另行确认上传汇总，AI 评分与设备评分分开。数据仅供日常健康参考。',
+            message:
+                '睡眠时长和阶段为戒指估算，仅供日常作息参考。时间明细仅保存在本机；AI 报告需另行确认上传睡眠汇总，未返回项目保持未知。',
             icon: Icons.lock_outline_rounded,
           ),
           const SizedBox(height: 12),
@@ -315,6 +353,90 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
             label: const Text('查看睡眠趋势与记录'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SleepStageDistribution extends StatelessWidget {
+  const _SleepStageDistribution({required this.record});
+  final HealthRecord record;
+
+  @override
+  Widget build(BuildContext context) {
+    final values = record.values;
+    final stages = <(SleepStage, double)>[
+      if (values['deepHours'] != null)
+        (SleepStage.deep, values['deepHours']!.toDouble() * 60),
+      if (values['lightHours'] != null)
+        (SleepStage.light, values['lightHours']!.toDouble() * 60),
+      if (values['remHours'] != null)
+        (SleepStage.rem, values['remHours']!.toDouble() * 60),
+      if (values['awakeMinutes'] != null)
+        (SleepStage.awake, values['awakeMinutes']!.toDouble()),
+    ].where((stage) => stage.$2.isFinite && stage.$2 > 0).toList();
+    final total = stages.fold<double>(0, (sum, stage) => sum + stage.$2);
+    if (total <= 0) return const SizedBox.shrink();
+    return Card(
+      key: const Key('sleep-stage-distribution'),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '睡眠阶段分布',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 16),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Row(
+                children: [
+                  for (final stage in stages)
+                    Expanded(
+                      flex: math.max(1, (stage.$2 / total * 10000).round()),
+                      child: Semantics(
+                        label:
+                            '${_stageLabel(stage.$1)} ${sleepMinutesLabel(stage.$2)}',
+                        child: SizedBox(
+                          height: 18,
+                          child: ColoredBox(color: _stageColor(stage.$1)),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 20,
+              runSpacing: 12,
+              children: [
+                for (final stage in stages)
+                  Text.rich(
+                    TextSpan(
+                      children: [
+                        TextSpan(
+                          text: '● ',
+                          style: TextStyle(color: _stageColor(stage.$1)),
+                        ),
+                        TextSpan(
+                          text:
+                              '${_stageLabel(stage.$1)} ${(stage.$2 / total * 100).round()}%',
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              '比例按戒指实际返回的阶段时长计算，未返回阶段不补齐。',
+              style: TextStyle(fontSize: 12, color: SaydianColors.muted),
+            ),
+          ],
+        ),
       ),
     );
   }

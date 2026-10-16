@@ -925,7 +925,7 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
     WidgetsBinding.instance.addObserver(this);
     if (widget.healthOnly) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !widget.controller.isWellnessOnly) {
+        if (mounted) {
           unawaited(widget.controller.refreshDeviceSettings());
         }
       });
@@ -991,9 +991,6 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
 
   @override
   Widget build(BuildContext context) {
-    if (widget.healthOnly && widget.controller.isWellnessOnly) {
-      return const WellnessReleaseUnavailablePage();
-    }
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.healthOnly ? '健康监测' : '权限管理'),
@@ -1143,7 +1140,9 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
                 if (interval.canModify)
                   DropdownButton<int>(
                     key: ValueKey('device-health-interval-$type'),
-                    value: interval.minutes > 0 ? interval.minutes : null,
+                    value: interval.choices.contains(interval.minutes)
+                        ? interval.minutes
+                        : null,
                     hint: Text(context.l10n.choose),
                     items: [
                       for (final minutes in interval.choices)
@@ -1153,7 +1152,10 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
                         ),
                     ],
                     onChanged:
-                        !enabled || widget.controller.isDeviceSettingsLoading
+                        !enabled ||
+                            widget.controller.connectedDevice == null ||
+                            widget.controller.isDeviceSettingsLoading ||
+                            widget.controller.isDeviceSettingsWriting
                         ? null
                         : (minutes) {
                             if (minutes != null) {
@@ -1283,8 +1285,14 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
               ? null
               : controller.refreshDeviceSettings,
         )
-      else
+      else ...[
         Card(child: Column(children: tiles)),
+        const SizedBox(height: 12),
+        const Text(
+          '监测频率越高，耗电越快。仅显示戒指实际支持的项目；未提供间隔的项目由固件管理，当前无法调整。',
+          style: TextStyle(color: SaydianColors.muted, fontSize: 12),
+        ),
+      ],
     ];
   }
 

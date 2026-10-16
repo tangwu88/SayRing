@@ -6,6 +6,7 @@
 static inline NSString *CoolWearModel(NSString *name) {
     if (![name isKindOfClass:NSString.class]) return nil;
     NSString *value = [[name stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] uppercaseString];
+    if ([value hasPrefix:@"R1"] || [value hasPrefix:@"R2"] || [value containsString:@"R7C"]) return nil;
     if ([value containsString:@"R8"] || [value containsString:@"R21"] || [value containsString:@"R22"]) return nil;
     if ([value containsString:@"HR01"]) return @"HR01";
     if ([value containsString:@"HR05"]) return @"HR05";

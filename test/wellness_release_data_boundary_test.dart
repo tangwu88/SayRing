@@ -73,7 +73,7 @@ void main() {
       }
       expect(policy.allowsWireMetric('future_medical_measurement'), isFalse);
       expect(policy.allowsWireMetric('temperature'), isFalse);
-      expect(policy.allowsFeature(DeviceFeature.healthMonitoring), isFalse);
+      expect(policy.allowsFeature(DeviceFeature.healthMonitoring), isTrue);
       expect(policy.allowsFeature(DeviceFeature.healthAssessment), isFalse);
       expect(policy.allowsFeature(DeviceFeature.camera), isTrue);
       expect(policy.allowsFeature(DeviceFeature.gestureControl), isTrue);

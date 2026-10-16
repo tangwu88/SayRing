@@ -47,7 +47,6 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   bool get _availableInRelease =>
       !widget.controller.isWellnessOnly ||
       !const {
-        DeviceFeature.healthMonitoring,
         DeviceFeature.healthAssessment,
         DeviceFeature.healthReminders,
       }.contains(widget.feature);

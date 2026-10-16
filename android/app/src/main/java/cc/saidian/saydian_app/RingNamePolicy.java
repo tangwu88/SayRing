@@ -14,6 +14,10 @@ final class RingNamePolicy {
         return name.contains("R8") || name.contains("R21") || name.contains("R22");
     }
 
+    private static boolean explicitQRing(String name) {
+        return name.startsWith("R1") || name.startsWith("R2") || name.contains("R7C");
+    }
+
     private static boolean hasLuckRingMarker(String name) {
         return name.contains("R7") || name.contains("K80")
                 || name.contains("HR01") || name.contains("HR05");
@@ -21,14 +25,15 @@ final class RingNamePolicy {
 
     static boolean isQRingName(String name) {
         String normalized = normalize(name);
+        if (explicitQRing(normalized)) return true;
         if (hasLuckRingMarker(normalized)) return false;
         return hasQRingMarker(normalized) || normalized.startsWith("Q_")
-                || normalized.startsWith("O_") || normalized.startsWith("R2");
+                || normalized.startsWith("O_") || normalized.startsWith("R");
     }
 
     static String luckRingModel(String name) {
         String normalized = normalize(name);
-        if (hasQRingMarker(normalized)) return null;
+        if (explicitQRing(normalized) || hasQRingMarker(normalized)) return null;
         if (normalized.contains("HR01")) return "HR01";
         if (normalized.contains("HR05")) return "HR05";
         if (normalized.contains("R7ULTRA")) return "R7Ultra";

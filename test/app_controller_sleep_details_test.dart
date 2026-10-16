@@ -233,6 +233,49 @@ void main() {
   );
 
   test(
+    'monitoring interval readback mismatch never reports saved and unsupported choices never write',
+    () async {
+      final fixture = await setup(connect: true);
+      fixture.controller.autoMeasureSettings = fixture.ring.settings;
+      fixture.controller.autoMeasureIntervals = fixture.ring.intervals;
+      fixture.ring.ignoreInterval = true;
+      await fixture.controller.setAutoMeasureInterval('heartRate', 60);
+      expect(fixture.controller.autoMeasureIntervals['heartRate']!.minutes, 30);
+      expect(fixture.controller.deviceSettingsStatus, contains('未确认'));
+      await fixture.controller.setAutoMeasureInterval('heartRate', 5);
+      expect(fixture.ring.intervalCalls, 1);
+      fixture.ring.ignoreInterval = false;
+      await fixture.controller.setAutoMeasureInterval('heartRate', 60);
+      expect(fixture.controller.autoMeasureIntervals['heartRate']!.minutes, 60);
+      expect(fixture.controller.deviceSettingsStatus, contains('读回确认'));
+    },
+  );
+
+  test(
+    'interval writes serialize and cannot publish into a new account',
+    () async {
+      final fixture = await setup(connect: true);
+      fixture.controller.autoMeasureSettings = fixture.ring.settings;
+      fixture.controller.autoMeasureIntervals = fixture.ring.intervals;
+      final pending = Completer<void>();
+      fixture.ring.nextInterval = pending.future;
+      final write = fixture.controller.setAutoMeasureInterval('heartRate', 60);
+      await fixture.controller.setAutoMeasureInterval('heartRate', 120);
+      await fixture.controller.refreshDeviceSettings();
+      expect(fixture.controller.isDeviceSettingsLoading, isFalse);
+      expect(fixture.ring.intervalCalls, 1);
+      expect(
+        await fixture.controller.login('owner-b', 'fixture-password'),
+        isTrue,
+      );
+      pending.complete();
+      await write;
+      expect(fixture.controller.autoMeasureIntervals, isEmpty);
+      expect(fixture.controller.isDeviceSettingsWriting, isFalse);
+    },
+  );
+
+  test(
     'monitoring write cannot finish into another account and duplicate clicks are ignored',
     () async {
       final fixture = await setup(connect: true);
@@ -380,7 +423,8 @@ class _Api extends Fake implements SaydianApi {
       );
 }
 
-class _Wearable extends Fake implements WearableBridge {
+class _Wearable extends Fake
+    implements WearableBridge, WearableAutoMeasureIntervalBridge {
   final emitter = StreamController<WearableEvent>.broadcast();
   Future<List<HealthRecord>>? nextSync;
   DeviceCapabilities capabilities = const DeviceCapabilities(
@@ -389,6 +433,41 @@ class _Wearable extends Fake implements WearableBridge {
   int syncCalls = 0;
   Future<void>? nextSetting;
   int settingCalls = 0;
+  int intervalCalls = 0;
+  bool ignoreInterval = false;
+  Future<void>? nextInterval;
+  Map<String, bool> settings = {'heartRate': true};
+  Map<String, AutoMeasureIntervalSetting> intervals = {
+    'heartRate': const AutoMeasureIntervalSetting(
+      minutes: 30,
+      stepMinutes: 1,
+      minMinutes: 10,
+      maxMinutes: 255,
+      canModify: true,
+    ),
+  };
+  @override
+  Future<Map<String, bool>> readAutoMeasureSettings() async => settings;
+  @override
+  Future<Map<String, AutoMeasureIntervalSetting>>
+  readAutoMeasureIntervals() async => intervals;
+  @override
+  Future<void> setAutoMeasureInterval(String type, int minutes) async {
+    intervalCalls++;
+    await nextInterval;
+    if (!ignoreInterval) {
+      intervals = {
+        type: AutoMeasureIntervalSetting(
+          minutes: minutes,
+          stepMinutes: 1,
+          minMinutes: 10,
+          maxMinutes: 255,
+          canModify: true,
+        ),
+      };
+    }
+  }
+
   @override
   Future<void> setAutoMeasureSetting(String type, bool enabled) {
     settingCalls++;

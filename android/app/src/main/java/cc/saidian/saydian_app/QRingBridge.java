@@ -116,6 +116,7 @@ public final class QRingBridge
     private Boolean autoStress;
     private Boolean autoHrv;
     private int connectionGeneration;
+    private int monitoringPoisonGeneration = -1;
     private String batteryUpdatedAt;
     private long batteryQueryAt;
     private String recoveryTargetId;
@@ -1424,20 +1425,67 @@ public final class QRingBridge
         return value;
     }
 
+    // The short SDK write changes only enable/interval, preserving alarm tips.
+    // Read firmware constraints immediately before writing; never use defaults.
+    private void monitoringInterval(String type, Integer minutes, Boolean enabled, MethodChannel.Result result) {
+        if (!resolved() || (minutes != null && (!"heartRate".equals(type) || minutes < 1 || minutes > 255))) {
+            result.error("QRING_FEATURE_UNVERIFIED", "此监测间隔暂不支持", null); return;
+        }
+        final int generation = connectionGeneration;
+        final String id = connectedId;
+        final boolean[] done = {false};
+        MethodChannel.Result once = new MethodChannel.Result() {
+            public void success(Object value) { if (!done[0]) { done[0] = true; result.success(value); } }
+            public void error(String code, String message, Object detail) { if (!done[0]) { done[0] = true; result.error(code, message, detail); } }
+            public void notImplemented() { if (!done[0]) { done[0] = true; result.notImplemented(); } }
+        };
+        main.postDelayed(() -> {
+            if (!done[0] && isCurrentConnection(generation, id)) monitoringPoisonGeneration = generation;
+            once.error("QRING_SETTING_TIMEOUT", "监测设置未确认，请重连后刷新", null);
+        }, 15000);
+        CommandHandle.getInstance().executeReqCmd(HeartRateSettingReq.getReadInstance(),
+            (ICommandResponse<HeartRateSettingRsp>) heart -> main.post(() -> {
+                if (done[0]) return;
+                if (!isCurrentConnection(generation, id)) { once.error("QRING_SESSION_CHANGED", "戒指连接已改变", null); return; }
+                if (heart == null || heart.getStatus() != BaseRspCmd.RESULT_OK
+                        || heart.getStartInterval() < 1 || heart.getStartInterval() > 255
+                        || heart.getHeartInterval() < heart.getStartInterval() || heart.getHeartInterval() > 255) {
+                    if (minutes == null && enabled == null) once.success(new HashMap<>());
+                    else once.error("UNSUPPORTED", "戒指未返回有效监测间隔", null);
+                    return;
+                }
+                if (minutes == null && enabled == null) {
+                    Map<String, Object> setting = new HashMap<>();
+                    setting.put("minutes", heart.getHeartInterval());
+                    setting.put("stepMinutes", 1);
+                    setting.put("minMinutes", heart.getStartInterval());
+                    setting.put("maxMinutes", 255);
+                    setting.put("canModify", true);
+                    Map<String, Object> value = new HashMap<>(); value.put("heartRate", setting);
+                    once.success(value); return;
+                }
+                int requested = minutes == null ? heart.getHeartInterval() : minutes;
+                if (requested < heart.getStartInterval() || (minutes != null && !heart.isEnable())) {
+                    once.error("UNSUPPORTED", "请先开启监测并选择戒指允许的间隔", null); return;
+                }
+                boolean requestedEnabled = enabled == null ? heart.isEnable() : enabled;
+                CommandHandle.getInstance().executeReqCmd(HeartRateSettingReq.getWriteInstance(requestedEnabled, requested),
+                    (ICommandResponse<HeartRateSettingRsp>) response -> main.post(() -> {
+                        if (done[0]) return;
+                        if (!isCurrentConnection(generation, id)) { once.error("QRING_SESSION_CHANGED", "戒指连接已改变", null); return; }
+                        if (response != null && response.getStatus() == BaseRspCmd.RESULT_OK) once.success(null);
+                        else once.error("QRING_SETTING_FAILED", "监测设置写入失败", null);
+                    }));
+            }));
+    }
+
     private void setAutoSetting(String type, Boolean enabled, MethodChannel.Result result) {
         if (!resolved() || enabled == null) {
             result.error("QRING_FEATURE_UNVERIFIED", "此自动检测项目暂不支持", null);
             return;
         }
         if ("heartRate".equals(type) && supportsMetric("heart_rate", false)) {
-            CommandHandle.getInstance().executeReqCmd(
-                    HeartRateSettingReq.getWriteInstance(enabled, 10, 10, 40, 110),
-                    (ICommandResponse<HeartRateSettingRsp>) response -> main.post(() -> {
-                        if (response != null && response.getStatus() == BaseRspCmd.RESULT_OK) {
-                            autoHeart = enabled;
-                            result.success(null);
-                        } else result.error("QRING_SETTING_FAILED", "自动心率设置失败", null);
-                    }));
+            monitoringInterval(type, null, enabled, result);
         } else if ("bloodOxygen".equals(type) && supportsMetric("blood_oxygen", false)) {
             CommandHandle.getInstance().executeReqCmd(
                     BloodOxygenSettingReq.getWriteInstance(enabled),
@@ -1569,13 +1617,18 @@ public final class QRingBridge
 
     @Override public void onMethodCall(MethodCall call, MethodChannel.Result result) {
         try {
+            if (monitoringPoisonGeneration == connectionGeneration &&
+                    ("readAutoMeasureSettings".equals(call.method) || "setAutoMeasureSetting".equals(call.method)
+                    || "readAutoMeasureIntervals".equals(call.method) || "setAutoMeasureInterval".equals(call.method))) {
+                result.error("QRING_SETTING_UNCONFIRMED", "请重新连接后读取监测设置", null); return;
+            }
             boolean stoppingCamera = "triggerDeviceAction".equals(call.method)
                     && "camera".equals(call.argument("feature")) && Boolean.FALSE.equals(call.argument("enabled"));
             if (stoppingCamera) { stopRemoteCamera(result); return; }
             if ((pendingCamera != null || remoteCameraActive) && ("syncHealthData".equals(call.method)
                     || "startMeasurement".equals(call.method) || "startSport".equals(call.method)
                     || "readSportRecords".equals(call.method) || "readAutoMeasureSettings".equals(call.method)
-                    || "setAutoMeasureSetting".equals(call.method) || "triggerDeviceAction".equals(call.method)
+                    || "setAutoMeasureSetting".equals(call.method) || "readAutoMeasureIntervals".equals(call.method) || "setAutoMeasureInterval".equals(call.method) || "triggerDeviceAction".equals(call.method)
                     || "readDeviceFeature".equals(call.method) || "writeDeviceFeature".equals(call.method))) {
                 result.error("DEVICE_BUSY", "设备忙，请稍后重试", null); return;
             }
@@ -1615,6 +1668,14 @@ public final class QRingBridge
                 case "startSport": startSport(call.argument("mode"), result); break;
                 case "stopSport": stopSport(result); break;
                 case "readSportRecords": readSportRecords(result); break;
+                case "readAutoMeasureIntervals": monitoringInterval(null, null, null, result); break;
+                case "setAutoMeasureInterval": {
+                    Object raw = call.argument("minutes");
+                    if (!(raw instanceof Number) || ((Number)raw).doubleValue() != ((Number)raw).intValue()) {
+                        result.error("UNSUPPORTED", "无效监测间隔", null); break;
+                    }
+                    monitoringInterval(call.argument("type"), ((Number)raw).intValue(), null, result); break;
+                }
                 case "readAutoMeasureSettings": readAutoSettings(result); break;
                 case "setAutoMeasureSetting":
                     setAutoSetting(call.argument("type"), call.argument("enabled"), result);

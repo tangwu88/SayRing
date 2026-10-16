@@ -62,7 +62,7 @@ int main(void) {
             @"r7": @"R7", @"R7y": @"R7Y", @"r7pro_001": @"R7Pro", @"HR01-legacy": @"HR01",
             @"R7_AA:BB:CC:DD:EE:FF": @"R7"};
         for (NSString *name in names) NSCAssert([CoolWearModel(name) isEqualToString:names[name]], @"confirmed name rejected");
-        for (NSString *name in @[@"", @"R8", @"R21", @"Q_Ring", @"R7-R8", @"K80-R21", @"HR05-R22"])
+        for (NSString *name in @[@"R7C", @"R7C-K80", @"SD-RING-R7C", @"YC-R7C", @"R12", @"R18", @"R20", @"R21-K80", @"R99", @"", @"R8", @"R21", @"Q_Ring", @"R7-R8", @"K80-R21", @"HR05-R22"])
             NSCAssert(CoolWearModel(name) == nil, @"unconfirmed candidate accepted");
         for (NSString *name in @[@"K800", @"K80Pro", @"R70", @"R7Y2", @"R7Pro2", @"R7Protein", @"HR05-unknown", @"Q_R7", @"YC_R7", @"SD-RING-R7Ultra"])
             NSCAssert(CoolWearModel(name) != nil, @"approved substring rejected");

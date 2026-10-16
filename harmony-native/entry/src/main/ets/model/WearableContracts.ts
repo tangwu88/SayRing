@@ -231,7 +231,7 @@ export function wearableProviderForName(value: string): WearableProvider | '' {
     value.replace(/[\u0000-\u001f\u007f]/g, '').trim().toUpperCase() : '';
   // QRing/LuckRing SDKs are not integrated on HarmonyOS. Do not let an
   // inherited YC/V/D prefix misroute a user-confirmed ring to another SDK.
-  if (['R8', 'R21', 'R22', 'R7', 'K80', 'HR01', 'HR05']
+  if (normalized.startsWith('R') || ['R8', 'R21', 'R22', 'R7', 'K80', 'HR01', 'HR05']
     .some((marker: string) => normalized.includes(marker))) return '';
   if (normalized.startsWith('YC')) return 'Yuc';
   if (normalized.startsWith('TK') || normalized.startsWith('V')) return 'Vep';

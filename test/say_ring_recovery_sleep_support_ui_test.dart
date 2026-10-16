@@ -98,6 +98,7 @@ class _UiController extends Fake implements AppController {
   final sleepRanges = <({DateTime start, DateTime end})>[];
   Completer<List<HealthRecord>>? pendingLoad;
   Future<Map<String, Object?>> support = Future.value({'configured': false});
+  Completer<HealthRecord?>? pendingLatest;
   int latestReads = 0;
   int reconnects = 0;
   @override
@@ -141,6 +142,7 @@ class _UiController extends Fake implements AppController {
   @override
   Future<HealthRecord?> loadLatestSleepDay() async {
     latestReads++;
+    if (pendingLatest != null) return pendingLatest!.future;
     if (stored.isEmpty) return null;
     return (List<HealthRecord>.of(
       stored,
@@ -552,7 +554,7 @@ void main() {
       controller.changed();
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
-      expect(find.text('7小时30分'), findsNWidgets(2));
+      expect(find.text('7小时30分'), findsWidgets);
       await tester.scrollUntilVisible(find.textContaining('此记录只有睡眠汇总'), 250);
       expect(find.text('此记录只有睡眠汇总，无法反推具体时间段。当前戒指的睡眠同步暂未开放。'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -582,6 +584,31 @@ void main() {
       expect(find.text('本机睡眠缓存读取失败，请稍后重试'), findsOneWidget);
       expect(find.text('没有可显示的本机睡眠记录'), findsOneWidget);
       expect(find.textContaining('重新连接戒指并同步'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'manual date wins a late initial latest read and latest shortcut restores recent day',
+    (tester) async {
+      final pending = Completer<HealthRecord?>();
+      final controller = _UiController()
+        ..stored = [_record(timeline: _timeline())]
+        ..pendingLatest = pending;
+      await _pump(tester, SleepOverviewPage(controller: controller));
+      await tester.tap(find.byKey(const Key('sleep-previous-day')));
+      await tester.pumpAndSettle();
+      final selected = controller.sleepRanges.last.start;
+      pending.complete(controller.stored.first);
+      await tester.pumpAndSettle();
+      expect(find.text('按日期查看'), findsOneWidget);
+      expect(controller.sleepRanges.last.start, selected);
+      expect(find.text('2026年10月1日'), findsNothing);
+      controller.pendingLatest = null;
+      await tester.tap(find.byKey(const Key('sleep-latest-day')));
+      await tester.pumpAndSettle();
+      expect(find.text('最近一次睡眠'), findsOneWidget);
+      expect(find.text('2026年10月1日'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

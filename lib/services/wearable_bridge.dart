@@ -182,28 +182,39 @@ class AutoMeasureIntervalSetting {
     required this.minutes,
     required this.stepMinutes,
     required this.canModify,
+    this.minMinutes = 1,
+    this.maxMinutes = 1440,
   });
 
+  final int minMinutes;
+  final int maxMinutes;
   final int minutes;
   final int stepMinutes;
   final bool canModify;
 
-  factory AutoMeasureIntervalSetting.fromMap(Map<Object?, Object?> value) =>
-      AutoMeasureIntervalSetting(
-        minutes: ((value['minutes'] as num?)?.toInt() ?? 0).clamp(0, 1440),
-        stepMinutes: ((value['stepMinutes'] as num?)?.toInt() ?? 1).clamp(
-          1,
-          1440,
-        ),
-        canModify: value['canModify'] == true,
-      );
+  factory AutoMeasureIntervalSetting.fromMap(
+    Map<Object?, Object?> value,
+  ) => AutoMeasureIntervalSetting(
+    minutes: ((value['minutes'] as num?)?.toInt() ?? 0).clamp(0, 1440),
+    stepMinutes: ((value['stepMinutes'] as num?)?.toInt() ?? 1).clamp(1, 1440),
+    canModify: value['canModify'] == true,
+    minMinutes: ((value['minMinutes'] as num?)?.toInt() ?? 1).clamp(1, 1440),
+    maxMinutes: ((value['maxMinutes'] as num?)?.toInt() ?? 1440).clamp(1, 1440),
+  );
 
   List<int> get choices {
     final values = <int>{minutes};
     for (final value in const [5, 10, 15, 20, 30, 60, 120]) {
       if (value >= stepMinutes && value % stepMinutes == 0) values.add(value);
     }
-    final ordered = values.where((value) => value > 0).toList()..sort();
+    final ordered =
+        values
+            .where(
+              (value) =>
+                  value > 0 && value >= minMinutes && value <= maxMinutes,
+            )
+            .toList()
+          ..sort();
     return ordered;
   }
 }

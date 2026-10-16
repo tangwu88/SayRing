@@ -192,8 +192,7 @@ class AppController extends ChangeNotifier {
 
   bool _hideAi = true;
   bool _sleepAiEnabled = false;
-  bool get sleepAiEnabled =>
-      !isWellnessOnly && isAuthenticated && !isLocalMode && _sleepAiEnabled;
+  bool get sleepAiEnabled => isAuthenticated && !isLocalMode && _sleepAiEnabled;
   int _aiDisplayGeneration = 0;
   bool _appDisplayCacheLoaded = false;
   Future<void>? _appDisplayRefresh;
@@ -3745,6 +3744,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> refreshDeviceSettings() {
+    if (isDeviceSettingsWriting) return Future<void>.value();
     final activeRefresh = _deviceSettingsRefresh;
     if (activeRefresh != null) return activeRefresh;
 
@@ -3761,7 +3761,6 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _refreshDeviceSettings() async {
-    if (isWellnessOnly) return;
     final settingsGeneration = _deviceSettingsGeneration;
     await Future<void>.delayed(Duration.zero);
     if (_disposed || settingsGeneration != _deviceSettingsGeneration) return;
@@ -3814,7 +3813,9 @@ class AppController extends ChangeNotifier {
         autoMeasureIntervals = const {};
       }
       try {
-        final warning = await _wearable.readHeartRateWarning();
+        final warning = isWellnessOnly
+            ? null
+            : await _wearable.readHeartRateWarning();
         if (!isCurrent()) return;
         heartRateWarningSupported = warning != null;
         if (warning != null && warning > 0) {
@@ -3852,8 +3853,7 @@ class AppController extends ChangeNotifier {
     'WEARABLE_ERROR',
   }.contains(error.code);
 
-  Future<void> setAutoMeasureSetting(String type, bool enabled) async {
-    _requireFullHealthRelease();
+  Future<void> _writeMonitoringSetting(Future<void> Function() write) async {
     final deviceId = connectedDevice?.id;
     if (deviceId == null) {
       errorMessage = '请先连接戒指';
@@ -3867,21 +3867,25 @@ class AppController extends ChangeNotifier {
     }
     final generation = _sessionGeneration;
     final settingsGeneration = _deviceSettingsGeneration;
-    bool isCurrent() =>
+    bool current() =>
         !_disposed &&
+        !_accountTransitioning &&
         generation == _sessionGeneration &&
         settingsGeneration == _deviceSettingsGeneration &&
         connectedDevice?.id == deviceId;
     isDeviceSettingsWriting = true;
+    errorMessage = null;
+    deviceSettingsStatus = '正在写入并确认戒指设置';
     notifyListeners();
     try {
-      await _wearable.setAutoMeasureSetting(type, enabled);
-      if (!isCurrent()) return;
-      autoMeasureSettings = {...autoMeasureSettings, type: enabled};
-      deviceSettingsStatus = '设置已写入戒指';
-    } on PlatformException catch (error) {
-      if (!isCurrent()) return;
-      errorMessage = _wearableErrorMessage(error, fallback: '写入戒指设置失败');
+      await write();
+      if (current()) deviceSettingsStatus = '设置已由戒指读回确认';
+    } catch (error) {
+      if (!current()) return;
+      deviceSettingsStatus = '设置未确认，请从戒指刷新后重试';
+      errorMessage = error is PlatformException
+          ? _wearableErrorMessage(error, fallback: '写入戒指设置失败')
+          : '设置未确认，请从戒指刷新后重试';
     } finally {
       if (settingsGeneration == _deviceSettingsGeneration) {
         isDeviceSettingsWriting = false;
@@ -3890,38 +3894,69 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  Future<void> setAutoMeasureSetting(String type, bool enabled) async {
+    final deviceId = connectedDevice?.id;
+    final generation = _deviceSettingsGeneration;
+    await _writeMonitoringSetting(() async {
+      if (!autoMeasureSettings.containsKey(type)) {
+        throw PlatformException(code: 'UNSUPPORTED', message: '请先读取戒指支持的监测项目');
+      }
+      await _wearable.setAutoMeasureSetting(type, enabled);
+      if (generation != _deviceSettingsGeneration ||
+          connectedDevice?.id != deviceId) {
+        return;
+      }
+      final actual = await _wearable.readAutoMeasureSettings();
+      if (generation != _deviceSettingsGeneration ||
+          connectedDevice?.id != deviceId) {
+        return;
+      }
+      autoMeasureSettings = actual;
+      if (actual[type] != enabled) {
+        throw PlatformException(
+          code: 'READBACK_MISMATCH',
+          message: '戒指返回的开关与设置不一致，请刷新后重试',
+        );
+      }
+    });
+  }
+
   Future<void> setAutoMeasureInterval(String type, int minutes) async {
-    _requireFullHealthRelease();
-    if (connectedDevice == null) {
-      errorMessage = '请先连接戒指';
-      notifyListeners();
-      return;
-    }
-    final bridge = _wearable;
-    if (bridge is! WearableAutoMeasureIntervalBridge) {
-      errorMessage = '当前戒指不支持调整监测间隔';
-      notifyListeners();
-      return;
-    }
-    try {
+    final deviceId = connectedDevice?.id;
+    final generation = _deviceSettingsGeneration;
+    await _writeMonitoringSetting(() async {
+      final bridge = _wearable;
+      final setting = autoMeasureIntervals[type];
+      if (bridge is! WearableAutoMeasureIntervalBridge ||
+          setting == null ||
+          !setting.canModify ||
+          !setting.choices.contains(minutes) ||
+          autoMeasureSettings[type] != true) {
+        throw PlatformException(
+          code: 'UNSUPPORTED',
+          message: '当前戒指不支持此监测间隔，请刷新设置',
+        );
+      }
       await (bridge as WearableAutoMeasureIntervalBridge)
           .setAutoMeasureInterval(type, minutes);
-      final current = autoMeasureIntervals[type];
-      if (current != null) {
-        autoMeasureIntervals = {
-          ...autoMeasureIntervals,
-          type: AutoMeasureIntervalSetting(
-            minutes: minutes,
-            stepMinutes: current.stepMinutes,
-            canModify: current.canModify,
-          ),
-        };
+      if (generation != _deviceSettingsGeneration ||
+          connectedDevice?.id != deviceId) {
+        return;
       }
-      deviceSettingsStatus = '监测间隔已写入戒指';
-    } on PlatformException catch (error) {
-      errorMessage = _wearableErrorMessage(error, fallback: '监测间隔设置失败');
-    }
-    notifyListeners();
+      final actual = await (bridge as WearableAutoMeasureIntervalBridge)
+          .readAutoMeasureIntervals();
+      if (generation != _deviceSettingsGeneration ||
+          connectedDevice?.id != deviceId) {
+        return;
+      }
+      autoMeasureIntervals = actual;
+      if (actual[type]?.minutes != minutes) {
+        throw PlatformException(
+          code: 'READBACK_MISMATCH',
+          message: '戒指返回的监测间隔与设置不一致，请刷新后重试',
+        );
+      }
+    });
   }
 
   Future<void> _cancelPendingWearableRestore() async {

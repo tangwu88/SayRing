@@ -47,7 +47,7 @@ HealthReportSummary _report(
 
 class _Controller extends Fake implements AppController {
   @override
-  bool get isWellnessOnly => false;
+  bool get isWellnessOnly => true;
   final listeners = <VoidCallback>[];
   Session? owner = _session('synthetic-a');
   bool enabled = true;

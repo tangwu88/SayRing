@@ -23,7 +23,7 @@ class CoolWearNamePolicyTest {
 
     @Test
     fun `QRing model markers never enter the LuckRing SDK`() {
-        for (name in listOf("R8", "device-R21", "YC-R22", "R7-R8", "K80-R21", "HR05-R22")) {
+        for (name in listOf("R7C", "R7C_HR01", "SD-RING-R7C", "YC-R7C", "R12", "R18", "R20", "R21-K80", "R99", "R8", "device-R21", "YC-R22", "R7-R8", "K80-R21", "HR05-R22")) {
             assertNull(name, CoolWearRingBridge.supportedModel(name))
         }
         assertNull(CoolWearRingBridge.supportedModel("unknown"))

@@ -6,13 +6,13 @@ int main(void) {
     @autoreleasepool {
         NSArray<NSString *> *accepted = @[
             @"R8", @" device-r8-123 ", @"YC-R21-123", @"V-R22-123",
-            @"Q_Ring", @"O_Ring", @"R2", @"r210", @"R22_C493_extra"
+            @"Q_Ring", @"O_Ring", @"R2", @"r210", @"R22_C493_extra", @"R1", @"R3", @"SD-RING-R7C", @"YC-R7C", @"R12", @"R18", @"R20", @"R7C", @"R7C-K80", @"R99", @"R2-HR05", @"R21-K80"
         ];
         NSArray<NSString *> *rejected = @[
             @"R7", @"K80", @"HR01", @"HR05", @"SD-RING-R7Ultra",
-            @"Q_R7", @"O_K80", @"Q_HR01", @"R2-HR05",
+            @"Q_R7", @"O_K80", @"Q_HR01",
             @"R8-R7", @"YC-R21-K80", @"Q_R22-HR05",
-            @"unknown-R 8", @"Q Ring", @"Oura Ring", @"R1", @"R3", @""
+            @"unknown-R 8", @"Q Ring", @"Oura Ring", @""
         ];
         for (NSString *name in accepted) assert(QRingIsSupportedName(name));
         for (NSString *name in rejected) assert(!QRingIsSupportedName(name));

@@ -129,8 +129,14 @@ void main() {
         WearableTransport.qring,
       );
     }
-    expect(WearableDeviceClassifier.transportFor('R1'), isNull);
-    expect(WearableDeviceClassifier.transportFor('R3'), isNull);
+    expect(
+      WearableDeviceClassifier.transportFor('R1'),
+      WearableTransport.qring,
+    );
+    expect(
+      WearableDeviceClassifier.transportFor('R3'),
+      WearableTransport.qring,
+    );
     expect(WearableDeviceClassifier.transportFor('Q Ring'), isNull);
     expect(WearableDeviceClassifier.transportFor('Oura Ring'), isNull);
     for (final name in [
@@ -145,7 +151,10 @@ void main() {
       );
     }
     expect(WearableDeviceClassifier.transportFor('W8'), isNull);
-    expect(WearableDeviceClassifier.transportFor('Ring'), isNull);
+    expect(
+      WearableDeviceClassifier.transportFor('Ring'),
+      WearableTransport.qring,
+    );
     expect(WearableDeviceClassifier.transportFor(''), isNull);
     expect(
       WearableDeviceClassifier.transportForScopedId(' yucheng:A1-B2 '),
@@ -165,6 +174,55 @@ void main() {
       isNull,
     );
   });
+
+  test(
+    'explicit QRing prefixes override LuckRing and unmatched R names fall back',
+    () {
+      for (final name in [
+        'R12',
+        'R18',
+        'R20',
+        'R21',
+        'R22',
+        ' r7c ',
+        'R7C_123',
+        'SD-RING-R7C',
+        'YC-R7C',
+        'R21-K80',
+        'R12-HR01',
+        'R7C-HR05',
+        'R30',
+        'R99',
+        'Ring',
+      ]) {
+        expect(
+          WearableDeviceClassifier.transportFor(name),
+          WearableTransport.qring,
+          reason: name,
+        );
+        expect(
+          WearableDeviceClassifier.coolwearModelForName(name),
+          isNull,
+          reason: name,
+        );
+      }
+      for (final name in [
+        'R7',
+        'R7Ultra',
+        'SD-RING-R7 Ultra',
+        'R7Pro',
+        'K80',
+        'HR01',
+        'HR05',
+      ]) {
+        expect(
+          WearableDeviceClassifier.transportFor(name),
+          WearableTransport.coolwear,
+          reason: name,
+        );
+      }
+    },
+  );
 
   test('user-confirmed model markers match anywhere before SDK prefixes', () {
     for (final marker in ['R8', 'R21', 'R22']) {
@@ -456,7 +514,7 @@ void main() {
         WearableTransport.coolwear,
       );
     }
-    for (final name in ['Ring', '', 'R8-R7', 'R21-K80', 'HR01-R22']) {
+    for (final name in ['', 'R8-R7', 'YC-R21-K80', 'HR01-R22']) {
       expect(WearableDeviceClassifier.coolwearModelForName(name), isNull);
       expect(
         WearableDeviceClassifier.transportFor(name),

@@ -8,15 +8,15 @@ int main(void) { @autoreleasepool {
         check(!SRActivitySleepMetricAllowed(metric));
     for (NSString *metric in @[@"steps", @"distance", @"calories", @"sleep"]) check(SRActivitySleepMetricAllowed(metric));
     check(!SRActivitySleepMetricAllowed(NSNull.null));
-    for (NSString *command in @[@"startMeasurement", @"stopMeasurement", @"readAutoMeasureSettings", @"setAutoMeasureSetting", @"readAutoMeasureIntervals", @"readHeartRateWarning", @"setHeartRateWarning", @"calibrateBloodPressure", @"calibrateBloodGlucose", @"unknownCommand"])
+    for (NSString *command in @[@"startMeasurement", @"stopMeasurement", @"readHeartRateWarning", @"setHeartRateWarning", @"calibrateBloodPressure", @"calibrateBloodGlucose", @"unknownCommand"])
         check(!SRActivitySleepCommandAllowed(command, @{}));
     for (NSString *command in @[@"readDeviceFeature", @"writeDeviceFeature", @"triggerDeviceAction"]) {
-        for (NSString *feature in @[@"health_monitoring", @"health_assessment", @"health_reminders", @"blood_pressure_calibration", @"blood_glucose_calibration", @"new_health_feature"])
+        for (NSString *feature in @[@"health_assessment", @"health_reminders", @"blood_pressure_calibration", @"blood_glucose_calibration", @"new_health_feature"])
             check(!SRActivitySleepCommandAllowed(command, @{@"feature": feature}));
-        for (NSString *feature in @[@"camera", @"gesture_control", @"find_watch", @"call_reminder"])
+        for (NSString *feature in @[@"camera", @"gesture_control", @"find_watch", @"call_reminder", @"health_monitoring"])
             check(SRActivitySleepCommandAllowed(command, @{@"feature": feature}));
     }
-    for (NSString *command in @[@"scanDevices", @"connect", @"disconnect", @"configureRecoveryTarget", @"prepareRememberedDevice", @"syncHealthData", @"getDeviceDetails", @"stopSport", @"saveGalleryImage"])
+    for (NSString *command in @[@"scanDevices", @"connect", @"disconnect", @"configureRecoveryTarget", @"prepareRememberedDevice", @"syncHealthData", @"getDeviceDetails", @"stopSport", @"saveGalleryImage", @"readAutoMeasureSettings", @"setAutoMeasureSetting", @"readAutoMeasureIntervals", @"setAutoMeasureInterval"])
         check(SRActivitySleepCommandAllowed(command, @{}));
 
     NSDictionary *caps = @{@"resolved": @YES, @"metrics": @[@"steps", @"sleep", @"hrv"], @"historyMetrics": @[@"sleep", @"blood_oxygen"], @"manualMetrics": @[@"heart_rate"], @"features": @[@"camera", @"health_monitoring"], @"integratedFeatures": @[@"health_assessment", @"find_watch"], @"sportModes": @[@"walking"]};
@@ -24,7 +24,7 @@ int main(void) { @autoreleasepool {
     check([filtered[@"metrics"] isEqual:@[@"steps", @"sleep"]]);
     check([filtered[@"historyMetrics"] isEqual:@[@"sleep"]]);
     check([filtered[@"manualMetrics"] count] == 0);
-    check([filtered[@"features"] isEqual:@[@"camera"]]);
+    check([filtered[@"features"] isEqual:@[@"camera", @"health_monitoring"]]);
     check([filtered[@"integratedFeatures"] isEqual:@[@"find_watch"]]);
     check([filtered[@"sportModes"] isEqual:caps[@"sportModes"]]);
     check([SRActivitySleepEvent(@"capabilitiesUpdated", caps) isEqual:filtered]);
