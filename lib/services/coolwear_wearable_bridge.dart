@@ -298,10 +298,13 @@ class CoolWearWearableBridge
         feature != DeviceFeature.healthReminders) {
       return _unsupported();
     }
-    return _invoke<void>('writeDeviceFeature', {
-      'feature': feature.wireName,
-      'values': values,
-    });
+    return _invoke<void>(
+      'writeDeviceFeature',
+      {'feature': feature.wireName, 'values': values},
+      feature == DeviceFeature.gestureControl
+          ? const Duration(seconds: 50)
+          : const Duration(seconds: 30),
+    );
   }
 
   @override

@@ -139,7 +139,7 @@ void main() {
           ),
         ),
       );
-      await tester.ensureVisible(find.textContaining('先完成系统蓝牙配对'));
+      await tester.ensureVisible(find.textContaining('如出现系统配对请求'));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     },

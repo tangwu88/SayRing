@@ -3,6 +3,10 @@ package cc.saidian.saydian_app;
 import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothAdapter;
+import android.content.BroadcastReceiver;
+import android.content.IntentFilter;
 import android.bluetooth.le.ScanResult;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -84,6 +88,8 @@ public final class CoolWearRingBridge
     private MethodChannel.Result pendingReminders;
     private MethodChannel.Result pendingGesture;
     private Runnable gestureDeadline;
+    private BroadcastReceiver gestureBondReceiver;
+    private boolean gestureBondReceiverRegistered;
     private final CoolWearGestureState gesture = new CoolWearGestureState();
     private Runnable remindersDeadline;
     private Runnable scanDeadline;
@@ -369,6 +375,27 @@ public final class CoolWearRingBridge
             boolean fresh = !scanned.containsKey(id);
             scanned.put(id, value);
             if (fresh) emit("scanDevice", value);
+        }
+    }
+
+    private void receiveBondedDevices() {
+        if (pendingScan == null || !hasBlePermissions()) return;
+        BluetoothManager manager = (BluetoothManager)
+                activity.getSystemService(Context.BLUETOOTH_SERVICE);
+        if (manager == null || manager.getAdapter() == null) return;
+        try {
+            for (BluetoothDevice device : manager.getAdapter().getBondedDevices()) {
+                Map<String, Object> candidate = CoolWearBondedDiscovery.candidate(
+                        device.getAddress(), device.getName(),
+                        device.getBondState() == BluetoothDevice.BOND_BONDED);
+                if (candidate == null) continue;
+                String id = (String) candidate.get("id");
+                if (scanned.containsKey(id)) continue;
+                scanned.put(id, candidate);
+                emit("scanDevice", candidate);
+            }
+        } catch (SecurityException error) {
+            Log.w(TAG, "System bonded-device discovery permission unavailable");
         }
     }
 
@@ -920,6 +947,11 @@ public final class CoolWearRingBridge
     private void finishGesture(String code, String message) {
         if (gestureDeadline != null) main.removeCallbacks(gestureDeadline);
         gestureDeadline = null;
+        if (gestureBondReceiver != null) {
+            if (gestureBondReceiverRegistered) activity.unregisterReceiver(gestureBondReceiver);
+            gestureBondReceiverRegistered = false;
+            gestureBondReceiver = null;
+        }
         MethodChannel.Result result = pendingGesture;
         pendingGesture = null;
         if (result != null) {
@@ -949,6 +981,28 @@ public final class CoolWearRingBridge
             result.error("INVALID_GESTURE_MODE", "请选择有效的手势模式", null);
             return;
         }
+        // The supplied SDK Guide section 29 and createHid demo require OS HID
+        // bonding as well as mode 1. Use the public platform API, not a saved
+        // SDK-wide address or automatic acceptance of a pairing prompt.
+        final BluetoothDevice target;
+        final boolean needsBond;
+        try {
+            if (!hasBlePermissions() || !BluetoothAdapter.checkBluetoothAddress(connectedId)) {
+                result.error("GESTURE_PAIRING_UNAVAILABLE", "请允许蓝牙权限并重新连接戒指", null);
+                return;
+            }
+            BluetoothManager manager = (BluetoothManager)
+                    activity.getSystemService(Context.BLUETOOTH_SERVICE);
+            if (manager == null || manager.getAdapter() == null) {
+                result.error("GESTURE_PAIRING_UNAVAILABLE", "系统蓝牙不可用", null);
+                return;
+            }
+            target = manager.getAdapter().getRemoteDevice(connectedId);
+            needsBond = mode > 0 && target.getBondState() != BluetoothDevice.BOND_BONDED;
+        } catch (SecurityException | IllegalArgumentException error) {
+            result.error("GESTURE_PAIRING_UNAVAILABLE", "无法核实当前戒指的系统配对状态", null);
+            return;
+        }
         if (gesture.requiresReconnect()) {
             result.error("GESTURE_RECONNECT_REQUIRED", "重新连接后再设置手势", null);
             return;
@@ -956,20 +1010,66 @@ public final class CoolWearRingBridge
         if (pendingConnect != null || pendingScan != null || pendingHealthSync != null ||
                 pendingSportSync != null || pendingAutoSettings != null || pendingReminders != null ||
                 activeMeasurement != null || activeSportMode != null ||
-                !gesture.begin(mode, android.os.SystemClock.elapsedRealtime())) {
+                !gesture.begin(mode, android.os.SystemClock.elapsedRealtime(), needsBond)) {
             result.error("OPERATION_BUSY", "请等待当前设备操作完成", null);
             return;
         }
         pendingGesture = result;
         gestureDeadline = () -> {
             gesture.fail();
-            finishGesture("GESTURE_CONFIRMATION_TIMEOUT", "戒指未确认，重新连接后重试");
+            finishGesture("GESTURE_CONFIRMATION_TIMEOUT",
+                    needsBond ? "配对或模式未确认，请完成系统配对后重新连接重试"
+                            : "戒指未确认，重新连接后重试");
         };
-        main.postDelayed(gestureDeadline, CoolWearGestureState.TIMEOUT_MS);
+        main.postDelayed(gestureDeadline, needsBond ? CoolWearGestureState.PAIRING_TIMEOUT_MS
+                : CoolWearGestureState.TIMEOUT_MS);
         try {
+            if (needsBond) {
+                final long generation = gesture.generation();
+                gestureBondReceiver = new BroadcastReceiver() {
+                    @Override public void onReceive(Context context, Intent intent) {
+                        if (!BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(intent.getAction()) ||
+                                pendingGesture == null || generation != gesture.generation() ||
+                                !target.getAddress().equalsIgnoreCase(connectedId)) return;
+                        BluetoothDevice changed = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                        if (changed == null || !target.equals(changed)) return;
+                        try {
+                            // Read actual system state; do not trust a broadcast's claimed state.
+                            if (target.getBondState() == BluetoothDevice.BOND_BONDED) {
+                                if (gesture.bonded(generation, android.os.SystemClock.elapsedRealtime())) {
+                                    finishGesture(null, null);
+                                }
+                            } else if (target.getBondState() == BluetoothDevice.BOND_NONE) {
+                                gesture.fail();
+                                finishGesture("GESTURE_PAIRING_FAILED", "系统配对未完成，请重新连接后重试");
+                            }
+                        } catch (SecurityException error) {
+                            gesture.fail();
+                            finishGesture("GESTURE_PAIRING_FAILED", "蓝牙权限已失效，请重新连接后重试");
+                        }
+                    }
+                };
+                IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    activity.registerReceiver(gestureBondReceiver, filter, Context.RECEIVER_EXPORTED);
+                } else {
+                    activity.registerReceiver(gestureBondReceiver, filter);
+                }
+                gestureBondReceiverRegistered = true;
+            }
             // Use the OEM send API: its actual wire type is 44. The similarly
             // named entity.toCEDevData() emits 128 and is not this command.
             helper.getSendBlueData().sendGestureConfig(mode);
+            if (needsBond && target.getBondState() != BluetoothDevice.BOND_BONDING) {
+                if (target.getBondState() == BluetoothDevice.BOND_BONDED) {
+                    if (gesture.bonded(gesture.generation(), android.os.SystemClock.elapsedRealtime())) {
+                        finishGesture(null, null);
+                    }
+                } else if (!target.createBond()) {
+                    gesture.fail();
+                    finishGesture("GESTURE_PAIRING_FAILED", "无法发起系统配对，请重新连接后重试");
+                }
+            }
         } catch (RuntimeException error) {
             gesture.fail();
             finishGesture("GESTURE_SEND_FAILED", "手势设置失败，重新连接后重试");
@@ -1220,6 +1320,10 @@ public final class CoolWearRingBridge
                     scanned.clear();
                     pendingScan = result;
                     helper.startScan();
+                    // HID-connected rings can stop advertising. Offer only real
+                    // OS-bonded candidates; routing still restores only the exact
+                    // account-owned binding and connect still requires SDK info.
+                    receiveBondedDevices();
                     scanDeadline = this::finishScan;
                     main.postDelayed(scanDeadline, SCAN_MS);
                     break;

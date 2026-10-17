@@ -5,6 +5,54 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoolWearGestureStateTest {
+    @Test fun `new HID pairing needs both actual bond and matching mode acknowledgement`() {
+        for (bondFirst in listOf(false, true)) {
+            val state = CoolWearGestureState()
+            assertTrue(state.begin(1, 100, true))
+            if (bondFirst) {
+                assertFalse(state.bonded(state.generation(), 200))
+                assertNull(state.confirmedMode())
+                assertTrue(state.confirm(1, state.generation(), 300))
+            } else {
+                assertFalse(state.confirm(1, state.generation(), 200))
+                assertNull(state.confirmedMode())
+                assertTrue(state.bonded(state.generation(), 300))
+            }
+            assertEquals(1, state.confirmedMode())
+            assertFalse(state.pending())
+        }
+    }
+
+    @Test fun `pairing confirmation window is bounded and is not a success fallback`() {
+        val state = CoolWearGestureState()
+        assertTrue(state.begin(1, 100, true))
+        assertFalse(state.confirm(1, state.generation(), 200))
+        assertFalse(state.bonded(state.generation(), 100 + CoolWearGestureState.PAIRING_TIMEOUT_MS))
+        state.fail()
+        assertNull(state.confirmedMode())
+        assertTrue(state.requiresReconnect())
+        assertFalse(state.bonded(state.generation(), 300))
+    }
+
+    @Test fun `cancelled or replaced connection rejects late bond and mode callbacks`() {
+        val state = CoolWearGestureState()
+        val generation = state.generation()
+        assertTrue(state.begin(1, 100, true))
+        assertFalse(state.confirm(1, generation, 200))
+        state.reset()
+        assertTrue(state.begin(1, 300, true))
+        assertFalse(state.bonded(generation, 400))
+        assertFalse(state.confirm(1, generation, 500))
+        assertNull(state.confirmedMode())
+    }
+
+    @Test fun `off does not require or remove OS pairing`() {
+        val state = CoolWearGestureState()
+        assertTrue(state.begin(0, 100, true))
+        assertTrue(state.confirm(0, state.generation(), 200))
+        assertEquals(0, state.confirmedMode())
+    }
+
     @Test fun `six modes agree with shipped SDK constants`() {
         assertEquals(listOf(0, 1, 2, 3, 4, 5), listOf(
             K6_DATA_TYPE_GESTURE_CONFIG.GESTURE_CTRL_TYPE_NONE,

@@ -5,6 +5,45 @@ import 'package:saydian_app/services/coolwear_wearable_bridge.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets(
+    'HID pairing may wait beyond the normal 30 second command window',
+    (tester) async {
+      const channel = MethodChannel('test/gesture/pairing');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (_) async {
+        await Future<void>.delayed(const Duration(seconds: 44));
+        throw PlatformException(code: 'GESTURE_PAIRING_FAILED');
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      Object? error;
+      var completed = false;
+      final pending = CoolWearWearableBridge(methods: channel)
+          .writeDeviceFeature(DeviceFeature.gestureControl, {'mode': 1})
+          .then<void>(
+            (_) {
+              completed = true;
+            },
+            onError: (Object value) {
+              error = value;
+              completed = true;
+            },
+          );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 31));
+      expect(completed, isFalse);
+      await tester.pump(const Duration(seconds: 13));
+      await pending;
+      expect(
+        error,
+        isA<PlatformException>().having(
+          (value) => value.code,
+          'code',
+          'GESTURE_PAIRING_FAILED',
+        ),
+      );
+    },
+  );
   for (final ios in [false, true]) {
     test('gesture mode contract forwards six modes on ios=$ios', () async {
       final channel = MethodChannel('test/gesture/$ios');

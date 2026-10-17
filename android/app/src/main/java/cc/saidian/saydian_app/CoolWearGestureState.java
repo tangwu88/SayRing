@@ -3,11 +3,14 @@ package cc.saidian.saydian_app;
 /** Connection-local confirmation of vendor gesture replies, never an optimistic setting. */
 final class CoolWearGestureState {
     static final long TIMEOUT_MS = 8_000L;
+    static final long PAIRING_TIMEOUT_MS = 45_000L;
     private volatile long generation;
     private Integer pendingMode;
     private Integer confirmedMode;
     private long deadline;
     private boolean requiresReconnect;
+    private boolean awaitingBond;
+    private boolean modeAcknowledged;
 
     static boolean supported(boolean connected, boolean infoReady, boolean gestureFlag) {
         return connected && infoReady && gestureFlag;
@@ -29,21 +32,41 @@ final class CoolWearGestureState {
         pendingMode = null;
         confirmedMode = null;
         requiresReconnect = false;
+        awaitingBond = false;
+        modeAcknowledged = false;
     }
 
     boolean begin(Object mode, long now) {
+        return begin(mode, now, false);
+    }
+
+    boolean begin(Object mode, long now, boolean needsBond) {
         Integer valid = validMode(mode);
         if (valid == null || pending() || requiresReconnect) return false;
         pendingMode = valid;
         confirmedMode = null;
-        deadline = now + TIMEOUT_MS;
+        awaitingBond = valid > 0 && needsBond;
+        modeAcknowledged = false;
+        deadline = now + (awaitingBond ? PAIRING_TIMEOUT_MS : TIMEOUT_MS);
         return true;
     }
 
     boolean confirm(int mode, long callbackGeneration, long now) {
         if (callbackGeneration != generation || pendingMode == null ||
                 pendingMode != mode || now >= deadline) return false;
-        confirmedMode = mode;
+        modeAcknowledged = true;
+        return completeIfReady();
+    }
+
+    boolean bonded(long callbackGeneration, long now) {
+        if (callbackGeneration != generation || pendingMode == null || now >= deadline) return false;
+        awaitingBond = false;
+        return completeIfReady();
+    }
+
+    private boolean completeIfReady() {
+        if (awaitingBond || !modeAcknowledged) return false;
+        confirmedMode = pendingMode;
         pendingMode = null;
         return true;
     }
@@ -51,6 +74,8 @@ final class CoolWearGestureState {
     void fail() {
         pendingMode = null;
         confirmedMode = null;
+        awaitingBond = false;
+        modeAcknowledged = false;
         // The OEM reply has no request ID. A timed-out reply cannot safely be
         // attributed to a retry in this connection, even for the same mode.
         requiresReconnect = true;

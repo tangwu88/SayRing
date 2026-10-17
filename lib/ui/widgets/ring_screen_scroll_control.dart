@@ -29,7 +29,7 @@ class RingScreenScrollControl extends StatelessWidget {
     final status = requiresReconnect
         ? '重新连接后才能设置滑屏控制'
         : busy
-        ? '正在等待戒指确认，请勿重复操作'
+        ? '正在设置，请留意系统配对提示，勿重复操作'
         : !ready
         ? '尚未读到手势设置，请刷新后重试'
         : !supported
@@ -67,7 +67,7 @@ class RingScreenScrollControl extends StatelessWidget {
             label: const Text('滑屏练习'),
           ),
         const Text(
-          '先完成系统蓝牙配对，再打开目标 App。方向和触控动作取决于戒指固件；不保证所有 App 或双向滑动均可用。',
+          '如出现系统配对请求，请核对当前戒指并确认，再打开目标 App。方向和动作取决于戒指固件；不保证所有 App 或双向滑动均可用。',
           style: TextStyle(fontSize: 12, height: 1.6),
         ),
         const SizedBox(height: 16),
