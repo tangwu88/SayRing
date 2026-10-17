@@ -1,5 +1,9 @@
 # 修改与测试记录索引
 
+- [2026-10-17 iPhone 15 Pro Max 安装 1101](SAY-RING-IOS-DEVICE-INSTALL-1101-20261017.md) — 同一归档的正常 Release 真机覆盖安装、持久化数据哈希及独立启动通过。
+
+- [2026-10-17 Android 正式 1101 构建准备](SAY-RING-ANDROID-FORMAL-PREP-1101-20261017.md) — 双 ARM 编译通过，现有 1016 全包/原正式证书已核验；正式包和 /down2 更新等待原签名材料可读取。
+
 - [2026-10-17 iOS 1.0.2（1101）TestFlight 与 App Store 交付](SAY-RING-APPSTORE-1101-20261017.md) — 正式分发签名、上传、公开版本说明与两类审核分别核验；具体状态和限制见正文。
 
 - [2026-10-17 QRing 手势控制](SAY-RING-QRING-GESTURE-20261017.md) — 按真实能力开放模式、双端协议映射及保存回读；本轮测试和设备边界见正文。
