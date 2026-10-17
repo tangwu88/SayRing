@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "cn.saydian.ring.hm",
     "vendor": "SAYDIAN",
-    "versionCode": 1066,
-    "versionName": "1.0.0",
+    "versionCode": 1106,
+    "versionName": "1.0.2",
     "configuration": "$profile:configuration",
     "icon": "$media:app_icon_v3",
     "label": "$string:app_name"
