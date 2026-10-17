@@ -45,6 +45,9 @@ CoreDevice 现场截图显示正常首页、头像昵称和已有活动卡片，
 DevTools 面板首次通过应用工具打开只返回 queued；随后在当前浏览器实际打开并确认 Debug 连接，Memory 页与 main isolate 可见。
 DevTools 的 CPU 标签为 simarm64，但物理设备身份独立由 CoreDevice、配对目标及其实际安装/进程确认，不以该标签冒充模拟器或其他真机。
 
+交付前一次额外 HTTP 只读复核超时，同机另有 Health App 进程；不凭进程并存判断故障根因，也未结束其他 App。
+仅将 Say Ring 切回前台后，VM、main isolate 和控制器只读检查再次通过，原账号/绑定、QRing 连接和活动记录仍可读。
+
 ## 辅助工具失败及边界
 
 首次把包含 Date/Data 的完整描述文件转 JSON 失败，改为按字段提取；私有 Node 路径曾未解码中文 URL，改用 fileURLToPath 后核验通过。
