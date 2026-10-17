@@ -680,18 +680,38 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         : <int>{};
     final ready = !qring || _featureData['readbackVerified'] == true;
     final reconnect = _featureData['requiresReconnect'] == true;
+    final confirmedMode = _featureData['confirmedMode'];
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            RingScreenScrollControl(
+              supported: !qring || available.contains(1),
+              ready: ready,
+              busy: busy,
+              requiresReconnect: reconnect,
+              confirmedMode: confirmedMode is int ? confirmedMode : null,
+              onPractice: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  settings: const RouteSettings(
+                    name: 'ring-screen-scroll-practice',
+                  ),
+                  builder: (_) => const RingScreenScrollPracticePage(),
+                ),
+              ),
+              onChanged: (enabled) => _saveFeature({
+                'mode': enabled ? 1 : 0,
+                if (qring) 'expectedMode': _featureData['rawMode'],
+              }, qring ? '滑屏模式已保存并读回确认' : '滑屏模式指令已确认'),
+            ),
             Text(
               qring
                   ? '选择戒指支持的控制模式，保存后会重新读取戒指确认。'
                   : '选择戒指手势模式。系统控制效果取决于戒指固件和手机配对。',
             ),
-            const RingGestureGuide(),
+            RingGestureGuide(isLuckRing: !qring),
             if (!ready)
               Text(
                 busy

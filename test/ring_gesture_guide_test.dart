@@ -42,6 +42,7 @@ void main() {
   }
 
   test('mode hints separate system gestures from camera and reminders', () {
+    expect(RingGestureGuide.modeHint(1), contains('滑屏控制'));
     expect(RingGestureGuide.modeHint(0), contains('关闭'));
     expect(RingGestureGuide.modeHint(4), contains('摇一摇拍照'));
     expect(RingGestureGuide.modeHint(5), contains('不等于开启来电提醒'));
@@ -50,4 +51,28 @@ void main() {
     }
     expect(RingGestureGuide.modeHint(6), isEmpty);
   });
+
+  for (final luckRing in [false, true]) {
+    testWidgets('reference swipe example is vendor scoped: $luckRing', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: RingGestureGuide(isLuckRing: luckRing),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('使用说明'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('LuckRing 参考页展示向上手势'),
+        luckRing ? findsOneWidget : findsNothing,
+      );
+      expect(find.textContaining('向下或上一条是否可用'), findsOneWidget);
+      expect(find.textContaining('传感器贴合皮肤'), findsOneWidget);
+    });
+  }
 }

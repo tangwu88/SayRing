@@ -1,5 +1,6 @@
 import 'widgets/safe_network_image.dart';
 import 'widgets/ring_gesture_guide.dart';
+import 'widgets/ring_screen_scroll_control.dart';
 import '../l10n/global_locale_controller.dart';
 import '../l10n/ui_labels.dart';
 import 'global_care_page.dart';

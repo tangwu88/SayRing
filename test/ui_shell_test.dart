@@ -2431,6 +2431,7 @@ void main() {
       expect(find.byKey(const ValueKey('gesture-mode-2')), findsNothing);
       expect(find.byKey(const ValueKey('gesture-mode-5')), findsNothing);
       await tester.ensureVisible(find.byKey(const ValueKey('gesture-mode-4')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('gesture-mode-4')));
       await tester.pumpAndSettle();
       expect(bridge.lastWrite, {'mode': 4, 'expectedMode': 2});
@@ -2442,6 +2443,145 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final qring in [false, true]) {
+    testWidgets(
+      'scroll shortcut enables vendor mode 1 and disables with mode 0: $qring',
+      (tester) async {
+        final bridge = qring
+            ? _QRingScrollWearable()
+            : _ControlTrackingWearable();
+        final controller =
+            AppController(
+                MemorySessionVault(),
+                _NoopApi(),
+                MemoryHealthStore(),
+                bridge,
+              )
+              ..connectedDevice = DeviceInfo(
+                id: qring ? 'qring:owned' : 'coolwear:owned',
+                name: qring ? 'R21' : 'HR01',
+              )
+              ..capabilities = const DeviceCapabilities(
+                metrics: {},
+                features: {DeviceFeature.gestureControl},
+                integratedFeatures: {DeviceFeature.gestureControl},
+              );
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DeviceFeaturePage(
+              controller: controller,
+              feature: DeviceFeature.gestureControl,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final toggle = find.byKey(const ValueKey('gesture-scroll-toggle'));
+        expect(bridge.lastWrite, isNull);
+        expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+        await tester.ensureVisible(toggle);
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(bridge.lastWrite, {'mode': 1, if (qring) 'expectedMode': 0});
+        expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+        await tester.tap(find.byKey(const ValueKey('gesture-scroll-practice')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('gesture-scroll-practice-list')),
+          findsOneWidget,
+        );
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(bridge.lastWrite, {'mode': 0, if (qring) 'expectedMode': 2});
+        expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('scroll shortcut failure stays off and requires reconnect', (
+    tester,
+  ) async {
+    final bridge = _TimeoutControlWearable();
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            _NoopApi(),
+            MemoryHealthStore(),
+            bridge,
+          )
+          ..connectedDevice = const DeviceInfo(
+            id: 'coolwear:owned',
+            name: 'HR01',
+          )
+          ..capabilities = const DeviceCapabilities(
+            metrics: {},
+            features: {DeviceFeature.gestureControl},
+            integratedFeatures: {DeviceFeature.gestureControl},
+          );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeviceFeaturePage(
+          controller: controller,
+          feature: DeviceFeature.gestureControl,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final toggle = find.byKey(const ValueKey('gesture-scroll-toggle'));
+    await tester.ensureVisible(toggle);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    final control = tester.widget<SwitchListTile>(toggle);
+    expect(control.value, isFalse);
+    expect(control.onChanged, isNull);
+    expect(find.text('重新连接后才能设置滑屏控制'), findsOneWidget);
+    expect(find.text('滑屏模式指令已确认'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('unsupported QRing does not expose an active scroll shortcut', (
+    tester,
+  ) async {
+    final bridge = _QRingScrollWearable(supportScroll: false);
+    final controller =
+        AppController(
+            MemorySessionVault(),
+            _NoopApi(),
+            MemoryHealthStore(),
+            bridge,
+          )
+          ..connectedDevice = const DeviceInfo(id: 'qring:owned', name: 'R21')
+          ..capabilities = const DeviceCapabilities(
+            metrics: {},
+            features: {DeviceFeature.gestureControl},
+            integratedFeatures: {DeviceFeature.gestureControl},
+          );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DeviceFeaturePage(
+          controller: controller,
+          feature: DeviceFeature.gestureControl,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.byKey(const ValueKey('gesture-scroll-toggle')),
+          )
+          .onChanged,
+      isNull,
+    );
+    expect(find.text('当前戒指未上报短视频滑屏控制能力'), findsOneWidget);
+    expect(bridge.lastWrite, isNull);
+  });
 
   testWidgets(
     'gesture timeout removes old confirmation and blocks unsafe retry',
@@ -2480,6 +2620,14 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byIcon(Icons.check_rounded), findsNothing);
       expect(find.text('重新连接后再设置手势'), findsOneWidget);
+      expect(
+        tester
+            .widget<SwitchListTile>(
+              find.byKey(const ValueKey('gesture-scroll-toggle')),
+            )
+            .onChanged,
+        isNull,
+      );
       final photoTile = tester.widget<ListTile>(
         find.ancestor(of: find.text('拍照'), matching: find.byType(ListTile)),
       );
@@ -5097,6 +5245,21 @@ class _NotWornBloodPressureWearable extends _NoopWearable {
       code: 'BLOOD_PRESSURE_NOT_WORN',
       message: '未检测到有效佩戴状态，请将戒指贴合手指后重新测量血压',
     );
+  }
+}
+
+class _QRingScrollWearable extends _ControlTrackingWearable {
+  _QRingScrollWearable({this.supportScroll = true});
+  final bool supportScroll;
+  @override
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async {
+    final mode = lastWrite?['mode'] as int? ?? 0;
+    return {
+      'rawMode': mode == 1 ? 2 : 0,
+      'confirmedMode': mode,
+      'availableModes': [0, if (supportScroll) 1],
+      'readbackVerified': true,
+    };
   }
 }
 
