@@ -1,5 +1,7 @@
 # 修改与测试记录索引
 
+- [2026-10-18 iPhone 真机 Debug 1107](SAY-RING-IOS-DEBUG-1107-20261018.md) — 原位覆盖、私有容器前后副本、真实 VM/热重载及 QRing 只读连接检查；实际数据保留和睡眠待验边界见正文，调试保持附加。
+
 - [2026-10-17 iPhone 15 Pro Max 安装 1101](SAY-RING-IOS-DEVICE-INSTALL-1101-20261017.md) — 同一归档的正常 Release 真机覆盖安装、持久化数据哈希及独立启动通过。
 
 - [2026-10-17 Android 正式 1101 构建准备](SAY-RING-ANDROID-FORMAL-PREP-1101-20261017.md) — 双 ARM 编译通过，现有 1016 全包/原正式证书已核验；正式包和 /down2 更新等待原签名材料可读取。
