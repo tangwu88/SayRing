@@ -11,6 +11,8 @@ final class CoolWearGestureState {
     private boolean requiresReconnect;
     private boolean awaitingBond;
     private boolean modeAcknowledged;
+    private Integer sentMode;
+    private boolean repliesTrusted = true;
 
     static boolean supported(boolean connected, boolean infoReady, boolean gestureFlag) {
         return connected && infoReady && gestureFlag;
@@ -26,6 +28,7 @@ final class CoolWearGestureState {
     boolean pending() { return pendingMode != null; }
     boolean requiresReconnect() { return requiresReconnect; }
     Integer confirmedMode() { return confirmedMode; }
+    Integer sentMode() { return sentMode; }
 
     void reset() {
         generation++;
@@ -34,6 +37,8 @@ final class CoolWearGestureState {
         requiresReconnect = false;
         awaitingBond = false;
         modeAcknowledged = false;
+        sentMode = null;
+        repliesTrusted = true;
     }
 
     boolean begin(Object mode, long now) {
@@ -45,6 +50,7 @@ final class CoolWearGestureState {
         if (valid == null || pending() || requiresReconnect) return false;
         pendingMode = valid;
         confirmedMode = null;
+        sentMode = null;
         awaitingBond = valid > 0 && needsBond;
         modeAcknowledged = false;
         deadline = now + (awaitingBond ? PAIRING_TIMEOUT_MS : TIMEOUT_MS);
@@ -52,7 +58,7 @@ final class CoolWearGestureState {
     }
 
     boolean confirm(int mode, long callbackGeneration, long now) {
-        if (callbackGeneration != generation || pendingMode == null ||
+        if (!repliesTrusted || callbackGeneration != generation || pendingMode == null ||
                 pendingMode != mode || now >= deadline) return false;
         modeAcknowledged = true;
         return completeIfReady();
@@ -67,7 +73,26 @@ final class CoolWearGestureState {
     private boolean completeIfReady() {
         if (awaitingBond || !modeAcknowledged) return false;
         confirmedMode = pendingMode;
+        sentMode = pendingMode;
         pendingMode = null;
+        return true;
+    }
+
+    /** SDK send returned, not evidence that the ring applied the setting. */
+    void dispatched() {
+        if (pendingMode != null) sentMode = pendingMode;
+    }
+
+    /** Missing OEM status is unknown, not a transport/pairing failure.
+     * After this point unsolicited late statuses cannot confirm any retry in
+     * this connection: the OEM protocol has no per-request identifier.
+     */
+    boolean settleUnconfirmed() {
+        if (pendingMode == null || awaitingBond || !pendingMode.equals(sentMode)) return false;
+        pendingMode = null;
+        confirmedMode = null;
+        modeAcknowledged = false;
+        repliesTrusted = false;
         return true;
     }
 
@@ -76,6 +101,7 @@ final class CoolWearGestureState {
         confirmedMode = null;
         awaitingBond = false;
         modeAcknowledged = false;
+        sentMode = null;
         // The OEM reply has no request ID. A timed-out reply cannot safely be
         // attributed to a retry in this connection, even for the same mode.
         requiresReconnect = true;

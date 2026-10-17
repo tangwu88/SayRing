@@ -3,6 +3,43 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/ui/widgets/ring_screen_scroll_control.dart';
 
 void main() {
+  testWidgets('sent setting is adjustable but never presented as confirmed', (
+    tester,
+  ) async {
+    final calls = <bool>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: RingScreenScrollControl(
+              supported: true,
+              ready: true,
+              busy: false,
+              requiresReconnect: false,
+              confirmedMode: null,
+              sentMode: 1,
+              onChanged: calls.add,
+              onPractice: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    final toggle = find.byKey(const ValueKey('gesture-scroll-toggle'));
+    expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+    expect(find.textContaining('戒指状态未确认'), findsOneWidget);
+    expect(find.byIcon(Icons.check_rounded), findsNothing);
+    await tester.tap(toggle);
+    expect(calls, [false]);
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.byKey(const ValueKey('gesture-scroll-practice')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+  });
   for (final mode in <int?>[null, 0, 1, 2]) {
     testWidgets('practice opens only for confirmed scroll mode $mode', (
       tester,
@@ -75,11 +112,17 @@ void main() {
         );
         expect(calls, isEmpty);
         final toggle = find.byKey(const ValueKey('gesture-scroll-toggle'));
-        expect(tester.widget<SwitchListTile>(toggle).value, mode == 1);
+        expect(
+          tester.widget<SwitchListTile>(toggle).value,
+          mode != null && mode > 0,
+        );
         await tester.tap(toggle);
         await tester.pumpAndSettle();
-        expect(calls, [mode != 1]);
-        expect(tester.widget<SwitchListTile>(toggle).value, mode == 1);
+        expect(calls, [mode == null || mode <= 0]);
+        expect(
+          tester.widget<SwitchListTile>(toggle).value,
+          mode != null && mode > 0,
+        );
       },
     );
   }

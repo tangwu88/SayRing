@@ -2396,7 +2396,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(bridge.lastWrite, {'mode': 4});
       expect(find.byIcon(Icons.check_rounded), findsOneWidget);
-      expect(find.text('手势模式指令已确认'), findsOneWidget);
+      expect(find.text('手势指令已发送，请查看状态并验证效果'), findsOneWidget);
     },
   );
 
@@ -2485,6 +2485,10 @@ void main() {
         await tester.pumpAndSettle();
         expect(bridge.lastWrite, {'mode': 1, if (qring) 'expectedMode': 0});
         expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('gesture-scroll-practice')),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey('gesture-scroll-practice')));
         await tester.pumpAndSettle();
         expect(
@@ -2492,6 +2496,8 @@ void main() {
           findsOneWidget,
         );
         await tester.pageBack();
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(toggle);
         await tester.pumpAndSettle();
         await tester.tap(toggle);
         await tester.pumpAndSettle();
@@ -2501,6 +2507,53 @@ void main() {
       },
     );
   }
+
+  testWidgets(
+    'sent but unconfirmed CoolWear mode remains operable and can be closed',
+    (tester) async {
+      final bridge = _UnconfirmedControlWearable();
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              bridge,
+            )
+            ..connectedDevice = const DeviceInfo(
+              id: 'coolwear:owned',
+              name: 'HR05',
+            )
+            ..capabilities = const DeviceCapabilities(
+              metrics: {},
+              features: {DeviceFeature.gestureControl},
+              integratedFeatures: {DeviceFeature.gestureControl},
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DeviceFeaturePage(
+            controller: controller,
+            feature: DeviceFeature.gestureControl,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final toggle = find.byKey(const ValueKey('gesture-scroll-toggle'));
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(bridge.lastWrite, {'mode': 1});
+      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+      expect(tester.widget<SwitchListTile>(toggle).onChanged, isNotNull);
+      expect(find.textContaining('戒指状态未确认'), findsOneWidget);
+      expect(find.byIcon(Icons.check_rounded), findsNothing);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      expect(bridge.lastWrite, {'mode': 0});
+      expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+      expect(tester.widget<SwitchListTile>(toggle).onChanged, isNotNull);
+      expect(find.textContaining('已发送关闭指令'), findsOneWidget);
+    },
+  );
 
   testWidgets('scroll shortcut failure stays off and requires reconnect', (
     tester,
@@ -2943,10 +2996,12 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        final guide = find.byKey(const ValueKey('ring-gesture-guide'));
-        expect(guide, findsOneWidget);
-        await tester.ensureVisible(find.text('使用说明'));
-        await tester.tap(find.text('使用说明'));
+        expect(find.byKey(const ValueKey('ring-gesture-guide')), findsNothing);
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('gesture-guide-entry')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('gesture-guide-entry')));
         await tester.pumpAndSettle();
         expect(find.text('使用前'), findsOneWidget);
         expect(find.text('没有反应？'), findsOneWidget);
@@ -5071,6 +5126,15 @@ class _FirmwareDetailsWearable extends _NoopWearable
     if (details == null) throw PlatformException(code: 'READ_FAILED');
     return details;
   }
+}
+
+class _UnconfirmedControlWearable extends _ControlTrackingWearable {
+  @override
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async =>
+      {
+        if (lastWrite != null) 'sentMode': lastWrite!['mode'],
+        'requiresReconnect': false,
+      };
 }
 
 class _TimeoutControlWearable extends _ControlTrackingWearable {

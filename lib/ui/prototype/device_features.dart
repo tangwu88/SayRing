@@ -602,10 +602,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              _DeviceFeatureHeader(
-                feature: widget.feature,
-                device: widget.controller.connectedDevice,
-              ),
+              if (widget.feature != DeviceFeature.gestureControl)
+                _DeviceFeatureHeader(
+                  feature: widget.feature,
+                  device: widget.controller.connectedDevice,
+                ),
               const SizedBox(height: 14),
               if (!availability.isReady)
                 FeatureStateCard(
@@ -681,89 +682,84 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     final ready = !qring || _featureData['readbackVerified'] == true;
     final reconnect = _featureData['requiresReconnect'] == true;
     final confirmedMode = _featureData['confirmedMode'];
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            RingScreenScrollControl(
-              supported: !qring || available.contains(1),
-              ready: ready,
-              busy: busy,
-              requiresReconnect: reconnect,
-              confirmedMode: confirmedMode is int ? confirmedMode : null,
-              onPractice: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  settings: const RouteSettings(
-                    name: 'ring-screen-scroll-practice',
+    final sentMode = _featureData['sentMode'];
+    final modes = <int, String>{
+      for (final entry in const [
+        (1, '短视频'),
+        (2, '音乐'),
+        (3, '阅读'),
+        (4, '拍照'),
+        (5, '电话'),
+      ])
+        if (!qring || (ready && available.contains(entry.$1)))
+          entry.$1: entry.$2,
+    };
+    Future<void> saveMode(int mode) async {
+      await _saveFeature({
+        'mode': mode,
+        if (qring) 'expectedMode': _featureData['rawMode'],
+      }, qring ? '手势模式已保存并读回确认' : '手势指令已发送，请查看状态并验证效果');
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        RingScreenScrollControl(
+          supported: modes.isNotEmpty,
+          ready: ready,
+          busy: busy,
+          requiresReconnect: reconnect,
+          confirmedMode: confirmedMode is int ? confirmedMode : null,
+          sentMode: !qring && sentMode is int ? sentMode : null,
+          modes: modes,
+          onModeChanged: saveMode,
+          onGuide: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => Scaffold(
+                appBar: AppBar(title: const Text('手势说明')),
+                body: SingleChildScrollView(
+                  padding: const EdgeInsets.all(20),
+                  child: RingGestureGuide(
+                    isLuckRing: !qring,
+                    initiallyExpanded: true,
                   ),
-                  builder: (_) => const RingScreenScrollPracticePage(),
                 ),
               ),
-              onChanged: (enabled) => _saveFeature({
-                'mode': enabled ? 1 : 0,
-                if (qring) 'expectedMode': _featureData['rawMode'],
-              }, qring ? '滑屏模式已保存并读回确认' : '滑屏模式指令已确认'),
             ),
-            Text(
-              qring
-                  ? '选择戒指支持的控制模式，保存后会重新读取戒指确认。'
-                  : '选择戒指手势模式。系统控制效果取决于戒指固件和手机配对。',
-            ),
-            RingGestureGuide(isLuckRing: !qring),
-            if (!ready)
-              Text(
-                busy
-                    ? '正在读取手势设置'
-                    : widget.controller.errorMessage ?? '暂未读到手势设置，请刷新重试',
+          ),
+          onPractice: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              settings: const RouteSettings(
+                name: 'ring-screen-scroll-practice',
               ),
-            if (reconnect) const Text('重新连接后再设置手势'),
-            if (qring && ready && _featureData['confirmedMode'] == -1)
-              const Text('戒指当前使用其他控制模式，选择下方模式会替换当前模式。'),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                key: const ValueKey('gesture-refresh'),
-                onPressed: busy || reconnect ? null : _loadFeature,
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text('刷新状态'),
-              ),
+              builder: (_) => const RingScreenScrollPracticePage(),
             ),
-            for (final entry in const [
-              (0, '关闭'),
-              (1, '短视频'),
-              (2, '音乐'),
-              (3, '阅读'),
-              (4, '拍照'),
-              (5, '电话'),
-            ])
-              if (!qring || (ready && available.contains(entry.$1)))
-                ListTile(
-                  key: ValueKey('gesture-mode-${entry.$1}'),
-                  title: Text(entry.$2),
-                  subtitle: Text(RingGestureGuide.modeHint(entry.$1)),
-                  trailing: _featureData['confirmedMode'] == entry.$1
-                      ? const Icon(Icons.check_rounded)
-                      : null,
-                  onTap: busy || reconnect || !ready
-                      ? null
-                      : () => _saveFeature({
-                          'mode': entry.$1,
-                          if (qring) 'expectedMode': _featureData['rawMode'],
-                        }, qring ? '手势模式已保存并读回确认' : '手势模式指令已确认'),
-                ),
-            if (qring && ready && available.length == 1)
-              const Text('戒指尚未上报可开启的控制模式，目前仅可关闭。'),
-            Text(
-              qring
-                  ? '勾选表示从戒指读回的当前模式。控制其他 App 时，还需要完成系统蓝牙配对，并使用固件支持的手势或触控操作。'
-                  : '勾选表示本次连接已确认的指令，不代表已执行手势。',
-              style: const TextStyle(fontSize: 12),
-            ),
-          ],
+          ),
+          onChanged: (enabled) => saveMode(
+            enabled ? (modes.containsKey(1) ? 1 : modes.keys.first) : 0,
+          ),
         ),
-      ),
+        if (!ready)
+          Text(
+            busy
+                ? '正在读取手势设置'
+                : widget.controller.errorMessage ?? '暂未读到手势设置，请刷新重试',
+          ),
+        if (reconnect) const Text('重新连接后再设置手势'),
+        if (qring && ready && _featureData['confirmedMode'] == -1)
+          const Text('戒指当前使用其他控制模式，选择下方模式会替换当前模式。'),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            key: const ValueKey('gesture-refresh'),
+            onPressed: busy || reconnect ? null : _loadFeature,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('刷新状态'),
+          ),
+        ),
+        if (qring && ready && available.length == 1)
+          const Text('戒指尚未上报可开启的控制模式，目前仅可关闭。'),
+      ],
     );
   }
 

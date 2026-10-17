@@ -5,6 +5,41 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CoolWearGestureStateTest {
+    @Test fun `missing status after send preserves unknown and permits off without trusting late replies`() {
+        val state = CoolWearGestureState()
+        assertTrue(state.begin(1, 100))
+        assertFalse(state.settleUnconfirmed()) // Never sent.
+        state.dispatched()
+        assertTrue(state.settleUnconfirmed())
+        assertEquals(1, state.sentMode())
+        assertNull(state.confirmedMode())
+        assertFalse(state.requiresReconnect())
+        assertTrue(state.begin(0, 9000))
+        state.dispatched()
+        assertFalse(state.confirm(1, state.generation(), 9100))
+        assertFalse(state.confirm(0, state.generation(), 9200))
+        assertTrue(state.settleUnconfirmed())
+        assertEquals(0, state.sentMode())
+        assertNull(state.confirmedMode())
+        state.reset()
+        assertNull(state.sentMode())
+        assertTrue(state.begin(1, 20000))
+        assertTrue(state.confirm(1, state.generation(), 20001))
+    }
+
+    @Test fun `unconfirmed send cannot bypass required system pairing or an actual failure`() {
+        val state = CoolWearGestureState()
+        assertTrue(state.begin(1, 100, true))
+        state.dispatched()
+        assertFalse(state.settleUnconfirmed())
+        assertFalse(state.bonded(state.generation(), 200))
+        assertTrue(state.settleUnconfirmed())
+        state.fail()
+        assertNull(state.sentMode())
+        assertFalse(state.begin(0, 300))
+        assertFalse(state.settleUnconfirmed())
+    }
+
     @Test fun `new HID pairing needs both actual bond and matching mode acknowledgement`() {
         for (bondFirst in listOf(false, true)) {
             val state = CoolWearGestureState()

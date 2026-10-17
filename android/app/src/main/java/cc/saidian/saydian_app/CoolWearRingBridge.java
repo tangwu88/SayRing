@@ -940,6 +940,7 @@ public final class CoolWearRingBridge
     private Map<String, Object> gestureSettings() {
         Map<String, Object> value = new HashMap<>();
         if (gesture.confirmedMode() != null) value.put("confirmedMode", gesture.confirmedMode());
+        if (gesture.sentMode() != null && !gesture.pending()) value.put("sentMode", gesture.sentMode());
         value.put("requiresReconnect", gesture.requiresReconnect());
         return value;
     }
@@ -1016,6 +1017,13 @@ public final class CoolWearRingBridge
         }
         pendingGesture = result;
         gestureDeadline = () -> {
+            // A successful SDK send and completed system pairing do not prove
+            // a mode ACK. Keep that distinction without permanently locking
+            // an otherwise usable HID control after a missing OEM status.
+            if (gesture.settleUnconfirmed()) {
+                finishGesture(null, null);
+                return;
+            }
             gesture.fail();
             finishGesture("GESTURE_CONFIRMATION_TIMEOUT",
                     needsBond ? "配对或模式未确认，请完成系统配对后重新连接重试"
@@ -1060,6 +1068,7 @@ public final class CoolWearRingBridge
             // Use the OEM send API: its actual wire type is 44. The similarly
             // named entity.toCEDevData() emits 128 and is not this command.
             helper.getSendBlueData().sendGestureConfig(mode);
+            gesture.dispatched();
             if (needsBond && target.getBondState() != BluetoothDevice.BOND_BONDING) {
                 if (target.getBondState() == BluetoothDevice.BOND_BONDED) {
                     if (gesture.bonded(gesture.generation(), android.os.SystemClock.elapsedRealtime())) {
