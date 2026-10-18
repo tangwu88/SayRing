@@ -111,7 +111,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get messageSendFailed => '发送失败，请检查网络后重试';
 
   @override
-  String get noWatchShopHint => '需要其他设备？去 Say Ring 商城看看';
+  String get noWatchShopHint => '需要其他设备？去赛电商城看看';
 
   @override
   String get notificationInAppHint => '应用内红点和消息仍可使用，开启后可及时收到关爱邀请与健康预警。';
@@ -1437,7 +1437,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get healthAlerts => '健康预警';
 
   @override
-  String get shop => 'Say Ring 商城';
+  String get shop => '赛电商城';
 
   @override
   String get connectWatch => '连接戒指';
@@ -2113,7 +2113,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get messageSendFailed => '发送失败，请检查网络后重试';
 
   @override
-  String get noWatchShopHint => '需要其他设备？去 Say Ring 商城看看';
+  String get noWatchShopHint => '需要其他设备？去赛电商城看看';
 
   @override
   String get notificationInAppHint => '应用内红点和消息仍可使用，开启后可及时收到关爱邀请与健康预警。';
@@ -3439,7 +3439,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get healthAlerts => '健康预警';
 
   @override
-  String get shop => 'Say Ring 商城';
+  String get shop => '赛电商城';
 
   @override
   String get connectWatch => '连接戒指';
@@ -4115,7 +4115,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get messageSendFailed => '傳送失敗，請檢查網路後重試';
 
   @override
-  String get noWatchShopHint => '需要其他裝置？前往 Say Ring 商城看看';
+  String get noWatchShopHint => '需要其他裝置？前往賽電商城看看';
 
   @override
   String get notificationInAppHint => 'App 內未讀標示和訊息仍可使用，開啟通知後可及時收到關愛邀請與健康預警。';
@@ -5441,7 +5441,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get healthAlerts => '健康預警';
 
   @override
-  String get shop => 'Say Ring 商城';
+  String get shop => '賽電商城';
 
   @override
   String get connectWatch => '連接戒指';

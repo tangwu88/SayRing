@@ -723,7 +723,7 @@ void main() {
       }
 
       await show(DashboardPage(controller: controller));
-      expect(find.text('Say Ring 商城'), enabled ? findsOneWidget : findsNothing);
+      expect(find.text('赛电商城'), enabled ? findsOneWidget : findsNothing);
       expect(find.text('远程关爱'), findsOneWidget);
       expect(find.text('运动'), findsOneWidget);
       await show(SettingsPage(controller: controller));
@@ -884,15 +884,13 @@ void main() {
       expect(find.text('远程关爱'), findsOneWidget);
       expect(find.text('健康百科'), findsOneWidget);
       expect(find.text('运动'), findsOneWidget);
-      expect(find.text('Say Ring 商城'), findsOneWidget);
-      final shopEntryLabel = tester.widget<Text>(find.text('Say Ring 商城'));
+      expect(find.text('赛电商城'), findsOneWidget);
+      expect(find.text('Say Ring 商城'), findsNothing);
+      final shopEntryLabel = tester.widget<Text>(find.text('赛电商城'));
       expect(shopEntryLabel.maxLines, 1);
       expect(shopEntryLabel.overflow, isNot(TextOverflow.ellipsis));
       expect(
-        find.ancestor(
-          of: find.text('Say Ring 商城'),
-          matching: find.byType(FittedBox),
-        ),
+        find.ancestor(of: find.text('赛电商城'), matching: find.byType(FittedBox)),
         findsOneWidget,
       );
 
@@ -915,7 +913,7 @@ void main() {
       await tester.pageBack();
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Say Ring 商城'));
+      await tester.tap(find.text('赛电商城'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('shop-page')), findsOneWidget);
       expect(find.text('此功能暂时无法使用，请稍后再试'), findsWidgets);

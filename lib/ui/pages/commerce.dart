@@ -964,8 +964,8 @@ class _OrderDetailPageState extends State<OrderDetailPage> {
     0 => '请在订单有效期内完成支付',
     1 => '商家正在准备您的商品',
     2 => '商品已发出，请注意查收',
-    3 => '感谢您使用 Say Ring 商城',
-    4 => '感谢您使用 Say Ring 商城',
+    3 => '感谢您使用${context.l10n.shop}',
+    4 => '感谢您使用${context.l10n.shop}',
     _ => '订单状态以商城最新数据为准',
   };
 

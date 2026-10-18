@@ -44,6 +44,27 @@ Widget localizedHost(GlobalLocaleController controller) => GlobalLocaleScope(
 );
 
 void main() {
+  test('Chinese mall names use Saydian without renaming the app', () async {
+    for (final (locale, name, hint) in [
+      (const Locale('zh'), '赛电商城', '需要其他设备？去赛电商城看看'),
+      (
+        const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+        '赛电商城',
+        '需要其他设备？去赛电商城看看',
+      ),
+      (
+        const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+        '賽電商城',
+        '需要其他裝置？前往賽電商城看看',
+      ),
+    ]) {
+      final strings = await AppLocalizations.delegate.load(locale);
+      expect(strings.shop, name);
+      expect(strings.noWatchShopHint, hint);
+      expect(strings.appName, 'Say Ring');
+    }
+  });
+
   test(
     'all eight declared languages have the complete key set and real translated labels',
     () {

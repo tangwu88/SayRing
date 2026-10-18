@@ -433,7 +433,7 @@ void main() {
     Finder entry(String label) =>
         find.descendant(of: grid, matching: find.text(label));
     expect(entry('健康百科'), findsNothing);
-    expect(entry('Say Ring 商城'), findsNothing);
+    expect(entry('赛电商城'), findsNothing);
     for (final (library, mall) in [
       (true, false),
       (false, true),
@@ -445,7 +445,7 @@ void main() {
       await h.controller.refreshModuleVisibility();
       await tester.pumpAndSettle();
       expect(entry('健康百科'), library ? findsOneWidget : findsNothing);
-      expect(entry('Say Ring 商城'), mall ? findsOneWidget : findsNothing);
+      expect(entry('赛电商城'), mall ? findsOneWidget : findsNothing);
       expect(entry('远程关爱'), findsOneWidget);
       expect(entry('运动'), findsOneWidget);
     }

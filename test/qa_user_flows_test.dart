@@ -47,7 +47,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(api.lastLogin, ('13800138000', 'qa-password'));
-      expect(find.text('Say Ring 商城'), findsOneWidget);
+      expect(find.text('赛电商城'), findsOneWidget);
       expect(find.byType(NavigationBar), findsOneWidget);
     },
   );
@@ -98,7 +98,7 @@ void main() {
     addTearDown(controller.dispose);
     await _pumpPhone(tester, controller);
 
-    await tester.tap(find.text('Say Ring 商城'));
+    await tester.tap(find.text('赛电商城'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('shop-page')), findsOneWidget);
     expect(find.text('QA 智能手表'), findsOneWidget);
@@ -167,7 +167,7 @@ void main() {
     );
     await _pumpPhone(tester, controller);
 
-    await tester.tap(find.text('Say Ring 商城'));
+    await tester.tap(find.text('赛电商城'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('购物车'));
     await tester.pumpAndSettle();
@@ -204,7 +204,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(320, 568));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Say Ring 商城'));
+    await tester.tap(find.text('赛电商城'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('QA 智能手表'));
     await tester.pumpAndSettle();
