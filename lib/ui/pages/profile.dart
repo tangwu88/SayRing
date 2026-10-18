@@ -1,5 +1,18 @@
 part of '../pages.dart';
 
+String _profileCareMemberNumber(Map<String, Object?> profile) {
+  for (final key in ['memberNo', 'promo_code']) {
+    final value = profile[key];
+    if (value is! String && value is! int) continue;
+    try {
+      return CareInvitationTarget.memberId('$value').value;
+    } on FormatException {
+      // A UUID, referral code or unknown value is not a care member number.
+    }
+  }
+  return '--';
+}
+
 class SettingsPage extends StatelessWidget {
   const SettingsPage({required this.controller, super.key});
 
@@ -14,8 +27,7 @@ class SettingsPage extends StatelessWidget {
   Widget _buildContent(BuildContext context) {
     final profile = controller.memberProfile;
     final name = _memberDisplayName(context, controller);
-    final memberId =
-        '${profile['promo_code'] ?? controller.session?.memberId ?? '--'}';
+    final memberId = _profileCareMemberNumber(profile);
     final avatarUrl = '${profile['head_portrait'] ?? ''}'.trim();
     return ListView(
       key: const Key('my-page'),

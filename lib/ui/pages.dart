@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../domain/feature_models.dart';
+import '../domain/global_care.dart';
 import '../l10n/global_locale_controller.dart';
 import '../l10n/ui_labels.dart';
 import '../domain/ecg_waveform.dart';

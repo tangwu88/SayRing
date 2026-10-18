@@ -29,6 +29,47 @@ void main() {
   // the explicit page locale rather than a hard-coded numeric pattern.
   setUpAll(() => initializeDateFormatting('zh_Hans'));
 
+  for (final example in <(String, Map<String, Object?>, String)>[
+    ('canonical', {'memberNo': '29', 'promo_code': '30'}, '29'),
+    ('legacy', {'promo_code': 30}, '30'),
+    ('missing', {}, '--'),
+    ('invalid', {'memberNo': 'synthetic-uuid', 'promo_code': '00'}, '--'),
+  ]) {
+    testWidgets('care member ID on my page uses ${example.$1} profile number', (
+      tester,
+    ) async {
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+      );
+      addTearDown(controller.dispose);
+      controller.session = Session(
+        accessToken: 'synthetic',
+        refreshToken: '',
+        expiresAt: DateTime.utc(2030),
+        memberId: 'synthetic-owner-uuid',
+        accountKey: 'global:synthetic-owner-uuid',
+        displayName: 'Synthetic',
+      );
+      controller.memberProfile = example.$2;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: Scaffold(body: SettingsPage(controller: controller)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('synthetic-owner-uuid'), findsNothing);
+      expect(
+        find.textContaining(RegExp('(?:ID|编号).*${RegExp.escape(example.$3)}')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final viewport in const [
     (width: 360.0, scale: 1.0),
     (width: 320.0, scale: 1.0),
