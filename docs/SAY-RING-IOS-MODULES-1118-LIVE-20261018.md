@@ -163,6 +163,8 @@ CI `39133944860` 此时为 completed / failure：verify、resolve 仍 success，
 
 续结：服务端实际保存 false/false、重新打开编辑页，两个独立开关仍为“隐藏”；数据库新增模块配置后，排除这一个新 key 的其余设置摘要与切换前一致。客户端随后再次独立读取生产契约仍为双关闭。此项证明后台保存和回读，不等于手机显示/关闭、正向内容或现场撤销测试通过；没有将两个开关开启来冒充手机联验。
 
+最终审计回执：仅保存 `say_ring_ios_module_display`，public=true、schema1、双 false；重新打开后两个 switch 均可编辑且 value0。数据库排除新 key 的所有 AppSetting 行摘要仍与部署前后一致；该实体审计 action 为 `SAY_RING_IOS_MODULE_DISPLAY_UPDATED`，before_closed / after_closed 均 true。没有回传或入 Git 操作员 ID/IP、凭据、健康数据或后台截图；未发生正向开关启用。
+
 注意切换前用户/外部配置已变化：最新 `sleepAiEnabled=false`、`hideAi=false`，五指标为心率/HRV/血氧/压力关闭、皮肤温度开启；部署保留这些新鲜值，未恢复本轮最初的整对象，也未因模块显示扩大采样、上传、通用 AI 或购买/支付权限。
 
 ### 本轮设备通道与后续边界
