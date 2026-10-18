@@ -1,0 +1,17 @@
+Say Ring 1.0.3 (1107) adds the latest gesture-control layout, a separate instruction page and a read-only scroll practice page to the published 1.0.2 (1101). It uses the same runtime source as the uploaded 1.0.2 (1106), rebuilt with new version identifiers because Apple released 1.0.2 and closed that train to new external Beta submissions before 1106 could be submitted.
+
+The practice cards let the owner observe physical ring input; the app does not generate system input or automatically declare the gesture successful. Actual directions and actions depend on ring firmware, OS Bluetooth pairing and the target app. Bidirectional control is not guaranteed for every device or app.
+
+The iOS data views and account synchronization remain limited to steps, distance, activity calories and device-reported sleep duration/stages. Existing physiological records are retained but are not displayed or uploaded. Manual physiological measurements, clinical alerts, disease-risk estimates, general health AI and device sleep scores remain unavailable for all iOS users.
+
+Device > Gesture control uses only the connected ring's actual capabilities. QRing modes retain raw-state checking and independent readback after saving. Earlier R21 core-protocol tests covered off/video/music/reading roundtrips and restoration, and the owner confirmed music control. The runtime source used for 1106 and this version passed 1283 Flutter tests in each of UTC and Asia/Shanghai, plus iOS Debug/Profile/Release compilation and distribution-signature checks for 1106. This version-only rebuild has not been physically retested on every ring, action or target app.
+
+The following features from the published version remain available:
+1. Sleep opens the latest valid available record, then supports explicit date selection. Missing data remains empty; no sleep stages are fabricated.
+2. Device > Health monitoring configures only supported firmware auto-monitoring switches and intervals. It does not enable physiological data views or manual measurements in iOS.
+3. The dedicated sleep AI report requires a signed-in account, server availability, published sleep-analysis consent and a separate explicit confirmation to upload the selected sleep summary to the configured third-party AI service. Raw sleep segments stay local. The optional AI sleep reference score and routine suggestions are non-clinical and may be inaccurate. The same rules apply to all accounts; there is no special review-account override.
+4. Bluetooth routing includes R1/R2 prefixes and R7C. A name selects a candidate only; the actual vendor handshake and capabilities enable features.
+
+Use the existing review credentials for email PASSWORD login, not the one-time-code field. Guest entry is available without registration and keeps guest records locally. Compatible ring hardware and Bluetooth permission are required for live ring functions. Existing review credentials and contact details are unchanged.
+
+The app and its sleep reference reports support everyday activity and sleep routines, not diagnosis or treatment. Wearable sleep stages are estimates. Please consult a doctor before making any medical decision. No clinical validation or medical regulatory clearance is claimed.
