@@ -7,6 +7,8 @@ import '../widgets/safe_network_image.dart';
 import '../html_text.dart';
 import '../media_url.dart';
 import '../wellness_release.dart';
+import '../../domain/module_visibility.dart';
+import '../module_content_gate.dart';
 
 /// International content uses opaque string IDs and the global content service.
 /// Language changes reload content instead of displaying the previous language
@@ -45,7 +47,7 @@ class _GlobalArticleLibraryPageState extends State<GlobalArticleLibraryPage> {
   }
 
   Future<void> _load() async {
-    if (widget.controller.isWellnessOnly) return;
+    if (!widget.controller.healthLibraryVisible) return;
     final generation = ++_generation;
     setState(() {
       _loading = true;
@@ -84,7 +86,7 @@ class _GlobalArticleLibraryPageState extends State<GlobalArticleLibraryPage> {
   }
 
   Future<void> _loadMore() async {
-    if (widget.controller.isWellnessOnly) return;
+    if (!widget.controller.healthLibraryVisible) return;
     if (_loadingMore || !_hasMore) return;
     final generation = _generation;
     setState(() {
@@ -126,7 +128,20 @@ class _GlobalArticleLibraryPageState extends State<GlobalArticleLibraryPage> {
   }
 
   @override
-  Widget build(BuildContext context) => widget.controller.isWellnessOnly
+  Widget build(BuildContext context) => ModuleContentGate(
+    controller: widget.controller,
+    module: SayRingModule.healthLibrary,
+    onOpened: () => unawaited(_load()),
+    onClosed: () {
+      _generation++;
+      _articles = const [];
+      _categories = const [];
+    },
+    builder: _buildPage,
+  );
+
+  Widget _buildPage(BuildContext context) =>
+      !widget.controller.healthLibraryVisible
       ? const WellnessReleaseUnavailablePage()
       : Scaffold(
           key: const Key('global-article-library'),
@@ -233,7 +248,7 @@ class _ArticleCategoryPageState extends State<ArticleCategoryPage> {
   }
 
   Future<void> _load() async {
-    if (widget.controller.isWellnessOnly) return;
+    if (!widget.controller.healthLibraryVisible) return;
     if (mounted) setState(() => _loading = true);
     final categories = await widget.controller.loadArticleCategories();
     final articles = await widget.controller.loadArticlesByCategory(
@@ -248,7 +263,7 @@ class _ArticleCategoryPageState extends State<ArticleCategoryPage> {
   }
 
   Future<void> _selectCategory(int? categoryId) async {
-    if (widget.controller.isWellnessOnly) return;
+    if (!widget.controller.healthLibraryVisible) return;
     if (_selectedCategoryId == categoryId && !_loading) return;
     setState(() {
       _selectedCategoryId = categoryId;
@@ -265,8 +280,21 @@ class _ArticleCategoryPageState extends State<ArticleCategoryPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (widget.controller.isWellnessOnly) {
+  Widget build(BuildContext context) => ModuleContentGate(
+    controller: widget.controller,
+    module: SayRingModule.healthLibrary,
+    onOpened: () {
+      if (!widget.controller.isGlobalEdition) unawaited(_load());
+    },
+    onClosed: () {
+      _categories = const [];
+      _articles = const [];
+    },
+    builder: _buildPage,
+  );
+
+  Widget _buildPage(BuildContext context) {
+    if (!widget.controller.healthLibraryVisible) {
       return const WellnessReleaseUnavailablePage();
     }
     if (widget.controller.isGlobalEdition) {
@@ -399,7 +427,7 @@ class _ArticleListPageState extends State<ArticleListPage> {
   }
 
   Future<void> _load() async {
-    if (widget.controller.isWellnessOnly) return;
+    if (!widget.controller.healthLibraryVisible) return;
     if (mounted) setState(() => _loading = true);
     final articles = await widget.controller.loadArticlesByCategory(
       categoryId: widget.categoryId,
@@ -412,8 +440,20 @@ class _ArticleListPageState extends State<ArticleListPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (widget.controller.isWellnessOnly) {
+  Widget build(BuildContext context) => ModuleContentGate(
+    controller: widget.controller,
+    module: SayRingModule.healthLibrary,
+    onOpened: () {
+      if (!widget.controller.isGlobalEdition) unawaited(_load());
+    },
+    onClosed: () {
+      _articles = const [];
+    },
+    builder: _buildPage,
+  );
+
+  Widget _buildPage(BuildContext context) {
+    if (!widget.controller.healthLibraryVisible) {
       return const WellnessReleaseUnavailablePage();
     }
     if (widget.controller.isGlobalEdition) {
@@ -588,7 +628,7 @@ class _ArticleDetailPageState extends State<ArticleDetailPage> {
   }
 
   Future<void> _load() async {
-    if (widget.controller.isWellnessOnly) return;
+    if (!widget.controller.healthLibraryVisible) return;
     final id = _articleId;
     if (id == null) return;
     if (widget.controller.isGlobalEdition) {
@@ -628,8 +668,19 @@ class _ArticleDetailPageState extends State<ArticleDetailPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (widget.controller.isWellnessOnly) {
+  Widget build(BuildContext context) => ModuleContentGate(
+    controller: widget.controller,
+    module: SayRingModule.healthLibrary,
+    onOpened: () => unawaited(_load()),
+    onClosed: () {
+      _loadGeneration++;
+      _article = const {};
+    },
+    builder: _buildPage,
+  );
+
+  Widget _buildPage(BuildContext context) {
+    if (!widget.controller.healthLibraryVisible) {
       return const WellnessReleaseUnavailablePage();
     }
     final title = '${_article['title'] ?? context.l10n.healthLibrary}';

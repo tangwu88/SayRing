@@ -13,6 +13,8 @@ import '../services/app_controller.dart';
 import 'app_theme.dart';
 import 'prototype_pages.dart';
 import 'global_shop_pages.dart';
+import '../domain/module_visibility.dart';
+import 'module_content_gate.dart';
 
 class ShopHomePage extends StatefulWidget {
   const ShopHomePage({
@@ -90,8 +92,15 @@ class _ShopHomePageState extends State<ShopHomePage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (!widget.controller.commerceEnabled) {
+  Widget build(BuildContext context) => ModuleContentGate(
+    controller: widget.controller,
+    module: SayRingModule.mall,
+    unavailableKey: const Key('commerce-unavailable-page'),
+    builder: _buildPage,
+  );
+
+  Widget _buildPage(BuildContext context) {
+    if (!widget.controller.mallVisible) {
       return Scaffold(
         key: const Key('commerce-unavailable-page'),
         appBar: AppBar(),

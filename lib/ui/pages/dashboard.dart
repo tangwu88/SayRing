@@ -147,8 +147,8 @@ class DashboardPage extends StatelessWidget {
                     const SizedBox(height: 12),
                   ],
                   _FeatureEntryGrid(
-                    commerceEnabled: controller.commerceEnabled,
-                    encyclopediaEnabled: !controller.isWellnessOnly,
+                    commerceEnabled: controller.mallVisible,
+                    encyclopediaEnabled: controller.healthLibraryVisible,
                     onCare: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
                         builder: (_) => controller.isGlobalEdition

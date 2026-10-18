@@ -16,6 +16,8 @@ const _articleId = '1b31a3cb-77ee-4cc6-ad93-0a640e496817';
 
 class _GlobalPageController extends Fake implements AppController {
   @override
+  bool get healthLibraryVisible => !isWellnessOnly;
+  @override
   bool get isWellnessOnly => false;
   @override
   bool get healthAlertsAvailable => true;

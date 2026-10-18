@@ -13,6 +13,8 @@ import 'global_shop_account_pages.dart';
 import 'global_shop_cart_pages.dart';
 import 'global_shop_widgets.dart';
 import 'widgets/safe_network_image.dart';
+import '../domain/module_visibility.dart';
+import 'module_content_gate.dart';
 
 /// International storefront. Trading controls stay capability-gated by the
 /// server while browsing remains available during market or payment downtime.
@@ -75,6 +77,7 @@ class _GlobalShopHomePageState extends State<GlobalShopHomePage> {
         } catch (_) {
           _capabilities = GlobalCommerceCapabilities.unavailable;
         }
+        if (!mounted || generation != _generation) return;
       }
       final result = await widget.controller.loadGlobalShopProducts(
         keyword: _keyword,
@@ -109,34 +112,51 @@ class _GlobalShopHomePageState extends State<GlobalShopHomePage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => ModuleContentGate(
+    controller: widget.controller,
+    module: SayRingModule.mall,
+    onOpened: () => unawaited(_load(loadHome: true)),
+    onClosed: () {
+      _generation++;
+      _searchTimer?.cancel();
+      _products = const [];
+      _categories = const [];
+      _banners = const [];
+    },
+    builder: _buildPage,
+  );
+
+  Widget _buildPage(BuildContext context) => Scaffold(
     key: const Key('global-shop-page'),
     appBar: AppBar(
       title: Text(context.l10n.shop),
       actions: [
-        IconButton(
-          key: const Key('global-shop-cart-action'),
-          tooltip: context.l10n.cart,
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => GlobalShopCartPage(controller: widget.controller),
-            ),
-          ),
-          icon: const Icon(Icons.shopping_cart_outlined),
-        ),
-        IconButton(
-          key: const Key('global-shop-account-action'),
-          tooltip: context.l10n.shopAccount,
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => GlobalShopAccountPage(
-                controller: widget.controller,
-                openProduct: _openProductId,
+        if (widget.controller.commerceEnabled) ...[
+          IconButton(
+            key: const Key('global-shop-cart-action'),
+            tooltip: context.l10n.cart,
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    GlobalShopCartPage(controller: widget.controller),
               ),
             ),
+            icon: const Icon(Icons.shopping_cart_outlined),
           ),
-          icon: const Icon(Icons.person_outline),
-        ),
+          IconButton(
+            key: const Key('global-shop-account-action'),
+            tooltip: context.l10n.shopAccount,
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => GlobalShopAccountPage(
+                  controller: widget.controller,
+                  openProduct: _openProductId,
+                ),
+              ),
+            ),
+            icon: const Icon(Icons.person_outline),
+          ),
+        ],
       ],
     ),
     body: Column(
@@ -153,7 +173,8 @@ class _GlobalShopHomePageState extends State<GlobalShopHomePage> {
             ),
           ),
         ),
-        if (!_capabilities.checkoutEnabled)
+        if (!widget.controller.commerceEnabled ||
+            !_capabilities.checkoutEnabled)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
             child: GlobalShopNotice(text: context.l10n.globalShopBrowseNotice),
@@ -311,6 +332,7 @@ class GlobalShopProductPage extends StatefulWidget {
 }
 
 class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
+  int _loadGeneration = 0;
   Map<String, Object?>? _product;
   GlobalCommerceCapabilities _capabilities =
       GlobalCommerceCapabilities.unavailable;
@@ -328,18 +350,21 @@ class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
   }
 
   Future<void> _load() async {
+    final generation = ++_loadGeneration;
     setState(() => _loading = true);
     try {
       final values = await Future.wait<Object>([
         widget.controller.loadGlobalShopProduct(widget.productId),
         widget.controller.loadGlobalCommerceCapabilities(),
       ]);
+      if (!mounted || generation != _loadGeneration) return;
       final value = values[0] as Map<String, Object?>;
       final capabilities = GlobalCommerceCapabilities.fromJson(
         values[1] as Map<String, Object?>,
       );
       var favorite = value['favorite'] == true;
-      if (widget.controller.isAuthenticated) {
+      if (widget.controller.commerceEnabled &&
+          widget.controller.isAuthenticated) {
         try {
           favorite = (await widget.controller.loadGlobalShopFavorites()).any(
             (item) => commerceId(item['id']) == widget.productId,
@@ -353,7 +378,7 @@ class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
         (sku) => (commerceCents(sku?['stock']) ?? 0) > 0,
         orElse: () => skus.isEmpty ? null : skus.first,
       );
-      if (mounted) {
+      if (mounted && generation == _loadGeneration) {
         final images = _productImages(value);
         setState(() {
           _product = value.isEmpty ? null : value;
@@ -366,9 +391,13 @@ class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _product = null);
+      if (mounted && generation == _loadGeneration) {
+        setState(() => _product = null);
+      }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && generation == _loadGeneration) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -409,7 +438,11 @@ class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
   }
 
   Future<void> _setFavorite() async {
-    if (_busy || !widget.controller.isAuthenticated) return;
+    if (!widget.controller.commerceEnabled ||
+        _busy ||
+        !widget.controller.isAuthenticated) {
+      return;
+    }
     setState(() => _busy = true);
     try {
       await widget.controller.setGlobalShopFavorite(
@@ -426,7 +459,12 @@ class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
 
   Future<void> _addToCart() async {
     final sku = _selectedSku;
-    if (_busy || sku == null || !_available) return;
+    if (!widget.controller.commerceEnabled ||
+        _busy ||
+        sku == null ||
+        !_available) {
+      return;
+    }
     if (!widget.controller.isAuthenticated) {
       _message(context.l10n.signInToShopHint);
       return;
@@ -449,7 +487,12 @@ class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
   Future<void> _buyNow() async {
     final sku = _selectedSku;
     final product = _product;
-    if (sku == null || product == null || !_available) return;
+    if (!widget.controller.commerceEnabled ||
+        sku == null ||
+        product == null ||
+        !_available) {
+      return;
+    }
     if (!widget.controller.isAuthenticated) {
       _message(context.l10n.signInToShopHint);
       return;
@@ -480,6 +523,20 @@ class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
 
   @override
   Widget build(BuildContext context) {
+    return ModuleContentGate(
+      controller: widget.controller,
+      module: SayRingModule.mall,
+      onOpened: () => unawaited(_load()),
+      onClosed: () {
+        _loadGeneration++;
+        _product = null;
+        _favorite = false;
+      },
+      builder: _buildPage,
+    );
+  }
+
+  Widget _buildPage(BuildContext context) {
     final product = _product;
     return Scaffold(
       key: const Key('global-shop-product-page'),
@@ -492,23 +549,26 @@ class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
               onPressed: _busy ? null : _shareProduct,
               icon: const Icon(Icons.share_outlined),
             ),
-          if (product != null && widget.controller.isAuthenticated)
+          if (product != null &&
+              widget.controller.commerceEnabled &&
+              widget.controller.isAuthenticated)
             IconButton(
               key: const Key('global-product-favorite'),
               tooltip: context.l10n.favorites,
               onPressed: _busy ? null : _setFavorite,
               icon: Icon(_favorite ? Icons.favorite : Icons.favorite_border),
             ),
-          IconButton(
-            tooltip: context.l10n.cart,
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) =>
-                    GlobalShopCartPage(controller: widget.controller),
+          if (widget.controller.commerceEnabled)
+            IconButton(
+              tooltip: context.l10n.cart,
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      GlobalShopCartPage(controller: widget.controller),
+                ),
               ),
+              icon: const Icon(Icons.shopping_cart_outlined),
             ),
-            icon: const Icon(Icons.shopping_cart_outlined),
-          ),
         ],
       ),
       body: _loading
@@ -712,7 +772,8 @@ class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
                 ],
                 if (_rows(product['skus']).isEmpty)
                   Text(globalCatalogPrice(context, product)),
-                if (!_capabilities.checkoutEnabled) ...[
+                if (!widget.controller.commerceEnabled ||
+                    !_capabilities.checkoutEnabled) ...[
                   const SizedBox(height: 12),
                   GlobalShopNotice(text: context.l10n.marketUnavailable),
                 ],
@@ -784,13 +845,21 @@ class _GlobalShopProductPageState extends State<GlobalShopProductPage> {
                         MediaQuery.textScalerOf(context).scale(16) >= 26;
                     final add = OutlinedButton(
                       key: const Key('global-product-add-cart'),
-                      onPressed: _busy || !_available ? null : _addToCart,
+                      onPressed:
+                          !widget.controller.commerceEnabled ||
+                              _busy ||
+                              !_available
+                          ? null
+                          : _addToCart,
                       child: Text(context.l10n.addToCart),
                     );
                     final buy = FilledButton(
                       key: const Key('global-product-buy-now'),
                       onPressed:
-                          _busy || !_available || !_capabilities.checkoutEnabled
+                          !widget.controller.commerceEnabled ||
+                              _busy ||
+                              !_available ||
+                              !_capabilities.checkoutEnabled
                           ? null
                           : _buyNow,
                       child: Text(context.l10n.buyNow),

@@ -9,6 +9,12 @@ import 'package:saydian_app/ui/shop_pages.dart';
 
 class _Controller extends Fake implements AppController {
   @override
+  void addListener(VoidCallback listener) {}
+  @override
+  void removeListener(VoidCallback listener) {}
+  @override
+  bool get mallVisible => commerceEnabled;
+  @override
   bool get commerceEnabled => true;
   final productRequests = <String>[];
   final filters = <String>[];

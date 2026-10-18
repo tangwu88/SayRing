@@ -138,6 +138,10 @@ abstract interface class SayRingReadOnlyHealthApi {
   Future<ReadOnlyHealthFeatureSnapshot> getReadOnlyHealthFeatures();
 }
 
+abstract interface class SayRingModuleVisibilityApi {
+  Future<ModuleVisibilitySnapshot> getModuleVisibility();
+}
+
 /// International commerce contract. Product, cart, address and order IDs stay
 /// opaque strings; amounts retain the server-provided currency metadata.
 abstract interface class GlobalCommerceApi {
@@ -237,6 +241,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         SaydianDeviceBindingApi,
         SayRingAppDisplayApi,
         SayRingReadOnlyHealthApi,
+        SayRingModuleVisibilityApi,
         GlobalCommerceApi,
         CloudHealthRecordReader {
   GlobalSaydianApiClient(
@@ -246,6 +251,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     String Function()? locale,
     this.healthReleasePolicy = const WellnessReleasePolicy(),
     this.healthReadPolicyOverride,
+    this.moduleVisibilityScopeIos = false,
   }) : _locale = locale ?? (() => 'en'),
        super(
          baseUri: GlobalEnvironment.apiOrigin(baseUri),
@@ -256,6 +262,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
        );
 
   final String Function() _locale;
+  final bool moduleVisibilityScopeIos;
   @override
   final WellnessReleasePolicy healthReleasePolicy;
   final WellnessReleasePolicy? healthReadPolicyOverride;
@@ -348,14 +355,37 @@ class GlobalSaydianApiClient extends SaydianApiClient
 
   @override
   Future<ReadOnlyHealthFeatureSnapshot> getReadOnlyHealthFeatures() async {
-    final data = await _globalPublic(
-      'support/app-display?product=say-ring&platform=ios',
-    );
+    final data = await _ringIosDisplay();
     try {
       return ReadOnlyHealthFeatureSnapshot.fromMap(data);
     } on FormatException {
       throw const ApiException('健康数据配置暂时无法读取');
     }
+  }
+
+  Future<Map<String, Object?>>? _ringIosDisplayPending;
+  Future<Map<String, Object?>> _ringIosDisplay() {
+    return _ringIosDisplayPending ??= _globalPublic(
+      'support/app-display?product=say-ring&platform=ios',
+    ).whenComplete(() => _ringIosDisplayPending = null);
+  }
+
+  @override
+  Future<ModuleVisibilitySnapshot> getModuleVisibility() async =>
+      ModuleVisibilitySnapshot.fromMap(await _ringIosDisplay());
+
+  String _moduleReadPath(String route) {
+    if (!moduleVisibilityScopeIos) return route;
+    final uri = Uri.parse(route);
+    return uri
+        .replace(
+          queryParameters: {
+            ...uri.queryParameters,
+            'product': 'say-ring',
+            'platform': 'ios',
+          },
+        )
+        .toString();
   }
 
   bool _sleepAiEnabled = false;
@@ -433,6 +463,10 @@ class GlobalSaydianApiClient extends SaydianApiClient
         _uri('/api/saydian-app/v2/content/$path', {
           'locale': _locale(),
           ...?query,
+          if (moduleVisibilityScopeIos) ...{
+            'product': 'say-ring',
+            'platform': 'ios',
+          },
         }),
         headers: {'Accept-Language': _locale()},
       ),
@@ -1137,7 +1171,8 @@ class GlobalSaydianApiClient extends SaydianApiClient
   );
 
   @override
-  Future<Map<String, Object?>> getShopHome() => _globalPublic('commerce/home');
+  Future<Map<String, Object?>> getShopHome() =>
+      _globalPublic(_moduleReadPath('commerce/home'));
 
   @override
   Future<Map<String, Object?>> getGlobalCommerceCapabilities() async {
@@ -1163,6 +1198,10 @@ class GlobalSaydianApiClient extends SaydianApiClient
       'page': '$page',
       'pageSize': '30',
       'locale': _locale(),
+      if (moduleVisibilityScopeIos) ...{
+        'product': 'say-ring',
+        'platform': 'ios',
+      },
       if (keyword?.trim().isNotEmpty == true) 'keyword': keyword!.trim(),
       if (categoryId?.trim().isNotEmpty == true)
         'categoryId': categoryId!.trim(),
@@ -1186,7 +1225,9 @@ class GlobalSaydianApiClient extends SaydianApiClient
     if (id.trim().isEmpty) {
       return Future.error(const ApiException('Choose a product first.'));
     }
-    return _globalPublic('commerce/products/${Uri.encodeComponent(id)}');
+    return _globalPublic(
+      _moduleReadPath('commerce/products/${Uri.encodeComponent(id)}'),
+    );
   }
 
   String _globalCommercePath(String route) =>

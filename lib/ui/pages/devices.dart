@@ -974,9 +974,9 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   }
 
   Future<void> _openShop() async {
-    if (!widget.controller.commerceEnabled) return;
+    if (!widget.controller.mallVisible) return;
     await widget.controller.stopDeviceScan();
-    if (!mounted) return;
+    if (!mounted || !widget.controller.mallVisible) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: 'shop-home'),
@@ -1230,7 +1230,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                       ],
                     ),
             ),
-            bottomNavigationBar: !controller.commerceEnabled
+            bottomNavigationBar: !controller.mallVisible
                 ? null
                 : SafeArea(
                     top: false,

@@ -20,6 +20,7 @@ import '../domain/health_source_policy.dart';
 import '../domain/models.dart';
 import '../domain/wellness_release_policy.dart';
 import '../domain/read_only_health_features.dart';
+import '../domain/module_visibility.dart';
 import '../domain/sleep_timeline.dart';
 import '../domain/global_account.dart';
 import '../domain/global_care.dart';
@@ -43,6 +44,7 @@ import 'wearable_bootstrap.dart';
 import 'wechat_auth_bridge.dart';
 import 'user_message.dart';
 import 'read_only_health_service.dart';
+import 'module_visibility_service.dart';
 
 enum PushDeviceRegistrationState {
   idle,
@@ -82,11 +84,13 @@ class AppController extends ChangeNotifier {
     this.generalAiEnabled = true,
     bool wellnessOnly = false,
     WellnessReleasePolicy? healthReadPolicy,
-    this.commerceEnabled = const bool.fromEnvironment(
+    this.moduleVisibility,
+    bool commerceEnabled = const bool.fromEnvironment(
       'SAY_RING_COMMERCE_ENABLED',
       defaultValue: false,
     ),
-  }) : healthReleasePolicy =
+  }) : _commerceCeiling = commerceEnabled,
+       healthReleasePolicy =
            healthReadPolicy ?? WellnessReleasePolicy(enabled: wellnessOnly),
        _paymentBridge = paymentBridge ?? const MethodChannelAppPaymentBridge(),
        _storeKitPurchaseBridge =
@@ -129,11 +133,13 @@ class AppController extends ChangeNotifier {
         locale: () => GlobalLocaleController.instance.locale.toLanguageTag(),
         healthReleasePolicy: WellnessReleasePolicy(enabled: wellnessOnly),
         healthReadPolicyOverride: readPolicy,
+        moduleVisibilityScopeIos: wellnessOnly,
       ),
       EncryptedHealthStore(vault, globalEdition: true),
       createProductionWearableBridge(healthReleasePolicy: readPolicy),
       wellnessOnly: wellnessOnly,
       healthReadPolicy: readPolicy,
+      moduleVisibility: wellnessOnly ? ModuleVisibilityLease() : null,
       // The iOS scope remains closed even when a remote flag or old cache is
       // enabled. Other platforms retain the main branch's existing behavior.
       generalAiEnabled:
@@ -159,6 +165,53 @@ class AppController extends ChangeNotifier {
   bool _readOnlyHealthSyncQueued = false;
   bool get isWellnessOnly => healthReleasePolicy.enabled;
   bool get healthAlertsAvailable => !isWellnessOnly;
+  final ModuleVisibilityLease? moduleVisibility;
+  ModuleVisibilityService? _moduleVisibilityService;
+  bool get healthLibraryVisible => moduleVisibility == null
+      ? !isWellnessOnly
+      : moduleVisibility!.allows(SayRingModule.healthLibrary);
+  bool get mallVisible => moduleVisibility == null
+      ? commerceEnabled
+      : moduleVisibility!.allows(SayRingModule.mall);
+
+  Future<void> refreshModuleVisibility() async {
+    final lease = moduleVisibility;
+    final api = _api;
+    if (_disposed || lease == null || api is! SayRingModuleVisibilityApi) {
+      return;
+    }
+    _moduleVisibilityService ??= ModuleVisibilityService(
+      lease: lease,
+      api: api as SayRingModuleVisibilityApi,
+    )..addListener(_handleModuleVisibilityChanged);
+    await _moduleVisibilityService!.refresh();
+  }
+
+  void _handleModuleVisibilityChanged() {
+    if (_disposed) return;
+    if (!healthLibraryVisible) aiArticles = const [];
+    notifyListeners();
+  }
+
+  Future<T> _moduleRead<T>(
+    SayRingModule module,
+    Future<T> Function() read,
+  ) async {
+    final lease = moduleVisibility;
+    if (lease == null) return read();
+    if (_disposed || !lease.allows(module)) {
+      throw const FeatureNotConfiguredException('此功能暂未开放');
+    }
+    final generation = lease.generationFor(module);
+    final result = await read();
+    if (_disposed ||
+        !lease.allows(module) ||
+        lease.generationFor(module) != generation) {
+      throw const FeatureNotConfiguredException('此功能暂未开放');
+    }
+    return result;
+  }
+
   bool isMetricAvailableInRelease(HealthMetric metric) =>
       healthReleasePolicy.allowsMetric(metric);
 
@@ -262,7 +315,10 @@ class AppController extends ChangeNotifier {
 
   /// A release switch, independent of account state and device capabilities.
   /// Keep commerce code/data intact; a later upgrade can explicitly enable it.
-  final bool commerceEnabled;
+  final bool _commerceCeiling;
+  bool get commerceEnabled =>
+      _commerceCeiling &&
+      (moduleVisibility?.allows(SayRingModule.mall) ?? true);
 
   /// A build-time ceiling for general AI, independent of optional sleep AI.
   /// Production defaults closed; reopening requires a reviewed app release.
@@ -369,29 +425,42 @@ class AppController extends ChangeNotifier {
   ApiException? lastApiError;
 
   Future<List<Map<String, Object?>>> loadGlobalArticleCategories() =>
-      (_api as GlobalContentApi).getGlobalArticleCategories();
+      _moduleRead(
+        SayRingModule.healthLibrary,
+        () => (_api as GlobalContentApi).getGlobalArticleCategories(),
+      );
   Future<List<Map<String, Object?>>> loadGlobalArticles({
     String? categoryId,
     int page = 1,
-  }) => (_api as GlobalContentApi).getGlobalArticles(
-    categoryId: categoryId,
-    page: page,
+  }) => _moduleRead(
+    SayRingModule.healthLibrary,
+    () => (_api as GlobalContentApi).getGlobalArticles(
+      categoryId: categoryId,
+      page: page,
+    ),
   );
-  Future<Map<String, Object?>> loadGlobalArticle(String id) =>
-      (_api as GlobalContentApi).getGlobalArticle(id);
+  Future<Map<String, Object?>> loadGlobalArticle(String id) => _moduleRead(
+    SayRingModule.healthLibrary,
+    () => (_api as GlobalContentApi).getGlobalArticle(id),
+  );
 
   Future<Map<String, Object?>> loadGlobalShopProducts({
     String? keyword,
     String? categoryId,
     int page = 1,
-  }) => (_api as GlobalCommerceApi).getGlobalShopProducts(
-    keyword: keyword,
-    categoryId: categoryId,
-    page: page,
+  }) => _moduleRead(
+    SayRingModule.mall,
+    () => (_api as GlobalCommerceApi).getGlobalShopProducts(
+      keyword: keyword,
+      categoryId: categoryId,
+      page: page,
+    ),
   );
 
-  Future<Map<String, Object?>> loadGlobalShopProduct(String id) =>
-      (_api as GlobalCommerceApi).getGlobalShopProduct(id);
+  Future<Map<String, Object?>> loadGlobalShopProduct(String id) => _moduleRead(
+    SayRingModule.mall,
+    () => (_api as GlobalCommerceApi).getGlobalShopProduct(id),
+  );
 
   GlobalCommerceApi get _globalCommerceApi {
     final api = _api;
@@ -1480,6 +1549,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> initialize() async {
     unawaited(refreshAppDisplayConfig());
+    unawaited(refreshModuleVisibility());
     _deviceStates = deviceMachine.changes.listen((_) => notifyListeners());
     _connectivity = Connectivity().onConnectivityChanged.listen((results) {
       if (results.any((result) => result != ConnectivityResult.none) &&
@@ -4856,10 +4926,17 @@ class AppController extends ChangeNotifier {
   });
 
   Future<void> refreshAiArticles() async {
+    if (moduleVisibility != null && !healthLibraryVisible) {
+      aiArticles = const [];
+      return;
+    }
     aiStatus = '正在加载';
     notifyListeners();
     try {
-      aiArticles = await _api.getArticles();
+      aiArticles = await _moduleRead(
+        SayRingModule.healthLibrary,
+        () => _api.getArticles(),
+      );
       aiStatus = aiArticles.isEmpty ? '暂无百科内容' : '已加载';
     } on ApiException catch (error) {
       aiStatus = _apiErrorMessage(error, fallback: '百科暂时无法加载');
@@ -4981,6 +5058,7 @@ class AppController extends ChangeNotifier {
   void setAppForeground(bool foreground) {
     _appIsForeground = foreground;
     _readOnlyHealthFeatureService?.setForeground(foreground);
+    _moduleVisibilityService?.setForeground(foreground);
     _scheduleDeviceDetailsPoll();
     if (!foreground) {
       _careInvitationPollTimer?.cancel();
@@ -4993,6 +5071,7 @@ class AppController extends ChangeNotifier {
   Future<void> handleAppResumed() async {
     if (_disposed) return;
     unawaited(refreshAppDisplayConfig());
+    unawaited(refreshModuleVisibility());
     _readOnlyHealthFeatureService?.setForeground(true);
     unawaited(refreshReadOnlyHealthFeatures());
     _appIsForeground = true;
@@ -6055,8 +6134,10 @@ class AppController extends ChangeNotifier {
     throw const FeatureNotConfiguredException('商城暂时无法使用，请稍后再试');
   }
 
-  Future<Map<String, Object?>> loadShopHome() =>
-      _shopMapRequest('商城首页', () => _requiredShopApi.getShopHome());
+  Future<Map<String, Object?>> loadShopHome() => _moduleRead(
+    SayRingModule.mall,
+    () => _shopMapRequest('商城首页', () => _requiredShopApi.getShopHome()),
+  );
 
   Future<Map<String, Object?>> loadShopProduct(int id) =>
       _shopMapRequest('商品详情', () => _requiredShopApi.getShopProduct(id));
@@ -7405,6 +7486,7 @@ class AppController extends ChangeNotifier {
     if (isWechatLoginInProgress) unawaited(_wechatAuthBridge.cancel());
     _disposed = true;
     _readOnlyHealthFeatureService?.dispose();
+    _moduleVisibilityService?.dispose();
     _wearableRestoreGeneration++;
     final bridge = _wearable;
     if ((_privacyConsentGranted || rememberedDevice != null) &&
