@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/read_only_health_features.dart';
+import 'package:saydian_app/domain/wellness_release_policy.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/local_health_store.dart';
@@ -11,21 +13,22 @@ import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 
 // Synthetic records only; these tests validate product boundaries, not sensors.
-HealthRecord _record(String id, HealthMetric metric) => HealthRecord(
-  id: id,
-  metric: metric,
-  values: metric == HealthMetric.sleep
-      ? const {'value': 7, 'deepHours': 2, 'lightHours': 5, 'score': 91}
-      : const {'value': 72},
-  unit: metric.defaultUnit,
-  measuredAt: DateTime.utc(2026, 10, 1),
-  timezone: '+08:00',
-  deviceId: _Wearable.device.id,
-  firmwareVersion: 'synthetic',
-  quality: 'device_reported',
-  source: MeasurementSource.wearable,
-  rawVersion: 1,
-);
+HealthRecord _record(String id, HealthMetric metric, {DateTime? at}) =>
+    HealthRecord(
+      id: id,
+      metric: metric,
+      values: metric == HealthMetric.sleep
+          ? const {'value': 7, 'deepHours': 2, 'lightHours': 5, 'score': 91}
+          : const {'value': 72},
+      unit: metric.defaultUnit,
+      measuredAt: at ?? DateTime.utc(2026, 10, 1),
+      timezone: '+08:00',
+      deviceId: _Wearable.device.id,
+      firmwareVersion: 'synthetic',
+      quality: 'device_reported',
+      source: MeasurementSource.wearable,
+      rawVersion: 1,
+    );
 
 Future<void> _settle() async {
   for (var i = 0; i < 15; i++) {
@@ -34,8 +37,27 @@ Future<void> _settle() async {
 }
 
 class _Api extends Fake
-    implements SaydianApi, GlobalCareApi, GlobalCareRangeApi {
+    implements
+        SaydianApi,
+        GlobalCareApi,
+        GlobalCareRangeApi,
+        SayRingReadOnlyHealthApi {
   int careReads = 0;
+  bool failFeatures = false;
+  final uploads = <HealthRecord>[];
+  @override
+  Future<ReadOnlyHealthFeatureSnapshot> getReadOnlyHealthFeatures() async {
+    if (failFeatures) throw const ApiException('synthetic-offline');
+    return const ReadOnlyHealthFeatureSnapshot(
+      metrics: {
+        HealthMetric.heartRate,
+        HealthMetric.hrv,
+        HealthMetric.bloodOxygen,
+      },
+      validity: Duration(minutes: 5),
+    );
+  }
+
   @override
   Future<Session> login(String username, String password) async => Session(
     accessToken: 'synthetic-token',
@@ -56,12 +78,15 @@ class _Api extends Fake
   Future<List<Map<String, Object?>>> getNotifications({int page = 1}) async =>
       const [];
   @override
-  Future<BatchUploadResult> uploadHealthBatch(SyncBatch batch) async =>
-      BatchUploadResult(
-        nextCursor: null,
-        acceptedIds: batch.records.map((record) => record.id).toSet(),
-        rejected: const {},
-      );
+  Future<BatchUploadResult> uploadHealthBatch(SyncBatch batch) async {
+    uploads.addAll(batch.records);
+    return BatchUploadResult(
+      nextCursor: null,
+      acceptedIds: batch.records.map((record) => record.id).toSet(),
+      rejected: const {},
+    );
+  }
+
   @override
   Future<List<Map<String, Object?>>> globalCareRecords(
     String id,
@@ -84,7 +109,11 @@ class _Api extends Fake
   }
 }
 
-class _Wearable extends Fake implements WearableBridge {
+class _Wearable extends Fake
+    implements
+        WearableBridge,
+        WearableReadOnlyHealthPolicyBridge,
+        WearableManualHealthPolicyBridge {
   static const device = DeviceInfo(id: 'qring:SYNTHETIC', name: 'R21_TEST');
   final emitter = StreamController<WearableEvent>.broadcast();
   final calls = <String>[];
@@ -99,6 +128,16 @@ class _Wearable extends Fake implements WearableBridge {
   Future<void> disconnect() async {}
   @override
   Future<void> stopScan() async {}
+  @override
+  Future<void> configureReadOnlyHealthMetrics(
+    Set<HealthMetric> metrics, {
+    required Duration validity,
+  }) async {}
+  @override
+  Future<void> configureManualHealthMetrics(
+    Set<HealthMetric> metrics, {
+    required Duration validity,
+  }) async {}
   @override
   Future<DeviceCapabilities> getCapabilities() async =>
       const DeviceCapabilities(
@@ -164,7 +203,11 @@ void main() {
       _Api api,
     })
   >
-  setup({bool wellness = true, bool connect = false}) async {
+  setup({
+    bool wellness = true,
+    bool connect = false,
+    WellnessReleasePolicy? policy,
+  }) async {
     final store = MemoryHealthStore();
     final ring = _Wearable();
     final api = _Api();
@@ -174,6 +217,7 @@ void main() {
       store,
       ring,
       wellnessOnly: wellness,
+      healthReadPolicy: policy,
       allowAutomaticWearableRestore: false,
     );
     addTearDown(controller.dispose);
@@ -190,6 +234,88 @@ void main() {
     }
     return (controller: controller, store: store, ring: ring, api: api);
   }
+
+  WellnessReleasePolicy manualPolicy() => WellnessReleasePolicy(
+    enabled: true,
+    readOnlyFeatures: ReadOnlyHealthFeatures(),
+    manualFeatures: ManualHealthFeatures(),
+  );
+
+  test(
+    'new iOS manual scope uses actual capability and never promotes passive history',
+    () async {
+      final fixture = await setup(connect: true, policy: manualPolicy());
+      final controller = fixture.controller;
+      expect(controller.canMeasureHealthMetric(HealthMetric.heartRate), isTrue);
+      expect(
+        controller.canMeasureHealthMetric(HealthMetric.bloodOxygen),
+        isFalse,
+      );
+      expect(await controller.startMeasurement(HealthMetric.heartRate), isTrue);
+      final history = _record('synthetic-passive', HealthMetric.heartRate);
+      fixture.ring.emitter.add(
+        WearableEvent(type: 'healthRecord', payload: history.toJson()),
+      );
+      await _settle();
+      expect(controller.activeMeasurementMetric, HealthMetric.heartRate);
+      expect(controller.measurementResult, isNull);
+      final stale = _record(
+        'synthetic-stale',
+        HealthMetric.heartRate,
+      ).copyWith(origin: MeasurementOrigin.appMeasurement);
+      fixture.ring.emitter.add(
+        WearableEvent(type: 'healthRecord', payload: stale.toJson()),
+      );
+      await _settle();
+      expect(controller.measurementResult, isNull);
+      expect(controller.activeMeasurementMetric, HealthMetric.heartRate);
+      final live = _record(
+        'synthetic-live',
+        HealthMetric.heartRate,
+        at: DateTime.now(),
+      ).copyWith(origin: MeasurementOrigin.appMeasurement);
+      fixture.ring.emitter.add(
+        WearableEvent(type: 'healthRecord', payload: live.toJson()),
+      );
+      await _settle();
+      expect(controller.measurementResult?.id, live.id);
+      expect(controller.activeMeasurementMetric, isNull);
+      expect(
+        (await fixture.store.recent()).map((r) => r.id),
+        contains(live.id),
+      );
+      expect(
+        fixture.api.uploads.where((r) => r.metric == HealthMetric.heartRate),
+        isEmpty,
+      );
+    },
+  );
+
+  test('manual withdrawal stops SDK and rejects its late result', () async {
+    final fixture = await setup(connect: true, policy: manualPolicy());
+    expect(
+      await fixture.controller.startMeasurement(HealthMetric.heartRate),
+      isTrue,
+    );
+    fixture.api.failFeatures = true;
+    await fixture.controller.refreshReadOnlyHealthFeatures();
+    await _settle();
+    expect(fixture.controller.activeMeasurementMetric, isNull);
+    expect(fixture.ring.calls, contains('stop'));
+    final late = _record(
+      'synthetic-late',
+      HealthMetric.heartRate,
+    ).copyWith(origin: MeasurementOrigin.appMeasurement);
+    fixture.ring.emitter.add(
+      WearableEvent(type: 'healthRecord', payload: late.toJson()),
+    );
+    await _settle();
+    expect(fixture.controller.measurementResult, isNull);
+    expect(
+      (await fixture.store.recent()).where((r) => r.id == late.id),
+      isEmpty,
+    );
+  });
 
   test(
     'old physiology is inaccessible without deleting stored history',

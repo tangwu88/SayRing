@@ -20,6 +20,7 @@ class QRingWearableBridge
         WearableBondedDeviceSelectionBridge,
         WearableRememberedDeviceSelectionBridge,
         WearableReadOnlyHealthPolicyBridge,
+        WearableManualHealthPolicyBridge,
         WearableExactTargetRecoveryBridge {
   QRingWearableBridge({
     MethodChannel? methods,
@@ -211,6 +212,15 @@ class QRingWearableBridge
     Set<HealthMetric> metrics, {
     required Duration validity,
   }) => _invoke<void>('configureReadOnlyHealthMetrics', {
+    'metrics': metrics.map((metric) => metric.wireName).toList(),
+    'validForSeconds': validity.inSeconds,
+  }, const Duration(seconds: 5));
+
+  @override
+  Future<void> configureManualHealthMetrics(
+    Set<HealthMetric> metrics, {
+    required Duration validity,
+  }) => _invoke<void>('configureManualHealthMetrics', {
     'metrics': metrics.map((metric) => metric.wireName).toList(),
     'validForSeconds': validity.inSeconds,
   }, const Duration(seconds: 5));

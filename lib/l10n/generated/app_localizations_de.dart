@@ -9,6 +9,51 @@ class AppLocalizationsDe extends AppLocalizations {
   AppLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
+  String get careMemberIdLabel => 'Mitglieds-ID';
+
+  @override
+  String get careContactLabel => 'Telefon / E-Mail';
+
+  @override
+  String get careMemberIdHint =>
+      'Die Mitglieds-ID steht auf der Profilseite der Person.';
+
+  @override
+  String get careInvalidMemberId => 'Gültige Mitglieds-ID eingeben';
+
+  @override
+  String get careRequestSubmitted =>
+      'Anfrage übermittelt. Bestätigung steht aus.';
+
+  @override
+  String get careAwaitingYourReview => 'Deine Bestätigung steht aus';
+
+  @override
+  String get careAwaitingTheirReview => 'Bestätigung steht aus';
+
+  @override
+  String get careCancelInvitation => 'Einladung zurückziehen';
+
+  @override
+  String get careNoFollowing => 'Noch niemand hinzugefügt';
+
+  @override
+  String get careNoFollowers => 'Noch keine Follower';
+
+  @override
+  String get careFollowing => 'Ich folge';
+
+  @override
+  String get careFollowers => 'Folgen mir';
+
+  @override
+  String get careSummaryHint =>
+      'Nur freigegebene Gesundheitsdaten sind sichtbar.';
+
+  @override
+  String get careViewHealth => 'Gesundheitsdaten ansehen';
+
+  @override
   String get scanLocationTitle => 'Standort einschalten';
 
   @override

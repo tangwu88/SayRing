@@ -9,6 +9,48 @@ class AppLocalizationsKo extends AppLocalizations {
   AppLocalizationsKo([String locale = 'ko']) : super(locale);
 
   @override
+  String get careMemberIdLabel => '회원 ID';
+
+  @override
+  String get careContactLabel => '전화번호 / 이메일';
+
+  @override
+  String get careMemberIdHint => '상대방의 프로필 페이지에서 회원 ID를 확인하세요.';
+
+  @override
+  String get careInvalidMemberId => '유효한 회원 ID를 입력하세요';
+
+  @override
+  String get careRequestSubmitted => '요청이 제출되었습니다. 상대방의 확인을 기다려 주세요.';
+
+  @override
+  String get careAwaitingYourReview => '내 확인 대기 중';
+
+  @override
+  String get careAwaitingTheirReview => '상대방 확인 대기 중';
+
+  @override
+  String get careCancelInvitation => '초대 취소';
+
+  @override
+  String get careNoFollowing => '아직 추가한 사람이 없습니다';
+
+  @override
+  String get careNoFollowers => '아직 팔로워가 없습니다';
+
+  @override
+  String get careFollowing => '내가 관심 갖는 사람';
+
+  @override
+  String get careFollowers => '나에게 관심 갖는 사람';
+
+  @override
+  String get careSummaryHint => '공유가 허용된 건강 데이터만 표시됩니다.';
+
+  @override
+  String get careViewHealth => '건강 데이터 보기';
+
+  @override
   String get scanLocationTitle => '위치 서비스를 켜 주세요';
 
   @override

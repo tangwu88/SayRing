@@ -64,6 +64,7 @@ class ReadOnlyHealthFeatures {
 
   int get generation => _generation;
   DateTime? get expiresAt => _expiresAt;
+  bool get expired => _expiresAt != null && !_now().isBefore(_expiresAt!);
   Set<HealthMetric> get metrics =>
       _expiresAt != null && _now().isBefore(_expiresAt!) ? _metrics : const {};
 
@@ -89,4 +90,30 @@ class ReadOnlyHealthFeatures {
     _metrics = const {};
     _expiresAt = null;
   }
+}
+
+/// A separate, native-acknowledged lease for this binary's manual commands.
+/// It is never parsed from the server's read-only publication flags.
+class ManualHealthFeatures {
+  ManualHealthFeatures({DateTime Function()? now})
+    : _lease = ReadOnlyHealthFeatures(now: now);
+
+  static const supportedMetrics = <HealthMetric>{
+    HealthMetric.heartRate,
+    HealthMetric.hrv,
+    HealthMetric.bloodOxygen,
+  };
+
+  final ReadOnlyHealthFeatures _lease;
+  Set<HealthMetric> get metrics => _lease.metrics;
+  bool get expired => _lease.expired;
+
+  void replace(Set<HealthMetric> metrics, Duration validity) {
+    if (!supportedMetrics.containsAll(metrics)) {
+      throw const FormatException('Unsupported manual health feature');
+    }
+    _lease.replace(metrics, validity);
+  }
+
+  void close() => _lease.close();
 }

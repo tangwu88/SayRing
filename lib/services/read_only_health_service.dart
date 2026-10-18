@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../domain/models.dart';
+import '../domain/read_only_health_features.dart';
 import '../domain/wellness_release_policy.dart';
 import 'api_client.dart';
 import 'wearable_bridge.dart';
@@ -28,9 +29,40 @@ class ReadOnlyHealthFeatureService extends ChangeNotifier {
   Future<void> _nativePending = Future.value();
 
   Future<void> _configure(Set<HealthMetric> metrics, Duration validity) {
-    final operation = _nativePending.then(
-      (_) => bridge.configureReadOnlyHealthMetrics(metrics, validity: validity),
-    );
+    final operation = _nativePending.then((_) async {
+      final manual = bridge is WearableManualHealthPolicyBridge
+          ? bridge as WearableManualHealthPolicyBridge
+          : null;
+      final needsManual = policy.manualFeatures != null;
+      final manualMetrics = metrics.intersection(
+        ManualHealthFeatures.supportedMetrics,
+      );
+      try {
+        if (needsManual && manual == null) {
+          throw const WearableSdkNotConfigured('手动测量暂不可用');
+        }
+        await Future.wait([
+          bridge.configureReadOnlyHealthMetrics(metrics, validity: validity),
+          if (needsManual)
+            manual!.configureManualHealthMetrics(
+              manualMetrics,
+              validity: validity,
+            ),
+        ]);
+      } catch (_) {
+        // A partially configured adapter must not leave a usable manual grant.
+        await Future.wait([
+          bridge
+              .configureReadOnlyHealthMetrics(const {}, validity: Duration.zero)
+              .catchError((Object _) {}),
+          if (needsManual && manual != null)
+            manual
+                .configureManualHealthMetrics(const {}, validity: Duration.zero)
+                .catchError((Object _) {}),
+        ]);
+        rethrow;
+      }
+    });
     _nativePending = operation.catchError((Object _) {});
     return operation;
   }
@@ -41,6 +73,9 @@ class ReadOnlyHealthFeatureService extends ChangeNotifier {
   }
 
   Future<void> _refresh() async {
+    // A renewed lease cannot resurrect an operation from an expired scope.
+    // Notify the controller to cancel it before either native ACK is renewed.
+    if (policy.manualFeatures?.expired == true) notifyListeners();
     final generation = _generation;
     final features = policy.readOnlyFeatures!;
     final before = features.metrics.toSet();
@@ -50,6 +85,10 @@ class ReadOnlyHealthFeatureService extends ChangeNotifier {
       await _configure(snapshot.metrics, snapshot.validity);
       if (_disposed || generation != _generation) return;
       features.replace(snapshot.metrics, snapshot.validity);
+      policy.manualFeatures?.replace(
+        snapshot.metrics.intersection(ManualHealthFeatures.supportedMetrics),
+        snapshot.validity,
+      );
       _expiryTimer?.cancel();
       _expiryTimer = Timer(snapshot.validity, () => unawaited(_close()));
     } catch (_) {
@@ -72,6 +111,7 @@ class ReadOnlyHealthFeatureService extends ChangeNotifier {
     _generation++;
     final hadGrant = policy.readOnlyFeatures!.expiresAt != null;
     policy.readOnlyFeatures!.close();
+    policy.manualFeatures?.close();
     _expiryTimer?.cancel();
     if (hadGrant) notifyListeners();
     try {
@@ -96,6 +136,7 @@ class ReadOnlyHealthFeatureService extends ChangeNotifier {
     _refreshTimer?.cancel();
     _expiryTimer?.cancel();
     policy.readOnlyFeatures!.close();
+    policy.manualFeatures?.close();
     unawaited(_configure(const {}, Duration.zero).catchError((Object _) {}));
     super.dispose();
   }

@@ -120,6 +120,7 @@ class AppController extends ChangeNotifier {
     final readPolicy = WellnessReleasePolicy(
       enabled: wellnessOnly,
       readOnlyFeatures: wellnessOnly ? ReadOnlyHealthFeatures() : null,
+      manualFeatures: wellnessOnly ? ManualHealthFeatures() : null,
     );
     return AppController(
       vault,
@@ -184,6 +185,12 @@ class AppController extends ChangeNotifier {
     if (_disposed) return;
     final revision = ++_healthReadUiGeneration;
     final sessionGeneration = _sessionGeneration;
+    final active = _activeMeasurementMetric;
+    if (active != null &&
+        !healthReleasePolicy.allowsManualMeasurement(active)) {
+      measurementErrorMessage = '测量已停止';
+      unawaited(stopMeasurement(active));
+    }
     // Direct routes and cards observe the current policy immediately, even
     // while a queued device command or local-store read is still completing.
     notifyListeners();
@@ -204,6 +211,7 @@ class AppController extends ChangeNotifier {
             healthReleasePolicy.readOnlyFeatures!.metrics.isEmpty) {
           return;
         }
+        if (_activeMeasurementMetric != null) return;
         if (isDeviceSyncing) {
           _readOnlyHealthSyncQueued = true;
           return;
@@ -226,7 +234,10 @@ class AppController extends ChangeNotifier {
           .where(isMetricAvailableInRelease)
           .map((m) => m.wireName)
           .toList(),
-      'manualMetrics': <String>[],
+      'manualMetrics': (value.manualMetrics ?? const <HealthMetric>{})
+          .where(healthReleasePolicy.allowsManualMeasurement)
+          .map((metric) => metric.wireName)
+          .toList(),
       if (value.historyMetrics != null)
         'historyMetrics': value.historyMetrics!
             .where(isMetricAvailableInRelease)
@@ -671,6 +682,20 @@ class AppController extends ChangeNotifier {
 
   Future<void> globalInviteCare(String identifier) =>
       (_api as GlobalCareApi).globalInviteCare(identifier);
+
+  Future<void> globalInviteCareTarget(CareInvitationTarget target) async {
+    if (target.method == CareInvitationMethod.contact) {
+      return globalInviteCare(target.value);
+    }
+    final api = _api;
+    if (api is! GlobalCareMemberInviteApi) {
+      throw const FeatureNotConfiguredException('会员 ID 添加暂不可用');
+    }
+    await (api as GlobalCareMemberInviteApi).globalInviteCareByMemberNo(
+      target.value,
+    );
+  }
+
   Future<void> globalRespondCare(String id, bool accepted) =>
       (_api as GlobalCareApi).globalRespondCare(id, accepted);
   Future<void> globalShareCare(String id, Set<String> metrics) async {
@@ -1043,6 +1068,13 @@ class AppController extends ChangeNotifier {
   int selectedTab = 0;
   String? errorMessage;
   String? measurementErrorMessage;
+  HealthRecord? _measurementResult;
+  DateTime? _measurementStartedAt;
+  (int, String)? _measurementResultOwner;
+  HealthRecord? get measurementResult =>
+      _measurementResultOwner == (_sessionGeneration, connectedDevice?.id)
+      ? _measurementResult
+      : null;
   int measurementProgress = 0;
   bool measurementWearConfirmed = true;
   List<num> measurementSamples = const [];
@@ -1259,7 +1291,7 @@ class AppController extends ChangeNotifier {
   }
 
   bool canMeasureHealthMetric(HealthMetric metric) =>
-      !isWellnessOnly &&
+      healthReleasePolicy.allowsManualMeasurement(metric) &&
       connectedDevice != null &&
       _hasResolvedDeviceCapabilities &&
       capabilities?.supportsManualMeasurement(metric) == true;
@@ -2612,7 +2644,8 @@ class AppController extends ChangeNotifier {
   Future<bool> _syncDeviceData(String deviceId, {required bool initial}) async {
     if (_accountTransitioning ||
         connectedDevice?.id != deviceId ||
-        isDeviceSyncing) {
+        isDeviceSyncing ||
+        _activeMeasurementMetric != null) {
       return false;
     }
     if (capabilities?.supportsHistorySync == false) {
@@ -3123,7 +3156,9 @@ class AppController extends ChangeNotifier {
   }
 
   Future<bool> startMeasurement(HealthMetric metric) async {
-    if (isWellnessOnly) {
+    _measurementResult = null;
+    _measurementResultOwner = null;
+    if (!healthReleasePolicy.allowsManualMeasurement(metric)) {
       errorMessage = '此版本暂不支持手动测量';
       notifyListeners();
       return false;
@@ -3162,6 +3197,7 @@ class AppController extends ChangeNotifier {
     try {
       final sessionGeneration = _sessionGeneration;
       _activeMeasurementMetric = metric;
+      _measurementStartedAt = DateTime.now();
       _activeMeasurementSessionGeneration = sessionGeneration;
       deviceMachine.transition(DeviceConnectionState.measuring);
       await _wearable.startMeasurement(metric);
@@ -6856,7 +6892,8 @@ class AppController extends ChangeNotifier {
             .replaceFirst(RegExp(r'^(veepoo|yucheng|coolwear|qring):'), '')
             .toLowerCase();
         if (nativeId(record.deviceId) != nativeId(connectedDevice!.id)) return;
-        if (_activeMeasurementMetric == record.metric &&
+        if (!isWellnessOnly &&
+            _activeMeasurementMetric == record.metric &&
             record.origin == MeasurementOrigin.watchHistory &&
             // CoolWear v2 distinguishes passive type 61 history from the
             // current type 60 RRI-HRV measurement. Never promote history.
@@ -6881,10 +6918,13 @@ class AppController extends ChangeNotifier {
         unawaited(syncDeviceData());
       }
     } else if (event.type == 'measurementProgress') {
-      if (isWellnessOnly) return;
-      final metric = HealthMetric.fromWire(
+      final metric = HealthMetric.tryFromWire(
         '${event.payload['metric'] ?? _activeMeasurementMetric?.wireName ?? ''}',
       );
+      if (metric == null ||
+          !healthReleasePolicy.allowsManualMeasurement(metric)) {
+        return;
+      }
       if (_activeMeasurementMetric == metric) {
         measurementProgress =
             (event.payload['progress'] as num?)
@@ -7171,6 +7211,21 @@ class AppController extends ChangeNotifier {
     HealthRecord record, {
     required int expectedGeneration,
   }) async {
+    // A late/unsolicited manual result cannot become a passive history record.
+    if (isWellnessOnly &&
+        record.origin == MeasurementOrigin.appMeasurement &&
+        (!healthReleasePolicy.allowsManualMeasurement(record.metric) ||
+            _activeMeasurementMetric != record.metric ||
+            _activeMeasurementSessionGeneration != expectedGeneration ||
+            _measurementStartedAt == null ||
+            record.measuredAt.isBefore(
+              _measurementStartedAt!.subtract(const Duration(seconds: 2)),
+            ) ||
+            record.measuredAt.isAfter(
+              DateTime.now().add(const Duration(minutes: 2)),
+            ))) {
+      return;
+    }
     final projected = healthReleasePolicy.projectRecord(record);
     if (projected == null) return;
     record = projected;
@@ -7187,6 +7242,8 @@ class AppController extends ChangeNotifier {
         _activeMeasurementMetric == record.metric &&
         record.origin == MeasurementOrigin.appMeasurement;
     if (shouldStopMeasurement) {
+      _measurementResult = record;
+      _measurementResultOwner = (expectedGeneration, connectedDevice!.id);
       _measurementTimeout?.cancel();
       _measurementTimeout = null;
       _activeMeasurementMetric = null;

@@ -9,6 +9,48 @@ class AppLocalizationsJa extends AppLocalizations {
   AppLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
+  String get careMemberIdLabel => '会員 ID';
+
+  @override
+  String get careContactLabel => '電話番号／メール';
+
+  @override
+  String get careMemberIdHint => '相手の「マイページ」で会員 ID を確認できます。';
+
+  @override
+  String get careInvalidMemberId => '有効な会員 ID を入力してください';
+
+  @override
+  String get careRequestSubmitted => 'リクエストを送信しました。相手の承認をお待ちください。';
+
+  @override
+  String get careAwaitingYourReview => 'あなたの承認待ち';
+
+  @override
+  String get careAwaitingTheirReview => '相手の承認待ち';
+
+  @override
+  String get careCancelInvitation => '招待を取り消す';
+
+  @override
+  String get careNoFollowing => 'まだ追加していません';
+
+  @override
+  String get careNoFollowers => 'まだフォロワーがいません';
+
+  @override
+  String get careFollowing => '見守る相手';
+
+  @override
+  String get careFollowers => 'あなたを見守る人';
+
+  @override
+  String get careSummaryHint => '共有を許可された健康データのみ表示します。';
+
+  @override
+  String get careViewHealth => '健康データを見る';
+
+  @override
   String get scanLocationTitle => '位置情報をオンにしてください';
 
   @override

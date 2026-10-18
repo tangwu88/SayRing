@@ -7,10 +7,15 @@ import 'sleep_timeline.dart';
 /// Device capability/ownership checks are still required independently.
 /// Projection never mutates the original record or its persisted snapshot.
 class WellnessReleasePolicy {
-  const WellnessReleasePolicy({this.enabled = false, this.readOnlyFeatures});
+  const WellnessReleasePolicy({
+    this.enabled = false,
+    this.readOnlyFeatures,
+    this.manualFeatures,
+  });
 
   final bool enabled;
   final ReadOnlyHealthFeatures? readOnlyFeatures;
+  final ManualHealthFeatures? manualFeatures;
 
   static const activitySleepMetrics = <HealthMetric>{
     HealthMetric.steps,
@@ -36,6 +41,11 @@ class WellnessReleasePolicy {
 
   bool allowsMetric(HealthMetric metric) =>
       !enabled || allowedMetrics!.contains(metric);
+
+  bool allowsManualMeasurement(HealthMetric metric) =>
+      !enabled ||
+      (allowsMetric(metric) &&
+          manualFeatures?.metrics.contains(metric) == true);
 
   bool allowsWireMetric(String wire) {
     if (!enabled) return true;

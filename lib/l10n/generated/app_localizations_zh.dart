@@ -9,6 +9,48 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get careMemberIdLabel => '会员 ID';
+
+  @override
+  String get careContactLabel => '手机号/邮箱';
+
+  @override
+  String get careMemberIdHint => '在对方的“我的”页面查看会员 ID';
+
+  @override
+  String get careInvalidMemberId => '请输入有效会员 ID';
+
+  @override
+  String get careRequestSubmitted => '请求已提交，等待对方确认';
+
+  @override
+  String get careAwaitingYourReview => '待你确认';
+
+  @override
+  String get careAwaitingTheirReview => '等待对方确认';
+
+  @override
+  String get careCancelInvitation => '撤销邀请';
+
+  @override
+  String get careNoFollowing => '尚未添加关爱';
+
+  @override
+  String get careNoFollowers => '暂无关注者';
+
+  @override
+  String get careFollowing => '我关注的';
+
+  @override
+  String get careFollowers => '关注我的';
+
+  @override
+  String get careSummaryHint => '仅查看对方授权的数据';
+
+  @override
+  String get careViewHealth => '查看健康数据';
+
+  @override
   String get scanLocationTitle => '请开启手机定位';
 
   @override
@@ -1969,6 +2011,48 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   AppLocalizationsZhHans() : super('zh_Hans');
 
   @override
+  String get careMemberIdLabel => '会员 ID';
+
+  @override
+  String get careContactLabel => '手机号/邮箱';
+
+  @override
+  String get careMemberIdHint => '在对方的“我的”页面查看会员 ID';
+
+  @override
+  String get careInvalidMemberId => '请输入有效会员 ID';
+
+  @override
+  String get careRequestSubmitted => '请求已提交，等待对方确认';
+
+  @override
+  String get careAwaitingYourReview => '待你确认';
+
+  @override
+  String get careAwaitingTheirReview => '等待对方确认';
+
+  @override
+  String get careCancelInvitation => '撤销邀请';
+
+  @override
+  String get careNoFollowing => '尚未添加关爱';
+
+  @override
+  String get careNoFollowers => '暂无关注者';
+
+  @override
+  String get careFollowing => '我关注的';
+
+  @override
+  String get careFollowers => '关注我的';
+
+  @override
+  String get careSummaryHint => '仅查看对方授权的数据';
+
+  @override
+  String get careViewHealth => '查看健康数据';
+
+  @override
   String get scanLocationTitle => '请开启手机定位';
 
   @override
@@ -3927,6 +4011,48 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 /// The translations for Chinese, using the Han script (`zh_Hant`).
 class AppLocalizationsZhHant extends AppLocalizationsZh {
   AppLocalizationsZhHant() : super('zh_Hant');
+
+  @override
+  String get careMemberIdLabel => '會員 ID';
+
+  @override
+  String get careContactLabel => '手機號碼/電郵';
+
+  @override
+  String get careMemberIdHint => '在對方的「我的」頁面查看會員 ID';
+
+  @override
+  String get careInvalidMemberId => '請輸入有效會員 ID';
+
+  @override
+  String get careRequestSubmitted => '請求已提交，等待對方確認';
+
+  @override
+  String get careAwaitingYourReview => '待你確認';
+
+  @override
+  String get careAwaitingTheirReview => '等待對方確認';
+
+  @override
+  String get careCancelInvitation => '撤銷邀請';
+
+  @override
+  String get careNoFollowing => '尚未添加關愛';
+
+  @override
+  String get careNoFollowers => '暫無關注者';
+
+  @override
+  String get careFollowing => '我關注的';
+
+  @override
+  String get careFollowers => '關注我的';
+
+  @override
+  String get careSummaryHint => '僅查看對方授權的資料';
+
+  @override
+  String get careViewHealth => '查看健康資料';
 
   @override
   String get scanLocationTitle => '請開啟手機定位';

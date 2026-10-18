@@ -72,6 +72,14 @@ abstract interface class WearableReadOnlyHealthPolicyBridge {
   });
 }
 
+/// New-binary manual scope. A read-only native ACK cannot grant these commands.
+abstract interface class WearableManualHealthPolicyBridge {
+  Future<void> configureManualHealthMetrics(
+    Set<HealthMetric> metrics, {
+    required Duration validity,
+  });
+}
+
 /// Optional pull API for bridges that can verify the native connection and
 /// return the latest device metadata. Keeping it separate preserves test and
 /// third-party bridge implementations that only implement [WearableBridge].

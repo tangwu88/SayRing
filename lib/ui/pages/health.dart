@@ -183,7 +183,7 @@ Future<void> _showHealthMeasurementDialog(
   BuildContext context,
   AppController controller,
   HealthMetric metric,
-) => controller.isWellnessOnly || !controller.isMetricAvailableInRelease(metric)
+) => !controller.canMeasureHealthMetric(metric)
     ? Future.value()
     : showDialog<void>(
         context: context,
@@ -207,10 +207,8 @@ class _HealthMeasurementDialog extends StatefulWidget {
 }
 
 class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
-  // Capture this when the dialog opens, even before the first record exists.
-  // A late initializer behind `record != null && ...` would only run after
-  // the vendor result arrives and incorrectly classify it as an old record.
-  final DateTime _startedAt = DateTime.now();
+  // Completion comes from the active SDK operation, not a newer passive
+  // history timestamp or an old home-cache value.
   bool _stopping = false;
 
   @override
@@ -222,8 +220,8 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
   Future<void> _finish() async {
     if (_stopping) return;
     setState(() => _stopping = true);
-    final record = widget.controller.latestByMetric[widget.metric];
-    final completed = record != null && record.measuredAt.isAfter(_startedAt);
+    final record = widget.controller.measurementResult;
+    final completed = record?.metric == widget.metric;
     if (completed) {
       if (mounted) Navigator.of(context).pop();
       return;
@@ -246,10 +244,6 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.controller.isWellnessOnly ||
-        !widget.controller.isMetricAvailableInRelease(widget.metric)) {
-      return const AlertDialog(content: Text('此功能暂未开放'));
-    }
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -258,8 +252,18 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
       child: ListenableBuilder(
         listenable: widget.controller,
         builder: (context, _) {
-          final record = widget.controller.latestByMetric[widget.metric];
-          final isNew = record != null && record.measuredAt.isAfter(_startedAt);
+          if (!widget.controller.healthReleasePolicy.allowsManualMeasurement(
+            widget.metric,
+          )) {
+            return AlertDialog(
+              content: const Text('测量已停止'),
+              actions: [
+                TextButton(onPressed: _finish, child: Text(context.l10n.close)),
+              ],
+            );
+          }
+          final record = widget.controller.measurementResult;
+          final isNew = record != null && record.metric == widget.metric;
           final failure = widget.controller.measurementErrorMessage;
           final failed = !isNew && failure != null;
           final waitingMessage = !widget.controller.measurementWearConfirmed
@@ -285,128 +289,134 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
                 context.l10n.metricName(widget.metric),
               ),
             ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  isNew
-                      ? Icons.check_circle_rounded
-                      : failed
-                      ? Icons.error_outline_rounded
-                      : Icons.monitor_heart_rounded,
-                  color: isNew
-                      ? SaydianColors.green
-                      : failed
-                      ? SaydianColors.danger
-                      : SaydianColors.pink,
-                  size: 54,
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  isNew
-                      ? '${_healthDisplayValue(record, widget.controller)} ${_healthDisplayUnit(widget.metric, record, widget.controller)}'
-                      : failed
-                      ? failure
-                      : waitingMessage,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: isNew ? 24 : 16,
-                    fontWeight: isNew ? FontWeight.w900 : FontWeight.w600,
-                    height: 1.5,
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    isNew
+                        ? Icons.check_circle_rounded
+                        : failed
+                        ? Icons.error_outline_rounded
+                        : Icons.monitor_heart_rounded,
+                    color: isNew
+                        ? SaydianColors.green
+                        : failed
+                        ? SaydianColors.danger
+                        : SaydianColors.pink,
+                    size: 54,
                   ),
-                ),
-                if (isNew) ...[
-                  const SizedBox(height: 12),
-                  Builder(
-                    builder: (context) {
-                      final interpretation = interpretHealthRecord(record);
-                      return Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: SaydianColors.brandRedSoft,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              interpretation.title,
-                              style: const TextStyle(
-                                color: SaydianColors.brandRedDark,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              interpretation.detail,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                height: 1.45,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ],
-                if (!isNew &&
-                    !failed &&
-                    widget.metric == HealthMetric.ecg &&
-                    widget.controller.measurementSamples.length > 1) ...[
                   const SizedBox(height: 14),
-                  Container(
-                    height: 160,
-                    width: double.infinity,
-                    clipBehavior: Clip.antiAlias,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF08090B),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: CustomPaint(
-                      painter: _LiveEcgPainter(
-                        widget.controller.measurementSamples,
-                        sampleFrequency:
-                            widget.controller.measurementSampleFrequency,
-                      ),
+                  Text(
+                    isNew
+                        ? '${_healthDisplayValue(record, widget.controller)} ${_healthDisplayUnit(widget.metric, record, widget.controller)}'
+                        : failed
+                        ? failure
+                        : waitingMessage,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: isNew ? 24 : 16,
+                      fontWeight: isNew ? FontWeight.w900 : FontWeight.w600,
+                      height: 1.5,
                     ),
                   ),
-                ],
-                if (!isNew && !failed) ...[
-                  if (widget.metric == HealthMetric.bloodPressure) ...[
+                  if (isNew && widget.controller.isWellnessOnly) ...[
+                    const SizedBox(height: 12),
+                    const Text('戒指测量结果，仅供日常健康参考。', textAlign: TextAlign.center),
+                  ],
+                  if (isNew && !widget.controller.isWellnessOnly) ...[
+                    const SizedBox(height: 12),
+                    Builder(
+                      builder: (context) {
+                        final interpretation = interpretHealthRecord(record);
+                        return Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: SaydianColors.brandRedSoft,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                interpretation.title,
+                                style: const TextStyle(
+                                  color: SaydianColors.brandRedDark,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                interpretation.detail,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  height: 1.45,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                  if (!isNew &&
+                      !failed &&
+                      widget.metric == HealthMetric.ecg &&
+                      widget.controller.measurementSamples.length > 1) ...[
                     const SizedBox(height: 14),
                     Container(
-                      padding: const EdgeInsets.all(10),
+                      height: 160,
+                      width: double.infinity,
+                      clipBehavior: Clip.antiAlias,
                       decoration: BoxDecoration(
-                        color: SaydianColors.brandGoldSoft,
-                        borderRadius: BorderRadius.circular(10),
+                        color: const Color(0xFF08090B),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Text(
-                        context.l10n.spotCheckCuffHint,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 13, height: 1.45),
+                      child: CustomPaint(
+                        painter: _LiveEcgPainter(
+                          widget.controller.measurementSamples,
+                          sampleFrequency:
+                              widget.controller.measurementSampleFrequency,
+                        ),
                       ),
                     ),
                   ],
-                  const SizedBox(height: 16),
-                  LinearProgressIndicator(
-                    value: widget.controller.measurementProgress > 0
-                        ? widget.controller.measurementProgress / 100
-                        : null,
-                  ),
-                  if (widget.controller.measurementProgress > 0) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      '测量进度 ${widget.controller.measurementProgress}%',
-                      style: const TextStyle(
-                        color: SaydianColors.muted,
-                        fontSize: 14,
+                  if (!isNew && !failed) ...[
+                    if (widget.metric == HealthMetric.bloodPressure) ...[
+                      const SizedBox(height: 14),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: SaydianColors.brandGoldSoft,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          context.l10n.spotCheckCuffHint,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 13, height: 1.45),
+                        ),
                       ),
+                    ],
+                    const SizedBox(height: 16),
+                    LinearProgressIndicator(
+                      value: widget.controller.measurementProgress > 0
+                          ? widget.controller.measurementProgress / 100
+                          : null,
                     ),
+                    if (widget.controller.measurementProgress > 0) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        '测量进度 ${widget.controller.measurementProgress}%',
+                        style: const TextStyle(
+                          color: SaydianColors.muted,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
                   ],
                 ],
-              ],
+              ),
             ),
             actions: [
               if (failed)

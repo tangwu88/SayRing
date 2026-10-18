@@ -110,6 +110,90 @@ abstract class AppLocalizations {
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
   ];
 
+  /// No description provided for @careMemberIdLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Member ID'**
+  String get careMemberIdLabel;
+
+  /// No description provided for @careContactLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Phone / email'**
+  String get careContactLabel;
+
+  /// No description provided for @careMemberIdHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Find the member ID on their Profile page.'**
+  String get careMemberIdHint;
+
+  /// No description provided for @careInvalidMemberId.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid member ID'**
+  String get careInvalidMemberId;
+
+  /// No description provided for @careRequestSubmitted.
+  ///
+  /// In en, this message translates to:
+  /// **'Request submitted. Awaiting confirmation.'**
+  String get careRequestSubmitted;
+
+  /// No description provided for @careAwaitingYourReview.
+  ///
+  /// In en, this message translates to:
+  /// **'Awaiting your confirmation'**
+  String get careAwaitingYourReview;
+
+  /// No description provided for @careAwaitingTheirReview.
+  ///
+  /// In en, this message translates to:
+  /// **'Awaiting their confirmation'**
+  String get careAwaitingTheirReview;
+
+  /// No description provided for @careCancelInvitation.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel invitation'**
+  String get careCancelInvitation;
+
+  /// No description provided for @careNoFollowing.
+  ///
+  /// In en, this message translates to:
+  /// **'No one added yet'**
+  String get careNoFollowing;
+
+  /// No description provided for @careNoFollowers.
+  ///
+  /// In en, this message translates to:
+  /// **'No followers yet'**
+  String get careNoFollowers;
+
+  /// No description provided for @careFollowing.
+  ///
+  /// In en, this message translates to:
+  /// **'Following'**
+  String get careFollowing;
+
+  /// No description provided for @careFollowers.
+  ///
+  /// In en, this message translates to:
+  /// **'Followers'**
+  String get careFollowers;
+
+  /// No description provided for @careSummaryHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Only shared health data is visible.'**
+  String get careSummaryHint;
+
+  /// No description provided for @careViewHealth.
+  ///
+  /// In en, this message translates to:
+  /// **'View health data'**
+  String get careViewHealth;
+
   /// No description provided for @scanLocationTitle.
   ///
   /// In en, this message translates to:

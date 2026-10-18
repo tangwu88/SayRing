@@ -17,25 +17,35 @@ static inline NSMutableDictionary *SRReadOnlyHealthLease(void) {
     return lease;
 }
 
+static inline NSArray<NSString *> *SRManualHealthCatalogue(void) {
+    return @[@"heart_rate", @"hrv", @"blood_oxygen"];
+}
+
+static inline NSMutableDictionary *SRManualHealthLease(void) {
+    static NSMutableDictionary *lease;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ lease = [NSMutableDictionary dictionary]; });
+    return lease;
+}
+
 static inline void SRCloseReadOnlyHealthLease(void) {
     NSMutableDictionary *lease = SRReadOnlyHealthLease();
     @synchronized (lease) { [lease removeAllObjects]; }
 }
 
-static inline BOOL SRConfigureReadOnlyHealthLease(NSDictionary *arguments) {
+static inline BOOL SRConfigureHealthLease(NSDictionary *arguments, NSMutableDictionary *lease, NSArray *catalogue) {
     id metrics = arguments[@"metrics"], seconds = arguments[@"validForSeconds"];
     if (![metrics isKindOfClass:NSArray.class] || ![seconds isKindOfClass:NSNumber.class] ||
         CFGetTypeID((__bridge CFTypeRef)seconds) == CFBooleanGetTypeID() ||
         [seconds doubleValue] != [seconds integerValue] || [seconds integerValue] < 0 || [seconds integerValue] > 300) {
-        SRCloseReadOnlyHealthLease(); return NO;
+        @synchronized (lease) { [lease removeAllObjects]; } return NO;
     }
-    for (id metric in metrics) if (![metric isKindOfClass:NSString.class] || ![SRReadOnlyHealthCatalogue() containsObject:metric]) {
-        SRCloseReadOnlyHealthLease(); return NO;
+    for (id metric in metrics) if (![metric isKindOfClass:NSString.class] || ![catalogue containsObject:metric]) {
+        @synchronized (lease) { [lease removeAllObjects]; } return NO;
     }
     if ([seconds integerValue] == 0) {
-        SRCloseReadOnlyHealthLease(); return [metrics count] == 0;
+        @synchronized (lease) { [lease removeAllObjects]; } return [metrics count] == 0;
     }
-    NSMutableDictionary *lease = SRReadOnlyHealthLease();
     @synchronized (lease) {
         lease[@"metrics"] = [metrics copy];
         lease[@"deadline"] = @(NSProcessInfo.processInfo.systemUptime + [seconds integerValue]);
@@ -43,10 +53,30 @@ static inline BOOL SRConfigureReadOnlyHealthLease(NSDictionary *arguments) {
     return YES;
 }
 
+static inline BOOL SRConfigureReadOnlyHealthLease(NSDictionary *arguments) {
+    return SRConfigureHealthLease(arguments, SRReadOnlyHealthLease(), SRReadOnlyHealthCatalogue());
+}
+
+static inline BOOL SRConfigureManualHealthLease(NSDictionary *arguments) {
+    return SRConfigureHealthLease(arguments, SRManualHealthLease(), SRManualHealthCatalogue());
+}
+
 static inline BOOL SRActivitySleepMetricAllowed(id metric) {
     if (![metric isKindOfClass:NSString.class]) return NO;
     if ([@[@"steps", @"distance", @"calories", @"sleep"] containsObject:metric]) return YES;
     NSMutableDictionary *lease = SRReadOnlyHealthLease();
+    @synchronized (lease) {
+        return NSProcessInfo.processInfo.systemUptime < [lease[@"deadline"] doubleValue] &&
+            [lease[@"metrics"] containsObject:metric];
+    }
+}
+
+// A read lease alone never grants a start command. This distinct lease is
+// requested only by the new binary's fixed manual feature scope, not by a
+// server field or a reviewer/account/build-mode exception.
+static inline BOOL SRManualHealthMetricAllowed(id metric) {
+    if (!SRActivitySleepMetricAllowed(metric) || ![SRManualHealthCatalogue() containsObject:metric]) return NO;
+    NSMutableDictionary *lease = SRManualHealthLease();
     @synchronized (lease) {
         return NSProcessInfo.processInfo.systemUptime < [lease[@"deadline"] doubleValue] &&
             [lease[@"metrics"] containsObject:metric];
@@ -62,8 +92,10 @@ static inline BOOL SRActivitySleepFeatureAllowed(id feature) {
 }
 
 static inline BOOL SRActivitySleepCommandAllowed(NSString *method, NSDictionary *arguments) {
-    if ([@[@"startMeasurement", @"stopMeasurement",
-           @"readHeartRateWarning", @"setHeartRateWarning", @"calibrateBloodPressure",
+    if ([method isEqual:@"startMeasurement"]) return SRManualHealthMetricAllowed(arguments[@"metric"]);
+    // Cleanup remains available after expiry/revocation, never a new start.
+    if ([method isEqual:@"stopMeasurement"]) return [SRManualHealthCatalogue() containsObject:arguments[@"metric"] ?: NSNull.null];
+    if ([@[@"readHeartRateWarning", @"setHeartRateWarning", @"calibrateBloodPressure",
            @"calibrateBloodGlucose", @"readHealthAssessment", @"writeHealthAssessment"] containsObject:method]) return NO;
     if ([@[@"readDeviceFeature", @"writeDeviceFeature", @"triggerDeviceAction"] containsObject:method])
         return SRActivitySleepFeatureAllowed(arguments[@"feature"]);
@@ -86,7 +118,10 @@ static inline NSDictionary *SRActivitySleepCapabilities(NSDictionary *source) {
     NSMutableDictionary *result = [source mutableCopy];
     for (NSString *key in @[@"metrics", @"historyMetrics"])
         if (source[key]) result[key] = SRActivitySleepFilterNames(source[key], NO);
-    result[@"manualMetrics"] = @[];
+    NSMutableArray *manual = [NSMutableArray array];
+    if ([source[@"manualMetrics"] isKindOfClass:NSArray.class]) for (id metric in source[@"manualMetrics"])
+        if (SRManualHealthMetricAllowed(metric)) [manual addObject:metric];
+    result[@"manualMetrics"] = manual;
     for (NSString *key in @[@"features", @"integratedFeatures"])
         result[key] = SRActivitySleepFilterNames(source[key], YES);
     return result;
@@ -111,6 +146,7 @@ static inline NSDictionary *SRActivitySleepTimeline(NSDictionary *source) {
 
 static inline NSDictionary *_Nullable SRActivitySleepRecord(id source) {
     if (![source isKindOfClass:NSDictionary.class] || !SRActivitySleepMetricAllowed(source[@"type"])) return nil;
+    if ([source[@"origin"] isEqual:@"app_measurement"] && !SRManualHealthMetricAllowed(source[@"type"])) return nil;
     NSMutableDictionary *result = [SRActivitySleepKeepFields(source, @[
         @"id", @"type", @"unit", @"measuredAt", @"timezone", @"deviceId", @"firmwareVersion",
         @"quality", @"source", @"origin", @"rawVersion", @"sourceModel", @"sourceVendor",
@@ -169,7 +205,7 @@ static inline id _Nullable SRActivitySleepResult(NSString *method, id _Nullable 
 static inline NSDictionary *_Nullable SRActivitySleepEvent(NSString *type, NSDictionary *payload) {
     if ([@[@"capabilities", @"capabilitiesUpdated"] containsObject:type]) return SRActivitySleepCapabilities(payload);
     if ([type isEqual:@"healthRecord"]) return SRActivitySleepRecord(payload);
-    if ([type isEqual:@"measurementProgress"]) return nil;
+    if ([type isEqual:@"measurementProgress"]) return SRManualHealthMetricAllowed(payload[@"metric"]) ? payload : nil;
     if (payload[@"metric"] && !SRActivitySleepMetricAllowed(payload[@"metric"])) return nil;
     if ([@[@"sportData", @"sportRecord"] containsObject:type]) return SRActivitySleepSport(payload);
     if ([payload[@"sleepTimeline"] isKindOfClass:NSDictionary.class]) {

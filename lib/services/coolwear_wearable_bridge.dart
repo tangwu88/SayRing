@@ -13,7 +13,8 @@ import 'wearable_bridge.dart';
 class CoolWearIosWearableBridge extends CoolWearWearableBridge
     implements
         WearableExactTargetRecoveryBridge,
-        WearableReadOnlyHealthPolicyBridge {
+        WearableReadOnlyHealthPolicyBridge,
+        WearableManualHealthPolicyBridge {
   CoolWearIosWearableBridge({
     super.methods,
     super.events,
@@ -25,6 +26,15 @@ class CoolWearIosWearableBridge extends CoolWearWearableBridge
     Set<HealthMetric> metrics, {
     required Duration validity,
   }) => _invoke<void>('configureReadOnlyHealthMetrics', {
+    'metrics': metrics.map((metric) => metric.wireName).toList(),
+    'validForSeconds': validity.inSeconds,
+  }, const Duration(seconds: 5));
+
+  @override
+  Future<void> configureManualHealthMetrics(
+    Set<HealthMetric> metrics, {
+    required Duration validity,
+  }) => _invoke<void>('configureManualHealthMetrics', {
     'metrics': metrics.map((metric) => metric.wireName).toList(),
     'validForSeconds': validity.inSeconds,
   }, const Duration(seconds: 5));

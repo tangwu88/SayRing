@@ -49,6 +49,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 @property(nonatomic, assign) NSUInteger connectionGeneration;
 @property(nonatomic, assign) NSUInteger disconnectGeneration;
 @property(nonatomic, assign) NSUInteger measurementGeneration;
+@property(nonatomic, assign) NSUInteger manualPolicyGeneration;
 @property(nonatomic, assign) NSUInteger syncGeneration;
 @property(nonatomic, assign) BOOL readingDetails;
 @property(nonatomic, strong) NSMutableArray<NSDictionary *> *syncRecords;
@@ -594,6 +595,10 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)startMeasurement:(NSString *)metric result:(FlutterResult)result {
+    if (!SRManualHealthMetricAllowed(metric)) { result([self error:@"FEATURE_UNAVAILABLE" message:@"此项测量暂未开放"]); return; }
+    if (self.pendingSync || self.readingDetails || self.activeSportType >= 0) {
+        result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return;
+    }
     QCMeasuringType type = [self measurementType:metric];
     if (![self isResolved] || type == QCMeasuringTypeUnkown || ![self supportsManualMetric:metric]) {
         result([self error:@"QRING_FEATURE_UNVERIFIED" message:@"此项手动测量未获戒指确认"]);
@@ -651,12 +656,20 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)stopMeasurement:(NSString *)metric result:(FlutterResult)result {
+    if (self.activeMetric && ![self.activeMetric isEqualToString:metric]) { result(nil); return; }
     self.measurementGeneration++;
     QCMeasuringType type = [self measurementType:metric];
     self.activeMetric = nil;
     if (type == QCMeasuringTypeUnkown) { result(nil); return; }
     [[QCSDKManager shareInstance] stopToMeasuringWithOperateType:type completedHandle:^(__unused BOOL success, __unused NSError *error) {}];
     result(nil);
+}
+
+- (void)reconcileManualPolicy {
+    NSString *metric = self.activeMetric;
+    if (metric && !SRManualHealthMetricAllowed(metric)) {
+        [self stopMeasurement:metric result:^(__unused id value) {}];
+    }
 }
 
 - (NSInteger)sportType:(NSString *)mode {
@@ -816,6 +829,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 
 - (void)syncHealth:(FlutterResult)result {
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
+    if (self.activeMetric) { result([self error:@"MEASUREMENT_ACTIVE" message:@"测量中，请稍后同步"]); return; }
     if (self.pendingSync) { result([self error:@"SYNC_BUSY" message:@"戒指数据正在同步"]); return; }
     self.pendingSync = result;
     NSUInteger generation = ++self.syncGeneration;
@@ -1508,8 +1522,25 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 
 - (void)handleCall:(FlutterMethodCall *)call result:(FlutterResult)result {
     NSDictionary *arguments = [call.arguments isKindOfClass:NSDictionary.class] ? call.arguments : @{};
+    if ([call.method isEqualToString:@"configureManualHealthMetrics"]) {
+        [self reconcileManualPolicy]; // Drain an expired operation before renewal.
+        BOOL accepted = SRConfigureManualHealthLease(arguments);
+        [self reconcileManualPolicy];
+        NSUInteger generation = ++self.manualPolicyGeneration;
+        if (accepted && [arguments[@"validForSeconds"] integerValue] > 0) {
+            __weak typeof(self) weakSelf = self;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, [arguments[@"validForSeconds"] integerValue] * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                if (generation == weakSelf.manualPolicyGeneration) [weakSelf reconcileManualPolicy];
+            });
+        }
+        result(accepted ? nil : [self error:@"INVALID_HEALTH_POLICY" message:@"测量配置无效"]);
+        return;
+    }
     if ([call.method isEqualToString:@"configureReadOnlyHealthMetrics"]) {
-        if (!SRConfigureReadOnlyHealthLease(arguments)) {
+        [self reconcileManualPolicy];
+        BOOL accepted = SRConfigureReadOnlyHealthLease(arguments);
+        [self reconcileManualPolicy];
+        if (!accepted) {
             result([self error:@"INVALID_HEALTH_POLICY" message:@"健康数据配置无效"]);
         } else { result(nil); }
         return;

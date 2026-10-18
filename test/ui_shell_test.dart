@@ -9,6 +9,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/read_only_health_features.dart';
+import 'package:saydian_app/domain/wellness_release_policy.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/local_health_store.dart';
@@ -1746,6 +1748,66 @@ void main() {
     expect(find.byIcon(Icons.calendar_month_outlined), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  for (final metric in ManualHealthFeatures.supportedMetrics) {
+    testWidgets(
+      'iOS manual ${metric.wireName} uses the independent scope and can cancel',
+      (tester) async {
+        final wearable = _TrackingMeasurementWearable();
+        final policy = WellnessReleasePolicy(
+          enabled: true,
+          readOnlyFeatures: ReadOnlyHealthFeatures()
+            ..replace({metric}, const Duration(minutes: 5)),
+          manualFeatures: ManualHealthFeatures()
+            ..replace({metric}, const Duration(minutes: 5)),
+        );
+        final controller =
+            AppController(
+                MemorySessionVault(),
+                _NoopApi(),
+                MemoryHealthStore(),
+                wearable,
+                wellnessOnly: true,
+                healthReadPolicy: policy,
+              )
+              ..connectedDevice = const DeviceInfo(
+                id: 'synthetic-ring',
+                name: 'Synthetic',
+              )
+              ..capabilities = DeviceCapabilities(
+                metrics: {metric},
+                manualMetrics: {metric},
+              );
+        for (final state in const [
+          DeviceConnectionState.scanning,
+          DeviceConnectionState.connecting,
+          DeviceConnectionState.authenticating,
+          DeviceConnectionState.syncing,
+          DeviceConnectionState.ready,
+        ]) {
+          controller.deviceMachine.transition(state);
+        }
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildSaydianTheme(),
+            home: HealthHistoryPage(controller: controller, metric: metric),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(Key('health-measure-${metric.wireName}')));
+        await tester.pump();
+        expect(wearable.starts, 1);
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(find.textContaining('心电电极'), findsNothing);
+        expect(find.textContaining('风险分析'), findsNothing);
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(wearable.stops, 1);
+        expect(controller.deviceState, DeviceConnectionState.ready);
+      },
+    );
+  }
 
   testWidgets('system back stops an active watch measurement', (tester) async {
     final wearable = _TrackingMeasurementWearable();
@@ -3489,6 +3551,96 @@ void main() {
       await tester.pumpAndSettle();
     },
   );
+
+  for (final completes in [true, false]) {
+    testWidgets(
+      'historical trend ${completes ? 'follows an actual result date' : 'keeps its date when measurement is cancelled'}',
+      (tester) async {
+        final wearable = _EventMeasurementWearable();
+        final controller = AppController(
+          MemorySessionVault(),
+          _NoopApi(),
+          MemoryHealthStore(),
+          wearable,
+        );
+        await controller.initialize();
+        controller.connectedDevice = const DeviceInfo(
+          id: 'synthetic-ring',
+          name: 'R21',
+        );
+        controller.capabilities = const DeviceCapabilities(
+          metrics: {HealthMetric.heartRate},
+          manualMetrics: {HealthMetric.heartRate},
+        );
+        for (final state in const [
+          DeviceConnectionState.scanning,
+          DeviceConnectionState.connecting,
+          DeviceConnectionState.authenticating,
+          DeviceConnectionState.syncing,
+          DeviceConnectionState.ready,
+        ]) {
+          controller.deviceMachine.transition(state);
+        }
+        addTearDown(() async {
+          controller.dispose();
+          await wearable.close();
+        });
+        final resultDate = DateTime.now();
+        final historicalDate = resultDate.subtract(const Duration(days: 3));
+        String label(DateTime date) =>
+            '${date.year}年${date.month}月${date.day}日';
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildSaydianTheme(),
+            home: HealthTrendPage(
+              controller: controller,
+              metric: HealthMetric.heartRate,
+              initialDate: historicalDate,
+              onMeasure: (_) async {
+                await controller.startMeasurement(HealthMetric.heartRate);
+                if (!completes) {
+                  await controller.stopMeasurement(HealthMetric.heartRate);
+                  return;
+                }
+                wearable.emit(
+                  WearableEvent(
+                    type: 'healthRecord',
+                    payload: HealthRecord(
+                      id: 'synthetic-date-result',
+                      metric: HealthMetric.heartRate,
+                      values: const {'value': 73},
+                      unit: 'bpm',
+                      measuredAt: resultDate.toUtc(),
+                      timezone: '+08:00',
+                      deviceId: 'synthetic-ring',
+                      firmwareVersion: 'synthetic',
+                      quality: 'good',
+                      source: MeasurementSource.wearable,
+                      origin: MeasurementOrigin.appMeasurement,
+                      rawVersion: 1,
+                    ).toJson(),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text(label(historicalDate)), findsOneWidget);
+        await tester.tap(find.text('手动测量'));
+        await tester.pumpAndSettle();
+        expect(
+          find.text(label(completes ? resultDate : historicalDate)),
+          findsOneWidget,
+        );
+        expect(
+          controller.measurementResult?.id,
+          completes ? 'synthetic-date-result' : null,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('health trend passes its live context to manual measurement', (
     tester,

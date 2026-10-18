@@ -76,5 +76,30 @@ int main(void) { @autoreleasepool {
     check(SRConfigureReadOnlyHealthLease(@{@"metrics": @[], @"validForSeconds": @0}));
     check(!SRActivitySleepMetricAllowed(@"hrv"));
     check(SRActivitySleepMetricAllowed(@"sleep"));
+    // The new binary must explicitly ACK the distinct manual lease. The read
+    // grant above is not a server permission to start a physiological command.
+    check(SRConfigureReadOnlyHealthLease(@{@"metrics": @[@"heart_rate", @"hrv", @"blood_oxygen", @"stress"], @"validForSeconds": @60}));
+    check(!SRManualHealthMetricAllowed(@"heart_rate"));
+    check(SRConfigureManualHealthLease(@{@"metrics": @[@"heart_rate", @"hrv", @"blood_oxygen"], @"validForSeconds": @60}));
+    for (NSString *metric in SRManualHealthCatalogue()) {
+        check(SRManualHealthMetricAllowed(metric));
+        check(SRActivitySleepCommandAllowed(@"startMeasurement", @{@"metric":metric}));
+        check(SRActivitySleepCommandAllowed(@"stopMeasurement", @{@"metric":metric}));
+        check(SRActivitySleepEvent(@"measurementProgress", @{@"metric":metric, @"progress":@0}) != nil);
+    }
+    check([SRActivitySleepCapabilities(caps)[@"manualMetrics"] isEqual:@[@"heart_rate"]]);
+    check(SRActivitySleepRecord(@{@"type":@"heart_rate", @"origin":@"app_measurement", @"values":@{@"value":@72}}) != nil);
+    SRManualHealthLease()[@"deadline"] = @(NSProcessInfo.processInfo.systemUptime - 1);
+    check(!SRManualHealthMetricAllowed(@"heart_rate"));
+    check(!SRActivitySleepCommandAllowed(@"startMeasurement", @{@"metric":@"heart_rate"}));
+    check(SRActivitySleepCommandAllowed(@"stopMeasurement", @{@"metric":@"heart_rate"}));
+    check(!SRConfigureManualHealthLease(@{@"metrics":@[@"stress"], @"validForSeconds":@60}));
+    check(!SRManualHealthMetricAllowed(@"heart_rate"));
+    check(SRActivitySleepMetricAllowed(@"heart_rate"));
+    check(SRActivitySleepCommandAllowed(@"stopMeasurement", @{@"metric":@"heart_rate"}));
+    check(SRActivitySleepRecord(@{@"type":@"heart_rate", @"origin":@"app_measurement", @"values":@{@"value":@72}}) == nil);
+    check(!SRConfigureManualHealthLease(@{@"metrics":@[@"heart_rate"], @"validForSeconds":@YES}));
+    check(SRConfigureManualHealthLease(@{@"metrics":@[], @"validForSeconds":@0}));
+    SRCloseReadOnlyHealthLease();
     printf("Activity/sleep + read-only native policy: %lu assertions passed\n", (unsigned long)checked);
 } return 0; }

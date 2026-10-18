@@ -32,6 +32,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 @property(nonatomic, strong) NSDate *batteryDate;
 @property(nonatomic, strong) NSNumber *charging;
 @property(nonatomic, copy) NSString *activeMetric;
+@property(nonatomic) NSUInteger manualPolicyGeneration;
 @property(nonatomic, strong) NSDate *measurementStart;
 @property(nonatomic) BOOL emittedMeasurement;
 @property(nonatomic) BOOL awaitingInfo;
@@ -1130,7 +1131,13 @@ static void CoolWearOnMain(dispatch_block_t block) {
 }
 
 - (void)measurement:(NSString *)metric enabled:(BOOL)enabled result:(FlutterResult)result {
+    if (enabled && !SRManualHealthMetricAllowed(metric)) { result([self error:@"FEATURE_UNAVAILABLE" message:@"此项测量暂未开放"]); return; }
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
+    // An unacknowledged start cannot safely race a second vendor command.
+    // Drain the exact connection; owner-bound recovery retains the binding.
+    if (!enabled && self.pendingMeasurement && [self.activeMetric isEqual:metric]) {
+        [self beginCancellation:result]; return;
+    }
     if (self.pendingMeasurement) { result([self error:@"MEASUREMENT_BUSY" message:@"测量指令正在处理"]); return; }
     if (self.pendingControl || self.pendingFind || self.pendingSync || self.pendingBattery || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
     NSArray *manual = CoolWearCapabilities(self.flags, YES)[@"manualMetrics"];
@@ -1176,11 +1183,35 @@ static void CoolWearOnMain(dispatch_block_t block) {
     });
 }
 
+- (void)reconcileManualPolicy {
+    NSString *metric = self.activeMetric;
+    if (metric && !SRManualHealthMetricAllowed(metric)) {
+        [self measurement:metric enabled:NO result:^(__unused id value) {}];
+    }
+}
+
 - (void)handle:(FlutterMethodCall *)call result:(FlutterResult)result {
     result = CoolWearCompleteOnce(result);
     NSDictionary *args = [call.arguments isKindOfClass:NSDictionary.class] ? call.arguments : @{};
+    if ([call.method isEqualToString:@"configureManualHealthMetrics"]) {
+        [self reconcileManualPolicy]; // Renewal must not revive an expired start.
+        BOOL accepted = SRConfigureManualHealthLease(args);
+        [self reconcileManualPolicy];
+        NSUInteger generation = ++self.manualPolicyGeneration;
+        if (accepted && [args[@"validForSeconds"] integerValue] > 0) {
+            __weak typeof(self) weakSelf = self;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, [args[@"validForSeconds"] integerValue] * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                if (generation == weakSelf.manualPolicyGeneration) [weakSelf reconcileManualPolicy];
+            });
+        }
+        result(accepted ? nil : [self error:@"INVALID_HEALTH_POLICY" message:@"测量配置无效"]);
+        return;
+    }
     if ([call.method isEqualToString:@"configureReadOnlyHealthMetrics"]) {
-        if (!SRConfigureReadOnlyHealthLease(args)) {
+        [self reconcileManualPolicy];
+        BOOL accepted = SRConfigureReadOnlyHealthLease(args);
+        [self reconcileManualPolicy];
+        if (!accepted) {
             result([self error:@"INVALID_HEALTH_POLICY" message:@"健康数据配置无效"]);
         } else { result(nil); }
         return;

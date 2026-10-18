@@ -9,6 +9,49 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get careMemberIdLabel => 'Member ID';
+
+  @override
+  String get careContactLabel => 'Phone / email';
+
+  @override
+  String get careMemberIdHint => 'Find the member ID on their Profile page.';
+
+  @override
+  String get careInvalidMemberId => 'Enter a valid member ID';
+
+  @override
+  String get careRequestSubmitted =>
+      'Request submitted. Awaiting confirmation.';
+
+  @override
+  String get careAwaitingYourReview => 'Awaiting your confirmation';
+
+  @override
+  String get careAwaitingTheirReview => 'Awaiting their confirmation';
+
+  @override
+  String get careCancelInvitation => 'Cancel invitation';
+
+  @override
+  String get careNoFollowing => 'No one added yet';
+
+  @override
+  String get careNoFollowers => 'No followers yet';
+
+  @override
+  String get careFollowing => 'Following';
+
+  @override
+  String get careFollowers => 'Followers';
+
+  @override
+  String get careSummaryHint => 'Only shared health data is visible.';
+
+  @override
+  String get careViewHealth => 'View health data';
+
+  @override
   String get scanLocationTitle => 'Turn on location';
 
   @override

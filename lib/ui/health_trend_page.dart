@@ -322,9 +322,23 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
     if (onMeasure == null || _measuring) return;
     setState(() => _measuring = true);
     try {
+      final previousResult = widget.controller.measurementResult;
       await onMeasure(context);
       if (!mounted) return;
-      final range = HealthTrendRange.forPeriod(_period, _anchor);
+      var range = HealthTrendRange.forPeriod(_period, _anchor);
+      final result = widget.controller.measurementResult;
+      if (result != null &&
+          !identical(result, previousResult) &&
+          result.metric == widget.metric &&
+          (result.measuredAt.isBefore(range.start) ||
+              !result.measuredAt.isBefore(range.end))) {
+        // Follow only the actual new measurement, not a cached/passive value
+        // or the wall clock after a cancelled/failed operation.
+        _anchor = result.measuredAt.toLocal();
+        _records = [];
+        _previousRecords = [];
+        range = HealthTrendRange.forPeriod(_period, _anchor);
+      }
       final cached =
           widget.controller.healthRecords
               .where(

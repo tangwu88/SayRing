@@ -162,6 +162,7 @@ class RoutedWearableBridge
         WearableBindingManagementBridge,
         WearableRememberedRecoveryEligibilityBridge,
         WearableReadOnlyHealthPolicyBridge,
+        WearableManualHealthPolicyBridge,
         WearableBondedDeviceSelectionBridge {
   RoutedWearableBridge({
     WearableBridge? veepoo,
@@ -398,6 +399,37 @@ class RoutedWearableBridge
         adapters.map((adapter) async {
           try {
             await adapter.configureReadOnlyHealthMetrics(
+              const {},
+              validity: Duration.zero,
+            );
+          } catch (_) {}
+        }),
+      );
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> configureManualHealthMetrics(
+    Set<HealthMetric> metrics, {
+    required Duration validity,
+  }) async {
+    final adapters = _sources.values
+        .whereType<WearableManualHealthPolicyBridge>()
+        .toList();
+    if (adapters.isEmpty) throw const WearableSdkNotConfigured('手动测量暂不可用');
+    try {
+      await Future.wait(
+        adapters.map(
+          (adapter) =>
+              adapter.configureManualHealthMetrics(metrics, validity: validity),
+        ),
+      );
+    } catch (_) {
+      await Future.wait(
+        adapters.map((adapter) async {
+          try {
+            await adapter.configureManualHealthMetrics(
               const {},
               validity: Duration.zero,
             );

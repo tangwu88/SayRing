@@ -110,6 +110,11 @@ abstract interface class GlobalCareApi {
   );
 }
 
+/// Additive server contract; legacy contact-only adapters remain compatible.
+abstract interface class GlobalCareMemberInviteApi {
+  Future<void> globalInviteCareByMemberNo(String memberNo);
+}
+
 abstract interface class GlobalContentApi {
   Future<List<Map<String, Object?>>> getGlobalArticleCategories();
   Future<List<Map<String, Object?>>> getGlobalArticles({
@@ -224,6 +229,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         GlobalCodeAuthApi,
         GlobalWechatAuthApi,
         GlobalCareApi,
+        GlobalCareMemberInviteApi,
         GlobalCareRangeApi,
         GlobalContentApi,
         GlobalSupportApi,
@@ -608,11 +614,33 @@ class GlobalSaydianApiClient extends SaydianApiClient
   @override
   Future<void> globalInviteCare(String identifier) async {
     final identity = GlobalAccountIdentity.parse(identifier);
+    final owner = _stableSessionAccountKey(await _requiredSession());
     _decode(
-      await _authorizedPostJson('/api/saydian-app/v2/care/invitations', {
-        'identifier': identity.identifier,
-      }),
+      await _authorizedCareRequest(
+        owner,
+        '/api/saydian-app/v2/care/invitations',
+        const {},
+        body: {'identifier': identity.identifier},
+      ),
     );
+  }
+
+  @override
+  Future<void> globalInviteCareByMemberNo(String memberNo) async {
+    final target = CareInvitationTarget.memberId(memberNo);
+    final owner = _stableSessionAccountKey(await _requiredSession());
+    final response = await _authorizedCareRequest(
+      owner,
+      '/api/saydian-app/v2/care/invitations',
+      const {},
+      body: target.toJson(),
+    );
+    final payload = _decode(response);
+    // Neutral acceptance is not proof that an account exists or was notified.
+    if (response.statusCode != 202 ||
+        _data(payload)['invitationSubmitted'] != true) {
+      throw const FeatureNotConfiguredException('会员 ID 添加暂不可用');
+    }
   }
 
   @override
