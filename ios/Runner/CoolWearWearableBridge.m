@@ -917,7 +917,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
     NSString *historyKey = CoolWearHistoryKey(type.integerValue);
     if (historyKey) {
         // The SDK can push mixed history on connection. Do not retain or
-        // publish physiological child packets in this iOS release.
+        // publish a child packet without its current read-only feature lease.
         if (!SRActivitySleepMetricAllowed(CoolWearHistoryMetric(type.integerValue))) return;
         CoolWearHistoryBatch *batch = self.historyBatches[type];
         if (!batch) self.historyBatches[type] = batch = [CoolWearHistoryBatch new];
@@ -1179,8 +1179,14 @@ static void CoolWearOnMain(dispatch_block_t block) {
 - (void)handle:(FlutterMethodCall *)call result:(FlutterResult)result {
     result = CoolWearCompleteOnce(result);
     NSDictionary *args = [call.arguments isKindOfClass:NSDictionary.class] ? call.arguments : @{};
+    if ([call.method isEqualToString:@"configureReadOnlyHealthMetrics"]) {
+        if (!SRConfigureReadOnlyHealthLease(args)) {
+            result([self error:@"INVALID_HEALTH_POLICY" message:@"健康数据配置无效"]);
+        } else { result(nil); }
+        return;
+    }
     if (!SRActivitySleepCommandAllowed(call.method, args)) {
-        result([self error:@"FEATURE_UNAVAILABLE" message:@"此版本仅提供活动与睡眠记录"]); return;
+        result([self error:@"FEATURE_UNAVAILABLE" message:@"此功能暂未开放"]); return;
     }
     FlutterResult completion = result;
     result = ^(id value) { completion(SRActivitySleepResult(call.method, value)); };

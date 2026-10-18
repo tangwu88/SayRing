@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../domain/wellness_release_policy.dart';
 
 import 'coolwear_wearable_bridge.dart';
 import 'qring_wearable_bridge.dart';
@@ -12,6 +13,7 @@ WearableBridge createProductionWearableBridge({
   WearableBridge? coolwear,
   WearableBridge? qring,
   WearableTransportPreferenceStore? preferenceStore,
+  WellnessReleasePolicy? healthReleasePolicy,
 }) => RoutedWearableBridge(
   // The iOS activity/sleep release supports only the two verified ring SDKs.
   // Do not instantiate legacy transports or adopt their saved SDK targets.
@@ -27,7 +29,9 @@ WearableBridge createProductionWearableBridge({
               (defaultTargetPlatform == TargetPlatform.android ||
                   defaultTargetPlatform == TargetPlatform.iOS)
           ? (defaultTargetPlatform == TargetPlatform.iOS
-                ? CoolWearIosWearableBridge()
+                ? CoolWearIosWearableBridge(
+                    healthReleasePolicy: healthReleasePolicy,
+                  )
                 : CoolWearWearableBridge())
           : null),
   qring:
@@ -35,7 +39,7 @@ WearableBridge createProductionWearableBridge({
       (!kIsWeb &&
               (defaultTargetPlatform == TargetPlatform.android ||
                   defaultTargetPlatform == TargetPlatform.iOS)
-          ? QRingWearableBridge()
+          ? QRingWearableBridge(healthReleasePolicy: healthReleasePolicy)
           : null),
   restoreOnlyBoundDevice: true,
   requireOwnerScopedBinding: true,

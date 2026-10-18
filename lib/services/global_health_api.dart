@@ -7,6 +7,7 @@ mixin GlobalHealthApi on SaydianApiClient {
 
   WellnessReleasePolicy get healthReleasePolicy =>
       const WellnessReleasePolicy();
+  WellnessReleasePolicy get healthReadPolicy => healthReleasePolicy;
 
   Future<http.Response> _globalHealthRequest(
     String owner,
@@ -212,6 +213,7 @@ mixin GlobalHealthApi on SaydianApiClient {
     int limit = 200,
     String? before,
   }) async {
+    final policyGeneration = healthReadPolicy.readOnlyFeatures?.generation;
     if (limit < 1 || limit > 200) {
       throw const ApiException(
         'Unable to read cloud health records.',
@@ -227,12 +229,17 @@ mixin GlobalHealthApi on SaydianApiClient {
           '$_healthRoot/records',
           query: {
             'limit': '$limit',
+            if (healthReadPolicy.enabled) 'product': 'say-ring',
+            if (healthReadPolicy.enabled) 'platform': 'ios',
             if (before != null && before.trim().isNotEmpty)
               'before': before.trim(),
           },
         ),
       ),
     );
+    if (policyGeneration != healthReadPolicy.readOnlyFeatures?.generation) {
+      throw const ApiException('健康数据配置已更新，请刷新', code: 'HEALTH_POLICY_CHANGED');
+    }
     final items = data['items'];
     final nextCursor = data['nextCursor'];
     if (items is! List ||
@@ -251,6 +258,8 @@ mixin GlobalHealthApi on SaydianApiClient {
               item.map((key, value) => MapEntry('$key', value)),
             ),
           )
+          .map(healthReadPolicy.projectRecord)
+          .whereType<HealthRecord>()
           .toList(growable: false),
       nextCursor: nextCursor as String?,
     );
@@ -329,6 +338,8 @@ mixin GlobalHealthApi on SaydianApiClient {
               'yucheng',
               'veepoo',
               'moyoung',
+              'coolwear',
+              'qring',
               'unknown',
             }.contains(vendor)) ||
         (category.isNotEmpty &&

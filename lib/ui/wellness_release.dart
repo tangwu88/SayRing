@@ -7,11 +7,11 @@ class WellnessReleaseUnavailablePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('活动与睡眠')),
+    appBar: AppBar(title: const Text('功能暂未开放')),
     body: const Center(
       child: Padding(
         padding: EdgeInsets.all(24),
-        child: Text('此版本提供活动和睡眠记录。', textAlign: TextAlign.center),
+        child: Text('此功能暂未开放，已有记录仍保留。', textAlign: TextAlign.center),
       ),
     ),
   );

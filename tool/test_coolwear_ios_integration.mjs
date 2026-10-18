@@ -36,7 +36,7 @@ test('owner-scoped iOS recovery continues after empty scans and repeats a fresh 
   assert.match(loop, /\[self beginCancellation:/);
   assert.match(bridge, /self\.recoveryConnecting \? @"reconnected" : @"connected"/);
   assert.match(bridge, /\[self scheduleRecovery\];\s*return;\s*\}/);
-  assert.match(read('lib/services/wearable_bootstrap.dart'), /TargetPlatform\.iOS\s*\? CoolWearIosWearableBridge\(\)/);
+  assert.match(read('lib/services/wearable_bootstrap.dart'), /TargetPlatform\.iOS\s*\? CoolWearIosWearableBridge\(\s*healthReleasePolicy: healthReleasePolicy,/);
   assert.match(read('lib/services/wearable_routing.dart'), /_sources\[transport\] is WearableExactTargetRecoveryBridge &&/);
   const disconnect = bridge.slice(bridge.indexOf('else if ([call.method isEqualToString:@"disconnect"])'), bridge.indexOf('else if ([call.method isEqualToString:@"getDeviceDetails"])'));
   assert.ok(disconnect.indexOf('self.recoveryID = nil') < disconnect.indexOf('[self beginCancellation:result]'));

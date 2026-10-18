@@ -1,14 +1,16 @@
 import 'feature_models.dart';
 import 'models.dart';
+import 'read_only_health_features.dart';
 import 'sleep_timeline.dart';
 
-/// Product scope for the activity-and-sleep iOS release. This is independent
-/// of device capabilities, server configuration, account and stored history.
+/// Fixed iOS product ceiling plus explicitly published read-only features.
+/// Device capability/ownership checks are still required independently.
 /// Projection never mutates the original record or its persisted snapshot.
 class WellnessReleasePolicy {
-  const WellnessReleasePolicy({this.enabled = false});
+  const WellnessReleasePolicy({this.enabled = false, this.readOnlyFeatures});
 
   final bool enabled;
+  final ReadOnlyHealthFeatures? readOnlyFeatures;
 
   static const activitySleepMetrics = <HealthMetric>{
     HealthMetric.steps,
@@ -17,11 +19,23 @@ class WellnessReleasePolicy {
     HealthMetric.sleep,
   };
 
+  static const displayMetricOrder = <HealthMetric>[
+    HealthMetric.heartRate,
+    HealthMetric.hrv,
+    HealthMetric.bloodOxygen,
+    HealthMetric.bodyTemperature,
+    HealthMetric.stress,
+    HealthMetric.steps,
+    HealthMetric.distance,
+    HealthMetric.calories,
+    HealthMetric.sleep,
+  ];
+
   Set<HealthMetric>? get allowedMetrics =>
-      enabled ? activitySleepMetrics : null;
+      enabled ? {...activitySleepMetrics, ...?readOnlyFeatures?.metrics} : null;
 
   bool allowsMetric(HealthMetric metric) =>
-      !enabled || activitySleepMetrics.contains(metric);
+      !enabled || allowedMetrics!.contains(metric);
 
   bool allowsWireMetric(String wire) {
     if (!enabled) return true;

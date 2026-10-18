@@ -19,6 +19,7 @@ import '../domain/health_record_dedup.dart';
 import '../domain/health_source_policy.dart';
 import '../domain/models.dart';
 import '../domain/wellness_release_policy.dart';
+import '../domain/read_only_health_features.dart';
 import '../domain/sleep_timeline.dart';
 import '../domain/global_account.dart';
 import '../domain/global_care.dart';
@@ -41,6 +42,7 @@ import 'wearable_bridge.dart';
 import 'wearable_bootstrap.dart';
 import 'wechat_auth_bridge.dart';
 import 'user_message.dart';
+import 'read_only_health_service.dart';
 
 enum PushDeviceRegistrationState {
   idle,
@@ -79,11 +81,13 @@ class AppController extends ChangeNotifier {
     this._allowAutomaticWearableRestore = true,
     this.generalAiEnabled = true,
     bool wellnessOnly = false,
+    WellnessReleasePolicy? healthReadPolicy,
     this.commerceEnabled = const bool.fromEnvironment(
       'SAY_RING_COMMERCE_ENABLED',
       defaultValue: false,
     ),
-  }) : healthReleasePolicy = WellnessReleasePolicy(enabled: wellnessOnly),
+  }) : healthReleasePolicy =
+           healthReadPolicy ?? WellnessReleasePolicy(enabled: wellnessOnly),
        _paymentBridge = paymentBridge ?? const MethodChannelAppPaymentBridge(),
        _storeKitPurchaseBridge =
            storeKitPurchaseBridge ??
@@ -113,16 +117,22 @@ class AppController extends ChangeNotifier {
   }) {
     final vault = SecureSessionVault.global();
     final wellnessOnly = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    final readPolicy = WellnessReleasePolicy(
+      enabled: wellnessOnly,
+      readOnlyFeatures: wellnessOnly ? ReadOnlyHealthFeatures() : null,
+    );
     return AppController(
       vault,
       GlobalSaydianApiClient(
         vault,
         locale: () => GlobalLocaleController.instance.locale.toLanguageTag(),
         healthReleasePolicy: WellnessReleasePolicy(enabled: wellnessOnly),
+        healthReadPolicyOverride: readPolicy,
       ),
       EncryptedHealthStore(vault, globalEdition: true),
-      createProductionWearableBridge(),
+      createProductionWearableBridge(healthReleasePolicy: readPolicy),
       wellnessOnly: wellnessOnly,
+      healthReadPolicy: readPolicy,
       // The iOS scope remains closed even when a remote flag or old cache is
       // enabled. Other platforms retain the main branch's existing behavior.
       generalAiEnabled:
@@ -143,10 +153,67 @@ class AppController extends ChangeNotifier {
   final bool _allowAutomaticWearableRestore;
   final SaydianApi _api;
   final WellnessReleasePolicy healthReleasePolicy;
+  ReadOnlyHealthFeatureService? _readOnlyHealthFeatureService;
+  int _healthReadUiGeneration = 0;
+  bool _readOnlyHealthSyncQueued = false;
   bool get isWellnessOnly => healthReleasePolicy.enabled;
   bool get healthAlertsAvailable => !isWellnessOnly;
   bool isMetricAvailableInRelease(HealthMetric metric) =>
       healthReleasePolicy.allowsMetric(metric);
+
+  Future<void> refreshReadOnlyHealthFeatures() async {
+    final features = healthReleasePolicy.readOnlyFeatures;
+    final api = _api;
+    final bridge = _wearable;
+    if (!isWellnessOnly ||
+        features == null ||
+        api is! SayRingReadOnlyHealthApi ||
+        bridge is! WearableReadOnlyHealthPolicyBridge ||
+        _disposed) {
+      return;
+    }
+    _readOnlyHealthFeatureService ??= ReadOnlyHealthFeatureService(
+      policy: healthReleasePolicy,
+      api: api as SayRingReadOnlyHealthApi,
+      bridge: bridge as WearableReadOnlyHealthPolicyBridge,
+    )..addListener(_handleReadOnlyHealthChanged);
+    await _readOnlyHealthFeatureService!.refresh();
+  }
+
+  void _handleReadOnlyHealthChanged() {
+    if (_disposed) return;
+    final revision = ++_healthReadUiGeneration;
+    final sessionGeneration = _sessionGeneration;
+    // Direct routes and cards observe the current policy immediately, even
+    // while a queued device command or local-store read is still completing.
+    notifyListeners();
+    unawaited(() async {
+      bool current() =>
+          !_disposed &&
+          revision == _healthReadUiGeneration &&
+          _isCurrentSessionGeneration(sessionGeneration);
+      try {
+        await _refreshHealthRecordCache(expectedGeneration: sessionGeneration);
+        if (!current()) return;
+        notifyListeners();
+        final deviceId = connectedDevice?.id;
+        if (deviceId == null) return;
+        await refreshDeviceCapabilities(announceFailure: false);
+        if (!current() ||
+            connectedDevice?.id != deviceId ||
+            healthReleasePolicy.readOnlyFeatures!.metrics.isEmpty) {
+          return;
+        }
+        if (isDeviceSyncing) {
+          _readOnlyHealthSyncQueued = true;
+          return;
+        }
+        await _syncDeviceData(deviceId, initial: true);
+      } catch (_) {
+        // Keep existing records and normal device-page retry/error handling.
+      }
+    }());
+  }
 
   Iterable<HealthRecord> _releaseRecords(Iterable<HealthRecord> records) =>
       records.map(healthReleasePolicy.projectRecord).whereType<HealthRecord>();
@@ -178,7 +245,7 @@ class AppController extends ChangeNotifier {
 
   void _requireFullHealthRelease() {
     if (isWellnessOnly) {
-      throw const FeatureNotConfiguredException('此版本仅提供活动与睡眠记录');
+      throw const FeatureNotConfiguredException('此功能暂未开放');
     }
   }
 
@@ -1121,9 +1188,12 @@ class AppController extends ChangeNotifier {
   int _homeHealthCardsRevision = 0;
   String get homeHealthCardOwner => _healthOwnerFor(session);
 
-  List<HealthMetric> get homeHealthCardMetrics => homeHealthCardLayout.visible
-      .where(shouldShowHealthMetric)
-      .toList(growable: false);
+  List<HealthMetric> get homeHealthCardMetrics =>
+      (isWellnessOnly
+              ? WellnessReleasePolicy.displayMetricOrder
+              : homeHealthCardLayout.visible)
+          .where(shouldShowHealthMetric)
+          .toList(growable: false);
 
   Future<void> loadHomeHealthCards() async {
     final vault = _vault;
@@ -1514,6 +1584,7 @@ class AppController extends ChangeNotifier {
       await _updateWearableRecoveryContext();
       unawaited(restoreWearableConnection());
     }
+    unawaited(refreshReadOnlyHealthFeatures());
     isBooting = false;
     notifyListeners();
     unawaited(refreshAiArticles());
@@ -2711,6 +2782,24 @@ class AppController extends ChangeNotifier {
         deviceSyncProgress = 0;
         if (!_disposed) notifyListeners();
         _flushDeviceDetailsRefresh();
+        if (_readOnlyHealthSyncQueued) {
+          _readOnlyHealthSyncQueued = false;
+          if (!_disposed &&
+              connectedDevice?.id == deviceId &&
+              _isCurrentSessionGeneration(sessionGeneration) &&
+              healthReleasePolicy.readOnlyFeatures?.metrics.isNotEmpty ==
+                  true) {
+            scheduleMicrotask(() {
+              if (!_disposed &&
+                  connectedDevice?.id == deviceId &&
+                  _isCurrentSessionGeneration(sessionGeneration) &&
+                  healthReleasePolicy.readOnlyFeatures?.metrics.isNotEmpty ==
+                      true) {
+                unawaited(_syncDeviceData(deviceId, initial: true));
+              }
+            });
+          }
+        }
       }
     }
     return succeeded &&
@@ -2730,6 +2819,7 @@ class AppController extends ChangeNotifier {
       connectedDevice?.id == deviceId;
 
   void _invalidateDeviceSync() {
+    _readOnlyHealthSyncQueued = false;
     _deviceSyncGeneration++;
     _deviceSettingsGeneration++;
     _deviceSettingsRefresh = null;
@@ -3034,7 +3124,7 @@ class AppController extends ChangeNotifier {
 
   Future<bool> startMeasurement(HealthMetric metric) async {
     if (isWellnessOnly) {
-      errorMessage = '此版本仅提供活动与睡眠记录';
+      errorMessage = '此版本暂不支持手动测量';
       notifyListeners();
       return false;
     }
@@ -4854,6 +4944,7 @@ class AppController extends ChangeNotifier {
 
   void setAppForeground(bool foreground) {
     _appIsForeground = foreground;
+    _readOnlyHealthFeatureService?.setForeground(foreground);
     _scheduleDeviceDetailsPoll();
     if (!foreground) {
       _careInvitationPollTimer?.cancel();
@@ -4866,6 +4957,8 @@ class AppController extends ChangeNotifier {
   Future<void> handleAppResumed() async {
     if (_disposed) return;
     unawaited(refreshAppDisplayConfig());
+    _readOnlyHealthFeatureService?.setForeground(true);
+    unawaited(refreshReadOnlyHealthFeatures());
     _appIsForeground = true;
     if (!_accountTransitioning &&
         _wearableAccountRecoveryAllowed &&
@@ -7254,6 +7347,7 @@ class AppController extends ChangeNotifier {
     ++_wechatLoginGeneration;
     if (isWechatLoginInProgress) unawaited(_wechatAuthBridge.cancel());
     _disposed = true;
+    _readOnlyHealthFeatureService?.dispose();
     _wearableRestoreGeneration++;
     final bridge = _wearable;
     if ((_privacyConsentGranted || rememberedDevice != null) &&

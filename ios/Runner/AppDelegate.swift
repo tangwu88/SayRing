@@ -1308,7 +1308,7 @@ struct IOSWechatAuthState {
   ) {
     let policyArguments = call.arguments as? [String: Any] ?? [:]
     guard SRActivitySleepCommandAllowed(call.method, policyArguments) else {
-      result(FlutterError(code: "FEATURE_UNAVAILABLE", message: "此版本仅提供活动与睡眠记录", details: nil))
+      result(FlutterError(code: "FEATURE_UNAVAILABLE", message: "此功能暂未开放", details: nil))
       return
     }
     let completion = result

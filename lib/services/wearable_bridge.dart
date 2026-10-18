@@ -12,8 +12,11 @@ WellnessReleasePolicy get wearableHealthReleasePolicy => WellnessReleasePolicy(
   enabled: !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
 );
 
-List<HealthRecord> parseWearableHealthRecords(Iterable<Object?> values) {
-  final policy = wearableHealthReleasePolicy;
+List<HealthRecord> parseWearableHealthRecords(
+  Iterable<Object?> values, {
+  WellnessReleasePolicy? healthReleasePolicy,
+}) {
+  final policy = healthReleasePolicy ?? wearableHealthReleasePolicy;
   return values
       .whereType<Map<Object?, Object?>>()
       .where((value) {
@@ -57,6 +60,15 @@ abstract interface class WearableBridge {
   Future<void> triggerDeviceAction(
     DeviceFeature feature, {
     bool enabled = true,
+  });
+}
+
+/// Optional iOS read-only lease, independent of measurement commands. It must
+/// configure every enabled ring adapter before the controller exposes a grant.
+abstract interface class WearableReadOnlyHealthPolicyBridge {
+  Future<void> configureReadOnlyHealthMetrics(
+    Set<HealthMetric> metrics, {
+    required Duration validity,
   });
 }
 

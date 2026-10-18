@@ -29,7 +29,13 @@ test('every first-party iOS command and event channel applies the release policy
     assert.match(source, /SRActivitySleepEvent\(type,/);
   }
   const qring = readFileSync(join(root, 'ios/Runner/QRingWearableBridge.m'), 'utf8');
-  assert.match(qring, /if \(phase >= 2\) \{ \[self syncDay:day \+ 1 phase:0\]; return; \}/);
+  assert.match(qring, /if \(phase >= 7\)/);
+  assert.match(qring, /if \(!SRActivitySleepMetricAllowed\(metric\)\)/);
+  for (const name of ['QRingWearableBridge.m', 'CoolWearWearableBridge.m']) {
+    const source = readFileSync(join(root, 'ios/Runner', name), 'utf8');
+    assert.match(source, /configureReadOnlyHealthMetrics/);
+    assert.match(source, /SRConfigureReadOnlyHealthLease\(/);
+  }
   const coolwear = readFileSync(join(root, 'ios/Runner/CoolWearWearableBridge.m'), 'utf8');
   assert.match(coolwear, /if \(!SRActivitySleepMetricAllowed\(CoolWearHistoryMetric\(type.integerValue\)\)\) return;/);
 });

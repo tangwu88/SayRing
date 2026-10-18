@@ -181,21 +181,40 @@ class _HealthCalibrationPageState extends State<HealthCalibrationPage> {
   }
 }
 
-class HealthRecordDetailPage extends StatelessWidget {
-  const HealthRecordDetailPage({
+class HealthRecordDetailPage extends StatefulWidget {
+  HealthRecordDetailPage({
     required this.controller,
     required this.record,
     this.readOnly = false,
     super.key,
-  });
+  }) : _owner = healthUiOwnerKey(controller);
 
   final AppController controller;
   final HealthRecord record;
   final bool readOnly;
+  final (bool, String?, String?) _owner;
 
   @override
-  Widget build(BuildContext context) {
-    if (!controller.isMetricAvailableInRelease(record.metric)) {
+  State<HealthRecordDetailPage> createState() => _HealthRecordDetailPageState();
+}
+
+class _HealthRecordDetailPageState extends State<HealthRecordDetailPage> {
+  bool _ownerChanged = false;
+  AppController get controller => widget.controller;
+  HealthRecord get record => widget.record;
+  bool get readOnly => widget.readOnly;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: controller,
+    builder: (context, _) => _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
+    _ownerChanged =
+        _ownerChanged || widget._owner != healthUiOwnerKey(controller);
+    if (_ownerChanged ||
+        !controller.isMetricAvailableInRelease(record.metric)) {
       return const WellnessReleaseUnavailablePage();
     }
     if (record.metric == HealthMetric.sleep && readOnly) {
@@ -337,20 +356,22 @@ class HealthRecordDetailPage extends StatelessWidget {
               calibrated: record.rawVersion >= 2,
             ),
           ],
-          const SizedBox(height: 12),
-          Builder(
-            builder: (context) {
-              final interpretation = interpretHealthRecord(record);
-              return FeatureStateCard(
-                message: interpretation.title,
-                detail: interpretation.detail,
-                icon: record.metric == HealthMetric.ecg
-                    ? Icons.monitor_heart_outlined
-                    : Icons.insights_rounded,
-                color: SaydianColors.brandRed,
-              );
-            },
-          ),
+          if (!controller.isWellnessOnly) ...[
+            const SizedBox(height: 12),
+            Builder(
+              builder: (context) {
+                final interpretation = interpretHealthRecord(record);
+                return FeatureStateCard(
+                  message: interpretation.title,
+                  detail: interpretation.detail,
+                  icon: record.metric == HealthMetric.ecg
+                      ? Icons.monitor_heart_outlined
+                      : Icons.insights_rounded,
+                  color: SaydianColors.brandRed,
+                );
+              },
+            ),
+          ],
           const SizedBox(height: 12),
           FeatureStateCard(
             message: context.l10n.longTermTrendHint,

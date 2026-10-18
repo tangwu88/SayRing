@@ -2,6 +2,8 @@ import 'package:flutter/services.dart';
 
 import '../domain/feature_models.dart';
 import '../domain/models.dart';
+import '../domain/wellness_release_policy.dart';
+import '../domain/wearable_sync_result.dart';
 import 'wearable_bridge.dart';
 
 /// QRing transport backed by the supplied QCBand SDKs on Android and iOS.
@@ -17,14 +19,19 @@ class QRingWearableBridge
         WearableBoundDeviceLookupBridge,
         WearableBondedDeviceSelectionBridge,
         WearableRememberedDeviceSelectionBridge,
+        WearableReadOnlyHealthPolicyBridge,
         WearableExactTargetRecoveryBridge {
-  QRingWearableBridge({MethodChannel? methods, EventChannel? events})
-    : _methods =
-          methods ?? const MethodChannel('cc.saidian.ring/qring/commands'),
-      _events = events ?? const EventChannel('cc.saidian.ring/qring/events');
+  QRingWearableBridge({
+    MethodChannel? methods,
+    EventChannel? events,
+    this.healthReleasePolicy,
+  }) : _methods =
+           methods ?? const MethodChannel('cc.saidian.ring/qring/commands'),
+       _events = events ?? const EventChannel('cc.saidian.ring/qring/events');
 
   final MethodChannel _methods;
   final EventChannel _events;
+  final WellnessReleasePolicy? healthReleasePolicy;
   Future<void> _commands = Future<void>.value();
   int _commandGeneration = 0;
 
@@ -200,15 +207,37 @@ class QRingWearableBridge
   }
 
   @override
+  Future<void> configureReadOnlyHealthMetrics(
+    Set<HealthMetric> metrics, {
+    required Duration validity,
+  }) => _invoke<void>('configureReadOnlyHealthMetrics', {
+    'metrics': metrics.map((metric) => metric.wireName).toList(),
+    'validForSeconds': validity.inSeconds,
+  }, const Duration(seconds: 5));
+
+  @override
   Future<List<HealthRecord>> syncHealthData({String? cursor}) async {
-    final values =
-        await _invoke<List<Object?>>(
+    final response =
+        await _invoke<Object?>(
           'syncHealthData',
           cursor == null ? null : {'cursor': cursor},
           const Duration(minutes: 3),
         ) ??
         const <Object?>[];
-    return parseWearableHealthRecords(values);
+    final values = response is Map ? response['records'] : response;
+    final policy = healthReleasePolicy ?? wearableHealthReleasePolicy;
+    final records = parseWearableHealthRecords(
+      values is List ? values : const [],
+      healthReleasePolicy: policy,
+    );
+    if (response is Map && response['statuses'] is Map) {
+      return WearableSyncResult(records, {
+        for (final entry in (response['statuses'] as Map).entries)
+          if (policy.allowsWireMetric('${entry.key}'))
+            '${entry.key}': '${entry.value}',
+      });
+    }
+    return records;
   }
 
   @override

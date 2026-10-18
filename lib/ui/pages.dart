@@ -16,6 +16,7 @@ import '../domain/ecg_waveform.dart';
 import '../domain/health_interpretation.dart';
 import '../domain/health_record_validation.dart';
 import '../domain/models.dart';
+import '../domain/wellness_release_policy.dart';
 import '../services/app_controller.dart';
 import '../services/device_watch_face_market_service.dart';
 import '../services/sleep_health_projection.dart';

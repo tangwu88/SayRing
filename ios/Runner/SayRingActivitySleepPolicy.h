@@ -3,11 +3,54 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-// Product scope for every user of this iOS release. This has no remote,
-// account, review-device, build-mode or persisted-setting override.
+// Fixed read-only ceiling for users and reviewers. No persisted, account,
+// review-device or build-mode override can extend this catalogue.
+static inline NSArray<NSString *> *SRReadOnlyHealthCatalogue(void) {
+    return @[@"heart_rate", @"hrv", @"blood_oxygen", @"body_temperature", @"stress"];
+}
+
+// Each adapter translation unit owns its short-lived in-memory lease.
+static inline NSMutableDictionary *SRReadOnlyHealthLease(void) {
+    static NSMutableDictionary *lease;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ lease = [NSMutableDictionary dictionary]; });
+    return lease;
+}
+
+static inline void SRCloseReadOnlyHealthLease(void) {
+    NSMutableDictionary *lease = SRReadOnlyHealthLease();
+    @synchronized (lease) { [lease removeAllObjects]; }
+}
+
+static inline BOOL SRConfigureReadOnlyHealthLease(NSDictionary *arguments) {
+    id metrics = arguments[@"metrics"], seconds = arguments[@"validForSeconds"];
+    if (![metrics isKindOfClass:NSArray.class] || ![seconds isKindOfClass:NSNumber.class] ||
+        CFGetTypeID((__bridge CFTypeRef)seconds) == CFBooleanGetTypeID() ||
+        [seconds doubleValue] != [seconds integerValue] || [seconds integerValue] < 0 || [seconds integerValue] > 300) {
+        SRCloseReadOnlyHealthLease(); return NO;
+    }
+    for (id metric in metrics) if (![metric isKindOfClass:NSString.class] || ![SRReadOnlyHealthCatalogue() containsObject:metric]) {
+        SRCloseReadOnlyHealthLease(); return NO;
+    }
+    if ([seconds integerValue] == 0) {
+        SRCloseReadOnlyHealthLease(); return [metrics count] == 0;
+    }
+    NSMutableDictionary *lease = SRReadOnlyHealthLease();
+    @synchronized (lease) {
+        lease[@"metrics"] = [metrics copy];
+        lease[@"deadline"] = @(NSProcessInfo.processInfo.systemUptime + [seconds integerValue]);
+    }
+    return YES;
+}
+
 static inline BOOL SRActivitySleepMetricAllowed(id metric) {
-    return [metric isKindOfClass:NSString.class] &&
-        [@[@"steps", @"distance", @"calories", @"sleep"] containsObject:metric];
+    if (![metric isKindOfClass:NSString.class]) return NO;
+    if ([@[@"steps", @"distance", @"calories", @"sleep"] containsObject:metric]) return YES;
+    NSMutableDictionary *lease = SRReadOnlyHealthLease();
+    @synchronized (lease) {
+        return NSProcessInfo.processInfo.systemUptime < [lease[@"deadline"] doubleValue] &&
+            [lease[@"metrics"] containsObject:metric];
+    }
 }
 
 static inline BOOL SRActivitySleepFeatureAllowed(id feature) {
@@ -111,7 +154,7 @@ static inline id _Nullable SRActivitySleepResult(NSString *method, id _Nullable 
             NSMutableDictionary *result = [source mutableCopy];
             result[@"records"] = SRActivitySleepRecords(source[@"records"]);
             if ([source[@"statuses"] isKindOfClass:NSDictionary.class])
-                result[@"statuses"] = SRActivitySleepKeepFields(source[@"statuses"], @[@"steps", @"distance", @"calories", @"sleep"]);
+                result[@"statuses"] = SRActivitySleepKeepFields(source[@"statuses"], SRActivitySleepFilterNames([source[@"statuses"] allKeys], NO));
             return result;
         }
     }

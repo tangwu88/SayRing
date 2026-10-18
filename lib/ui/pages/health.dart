@@ -22,14 +22,9 @@ class HealthPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final latest = controller.latestByMetric;
-    final releaseMetrics = [
-      if (controller.isWellnessOnly) ...[
-        HealthMetric.steps,
-        HealthMetric.distance,
-        HealthMetric.calories,
-      ],
-      ...coreMetrics,
-    ];
+    final releaseMetrics = controller.isWellnessOnly
+        ? WellnessReleasePolicy.displayMetricOrder
+        : coreMetrics;
     final visibleMetrics = releaseMetrics
         .where(controller.shouldShowHealthMetric)
         .toList(growable: false);
@@ -41,6 +36,7 @@ class HealthPage extends StatelessWidget {
     ];
     return RefreshIndicator(
       onRefresh: () async {
+        await controller.refreshReadOnlyHealthFeatures();
         await Future.wait([
           controller.synchronizeCloud(),
           controller.refreshSportRecords(),
@@ -187,7 +183,7 @@ Future<void> _showHealthMeasurementDialog(
   BuildContext context,
   AppController controller,
   HealthMetric metric,
-) => !controller.isMetricAvailableInRelease(metric)
+) => controller.isWellnessOnly || !controller.isMetricAvailableInRelease(metric)
     ? Future.value()
     : showDialog<void>(
         context: context,
@@ -250,8 +246,9 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.controller.isMetricAvailableInRelease(widget.metric)) {
-      return const AlertDialog(content: Text('此版本提供活动和睡眠记录。'));
+    if (widget.controller.isWellnessOnly ||
+        !widget.controller.isMetricAvailableInRelease(widget.metric)) {
+      return const AlertDialog(content: Text('此功能暂未开放'));
     }
     return PopScope(
       canPop: false,

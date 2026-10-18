@@ -122,18 +122,17 @@ class DashboardPage extends StatelessWidget {
       HealthMetric.bloodComposition,
       HealthMetric.sleep,
     ];
-    final metrics = controller.isWellnessOnly
-        ? supportedMetrics
-              .where(controller.shouldShowHealthMetric)
-              .toList(growable: false)
-        : controller.homeHealthCardMetrics;
+    final metrics = controller.homeHealthCardMetrics;
     final hasEligibleCards = supportedMetrics.any(
       controller.shouldShowHealthMetric,
     );
     return SafeArea(
       bottom: false,
       child: RefreshIndicator(
-        onRefresh: controller.synchronizeCloud,
+        onRefresh: () async {
+          await controller.refreshReadOnlyHealthFeatures();
+          await controller.synchronizeCloud();
+        },
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [

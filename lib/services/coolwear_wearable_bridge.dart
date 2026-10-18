@@ -5,13 +5,29 @@ import 'package:flutter/services.dart';
 import '../domain/feature_models.dart';
 import '../domain/models.dart';
 import '../domain/wearable_sync_result.dart';
+import '../domain/wellness_release_policy.dart';
 import 'wearable_bridge.dart';
 
 /// Only iOS implements continuous, account-owned native recovery. Android
 /// retains its existing scan/connection implementation and method contract.
 class CoolWearIosWearableBridge extends CoolWearWearableBridge
-    implements WearableExactTargetRecoveryBridge {
-  CoolWearIosWearableBridge({super.methods, super.events});
+    implements
+        WearableExactTargetRecoveryBridge,
+        WearableReadOnlyHealthPolicyBridge {
+  CoolWearIosWearableBridge({
+    super.methods,
+    super.events,
+    super.healthReleasePolicy,
+  });
+
+  @override
+  Future<void> configureReadOnlyHealthMetrics(
+    Set<HealthMetric> metrics, {
+    required Duration validity,
+  }) => _invoke<void>('configureReadOnlyHealthMetrics', {
+    'metrics': metrics.map((metric) => metric.wireName).toList(),
+    'validForSeconds': validity.inSeconds,
+  }, const Duration(seconds: 5));
 
   @override
   Future<int?> readHeartRateWarning() async => null;
@@ -72,12 +88,16 @@ class CoolWearWearableBridge
         WearableDeviceDetailsBridge,
         WearableSportPauseBridge,
         WearableAutoMeasureIntervalBridge {
-  CoolWearWearableBridge({MethodChannel? methods, EventChannel? events})
-    : _methods = methods ?? const MethodChannel('cc.saidian.ring/commands'),
-      _events = events ?? const EventChannel('cc.saidian.ring/events');
+  CoolWearWearableBridge({
+    MethodChannel? methods,
+    EventChannel? events,
+    this.healthReleasePolicy,
+  }) : _methods = methods ?? const MethodChannel('cc.saidian.ring/commands'),
+       _events = events ?? const EventChannel('cc.saidian.ring/events');
 
   final MethodChannel _methods;
   final EventChannel _events;
+  final WellnessReleasePolicy? healthReleasePolicy;
 
   Duration _commandTimeout(String method, Duration fallback) => fallback;
 
@@ -174,11 +194,13 @@ class CoolWearWearableBridge
     final values = response is Map ? response['records'] : response;
     final records = parseWearableHealthRecords(
       values is List ? values : const <Object?>[],
+      healthReleasePolicy: healthReleasePolicy,
     );
     if (response is Map && response['statuses'] is Map) {
       return WearableSyncResult(records, {
         for (final entry in (response['statuses'] as Map).entries)
-          if (wearableHealthReleasePolicy.allowsWireMetric('${entry.key}'))
+          if ((healthReleasePolicy ?? wearableHealthReleasePolicy)
+              .allowsWireMetric('${entry.key}'))
             '${entry.key}': '${entry.value}',
       });
     }

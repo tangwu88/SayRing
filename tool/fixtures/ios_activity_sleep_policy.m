@@ -56,5 +56,25 @@ int main(void) { @autoreleasepool {
     check(SRActivitySleepResult(@"syncHealthData", error) == error);
     NSArray *sport = SRActivitySleepResult(@"readSportRecords", @[@{@"id":@"synthetic-sport", @"mode":@"walking", @"steps":@123, @"heartRate":@90, @"maximumHeartRate":@120}]);
     check([sport[0] isEqual:@{@"id":@"synthetic-sport", @"mode":@"walking", @"steps":@123}]);
-    printf("Activity/sleep native policy: %lu assertions passed\n", (unsigned long)checked);
+    // Synthetic grants never bypass the hard manual/medical ceiling.
+    check(SRConfigureReadOnlyHealthLease(@{@"metrics": @[@"heart_rate", @"hrv", @"blood_oxygen"], @"validForSeconds": @60}));
+    check(SRActivitySleepMetricAllowed(@"heart_rate"));
+    check(SRActivitySleepMetricAllowed(@"hrv"));
+    check(!SRActivitySleepMetricAllowed(@"body_temperature"));
+    check(!SRActivitySleepMetricAllowed(@"blood_pressure"));
+    check(!SRActivitySleepCommandAllowed(@"startMeasurement", @{@"metric": @"heart_rate"}));
+    check([SRActivitySleepRecord(heart)[@"values"] isEqual:@{@"value": @90}]);
+    check([SRActivitySleepCapabilities(caps)[@"metrics"] isEqual:@[@"steps", @"sleep", @"hrv"]]);
+    NSDictionary *granted = SRActivitySleepResult(@"syncHealthData", @{@"records":@[heart, step], @"statuses":@{@"heart_rate":@"complete", @"blood_pressure":@"partial", @"steps":@"no_data"}});
+    check([granted[@"records"] count] == 2);
+    check([granted[@"statuses"] isEqual:@{@"heart_rate":@"complete", @"steps":@"no_data"}]);
+    check(!SRConfigureReadOnlyHealthLease(@{@"metrics": @[@"blood_pressure"], @"validForSeconds": @60}));
+    check(!SRActivitySleepMetricAllowed(@"heart_rate"));
+    check(!SRConfigureReadOnlyHealthLease(@{@"metrics": @[@"heart_rate"], @"validForSeconds": @YES}));
+    check(!SRConfigureReadOnlyHealthLease(@{@"metrics": @[@"heart_rate"], @"validForSeconds": @301}));
+    check(!SRConfigureReadOnlyHealthLease(@{@"metrics": @[@"heart_rate"], @"validForSeconds": @0}));
+    check(SRConfigureReadOnlyHealthLease(@{@"metrics": @[], @"validForSeconds": @0}));
+    check(!SRActivitySleepMetricAllowed(@"hrv"));
+    check(SRActivitySleepMetricAllowed(@"sleep"));
+    printf("Activity/sleep + read-only native policy: %lu assertions passed\n", (unsigned long)checked);
 } return 0; }

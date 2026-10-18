@@ -129,6 +129,10 @@ abstract interface class SayRingAppDisplayApi {
   Future<bool> getSayRingHideAi();
 }
 
+abstract interface class SayRingReadOnlyHealthApi {
+  Future<ReadOnlyHealthFeatureSnapshot> getReadOnlyHealthFeatures();
+}
+
 /// International commerce contract. Product, cart, address and order IDs stay
 /// opaque strings; amounts retain the server-provided currency metadata.
 abstract interface class GlobalCommerceApi {
@@ -226,6 +230,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         SaydianAvatarProfileApi,
         SaydianDeviceBindingApi,
         SayRingAppDisplayApi,
+        SayRingReadOnlyHealthApi,
         GlobalCommerceApi,
         CloudHealthRecordReader {
   GlobalSaydianApiClient(
@@ -234,6 +239,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     Uri? baseUri,
     String Function()? locale,
     this.healthReleasePolicy = const WellnessReleasePolicy(),
+    this.healthReadPolicyOverride,
   }) : _locale = locale ?? (() => 'en'),
        super(
          baseUri: GlobalEnvironment.apiOrigin(baseUri),
@@ -246,6 +252,10 @@ class GlobalSaydianApiClient extends SaydianApiClient
   final String Function() _locale;
   @override
   final WellnessReleasePolicy healthReleasePolicy;
+  final WellnessReleasePolicy? healthReadPolicyOverride;
+  @override
+  WellnessReleasePolicy get healthReadPolicy =>
+      healthReadPolicyOverride ?? healthReleasePolicy;
 
   @override
   Future<void> reportDeviceConnection({
@@ -328,6 +338,18 @@ class GlobalSaydianApiClient extends SaydianApiClient
     }
     _sleepAiEnabled = data['sleepAiEnabled'] == true;
     return data['hideAi'] as bool;
+  }
+
+  @override
+  Future<ReadOnlyHealthFeatureSnapshot> getReadOnlyHealthFeatures() async {
+    final data = await _globalPublic(
+      'support/app-display?product=say-ring&platform=ios',
+    );
+    try {
+      return ReadOnlyHealthFeatureSnapshot.fromMap(data);
+    } on FormatException {
+      throw const ApiException('健康数据配置暂时无法读取');
+    }
   }
 
   bool _sleepAiEnabled = false;

@@ -177,6 +177,7 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
     super.initState();
     _anchor = widget.initialDate?.toLocal() ?? DateTime.now();
     _account = healthUiOwnerKey(widget.controller);
+    _readFeatureGeneration = _featureGeneration;
     widget.controller.addListener(_onControllerChanged);
     widget.dataSource?.addListener(_onSourceChanged);
     _load();
@@ -191,15 +192,23 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
     super.dispose();
   }
 
+  int? _readFeatureGeneration;
+  int? get _featureGeneration => widget.controller.isWellnessOnly
+      ? widget.controller.healthReleasePolicy.readOnlyFeatures?.generation
+      : null;
+
   void _onControllerChanged() {
     if (!mounted) return;
     final account = healthUiOwnerKey(widget.controller);
-    if (_account != account) {
+    final featureGeneration = _featureGeneration;
+    if (_account != account || _readFeatureGeneration != featureGeneration) {
       _loadGeneration++;
       _account = account;
+      _readFeatureGeneration = featureGeneration;
       setState(() {
         _records = const [];
         _previousRecords = const [];
+        _loading = false;
       });
       unawaited(_load());
       return;
@@ -540,7 +549,8 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
           ),
           const SizedBox(height: 12),
         ],
-        if (widget.metric == HealthMetric.stress) ...[
+        if (widget.metric == HealthMetric.stress &&
+            !widget.controller.isWellnessOnly) ...[
           const _StressRangeCard(),
           const SizedBox(height: 12),
         ],

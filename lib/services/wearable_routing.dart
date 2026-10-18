@@ -161,6 +161,7 @@ class RoutedWearableBridge
         WearableConnectionRecoveryBridge,
         WearableBindingManagementBridge,
         WearableRememberedRecoveryEligibilityBridge,
+        WearableReadOnlyHealthPolicyBridge,
         WearableBondedDeviceSelectionBridge {
   RoutedWearableBridge({
     WearableBridge? veepoo,
@@ -371,6 +372,41 @@ class RoutedWearableBridge
 
   @override
   Stream<WearableEvent> get events => _eventController.stream;
+
+  @override
+  Future<void> configureReadOnlyHealthMetrics(
+    Set<HealthMetric> metrics, {
+    required Duration validity,
+  }) async {
+    final adapters = _sources.values
+        .whereType<WearableReadOnlyHealthPolicyBridge>()
+        .toList();
+    if (adapters.isEmpty) {
+      throw const WearableSdkNotConfigured('健康数据读取暂不可用');
+    }
+    try {
+      await Future.wait(
+        adapters.map(
+          (adapter) => adapter.configureReadOnlyHealthMetrics(
+            metrics,
+            validity: validity,
+          ),
+        ),
+      );
+    } catch (_) {
+      await Future.wait(
+        adapters.map((adapter) async {
+          try {
+            await adapter.configureReadOnlyHealthMetrics(
+              const {},
+              validity: Duration.zero,
+            );
+          } catch (_) {}
+        }),
+      );
+      rethrow;
+    }
+  }
 
   @override
   Future<List<DeviceInfo>> scanDevices() async {
