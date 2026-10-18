@@ -96,3 +96,23 @@ InstallationProxy 精确回读 1.0.2（1114），正常独立启动成功，不�
 
 运行代码 9121e0f 已推验证分支并触发 CI 39107825793；其中 Android Debug/QA Release/原生单测及 Release→Debug SDK 字节检查已成功，iOS 尚在后续编译。它证明的是 1114 源码，不能冒作新增会员 ID 展示修正的 1115 完整 CI。1115 将单独推送验证，不合主线、不改商店审核。
 服务端 a837d79 的 CI 39107249752 已通过 41 项真实 PG、365 条 HTTP 及实际镜像等门禁，未发布；复核又发现例行失败会自动起不识别披露态的旧 backup，现有服务器任务正在同一隔离候选补真正的镜像行为/停写排空/回退下限保护及负控。未加入生产 SQL 白名单或改线上五开关；编号双账号线上提交仍待验，不将服务端 CI 通过等同线上功能可用。
+
+## 最终运行源码和远端构建核对
+
+1114 运行源码提交 9121e0fc564ce0ee627addb096cee7c80b81e7de 对应 [CI 39107825793](https://github.com/tangwu88/SayRing/actions/runs/39107825793) 最终全部成功，续结前文的进行中状态。随后会员编号展示修正提交 96a66ef297569c1dfd13aa8e393464ae953ebf57 已非强推至 `origin/codex/macos-update-20260930`，与实际 1115 源码一致。
+
+独立回读最新 [CI 39109364115](https://github.com/tangwu88/SayRing/actions/runs/39109364115) 的 headSha 为 96a66ef，整体及五个 job 均为 SUCCESS：quality、Harmony UTC / 上海契约、Android、iOS。包括双时区完整 Flutter 测试、静态/格式、Android Debug / QA Release / 原生单测 / Release→Debug SDK 字节回归，以及串行 iOS Debug / Profile / Release 和 generic-device RunnerTests 编译。QA Release、无签名 CI iOS 构建和测试编译不冒充正式市场签名或物理测试运行。
+
+本机实际安装仍为签名 Profile 1.0.2（1115），保留原账号、R12 绑定和健康记录；最新 Debug 仅构建/签名校验，未安装附加，不报告新的 DevTools 或热重载通过。R12 尚未新握手，因此三项手动测量的实际回包、保存重读及稳定性未通过；服务端会员编号尚未上线，不能将输入界面与合成契约测试写成实际双账号邀请成功。
+
+本轮代码和记录只推验证分支；主线维持 8e7541d074afc8fc8c6f23528c4069d5dbd94196，App Store / TestFlight、生产五开关及上传范围不变。后续交接只改文档，若用 `[skip ci]` 提交，必须明确上述完整 CI 证明的是运行源码 96a66ef，而不是伪称又执行一轮构建。
+
+## 服务端最终候选与上线缺项
+
+服务端回退保护运行源码 b58406932fc8366ed211950c5d560cc540c87328 对应 [CI 39110127830](https://github.com/tangwu88/saydianserver/actions/runs/39110127830)，已独立核对整体及 verify SUCCESS；CN / US 自动部署均 SKIPPED。[草稿 PR #40](https://github.com/tangwu88/saydianserver/pull/40) 仍 OPEN / draft，无自动合并。实际镜像行为证明、旧 API / V1 负控、合成存量升级与隔离恢复、部分迁移及在途会话门禁已通过；既有 US rehearsal 39110127831 使用已验旧镜像成功，不是新 US 镜像或生产发布。
+
+只读生产盘点未取得受控主机连接：现有腾讯云终端标签不可操作，未开启浏览器全局 JavaScript 控制权限，也未提取 CI 密钥、开隧道或绕过发布接收器。生产磁盘容量、实际镜像/实例/唯一发布器、DB / public schema 及私有备份恢复链均缺本轮现场证据，不能以 CI 的合成恢复代替。
+
+本任务重新匿名 GET `https://app.saydian.cn/global/health/ready`，实读 ready / database=ok / revision=aeb9afcb8bbd8b4168c38e489c827790c448bf7a；公开可读不等于具备部署或数据库权限。未停写、执行迁移、生成或恢复生产备份、改迁移白名单、发真实邀请或发布候选，会员编号添加仍未线上可用。
+
+续接顺序：补齐受控生产连接和只读就绪证据 → 独立验收生产迁移/备份恢复及兼容回退下限 → 安全发布并回读实际版本 → 双测试账号验证编号邀请、确认、逐项授权及撤回。R12 新握手、三项真实手测及保存重读另行验收；这些缺项未满足前，不提升主线或改审核。
