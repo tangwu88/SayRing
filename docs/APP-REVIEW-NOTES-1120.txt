@@ -1,0 +1,23 @@
+Say Ring 1.0.4 (1120), cn.saydian.ring, iPhone only.
+
+This update improves owner-bound QRing reconnection, actual SDK capability gating, sleep-record presentation/report-status recovery, member-ID care invitation UI, and interface wording. Activity and sleep remain core features. A compatible physical ring is required for live Bluetooth records; phone sensors do not measure these values.
+
+CURRENT PUBLIC CONFIGURATION AND COMPLETE OPTIONAL SCOPE
+The public product/platform configuration is identical for reviewers and other users. At submission, steps/activity/sleep and the skin-temperature read-only category are available. Skin temperature is not core body temperature and is not used to detect fever or diagnose illness. Actual acquisition also requires a compatible ring and a successful vendor capability handshake.
+
+For completeness, this binary also contains the fixed read-only categories heart rate, HRV, blood oxygen and stress; optional manual heart rate, HRV and blood oxygen channels; and the existing health encyclopedia, mall display and dedicated sleep-AI pages. These optional categories/manual channels, encyclopedia, mall and sleep-AI generation are currently disabled in the same public configuration for everyone. They are disclosed here, not a reviewer-only experience. The mall purchase/payment ceiling remains disabled. We are not submitting or claiming acceptance of a concealed post-review activation. Material future availability changes must follow applicable App Review and disclosure requirements.
+
+Additional health access requires a fresh, expiring public lease, native acknowledgement and actual SDK capability; invalid/expired access closes it. No reviewer identity, demo-account exception or review-detection switch exists. Device sleep scores remain unavailable unless actually returned and permitted; no invented device values are presented.
+
+DATA AND HEALTH CLAIMS
+New physiological records remain on device; this release does not expand physiological cloud uploads. Existing account activity/sleep synchronization and consent-controlled care retain their boundaries. Sleep AI, when available, requires its separate published authorization and explicit sleep-summary upload confirmation; raw sleep-stage timelines are not uploaded by that flow. It is presently paused publicly, not presented as a completed report-generation service.
+
+No diagnosis, treatment, disease-risk prediction, clinical alert, blood pressure, glucose, ECG or general health-AI feature is enabled. We make no medical-device approval, clinical validation or measurement-accuracy claim. The app and listing advise consulting a healthcare professional. Published privacy/terms scope for build 1110 and later describes the read-only categories:
+https://app.saydian.cn/say-ring/privacy
+https://app.saydian.cn/say-ring/terms
+
+REVIEW ACCESS
+Please use the existing email/password credentials in App Review Information. Select Email on the login screen; this is PASSWORD login, not email OTP. No SMS is needed for that route. The separate no-login entry can connect a compatible ring and retain local records without an account. Optional cloud/care functions require login and the other member's explicit authorization. A ring-free reviewer should not expect fabricated live ring samples.
+
+VERIFICATION BOUNDARIES
+The same runtime source passed the complete project CI (quality, Android, iOS and both Harmony time zones). The preceding development-signed iPhone build was checked for retained data, login/profile, existing real sleep records, R12 startup recovery and three independent app launches. Those checks are not a claim that every ring model, new blood-oxygen sampling, physical-distance reconnection or the App Store-distributed binary has passed device acceptance. This package uses the production API and normal entry point; it contains no QA account or alternate review server.
