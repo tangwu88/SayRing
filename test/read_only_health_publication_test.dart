@@ -15,6 +15,7 @@ import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/read_only_health_service.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
+import 'package:saydian_app/ui/health_trend_page.dart';
 import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
 import 'package:saydian_app/ui/wellness_release.dart';
@@ -64,19 +65,20 @@ class _Bridge extends Fake
   }
 }
 
-HealthRecord _record(HealthMetric metric) => HealthRecord(
-  id: 'synthetic-${metric.wireName}',
-  metric: metric,
-  values: {'value': metric == HealthMetric.bloodOxygen ? 98 : 70},
-  unit: metric.defaultUnit,
-  measuredAt: DateTime.utc(2026, 10, 18, 1),
-  timezone: '+08:00',
-  deviceId: 'qring:SYNTHETIC',
-  firmwareVersion: 'synthetic',
-  quality: 'unknown',
-  source: MeasurementSource.wearable,
-  rawVersion: 1,
-);
+HealthRecord _record(HealthMetric metric, {DateTime? measuredAt}) =>
+    HealthRecord(
+      id: 'synthetic-${metric.wireName}',
+      metric: metric,
+      values: {'value': metric == HealthMetric.bloodOxygen ? 98 : 70},
+      unit: metric.defaultUnit,
+      measuredAt: measuredAt ?? DateTime.utc(2026, 10, 18, 1),
+      timezone: '+08:00',
+      deviceId: 'qring:SYNTHETIC',
+      firmwareVersion: 'synthetic',
+      quality: 'unknown',
+      source: MeasurementSource.wearable,
+      rawVersion: 1,
+    );
 
 void main() {
   test(
@@ -314,6 +316,59 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
+
+  for (final metric in _three) {
+    testWidgets('historical ${metric.wireName} card opens its record date', (
+      tester,
+    ) async {
+      final features = ReadOnlyHealthFeatures();
+      final store = MemoryHealthStore();
+      final record = _record(metric, measuredAt: DateTime.utc(2025, 1, 4, 21));
+      await store.upsert([record]);
+      final controller = AppController(
+        MemorySessionVault(),
+        _Api(),
+        store,
+        _Bridge(),
+        wellnessOnly: true,
+        healthReadPolicy: WellnessReleasePolicy(
+          enabled: true,
+          readOnlyFeatures: features,
+        ),
+      );
+      try {
+        await controller.refreshReadOnlyHealthFeatures();
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: const Locale('zh'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(body: DashboardPage(controller: controller)),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final card = find.byKey(ValueKey('health-metric-${metric.name}'));
+        await tester.scrollUntilVisible(
+          card,
+          250,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.tap(card);
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<HealthTrendPage>(find.byType(HealthTrendPage))
+              .initialDate,
+          record.measuredAt,
+        );
+        expect(find.text('该时间段暂无数据'), findsNothing);
+        expect(controller.canMeasureHealthMetric(metric), isFalse);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        controller.dispose();
+      }
+    });
+  }
 
   testWidgets('an already-open detail reacts to feature withdrawal', (
     tester,

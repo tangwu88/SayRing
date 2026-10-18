@@ -1266,6 +1266,7 @@ class HealthMetricCard extends StatelessWidget {
                     builder: (_) => HealthTrendPage(
                       controller: controller,
                       metric: metric,
+                      initialDate: record?.measuredAt,
                       onMeasure: supportsManualMeasurement
                           ? (trendContext) => _showHealthMeasurementDialog(
                               trendContext,
