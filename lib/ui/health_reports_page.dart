@@ -1,3 +1,4 @@
+import 'report_visual_summary.dart';
 import '../l10n/global_locale_controller.dart';
 import 'dart:async';
 
@@ -768,6 +769,7 @@ class _HealthReportDetailPageState extends State<HealthReportDetailPage> {
                   text: '${content['aiLabel'] ?? widget.report.aiLabel}',
                 ),
                 const SizedBox(height: 12),
+                ReportVisualSummary(visuals: _map(_payload?['visuals'])),
                 _DetailSection(
                   title: '报告概览',
                   icon: Icons.summarize_outlined,
@@ -797,7 +799,7 @@ class _HealthReportDetailPageState extends State<HealthReportDetailPage> {
                   _DetailSection(
                     title: '日常健康建议',
                     icon: Icons.lightbulb_outline_rounded,
-                    child: _BulletList(items: suggestions),
+                    child: ReportAdviceList(items: suggestions),
                   ),
                 ],
                 if (limitations.isNotEmpty) ...[

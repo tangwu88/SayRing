@@ -8,6 +8,7 @@ import '../domain/models.dart';
 import '../services/app_controller.dart';
 import '../services/sleep_health_projection.dart';
 import 'app_theme.dart';
+import 'report_visual_summary.dart';
 import 'health_ui_owner.dart';
 import 'wellness_release.dart';
 
@@ -224,6 +225,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
   late (bool, String?, String?) _owner;
   HealthReportSummary? _report;
   Map<String, Object?>? _content;
+  Map<String, Object?> _visuals = const {};
   bool _loading = true;
   bool _working = false;
   String? _error;
@@ -264,6 +266,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
     setState(() {
       _report = null;
       _content = null;
+      _visuals = const {};
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && ModalRoute.of(context)?.isActive == true) {
@@ -316,14 +319,17 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
       final report = await widget.controller.loadSleepReport(widget.record);
       if (!_current || !_foreground || request != _request) return;
       Map<String, Object?>? content;
+      Map<String, Object?> visuals = const {};
       if (report?.status == HealthReportStatus.ready) {
         final payload = await widget.controller.loadFullSleepReport(report!.id);
         content = _map(payload['content']);
+        visuals = _map(payload['visuals']);
       }
       if (!_current || !_foreground || request != _request) return;
       setState(() {
         _report = report;
         _content = content;
+        _visuals = visuals;
         _error = null;
         _readFailed = false;
         _readFailures = 0;
@@ -457,6 +463,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
       setState(() {
         _report = report;
         _content = null;
+        _visuals = const {};
       });
       _polls = 0;
       _readFailures = 0;
@@ -558,13 +565,16 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                     ),
                   ),
                 if (_content != null) ...[
-                  _section('AI 睡眠参考评分', [
-                    _report?.sleepScore == null
-                        ? '证据不足，未评分'
-                        : '${_report!.sleepScore} / 100',
-                    '${score['explanation'] ?? ''}',
-                    'AI 生成，非设备评分、非临床评估。仅基于本次记录。',
-                  ]),
+                  ReportVisualSummary(
+                    visuals: _visuals,
+                    score: _report?.sleepScore,
+                    explanation: '${score['explanation'] ?? ''}',
+                  ),
+                  if (_visuals.isEmpty && _report?.sleepScore == null)
+                    _section('AI 睡眠参考评分', [
+                      '证据不足，未评分',
+                      '${score['explanation'] ?? ''}',
+                    ]),
                   _section('睡眠分析', [
                     '${content['overview'] ?? ''}',
                     for (final row
@@ -573,7 +583,17 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                             : const [])
                       '${_map(row)['text'] ?? ''}',
                   ]),
-                  _section('睡眠改善建议', _strings(content['suggestions'])),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                      '睡眠改善建议',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 17,
+                      ),
+                    ),
+                  ),
+                  ReportAdviceList(items: _strings(content['suggestions'])),
                   _section('数据与分析局限', _strings(content['limitations'])),
                   _section('使用说明', [
                     '${content['safetyNotice'] ?? '仅供日常健康管理参考，不用于诊断或治疗。'}',
