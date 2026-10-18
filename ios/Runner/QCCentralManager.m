@@ -301,13 +301,17 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 
     CBPeripheral *peripheral = self.connectedPeripheral ?: [self lastPeripheral];
 
-    if (peripheral.state == CBPeripheralStateConnected || peripheral.state == CBPeripheralStateConnecting) {
+    if (peripheral.state == CBPeripheralStateConnected || peripheral.state == CBPeripheralStateConnecting ||
+        peripheral.state == CBPeripheralStateDisconnecting) {
         @try {
             [_centerManager cancelPeripheralConnection:peripheral];
         } @catch (NSException *e) {
             NSLog(@"QRing connection cancellation failed");
         }
         self.deviceState = QCStateDisconnecting;
+        // The reconnect action also uses remove. A missing cancel callback
+        // must not hold its barrier forever once this exact radio is closed.
+        [self reconcileCancellation:peripheral generation:self.operationGeneration attempts:80];
     } else {
         self.connectedPeripheral = nil;
         self.suppressAutoReconnect = NO;
@@ -349,7 +353,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
                                   peripheral.state == CBPeripheralStateDisconnected)) {
         self.connectedPeripheral = nil;
         self.suppressAutoReconnect = NO;
-        self.deviceState = QCStateDisconnected;
+        self.deviceState = [self isBindDevice] ? QCStateDisconnected : QCStateUnbind;
         return;
     }
     __weak typeof(self) weakSelf = self;
