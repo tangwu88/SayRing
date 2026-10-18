@@ -11,6 +11,11 @@ import 'app_theme.dart';
 import 'health_ui_owner.dart';
 import 'wellness_release.dart';
 
+// Retries only read existing reports. Creating/retrying analysis still requires
+// the separate explicit upload confirmation below.
+const _maxReportPolls = 90;
+const _maxReadFailures = 3;
+
 class SleepAiReportCard extends StatefulWidget {
   const SleepAiReportCard({
     required this.controller,
@@ -34,6 +39,7 @@ class _SleepAiReportCardState extends State<SleepAiReportCard>
   Timer? _poll;
   int _request = 0;
   int _polls = 0;
+  int _readFailures = 0;
   @override
   void initState() {
     super.initState();
@@ -50,6 +56,7 @@ class _SleepAiReportCardState extends State<SleepAiReportCard>
     _request++;
     _poll?.cancel();
     _polls = 0;
+    _readFailures = 0;
     _pausedPolling = false;
     _report = null;
     _failed = false;
@@ -86,6 +93,7 @@ class _SleepAiReportCardState extends State<SleepAiReportCard>
     _poll?.cancel();
     if (_foreground) {
       _polls = 0;
+      _readFailures = 0;
       unawaited(_load());
     }
   }
@@ -124,15 +132,27 @@ class _SleepAiReportCardState extends State<SleepAiReportCard>
       setState(() {
         _report = report;
         _failed = false;
-        _pausedPolling = _isPending(report) && _polls >= 90;
+        _readFailures = 0;
+        _schedulePoll(pending: _isPending(report));
       });
-      if (_isPending(report) && _polls++ < 90) {
-        _poll = Timer(const Duration(seconds: 5), () => unawaited(_load()));
-      }
     } catch (_) {
       if (current()) {
-        setState(() => _failed = true);
+        setState(() {
+          _failed = true;
+          _readFailures++;
+          _schedulePoll(pending: true);
+        });
       }
+    }
+  }
+
+  void _schedulePoll({required bool pending}) {
+    _pausedPolling =
+        pending &&
+        (_polls >= _maxReportPolls || _readFailures >= _maxReadFailures);
+    if (pending && !_pausedPolling) {
+      _polls++;
+      _poll = Timer(const Duration(seconds: 5), () => unawaited(_load()));
     }
   }
 
@@ -152,7 +172,9 @@ class _SleepAiReportCardState extends State<SleepAiReportCard>
           ),
           subtitle: Text(
             _failed
-                ? '报告读取失败，点击重试；未生成评分'
+                ? _pausedPolling
+                      ? '报告读取失败，点击刷新状态'
+                      : '报告读取失败，正在重试'
                 : _report?.sleepScore != null
                 ? '${_report!.sleepScore} / 100 · 查看评分依据和建议'
                 : _report == null
@@ -179,6 +201,7 @@ class _SleepAiReportCardState extends State<SleepAiReportCard>
             );
             _showingReport = false;
             _polls = 0;
+            _readFailures = 0;
             if (mounted) await _load();
           },
         );
@@ -207,6 +230,8 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
   Timer? _poll;
   int _request = 0;
   int _polls = 0;
+  int _readFailures = 0;
+  bool _readFailed = false;
   bool _closed = false;
   bool _foreground = true;
   bool _pausedPolling = false;
@@ -268,6 +293,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
       _poll?.cancel();
     } else if (_current && !_working) {
       _polls = 0;
+      _readFailures = 0;
       unawaited(_load());
     }
   }
@@ -299,18 +325,30 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
         _report = report;
         _content = content;
         _error = null;
+        _readFailed = false;
+        _readFailures = 0;
         _loading = false;
-        _pausedPolling = _isPending(report) && _polls >= 90;
+        _schedulePoll(pending: _isPending(report));
       });
-      if (_isPending(report) && _polls++ < 90) {
-        _poll = Timer(const Duration(seconds: 5), () => unawaited(_load()));
-      }
     } catch (error) {
       if (!_current || !_foreground || request != _request) return;
       setState(() {
         _error = _errorMessage(error);
+        _readFailed = true;
+        _readFailures++;
         _loading = false;
+        _schedulePoll(pending: true);
       });
+    }
+  }
+
+  void _schedulePoll({required bool pending}) {
+    _pausedPolling =
+        pending &&
+        (_polls >= _maxReportPolls || _readFailures >= _maxReadFailures);
+    if (pending && !_pausedPolling) {
+      _polls++;
+      _poll = Timer(const Duration(seconds: 5), () => unawaited(_load()));
     }
   }
 
@@ -421,6 +459,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
         _content = null;
       });
       _polls = 0;
+      _readFailures = 0;
       await _load();
     } catch (error) {
       if (_current) {
@@ -490,6 +529,7 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                 ? null
                 : () {
                     _polls = 0;
+                    _readFailures = 0;
                     unawaited(_load());
                   },
             tooltip: '刷新报告',
@@ -540,19 +580,26 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
                   ]),
                 ] else ...[
                   _section('AI 评分与建议', [
-                    _report == null
+                    _readFailed
+                        ? '暂时无法确认报告状态'
+                        : _report == null
                         ? '尚未生成本次睡眠报告。确认后上传睡眠汇总，报告同时保存在账号云端和后台健康报告中。'
                         : _report!.status == HealthReportStatus.failed
                         ? (_report!.progressMessage ??
                               'AI 生成失败，未提供评分。可重试；不会用固定分数替代。')
                         : (_report!.progressMessage ??
                               '${_report!.progressLabel}。'),
-                    if (_isPending(_report))
-                      _pausedPolling ? '自动刷新已暂停，点击右上角重试' : '完成后自动刷新',
+                    if (_readFailed || _isPending(_report))
+                      _pausedPolling
+                          ? '自动刷新已暂停，点击右上角重试'
+                          : _readFailed
+                          ? '正在重新读取报告'
+                          : '完成后自动刷新',
                     '原始睡眠分段时间轴仍仅保存在本机。AI 报告不能作为诊断、治疗或医疗评分。',
                   ]),
-                  if (_report == null ||
-                      _report!.status == HealthReportStatus.failed)
+                  if (!_readFailed &&
+                      (_report == null ||
+                          _report!.status == HealthReportStatus.failed))
                     FilledButton.icon(
                       key: const Key('sleep-ai-generate'),
                       onPressed: _working ? null : _generate,

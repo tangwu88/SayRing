@@ -54,6 +54,7 @@ class _Controller extends Fake implements AppController {
   HealthReportSummary? report;
   Completer<HealthReportSummary?>? pending;
   bool fail = false;
+  bool failFull = false;
   bool staleDocument = false;
   String? unavailableReason;
   int uploads = 0, grants = 0, withdrawals = 0, retries = 0;
@@ -87,17 +88,21 @@ class _Controller extends Fake implements AppController {
   }
 
   @override
-  Future<Map<String, Object?>> loadFullSleepReport(String id) async => {
-    'content': {
-      'overview': '本次合成睡眠分析',
-      'trends': [
-        {'metric': 'sleep', 'text': '本次合成阶段分析'},
-      ],
-      'suggestions': ['合成建议'],
-      'limitations': ['仅单日测试数据'],
-      'sleepScore': {'explanation': '合成评分依据'},
-    },
-  };
+  Future<Map<String, Object?>> loadFullSleepReport(String id) async {
+    if (failFull) throw StateError('fixture body read failure');
+    return {
+      'content': {
+        'overview': '本次合成睡眠分析',
+        'trends': [
+          {'metric': 'sleep', 'text': '本次合成阶段分析'},
+        ],
+        'suggestions': ['合成建议'],
+        'limitations': ['仅单日测试数据'],
+        'sleepScore': {'explanation': '合成评分依据'},
+      },
+    };
+  }
+
   @override
   Future<Map<String, Object?>> loadSleepReportAvailability() async => {
     'available': unavailableReason == null,
@@ -246,6 +251,110 @@ void main() {
       expect(c.uploads + c.grants + c.retries, 0);
     },
   );
+
+  testWidgets('card resumes readonly polling after a transient read failure', (
+    tester,
+  ) async {
+    final c = _Controller()..report = _report('generating');
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SleepAiReportCard(controller: c, record: record),
+        ),
+      ),
+    );
+    await tester.pump();
+    c.fail = true;
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+    c.fail = false;
+    c.report = _report('ready', score: 78);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+    expect(find.textContaining('78 / 100'), findsOneWidget);
+    expect(c.uploads + c.grants + c.retries, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('page resumes readonly polling after a transient read failure', (
+    tester,
+  ) async {
+    final c = _Controller()..report = _report('generating');
+    await _pump(tester, c);
+    c.fail = true;
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+    c.fail = false;
+    c.report = _report('ready', score: 78);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    expect(find.text('78 / 100'), findsOneWidget);
+    expect(c.uploads + c.grants + c.retries, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('ready report body is retried without redoing the analysis', (
+    tester,
+  ) async {
+    final c = _Controller()
+      ..report = _report('ready', score: 78)
+      ..failFull = true;
+    await _pump(tester, c);
+    expect(find.byKey(const Key('sleep-ai-generate')), findsNothing);
+    c.failFull = false;
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    expect(find.text('78 / 100'), findsOneWidget);
+    expect(find.text('本次合成睡眠分析'), findsOneWidget);
+    expect(c.uploads + c.grants + c.retries, 0);
+  });
+
+  testWidgets('three consecutive read failures pause and refresh can recover', (
+    tester,
+  ) async {
+    final c = _Controller()..fail = true;
+    await _pump(tester, c);
+    for (var i = 0; i < 2; i++) {
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pump();
+    }
+    expect(c.reads, 3);
+    expect(find.textContaining('自动刷新已暂停'), findsOneWidget);
+    expect(find.text('完成后自动刷新'), findsNothing);
+    expect(find.byKey(const Key('sleep-ai-generate')), findsNothing);
+    await tester.pump(const Duration(seconds: 30));
+    expect(c.reads, 3);
+    c.fail = false;
+    c.report = _report('ready', score: 78);
+    await tester.tap(find.byKey(const Key('sleep-ai-refresh')));
+    await tester.pumpAndSettle();
+    expect(find.text('78 / 100'), findsOneWidget);
+    expect(c.uploads + c.grants + c.retries, 0);
+  });
+
+  testWidgets('card read failures are bounded even without an initial status', (
+    tester,
+  ) async {
+    final c = _Controller()..fail = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SleepAiReportCard(controller: c, record: record),
+        ),
+      ),
+    );
+    await tester.pump();
+    for (var i = 0; i < 2; i++) {
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pump();
+    }
+    expect(find.text('报告读取失败，点击刷新状态'), findsOneWidget);
+    expect(c.reads, 3);
+    await tester.pump(const Duration(seconds: 30));
+    expect(c.reads, 3);
+    expect(c.uploads + c.grants + c.retries, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   testWidgets('polling is bounded and manual refresh is readonly', (
     tester,

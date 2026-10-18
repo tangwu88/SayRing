@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/ui/widgets/ring_gesture_guide.dart';
 
 void main() {
@@ -30,6 +31,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('使用前'), findsOneWidget);
       expect(find.text('操作方法'), findsOneWidget);
+      expect(
+        find.textContaining('打开“${DeviceFeature.camera.label}”'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('摇一摇拍照'), findsNothing);
       final lastStep = find.textContaining('仍无反应时关闭模式再重选');
       await tester.ensureVisible(lastStep);
       await tester.pumpAndSettle();
@@ -42,8 +48,10 @@ void main() {
   }
 
   test('mode hints separate system gestures from camera and reminders', () {
+    expect(DeviceFeature.camera.label, '相机遥控');
     expect(RingGestureGuide.modeHint(0), contains('关闭'));
-    expect(RingGestureGuide.modeHint(4), contains('摇一摇拍照'));
+    expect(RingGestureGuide.modeHint(4), contains(DeviceFeature.camera.label));
+    expect(RingGestureGuide.modeHint(4), isNot(contains('摇一摇拍照')));
     expect(RingGestureGuide.modeHint(5), contains('不等于开启来电提醒'));
     for (var mode = 0; mode <= 5; mode++) {
       expect(RingGestureGuide.modeHint(mode), isNotEmpty);
