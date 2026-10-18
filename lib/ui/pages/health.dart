@@ -615,14 +615,11 @@ class HealthHistoryPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canMeasure = controller.canMeasureHealthMetric(metric);
     return HealthTrendPage(
       controller: controller,
       metric: metric,
-      onMeasure: canMeasure
-          ? (trendContext) =>
-                _showHealthMeasurementDialog(trendContext, controller, metric)
-          : null,
+      onMeasure: (trendContext) =>
+          _showHealthMeasurementDialog(trendContext, controller, metric),
     );
   }
 }

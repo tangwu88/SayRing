@@ -1850,6 +1850,118 @@ void main() {
     );
   }
 
+  for (final metric in ManualHealthFeatures.supportedMetrics) {
+    for (final fromCard in [true, false]) {
+      testWidgets(
+        'manual action recovers on open ${fromCard ? 'card' : 'history'} ${metric.wireName}',
+        (tester) async {
+          final wearable = _TrackingMeasurementWearable();
+          final policy = WellnessReleasePolicy(
+            enabled: true,
+            readOnlyFeatures: ReadOnlyHealthFeatures()
+              ..replace({metric}, const Duration(minutes: 5)),
+            manualFeatures: ManualHealthFeatures()
+              ..replace({metric}, const Duration(minutes: 5)),
+          );
+          final controller = _ReconnectedManualController(wearable, policy);
+          addTearDown(controller.dispose);
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: buildSaydianTheme(),
+              home: fromCard
+                  ? Scaffold(
+                      body: HealthMetricCard(
+                        controller: controller,
+                        metric: metric,
+                        record: null,
+                      ),
+                    )
+                  : HealthHistoryPage(controller: controller, metric: metric),
+            ),
+          );
+          if (fromCard) {
+            await tester.tap(
+              find.byKey(ValueKey('health-metric-${metric.name}')),
+            );
+          }
+          await tester.pumpAndSettle();
+          final button = find.byKey(Key('health-measure-${metric.wireName}'));
+          expect(button, findsNothing);
+
+          controller.publishConnection(metric);
+          await tester.pumpAndSettle();
+          expect(button, findsOneWidget);
+          await tester.tap(button);
+          await tester.pump();
+          expect(wearable.starts, 1);
+          await tester.tap(find.text('结束测量'));
+          await tester.pumpAndSettle();
+          expect(wearable.stops, 1);
+
+          controller.publishConnection(null);
+          await tester.pumpAndSettle();
+          expect(button, findsNothing);
+          controller.publishConnection(metric, supported: false);
+          await tester.pumpAndSettle();
+          expect(button, findsNothing);
+          controller.publishConnection(metric);
+          await tester.pumpAndSettle();
+          expect(button, findsOneWidget);
+          policy.manualFeatures!.close();
+          controller.publishConnection(metric);
+          await tester.pumpAndSettle();
+          expect(button, findsNothing);
+          policy.manualFeatures!.replace({metric}, const Duration(minutes: 5));
+          controller.publishConnection(metric);
+          await tester.pumpAndSettle();
+          expect(button, findsOneWidget);
+          expect(wearable.starts, 1);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
+  for (final metric in ManualHealthFeatures.supportedMetrics) {
+    testWidgets('read-only card never adds manual ${metric.wireName}', (
+      tester,
+    ) async {
+      final policy = WellnessReleasePolicy(
+        enabled: true,
+        readOnlyFeatures: ReadOnlyHealthFeatures()
+          ..replace({metric}, const Duration(minutes: 5)),
+        manualFeatures: ManualHealthFeatures()
+          ..replace({metric}, const Duration(minutes: 5)),
+      );
+      final wearable = _TrackingMeasurementWearable();
+      final controller = _ReconnectedManualController(wearable, policy);
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: Scaffold(
+            body: HealthMetricCard(
+              controller: controller,
+              metric: metric,
+              record: null,
+              readOnly: true,
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byKey(ValueKey('health-metric-${metric.name}')));
+      await tester.pumpAndSettle();
+      controller.publishConnection(metric);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(Key('health-measure-${metric.wireName}')),
+        findsNothing,
+      );
+      expect(wearable.starts, 0);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('system back stops an active watch measurement', (tester) async {
     final wearable = _TrackingMeasurementWearable();
     final controller =
@@ -5192,6 +5304,46 @@ class _TransientHealthMonitoringWearable extends _NoopWearable {
 
   @override
   Future<int?> readHeartRateWarning() async => 145;
+}
+
+class _ReconnectedManualController extends AppController {
+  _ReconnectedManualController(
+    WearableBridge wearable,
+    WellnessReleasePolicy policy,
+  ) : super(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        wearable,
+        wellnessOnly: true,
+        healthReadPolicy: policy,
+      );
+
+  void publishConnection(HealthMetric? metric, {bool supported = true}) {
+    connectedDevice = metric == null
+        ? null
+        : const DeviceInfo(id: 'synthetic-reconnected', name: 'Synthetic');
+    capabilities = metric == null
+        ? null
+        : DeviceCapabilities(
+            metrics: {metric},
+            manualMetrics: supported ? {metric} : {},
+          );
+    if (metric == null) {
+      deviceMachine.transition(DeviceConnectionState.disconnected);
+    } else if (deviceState == DeviceConnectionState.disconnected) {
+      for (final state in const [
+        DeviceConnectionState.scanning,
+        DeviceConnectionState.connecting,
+        DeviceConnectionState.authenticating,
+        DeviceConnectionState.syncing,
+        DeviceConnectionState.ready,
+      ]) {
+        deviceMachine.transition(state);
+      }
+    }
+    notifyListeners();
+  }
 }
 
 class _TrackingMeasurementWearable extends _NoopWearable {

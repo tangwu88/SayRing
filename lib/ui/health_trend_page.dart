@@ -466,9 +466,15 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
                     ListenableBuilder(
                       listenable: widget.controller,
                       builder: (context, _) {
-                        if (!(widget.controller.capabilities
-                                ?.supportsManualMeasurement(widget.metric) ??
-                            false)) {
+                        // Recheck the live lease and handshake here. The route
+                        // may have opened while disconnected or unsupported.
+                        if (!widget.controller.healthReleasePolicy
+                                .allowsManualMeasurement(widget.metric) ||
+                            !(widget.controller.capabilities
+                                    ?.supportsManualMeasurement(
+                                      widget.metric,
+                                    ) ??
+                                false)) {
                           return const SizedBox.shrink();
                         }
                         return Column(

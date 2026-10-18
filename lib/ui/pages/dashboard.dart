@@ -1230,8 +1230,6 @@ class HealthMetricCard extends StatelessWidget {
       _HomeMetricStatus.low => context.l10n.statusLow,
       _HomeMetricStatus.high => context.l10n.statusHigh,
     };
-    final supportsManualMeasurement =
-        !readOnly && controller.canMeasureHealthMetric(metric);
     final textScale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0);
     final cardHeight = 184 + (textScale - 1) * 104;
     return SizedBox(
@@ -1267,7 +1265,7 @@ class HealthMetricCard extends StatelessWidget {
                       controller: controller,
                       metric: metric,
                       initialDate: record?.measuredAt,
-                      onMeasure: supportsManualMeasurement
+                      onMeasure: !readOnly
                           ? (trendContext) => _showHealthMeasurementDialog(
                               trendContext,
                               controller,
