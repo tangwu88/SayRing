@@ -142,3 +142,18 @@ API、Admin、Postgres、Redis、MinIO 容器均 healthy，但宿主 `ss` 检查
 后续分开验证公共 HTTPS / admin 与 `/global/health/ready`、手机报告状态 GET，以及智谱计费处理后的固定文本连接；全部符合后仍须另验用户明确授权的真实睡眠报告生成。
 网关定位和恢复由服务端任务在其既有授权范围处理；客户端仅补文档，不部署、重启、改网络或并行操作生产。AI 探针及真实报告继续保持停止。
 本次文档基线 `01b6eb3`，fetch 和干净工作树快进检查成功；不改业务源码，不重复构建/安装/商店操作，文档 `git diff --check` 通过。
+
+## 同日后续：网关恢复及客户端独立 GET 复核
+
+服务端随后定位真实容器为 `saydian-gateway-1`，而非旧记录的 `saidian-gateway`。旧名筛选为空不能证明不存在其他名称的网关容器。
+据服务端现场回报，该容器退出码 128，HostConfig 引用已不存在的 `saydian_default` 网络；这解释了当前启动失败，但未查明网络最初消失的原因或责任方。
+原挂载配置在隔离 `nginx -t` 中通过，镜像 ID 未变。服务端在既有发布锁内用原 Compose、production.env / images.env，仅对 gateway 执行 `up --no-deps --no-build --pull never`，创建缺失网络并启动原网关。
+没有重启 API、Worker 或数据库，没有修改模型、配置内容、维护开关或业务数据；这些恢复操作由服务端任务执行，客户端不交叉操作生产。
+
+客户端本轮在同一 Mac 独立执行普通 GET：`https://app.saydian.cn/admin/` 返回 HTTP 200；`/health/ready` 和 `/global/health/ready` 均 HTTP 200、status=ready、database=ok，revision 均为 `a5013f254671d578f8bab95becfc371d192e50ce`。
+此前同机 TLS 失败到本轮正常之间没有更改 DNS、代理或 VPN。fake-IP / TUN 不能作为本次服务器入口故障的充分根因；现在有公共入口恢复的实际 HTTP 证据，不再只凭容器 healthy 判断。
+admin 入口 200 不代表已重新登录并逐页验证后台；readiness 通过也不代表真实 AI 报告生成成功。
+
+手机前台守卫仍为 false，已拒绝截图和点击，没有切换其他 App、启动/重装 Say Ring。因此这轮未复验手机登录态报告 GET，不把公共 readiness 代替该验收。
+智谱 1113 的计费阻塞独立保留，恢复后没有重启 AI 探针、授权、真实数据上传或报告重试。后续先处理计费并受控复验，再分别验收手机读取和明确授权的真实生成。
+本次文档基线 `a8c0b02`；fetch 和干净工作树快进检查成功，`git diff --check` 通过。无业务源码/版本号变更，不重复构建、安装或改动商店审核。
