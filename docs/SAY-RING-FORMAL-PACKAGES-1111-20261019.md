@@ -23,3 +23,4 @@
 - 发布Python ReleaseGateTest共21项通过；基于本轮releaseRuntimeClasspath的apk-abis通过，仅沿用已锁定JPush6.2.0/JCore5.5.2/flutter3.5.1 libjutils.so单arm64受控例外。Inspect-SayRingNative仅在内存替换报告目录，43个ELF实际检查，arm64全部16KB通过；原厂armv7 libDspConfig.so/libEcgAnaly.so既有4KB明确保留，不修改SDK二进制。
 - APK最终SHA256 B101FF8FFCF0E37AD5927391A344EE29A3FC2937422B5BEFBF4F2063471F4BDF，69,931,571字节；签名APP 9,448,755字节；HAP 18,711,784字节。delivery三包复制后再次核对哈希一致，附交付说明、原签名指纹与未纳入手势分支的提示。未安装手机，未上传AGC，未更新在线下载或后台。
 - 不把旧Mac QA/真机记录写成本轮Windows实测；本轮iOS和设备功能未执行。只提交两个版本文件、独立PS验签门禁、日志及索引；产物/证书/私钥/机器日志不提交，不自动合并其它分支或推main。
+- 提交前再次fetch确认main仍8e7541d，diff检查通过，首个版本/门禁/记录提交6b22156。首次推送出现curl52 Empty reply、send-pack远端断连，不能将附带的Everything up-to-date当作推送成功。保留提交和包，使用同一远端/分支只读核对后以进程级HTTP/1.1重试，不修改全局代理、不强推。
