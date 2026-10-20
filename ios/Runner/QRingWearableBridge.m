@@ -62,6 +62,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 @property(nonatomic, copy) NSString *recoveryTargetName;
 @property(nonatomic, copy) NSDictionary *recoveryProfile;
 @property(nonatomic, assign) BOOL recoveryConnecting;
+@property(nonatomic, assign) NSTimeInterval recoveryRetryNotBefore;
 @property(nonatomic, assign) BOOL cancellingConnection;
 @property(nonatomic, copy, nullable) FlutterResult pendingDisconnect;
 @property(nonatomic, assign) NSUInteger connectDeadlineGeneration;
@@ -236,6 +237,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     }
     [self finishScan];
     self.pendingConnect = result;
+    self.recoveryRetryNotBefore = 0;
     self.featureList = nil;
     self.connectionGeneration++;
     self.battery = nil;
@@ -264,7 +266,8 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     if (self.recoveryTargetID.length == 0 || self.recoveryContext.length == 0 ||
         self.central.hasPendingRestoredCancellations ||
         self.central.bleState != QCBluetoothStatePoweredOn || self.pendingConnect ||
-        self.pendingDisconnect || self.cancellingConnection || self.recoveryConnecting || [self isResolved]) { return; }
+        self.pendingDisconnect || self.cancellingConnection || self.recoveryConnecting || [self isResolved] ||
+        NSProcessInfo.processInfo.systemUptime < self.recoveryRetryNotBefore) { return; }
     NSUUID *uuid = [[NSUUID alloc] initWithUUIDString:self.recoveryTargetID];
     if (!uuid) { return; }
     NSArray<CBPeripheral *> *items = [self.central.centerManager retrievePeripheralsWithIdentifiers:@[uuid]];
@@ -284,6 +287,22 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     }
 }
 
+- (void)scheduleRecoveryAfterDisconnect {
+    NSUInteger generation = self.connectionGeneration;
+    __weak typeof(self) weakSelf = self;
+    QRingNext recover = ^{
+        if (generation == weakSelf.connectionGeneration) { [weakSelf startAutomaticRecovery]; }
+    };
+    NSTimeInterval delay = MAX(0, self.recoveryRetryNotBefore - NSProcessInfo.processInfo.systemUptime);
+    // A normal proximity loss can re-arm immediately, after SDK teardown.
+    // Preserve a cooldown after a failed handshake to prevent a retry loop.
+    if (delay > 0) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), recover);
+    } else {
+        dispatch_async(dispatch_get_main_queue(), recover);
+    }
+}
+
 - (void)disconnectWithResult:(FlutterResult)result {
     [self finishScan];
     [self finishCamera:[self error:@"QRING_DISCONNECTED" message:@"戒指已断开"]];
@@ -293,6 +312,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     self.recoveryTargetID = @"";
     self.recoveryContext = @"";
     self.recoveryConnecting = NO;
+    self.recoveryRetryNotBefore = 0;
     self.connectDeadlineGeneration++;
     self.connectionGeneration++;
     if (self.pendingConnect) {
@@ -435,6 +455,10 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     };
     QRingNext readFirmware = ^{
         if (finished || ![weakSelf isCurrentConnection:generation]) { finish(); return; }
+        // Firmware is constant within this live connection. Battery polling
+        // must not repeat this SDK command; disconnect clears the cache.
+        // Empty/failed reads remain retryable on the next details request.
+        if (weakSelf.firmware.length > 0) { finish(); return; }
         // The bundled SDK invokes this callback as (hardware, software).
         [QCSDKCmdCreator getDeviceSoftAndHardVersionSuccess:^(__unused NSString *hardware, NSString *software) {
           QRingOnMain(^{
@@ -460,6 +484,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)failConnect:(NSString *)code message:(NSString *)message {
+    self.recoveryRetryNotBefore = NSProcessInfo.processInfo.systemUptime + 2;
     self.connectionGeneration++;
     self.readingDetails = NO;
     self.connectDeadlineGeneration++;
@@ -827,6 +852,30 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     self.syncStatuses[metric] = hasData ? @"complete" : @"no_data";
 }
 
+- (void)publishCurrentActivityFromIndex:(NSUInteger)firstRecord {
+    // Surface today's real cumulative values before the remaining history.
+    // Keep every slot in syncRecords for the final full-history result. Only
+    // three notifications are needed, rather than one write per activity slot.
+    NSMutableDictionary<NSString *, NSDictionary *> *latest = [NSMutableDictionary dictionary];
+    for (NSUInteger index = firstRecord; index < self.syncRecords.count; index++) {
+        NSDictionary *record = self.syncRecords[index];
+        NSString *metric = record[@"type"];
+        if (![@[@"steps", @"distance", @"calories"] containsObject:metric]) { continue; }
+        NSDictionary *previous = latest[metric];
+        if (!previous || [record[@"measuredAt"] compare:previous[@"measuredAt"]] == NSOrderedDescending) {
+            latest[metric] = record;
+        }
+    }
+    NSUInteger generation = self.connectionGeneration;
+    __weak typeof(self) weakSelf = self;
+    QRingOnMain(^{
+        if (![weakSelf isCurrentConnection:generation]) { return; }
+        for (NSString *metric in @[@"steps", @"distance", @"calories"]) {
+            if (latest[metric]) { [weakSelf emit:@"healthRecord" payload:latest[metric]]; }
+        }
+    });
+}
+
 - (void)syncHealth:(FlutterResult)result {
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
     if (self.activeMetric) { result([self error:@"MEASUREMENT_ACTIVE" message:@"测量中，请稍后同步"]); return; }
@@ -864,6 +913,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         case 0: {
             [QCSDKCmdCreator getSportDetailDataByDay:day sportDatas:^(NSArray<QCSportModel *> *sports) {
                 if (!current()) { return; }
+                NSUInteger firstRecord = weakSelf.syncRecords.count;
                 NSMutableArray *slots = [NSMutableArray array];
                 for (QCSportModel *item in sports) {
                     NSDate *date = [weakSelf parseDateTime:item.happenDate fallback:nil];
@@ -877,6 +927,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
                     [weakSelf addSingle:@"calories" date:sample[@"date"] value:[sample[@"calories"] doubleValue] unit:@"kcal" minimum:0 maximum:100000];
                 }
                 for (NSString *activity in @[@"steps", @"distance", @"calories"]) [weakSelf noteHistory:activity failed:NO];
+                if (day == 0) { [weakSelf publishCurrentActivityFromIndex:firstRecord]; }
                 [weakSelf syncDay:day phase:1];
             } fail:^{ if (current()) {
                 for (NSString *activity in @[@"steps", @"distance", @"calories"]) [weakSelf noteHistory:activity failed:YES];
@@ -1666,8 +1717,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         self.activeSportType = -1;
         if (self.pendingConnect) { [self failConnect:@"QRING_DISCONNECTED" message:@"戒指连接中断，请靠近手机后重试"]; }
         else if (retired.length) { [self emit:@"disconnected" payload:@{@"deviceId": retired}]; }
-        __weak typeof(self) weakSelf = self;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ [weakSelf startAutomaticRecovery]; });
+        [self scheduleRecoveryAfterDisconnect];
     }
 }
 

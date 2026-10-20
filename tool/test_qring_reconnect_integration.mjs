@@ -90,3 +90,68 @@ test('actual Objective-C cancellation methods reject stale polls and require rad
     rmSync(temporary, {recursive: true, force: true});
   }
 });
+
+test('iOS recovery re-arms after actual disconnect without a fixed delay or stale retry', () => {
+  const bridge = read('ios/Runner/QRingWearableBridge.m');
+  const state = bridge.split('- (void)didState:')[1].split('- (void)didConnectTransport:')[0];
+  assert.match(state, /scheduleRecoveryAfterDisconnect/);
+  assert.doesNotMatch(state, /2 \* NSEC_PER_SEC/);
+  const schedule = bridge.split('- (void)scheduleRecoveryAfterDisconnect')[1].split('- (void)disconnectWithResult:')[0];
+  assert.match(schedule, /dispatch_async\(dispatch_get_main_queue\(\), recover\)/);
+  assert.match(schedule, /generation == weakSelf.connectionGeneration/);
+  assert.match(schedule, /\[weakSelf startAutomaticRecovery\]/);
+  assert.match(schedule, /recoveryRetryNotBefore - NSProcessInfo.processInfo.systemUptime/);
+  const failure = bridge.split('- (void)failConnect:')[1].split('- (void)startUnbind:')[0];
+  assert.match(failure, /recoveryRetryNotBefore = NSProcessInfo.processInfo.systemUptime \+ 2/);
+  const recover = bridge.split('- (void)startAutomaticRecovery')[1].split('- (void)disconnectWithResult:')[0];
+  for (const guard of ['recoveryTargetID', 'recoveryContext', 'hasPendingRestoredCancellations', 'pendingDisconnect', 'cancellingConnection', 'recoveryConnecting']) {
+    assert.ok(recover.includes(guard));
+  }
+  assert.match(recover, /retrievePeripheralsWithIdentifiers:@\[uuid\]/);
+  assert.match(recover, /connect:peripheral timeout:0/);
+  // Re-arming from Dart/foreground/Bluetooth callbacks cannot bypass cooldown.
+  assert.match(recover, /NSProcessInfo.processInfo.systemUptime < self.recoveryRetryNotBefore/);
+});
+
+test('today activity arrives before the remaining seven-day QRing history', () => {
+  const bridge = read('ios/Runner/QRingWearableBridge.m');
+  const sync = bridge.split('- (void)syncDay:')[1].split('- (void)finishHealthSync')[0];
+  const activity = sync.split('case 0:')[1].split('case 1:')[0];
+  assert.match(activity, /NSUInteger firstRecord = .*syncRecords.count/);
+  assert.match(activity, /if \(day == 0\).*publishCurrentActivityFromIndex:firstRecord/);
+  assert.ok(activity.indexOf('publishCurrentActivityFromIndex:firstRecord') < activity.indexOf('syncDay:day phase:1'));
+  assert.match(sync, /day >= 7/);
+  assert.match(sync, /if \(!current\(\)\).*return/);
+  assert.match(bridge, /SRActivitySleepEvent\(type, payload/);
+});
+
+test('actual QRing details and early activity methods retain freshness and full history', {skip: process.platform !== 'darwin'}, () => {
+  const bridge = read('ios/Runner/QRingWearableBridge.m');
+  const method = signature => {
+    const start = bridge.indexOf(signature);
+    assert.notEqual(start, -1, `missing ${signature}`);
+    return bridge.slice(start, bridge.indexOf('\n- (', start + 1));
+  };
+  const methods = method('- (void)readDeviceDetailsWithCompletion:') + '\n' + method('- (void)publishCurrentActivityFromIndex:') + '\n' + method('- (void)scheduleRecoveryAfterDisconnect');
+  const template = read('tool/fixtures/qring_performance.m');
+  const temporary = mkdtempSync(join(tmpdir(), 'sayring-qring-performance-'));
+  try {
+    const source = join(temporary, 'performance.m');
+    const executable = join(temporary, 'performance');
+    const compile = value => {
+      writeFileSync(source, template.replace('// ACTUAL_PERFORMANCE_METHODS', value));
+      execFileSync('xcrun', ['clang', '-fobjc-arc', '-Wall', '-Wextra', '-Werror', '-framework', 'Foundation', source, '-o', executable], {stdio: 'pipe'});
+    };
+    compile(methods);
+    const output = execFileSync(executable, {encoding: 'utf8'});
+    assert.match(output, /QRing actual performance methods: [1-9]\d* assertions passed/);
+    process.stdout.write(output);
+    const regressed = methods.replace('if (weakSelf.firmware.length > 0)', 'if (NO)');
+    assert.notEqual(regressed, methods);
+    compile(regressed);
+    assert.throws(() => execFileSync(executable, {stdio: 'pipe'}), error => error.status === 1 && /Synthetic performance assertion failed/.test(error.stderr.toString()));
+    process.stdout.write('QRing repeated firmware read negative control rejected\n');
+  } finally {
+    rmSync(temporary, {recursive: true, force: true});
+  }
+});

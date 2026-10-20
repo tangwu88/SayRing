@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/api_client.dart';
@@ -12,23 +13,136 @@ import 'package:saydian_app/services/wearable_bridge.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<({AppController controller, _Ring ring})> setup({
-    bool consent = true,
-    bool legacy = false,
-  }) async {
+  Future<({AppController controller, _Ring ring, MemoryHealthStore store})>
+  setup({bool consent = true, bool legacy = false}) async {
     final ring = legacy ? _LegacyRing() : _Ring();
+    final store = MemoryHealthStore();
     final controller = AppController(
       MemorySessionVault()..privacyConsentGranted = consent,
       _Api(),
-      MemoryHealthStore(),
+      store,
       ring,
     );
     addTearDown(controller.dispose);
     addTearDown(ring.source.close);
     await controller.initialize();
     await _settle();
-    return (controller: controller, ring: ring);
+    return (controller: controller, ring: ring, store: store);
   }
+
+  HealthRecord activity(
+    String id, {
+    String deviceId = _Ring.id,
+    DateTime? measuredAt,
+  }) => HealthRecord(
+    id: id,
+    metric: HealthMetric.steps,
+    values: const {'value': 100},
+    unit: '步',
+    measuredAt: measuredAt ?? DateTime.now().toUtc(),
+    timezone: '+00:00',
+    deviceId: deviceId,
+    firmwareVersion: 'synthetic',
+    quality: 'device_reported',
+    source: MeasurementSource.wearable,
+    origin: MeasurementOrigin.watchHistory,
+    sourceVendor: 'qring',
+    sourceModel: 'R12',
+    sourceApp: 'say-ring',
+    sourceDeviceCategory: 'ring',
+    rawVersion: 3,
+  );
+
+  test(
+    'today activity is visible and saved while full history is pending',
+    () async {
+      final state = await setup();
+      state.ring.history = Completer<List<HealthRecord>>();
+      await state.controller.connectDevice(_Ring.device);
+      await _settle();
+      expect(state.controller.isDeviceSyncing, isTrue);
+      final preview = activity('synthetic-today');
+      state.ring.source.add(
+        WearableEvent(type: 'healthRecord', payload: preview.toJson()),
+      );
+      await _settle();
+      expect(state.controller.healthRecords.single.id, preview.id);
+      expect((await state.store.recent()).single.id, preview.id);
+      expect(state.controller.isDeviceSyncing, isTrue);
+      expect(state.controller.syncStatus, isNot(contains('已同步')));
+      final older = activity(
+        'synthetic-older',
+        measuredAt: preview.measuredAt.subtract(const Duration(days: 2)),
+      );
+      state.ring.history!.complete([preview, older]);
+      await _settle();
+      expect(state.controller.isDeviceSyncing, isFalse);
+      expect((await state.store.recent()).map((record) => record.id).toSet(), {
+        preview.id,
+        older.id,
+      });
+      expect(state.controller.syncStatus, '已同步 2 条');
+    },
+  );
+
+  test(
+    'history failure retains early activity without claiming full success',
+    () async {
+      final state = await setup();
+      state.ring.history = Completer<List<HealthRecord>>();
+      await state.controller.connectDevice(_Ring.device);
+      final preview = activity('synthetic-before-timeout');
+      state.ring.source.add(
+        WearableEvent(type: 'healthRecord', payload: preview.toJson()),
+      );
+      await _settle();
+      state.ring.history!.completeError(
+        PlatformException(code: 'QRING_SYNC_TIMEOUT', message: '同步超时'),
+      );
+      await _settle();
+      expect((await state.store.recent()).single.id, preview.id);
+      expect(state.controller.isDeviceSyncing, isFalse);
+      expect(state.controller.syncStatus, contains('失败'));
+      expect(state.controller.errorMessage, contains('超时'));
+    },
+  );
+
+  test(
+    'other targets and late activity after disconnect cannot enter the cache',
+    () async {
+      final state = await setup();
+      state.ring.history = Completer<List<HealthRecord>>();
+      await state.controller.connectDevice(_Ring.device);
+      state.ring.source.add(
+        WearableEvent(
+          type: 'healthRecord',
+          payload: activity(
+            'synthetic-other',
+            deviceId: 'qring:other',
+          ).toJson(),
+        ),
+      );
+      await _settle();
+      expect(await state.store.recent(), isEmpty);
+      state.ring.source.add(
+        const WearableEvent(
+          type: 'disconnected',
+          payload: {'deviceId': _Ring.id},
+        ),
+      );
+      await _settle();
+      state.ring.source.add(
+        WearableEvent(
+          type: 'healthRecord',
+          payload: activity('synthetic-late').toJson(),
+        ),
+      );
+      state.ring.history!.complete([activity('synthetic-late-full')]);
+      await _settle();
+      expect(await state.store.recent(), isEmpty);
+      expect(state.controller.connectedDevice, isNull);
+    },
+  );
 
   test(
     'privacy denial only cancels existing restoration, never starts recovery',
@@ -245,6 +359,7 @@ class _Ring extends Fake
   bool forgotten = false;
   int restoreCount = 0;
   bool failDisconnect = false;
+  Completer<List<HealthRecord>>? history;
   Completer<void>? delayedDisconnect;
   final disconnectStarted = Completer<void>();
   @override
@@ -303,7 +418,8 @@ class _Ring extends Fake
   Future<DeviceCapabilities> getCapabilities() async =>
       const DeviceCapabilities(metrics: {});
   @override
-  Future<List<HealthRecord>> syncHealthData({String? cursor}) async => const [];
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) async =>
+      history == null ? const [] : await history!.future;
   @override
   Future<List<SportRecord>> readSportRecords() async => const [];
 }
