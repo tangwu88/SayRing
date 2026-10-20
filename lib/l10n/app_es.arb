@@ -711,5 +711,16 @@
         "type": "int"
       }
     }
-  }
+  },
+  "articleFontSize": "Tamaño de letra",
+  "articleReadingSettings": "Tamaño de lectura",
+  "articleTextStandard": "Normal",
+  "articleTextLarge": "Grande",
+  "articleTextExtraLarge": "Muy grande",
+  "articleReadingPreview": "Elige un tamaño de letra cómodo. Se guardará tu elección.",
+  "articleBackToTop": "Volver arriba",
+  "articleViewImage": "Ampliar imagen",
+  "articleImageZoomHint": "Pellizca para ampliar y arrastra para ver la imagen.",
+  "articleFontSaveFailed": "Se cambió el tamaño de letra, pero no se pudo guardar.",
+  "articleTableHint": "Desliza a izquierda o derecha para leer la tabla."
 }

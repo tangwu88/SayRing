@@ -3,9 +3,8 @@ import 'package:flutter/material.dart';
 import '../../services/app_controller.dart';
 import '../../l10n/global_locale_controller.dart';
 import 'package:intl/intl.dart';
-import '../widgets/safe_network_image.dart';
-import '../html_text.dart';
-import '../media_url.dart';
+import '../article_reader.dart';
+import '../../services/article_reading_preferences.dart';
 import '../wellness_release.dart';
 import '../../domain/module_visibility.dart';
 import '../module_content_gate.dart';
@@ -587,12 +586,14 @@ class ArticleDetailPage extends StatefulWidget {
     required this.controller,
     required this.article,
     this.singleArticle = false,
+    this.readingPreferences,
     super.key,
   });
 
   final AppController controller;
   final Map<String, Object?> article;
   final bool singleArticle;
+  final ArticleReadingPreferences? readingPreferences;
 
   @override
   State<ArticleDetailPage> createState() => _ArticleDetailPageState();
@@ -689,85 +690,24 @@ class _ArticleDetailPageState extends State<ArticleDetailPage> {
     final hasError = widget.controller.isGlobalEdition
         ? _globalLoadFailed
         : widget.controller.articleDetailLoadError != null;
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : hasError
-          ? _ArticleLoadFailure(onRetry: _load)
-          : ListView(
-              padding: const EdgeInsets.all(20),
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (raw.trim().isEmpty)
-                  Text(
-                    context.l10n.articleContentUnavailable,
-                    style: const TextStyle(fontSize: 15, height: 1.75),
-                  )
-                else
-                  ..._articleContentWidgets(context, raw),
-              ],
-            ),
-    );
-  }
-}
-
-List<Widget> _articleContentWidgets(BuildContext context, String raw) {
-  final imagePattern = RegExp(
-    r'''<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>''',
-    caseSensitive: false,
-  );
-  final widgets = <Widget>[];
-  var cursor = 0;
-  var imageIndex = 0;
-  for (final match in imagePattern.allMatches(raw)) {
-    final text = plainTextFromHtml(raw.substring(cursor, match.start));
-    if (text.isNotEmpty) {
-      widgets.add(
-        Padding(
-          padding: const EdgeInsets.only(bottom: 14),
-          child: Text(text, style: const TextStyle(fontSize: 15, height: 1.75)),
-        ),
+    if (_loading || hasError) {
+      return Scaffold(
+        appBar: AppBar(title: Text(context.l10n.healthLibrary)),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _ArticleLoadFailure(onRetry: _load),
       );
     }
-    final source = normalizeArticleImageUrl(match.group(1) ?? '');
-    widgets.add(
-      Padding(
-        padding: const EdgeInsets.only(bottom: 14),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(14),
-          child: SafeNetworkImage(
-            source,
-            key: ValueKey('article-content-image-${imageIndex++}'),
-            fit: BoxFit.fitWidth,
-            loadingBuilder: (context, child, progress) => progress == null
-                ? child
-                : const SizedBox(
-                    height: 160,
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-            errorBuilder: (_, _, _) => Container(
-              height: 120,
-              alignment: Alignment.center,
-              color: const Color(0xFFF0F6FF),
-              child: Text(context.l10n.imageUnavailable),
-            ),
-          ),
-        ),
+    return ArticleReader(
+      controller: widget.controller,
+      title: title,
+      contentHtml: raw,
+      publishedDate: _articleDateText(
+        _article['publishedAt'] ??
+            _article['createdAt'] ??
+            _article['created_at'],
       ),
+      preferences: widget.readingPreferences,
     );
-    cursor = match.end;
   }
-  final tail = plainTextFromHtml(raw.substring(cursor));
-  if (tail.isNotEmpty) {
-    widgets.add(Text(tail, style: const TextStyle(fontSize: 15, height: 1.75)));
-  }
-  return widgets;
 }

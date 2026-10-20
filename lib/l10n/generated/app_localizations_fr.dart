@@ -2147,4 +2147,41 @@ class AppLocalizationsFr extends AppLocalizations {
   String stockCount(int count) {
     return '$count en stock';
   }
+
+  @override
+  String get articleFontSize => 'Taille du texte';
+
+  @override
+  String get articleReadingSettings => 'Taille de lecture';
+
+  @override
+  String get articleTextStandard => 'Normale';
+
+  @override
+  String get articleTextLarge => 'Grande';
+
+  @override
+  String get articleTextExtraLarge => 'Très grande';
+
+  @override
+  String get articleReadingPreview =>
+      'Choisissez une taille de texte confortable. Votre choix sera mémorisé.';
+
+  @override
+  String get articleBackToTop => 'Retour en haut';
+
+  @override
+  String get articleViewImage => 'Agrandir l’image';
+
+  @override
+  String get articleImageZoomHint =>
+      'Pincez pour zoomer et faites glisser pour parcourir l’image.';
+
+  @override
+  String get articleFontSaveFailed =>
+      'La taille du texte a changé, mais le réglage n’a pas pu être enregistré.';
+
+  @override
+  String get articleTableHint =>
+      'Balayez vers la gauche ou la droite pour lire le tableau.';
 }

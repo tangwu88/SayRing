@@ -711,5 +711,16 @@
         "type": "int"
       }
     }
-  }
+  },
+  "articleFontSize": "文字サイズ",
+  "articleReadingSettings": "読みやすい文字サイズ",
+  "articleTextStandard": "標準",
+  "articleTextLarge": "大きい",
+  "articleTextExtraLarge": "とても大きい",
+  "articleReadingPreview": "読みやすい文字サイズを選んでください。設定は保存されます。",
+  "articleBackToTop": "先頭に戻る",
+  "articleViewImage": "画像を拡大",
+  "articleImageZoomHint": "2本の指で拡大・縮小し、ドラッグして画像を移動できます。",
+  "articleFontSaveFailed": "文字サイズを変更しましたが、設定を保存できませんでした。",
+  "articleTableHint": "表は左右にスワイプして確認できます。"
 }

@@ -4003,6 +4003,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count} in stock'**
   String stockCount(int count);
+
+  /// No description provided for @articleFontSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Text size'**
+  String get articleFontSize;
+
+  /// No description provided for @articleReadingSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading text size'**
+  String get articleReadingSettings;
+
+  /// No description provided for @articleTextStandard.
+  ///
+  /// In en, this message translates to:
+  /// **'Standard'**
+  String get articleTextStandard;
+
+  /// No description provided for @articleTextLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'Large'**
+  String get articleTextLarge;
+
+  /// No description provided for @articleTextExtraLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'Extra large'**
+  String get articleTextExtraLarge;
+
+  /// No description provided for @articleReadingPreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a comfortable text size. Your choice will be remembered.'**
+  String get articleReadingPreview;
+
+  /// No description provided for @articleBackToTop.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to top'**
+  String get articleBackToTop;
+
+  /// No description provided for @articleViewImage.
+  ///
+  /// In en, this message translates to:
+  /// **'Enlarge image'**
+  String get articleViewImage;
+
+  /// No description provided for @articleImageZoomHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Pinch to zoom and drag to view the image.'**
+  String get articleImageZoomHint;
+
+  /// No description provided for @articleFontSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Text size changed, but the preference could not be saved.'**
+  String get articleFontSaveFailed;
+
+  /// No description provided for @articleTableHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Swipe left or right to read the table.'**
+  String get articleTableHint;
 }
 
 class _AppLocalizationsDelegate

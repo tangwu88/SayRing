@@ -711,5 +711,16 @@
         "type": "int"
       }
     }
-  }
+  },
+  "articleFontSize": "字号",
+  "articleReadingSettings": "阅读字号",
+  "articleTextStandard": "标准",
+  "articleTextLarge": "大字",
+  "articleTextExtraLarge": "特大字",
+  "articleReadingPreview": "选择看得清的字号，设置会自动记住。",
+  "articleBackToTop": "回到顶部",
+  "articleViewImage": "查看大图",
+  "articleImageZoomHint": "双指放大或缩小，拖动查看图片。",
+  "articleFontSaveFailed": "本次字号已调整，暂时无法记住设置。",
+  "articleTableHint": "表格可左右滑动查看。"
 }

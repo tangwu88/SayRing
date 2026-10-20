@@ -812,5 +812,16 @@
         "type": "int"
       }
     }
-  }
+  },
+  "articleFontSize": "Text size",
+  "articleReadingSettings": "Reading text size",
+  "articleTextStandard": "Standard",
+  "articleTextLarge": "Large",
+  "articleTextExtraLarge": "Extra large",
+  "articleReadingPreview": "Choose a comfortable text size. Your choice will be remembered.",
+  "articleBackToTop": "Back to top",
+  "articleViewImage": "Enlarge image",
+  "articleImageZoomHint": "Pinch to zoom and drag to view the image.",
+  "articleFontSaveFailed": "Text size changed, but the preference could not be saved.",
+  "articleTableHint": "Swipe left or right to read the table."
 }

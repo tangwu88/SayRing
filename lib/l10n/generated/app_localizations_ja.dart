@@ -2038,4 +2038,37 @@ class AppLocalizationsJa extends AppLocalizations {
   String stockCount(int count) {
     return '在庫 $count 点';
   }
+
+  @override
+  String get articleFontSize => '文字サイズ';
+
+  @override
+  String get articleReadingSettings => '読みやすい文字サイズ';
+
+  @override
+  String get articleTextStandard => '標準';
+
+  @override
+  String get articleTextLarge => '大きい';
+
+  @override
+  String get articleTextExtraLarge => 'とても大きい';
+
+  @override
+  String get articleReadingPreview => '読みやすい文字サイズを選んでください。設定は保存されます。';
+
+  @override
+  String get articleBackToTop => '先頭に戻る';
+
+  @override
+  String get articleViewImage => '画像を拡大';
+
+  @override
+  String get articleImageZoomHint => '2本の指で拡大・縮小し、ドラッグして画像を移動できます。';
+
+  @override
+  String get articleFontSaveFailed => '文字サイズを変更しましたが、設定を保存できませんでした。';
+
+  @override
+  String get articleTableHint => '表は左右にスワイプして確認できます。';
 }

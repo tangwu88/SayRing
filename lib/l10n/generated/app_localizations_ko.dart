@@ -2043,4 +2043,37 @@ class AppLocalizationsKo extends AppLocalizations {
   String stockCount(int count) {
     return '재고 $count개';
   }
+
+  @override
+  String get articleFontSize => '글자 크기';
+
+  @override
+  String get articleReadingSettings => '읽기 글자 크기';
+
+  @override
+  String get articleTextStandard => '보통';
+
+  @override
+  String get articleTextLarge => '크게';
+
+  @override
+  String get articleTextExtraLarge => '아주 크게';
+
+  @override
+  String get articleReadingPreview => '읽기 편한 글자 크기를 선택하세요. 설정이 저장됩니다.';
+
+  @override
+  String get articleBackToTop => '맨 위로';
+
+  @override
+  String get articleViewImage => '이미지 확대';
+
+  @override
+  String get articleImageZoomHint => '두 손가락으로 확대하거나 축소하고 드래그하여 이미지를 보세요.';
+
+  @override
+  String get articleFontSaveFailed => '글자 크기는 변경했지만 설정을 저장하지 못했습니다.';
+
+  @override
+  String get articleTableHint => '좌우로 밀어 표를 확인하세요.';
 }

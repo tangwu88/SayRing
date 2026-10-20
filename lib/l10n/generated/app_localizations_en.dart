@@ -2124,4 +2124,40 @@ class AppLocalizationsEn extends AppLocalizations {
   String stockCount(int count) {
     return '$count in stock';
   }
+
+  @override
+  String get articleFontSize => 'Text size';
+
+  @override
+  String get articleReadingSettings => 'Reading text size';
+
+  @override
+  String get articleTextStandard => 'Standard';
+
+  @override
+  String get articleTextLarge => 'Large';
+
+  @override
+  String get articleTextExtraLarge => 'Extra large';
+
+  @override
+  String get articleReadingPreview =>
+      'Choose a comfortable text size. Your choice will be remembered.';
+
+  @override
+  String get articleBackToTop => 'Back to top';
+
+  @override
+  String get articleViewImage => 'Enlarge image';
+
+  @override
+  String get articleImageZoomHint =>
+      'Pinch to zoom and drag to view the image.';
+
+  @override
+  String get articleFontSaveFailed =>
+      'Text size changed, but the preference could not be saved.';
+
+  @override
+  String get articleTableHint => 'Swipe left or right to read the table.';
 }

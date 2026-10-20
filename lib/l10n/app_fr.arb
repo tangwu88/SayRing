@@ -711,5 +711,16 @@
         "type": "int"
       }
     }
-  }
+  },
+  "articleFontSize": "Taille du texte",
+  "articleReadingSettings": "Taille de lecture",
+  "articleTextStandard": "Normale",
+  "articleTextLarge": "Grande",
+  "articleTextExtraLarge": "Très grande",
+  "articleReadingPreview": "Choisissez une taille de texte confortable. Votre choix sera mémorisé.",
+  "articleBackToTop": "Retour en haut",
+  "articleViewImage": "Agrandir l’image",
+  "articleImageZoomHint": "Pincez pour zoomer et faites glisser pour parcourir l’image.",
+  "articleFontSaveFailed": "La taille du texte a changé, mais le réglage n’a pas pu être enregistré.",
+  "articleTableHint": "Balayez vers la gauche ou la droite pour lire le tableau."
 }

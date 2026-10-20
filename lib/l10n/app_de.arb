@@ -711,5 +711,16 @@
         "type": "int"
       }
     }
-  }
+  },
+  "articleFontSize": "Textgröße",
+  "articleReadingSettings": "Schriftgröße beim Lesen",
+  "articleTextStandard": "Standard",
+  "articleTextLarge": "Groß",
+  "articleTextExtraLarge": "Sehr groß",
+  "articleReadingPreview": "Wählen Sie eine angenehme Textgröße. Ihre Auswahl wird gespeichert.",
+  "articleBackToTop": "Nach oben",
+  "articleViewImage": "Bild vergrößern",
+  "articleImageZoomHint": "Mit zwei Fingern zoomen und das Bild zum Verschieben ziehen.",
+  "articleFontSaveFailed": "Die Textgröße wurde geändert, konnte aber nicht gespeichert werden.",
+  "articleTableHint": "Zum Lesen der Tabelle nach links oder rechts wischen."
 }

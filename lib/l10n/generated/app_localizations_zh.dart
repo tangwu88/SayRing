@@ -2004,6 +2004,39 @@ class AppLocalizationsZh extends AppLocalizations {
   String stockCount(int count) {
     return '库存 $count 件';
   }
+
+  @override
+  String get articleFontSize => '字号';
+
+  @override
+  String get articleReadingSettings => '阅读字号';
+
+  @override
+  String get articleTextStandard => '标准';
+
+  @override
+  String get articleTextLarge => '大字';
+
+  @override
+  String get articleTextExtraLarge => '特大字';
+
+  @override
+  String get articleReadingPreview => '选择看得清的字号，设置会自动记住。';
+
+  @override
+  String get articleBackToTop => '回到顶部';
+
+  @override
+  String get articleViewImage => '查看大图';
+
+  @override
+  String get articleImageZoomHint => '双指放大或缩小，拖动查看图片。';
+
+  @override
+  String get articleFontSaveFailed => '本次字号已调整，暂时无法记住设置。';
+
+  @override
+  String get articleTableHint => '表格可左右滑动查看。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -4006,6 +4039,39 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String stockCount(int count) {
     return '库存 $count 件';
   }
+
+  @override
+  String get articleFontSize => '字号';
+
+  @override
+  String get articleReadingSettings => '阅读字号';
+
+  @override
+  String get articleTextStandard => '标准';
+
+  @override
+  String get articleTextLarge => '大字';
+
+  @override
+  String get articleTextExtraLarge => '特大字';
+
+  @override
+  String get articleReadingPreview => '选择看得清的字号，设置会自动记住。';
+
+  @override
+  String get articleBackToTop => '回到顶部';
+
+  @override
+  String get articleViewImage => '查看大图';
+
+  @override
+  String get articleImageZoomHint => '双指放大或缩小，拖动查看图片。';
+
+  @override
+  String get articleFontSaveFailed => '本次字号已调整，暂时无法记住设置。';
+
+  @override
+  String get articleTableHint => '表格可左右滑动查看。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -6008,4 +6074,37 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String stockCount(int count) {
     return '庫存 $count 件';
   }
+
+  @override
+  String get articleFontSize => '字號';
+
+  @override
+  String get articleReadingSettings => '閱讀字號';
+
+  @override
+  String get articleTextStandard => '標準';
+
+  @override
+  String get articleTextLarge => '大字';
+
+  @override
+  String get articleTextExtraLarge => '特大字';
+
+  @override
+  String get articleReadingPreview => '選擇看得清的字號，設定會自動記住。';
+
+  @override
+  String get articleBackToTop => '回到頂部';
+
+  @override
+  String get articleViewImage => '查看大圖';
+
+  @override
+  String get articleImageZoomHint => '雙指放大或縮小，拖動查看圖片。';
+
+  @override
+  String get articleFontSaveFailed => '本次字號已調整，暫時無法記住設定。';
+
+  @override
+  String get articleTableHint => '表格可左右滑動查看。';
 }

@@ -711,5 +711,16 @@
         "type": "int"
       }
     }
-  }
+  },
+  "articleFontSize": "글자 크기",
+  "articleReadingSettings": "읽기 글자 크기",
+  "articleTextStandard": "보통",
+  "articleTextLarge": "크게",
+  "articleTextExtraLarge": "아주 크게",
+  "articleReadingPreview": "읽기 편한 글자 크기를 선택하세요. 설정이 저장됩니다.",
+  "articleBackToTop": "맨 위로",
+  "articleViewImage": "이미지 확대",
+  "articleImageZoomHint": "두 손가락으로 확대하거나 축소하고 드래그하여 이미지를 보세요.",
+  "articleFontSaveFailed": "글자 크기는 변경했지만 설정을 저장하지 못했습니다.",
+  "articleTableHint": "좌우로 밀어 표를 확인하세요."
 }

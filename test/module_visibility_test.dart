@@ -72,6 +72,7 @@ class _Harness {
   bool configFails = false;
   int validForSeconds = 300;
   int articleCalls = 0, catalogCalls = 0;
+  String articleHtml = '<p>Synthetic article body</p>';
   final requests = <http.Request>[];
   Completer<http.Response>? delayedArticles;
   Future<http.Response> _reply(http.Request request) async {
@@ -102,7 +103,7 @@ class _Harness {
       data = {
         'id': 'article-test',
         'title': 'Synthetic library article',
-        'contentHtml': '<p>Synthetic article body</p>',
+        'contentHtml': articleHtml,
       };
     } else if (path.endsWith('commerce/products')) {
       data = {
@@ -154,6 +155,42 @@ class _Harness {
 }
 
 void main() {
+  testWidgets(
+    'article image enlargement closes when library access is revoked',
+    (tester) async {
+      final h = _Harness();
+      addTearDown(h.dispose);
+      h.library = true;
+      h.articleHtml =
+          '<p>Image fixture</p><img src="/global/media/synthetic-reader.png">';
+      await h.controller.refreshModuleVisibility();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ArticleDetailPage(
+            controller: h.controller,
+            article: const {'id': 'article-test'},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('查看大图'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('article-image-viewer')), findsOneWidget);
+      h.library = false;
+      await h.controller.refreshModuleVisibility();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('article-image-viewer')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('article-content-image-0')),
+        findsNothing,
+      );
+      expect(find.text('Image fixture'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      h.dispose();
+    },
+  );
+
   test(
     'the original purchase ceiling still requires mall visibility',
     () async {
