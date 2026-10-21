@@ -1131,10 +1131,15 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
             padding: const EdgeInsets.fromLTRB(72, 0, 18, 12),
             child: Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
-                    '监测间隔',
-                    style: TextStyle(color: SaydianColors.muted),
+                    widget.controller.connectedDevice?.id.startsWith(
+                              'coolwear:',
+                            ) ==
+                            true
+                        ? '监测间隔（心率与血氧共用）'
+                        : '监测间隔',
+                    style: const TextStyle(color: SaydianColors.muted),
                   ),
                 ),
                 if (interval.canModify)

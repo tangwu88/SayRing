@@ -70,7 +70,8 @@ test('health monitoring uses complete SDK state and verifies writes with a fresh
   const cancel = bridge.slice(bridge.indexOf('- (void)beginCancellation:'), bridge.indexOf('- (void)checkCancellation'));
   assert.match(cancel, /finishMonitoring:/);
   assert.match(cancel, /self.monitoringSnapshot = nil/);
-  assert.match(bridge, /readAutoMeasureIntervals.*result\(@\{\}\)/);
+  assert.match(bridge, /readAutoMeasureIntervals[\s\S]*CoolWearMonitoringIntervals/);
+  assert.match(bridge, /CoolWearMonitoringIntervalChange/);
   const queued = bridge.slice(bridge.indexOf('- (void)sendMonitoring:'), bridge.indexOf('- (NSDictionary *)syncSnapshot'));
   assert.match(queued, /if \(self.pendingBattery \|\| self.pendingFind\)/);
   assert.match(queued, /250 \* NSEC_PER_MSEC/);

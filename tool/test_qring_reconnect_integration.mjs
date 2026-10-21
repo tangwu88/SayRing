@@ -119,7 +119,7 @@ test('today activity arrives before the remaining seven-day QRing history', () =
   const activity = sync.split('case 0:')[1].split('case 1:')[0];
   assert.match(activity, /NSUInteger firstRecord = .*syncRecords.count/);
   assert.match(activity, /if \(day == 0\).*publishCurrentActivityFromIndex:firstRecord/);
-  assert.ok(activity.indexOf('publishCurrentActivityFromIndex:firstRecord') < activity.indexOf('syncDay:day phase:1'));
+  assert.ok(activity.indexOf('publishCurrentActivityFromIndex:firstRecord') < activity.indexOf('advanceSyncDay:day phase:0'));
   assert.match(sync, /day >= 7/);
   assert.match(sync, /if \(!current\(\)\).*return/);
   assert.match(bridge, /SRActivitySleepEvent\(type, payload/);

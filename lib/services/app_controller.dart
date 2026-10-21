@@ -279,6 +279,13 @@ class AppController extends ChangeNotifier {
   Iterable<HealthRecord> _releaseRecords(Iterable<HealthRecord> records) =>
       records.map(healthReleasePolicy.projectRecord).whereType<HealthRecord>();
 
+  // Ordinary sedentary/drinking settings only. Other providers and clinical
+  // health assessment remain subject to the unchanged release ceiling.
+  bool _allowsDeviceFeature(DeviceFeature feature) =>
+      healthReleasePolicy.allowsFeature(feature) ||
+      (feature == DeviceFeature.healthReminders &&
+          connectedDevice?.id.startsWith('coolwear:') == true);
+
   DeviceCapabilities _releaseCapabilities(DeviceCapabilities value) {
     if (!isWellnessOnly) return value;
     return DeviceCapabilities.fromMap({
@@ -297,11 +304,11 @@ class AppController extends ChangeNotifier {
             .map((m) => m.wireName)
             .toList(),
       'features': value.features
-          .where(healthReleasePolicy.allowsFeature)
+          .where(_allowsDeviceFeature)
           .map((f) => f.wireName)
           .toList(),
       'integratedFeatures': value.integratedFeatures
-          .where(healthReleasePolicy.allowsFeature)
+          .where(_allowsDeviceFeature)
           .map((f) => f.wireName)
           .toList(),
     });
@@ -1267,7 +1274,7 @@ class AppController extends ChangeNotifier {
     return current.features
         .intersection(current.integratedFeatures)
         .difference(screenOnlyFeatures)
-        .where(healthReleasePolicy.allowsFeature)
+        .where(_allowsDeviceFeature)
         .toSet();
   }
 
@@ -4264,7 +4271,7 @@ class AppController extends ChangeNotifier {
   }
 
   FeatureAvailability availabilityFor(DeviceFeature feature) {
-    if (!healthReleasePolicy.allowsFeature(feature)) {
+    if (!_allowsDeviceFeature(feature)) {
       return const FeatureAvailability(
         FeatureAvailabilityStatus.serviceUnavailable,
       );

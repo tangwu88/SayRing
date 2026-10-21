@@ -46,10 +46,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   int _featureReadGeneration = 0;
   bool get _availableInRelease =>
       !widget.controller.isWellnessOnly ||
-      !const {
-        DeviceFeature.healthAssessment,
-        DeviceFeature.healthReminders,
-      }.contains(widget.feature);
+      !const {DeviceFeature.healthAssessment}.contains(widget.feature);
   late String _featureContext;
   String get _currentFeatureContext =>
       '${widget.controller.session?.accountKey}|${widget.controller.isLocalMode}|${widget.controller.connectedDevice?.id}|${widget.controller.availabilityFor(widget.feature).isReady}';
@@ -283,10 +280,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     if (widget.feature == DeviceFeature.gestureControl) {
       setState(() => _featureData = {});
     }
-    final saved = await widget.controller.writeDeviceFeature(
-      widget.feature,
-      values,
-    );
+    final saved = await widget.controller.writeDeviceFeature(widget.feature, {
+      ...values,
+      if (_featureData['snapshotRevision'] is String)
+        'snapshotRevision': _featureData['snapshotRevision'],
+    });
     if (!mounted || contextKey != _currentFeatureContext) return false;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -744,6 +742,64 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildRingReminderSwitch(bool busy, {required bool call}) {
+    final key = call ? 'incomingCall' : 'enabled';
+    final title = call ? '来电提醒' : '消息提醒';
+    final connectionOnly = _featureData['reminderStyle'] == 'connection';
+    final known = _featureData[key] is bool;
+    if (!known && !connectionOnly) return _loadingCard(busy, title);
+    final authorized = _featureData['systemNotificationAuthorized'] == true;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Card(
+          child: !known
+              ? Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text('当前提醒状态未知，请选择是否开启。'),
+                      const SizedBox(height: 12),
+                      for (final enabled in [true, false])
+                        TextButton(
+                          onPressed: busy
+                              ? null
+                              : () => _saveFeature({
+                                  'enabled': enabled,
+                                }, '设备已确认提醒指令'),
+                          child: Text(enabled ? '开启提醒' : '关闭提醒'),
+                        ),
+                    ],
+                  ),
+                )
+              : SwitchListTile(
+                  title: Text(title),
+                  subtitle: const Text('由设备通过其支持的振动或指示灯提醒'),
+                  value: _featureData[key] == true,
+                  onChanged: busy
+                      ? null
+                      : (value) => _saveFeature({
+                          ..._featureData,
+                          key: value,
+                        }, connectionOnly ? '设备已确认提醒指令' : '设备提醒设置已确认'),
+                ),
+        ),
+        const SizedBox(height: 12),
+        if (connectionOnly) ...[
+          const Text('此设备未提供当前状态读取。仅显示本次连接内已确认的指令。'),
+          const SizedBox(height: 8),
+        ],
+        Text(authorized ? '系统蓝牙通知授权已允许' : '系统蓝牙通知授权尚未允许'),
+        const SizedBox(height: 8),
+        const Text(
+          '请在手机设置 → 蓝牙 → 当前设备中允许共享系统通知。实际提醒还受应用通知权限和勿扰设置影响。',
+          style: TextStyle(color: SaydianColors.muted, fontSize: 12),
+        ),
+      ],
     );
   }
 
@@ -1365,6 +1421,12 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   );
 
   Widget _buildNotificationsPanel(bool busy) {
+    if (const {
+      'device',
+      'connection',
+    }.contains(_featureData['reminderStyle'])) {
+      return _buildRingReminderSwitch(busy, call: false);
+    }
     if (_featureData.isEmpty) return _loadingCard(busy, '消息通知设置');
     final supported =
         (_featureData['supportedKeys'] as List?)
@@ -1665,6 +1727,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Future<void> _showAlarmEditor([Map<String, Object?>? alarm]) async {
+    final supportsNames = _featureData['supportsNames'] != false;
     var time = TimeOfDay(
       hour: (alarm?['hour'] as num?)?.toInt() ?? 8,
       minute: (alarm?['minute'] as num?)?.toInt() ?? 0,
@@ -1706,15 +1769,16 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                   value: enabled,
                   onChanged: (value) => setDialogState(() => enabled = value),
                 ),
-                TextFormField(
-                  initialValue: label,
-                  maxLength: 20,
-                  decoration: InputDecoration(
-                    labelText: context.l10n.reminderName,
-                    hintText: '例如：吃药、起床',
+                if (supportsNames)
+                  TextFormField(
+                    initialValue: label,
+                    maxLength: 20,
+                    decoration: InputDecoration(
+                      labelText: context.l10n.reminderName,
+                      hintText: '例如：吃药、起床',
+                    ),
+                    onChanged: (value) => label = value.trim(),
                   ),
-                  onChanged: (value) => label = value.trim(),
-                ),
                 const SizedBox(height: 8),
                 Text(context.l10n.repeat),
                 const SizedBox(height: 8),
@@ -1752,7 +1816,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                 'hour': time.hour,
                 'minute': time.minute,
                 'enabled': enabled,
-                'label': label.isEmpty ? '闹钟' : label,
+                'label': supportsNames ? (label.isEmpty ? '闹钟' : label) : '',
                 'repeatDays': repeatDays.toList()..sort(),
               }),
               child: Text(context.l10n.save),

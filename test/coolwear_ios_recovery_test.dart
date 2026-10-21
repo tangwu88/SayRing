@@ -74,6 +74,37 @@ void main() {
     },
   );
 
+  test(
+    'iOS alarm settings preserve revision through the native bridge',
+    () async {
+      const channel = MethodChannel('test/coolwear/ios-alarm');
+      final calls = <MethodCall>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        return call.method == 'readDeviceFeature'
+            ? {'items': [], 'snapshotRevision': 'synthetic-revision'}
+            : null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final ios = CoolWearIosWearableBridge(methods: channel);
+      expect(
+        (await ios.readDeviceFeature(DeviceFeature.alarms))['snapshotRevision'],
+        'synthetic-revision',
+      );
+      await ios.writeDeviceFeature(DeviceFeature.alarms, {
+        'operation': 'delete',
+        'id': '0',
+        'snapshotRevision': 'synthetic-revision',
+      });
+      expect(
+        (calls.last.arguments as Map)['values']['snapshotRevision'],
+        'synthetic-revision',
+      );
+    },
+  );
+
   test('iOS find forwards explicit start and stop to the same SDK', () async {
     const channel = MethodChannel('test/coolwear/ios-find');
     final calls = <MethodCall>[];

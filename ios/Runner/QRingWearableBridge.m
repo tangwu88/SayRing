@@ -51,9 +51,11 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 @property(nonatomic, assign) NSUInteger measurementGeneration;
 @property(nonatomic, assign) NSUInteger manualPolicyGeneration;
 @property(nonatomic, assign) NSUInteger syncGeneration;
+@property(nonatomic, assign) NSUInteger syncPhaseGeneration;
 @property(nonatomic, assign) BOOL readingDetails;
 @property(nonatomic, strong) NSMutableArray<NSDictionary *> *syncRecords;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *syncStatuses;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSMutableIndexSet *> *syncCompletedDays;
 @property(nonatomic, copy, nullable) NSString *activeMetric;
 @property(nonatomic, copy, nullable) NSString *activeSportMode;
 @property(nonatomic, assign) NSInteger activeSportType;
@@ -843,13 +845,32 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     [self.syncRecords addObject:[self record:metric date:date values:@{@"value": @(value)} unit:unit origin:@"watch_history"]];
 }
 
-- (void)noteHistory:(NSString *)metric failed:(BOOL)failed {
-    if (!SRActivitySleepMetricAllowed(metric)) return;
+- (void)noteHistory:(NSString *)metric day:(NSInteger)day failed:(BOOL)failed {
+    if (!SRActivitySleepMetricAllowed(metric) || day < 0 || day >= 7) return;
     if (failed) { self.syncStatuses[metric] = @"partial"; return; }
     if ([self.syncStatuses[metric] isEqual:@"partial"]) return;
+    NSMutableIndexSet *days = self.syncCompletedDays[metric];
+    if (!days) { days = [NSMutableIndexSet indexSet]; self.syncCompletedDays[metric] = days; }
+    [days addIndex:(NSUInteger)day];
+    if (days.count != 7) { self.syncStatuses[metric] = @"pending"; return; }
     BOOL hasData = NO;
     for (NSDictionary *record in self.syncRecords) if ([record[@"type"] isEqual:metric]) { hasData = YES; break; }
     self.syncStatuses[metric] = hasData ? @"complete" : @"no_data";
+}
+
+// Read the entire seven-day activity/sleep history before optional metrics.
+- (void)advanceSyncDay:(NSInteger)day phase:(NSInteger)phase {
+    if (phase == 0) [self syncDay:day phase:1];
+    else if (phase == 1) [self syncDay:day + 1 phase:0];
+    else if (phase < 6) [self syncDay:day phase:phase + 1];
+    else [self syncDay:day + 1 phase:2];
+}
+
+- (void)finishTimedOutHealthSyncForGeneration:(NSUInteger)generation {
+    if (!self.pendingSync || generation != self.syncGeneration) return;
+    // Keep confirmed records, but never promote unfinished day ranges.
+    self.syncGeneration++;
+    [self finishHealthSync];
 }
 
 - (void)publishCurrentActivityFromIndex:(NSUInteger)firstRecord {
@@ -884,30 +905,36 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     NSUInteger generation = ++self.syncGeneration;
     [self.syncRecords removeAllObjects];
     self.syncStatuses = [NSMutableDictionary dictionary];
+    self.syncCompletedDays = [NSMutableDictionary dictionary];
+    for (NSString *metric in [self capabilities][@"metrics"]) {
+        if (SRActivitySleepMetricAllowed(metric)) self.syncStatuses[metric] = @"pending";
+    }
     [self syncDay:0 phase:0];
     __weak typeof(self) weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 150 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        if (weakSelf.pendingSync && generation == weakSelf.syncGeneration) {
-            FlutterResult pending = weakSelf.pendingSync;
-            weakSelf.pendingSync = nil;
-            weakSelf.syncGeneration++;
-            pending([weakSelf error:@"QRING_SYNC_TIMEOUT" message:@"戒指数据同步超时，请靠近手机后重试"]);
-        }
+        [weakSelf finishTimedOutHealthSyncForGeneration:generation];
     });
 }
 
 - (void)syncDay:(NSInteger)day phase:(NSInteger)phase {
     if (!self.pendingSync) { return; }
-    if (day >= 7) { [self finishHealthSync]; return; }
-    if (phase >= 7) { [self syncDay:day + 1 phase:0]; return; }
+    if (day >= 7) {
+        if (phase == 0) [self syncDay:0 phase:2];
+        else [self finishHealthSync];
+        return;
+    }
+    if (phase >= 7) { [self syncDay:day + 1 phase:2]; return; }
     NSString *metric = @[@"steps", @"sleep", @"heart_rate", @"blood_oxygen", @"stress", @"hrv", @"body_temperature"][phase];
-    if (!SRActivitySleepMetricAllowed(metric)) { [self syncDay:day phase:phase + 1]; return; }
-    [self emit:@"syncProgress" payload:@{@"deviceId": self.connectedID, @"progress": @(MIN(0.98, (day * 7.0 + phase) / 49.0))}];
+    if (!SRActivitySleepMetricAllowed(metric)) { [self advanceSyncDay:day phase:phase]; return; }
+    NSInteger progressIndex = phase < 2 ? day * 2 + phase : 14 + day * 5 + phase - 2;
+    [self emit:@"syncProgress" payload:@{@"deviceId": self.connectedID, @"progress": @(MIN(0.98, progressIndex / 49.0))}];
     __weak typeof(self) weakSelf = self;
     NSUInteger syncGeneration = self.syncGeneration;
+    NSUInteger phaseGeneration = ++self.syncPhaseGeneration;
     NSUInteger connectionGeneration = self.connectionGeneration;
     BOOL (^current)(void) = ^BOOL {
-        return weakSelf.pendingSync && syncGeneration == weakSelf.syncGeneration && [weakSelf isCurrentConnection:connectionGeneration];
+        return weakSelf.pendingSync && syncGeneration == weakSelf.syncGeneration &&
+            phaseGeneration == weakSelf.syncPhaseGeneration && [weakSelf isCurrentConnection:connectionGeneration];
     };
     switch (phase) {
         case 0: {
@@ -926,12 +953,12 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
                     [weakSelf addSingle:@"distance" date:sample[@"date"] value:[sample[@"distance"] doubleValue] unit:@"km" minimum:0 maximum:10000];
                     [weakSelf addSingle:@"calories" date:sample[@"date"] value:[sample[@"calories"] doubleValue] unit:@"kcal" minimum:0 maximum:100000];
                 }
-                for (NSString *activity in @[@"steps", @"distance", @"calories"]) [weakSelf noteHistory:activity failed:NO];
+                for (NSString *activity in @[@"steps", @"distance", @"calories"]) [weakSelf noteHistory:activity day:day failed:NO];
                 if (day == 0) { [weakSelf publishCurrentActivityFromIndex:firstRecord]; }
-                [weakSelf syncDay:day phase:1];
+                [weakSelf advanceSyncDay:day phase:0];
             } fail:^{ if (current()) {
-                for (NSString *activity in @[@"steps", @"distance", @"calories"]) [weakSelf noteHistory:activity failed:YES];
-                [weakSelf syncDay:day phase:1];
+                for (NSString *activity in @[@"steps", @"distance", @"calories"]) [weakSelf noteHistory:activity day:day failed:YES];
+                [weakSelf advanceSyncDay:day phase:0];
             } }];
             break;
         }
@@ -991,13 +1018,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
                                                   @"status": malformed ? @"failed" : (segments.count ? @"complete" : @"noData")} mutableCopy];
                 if (!malformed) { status[@"sleepTimeline"] = timeline; }
                 [weakSelf emit:@"sleepReadStatus" payload:status];
-                [weakSelf noteHistory:@"sleep" failed:malformed];
-                [weakSelf syncDay:day phase:2];
+                [weakSelf noteHistory:@"sleep" day:day failed:malformed];
+                [weakSelf advanceSyncDay:day phase:1];
             } fail:^{
                 if (!current()) { return; }
                 [weakSelf emit:@"sleepReadStatus" payload:@{@"deviceId": scopedId, @"sdkDate": sdkDate, @"status": @"failed"}];
-                [weakSelf noteHistory:@"sleep" failed:YES];
-                [weakSelf syncDay:day phase:2];
+                [weakSelf noteHistory:@"sleep" day:day failed:YES];
+                [weakSelf advanceSyncDay:day phase:1];
             }];
             break;
         }
@@ -1005,22 +1032,22 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
             [QCSDKCmdCreator getSchedualHeartRateDataWithDayIndexs:@[@(day)] success:^(NSArray<QCSchedualHeartRateModel *> *models) {
                 if (!current()) { return; }
                 for (QCSchedualHeartRateModel *model in models) {
-                    if (![model isKindOfClass:QCSchedualHeartRateModel.class]) { [weakSelf noteHistory:@"heart_rate" failed:YES]; continue; }
+                    if (![model isKindOfClass:QCSchedualHeartRateModel.class]) { [weakSelf noteHistory:@"heart_rate" day:day failed:YES]; continue; }
                     NSDate *base = [model.date isKindOfClass:NSString.class] ? [weakSelf parseDateTime:[model.date stringByAppendingString:@" 00:00:00"] fallback:nil] : nil;
                     NSInteger seconds = model.secondInterval;
-                    if (!base || seconds < 1 || seconds > 86400 || ![model.heartRates isKindOfClass:NSArray.class]) { [weakSelf noteHistory:@"heart_rate" failed:YES]; continue; }
+                    if (!base || seconds < 1 || seconds > 86400 || ![model.heartRates isKindOfClass:NSArray.class]) { [weakSelf noteHistory:@"heart_rate" day:day failed:YES]; continue; }
                     [model.heartRates enumerateObjectsUsingBlock:^(NSNumber *number, NSUInteger index, BOOL *stop) {
                         if (![number isKindOfClass:NSNumber.class] || index * seconds >= 86400) return;
                         [weakSelf addSingle:@"heart_rate" date:[base dateByAddingTimeInterval:index * seconds] value:number.doubleValue unit:@"bpm" minimum:20 maximum:300];
                     }];
                 }
-                [weakSelf noteHistory:@"heart_rate" failed:NO];
-                [weakSelf syncDay:day phase:3];
-            } fail:^{ if (current()) { [weakSelf noteHistory:@"heart_rate" failed:YES]; [weakSelf syncDay:day phase:3]; } }];
+                [weakSelf noteHistory:@"heart_rate" day:day failed:NO];
+                [weakSelf advanceSyncDay:day phase:2];
+            } fail:^{ if (current()) { [weakSelf noteHistory:@"heart_rate" day:day failed:YES]; [weakSelf advanceSyncDay:day phase:2]; } }];
             break;
         }
         case 3: {
-            if (![self feature:QCBandFeatureBloodOxygen]) { [self syncDay:day phase:4]; return; }
+            if (![self feature:QCBandFeatureBloodOxygen]) { [self advanceSyncDay:day phase:3]; return; }
             [QCSDKCmdCreator getBloodOxygenDataByDayIndex:day finished:^(NSArray *values, NSError *error) {
                 if (!current()) { return; }
                 BOOL malformed = error != nil;
@@ -1029,13 +1056,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
                     if (![value isKindOfClass:QCBloodOxygenModel.class] || ![(QCBloodOxygenModel *)value date]) { malformed = YES; continue; }
                     [weakSelf addSingle:@"blood_oxygen" date:[value date] value:[(QCBloodOxygenModel *)value soa2] unit:@"%" minimum:50 maximum:100];
                 }
-                [weakSelf noteHistory:@"blood_oxygen" failed:malformed];
-                [weakSelf syncDay:day phase:4];
+                [weakSelf noteHistory:@"blood_oxygen" day:day failed:malformed];
+                [weakSelf advanceSyncDay:day phase:3];
             }];
             break;
         }
         case 4: {
-            if (![self feature:QCBandFeatureStress]) { [self syncDay:day phase:5]; return; }
+            if (![self feature:QCBandFeatureStress]) { [self advanceSyncDay:day phase:4]; return; }
             [QCSDKCmdCreator getPressureSamplesWithDayIndexes:@[@(day)] finished:^(NSArray<QCPressureDayModel *> *days, NSError *error) {
                 if (!current()) { return; }
                 if (!error) for (QCPressureDayModel *model in days) {
@@ -1043,13 +1070,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
                         [weakSelf addSingle:@"stress" date:sample.time value:sample.value unit:@"" minimum:1 maximum:100];
                     }
                 }
-                [weakSelf noteHistory:@"stress" failed:error != nil];
-                [weakSelf syncDay:day phase:5];
+                [weakSelf noteHistory:@"stress" day:day failed:error != nil];
+                [weakSelf advanceSyncDay:day phase:4];
             }];
             break;
         }
         case 5: {
-            if (![self feature:QCBandFeatureHRV]) { [self syncDay:day phase:6]; return; }
+            if (![self feature:QCBandFeatureHRV]) { [self advanceSyncDay:day phase:5]; return; }
             [QCSDKCmdCreator getHRVSamplesWithDayIndexes:@[@(day)] finished:^(NSArray<QCHRVDayModel *> *days, NSError *error) {
                 if (!current()) { return; }
                 if (!error) for (QCHRVDayModel *model in days) {
@@ -1057,13 +1084,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
                         [weakSelf addSingle:@"hrv" date:sample.time value:sample.value unit:@"ms" minimum:1 maximum:1000];
                     }
                 }
-                [weakSelf noteHistory:@"hrv" failed:error != nil];
-                [weakSelf syncDay:day phase:6];
+                [weakSelf noteHistory:@"hrv" day:day failed:error != nil];
+                [weakSelf advanceSyncDay:day phase:5];
             }];
             break;
         }
         case 6: {
-            if (![self feature:QCBandFeatureTemperature]) { [self syncDay:day + 1 phase:0]; return; }
+            if (![self feature:QCBandFeatureTemperature]) { [self advanceSyncDay:day phase:6]; return; }
             [QCSDKCmdCreator getSchedualTemperatureDataByDayIndex:day finished:^(NSArray *values, NSError *error) {
                 if (!current()) { return; }
                 BOOL malformed = error != nil;
@@ -1071,18 +1098,21 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
                     if (![value isKindOfClass:QCTemperatureModel.class] || ![(QCTemperatureModel *)value time]) { malformed = YES; continue; }
                     [weakSelf addSingle:@"body_temperature" date:[(QCTemperatureModel *)value time] value:[(QCTemperatureModel *)value temperature] unit:@"℃" minimum:20 maximum:45];
                 }
-                [weakSelf noteHistory:@"body_temperature" failed:malformed];
-                [weakSelf syncDay:day + 1 phase:0];
+                [weakSelf noteHistory:@"body_temperature" day:day failed:malformed];
+                [weakSelf advanceSyncDay:day phase:6];
             }];
             break;
         }
-        default: [self syncDay:day + 1 phase:0]; break;
+        default: [self advanceSyncDay:day phase:6]; break;
     }
 }
 
 - (void)finishHealthSync {
     FlutterResult result = self.pendingSync;
     self.pendingSync = nil;
+    for (NSString *metric in self.syncStatuses.allKeys) {
+        if ([self.syncStatuses[metric] isEqual:@"pending"]) self.syncStatuses[metric] = @"partial";
+    }
     if (result) { result(@{@"records": self.syncRecords.copy, @"statuses": self.syncStatuses.copy ?: @{}}); }
 }
 

@@ -207,6 +207,7 @@ void main() {
     bool wellness = true,
     bool connect = false,
     WellnessReleasePolicy? policy,
+    DeviceInfo target = _Wearable.device,
   }) async {
     final store = MemoryHealthStore();
     final ring = _Wearable();
@@ -228,12 +229,39 @@ void main() {
       isTrue,
     );
     if (connect) {
-      await controller.connectDevice(_Wearable.device);
+      await controller.connectDevice(target);
       await _settle();
-      expect(controller.connectedDevice?.id, _Wearable.device.id);
+      expect(controller.connectedDevice?.id, target.id);
     }
     return (controller: controller, store: store, ring: ring, api: api);
   }
+
+  test(
+    'ordinary LuckRing reminders are narrow and require real capabilities',
+    () async {
+      final qring = await setup(connect: true);
+      expect(
+        qring.controller.visibleDeviceFeatures,
+        isNot(contains(DeviceFeature.healthReminders)),
+      );
+      final luckring = await setup(
+        connect: true,
+        target: const DeviceInfo(id: 'coolwear:SYNTHETIC', name: 'HR05_TEST'),
+      );
+      expect(
+        luckring.controller.visibleDeviceFeatures,
+        contains(DeviceFeature.healthReminders),
+      );
+      expect(
+        luckring.controller.visibleDeviceFeatures,
+        isNot(contains(DeviceFeature.healthAssessment)),
+      );
+      expect(
+        luckring.controller.shouldShowHealthMetric(HealthMetric.heartRate),
+        false,
+      );
+    },
+  );
 
   WellnessReleasePolicy manualPolicy() => WellnessReleasePolicy(
     enabled: true,

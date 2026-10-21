@@ -44,7 +44,8 @@ class CoolWearIosWearableBridge extends CoolWearWearableBridge
 
   @override
   Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async {
-    if (feature != DeviceFeature.callReminder) {
+    if (feature != DeviceFeature.callReminder &&
+        feature != DeviceFeature.alarms) {
       return super.readDeviceFeature(feature);
     }
     final value = await _invoke<Map<Object?, Object?>>('readDeviceFeature', {
@@ -59,7 +60,7 @@ class CoolWearIosWearableBridge extends CoolWearWearableBridge
   Future<void> writeDeviceFeature(
     DeviceFeature feature,
     Map<String, Object?> values,
-  ) => feature == DeviceFeature.callReminder
+  ) => feature == DeviceFeature.callReminder || feature == DeviceFeature.alarms
       ? _invoke<void>('writeDeviceFeature', {
           'feature': feature.wireName,
           'values': values,
@@ -70,6 +71,9 @@ class CoolWearIosWearableBridge extends CoolWearWearableBridge
   Duration _commandTimeout(String method, Duration fallback) =>
       switch (method) {
         'setAutoMeasureSetting' => const Duration(seconds: 55),
+        'setAutoMeasureInterval' => const Duration(seconds: 55),
+        'readAutoMeasureIntervals' => const Duration(seconds: 35),
+        'syncHealthData' => const Duration(seconds: 60),
         'readAutoMeasureSettings' => const Duration(seconds: 35),
         _ => fallback,
       };

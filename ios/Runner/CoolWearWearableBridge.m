@@ -4,6 +4,7 @@
 #import "CoolWearRecovery.h"
 #import "CoolWearMonitoring.h"
 #import "CoolWearControls.h"
+#import "CoolWearReminders.h"
 #import "SayRingActivitySleepPolicy.h"
 #import <BluetoothLibrary/BluetoothLibrary.h>
 #import <CommonCrypto/CommonDigest.h>
@@ -12,6 +13,28 @@ static void CoolWearOnMain(dispatch_block_t block) {
     if (NSThread.isMainThread) block();
     else dispatch_async(dispatch_get_main_queue(), block);
 }
+
+// Same public CE_Cmd request interface as CE_RequestLongSitCmd and
+// CE_RequestAlarmInfoCmd. The SDK frames an empty read request; no write body
+// or undocumented opcode is constructed here.
+@interface CoolWearReadReminderCmd : CE_Cmd
+@property(nonatomic) K6_DataFuncType reminderType;
+@end
+@implementation CoolWearReadReminderCmd
+- (K6_DataFuncType)funcType { return self.reminderType; }
+- (K6_CMD_TYPE)cmdRequestType { return K6_CMD_TYPE_REQUEST; }
+@end
+
+@interface CoolWearPreservingLongSitCmd : CE_SyncLongSitRemindCmd
+@end
+@implementation CoolWearPreservingLongSitCmd
+- (NSData *)cmdData:(int)type {
+    WeekRepeatDay original = self.repeatDay;
+    NSData *body = [super cmdData:type];
+    self.repeatDay = original;
+    return CoolWearPreserveSedentaryRepeat(body, (NSUInteger)original);
+}
+@end
 
 @interface CoolWearWearableBridge () <FlutterStreamHandler>
 @property(nonatomic, strong) FlutterMethodChannel *methods;
@@ -85,6 +108,22 @@ static void CoolWearOnMain(dispatch_block_t block) {
 @property(nonatomic) BOOL controlReadingCall;
 @property(nonatomic) BOOL controlReadbackAcknowledged;
 @property(nonatomic) BOOL controlIsWrite;
+@property(nonatomic, strong) NSNumber *messageReminderConfirmed;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSDictionary *> *reminderSnapshots;
+@property(nonatomic, copy) FlutterResult pendingReminders;
+@property(nonatomic) NSUInteger remindersGeneration;
+@property(nonatomic) NSInteger remindersPhase;
+@property(nonatomic, copy) NSString *remindersFeature;
+@property(nonatomic, copy) NSDictionary *remindersValues;
+@property(nonatomic, copy) NSDictionary *remindersExpected;
+@property(nonatomic, strong) NSMutableDictionary *remindersReadback;
+@property(nonatomic, copy) NSSet *remindersAwaited;
+@property(nonatomic) BOOL remindersAcknowledged;
+@property(nonatomic) BOOL remindersWrite;
+@property(nonatomic) BOOL probingReminders;
+@property(nonatomic, strong) NSNumber *reminderProbeType;
+@property(nonatomic) BOOL messageReadSupported;
+@property(nonatomic) NSUInteger remindersPoisonGeneration;
 @end
 
 @implementation CoolWearWearableBridge
@@ -99,6 +138,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
     _historyRecords = [NSMutableDictionary dictionary];
     _syncBatches = [NSMutableDictionary dictionary];
     _syncRecords = [NSMutableDictionary dictionary];
+    _reminderSnapshots = [NSMutableDictionary dictionary];
     // Lazily initialize the vendor singleton only when the user requests a
     // scan/connect. Never read/adopt its installation-wide saved device.
     _methods = [FlutterMethodChannel methodChannelWithName:@"cc.saidian.ring/commands" binaryMessenger:messenger];
@@ -116,7 +156,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
 }
 
 - (void)emit:(NSString *)type payload:(NSDictionary *)payload {
-    NSDictionary *permitted = SRActivitySleepEvent(type, payload ?: @{});
+    NSDictionary *permitted = [@[@"capabilities", @"capabilitiesUpdated"] containsObject:type]
+        ? [self releaseCapabilities:payload ?: @{}] : SRActivitySleepEvent(type, payload ?: @{});
     if (self.sink && permitted) self.sink(@{@"type": type, @"payload": permitted});
 }
 
@@ -279,11 +320,215 @@ static void CoolWearOnMain(dispatch_block_t block) {
     }
     // Only an actual type 122 settings response proves call-reminder support.
     if ([self isResolved] && self.callReminder) [features addObject:@"call_reminder"];
+    if ([self isResolved] && (self.reminderSnapshots[@123] || CoolWearFlag(self.flags, @"message_switch"))) [features addObject:@"notifications"];
+    if ([self isResolved] && (self.reminderSnapshots[@114] || self.reminderSnapshots[@126])) [features addObject:@"health_reminders"];
+    if ([self isResolved] && self.reminderSnapshots[@106]) [features addObject:@"alarms"];
     if ([self isResolved] && CoolWearMonitoringSettings(self.monitoringSnapshot, self.flags).count) {
         [features addObject:@"health_monitoring"];
     }
     value[@"features"] = features;
     value[@"integratedFeatures"] = features;
+    return value;
+}
+
+- (NSDictionary *)messageReminderConnectionSettings {
+    NSMutableDictionary *value = [@{@"reminderStyle": @"connection", @"systemNotificationAuthorized": @(self.target.ancsAuthorized)} mutableCopy];
+    if (self.messageReminderConfirmed) value[@"enabled"] = @(self.messageReminderConfirmed.boolValue);
+    return value;
+}
+
+- (CE_Cmd *)reminderQuery:(NSNumber *)type {
+    if (type.integerValue == DATA_TYPE_SITTING_REMIND) return [CE_RequestLongSitCmd new];
+    if (type.integerValue == DATA_TYPE_ALARM) return [CE_RequestAlarmInfoCmd new];
+    CoolWearReadReminderCmd *query = [CoolWearReadReminderCmd new];
+    query.reminderType = (K6_DataFuncType)type.integerValue;
+    return query;
+}
+- (void)probeReminderTypes:(NSArray *)types index:(NSUInteger)index connection:(NSUInteger)connection {
+    if (connection != self.connectionGeneration || ![self isResolved] || !self.probingReminders) return;
+    if (index == types.count) {
+        self.probingReminders = NO;
+        self.reminderProbeType = nil;
+        [self emit:@"capabilitiesUpdated" payload:[self capabilities]];
+        return;
+    }
+    CE_Cmd *query = [self reminderQuery:types[index]];
+    self.reminderProbeType = types[index];
+    query.overtime = 4; query.repeatSendTimes = 0; query.noCallback = NO;
+    __weak typeof(self) weakSelf = self;
+    [self.product sendCmdToDevice:query complete:^(__unused NSError *error) {
+        CoolWearAfterSDKCallback(^{ [weakSelf probeReminderTypes:types index:index + 1 connection:connection]; });
+    }];
+}
+- (void)probeRemindersWhenIdle:(NSUInteger)connection attempt:(NSUInteger)attempt {
+    if (connection != self.connectionGeneration || ![self isResolved] || self.probingReminders) return;
+    if (self.probingReminders || self.pendingReminders || self.pendingControl || self.pendingReminders || self.pendingSync || self.pendingFind || self.pendingBattery || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) {
+        if (attempt >= 120) return;
+        __weak typeof(self) weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), dispatch_get_main_queue(), ^{
+            [weakSelf probeRemindersWhenIdle:connection attempt:attempt + 1];
+        });
+        return;
+    }
+    self.probingReminders = YES;
+    [self probeReminderTypes:@[@122, @123, @114, @126, @106] index:0 connection:connection];
+}
+
+- (NSArray<NSNumber *> *)reminderTypes:(NSString *)feature {
+    if ([feature isEqual:@"notifications"]) return @[@123];
+    if ([feature isEqual:@"alarms"]) return @[@106];
+    NSMutableArray *types = [NSMutableArray array];
+    for (NSNumber *type in @[@114, @126]) if (self.reminderSnapshots[type]) [types addObject:type];
+    return types;
+}
+- (NSDictionary *)reminderPayload:(NSDictionary *)snapshots feature:(NSString *)feature {
+    if ([feature isEqual:@"notifications"]) return snapshots[@123];
+    if ([feature isEqual:@"alarms"]) return snapshots[@106];
+    NSMutableArray *items = [NSMutableArray array];
+    for (NSNumber *type in @[@114, @126]) if (snapshots[type]) [items addObject:snapshots[type]];
+    return @{@"items": items};
+}
+- (NSString *)reminderRevision:(NSDictionary *)payload {
+    NSData *data = [NSJSONSerialization dataWithJSONObject:payload options:NSJSONWritingSortedKeys error:nil];
+    if (!data) return @"";
+    unsigned char hash[CC_SHA256_DIGEST_LENGTH]; CC_SHA256(data.bytes, (CC_LONG)data.length, hash);
+    NSMutableString *value = [NSMutableString string];
+    for (NSUInteger i = 0; i < sizeof(hash); i++) [value appendFormat:@"%02x", hash[i]];
+    return value;
+}
+- (void)finishReminders:(FlutterError *)error {
+    FlutterResult result = self.pendingReminders;
+    if (!result) return;
+    NSDictionary *payload = [self reminderPayload:self.remindersReadback feature:self.remindersFeature];
+    NSMutableDictionary *value = [payload mutableCopy];
+    if (value) {
+        value[@"snapshotRevision"] = [self reminderRevision:payload];
+        value[@"reminderStyle"] = @"device";
+        value[@"systemNotificationAuthorized"] = @(self.target.ancsAuthorized);
+    }
+    BOOL write = self.remindersWrite;
+    self.pendingReminders = nil;
+    self.remindersGeneration++;
+    self.remindersValues = nil; self.remindersExpected = nil; self.remindersReadback = nil;
+    self.remindersAwaited = nil;
+    result(error ?: (write ? nil : value));
+}
+- (CE_Cmd *)reminderCommand:(NSNumber *)type snapshot:(NSDictionary *)snapshot {
+    if (type.integerValue == 123) return [[YD_SyncSMSAlarmCmd alloc] initWithOnoff:[snapshot[@"enabled"] boolValue]];
+    if (type.integerValue == 114) {
+        NSInteger start = [snapshot[@"startMinutes"] integerValue], end = [snapshot[@"endMinutes"] integerValue];
+        CE_SyncLongSitRemindCmd *command = [[CoolWearPreservingLongSitCmd alloc] initWithOnoff:[snapshot[@"enabled"] boolValue]
+            weekRepeatDay:(WeekRepeatDay)[snapshot[@"repeatMask"] unsignedCharValue]
+            startHour:start / 60 startMinute:start % 60 endHour:end / 60 endMinute:end % 60];
+        command.noon_onoff = [snapshot[@"noonOff"] unsignedCharValue]; return command;
+    }
+    if (type.integerValue == 126) {
+        NSInteger start = [snapshot[@"startMinutes"] integerValue], end = [snapshot[@"endMinutes"] integerValue];
+        NSInteger interval = [@[@30, @60, @120, @180] indexOfObject:snapshot[@"intervalMinutes"]];
+        return [[YD_SyncDrinkAlarmCmd alloc] initWithOnoff:[snapshot[@"enabled"] boolValue]
+            startHour:start / 60 startMintue:start % 60 endHour:end / 60 endMinute:end % 60 intervalLevel:interval];
+    }
+    NSMutableArray *items = [NSMutableArray array];
+    for (NSDictionary *row in snapshot[@"items"]) {
+        CE_AlarmItem *item = [[CE_AlarmItem alloc] initWithStatus:[row[@"enabled"] boolValue]
+            weekRepeat:([row[@"repeatMask"] unsignedIntegerValue] & 128) != 0
+            weekRepeatDay:(WeekRepeatDay)[row[@"repeatMask"] unsignedCharValue]
+            hour:[row[@"hour"] integerValue] minute:[row[@"minute"] integerValue]];
+        item.name = row[@"label"]; [items addObject:item];
+    }
+    return [[CE_SyncAlarmK6Cmd alloc] initWithItems:items];
+}
+- (void)queryReminders:(NSUInteger)operation connection:(NSUInteger)connection {
+    if (!self.pendingReminders || operation != self.remindersGeneration || connection != self.connectionGeneration || ![self isResolved]) return;
+    self.remindersAcknowledged = NO;
+    self.remindersReadback = [NSMutableDictionary dictionary];
+    NSArray *types = [self.remindersAwaited.allObjects sortedArrayUsingSelector:@selector(compare:)];
+    [self queryReminderTypes:types index:0 operation:operation connection:connection];
+}
+- (void)queryReminderTypes:(NSArray *)types index:(NSUInteger)index operation:(NSUInteger)operation connection:(NSUInteger)connection {
+    if (!self.pendingReminders || operation != self.remindersGeneration || connection != self.connectionGeneration || ![self isResolved]) return;
+    if (index == types.count) { self.remindersAcknowledged = YES; [self advanceReminders:operation connection:connection]; return; }
+    CE_Cmd *query = [self reminderQuery:types[index]];
+    query.overtime = 8; query.repeatSendTimes = 0; query.noCallback = NO;
+    __weak typeof(self) weakSelf = self;
+    [self.product sendCmdToDevice:query complete:^(NSError *error) {
+        CoolWearAfterSDKCallback(^{
+            if (!weakSelf.pendingReminders || operation != weakSelf.remindersGeneration || connection != weakSelf.connectionGeneration) return;
+            if (error) {
+                weakSelf.remindersPoisonGeneration = connection;
+                [weakSelf finishReminders:[weakSelf error:@"REMINDER_READ_FAILED" message:@"提醒设置未确认，请重新连接"]];
+            } else [weakSelf queryReminderTypes:types index:index + 1 operation:operation connection:connection];
+        });
+    }];
+}
+- (void)advanceReminders:(NSUInteger)operation connection:(NSUInteger)connection {
+    if (!self.pendingReminders || operation != self.remindersGeneration || connection != self.connectionGeneration ||
+        ![self isResolved] || !self.remindersAcknowledged || self.remindersReadback.count != self.remindersAwaited.count) return;
+    NSDictionary *payload = [self reminderPayload:self.remindersReadback feature:self.remindersFeature];
+    if (self.remindersPhase == 2) {
+        [self finishReminders:[payload isEqual:self.remindersExpected] ? nil : [self error:@"SETTING_UNCONFIRMED" message:@"设备未保存提醒设置，请刷新"]]; return;
+    }
+    if (!self.remindersWrite) { [self finishReminders:nil]; return; }
+    if (![self.remindersValues[@"snapshotRevision"] isEqual:[self reminderRevision:payload]]) {
+        [self finishReminders:[self error:@"SETTING_CHANGED" message:@"设备提醒设置已改变，请刷新后重试"]]; return;
+    }
+    NSNumber *type = [self.remindersFeature isEqual:@"notifications"] ? @123 :
+        [self.remindersFeature isEqual:@"alarms"] ? @106 :
+        [self.remindersValues[@"id"] isEqual:@"sedentary"] ? @114 :
+        [self.remindersValues[@"id"] isEqual:@"drinking"] ? @126 : nil;
+    NSDictionary *original = type ? self.remindersReadback[type] : nil;
+    NSDictionary *changed = !original ? nil : type.integerValue == 106 ? CoolWearAlarmChange(original, self.remindersValues) :
+        CoolWearReminderChange(type.integerValue, original, self.remindersValues);
+    if (!changed) { [self finishReminders:[self error:@"INVALID_SETTING" message:@"请检查提醒时间、间隔、重复日期及名称"]]; return; }
+    NSMutableDictionary *expected = [self.remindersReadback mutableCopy]; expected[type] = changed;
+    self.remindersExpected = [self reminderPayload:expected feature:self.remindersFeature];
+    self.remindersPhase = 1;
+    CE_Cmd *command = [self reminderCommand:type snapshot:changed];
+    command.overtime = 8; command.repeatSendTimes = 0; command.noCallback = NO;
+    __weak typeof(self) weakSelf = self;
+    [self.product sendCmdToDevice:command complete:^(NSError *error) {
+        CoolWearAfterSDKCallback(^{
+            if (!weakSelf.pendingReminders || operation != weakSelf.remindersGeneration || connection != weakSelf.connectionGeneration || weakSelf.remindersPhase != 1) return;
+            if (error) {
+                weakSelf.remindersPoisonGeneration = connection;
+                [weakSelf finishReminders:[weakSelf error:@"REMINDER_WRITE_FAILED" message:@"设备未确认提醒设置，请重新连接"]];
+            }
+            else { weakSelf.remindersPhase = 2; [weakSelf queryReminders:operation connection:connection]; }
+        });
+    }];
+}
+- (void)reminders:(NSDictionary *)args write:(BOOL)write result:(FlutterResult)result {
+    NSString *feature = args[@"feature"];
+    NSArray *types = [self reminderTypes:feature];
+    for (NSNumber *type in types) if (!self.reminderSnapshots[type]) { result([self error:@"COOLWEAR_FEATURE_UNVERIFIED" message:@"设备尚未确认此提醒设置"]); return; }
+    if (![self isResolved] || !types.count) { result([self error:@"COOLWEAR_FEATURE_UNVERIFIED" message:@"设备尚未确认此提醒设置"]); return; }
+    if (self.remindersPoisonGeneration == self.connectionGeneration) { result([self error:@"REMINDER_RECONNECT" message:@"提醒设置未确认，请重新连接"]); return; }
+    if (self.probingReminders || self.pendingReminders || self.pendingControl || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite || self.pendingBattery || self.pendingFind) {
+        result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return;
+    }
+    NSDictionary *values = [args[@"values"] isKindOfClass:NSDictionary.class] ? args[@"values"] : @{};
+    if (write && ![values[@"snapshotRevision"] isKindOfClass:NSString.class]) { result([self error:@"INVALID_SETTING" message:@"请先刷新提醒设置"]); return; }
+    self.pendingReminders = result; self.remindersFeature = feature; self.remindersWrite = write;
+    self.remindersValues = values; self.remindersPhase = 0; self.remindersAwaited = [NSSet setWithArray:types];
+    NSUInteger operation = ++self.remindersGeneration, connection = self.connectionGeneration;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (!weakSelf.pendingReminders || operation != weakSelf.remindersGeneration || connection != weakSelf.connectionGeneration) return;
+        [weakSelf finishReminders:[weakSelf error:@"REMINDER_TIMEOUT" message:@"设备提醒状态未确认，请重新连接"]];
+        [weakSelf beginCancellation:nil]; [weakSelf emit:@"disconnected" payload:@{}]; [weakSelf scheduleRecovery];
+    });
+    [self queryReminders:operation connection:connection];
+}
+
+- (NSDictionary *)releaseCapabilities:(NSDictionary *)source {
+    NSMutableDictionary *value = [SRActivitySleepCapabilities(source) mutableCopy];
+    if ([self isResolved] && (self.reminderSnapshots[@114] || self.reminderSnapshots[@126])) {
+        for (NSString *key in @[@"features", @"integratedFeatures"]) {
+            NSMutableArray *features = [value[key] mutableCopy];
+            if ([source[key] containsObject:@"health_reminders"]) [features addObject:@"health_reminders"];
+            value[key] = features;
+        }
+    }
     return value;
 }
 
@@ -315,7 +560,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
     self.controlReadingCall = YES;
     self.controlReadbackCall = nil;
     self.controlReadbackAcknowledged = NO;
-    CE_RequestAllInfoCmd *query = [CE_RequestAllInfoCmd new];
+    CE_Cmd *query = [self reminderQuery:@122];
     query.overtime = 8; query.repeatSendTimes = 0;
     __weak typeof(self) weakSelf = self;
     [self.product sendCmdToDevice:query complete:^(NSError *error) {
@@ -344,15 +589,20 @@ static void CoolWearOnMain(dispatch_block_t block) {
     else if ([feature isEqual:@"gesture_control"]) {
         mode = CoolWearGestureMode(args[@"values"][@"mode"]);
         CE_GestureCmd *gesture = [CE_GestureCmd new]; gesture.type = (Control_type)mode.unsignedIntegerValue; command = gesture;
-    } else command = [[YD_SyncCallAlarmCmd alloc] initWithOnoff:self.controlExpectedCall.integerValue];
+    } else if ([feature isEqual:@"notifications"]) command = [[YD_SyncSMSAlarmCmd alloc] initWithOnoff:self.controlExpectedCall.integerValue];
+    else command = [[YD_SyncCallAlarmCmd alloc] initWithOnoff:self.controlExpectedCall.integerValue];
     command.overtime = 8; command.repeatSendTimes = 0; command.noCallback = NO;
     [self.product sendCmdToDevice:command complete:^(NSError *error) {
         CoolWearAfterSDKCallback(^{
             if (operation != weakSelf.controlGeneration || connection != weakSelf.connectionGeneration || !weakSelf.pendingControl) return;
-            if (error) { [weakSelf finishControl:[weakSelf error:@"COOLWEAR_CONTROL_FAILED" message:@"戒指未确认指令，请重试"]]; return; }
+            if (error) {
+                if ([feature isEqual:@"notifications"]) weakSelf.messageReminderConfirmed = nil;
+                [weakSelf finishControl:[weakSelf error:@"COOLWEAR_CONTROL_FAILED" message:@"设备未确认指令，请重试"]]; return;
+            }
             if ([feature isEqual:@"call_reminder"]) [weakSelf requestCallReadback:operation connection:connection];
             else {
                 if (action) weakSelf.cameraActive = [args[@"enabled"] boolValue] && UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
+                else if ([feature isEqual:@"notifications"]) weakSelf.messageReminderConfirmed = weakSelf.controlExpectedCall;
                 else weakSelf.gestureMode = mode;
                 [weakSelf finishControl:nil];
             }
@@ -361,33 +611,39 @@ static void CoolWearOnMain(dispatch_block_t block) {
 }
 
 - (void)control:(NSDictionary *)args action:(BOOL)action write:(BOOL)write result:(FlutterResult)result {
-    if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
+    if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接设备"]); return; }
     NSString *feature = [args[@"feature"] isKindOfClass:NSString.class] ? args[@"feature"] : @"";
     BOOL gesture = [feature isEqual:@"gesture_control"], photo = [feature isEqual:@"camera"], call = [feature isEqual:@"call_reminder"];
-    if (!(gesture || photo || call) || (photo != action) ||
+    BOOL message = [feature isEqual:@"notifications"] && (CoolWearFlag(self.flags, @"message_switch") || self.reminderSnapshots[@123]);
+    if (!(gesture || photo || call || message) || (photo != action) ||
         ((gesture || photo) && !CoolWearFlag(self.flags, @"gestureSupport")) || (call && !self.callReminder)) {
-        result([self error:@"COOLWEAR_FEATURE_UNVERIFIED" message:@"此戒指不支持此功能"]); return;
+        result([self error:@"COOLWEAR_FEATURE_UNVERIFIED" message:@"此设备不支持此功能"]); return;
     }
     NSDictionary *values = [args[@"values"] isKindOfClass:NSDictionary.class] ? args[@"values"] : @{};
-    id enabled = action ? args[@"enabled"] : values[@"incomingCall"];
-    if ((action || (call && write)) && (![enabled isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)enabled) != CFBooleanGetTypeID())) {
+    id enabled = action ? args[@"enabled"] : values[message ? @"enabled" : @"incomingCall"];
+    if ((action || ((call || message) && write)) && (![enabled isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)enabled) != CFBooleanGetTypeID())) {
         result([self error:@"INVALID_SETTING" message:@"开关参数无效"]); return;
     }
     if (gesture && write && !CoolWearGestureMode(values[@"mode"])) { result([self error:@"INVALID_SETTING" message:@"手势模式无效"]); return; }
-    if (gesture && !write) { result(self.gestureMode ? @{@"confirmedMode": self.gestureMode} : @{}); return; }
-    if (self.pendingControl || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite || (self.pendingFind && !self.findProbing)) {
-        result([self error:@"DEVICE_BUSY" message:@"戒指忙，请稍后重试"]); return;
+    if (message && !write) { result([self messageReminderConnectionSettings]); return; }
+    if (gesture && !write) {
+        NSMutableDictionary *settings = [@{@"supportedModes": @[@0, @1, @2, @3, @4, @5], @"confirmationScope": @"connection"} mutableCopy];
+        if (self.gestureMode) settings[@"confirmedMode"] = self.gestureMode;
+        result(settings); return;
+    }
+    if (self.probingReminders || self.pendingReminders || self.pendingControl || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite || (self.pendingFind && !self.findProbing)) {
+        result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return;
     }
     if (photo && ![enabled boolValue]) self.cameraActive = NO;
     self.pendingControl = result;
     self.controlIsWrite = write || action;
-    self.controlExpectedCall = call && write ? @([enabled boolValue] ? 1 : 0) : nil;
+    self.controlExpectedCall = (call || message) && write ? @([enabled boolValue] ? 1 : 0) : nil;
     NSUInteger operation = ++self.controlGeneration, connection = self.connectionGeneration;
     __weak typeof(self) weakSelf = self;
     // One bounded operation includes a queued optional probe and fresh readback.
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 28 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         if (operation != weakSelf.controlGeneration || connection != weakSelf.connectionGeneration || !weakSelf.pendingControl) return;
-        [weakSelf finishControl:[weakSelf error:@"COOLWEAR_CONTROL_TIMEOUT" message:@"戒指未响应，请重试"]];
+        [weakSelf finishControl:[weakSelf error:@"COOLWEAR_CONTROL_TIMEOUT" message:@"设备未响应，请重试"]];
         [weakSelf beginCancellation:nil]; [weakSelf emit:@"disconnected" payload:@{}]; [weakSelf scheduleRecovery];
     });
     [self sendControl:args action:action write:write operation:operation connection:connection];
@@ -431,7 +687,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
         CFGetTypeID((__bridge CFTypeRef)enabled) != CFBooleanGetTypeID()) {
         result([self error:@"INVALID_SETTING" message:@"查找参数无效"]); return;
     }
-    if (self.pendingControl || self.pendingFind || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) {
+    if (self.probingReminders || self.pendingReminders || self.pendingControl || self.pendingFind || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) {
         result([self error:@"DEVICE_BUSY" message:@"戒指忙，请稍后重试"]); return;
     }
     self.pendingFind = result;
@@ -501,17 +757,21 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)monitoring:(NSDictionary *)args write:(BOOL)write result:(FlutterResult)result {
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
-    if (self.pendingControl || (self.pendingFind && !self.findProbing) || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) {
+    if (self.probingReminders || self.pendingReminders || self.pendingControl || (self.pendingFind && !self.findProbing) || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) {
         result([self error:@"CONNECT_BUSY" message:@"戒指忙，请稍后重试"]); return;
     }
     NSDictionary *expected = nil;
     if (write) {
         NSString *type = [args[@"type"] isKindOfClass:NSString.class] ? args[@"type"] : @"";
-        id enabled = args[@"enabled"];
-        if (![enabled isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)enabled) != CFBooleanGetTypeID()) {
-            result([self error:@"INVALID_SETTING" message:@"开关参数无效"]); return;
+        if (args[@"minutes"]) {
+            expected = CoolWearMonitoringIntervalChange(self.monitoringSnapshot, self.flags, type, args[@"minutes"]);
+        } else {
+            id enabled = args[@"enabled"];
+            if (![enabled isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)enabled) != CFBooleanGetTypeID()) {
+                result([self error:@"INVALID_SETTING" message:@"开关参数无效"]); return;
+            }
+            expected = CoolWearMonitoringChange(self.monitoringSnapshot, self.flags, type, [enabled boolValue]);
         }
-        expected = CoolWearMonitoringChange(self.monitoringSnapshot, self.flags, type, [enabled boolValue]);
         if (!expected) { result([self error:@"READ_REQUIRED" message:@"请先刷新戒指支持的监测设置"]); return; }
     }
     NSUInteger operation = ++self.monitoringGeneration, connection = self.connectionGeneration;
@@ -622,7 +882,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)readBattery:(FlutterResult)result {
     if (![self isResolved]) { result(nil); return; }
-    if (self.pendingControl || self.pendingFind || self.pendingBattery || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self details]); return; }
+    if (self.probingReminders || self.pendingReminders || self.pendingControl || self.pendingFind || self.pendingBattery || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self details]); return; }
     self.pendingBattery = result;
     NSUInteger generation = self.connectionGeneration, read = ++self.batteryGeneration;
     CE_RequestBatteryCmd *cmd = [CE_RequestBatteryCmd new];
@@ -644,7 +904,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)syncHistory:(FlutterResult)result {
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
-    if (self.pendingControl || self.pendingFind || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
+    if (self.pendingReminders || self.pendingControl || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
     self.pendingSync = result;
     self.freshActivityInSync = NO;
     [self.syncBatches removeAllObjects]; [self.syncRecords removeAllObjects];
@@ -653,12 +913,13 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)startHistorySync:(NSUInteger)generation operation:(NSUInteger)sync batteryWaits:(NSUInteger)waits {
     if (generation != self.connectionGeneration || sync != self.syncGeneration || !self.pendingSync || ![self isResolved]) return;
-    if (self.pendingBattery) {
-        // Reserve sync first so subsequent polls cannot take the command queue.
-        // Battery has an 8 s bound; 8 + the 25 s read fits Dart's 35 s bound.
-        if (waits >= 32) {
+    if (self.pendingBattery || self.pendingFind || self.probingReminders) {
+        // Reserve sync while bounded, read-only discovery finishes. New polls
+        // cannot steal its slot. At most 24 s waiting + 25 s history, inside
+        // the iOS adapter's 60 s command bound.
+        if (waits >= 96) {
             FlutterResult result = self.pendingSync; self.pendingSync = nil;
-            result([self error:@"DEVICE_BUSY" message:@"电量读取尚未结束，请稍后重试"]);
+            result([self error:@"DEVICE_BUSY" message:@"戒指设置读取尚未结束，请稍后重试"]);
             return;
         }
         __weak typeof(self) weakSelf = self;
@@ -854,7 +1115,9 @@ static void CoolWearOnMain(dispatch_block_t block) {
     CoolWearAfterSDKCallback(^{
         if (connection != weakSelf.connectionGeneration || ![weakSelf isResolved]) return;
         // A harmless stop probe leaves no ringing active and never chooses a target.
-        [weakSelf findDevice:@{@"feature": @"find_watch", @"enabled": @NO} probe:YES result:^(id response) {}];
+        [weakSelf findDevice:@{@"feature": @"find_watch", @"enabled": @NO} probe:YES result:^(id response) {
+            [weakSelf probeRemindersWhenIdle:connection attempt:0];
+        }];
     });
 }
 
@@ -865,6 +1128,20 @@ static void CoolWearOnMain(dispatch_block_t block) {
     NSNumber *type = CoolWearUnsigned(info[@"DataType"], 255);
     if (!type) return;
     id data = info[@"Data"];
+    if ([@[@106, @114, @123, @126] containsObject:type]) {
+        NSDictionary *snapshot = CoolWearReminderSnapshot(type.integerValue, data);
+        if (snapshot) {
+            if (type.integerValue == 123 && self.probingReminders && [self.reminderProbeType isEqual:@123]) self.messageReadSupported = YES;
+            self.reminderSnapshots[type] = snapshot;
+            if ([self isResolved]) [self emit:@"capabilitiesUpdated" payload:[self capabilities]];
+            if (self.pendingReminders && self.remindersPhase != 1 && [self.remindersAwaited containsObject:type]) {
+                self.remindersReadback[type] = snapshot;
+                NSUInteger operation = self.remindersGeneration, connection = self.connectionGeneration;
+                CoolWearAfterSDKCallback(^{ [self advanceReminders:operation connection:connection]; });
+            }
+        }
+        return;
+    }
     if (type.integerValue == DATA_TYPE_PHOTOGRAPH_ONOFF) {
         if (CoolWearCameraShutter(data, self.cameraActive, [self isResolved], UIApplication.sharedApplication.applicationState == UIApplicationStateActive))
             [self emit:@"cameraShutter" payload:@{@"deviceId": self.target.identifier.UUIDString}];
@@ -1057,6 +1334,10 @@ static void CoolWearOnMain(dispatch_block_t block) {
 }
 
 - (void)beginCancellation:(FlutterResult)result {
+    self.probingReminders = NO; self.reminderProbeType = nil;
+    [self finishReminders:[self error:@"CONNECT_CANCELLED" message:@"连接已取消"]];
+    [self.reminderSnapshots removeAllObjects];
+    self.messageReminderConfirmed = nil; self.messageReadSupported = NO;
     [self finishControl:[self error:@"CONNECT_CANCELLED" message:@"连接已取消"]];
     self.cameraActive = NO;
     self.gestureMode = nil;
@@ -1139,7 +1420,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
         [self beginCancellation:result]; return;
     }
     if (self.pendingMeasurement) { result([self error:@"MEASUREMENT_BUSY" message:@"测量指令正在处理"]); return; }
-    if (self.pendingControl || self.pendingFind || self.pendingSync || self.pendingBattery || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
+    if (self.probingReminders || self.pendingReminders || self.pendingControl || self.pendingFind || self.pendingSync || self.pendingBattery || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
     NSArray *manual = CoolWearCapabilities(self.flags, YES)[@"manualMetrics"];
     if (![manual containsObject:metric]) { result([self error:@"COOLWEAR_FEATURE_UNVERIFIED" message:@"此戒指未确认支持这项 iOS 测量"]); return; }
     if (enabled && self.activeMetric) { result([self error:@"MEASUREMENT_BUSY" message:@"请先结束当前测量"]); return; }
@@ -1216,11 +1497,15 @@ static void CoolWearOnMain(dispatch_block_t block) {
         } else { result(nil); }
         return;
     }
-    if (!SRActivitySleepCommandAllowed(call.method, args)) {
+    BOOL ordinaryReminder = [@[@"readDeviceFeature", @"writeDeviceFeature"] containsObject:call.method] && [args[@"feature"] isEqual:@"health_reminders"];
+    if (!ordinaryReminder && !SRActivitySleepCommandAllowed(call.method, args)) {
         result([self error:@"FEATURE_UNAVAILABLE" message:@"此功能暂未开放"]); return;
     }
     FlutterResult completion = result;
-    result = ^(id value) { completion(SRActivitySleepResult(call.method, value)); };
+    result = ^(id value) {
+        completion([call.method isEqual:@"getCapabilities"] && [value isKindOfClass:NSDictionary.class]
+            ? [self releaseCapabilities:value] : SRActivitySleepResult(call.method, value));
+    };
     @try {
         if ([call.method isEqualToString:@"configureRecoveryTarget"]) [self configureRecovery:args result:result];
         else if ([call.method isEqualToString:@"scanDevices"]) [self startScan:result];
@@ -1243,12 +1528,23 @@ static void CoolWearOnMain(dispatch_block_t block) {
             if ([args[@"feature"] isEqual:@"camera"]) [self control:args action:YES write:YES result:result];
             else [self findDevice:args probe:NO result:result];
         }
-        else if ([call.method isEqualToString:@"readDeviceFeature"] || [call.method isEqualToString:@"writeDeviceFeature"])
-            [self control:args action:NO write:[call.method isEqualToString:@"writeDeviceFeature"] result:result];
+        else if ([call.method isEqualToString:@"readDeviceFeature"] || [call.method isEqualToString:@"writeDeviceFeature"]) {
+            NSString *feature = args[@"feature"];
+            BOOL write = [call.method isEqualToString:@"writeDeviceFeature"];
+            if ([feature isEqual:@"notifications"] && !self.messageReadSupported && (CoolWearFlag(self.flags, @"message_switch") || self.reminderSnapshots[@123]))
+                [self control:args action:NO write:write result:result];
+            else if ([@[@"notifications", @"alarms", @"health_reminders"] containsObject:feature]) [self reminders:args write:write result:result];
+            else [self control:args action:NO write:write result:result];
+        }
         else if ([call.method isEqualToString:@"syncHealthData"]) [self syncHistory:result];
         else if ([call.method isEqualToString:@"readAutoMeasureSettings"]) [self monitoring:args write:NO result:result];
         else if ([call.method isEqualToString:@"setAutoMeasureSetting"]) [self monitoring:args write:YES result:result];
-        else if ([call.method isEqualToString:@"readAutoMeasureIntervals"]) result(@{}); // Unit is undocumented; preserve the raw byte.
+        else if ([call.method isEqualToString:@"setAutoMeasureInterval"]) [self monitoring:args write:YES result:result];
+        else if ([call.method isEqualToString:@"readAutoMeasureIntervals"]) {
+            [self monitoring:args write:NO result:^(id value) {
+                result([value isKindOfClass:FlutterError.class] ? value : CoolWearMonitoringIntervals(self.monitoringSnapshot, self.flags));
+            }];
+        }
         else if ([call.method isEqualToString:@"getCapabilities"]) {
             result([self capabilities]);
             [self enableDataDelivery];
@@ -1273,6 +1569,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
         if (self.pendingMonitoringWrite) [pending addObject:self.pendingMonitoringWrite];
         if (self.pendingFind) [pending addObject:self.pendingFind];
         if (self.pendingControl) [pending addObject:self.pendingControl];
+        if (self.pendingReminders) [pending addObject:self.pendingReminders];
         self.pendingScan = nil;
         self.pendingConnect = nil;
         self.pendingMeasurement = nil;
@@ -1283,6 +1580,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
         self.pendingMonitoringWrite = nil;
         self.pendingFind = nil;
         self.pendingControl = nil;
+        self.pendingReminders = nil;
         @try {
             [self beginCancellation:nil];
         } @catch (NSException *cancelException) {

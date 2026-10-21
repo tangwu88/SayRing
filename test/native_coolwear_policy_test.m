@@ -84,6 +84,16 @@ int main(void) {
         __block NSUInteger completions = 0;
         NSDictionary *monitor = @{@"onoff":@1, @"hr24hOnoff":@0, @"oxOnOff":@0, @"time":@60};
         NSDictionary *monitorFlags = @{@"hasHR24h":@1, @"O2_auto_switch":@1};
+        NSDictionary *intervals = CoolWearMonitoringIntervals(monitor, monitorFlags);
+        NSCAssert([intervals[@"heartRate"][@"minutes"] isEqual:monitor[@"time"]], @"Real shared interval not shown");
+        NSCAssert([intervals[@"heartRate"] isEqual:intervals[@"bloodOxygen"]], @"Shared hardware interval became independent");
+        NSDictionary *intervalChange = CoolWearMonitoringIntervalChange(monitor, monitorFlags, @"heartRate", @15);
+        NSCAssert([intervalChange[@"time"] isEqual:@15] && [intervalChange[@"onoff"] isEqual:monitor[@"onoff"]] &&
+            [intervalChange[@"hr24hOnoff"] isEqual:monitor[@"hr24hOnoff"]] && [intervalChange[@"oxOnOff"] isEqual:monitor[@"oxOnOff"]], @"Frequency write changed switches");
+        NSCAssert(!CoolWearMonitoringIntervalChange(monitor, monitorFlags, @"heartRate24h", @15), @"Continuous HR interval fabricated");
+        for (id invalid in @[@0, @121, @YES, @1.5, @"15"]) NSCAssert(!CoolWearMonitoringIntervalChange(monitor, monitorFlags, @"heartRate", invalid), @"Invalid interval accepted");
+        NSMutableDictionary *unknownInterval = [monitor mutableCopy]; unknownInterval[@"time"] = @0;
+        NSCAssert(!CoolWearMonitoringIntervals(unknownInterval, monitorFlags).count, @"Unknown interval became minutes");
         NSCAssert(CoolWearMonitoringSnapshot(monitor).count == 4, @"real complete setting rejected");
         NSCAssert(([CoolWearMonitoringSettings(monitor, monitorFlags) isEqual:@{@"heartRate":@YES,@"heartRate24h":@NO,@"bloodOxygen":@NO}]), @"switch mapping incorrect");
         NSDictionary *changed = CoolWearMonitoringChange(monitor, monitorFlags, @"bloodOxygen", YES);

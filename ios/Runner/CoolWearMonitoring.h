@@ -37,3 +37,27 @@ static inline NSDictionary *CoolWearMonitoringChange(NSDictionary *snapshot, NSD
     value[key] = @(enabled ? 1 : 0);
     return value;
 }
+
+// The supplied Android SDK demo documents protocol 128's interval in minutes;
+// the iOS guide specifies the same four fields and byte order. HR and SpO2
+// share this byte. Do not fabricate a current interval when the byte is zero
+// or outside the existing supported 1..120-minute range.
+static inline NSDictionary *CoolWearMonitoringIntervals(NSDictionary *snapshot, NSDictionary *flags) {
+    NSDictionary *settings = CoolWearMonitoringSettings(snapshot, flags);
+    NSInteger minutes = [snapshot[@"time"] integerValue];
+    if (!settings.count || minutes < 1 || minutes > 120) return @{};
+    NSDictionary *interval = @{@"minutes": @(minutes), @"stepMinutes": @1,
+        @"minMinutes": @1, @"maxMinutes": @120, @"canModify": @YES};
+    NSMutableDictionary *value = [NSMutableDictionary dictionary];
+    for (NSString *type in @[@"heartRate", @"bloodOxygen"])
+        if (settings[type]) value[type] = interval;
+    return value;
+}
+
+static inline NSDictionary *CoolWearMonitoringIntervalChange(NSDictionary *snapshot, NSDictionary *flags, NSString *type, id raw) {
+    NSNumber *minutes = CoolWearUnsigned(raw, 120);
+    if (!minutes || minutes.integerValue < 1 || !CoolWearMonitoringIntervals(snapshot, flags)[type]) return nil;
+    NSMutableDictionary *value = [snapshot mutableCopy];
+    value[@"time"] = minutes;
+    return value;
+}
