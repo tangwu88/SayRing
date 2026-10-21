@@ -107,3 +107,14 @@ xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Debug
 实现、最终全量检查、主要页面截图和本机双端构建完成。仅提交当前界面分支；iPhone暂不能连接，真实R12连接/同步耗时与本版物理机UI仍待验证，不将此分支升为已验收主线。没有修改线上开关、协议、下载地址、正式包、TestFlight或App Store。
 
 Git运行源码提交后检查远端CI；云端结果单独记录，不用本机成功替代。
+
+### Git同步与云端状态（2026-10-21T23:14:21+08:00）
+
+运行源码与全部本机回执已提交 `484d6fc2e76c70b97389518a4992d2ea562bd58a`，远端分支 `codex/qring-visual-refresh-20261021`。GitHub对象树与本机暂存树一致：`8ed1030a9f35350b05f24450b522453264a1dd33`；fetch后ff-only对齐，HEAD与origin一致、工作区干净、ahead/behind为0/0，`git fsck --full --no-dangling`退出0。
+
+[mobile-ci运行39623058637](https://github.com/tangwu88/SayRing/actions/runs/39623058637) 仍在运行：
+- quality: in_progress；当前 Run TZ=Asia/Shanghai flutter test
+- Harmony contracts (UTC): success
+- Harmony contracts (Asia/Shanghai): success
+
+云端尚未完成，不能称为远端CI全通过；后续Android/iOS任务须等待quality。该云端运行不影响上述已完成的本机检查事实，后续结果需另行核验。当前仅交付Git界面改动，真机/正式分发待办保持。此后只有验证记录更新，运行源码仍为484d6fc。
