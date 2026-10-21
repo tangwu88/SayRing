@@ -37,10 +37,10 @@ String _stageLabel(SleepStage stage) => switch (stage) {
 };
 
 Color _stageColor(SleepStage stage) => switch (stage) {
-  SleepStage.awake => const Color(0xFFE6A657),
-  SleepStage.light => const Color(0xFF78A6E9),
-  SleepStage.deep => const Color(0xFF4959B9),
-  SleepStage.rem => const Color(0xFF9C7FD8),
+  SleepStage.awake => const Color(0xFFD99A51),
+  SleepStage.light => const Color(0xFFAFA7E8),
+  SleepStage.deep => const Color(0xFF6454B5),
+  SleepStage.rem => const Color(0xFF8B80CF),
   SleepStage.unknown => const Color(0xFF98A4B5),
   SleepStage.notWorn => const Color(0xFF637482),
 };
@@ -187,6 +187,7 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
         children: [
           Row(
@@ -214,9 +215,10 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
                 ),
             ],
           ),
+          const SizedBox(height: 12),
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
               child: Row(
                 children: [
                   IconButton(
@@ -252,6 +254,7 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
               ),
             ),
           ),
+          const SizedBox(height: 16),
           if (_loading)
             const Padding(
               padding: EdgeInsets.all(24),
@@ -280,8 +283,9 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
               )
             else ...[
               Card(
+                color: const Color(0xFFF0EDF8),
                 child: Padding(
-                  padding: const EdgeInsets.all(18),
+                  padding: const EdgeInsets.all(22),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -289,43 +293,34 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
                         children: [
                           Icon(
                             Icons.bedtime_rounded,
-                            color: SaydianColors.techIndigo,
+                            color: Color(0xFF7164C5),
+                            size: 22,
                           ),
                           SizedBox(width: 8),
                           Text(
-                            '睡眠时长',
-                            style: TextStyle(color: SaydianColors.muted),
+                            '总睡眠',
+                            style: TextStyle(
+                              color: SaydianColors.ink,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 12),
-                      const Text(
-                        '总睡眠',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
                       Text(
                         duration,
                         style: const TextStyle(
-                          color: SaydianColors.techIndigo,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w900,
+                          color: SaydianColors.ink,
+                          fontSize: 36,
+                          height: 1.2,
+                          fontWeight: FontWeight.w800,
                         ),
                       ),
-                      if (timeline?.hasSegments == true) ...[
-                        const SizedBox(height: 8),
-                        const Text(
-                          '含实际返回的小睡；清醒、未知及未佩戴时间不计入睡眠。',
-                          style: TextStyle(color: SaydianColors.muted),
-                        ),
-                      ],
                     ],
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
               if (timeline?.hasSegments == true)
                 SleepTimelineCard(timeline: timeline!)
               else
@@ -335,15 +330,27 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
                       : '此记录只有睡眠汇总，无法反推具体时间段。连接戒指并同步后可补充设备仍保留的明细。',
                   icon: Icons.schedule_outlined,
                 ),
+              const SizedBox(height: 16),
               _SleepStageDistribution(record: record),
+              const SizedBox(height: 16),
               SleepStructureCard(record: record, controller: widget.controller),
             ],
           ],
           const SizedBox(height: 12),
-          _SleepNotice(
-            message:
-                '睡眠时长和阶段为戒指估算，仅供日常作息参考。时间明细仅保存在本机；AI 报告需另行确认上传睡眠汇总，未返回项目保持未知。',
-            icon: Icons.lock_outline_rounded,
+          Card(
+            child: ExpansionTile(
+              key: const Key('sleep-reference-details'),
+              leading: const Icon(Icons.info_outline_rounded),
+              title: const Text('睡眠说明'),
+              subtitle: const Text('戒指估算 · 日常作息参考'),
+              childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              children: const [
+                Text(
+                  '含实际返回的小睡；清醒、未知及未佩戴时间不计入睡眠。睡眠时长和阶段为戒指估算，仅供日常作息参考。时间明细仅保存在本机；AI 报告需另行确认上传睡眠汇总，未返回项目保持未知。',
+                  style: TextStyle(color: SaydianColors.muted, height: 1.6),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 12),
           FilledButton.icon(
@@ -390,7 +397,7 @@ class _SleepStageDistribution extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(12),
               child: Row(
                 children: [
                   for (final stage in stages)
@@ -400,7 +407,7 @@ class _SleepStageDistribution extends StatelessWidget {
                         label:
                             '${_stageLabel(stage.$1)} ${sleepMinutesLabel(stage.$2)}',
                         child: SizedBox(
-                          height: 18,
+                          height: 28,
                           child: ColoredBox(color: _stageColor(stage.$1)),
                         ),
                       ),
@@ -430,10 +437,10 @@ class _SleepStageDistribution extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             const Text(
-              '比例按戒指实际返回的阶段时长计算，未返回阶段不补齐。',
-              style: TextStyle(fontSize: 12, color: SaydianColors.muted),
+              '已返回阶段的时长占比',
+              style: TextStyle(fontSize: 14, color: SaydianColors.muted),
             ),
           ],
         ),
@@ -479,12 +486,12 @@ class SleepTimelineCard extends StatelessWidget {
       key: const Key('sleep-timeline-card'),
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.only(bottom: 12),
           child: Text(
             isDemo
                 ? '演示时间轴 · 全部为示例数据（UTC${timeline.timezone}）'
                 : '时间按记录时区 UTC${timeline.timezone} 显示',
-            style: const TextStyle(color: SaydianColors.muted, fontSize: 12),
+            style: const TextStyle(color: SaydianColors.muted, fontSize: 14),
           ),
         ),
         for (final session in timeline.sessions.where(
@@ -571,8 +578,9 @@ class _SleepSessionCard extends StatelessWidget {
     }
     final asleep = session.asleepMinutes;
     return Card(
+      margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -580,14 +588,12 @@ class _SleepSessionCard extends StatelessWidget {
               title,
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
-            const SizedBox(height: 8),
-            Text('开始 ${_time(start)}'),
-            Text('结束 ${_time(end)}'),
+            const SizedBox(height: 12),
             Text(
               '有效睡眠 ${asleep > 0 ? sleepMinutesLabel(asleep) : '--'}',
               style: const TextStyle(
-                color: SaydianColors.techIndigo,
-                fontWeight: FontWeight.w800,
+                color: Color(0xFF7164C5),
+                fontWeight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: 16),
@@ -620,7 +626,7 @@ class _SleepSessionCard extends StatelessWidget {
                     }
                   },
                   child: SizedBox(
-                    height: 156,
+                    height: 184,
                     width: double.infinity,
                     child: CustomPaint(
                       painter: _SleepStagePainter(session: session),
@@ -636,71 +642,116 @@ class _SleepSessionCard extends StatelessWidget {
                 Flexible(
                   child: Align(
                     alignment: Alignment.centerLeft,
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        DateFormat('HH:mm').format(timeline.displayTime(start)),
-                        key: const Key('sleep-axis-start'),
-                      ),
+                    child: Text(
+                      DateFormat('HH:mm').format(timeline.displayTime(start)),
+                      key: const Key('sleep-axis-start'),
+                      style: const TextStyle(color: SaydianColors.muted),
                     ),
                   ),
                 ),
                 Flexible(
                   child: Align(
                     alignment: Alignment.centerRight,
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        DateFormat('HH:mm').format(timeline.displayTime(end)),
-                        key: const Key('sleep-axis-end'),
-                      ),
+                    child: Text(
+                      DateFormat('HH:mm').format(timeline.displayTime(end)),
+                      key: const Key('sleep-axis-end'),
+                      style: const TextStyle(color: SaydianColors.muted),
                     ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            const Text(
-              '点击色块查看时间；空白表示该时段未返回数据。',
-              style: TextStyle(color: SaydianColors.muted, fontSize: 12),
-            ),
-            const SizedBox(height: 14),
-            for (final stage in SleepStage.values)
-              if (stageMinutes.containsKey(stage))
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 4,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      SizedBox.square(
-                        dimension: 10,
-                        child: ColoredBox(color: _stageColor(stage)),
-                      ),
-                      Text(_stageLabel(stage)),
-                      Text(
-                        sleepMinutesLabel(stageMinutes[stage]!),
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      if (asleep > 0 &&
-                          (stage == SleepStage.deep ||
-                              stage == SleepStage.light ||
-                              stage == SleepStage.rem))
-                        Text(
-                          '${(stageMinutes[stage]! / asleep * 100).toStringAsFixed(1)}%',
+            const SizedBox(height: 18),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final columns =
+                    constraints.maxWidth >= 300 &&
+                        MediaQuery.textScalerOf(context).scale(16) <= 22
+                    ? 2
+                    : 1;
+                final width =
+                    (constraints.maxWidth - (columns - 1) * 12) / columns;
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    for (final stage in SleepStage.values)
+                      if (stageMinutes.containsKey(stage))
+                        Container(
+                          width: width,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: _stageColor(stage).withValues(alpha: 0.07),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Wrap(
+                                spacing: 7,
+                                runSpacing: 4,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(
+                                      color: _stageColor(stage),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  Text(_stageLabel(stage)),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                sleepMinutesLabel(stageMinutes[stage]!),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              if (asleep > 0 &&
+                                  (stage == SleepStage.deep ||
+                                      stage == SleepStage.light ||
+                                      stage == SleepStage.rem)) ...[
+                                const SizedBox(height: 5),
+                                Text(
+                                  '${(stageMinutes[stage]! / asleep * 100).toStringAsFixed(1)}%',
+                                  style: const TextStyle(
+                                    color: SaydianColors.muted,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
                         ),
-                    ],
-                  ),
-                ),
-            const Text(
-              '占比按有效睡眠计算，清醒、未知、未佩戴不计入。',
-              style: TextStyle(color: SaydianColors.muted, fontSize: 12),
+                  ],
+                );
+              },
             ),
+            const SizedBox(height: 16),
             ExpansionTile(
+              key: PageStorageKey(
+                'sleep-session-details-${session.startedAt!.toIso8601String()}',
+              ),
               title: const Text('展开时间明细'),
               tilePadding: EdgeInsets.zero,
               children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('开始 ${_time(start)}'),
+                      Text('结束 ${_time(end)}'),
+                      const SizedBox(height: 12),
+                      const Text(
+                        '点击色块查看时间；空白表示该时段未返回数据。占比按有效睡眠计算，清醒、未知、未佩戴不计入。',
+                        style: TextStyle(color: SaydianColors.muted),
+                      ),
+                    ],
+                  ),
+                ),
                 for (var index = 0; index < session.segments.length; index++)
                   ListTile(
                     key: Key('sleep-segment-$title-$index'),
@@ -730,9 +781,15 @@ class _SleepStagePainter extends CustomPainter {
     final start = session.startedAt!;
     final span = session.endedAt!.difference(start).inMicroseconds;
     if (span <= 0) return;
-    final rowHeight = size.height / SleepStage.values.length;
-    final background = Paint()..color = const Color(0xFFF2F5FA);
-    for (var row = 0; row < SleepStage.values.length; row++) {
+    final stages = SleepStage.values
+        .where(
+          (stage) => session.segments.any((segment) => segment.stage == stage),
+        )
+        .toList(growable: false);
+    if (stages.isEmpty) return;
+    final rowHeight = size.height / stages.length;
+    final background = Paint()..color = const Color(0xFFF5F3FA);
+    for (var row = 0; row < stages.length; row++) {
       canvas.drawRect(
         Rect.fromLTWH(0, row * rowHeight + 3, size.width, rowHeight - 6),
         background,
@@ -745,11 +802,11 @@ class _SleepStagePainter extends CustomPainter {
           segment.endAt.difference(segment.startAt).inMicroseconds /
           span *
           size.width;
-      final y = segment.stage.index * rowHeight + 3;
+      final y = stages.indexOf(segment.stage) * rowHeight + 3;
       canvas.drawRRect(
         RRect.fromRectAndRadius(
           Rect.fromLTWH(x, y, math.max(1, width), rowHeight - 6),
-          const Radius.circular(3),
+          const Radius.circular(5),
         ),
         Paint()..color = _stageColor(segment.stage),
       );

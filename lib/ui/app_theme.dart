@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 
 abstract final class SaydianColors {
-  static const ink = Color(0xFF171B2B);
-  static const muted = Color(0xFF5F6675);
-  static const canvas = Color(0xFFF4F7FB);
-  static const line = Color(0xFFDDE3EC);
+  static const ink = Color(0xFF202634);
+  static const muted = Color(0xFF687181);
+  static const canvas = Color(0xFFF7F7F5);
+  static const line = Color(0xFFE8EBF0);
   static const outline = Color(0xFF98A2B3);
+  static const activity = Color(0xFF298D81);
+  static const sleep = Color(0xFF7164C5);
+  static const midnight = Color(0xFF292842);
+  static const energy = Color(0xFFC5793B);
   static const techBlue = Color(0xFF316EF5);
   static const techBlueSoft = Color(0xFFEAF1FF);
   static const techIndigo = Color(0xFF4F5FE7);
@@ -70,12 +74,12 @@ ThemeData buildSaydianTheme() {
     headlineLarge: TextStyle(
       fontSize: 26,
       height: 1.28,
-      fontWeight: FontWeight.w800,
+      fontWeight: FontWeight.w700,
     ),
     headlineMedium: TextStyle(
       fontSize: 24,
       height: 1.3,
-      fontWeight: FontWeight.w800,
+      fontWeight: FontWeight.w700,
     ),
     headlineSmall: TextStyle(
       fontSize: 22,
@@ -85,7 +89,7 @@ ThemeData buildSaydianTheme() {
     titleLarge: TextStyle(
       fontSize: 22,
       height: 1.35,
-      fontWeight: FontWeight.w800,
+      fontWeight: FontWeight.w700,
     ),
     titleMedium: TextStyle(
       fontSize: 18,
@@ -136,16 +140,16 @@ ThemeData buildSaydianTheme() {
         color: SaydianColors.ink,
         fontSize: 24,
         height: 1.35,
-        fontWeight: FontWeight.w900,
+        fontWeight: FontWeight.w700,
       ),
     ),
     cardTheme: CardThemeData(
       elevation: 0,
-      shadowColor: const Color(0x12316EF5),
+      shadowColor: const Color(0x08202634),
       margin: EdgeInsets.zero,
       color: Colors.white,
       shape: RoundedRectangleBorder(
-        side: const BorderSide(color: Color(0xFFDCE7F5)),
+        side: const BorderSide(color: SaydianColors.line),
         borderRadius: BorderRadius.circular(24),
       ),
     ),
@@ -182,7 +186,7 @@ ThemeData buildSaydianTheme() {
         minimumSize: const Size(0, 56),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+        textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -268,7 +272,7 @@ ThemeData buildSaydianTheme() {
     chipTheme: ChipThemeData(
       backgroundColor: Colors.white,
       selectedColor: SaydianColors.techBlueSoft,
-      side: const BorderSide(color: Color(0xFFDCE7F5)),
+      side: const BorderSide(color: SaydianColors.line),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       labelStyle: const TextStyle(
         color: SaydianColors.ink,

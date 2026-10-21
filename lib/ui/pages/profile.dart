@@ -146,127 +146,62 @@ class SettingsPage extends StatelessWidget {
           ),
           const SizedBox(height: 12),
         ],
-        GestureDetector(
+        _ProfileHeaderCard(
+          name: name,
+          detail: controller.session == null
+              ? context.l10n.signInCloudHint
+              : context.l10n.memberId(memberId),
+          avatarUrl: avatarUrl,
           onTap: () => _openPage(
             context,
             controller.isLocalMode
                 ? GlobalCodeLoginPage(controller: controller)
                 : ProfileEditPage(controller: controller),
           ),
-          child: Container(
-            key: const Key('profile-header-card'),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: saydianPanelGradient,
-              border: Border.all(color: const Color(0x66316EF5)),
-              borderRadius: BorderRadius.circular(26),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x17316EF5),
-                  blurRadius: 24,
-                  offset: Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                _MemberAvatar(imageUrl: avatarUrl, showEditBadge: true),
-                const SizedBox(width: 15),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        name,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w900,
-                          color: SaydianColors.ink,
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        controller.session == null
-                            ? context.l10n.signInCloudHint
-                            : context.l10n.memberId(memberId),
-                        style: const TextStyle(
-                          color: SaydianColors.muted,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.edit_outlined,
-                    color: SaydianColors.techBlue,
-                    size: 19,
-                  ),
-                ),
-              ],
-            ),
-          ),
         ),
         const SizedBox(height: 12),
-        Row(
+        _ProfileSummaryLayout(
           children: [
-            Expanded(
-              child: _ProfileStat(
-                key: const Key('profile-stat-device'),
-                icon: Icons.watch_outlined,
-                label: context.l10n.device,
-                value: controller.connectedDevice == null
-                    ? context.l10n.notConnected
-                    : context.l10n.online,
-                color: controller.connectedDevice == null
-                    ? SaydianColors.muted
-                    : SaydianColors.green,
-                onTap: () => controller.selectTab(1),
-              ),
+            _ProfileStat(
+              key: const Key('profile-stat-device'),
+              icon: Icons.watch_outlined,
+              label: context.l10n.device,
+              value: controller.connectedDevice == null
+                  ? context.l10n.notConnected
+                  : context.l10n.online,
+              color: controller.connectedDevice == null
+                  ? SaydianColors.muted
+                  : SaydianColors.green,
+              onTap: () => controller.selectTab(1),
             ),
-            const SizedBox(width: 9),
-            Expanded(
-              child: _ProfileStat(
-                key: const Key('profile-stat-health-records'),
-                icon: Icons.monitor_heart_outlined,
-                label: context.l10n.healthRecords,
-                value: context.l10n.recordCount(
-                  controller.healthRecords.length,
-                ),
-                color: SaydianColors.techViolet,
-                onTap: () => _openPage(
-                  context,
-                  AllHealthDataPage(
-                    controller: controller,
-                    title: context.l10n.healthRecords,
-                  ),
+            _ProfileStat(
+              key: const Key('profile-stat-health-records'),
+              icon: Icons.monitor_heart_outlined,
+              label: context.l10n.healthRecords,
+              value: context.l10n.recordCount(controller.healthRecords.length),
+              color: SaydianColors.techViolet,
+              onTap: () => _openPage(
+                context,
+                AllHealthDataPage(
+                  controller: controller,
+                  title: context.l10n.healthRecords,
                 ),
               ),
             ),
-            const SizedBox(width: 9),
-            Expanded(
-              child: _ProfileStat(
-                key: const Key('profile-stat-care-members'),
-                icon: Icons.family_restroom_rounded,
-                label: context.l10n.careMembers,
-                value: context.l10n.memberCount(controller.careMembers.length),
-                color: SaydianColors.techBlue,
-                onTap: () => _openPage(
-                  context,
-                  controller.isGlobalEdition
-                      ? CarePage(controller: controller)
-                      : Scaffold(
-                          appBar: AppBar(title: Text(context.l10n.remoteCare)),
-                          body: CarePage(controller: controller),
-                        ),
-                ),
+            _ProfileStat(
+              key: const Key('profile-stat-care-members'),
+              icon: Icons.family_restroom_rounded,
+              label: context.l10n.careMembers,
+              value: context.l10n.memberCount(controller.careMembers.length),
+              color: SaydianColors.techBlue,
+              onTap: () => _openPage(
+                context,
+                controller.isGlobalEdition
+                    ? CarePage(controller: controller)
+                    : Scaffold(
+                        appBar: AppBar(title: Text(context.l10n.remoteCare)),
+                        body: CarePage(controller: controller),
+                      ),
               ),
             ),
           ],
@@ -277,7 +212,7 @@ class SettingsPage extends StatelessWidget {
             key: const Key('profile-orders-card'),
             color: Colors.white,
             shape: RoundedRectangleBorder(
-              side: const BorderSide(color: Color(0xFFDCE7F5)),
+              side: const BorderSide(color: SaydianColors.line),
               borderRadius: BorderRadius.circular(24),
             ),
             child: Column(
@@ -286,14 +221,15 @@ class SettingsPage extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(16, 15, 8, 8),
                   child: Row(
                     children: [
-                      Text(
-                        context.l10n.myOrders,
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w900,
+                      Expanded(
+                        child: Text(
+                          context.l10n.myOrders,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
-                      const Spacer(),
                       TextButton(
                         onPressed: () => _openOrders(context, null),
                         child: Text(context.l10n.all),
@@ -301,40 +237,31 @@ class SettingsPage extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Divider(),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
-                  child: Row(
+                  child: _ProfileActionLayout(
                     children: [
-                      Expanded(
-                        child: _OrderEntry(
-                          label: context.l10n.awaitingPayment,
-                          icon: Icons.account_balance_wallet_outlined,
-                          onTap: () => _openOrders(context, 0),
-                        ),
+                      _OrderEntry(
+                        label: context.l10n.awaitingPayment,
+                        icon: Icons.account_balance_wallet_outlined,
+                        onTap: () => _openOrders(context, 0),
                       ),
-                      Expanded(
-                        child: _OrderEntry(
-                          label: context.l10n.awaitingShipment,
-                          icon: Icons.inventory_2_outlined,
-                          onTap: () => _openOrders(context, 1),
-                        ),
+                      _OrderEntry(
+                        label: context.l10n.awaitingShipment,
+                        icon: Icons.inventory_2_outlined,
+                        onTap: () => _openOrders(context, 1),
                       ),
-                      Expanded(
-                        child: _OrderEntry(
-                          label: context.l10n.awaitingDelivery,
-                          icon: Icons.local_shipping_outlined,
-                          onTap: () => _openOrders(context, 2),
-                        ),
+                      _OrderEntry(
+                        label: context.l10n.awaitingDelivery,
+                        icon: Icons.local_shipping_outlined,
+                        onTap: () => _openOrders(context, 2),
                       ),
-                      Expanded(
-                        child: _OrderEntry(
-                          label: context.l10n.afterSales,
-                          icon: Icons.support_agent_rounded,
-                          onTap: () => _openPage(
-                            context,
-                            AfterSalesPage(controller: controller),
-                          ),
+                      _OrderEntry(
+                        label: context.l10n.afterSales,
+                        icon: Icons.support_agent_rounded,
+                        onTap: () => _openPage(
+                          context,
+                          AfterSalesPage(controller: controller),
                         ),
                       ),
                     ],
@@ -349,7 +276,7 @@ class SettingsPage extends StatelessWidget {
           key: const Key('profile-quick-actions-card'),
           color: Colors.white,
           shape: RoundedRectangleBorder(
-            side: const BorderSide(color: Color(0xFFDCE7F5)),
+            side: const BorderSide(color: SaydianColors.line),
             borderRadius: BorderRadius.circular(24),
           ),
           child: Column(
@@ -400,7 +327,7 @@ class SettingsPage extends StatelessWidget {
           key: const Key('profile-services-card'),
           color: Colors.white,
           shape: RoundedRectangleBorder(
-            side: const BorderSide(color: Color(0xFFDCE7F5)),
+            side: const BorderSide(color: SaydianColors.line),
             borderRadius: BorderRadius.circular(24),
           ),
           child: Padding(
@@ -414,8 +341,8 @@ class SettingsPage extends StatelessWidget {
                     child: Text(
                       context.l10n.myServices,
                       style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w900,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
@@ -440,6 +367,134 @@ class SettingsPage extends StatelessWidget {
   void _openPage(BuildContext context, Widget page) {
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
   }
+}
+
+class _ProfileHeaderCard extends StatelessWidget {
+  const _ProfileHeaderCard({
+    required this.name,
+    required this.detail,
+    required this.avatarUrl,
+    required this.onTap,
+  });
+
+  final String name;
+  final String detail;
+  final String avatarUrl;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final largeText = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+    final identity = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          name,
+          style: const TextStyle(
+            fontSize: 26,
+            fontWeight: FontWeight.w800,
+            color: SaydianColors.ink,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          detail,
+          style: const TextStyle(color: SaydianColors.muted, fontSize: 14),
+        ),
+      ],
+    );
+    final avatar = _MemberAvatar(imageUrl: avatarUrl, size: 72);
+    const edit = SizedBox.square(
+      dimension: 48,
+      child: Icon(Icons.edit_outlined, color: SaydianColors.techBlue, size: 21),
+    );
+    return Semantics(
+      button: true,
+      hint: context.l10n.personalInfo,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(28),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            key: const Key('profile-header-card'),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: SaydianColors.line),
+              borderRadius: BorderRadius.circular(28),
+            ),
+            child: largeText
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [avatar, const Spacer(), edit]),
+                      const SizedBox(height: 16),
+                      identity,
+                    ],
+                  )
+                : Row(
+                    children: [
+                      avatar,
+                      const SizedBox(width: 14),
+                      Expanded(child: identity),
+                      edit,
+                    ],
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfileSummaryLayout extends StatelessWidget {
+  const _ProfileSummaryLayout({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final textScale = MediaQuery.textScalerOf(context).scale(1);
+      final columns = textScale > 1.6
+          ? 1
+          : textScale > 1.25 || constraints.maxWidth < 320
+          ? 2
+          : 3;
+      final width = (constraints.maxWidth - 10 * (columns - 1)) / columns;
+      return Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          for (final child in children) SizedBox(width: width, child: child),
+        ],
+      );
+    },
+  );
+}
+
+class _ProfileActionLayout extends StatelessWidget {
+  const _ProfileActionLayout({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final textScale = MediaQuery.textScalerOf(context).scale(1);
+      final columns = textScale > 1.3 || constraints.maxWidth < 300 ? 2 : 4;
+      return Wrap(
+        runSpacing: 12,
+        children: [
+          for (final child in children)
+            SizedBox(width: constraints.maxWidth / columns, child: child),
+        ],
+      );
+    },
+  );
 }
 
 String _memberDisplayName(BuildContext context, AppController controller) {
@@ -469,8 +524,12 @@ class _MemberAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fallback = DecoratedBox(
-      decoration: const BoxDecoration(gradient: saydianHeroGradient),
-      child: Icon(Icons.person_rounded, color: Colors.white, size: size * 0.52),
+      decoration: const BoxDecoration(color: SaydianColors.techBlueSoft),
+      child: Icon(
+        Icons.person_rounded,
+        color: SaydianColors.techBlue,
+        size: size * 0.52,
+      ),
     );
     final bytes = imageBytes;
     final image = bytes != null
@@ -492,9 +551,6 @@ class _MemberAvatar extends StatelessWidget {
             decoration: BoxDecoration(
               border: Border.all(color: Colors.white, width: 2),
               shape: BoxShape.circle,
-              boxShadow: const [
-                BoxShadow(color: Color(0x30316EF5), blurRadius: 14),
-              ],
             ),
             padding: const EdgeInsets.all(2),
             child: ClipOval(child: image),
@@ -564,70 +620,73 @@ class _ProfileStat extends StatelessWidget {
     label: '$label，$value',
     hint: '点击查看$label',
     child: Container(
-      constraints: const BoxConstraints(minHeight: 86),
+      constraints: const BoxConstraints(minHeight: 118),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.white, color.withValues(alpha: .08)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        border: Border.all(color: const Color(0xFFDCE7F5)),
-        borderRadius: BorderRadius.circular(19),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x10316EF5),
-            blurRadius: 14,
-            offset: Offset(0, 6),
-          ),
-        ],
+        color: Colors.white,
+        border: Border.all(color: SaydianColors.line),
+        borderRadius: BorderRadius.circular(22),
       ),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(19),
+        borderRadius: BorderRadius.circular(22),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 12),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final horizontal = constraints.maxWidth > 200;
+                final graphic = Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: Icon(icon, color: color, size: 23),
+                );
+                final labels = Column(
+                  crossAxisAlignment: horizontal
+                      ? CrossAxisAlignment.start
+                      : CrossAxisAlignment.center,
                   children: [
-                    Icon(icon, color: color, size: 23),
-                    const SizedBox(height: 6),
                     Text(
                       value,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      textAlign: horizontal ? TextAlign.left : TextAlign.center,
                       style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 17,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 4),
                     Text(
                       label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      textAlign: horizontal ? TextAlign.left : TextAlign.center,
                       style: const TextStyle(
                         color: SaydianColors.muted,
                         fontSize: 12,
                       ),
                     ),
                   ],
-                ),
-                const Positioned(
-                  top: 0,
-                  right: 0,
-                  child: Icon(
-                    Icons.chevron_right_rounded,
-                    size: 15,
-                    color: SaydianColors.outline,
-                  ),
-                ),
-              ],
+                );
+                return horizontal
+                    ? Row(
+                        children: [
+                          graphic,
+                          const SizedBox(width: 14),
+                          Expanded(child: labels),
+                          const Icon(
+                            Icons.chevron_right_rounded,
+                            size: 18,
+                            color: SaydianColors.outline,
+                          ),
+                        ],
+                      )
+                    : Column(
+                        children: [graphic, const SizedBox(height: 10), labels],
+                      );
+              },
             ),
           ),
         ),
@@ -682,11 +741,11 @@ class _MyServicesGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final textScale = MediaQuery.textScalerOf(context).scale(1);
-        final columns = textScale > 1.25 || constraints.maxWidth < 340 ? 3 : 4;
+        final columns = textScale > 1.3 || constraints.maxWidth < 300 ? 2 : 3;
         final width = constraints.maxWidth / columns;
         return Wrap(
           alignment: WrapAlignment.start,
-          runSpacing: 10,
+          runSpacing: 16,
           children: [
             for (final entry in entries)
               SizedBox(
@@ -724,19 +783,24 @@ class _MyQuickEntry extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      onTap: onTap,
-      minVerticalPadding: 12,
-      leading: _SettingsIcon(icon: icon, color: color),
-      title: Text(
-        title,
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+    return Semantics(
+      hint: subtitle,
+      child: Tooltip(
+        message: subtitle,
+        child: ListTile(
+          onTap: onTap,
+          minVerticalPadding: 16,
+          leading: _SettingsIcon(icon: icon, color: color),
+          title: Text(
+            title,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          trailing: const Icon(
+            Icons.chevron_right_rounded,
+            color: SaydianColors.outline,
+          ),
+        ),
       ),
-      subtitle: Text(
-        subtitle,
-        style: const TextStyle(color: SaydianColors.muted, fontSize: 14),
-      ),
-      trailing: const Icon(Icons.chevron_right_rounded),
     );
   }
 }
@@ -762,18 +826,17 @@ class _OrderEntry extends StatelessWidget {
         child: Column(
           children: [
             Container(
-              width: 44,
-              height: 44,
+              width: 48,
+              height: 48,
               decoration: BoxDecoration(
-                color: SaydianColors.techBlueSoft,
-                borderRadius: BorderRadius.circular(14),
+                color: SaydianColors.canvas,
+                borderRadius: BorderRadius.circular(16),
               ),
               child: Icon(icon, color: SaydianColors.techBlue, size: 24),
             ),
             const SizedBox(height: 8),
             Text(
               label,
-              maxLines: 2,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 14),
             ),
@@ -862,23 +925,17 @@ class _MyServiceEntry extends StatelessWidget {
         child: Column(
           children: [
             Container(
-              width: 46,
-              height: 46,
+              width: 48,
+              height: 48,
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFEAF1FF), Color(0xFFE4F7FA)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(15),
-                border: Border.all(color: const Color(0x29316EF5)),
+                color: SaydianColors.canvas,
+                borderRadius: BorderRadius.circular(16),
               ),
               child: Icon(icon, color: SaydianColors.techBlue, size: 24),
             ),
             const SizedBox(height: 7),
             Text(
               label,
-              maxLines: 2,
               textAlign: TextAlign.center,
               style: const TextStyle(fontSize: 14, height: 1.3),
             ),

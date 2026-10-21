@@ -51,8 +51,8 @@ class _AppShellState extends State<AppShell> {
       bottomNavigationBar: DecoratedBox(
         decoration: const BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border(top: BorderSide(color: Color(0xFFDCE7F5))),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          border: Border(top: BorderSide(color: SaydianColors.line)),
           boxShadow: [
             BoxShadow(
               color: Color(0x12000000),
@@ -142,9 +142,17 @@ class DashboardPage extends StatelessWidget {
                 delegate: SliverChildListDelegate([
                   _DashboardHeader(controller: controller),
                   const SizedBox(height: 12),
-                  if (!controller.hideAiContent) ...[
-                    _AiHealthAssistantCard(controller: controller),
-                    const SizedBox(height: 12),
+                  if (controller.shouldShowHealthMetric(
+                    HealthMetric.steps,
+                  )) ...[
+                    _DashboardActivity(controller: controller),
+                    const SizedBox(height: 16),
+                  ],
+                  if (controller.shouldShowHealthMetric(
+                    HealthMetric.sleep,
+                  )) ...[
+                    _SleepQuickCard(controller: controller),
+                    const SizedBox(height: 16),
                   ],
                   _FeatureEntryGrid(
                     commerceEnabled: controller.mallVisible,
@@ -191,9 +199,10 @@ class DashboardPage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  if (controller.shouldShowHealthMetric(HealthMetric.sleep))
-                    _SleepQuickCard(controller: controller),
-                  const SizedBox(height: 16),
+                  if (!controller.hideAiContent) ...[
+                    _AiHealthAssistantCard(controller: controller),
+                    const SizedBox(height: 12),
+                  ],
                   _SectionTitle(
                     title: context.l10n.healthData,
                     subtitle: context.l10n.recentData,
@@ -245,19 +254,33 @@ class DashboardPage extends StatelessWidget {
                           : null,
                     )
                   else
-                    ListView.separated(
+                    LayoutBuilder(
                       key: const Key('dashboard-health-card-list'),
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: metrics.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 14),
-                      itemBuilder: (context, index) {
-                        final metric = metrics[index];
-                        return HealthMetricCard(
-                          key: ValueKey('home-health-card-${metric.wireName}'),
-                          controller: controller,
-                          metric: metric,
-                          record: latest[metric],
+                      builder: (context, constraints) {
+                        final twoColumns =
+                            metrics.length > 1 &&
+                            constraints.maxWidth >= 350 &&
+                            MediaQuery.textScalerOf(context).scale(1) <= 1.2;
+                        final width = twoColumns
+                            ? (constraints.maxWidth - 12) / 2
+                            : constraints.maxWidth;
+                        return Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: [
+                            for (final metric in metrics)
+                              SizedBox(
+                                width: width,
+                                child: HealthMetricCard(
+                                  key: ValueKey(
+                                    'home-health-card-${metric.wireName}',
+                                  ),
+                                  controller: controller,
+                                  metric: metric,
+                                  record: latest[metric],
+                                ),
+                              ),
+                          ],
                         );
                       },
                     ),
@@ -312,7 +335,7 @@ class _DashboardHeader extends StatelessWidget {
             shape: BoxShape.circle,
           ),
           child: avatarUrl.isEmpty
-              ? const SaydianBrandMark(size: 46)
+              ? const SaydianBrandMark(size: 46, color: SaydianColors.ink)
               : _MemberAvatar(imageUrl: avatarUrl, size: 50),
         ),
         const SizedBox(width: 11),
@@ -326,7 +349,7 @@ class _DashboardHeader extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontSize: 21,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 2),
@@ -412,7 +435,7 @@ class _MindBodyReadinessCard extends StatelessWidget {
               ),
               child: const Text(
                 '--',
-                style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900),
+                style: TextStyle(fontSize: 23, fontWeight: FontWeight.w700),
               ),
             ),
             const SizedBox(width: 15),
@@ -422,7 +445,7 @@ class _MindBodyReadinessCard extends StatelessWidget {
                 children: [
                   const Text(
                     '身心准备度',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 5),
                   Text(
@@ -492,7 +515,7 @@ class _AiHealthAssistantCard extends StatelessWidget {
             style: const TextStyle(
               color: Color(0xFF244BA8),
               fontSize: 19,
-              fontWeight: FontWeight.w900,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: 3),
@@ -523,7 +546,7 @@ class _AiHealthAssistantCard extends StatelessWidget {
               context.l10n.askNow,
               style: const TextStyle(
                 fontSize: 14.5,
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
@@ -648,77 +671,72 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final latest = _latest;
+    final caption = _loading
+        ? '正在读取睡眠记录'
+        : _failed
+        ? '睡眠缓存刷新失败，点击查看或重试'
+        : latest == null
+        ? sleepSyncUnavailable(controller)
+              ? '当前戒指的睡眠同步暂未开放'
+              : '暂无睡眠记录，佩戴戒指睡眠后同步数据'
+        : '最近一次 · ${DateFormat('M月d日').format(DateTime.parse(sleepRecordSdkDate(latest)))}';
     return Material(
       key: const Key('home-sleep-overview-entry'),
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(22),
+      color: const Color(0xFFF0EEF8),
+      borderRadius: BorderRadius.circular(24),
       clipBehavior: Clip.antiAlias,
-      child: Ink(
-        decoration: BoxDecoration(
-          gradient: saydianPanelGradient,
-          border: Border.all(color: const Color(0x66316EF5)),
-          borderRadius: BorderRadius.circular(22),
-        ),
-        child: InkWell(
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              settings: const RouteSettings(name: 'sleep-overview'),
-              builder: (_) => SleepOverviewPage(controller: controller),
-            ),
+      child: InkWell(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            settings: const RouteSettings(name: 'sleep-overview'),
+            builder: (_) => SleepOverviewPage(controller: controller),
           ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.bedtime_outlined,
-                  color: SaydianColors.techIndigo,
-                  size: 30,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '睡眠概览',
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        _loading
-                            ? '正在读取睡眠记录'
-                            : _failed
-                            ? '睡眠缓存刷新失败，点击查看或重试'
-                            : latest == null
-                            ? sleepSyncUnavailable(controller)
-                                  ? '当前戒指的睡眠同步暂未开放'
-                                  : '暂无睡眠记录，佩戴戒指睡眠后同步数据'
-                            : '最近一次 · ${DateFormat('M月d日').format(DateTime.parse(sleepRecordSdkDate(latest)))}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: SaydianColors.muted,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(
+                    Icons.bedtime_outlined,
+                    color: SaydianColors.sleep,
+                    size: 23,
                   ),
-                ),
-                Text(
-                  _sleepDurationLabel(latest),
-                  style: const TextStyle(
-                    color: SaydianColors.techIndigo,
-                    fontWeight: FontWeight.w900,
+                  SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      '睡眠概览',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
+                  Icon(Icons.chevron_right_rounded, color: SaydianColors.sleep),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Text(
+                _loading || _failed ? '--' : _sleepDurationLabel(latest),
+                style: const TextStyle(
+                  color: SaydianColors.midnight,
+                  fontSize: 32,
+                  height: 1.2,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -.6,
                 ),
-                const SizedBox(width: 4),
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: SaydianColors.techIndigo,
+              ),
+              const SizedBox(height: 9),
+              Text(
+                caption,
+                style: const TextStyle(
+                  color: SaydianColors.muted,
+                  fontSize: 13,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -751,6 +769,219 @@ class SleepOverviewPage extends StatelessWidget {
   );
 }
 
+// Reads the complete saved local day, rather than the latest record/cache.
+class _DashboardActivity extends StatefulWidget {
+  const _DashboardActivity({required this.controller});
+  final AppController controller;
+  @override
+  State<_DashboardActivity> createState() => _DashboardActivityState();
+}
+
+class _DashboardActivityState extends State<_DashboardActivity>
+    with WidgetsBindingObserver {
+  Map<HealthMetric, num> _values = const {};
+  late (bool, String?, String?) _owner;
+  Timer? _refresh;
+  Timer? _midnight;
+  int _generation = 0;
+  int? _activeRead;
+  Completer<void> _readFence = Completer<void>();
+  bool _reloadQueued = false;
+  bool _loading = true;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _owner = healthUiOwnerKey(widget.controller);
+    widget.controller.addListener(_onChanged);
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_load());
+    _scheduleDay();
+  }
+
+  void _invalidateReads() {
+    _generation++;
+    _readFence.complete();
+    _readFence = Completer<void>();
+    _activeRead = null;
+    _reloadQueued = false;
+    _refresh?.cancel();
+    _refresh = null;
+  }
+
+  @override
+  void didUpdateWidget(covariant _DashboardActivity oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller == widget.controller) return;
+    oldWidget.controller.removeListener(_onChanged);
+    widget.controller.addListener(_onChanged);
+    _owner = healthUiOwnerKey(widget.controller);
+    _invalidateReads();
+    _values = const {};
+    _loading = true;
+    _failed = false;
+    unawaited(_load());
+  }
+
+  void _scheduleDay() {
+    _midnight?.cancel();
+    final now = DateTime.now();
+    _midnight = Timer(
+      DateTime(now.year, now.month, now.day + 1).difference(now),
+      () {
+        if (!mounted) return;
+        _invalidateReads();
+        setState(() {
+          _values = const {};
+          _loading = true;
+        });
+        unawaited(_load());
+        _scheduleDay();
+      },
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _invalidateReads();
+      setState(() {
+        _values = const {};
+        _loading = true;
+      });
+      unawaited(_load());
+      _scheduleDay();
+    }
+  }
+
+  void _onChanged() {
+    final owner = healthUiOwnerKey(widget.controller);
+    if (owner != _owner) {
+      _owner = owner;
+      _invalidateReads();
+      setState(() {
+        _values = const {};
+        _loading = true;
+        _failed = false;
+      });
+    }
+    // Leading-edge scheduling: continuous sync progress must not starve updates.
+    _refresh ??= Timer(const Duration(milliseconds: 250), () {
+      _refresh = null;
+      if (mounted) unawaited(_load());
+    });
+  }
+
+  Future<void> _load() async {
+    if (_activeRead != null) {
+      _reloadQueued = true;
+      return;
+    }
+    final generation = ++_generation;
+    _activeRead = generation;
+    final owner = _owner;
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day);
+    final end = DateTime(now.year, now.month, now.day + 1);
+    try {
+      final batches = await Future.any<List<List<HealthRecord>>>([
+        _readFence.future.then((_) => const <List<HealthRecord>>[]),
+        Future.wait([
+          for (final metric in const [
+            HealthMetric.steps,
+            HealthMetric.distance,
+            HealthMetric.calories,
+          ])
+            widget.controller.loadHealthRecords(
+              metric: metric,
+              start: start,
+              end: end,
+            ),
+        ]),
+      ]).timeout(const Duration(seconds: 10));
+      if (!mounted ||
+          generation != _generation ||
+          owner != healthUiOwnerKey(widget.controller)) {
+        return;
+      }
+      setState(() {
+        _values = _todayActivityValues(batches.expand((batch) => batch), now);
+        _loading = false;
+        _failed = false;
+      });
+    } catch (_) {
+      if (!mounted ||
+          generation != _generation ||
+          owner != healthUiOwnerKey(widget.controller)) {
+        return;
+      }
+      setState(() {
+        _loading = false;
+        _failed = true;
+      });
+    } finally {
+      if (mounted && _activeRead == generation) {
+        // Release this read's cancellation listener before starting another.
+        _readFence.complete();
+        _readFence = Completer<void>();
+        _activeRead = null;
+        if (_reloadQueued) {
+          _reloadQueued = false;
+          unawaited(_load());
+        }
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _generation++;
+    _readFence.complete();
+    _refresh?.cancel();
+    _midnight?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    widget.controller.removeListener(_onChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      _TodayHealthOverview(
+        latest: _values,
+        stepTarget: widget.controller.stepGoal.toDouble(),
+        distanceTarget: widget.controller.distanceGoal,
+        calorieTarget: widget.controller.calorieGoal.toDouble(),
+        onSetGoal: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            settings: const RouteSettings(name: 'activity-goals'),
+            builder: (_) => GoalSettingsPage(controller: widget.controller),
+          ),
+        ),
+        onOpenMetric: (metric) => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            settings: RouteSettings(name: 'activity-${metric.wireName}'),
+            builder: (_) =>
+                HealthTrendPage(controller: widget.controller, metric: metric),
+          ),
+        ),
+      ),
+      if (_loading)
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 24),
+          child: LinearProgressIndicator(minHeight: 2),
+        ),
+      if (_failed)
+        TextButton.icon(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh_rounded),
+          label: const Text('今日活动读取失败，点击重试'),
+        ),
+    ],
+  );
+}
+
 class _TodayHealthOverview extends StatelessWidget {
   const _TodayHealthOverview({
     required this.latest,
@@ -760,95 +991,151 @@ class _TodayHealthOverview extends StatelessWidget {
     required this.onSetGoal,
     required this.onOpenMetric,
   });
-
   final Map<HealthMetric, num> latest;
-  final double stepTarget;
-  final double distanceTarget;
-  final double calorieTarget;
+  final double stepTarget, distanceTarget, calorieTarget;
   final VoidCallback onSetGoal;
   final ValueChanged<HealthMetric> onOpenMetric;
 
   @override
   Widget build(BuildContext context) {
+    final step = latest[HealthMetric.steps];
+    final rows = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _GoalProgressRow(
+          metric: HealthMetric.steps,
+          value: step,
+          target: stepTarget,
+          color: SaydianColors.techBlue,
+          onTap: () => onOpenMetric(HealthMetric.steps),
+        ),
+        const SizedBox(height: 12),
+        _GoalProgressRow(
+          metric: HealthMetric.distance,
+          value: latest[HealthMetric.distance],
+          target: distanceTarget,
+          color: SaydianColors.activity,
+          onTap: () => onOpenMetric(HealthMetric.distance),
+        ),
+        const SizedBox(height: 12),
+        _GoalProgressRow(
+          metric: HealthMetric.calories,
+          value: latest[HealthMetric.calories],
+          target: calorieTarget,
+          color: SaydianColors.energy,
+          onTap: () => onOpenMetric(HealthMetric.calories),
+        ),
+      ],
+    );
+    final rings = Semantics(
+      label: '今日活动目标进度，点击查看步数趋势',
+      value: latest.isEmpty
+          ? '暂无数据'
+          : '步数 ${step ?? '--'}，距离 ${latest[HealthMetric.distance] ?? '--'} 公里，热量 ${latest[HealthMetric.calories] ?? '--'} 千卡',
+      button: true,
+      excludeSemantics: true,
+      onTap: () => onOpenMetric(HealthMetric.steps),
+      child: InkWell(
+        key: const Key('home-activity-rings'),
+        onTap: () => onOpenMetric(HealthMetric.steps),
+        borderRadius: BorderRadius.circular(100),
+        child: SizedBox.square(
+          dimension: 164,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              for (final (index, value, target, color) in [
+                (0, step, stepTarget, SaydianColors.techBlue),
+                (
+                  1,
+                  latest[HealthMetric.distance],
+                  distanceTarget,
+                  SaydianColors.activity,
+                ),
+                (
+                  2,
+                  latest[HealthMetric.calories],
+                  calorieTarget,
+                  SaydianColors.energy,
+                ),
+              ])
+                SizedBox.square(
+                  dimension: 148 - index * 34.0,
+                  child: CircularProgressIndicator(
+                    key: ValueKey('activity-goal-ring-$index'),
+                    value: value == null || !target.isFinite || target <= 0
+                        ? 0
+                        : (value.toDouble() / target).clamp(0.0, 1.0),
+                    strokeWidth: 10,
+                    strokeCap: StrokeCap.round,
+                    color: color,
+                    backgroundColor: color.withValues(alpha: .10),
+                    semanticsLabel: '${["步数", "距离", "热量"][index]}目标',
+                  ),
+                ),
+              const Icon(
+                Icons.directions_walk_rounded,
+                size: 29,
+                color: SaydianColors.ink,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
     return Card(
       key: const Key('dashboard-today-health'),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          DecoratedBox(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFFEAF1FF), Color(0xFFE3F7FA)],
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 14, 10, 14),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          context.l10n.todayActivity,
-                          style: const TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          context.l10n.dailyActivityGoalHint,
-                          style: const TextStyle(
-                            color: SaydianColors.muted,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 16, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    context.l10n.todayActivity,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  TextButton.icon(
-                    onPressed: onSetGoal,
-                    icon: const Icon(Icons.track_changes_rounded, size: 18),
-                    label: Text(context.l10n.goals),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 17),
-            child: Column(
-              children: [
-                _GoalProgressRow(
-                  metric: HealthMetric.steps,
-                  value: latest[HealthMetric.steps],
-                  target: stepTarget,
-                  color: SaydianColors.techBlue,
-                  onTap: () => onOpenMetric(HealthMetric.steps),
                 ),
-                const SizedBox(height: 16),
-                _GoalProgressRow(
-                  metric: HealthMetric.distance,
-                  value: latest[HealthMetric.distance],
-                  target: distanceTarget,
-                  color: SaydianColors.techCyan,
-                  onTap: () => onOpenMetric(HealthMetric.distance),
-                ),
-                const SizedBox(height: 16),
-                _GoalProgressRow(
-                  metric: HealthMetric.calories,
-                  value: latest[HealthMetric.calories],
-                  target: calorieTarget,
-                  color: SaydianColors.techIndigo,
-                  onTap: () => onOpenMetric(HealthMetric.calories),
+                TextButton(
+                  onPressed: onSetGoal,
+                  child: Text(context.l10n.goals),
                 ),
               ],
             ),
-          ),
-        ],
+            const SizedBox(height: 10),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final stack =
+                    constraints.maxWidth < 310 ||
+                    MediaQuery.textScalerOf(context).scale(1) > 1.2;
+                return stack
+                    ? Column(
+                        children: [rings, const SizedBox(height: 18), rows],
+                      )
+                    : Row(
+                        children: [
+                          rings,
+                          const SizedBox(width: 18),
+                          Expanded(child: rows),
+                        ],
+                      );
+              },
+            ),
+            if (latest.isEmpty) ...[
+              const SizedBox(height: 12),
+              const Text(
+                '暂无今日活动数据',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: SaydianColors.muted, fontSize: 13),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -862,80 +1149,81 @@ class _GoalProgressRow extends StatelessWidget {
     required this.color,
     required this.onTap,
   });
-
   final HealthMetric metric;
   final num? value;
   final double target;
   final Color color;
   final VoidCallback onTap;
-
-  String _format(num value) {
-    if (metric == HealthMetric.distance) return value.toStringAsFixed(2);
-    return value.round().toString();
-  }
-
+  String _format(num number) => metric == HealthMetric.distance
+      ? number.toStringAsFixed(2)
+      : number.round().toString();
   @override
   Widget build(BuildContext context) {
-    final current = value;
-    final progress = current == null
-        ? 0.0
-        : (current.toDouble() / target).clamp(0.0, 1.0).toDouble();
     final unit = switch (metric) {
       HealthMetric.distance => '公里',
       HealthMetric.calories => '千卡',
       _ => metric.defaultUnit,
     };
-    final currentText = current == null ? '--' : _format(current);
-    final targetText = _format(target);
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Row(
-        children: [
-          Container(
-            width: 9,
-            height: 9,
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(3),
+    return Semantics(
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        context.l10n.metricName(metric),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: SaydianColors.muted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.end,
+                  spacing: 4,
+                  children: [
+                    Text(
+                      value == null ? '--' : _format(value!),
+                      style: const TextStyle(
+                        fontSize: 24,
+                        height: 1.1,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      '/${_format(target)}$unit',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: SaydianColors.muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 9),
-          SizedBox(
-            width: 34,
-            child: Text(
-              context.l10n.metricName(metric),
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: LinearProgressIndicator(
-                value: progress,
-                minHeight: 10,
-                color: color,
-                backgroundColor: color.withValues(alpha: 0.16),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 106,
-            child: Text(
-              '$currentText/$targetText$unit',
-              textAlign: TextAlign.right,
-              maxLines: 1,
-              style: const TextStyle(
-                color: SaydianColors.muted,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -950,74 +1238,59 @@ class _FeatureEntryGrid extends StatelessWidget {
     required this.onSport,
     required this.onMall,
   });
-
-  final VoidCallback onCare;
-  final VoidCallback onEncyclopedia;
-  final VoidCallback onSport;
-  final VoidCallback onMall;
-  final bool commerceEnabled;
-  final bool encyclopediaEnabled;
+  final VoidCallback onCare, onEncyclopedia, onSport, onMall;
+  final bool commerceEnabled, encyclopediaEnabled;
 
   @override
   Widget build(BuildContext context) {
+    final entries = <Widget>[
+      _FeatureEntry(
+        label: context.l10n.remoteCare,
+        icon: Icons.family_restroom_outlined,
+        color: SaydianColors.techBlue,
+        onTap: onCare,
+      ),
+      if (encyclopediaEnabled)
+        _FeatureEntry(
+          label: context.l10n.healthLibrary,
+          icon: Icons.menu_book_outlined,
+          color: SaydianColors.activity,
+          onTap: onEncyclopedia,
+        ),
+      _FeatureEntry(
+        label: context.l10n.workouts,
+        icon: Icons.directions_run_rounded,
+        color: SaydianColors.sleep,
+        onTap: onSport,
+      ),
+      if (commerceEnabled)
+        _FeatureEntry(
+          label: context.l10n.shop,
+          icon: Icons.shopping_bag_outlined,
+          color: SaydianColors.energy,
+          onTap: onMall,
+        ),
+    ];
     return Container(
       key: const Key('dashboard-functions'),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFFFFFF), Color(0xFFEDF5FF)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(color: const Color(0xFFD9E7FA)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x14316EF5),
-            blurRadius: 24,
-            offset: Offset(0, 10),
-          ),
-        ],
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 13),
-        child: Row(
-          children: [
-            Expanded(
-              child: _FeatureEntry(
-                label: context.l10n.remoteCare,
-                icon: Icons.family_restroom_rounded,
-                color: const Color(0xFF4F67E8),
-                onTap: onCare,
-              ),
-            ),
-            if (encyclopediaEnabled)
-              Expanded(
-                child: _FeatureEntry(
-                  label: context.l10n.healthLibrary,
-                  icon: Icons.menu_book_rounded,
-                  color: const Color(0xFF149FB3),
-                  onTap: onEncyclopedia,
-                ),
-              ),
-            Expanded(
-              child: _FeatureEntry(
-                label: context.l10n.workouts,
-                icon: Icons.directions_run_rounded,
-                color: const Color(0xFF7059E8),
-                onTap: onSport,
-              ),
-            ),
-            if (commerceEnabled)
-              Expanded(
-                child: _FeatureEntry(
-                  label: context.l10n.shop,
-                  icon: Icons.shopping_bag_rounded,
-                  color: const Color(0xFF2887D8),
-                  onTap: onMall,
-                ),
-              ),
-          ],
-        ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final columns = MediaQuery.textScalerOf(context).scale(1) > 1.2
+              ? 2
+              : entries.length;
+          return Wrap(
+            runSpacing: 12,
+            children: [
+              for (final entry in entries)
+                SizedBox(width: constraints.maxWidth / columns, child: entry),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1030,65 +1303,42 @@ class _FeatureEntry extends StatelessWidget {
     required this.color,
     required this.onTap,
   });
-
   final String label;
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
-
   @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    color.withValues(alpha: 0.92),
-                    color.withValues(alpha: 0.68),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(17),
-                boxShadow: [
-                  BoxShadow(
-                    color: color.withValues(alpha: 0.2),
-                    blurRadius: 13,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Icon(icon, color: Colors.white, size: 27),
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(16),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 3),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: .09),
+              borderRadius: BorderRadius.circular(16),
             ),
-            const SizedBox(height: 8),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                label,
-                maxLines: 1,
-                softWrap: false,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 13.5,
-                  height: 1.15,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+            child: Icon(icon, color: color, size: 25),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.35,
+              fontWeight: FontWeight.w600,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
 }
 
 // Retained for device-focused layouts; intentionally hidden on the home.
@@ -1230,33 +1480,19 @@ class HealthMetricCard extends StatelessWidget {
       _HomeMetricStatus.low => context.l10n.statusLow,
       _HomeMetricStatus.high => context.l10n.statusHigh,
     };
-    final textScale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0);
-    final cardHeight = 184 + (textScale - 1) * 104;
-    return SizedBox(
+    return ConstrainedBox(
       key: ValueKey('health-metric-${metric.name}'),
-      height: cardHeight,
+      constraints: const BoxConstraints(minHeight: 190),
       child: DecoratedBox(
         key: ValueKey('health-metric-surface-${metric.name}'),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [style.start, style.end],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(28),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.82)),
-          boxShadow: [
-            BoxShadow(
-              color: style.accent.withValues(alpha: 0.16),
-              blurRadius: 28,
-              offset: const Offset(0, 13),
-            ),
-          ],
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
         ),
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(24),
             onTap:
                 onOpen ??
                 () => Navigator.of(context).push(
@@ -1275,174 +1511,95 @@ class HealthMetricCard extends StatelessWidget {
                     ),
                   ),
                 ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(28),
-              child: Stack(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Positioned(
-                    right: -36,
-                    top: -54,
-                    child: Container(
-                      width: 164,
-                      height: 164,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    right: 24,
-                    bottom: -58,
-                    child: Container(
-                      width: 138,
-                      height: 138,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: style.accent.withValues(alpha: 0.11),
-                          width: 24,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 17, 18, 15),
-                    child: Column(
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 42),
+                    child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.72),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: Icon(icon, color: style.accent, size: 22),
+                        Icon(icon, color: style.accent, size: 21),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            context.l10n.metricName(metric),
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                context.l10n.metricName(metric),
-                                maxLines: metric == HealthMetric.hrv ? 2 : 1,
-                                softWrap: metric == HealthMetric.hrv,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 88),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 5,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.72),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: Text(
-                                    statusLabel,
-                                    maxLines: 1,
-                                    softWrap: false,
-                                    style: TextStyle(
-                                      color: record == null
-                                          ? SaydianColors.muted
-                                          : needsAttention
-                                          ? const Color(0xFFC62828)
-                                          : const Color(0xFF27852A),
-                                      fontSize: 11.5,
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Icon(
-                              Icons.arrow_forward_ios_rounded,
-                              color: style.accent.withValues(alpha: 0.72),
-                              size: 15,
-                            ),
-                          ],
+                          ),
                         ),
-                        const SizedBox(height: 14),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Flexible(
-                              flex: 4,
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  _healthDisplayValue(record, controller),
-                                  maxLines: 1,
-                                  style: const TextStyle(
-                                    fontSize: 36,
-                                    height: 1,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: -1,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              flex: 3,
-                              child: Padding(
-                                padding: const EdgeInsets.only(bottom: 3),
-                                child: Text(
-                                  _healthDisplayUnit(
-                                    metric,
-                                    record,
-                                    controller,
-                                  ),
-                                  maxLines: 1,
-                                  softWrap: false,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: SaydianColors.ink.withValues(
-                                      alpha: 0.62,
-                                    ),
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const Spacer(),
-                        Container(
-                          height: 44,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.54),
-                            borderRadius: BorderRadius.circular(15),
-                          ),
-                          child: HealthMetricMiniChart(
-                            controller: controller,
-                            metric: metric,
-                            color: style.accent,
-                            showEmptyLabel: false,
-                            records: readOnly ? records ?? const [] : records,
-                          ),
+                        const SizedBox(width: 4),
+                        const Icon(
+                          Icons.chevron_right_rounded,
+                          color: SaydianColors.muted,
+                          size: 18,
                         ),
                       ],
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.end,
+                    spacing: 5,
+                    children: [
+                      Text(
+                        _healthDisplayValue(record, controller),
+                        style: const TextStyle(
+                          fontSize: 32,
+                          height: 1.15,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -.8,
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 3),
+                        child: Text(
+                          _healthDisplayUnit(metric, record, controller),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: SaydianColors.muted,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    statusLabel,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: needsAttention
+                          ? SaydianColors.danger
+                          : SaydianColors.muted,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  HealthMetricMiniChart(
+                    controller: controller,
+                    metric: metric,
+                    color: style.accent,
+                    showEmptyLabel: false,
+                    height: 60,
+                    fitToSamples: true,
+                    records: readOnly ? records ?? const [] : records,
+                  ),
+                  if (record != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      DateFormat(
+                        'M月d日 HH:mm',
+                      ).format(record!.measuredAt.toLocal()),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: SaydianColors.muted,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1621,7 +1778,7 @@ class _SectionTitle extends StatelessWidget {
             maxLines: 1,
             softWrap: false,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
           ),
         ),
         const SizedBox(width: 8),
@@ -1650,7 +1807,7 @@ class _SectionTitle extends StatelessWidget {
                 title,
                 style: const TextStyle(
                   fontSize: 22,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 4),

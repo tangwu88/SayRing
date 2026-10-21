@@ -24,6 +24,8 @@ class HealthMetricMiniChart extends StatelessWidget {
     required this.metric,
     required this.color,
     this.showEmptyLabel = true,
+    this.height = 38,
+    this.fitToSamples = false,
     this.records,
     super.key,
   });
@@ -32,6 +34,11 @@ class HealthMetricMiniChart extends StatelessWidget {
   final HealthMetric metric;
   final Color color;
   final bool showEmptyLabel;
+  final double height;
+
+  /// Fits the plot to actual samples and shows their time bounds below it.
+  /// [height] remains the plotting height; time labels use natural text height.
+  final bool fitToSamples;
   final List<HealthRecord>? records;
 
   @override
@@ -41,32 +48,45 @@ class HealthMetricMiniChart extends StatelessWidget {
     }
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day);
-    return SizedBox(
-      height: 38,
-      child: FutureBuilder<List<HealthRecord>>(
-        future: records != null
-            ? Future.value(records)
-            : controller.loadHealthRecords(
-                metric: metric,
-                start: start,
-                end: start.add(const Duration(days: 1)),
-              ),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const SizedBox.shrink();
-          }
-          if (snapshot.hasError) {
-            return Text(
+    final end = DateTime(now.year, now.month, now.day + 1);
+    Widget bounded(Widget child) => SizedBox(height: height, child: child);
+    return FutureBuilder<List<HealthRecord>>(
+      future: records != null
+          ? Future.value(records)
+          : controller.loadHealthRecords(
+              metric: metric,
+              start: start,
+              end: end,
+            ),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return SizedBox(height: height);
+        }
+        if (snapshot.hasError) {
+          return bounded(
+            Text(
               context.l10n.trendUnavailable,
               style: TextStyle(color: SaydianColors.muted),
-            );
-          }
-          final records = snapshot.data ?? const <HealthRecord>[];
-          if (records.isEmpty && !showEmptyLabel) {
-            return const SizedBox.shrink();
-          }
-          if (records.length < 2) {
-            return Align(
+            ),
+          );
+        }
+        // A mini chart only shows one displayed day. Explicit records can come from
+        // a larger local/remote history; never join different dates at the
+        // same clock hour or accidentally chart another metric.
+        final records = (snapshot.data ?? const <HealthRecord>[])
+            .where((record) {
+              final at = HealthAnalysisService.displayTime(record);
+              return record.metric == metric &&
+                  !at.isBefore(start) &&
+                  at.isBefore(end);
+            })
+            .toList(growable: false);
+        if (records.isEmpty && !showEmptyLabel) {
+          return SizedBox(height: height);
+        }
+        if (records.length < 2) {
+          return bounded(
+            Align(
               alignment: Alignment.centerLeft,
               child: Text(
                 records.isEmpty ? '暂无数据' : '仅 1 条记录',
@@ -75,52 +95,111 @@ class HealthMetricMiniChart extends StatelessWidget {
                   fontSize: 13,
                 ),
               ),
-            );
-          }
-          final data = const HealthAnalysisService().analyze(
-            metric: metric,
-            records: records,
-            previousRecords: const [],
-            period: HealthTrendPeriod.day,
-            anchor: now,
-          );
-          if (data.points.length < 2) return const SizedBox.shrink();
-          return Semantics(
-            label: '${metric.label}今日趋势，共${data.points.length}个数据点',
-            child: LineChart(
-              LineChartData(
-                minX: 0,
-                maxX: 24,
-                gridData: const FlGridData(show: false),
-                borderData: FlBorderData(show: false),
-                titlesData: const FlTitlesData(show: false),
-                lineTouchData: const LineTouchData(enabled: false),
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: data.points
-                        .map(
-                          (point) => FlSpot(
-                            point.at.hour + point.at.minute / 60,
-                            point.value,
-                          ),
-                        )
-                        .toList(),
-                    isCurved: true,
-                    curveSmoothness: 0.22,
-                    color: color,
-                    barWidth: 2.2,
-                    dotData: const FlDotData(show: false),
-                    belowBarData: BarAreaData(
-                      show: true,
-                      color: color.withValues(alpha: 0.12),
-                    ),
-                  ),
-                ],
-              ),
             ),
           );
-        },
-      ),
+        }
+        final data = const HealthAnalysisService().analyze(
+          metric: metric,
+          records: records,
+          previousRecords: const [],
+          period: HealthTrendPeriod.day,
+          anchor: now,
+        );
+        if (data.points.length < 2) return SizedBox(height: height);
+        double clockHour(DateTime at) =>
+            at.hour +
+            at.minute / 60 +
+            at.second / 3600 +
+            at.millisecond / 3600000;
+        final first = data.points.first.at;
+        final last = data.points.last.at;
+        final firstX = clockHour(first);
+        final lastX = clockHour(last);
+        if (fitToSamples && lastX <= firstX) {
+          // A time range needs distinct instants; keep the existing empty
+          // plot rather than manufacturing horizontal spacing.
+          return SizedBox(height: height);
+        }
+        final timeFormat = DateFormat(
+          last.difference(first) < const Duration(minutes: 1)
+              ? 'HH:mm:ss'
+              : 'HH:mm',
+        );
+        final firstLabel = timeFormat.format(first);
+        final lastLabel = timeFormat.format(last);
+        final chart = LineChart(
+          LineChartData(
+            minX: fitToSamples ? firstX : 0,
+            maxX: fitToSamples ? lastX : 24,
+            gridData: const FlGridData(show: false),
+            borderData: FlBorderData(show: false),
+            titlesData: const FlTitlesData(show: false),
+            lineTouchData: const LineTouchData(enabled: false),
+            lineBarsData: [
+              LineChartBarData(
+                spots: data.points
+                    .map((point) => FlSpot(clockHour(point.at), point.value))
+                    .toList(),
+                isCurved: false,
+                color: color,
+                barWidth: 2.6,
+                dotData: const FlDotData(show: false),
+                belowBarData: BarAreaData(
+                  show: true,
+                  gradient: LinearGradient(
+                    colors: [
+                      color.withValues(alpha: 0.17),
+                      color.withValues(alpha: 0.01),
+                    ],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+        return Semantics(
+          label: fitToSamples
+              ? '${metric.label}今日趋势，$firstLabel 至 $lastLabel，共${data.points.length}个数据点'
+              : '${metric.label}今日趋势，共${data.points.length}个数据点',
+          child: fitToSamples
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    bounded(chart),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            firstLabel,
+                            key: const Key('health-mini-first-time'),
+                            style: const TextStyle(
+                              color: SaydianColors.muted,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            lastLabel,
+                            key: const Key('health-mini-last-time'),
+                            textAlign: TextAlign.end,
+                            style: const TextStyle(
+                              color: SaydianColors.muted,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                )
+              : bounded(chart),
+        );
+      },
     );
   }
 }
@@ -417,7 +496,28 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
                               selected: {_period},
                               showSelectedIcon: false,
                               style: ButtonStyle(
-                                visualDensity: VisualDensity.comfortable,
+                                minimumSize: const WidgetStatePropertyAll(
+                                  Size(48, 48),
+                                ),
+                                backgroundColor:
+                                    WidgetStateProperty.resolveWith(
+                                      (states) =>
+                                          states.contains(WidgetState.selected)
+                                          ? _metricColor(
+                                              widget.metric,
+                                            ).withValues(alpha: 0.12)
+                                          : const Color(0xFFF5F6F8),
+                                    ),
+                                foregroundColor:
+                                    WidgetStateProperty.resolveWith(
+                                      (states) =>
+                                          states.contains(WidgetState.selected)
+                                          ? _metricColor(widget.metric)
+                                          : SaydianColors.muted,
+                                    ),
+                                side: const WidgetStatePropertyAll(
+                                  BorderSide.none,
+                                ),
                                 shape: WidgetStatePropertyAll(
                                   RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(14),
@@ -586,11 +686,13 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
         if (widget.metric != HealthMetric.ecg) const SizedBox(height: 16),
         Row(
           children: [
-            Text(
-              context.l10n.recentData,
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            Expanded(
+              child: Text(
+                context.l10n.recentData,
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+              ),
             ),
-            const Spacer(),
+            const SizedBox(width: 12),
             Text(
               '${data.records.length} 条',
               style: const TextStyle(color: SaydianColors.muted),
@@ -621,11 +723,19 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
           ),
       ],
       const SizedBox(height: 8),
-      FeatureStateCard(
-        message: context.l10n.trendReferenceOnly,
-        detail: context.l10n.trendVariationSafety,
-        icon: Icons.health_and_safety_outlined,
-        color: SaydianColors.green,
+      Card(
+        child: ExpansionTile(
+          key: const Key('health-trend-reference'),
+          leading: const Icon(Icons.info_outline_rounded),
+          title: Text(context.l10n.trendReferenceOnly),
+          childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          children: [
+            Text(
+              context.l10n.trendVariationSafety,
+              style: const TextStyle(color: SaydianColors.muted, height: 1.6),
+            ),
+          ],
+        ),
       ),
     ];
   }
@@ -754,7 +864,7 @@ class SleepStructureCard extends StatelessWidget {
     return Card(
       key: const Key('sleep-structure-card'),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -762,22 +872,57 @@ class SleepStructureCard extends StatelessWidget {
               '睡眠结构',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
-            const SizedBox(height: 12),
-            for (var index = 0; index < rows.length; index++) ...[
-              Wrap(
-                alignment: WrapAlignment.spaceBetween,
-                spacing: 16,
-                runSpacing: 4,
-                children: [
-                  Text(rows[index].$1),
-                  Text(
-                    rows[index].$2,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ],
-              ),
-              if (index != rows.length - 1) const Divider(height: 20),
-            ],
+            const SizedBox(height: 18),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = MediaQuery.textScalerOf(context).scale(16) > 22
+                    ? 1
+                    : constraints.maxWidth >= 600
+                    ? 3
+                    : constraints.maxWidth >= 300
+                    ? 2
+                    : 1;
+                final width =
+                    (constraints.maxWidth - (columns - 1) * 12) / columns;
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    for (var index = 0; index < rows.length; index++)
+                      Container(
+                        width: width,
+                        constraints: BoxConstraints(
+                          minHeight: columns > 1 ? 108 : 0,
+                        ),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF7F6FA),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              rows[index].$1,
+                              style: const TextStyle(
+                                color: SaydianColors.muted,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              rows[index].$2,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
             if (controller?.sleepAiEnabled == true) ...[
               const Divider(height: 24),
               SleepAiReportCard(
@@ -906,57 +1051,50 @@ class _SummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final values = <(String, String)>[
-      ('平均值', _format(summary.average, unit)),
-      ('最大值', _format(summary.maximum, unit)),
-      ('最小值', _format(summary.minimum, unit)),
-      ('记录数', '${summary.recordCount} 条'),
+    final values = <(String, String, IconData)>[
+      ('最大值', _format(summary.maximum, unit), Icons.arrow_upward_rounded),
+      ('最小值', _format(summary.minimum, unit), Icons.arrow_downward_rounded),
+      ('记录数', '${summary.recordCount} 条', Icons.data_usage_rounded),
     ];
+    var averageLabel = '平均值';
+    var average = _format(summary.average, unit);
     if (metric == HealthMetric.bloodPressure &&
         summary.secondaryAverage != null) {
-      values[0] = (
-        '平均血压',
-        '${_number(summary.average)}/${_number(summary.secondaryAverage)} $unit',
-      );
+      averageLabel = '平均血压';
+      average =
+          '${_number(summary.average)}/${_number(summary.secondaryAverage)} $unit';
     }
     final change = summary.changeFromPrevious;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(22),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              _fieldLabel(valueKey),
-              style: const TextStyle(fontWeight: FontWeight.w800),
+            Wrap(
+              spacing: 10,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  valueKey == 'value' ? metric.label : _fieldLabel(valueKey),
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                Text(
+                  averageLabel,
+                  style: const TextStyle(color: SaydianColors.muted),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 18,
-              runSpacing: 14,
-              children: [
-                for (final value in values)
-                  SizedBox(
-                    width: 126,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          value.$1,
-                          style: const TextStyle(
-                            color: SaydianColors.muted,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          value.$2,
-                          style: const TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
+            Text(
+              average,
+              key: const Key('health-trend-average'),
+              style: const TextStyle(
+                fontSize: 34,
+                fontWeight: FontWeight.w800,
+                height: 1.2,
+              ),
             ),
             if (change != null) ...[
               const SizedBox(height: 13),
@@ -968,6 +1106,50 @@ class _SummaryCard extends StatelessWidget {
                 ),
               ),
             ],
+            const SizedBox(height: 22),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final largeText =
+                    MediaQuery.textScalerOf(context).scale(16) > 22;
+                final columns = largeText || constraints.maxWidth < 280 ? 1 : 3;
+                final width =
+                    (constraints.maxWidth - (columns - 1) * 12) / columns;
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 16,
+                  children: [
+                    for (final value in values)
+                      SizedBox(
+                        width: width,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              value.$3,
+                              size: 20,
+                              color: _metricColor(metric),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              value.$1,
+                              style: const TextStyle(
+                                color: SaydianColors.muted,
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              value.$2,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
           ],
         ),
       ),
@@ -997,16 +1179,26 @@ class _TrendChartCard extends StatelessWidget {
         metric == HealthMetric.sleep;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 18, 16, 12),
-        child: Semantics(
-          label:
-              '${metric.label}趋势图，${data.points.length}个数据点，平均${_number(data.summary.average)}',
-          child: SizedBox(
-            height: 250,
-            child: isBar
-                ? _barChart(context, data)
-                : _lineChart(context: context, metric: metric, data: data),
-          ),
+        padding: const EdgeInsets.fromLTRB(16, 20, 18, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '变化趋势',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 24),
+            Semantics(
+              label:
+                  '${metric.label}趋势图，${data.points.length}个数据点，平均${_number(data.summary.average)}',
+              child: SizedBox(
+                height: 280,
+                child: isBar
+                    ? _barChart(context, data, metric)
+                    : _lineChart(context: context, metric: metric, data: data),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1051,6 +1243,8 @@ Widget _lineChart({
       titlesData: _titles(context, data, minY: minY, maxY: maxY),
       lineTouchData: LineTouchData(
         touchTooltipData: LineTouchTooltipData(
+          fitInsideHorizontally: true,
+          fitInsideVertically: true,
           getTooltipItems: (spots) => spots
               .map(
                 (spot) => LineTooltipItem(
@@ -1068,19 +1262,26 @@ Widget _lineChart({
         LineChartBarData(
           spots: primary,
           color: _metricColor(metric),
-          isCurved: primary.length > 2,
+          isCurved: false,
           barWidth: 3,
           dotData: FlDotData(show: primary.length < 16),
           belowBarData: BarAreaData(
             show: true,
-            color: _metricColor(metric).withValues(alpha: 0.09),
+            gradient: LinearGradient(
+              colors: [
+                _metricColor(metric).withValues(alpha: 0.16),
+                _metricColor(metric).withValues(alpha: 0.01),
+              ],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
           ),
         ),
         if (secondary.isNotEmpty)
           LineChartBarData(
             spots: secondary,
             color: SaydianColors.blue,
-            isCurved: secondary.length > 2,
+            isCurved: false,
             barWidth: 3,
             dotData: FlDotData(show: secondary.length < 16),
           ),
@@ -1089,7 +1290,11 @@ Widget _lineChart({
   );
 }
 
-Widget _barChart(BuildContext context, HealthTrendData data) {
+Widget _barChart(
+  BuildContext context,
+  HealthTrendData data,
+  HealthMetric metric,
+) {
   final maximum = data.points.map((point) => point.value).reduce(math.max);
   final maxY = math.max(maximum * 1.15, 1).toDouble();
   return BarChart(
@@ -1105,6 +1310,8 @@ Widget _barChart(BuildContext context, HealthTrendData data) {
       titlesData: _titles(context, data, minY: 0, maxY: maxY),
       barTouchData: BarTouchData(
         touchTooltipData: BarTouchTooltipData(
+          fitInsideHorizontally: true,
+          fitInsideVertically: true,
           getTooltipItem: (group, groupIndex, rod, rodIndex) => BarTooltipItem(
             rod.toY.toStringAsFixed(1),
             const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
@@ -1120,10 +1327,10 @@ Widget _barChart(BuildContext context, HealthTrendData data) {
               barRods: [
                 BarChartRodData(
                   toY: entry.value.value,
-                  color: SaydianColors.blue,
-                  width: data.points.length > 14 ? 8 : 14,
+                  color: _metricColor(metric),
+                  width: data.points.length > 14 ? 8 : 18,
                   borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(5),
+                    top: Radius.circular(7),
                   ),
                 ),
               ],
@@ -1141,12 +1348,15 @@ FlTitlesData _titles(
   required double maxY,
 }) {
   final interval = _niceAxisInterval(maxY - minY);
-  final textScale = MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0);
+  final textScale = MediaQuery.textScalerOf(context).scale(1);
   final longest = math.max(
     _axisLabel(minY, interval).length,
     _axisLabel(maxY, interval).length,
   );
-  final reservedSize = (longest * 7.4 * textScale + 12).clamp(42.0, 72.0);
+  final reservedSize = (longest * 8.2 * textScale + 12).clamp(44.0, 108.0);
+  final divisions = MediaQuery.sizeOf(context).width < 400 || textScale > 1.4
+      ? 2
+      : 4;
   return FlTitlesData(
     topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
     rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -1162,7 +1372,7 @@ FlTitlesData _titles(
           child: Text(
             _axisLabel(value, interval),
             maxLines: 1,
-            style: const TextStyle(fontSize: 12, color: SaydianColors.muted),
+            style: const TextStyle(fontSize: 14, color: SaydianColors.muted),
           ),
         ),
       ),
@@ -1170,8 +1380,8 @@ FlTitlesData _titles(
     bottomTitles: AxisTitles(
       sideTitles: SideTitles(
         showTitles: true,
-        reservedSize: 30,
-        interval: math.max(1, (data.points.length / 4).ceilToDouble()),
+        reservedSize: 14 * textScale * 1.5 + 14,
+        interval: math.max(1, (data.points.length / divisions).ceilToDouble()),
         maxIncluded: data.points.length == 1,
         getTitlesWidget: (value, meta) {
           final index = value.round();
@@ -1186,7 +1396,10 @@ FlTitlesData _titles(
             meta: meta,
             space: 7,
             fitInside: SideTitleFitInsideData.fromTitleMeta(meta),
-            child: Text(text, style: const TextStyle(fontSize: 13)),
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 14, color: SaydianColors.muted),
+            ),
           );
         },
       ),
@@ -1337,7 +1550,9 @@ Color _metricColor(HealthMetric metric) => switch (metric) {
   HealthMetric.bloodOxygen => SaydianColors.blue,
   HealthMetric.bodyTemperature => SaydianColors.cyan,
   HealthMetric.heartRate || HealthMetric.bloodComposition => SaydianColors.pink,
-  HealthMetric.hrv || HealthMetric.sleep => const Color(0xFF8C7CF0),
+  HealthMetric.hrv || HealthMetric.sleep => const Color(0xFF7164C5),
+  HealthMetric.steps || HealthMetric.distance => const Color(0xFF298D81),
+  HealthMetric.calories => const Color(0xFFC27B41),
   HealthMetric.stress => const Color(0xFF5E9B78),
   HealthMetric.ecg => const Color(0xFF6E8DF5),
   _ => SaydianColors.green,

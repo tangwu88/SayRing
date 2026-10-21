@@ -163,21 +163,9 @@ class _SportEntryPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return Padding(
       key: const Key('health-sport-entries'),
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0x26316EF5)),
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x10000000),
-            blurRadius: 18,
-            offset: Offset(0, 7),
-          ),
-        ],
-      ),
+      padding: EdgeInsets.zero,
       child: Column(
         children: [
           _TodayHealthOverview(

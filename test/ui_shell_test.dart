@@ -781,7 +781,7 @@ void main() {
     final theme = buildSaydianTheme();
 
     expect(theme.colorScheme.primary, SaydianColors.techBlue);
-    expect(theme.scaffoldBackgroundColor, const Color(0xFFF4F7FB));
+    expect(theme.scaffoldBackgroundColor, SaydianColors.canvas);
     expect(SaydianColors.brandRed, SaydianColors.techBlue);
     expect(SaydianColors.brandGold, SaydianColors.techCyan);
     expect(SaydianColors.brandRed, isNot(SaydianColors.danger));
@@ -877,21 +877,18 @@ void main() {
                   )
                   .decoration
               as BoxDecoration;
-      expect((functionDecoration.gradient as LinearGradient).colors, const [
-        Color(0xFFFFFFFF),
-        Color(0xFFEDF5FF),
-      ]);
+      expect(functionDecoration.color, Colors.white);
       expect(find.text('远程关爱'), findsOneWidget);
       expect(find.text('健康百科'), findsOneWidget);
       expect(find.text('运动'), findsOneWidget);
       expect(find.text('赛电商城'), findsOneWidget);
       expect(find.text('Say Ring 商城'), findsNothing);
       final shopEntryLabel = tester.widget<Text>(find.text('赛电商城'));
-      expect(shopEntryLabel.maxLines, 1);
+      expect(shopEntryLabel.maxLines, isNull);
       expect(shopEntryLabel.overflow, isNot(TextOverflow.ellipsis));
       expect(
         find.ancestor(of: find.text('赛电商城'), matching: find.byType(FittedBox)),
-        findsOneWidget,
+        findsNothing,
       );
 
       final navigationBar = tester.widget<NavigationBar>(
@@ -969,11 +966,8 @@ void main() {
         find.byKey(const ValueKey('health-metric-surface-heartRate')),
       );
       final metricDecoration = metricSurface.decoration as BoxDecoration;
-      expect((metricDecoration.gradient as LinearGradient).colors, const [
-        Color(0xFFE8EDFF),
-        Color(0xFFE3F7FA),
-      ]);
-      expect(metricDecoration.borderRadius, BorderRadius.circular(28));
+      expect(metricDecoration.color, Colors.white);
+      expect(metricDecoration.borderRadius, BorderRadius.circular(24));
       expect(
         tester.getSize(find.byKey(const Key('dashboard-health-notice'))).height,
         lessThanOrEqualTo(60),
@@ -1005,10 +999,7 @@ void main() {
                   )
                   .decoration
               as BoxDecoration;
-      expect(
-        (emptyDeviceDecoration.gradient as LinearGradient).colors,
-        saydianPanelGradient.colors,
-      );
+      expect(emptyDeviceDecoration.color, Colors.white);
 
       controller.selectTab(2);
       await tester.pump();
@@ -1021,10 +1012,7 @@ void main() {
                   )
                   .decoration
               as BoxDecoration;
-      expect(
-        (profileHeaderDecoration.gradient as LinearGradient).colors,
-        saydianPanelGradient.colors,
-      );
+      expect(profileHeaderDecoration.color, Colors.white);
       expect(find.byKey(const Key('profile-orders-card')), findsOneWidget);
       expect(
         find.byKey(const Key('profile-quick-actions-card')),
@@ -1080,10 +1068,7 @@ void main() {
                 )
                 .decoration
             as BoxDecoration;
-    expect(
-      (overviewDecoration.gradient as LinearGradient).colors,
-      saydianPanelGradient.colors,
-    );
+    expect(overviewDecoration.color, Colors.white);
     expect(find.text('HR01'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -1219,7 +1204,8 @@ void main() {
       await tester.pump();
 
       expect(find.byKey(const Key('health-sport-entries')), findsNothing);
-      expect(find.byKey(const Key('dashboard-today-health')), findsNothing);
+      expect(find.byKey(const Key('dashboard-today-health')), findsOneWidget);
+      await tester.ensureVisible(find.text('运动'));
       await tester.tap(find.text('运动'));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('sport-overview-page')), findsOneWidget);
@@ -1232,6 +1218,8 @@ void main() {
             .length,
         4,
       );
+      await tester.ensureVisible(find.byKey(const Key('sport-mode-more')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('sport-mode-more')));
       await tester.pumpAndSettle();
       expect(
@@ -1285,6 +1273,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('sport-overview-page')), findsOneWidget);
     expect(find.byKey(const Key('dashboard-today-health')), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('sport-mode-more')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('sport-mode-more')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('all-sport-mode-grid')), findsOneWidget);
@@ -1347,8 +1337,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('200/10000步'), findsOneWidget);
-    expect(find.text('999/10000步'), findsNothing);
+    expect(find.text('200'), findsOneWidget);
+    expect(find.text('/10000步'), findsOneWidget);
+    expect(find.text('999'), findsNothing);
     expect(find.byKey(const Key('sport-mode-grid')), findsNothing);
     expect(find.byKey(const Key('all-sport-records')), findsNothing);
   });
@@ -1393,7 +1384,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('96/10000步'), findsOneWidget);
+    expect(find.text('96'), findsOneWidget);
+    expect(find.text('/10000步'), findsOneWidget);
   });
 
   testWidgets('home sleep entry opens real stages and the same dated trend', (
@@ -2731,7 +2723,10 @@ void main() {
         final firmware = find.byKey(const Key('device-functions-firmware'));
         expect(firmware, findsNothing);
         final about = find.text('关于设备');
-        await tester.ensureVisible(about);
+        await tester.scrollUntilVisible(about, 180);
+        await tester.pumpAndSettle();
+        await Scrollable.ensureVisible(tester.element(about), alignment: 0.5);
+        await tester.pumpAndSettle();
         await tester.tap(about);
         await tester.pumpAndSettle();
         final aboutFirmware = find.byKey(const Key('device-firmware-upgrade'));

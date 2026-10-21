@@ -624,12 +624,35 @@ void main() {
       expect(find.text('2026年10月1日'), findsOneWidget);
       expect(find.text('6小时50分'), findsOneWidget);
       expect(find.text('夜间睡眠'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('展开时间明细').first, 200);
+      await tester.pumpAndSettle();
+      await Scrollable.ensureVisible(
+        tester.element(find.text('展开时间明细').first),
+        alignment: 0.5,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('展开时间明细').first);
+      await tester.pumpAndSettle();
       expect(find.text('开始 9月30日 23:00'), findsOneWidget);
       expect(find.text('结束 10月1日 07:00'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('小睡 1'), 250);
+      await tester.pumpAndSettle();
       expect(find.text('小睡 1'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('未知（戒指未返回）'), 250);
+      await tester.pumpAndSettle();
       expect(find.text('未知（戒指未返回）'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('sleep-reference-details')),
+        250,
+      );
+      await tester.pumpAndSettle();
+      await Scrollable.ensureVisible(
+        tester.element(find.text('睡眠说明')),
+        alignment: 0.5,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('睡眠说明'));
+      await tester.pumpAndSettle();
       await tester.scrollUntilVisible(find.textContaining('时间明细仅保存在本机'), 250);
       expect(find.textContaining('时间明细仅保存在本机'), findsOneWidget);
       expect(tester.takeException(), isNull);

@@ -48,39 +48,25 @@ class DevicePage extends StatelessWidget {
             key: const Key('device-overview-card'),
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              gradient: saydianPanelGradient,
-              border: Border.all(color: const Color(0x66316EF5)),
-              borderRadius: BorderRadius.circular(26),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x17316EF5),
-                  blurRadius: 24,
-                  offset: Offset(0, 10),
-                ),
-              ],
+              color: Colors.white,
+              border: Border.all(color: SaydianColors.line),
+              borderRadius: BorderRadius.circular(28),
             ),
             child: Column(
               children: [
                 Row(
                   children: [
                     Container(
-                      width: 62,
-                      height: 62,
+                      width: 76,
+                      height: 76,
                       decoration: BoxDecoration(
-                        gradient: saydianHeroGradient,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x30316EF5),
-                            blurRadius: 16,
-                            offset: Offset(0, 7),
-                          ),
-                        ],
+                        color: SaydianColors.canvas,
+                        borderRadius: BorderRadius.circular(24),
                       ),
-                      child: const Icon(
-                        Icons.circle_outlined,
-                        color: Colors.white,
-                        size: 36,
+                      alignment: Alignment.center,
+                      child: const SaydianBrandMark(
+                        size: 54,
+                        color: SaydianColors.ink,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -88,36 +74,18 @@ class DevicePage extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  bound.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ),
-                              if (connected != null) ...[
-                                const SizedBox(width: 8),
-                                _BatteryBadge(
-                                  battery: connected.effectiveBattery,
-                                ),
-                              ],
-                            ],
-                          ),
-                          const SizedBox(height: 5),
                           Text(
-                            bound.identifierLabel,
+                            bound.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              color: SaydianColors.muted,
-                              fontSize: 13,
+                              color: SaydianColors.ink,
+                              fontSize: 26,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.5,
                             ),
                           ),
-                          const SizedBox(height: 5),
+                          const SizedBox(height: 8),
                           if (connected != null)
                             _ConnectionBadge(
                               label: context.l10n.connectionState(
@@ -142,6 +110,10 @@ class DevicePage extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 16),
+                if (connected != null) ...[
+                  _BatteryBadge(battery: connected.effectiveBattery),
+                  const SizedBox(height: 16),
+                ],
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -222,13 +194,43 @@ class DevicePage extends StatelessWidget {
                           controller.isDeviceReconnecting ? '正在重连' : '重新连接',
                         ),
                       ),
+                    const SizedBox(height: 4),
+                    ExpansionTile(
+                      key: const Key('device-connection-details'),
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: const EdgeInsets.only(bottom: 4),
+                      shape: const Border(),
+                      collapsedShape: const Border(),
+                      title: Text(
+                        context.l10n.connectionStatus,
+                        style: const TextStyle(
+                          color: SaydianColors.muted,
+                          fontSize: 14,
+                        ),
+                      ),
+                      children: [
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: SelectableText(
+                            bound.identifierLabel,
+                            style: const TextStyle(
+                              color: SaydianColors.muted,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                     TextButton.icon(
                       key: const Key('device-unbind'),
                       onPressed: controller.isDeviceSyncing
                           ? null
                           : () => _confirmUnbind(context),
-                      icon: const Icon(Icons.link_off_rounded),
+                      icon: const Icon(Icons.link_off_rounded, size: 18),
                       label: const Text('解绑设备'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: SaydianColors.muted,
+                      ),
                     ),
                   ],
                 ),
@@ -241,7 +243,7 @@ class DevicePage extends StatelessWidget {
             clipBehavior: Clip.antiAlias,
             child: Container(
               key: const Key('device-empty-card-surface'),
-              decoration: const BoxDecoration(gradient: saydianPanelGradient),
+              decoration: const BoxDecoration(color: Colors.white),
               padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
               child: Column(
                 children: [
@@ -249,20 +251,13 @@ class DevicePage extends StatelessWidget {
                     width: 118,
                     height: 118,
                     decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          SaydianColors.techBlueSoft,
-                          SaydianColors.techCyanSoft,
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
+                      color: SaydianColors.canvas,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(
-                      Icons.circle_outlined,
-                      color: SaydianColors.techBlue,
-                      size: 62,
+                    alignment: Alignment.center,
+                    child: const SaydianBrandMark(
+                      size: 76,
+                      color: SaydianColors.ink,
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -374,18 +369,26 @@ class DevicePage extends StatelessWidget {
               title: context.l10n.deviceFeatures,
             ),
             const SizedBox(height: 10),
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                mainAxisExtent: 104,
-              ),
-              itemCount: primaryFeatures.length,
-              itemBuilder: (context, index) =>
-                  _deviceFeatureCard(context, primaryFeatures[index]),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final textScale = MediaQuery.textScalerOf(context).scale(1);
+                final columns = textScale > 1.3 || constraints.maxWidth < 320
+                    ? 1
+                    : 2;
+                final width =
+                    (constraints.maxWidth - 12 * (columns - 1)) / columns;
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    for (final feature in primaryFeatures)
+                      SizedBox(
+                        width: width,
+                        child: _deviceFeatureCard(context, feature),
+                      ),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 12),
           ],
@@ -467,59 +470,68 @@ class DevicePage extends StatelessWidget {
     final availability = controller.availabilityFor(feature);
     return Material(
       key: Key('device-feature-${feature.wireName}'),
-      color: Colors.transparent,
+      color: Colors.white,
       shape: RoundedRectangleBorder(
-        side: const BorderSide(color: Color(0xFFDCE7F5)),
+        side: const BorderSide(color: SaydianColors.line),
         borderRadius: BorderRadius.circular(20),
       ),
       clipBehavior: Clip.antiAlias,
-      child: Ink(
-        decoration: const BoxDecoration(gradient: saydianPanelGradient),
+      child: Semantics(
+        button: true,
+        hint: availability.isReady
+            ? context.l10n.tapToOpen
+            : availability.message,
         child: InkWell(
           onTap: () => _openDeviceFeature(context, feature),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            child: Row(
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 128),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                    color: _featureColor(feature).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                  child: Icon(
-                    _featureIcon(feature),
-                    color: _featureColor(feature),
-                    size: 24,
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: _featureColor(feature).withValues(alpha: 0.09),
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: Icon(
+                        _featureIcon(feature),
+                        color: _featureColor(feature),
+                        size: 25,
+                      ),
+                    ),
+                    const Spacer(),
+                    const Icon(
+                      Icons.arrow_outward_rounded,
+                      size: 17,
+                      color: SaydianColors.outline,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  context.l10n.deviceFeatureName(feature),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        context.l10n.deviceFeatureName(feature),
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        availability.isReady
-                            ? context.l10n.tapToOpen
-                            : availability.message,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: SaydianColors.muted,
-                          fontSize: 12,
-                          height: 1.25,
-                        ),
-                      ),
-                    ],
+                if (!availability.isReady) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    availability.message,
+                    style: const TextStyle(
+                      color: SaydianColors.muted,
+                      fontSize: 13,
+                      height: 1.4,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -615,14 +627,14 @@ class _TechSectionHeading extends StatelessWidget {
 }
 
 class _BatteryBadge extends StatelessWidget {
-  const _BatteryBadge({required this.battery});
+  const _BatteryBadge({required this.battery, this.compact = false});
 
   final DeviceBatteryInfo? battery;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final value = battery;
-    final percent = value?.percent;
     final color = switch (value) {
       null => SaydianColors.muted,
       DeviceBatteryInfo(isLow: true) => SaydianColors.danger,
@@ -633,36 +645,119 @@ class _BatteryBadge extends StatelessWidget {
     final semantics = value == null
         ? '戒指电量暂未读取'
         : '戒指电量 $label，${value.chargeStateAt(DateTime.now()).label}';
+    final fraction = value != null && value.scale > 0
+        ? (value.value / value.scale).clamp(0.0, 1.0)
+        : null;
+    final charging =
+        value?.chargeStateAt(DateTime.now()) ==
+        DeviceBatteryChargeState.charging;
+    if (compact) {
+      return Semantics(
+        label: semantics,
+        excludeSemantics: true,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(color: color, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              value == null
+                  ? Icons.battery_unknown_rounded
+                  : charging
+                  ? Icons.battery_charging_full_rounded
+                  : Icons.battery_std_rounded,
+              color: color,
+              size: 22,
+            ),
+          ],
+        ),
+      );
+    }
     return Semantics(
       label: semantics,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
+      excludeSemantics: true,
+      child: Container(
+        key: const Key('device-battery-level'),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 8,
+          children: [
+            Text(
+              context.l10n.watchBattery,
+              style: const TextStyle(color: SaydianColors.muted, fontSize: 14),
             ),
-          ),
-          const SizedBox(width: 4),
-          Icon(
-            value == null
-                ? Icons.battery_unknown_rounded
-                : value.chargeStateAt(DateTime.now()) ==
-                      DeviceBatteryChargeState.charging
-                ? Icons.battery_charging_full_rounded
-                : percent != null && percent <= 15
-                ? Icons.battery_1_bar_rounded
-                : (percent != null && percent <= 50) ||
-                      (!value.isPercent && value.value <= 2)
-                ? Icons.battery_4_bar_rounded
-                : Icons.battery_full_rounded,
-            color: color,
-            size: 22,
-          ),
-        ],
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  key: const Key('device-battery-value'),
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  width: 44,
+                  height: 23,
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: color, width: 1.6),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Stack(
+                    children: [
+                      if (fraction != null)
+                        FractionallySizedBox(
+                          key: const Key('device-battery-fill'),
+                          widthFactor: fraction,
+                          heightFactor: 1,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: color,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                      if (value == null || charging)
+                        Center(
+                          child: Icon(
+                            charging
+                                ? Icons.bolt_rounded
+                                : Icons.question_mark_rounded,
+                            color: charging ? Colors.white : color,
+                            size: 14,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Container(
+                  width: 3,
+                  height: 9,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1467,7 +1562,7 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                           : Text(
                               '更新于 ${DateFormat('MM-dd HH:mm').format(battery!.updatedAt!.toLocal())}',
                             ),
-                      trailing: _BatteryBadge(battery: battery),
+                      trailing: _BatteryBadge(battery: battery, compact: true),
                     ),
                     if (battery != null) ...[
                       const Divider(indent: 16),
@@ -1611,16 +1706,29 @@ class _ConnectionBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: SaydianColors.green.withValues(alpha: 0.16),
+        color: SaydianColors.green.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Color(0xFF16823A),
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.bluetooth_connected_rounded,
+            size: 14,
+            color: SaydianColors.green,
+          ),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: SaydianColors.green,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
