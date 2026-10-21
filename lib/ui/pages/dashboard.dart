@@ -789,6 +789,7 @@ class _DashboardActivityState extends State<_DashboardActivity>
   bool _reloadQueued = false;
   bool _loading = true;
   bool _failed = false;
+  bool _calorieUnitPending = false;
 
   @override
   void initState() {
@@ -806,6 +807,7 @@ class _DashboardActivityState extends State<_DashboardActivity>
     _readFence = Completer<void>();
     _activeRead = null;
     _reloadQueued = false;
+    _calorieUnitPending = false;
     _refresh?.cancel();
     _refresh = null;
   }
@@ -907,6 +909,9 @@ class _DashboardActivityState extends State<_DashboardActivity>
       }
       setState(() {
         _values = _todayActivityValues(batches.expand((batch) => batch), now);
+        _calorieUnitPending =
+            !_values.containsKey(HealthMetric.calories) &&
+            batches.expand((batch) => batch).any(hasUnconfirmedCalorieUnit);
         _loading = false;
         _failed = false;
       });
@@ -953,6 +958,7 @@ class _DashboardActivityState extends State<_DashboardActivity>
         stepTarget: widget.controller.stepGoal.toDouble(),
         distanceTarget: widget.controller.distanceGoal,
         calorieTarget: widget.controller.calorieGoal.toDouble(),
+        calorieUnitPending: _calorieUnitPending,
         onSetGoal: () => Navigator.of(context).push(
           MaterialPageRoute<void>(
             settings: const RouteSettings(name: 'activity-goals'),
@@ -990,11 +996,13 @@ class _TodayHealthOverview extends StatelessWidget {
     required this.calorieTarget,
     required this.onSetGoal,
     required this.onOpenMetric,
+    this.calorieUnitPending = false,
   });
   final Map<HealthMetric, num> latest;
   final double stepTarget, distanceTarget, calorieTarget;
   final VoidCallback onSetGoal;
   final ValueChanged<HealthMetric> onOpenMetric;
+  final bool calorieUnitPending;
 
   @override
   Widget build(BuildContext context) {
@@ -1023,6 +1031,7 @@ class _TodayHealthOverview extends StatelessWidget {
           value: latest[HealthMetric.calories],
           target: calorieTarget,
           color: SaydianColors.energy,
+          unavailableReason: calorieUnitPending ? '单位待确认' : null,
           onTap: () => onOpenMetric(HealthMetric.calories),
         ),
       ],
@@ -1031,7 +1040,7 @@ class _TodayHealthOverview extends StatelessWidget {
       label: '今日活动目标进度，点击查看步数趋势',
       value: latest.isEmpty
           ? '暂无数据'
-          : '步数 ${step ?? '--'}，距离 ${latest[HealthMetric.distance] ?? '--'} 公里，热量 ${latest[HealthMetric.calories] ?? '--'} 千卡',
+          : '步数 ${step ?? '--'}，距离 ${latest[HealthMetric.distance] ?? '--'} 公里，热量 ${calorieUnitPending ? '单位待确认' : '${latest[HealthMetric.calories] ?? '--'} 千卡'}',
       button: true,
       excludeSemantics: true,
       onTap: () => onOpenMetric(HealthMetric.steps),
@@ -1148,12 +1157,14 @@ class _GoalProgressRow extends StatelessWidget {
     required this.target,
     required this.color,
     required this.onTap,
+    this.unavailableReason,
   });
   final HealthMetric metric;
   final num? value;
   final double target;
   final Color color;
   final VoidCallback onTap;
+  final String? unavailableReason;
   String _format(num number) => metric == HealthMetric.distance
       ? number.toStringAsFixed(2)
       : number.round().toString();
@@ -1212,7 +1223,7 @@ class _GoalProgressRow extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '/${_format(target)}$unit',
+                      unavailableReason ?? '/${_format(target)}$unit',
                       style: const TextStyle(
                         fontSize: 12,
                         color: SaydianColors.muted,
@@ -1471,15 +1482,17 @@ class HealthMetricCard extends StatelessWidget {
       _HomeMetricStatus.recorded,
       _HomeMetricStatus.noData,
     }.contains(status);
-    final statusLabel = switch (status) {
-      _HomeMetricStatus.normal => context.l10n.statusNormal,
-      _HomeMetricStatus.recorded => context.l10n.statusRecorded,
-      _HomeMetricStatus.noData => context.l10n.noData,
-      _HomeMetricStatus.attention => context.l10n.statusAttention,
-      _HomeMetricStatus.outOfRange => context.l10n.statusOutOfRange,
-      _HomeMetricStatus.low => context.l10n.statusLow,
-      _HomeMetricStatus.high => context.l10n.statusHigh,
-    };
+    final statusLabel = record != null && hasUnconfirmedCalorieUnit(record!)
+        ? '单位待确认'
+        : switch (status) {
+            _HomeMetricStatus.normal => context.l10n.statusNormal,
+            _HomeMetricStatus.recorded => context.l10n.statusRecorded,
+            _HomeMetricStatus.noData => context.l10n.noData,
+            _HomeMetricStatus.attention => context.l10n.statusAttention,
+            _HomeMetricStatus.outOfRange => context.l10n.statusOutOfRange,
+            _HomeMetricStatus.low => context.l10n.statusLow,
+            _HomeMetricStatus.high => context.l10n.statusHigh,
+          };
     return ConstrainedBox(
       key: ValueKey('health-metric-${metric.name}'),
       constraints: const BoxConstraints(minHeight: 190),

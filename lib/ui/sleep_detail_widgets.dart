@@ -297,11 +297,13 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
                             size: 22,
                           ),
                           SizedBox(width: 8),
-                          Text(
-                            '总睡眠',
-                            style: TextStyle(
-                              color: SaydianColors.ink,
-                              fontWeight: FontWeight.w700,
+                          Expanded(
+                            child: Text(
+                              '设备估算总睡眠',
+                              style: TextStyle(
+                                color: SaydianColors.ink,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                         ],
@@ -346,7 +348,7 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
               childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
               children: const [
                 Text(
-                  '含实际返回的小睡；清醒、未知及未佩戴时间不计入睡眠。睡眠时长和阶段为戒指估算，仅供日常作息参考。时间明细仅保存在本机；AI 报告需另行确认上传睡眠汇总，未返回项目保持未知。',
+                  '总时长包含戒指返回的夜间睡眠和小睡；清醒、未知分期不计入。长时间静止或未佩戴可能被设备误判为睡眠，请结合实际作息核对下方各段记录。睡眠时长和阶段为戒指估算，仅供日常作息参考。时间明细仅保存在本机；AI 报告需另行确认上传睡眠汇总，未返回项目保持未知。',
                   style: TextStyle(color: SaydianColors.muted, height: 1.6),
                 ),
               ],

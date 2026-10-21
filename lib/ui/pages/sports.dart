@@ -8,6 +8,7 @@ Map<HealthMetric, num> _todayActivityValues(
   final result = <HealthMetric, num>{};
   for (final record in records) {
     if (!hasSaneWearableTransportValues(record)) continue;
+    if (hasUnconfirmedCalorieUnit(record)) continue;
     if (record.metric != HealthMetric.steps &&
         record.metric != HealthMetric.distance &&
         record.metric != HealthMetric.calories) {
@@ -43,6 +44,7 @@ class _SportOverviewPageState extends State<SportOverviewPage> {
   Map<HealthMetric, num> _activityValues = const {};
   bool _loading = true;
   bool _loadFailed = false;
+  bool _calorieUnitPending = false;
   int _loadGeneration = 0;
   bool _wasDeviceSyncing = false;
 
@@ -113,12 +115,16 @@ class _SportOverviewPageState extends State<SportOverviewPage> {
           batches.expand((batch) => batch),
           now,
         );
+        _calorieUnitPending =
+            !_activityValues.containsKey(HealthMetric.calories) &&
+            batches.expand((batch) => batch).any(hasUnconfirmedCalorieUnit);
         _loading = false;
       });
     } catch (_) {
       if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _activityValues = const {};
+        _calorieUnitPending = false;
         _loading = false;
         _loadFailed = true;
       });
@@ -147,6 +153,7 @@ class _SportOverviewPageState extends State<SportOverviewPage> {
             _SportEntryPanel(
               controller: widget.controller,
               latest: _activityValues,
+              calorieUnitPending: _calorieUnitPending,
             ),
           ],
         ),
@@ -156,10 +163,15 @@ class _SportOverviewPageState extends State<SportOverviewPage> {
 }
 
 class _SportEntryPanel extends StatelessWidget {
-  const _SportEntryPanel({required this.controller, required this.latest});
+  const _SportEntryPanel({
+    required this.controller,
+    required this.latest,
+    this.calorieUnitPending = false,
+  });
 
   final AppController controller;
   final Map<HealthMetric, num> latest;
+  final bool calorieUnitPending;
 
   @override
   Widget build(BuildContext context) {
@@ -173,6 +185,7 @@ class _SportEntryPanel extends StatelessWidget {
             stepTarget: controller.stepGoal.toDouble(),
             distanceTarget: controller.distanceGoal,
             calorieTarget: controller.calorieGoal.toDouble(),
+            calorieUnitPending: calorieUnitPending,
             onSetGoal: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 settings: const RouteSettings(name: 'activity-goals'),

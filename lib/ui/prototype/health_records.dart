@@ -293,14 +293,16 @@ class _HealthRecordDetailPageState extends State<HealthRecordDetailPage> {
               child: Column(
                 children: [
                   Text(
-                    record.displayValue,
+                    hasUnconfirmedCalorieUnit(record)
+                        ? '--'
+                        : record.displayValue,
                     style: const TextStyle(
                       fontSize: 36,
                       fontWeight: FontWeight.w900,
                     ),
                   ),
                   Text(
-                    record.unit,
+                    hasUnconfirmedCalorieUnit(record) ? '单位待确认' : record.unit,
                     style: const TextStyle(color: SaydianColors.muted),
                   ),
                   if (isRriHrv) const Text('HRV 指标：SDNN'),
@@ -321,7 +323,7 @@ class _HealthRecordDetailPageState extends State<HealthRecordDetailPage> {
               ),
             ),
           ),
-          if (values.length > 1) ...[
+          if (values.length > 1 && !hasUnconfirmedCalorieUnit(record)) ...[
             const SizedBox(height: 12),
             Card(
               child: Column(

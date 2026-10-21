@@ -16,6 +16,7 @@ import '../l10n/ui_labels.dart';
 import '../domain/ecg_waveform.dart';
 import '../domain/health_interpretation.dart';
 import '../domain/health_record_validation.dart';
+import '../domain/health_record_units.dart';
 import '../domain/models.dart';
 import '../domain/wellness_release_policy.dart';
 import '../services/app_controller.dart';

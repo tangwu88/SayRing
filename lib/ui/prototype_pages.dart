@@ -27,6 +27,7 @@ import '../domain/feature_models.dart';
 import '../domain/ecg_waveform.dart';
 import '../domain/health_interpretation.dart';
 import '../domain/models.dart';
+import '../domain/health_record_units.dart';
 import '../services/app_controller.dart';
 import '../services/camera_remote_shutter_gate.dart';
 import '../services/device_weather_service.dart';

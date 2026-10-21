@@ -149,6 +149,32 @@ Future<void> _mount(
 void main() {
   setUpAll(() => initializeDateFormatting('zh_Hans'));
 
+  testWidgets(
+    'unconfirmed iOS calories never fill a kcal goal; steps survive',
+    (tester) async {
+      final store = MemoryHealthStore();
+      final controller = _Controller(store);
+      final day = _today();
+      await store.upsert([
+        _record('step-safe', HealthMetric.steps, 1234, day),
+        _record(
+          'qring:synthetic|calories|v3|pending',
+          HealthMetric.calories,
+          98760,
+          day,
+        ),
+      ]);
+      controller.healthRecords = await store.recent();
+      await _mount(tester, controller);
+      await tester.pumpAndSettle();
+      expect(_activityText('1234'), findsOneWidget);
+      expect(_activityText('单位待确认'), findsOneWidget);
+      expect(_activityText('98760'), findsNothing);
+      expect(_activityText('--'), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('home sums the full saved day beyond the recent record cache', (
     tester,
   ) async {
@@ -356,6 +382,75 @@ void main() {
     expect(find.byKey(const Key('my-page')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'calorie mini chart excludes pending counts without suppressing confirmed data',
+    (tester) async {
+      final controller = _Controller(MemoryHealthStore());
+      final day = _today();
+      await _mount(
+        tester,
+        controller,
+        page: Scaffold(
+          body: HealthMetricMiniChart(
+            controller: controller,
+            metric: HealthMetric.calories,
+            color: Colors.blue,
+            records: [
+              _record('known-a', HealthMetric.calories, 30, day),
+              _record(
+                'known-b',
+                HealthMetric.calories,
+                45,
+                day.add(const Duration(hours: 1)),
+              ),
+              _record(
+                'qring:synthetic|calories|v3|pending',
+                HealthMetric.calories,
+                98760,
+                day,
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final chart = tester.widget<LineChart>(find.byType(LineChart));
+      expect(chart.data.lineBarsData.single.spots.map((p) => p.y), [30, 45]);
+      expect(find.text('单位待确认'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'calorie history retains pending records with an explicit unknown-unit message',
+    (tester) async {
+      final store = MemoryHealthStore();
+      final controller = _Controller(store);
+      await store.upsert([
+        _record(
+          'qring:synthetic|calories|v3|pending',
+          HealthMetric.calories,
+          98760,
+          _today(),
+        ),
+      ]);
+      await _mount(
+        tester,
+        controller,
+        page: HealthTrendPage(
+          controller: controller,
+          metric: HealthMetric.calories,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('calorie-unit-unconfirmed')), findsOneWidget);
+      expect(find.textContaining('98760'), findsNothing);
+      expect(find.byType(LineChart), findsNothing);
+      expect((await store.recent()).single.values['value'], 98760);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   for (final count in [0, 1]) {
     testWidgets('a $count-point health history never invents a trend line', (

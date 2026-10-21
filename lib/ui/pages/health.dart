@@ -446,6 +446,7 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
 
 String _healthDisplayValue(HealthRecord? record, AppController controller) {
   if (record == null) return '--';
+  if (hasUnconfirmedCalorieUnit(record)) return '--';
   final value =
       record.values['value'] ??
       (record.values.isEmpty ? null : record.values.values.first);
@@ -466,6 +467,7 @@ String _healthDisplayUnit(
   HealthRecord? record,
   AppController controller,
 ) {
+  if (record != null && hasUnconfirmedCalorieUnit(record)) return '';
   if (metric == HealthMetric.distance && controller.distanceUnit == '英里') {
     return 'mi';
   }

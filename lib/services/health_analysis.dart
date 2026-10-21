@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import '../domain/models.dart';
+import '../domain/health_record_units.dart';
 import 'sleep_health_projection.dart' show sleepRecordSdkDate;
 
 enum HealthTrendPeriod {
@@ -275,6 +276,11 @@ class HealthAnalysisService {
     required String valueKey,
     required String? secondaryKey,
   }) {
+    // Unverified raw SDK counts are not kcal observations. Keep them in
+    // data.records for provenance, but exclude them from statistics/plots.
+    records = records
+        .where((record) => !hasUnconfirmedCalorieUnit(record))
+        .toList(growable: false);
     if (period == HealthTrendPeriod.day || metric == HealthMetric.ecg) {
       final result =
           records

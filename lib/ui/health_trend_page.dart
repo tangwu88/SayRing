@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../domain/models.dart';
+import '../domain/health_record_units.dart';
 import '../services/app_controller.dart';
 import '../services/health_analysis.dart';
 import '../services/health_view_data_source.dart';
@@ -73,14 +74,21 @@ class HealthMetricMiniChart extends StatelessWidget {
         // A mini chart only shows one displayed day. Explicit records can come from
         // a larger local/remote history; never join different dates at the
         // same clock hour or accidentally chart another metric.
-        final records = (snapshot.data ?? const <HealthRecord>[])
-            .where((record) {
-              final at = HealthAnalysisService.displayTime(record);
-              return record.metric == metric &&
-                  !at.isBefore(start) &&
-                  at.isBefore(end);
-            })
-            .toList(growable: false);
+        final records = (snapshot.data ?? const <HealthRecord>[]).where((
+          record,
+        ) {
+          final at = HealthAnalysisService.displayTime(record);
+          return record.metric == metric &&
+              !at.isBefore(start) &&
+              at.isBefore(end);
+        }).toList();
+        final pending = records.any(hasUnconfirmedCalorieUnit);
+        records.removeWhere(hasUnconfirmedCalorieUnit);
+        if (pending && records.isEmpty) {
+          return bounded(
+            const Text('单位待确认', style: TextStyle(color: SaydianColors.muted)),
+          );
+        }
         if (records.isEmpty && !showEmptyLabel) {
           return SizedBox(height: height);
         }
@@ -650,6 +658,15 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
       if (data.records.isEmpty)
         const _MessageCard(icon: Icons.show_chart_rounded, title: '该时间段暂无数据')
       else ...[
+        if (data.records.any(hasUnconfirmedCalorieUnit)) ...[
+          const _MessageCard(
+            key: Key('calorie-unit-unconfirmed'),
+            icon: Icons.info_outline_rounded,
+            title: '热量单位待确认',
+            detail: '设备返回的热量单位尚未确认，暂不用于千卡统计或目标进度。原始记录仍保留。',
+          ),
+          const SizedBox(height: 12),
+        ],
         if (widget.metric == HealthMetric.sleep) ...[
           SleepStructureCard(
             record: data.records.first,
@@ -1448,7 +1465,9 @@ class _RecordTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final value = record.metric == HealthMetric.bloodPressure
+    final value = hasUnconfirmedCalorieUnit(record)
+        ? '--'
+        : record.metric == HealthMetric.bloodPressure
         ? record.displayValue
         : _number(record.values[valueKey] ?? record.values['value']);
     return Card(
@@ -1505,6 +1524,7 @@ class _MessageCard extends StatelessWidget {
     required this.title,
     this.detail,
     this.action,
+    super.key,
   });
 
   final IconData icon;
@@ -1589,6 +1609,7 @@ String _fieldLabel(String key) => switch (key) {
 };
 
 String _unit(HealthMetric metric, HealthRecord record, String key) {
+  if (hasUnconfirmedCalorieUnit(record)) return '单位待确认';
   if (metric == HealthMetric.bodyComposition) {
     if (const {
       'bodyFatRate',
