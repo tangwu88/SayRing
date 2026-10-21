@@ -1,5 +1,7 @@
 # 修改与测试记录索引
 
+- [2026-10-21 iPhone 15 Pro Max 1123真机调试](SAY-RING-IOS-1123-LIVE-20261021.md) — 开发签名/Profile构建与原位覆盖安装通过；用户明确允许跳过App Store容器不可导出的本次备份，未卸载。已核验原生与Dart同PID、DevTools200并打开；Profile会话保留，热量异常待单独核对。
+
 - [2026-10-21 QRing参考图形化界面与大字适配](SAY-RING-UI-REFRESH-20261021.md) — 用户确认暖白/蓝紫风格；活动目标环、睡眠时间轴、真实微趋势、设备电量和功能卡重排。最终双时区各1373、静态检查及Android Debug/QA Release、iOS无签名Debug/Profile通过；合成截图已核，真机待验，未发布商店或下载。
 
 - [2026-10-20 iOS R12 重连与同步响应优化](SAY-RING-R12-PERFORMANCE-20261020.md) — 保留精确恢复与七天历史；10月21日复核运行源码完整CI五个job全部成功，用户暂不能连接iPhone，真实无线耗时及新商店版本仍待处理。
