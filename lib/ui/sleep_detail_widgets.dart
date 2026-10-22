@@ -819,3 +819,53 @@ class _SleepStagePainter extends CustomPainter {
   bool shouldRepaint(_SleepStagePainter oldDelegate) =>
       oldDelegate.session != session;
 }
+
+/// Distribution of real returned segments. No synthetic stages or sleep goal.
+class SleepStageMiniBar extends StatelessWidget {
+  const SleepStageMiniBar({required this.record, super.key});
+  final HealthRecord record;
+  @override
+  Widget build(BuildContext context) {
+    final timeline = record.sleepTimeline;
+    if (timeline == null) return const SizedBox.shrink();
+    final durations = <SleepStage, int>{};
+    for (final session in timeline.sessions) {
+      for (final segment in session.segments) {
+        final seconds = segment.endAt.difference(segment.startAt).inSeconds;
+        if (seconds > 0) {
+          durations.update(
+            segment.stage,
+            (value) => value + seconds,
+            ifAbsent: () => seconds,
+          );
+        }
+      }
+    }
+    if (durations.isEmpty) return const SizedBox.shrink();
+    return Semantics(
+      label:
+          '睡眠阶段分布：${durations.entries.map((e) => '${_stageLabel(e.key)}${(e.value / 60).round()}分钟').join('，')}',
+      child: Padding(
+        padding: const EdgeInsets.only(top: 16),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: SizedBox(
+            height: 12,
+            child: Row(
+              children: [
+                for (final entry in durations.entries)
+                  Expanded(
+                    flex: entry.value,
+                    child: ColoredBox(
+                      color: _stageColor(entry.key),
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -144,7 +144,7 @@ class _QRingCameraPageState extends State<QRingCameraPage> {
                 title: const Text('拍照控制'),
                 subtitle: Text(
                   !_supported
-                      ? '请连接支持拍照的 QRing 戒指'
+                      ? '请连接支持相机遥控的戒指'
                       : _busy
                       ? '正在确认'
                       : _snapshot == null

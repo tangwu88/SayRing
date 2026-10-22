@@ -331,6 +331,11 @@ void main() {
     expect(find.byKey(const Key('password-recovery-mobile')), findsOneWidget);
     expect(find.byKey(const Key('password-recovery-code')), findsOneWidget);
     expect(find.byKey(const Key('password-recovery-password')), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('password-recovery-submit')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.byKey(const Key('password-recovery-submit')), findsOneWidget);
   });
 

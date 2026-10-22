@@ -10,7 +10,7 @@ import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/app_controller.dart';
 
-// Existing authenticated owner's HR05 only. Back up privately before driving;
+// Existing authenticated owner's explicitly selected vibrating model only. Back up privately before driving;
 // restore normal main afterward, without uninstalling. No credentials in logs.
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -45,7 +45,16 @@ void main() {
         expect(app.isPreviewMode, false);
         final owner = app.session!.accountKey;
         final target = app.rememberedDevice!;
-        expect(target.name.toUpperCase(), contains('HR05'));
+        const expectedModel = String.fromEnvironment(
+          'SAYRING_QA_MODEL',
+          defaultValue: 'HR05',
+        );
+        expect(
+          target.name.toUpperCase().replaceAll(RegExp(r'[\s_-]+'), ''),
+          contains(
+            expectedModel.toUpperCase().replaceAll(RegExp(r'[\s_-]+'), ''),
+          ),
+        );
         expect(target.id, startsWith('coolwear:'));
         void sameTarget() {
           expect(app.session?.accountKey, owner);
@@ -106,6 +115,36 @@ void main() {
             .toList();
         report['syncStatus'] = app.syncStatus;
         await checked('owned_luckring_handshake_idle');
+        if (app.availabilityFor(DeviceFeature.gestureControl).isReady) {
+          final entry = find.byKey(const Key('device-feature-gesture_control'));
+          await tester.scrollUntilVisible(
+            entry,
+            200,
+            scrollable: find.byType(Scrollable).first,
+          );
+          await tester.tap(entry);
+          for (
+            var i = 0;
+            i < 25 &&
+                find
+                    .byKey(const ValueKey('gesture-current-mode'))
+                    .evaluate()
+                    .isEmpty;
+            i++
+          ) {
+            await pump();
+          }
+          expect(
+            find.byKey(const ValueKey('gesture-current-mode')),
+            findsOneWidget,
+          );
+          expect(find.text('三步开始'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+          await binding.takeScreenshot('vibrating-ring-gesture');
+          await checked('gesture_graphical_guide_read_only');
+          await tester.binding.handlePopRoute();
+          await pump();
+        }
         final now = DateTime.now();
         final day = DateTime(now.year, now.month, now.day);
         report['activity'] = {

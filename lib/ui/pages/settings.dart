@@ -1265,7 +1265,7 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
       ),
       Text(
         controller.deviceSettingsStatus,
-        style: const TextStyle(color: SaydianColors.muted, fontSize: 12),
+        style: const TextStyle(color: SaydianColors.muted, fontSize: 14),
       ),
       const SizedBox(height: 8),
       if (controller.connectedDevice == null)
@@ -1295,7 +1295,7 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
         const SizedBox(height: 12),
         const Text(
           '监测频率越高，耗电越快。仅显示戒指实际支持的项目；未提供间隔的项目由固件管理，当前无法调整。',
-          style: TextStyle(color: SaydianColors.muted, fontSize: 12),
+          style: TextStyle(color: SaydianColors.muted, fontSize: 14),
         ),
       ],
     ];

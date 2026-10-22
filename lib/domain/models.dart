@@ -475,13 +475,27 @@ class DeviceInfo {
     return id.substring(id.indexOf(':') + 1);
   }
 
+  /// Consumer-facing name only; never use this for routing or binding.
+  String get displayName => _consumerName(name);
+
+  static String _consumerName(String value) {
+    final cleaned = value
+        .replaceAll(
+          RegExp(r'QRing|LuckRing|CoolWear', caseSensitive: false),
+          '',
+        )
+        .replaceAll(RegExp(r'^[\s_-]+|[\s_-]+$'), '')
+        .trim();
+    return cleaned.isEmpty ? '智能戒指' : cleaned;
+  }
+
   String get displayModel {
     final reportedModel = model?.trim() ?? '';
-    if (reportedModel.isNotEmpty) return reportedModel;
+    if (reportedModel.isNotEmpty) return _consumerName(reportedModel);
     final separator = name.lastIndexOf('-');
     if (separator < 0) return '--';
     final suffix = name.substring(separator + 1).trim();
-    return suffix.isEmpty ? '--' : suffix;
+    return suffix.isEmpty ? '--' : _consumerName(suffix);
   }
 
   /// Upload only hardware metadata, never derive a MAC from an iOS UUID.

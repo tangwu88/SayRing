@@ -1,24 +1,24 @@
 import 'package:flutter/material.dart';
 
 abstract final class SaydianColors {
-  static const ink = Color(0xFF202634);
+  static const ink = Color(0xFF1E2933);
   static const muted = Color(0xFF687181);
   static const canvas = Color(0xFFF7F7F5);
   static const line = Color(0xFFE8EBF0);
   static const outline = Color(0xFF98A2B3);
   static const activity = Color(0xFF298D81);
-  static const sleep = Color(0xFF7164C5);
-  static const midnight = Color(0xFF292842);
+  static const sleep = Color(0xFF727EA8);
+  static const midnight = Color(0xFF21363D);
   static const energy = Color(0xFFC5793B);
-  static const techBlue = Color(0xFF316EF5);
-  static const techBlueSoft = Color(0xFFEAF1FF);
+  static const techBlue = Color(0xFF285C68);
+  static const techBlueSoft = Color(0xFFE8F1F1);
   static const techIndigo = Color(0xFF4F5FE7);
   static const techIndigoSoft = Color(0xFFEBEDFF);
   static const techCyan = Color(0xFF149FB3);
   static const techCyanDark = Color(0xFF0D7484);
   static const techCyanSoft = Color(0xFFE3F7FA);
-  static const techViolet = Color(0xFF6A58E8);
-  static const techVioletSoft = Color(0xFFF0EDFF);
+  static const techViolet = Color(0xFF6979A5);
+  static const techVioletSoft = Color(0xFFEEF0F7);
   static const techBlueDark = Color(0xFF244BA8);
 
   // Compatibility aliases for older page code. Say Ring no longer uses red
@@ -101,9 +101,9 @@ ThemeData buildSaydianTheme() {
       height: 1.45,
       fontWeight: FontWeight.w700,
     ),
-    bodyLarge: TextStyle(fontSize: 17, height: 1.55),
-    bodyMedium: TextStyle(fontSize: 16, height: 1.5),
-    bodySmall: TextStyle(fontSize: 14, height: 1.45),
+    bodyLarge: TextStyle(fontSize: 18, height: 1.55),
+    bodyMedium: TextStyle(fontSize: 17, height: 1.5),
+    bodySmall: TextStyle(fontSize: 15, height: 1.45),
     labelLarge: TextStyle(
       fontSize: 16,
       height: 1.35,
@@ -115,7 +115,7 @@ ThemeData buildSaydianTheme() {
       fontWeight: FontWeight.w600,
     ),
     labelSmall: TextStyle(
-      fontSize: 13,
+      fontSize: 14,
       height: 1.35,
       fontWeight: FontWeight.w600,
     ),
@@ -183,16 +183,16 @@ ThemeData buildSaydianTheme() {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        minimumSize: const Size(0, 56),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        minimumSize: const Size(0, 52),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        minimumSize: const Size(0, 56),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        minimumSize: const Size(0, 52),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         foregroundColor: SaydianColors.techBlue,
         side: const BorderSide(color: Color(0xFFB8CCED)),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -217,8 +217,8 @@ ThemeData buildSaydianTheme() {
     listTileTheme: const ListTileThemeData(
       iconColor: SaydianColors.techBlue,
       textColor: SaydianColors.ink,
-      minVerticalPadding: 12,
-      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      minVerticalPadding: 9,
+      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       titleTextStyle: TextStyle(
         color: SaydianColors.ink,
         fontSize: 16,

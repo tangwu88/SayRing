@@ -6,6 +6,18 @@ import org.junit.Test
 
 class CoolWearNamePolicyTest {
     @Test
+    fun `vibrating models preserve explicit routes and reject ambiguous names`() {
+        for (name in listOf("R8 pro", "r8PRO", "SD-RING-r8_pro-123", "R8-Pro")) {
+            assertEquals(name, "R8Pro", CoolWearRingBridge.supportedModel(name))
+            assertEquals(name, false, QRingBridge.isQRingName(name))
+        }
+        assertEquals("R7Ultra", CoolWearRingBridge.supportedModel("R7 Ultra"))
+        assertEquals("R7Pro", CoolWearRingBridge.supportedModel("r7 pro"))
+        for (name in listOf("R8Pro-R21", "R8Pro-R8", "R8Protein", "R12-R8Pro", "R7C-R8 Pro")) {
+            assertNull(name, CoolWearRingBridge.supportedModel(name))
+        }
+    }
+    @Test
     fun `only confirmed LuckRing family names are accepted`() {
         assertEquals("HR01", CoolWearRingBridge.supportedModel("HR01"))
         assertEquals("HR01", CoolWearRingBridge.supportedModel("hr01-1"))

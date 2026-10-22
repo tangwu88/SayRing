@@ -600,11 +600,14 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              _DeviceFeatureHeader(
-                feature: widget.feature,
-                device: widget.controller.connectedDevice,
-              ),
-              const SizedBox(height: 14),
+              if (widget.feature != DeviceFeature.gestureControl ||
+                  !availability.isReady) ...[
+                _DeviceFeatureHeader(
+                  feature: widget.feature,
+                  device: widget.controller.connectedDevice,
+                ),
+                const SizedBox(height: 14),
+              ],
               if (!availability.isReady)
                 FeatureStateCard(
                   message: availability.message,
@@ -678,70 +681,22 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         : <int>{};
     final ready = !qring || _featureData['readbackVerified'] == true;
     final reconnect = _featureData['requiresReconnect'] == true;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              qring
-                  ? '选择戒指支持的控制模式，保存后会重新读取戒指确认。'
-                  : '选择戒指手势模式。系统控制效果取决于戒指固件和手机配对。',
-            ),
-            const RingGestureGuide(),
-            if (!ready)
-              Text(
-                busy
-                    ? '正在读取手势设置'
-                    : widget.controller.errorMessage ?? '暂未读到手势设置，请刷新重试',
-              ),
-            if (reconnect) const Text('重新连接后再设置手势'),
-            if (qring && ready && _featureData['confirmedMode'] == -1)
-              const Text('戒指当前使用其他控制模式，选择下方模式会替换当前模式。'),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                key: const ValueKey('gesture-refresh'),
-                onPressed: busy || reconnect ? null : _loadFeature,
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text('刷新状态'),
-              ),
-            ),
-            for (final entry in const [
-              (0, '关闭'),
-              (1, '短视频'),
-              (2, '音乐'),
-              (3, '阅读'),
-              (4, '拍照'),
-              (5, '电话'),
-            ])
-              if (!qring || (ready && available.contains(entry.$1)))
-                ListTile(
-                  key: ValueKey('gesture-mode-${entry.$1}'),
-                  title: Text(entry.$2),
-                  subtitle: Text(RingGestureGuide.modeHint(entry.$1)),
-                  trailing: _featureData['confirmedMode'] == entry.$1
-                      ? const Icon(Icons.check_rounded)
-                      : null,
-                  onTap: busy || reconnect || !ready
-                      ? null
-                      : () => _saveFeature({
-                          'mode': entry.$1,
-                          if (qring) 'expectedMode': _featureData['rawMode'],
-                        }, qring ? '手势模式已保存并读回确认' : '手势模式指令已确认'),
-                ),
-            if (qring && ready && available.length == 1)
-              const Text('戒指尚未上报可开启的控制模式，目前仅可关闭。'),
-            Text(
-              qring
-                  ? '勾选表示从戒指读回的当前模式。控制其他 App 时，还需要完成系统蓝牙配对，并使用固件支持的手势或触控操作。'
-                  : '勾选表示本次连接已确认的指令，不代表已执行手势。',
-              style: const TextStyle(fontSize: 12),
-            ),
-          ],
-        ),
-      ),
+    final confirmedMode = _featureData['confirmedMode'];
+    return RingGesturePanel(
+      availableModes: qring
+          ? (ready ? available : <int>{})
+          : {0, 1, 2, 3, 4, 5},
+      confirmedMode: confirmedMode is int ? confirmedMode : null,
+      ready: ready,
+      busy: busy,
+      requiresReconnect: reconnect,
+      readbackConfirmed: qring && ready,
+      error: widget.controller.errorMessage,
+      onRefresh: _loadFeature,
+      onSelect: (mode) => _saveFeature({
+        'mode': mode,
+        if (qring) 'expectedMode': _featureData['rawMode'],
+      }, qring ? '手势模式已保存并读回确认' : '手势模式指令已确认'),
     );
   }
 
@@ -797,7 +752,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         const SizedBox(height: 8),
         const Text(
           '请在手机设置 → 蓝牙 → 当前设备中允许共享系统通知。实际提醒还受应用通知权限和勿扰设置影响。',
-          style: TextStyle(color: SaydianColors.muted, fontSize: 12),
+          style: TextStyle(color: SaydianColors.muted, fontSize: 14),
         ),
       ],
     );
@@ -1921,7 +1876,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                                   'SOS',
                                   style: TextStyle(
                                     color: SaydianColors.brandRed,
-                                    fontSize: 11,
+                                    fontSize: 14,
                                     fontWeight: FontWeight.w900,
                                   ),
                                 ),

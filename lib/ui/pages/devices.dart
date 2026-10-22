@@ -46,7 +46,7 @@ class DevicePage extends StatelessWidget {
         if (bound != null)
           Container(
             key: const Key('device-overview-card'),
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.white,
               border: Border.all(color: SaydianColors.line),
@@ -57,17 +57,14 @@ class DevicePage extends StatelessWidget {
                 Row(
                   children: [
                     Container(
-                      width: 76,
-                      height: 76,
+                      width: 64,
+                      height: 64,
                       decoration: BoxDecoration(
                         color: SaydianColors.canvas,
                         borderRadius: BorderRadius.circular(24),
                       ),
                       alignment: Alignment.center,
-                      child: const SaydianBrandMark(
-                        size: 54,
-                        color: SaydianColors.ink,
-                      ),
+                      child: const RingDeviceIllustration(size: 60),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -75,7 +72,7 @@ class DevicePage extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            bound.name,
+                            bound.displayName,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -215,7 +212,7 @@ class DevicePage extends StatelessWidget {
                             bound.identifierLabel,
                             style: const TextStyle(
                               color: SaydianColors.muted,
-                              fontSize: 13,
+                              fontSize: 15,
                             ),
                           ),
                         ),
@@ -255,10 +252,7 @@ class DevicePage extends StatelessWidget {
                       shape: BoxShape.circle,
                     ),
                     alignment: Alignment.center,
-                    child: const SaydianBrandMark(
-                      size: 76,
-                      color: SaydianColors.ink,
-                    ),
+                    child: const RingDeviceIllustration(size: 98),
                   ),
                   const SizedBox(height: 20),
                   Text(
@@ -274,7 +268,7 @@ class DevicePage extends StatelessWidget {
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: SaydianColors.muted,
-                      fontSize: 13,
+                      fontSize: 15,
                     ),
                   ),
                   const SizedBox(height: 22),
@@ -484,8 +478,8 @@ class DevicePage extends StatelessWidget {
         child: InkWell(
           onTap: () => _openDeviceFeature(context, feature),
           child: Container(
-            constraints: const BoxConstraints(minHeight: 128),
-            padding: const EdgeInsets.all(16),
+            constraints: const BoxConstraints(minHeight: 110),
+            padding: const EdgeInsets.all(14),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -493,8 +487,8 @@ class DevicePage extends StatelessWidget {
                 Row(
                   children: [
                     Container(
-                      width: 44,
-                      height: 44,
+                      width: 40,
+                      height: 40,
                       decoration: BoxDecoration(
                         color: _featureColor(feature).withValues(alpha: 0.09),
                         borderRadius: BorderRadius.circular(15),
@@ -513,11 +507,11 @@ class DevicePage extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 Text(
                   context.l10n.deviceFeatureName(feature),
                   style: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 18,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -527,7 +521,7 @@ class DevicePage extends StatelessWidget {
                     availability.message,
                     style: const TextStyle(
                       color: SaydianColors.muted,
-                      fontSize: 13,
+                      fontSize: 15,
                       height: 1.4,
                     ),
                   ),
@@ -1140,7 +1134,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: SaydianColors.muted,
-                            fontSize: 13,
+                            fontSize: 15,
                           ),
                         ),
                         if (scanning) ...[
@@ -1201,7 +1195,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                                               children: [
                                                 Flexible(
                                                   child: Text(
-                                                    device.name,
+                                                    device.displayName,
                                                     maxLines: 1,
                                                     overflow:
                                                         TextOverflow.ellipsis,
@@ -1303,7 +1297,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                             textAlign: TextAlign.center,
                             style: const TextStyle(
                               color: SaydianColors.muted,
-                              fontSize: 12,
+                              fontSize: 14,
                               height: 1.4,
                             ),
                           ),
@@ -1524,7 +1518,7 @@ class _DeviceInfoPageState extends State<DeviceInfoPage> {
                   children: [
                     ListTile(
                       title: Text(context.l10n.deviceName),
-                      trailing: Text(device?.name ?? '--'),
+                      trailing: Text(device?.displayName ?? '--'),
                     ),
                     const Divider(indent: 16),
                     ListTile(
@@ -1652,7 +1646,7 @@ class _DeviceFirmwarePageState extends State<DeviceFirmwarePage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      device?.name ?? '未连接设备',
+                      device?.displayName ?? '未连接设备',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     const SizedBox(height: 12),
@@ -1723,7 +1717,7 @@ class _ConnectionBadge extends StatelessWidget {
               label,
               style: const TextStyle(
                 color: SaydianColors.green,
-                fontSize: 12,
+                fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
             ),

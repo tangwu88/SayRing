@@ -146,13 +146,13 @@ class DashboardPage extends StatelessWidget {
                     HealthMetric.steps,
                   )) ...[
                     _DashboardActivity(controller: controller),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                   ],
                   if (controller.shouldShowHealthMetric(
                     HealthMetric.sleep,
                   )) ...[
                     _SleepQuickCard(controller: controller),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                   ],
                   _FeatureEntryGrid(
                     commerceEnabled: controller.mallVisible,
@@ -198,7 +198,7 @@ class DashboardPage extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   if (!controller.hideAiContent) ...[
                     _AiHealthAssistantCard(controller: controller),
                     const SizedBox(height: 12),
@@ -360,7 +360,7 @@ class _DashboardHeader extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   color: SaydianColors.muted,
-                  fontSize: 13,
+                  fontSize: 15,
                 ),
               ),
             ],
@@ -454,7 +454,7 @@ class _MindBodyReadinessCard extends StatelessWidget {
                         : '数据不足 · 已具备 $available/${inputs.length} 项基线数据',
                     style: const TextStyle(
                       color: SaydianColors.muted,
-                      fontSize: 13,
+                      fontSize: 15,
                       height: 1.35,
                     ),
                   ),
@@ -523,7 +523,7 @@ class _AiHealthAssistantCard extends StatelessWidget {
             context.l10n.aiAssistantIntro,
             style: const TextStyle(
               color: SaydianColors.ink,
-              fontSize: 12,
+              fontSize: 14,
               height: 1.2,
             ),
           ),
@@ -682,7 +682,7 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
         : '最近一次 · ${DateFormat('M月d日').format(DateTime.parse(sleepRecordSdkDate(latest)))}';
     return Material(
       key: const Key('home-sleep-overview-entry'),
-      color: const Color(0xFFF0EEF8),
+      color: SaydianColors.techVioletSoft,
       borderRadius: BorderRadius.circular(24),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -693,7 +693,7 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
           ),
         ),
         child: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -709,7 +709,7 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
                     child: Text(
                       '睡眠概览',
                       style: TextStyle(
-                        fontSize: 17,
+                        fontSize: 19,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -717,7 +717,7 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
                   Icon(Icons.chevron_right_rounded, color: SaydianColors.sleep),
                 ],
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 12),
               Text(
                 _loading || _failed ? '--' : _sleepDurationLabel(latest),
                 style: const TextStyle(
@@ -728,12 +728,14 @@ class _SleepQuickCardState extends State<_SleepQuickCard> {
                   letterSpacing: -.6,
                 ),
               ),
+              if (!_loading && !_failed && latest != null)
+                SleepStageMiniBar(record: latest),
               const SizedBox(height: 9),
               Text(
                 caption,
                 style: const TextStyle(
                   color: SaydianColors.muted,
-                  fontSize: 13,
+                  fontSize: 15,
                 ),
               ),
             ],
@@ -1095,7 +1097,7 @@ class _TodayHealthOverview extends StatelessWidget {
     return Card(
       key: const Key('dashboard-today-health'),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 16, 20),
+        padding: const EdgeInsets.fromLTRB(18, 8, 16, 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -1140,7 +1142,7 @@ class _TodayHealthOverview extends StatelessWidget {
               const Text(
                 '暂无今日活动数据',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: SaydianColors.muted, fontSize: 13),
+                style: TextStyle(color: SaydianColors.muted, fontSize: 15),
               ),
             ],
           ],
@@ -1202,7 +1204,7 @@ class _GoalProgressRow extends StatelessWidget {
                       child: Text(
                         context.l10n.metricName(metric),
                         style: const TextStyle(
-                          fontSize: 13,
+                          fontSize: 15,
                           color: SaydianColors.muted,
                         ),
                       ),
@@ -1225,7 +1227,7 @@ class _GoalProgressRow extends StatelessWidget {
                     Text(
                       unavailableReason ?? '/${_format(target)}$unit',
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 14,
                         color: SaydianColors.muted,
                       ),
                     ),
@@ -1396,7 +1398,7 @@ class _DeviceHero extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        device?.name ?? '尚未连接戒指',
+                        device?.displayName ?? '尚未连接戒指',
                         style: const TextStyle(
                           color: SaydianColors.ink,
                           fontSize: 19,
@@ -1413,7 +1415,7 @@ class _DeviceHero extends StatelessWidget {
                       : '${device.displayModel} · ${controller.syncStatus}',
                   style: const TextStyle(
                     color: SaydianColors.muted,
-                    fontSize: 12,
+                    fontSize: 14,
                   ),
                 ),
               ],
@@ -1574,7 +1576,7 @@ class HealthMetricCard extends StatelessWidget {
                         child: Text(
                           _healthDisplayUnit(metric, record, controller),
                           style: const TextStyle(
-                            fontSize: 13,
+                            fontSize: 15,
                             color: SaydianColors.muted,
                           ),
                         ),
@@ -1585,7 +1587,7 @@ class HealthMetricCard extends StatelessWidget {
                   Text(
                     statusLabel,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 14,
                       color: needsAttention
                           ? SaydianColors.danger
                           : SaydianColors.muted,
@@ -1608,7 +1610,7 @@ class HealthMetricCard extends StatelessWidget {
                         'M月d日 HH:mm',
                       ).format(record!.measuredAt.toLocal()),
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 14,
                         color: SaydianColors.muted,
                       ),
                     ),

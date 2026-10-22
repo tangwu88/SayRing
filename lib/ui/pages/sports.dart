@@ -947,7 +947,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
             InlineNotice(
               message: widget.controller.connectedDevice == null
                   ? context.l10n.connectForWorkout
-                  : '已连接 ${widget.controller.connectedDevice!.name}。$_locationStatus',
+                  : '已连接 ${widget.controller.connectedDevice!.displayName}。$_locationStatus',
               icon: Icons.watch_rounded,
               color: SaydianColors.blue,
             ),

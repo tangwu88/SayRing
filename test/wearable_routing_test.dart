@@ -8,6 +8,42 @@ import 'package:saydian_app/services/wearable_routing.dart';
 
 void main() {
   test(
+    'vibrating models route consistently with explicit-prefix safeguards',
+    () {
+      for (final entry in {
+        'R7 Pro': 'R7Pro',
+        'r7 ultra': 'R7Ultra',
+        'Hr05': 'HR05',
+        'R8 pro': 'R8Pro',
+        'r8PRO': 'R8Pro',
+        'SD-RING-r8_pro-123': 'R8Pro',
+        'R8-Pro': 'R8Pro',
+      }.entries) {
+        expect(
+          WearableDeviceClassifier.transportFor(entry.key),
+          WearableTransport.coolwear,
+          reason: entry.key,
+        );
+        expect(
+          WearableDeviceClassifier.coolwearModelForName(entry.key),
+          entry.value,
+        );
+      }
+      for (final name in ['R8', 'R8Protein', 'R12-R8Pro', 'R7C-R8 Pro']) {
+        expect(
+          WearableDeviceClassifier.transportFor(name),
+          WearableTransport.qring,
+        );
+        expect(WearableDeviceClassifier.coolwearModelForName(name), isNull);
+      }
+      for (final name in ['R8Pro-R21', 'HR05-R8', 'R8Pro-R8']) {
+        expect(WearableDeviceClassifier.transportFor(name), isNull);
+        expect(WearableDeviceClassifier.coolwearModelForName(name), isNull);
+      }
+    },
+  );
+
+  test(
     'production router forwards Vep native market and download only',
     () async {
       final vep = _NativeMarketBridge();

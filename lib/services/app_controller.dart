@@ -3987,7 +3987,10 @@ class AppController extends ChangeNotifier {
     try {
       Map<String, bool> settings;
       try {
-        settings = await _wearable.readAutoMeasureSettings();
+        settings = await _readAfterCoolWearQueue(
+          _wearable.readAutoMeasureSettings,
+          isCurrent,
+        );
       } on PlatformException catch (error) {
         if (!_isTransientDeviceSettingsError(error)) rethrow;
         if (!isCurrent()) return;
@@ -3995,7 +3998,10 @@ class AppController extends ChangeNotifier {
         notifyListeners();
         await Future<void>.delayed(const Duration(milliseconds: 650));
         if (!isCurrent()) return;
-        settings = await _wearable.readAutoMeasureSettings();
+        settings = await _readAfterCoolWearQueue(
+          _wearable.readAutoMeasureSettings,
+          isCurrent,
+        );
       }
       if (!isCurrent()) return;
       autoMeasureSettings = settings;
@@ -4298,6 +4304,32 @@ class AppController extends ChangeNotifier {
     return const FeatureAvailability(FeatureAvailabilityStatus.ready);
   }
 
+  // Initial capability probes share the vendor command queue. Only retry a
+  // rejected READ; never repeat a settings write or carry it to a new owner.
+  Future<T> _readAfterCoolWearQueue<T>(
+    Future<T> Function() read,
+    bool Function() isCurrent,
+  ) async {
+    final waitForQueue =
+        defaultTargetPlatform == TargetPlatform.iOS &&
+        connectedDevice?.sdkSource == WearableSdkSource.coolwear;
+    for (var attempt = 0; ; attempt++) {
+      if (!isCurrent()) {
+        throw PlatformException(code: 'DEVICE_CHANGED');
+      }
+      try {
+        return await read();
+      } on PlatformException catch (error) {
+        if (!waitForQueue ||
+            !const {'CONNECT_BUSY', 'DEVICE_BUSY'}.contains(error.code) ||
+            attempt >= 40) {
+          rethrow;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      }
+    }
+  }
+
   Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async {
     final availability = availabilityFor(feature);
     if (!availability.isReady) {
@@ -4315,8 +4347,12 @@ class AppController extends ChangeNotifier {
         connectedDevice?.id == deviceId;
     _setDeviceFeatureBusy(feature, true);
     try {
-      final value = await _wearable.readDeviceFeature(feature);
+      final value = await _readAfterCoolWearQueue(
+        () => _wearable.readDeviceFeature(feature),
+        () => isCurrent() && availabilityFor(feature).isReady,
+      );
       if (!isCurrent()) return const {};
+      errorMessage = null;
       deviceFeatureData = {...deviceFeatureData, feature: value};
       return value;
     } on PlatformException catch (error) {
@@ -6835,7 +6871,7 @@ class AppController extends ChangeNotifier {
       'BLE_PERMISSION_DENIED' => '允许相关权限后使用',
       'LOCATION_SERVICE_DISABLED' => '请开启手机定位后再查找戒指',
       'DEVICE_NOT_FOUND' => '戒指已离开搜索范围，请重新搜索',
-      'DEVICE_SDK_UNAVAILABLE' => '此版本不支持该设备，请连接 QRing 或 CoolWear 戒指',
+      'DEVICE_SDK_UNAVAILABLE' => '此版本不支持该设备，请选择兼容的智能戒指',
       'NOT_CONNECTED' => '连接戒指后使用',
       'UNSUPPORTED_METRIC' ||
       'MEASUREMENT_NOT_AVAILABLE' ||

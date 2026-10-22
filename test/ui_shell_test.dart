@@ -2594,13 +2594,13 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.check_rounded), findsNothing);
+      expect(find.byIcon(Icons.check_circle_rounded), findsNothing);
       await tester.ensureVisible(find.text('拍照'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('拍照'));
       await tester.pumpAndSettle();
       expect(bridge.lastWrite, {'mode': 4});
-      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
       expect(find.text('手势模式指令已确认'), findsOneWidget);
     },
   );
@@ -2636,14 +2636,12 @@ void main() {
       expect(find.byKey(const ValueKey('gesture-mode-2')), findsNothing);
       expect(find.byKey(const ValueKey('gesture-mode-5')), findsNothing);
       await tester.ensureVisible(find.byKey(const ValueKey('gesture-mode-4')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('gesture-mode-4')));
       await tester.pumpAndSettle();
       expect(bridge.lastWrite, {'mode': 4, 'expectedMode': 2});
       expect(find.text('手势模式已保存并读回确认'), findsOneWidget);
-      final tile = tester.widget<ListTile>(
-        find.byKey(const ValueKey('gesture-mode-4')),
-      );
-      expect(tile.trailing, isA<Icon>());
+      expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -2678,15 +2676,15 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
       await tester.ensureVisible(find.text('拍照'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('拍照'));
       await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.check_rounded), findsNothing);
-      expect(find.text('重新连接后再设置手势'), findsOneWidget);
-      final photoTile = tester.widget<ListTile>(
-        find.ancestor(of: find.text('拍照'), matching: find.byType(ListTile)),
+      expect(find.byIcon(Icons.check_circle_rounded), findsNothing);
+      expect(find.text('请重新连接戒指'), findsOneWidget);
+      final photoTile = tester.widget<InkWell>(
+        find.byKey(const ValueKey('gesture-mode-4')),
       );
       expect(photoTile.onTap, isNull);
       expect(tester.takeException(), isNull);
@@ -2809,7 +2807,7 @@ void main() {
       );
       controller.notifyListeners();
       await tester.pumpAndSettle();
-      expect(find.text('请连接支持拍照的 QRing 戒指'), findsOneWidget);
+      expect(find.text('请连接支持相机遥控的戒指'), findsOneWidget);
       expect(find.text('拍照状态未确认，请重新连接'), findsNothing);
     },
   );
@@ -3006,6 +3004,7 @@ void main() {
         final guide = find.byKey(const ValueKey('ring-gesture-guide'));
         expect(guide, findsOneWidget);
         await tester.ensureVisible(find.text('使用说明'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('使用说明'));
         await tester.pumpAndSettle();
         expect(find.text('使用前'), findsOneWidget);

@@ -8,7 +8,7 @@ String userFacingMessage(String? value, {required String fallback}) {
     return '网络不可用，请检查后重试';
   }
   if (RegExp(
-    r'sdk|api|http|token|appid|universal.?link|exception|stack.?trace|<[^>]+>|'
+    r'qring|luckring|coolwear|sdk|api|http|token|appid|universal.?link|exception|stack.?trace|<[^>]+>|'
     r'接口|服务端|后端|后台返回|后台未返回|桥接|未配置|配置异常|未实现|未接入|调试|原生|回调|服务器返回|响应格式',
     caseSensitive: false,
   ).hasMatch(message)) {

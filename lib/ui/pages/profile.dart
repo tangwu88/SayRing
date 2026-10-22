@@ -66,7 +66,7 @@ class SettingsPage extends StatelessWidget {
                             '戒指数据只保存在本机；登录后可使用账号同步服务。',
                             style: TextStyle(
                               color: SaydianColors.muted,
-                              fontSize: 13,
+                              fontSize: 15,
                             ),
                           ),
                         ],
@@ -122,7 +122,7 @@ class SettingsPage extends StatelessWidget {
                                 : '登录后可保存健康数据和设备信息',
                             style: TextStyle(
                               color: SaydianColors.muted,
-                              fontSize: 13,
+                              fontSize: 15,
                             ),
                           ),
                         ],
@@ -665,7 +665,7 @@ class _ProfileStat extends StatelessWidget {
                       textAlign: horizontal ? TextAlign.left : TextAlign.center,
                       style: const TextStyle(
                         color: SaydianColors.muted,
-                        fontSize: 12,
+                        fontSize: 14,
                       ),
                     ),
                   ],

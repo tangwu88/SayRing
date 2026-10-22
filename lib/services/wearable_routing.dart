@@ -24,18 +24,23 @@ class WearableDeviceClassifier {
   static bool _explicitQRing(String name) =>
       name.startsWith('R1') || name.startsWith('R2') || name.contains('R7C');
 
+  static final _r8Pro = RegExp(r'R8[\s_-]*PRO(?![A-Z])');
+  static bool _qringMarker(String name) =>
+      const ['R8', 'R21', 'R22'].any(name.replaceAll(_r8Pro, '').contains);
+
   // The product owner confirmed these CoolWear/LuckRing model names. A name
   // only chooses a candidate transport; the native handshake still gates it.
   static String? coolwearModelForName(String name) {
     final normalized = name.trim().toUpperCase();
-    if (_explicitQRing(normalized) ||
-        const ['R8', 'R21', 'R22'].any(normalized.contains)) {
+    if (_explicitQRing(normalized) || _qringMarker(normalized)) {
       return null;
     }
     if (normalized.contains('HR01')) return 'HR01';
     if (normalized.contains('HR05')) return 'HR05';
-    if (normalized.contains('R7ULTRA')) return 'R7Ultra';
-    if (normalized.contains('R7PRO')) return 'R7Pro';
+    if (_r8Pro.hasMatch(normalized)) return 'R8Pro';
+    final model = normalized.replaceAll(RegExp(r'[\s_-]+'), '');
+    if (model.contains('R7ULTRA')) return 'R7Ultra';
+    if (model.contains('R7PRO')) return 'R7Pro';
     if (normalized.contains('R7Y')) return 'R7Y';
     if (normalized.contains('R7')) return 'R7';
     if (normalized.contains('K80')) return 'K80';
@@ -46,13 +51,10 @@ class WearableDeviceClassifier {
     final normalized = name.trim().toUpperCase();
     // Explicit prefix rules override inherited substring matches (R7C/R7).
     if (_explicitQRing(normalized)) return WearableTransport.qring;
-    final qring = const ['R8', 'R21', 'R22'].any(normalized.contains);
-    final luckring = const [
-      'R7',
-      'K80',
-      'HR01',
-      'HR05',
-    ].any(normalized.contains);
+    final qring = _qringMarker(normalized);
+    final luckring =
+        _r8Pro.hasMatch(normalized) ||
+        const ['R7', 'K80', 'HR01', 'HR05'].any(normalized.contains);
     // User-confirmed model markers take priority over inherited SDK prefixes.
     // A conflicting name cannot select either SDK without clarification.
     if (qring && luckring) return null;
@@ -318,7 +320,7 @@ class RoutedWearableBridge
     if (source == null) {
       throw PlatformException(
         code: 'DEVICE_SDK_UNAVAILABLE',
-        message: '此版本不支持该设备，请连接 QRing 或 CoolWear 戒指',
+        message: '此版本不支持该设备，请选择兼容的智能戒指',
       );
     }
     if (source is! WearableRememberedDeviceSelectionBridge) return null;
@@ -751,7 +753,7 @@ class RoutedWearableBridge
     if (source == null) {
       throw PlatformException(
         code: 'DEVICE_SDK_UNAVAILABLE',
-        message: '此版本不支持该设备，请连接 QRing 或 CoolWear 戒指',
+        message: '此版本不支持该设备，请选择兼容的智能戒指',
       );
     }
     _requireRecoverySourceAvailable(saved.transport);
