@@ -264,6 +264,18 @@ abstract interface class WearableBindingManagementBridge {
   Future<void> forgetRememberedDevice();
 }
 
+enum RingDataClearResult { acknowledged, requested, factoryResetRequested }
+
+/// Clears ring history; a factory-only adapter additionally requires the
+/// explicit allowFactoryReset grant. Never delete phone/cloud history.
+abstract interface class WearableRingDataClearBridge {
+  Future<RingDataClearResult> clearRingHistory({
+    required String deviceId,
+    required String ownerKey,
+    bool allowFactoryReset = false,
+  });
+}
+
 /// A visible legacy binding can be manually selected without authorizing
 /// automatic recovery. Optional to preserve older adapters and test doubles.
 abstract interface class WearableRememberedRecoveryEligibilityBridge {

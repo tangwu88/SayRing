@@ -83,6 +83,8 @@ Session _session(String account, {String? memberId}) => Session(
 
 class _UiController extends Fake implements AppController {
   @override
+  String? firstRingBindingStatus;
+  @override
   bool get isWellnessOnly => false;
   @override
   bool isMetricAvailableInRelease(HealthMetric metric) => true;

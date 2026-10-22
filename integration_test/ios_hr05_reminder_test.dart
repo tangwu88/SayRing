@@ -115,6 +115,14 @@ void main() {
             .toList();
         report['syncStatus'] = app.syncStatus;
         await checked('owned_luckring_handshake_idle');
+        expect(app.rememberedDevice?.id, target.id);
+        expect(
+          app.firstRingBindingStatus,
+          isNull,
+          reason:
+              'Existing member recovery must not request first-binding data clearing',
+        );
+        await checked('existing_member_initialization_not_requested');
         if (app.availabilityFor(DeviceFeature.gestureControl).isReady) {
           final entry = find.byKey(const Key('device-feature-gesture_control'));
           await tester.scrollUntilVisible(

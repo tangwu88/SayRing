@@ -245,6 +245,21 @@ abstract interface class SaydianDeviceBindingApi {
   });
 }
 
+/// A server decision over the member's lifetime binding history. Missing or
+/// ambiguous responses never authorize a destructive device command.
+abstract interface class SayRingFirstBindingApi {
+  Future<bool> reportFirstRingBinding({
+    required Session expectedSession,
+    required String deviceId,
+    required String vendor,
+    required String model,
+    required String displayName,
+    String? firmware,
+    String? macAddress,
+    List<String> capabilities = const [],
+  });
+}
+
 abstract interface class SaydianProfileUploadApi {
   Future<String> uploadProfileImage(String filePath);
 }

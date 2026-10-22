@@ -21,7 +21,8 @@ class QRingWearableBridge
         WearableRememberedDeviceSelectionBridge,
         WearableReadOnlyHealthPolicyBridge,
         WearableManualHealthPolicyBridge,
-        WearableExactTargetRecoveryBridge {
+        WearableExactTargetRecoveryBridge,
+        WearableRingDataClearBridge {
   QRingWearableBridge({
     MethodChannel? methods,
     EventChannel? events,
@@ -70,6 +71,7 @@ class QRingWearableBridge
       'readAutoMeasureSettings',
       'setAutoMeasureSetting',
       'triggerDeviceAction',
+      'clearRingHistory',
     };
     if (!serial.contains(method)) {
       return _invokeMethod<T>(method, arguments, timeout);
@@ -171,6 +173,32 @@ class QRingWearableBridge
 
   @override
   Future<void> disconnect() => _invoke<void>('disconnect');
+
+  @override
+  Future<RingDataClearResult> clearRingHistory({
+    required String deviceId,
+    required String ownerKey,
+    bool allowFactoryReset = false,
+  }) async {
+    if (!allowFactoryReset) {
+      throw PlatformException(
+        code: 'FACTORY_RESET_NOT_AUTHORIZED',
+        message: '此戒指清空数据需要恢复出厂授权',
+      );
+    }
+    final value = await _invoke<String>('clearRingHistory', {
+      'id': deviceId,
+      'ownerKey': ownerKey,
+      'allowFactoryReset': true,
+    });
+    if (value != 'factoryResetRequested') {
+      throw PlatformException(
+        code: 'RING_HISTORY_CLEAR_UNCONFIRMED',
+        message: '恢复出厂结果尚未确认',
+      );
+    }
+    return RingDataClearResult.factoryResetRequested;
+  }
 
   @override
   Future<void> configureRecoveryTarget({

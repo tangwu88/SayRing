@@ -124,6 +124,9 @@ static void CoolWearOnMain(dispatch_block_t block) {
 @property(nonatomic, strong) NSNumber *reminderProbeType;
 @property(nonatomic) BOOL messageReadSupported;
 @property(nonatomic) NSUInteger remindersPoisonGeneration;
+@property(nonatomic, copy) FlutterResult pendingRingClear;
+@property(nonatomic, strong) NSNumber *ringClearAttemptConnection;
+@property(nonatomic, copy) NSString *ringClearContext;
 @end
 
 @implementation CoolWearWearableBridge
@@ -1334,6 +1337,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
 }
 
 - (void)beginCancellation:(FlutterResult)result {
+    FlutterResult clear = self.pendingRingClear; self.pendingRingClear = nil;
+    if (clear) clear([self error:@"CONNECT_CANCELLED" message:@"连接已变化，清空结果未确认"]);
     self.probingReminders = NO; self.reminderProbeType = nil;
     [self finishReminders:[self error:@"CONNECT_CANCELLED" message:@"连接已取消"]];
     [self.reminderSnapshots removeAllObjects];
@@ -1471,9 +1476,50 @@ static void CoolWearOnMain(dispatch_block_t block) {
     }
 }
 
+- (void)clearRingHistoryWhenIdle:(NSUInteger)generation deadline:(NSTimeInterval)deadline {
+    if (!self.pendingRingClear || generation != self.connectionGeneration) return;
+    if (![self isResolved] || ![self.recoveryContext isEqual:self.ringClearContext] ||
+        NSProcessInfo.processInfo.systemUptime >= deadline) {
+        FlutterResult done = self.pendingRingClear; self.pendingRingClear = nil;
+        done([self error:@"RING_HISTORY_CLEAR_UNCONFIRMED" message:@"首次清空未确认，未自动同步历史"]); return;
+    }
+    if (self.probingReminders || self.pendingReminders || self.pendingControl || self.pendingFind ||
+        self.pendingBattery || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) {
+        __weak typeof(self) weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+            [weakSelf clearRingHistoryWhenIdle:generation deadline:deadline];
+        });
+        return;
+    }
+    CE_ClearDataCmd *command = [CE_ClearDataCmd new];
+    self.ringClearAttemptConnection = @(generation);
+    command.repeatSendTimes = 0; command.overtime = 8; command.noCallback = NO;
+    __weak typeof(self) weakSelf = self;
+    // Send once; never retry an ambiguous destructive operation.
+    [self.product sendCmdToDevice:command complete:^(NSError *error) {
+        CoolWearAfterSDKCallback(^{
+            if (!weakSelf.pendingRingClear || generation != weakSelf.connectionGeneration) return;
+            FlutterResult done = weakSelf.pendingRingClear; weakSelf.pendingRingClear = nil;
+            [weakSelf.pendingPassiveRecords removeAllObjects];
+            [weakSelf.historyRecords removeAllObjects]; [weakSelf.historyBatches removeAllObjects];
+            [weakSelf.syncRecords removeAllObjects]; [weakSelf.syncBatches removeAllObjects];
+            done(error ? [weakSelf error:@"RING_HISTORY_CLEAR_UNCONFIRMED" message:@"戒指未确认清空指令，未自动同步历史"] : @"acknowledged");
+        });
+    }];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 9 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (!weakSelf.pendingRingClear || generation != weakSelf.connectionGeneration) return;
+        FlutterResult done = weakSelf.pendingRingClear; weakSelf.pendingRingClear = nil;
+        done([weakSelf error:@"RING_HISTORY_CLEAR_UNCONFIRMED" message:@"清空结果未确认，请重新连接后核验"]);
+    });
+}
+
 - (void)handle:(FlutterMethodCall *)call result:(FlutterResult)result {
     result = CoolWearCompleteOnce(result);
     NSDictionary *args = [call.arguments isKindOfClass:NSDictionary.class] ? call.arguments : @{};
+    if (self.pendingRingClear && ![@[@"disconnect", @"configureRecoveryTarget", @"configureReadOnlyHealthMetrics",
+        @"configureManualHealthMetrics", @"stopMeasurement", @"stopSport"] containsObject:call.method]) {
+        result([self error:@"DEVICE_BUSY" message:@"正在初始化戒指，请稍候"]); return;
+    }
     if ([call.method isEqualToString:@"configureManualHealthMetrics"]) {
         [self reconcileManualPolicy]; // Renewal must not revive an expired start.
         BOOL accepted = SRConfigureManualHealthLease(args);
@@ -1524,6 +1570,22 @@ static void CoolWearOnMain(dispatch_block_t block) {
             if (self.cancelling) { result([self error:@"CONNECT_BUSY" message:@"戒指正在断开，请稍候"]); return; }
             [self beginCancellation:result];
         } else if ([call.method isEqualToString:@"getDeviceDetails"]) [self readBattery:result];
+        else if ([call.method isEqualToString:@"clearRingHistory"]) {
+            if ([self.ringClearAttemptConnection isEqual:@(self.connectionGeneration)]) {
+                result([self error:@"RING_HISTORY_CLEAR_ALREADY_REQUESTED" message:@"本次连接已请求清空，不会重复执行"]); return;
+            }
+            NSString *identifier = [args[@"id"] isKindOfClass:NSString.class] ? args[@"id"] : nil;
+            NSString *owner = [args[@"ownerKey"] isKindOfClass:NSString.class] ? args[@"ownerKey"] : nil;
+            if (![self isResolved] || !identifier || !owner.length ||
+                ![self.target.identifier.UUIDString.lowercaseString isEqual:identifier.lowercaseString] ||
+                ![self.recoveryContext hasSuffix:[@":" stringByAppendingString:owner]]) {
+                result([self error:@"STALE_DEVICE_SESSION" message:@"戒指或账号已变化，未清空数据"]); return;
+            }
+            self.pendingRingClear = result;
+            self.ringClearContext = self.recoveryContext;
+            self.dataDeliveryReady = NO;
+            [self clearRingHistoryWhenIdle:self.connectionGeneration deadline:NSProcessInfo.processInfo.systemUptime + 40];
+        }
         else if ([call.method isEqualToString:@"triggerDeviceAction"]) {
             if ([args[@"feature"] isEqual:@"camera"]) [self control:args action:YES write:YES result:result];
             else [self findDevice:args probe:NO result:result];

@@ -87,6 +87,40 @@ void main() {
     });
   });
 
+  test(
+    'history clear distinguishes ACK from dispatch and rejects unknown results without retry',
+    () async {
+      for (final outcome in ['acknowledged', 'requested', null]) {
+        final calls = <MethodCall>[];
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return outcome;
+        });
+        final bridge = CoolWearWearableBridge(methods: channel);
+        final future = bridge.clearRingHistory(
+          deviceId: 'test-ring',
+          ownerKey: 'test-owner',
+        );
+        if (outcome == null) {
+          await expectLater(future, throwsA(isA<PlatformException>()));
+        } else {
+          expect(
+            await future,
+            outcome == 'acknowledged'
+                ? RingDataClearResult.acknowledged
+                : RingDataClearResult.requested,
+          );
+        }
+        expect(calls, hasLength(1));
+        expect(calls.single.method, 'clearRingHistory');
+        expect(calls.single.arguments, {
+          'id': 'test-ring',
+          'ownerKey': 'test-owner',
+        });
+      }
+    },
+  );
+
   tearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
   test(

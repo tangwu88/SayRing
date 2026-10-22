@@ -76,6 +76,8 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 @property(nonatomic, assign) BOOL remoteCameraActive;
 @property(nonatomic, assign) NSUInteger remoteCameraEpoch;
 @property(nonatomic) NSUInteger monitoringPoisonGeneration;
+@property(nonatomic, strong) NSNumber *factoryResetGeneration;
+@property(nonatomic, strong) NSNumber *factoryInitializingGeneration;
 @end
 
 @implementation QRingWearableBridge
@@ -364,6 +366,35 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     self.recoveryContext = context;
     self.recoveryProfile = [arguments[@"profile"] isKindOfClass:NSDictionary.class] ? arguments[@"profile"] : @{};
     [self.central discardRestoredPeripheralsExceptIdentifier:identifier];
+    // Explicit connection arms the owner only after the SDK handshake. Resume
+    // initialization for this already selected target; never select or reset it.
+    NSDictionary *intent = [self factoryInitialization:identifier context:context];
+    if ([self isResolved] && [self.connectedID.lowercaseString isEqual:identifier.lowercaseString] &&
+        intent && ![intent[@"initialized"] isEqual:@YES] &&
+        ![self.factoryResetGeneration isEqual:@(self.connectionGeneration)]) {
+        if ([self.factoryInitializingGeneration isEqual:@(self.connectionGeneration)]) {
+            result([self error:@"DEVICE_BUSY" message:@"戒指正在初始化，请稍候"]); return;
+        }
+        NSUInteger generation = self.connectionGeneration;
+        self.factoryInitializingGeneration = @(generation);
+        self.profile = self.recoveryProfile;
+        __weak typeof(self) weakSelf = self;
+        __block BOOL finished = NO;
+        QRingNext finish = ^{
+            if (finished) return;
+            finished = YES;
+            if ([weakSelf.factoryInitializingGeneration isEqual:@(generation)]) weakSelf.factoryInitializingGeneration = nil;
+            if ([weakSelf isCurrentConnection:generation] && [weakSelf.recoveryContext isEqual:context] &&
+                [weakSelf.connectedID.lowercaseString isEqual:identifier.lowercaseString]) {
+                [weakSelf emit:@"capabilitiesUpdated" payload:[weakSelf capabilities]];
+                [weakSelf emitFactoryInitialization];
+            }
+            result(nil);
+        };
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 12 * NSEC_PER_SEC), dispatch_get_main_queue(), finish);
+        [self writeProfileWithCompletion:finish];
+        return;
+    }
     [self startAutomaticRecovery];
     result(nil);
 }
@@ -431,7 +462,122 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     return MIN(maximum, MAX(minimum, value));
 }
 
+- (NSString *)factoryInitializationKey:(NSString *)identifier context:(NSString *)context {
+    return [NSString stringWithFormat:@"SayRing.factoryInitialization.v1.%@.%@", context ?: @"", identifier.lowercaseString ?: @""];
+}
+
+- (NSDictionary *)factoryInitialization:(NSString *)identifier context:(NSString *)context {
+    if (!identifier.length || !context.length) return nil;
+    id value = [NSUserDefaults.standardUserDefaults objectForKey:[self factoryInitializationKey:identifier context:context]];
+    if (![value isKindOfClass:NSDictionary.class] || ![value[@"id"] isEqual:identifier.lowercaseString] ||
+        ![value[@"context"] isEqual:context] || ![value[@"schemaVersion"] isEqual:@1]) return nil;
+    return value;
+}
+
+- (BOOL)saveFactoryInitialization:(NSDictionary *)value identifier:(NSString *)identifier context:(NSString *)context {
+    [NSUserDefaults.standardUserDefaults setObject:value forKey:[self factoryInitializationKey:identifier context:context]];
+    return [NSUserDefaults.standardUserDefaults synchronize];
+}
+
+- (void)updateFactoryInitialization:(NSString *)identifier context:(NSString *)context acknowledged:(BOOL)ack initialized:(BOOL)initialized {
+    NSDictionary *stored = [self factoryInitialization:identifier context:context];
+    if (!stored) return;
+    NSMutableDictionary *value = [stored mutableCopy];
+    if (ack) value[@"acknowledged"] = @YES;
+    if (initialized) value[@"initialized"] = @YES;
+    [self saveFactoryInitialization:value identifier:identifier context:context];
+}
+
+- (BOOL)factoryInitializationPending {
+    NSDictionary *value = [self factoryInitialization:self.connectedID context:self.recoveryContext];
+    return value && (![[value objectForKey:@"acknowledged"] isEqual:@YES] || ![[value objectForKey:@"initialized"] isEqual:@YES]);
+}
+
+- (void)emitFactoryInitialization {
+    if (![self isResolved] || ![self factoryInitialization:self.connectedID context:self.recoveryContext]) return;
+    [self emit:@"ringInitialization" payload:@{@"deviceId": self.connectedID,
+        @"ownerKey": [self.recoveryContext componentsSeparatedByString:@":"].lastObject ?: @"",
+        @"status": [self factoryInitializationPending] ? @"pending" : @"complete"}];
+}
+
+- (void)initializeFactoryTargetWithCompletion:(QRingNext)completion {
+    NSString *identifier = self.connectedID, *context = self.recoveryContext;
+    NSDictionary *intent = [self factoryInitialization:identifier context:context];
+    if (!intent || [intent[@"initialized"] isEqual:@YES]) { completion(); return; }
+    NSUInteger generation = self.connectionGeneration;
+    BOOL rearming = [self.factoryInitializingGeneration isEqual:@(generation)];
+    NSInteger target = [self profileNumber:@"targetSteps" fallback:8000 minimum:1000 maximum:100000];
+    __weak typeof(self) weakSelf = self;
+    __block BOOL finished = NO;
+    QRingNext finish = ^{ if (!finished) { finished = YES; completion(); } };
+    BOOL (^current)(void) = ^BOOL { return !finished && (!rearming || [weakSelf.factoryInitializingGeneration isEqual:@(generation)]) && [weakSelf isCurrentConnection:generation] &&
+        [weakSelf.connectedID.lowercaseString isEqual:identifier.lowercaseString] && [weakSelf.recoveryContext isEqual:context]; };
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (current()) finish();
+    });
+    // Preserve every other freshly read target; never guess calorie/distance
+    // units or restore a previous wearer's reminder settings after a reset.
+    [QCSDKCmdCreator getStepTargetInfoWithSuccess:^(NSInteger steps, NSInteger calories, NSInteger distance, NSInteger sport, NSInteger sleep) {
+        QRingOnMain(^{
+            if (!current()) return;
+            [QCSDKCmdCreator setStepTarget:target calorieTarget:calories distanceTarget:distance sportDurationTarget:sport sleepDurationTarget:sleep success:^{
+                QRingOnMain(^{
+                    if (!current()) return;
+                    [QCSDKCmdCreator getStepTargetInfoWithSuccess:^(NSInteger actual, NSInteger c, NSInteger d, NSInteger s, NSInteger n) {
+                        QRingOnMain(^{
+                            if (!current()) return;
+                            if (actual == target && c == calories && d == distance && s == sport && n == sleep)
+                                [weakSelf updateFactoryInitialization:identifier context:context acknowledged:NO initialized:YES];
+                            finish();
+                        });
+                    } fail:^{ QRingOnMain(^{ if (current()) finish(); }); }];
+                });
+            } fail:^{ QRingOnMain(^{ if (current()) finish(); }); }];
+        });
+    } fail:^{ QRingOnMain(^{ if (current()) finish(); }); }];
+}
+
+- (void)resetFirstMemberRing:(NSDictionary *)arguments result:(FlutterResult)result {
+    NSString *identifier = [arguments[@"id"] isKindOfClass:NSString.class] ? arguments[@"id"] : nil;
+    NSString *owner = [arguments[@"ownerKey"] isKindOfClass:NSString.class] ? arguments[@"ownerKey"] : nil;
+    if (![arguments[@"allowFactoryReset"] isEqual:@YES] || !owner.length || ![self isResolved] ||
+        ![self.connectedID.lowercaseString isEqual:identifier.lowercaseString] ||
+        ![self.recoveryContext hasSuffix:[@":" stringByAppendingString:owner]]) {
+        result([self error:@"FACTORY_RESET_NOT_AUTHORIZED" message:@"首次绑定恢复出厂未获确认，未执行"]); return;
+    }
+    if (self.pendingSync || self.activeMetric || self.activeSportType >= 0 || self.readingDetails ||
+        [self.factoryResetGeneration isEqual:@(self.connectionGeneration)] ||
+        [self factoryInitialization:identifier context:self.recoveryContext]) {
+        result([self error:@"DEVICE_BUSY" message:@"设备忙或已请求初始化，不会重复重置"]); return;
+    }
+    NSString *context = self.recoveryContext;
+    NSDictionary *intent = @{@"schemaVersion": @1, @"id": identifier.lowercaseString,
+        @"context": context, @"acknowledged": @NO, @"initialized": @NO};
+    if (![self saveFactoryInitialization:intent identifier:identifier context:context]) {
+        result([self error:@"INITIALIZATION_STORAGE_FAILED" message:@"初始化记录未能保存，未重置戒指"]); return;
+    }
+    self.factoryResetGeneration = @(self.connectionGeneration);
+    NSUInteger generation = self.connectionGeneration;
+    __weak typeof(self) weakSelf = self;
+    [QCSDKCmdCreator resetBandToFacotrySuccess:^{
+        QRingOnMain(^{
+            // Never attribute an SDK callback to another connection/owner.
+            if (generation != weakSelf.connectionGeneration || ![weakSelf.recoveryContext isEqual:context] ||
+                ![weakSelf.connectedID.lowercaseString isEqual:identifier.lowercaseString]) return;
+            [weakSelf updateFactoryInitialization:identifier context:context acknowledged:YES initialized:NO];
+            if ([weakSelf.connectedID.lowercaseString isEqual:identifier.lowercaseString] && [weakSelf.recoveryContext isEqual:context] && [weakSelf isResolved]) {
+                [weakSelf emit:@"capabilitiesUpdated" payload:[weakSelf capabilities]];
+                [weakSelf emitFactoryInitialization];
+            }
+        });
+    } fail:^{ /* Ambiguous result stays pending; never retry the reset. */ }];
+    result(@"factoryResetRequested");
+}
+
 - (void)writeProfileWithCompletion:(QRingNext)completion {
+    NSUInteger generation = self.connectionGeneration;
+    BOOL rearming = [self.factoryInitializingGeneration isEqual:@(generation)];
+    NSString *identifier = self.connectedID, *context = self.recoveryContext;
     NSInteger gender = [self profileNumber:@"gender" fallback:1 minimum:1 maximum:2] == 2 ? 1 : 0;
     [QCSDKCmdCreator setTimeFormatTwentyfourHourFormat:YES
                                           metricSystem:YES
@@ -440,7 +586,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
                                                 height:[self profileNumber:@"heightCm" fallback:170 minimum:80 maximum:240]
                                                 weight:[self profileNumber:@"weightKg" fallback:65 minimum:20 maximum:250]
                                                sbpBase:0 dbpBase:0 hrAlarmValue:0
-                                               success:^(__unused BOOL a, __unused BOOL b, __unused NSInteger c, __unused NSInteger d, __unused NSInteger e, __unused NSInteger f, __unused NSInteger g, __unused NSInteger h, __unused NSInteger i) { completion(); }
+                                               success:^(__unused BOOL a, __unused BOOL b, __unused NSInteger c, __unused NSInteger d, __unused NSInteger e, __unused NSInteger f, __unused NSInteger g, __unused NSInteger h, __unused NSInteger i) {
+                                                   QRingOnMain(^{
+                                                       if ((!rearming || [self.factoryInitializingGeneration isEqual:@(generation)]) &&
+                                                           [self isCurrentConnection:generation] && [self.connectedID isEqual:identifier] &&
+                                                           (self.recoveryContext == context || [self.recoveryContext isEqual:context])) [self initializeFactoryTargetWithCompletion:completion];
+                                                   });
+                                               }
                                                   fail:completion];
 }
 
@@ -602,6 +754,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         @"integratedFeatures": features,
         @"supportsSportPause": @NO,
         @"supportsBackgroundSync": @NO,
+        @"supportsHistorySync": @(![self factoryInitializationPending]),
         @"supportsWatchFaces": @NO,
         @"supportsOta": @NO,
     };
@@ -772,6 +925,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)readSportRecords:(FlutterResult)result {
+    if ([self factoryInitializationPending]) { result([self error:@"INITIALIZATION_PENDING" message:@"戒指初始化尚未确认，历史同步已暂停"]); return; }
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
     [QCSDKCmdCreator getSportRecordsFromLastTimeStamp:0 finish:^(NSArray<OdmGeneralExerciseSummaryModel *> *summaries, NSError *error) {
         if (error) { result([self error:@"QRING_SPORT_SYNC_FAILED" message:@"戒指运动记录读取失败"]); return; }
@@ -898,6 +1052,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)syncHealth:(FlutterResult)result {
+    if ([self factoryInitializationPending]) { result([self error:@"INITIALIZATION_PENDING" message:@"戒指初始化尚未确认，历史同步已暂停"]); return; }
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
     if (self.activeMetric) { result([self error:@"MEASUREMENT_ACTIVE" message:@"测量中，请稍后同步"]); return; }
     if (self.pendingSync) { result([self error:@"SYNC_BUSY" message:@"戒指数据正在同步"]); return; }
@@ -1643,7 +1798,11 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         [@[@"readAutoMeasureSettings", @"setAutoMeasureSetting", @"readAutoMeasureIntervals", @"setAutoMeasureInterval"] containsObject:call.method]) {
         result([self error:@"QRING_SETTING_UNCONFIRMED" message:@"请重新连接后读取监测设置"]); return;
     }
-    NSSet *commands = [NSSet setWithArray:@[@"syncHealthData", @"startMeasurement", @"startSport", @"readSportRecords", @"readAutoMeasureSettings", @"setAutoMeasureSetting", @"readAutoMeasureIntervals", @"setAutoMeasureInterval", @"triggerDeviceAction", @"readDeviceFeature", @"writeDeviceFeature"]];
+    NSSet *commands = [NSSet setWithArray:@[@"clearRingHistory", @"syncHealthData", @"startMeasurement", @"startSport", @"readSportRecords", @"readAutoMeasureSettings", @"setAutoMeasureSetting", @"readAutoMeasureIntervals", @"setAutoMeasureInterval", @"triggerDeviceAction", @"readDeviceFeature", @"writeDeviceFeature"]];
+    if (([self.factoryResetGeneration isEqual:@(self.connectionGeneration)] ||
+         [self.factoryInitializingGeneration isEqual:@(self.connectionGeneration)]) && [commands containsObject:call.method]) {
+        result([self error:@"DEVICE_BUSY" message:@"戒指正在重置，请重新连接后继续"]); return;
+    }
     if ((self.pendingCamera || self.remoteCameraActive) && [commands containsObject:call.method]) {
         result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return;
     }
@@ -1655,16 +1814,20 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     else if ([call.method isEqualToString:@"stopScan"]) { [self finishScan]; result(nil); }
     else if ([call.method isEqualToString:@"connect"]) { [self connect:arguments result:result]; }
     else if ([call.method isEqualToString:@"disconnect"]) { [self disconnectWithResult:result]; }
+    else if ([call.method isEqualToString:@"clearRingHistory"]) { [self resetFirstMemberRing:arguments result:result]; }
     else if ([call.method isEqualToString:@"getDeviceDetails"]) {
         if (![self isResolved]) { result(nil); return; }
         BOOL fresh = self.batteryUpdatedAt && [NSDate.date timeIntervalSinceDate:self.batteryUpdatedAt] < 15;
-        if (fresh || self.remoteCameraActive || self.pendingCamera || self.pendingConnect || self.pendingSync || self.activeMetric || self.activeSportType >= 0 || self.readingDetails) {
+        if (fresh || [self.factoryInitializingGeneration isEqual:@(self.connectionGeneration)] || self.remoteCameraActive || self.pendingCamera || self.pendingConnect || self.pendingSync || self.activeMetric || self.activeSportType >= 0 || self.readingDetails) {
             result([self deviceDetails]);
         } else {
             [self readDeviceDetailsWithCompletion:^{ result([self isResolved] ? [self deviceDetails] : nil); }];
         }
     }
-    else if ([call.method isEqualToString:@"getCapabilities"]) { result([self isResolved] ? [self capabilities] : [self error:@"CAPABILITIES_UNAVAILABLE" message:@"请先连接戒指"]); }
+    else if ([call.method isEqualToString:@"getCapabilities"]) {
+        [self emitFactoryInitialization];
+        result([self isResolved] ? [self capabilities] : [self error:@"CAPABILITIES_UNAVAILABLE" message:@"请先连接戒指"]);
+    }
     else if ([call.method isEqualToString:@"readDeviceFeature"] || [call.method isEqualToString:@"writeDeviceFeature"]) {
         BOOL write = [call.method isEqualToString:@"writeDeviceFeature"];
         if ([arguments[@"feature"] isEqual:@"gesture_control"]) { [self gestureControl:arguments write:write result:result]; }

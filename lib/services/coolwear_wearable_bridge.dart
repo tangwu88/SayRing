@@ -101,6 +101,7 @@ class CoolWearWearableBridge
         WearableBridge,
         WearableDeviceDetailsBridge,
         WearableSportPauseBridge,
+        WearableRingDataClearBridge,
         WearableAutoMeasureIntervalBridge {
   CoolWearWearableBridge({
     MethodChannel? methods,
@@ -173,6 +174,26 @@ class CoolWearWearableBridge
 
   @override
   Future<void> disconnect() => _invoke<void>('disconnect');
+
+  @override
+  Future<RingDataClearResult> clearRingHistory({
+    required String deviceId,
+    required String ownerKey,
+    bool allowFactoryReset = false,
+  }) async {
+    final result = await _invoke<String>('clearRingHistory', {
+      'id': deviceId,
+      'ownerKey': ownerKey,
+    }, const Duration(seconds: 55));
+    return switch (result) {
+      'acknowledged' => RingDataClearResult.acknowledged,
+      'requested' => RingDataClearResult.requested,
+      _ => throw PlatformException(
+        code: 'RING_HISTORY_CLEAR_UNCONFIRMED',
+        message: '戒指尚未确认清空结果',
+      ),
+    };
+  }
 
   @override
   Future<DeviceInfo?> getConnectedDeviceDetails() async {

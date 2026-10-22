@@ -239,6 +239,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         GlobalSupportApi,
         SaydianAvatarProfileApi,
         SaydianDeviceBindingApi,
+        SayRingFirstBindingApi,
         SayRingAppDisplayApi,
         SayRingReadOnlyHealthApi,
         SayRingModuleVisibilityApi,
@@ -281,6 +282,61 @@ class GlobalSaydianApiClient extends SaydianApiClient
     String? macAddress,
     List<String> capabilities = const [],
   }) async {
+    await _reportRingConnection(
+      expectedSession: expectedSession,
+      deviceId: deviceId,
+      vendor: vendor,
+      model: model,
+      displayName: displayName,
+      firmware: firmware,
+      macAddress: macAddress,
+      capabilities: capabilities,
+    );
+  }
+
+  @override
+  Future<bool> reportFirstRingBinding({
+    required Session expectedSession,
+    required String deviceId,
+    required String vendor,
+    required String model,
+    required String displayName,
+    String? firmware,
+    String? macAddress,
+    List<String> capabilities = const [],
+  }) async {
+    final data = await _reportRingConnection(
+      expectedSession: expectedSession,
+      deviceId: deviceId,
+      vendor: vendor,
+      model: model,
+      displayName: displayName,
+      firmware: firmware,
+      macAddress: macAddress,
+      capabilities: capabilities,
+      initializeFirstBinding: true,
+    );
+    final decision = _data(data)['firstBindingInitialization'];
+    if (decision is! Map ||
+        decision['product'] != 'say-ring' ||
+        decision['deviceId'] != deviceId.trim() ||
+        decision['shouldClear'] is! bool) {
+      throw const ApiException('首次绑定记录暂时无法确认，未清空戒指数据');
+    }
+    return decision['shouldClear'] == true;
+  }
+
+  Future<Map<String, Object?>> _reportRingConnection({
+    required Session expectedSession,
+    required String deviceId,
+    required String vendor,
+    required String model,
+    required String displayName,
+    String? firmware,
+    String? macAddress,
+    List<String> capabilities = const [],
+    bool initializeFirstBinding = false,
+  }) async {
     final normalizedId = deviceId.trim();
     final normalizedVendor = vendor.trim();
     final normalizedModel = model.trim();
@@ -308,7 +364,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
       throw const ApiException('Invalid hardware MAC address.');
     }
     final owner = _stableSessionAccountKey(expectedSession);
-    _decode(
+    return _decode(
       await _withAuthorizationRetry((requestSession) {
         if (_stableSessionAccountKey(requestSession) != owner) {
           throw const ApiException(
@@ -333,6 +389,10 @@ class GlobalSaydianApiClient extends SaydianApiClient
               if (normalizedMac?.isNotEmpty ?? false)
                 'macAddress': normalizedMac,
               'capabilities': normalizedCapabilities,
+              if (initializeFirstBinding) ...{
+                'product': 'say-ring',
+                'initializeFirstBinding': true,
+              },
             }),
           ),
         );

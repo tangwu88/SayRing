@@ -32,6 +32,9 @@ import com.oudmon.ble.base.communication.req.BloodOxygenSettingReq;
 import com.oudmon.ble.base.communication.req.CameraReq;
 import com.oudmon.ble.base.communication.req.DeviceSupportReq;
 import com.oudmon.ble.base.communication.req.FindDeviceReq;
+import com.oudmon.ble.base.communication.req.RestoreKeyReq;
+import com.oudmon.ble.base.communication.req.TargetSettingReq;
+import com.oudmon.ble.base.communication.rsp.TargetSettingRsp;
 import com.oudmon.ble.base.communication.req.HeartRateSettingReq;
 import com.oudmon.ble.base.communication.req.HrvSettingReq;
 import com.oudmon.ble.base.communication.req.PhoneSportReq;
@@ -122,6 +125,8 @@ public final class QRingBridge
     private String recoveryTargetId;
     private String recoveryTargetName;
     private String recoveryContext;
+    private Integer factoryResetGeneration;
+    private Integer factoryInitializingGeneration;
     private Map<String, Object> recoveryProfile;
     private boolean recoveryConnecting;
     private boolean cancellingConnection;
@@ -690,6 +695,29 @@ public final class QRingBridge
         recoveryContext = context;
         Map<String, Object> profile = call.argument("profile");
         recoveryProfile = profile == null ? new HashMap<>() : new HashMap<>(profile);
+        int phase = factoryInitialization(id, context);
+        if (resolved() && id.equalsIgnoreCase(connectedId) && phase != 0 && (phase & 4) == 0 &&
+                !Integer.valueOf(connectionGeneration).equals(factoryResetGeneration)) {
+            if (Integer.valueOf(connectionGeneration).equals(factoryInitializingGeneration)) {
+                result.error("DEVICE_BUSY", "戒指正在初始化，请稍候", null); return;
+            }
+            final int generation = connectionGeneration;
+            factoryInitializingGeneration = generation;
+            pendingProfile = new HashMap<>(recoveryProfile);
+            final boolean[] done = {false};
+            Runnable finish = () -> {
+                if (done[0]) return;
+                done[0] = true;
+                if (Integer.valueOf(generation).equals(factoryInitializingGeneration)) factoryInitializingGeneration = null;
+                if (currentFactoryTarget(generation, id, context)) {
+                    emit("capabilitiesUpdated", capabilities()); emitFactoryInitialization();
+                }
+                result.success(null);
+            };
+            main.postDelayed(finish, 12_000L);
+            writeProfileWithCompletion(finish);
+            return;
+        }
         startAutomaticRecovery();
         result.success(null);
     }
@@ -770,9 +798,120 @@ public final class QRingBridge
         return Math.max(minimum, Math.min(maximum, value));
     }
 
-    private void writeProfileThenFinish() {
+    private String factoryInitializationKey(String id, String context) {
+        return "factory-init.v1." + context + "." + id.toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private int factoryInitialization(String id, String context) {
+        if (id == null || context == null || context.isEmpty()) return 0;
+        try {
+            return activity.getSharedPreferences("say_ring_factory_initialization", Context.MODE_PRIVATE)
+                    .getInt(factoryInitializationKey(id, context), 0);
+        } catch (ClassCastException error) { return 1; }
+    }
+
+    private boolean saveFactoryInitialization(String id, String context, int phase) {
+        return activity.getSharedPreferences("say_ring_factory_initialization", Context.MODE_PRIVATE)
+                .edit().putInt(factoryInitializationKey(id, context), phase).commit();
+    }
+
+    private void updateFactoryInitialization(String id, String context, int flags) {
+        int phase = factoryInitialization(id, context);
+        if (phase != 0) saveFactoryInitialization(id, context, phase | flags);
+    }
+
+    private boolean factoryInitializationPending() {
+        int phase = factoryInitialization(connectedId, recoveryContext);
+        return phase != 0 && phase != 7;
+    }
+
+    private void emitFactoryInitialization() {
+        if (!resolved() || factoryInitialization(connectedId, recoveryContext) == 0) return;
+        Map<String, Object> value = new HashMap<>();
+        value.put("deviceId", connectedId);
+        value.put("ownerKey", recoveryContext.substring(recoveryContext.lastIndexOf(':') + 1));
+        value.put("status", factoryInitializationPending() ? "pending" : "complete");
+        emit("ringInitialization", value);
+    }
+
+    private boolean currentFactoryTarget(int generation, String id, String context) {
+        return isCurrentConnection(generation, id) && context != null && context.equals(recoveryContext);
+    }
+
+    private void initializeFactoryTarget(Runnable completion) {
         final int generation = connectionGeneration;
+        final boolean rearming = Integer.valueOf(generation).equals(factoryInitializingGeneration);
+        final String id = connectedId, context = recoveryContext;
+        int phase = factoryInitialization(id, context);
+        if (phase == 0 || (phase & 4) != 0) { completion.run(); return; }
+        final int target = profileInt("targetSteps", 8000, 1000, 100000);
+        final boolean[] done = {false};
+        Runnable finish = () -> { if (!done[0]) { done[0] = true; completion.run(); } };
+        java.util.function.BooleanSupplier current = () -> !done[0] &&
+                (!rearming || Integer.valueOf(generation).equals(factoryInitializingGeneration)) && currentFactoryTarget(generation, id, context);
+        main.postDelayed(() -> { if (current.getAsBoolean()) finish.run(); }, 8_000L);
+        CommandHandle.getInstance().executeReqCmd(TargetSettingReq.getReadInstance(),
+                (ICommandResponse<TargetSettingRsp>) before -> main.post(() -> {
+                    if (!current.getAsBoolean()) return;
+                    if (before == null || before.getStatus() != BaseRspCmd.RESULT_OK || !before.isRead()) { finish.run(); return; }
+                    CommandHandle.getInstance().executeReqCmd(TargetSettingReq.getWriteInstance(target,
+                            before.getCalorie(), before.getDistance(), before.getmSport(), before.getmSleep()),
+                            (ICommandResponse<TargetSettingRsp>) ack -> main.post(() -> {
+                                if (!current.getAsBoolean()) return;
+                                if (ack == null || ack.getStatus() != BaseRspCmd.RESULT_OK) { finish.run(); return; }
+                                CommandHandle.getInstance().executeReqCmd(TargetSettingReq.getReadInstance(),
+                                        (ICommandResponse<TargetSettingRsp>) actual -> main.post(() -> {
+                                            if (!current.getAsBoolean()) return;
+                                            if (actual != null && actual.getStatus() == BaseRspCmd.RESULT_OK && actual.isRead() &&
+                                                    actual.getStep() == target && actual.getCalorie() == before.getCalorie() &&
+                                                    actual.getDistance() == before.getDistance() && actual.getmSport() == before.getmSport() &&
+                                                    actual.getmSleep() == before.getmSleep()) updateFactoryInitialization(id, context, 4);
+                                            finish.run();
+                                        }));
+                            }));
+                }));
+    }
+
+    private void resetFirstMemberRing(MethodCall call, MethodChannel.Result result) {
+        String id = call.argument("id"), owner = call.argument("ownerKey");
+        if (!Boolean.TRUE.equals(call.argument("allowFactoryReset")) || !resolved() || id == null ||
+                !id.equalsIgnoreCase(connectedId) || owner == null || owner.isEmpty() ||
+                recoveryContext == null || !recoveryContext.endsWith(":" + owner)) {
+            result.error("FACTORY_RESET_NOT_AUTHORIZED", "首次绑定恢复出厂未获确认，未执行", null); return;
+        }
+        if (pendingSync != null || activeMeasurement != null || activeSportType != null ||
+                Integer.valueOf(connectionGeneration).equals(factoryResetGeneration) ||
+                factoryInitialization(id, recoveryContext) != 0) {
+            result.error("DEVICE_BUSY", "设备忙或已请求初始化，不会重复重置", null); return;
+        }
+        final String context = recoveryContext;
+        if (!saveFactoryInitialization(id, context, 1)) {
+            result.error("INITIALIZATION_STORAGE_FAILED", "初始化记录未能保存，未重置戒指", null); return;
+        }
+        factoryResetGeneration = connectionGeneration;
+        final int generation = connectionGeneration;
+        CommandHandle.getInstance().executeReqCmd(new RestoreKeyReq(Constants.CMD_RE_STORE),
+                (ICommandResponse<BaseRspCmd>) ack -> main.post(() -> {
+                    if (!currentFactoryTarget(generation, id, context)) return;
+                    if (ack != null && ack.getStatus() == BaseRspCmd.RESULT_OK) {
+                        updateFactoryInitialization(id, context, 2);
+                        if (id.equalsIgnoreCase(connectedId) && context.equals(recoveryContext) && resolved()) {
+                            emit("capabilitiesUpdated", capabilities()); emitFactoryInitialization();
+                        }
+                    }
+                }));
+        result.success("factoryResetRequested");
+    }
+
+    private void writeProfileThenFinish() {
+        writeProfileWithCompletion(() -> probeRemoteCamera(this::finishHandshake));
+    }
+
+    private void writeProfileWithCompletion(Runnable completion) {
+        final int generation = connectionGeneration;
+        final boolean rearming = Integer.valueOf(generation).equals(factoryInitializingGeneration);
         final String id = connectedId;
+        final String context = recoveryContext;
         int sdkGender = profileInt("gender", 1, 1, 2) == 2 ? 1 : 0;
         TimeFormatReq request = TimeFormatReq.getWriteInstance(
                 true, 0, sdkGender,
@@ -782,8 +921,12 @@ public final class QRingBridge
                 0, 0, 0);
         CommandHandle.getInstance().executeReqCmd(
                 request,
-                (ICommandResponse<TimeFormatRsp>) ignored -> main.post(() -> {
-                    if (isCurrentConnection(generation, id)) probeRemoteCamera(this::finishHandshake);
+                (ICommandResponse<TimeFormatRsp>) response -> main.post(() -> {
+                    if ((rearming && !Integer.valueOf(generation).equals(factoryInitializingGeneration)) ||
+                            !isCurrentConnection(generation, id) || !java.util.Objects.equals(context, recoveryContext)) return;
+                    if (response != null && response.getStatus() == BaseRspCmd.RESULT_OK)
+                        initializeFactoryTarget(completion);
+                    else completion.run();
                 }));
     }
 
@@ -983,6 +1126,7 @@ public final class QRingBridge
         value.put("integratedFeatures", features);
         value.put("supportsSportPause", false);
         value.put("supportsBackgroundSync", false);
+        value.put("supportsHistorySync", !factoryInitializationPending());
         value.put("supportsWatchFaces", false);
         value.put("supportsOta", false);
         return value;
@@ -1118,6 +1262,7 @@ public final class QRingBridge
     }
 
     private void startHealthSync(MethodChannel.Result result) {
+        if (factoryInitializationPending()) { result.error("INITIALIZATION_PENDING", "戒指初始化尚未确认，历史同步已暂停", null); return; }
         if (!resolved()) {
             result.error("NOT_CONNECTED", "请先连接戒指", null);
             return;
@@ -1334,6 +1479,7 @@ public final class QRingBridge
     }
 
     private void readSportRecords(MethodChannel.Result result) {
+        if (factoryInitializationPending()) { result.error("INITIALIZATION_PENDING", "戒指初始化尚未确认，历史同步已暂停", null); return; }
         if (!resolved()) {
             result.error("NOT_CONNECTED", "请先连接戒指", null);
             return;
@@ -1748,7 +1894,14 @@ public final class QRingBridge
                 result.success(null); return;
             }
             ensureSdk();
+            if ((Integer.valueOf(connectionGeneration).equals(factoryResetGeneration) ||
+                    Integer.valueOf(connectionGeneration).equals(factoryInitializingGeneration)) &&
+                    !("disconnect".equals(call.method) || "configureRecoveryTarget".equals(call.method) ||
+                    "getCapabilities".equals(call.method) || "getDeviceDetails".equals(call.method))) {
+                result.error("DEVICE_BUSY", "戒指正在重置，请重新连接后继续", null); return;
+            }
             switch (call.method) {
+                case "clearRingHistory": resetFirstMemberRing(call, result); break;
                 case "scanDevices": startScan(result); break;
                 case "lookupBondedDevice": lookupBondedDevice(call, result); break;
                 case "listBondedDevices": listBondedDevices(result); break;
@@ -1760,9 +1913,10 @@ public final class QRingBridge
                     disconnectWithResult(result);
                     break;
                 case "getDeviceDetails":
-                    if (resolved()) readBattery();
+                    if (resolved() && !Integer.valueOf(connectionGeneration).equals(factoryInitializingGeneration)) readBattery();
                     result.success(resolved() ? deviceDetails() : null); break;
                 case "getCapabilities":
+                    emitFactoryInitialization();
                     if (!resolved()) result.error("CAPABILITIES_UNAVAILABLE", "请先连接戒指", null);
                     else result.success(capabilities());
                     break;

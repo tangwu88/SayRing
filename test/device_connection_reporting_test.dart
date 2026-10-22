@@ -403,6 +403,263 @@ void main() {
     ]);
     expect(vault.session?.memberId, 'other');
   });
+  group('first member binding history clear', () {
+    Future<AppController> setup(
+      _FirstApi api,
+      _ClearRing ring, {
+      bool loggedIn = true,
+    }) async {
+      final controller = AppController(
+        MemorySessionVault()..privacyConsentGranted = true,
+        api,
+        MemoryHealthStore(),
+        ring,
+      );
+      addTearDown(controller.dispose);
+      addTearDown(ring.source.close);
+      await controller.initialize();
+      if (loggedIn) controller.session = _owner;
+      return controller;
+    }
+
+    test(
+      'server grants once after handshake; hold old samples and automatic sync',
+      () async {
+        final api = _FirstApi()..decision = Completer<bool>();
+        final ring = _ClearRing();
+        final c = await setup(api, ring);
+        final connecting = c.connectDevice(_device);
+        await _settle();
+        expect(api.firstReports, 1);
+        expect(ring.clears, 0);
+        expect(await c.syncDeviceData(), isFalse);
+        ring.source.add(WearableEvent(type: 'healthDataReady', payload: {}));
+        await _settle();
+        expect(ring.historyReads, 0);
+        api.decision!.complete(true);
+        await connecting;
+        await _settle();
+        expect(ring.clears, 1);
+        expect(ring.clearOwner, c.homeHealthCardOwner);
+        expect(ring.historyReads, 0);
+        expect(c.firstRingBindingStatus, contains('已确认'));
+        expect(c.deviceState, DeviceConnectionState.ready);
+        await c.reconnectDevice();
+        await _settle();
+        expect(ring.clears, 1);
+        expect(api.firstReports, 1);
+      },
+    );
+    test(
+      'server lifetime history protects a member with no local cache',
+      () async {
+        final api = _FirstApi()..shouldClear = false;
+        final ring = _ClearRing();
+        final c = await setup(api, ring);
+        await c.connectDevice(_device);
+        await _settle();
+        expect(api.firstReports, 1);
+        expect(ring.clears, 0);
+        expect(ring.historyReads, 1);
+        expect(c.firstRingBindingStatus, contains('已有绑定记录'));
+      },
+    );
+    test('remembered binding prevents any initialization request', () async {
+      final api = _FirstApi();
+      final ring = _ClearRing()..saved = _device;
+      final c = await setup(api, ring);
+      await c.connectDevice(_device);
+      await _settle();
+      expect(api.firstReports, 0);
+      expect(ring.clears, 0);
+      expect(api.reports, hasLength(1));
+    });
+    test('unreadable local binding cannot authorize a clear', () async {
+      final api = _FirstApi();
+      final ring = _ClearRing()..failRead = true;
+      final c = await setup(api, ring);
+      await c.connectDevice(_device);
+      expect(api.firstReports, 0);
+      expect(ring.clears, 0);
+    });
+    test(
+      'unknown server history preserves data and pauses automatic history',
+      () async {
+        final api = _FirstApi()..failFirst = true;
+        final ring = _ClearRing();
+        final c = await setup(api, ring);
+        await c.connectDevice(_device);
+        await _settle();
+        expect(ring.clears, 0);
+        expect(ring.historyReads, 0);
+        expect(c.firstRingBindingStatus, contains('未清空'));
+      },
+    );
+    test('anonymous connection and failed handshake never clear', () async {
+      final api = _FirstApi();
+      final ring = _ClearRing();
+      final c = await setup(api, ring, loggedIn: false);
+      await c.connectDevice(_device);
+      expect(api.firstReports, 0);
+      expect(ring.clears, 0);
+      ring.failConnect = true;
+      c.session = _owner;
+      await c.connectDevice(_device);
+      expect(api.firstReports, 0);
+      expect(ring.clears, 0);
+    });
+    test(
+      'ambiguous clear result is not retried or called successful',
+      () async {
+        final api = _FirstApi();
+        final ring = _ClearRing()..failClear = true;
+        final c = await setup(api, ring);
+        await c.connectDevice(_device);
+        await _settle();
+        expect(ring.clears, 1);
+        expect(c.firstRingBindingStatus, contains('未确认'));
+        await c.syncDeviceData();
+        expect(ring.clears, 1);
+        expect(ring.historyReads, 0);
+      },
+    );
+    test(
+      'Android dispatch is explicitly pending, not claimed as cleared',
+      () async {
+        final api = _FirstApi();
+        final ring = _ClearRing()..result = RingDataClearResult.requested;
+        final c = await setup(api, ring);
+        await c.connectDevice(_device);
+        expect(c.firstRingBindingStatus, contains('结果待确认'));
+        expect(ring.historyReads, 0);
+      },
+    );
+    test(
+      'factory grant remains pending until same-owner initialization is confirmed',
+      () async {
+        final api = _FirstApi();
+        final ring = _ClearRing()
+          ..result = RingDataClearResult.factoryResetRequested;
+        final c = await setup(api, ring);
+        await c.connectDevice(_device);
+        expect(ring.factoryAllowed, isTrue);
+        expect(c.firstRingBindingStatus, contains('待确认'));
+        ring.source.add(
+          WearableEvent(
+            type: 'ringInitialization',
+            payload: {
+              'deviceId': _device.id,
+              'ownerKey': 'other',
+              'status': 'complete',
+            },
+          ),
+        );
+        await _settle();
+        expect(ring.historyReads, 0);
+        ring.source.add(
+          WearableEvent(
+            type: 'ringInitialization',
+            payload: {
+              'deviceId': _device.id,
+              'ownerKey': c.homeHealthCardOwner,
+              'status': 'complete',
+            },
+          ),
+        );
+        await _settle();
+        expect(c.firstRingBindingStatus, contains('已初始化'));
+        expect(ring.historyReads, 1);
+      },
+    );
+    test(
+      'late first-binding decision after account change cannot clear',
+      () async {
+        final api = _FirstApi()..decision = Completer<bool>();
+        final ring = _ClearRing();
+        final c = await setup(api, ring);
+        final connecting = c.connectDevice(_device);
+        await _settle();
+        c.session = null;
+        api.decision!.complete(true);
+        await connecting;
+        expect(ring.clears, 0);
+      },
+    );
+  });
+
+  group('first-binding wire decision', () {
+    for (final value in [true, false, null, 'true', 1]) {
+      test('requires explicit matching typed decision $value', () async {
+        final vault = MemorySessionVault()..session = _owner;
+        final api = GlobalSaydianApiClient(
+          vault,
+          client: MockClient((r) async {
+            final body = jsonDecode(r.body);
+            expect(body['product'], 'say-ring');
+            expect(body['initializeFirstBinding'], isTrue);
+            return http.Response(
+              jsonEncode({
+                'code': 200,
+                'data': {
+                  'firstBindingInitialization': {
+                    'product': 'say-ring',
+                    'deviceId': _device.id,
+                    'shouldClear': value,
+                  },
+                },
+              }),
+              200,
+            );
+          }),
+        );
+        final result = api.reportFirstRingBinding(
+          expectedSession: _owner,
+          deviceId: _device.id,
+          vendor: 'QRing',
+          model: 'R21',
+          displayName: 'R21_TEST',
+        );
+        if (value is bool) {
+          expect(await result, value);
+        } else {
+          await expectLater(result, throwsA(isA<ApiException>()));
+        }
+      });
+    }
+    test(
+      'old server missing decision and wrong target never authorize',
+      () async {
+        for (final data in [
+          {},
+          {
+            'firstBindingInitialization': {
+              'product': 'say-ring',
+              'deviceId': 'other',
+              'shouldClear': true,
+            },
+          },
+        ]) {
+          final api = GlobalSaydianApiClient(
+            MemorySessionVault()..session = _owner,
+            client: MockClient(
+              (r) async =>
+                  http.Response(jsonEncode({'code': 200, 'data': data}), 200),
+            ),
+          );
+          await expectLater(
+            api.reportFirstRingBinding(
+              expectedSession: _owner,
+              deviceId: _device.id,
+              vendor: 'QRing',
+              model: 'R21',
+              displayName: 'R21_TEST',
+            ),
+            throwsA(isA<ApiException>()),
+          );
+        }
+      },
+    );
+  });
 }
 
 Future<void> _settle() async {
@@ -478,4 +735,75 @@ class _Ring extends Fake implements WearableBridge {
 
   @override
   Future<List<SportRecord>> readSportRecords() async => [];
+}
+
+class _FirstApi extends _Api implements SayRingFirstBindingApi {
+  bool shouldClear = true, failFirst = false;
+  int firstReports = 0;
+  Completer<bool>? decision;
+  @override
+  Future<bool> reportFirstRingBinding({
+    required Session expectedSession,
+    required String deviceId,
+    required String vendor,
+    required String model,
+    required String displayName,
+    String? firmware,
+    String? macAddress,
+    List<String> capabilities = const [],
+  }) async {
+    firstReports++;
+    if (failFirst) throw const ApiException('Test unavailable');
+    return decision?.future ?? Future.value(shouldClear);
+  }
+}
+
+class _ClearRing extends _Ring
+    implements WearableRingDataClearBridge, WearableBindingManagementBridge {
+  DeviceInfo? saved;
+  int clears = 0;
+  String? clearOwner;
+  bool failClear = false;
+  bool failRead = false;
+  bool factoryAllowed = false;
+  RingDataClearResult result = RingDataClearResult.acknowledged;
+  @override
+  Future<void> setRecoveryContext({
+    required String? ownerKey,
+    required WearableUserProfile profile,
+  }) async {}
+  @override
+  Future<DeviceInfo?> readRememberedDevice() async {
+    if (failRead) throw StateError('Test storage unavailable');
+    return saved;
+  }
+
+  @override
+  Future<DeviceInfo?> prepareRememberedDevice() async => saved;
+  @override
+  Future<void> forgetRememberedDevice() async {
+    saved = null;
+  }
+
+  @override
+  Future<void> connect(
+    String deviceId, {
+    required WearableUserProfile profile,
+  }) async {
+    await super.connect(deviceId, profile: profile);
+    saved = _device;
+  }
+
+  @override
+  Future<RingDataClearResult> clearRingHistory({
+    required String deviceId,
+    required String ownerKey,
+    bool allowFactoryReset = false,
+  }) async {
+    clears++;
+    factoryAllowed = allowFactoryReset;
+    clearOwner = ownerKey;
+    if (failClear) throw StateError('Test clear unconfirmed');
+    return result;
+  }
 }

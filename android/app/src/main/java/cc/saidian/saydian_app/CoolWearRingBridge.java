@@ -97,6 +97,8 @@ public final class CoolWearRingBridge
     private String firmwareVersion;
     private String activeMeasurement;
     private volatile boolean linkConnected;
+    private long connectionEpoch;
+    private long clearAttemptEpoch = -1;
     private volatile boolean deviceInfoReceived;
     private boolean recoveringConnection;
     private boolean resultEmitted;
@@ -500,6 +502,7 @@ public final class CoolWearRingBridge
     private void onConnectionState(Integer status) {
         if (status == null) return;
         if (status == K6_Action.RCVD.BLUE_CONNECTED) {
+            if (!linkConnected) connectionEpoch++;
             if (connectedId == null) {
                 helper.disConnect();
                 return;
@@ -1212,6 +1215,30 @@ public final class CoolWearRingBridge
                 return;
             }
             switch (call.method) {
+                case "clearRingHistory":
+                    if (clearAttemptEpoch == connectionEpoch) {
+                        result.error("RING_HISTORY_CLEAR_ALREADY_REQUESTED", "本次连接已请求清空，不会重复执行", null);
+                        return;
+                    }
+                    String clearTarget = call.argument("id");
+                    String clearOwner = call.argument("ownerKey");
+                    if (!linkConnected || !deviceInfoReceived || connectedId == null ||
+                            !connectedId.equalsIgnoreCase(clearTarget) || clearOwner == null || clearOwner.isEmpty()) {
+                        result.error("STALE_DEVICE_SESSION", "戒指或账号已变化，未清空数据", null);
+                        return;
+                    }
+                    if (pendingConnect != null || pendingHealthSync != null || pendingSportSync != null ||
+                            pendingAutoSettings != null || pendingReminders != null || activeMeasurement != null || activeSportMode != null) {
+                        result.error("DEVICE_BUSY", "设备忙，未发送清空指令", null);
+                        return;
+                    }
+                    // History-only SDK operation; no factory reset or retry.
+                    // This Android SDK exposes no clear-data ACK callback.
+                    clearAttemptEpoch = connectionEpoch;
+                    helper.getSendDataManager().sendClearData();
+                    syncedHealthRecords.clear(); syncedSportRecords.clear();
+                    result.success("requested");
+                    break;
                 case "scanDevices":
                     if (pendingScan != null) {
                         result.error("SCAN_BUSY", "戒指扫描正在进行", null);

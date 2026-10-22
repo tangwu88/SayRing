@@ -1098,6 +1098,9 @@ class AppController extends ChangeNotifier {
   int _wearableRestoreGeneration = 0;
   Future<void>? _wearableRestoreInFlight;
   Future<void>? _wearableConnectInFlight;
+  bool _firstRingBindingPending = false;
+  bool _rememberedDeviceReadFailed = false;
+  String? firstRingBindingStatus;
   Future<void>? _wearableReconnectInFlight;
   int _wearableReconnectGeneration = 0;
   bool _wearableAccountRecoveryAllowed = true;
@@ -2506,8 +2509,10 @@ class AppController extends ChangeNotifier {
 
   Future<void> _connectDevice(DeviceInfo device) async {
     final sessionGeneration = _sessionGeneration;
+    final connectionOwner = _healthOwnerFor(session);
     bool isCurrent() =>
         !_accountTransitioning &&
+        _healthOwnerFor(session) == connectionOwner &&
         _isCurrentSessionGeneration(sessionGeneration);
     errorMessage = null;
     _invalidateDeviceSync();
@@ -2517,6 +2522,19 @@ class AppController extends ChangeNotifier {
       await _cancelPendingWearableRestore();
       if (!isCurrent()) return;
       await _updateWearableRecoveryContext(explicitConnection: true);
+      final initializeFirstBinding =
+          session != null &&
+          !isLocalMode &&
+          !isPreviewMode &&
+          rememberedDevice == null &&
+          !_rememberedDeviceReadFailed &&
+          _api is SayRingFirstBindingApi &&
+          {
+            WearableSdkSource.coolwear,
+            WearableSdkSource.qring,
+          }.contains(device.sdkSource);
+      _firstRingBindingPending = initializeFirstBinding;
+      firstRingBindingStatus = null;
       _wearableRecoverySuspended = false;
       if (deviceState == DeviceConnectionState.error) {
         deviceMachine.transition(DeviceConnectionState.disconnected);
@@ -2560,7 +2578,62 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.ready);
       // Authentication is the connection boundary. Historical data is a
       // background follow-up and must not keep the add-device page spinning.
-      unawaited(_reportConnectedDevice(connectedDevice!, sessionGeneration));
+      if (initializeFirstBinding) {
+        firstRingBindingStatus = '正在确认首次绑定记录';
+        notifyListeners();
+        final shouldClear = await _reportConnectedDevice(
+          connectedDevice!,
+          sessionGeneration,
+          initializeFirstBinding: true,
+        );
+        if (!isCurrent() || connectedDevice?.id != device.id) return;
+        if (shouldClear == true) {
+          firstRingBindingStatus = '首次绑定，正在清空戒指历史数据';
+          notifyListeners();
+          try {
+            final bridge = _wearable;
+            if (bridge is! WearableRingDataClearBridge) {
+              throw PlatformException(
+                code: 'RING_HISTORY_CLEAR_UNSUPPORTED',
+                message: '此戒指暂不支持仅清除历史数据，未执行恢复出厂',
+              );
+            }
+            final cleared = await (bridge as WearableRingDataClearBridge)
+                .clearRingHistory(
+                  deviceId: device.id,
+                  ownerKey: _healthOwnerFor(session),
+                  allowFactoryReset: true,
+                );
+            if (!isCurrent() || connectedDevice?.id != device.id) return;
+            firstRingBindingStatus = cleared == RingDataClearResult.acknowledged
+                ? '戒指已确认清空指令，请重新连接后同步新数据'
+                : cleared == RingDataClearResult.factoryResetRequested
+                ? '恢复出厂指令已发送，重连后将初始化设置；结果待确认'
+                : '清空指令已发送，设备结果待确认；请重新连接后核验';
+          } catch (error) {
+            if (!isCurrent() || connectedDevice?.id != device.id) return;
+            firstRingBindingStatus = error is PlatformException
+                ? _wearableErrorMessage(error, fallback: '首次清空未确认，请勿将旧数据视为本人记录')
+                : '首次清空未确认，请勿将旧数据视为本人记录';
+          }
+          // No automatic sync in this initialization connection. An ACK is
+          // not a fresh, empty-history readback; never import cached samples.
+          syncStatus = firstRingBindingStatus!;
+          notifyListeners();
+          return;
+        }
+        firstRingBindingStatus = shouldClear == false
+            ? '已有绑定记录，保留戒指数据'
+            : '首次绑定记录暂未确认，未清空戒指数据';
+        if (shouldClear == null) {
+          syncStatus = firstRingBindingStatus!;
+          notifyListeners();
+          return;
+        }
+        _firstRingBindingPending = false;
+      } else {
+        unawaited(_reportConnectedDevice(connectedDevice!, sessionGeneration));
+      }
       if (device.sdkSource == WearableSdkSource.coolwear) {
         // HR01 links observed in the field can briefly reconnect before the
         // vendor's 30-second history command completes. Starting that command
@@ -2641,7 +2714,11 @@ class AppController extends ChangeNotifier {
     return false;
   }
 
-  Future<void> _reportConnectedDevice(DeviceInfo device, int generation) async {
+  Future<bool?> _reportConnectedDevice(
+    DeviceInfo device,
+    int generation, {
+    bool initializeFirstBinding = false,
+  }) async {
     final owner = session;
     final api = _api;
     if (api is! SaydianDeviceBindingApi ||
@@ -2654,7 +2731,7 @@ class AppController extends ChangeNotifier {
         connectedDevice?.id != device.id ||
         deviceState != DeviceConnectionState.ready ||
         device.sdkSource == WearableSdkSource.unknown) {
-      return;
+      return null;
     }
     final snapshot = capabilities;
     final reportedCapabilities = <String>{
@@ -2679,6 +2756,18 @@ class AppController extends ChangeNotifier {
     // Unknown model remains the real advertising name, not a guessed R21/HR.
     final model = device.model?.trim();
     try {
+      if (initializeFirstBinding && api is SayRingFirstBindingApi) {
+        return await (api as SayRingFirstBindingApi).reportFirstRingBinding(
+          expectedSession: owner,
+          deviceId: device.id,
+          vendor: device.sdkSource.fullLabel,
+          model: model?.isNotEmpty == true ? model! : device.name,
+          displayName: device.name,
+          firmware: device.firmwareVersion,
+          macAddress: device.verifiedHardwareMacAddress,
+          capabilities: reportedCapabilities,
+        );
+      }
       await (api as SaydianDeviceBindingApi).reportDeviceConnection(
         expectedSession: owner,
         deviceId: device.id,
@@ -2693,6 +2782,7 @@ class AppController extends ChangeNotifier {
       // Match Health App: reporting failure must not break a working BLE link.
       // No synthetic success or raw private metadata is logged.
     }
+    return null;
   }
 
   Future<void> _syncInitialDeviceData(String deviceId) async {
@@ -2719,6 +2809,11 @@ class AppController extends ChangeNotifier {
   }
 
   Future<bool> _syncDeviceData(String deviceId, {required bool initial}) async {
+    if (_firstRingBindingPending) {
+      syncStatus = firstRingBindingStatus ?? '首次绑定初始化尚未确认，请重新连接后再同步';
+      notifyListeners();
+      return false;
+    }
     if (_accountTransitioning ||
         connectedDevice?.id != deviceId ||
         isDeviceSyncing ||
@@ -2929,6 +3024,8 @@ class AppController extends ChangeNotifier {
       connectedDevice?.id == deviceId;
 
   void _invalidateDeviceSync() {
+    _firstRingBindingPending = false;
+    firstRingBindingStatus = null;
     _readOnlyHealthSyncQueued = false;
     _deviceSyncGeneration++;
     _deviceSettingsGeneration++;
@@ -3030,6 +3127,7 @@ class AppController extends ChangeNotifier {
       final saved = await binding.readRememberedDevice();
       final eligible = await _readRememberedRecoveryEligibility();
       if (_isCurrentSessionGeneration(generation) && !_accountTransitioning) {
+        _rememberedDeviceReadFailed = false;
         rememberedDevice = saved;
         _rememberedDeviceAllowsAutomaticRecovery = eligible;
         if (_rememberedDeviceConfirmationMessage != null) {
@@ -3039,6 +3137,7 @@ class AppController extends ChangeNotifier {
       }
     } catch (_) {
       if (_isCurrentSessionGeneration(generation)) {
+        _rememberedDeviceReadFailed = true;
         rememberedDevice = null;
         _rememberedDeviceAllowsAutomaticRecovery = false;
         wearableRecoveryMessage = '保存的戒指暂时无法读取，请重新添加戒指';
@@ -3167,6 +3266,7 @@ class AppController extends ChangeNotifier {
     if (bridge is! WearableDeviceDetailsBridge) return true;
     if (_deviceDetailsRefreshing) return true;
     if (_syncing ||
+        _firstRingBindingPending ||
         isDeviceSyncing ||
         _activeMeasurementMetric != null ||
         _accountTransitioning) {
@@ -3233,6 +3333,11 @@ class AppController extends ChangeNotifier {
   }
 
   Future<bool> startMeasurement(HealthMetric metric) async {
+    if (_firstRingBindingPending) {
+      errorMessage = firstRingBindingStatus ?? '请先完成首次绑定初始化';
+      notifyListeners();
+      return false;
+    }
     _measurementResult = null;
     _measurementResultOwner = null;
     if (!healthReleasePolicy.allowsManualMeasurement(metric)) {
@@ -3737,6 +3842,11 @@ class AppController extends ChangeNotifier {
       markNotificationEventRead(healthWarningEventId(alert));
 
   Future<bool> startSport(SportMode mode) async {
+    if (_firstRingBindingPending) {
+      errorMessage = firstRingBindingStatus ?? '请先完成首次绑定初始化';
+      notifyListeners();
+      return false;
+    }
     if (connectedDevice == null) {
       errorMessage = '请先连接戒指后再开始运动';
       notifyListeners();
@@ -3836,7 +3946,7 @@ class AppController extends ChangeNotifier {
         .map(healthReleasePolicy.projectSport)
         .toList();
     if (!_isCurrentSessionGeneration(generation)) return;
-    if (deviceId == null || !includeDevice) {
+    if (deviceId == null || !includeDevice || _firstRingBindingPending) {
       sportRecords = localRecords;
       notifyListeners();
       return;
@@ -6915,12 +7025,37 @@ class AppController extends ChangeNotifier {
 
   void _handleWearableEvent(WearableEvent event) {
     if (_disposed || _accountTransitioning) return;
+    if (_firstRingBindingPending &&
+        const {
+          'healthRecord',
+          'sleepReadStatus',
+          'healthDataReady',
+          'sportData',
+        }.contains(event.type)) {
+      return;
+    }
     if (!_wearableAccountRecoveryAllowed &&
         event.type != 'scanDevice' &&
         !(_wearableConnectInFlight != null && event.type == 'deviceDetails')) {
       return;
     }
-    if (event.type == 'scanDevice') {
+    if (event.type == 'ringInitialization') {
+      if (connectedDevice?.id != event.payload['deviceId'] ||
+          session == null ||
+          event.payload['ownerKey'] != _healthOwnerFor(session) ||
+          _connectedDeviceSessionGeneration != _sessionGeneration) {
+        return;
+      }
+      final wasPending = _firstRingBindingPending;
+      final complete = event.payload['status'] == 'complete';
+      _firstRingBindingPending = !complete;
+      firstRingBindingStatus = complete
+          ? '戒指已确认重置，时间、资料和步数目标已初始化'
+          : '戒指重置或初始化尚未确认，历史同步已暂停';
+      if (complete && wasPending) {
+        unawaited(_syncInitialDeviceData(connectedDevice!.id));
+      }
+    } else if (event.type == 'scanDevice') {
       final device = DeviceInfo.fromMap(event.payload);
       _upsertScannedDevice(device);
     } else if (event.type == 'deviceDetails') {

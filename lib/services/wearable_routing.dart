@@ -162,6 +162,7 @@ class RoutedWearableBridge
         WearableSportPauseBridge,
         WearableConnectionRecoveryBridge,
         WearableBindingManagementBridge,
+        WearableRingDataClearBridge,
         WearableRememberedRecoveryEligibilityBridge,
         WearableReadOnlyHealthPolicyBridge,
         WearableManualHealthPolicyBridge,
@@ -1059,6 +1060,44 @@ class RoutedWearableBridge
       _activeBridge.readAutoMeasureSettings();
 
   @override
+  Future<RingDataClearResult> clearRingHistory({
+    required String deviceId,
+    required String ownerKey,
+    bool allowFactoryReset = false,
+  }) async {
+    final generation = _connectionGeneration;
+    final bridge = _activeBridge;
+    final transport = _activeTransport;
+    final binding = await _readVisibleBinding();
+    _requireCurrentConnection(generation);
+    if (ownerKey != _recoveryOwnerKey ||
+        binding == null ||
+        binding.ownerKey != ownerKey ||
+        binding.transport != transport ||
+        RoutedDevice.scopedID(binding.transport, binding.nativeIdentifier) !=
+            deviceId) {
+      throw PlatformException(
+        code: 'STALE_DEVICE_SESSION',
+        message: '戒指或账号已变化，未清空数据',
+      );
+    }
+    if (bridge is! WearableRingDataClearBridge) {
+      throw PlatformException(
+        code: 'RING_HISTORY_CLEAR_UNSUPPORTED',
+        message: '此戒指暂不支持仅清除历史数据，未执行恢复出厂',
+      );
+    }
+    final result = await (bridge as WearableRingDataClearBridge)
+        .clearRingHistory(
+          deviceId: binding.nativeIdentifier,
+          ownerKey: ownerKey,
+          allowFactoryReset: allowFactoryReset,
+        );
+    _requireCurrentConnection(generation);
+    return result;
+  }
+
+  @override
   Future<void> setAutoMeasureSetting(String type, bool enabled) =>
       _activeBridge.setAutoMeasureSetting(type, enabled);
 
@@ -1128,6 +1167,11 @@ class RoutedWearableBridge
   }
 
   void _forwardEvent(WearableTransport transport, WearableEvent event) {
+    if (event.type == 'ringInitialization' &&
+        (event.payload['ownerKey'] != _recoveryOwnerKey ||
+            _recoveryOwnerKey == null)) {
+      return;
+    }
     if (requireOwnerScopedBinding &&
         _sources[transport] is WearableExactTargetRecoveryBridge &&
         event.type == 'reconnected') {
@@ -1172,6 +1216,7 @@ class RoutedWearableBridge
           event.type == 'syncProgress' ||
           event.type == 'recoveryState' ||
           event.type == 'sleepReadStatus' ||
+          event.type == 'ringInitialization' ||
           event.type == 'healthRecord' ||
           event.type == 'cameraShutter' ||
           event.type == 'cameraRemoteStopped') {
