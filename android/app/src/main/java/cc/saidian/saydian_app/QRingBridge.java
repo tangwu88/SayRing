@@ -853,7 +853,7 @@ public final class QRingBridge
         CommandHandle.getInstance().executeReqCmd(TargetSettingReq.getReadInstance(),
                 (ICommandResponse<TargetSettingRsp>) before -> main.post(() -> {
                     if (!current.getAsBoolean()) return;
-                    if (before == null || before.getStatus() != BaseRspCmd.RESULT_OK || !before.isRead()) { finish.run(); return; }
+                    if (before == null || before.getStatus() != BaseRspCmd.RESULT_OK || before.getAction() != TargetSettingRsp.ACTION_READ) { finish.run(); return; }
                     CommandHandle.getInstance().executeReqCmd(TargetSettingReq.getWriteInstance(target,
                             before.getCalorie(), before.getDistance(), before.getmSport(), before.getmSleep()),
                             (ICommandResponse<TargetSettingRsp>) ack -> main.post(() -> {
@@ -862,7 +862,7 @@ public final class QRingBridge
                                 CommandHandle.getInstance().executeReqCmd(TargetSettingReq.getReadInstance(),
                                         (ICommandResponse<TargetSettingRsp>) actual -> main.post(() -> {
                                             if (!current.getAsBoolean()) return;
-                                            if (actual != null && actual.getStatus() == BaseRspCmd.RESULT_OK && actual.isRead() &&
+                                            if (actual != null && actual.getStatus() == BaseRspCmd.RESULT_OK && actual.getAction() == TargetSettingRsp.ACTION_READ &&
                                                     actual.getStep() == target && actual.getCalorie() == before.getCalorie() &&
                                                     actual.getDistance() == before.getDistance() && actual.getmSport() == before.getmSport() &&
                                                     actual.getmSleep() == before.getmSleep()) updateFactoryInitialization(id, context, 4);
