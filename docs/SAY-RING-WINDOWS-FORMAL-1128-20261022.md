@@ -36,3 +36,13 @@ ADB仅一个已授权在线JAD-AL00，旧包`cn.saydian.ring`、1.0.5（1126）�
 ## 手机安装过程（持续记录）
 
 正式包核对冻结SHA后，仅对原唯一JAD-AL00执行`adb install -r <1128正式APK>`；不执行uninstall、clear、降级或强授予权限。安装回执尚在等待时，系统仍deviceLocked=1、AOD。尝试正常WAKEUP和上滑，首次只获取普通锁屏截图；后续截图为空文件，view_image明确拒绝，不把空图当有效密码界面。只读UI层级也未提供可确认的密码输入控件，因此没有盲输口令或绕过系统安全检查；已请用户本人解锁和确认安装。该UI阻断不影响已完成的构建/验签，不提前写成已安装。
+
+## 用户确认后的最终安装回执
+
+用户回复已确认，原安装进程返回`Performing Streamed Install / Success`。未取消/重发第二个安装任务，亦未因锁屏改为卸载重装。随后独立系统回读：cn.saydian.ring、1.0.5/1128、min26/target36、无debuggable；首次安装时间仍2026-10-20 10:58:24，更新时间2026-10-22 13:58:11。时间不变只证明非卸载重装，不冒充全部数据库/会话内容已逐项比较。
+
+`am start -W -n cn.saydian.ring/cc.saidian.saydian_app.MainActivity`返回Status ok、COLD、TotalTime505ms；真实PID存在，resumedActivity精确为Say Ring，系统deviceLocked=0。仅核对安装、启动与前台系统身份；不测试真实登录/OTP、采样、提醒写入、首次绑定、清空或恢复出厂，不以Activity回执替代全页面功能验收。
+
+构建后fetch成功，源基线7ffa55e与远端开发分支0/0；本轮只提交记录及索引至独立Windows正式分支，保留其他工作树和旧1126记录提交。第一次记录提交为237a439，安装当时尚待用户确认，后续用本段保留实际时间线。未提升main、上传线上包、修改下载清单、后台配置或市场审核。最终`git diff --check`和远端提交核对以实际收尾输出为准。
+
+iOS/鸿蒙本轮未构建；Mac/Foundation夹具和真实戒指清空/恢复出厂验收边界保持原样。首次绑定新能力的服务端部署及真实效果不因本轮安卓覆盖安装而视为已联调通过。
