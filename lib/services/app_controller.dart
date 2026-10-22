@@ -1100,6 +1100,7 @@ class AppController extends ChangeNotifier {
   Future<void>? _wearableConnectInFlight;
   bool _firstRingBindingPending = false;
   bool _rememberedDeviceReadFailed = false;
+  // Internal diagnostic only. Consumer UI uses ordinary connection/sync feedback.
   String? firstRingBindingStatus;
   Future<void>? _wearableReconnectInFlight;
   int _wearableReconnectGeneration = 0;
@@ -2618,7 +2619,7 @@ class AppController extends ChangeNotifier {
           }
           // No automatic sync in this initialization connection. An ACK is
           // not a fresh, empty-history readback; never import cached samples.
-          syncStatus = firstRingBindingStatus!;
+          syncStatus = '请重新连接后再同步';
           notifyListeners();
           return;
         }
@@ -2626,7 +2627,7 @@ class AppController extends ChangeNotifier {
             ? '已有绑定记录，保留戒指数据'
             : '首次绑定记录暂未确认，未清空戒指数据';
         if (shouldClear == null) {
-          syncStatus = firstRingBindingStatus!;
+          syncStatus = '请重新连接后再同步';
           notifyListeners();
           return;
         }
@@ -2810,7 +2811,8 @@ class AppController extends ChangeNotifier {
 
   Future<bool> _syncDeviceData(String deviceId, {required bool initial}) async {
     if (_firstRingBindingPending) {
-      syncStatus = firstRingBindingStatus ?? '首次绑定初始化尚未确认，请重新连接后再同步';
+      syncStatus = '请重新连接后再同步';
+      errorMessage = syncStatus;
       notifyListeners();
       return false;
     }
@@ -3334,7 +3336,7 @@ class AppController extends ChangeNotifier {
 
   Future<bool> startMeasurement(HealthMetric metric) async {
     if (_firstRingBindingPending) {
-      errorMessage = firstRingBindingStatus ?? '请先完成首次绑定初始化';
+      errorMessage = '请重新连接戒指后重试';
       notifyListeners();
       return false;
     }
@@ -3843,7 +3845,7 @@ class AppController extends ChangeNotifier {
 
   Future<bool> startSport(SportMode mode) async {
     if (_firstRingBindingPending) {
-      errorMessage = firstRingBindingStatus ?? '请先完成首次绑定初始化';
+      errorMessage = '请重新连接戒指后重试';
       notifyListeners();
       return false;
     }

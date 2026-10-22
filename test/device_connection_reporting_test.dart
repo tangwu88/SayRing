@@ -493,6 +493,13 @@ void main() {
         expect(ring.clears, 0);
         expect(ring.historyReads, 0);
         expect(c.firstRingBindingStatus, contains('未清空'));
+        expect(c.syncStatus, '请重新连接后再同步');
+        expect(await c.syncDeviceData(), isFalse);
+        expect(c.errorMessage, '请重新连接后再同步');
+        expect(await c.startMeasurement(HealthMetric.heartRate), isFalse);
+        expect(c.errorMessage, '请重新连接戒指后重试');
+        expect(ring.clears, 0);
+        expect(ring.historyReads, 0);
       },
     );
     test('anonymous connection and failed handshake never clear', () async {

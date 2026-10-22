@@ -297,6 +297,61 @@ void main() {
     },
   );
 
+  testWidgets(
+    'device overview keeps binding diagnostics private and sync legible',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final controller = AppController(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+      )..connectedDevice = const DeviceInfo(id: 'qring:synthetic', name: 'R21');
+      addTearDown(controller.dispose);
+      for (final status in [
+        '首次绑定记录暂未确认，未清空戒指数据',
+        '首次绑定，正在清空戒指历史数据',
+        '恢复出厂指令已发送，重连后将初始化设置；结果待确认',
+        '已有绑定记录，保留戒指数据',
+      ]) {
+        controller.firstRingBindingStatus = status;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildSaydianTheme(),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(1.5)),
+              child: child!,
+            ),
+            home: Scaffold(body: DevicePage(controller: controller)),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text(status), findsNothing);
+        expect(
+          find.byKey(const Key('first-ring-binding-status')),
+          findsNothing,
+        );
+        expect(find.text('同步数据'), findsOneWidget);
+        final button = tester.widget<FilledButton>(
+          find.byKey(const Key('device-sync-data')),
+        );
+        final disabled = <WidgetState>{WidgetState.disabled};
+        final foreground = button.style!.foregroundColor!.resolve(disabled)!;
+        final background = button.style!.backgroundColor!.resolve(disabled)!;
+        final contrast =
+            (background.computeLuminance() + 0.05) /
+            (foreground.computeLuminance() + 0.05);
+        expect(contrast, greaterThanOrEqualTo(3));
+        expect(tester.takeException(), isNull);
+      }
+    },
+  );
+
   testWidgets('home avatar and greeting follow saved personal profile', (
     tester,
   ) async {
