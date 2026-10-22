@@ -29,3 +29,25 @@ Release配置19.3秒/归档31.9秒成功，2026-10-22 18:17创建的确切1130�
 补查ios/Runner其余字段，无其它@(!...)装箱表达式；Dart严格bool解析与首次绑定保护均不放宽。Android公开1129、Harmony配置及下载页稳定iOS入口均保持本轮原值。手机已安装普通主入口1130，专项测试已结束。
 
 记录追加首个Python heredoc命令因非UTF-8输入解析失败，未写入文件；改用apply_patch完成，未影响构建或测试结果。
+
+## 原生上传回执与远端CI（18:45）
+
+用户确认“正在上传1130”后继续核验。Xcode 18:38创建的分发日志包含正确cn.saydian.ring和1130；18:41苹果上传表实际出现1.0.5(1130)“正在处理”。不把该状态写成已处理完成或已送审。原生认证仍由用户在窗口完成，没有读取或输出认证秘密。
+
+远端run39762458378最终五个job均success：quality、Harmony contracts (UTC)、Harmony contracts (Asia/Shanghai)、ios、android；所有步骤成功。iOS Debug/Profile/Release及Android Debug/Release、原生JUnit和SDK缓存一致性门禁包含在该远端流程，最终回执替代上一节“仍运行”的状态。源码仍为de650ff，后续仅记录更新。
+
+为替换已确认有缺陷的Beta构建，在1129详情点击一次“从审核中移除”，界面先“正在移除”，后返回列表读取1129“准备提交”；三个原测试群组保留、未过期原构建、未添加测试员。1130处理完成后再执行合规、群组和新审核；旧App Store选择此前已移除且1130说明已保存。
+
+浏览器读取原测试说明时先尝试inputValue但当前客户端不支持，未修改页面；改用只读DOM获取textarea.value成功。未通过隐藏状态或直接网络调用操作App Store Connect。
+
+## 最终上传、Beta与App Store送审回执（18:50）
+
+1130于18:48左右处理完成，App Store Connect构建ID4932f52e-6ac6-4a4c-8dde-b23d642d1185。选择实际标准加密（非仅Apple系统加密），法国分发“否”并保存；沿用用户已授权暂停法国供应，没有扩大其他地区。随后列表实际显示“准备提交”。上传详情有90683定位AlwaysAndWhenInUse用途字符串警告；当前源码仅有WhenInUse用途声明，未新增位置授权或虚构用途。此警告没有阻止本次处理完成或审核提交，记录为后续SDK权限依赖核查项，不能声称上传检查零警告。
+
+TestFlight保存中英文原测试内容并追加1130历史同步修复、R21完整同步实测及初始化保护边界。仅选择原有SayRing public、Say Ring XR邮箱验证、Say Ring真机验证三个群组；确认页取消“自动通知测试员”，点击“提交以供审核”。返回列表读取1130“正在等待审核”、三群组；1129“准备提交”。未新增测试员、未过期旧构建，也未发送主动测试通知。
+
+App Store先选择1130并保存，重新加载核验notes1130、选择1130且保存按钮禁用。点击“添加以供审核”后草稿仅含1.0.5(1130)，正式“提交以供审核”返回“已提交1个项目”。最终审核详情：2026-10-22 18:50提交，ID862fee22-9c9c-4861-bec5-07e9eb2f3d06，项目1.0.5(1130)，状态“等待审核”。原审核登录资料、功能披露、发布方式与其余地区保留；未代接受法律协议。
+
+App Store回执：https://appstoreconnect.apple.com/apps/6816549943/distribution/reviewsubmissions/details/862fee22-9c9c-4861-bec5-07e9eb2f3d06 。TestFlight构建：https://appstoreconnect.apple.com/teams/69a6de89-863e-47e3-e053-5b8c7c11a4d1/apps/6816549943/testflight/ios/4932f52e-6ac6-4a4c-8dde-b23d642d1185 。截图已分别保存到忽略的build/sync-availability-20261022/appstore-1130-waiting-review.png和testflight-1130-waiting-review.png并视觉核验。等待审核不是已批准或已上架，下载页继续保留实际稳定iOS入口和原正式Android1129。
+
+本轮浏览器点击“添加构建版本”首次严格匹配遇两个控件，未产生选择；改用当时AX明确按钮打开弹窗，核验1130 radio ID后选择成功。各失败尝试均未误选1129或更改账号信息。最终仅文档变更再次提交当前公开分支；源码de650ff的全绿CI与已验证归档保持一致。
