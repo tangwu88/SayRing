@@ -141,7 +141,13 @@ void main() {
         -280,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(tapTarget.last);
+      await Scrollable.ensureVisible(
+        tester.element(tapTarget.last),
+        alignment: .5,
+      );
+      await tester.pumpAndSettle();
+      expect(tapTarget.last.hitTestable(), findsOneWidget);
+      await tester.tap(tapTarget.last.hitTestable());
       await tester.pumpAndSettle(const Duration(seconds: 2));
       expect(pageMarker, findsOneWidget, reason: '$name 页面未打开');
       expect(tester.takeException(), isNull, reason: '$name 页面发生异常');
@@ -165,17 +171,30 @@ void main() {
         280,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(card);
+      await Scrollable.ensureVisible(tester.element(card), alignment: .5);
+      await tester.pumpAndSettle();
+      expect(card.hitTestable(), findsOneWidget);
+      await tester.tap(card.hitTestable());
       await tester.pumpAndSettle(const Duration(seconds: 2));
       expect(
-        find.textContaining(metric.label),
-        findsWidgets,
+        find.byKey(Key('health-trend-${metric.wireName}')),
+        findsOneWidget,
         reason: '${metric.label}详情没有显示标题/指标',
       );
       expect(tester.takeException(), isNull, reason: '${metric.label}详情发生异常');
       record('${metric.label}详情');
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle(const Duration(seconds: 2));
+    }
+
+    // Rerun only the affected metric navigation after a larger page walk.
+    // This is a test-only scope selector; production never reads this value.
+    if (const bool.fromEnvironment('SAYRING_QA_METRICS_ONLY')) {
+      expect(tester.takeException(), isNull);
+      expect(controller.session?.accountKey, originalOwner);
+      // ignore: avoid_print
+      print('iOS verified metric pages: ${visited.join('、')}');
+      return;
     }
 
     await open(
