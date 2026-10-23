@@ -97,3 +97,5 @@ Android回归使用Git外`Run-Android-Regression.ps1`，将已验证1126 runner�
 | SayRing-HarmonyOS-1.0.5-1132-release.hap | 18751207 | D1E840A876982B8B90994934A21F1FE4DF6CD5E6AB45166CEDC8402E77E64144 |
 
 最后源码检查仅Harmony15个显式源码/测试/文档文件，无Android/iOS/服务端业务修改。提交前再次通过单次代理参数fetch origin/prune成功，开发分支仍`1d2807b5b8f12645e99bb11ae554d871fd0e1b5a`，未覆盖同事工作。推送独立`codex/harmony-android-parity-1132-20261023`，不提升main、不启动部署；结束以实际HEAD/ls-remote相同及工作树状态为准。无本轮设备安装、真实OTP、SDK回包、支付、推送、公开下载或市场审核验收。
+
+最终运行源码、测试和实施记录提交`675ec0f1867bd4a3fca9de3e4b9ffbebf93d460d`已实际推送到上述独立origin分支。随后`git ls-remote --heads`读回同一SHA，ahead/behind为0/0、工作树干净。最终delivery三包重新按SHA256SUMS逐项读取校验全部一致。本段仅为文档回执续记，不改变已构建源码或包；未核验GitHub Actions，不宣称CI或部署通过。
