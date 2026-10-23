@@ -138,153 +138,165 @@ class DashboardPage extends StatelessWidget {
           slivers: [
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  _DashboardHeader(controller: controller),
-                  const SizedBox(height: 12),
-                  if (controller.shouldShowHealthMetric(
-                    HealthMetric.steps,
-                  )) ...[
-                    _DashboardActivity(controller: controller),
+              // This is a small, bounded overview (the card Wrap already lays
+              // out all metrics). A lazy variable-height SliverList estimates
+              // the tall card group from the preceding short header entries;
+              // re-entering them during a slow reverse drag corrects the scroll
+              // offset repeatedly. One measured box has no estimated extent.
+              sliver: SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _DashboardHeader(controller: controller),
                     const SizedBox(height: 12),
-                  ],
-                  if (controller.shouldShowHealthMetric(
-                    HealthMetric.sleep,
-                  )) ...[
-                    _SleepQuickCard(controller: controller),
-                    const SizedBox(height: 12),
-                  ],
-                  _FeatureEntryGrid(
-                    commerceEnabled: controller.mallVisible,
-                    encyclopediaEnabled: controller.healthLibraryVisible,
-                    onCare: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => controller.isGlobalEdition
-                            ? CarePage(controller: controller)
-                            : Scaffold(
-                                appBar: AppBar(
-                                  title: Text(context.l10n.remoteCare),
+                    if (controller.shouldShowHealthMetric(
+                      HealthMetric.steps,
+                    )) ...[
+                      _DashboardActivity(controller: controller),
+                      const SizedBox(height: 12),
+                    ],
+                    if (controller.shouldShowHealthMetric(
+                      HealthMetric.sleep,
+                    )) ...[
+                      _SleepQuickCard(controller: controller),
+                      const SizedBox(height: 12),
+                    ],
+                    _FeatureEntryGrid(
+                      commerceEnabled: controller.mallVisible,
+                      encyclopediaEnabled: controller.healthLibraryVisible,
+                      onCare: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => controller.isGlobalEdition
+                              ? CarePage(controller: controller)
+                              : Scaffold(
+                                  appBar: AppBar(
+                                    title: Text(context.l10n.remoteCare),
+                                  ),
+                                  body: CarePage(controller: controller),
                                 ),
-                                body: CarePage(controller: controller),
-                              ),
-                      ),
-                    ),
-                    onEncyclopedia: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        settings: const RouteSettings(
-                          name: 'health-encyclopedia-categories',
                         ),
-                        builder: (_) =>
-                            ArticleCategoryPage(controller: controller),
                       ),
-                    ),
-                    onSport: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        settings: const RouteSettings(name: 'sport-overview'),
-                        builder: (_) =>
-                            SportOverviewPage(controller: controller),
-                      ),
-                    ),
-                    onMall: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        settings: const RouteSettings(name: 'shop-home'),
-                        builder: (_) => ShopHomePage(
-                          controller: controller,
-                          ordersPageBuilder: (_) => OrdersPage(
-                            controller: controller,
-                            initialStatus: null,
+                      onEncyclopedia: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          settings: const RouteSettings(
+                            name: 'health-encyclopedia-categories',
                           ),
+                          builder: (_) =>
+                              ArticleCategoryPage(controller: controller),
                         ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  if (!controller.hideAiContent) ...[
-                    _AiHealthAssistantCard(controller: controller),
-                    const SizedBox(height: 12),
-                  ],
-                  _SectionTitle(
-                    title: context.l10n.healthData,
-                    subtitle: context.l10n.recentData,
-                    actionLabel: context.l10n.allData,
-                    onEdit:
-                        controller.isWellnessOnly ||
-                            controller.homeHealthCardsLoading
-                        ? null
-                        : () => Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              settings: const RouteSettings(
-                                name: 'home-health-card-editor',
-                              ),
-                              builder: (_) =>
-                                  HomeHealthCardsPage(controller: controller),
+                      onSport: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          settings: const RouteSettings(name: 'sport-overview'),
+                          builder: (_) =>
+                              SportOverviewPage(controller: controller),
+                        ),
+                      ),
+                      onMall: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          settings: const RouteSettings(name: 'shop-home'),
+                          builder: (_) => ShopHomePage(
+                            controller: controller,
+                            ordersPageBuilder: (_) => OrdersPage(
+                              controller: controller,
+                              initialStatus: null,
                             ),
                           ),
-                    onAction: () => Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        settings: const RouteSettings(name: 'all-health-data'),
-                        builder: (_) =>
-                            AllHealthDataPage(controller: controller),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  if (metrics.isEmpty)
-                    InlineNotice(
-                      key: const Key('dashboard-health-empty-notice'),
-                      message: hasEligibleCards && !controller.isWellnessOnly
-                          ? '首页暂无卡片，点击编辑添加'
-                          : disconnected
-                          ? context.l10n.connectWatchForData
-                          : context.l10n.noHealthData,
-                      icon: Icons.watch_outlined,
-                      color: SaydianColors.blue,
-                      compact: true,
-                      centered: true,
-                      onTap: !hasEligibleCards && disconnected
-                          ? () => Navigator.of(context).push(
+                    const SizedBox(height: 12),
+                    if (!controller.hideAiContent) ...[
+                      _AiHealthAssistantCard(controller: controller),
+                      const SizedBox(height: 12),
+                    ],
+                    _SectionTitle(
+                      title: context.l10n.healthData,
+                      subtitle: context.l10n.recentData,
+                      actionLabel: context.l10n.allData,
+                      onEdit:
+                          controller.isWellnessOnly ||
+                              controller.homeHealthCardsLoading
+                          ? null
+                          : () => Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 settings: const RouteSettings(
-                                  name: 'device-search',
+                                  name: 'home-health-card-editor',
                                 ),
                                 builder: (_) =>
-                                    DeviceSearchPage(controller: controller),
+                                    HomeHealthCardsPage(controller: controller),
                               ),
-                            )
-                          : null,
-                    )
-                  else
-                    LayoutBuilder(
-                      key: const Key('dashboard-health-card-list'),
-                      builder: (context, constraints) {
-                        final twoColumns =
-                            metrics.length > 1 &&
-                            constraints.maxWidth >= 350 &&
-                            MediaQuery.textScalerOf(context).scale(1) <= 1.2;
-                        final width = twoColumns
-                            ? (constraints.maxWidth - 12) / 2
-                            : constraints.maxWidth;
-                        return Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: [
-                            for (final metric in metrics)
-                              SizedBox(
-                                width: width,
-                                child: HealthMetricCard(
-                                  key: ValueKey(
-                                    'home-health-card-${metric.wireName}',
-                                  ),
-                                  controller: controller,
-                                  metric: metric,
-                                  record: latest[metric],
-                                ),
-                              ),
-                          ],
-                        );
-                      },
+                            ),
+                      onAction: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          settings: const RouteSettings(
+                            name: 'all-health-data',
+                          ),
+                          builder: (_) =>
+                              AllHealthDataPage(controller: controller),
+                        ),
+                      ),
                     ),
-                ]),
+                    const SizedBox(height: 12),
+                    if (metrics.isEmpty)
+                      InlineNotice(
+                        key: const Key('dashboard-health-empty-notice'),
+                        message: hasEligibleCards && !controller.isWellnessOnly
+                            ? '首页暂无卡片，点击编辑添加'
+                            : disconnected
+                            ? context.l10n.connectWatchForData
+                            : context.l10n.noHealthData,
+                        icon: Icons.watch_outlined,
+                        color: SaydianColors.blue,
+                        compact: true,
+                        centered: true,
+                        onTap: !hasEligibleCards && disconnected
+                            ? () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  settings: const RouteSettings(
+                                    name: 'device-search',
+                                  ),
+                                  builder: (_) =>
+                                      DeviceSearchPage(controller: controller),
+                                ),
+                              )
+                            : null,
+                      )
+                    else
+                      LayoutBuilder(
+                        key: const Key('dashboard-health-card-list'),
+                        builder: (context, constraints) {
+                          final twoColumns =
+                              metrics.length > 1 &&
+                              constraints.maxWidth >= 300 &&
+                              MediaQuery.textScalerOf(context).scale(1) <= 1.2;
+                          final width = twoColumns
+                              ? (constraints.maxWidth - 12) / 2
+                              : constraints.maxWidth;
+                          return Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            children: [
+                              for (final metric in metrics)
+                                SizedBox(
+                                  width: width,
+                                  child: RepaintBoundary(
+                                    child: HealthMetricCard(
+                                      key: ValueKey(
+                                        'home-health-card-${metric.wireName}',
+                                      ),
+                                      controller: controller,
+                                      metric: metric,
+                                      record: latest[metric],
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                  ],
+                ),
               ),
             ),
             SliverFillRemaining(
@@ -1122,16 +1134,23 @@ class _TodayHealthOverview extends StatelessWidget {
             LayoutBuilder(
               builder: (context, constraints) {
                 final stack =
-                    constraints.maxWidth < 310 ||
+                    constraints.maxWidth < 240 ||
                     MediaQuery.textScalerOf(context).scale(1) > 1.2;
+                final ringWidth = (constraints.maxWidth * .49)
+                    .clamp(112.0, 164.0)
+                    .toDouble();
                 return stack
                     ? Column(
                         children: [rings, const SizedBox(height: 18), rows],
                       )
                     : Row(
                         children: [
-                          rings,
-                          const SizedBox(width: 18),
+                          SizedBox.square(
+                            key: const Key('activity-progress-rings-panel'),
+                            dimension: ringWidth,
+                            child: FittedBox(child: rings),
+                          ),
+                          const SizedBox(width: 12),
                           Expanded(child: rows),
                         ],
                       );
@@ -1212,26 +1231,34 @@ class _GoalProgressRow extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 4),
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.end,
-                  spacing: 4,
-                  children: [
-                    Text(
-                      value == null ? '--' : _format(value!),
-                      style: const TextStyle(
-                        fontSize: 24,
-                        height: 1.1,
-                        fontWeight: FontWeight.w700,
-                      ),
+                SizedBox(
+                  width: double.infinity,
+                  child: FittedBox(
+                    alignment: Alignment.centerLeft,
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          value == null ? '--' : _format(value!),
+                          style: const TextStyle(
+                            fontSize: 24,
+                            height: 1.1,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          unavailableReason ?? '/${_format(target)}$unit',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: SaydianColors.muted,
+                          ),
+                        ),
+                      ],
                     ),
-                    Text(
-                      unavailableReason ?? '/${_format(target)}$unit',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: SaydianColors.muted,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ],
             ),

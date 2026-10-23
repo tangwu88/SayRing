@@ -98,6 +98,7 @@ public final class QRingBridge
     private MethodChannel.Result pendingConnect;
     private MethodChannel.Result pendingSync;
     private Runnable scanDeadline;
+    private long scanGeneration;
     private Runnable connectDeadline;
     private Runnable disconnectDeadline;
     private Runnable syncDeadline;
@@ -350,21 +351,31 @@ public final class QRingBridge
             result.error("BLUETOOTH_OFF", "请先开启手机蓝牙", null);
             return;
         }
-        if (pendingScan != null) {
-            finishScan();
-        }
+        finishScan(); // stop/reset the previous OEM scan even after a failure.
+        final long generation = ++scanGeneration;
         scanned.clear();
         pendingScan = result;
         BleScannerHelper.getInstance().reSetCallback();
-        BleScannerHelper.getInstance().scanDevice(activity, null, new ScanWrapperCallback() {
+        try { BleScannerHelper.getInstance().scanDevice(activity, null, new ScanWrapperCallback() {
             @Override public void onStart() { }
-            @Override public void onStop() { main.post(QRingBridge.this::finishScan); }
+            @Override public void onStop() { main.post(() -> {
+                if (generation == scanGeneration && pendingScan != null) finishScan();
+            }); }
             @Override public void onScanFailed(int errorCode) {
-                main.post(() -> failScan("QRING_SCAN_FAILED", "搜索戒指失败，请重试"));
+                main.post(() -> { if (generation == scanGeneration && pendingScan != null)
+                    failScan("QRING_SCAN_FAILED", "蓝牙扫描失败，请稍后重试（" + errorCode + "）"); });
             }
             // onLeScan carries the same advertisement plus RSSI; handle both there.
             @Override public void onParsedData(BluetoothDevice device, ScanRecord record) { }
-            @Override public void onBatchScanResults(List<ScanResult> results) { }
+            @Override public void onBatchScanResults(List<ScanResult> results) {
+                if (results == null) return;
+                for (ScanResult item : results) {
+                    if (item == null) continue;
+                    final String name = item.getScanRecord() == null ? null : item.getScanRecord().getDeviceName();
+                    main.post(() -> { if (generation == scanGeneration && pendingScan != null)
+                        receiveScan(item.getDevice(), item.getRssi(), name); });
+                }
+            }
 
             @Override public void onLeScan(BluetoothDevice device, int rssi, byte[] scanRecord) {
                 if (device == null) return;
@@ -376,14 +387,19 @@ public final class QRingBridge
                     } catch (RuntimeException ignored) { }
                 }
                 final String advertisedName = name;
-                main.post(() -> receiveScan(device, rssi, advertisedName));
+                main.post(() -> { if (generation == scanGeneration && pendingScan != null)
+                    receiveScan(device, rssi, advertisedName); });
             }
-        });
-        scanDeadline = this::finishScan;
+        }); } catch (RuntimeException error) {
+            failScan("QRING_SCAN_FAILED", "蓝牙扫描无法开始，请检查权限与蓝牙后重试");
+            return;
+        }
+        scanDeadline = () -> { if (generation == scanGeneration) finishScan(); };
         main.postDelayed(scanDeadline, SCAN_MS);
     }
 
     private void receiveScan(BluetoothDevice device, int rssi, String advertisedName) {
+        if (pendingScan == null || device == null) return;
         String cachedName;
         try {
             cachedName = device.getName();
@@ -511,6 +527,7 @@ public final class QRingBridge
     }
 
     private void finishScan() {
+        ++scanGeneration; // invalidate posted callbacks before stopping the OEM singleton.
         if (scanDeadline != null) main.removeCallbacks(scanDeadline);
         scanDeadline = null;
         try {
@@ -523,11 +540,10 @@ public final class QRingBridge
     }
 
     private void failScan(String code, String message) {
-        if (scanDeadline != null) main.removeCallbacks(scanDeadline);
-        scanDeadline = null;
         if (pendingScan == null) return;
         MethodChannel.Result result = pendingScan;
         pendingScan = null;
+        finishScan();
         result.error(code, message, null);
     }
 

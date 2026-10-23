@@ -5,7 +5,6 @@ import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/ui/brand_assets.dart';
-import 'package:saydian_app/ui/global_auth_page.dart';
 import 'package:saydian_app/ui/global_code_login_page.dart';
 
 class CodeLoginController extends Fake implements AppController {
@@ -202,60 +201,52 @@ class WechatCodeLoginController extends CodeLoginController {
 }
 
 void main() {
-  testWidgets('registration opens from login and returns to primary login', (
+  testWidgets(
+    'WeChat is visible above phone fields on a compact 364dp screen',
+    (tester) async {
+      tester.view
+        ..physicalSize = const Size(364, 700)
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: GlobalCodeLoginPage(controller: WechatCodeLoginController()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final wechat = find.byKey(const Key('global-wechat-login'));
+      expect(wechat.hitTestable(), findsOneWidget);
+      expect(
+        tester.getBottomLeft(wechat).dy,
+        lessThan(
+          tester.getTopLeft(find.byKey(const Key('code-login-contact'))).dy,
+        ),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('phone login hides account creation and channel selectors', (
     tester,
   ) async {
-    final controller = CodeLoginController()..localOnlySupported = true;
     await tester.pumpWidget(
       MaterialApp(
         locale: const Locale('zh'),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        home: GlobalCodeLoginPage(controller: controller),
+        home: GlobalCodeLoginPage(controller: CodeLoginController()),
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('邮箱').first);
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('code-login-register')),
-      240,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(find.byKey(const Key('code-login-register')));
-    await tester.pumpAndSettle();
-    final page = tester.widget<GlobalAuthPage>(find.byType(GlobalAuthPage));
-    expect(page.createAccount, isTrue);
-    expect(page.initialChannel, AccountChannel.email);
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('auth-minimum-age')),
-      240,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(
-      tester
-          .widget<CheckboxListTile>(find.byKey(const Key('auth-minimum-age')))
-          .value,
-      isFalse,
-    );
-    expect(
-      tester
-          .widget<CheckboxListTile>(find.byKey(const Key('auth-consent')))
-          .value,
-      isFalse,
-    );
-    final age = tester.getCenter(find.byKey(const Key('auth-minimum-age')));
-    final consent = tester.getCenter(find.byKey(const Key('auth-consent')));
-    expect(age.dy, consent.dy);
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('auth-toggle-mode')),
-      240,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(find.byKey(const Key('auth-toggle-mode')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('global-code-login-page')), findsOneWidget);
-    expect(find.byType(GlobalAuthPage), findsNothing);
+    expect(find.byType(ChoiceChip), findsNothing);
+    expect(find.byKey(const Key('code-login-register')), findsNothing);
+    expect(find.byKey(const Key('code-login-recover')), findsNothing);
+    expect(find.byKey(const Key('email-login-password')), findsNothing);
+    expect(find.text('未注册的手机号验证成功后将自动创建账号'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -388,7 +379,32 @@ void main() {
     expect(controller.enteredLocalMode, isTrue);
   });
 
-  testWidgets('email password requires age and consent before sign-in', (
+  testWidgets(
+    'enabled email capability does not expose email or password login',
+    (tester) async {
+      final controller = CodeLoginController();
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: GlobalCodeLoginPage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('邮箱'), findsNothing);
+      expect(find.byKey(const Key('email-login-mode')), findsNothing);
+      expect(find.byKey(const Key('email-login-password')), findsNothing);
+      expect(find.byKey(const Key('code-login-code')), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('code-login-submit')));
+      await tester.tap(find.byKey(const Key('code-login-submit')));
+      await tester.pumpAndSettle();
+      expect(controller.signedIn, isNull);
+      expect(controller.passwordLoginEmail, isNull);
+    },
+  );
+
+  testWidgets('invalid China phone cannot dispatch a login code', (
     tester,
   ) async {
     final controller = CodeLoginController();
@@ -401,72 +417,23 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('邮箱'));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('email-login-password')), findsOneWidget);
-    expect(find.byKey(const Key('code-login-send')), findsNothing);
-    await tester.enterText(
-      find.byKey(const Key('code-login-contact')),
-      'TEST@Example.com',
-    );
-    await tester.enterText(
-      find.byKey(const Key('email-login-password')),
-      'synthetic-password',
-    );
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('code-login-submit')),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.ensureVisible(find.byKey(const Key('code-login-submit')));
-    await tester.tap(find.byKey(const Key('code-login-submit')));
-    await tester.pump();
-    expect(controller.passwordLoginEmail, isNull);
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('code-login-minimum-age')),
-      -250,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await tester.enterText(find.byKey(const Key('code-login-contact')), '123');
+    await tester.ensureVisible(find.byKey(const Key('code-login-minimum-age')));
     await tester.tap(
       find.descendant(
         of: find.byKey(const Key('code-login-minimum-age')),
         matching: find.byType(Checkbox),
       ),
     );
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('code-login-submit')),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(find.byKey(const Key('code-login-submit')));
-    await tester.pump();
-    expect(controller.passwordLoginEmail, isNull);
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('code-login-consent')),
-      -250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(
-      find.descendant(
-        of: find.byKey(const Key('code-login-consent')),
-        matching: find.byType(Checkbox),
-      ),
-    );
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('code-login-submit')),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.ensureVisible(find.byKey(const Key('code-login-submit')));
-    await tester.tap(find.byKey(const Key('code-login-submit')));
+    await tester.ensureVisible(find.byKey(const Key('code-login-send')));
+    await tester.tap(find.byKey(const Key('code-login-send')));
     await tester.pumpAndSettle();
-    expect(controller.passwordLoginEmail, 'test@example.com');
-    expect(controller.passwordLoginPassword, 'synthetic-password');
-    expect(controller.passwordLoginConsent, isTrue);
-    expect(tester.takeException(), isNull);
+    expect(controller.requested, isNull);
+    expect(controller.signedIn, isNull);
+    expect(find.byKey(const Key('code-login-error')), findsOneWidget);
   });
 
-  testWidgets('invalid email credentials show a generic sign-in failure', (
+  testWidgets('phone code login is default and has no registration/password', (
     tester,
   ) async {
     tester.view
@@ -474,67 +441,6 @@ void main() {
       ..devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-
-    final controller = CodeLoginController()..passwordLoginResult = false;
-    await tester.pumpWidget(
-      MaterialApp(
-        locale: const Locale('en'),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: GlobalCodeLoginPage(controller: controller),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Email'));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const Key('code-login-contact')),
-      'test@example.com',
-    );
-    await tester.enterText(
-      find.byKey(const Key('email-login-password')),
-      'synthetic-password',
-    );
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('code-login-minimum-age')),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(
-      find.descendant(
-        of: find.byKey(const Key('code-login-minimum-age')),
-        matching: find.byType(Checkbox),
-      ),
-    );
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('code-login-consent')),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(
-      find.descendant(
-        of: find.byKey(const Key('code-login-consent')),
-        matching: find.byType(Checkbox),
-      ),
-    );
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('code-login-submit')),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.ensureVisible(find.byKey(const Key('code-login-submit')));
-    await tester.tap(find.byKey(const Key('code-login-submit')));
-    await tester.pumpAndSettle();
-    expect(
-      find.text('Could not sign in. Please check your details and try again.'),
-      findsOneWidget,
-    );
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('phone code login is default and has no registration/password', (
-    tester,
-  ) async {
     final controller = CodeLoginController();
     await tester.pumpWidget(
       MaterialApp(
@@ -661,18 +567,14 @@ void main() {
         ),
       );
       await tester.pump();
-      await tester.scrollUntilVisible(
-        find.byKey(const Key('global-wechat-login')),
-        250,
-        scrollable: find.byType(Scrollable).first,
-      );
+      await tester.ensureVisible(find.byKey(const Key('global-wechat-login')));
       final wechatIcon = tester.widget<Icon>(
         find.descendant(
           of: find.byKey(const Key('global-wechat-login')),
           matching: find.byIcon(Icons.wechat_rounded),
         ),
       );
-      expect(wechatIcon.color, const Color(0xFF07C160));
+      expect(wechatIcon.icon, Icons.wechat_rounded);
       await tester.tap(find.byKey(const Key('global-wechat-login')));
       await tester.pumpAndSettle();
       expect(

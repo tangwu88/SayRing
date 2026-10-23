@@ -7,6 +7,72 @@ import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/services/wearable_routing.dart';
 
 void main() {
+  test('a canceled scan failure cannot stop its replacement round', () async {
+    final firstReply = Completer<List<DeviceInfo>>();
+    final nextReply = Completer<List<DeviceInfo>>();
+    final native = _FakeWearableBridge(scanned: const [])
+      ..scanResult = firstReply;
+    final bridge = RoutedWearableBridge(qring: native);
+    final first = bridge.scanDevices();
+    await pumpEventQueue();
+    await bridge.stopScan();
+    final stops = native.stopScanCalls;
+    native.scanResult = nextReply;
+    final next = bridge.scanDevices();
+    await pumpEventQueue();
+    firstReply.completeError(PlatformException(code: 'QRING_SCAN_FAILED'));
+    expect(await first, isEmpty);
+    expect(native.stopScanCalls, stops);
+    nextReply.complete([const DeviceInfo(id: 'ring', name: 'R22_C493')]);
+    expect((await next).single.id, 'qring:ring');
+    await bridge.dispose();
+  });
+
+  test(
+    'overlapping scans share one round; stop rejects late results and allows retry',
+    () async {
+      final native = _FakeWearableBridge(scanned: const [])
+        ..scanResult = Completer<List<DeviceInfo>>();
+      final bridge = RoutedWearableBridge(qring: native);
+      final events = <WearableEvent>[];
+      final subscription = bridge.events.listen(events.add);
+      final first = bridge.scanDevices();
+      final same = bridge.scanDevices();
+      expect(identical(first, same), isTrue);
+      await pumpEventQueue();
+      expect(native.scanCalls, 1);
+      await bridge.stopScan();
+      native.emitScan(const DeviceInfo(id: 'late', name: 'R22_C493'));
+      native.scanResult!.complete([
+        const DeviceInfo(id: 'late', name: 'R22_C493'),
+      ]);
+      expect(await first, isEmpty);
+      await pumpEventQueue();
+      expect(events, isEmpty);
+      native.scanResult = null;
+      expect(await bridge.scanDevices(), isEmpty);
+      expect(native.scanCalls, 2);
+      await subscription.cancel();
+      await bridge.dispose();
+    },
+  );
+
+  test(
+    'scan failures are not reported as no nearby rings and the next scan can succeed',
+    () async {
+      final native = _FakeWearableBridge(
+        scanned: const [DeviceInfo(id: 'ring', name: 'R22_C493')],
+      )..scanError = PlatformException(code: 'QRING_SCAN_FAILED');
+      final bridge = RoutedWearableBridge(qring: native);
+      await expectLater(
+        bridge.scanDevices(),
+        throwsA(isA<PlatformException>()),
+      );
+      native.scanError = null;
+      expect((await bridge.scanDevices()).single.id, 'qring:ring');
+      await bridge.dispose();
+    },
+  );
   test(
     'vibrating models route consistently with explicit-prefix safeguards',
     () {
@@ -890,11 +956,15 @@ void main() {
   });
 
   test('drops a live ring from the wrong SDK and forwards its owner', () async {
-    final veepoo = _FakeWearableBridge(scanned: const []);
+    final veepoo = _FakeWearableBridge(scanned: const [])
+      ..scanResult = Completer<List<DeviceInfo>>();
     final yucheng = _FakeWearableBridge(scanned: const []);
     final bridge = RoutedWearableBridge(veepoo: veepoo, yucheng: yucheng);
     final received = <WearableEvent>[];
     final subscription = bridge.events.listen(received.add);
+
+    final pending = bridge.scanDevices();
+    await pumpEventQueue();
 
     veepoo.emitScan(const DeviceInfo(id: '07:43:00:00:4D:E9', name: 'YC Ring'));
     yucheng.emitScan(
@@ -904,6 +974,8 @@ void main() {
 
     expect(received, hasLength(1));
     expect(received.single.payload['id'], 'yucheng:07:43:00:00:4D:E9');
+    veepoo.scanResult!.complete([]);
+    await pending;
     await subscription.cancel();
     await bridge.dispose();
   });
@@ -911,12 +983,15 @@ void main() {
   test(
     'can connect a live scan result before the scan future completes',
     () async {
-      final veepoo = _FakeWearableBridge(scanned: const []);
+      final veepoo = _FakeWearableBridge(scanned: const [])
+        ..scanResult = Completer<List<DeviceInfo>>();
       final bridge = RoutedWearableBridge(
         veepoo: veepoo,
         yucheng: _FakeWearableBridge(scanned: const []),
       );
       final subscription = bridge.events.listen((_) {});
+      final pending = bridge.scanDevices();
+      await pumpEventQueue();
 
       veepoo.emitScan(
         const DeviceInfo(id: '38:23:A4:5E:CA:69', name: 'V Ring'),
@@ -925,6 +1000,8 @@ void main() {
       await bridge.connect('veepoo:38:23:A4:5E:CA:69', profile: _profile);
 
       expect(veepoo.connectCalls, ['38:23:A4:5E:CA:69']);
+      veepoo.scanResult!.complete([]);
+      await pending;
       await subscription.cancel();
       await bridge.dispose();
     },
@@ -1042,6 +1119,10 @@ class _FakeWearableBridge extends Fake
   final List<HealthMetric> measurementCalls = [];
   Completer<void>? disconnectResult;
   Object? disconnectError;
+  Completer<List<DeviceInfo>>? scanResult;
+  Object? scanError;
+  int scanCalls = 0;
+  int stopScanCalls = 0;
   int disconnectCalls = 0;
   int restoreCalls = 0;
 
@@ -1049,10 +1130,16 @@ class _FakeWearableBridge extends Fake
   Stream<WearableEvent> get events => _events.stream;
 
   @override
-  Future<List<DeviceInfo>> scanDevices() async => scanned;
+  Future<List<DeviceInfo>> scanDevices() async {
+    scanCalls++;
+    if (scanError != null) throw scanError!;
+    return scanResult != null ? scanResult!.future : scanned;
+  }
 
   @override
-  Future<void> stopScan() async {}
+  Future<void> stopScan() async {
+    stopScanCalls++;
+  }
 
   void emitScan(DeviceInfo device) {
     _events.add(WearableEvent(type: 'scanDevice', payload: device.toJson()));

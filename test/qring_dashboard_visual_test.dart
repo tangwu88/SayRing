@@ -149,6 +149,169 @@ Future<void> _mount(
 void main() {
   setUpAll(() => initializeDateFormatting('zh_Hans'));
 
+  testWidgets('364dp activity keeps rings left of all three live values', (
+    tester,
+  ) async {
+    final store = MemoryHealthStore();
+    final controller = _Controller(store);
+    await store.upsert([
+      _record('compact-steps', HealthMetric.steps, 239, _today()),
+      _record('compact-distance', HealthMetric.distance, .18, _today()),
+      _record('compact-calories', HealthMetric.calories, 8920, _today()),
+    ]);
+    await _mount(tester, controller, width: 364, shell: true);
+    await tester.pumpAndSettle();
+    final ring = find.byKey(const Key('home-activity-rings'));
+    for (final text in ['239', '0.18', '8920']) {
+      final value = _activityText(text);
+      expect(value, findsOneWidget);
+      expect(
+        tester.getCenter(value).dx,
+        greaterThan(tester.getCenter(ring).dx),
+      );
+    }
+    expect(tester.getSize(_activity).height, lessThan(350));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('slow downward drag at the first health row never reverses', (
+    tester,
+  ) async {
+    final controller = _Controller(MemoryHealthStore());
+    controller.capabilities = const DeviceCapabilities(
+      metrics: {
+        HealthMetric.steps,
+        HealthMetric.distance,
+        HealthMetric.calories,
+        HealthMetric.heartRate,
+        HealthMetric.bloodOxygen,
+        HealthMetric.bodyTemperature,
+        HealthMetric.hrv,
+        HealthMetric.stress,
+      },
+    );
+    controller.healthRecords = [
+      _record('steps-slow', HealthMetric.steps, 62, _today()),
+      _record('heart-slow', HealthMetric.heartRate, 76, _today()),
+      _record('oxygen-slow', HealthMetric.bloodOxygen, 97, _today()),
+      _record('temp-slow', HealthMetric.bodyTemperature, 36.4, _today()),
+      _record('hrv-slow', HealthMetric.hrv, 86, _today()),
+      _record('stress-slow', HealthMetric.stress, 27, _today()),
+    ];
+    await _mount(tester, controller, width: 364, shell: true);
+    await tester.pumpAndSettle();
+    final heart = find.byKey(const ValueKey('home-health-card-heart_rate'));
+    final scrollable = find
+        .descendant(
+          of: find.byType(DashboardPage),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(heart, 150, scrollable: scrollable);
+    final position = tester.state<ScrollableState>(scrollable).position;
+    position.jumpTo(position.pixels + tester.getTopLeft(heart).dy + 200);
+    await tester.pumpAndSettle();
+    final finger = await tester.startGesture(const Offset(180, 160));
+    await finger.moveBy(const Offset(0, 20));
+    await tester.pump();
+    var previous = tester.getTopLeft(heart).dy;
+    for (var index = 0; index < 600; index++) {
+      await finger.moveBy(const Offset(0, 1));
+      await tester.pump(const Duration(milliseconds: 16));
+      final next = tester.getTopLeft(heart).dy;
+      expect(
+        next,
+        greaterThanOrEqualTo(previous - .1),
+        reason: 'frame $index offset ${position.pixels}',
+      );
+      previous = next;
+    }
+    await finger.up();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    '364dp phone shows two health columns; enlarged text remains single column',
+    (tester) async {
+      final controller = _Controller(MemoryHealthStore());
+      controller.capabilities = const DeviceCapabilities(
+        metrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
+      );
+      controller.healthRecords = [
+        _record('heart-layout', HealthMetric.heartRate, 74, _today()),
+        _record('oxygen-layout', HealthMetric.bloodOxygen, 98, _today()),
+      ];
+      await _mount(tester, controller, width: 364);
+      await tester.pumpAndSettle();
+      final heart = find.byKey(const ValueKey('home-health-card-heart_rate'));
+      final oxygen = find.byKey(
+        const ValueKey('home-health-card-blood_oxygen'),
+      );
+      expect(heart, findsOneWidget);
+      expect(oxygen, findsOneWidget);
+      expect(tester.getTopLeft(heart).dy, tester.getTopLeft(oxygen).dy);
+      expect(
+        tester.getTopLeft(oxygen).dx,
+        greaterThan(tester.getTopLeft(heart).dx),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'mini charts retain one read across non-health rebuilds and reload for new records',
+    (tester) async {
+      final controller = _Controller(MemoryHealthStore());
+      var reads = 0;
+      controller.readOverride = (metric, start, end) async {
+        reads++;
+        return [
+          _record('first', metric, 72, _today()),
+          _record(
+            'last',
+            metric,
+            74,
+            _today().add(const Duration(minutes: 10)),
+          ),
+        ];
+      };
+      await _mount(
+        tester,
+        controller,
+        page: Scaffold(
+          body: ListenableBuilder(
+            listenable: controller,
+            builder: (_, _) => HealthMetricMiniChart(
+              controller: controller,
+              metric: HealthMetric.heartRate,
+              color: Colors.blue,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(reads, 1);
+      for (var i = 0; i < 5; i++) {
+        controller.announceChange();
+        await tester.pumpAndSettle();
+      }
+      expect(reads, 1);
+      controller.healthRecords = [
+        ...controller.healthRecords,
+        _record('new', HealthMetric.heartRate, 76, _today()),
+      ];
+      controller.announceChange();
+      await tester.pumpAndSettle();
+      expect(reads, 2);
+      controller.session = _session('owner-b');
+      controller.announceChange();
+      await tester.pumpAndSettle();
+      expect(reads, 3);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets(
     'unconfirmed iOS calories never fill a kcal goal; steps survive',
     (tester) async {

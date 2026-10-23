@@ -19,7 +19,7 @@ import 'sleep_detail_widgets.dart' show SleepTimelineCard, sleepMinutesLabel;
 import 'sleep_ai_report_page.dart';
 import 'wellness_release.dart';
 
-class HealthMetricMiniChart extends StatelessWidget {
+class HealthMetricMiniChart extends StatefulWidget {
   const HealthMetricMiniChart({
     required this.controller,
     required this.metric,
@@ -43,171 +43,226 @@ class HealthMetricMiniChart extends StatelessWidget {
   final List<HealthRecord>? records;
 
   @override
+  State<HealthMetricMiniChart> createState() => _HealthMetricMiniChartState();
+}
+
+class _HealthMetricMiniChartState extends State<HealthMetricMiniChart> {
+  AppController get controller => widget.controller;
+  HealthMetric get metric => widget.metric;
+  Color get color => widget.color;
+  bool get showEmptyLabel => widget.showEmptyLabel;
+  double get height => widget.height;
+  bool get fitToSamples => widget.fitToSamples;
+  List<HealthRecord>? get records => widget.records;
+  Future<List<HealthRecord>>? _future;
+  AppController? _source;
+  List<HealthRecord>? _revision;
+  List<HealthRecord>? _provided;
+  String? _owner, _device;
+  HealthMetric? _metric;
+  DateTime? _day;
+
+  Future<List<HealthRecord>> _samples(DateTime start, DateTime end) {
+    // Rebuilds for battery/scan/progress are not new health data. Keep the
+    // in-flight/completed read; invalidate on records, owner, device or day.
+    final revision = records == null ? controller.healthRecords : null;
+    final owner = records == null ? controller.session?.memberId : null;
+    final device = records == null ? controller.connectedDevice?.id : null;
+    if (_future == null ||
+        !identical(_source, controller) ||
+        !identical(_revision, revision) ||
+        !identical(_provided, records) ||
+        _owner != owner ||
+        _device != device ||
+        _metric != metric ||
+        _day != start) {
+      _source = controller;
+      _revision = revision;
+      _provided = records;
+      _owner = owner;
+      _device = device;
+      _metric = metric;
+      _day = start;
+      _future = records != null
+          ? Future.value(records)
+          : controller.loadHealthRecords(
+              metric: metric,
+              start: start,
+              end: end,
+            );
+    }
+    return _future!;
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (!controller.isMetricAvailableInRelease(metric)) {
+      _future = null;
       return const SizedBox.shrink();
     }
     final now = DateTime.now();
     final start = DateTime(now.year, now.month, now.day);
     final end = DateTime(now.year, now.month, now.day + 1);
     Widget bounded(Widget child) => SizedBox(height: height, child: child);
-    return FutureBuilder<List<HealthRecord>>(
-      future: records != null
-          ? Future.value(records)
-          : controller.loadHealthRecords(
-              metric: metric,
-              start: start,
-              end: end,
-            ),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return SizedBox(height: height);
-        }
-        if (snapshot.hasError) {
-          return bounded(
-            Text(
-              context.l10n.trendUnavailable,
-              style: TextStyle(color: SaydianColors.muted),
-            ),
-          );
-        }
-        // A mini chart only shows one displayed day. Explicit records can come from
-        // a larger local/remote history; never join different dates at the
-        // same clock hour or accidentally chart another metric.
-        final records = (snapshot.data ?? const <HealthRecord>[]).where((
-          record,
-        ) {
-          final at = HealthAnalysisService.displayTime(record);
-          return record.metric == metric &&
-              !at.isBefore(start) &&
-              at.isBefore(end);
-        }).toList();
-        final pending = records.any(hasUnconfirmedCalorieUnit);
-        records.removeWhere(hasUnconfirmedCalorieUnit);
-        if (pending && records.isEmpty) {
-          return bounded(
-            const Text('单位待确认', style: TextStyle(color: SaydianColors.muted)),
-          );
-        }
-        if (records.isEmpty && !showEmptyLabel) {
-          return SizedBox(height: height);
-        }
-        if (records.length < 2) {
-          return bounded(
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                records.isEmpty ? '暂无数据' : '仅 1 条记录',
-                style: const TextStyle(
-                  color: SaydianColors.muted,
-                  fontSize: 13,
-                ),
+    return SizedBox(
+      // Reserve the same chart/time-label height while loading and after data
+      // arrives, so a two-column row cannot jump under a scrolling finger.
+      height: fitToSamples
+          ? height + 6 + MediaQuery.textScalerOf(context).scale(13) * 1.5
+          : height,
+      child: FutureBuilder<List<HealthRecord>>(
+        future: _samples(start, end),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return SizedBox(height: height);
+          }
+          if (snapshot.hasError) {
+            return bounded(
+              Text(
+                context.l10n.trendUnavailable,
+                style: TextStyle(color: SaydianColors.muted),
               ),
-            ),
-          );
-        }
-        final data = const HealthAnalysisService().analyze(
-          metric: metric,
-          records: records,
-          previousRecords: const [],
-          period: HealthTrendPeriod.day,
-          anchor: now,
-        );
-        if (data.points.length < 2) return SizedBox(height: height);
-        double clockHour(DateTime at) =>
-            at.hour +
-            at.minute / 60 +
-            at.second / 3600 +
-            at.millisecond / 3600000;
-        final first = data.points.first.at;
-        final last = data.points.last.at;
-        final firstX = clockHour(first);
-        final lastX = clockHour(last);
-        if (fitToSamples && lastX <= firstX) {
-          // A time range needs distinct instants; keep the existing empty
-          // plot rather than manufacturing horizontal spacing.
-          return SizedBox(height: height);
-        }
-        final timeFormat = DateFormat(
-          last.difference(first) < const Duration(minutes: 1)
-              ? 'HH:mm:ss'
-              : 'HH:mm',
-        );
-        final firstLabel = timeFormat.format(first);
-        final lastLabel = timeFormat.format(last);
-        final chart = LineChart(
-          LineChartData(
-            minX: fitToSamples ? firstX : 0,
-            maxX: fitToSamples ? lastX : 24,
-            gridData: const FlGridData(show: false),
-            borderData: FlBorderData(show: false),
-            titlesData: const FlTitlesData(show: false),
-            lineTouchData: const LineTouchData(enabled: false),
-            lineBarsData: [
-              LineChartBarData(
-                spots: data.points
-                    .map((point) => FlSpot(clockHour(point.at), point.value))
-                    .toList(),
-                isCurved: false,
-                color: color,
-                barWidth: 2.6,
-                dotData: const FlDotData(show: false),
-                belowBarData: BarAreaData(
-                  show: true,
-                  gradient: LinearGradient(
-                    colors: [
-                      color.withValues(alpha: 0.17),
-                      color.withValues(alpha: 0.01),
-                    ],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
+            );
+          }
+          // A mini chart only shows one displayed day. Explicit records can come from
+          // a larger local/remote history; never join different dates at the
+          // same clock hour or accidentally chart another metric.
+          final records = (snapshot.data ?? const <HealthRecord>[]).where((
+            record,
+          ) {
+            final at = HealthAnalysisService.displayTime(record);
+            return record.metric == metric &&
+                !at.isBefore(start) &&
+                at.isBefore(end);
+          }).toList();
+          final pending = records.any(hasUnconfirmedCalorieUnit);
+          records.removeWhere(hasUnconfirmedCalorieUnit);
+          if (pending && records.isEmpty) {
+            return bounded(
+              const Text('单位待确认', style: TextStyle(color: SaydianColors.muted)),
+            );
+          }
+          if (records.isEmpty && !showEmptyLabel) {
+            return SizedBox(height: height);
+          }
+          if (records.length < 2) {
+            return bounded(
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  records.isEmpty ? '暂无数据' : '仅 1 条记录',
+                  style: const TextStyle(
+                    color: SaydianColors.muted,
+                    fontSize: 13,
                   ),
                 ),
               ),
-            ],
-          ),
-        );
-        return Semantics(
-          label: fitToSamples
-              ? '${metric.label}今日趋势，$firstLabel 至 $lastLabel，共${data.points.length}个数据点'
-              : '${metric.label}今日趋势，共${data.points.length}个数据点',
-          child: fitToSamples
-              ? Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    bounded(chart),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            firstLabel,
-                            key: const Key('health-mini-first-time'),
-                            style: const TextStyle(
-                              color: SaydianColors.muted,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: Text(
-                            lastLabel,
-                            key: const Key('health-mini-last-time'),
-                            textAlign: TextAlign.end,
-                            style: const TextStyle(
-                              color: SaydianColors.muted,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
+            );
+          }
+          final data = const HealthAnalysisService().analyze(
+            metric: metric,
+            records: records,
+            previousRecords: const [],
+            period: HealthTrendPeriod.day,
+            anchor: now,
+          );
+          if (data.points.length < 2) return SizedBox(height: height);
+          double clockHour(DateTime at) =>
+              at.hour +
+              at.minute / 60 +
+              at.second / 3600 +
+              at.millisecond / 3600000;
+          final first = data.points.first.at;
+          final last = data.points.last.at;
+          final firstX = clockHour(first);
+          final lastX = clockHour(last);
+          if (fitToSamples && lastX <= firstX) {
+            // A time range needs distinct instants; keep the existing empty
+            // plot rather than manufacturing horizontal spacing.
+            return SizedBox(height: height);
+          }
+          final timeFormat = DateFormat(
+            last.difference(first) < const Duration(minutes: 1)
+                ? 'HH:mm:ss'
+                : 'HH:mm',
+          );
+          final firstLabel = timeFormat.format(first);
+          final lastLabel = timeFormat.format(last);
+          final chart = LineChart(
+            LineChartData(
+              minX: fitToSamples ? firstX : 0,
+              maxX: fitToSamples ? lastX : 24,
+              gridData: const FlGridData(show: false),
+              borderData: FlBorderData(show: false),
+              titlesData: const FlTitlesData(show: false),
+              lineTouchData: const LineTouchData(enabled: false),
+              lineBarsData: [
+                LineChartBarData(
+                  spots: data.points
+                      .map((point) => FlSpot(clockHour(point.at), point.value))
+                      .toList(),
+                  isCurved: false,
+                  color: color,
+                  barWidth: 2.6,
+                  dotData: const FlDotData(show: false),
+                  belowBarData: BarAreaData(
+                    show: true,
+                    gradient: LinearGradient(
+                      colors: [
+                        color.withValues(alpha: 0.17),
+                        color.withValues(alpha: 0.01),
                       ],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
                     ),
-                  ],
-                )
-              : bounded(chart),
-        );
-      },
+                  ),
+                ),
+              ],
+            ),
+            duration: Duration.zero,
+          );
+          return Semantics(
+            label: fitToSamples
+                ? '${metric.label}今日趋势，$firstLabel 至 $lastLabel，共${data.points.length}个数据点'
+                : '${metric.label}今日趋势，共${data.points.length}个数据点',
+            child: fitToSamples
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      bounded(chart),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              firstLabel,
+                              key: const Key('health-mini-first-time'),
+                              style: const TextStyle(
+                                color: SaydianColors.muted,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              lastLabel,
+                              key: const Key('health-mini-last-time'),
+                              textAlign: TextAlign.end,
+                              style: const TextStyle(
+                                color: SaydianColors.muted,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  )
+                : bounded(chart),
+          );
+        },
+      ),
     );
   }
 }

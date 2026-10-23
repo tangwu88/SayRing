@@ -3,6 +3,9 @@ package cc.saidian.saydian_app;
 import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothDevice;
+import android.content.BroadcastReceiver;
+import android.content.IntentFilter;
 import android.bluetooth.le.ScanResult;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -87,6 +90,8 @@ public final class CoolWearRingBridge
     private final CoolWearGestureState gesture = new CoolWearGestureState();
     private Runnable remindersDeadline;
     private Runnable scanDeadline;
+    private long scanGeneration;
+    private BroadcastReceiver gestureBondReceiver;
     private Runnable connectDeadline;
     private Runnable syncDeadline;
     private Runnable settingsDeadline;
@@ -131,14 +136,7 @@ public final class CoolWearRingBridge
         helper = BluetoothHelper.getInstance();
         helper.init();
         helper.initProxy(activity.getApplicationContext());
-        helper.scanningDeviceInit(activity, new OnScanDevListener() {
-            @Override public void onFindDev(ScanResult result) { }
-
-            @Override public void onFindDevList(
-                    ScanResult result, List<MyBleDevice> devices, MyBleDevice found) {
-                main.post(() -> receiveScannedDevices(devices));
-            }
-        });
+        configureScanCallback(scanGeneration);
         helper.getRcvDataManager().addBleDataResultListener(
                 K6_Action.RCVD.RCVD_BLUE_CONNECT_STATE_CHANGE,
                 (K6BleDataResult<Integer>) status -> {
@@ -151,6 +149,22 @@ public final class CoolWearRingBridge
                     main.post(() -> onDeviceInfo(info));
                     return false;
                 });
+        registerRemainingListeners();
+    }
+
+    private void configureScanCallback(final long generation) {
+        helper.scanningDeviceInit(activity, new OnScanDevListener() {
+            @Override public void onFindDev(ScanResult result) { }
+
+            @Override public void onFindDevList(
+                    ScanResult result, List<MyBleDevice> devices, MyBleDevice found) {
+                final List<MyBleDevice> snapshot = devices == null ? null : new ArrayList<>(devices);
+                main.post(() -> { if (generation == scanGeneration) receiveScannedDevices(snapshot); });
+            }
+        });
+    }
+
+    private void registerRemainingListeners() {
         helper.getRcvDataManager().addBleDataResultListener(
                 K6_Action.RCVD.RCVD_DATA_TYPE_FUNCTION_CONTROL,
                 (K6BleDataResult<K6_DATA_TYPE_FUNCTION_CONTROL>) control -> {
@@ -375,11 +389,12 @@ public final class CoolWearRingBridge
     }
 
     private void finishScan() {
+        ++scanGeneration;
         if (scanDeadline != null) main.removeCallbacks(scanDeadline);
         scanDeadline = null;
-        if (helper != null) helper.stopScan();
         MethodChannel.Result result = pendingScan;
         pendingScan = null;
+        if (helper != null) helper.stopScan();
         if (result != null) result.success(new ArrayList<>(scanned.values()));
     }
 
@@ -921,6 +936,10 @@ public final class CoolWearRingBridge
     }
 
     private void finishGesture(String code, String message) {
+        if (gestureBondReceiver != null) {
+            try { activity.unregisterReceiver(gestureBondReceiver); } catch (IllegalArgumentException ignored) { }
+            gestureBondReceiver = null;
+        }
         if (gestureDeadline != null) main.removeCallbacks(gestureDeadline);
         gestureDeadline = null;
         MethodChannel.Result result = pendingGesture;
@@ -958,12 +977,69 @@ public final class CoolWearRingBridge
         }
         if (pendingConnect != null || pendingScan != null || pendingHealthSync != null ||
                 pendingSportSync != null || pendingAutoSettings != null || pendingReminders != null ||
-                activeMeasurement != null || activeSportMode != null ||
-                !gesture.begin(mode, android.os.SystemClock.elapsedRealtime())) {
+                activeMeasurement != null || activeSportMode != null || pendingGesture != null) {
             result.error("OPERATION_BUSY", "请等待当前设备操作完成", null);
             return;
         }
         pendingGesture = result;
+        try {
+            if (mode != 0 && prepareGestureBond(mode)) return;
+            sendGestureMode(mode);
+        } catch (SecurityException error) {
+            finishGesture("BLE_PERMISSION_REQUIRED", "蓝牙权限已变化，请重新允许");
+        } catch (RuntimeException error) {
+            finishGesture("GESTURE_PAIRING_FAILED", "系统配对暂不可用，请在手机蓝牙设置中检查后重试");
+        }
+    }
+
+    // HID phone control needs the selected ring's OS bond, not merely its BLE
+    // data connection. Never accept a bond belonging to another nearby ring.
+    private boolean prepareGestureBond(final int mode) {
+        BluetoothManager manager = (BluetoothManager) activity.getSystemService(Context.BLUETOOTH_SERVICE);
+        if (manager == null || manager.getAdapter() == null || connectedId == null) {
+            finishGesture("BLUETOOTH_DISABLED", "请先开启手机蓝牙"); return true;
+        }
+        final BluetoothDevice device;
+        try { device = manager.getAdapter().getRemoteDevice(connectedId); }
+        catch (IllegalArgumentException error) { finishGesture("INVALID_DEVICE", "设备信息无效，请重新连接"); return true; }
+        if (device.getBondState() == BluetoothDevice.BOND_BONDED) return false;
+        final long epoch = connectionEpoch;
+        final String target = connectedId;
+        gestureBondReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                if (gestureBondReceiver != this) return;
+                if (!BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(intent.getAction())) return;
+                BluetoothDevice changed = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                if (changed == null || !target.equals(connectedId) ||
+                        !RingGestureBondPolicy.accepts(target, epoch, changed.getAddress(),
+                                connectionEpoch, pendingGesture != null)) return;
+                int state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR);
+                if (state == BluetoothDevice.BOND_BONDED) {
+                    activity.unregisterReceiver(this); gestureBondReceiver = null;
+                    if (gestureDeadline != null) main.removeCallbacks(gestureDeadline);
+                    gestureDeadline = null;
+                    if (!canUseGesture()) { finishGesture("NOT_CONNECTED", "戒指已断开，请重新连接"); return; }
+                    sendGestureMode(mode);
+                } else if (state == BluetoothDevice.BOND_NONE) {
+                    finishGesture("GESTURE_PAIRING_CANCELLED", "系统配对未完成，请重新选择模式并在手机上确认配对");
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+        if (Build.VERSION.SDK_INT >= 33) activity.registerReceiver(gestureBondReceiver, filter, Context.RECEIVER_EXPORTED);
+        else activity.registerReceiver(gestureBondReceiver, filter);
+        gestureDeadline = () -> finishGesture("GESTURE_PAIRING_TIMEOUT", "系统配对尚未完成，请在手机蓝牙设置中确认后重试");
+        main.postDelayed(gestureDeadline, 30_000L);
+        if (device.getBondState() != BluetoothDevice.BOND_BONDING && !device.createBond()) {
+            finishGesture("GESTURE_PAIRING_FAILED", "无法发起系统配对，请在手机蓝牙设置中配对后重试");
+        }
+        return true;
+    }
+
+    private void sendGestureMode(int mode) {
+        if (!gesture.begin(mode, android.os.SystemClock.elapsedRealtime())) {
+            finishGesture("OPERATION_BUSY", "请重新连接后设置手势"); return;
+        }
         gestureDeadline = () -> {
             gesture.fail();
             finishGesture("GESTURE_CONFIRMATION_TIMEOUT", "戒指未确认，重新连接后重试");
@@ -1206,7 +1282,7 @@ public final class CoolWearRingBridge
                 return;
             }
             ensureSdk();
-            if (gesture.pending() && !("disconnect".equals(call.method) ||
+            if (pendingGesture != null && !("disconnect".equals(call.method) ||
                     "getCapabilities".equals(call.method) || "getDeviceDetails".equals(call.method) ||
                     "stopScan".equals(call.method) ||
                     ("readDeviceFeature".equals(call.method) &&
@@ -1244,10 +1320,18 @@ public final class CoolWearRingBridge
                         result.error("SCAN_BUSY", "戒指扫描正在进行", null);
                         return;
                     }
+                    helper.stopScan();
+                    final long scan = ++scanGeneration;
+                    configureScanCallback(scan);
                     scanned.clear();
                     pendingScan = result;
-                    helper.startScan();
-                    scanDeadline = this::finishScan;
+                    try { helper.startScan(); }
+                    catch (RuntimeException error) {
+                        pendingScan = null; finishScan();
+                        result.error("COOLWEAR_SCAN_FAILED", "蓝牙扫描无法开始，请检查权限与蓝牙后重试", null);
+                        break;
+                    }
+                    scanDeadline = () -> { if (scan == scanGeneration) finishScan(); };
                     main.postDelayed(scanDeadline, SCAN_MS);
                     break;
                 case "stopScan":

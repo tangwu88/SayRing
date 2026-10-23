@@ -213,6 +213,9 @@ class RoutedWearableBridge
   int _recoveryContextGeneration = 0;
   final Map<WearableTransport, String> _exactRecoveryTargets = {};
   Future<void> _bindingMutationTail = Future<void>.value();
+  Future<List<DeviceInfo>>? _scanInFlight;
+  int _scanGeneration = 0;
+  bool _acceptScanEvents = false;
 
   Future<void> _serializeBindingMutation(Future<void> Function() operation) {
     final mutation = _bindingMutationTail.then((_) => operation());
@@ -444,7 +447,23 @@ class RoutedWearableBridge
   }
 
   @override
-  Future<List<DeviceInfo>> scanDevices() async {
+  Future<List<DeviceInfo>> scanDevices() {
+    if (_scanInFlight != null) return _scanInFlight!;
+    final generation = ++_scanGeneration;
+    late Future<List<DeviceInfo>> pending;
+    pending = (() async {
+      try {
+        return await _scanDevices(generation);
+      } finally {
+        if (generation == _scanGeneration) _acceptScanEvents = false;
+        if (identical(_scanInFlight, pending)) _scanInFlight = null;
+      }
+    })();
+    _scanInFlight = pending;
+    return pending;
+  }
+
+  Future<List<DeviceInfo>> _scanDevices(int generation) async {
     _exactRecoveryTargets.clear();
     for (final source in _sources.values) {
       if (source is WearableExactTargetRecoveryBridge) {
@@ -454,16 +473,34 @@ class RoutedWearableBridge
     }
     _scanned.clear();
     _manualRecoveryIds.clear();
+    if (generation != _scanGeneration) return const [];
+    _acceptScanEvents = true;
+    final errors = <PlatformException>[];
     final batches = await Future.wait(
       _sources.entries.map((entry) async {
         try {
-          return MapEntry(entry.key, await entry.value.scanDevices());
-        } catch (_) {
+          return MapEntry(
+            entry.key,
+            await entry.value.scanDevices().timeout(
+              const Duration(seconds: 18),
+            ),
+          );
+        } catch (error) {
+          // A canceled round may fail after its replacement has started. Its
+          // cleanup must not stop the new native scan on the same SDK.
+          if (generation != _scanGeneration) {
+            return MapEntry(entry.key, const <DeviceInfo>[]);
+          }
+          if (error is PlatformException) errors.add(error);
+          try {
+            await entry.value.stopScan().timeout(recoveryStopScanTimeout);
+          } catch (_) {}
           // One unavailable SDK must not hide rings found by another SDK.
           return MapEntry(entry.key, const <DeviceInfo>[]);
         }
       }),
     );
+    if (generation != _scanGeneration) return const [];
     for (final batch in batches) {
       for (final device in batch.value) {
         if (!WearableDeviceClassifier.routesTo(device.name, batch.key)) {
@@ -472,6 +509,18 @@ class RoutedWearableBridge
         final routed = RoutedDevice.fromDevice(batch.key, device);
         _scanned[routed.display.id] = routed;
       }
+    }
+    if (_scanned.isEmpty) {
+      final failure = errors
+          .where(
+            (error) =>
+                error.code.contains('SCAN') ||
+                error.code.contains('BLE_') ||
+                error.code.contains('BLUETOOTH') ||
+                error.code == 'LOCATION_SERVICE_DISABLED',
+          )
+          .firstOrNull;
+      if (failure != null) throw failure;
     }
     return _scanned.values.map((device) => device.display).toList();
   }
@@ -539,6 +588,9 @@ class RoutedWearableBridge
 
   @override
   Future<void> stopScan() {
+    ++_scanGeneration;
+    _acceptScanEvents = false;
+    _scanInFlight = null;
     if (_restoringGeneration == _connectionGeneration) {
       ++_connectionGeneration;
     }
@@ -1192,6 +1244,7 @@ class RoutedWearableBridge
       return;
     }
     if (event.type == 'scanDevice') {
+      if (!_acceptScanEvents) return;
       final device = DeviceInfo.fromMap(event.payload);
       if (!WearableDeviceClassifier.routesTo(device.name, transport)) {
         return;

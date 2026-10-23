@@ -103,7 +103,8 @@ test('a late code-login reply cannot restore a session after logout',async()=>{
 test('login, card editing and sport routes expose Android-equivalent interactions without fake native controls',()=>{
   const ui=source('pages/Index.ets'), login=ui.slice(ui.indexOf('  Login() {'),ui.indexOf('  Registration() {'));
   assert.match(ui,/appLocale: string = 'zh-Hans'/);assert.match(ui,/authChannel: AuthChannel = 'sms'/);
-  assert.doesNotMatch(login,/this.LanguagePicker\(|openRegistration\(|auth_country/);
+  assert.doesNotMatch(login,/this.LanguagePicker\(|openRegistration\(|auth_country|this.AuthMethodSelector\(\)/);
+  assert.match(ui,/this.pageWidth >= 332 && this.systemFontScale <= 1.2/);
   for(const id of ['login_send_code','login_code','home_edit_cards','save_home_cards','sport_more','ring_wechat_support']) assert.ok(ui.includes(id));
   assert.match(ui,/this.loginChallengeIdentity !==/);assert.match(ui,/Date.now\(\) >= this.loginChallengeExpiresAt/);
   assert.match(ui,/modes.slice\(0, 4\)/);assert.match(ui,/this.HomeCardEditor\(\)/);

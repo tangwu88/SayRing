@@ -3096,7 +3096,6 @@ struct Index {
       Column({ space: 14 }) {
         this.BrandLockup(Color.Black)
         Text('开启你的健康生活').fontSize(16).fontColor(MUTED).margin({ bottom: 20 })
-        this.AuthMethodSelector()
         if (this.authCapabilitiesBusy) { Text('正在读取登录配置…').fontSize(13).fontColor(MUTED) }
         else if (!this.capabilities.consentVersion) {
           Button('登录配置暂未读取，点击重试').height(this.controlHeight(48)).fontColor(RED).backgroundColor(RED_SOFT)
@@ -3376,7 +3375,8 @@ struct Index {
                 Polyline({ width: 132, height: 34 }).points(this.metricMiniChartPoints(metric.key))
                   .fillOpacity(0).stroke(TECH_BLUE).strokeWidth(2).width('100%').height(34)
               }
-            }.width('100%').constraintSize({ minHeight: 170 }).padding({ left: 18, right: 18, top: 18, bottom: 16 })
+            }.width(this.pageWidth >= 332 && this.systemFontScale <= 1.2 ? '48%' : '100%')
+              .constraintSize({ minHeight: 170 }).padding({ left: 14, right: 14, top: 18, bottom: 16 })
               .margin({ bottom: 12 }).backgroundColor(SURFACE).borderRadius(18)
               .shadow({ radius: 9, color: CARD_SHADOW, offsetY: 3 })
               .onClick(() => this.openWearableMetric(metric.key))

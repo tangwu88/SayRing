@@ -95,7 +95,7 @@ class HealthPage extends StatelessWidget {
               message: controller.connectedDevice == null
                   ? '连接戒指后可查看支持的健康数据'
                   : '暂无可显示的健康数据',
-              icon: Icons.watch_outlined,
+              icon: Icons.circle_outlined,
               color: SaydianColors.blue,
               compact: true,
             ),

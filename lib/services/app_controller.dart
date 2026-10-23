@@ -1173,6 +1173,7 @@ class AppController extends ChangeNotifier {
   Map<String, num> liveSportData = const {};
   List<DeviceInfo> scannedDevices = const [];
   DeviceScanIssue? deviceScanIssue;
+  int _deviceScanGeneration = 0;
   bool get supportsBondedDeviceSelection =>
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS) &&
@@ -2352,6 +2353,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> scanDevices() async {
+    if (deviceState == DeviceConnectionState.scanning) return;
+    final scan = ++_deviceScanGeneration, session = _sessionGeneration;
+    bool current() =>
+        !_disposed &&
+        scan == _deviceScanGeneration &&
+        session == _sessionGeneration;
     _wearableReconnectGeneration++;
     _wearableRecoverySuspended = true;
     isWearableRecovering = false;
@@ -2360,18 +2367,21 @@ class AppController extends ChangeNotifier {
     scannedDevices = const [];
     try {
       if (!await _ensureBluetoothPermissions()) {
+        if (!current()) return;
         deviceScanIssue = DeviceScanIssue.permissionsRequired;
         errorMessage = '允许相关权限后使用';
         notifyListeners();
         return;
       }
       await _cancelPendingWearableRestore();
+      if (!current()) return;
       if (deviceState == DeviceConnectionState.error) {
         deviceMachine.transition(DeviceConnectionState.disconnected);
       }
       deviceMachine.transition(DeviceConnectionState.scanning);
       notifyListeners();
       final completedDevices = await _wearable.scanDevices();
+      if (!current()) return;
       for (final device in completedDevices) {
         _upsertScannedDevice(device);
       }
@@ -2380,10 +2390,12 @@ class AppController extends ChangeNotifier {
         deviceMachine.transition(DeviceConnectionState.disconnected);
       }
     } on WearableSdkNotConfigured catch (_) {
+      if (!current()) return;
       sdkStatus = '设备连接服务暂时不可用';
       errorMessage = '此功能暂时无法使用，请稍后再试';
       deviceMachine.transition(DeviceConnectionState.error);
     } on PlatformException catch (error) {
+      if (!current()) return;
       deviceScanIssue = switch (error.code) {
         'LOCATION_SERVICE_DISABLED' => DeviceScanIssue.locationServiceDisabled,
         'BLE_PERMISSION_DENIED' ||
@@ -2394,6 +2406,7 @@ class AppController extends ChangeNotifier {
       errorMessage = _wearableErrorMessage(error, fallback: '暂时无法查找戒指');
       deviceMachine.transition(DeviceConnectionState.error);
     } catch (_) {
+      if (!current()) return;
       errorMessage = '暂时无法查找戒指，请稍后重试';
       deviceMachine.transition(DeviceConnectionState.error);
     }
@@ -2443,6 +2456,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> stopDeviceScan({bool resumeRecovery = true}) async {
+    ++_deviceScanGeneration;
     if (deviceState != DeviceConnectionState.scanning) {
       if (resumeRecovery && !_accountTransitioning) {
         _wearableRecoverySuspended = false;

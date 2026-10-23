@@ -164,7 +164,7 @@ class SettingsPage extends StatelessWidget {
           children: [
             _ProfileStat(
               key: const Key('profile-stat-device'),
-              icon: Icons.watch_outlined,
+              icon: Icons.circle_outlined,
               label: context.l10n.device,
               value: controller.connectedDevice == null
                   ? context.l10n.notConnected

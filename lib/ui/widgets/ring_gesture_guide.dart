@@ -70,6 +70,17 @@ class RingGestureQuickStart extends StatelessWidget {
               );
             },
           ),
+          if (defaultTargetPlatform == TargetPlatform.android) ...[
+            const SizedBox(height: 12),
+            const Text(
+              '首次开启时如手机弹出蓝牙配对请求，请核对戒指后确认。系统配对完成后仍需等待模式指令确认。',
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                color: SaydianColors.muted,
+              ),
+            ),
+          ],
         ],
       ),
     ),
