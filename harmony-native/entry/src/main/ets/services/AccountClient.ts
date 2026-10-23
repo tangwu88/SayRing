@@ -26,7 +26,8 @@ import type { ProductDetail, ShopLine, ShopSelection, CheckoutPreview, OrderDeta
 import type { HealthOwnerSession, HealthUploadRequest } from '../model/HealthUpload';
 import { assertHealthUploadAccepted, sameHealthSession } from '../model/HealthUpload';
 import { AI_API_READ_TIMEOUT_MS } from '../model/RequestPolicy';
-import { globalApiPath, GLOBAL_PRODUCT } from '../model/GlobalConfiguration';
+import { globalApiPath, GLOBAL_PRODUCT, RING_CODE_REQUEST, RING_CODE_LOGIN } from '../model/GlobalConfiguration';
+import { ringLoginIdentifier, ringLoginAvailable, parseRingLoginChallenge, parseRingLoginSession } from '../model/RingParity';
 import { normalizeIdentifier, parseAuthCapabilities, parseGlobalSession, parseVerificationChallenge,
   globalRegistrationValidation, globalUnverifiedRegistrationValidation, parseGlobalProfile, validGlobalPassword } from '../model/GlobalAuth';
 import type { AuthChannel, GlobalAuthCapabilities, VerificationChallenge, VerificationPurpose } from '../model/GlobalAuth';
@@ -157,7 +158,7 @@ export class AccountClient {
     this.notifyHealthSession();
   }
 
-  private async authenticate(path: string, fields?: FormField[], jsonBody?: string): Promise<Session> {
+  private async authenticate(path: string, fields?: FormField[], jsonBody?: string, sharedCode: boolean = false): Promise<Session> {
     const epoch = ++this.generation;
     this.session = undefined;
     this.notifyHealthSession();
@@ -168,7 +169,8 @@ export class AccountClient {
     await this.clearVault();
     this.assertEpoch(epoch);
     const payload = await this.transport.request(path, fields, undefined, jsonBody);
-    const session = this.globalAuth ? parseGlobalSession(payload, this.now()) : parseSession(payload, this.now());
+    const session = sharedCode ? parseRingLoginSession(payload, this.now()) :
+      this.globalAuth ? parseGlobalSession(payload, this.now()) : parseSession(payload, this.now());
     await this.persist(session, epoch);
     this.blockRestore = false;
     return validateStoredSession(session);
@@ -188,6 +190,28 @@ export class AccountClient {
       { name: 'username', value: account.trim() }, { name: 'password', value: password },
       { name: 'group', value: 'app' }
     ]);
+  }
+
+  async requestRingLoginCode(channel: AuthChannel, raw: string, locale: string): Promise<VerificationChallenge> {
+    const identifier = ringLoginIdentifier(channel, raw), caps = await this.authCapabilities(locale);
+    if (!ringLoginAvailable(caps, channel)) throw new ApiError('当前登录渠道暂未开放，请稍后重试', 503);
+    const payload = await this.transport.request(RING_CODE_REQUEST, undefined, undefined,
+      JSON.stringify({ product: GLOBAL_PRODUCT, channel, identifier, ...(channel === 'sms' ? { country: 'CN' } : {}), locale }));
+    return parseRingLoginChallenge(payload);
+  }
+
+  async loginRingWithCode(channel: AuthChannel, raw: string, challengeId: string, code: string,
+    consentVersion: string, accepted: boolean, ageConfirmed: boolean, locale: string): Promise<Session> {
+    const epoch = this.generation, identifier = ringLoginIdentifier(channel, raw);
+    if (!accepted || !ageConfirmed) throw new ApiError('请阅读协议并确认已满14周岁', 422);
+    if (!/^[A-Za-z0-9_-]{8,160}$/.test(challengeId) || !/^\d{6}$/.test(code.trim())) throw new ApiError('请输入有效的6位验证码', 422);
+    const caps = await this.authCapabilities(locale); this.assertEpoch(epoch);
+    if (!ringLoginAvailable(caps, channel) || !consentVersion || caps.consentVersion !== consentVersion) {
+      throw new ApiError('登录配置或协议已更新，请重新阅读并获取验证码', 503);
+    }
+    return this.authenticate(RING_CODE_LOGIN, undefined, JSON.stringify({ product: GLOBAL_PRODUCT,
+      channel, identifier, ...(channel === 'sms' ? { country: 'CN' } : {}), challengeId, code: code.trim(),
+      consentVersion, ageConfirmed, locale }), true);
   }
 
   async authCapabilities(locale: string = 'en'): Promise<GlobalAuthCapabilities> {

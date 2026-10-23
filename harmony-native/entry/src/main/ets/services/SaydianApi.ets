@@ -6,7 +6,7 @@ import { ApiError, Envelope, Session, FormField, UploadFile, decodeEnvelope, bui
 import { AccountClient, ApiTransport } from './AccountClient';
 import { SessionVault } from './SessionVault';
 import { apiReadTimeout } from '../model/RequestPolicy';
-import { internationalUrl } from '../model/GlobalConfiguration';
+import { internationalUrl, ringRequestUrl, isRingCodePath } from '../model/GlobalConfiguration';
 import { currentAppLocale } from '../model/GlobalLocale';
 import { appDisplayService } from './AppDisplayService';
 
@@ -22,7 +22,9 @@ class NativeHttpTransport implements ApiTransport {
   async request(path: string, fields?: FormField[], session?: Session, jsonBody?: string,
     method?: 'GET' | 'POST' | 'PUT' | 'DELETE', readTimeoutMs?: number): Promise<Envelope> {
     // Fixed HTTPS origin; credentials never reach configurable hosts or redirects.
-    if (!path.startsWith('/api/') || path.includes('://')) throw new ApiError('请求地址不正确');
+    const url = ringRequestUrl(path);
+    if (isRingCodePath(path) && (session !== undefined || fields !== undefined || jsonBody === undefined ||
+      (method !== undefined && method !== 'POST'))) throw new ApiError('认证请求格式不正确');
     if (fields && jsonBody !== undefined) throw new ApiError('请求格式不正确');
     const requestMethod = method ?? (fields || jsonBody !== undefined ? 'POST' : 'GET');
     const timeoutMs = apiReadTimeout(readTimeoutMs);
@@ -40,11 +42,11 @@ class NativeHttpTransport implements ApiTransport {
     try {
       if (deviceInfo.sdkApiVersion < 23) {
         const legacy = await import('./LegacySafeHttp');
-        const response = await legacy.legacySafeHttp(internationalUrl(path), requestMethod, headers,
+        const response = await legacy.legacySafeHttp(url, requestMethod, headers,
           fields ? buildMultipart(fields, boundary) : jsonBody ?? '', timeoutMs);
         return decodeEnvelope(response.result, response.responseCode);
       }
-      const response = await client.request(internationalUrl(path), {
+      const response = await client.request(url, {
         method: requestMethod === 'DELETE' ? http.RequestMethod.DELETE :
           requestMethod === 'PUT' ? http.RequestMethod.PUT :
           requestMethod === 'POST' ? http.RequestMethod.POST : http.RequestMethod.GET,

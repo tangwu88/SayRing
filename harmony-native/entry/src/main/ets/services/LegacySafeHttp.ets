@@ -1,7 +1,7 @@
 import { rcp } from '@kit.RemoteCommunicationKit';
 import { util } from '@kit.ArkTS';
 import { ApiError } from '../model/Contracts';
-import { GLOBAL_API, GLOBAL_ORIGIN } from '../model/GlobalConfiguration';
+import { GLOBAL_API, GLOBAL_ORIGIN, RING_CODE_REQUEST, RING_CODE_LOGIN } from '../model/GlobalConfiguration';
 import { MAX_REPORT_PDF_BYTES, validateReportPdf } from '../model/GlobalHealthReports';
 
 export interface SafeHttpResponse { result: string; responseCode: number; }
@@ -40,7 +40,9 @@ export async function safeReportPdfHttp(url: string, headers: Record<string, str
 // since API 11, and a bounded streaming destination since API 12.
 export async function legacySafeHttp(url: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   headers: Record<string, string>, body: string | ArrayBuffer, readTimeout: number): Promise<SafeHttpResponse> {
-  if (!url.startsWith(`${GLOBAL_ORIGIN}${GLOBAL_API}/`)) throw new ApiError('请求地址不正确');
+  const sharedCode = url === `${GLOBAL_ORIGIN}${RING_CODE_REQUEST}` || url === `${GLOBAL_ORIGIN}${RING_CODE_LOGIN}`;
+  if (!url.startsWith(`${GLOBAL_ORIGIN}${GLOBAL_API}/`) && !sharedCode) throw new ApiError('请求地址不正确');
+  if (sharedCode && (method !== 'POST' || headers['Authorization'])) throw new ApiError('认证请求格式不正确');
   const client = rcp.createSession({ requestConfiguration: {
     transfer: { autoRedirect: false, timeout: { connectMs: 15000, transferMs: readTimeout } }
   } });

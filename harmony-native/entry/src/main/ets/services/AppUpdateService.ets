@@ -8,7 +8,7 @@ const UPDATE_MANIFEST_URL: string = internationalUrl(
   globalApiPath(`/support/app-update?product=${encodeURIComponent(GLOBAL_PRODUCT)}`)
 );
 export const HARMONY_VERSION_NAME: string = '1.0.5';
-export const HARMONY_VERSION_CODE: number = 1131;
+export const HARMONY_VERSION_CODE: number = 1132;
 
 export class AppUpdateService {
   async check(): Promise<AppUpdateInfo> {

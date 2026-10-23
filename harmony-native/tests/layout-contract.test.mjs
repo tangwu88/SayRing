@@ -123,16 +123,16 @@ test('care member and sharing cards preserve readable member details',()=>{
   assert.ok(sharing.includes('.constraintSize({ minHeight: 76 })'));
 });
 
-test('visual system uses the current iOS Saydian palette and consistent surfaces',()=>{
+test('visual system uses the current Android Say Ring palette and consistent surfaces',()=>{
   const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   for(const token of [
-    "const RED: string = '#D20B27'",
-    "const INK: string = '#171B2B'",
-    "const BG: string = '#F5F7FA'",
-    "const RED_SOFT: string = '#FFE8EC'",
+    'const RED: string = RING_THEME.primary',
+    'const INK: string = RING_THEME.ink',
+    'const BG: string = RING_THEME.canvas',
+    'const RED_SOFT: string = RING_THEME.primarySoft',
     "const GOLD_SOFT: string = '#FFF6DE'",
     "const BLUE_SOFT: string = '#EAF1FF'",
-    "const LINE: string = '#DDE3EC'",
+    'const LINE: string = RING_THEME.line',
     'const CARD_SHADOW:'
   ]) assert.ok(source.includes(token),`Missing design token: ${token}`);
   assert.ok((source.match(/type\(ButtonType\.Normal\)/g)||[]).length>=24,
@@ -208,11 +208,14 @@ test('launcher identity uses the requested name and a high-resolution brand icon
   assert.equal(createHash('sha256').update(source).digest('hex'),'2db9100a4cc9544d057ce555e54dd87456119f991f9e2b356afd9c9296b56238');
 });
 
-test('login offers registration and WeChat authorization instead of guest browsing',()=>{
+test('login uses code authentication and honest native WeChat gating instead of guest browsing or separate registration',()=>{
   const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
-  for(const marker of ['微信授权登录','注册账户','register_submit','register_send_code'])assert.ok(source.includes(marker));
+  for(const marker of ['微信授权登录','login_code','login_send_code','login_submit'])assert.ok(source.includes(marker));
   const login=source.slice(source.indexOf('  Login() {'),source.indexOf('  Registration() {'));
   assert.ok(login.includes('this.BrandLockup(Color.Black)'));
+  assert.equal(login.includes('openRegistration()'),false);
+  assert.equal(login.includes('this.LanguagePicker()'),false);
+  assert.ok(login.includes('GLOBAL_WECHAT_ENABLED'));
   assert.ok(login.includes("SymbolGlyph($r('sys.symbol.wechat'))"));
   assert.ok(login.includes("fontColor(['#07C160'])"));
   assert.equal(source.includes('先浏览首页'),false);
@@ -224,9 +227,9 @@ test('login offers registration and WeChat authorization instead of guest browsi
 test('disconnected health cards do not repeat the same empty-state line',()=>{
   const source=readUiSource(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
   const cards=source.slice(source.indexOf('HealthHome()'),source.indexOf('DeviceHome()'));
-  assert.ok(cards.includes('if (this.visibleWearableMetrics().length === 0)'));
+  assert.ok(cards.includes('if (this.homeMetrics().length === 0)'));
   assert.ok(cards.includes("'connectWatchForData'"));
-  assert.ok(cards.includes('ForEach(this.visibleWearableMetrics()'));
+  assert.ok(cards.includes('ForEach(this.homeMetrics()'));
   assert.equal(cards.includes("this.wearableSnapshot.connected ? '当前手表不支持' : '暂无记录'"),false);
   assert.equal(cards.includes("已记录' : '暂无数据"),false,
     'An empty metric must have one clear empty state instead of a second status badge');

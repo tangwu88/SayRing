@@ -36,6 +36,9 @@ import { DisplayUnits, ProfileDraft, FEEDBACK_TYPES, defaultDisplayUnits, displa
 import { displayPreferenceStore } from '../services/DisplayPreferenceStore';
 import { APP_LOCALES, APP_LANGUAGE_NAMES, appText, formatAppText } from '../model/GlobalLocale';
 import { appLocaleStore } from '../services/AppLocaleStore';
+import { RING_THEME, RING_CUSTOMER_SERVICE, ringLoginIdentifier, ringLoginAvailable, HomeCardLayout, orderedHomeCards,
+  ringCareOptions, toggleRingCareGroup } from '../model/RingParity';
+import { homeCardPreferenceStore } from '../services/HomeCardPreferenceStore';
 import { AuthChannel, GlobalAuthCapabilities, PHONE_COUNTRIES, PhoneCountry,
   emptyAuthCapabilities, globalRegistrationValidation, globalUnverifiedRegistrationValidation,
   normalizeIdentifier, validGlobalPassword } from '../model/GlobalAuth';
@@ -66,21 +69,22 @@ import { WatchAssessmentSetting, WatchAutoMeasureSetting, WatchContact, WatchDev
   WatchScreenSetting, WatchWeatherSetting, WatchWorldClock, emptyPhoneState, emptyPhotoDialProfile,
   emptyScreenSetting, visibleWatchDeviceFeatures, watchContactError, watchDeviceFeatureSupported } from '../model/DeviceFeatureContracts';
 
-const RED: string = '#D20B27';
-const RED_DARK: string = '#980018';
-const INK: string = '#171B2B';
-const MUTED: string = '#5F6675';
-const BG: string = '#F5F7FA';
+// Compatibility aliases keep all existing detail pages on the Android palette.
+const RED: string = RING_THEME.primary;
+const RED_DARK: string = RING_THEME.primaryDark;
+const INK: string = RING_THEME.ink;
+const MUTED: string = RING_THEME.muted;
+const BG: string = RING_THEME.canvas;
 const SURFACE: string = '#FFFFFF';
 const SURFACE_ALT: string = '#F8FAFC';
-const LINE: string = '#DDE3EC';
+const LINE: string = RING_THEME.line;
 const OUTLINE: string = '#98A2B3';
-const RED_SOFT: string = '#FFE8EC';
+const RED_SOFT: string = RING_THEME.primarySoft;
 const GOLD_SOFT: string = '#FFF6DE';
 const BLUE_SOFT: string = '#EAF1FF';
 const GREEN_SOFT: string = '#EAF6ED';
 const BLUE: string = '#2467A6';
-const TECH_BLUE: string = '#316EF5';
+const TECH_BLUE: string = RING_THEME.primary;
 const GREEN: string = '#287A3B';
 const GOLD: string = '#705300';
 const CARD_SHADOW: string = '#17151B2B';
@@ -117,9 +121,20 @@ struct Index {
   @State private systemFontScale: number = 1;
   @State private tab: number = 0;
   @State private account: string = '';
-  @State private appLocale: string = 'en';
-  @State private authChannel: AuthChannel = 'email';
-  @State private authCountry: string = 'US';
+  @State private appLocale: string = 'zh-Hans';
+  @State private authChannel: AuthChannel = 'sms';
+  @State private authCountry: string = 'CN';
+  @State private loginCode: string = '';
+  @State private loginChallengeId: string = '';
+  @State private loginChallengeIdentity: string = '';
+  @State private loginChallengeExpiresAt: number = 0;
+  @State private loginAgeConfirmed: boolean = false;
+  @State private emailPasswordMode: boolean = false;
+  @State private homeCardLayout: HomeCardLayout = { order: [], hidden: [] };
+  @State private homeCardDraft: HomeCardLayout = { order: [], hidden: [] };
+  @State private homeCardSaving: boolean = false;
+  private loginRequestGeneration: number = 0;
+  private loginCooldownUntil: number = 0;
   @State private capabilities: GlobalAuthCapabilities = emptyAuthCapabilities();
   @State private authCapabilitiesBusy: boolean = true;
   @State private globalReports: GlobalHealthReport[] = [];
@@ -486,7 +501,7 @@ struct Index {
 
   private async loadAppLocale(): Promise<void> {
     try { this.appLocale = await appLocaleStore.read(this.uiContext()); }
-    catch { this.appLocale = 'en'; }
+    catch { this.appLocale = 'zh-Hans'; }
     await this.loadAuthCapabilities();
   }
 
@@ -609,6 +624,58 @@ struct Index {
   private async loadDisplayPreferences(): Promise<void> {
     try { this.displayUnits = await displayPreferenceStore.read(this.uiContext()); }
     catch { this.preferenceError = '单位设置暂未读取，请稍后重试'; }
+    await this.loadHomeCardPreferences();
+  }
+
+  private async loadHomeCardPreferences(): Promise<void> {
+    const owner = saydianApi.current()?.memberId ?? '';
+    this.homeCardLayout = { order: [], hidden: [] };
+    try {
+      const value = await homeCardPreferenceStore.read(this.uiContext(), owner);
+      if (owner === (saydianApi.current()?.memberId ?? '')) this.homeCardLayout = value;
+    } catch { this.preferenceError = '首页卡片设置暂未读取，请重试'; }
+  }
+
+  private homeMetrics(editing: boolean = false): WearableMetricSpec[] {
+    const available = this.visibleWearableMetrics();
+    const keys = orderedHomeCards(available.map((metric: WearableMetricSpec) => metric.key),
+      editing ? this.homeCardDraft : this.homeCardLayout, editing);
+    return keys.map((key: string) => available.find((metric: WearableMetricSpec) => metric.key === key) as WearableMetricSpec);
+  }
+
+  private visibleCareOptions(daily: boolean): CareOption[] {
+    return ringCareOptions(daily, this.visibleWearableMetrics().map((metric: WearableMetricSpec) => metric.key));
+  }
+
+  private toggleVisibleCareGroup(daily: boolean): void {
+    this.careSettings = toggleRingCareGroup(this.careSettings,
+      this.visibleCareOptions(daily).map((option: CareOption) => option.key));
+  }
+
+  private openHomeCardEditor(): void {
+    this.homeCardDraft = { order: [...this.homeCardLayout.order], hidden: [...this.homeCardLayout.hidden] };
+    this.formMessage = ''; this.openInnerPage('home-cards');
+  }
+
+  private moveHomeCard(key: string, offset: number): void {
+    const order = this.homeMetrics(true).map((metric: WearableMetricSpec) => metric.key as string);
+    const index = order.indexOf(key), next = index + offset;
+    if (index < 0 || next < 0 || next >= order.length) return;
+    const previous = order[next]; order[next] = key; order[index] = previous;
+    this.homeCardDraft = { order: [...order, ...this.homeCardDraft.order.filter((item: string) => !order.includes(item))],
+      hidden: [...this.homeCardDraft.hidden] };
+  }
+
+  private async saveHomeCards(): Promise<void> {
+    if (this.homeCardSaving) return;
+    const owner = saydianApi.current()?.memberId ?? '', value = this.homeCardDraft;
+    this.homeCardSaving = true; this.formMessage = '';
+    try {
+      await homeCardPreferenceStore.save(owner, value);
+      if (owner !== (saydianApi.current()?.memberId ?? '')) return;
+      this.homeCardLayout = value; this.screen = 'home'; this.tab = 0;
+    } catch { this.formMessage = '卡片设置保存失败，请重试'; }
+    finally { this.homeCardSaving = false; }
   }
 
   private async setDisplayUnits(distance: 'km' | 'mi', temperature: 'c' | 'f'): Promise<void> {
@@ -664,6 +731,17 @@ struct Index {
     } catch {
       this.contactMessage = `无法打开拨号界面，请手动拨打 ${phone}`;
     }
+  }
+
+  private async openRingSupport(copy: boolean = false): Promise<void> {
+    try {
+      if (copy) {
+        await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, RING_CUSTOMER_SERVICE));
+        this.contactMessage = '客服链接已复制，可在微信或浏览器中打开';
+      } else {
+        await this.uiContext().startAbility({ action: 'ohos.want.action.viewData', uri: RING_CUSTOMER_SERVICE });
+      }
+    } catch { this.contactMessage = '暂时无法打开，请点击复制客服链接后在微信中打开'; }
   }
 
   private async copySupportAccount(): Promise<void> {
@@ -1536,7 +1614,7 @@ struct Index {
     this.sportActionBusy = true; this.sportError = '';
     try {
       const success = await vepWearable.startSport(mode);
-      if (!success) this.sportError = vepWearable.currentSportSession().status || '当前手表未能开始运动';
+      if (!success) this.sportError = vepWearable.currentSportSession().status || '当前设备未能开始运动';
     } finally { this.sportActionBusy = false; }
   }
 
@@ -1545,18 +1623,18 @@ struct Index {
     this.sportActionBusy = true; this.sportError = '';
     try {
       const success = this.sportSession.phase === 'paused' ? await vepWearable.resumeSport() : await vepWearable.pauseSport();
-      if (!success) this.sportError = '手表未确认运动状态，请稍后重试';
+      if (!success) this.sportError = '设备未返回运动状态，请稍后重试';
     } finally { this.sportActionBusy = false; }
   }
 
   private async confirmStopSport(exitAfter: boolean = false): Promise<void> {
     if (this.sportActionBusy || !this.sportActive()) return;
-    const confirmed = await this.confirmCommerce('结束本次运动？', '结束后将保存手表返回的数据和已记录的前台轨迹。', '结束运动');
+    const confirmed = await this.confirmCommerce('结束本次运动？', '结束后将保存设备返回的数据和已记录的前台轨迹。', '结束运动');
     if (!confirmed || !this.sportActive()) return;
     this.sportActionBusy = true; this.sportError = '';
     try {
       const success = await vepWearable.stopSport();
-      if (!success) this.sportError = vepWearable.currentSportSession().status || '手表未确认结束运动';
+      if (!success) this.sportError = vepWearable.currentSportSession().status || '设备未返回结束运动状态';
       else {
         await this.loadSportRecords();
         if (exitAfter) this.screen = 'home';
@@ -1609,9 +1687,9 @@ struct Index {
   }
 
   private visibleWearableMetrics(): WearableMetricSpec[] {
-    if (!this.wearableSnapshot.connected) return [];
     return this.wearableMetrics.filter((metric: WearableMetricSpec) =>
-      metric.key !== 'sport' && this.wearableCapability(metric.key));
+      metric.key !== 'sport' && (this.wearableSnapshot.connected ? this.wearableCapability(metric.key) :
+        this.wearableMetricRecords(metric.key).length > 0));
   }
 
   private metricMiniChartPoints(metric: WearableMetricKey): number[][] {
@@ -1776,7 +1854,7 @@ struct Index {
   }
 
   private measurementText(): string {
-    if (this.wearableMeasurement.values.length === 0) return this.wearableMeasurement.status || '等待手表读数';
+    if (this.wearableMeasurement.values.length === 0) return this.wearableMeasurement.status || '等待设备读数';
     return this.wearableMeasurement.values.map((value) =>
       `${value.name} ${value.value}${value.unit}`).join(' · ');
   }
@@ -2448,6 +2526,7 @@ struct Index {
   }
 
   private acceptAuthenticatedSession(session: Session): void {
+    this.invalidateLoginCode();
     this.password = '';
     this.registerPassword = '';
     this.registerConfirmation = '';
@@ -2467,6 +2546,7 @@ struct Index {
   }
 
   private startAuthenticatedServices(): void {
+    this.loadHomeCardPreferences();
     this.updateLocalInbox();
     this.refreshNotificationCount();
     this.refreshCareSummary(true);
@@ -2528,14 +2608,24 @@ struct Index {
 
   private async submitLogin(): Promise<void> {
     if (!canSubmitLogin(this.busy, this.restoring)) return;
-    this.error = !this.accepted ? 'accept_terms' : !validGlobalPassword(this.password) ? 'password_length' : '';
-    try { normalizeIdentifier(this.authChannel, this.accountIdentifier(this.account)); }
+    const passwordMode = this.authChannel === 'email' && this.emailPasswordMode;
+    this.error = !this.accepted ? 'accept_terms' : !this.loginAgeConfirmed ? '请确认已满14周岁' :
+      passwordMode && !validGlobalPassword(this.password) ? 'password_length' : '';
+    try {
+      const identifier = ringLoginIdentifier(this.authChannel, this.account);
+      if (!passwordMode && (!/^\d{6}$/.test(this.loginCode) || !this.loginChallengeId ||
+        this.loginChallengeIdentity !== `${this.authChannel}:${identifier}` || Date.now() >= this.loginChallengeExpiresAt)) {
+        this.error = '请先获取当前账号的有效验证码';
+      }
+    }
     catch (error) { this.error = (error as Error).message; }
     if (this.error) return;
     this.busy = true;
     const epoch = ++this.pageGeneration;
     try {
-      const session = await saydianApi.login(this.accountIdentifier(this.account), this.password);
+      const session = passwordMode ? await saydianApi.login(ringLoginIdentifier('email', this.account), this.password) :
+        await saydianApi.loginRingWithCode(this.authChannel, this.account, this.loginChallengeId, this.loginCode,
+          this.capabilities.consentVersion, this.accepted, this.loginAgeConfirmed, this.appLocale);
       if (epoch !== this.pageGeneration) return;
       this.acceptAuthenticatedSession(session);
     } catch (error) {
@@ -2546,6 +2636,33 @@ struct Index {
         if (!this.guest) this.startAuthenticatedServices();
       }
     }
+  }
+
+  private invalidateLoginCode(): void {
+    ++this.loginRequestGeneration;
+    this.loginChallengeId = ''; this.loginChallengeIdentity = ''; this.loginChallengeExpiresAt = 0; this.loginCode = '';
+  }
+
+  private selectLoginChannel(channel: AuthChannel): void {
+    this.invalidateLoginCode(); this.authChannel = channel; this.authCountry = 'CN';
+    this.account = ''; this.password = ''; this.emailPasswordMode = false; this.error = '';
+  }
+
+  private async sendLoginCode(): Promise<void> {
+    if (this.smsBusy || this.busy || Date.now() < this.loginCooldownUntil) return;
+    this.error = ''; this.smsBusy = true;
+    const request = ++this.loginRequestGeneration;
+    try {
+      const identity = `${this.authChannel}:${ringLoginIdentifier(this.authChannel, this.account)}`;
+      const challenge = await saydianApi.requestRingLoginCode(this.authChannel, this.account, this.appLocale);
+      if (request !== this.loginRequestGeneration || this.screen !== 'login' ||
+        identity !== `${this.authChannel}:${ringLoginIdentifier(this.authChannel, this.account)}`) return;
+      this.loginChallengeId = challenge.challengeId; this.loginChallengeIdentity = identity;
+      this.loginChallengeExpiresAt = Date.now() + challenge.expiresIn * 1000;
+      this.loginCooldownUntil = Date.now() + challenge.retryAfter * 1000;
+      if (challenge.retryAfter > 0) this.beginSmsCountdown(challenge.retryAfter);
+    } catch (error) { if (request === this.loginRequestGeneration) this.error = (error as Error).message; }
+    finally { this.smsBusy = false; }
   }
 
   private openRegistration(): void {
@@ -2860,6 +2977,7 @@ struct Index {
         this.screen === 'address-edit' ? (this.addressDraft.id ? '编辑地址' : '新增地址') : this.screen === 'reset-password' ? '找回密码' :
         this.screen.startsWith('care') ? this.careHeading() : this.screen === 'messages' ? '消息' :
         this.screen === 'health-alerts' ? '健康预警' : this.screen === 'health-all' ? '全部健康数据' :
+          this.screen === 'home-cards' ? '编辑健康卡片' : this.screen === 'sport-modes' ? '全部运动' :
           this.screen === 'sport-records' ? '运动与记录' : this.screen === 'ai-chat' ? 'AI 健康管家' :
             this.screen === 'device-search' ? '添加设备' :
             this.screen === 'shop-cart' ? '购物车' : this.screen === 'shop-checkout' ? '确认订单' :
@@ -2957,47 +3075,43 @@ struct Index {
   @Builder
   AuthMethodSelector() {
     Row({ space: 8 }) {
-      Button(this.tr('email')).layoutWeight(1).height(this.controlHeight(48))
-        .fontColor(this.authChannel === 'email' ? Color.White : INK)
-        .backgroundColor(this.authChannel === 'email' ? RED : SURFACE)
-        .enabled(!this.busy && !this.smsBusy && !this.formBusy)
-        .onClick(() => { this.authChannel = 'email'; this.clearSmsCountdown(); this.registerChallengeId = '';
-          this.resetChallengeId = ''; this.registerCode = ''; this.resetCode = ''; })
-        .id('auth_email')
       Button(this.tr('phone')).layoutWeight(1).height(this.controlHeight(48))
         .fontColor(this.authChannel === 'sms' ? Color.White : INK)
         .backgroundColor(this.authChannel === 'sms' ? RED : SURFACE)
         .enabled(!this.busy && !this.smsBusy && !this.formBusy)
-        .onClick(() => { this.authChannel = 'sms'; this.clearSmsCountdown(); this.registerChallengeId = '';
-          this.resetChallengeId = ''; this.registerCode = ''; this.resetCode = ''; })
+        .onClick(() => this.selectLoginChannel('sms'))
         .id('auth_phone')
+      Button(this.tr('email')).layoutWeight(1).height(this.controlHeight(48))
+        .fontColor(this.authChannel === 'email' ? Color.White : INK)
+        .backgroundColor(this.authChannel === 'email' ? RED : SURFACE)
+        .enabled(!this.busy && !this.smsBusy && !this.formBusy)
+        .onClick(() => this.selectLoginChannel('email'))
+        .id('auth_email')
     }.width('100%')
-    if (this.authChannel === 'sms') {
-      Select(this.phoneChoices().map((country: PhoneCountry): SelectOption => { return { value: `${country.name} ${country.dialCode}` }; }))
-        .selected(this.phoneChoices().findIndex((country: PhoneCountry) => country.code === this.authCountry))
-        .value(this.phoneChoices().find((country: PhoneCountry) => country.code === this.authCountry)?.name ?? this.tr('country'))
-        .font({ size: 15 }).width('100%').enabled(!this.busy && !this.smsBusy && !this.formBusy)
-        .onSelect((index: number) => { this.authCountry = this.phoneChoices()[index].code; this.clearSmsCountdown();
-          this.registerChallengeId = ''; this.resetChallengeId = ''; this.registerCode = ''; this.resetCode = ''; })
-        .id('auth_country')
-    }
   }
 
   @Builder
   Login() {
     Scroll() {
       Column({ space: 14 }) {
-        this.LanguagePicker()
         this.BrandLockup(Color.Black)
+        Text('开启你的健康生活').fontSize(16).fontColor(MUTED).margin({ bottom: 20 })
         this.AuthMethodSelector()
+        if (this.authCapabilitiesBusy) { Text('正在读取登录配置…').fontSize(13).fontColor(MUTED) }
+        else if (!this.capabilities.consentVersion) {
+          Button('登录配置暂未读取，点击重试').height(this.controlHeight(48)).fontColor(RED).backgroundColor(RED_SOFT)
+            .onClick(() => this.loadAuthCapabilities()).id('login_retry_config')
+        } else if (this.authChannel === 'email' && !this.emailPasswordMode && !ringLoginAvailable(this.capabilities, 'email')) {
+          Text('邮箱验证码暂未开放，可切换邮箱密码登录').fontSize(13).fontColor(MUTED)
+        }
         Row({ space: 10 }) {
           SymbolGlyph($r('sys.symbol.phone')).fontSize(22).fontColor([MUTED]).margin({ left: 15 })
           TextInput({ placeholder: this.tr(this.authChannel === 'email' ? 'email' : 'phone'), text: this.account }).type(InputType.Normal)
             .layoutWeight(1).height(this.controlHeight(54)).fontSize(17).backgroundColor(Color.Transparent)
             .maxLength(128).enabled(canSubmitLogin(this.busy, this.restoring))
-            .onChange((value: string) => this.account = value).id('login_account').accessibilityText(this.tr('手机号或账号'))
+            .onChange((value: string) => { this.account = value; this.invalidateLoginCode(); }).id('login_account').accessibilityText(this.tr('手机号或邮箱'))
         }.width('100%').height(this.controlHeight(56)).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
-        Row({ space: 10 }) {
+        if (this.authChannel === 'email' && this.emailPasswordMode) { Row({ space: 10 }) {
           SymbolGlyph($r('sys.symbol.lock')).fontSize(22).fontColor([MUTED]).margin({ left: 15 })
           TextInput({ placeholder: this.tr('密码'), text: this.password }).type(InputType.Password)
             .layoutWeight(1).height(this.controlHeight(54)).fontSize(17).backgroundColor(Color.Transparent)
@@ -3005,6 +3119,22 @@ struct Index {
             .onChange((value: string) => this.password = value)
             .onSubmit(() => this.submitLogin()).id('login_password').accessibilityText(this.tr('密码'))
         }.width('100%').height(this.controlHeight(56)).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
+        } else {
+          Row({ space: 10 }) {
+            TextInput({ placeholder: '请输入6位验证码', text: this.loginCode }).type(InputType.Number).maxLength(6)
+              .layoutWeight(1).height(this.controlHeight(54)).backgroundColor(Color.Transparent)
+              .enabled(!this.busy).onChange((value: string) => this.loginCode = value).id('login_code')
+            Button(this.smsCountdown > 0 ? `${this.smsCountdown}秒后重试` : '获取验证码')
+              .height(this.controlHeight(48)).fontSize(14).fontColor(RED).backgroundColor(RED_SOFT)
+              .enabled(!this.busy && !this.smsBusy && this.smsCountdown === 0 &&
+                ringLoginAvailable(this.capabilities, this.authChannel)).onClick(() => this.sendLoginCode()).id('login_send_code')
+          }.width('100%').padding({ left: 12, right: 4 }).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
+        }
+        if (this.authChannel === 'email') {
+          Button(this.emailPasswordMode ? '使用邮箱验证码登录' : '使用邮箱密码登录').height(this.controlHeight(48))
+            .fontColor(RED).backgroundColor(Color.Transparent).enabled(!this.busy && !this.smsBusy)
+            .onClick(() => { this.emailPasswordMode = !this.emailPasswordMode; this.invalidateLoginCode(); })
+        }
         Row() {
           Blank()
           Button(this.tr('忘记密码？')).height(this.controlHeight(48)).fontSize(16).fontWeight(FontWeight.Medium).fontColor(INK)
@@ -3031,13 +3161,19 @@ struct Index {
             .fontColor(RED).backgroundColor(Color.White).enabled(!this.busy)
             .onClick(() => this.signOut()).id('retry_logout')
         }
-        Button(this.tr(this.busy ? '正在登录…' : '登录')).width('100%').height(this.controlHeight(50)).fontSize(17)
+        Row() {
+          Checkbox({ name: 'login-age' }).select(this.loginAgeConfirmed).selectedColor(RED)
+            .enabled(!this.busy).onChange((value: boolean) => this.loginAgeConfirmed = value)
+          Text('我已满14周岁').fontSize(14).fontColor(MUTED)
+        }.width('100%')
+        Button(this.tr(this.busy ? '正在登录…' : '验证并登录')).width('100%').height(this.controlHeight(50)).fontSize(17)
           .fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(10)
           .enabled(!this.busy && !this.restoring)
           .onClick(() => this.submitLogin()).id('login_submit')
-        Button(this.tr('注册账户')).width('100%').height(this.controlHeight(48)).fontSize(16).fontColor(INK)
-          .fontWeight(FontWeight.Medium).backgroundColor(Color.Transparent).enabled(!this.busy && !this.restoring)
-          .onClick(() => this.openRegistration()).id('open_registration')
+        Text('手机号验证成功后自动登录，新用户将自动创建账号').fontSize(12).fontColor(MUTED).width('100%')
+        if (!GLOBAL_WECHAT_ENABLED) {
+          Text('鸿蒙微信授权暂未接通，请使用手机号或邮箱登录').fontSize(12).fontColor(MUTED).width('100%')
+        }
         if (GLOBAL_WECHAT_ENABLED) { Row() {
           Button() {
             Row({ space: 8 }) {
@@ -3052,14 +3188,13 @@ struct Index {
         }.width('100%').justifyContent(FlexAlign.Center) }
       }.width('100%').constraintSize({ maxWidth: 427 }).padding({ left: 26, right: 26, bottom: 32 })
     }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Off)
-      .linearGradient({ angle: 180, colors: [['#FFF1F3', 0.0], ['#F5F7FA', 0.5], ['#EAF1FF', 1.0]] })
+      .backgroundColor(BG)
   }
 
   @Builder
   Registration() {
     Scroll() {
       Column({ space: 12 }) {
-        this.LanguagePicker()
         Row() {
           Button() {
             SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(24).fontColor([INK])
@@ -3129,7 +3264,7 @@ struct Index {
           .id('register_back_login')
       }.width('100%').constraintSize({ maxWidth: 440 }).padding({ left: 24, right: 24, bottom: 32 })
     }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Off)
-      .linearGradient({ angle: 180, colors: [['#FFF1F3', 0.0], ['#F5F7FA', 0.5], ['#EAF1FF', 1.0]] })
+      .linearGradient({ angle: 180, colors: [[RED_SOFT, 0.0], [BG, 0.5], [BLUE_SOFT, 1.0]] })
   }
 
   @Builder
@@ -3164,85 +3299,84 @@ struct Index {
         Image($r('app.media.health_doctor')).width('36%').height(140).objectFit(ImageFit.Cover)
           .accessibilityText(this.tr('appName'))
         Column({ space: 4 }) {
-          Text(this.tr('AI健康管家')).fontSize(19).fontWeight(FontWeight.Bold).fontColor('#9E1025').width('100%')
+          Text(this.tr('AI健康管家')).fontSize(19).fontWeight(FontWeight.Bold).fontColor(RED).width('100%')
           Text(this.tr('我是您的健康管家，\n有任何健康问题都可以向我提问。'))
             .fontSize(12).lineHeight(15).fontColor(INK).width('100%')
           Button(this.tr('马上提问')).fontSize(14.5).fontWeight(FontWeight.Bold).height(this.controlHeight(44)).backgroundColor(RED)
             .type(ButtonType.Capsule).width('100%').onClick(() => this.openAiChat()).id('open_ai_chat')
         }.width('64%').padding({ left: 4, right: 13, top: 7, bottom: 7 }).alignItems(HorizontalAlign.Start)
-      }.width('100%').constraintSize({ minHeight: 140 }).borderRadius(20).backgroundColor('#FDF7F3')
-        .border({ width: 1.2, color: '#66D20B27' }).clip(true)
+      }.width('100%').constraintSize({ minHeight: 140 }).borderRadius(20).backgroundColor(RED_SOFT)
+        .border({ width: 1, color: LINE }).clip(true)
       }
 
       Flex({ wrap: FlexWrap.Wrap }) {
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.person_badge_heart')).fontSize(26).fontColor([Color.White]) }
-            .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor('#E84358').borderRadius(14)
+            .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor(RED).borderRadius(14)
           Text(this.tr('远程关爱')).fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.width(this.singleColumn() ? '100%' : '25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openCare()).id('family_care')
+        }.width('25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openCare()).id('family_care')
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.book')).fontSize(26).fontColor([Color.White]) }
-            .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor('#D5A03D').borderRadius(14)
+            .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor(RING_THEME.violet).borderRadius(14)
           Text(this.tr('健康百科')).fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.width(this.singleColumn() ? '100%' : '25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openArticles()).id('health_articles')
+        }.width('25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openArticles()).id('health_articles')
         Column({ space: 6 }) {
-          Column() { SymbolGlyph($r('sys.symbol.exclamationmark_shield_fill')).fontSize(26).fontColor([Color.White]) }
-            .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor('#EF6E78').borderRadius(14)
-          Text(this.tr('健康预警')).fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.width(this.singleColumn() ? '100%' : '25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openHealthAlerts()).id('health_alerts')
+          Column() { SymbolGlyph($r('sys.symbol.dumbbell')).fontSize(26).fontColor([Color.White]) }
+            .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor(RING_THEME.cyan).borderRadius(14)
+          Text('运动').fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
+        }.width('25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openSportRecords()).id('home_sport')
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.bag_fill')).fontSize(26).fontColor([Color.White]) }
-            .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor('#D99C2B').borderRadius(14)
+            .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor('#727EA8').borderRadius(14)
           Text(this.tr('shop')).fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.width(this.singleColumn() ? '100%' : '25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openShop()).id('health_shop')
+        }.width('25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openShop()).id('health_shop')
       }.width('100%').padding({ left: 6, right: 6, top: 10, bottom: 10 }).backgroundColor(SURFACE).borderRadius(18)
         .shadow({ radius: 9, color: CARD_SHADOW, offsetY: 3 })
 
       if (this.profileError) { this.Notice({ message: this.profileError, color: '#FFF0E9' }) }
-      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
-        Row({ space: 7 }) {
-          Text(this.tr('健康数据')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK)
-          SymbolGlyph($r('sys.symbol.calendar')).fontSize(19).fontColor([MUTED])
-          Text(this.todayText()).fontSize(14).fontColor(MUTED)
-        }.width(this.singleColumn() ? '100%' : '68%')
+      Row({ space: 4 }) {
+        Text(this.tr('健康数据')).fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).maxLines(1)
+        Button('编辑').fontSize(13).height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent)
+          .onClick(() => this.openHomeCardEditor()).id('home_edit_cards')
         Button() {
           Row({ space: 2 }) {
             Text(this.tr('全部数据')).fontSize(14).fontWeight(FontWeight.Bold).fontColor(RED)
             SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([RED])
           }
-        }.width(this.singleColumn() ? '100%' : '32%').height(this.controlHeight(48)).backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(10)
+        }.height(this.controlHeight(48)).backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(10)
           .onClick(() => this.screen = 'health-all').id('health_all')
       }.width('100%')
 
-      if (this.visibleWearableMetrics().length === 0) {
+      if (this.homeMetrics().length === 0) {
         Row({ space: 7 }) {
           SymbolGlyph($r('sys.symbol.circle')).fontSize(17).fontColor([BLUE])
-          Text(this.tr(this.wearableSnapshot.connected ? '暂无可显示的健康数据' : 'connectWatchForData'))
+          Text(this.tr(this.visibleWearableMetrics().length > 0 ? '首页卡片已隐藏，可点击编辑重新显示' :
+            this.wearableSnapshot.connected ? '暂无可显示的健康数据' : 'connectWatchForData'))
             .fontSize(15).fontWeight(FontWeight.Medium).fontColor(BLUE).textAlign(TextAlign.Center).layoutWeight(1)
         }.width('100%').padding({ left: 10, right: 10, top: 12, bottom: 12 }).backgroundColor(BLUE_SOFT)
           .borderRadius(10).border({ width: 1, color: '#3D2467A6' })
           .onClick(() => { if (!this.wearableSnapshot.connected) this.openDeviceSearch(); }).id('connect_watch_notice')
       } else {
         Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
-          ForEach(this.visibleWearableMetrics(), (metric: WearableMetricSpec) => {
+          ForEach(this.homeMetrics(), (metric: WearableMetricSpec) => {
             Column({ space: 4 }) {
               Row({ space: 6 }) {
                 Column() { this.WearableMetricIcon(metric.key) }
                   .width(30).height(30).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(15)
-                Text(this.tr(metric.title)).fontSize(15).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).maxLines(2)
+                Text(this.tr(metric.title)).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1).maxLines(1)
                 if (this.wearableMetricRecords(metric.key).length > 0) {
                   Text(this.tr('已记录')).fontSize(11).fontWeight(FontWeight.Bold).fontColor(GREEN)
                     .padding({ left: 7, right: 7, top: 2, bottom: 2 }).backgroundColor('#E7F7E6').borderRadius(9)
                 }
               }.width('100%')
-              Text(this.wearableLatest(metric.key)).fontSize(17).lineHeight(23).fontWeight(FontWeight.Bold)
-                .fontColor(INK).width('100%').maxLines(2)
+              Text(this.wearableLatest(metric.key)).fontSize(25).lineHeight(34).fontWeight(FontWeight.Bold)
+                .fontColor(INK).width('100%').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
               Blank().layoutWeight(1)
               if (this.metricMiniChartPoints(metric.key).length > 1) {
                 Polyline({ width: 132, height: 34 }).points(this.metricMiniChartPoints(metric.key))
                   .fillOpacity(0).stroke(TECH_BLUE).strokeWidth(2).width('100%').height(34)
               }
-            }.width(this.singleColumn() ? '100%' : '48%').constraintSize({ minHeight: 142 }).padding({ left: 10, right: 10, top: 9, bottom: 8 })
+            }.width('100%').constraintSize({ minHeight: 170 }).padding({ left: 18, right: 18, top: 18, bottom: 16 })
               .margin({ bottom: 12 }).backgroundColor(SURFACE).borderRadius(18)
               .shadow({ radius: 9, color: CARD_SHADOW, offsetY: 3 })
               .onClick(() => this.openWearableMetric(metric.key))
@@ -3251,22 +3385,6 @@ struct Index {
         }.width('100%')
       }
 
-      Text(this.tr('运动与记录')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').margin({ top: 6 })
-      Column() {
-        Row({ space: 10 }) {
-          Column() { SymbolGlyph($r('sys.symbol.clock_arrow_2_circlepath')).fontSize(20).fontColor([RED]) }
-            .width(34).height(34).justifyContent(FlexAlign.Center).backgroundColor(RED_SOFT).borderRadius(11)
-          Column({ space: 3 }) {
-            Text(this.tr('运动记录')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-            Text(this.wearableSnapshot.connected ? this.wearableLatest('sport') : '查看已保存的运动记录')
-              .fontSize(13).fontColor(MUTED).width('100%').maxLines(2)
-          }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-          SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([RED])
-        }.width('100%').constraintSize({ minHeight: 72 }).padding({ left: 12, right: 12, top: 10, bottom: 10 })
-          .backgroundColor(RED_SOFT).borderRadius(17).onClick(() => this.openSportRecords())
-          .accessibilityText(this.tr('查看运动记录'))
-      }.width('100%').padding({ left: 14, right: 14, top: 14, bottom: 12 }).backgroundColor(SURFACE)
-        .borderRadius(22).border({ width: 1, color: '#18D20B27' }).shadow({ radius: 12, color: CARD_SHADOW, offsetY: 4 })
       this.Notice({ message: '测量结果仅供健康管理参考，如有不适请咨询专业医务人员。', color: GREEN_SOFT })
     }.width('100%').padding({ left: 16, right: 16, top: 10, bottom: 24 })
   }
@@ -3381,7 +3499,7 @@ struct Index {
           this.DeviceAction({ title: '同步时间', icon: $r('sys.symbol.clock_arrow_2_circlepath'), color: RED, background: RED_SOFT,
             action: () => vepWearable.syncTime(), id: 'wearable_sync_time' })
           if (this.wearableSnapshot.capabilities.findDevice) {
-            this.DeviceAction({ title: '查找手表', icon: $r('sys.symbol.bell_badge_local'), color: BLUE, background: BLUE_SOFT,
+            this.DeviceAction({ title: '查找设备', icon: $r('sys.symbol.bell_badge_local'), color: BLUE, background: BLUE_SOFT,
               action: () => vepWearable.findDevice(), id: 'wearable_find' })
           }
           this.DeviceAction({ title: '设备信息', icon: $r('sys.symbol.info_circle'), color: GREEN, background: GREEN_SOFT,
@@ -3413,7 +3531,7 @@ struct Index {
             SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
           }.width('100%').constraintSize({ minHeight: 66 }).padding({ left: 12, right: 12, top: 9, bottom: 9 })
             .onClick(() => this.showFeature('连接说明',
-              '1. 打开手机蓝牙并允许查找附近设备。\n2. 让手表保持亮屏并靠近手机。\n3. 如果手表弹出确认，请及时确认。'))
+              '1. 打开手机蓝牙并允许查找附近设备。\n2. 确保戒指有电并靠近手机，未广播时可放入充电盒后取出。\n3. 在手机列表中选择自己的设备；如手机出现系统配对请求，请核对名称后确认。'))
         }.width('100%').padding(4).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
       } else {
         Column({ space: 14 }) {
@@ -3421,7 +3539,7 @@ struct Index {
             SymbolGlyph($r('sys.symbol.watch')).fontSize(62).fontColor([TECH_BLUE])
           }.width(118).height(118).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(59)
           Text(this.tr('添加智能设备')).fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK)
-          Text(this.tr('请开启手机蓝牙并将手表靠近手机')).fontSize(13).fontColor(MUTED)
+          Text(this.tr('请开启手机蓝牙并将戒指靠近手机')).fontSize(13).fontColor(MUTED)
             .textAlign(TextAlign.Center).lineHeight(20)
           Button(this.tr('开始查找')).width('100%').constraintSize({ minHeight: 50 }).backgroundColor(RED)
             .type(ButtonType.Normal).borderRadius(14).enabled(!this.wearableBusy())
@@ -3435,15 +3553,15 @@ struct Index {
           }.width(42).height(42).justifyContent(FlexAlign.Center).backgroundColor(BLUE_SOFT).borderRadius(13)
           Column({ space: 3 }) {
             Text(this.tr('连接说明')).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
-            Text(this.tr('手表保持亮屏、靠近手机，并确认未被其他手机占用')).fontSize(13).fontColor(MUTED)
+            Text(this.tr('戒指保持有电并靠近手机，请先退出其他占用连接的应用')).fontSize(13).fontColor(MUTED)
               .width('100%').maxLines(2)
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([MUTED])
         }.width('100%').constraintSize({ minHeight: 72 }).padding(13).backgroundColor(SURFACE).borderRadius(18)
           .border({ width: 1, color: LINE }).onClick(() => this.showFeature('连接说明',
-            '1. 打开手机蓝牙并允许查找附近设备。\n2. 将手表充电激活并靠近手机。\n3. 点击“开始查找”选择自己的手表。'))
+            '1. 打开手机蓝牙并允许查找附近设备。\n2. 将戒指充电唤醒并靠近手机。\n3. 点击“开始查找”选择自己的设备；仅已适配的型号可连接。'))
       }
-      this.Notice({ message: '连接或同步时，请让手表保持电量充足并靠近手机。', color: BLUE_SOFT })
+      this.Notice({ message: '连接或同步时，请让戒指保持电量充足并靠近手机。', color: BLUE_SOFT })
     }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 24 })
   }
 
@@ -3867,7 +3985,7 @@ struct Index {
   @Builder
   DeviceSettingsContent() {
     if (!this.wearableSnapshot.connected) {
-      this.StateCard({ title: '手表已断开', detail: '重新连接后查看设备设置。', icon: $r('sys.symbol.watch') })
+      this.StateCard({ title: '设备已断开', detail: '重新连接后查看设备设置。', icon: $r('sys.symbol.circle') })
     } else {
       Text(this.tr(this.wearableSnapshot.deviceName)).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
       this.PageRow({ title: '手表单位', subtitle: '公英制、温度单位', icon: $r('sys.symbol.gearshape'),
@@ -3897,7 +4015,7 @@ struct Index {
               .fontSize(16).fontColor(INK).width('100%')
           }
         }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
-        Text(this.tr('其他设置可在手表上查看和调整。')).fontSize(14).fontColor(MUTED).width('100%')
+        Text(this.tr('仅展示设备已返回的设置；未列出的项目暂不支持在本应用中调整。')).fontSize(14).fontColor(MUTED).width('100%')
       } else { this.StateCard({ title: this.settingsBusy ? '正在读取设备设置' : '暂未读取到设备设置', icon: $r('sys.symbol.gearshape') }) }
       if (this.settingsMessage) { this.Notice({ message: this.settingsMessage }) }
       Button(this.tr(this.settingsBusy ? '读取中…' : '重新读取')).width('100%').height(this.controlHeight()).fontSize(16).fontColor(RED).backgroundColor(Color.Transparent)
@@ -4120,8 +4238,8 @@ struct Index {
           SymbolGlyph($r('sys.symbol.square_and_pencil')).fontSize(19).fontColor([RED])
         }.width(36).height(36).justifyContent(FlexAlign.Center).backgroundColor(SURFACE).borderRadius(18)
       }.width('100%').padding(20).linearGradient({ angle: 135,
-        colors: [['#FFF8F3', 0.0], ['#FFECEE', 1.0]] }).borderRadius(24)
-        .border({ width: 1, color: '#F6C9D2' }).shadow({ radius: 12, color: CARD_SHADOW, offsetY: 4 })
+        colors: [[RED_SOFT, 0.0], [SURFACE, 1.0]] }).borderRadius(24)
+        .border({ width: 1, color: LINE }).shadow({ radius: 12, color: CARD_SHADOW, offsetY: 4 })
         .onClick(() => {
           if (this.guest) { this.error = ''; this.screen = 'login'; return; }
           this.openProfileEditor();
@@ -4304,7 +4422,7 @@ struct Index {
             if (index === 0) {
               SymbolGlyph($r('sys.symbol.heart_fill')).fontSize(23).fontColor([this.tab === index ? RED : MUTED])
             } else if (index === 1) {
-              SymbolGlyph($r('sys.symbol.watch')).fontSize(23).fontColor([this.tab === index ? RED : MUTED])
+              SymbolGlyph($r('sys.symbol.circle')).fontSize(26).fontColor([this.tab === index ? RED : MUTED])
             } else {
               SymbolGlyph($r('sys.symbol.person')).fontSize(23).fontColor([this.tab === index ? RED : MUTED])
             }
@@ -4320,6 +4438,45 @@ struct Index {
       }.width('100%').padding({ left: 12, right: 12, top: 6, bottom: 8 })
         .backgroundColor(SURFACE).border({ width: { top: 1 }, color: LINE })
     }.height('100%').width('100%')
+  }
+
+  @Builder
+  HomeCardEditor() {
+    Text('选择首页显示的健康卡片，并调整显示顺序。隐藏卡片不会删除健康记录。').fontSize(14).fontColor(MUTED)
+    ForEach(this.homeMetrics(true), (metric: WearableMetricSpec, index: number) => {
+      Row({ space: 6 }) {
+        this.WearableMetricIcon(metric.key)
+        Text(metric.title).layoutWeight(1).fontSize(16).fontColor(INK)
+        Button() { SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(20).fontColor([RED]) }
+          .width(40).height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent)
+          .enabled(index > 0 && !this.homeCardSaving).onClick(() => this.moveHomeCard(metric.key, -1))
+          .accessibilityText(`上移${metric.title}`)
+        Button() { SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(20).fontColor([RED]) }
+          .width(40).height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent)
+          .enabled(index < this.homeMetrics(true).length - 1 && !this.homeCardSaving).onClick(() => this.moveHomeCard(metric.key, 1))
+          .accessibilityText(`下移${metric.title}`)
+        Toggle({ type: ToggleType.Switch, isOn: !this.homeCardDraft.hidden.includes(metric.key) }).selectedColor(RED)
+          .enabled(!this.homeCardSaving).onChange((show: boolean) => {
+            this.homeCardDraft = { order: [...this.homeCardDraft.order], hidden: show ?
+              this.homeCardDraft.hidden.filter((key: string) => key !== metric.key) : [...this.homeCardDraft.hidden, metric.key] };
+          }).accessibilityText(`首页显示${metric.title}`)
+      }.width('100%').padding(12).backgroundColor(SURFACE).borderRadius(18)
+    }, (metric: WearableMetricSpec) => metric.key)
+    if (this.homeMetrics(true).length === 0) { this.StateCard({ title: '暂无可配置卡片', detail: '连接已适配设备或有历史数据后可配置卡片。' }) }
+    if (this.formMessage) { this.Notice({ message: this.formMessage }) }
+    Button(this.homeCardSaving ? '正在保存…' : '保存设置').width('100%').height(this.controlHeight(54)).backgroundColor(RED)
+      .enabled(!this.homeCardSaving).onClick(() => this.saveHomeCards()).id('save_home_cards')
+  }
+
+  @Builder
+  AllSportModes() {
+    if (this.wearableSnapshot.connected && this.wearableSnapshot.sportCapability.modes.length > 0) {
+      Flex({ wrap: FlexWrap.Wrap }) {
+        ForEach(this.wearableSnapshot.sportCapability.modes, (mode: WearableSportMode) => { this.SportModeCard(mode) }, (mode: WearableSportMode) => mode)
+      }.width('100%')
+      Button('使用此运动').width('100%').height(this.controlHeight(52)).backgroundColor(RED)
+        .onClick(() => this.screen = 'sport-records')
+    } else { this.StateCard({ title: '暂无可用运动模式', detail: '以实际设备能力为准，未适配的设备不会开放运动控制。' }) }
   }
 
   @Builder
@@ -4362,13 +4519,18 @@ struct Index {
 
   @Builder
   SportRecordContent() {
+    Column({ space: 8 }) {
+      Text('今日活动').fontSize(19).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      Text(this.wearableLatest('activity')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(RED).width('100%')
+      Text('活动数据随设备同步更新').fontSize(12).fontColor(MUTED).width('100%')
+    }.width('100%').padding(18).backgroundColor(SURFACE).borderRadius(20)
     Text(this.tr('开始今日运动')).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
     if (!this.wearableSnapshot.connected) {
       this.Notice({ message: 'connectRingForSport' })
     } else if (!this.wearableCapability('sport')) {
       this.Notice({ message: 'ringSportSyncUnsupported' })
     } else if (this.wearableSnapshot.sportCapability.modes.length === 0) {
-      this.Notice({ message: 'ringSportStartOnDevice' })
+      this.Notice({ message: '当前设备未返回可控制的运动模式，请同步设备信息后重试' })
     }
     if (this.sportActive()) {
       Column({ space: 14 }) {
@@ -4412,7 +4574,7 @@ struct Index {
             .type(ButtonType.Normal).borderRadius(14).enabled(!this.sportActionBusy && this.sportActive())
             .onClick(() => this.confirmStopSport())
         }.width('100%')
-      }.width('100%').padding(18).backgroundColor(SURFACE).borderRadius(20).border({ width: 1, color: '#33D20B27' })
+      }.width('100%').padding(18).backgroundColor(SURFACE).borderRadius(20).border({ width: 1, color: LINE })
     } else if (this.wearableSnapshot.connected && this.wearableSnapshot.sportCapability.modes.length > 0) {
       if (this.sportSession.phase === 'completed') {
         this.Notice({ message: this.sportSession.status, color: GREEN_SOFT })
@@ -4420,10 +4582,14 @@ struct Index {
         this.Notice({ message: this.sportSession.status, color: '#FFF0E9' })
       }
       Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
-        ForEach(this.wearableSnapshot.sportCapability.modes, (mode: WearableSportMode) => {
+        ForEach(this.wearableSnapshot.sportCapability.modes.slice(0, 4), (mode: WearableSportMode) => {
           this.SportModeCard(mode)
         }, (mode: WearableSportMode) => mode)
       }.width('100%')
+      if (this.wearableSnapshot.sportCapability.modes.length > 4) {
+        Button('查看更多运动').fontColor(RED).backgroundColor(Color.Transparent).height(this.controlHeight(48))
+          .onClick(() => this.openInnerPage('sport-modes')).id('sport_more')
+      }
       Button(`开始${sportModeLabel(this.selectedSportMode)}`).width('100%').constraintSize({ minHeight: 54 })
         .backgroundColor(RED).type(ButtonType.Normal).borderRadius(15).enabled(!this.sportActionBusy &&
           !this.wearableBusy() && !this.wearableMeasurement.running).onClick(() => this.startSport(this.selectedSportMode))
@@ -4484,10 +4650,10 @@ struct Index {
       }.width('100%')
       Text(sportModeLabel(mode)).fontSize(15).fontWeight(FontWeight.Medium).maxLines(1).width('100%')
         .fontColor(this.selectedSportMode === mode ? RED_DARK : INK)
-    }.width(this.singleColumn() ? '100%' : '48%').constraintSize({ minHeight: 78 })
-      .padding({ left: 14, right: 12, top: 11, bottom: 10 })
+    }.width(this.screen === 'sport-modes' && this.singleColumn() ? '48%' : '23%').constraintSize({ minHeight: 84 })
+      .padding({ left: 6, right: 6, top: 11, bottom: 10 })
       .backgroundColor(this.selectedSportMode === mode ? RED_SOFT : SURFACE).borderRadius(15)
-      .border({ width: 1, color: this.selectedSportMode === mode ? '#66D20B27' : LINE })
+      .border({ width: 1, color: this.selectedSportMode === mode ? RED : LINE })
       .margin({ bottom: 10 }).onClick(() => this.selectedSportMode = mode)
       .accessibilityText(`${sportModeLabel(mode)}${this.selectedSportMode === mode ? '，已选择' : ''}`)
   }
@@ -5027,8 +5193,6 @@ struct Index {
 
   @Builder
   AccountContent() {
-    this.LanguagePicker()
-    this.Notice({ message: 'language_note' })
     if (!this.hideAiContent) {
       this.PageRow({ title: 'reports', icon: $r('sys.symbol.doc'), action: () => this.openGlobalReports(), id: 'global_health_reports' })
     }
@@ -5304,10 +5468,19 @@ struct Index {
 
   @Builder
   ContactContent() {
+    Column({ space: 12 }) {
+      Text('微信客服').fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+      Text('设备连接、使用和售后问题，可通过企业微信客服联系我们。').fontSize(14).fontColor(MUTED).width('100%')
+      Button('联系微信客服').width('100%').height(this.controlHeight(52)).backgroundColor(RED)
+        .onClick(() => this.openRingSupport()).id('ring_wechat_support')
+      Button('复制客服链接').width('100%').height(this.controlHeight(48)).fontColor(RED).backgroundColor(Color.Transparent)
+        .onClick(() => this.openRingSupport(true)).id('ring_copy_support')
+    }.width('100%').padding(18).backgroundColor(SURFACE).borderRadius(20)
+    if (this.contactMessage) { this.Notice({ message: this.contactMessage, color: GREEN_SOFT }) }
     if (this.supportLoading) {
       LoadingProgress().width(40).height(40).color(RED).margin({ top: 28, bottom: 28 })
     } else if (this.supportError || !this.supportConfig.configured) {
-      this.StateCard({ title: 'customerService', detail: this.supportError || '客服渠道暂时无法使用，请稍后再试',
+      this.StateCard({ title: '其他联系方式', detail: this.supportError ? '电话及公众号信息加载失败，仍可使用上方微信客服' : '电话及公众号暂未配置，仍可使用上方微信客服',
         icon: $r('sys.symbol.message') })
       Button(this.tr('重新加载')).width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)
         .onClick(() => this.loadSupportConfig()).id('contact_retry')
@@ -5849,12 +6022,15 @@ struct Index {
     Column({ space: 0 }) {
       Row() {
         Text(this.tr($$.daily ? '每日数据' : '健康数据')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
-        Button(careGroupOptions($$.daily).every((option: CareOption) => this.careSettings.enabled.includes(option.key)) ? '取消全选' : '全选')
+        Button(this.visibleCareOptions($$.daily).every((option: CareOption) => this.careSettings.enabled.includes(option.key)) ? '取消全选' : '全选')
           .fontSize(16).fontWeight(FontWeight.Bold).fontColor(RED).backgroundColor(Color.Transparent).constraintSize({ minHeight: 48 })
-          .enabled(this.careSettingsReady && !this.careBusy && !this.careLoading)
-          .onClick(() => this.careSettings = toggleCareGroup(this.careSettings, $$.daily)).id($$.daily ? 'share_daily_all' : 'share_health_all')
+          .enabled(this.careSettingsReady && !this.careBusy && !this.careLoading && this.visibleCareOptions($$.daily).length > 0)
+          .onClick(() => this.toggleVisibleCareGroup($$.daily)).id($$.daily ? 'share_daily_all' : 'share_health_all')
       }.width('100%').constraintSize({ minHeight: 64 }).padding({ left: 16, right: 16 })
-      ForEach(careGroupOptions($$.daily), (option: CareOption) => {
+      if (this.visibleCareOptions($$.daily).length === 0) {
+        Text('当前设备暂无可共享的对应项目，已有授权保持不变').fontSize(14).fontColor(MUTED).padding(16)
+      }
+      ForEach(this.visibleCareOptions($$.daily), (option: CareOption) => {
         Divider().color(LINE).margin({ left: 16 })
         Row({ space: 12 }) {
           Text(this.tr(option.label)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
@@ -5934,7 +6110,7 @@ struct Index {
         Column({ space: 5 }) {
           Text(this.tr('守护家人健康')).fontSize(19).fontWeight(FontWeight.Bold).fontColor(Color.White).width('100%')
           Text(this.tr(this.careMembers.length ? `已关爱 ${this.careMembers.length} 位家人` : '添加关爱成员后查看授权数据'))
-            .fontSize(14).lineHeight(21).fontColor('#FFE4E9').width('100%')
+            .fontSize(14).lineHeight(21).fontColor(RED_SOFT).width('100%')
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         Button() { SymbolGlyph($r('sys.symbol.person_badge_plus')).fontSize(25).fontColor([RED]) }
           .width(48).height(this.controlHeight(48)).backgroundColor(SURFACE).borderRadius(24).enabled(!this.careLoading)
@@ -6197,6 +6373,10 @@ struct Index {
           this.HealthRecordContent()
         } else if (this.screen === 'health-reports') {
           if (!this.hideAiContent) { this.GlobalReportsContent() }
+        } else if (this.screen === 'home-cards') {
+          this.HomeCardEditor()
+        } else if (this.screen === 'sport-modes') {
+          this.AllSportModes()
         } else if (this.screen === 'health-all') {
           this.HealthAllContent()
         } else if (this.screen === 'sport-records') {

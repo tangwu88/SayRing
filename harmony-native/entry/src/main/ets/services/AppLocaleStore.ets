@@ -6,7 +6,8 @@ export class AppLocaleStore {
   private store: preferences.Preferences | undefined = undefined;
   async read(context: common.UIAbilityContext): Promise<string> {
     this.store = await preferences.getPreferences(context, { name: 'saydian_global_preferences' });
-    const locale = normalizeAppLocale(await this.store.get('locale', 'en') as string);
+    // Say Ring exposes Chinese only; keep other locale resources for compatibility.
+    const locale = 'zh-Hans';
     setAppLocale(locale);
     return locale;
   }

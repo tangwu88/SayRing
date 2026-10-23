@@ -11,6 +11,13 @@ export const GLOBAL_PAYMENTS_ENABLED: boolean = false;
 
 export function globalApiPath(path: string): string { return `${GLOBAL_API}${path}`; }
 
+export const RING_CODE_REQUEST: string = '/global/api/saidian-mall/v1/auth/code/request';
+export const RING_CODE_LOGIN: string = '/global/api/saidian-mall/v1/auth/code/login';
+export function isRingCodePath(path: string): boolean { return path === RING_CODE_REQUEST || path === RING_CODE_LOGIN; }
+export function ringRequestUrl(path: string): string {
+  return isRingCodePath(path) ? `${GLOBAL_ORIGIN}${path}` : internationalUrl(path);
+}
+
 export function internationalUrl(path: string): string {
   if ((!path.startsWith(`${GLOBAL_API}/`) && path !== GLOBAL_API) || path.includes('://') ||
     path.includes('..') || path.includes('\\')) {
