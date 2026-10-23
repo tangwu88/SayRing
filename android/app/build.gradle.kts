@@ -127,6 +127,8 @@ val prepareQRingSdk by tasks.registering(Zip::class) {
     destinationDirectory.set(layout.buildDirectory.dir("generated/qring-sdk"))
     isPreserveFileTimestamps = false
     isReproducibleFileOrder = true
+    // Keep UTF-8 vendor rules intact on Windows hosts whose JVM defaults to GBK.
+    filteringCharset = "UTF-8"
     doFirst {
         val rules = zipTree(qringSdkFile).matching { include("proguard.txt") }.singleFile.readLines()
         if (rules.count { it.trim() == "-printmapping map.txt" } != 2) {

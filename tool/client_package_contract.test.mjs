@@ -10,6 +10,7 @@ test('QRing mapping outputs are removed only in a build-local SDK copy', () => {
   assert.equal(sha('android/app/libs/qring_sdk_1.0.0.76.aar'), '0021886ae500740945cf76e61d750812b96ff54d51fd0c32ebe77083862326d4');
   const gradle = read('android/app/build.gradle.kts');
   assert.match(gradle, /tasks\.registering\(Zip::class\)/);
+  assert.match(gradle, /filteringCharset\s*=\s*"UTF-8"/);
   assert.match(gradle, /layout\.buildDirectory\.dir\("generated\/qring-sdk"\)/);
   assert.match(gradle, /rules\.count \{ it\.trim\(\) == "-printmapping map\.txt" \} != 2/);
   assert.match(gradle, /filesMatching\("proguard\.txt"\)/);
