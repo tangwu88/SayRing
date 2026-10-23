@@ -754,7 +754,9 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         @"integratedFeatures": features,
         @"supportsSportPause": @NO,
         @"supportsBackgroundSync": @NO,
-        @"supportsHistorySync": @(![self factoryInitializationPending]),
+        // Logical negation boxes as NSNumber(int), which Flutter decodes as 1/0.
+        // This capability must cross the channel as an actual Boolean.
+        @"supportsHistorySync": [self factoryInitializationPending] ? @NO : @YES,
         @"supportsWatchFaces": @NO,
         @"supportsOta": @NO,
     };

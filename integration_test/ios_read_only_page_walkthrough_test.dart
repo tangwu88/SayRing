@@ -9,7 +9,7 @@ import 'package:saydian_app/ui/health_reports_page.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
 
 void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('iOS read-only walkthrough of reachable product pages', (
     tester,
@@ -232,6 +232,10 @@ void main() {
     controller.selectTab(1);
     await tester.pumpAndSettle(const Duration(seconds: 2));
     expect(find.byKey(const Key('device-page')), findsOneWidget);
+    expect(find.byKey(const Key('first-ring-binding-status')), findsNothing);
+    for (final internalText in ['首次绑定记录', '清空指令', '恢复出厂指令']) {
+      expect(find.textContaining(internalText), findsNothing);
+    }
     expect(
       find.byKey(const Key('device-empty-card')).evaluate().isNotEmpty ||
           find.byKey(const Key('device-overview-card')).evaluate().isNotEmpty,
@@ -239,6 +243,7 @@ void main() {
       reason: '设备页既没有空状态，也没有已绑定设备状态',
     );
     record('设备');
+    await binding.takeScreenshot('device-overview-private');
     // ignore: avoid_print
     print(
       'iOS device connected: ${controller.connectedDevice != null}; '

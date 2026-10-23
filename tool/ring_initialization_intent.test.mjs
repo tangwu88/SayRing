@@ -5,6 +5,37 @@ import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import test from 'node:test';
 
+test('actual iOS history flag crosses the Flutter codec as Boolean for ready and pending rings', {skip:process.platform!=='darwin'}, () => {
+  const source=readFileSync(new URL('../ios/Runner/QRingWearableBridge.m',import.meta.url),'utf8');
+  const expression=source.match(/@"supportsHistorySync":\s*([^\n]+),/)[1];
+  const dir=mkdtempSync(join(tmpdir(),'sayring-history-bool-'));
+  try {
+    writeFileSync(join(dir,'main.m'), `#import <Foundation/Foundation.h>
+#import <CoreFoundation/CoreFoundation.h>
+@interface HistoryHarness : NSObject
+@property(nonatomic) BOOL pending;
+@end
+@implementation HistoryHarness
+- (BOOL)factoryInitializationPending {return self.pending;}
+- (NSNumber *)reportedHistoryFlag {return ${expression};}
+@end
+int main() { @autoreleasepool {
+ HistoryHarness *h=[HistoryHarness new];
+ for (NSNumber *pending in @[@NO,@YES]) {
+  h.pending=pending.boolValue;
+  NSNumber *flag=[h reportedHistoryFlag];
+  // Flutter's standard codec distinguishes CFBoolean from integer NSNumber.
+  NSCAssert(CFGetTypeID((__bridge CFTypeRef)flag)==CFBooleanGetTypeID(),@"History capability must be a codec Boolean, never integer 1 or 0");
+  NSCAssert(flag.boolValue!=h.pending,@"Ready history stays enabled; pending initialization stays closed");
+ }
+ return 0;
+}}
+`);
+    execFileSync('xcrun',['clang','-fobjc-arc','-framework','Foundation','-framework','CoreFoundation',join(dir,'main.m'),'-o',join(dir,'history-bool-test')],{timeout:30000,stdio:'pipe'});
+    execFileSync(join(dir,'history-bool-test'),[],{timeout:10000,stdio:'pipe'});
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
 test('actual iOS initialization receipt survives restart and never crosses owner or target', {skip:process.platform!=='darwin'}, () => {
   const source=readFileSync(new URL('../ios/Runner/QRingWearableBridge.m',import.meta.url),'utf8');
   const start=source.indexOf('- (NSString *)factoryInitializationKey:');

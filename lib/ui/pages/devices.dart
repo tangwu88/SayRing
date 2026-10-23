@@ -43,15 +43,6 @@ class DevicePage extends StatelessWidget {
       key: const Key('device-page'),
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
       children: [
-        if (controller.firstRingBindingStatus != null) ...[
-          InlineNotice(
-            key: const Key('first-ring-binding-status'),
-            message: controller.firstRingBindingStatus!,
-            icon: Icons.info_outline_rounded,
-            color: SaydianColors.techBlue,
-          ),
-          const SizedBox(height: 10),
-        ],
         if (bound != null)
           Container(
             key: const Key('device-overview-card'),
@@ -172,6 +163,8 @@ class DevicePage extends StatelessWidget {
                         style: FilledButton.styleFrom(
                           minimumSize: const Size.fromHeight(48),
                           padding: const EdgeInsets.symmetric(horizontal: 10),
+                          disabledForegroundColor: SaydianColors.muted,
+                          disabledBackgroundColor: SaydianColors.line,
                         ),
                       ),
                     ),
