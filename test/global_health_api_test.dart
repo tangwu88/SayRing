@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/health_record_units.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 
@@ -357,6 +358,41 @@ void main() {
       expect(record.sourceApp, 'say-ring');
       expect(record.origin, MeasurementOrigin.watchHistory);
       expect(record.values, {'value': 36.5});
+    },
+  );
+
+  test(
+    'legacy cloud calorie provenance survives a missing measurement source',
+    () async {
+      final api = GlobalSaydianApiClient(
+        MemorySessionVault()..session = _session(),
+        client: MockClient(
+          (_) async => _ok({
+            'items': [
+              {
+                'id': 'synthetic-cloud-calorie',
+                'metric': 'calories',
+                'observedAt': '2026-10-21T05:00:00Z',
+                'timezoneOffsetMinutes': 480,
+                'values': {'value': 98760},
+                'unit': 'kcal',
+                'source': {
+                  'deviceKey': List.filled(64, 'a').join(),
+                  'vendor': 'coolwear',
+                  'rawVersion': 1,
+                },
+              },
+            ],
+            'nextCursor': null,
+          }),
+        ),
+      );
+      final record = (await api.getCloudHealthRecords()).records.single;
+      expect(record.source, MeasurementSource.imported);
+      expect(record.sourceVendor, 'coolwear');
+      expect(record.unit, 'kcal');
+      expect(record.values, {'value': 98760});
+      expect(hasUnconfirmedCalorieUnit(record), isTrue);
     },
   );
 

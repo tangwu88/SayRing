@@ -7,10 +7,31 @@ import 'models.dart';
 /// QRing Android v2 has its own conversion and is not affected.
 bool hasUnconfirmedCalorieUnit(HealthRecord record) {
   if (record.metric != HealthMetric.calories ||
-      record.source != MeasurementSource.wearable) {
+      record.source == MeasurementSource.manual) {
     return false;
   }
-  final vendor = record.sourceVendor.trim().toLowerCase();
+  // Cloud history may omit measurementSource and remain imported. That does
+  // not establish a new unit contract for a known SDK payload. Old local
+  // records can also predate optional vendor metadata; their persisted scoped
+  // identity, rather than today's connected ring name, establishes provenance.
+  var vendor = record.sourceVendor.trim().toLowerCase();
+  if (vendor.isEmpty) {
+    for (final candidate in ['coolwear', 'qring']) {
+      final prefix = '$candidate:';
+      if (record.deviceId.startsWith(prefix) &&
+          record.deviceId.length > prefix.length) {
+        vendor = candidate;
+        break;
+      }
+    }
+    // A legacy round trip may replace deviceId with an opaque key, but retain
+    // the exact versioned identity emitted by the pinned iOS adapter.
+    if (vendor.isEmpty &&
+        record.rawVersion == 3 &&
+        RegExp(r'^qring:[^|]+\|calories\|v3\|').hasMatch(record.id)) {
+      vendor = 'qring';
+    }
+  }
   if (vendor == 'coolwear') {
     return record.unit.trim().toLowerCase() != 'kcal' || record.rawVersion == 1;
   }

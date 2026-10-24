@@ -105,20 +105,26 @@ DateTime _today() {
   return DateTime(now.year, now.month, now.day);
 }
 
-HealthRecord _coolwearCalories(String unit) => HealthRecord.fromJson({
-  ..._record(
-    'synthetic-coolwear-calories',
-    HealthMetric.calories,
-    98760,
-    _today(),
-  ).toJson(),
-  'deviceId': 'coolwear:synthetic-ui',
-  'sourceVendor': 'coolwear',
-  'sourceDeviceCategory': 'ring',
-  'sourceApp': 'say-ring',
-  'rawVersion': 1,
-  'unit': unit,
-});
+HealthRecord _coolwearCalories(String unit, [String provenance = 'wearable']) =>
+    HealthRecord.fromJson({
+      ..._record(
+        'synthetic-coolwear-calories',
+        HealthMetric.calories,
+        98760,
+        _today(),
+      ).toJson(),
+      'deviceId': 'coolwear:synthetic-ui',
+      'source': provenance == 'imported' ? 'imported' : 'wearable',
+      if (provenance == 'legacy-ios') ...{
+        'id': 'qring:synthetic-ui|calories|v3|synthetic-sample',
+        'deviceId': 'server:${List.filled(64, 'a').join()}',
+      },
+      'sourceVendor': provenance == 'legacy-ios' ? '' : 'coolwear',
+      'sourceDeviceCategory': 'ring',
+      'sourceApp': 'say-ring',
+      'rawVersion': provenance == 'legacy-ios' ? 3 : 1,
+      'unit': unit,
+    });
 
 Future<void> _mount(
   WidgetTester tester,
@@ -164,10 +170,14 @@ Future<void> _mount(
 void main() {
   setUpAll(() => initializeDateFormatting('zh_Hans'));
 
-  for (final unit in ['kcal', 'unknown']) {
+  for (final (unit, provenance) in [
+    for (final unit in ['kcal', 'unknown'])
+      for (final source in ['wearable', 'imported', 'legacy-ios'])
+        (unit, source),
+  ]) {
     for (final textScale in [1.0, 2.0]) {
       testWidgets(
-        'CoolWear $unit counts stay out of 332dp goals at $textScale scale',
+        '$provenance $unit counts stay out of 332dp goals at $textScale scale',
         (tester) async {
           final store = MemoryHealthStore();
           final controller = _Controller(store);
@@ -175,7 +185,7 @@ void main() {
             id: 'coolwear:synthetic-ui',
             name: 'R7 Ultra',
           );
-          final calories = _coolwearCalories(unit);
+          final calories = _coolwearCalories(unit, provenance);
           final steps =
               _record(
                 'safe-steps',
@@ -210,11 +220,11 @@ void main() {
     }
 
     testWidgets(
-      'CoolWear $unit history retains raw counts without kcal charts',
+      '$provenance $unit history retains raw counts without kcal charts',
       (tester) async {
         final store = MemoryHealthStore();
         final controller = _Controller(store);
-        final record = _coolwearCalories(unit);
+        final record = _coolwearCalories(unit, provenance);
         controller.connectedDevice = DeviceInfo(
           id: record.deviceId,
           name: 'R7 Ultra',

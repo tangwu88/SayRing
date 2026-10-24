@@ -26,6 +26,71 @@ HealthRecord record(
   rawVersion: version,
 );
 void main() {
+  test('legacy scoped iOS history does not require optional vendor fields', () {
+    final legacy = HealthRecord.fromJson({
+      ...record(98760).toJson(),
+      'id': 'qring:synthetic|calories|v3|synthetic-sample',
+      'deviceId': 'server:${List.filled(64, 'a').join()}',
+      'sourceVendor': '',
+      'sourceApp': '',
+      'sourceDeviceCategory': '',
+    });
+    expect(hasUnconfirmedCalorieUnit(legacy), isTrue);
+    expect(
+      hasUnconfirmedCalorieUnit(
+        legacy.copyWith(source: MeasurementSource.manual),
+      ),
+      isFalse,
+    );
+    expect(
+      hasUnconfirmedCalorieUnit(legacy.copyWith(sourceVendor: 'veepoo')),
+      isFalse,
+    );
+    expect(hasUnconfirmedCalorieUnit(legacy.copyWith(rawVersion: 2)), isFalse);
+    expect(
+      hasUnconfirmedCalorieUnit(
+        HealthRecord.fromJson({
+          ...legacy.toJson(),
+          'id': 'unrelated|calories|v3|synthetic',
+        }),
+      ),
+      isFalse,
+    );
+  });
+
+  test('imported vendor history retains its original unit contract', () {
+    for (final pending in [
+      record(0, vendor: 'coolwear', version: 1),
+      record(12, vendor: 'coolwear', version: 1),
+      record(98760, vendor: 'coolwear', version: 1),
+      record(12),
+    ]) {
+      final imported = pending.copyWith(source: MeasurementSource.imported);
+      final original = jsonEncode(imported.toJson());
+      expect(hasUnconfirmedCalorieUnit(imported), isTrue);
+      final data = const HealthAnalysisService().analyze(
+        metric: HealthMetric.calories,
+        records: [imported],
+        previousRecords: [imported],
+        period: HealthTrendPeriod.day,
+        anchor: DateTime(2026, 10, 21),
+      );
+      expect(data.points, isEmpty);
+      expect(data.summary.average, isNull);
+      expect(data.summary.previousAverage, isNull);
+      expect(data.records, [imported]);
+      expect(jsonEncode(imported.toJson()), original);
+      expect(imported.source, MeasurementSource.imported);
+    }
+    // Importing a record does not make a verified Android conversion unsafe.
+    expect(
+      hasUnconfirmedCalorieUnit(
+        record(120, version: 2).copyWith(source: MeasurementSource.imported),
+      ),
+      isFalse,
+    );
+  });
+
   test('legacy and new CoolWear counts are not kcal in any trend period', () {
     for (final unit in ['kcal', 'unknown']) {
       for (final value in [0, 12, 98760]) {
