@@ -101,3 +101,13 @@ SHA256：`DACB5142E365F5C79E7DFBF59AF3F75023EDD6599B8A2D46EC7F6FB9D665EC92`。
 提交前再次fetch成功，origin最新开发仍1d2807b5b8f12645e99bb11ae554d871fd0e1b5a。仅提交本轮源码/测试/本文及索引，不提交APK、原始截图、MAC、真实健康数据、凭据或SDK反编译转储；独立codex分支供验收，不擅自提升main、部署后台或提交应用市场。Git推送与手机完成回执续记。
 
 Git源码回执：`009fe3fed3324b51fadf0f7271ac0debc812fa7f`已推送`origin/codex/login-dashboard-scan-gesture-1133-20261023`，`ls-remote`与本地完整SHA一致，工作树干净、无ahead/behind。本条为随后独立文档回执，不改变已验签1134源码。当前手机仍1.0.5/1133、firstInstallTime未变，1134安装进程等待用户解锁/系统确认；后续先复查同一安装结果，不并发重复安装。不得将本轮“已推送Git/已生成正式APK”写成“1134已安装/真机回跳已验收”。
+
+## 2026-10-24 用户要求重新安装：1134已完成覆盖
+
+用户回复“重新安装下”，本轮只重试既有1134正式APK，不同步合并新源码、不重新打包、不卸载、不清数据、不调试戒指或发送OTP。开始只读核对：手机可用，原包1133，已无旧1134安装进程。复核上述APK SHA256完全一致，apksigner verify通过、证书SHA256仍81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de。
+
+命令：`adb -s <已连接手机> install -r <上述1134正式APK>`；结果`Performing Streamed Install / Success`。随后dumpsys package确认cn.saydian.ring、1.0.5、versionCode1134；firstInstallTime仍2026-10-20 10:58:24，lastUpdateTime2026-10-24 10:45:37。am start原MainActivity成功（已在前台则投递Intent），UI树可见健康/设备/我的主界面。未执行uninstall、pm clear、解绑、恢复出厂或新设备绑定。
+
+本次已解除的是“1134未安装”阻塞；未做慢下拉帧采样、扫描或R7p实物手势，不把仅安装成功写成这些功能真机通过。源码/编译输入未变，未重跑此前1419项回归，前述构建与测试证据仍是原包的历史证据。
+
+文档更新前工作区干净、HEAD0783699c299c24749c7fe6a584a678397df385a9，fetch成功，当前跟踪分支未变化；另发现origin/codex/ios-1135-review-20261024，不擅自合并或声称1134是所有分支的最新代码。仅补充本安装回执，保持当前独立验收分支，未改main/服务端/生产配置。
