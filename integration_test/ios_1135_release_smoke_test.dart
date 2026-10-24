@@ -28,16 +28,50 @@ void main() {
         reason:
             'Requires the existing owned ring; never auto-select a new target',
       );
+      app.selectTab(1);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await binding.takeScreenshot('sayring-ios-reconnect-before-1135');
+      // The user authorized checking/retrying this exact existing binding.
+      // Use the public reconnect action, never scan-select another target.
+      if (app.connectedDevice?.id != target!.id) {
+        await app.reconnectDevice().timeout(const Duration(seconds: 60));
+      }
       for (
         var i = 0;
         i < 180 &&
-            (app.connectedDevice?.id != target!.id || app.capabilities == null);
+            (app.connectedDevice?.id != target.id || app.capabilities == null);
         i++
       ) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
         await tester.pump();
       }
-      expect(app.connectedDevice?.id, target!.id);
+      if (app.connectedDevice?.id != target.id) {
+        // SDK text logs omit peripheral IDs. Diagnose identity through the
+        // public scan result, without adopting a similarly named ring.
+        await app.scanDevices().timeout(const Duration(seconds: 45));
+        final probe = <String, Object?>{
+          'scanCount': app.scannedDevices.length,
+          'savedTargetAdvertised': app.scannedDevices.any(
+            (device) => device.id.toUpperCase() == target.id.toUpperCase(),
+          ),
+          'savedTargetRssi': [
+            for (final device in app.scannedDevices)
+              if (device.id.toUpperCase() == target.id.toUpperCase())
+                device.rssi,
+          ],
+          'scanIssue': app.deviceScanIssue?.name,
+          'scanError': app.errorMessage != null,
+        };
+        binding.reportData = {...?binding.reportData, 'connectionProbe': probe};
+        // Counts/status only; never print account, device ID or health samples.
+        // ignore: avoid_print
+        print('iOS existing-target connection probe: $probe');
+        await app.stopDeviceScan();
+      }
+      await binding.takeScreenshot('sayring-ios-reconnect-after-1135');
+      expect(app.session?.accountKey, owner);
+      expect(app.rememberedDevice?.id, target.id);
+      expect(app.connectedDevice?.id, target.id);
       expect(app.capabilities?.supportsHistorySync, isTrue);
       for (var i = 0; i < 180 && app.isDeviceSyncing; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 500));
