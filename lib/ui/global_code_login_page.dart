@@ -14,9 +14,14 @@ import 'global_legal_page.dart';
 /// Say Ring shares the global member account. Phone sign-in uses a one-time
 /// code. Account creation is performed by the existing verified-code endpoint.
 class GlobalCodeLoginPage extends StatefulWidget {
-  const GlobalCodeLoginPage({super.key, required this.controller});
+  const GlobalCodeLoginPage({
+    super.key,
+    required this.controller,
+    this.emailPassword = false,
+  });
 
   final AppController controller;
+  final bool emailPassword;
 
   @override
   State<GlobalCodeLoginPage> createState() => _GlobalCodeLoginPageState();
@@ -26,8 +31,8 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   final _contact = TextEditingController();
   final _code = TextEditingController();
   final _password = TextEditingController();
-  final AccountChannel _channel = AccountChannel.sms;
-  final bool _emailPasswordMode = false;
+  AccountChannel get _channel =>
+      widget.emailPassword ? AccountChannel.email : AccountChannel.sms;
   GlobalAuthCapabilities? _capabilities;
   VerificationChallenge? _challenge;
   Timer? _timer;
@@ -94,8 +99,15 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     // Editing a contact never resets the server's resend cooldown.
   }
 
-  bool get _passwordMode =>
-      _channel == AccountChannel.email && _emailPasswordMode;
+  bool get _passwordMode => widget.emailPassword;
+
+  // Registration and email-code delivery flags do not govern existing-account
+  // password login. Both login routes still require the published legal pair.
+  bool get _emailPasswordAvailable =>
+      !_loading &&
+      (_capabilities?.consentVersion?.trim().isNotEmpty ?? false) &&
+      _capabilities?.legal.containsKey('userAgreement') == true &&
+      _capabilities?.legal.containsKey('privacyPolicy') == true;
 
   String _errorFrom(Object error) {
     if (error is FormatException) return error.message;
@@ -259,7 +271,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
       return;
     }
     if (_passwordMode
-        ? _capabilities == null
+        ? !_emailPasswordAvailable
         : _capabilities?.permitsLogin(identity) != true) {
       setState(() => _error = 'service');
       return;
@@ -309,7 +321,9 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
               privacyConsentGranted: true,
               ageConfirmed: true,
             );
-      if (mounted && !success) {
+      if (mounted && success && widget.emailPassword) {
+        Navigator.of(context).pop();
+      } else if (mounted && !success) {
         setState(
           () => _error = _errorFrom(
             widget.controller.lastApiError ?? const ApiException('Unavailable'),
@@ -392,6 +406,11 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
               children: [
+                if (widget.emailPassword)
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: BackButton(),
+                  ),
                 const Center(child: SaydianBrandLockup(color: Colors.black)),
                 const SizedBox(height: 16),
                 Text(
@@ -406,7 +425,8 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                     icon: const Icon(Icons.refresh),
                     label: Text(l.retry),
                   ),
-                if (_capabilities?.wechatApp.enabled == true &&
+                if (!widget.emailPassword &&
+                    _capabilities?.wechatApp.enabled == true &&
                     (kIsWeb ||
                         defaultTargetPlatform != TargetPlatform.iOS)) ...[
                   FilledButton.icon(
@@ -568,15 +588,35 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                   onPressed: _busy ? null : _submit,
                   child: Text(_busy ? l.pleaseWait : l.signIn),
                 ),
-                const Padding(
-                  padding: EdgeInsets.only(top: 8),
-                  child: Text(
-                    '未注册的手机号验证成功后将自动创建账号',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12),
+                if (!widget.emailPassword)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      '未注册的手机号验证成功后将自动创建账号',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12),
+                    ),
                   ),
-                ),
-                if (widget.controller.supportsLocalOnlyUse) ...[
+                if (!widget.emailPassword &&
+                    !kIsWeb &&
+                    defaultTargetPlatform == TargetPlatform.iOS &&
+                    _emailPasswordAvailable)
+                  TextButton(
+                    key: const Key('ios-email-password-entry'),
+                    onPressed: _busy
+                        ? null
+                        : () => Navigator.of(context).push<void>(
+                            MaterialPageRoute(
+                              builder: (_) => GlobalCodeLoginPage(
+                                controller: widget.controller,
+                                emailPassword: true,
+                              ),
+                            ),
+                          ),
+                    child: Text('${l.email} · ${l.signIn}'),
+                  ),
+                if (!widget.emailPassword &&
+                    widget.controller.supportsLocalOnlyUse) ...[
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     key: const Key('local-ring-use-entry'),
@@ -584,7 +624,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                     icon: const Icon(Icons.watch_outlined),
                     label: Text(_busy ? l.pleaseWait : '游客进入'),
                   ),
-                ] else ...[
+                ] else if (!widget.emailPassword) ...[
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
                     key: const Key('review-demo-entry'),

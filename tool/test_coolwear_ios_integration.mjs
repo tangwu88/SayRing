@@ -103,7 +103,10 @@ test('iOS permission status readers are compiled for declared uses only', () => 
   for (const permission of ['BLUETOOTH', 'LOCATION_WHENINUSE', 'CAMERA', 'NOTIFICATIONS']) {
     assert.ok(podfile.includes(`PERMISSION_${permission}=1`));
   }
-  assert.doesNotMatch(podfile, /PERMISSION_(?:PHOTOS|CONTACTS|LOCATION_ALWAYS|MICROPHONE)=1/);
+  const broadPermission = /\bPERMISSION_(?:PHOTOS|CONTACTS|LOCATION_ALWAYS|MICROPHONE)=1/;
+  assert.doesNotMatch(podfile, broadPermission);
+  assert.match("'PERMISSION_LOCATION_ALWAYS=1'", broadPermission);
+  assert.doesNotMatch("'BYPASS_PERMISSION_LOCATION_ALWAYS=1'", broadPermission);
   const plist = read('ios/Runner/Info.plist');
   for (const key of ['NSBluetoothAlwaysUsageDescription', 'NSLocationWhenInUseUsageDescription', 'NSCameraUsageDescription']) {
     assert.ok(plist.includes(key));

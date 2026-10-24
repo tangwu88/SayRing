@@ -18,6 +18,7 @@ class CodeLoginController extends Fake implements AppController {
   bool localOnlySupported = false;
   bool enteredLocalMode = false;
   bool capabilitiesFail = false;
+  bool emailRegistrationEnabled = true;
   int capabilityRequests = 0;
   String? openedLegalPath;
 
@@ -55,8 +56,8 @@ class CodeLoginController extends Fake implements AppController {
   Future<GlobalAuthCapabilities> globalAuthCapabilities() async {
     capabilityRequests++;
     if (capabilitiesFail) throw const ApiException('Unavailable');
-    return const GlobalAuthCapabilities(
-      email: true,
+    return GlobalAuthCapabilities(
+      email: emailRegistrationEnabled,
       sms: true,
       loginEmail: false,
       loginSms: true,
@@ -201,6 +202,69 @@ class WechatCodeLoginController extends CodeLoginController {
 }
 
 void main() {
+  testWidgets(
+    'iOS email password fallback is public, consent gated and needs no SMS',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final controller = CodeLoginController()
+        ..localOnlySupported = true
+        ..emailRegistrationEnabled = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: GlobalCodeLoginPage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final entry = find.byKey(const Key('ios-email-password-entry'));
+      expect(entry, findsOneWidget);
+      await tester.ensureVisible(entry);
+      await tester.tap(entry);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('email-login-password')), findsOneWidget);
+      expect(find.byKey(const Key('code-login-code')), findsNothing);
+      expect(find.byKey(const Key('code-login-send')), findsNothing);
+      expect(find.text('未注册的手机号验证成功后将自动创建账号'), findsNothing);
+      await tester.enterText(
+        find.byKey(const Key('code-login-contact')),
+        'reviewer@example.test',
+      );
+      await tester.enterText(
+        find.byKey(const Key('email-login-password')),
+        'synthetic-password-only',
+      );
+      await tester.ensureVisible(find.byKey(const Key('code-login-submit')));
+      await tester.tap(find.byKey(const Key('code-login-submit')));
+      await tester.pumpAndSettle();
+      expect(controller.passwordLoginEmail, isNull);
+      for (final key in ['code-login-minimum-age', 'code-login-consent']) {
+        await tester.ensureVisible(find.byKey(Key(key)));
+        await tester.tap(
+          find.descendant(
+            of: find.byKey(Key(key)),
+            matching: find.byType(Checkbox),
+          ),
+        );
+      }
+      await tester.ensureVisible(find.byKey(const Key('code-login-submit')));
+      await tester.tap(find.byKey(const Key('code-login-submit')));
+      await tester.pumpAndSettle();
+      expect(controller.passwordLoginEmail, 'reviewer@example.test');
+      expect(controller.passwordLoginConsent, isTrue);
+      expect(controller.requested, isNull);
+      expect(controller.signedIn, isNull);
+      expect(find.byKey(const Key('code-login-code')), findsOneWidget);
+      expect(find.byKey(const Key('email-login-password')), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
   testWidgets(
     'WeChat is visible above phone fields on a compact 364dp screen',
     (tester) async {

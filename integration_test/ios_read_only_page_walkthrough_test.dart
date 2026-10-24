@@ -321,7 +321,15 @@ void main() {
       await tester.tap(find.byKey(const Key('profile-header-card')));
       await tester.pumpAndSettle(const Duration(seconds: 2));
       expect(find.byKey(const Key('profile-nickname')), findsOneWidget);
-      expect(find.byKey(const Key('profile-save')), findsOneWidget);
+      final profileSave = find.byKey(const Key('profile-save'));
+      await tester.scrollUntilVisible(
+        profileSave,
+        240,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.ensureVisible(profileSave);
+      await tester.pumpAndSettle();
+      expect(profileSave.hitTestable(), findsOneWidget);
       expect(tester.takeException(), isNull);
       record('个人资料（只读）');
       await tester.binding.handlePopRoute();
