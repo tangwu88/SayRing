@@ -2512,6 +2512,132 @@ void main() {
     );
   });
 
+  for (final size in [(332.0, 2.0), (390.0, 1.0)]) {
+    for (final switches in [
+      (true, true),
+      (true, false),
+      (false, true),
+      (false, false),
+    ]) {
+      testWidgets(
+        'shared monitoring interval appears once at $size with $switches',
+        (tester) async {
+          await tester.binding.setSurfaceSize(Size(size.$1, 844));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
+          final bridge = _SharedHealthMonitoringWearable(
+            switches.$1,
+            switches.$2,
+          );
+          final controller =
+              AppController(
+                  MemorySessionVault(),
+                  _NoopApi(),
+                  MemoryHealthStore(),
+                  bridge,
+                )
+                ..connectedDevice = const DeviceInfo(
+                  id: 'coolwear:synthetic-monitoring',
+                  name: 'Synthetic',
+                );
+          addTearDown(controller.dispose);
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: buildSaydianTheme(),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: TextScaler.linear(size.$2)),
+                child: child!,
+              ),
+              home: PermissionManagementPage(
+                controller: controller,
+                healthOnly: true,
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const ValueKey('device-health-auto-heartRate')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const ValueKey('device-health-auto-bloodOxygen')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const ValueKey('device-health-interval-heartRate')),
+            findsNothing,
+          );
+          expect(
+            find.byKey(const ValueKey('device-health-interval-bloodOxygen')),
+            findsNothing,
+          );
+          final shared = find.byKey(
+            const ValueKey('device-health-interval-shared'),
+          );
+          await tester.ensureVisible(shared);
+          await tester.pumpAndSettle();
+          expect(find.text('共同监测间隔'), findsOneWidget);
+          final dropdown = tester.widget<DropdownButton<int>>(shared);
+          expect(dropdown.value, 30);
+          expect(dropdown.onChanged != null, switches.$1 || switches.$2);
+          if (dropdown.onChanged != null) {
+            dropdown.onChanged!(60);
+            await tester.pumpAndSettle();
+            expect(
+              bridge.writtenType,
+              switches.$1 ? 'heartRate' : 'bloodOxygen',
+            );
+            expect(controller.autoMeasureIntervals['heartRate']!.minutes, 60);
+            expect(controller.autoMeasureIntervals['bloodOxygen']!.minutes, 60);
+          }
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
+  testWidgets(
+    'independent monitoring intervals are not collapsed by equal values',
+    (tester) async {
+      final bridge = _SharedHealthMonitoringWearable(true, true);
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              bridge,
+            )
+            ..connectedDevice = const DeviceInfo(
+              id: 'qring:synthetic-monitoring',
+              name: 'Synthetic',
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: PermissionManagementPage(
+            controller: controller,
+            healthOnly: true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('device-health-interval-heartRate')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('device-health-interval-bloodOxygen')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('device-health-interval-shared')),
+        findsNothing,
+      );
+    },
+  );
+
   testWidgets('monitoring find entry uses resolved device capability', (
     tester,
   ) async {
@@ -5309,6 +5435,36 @@ class _DelayedControlWearable extends _NoopWearable {
     DeviceFeature feature, {
     bool enabled = true,
   }) => action.future;
+}
+
+class _SharedHealthMonitoringWearable extends _NoopWearable
+    implements WearableAutoMeasureIntervalBridge {
+  _SharedHealthMonitoringWearable(this.heart, this.oxygen);
+  final bool heart, oxygen;
+  int minutes = 30;
+  String? writtenType;
+  @override
+  Future<Map<String, bool>> readAutoMeasureSettings() async => {
+    'heartRate': heart,
+    'bloodOxygen': oxygen,
+  };
+  @override
+  Future<int?> readHeartRateWarning() async => null;
+  @override
+  Future<Map<String, AutoMeasureIntervalSetting>>
+  readAutoMeasureIntervals() async => {
+    for (final type in ['heartRate', 'bloodOxygen'])
+      type: AutoMeasureIntervalSetting(
+        minutes: minutes,
+        stepMinutes: 1,
+        canModify: true,
+      ),
+  };
+  @override
+  Future<void> setAutoMeasureInterval(String type, int minutes) async {
+    writtenType = type;
+    this.minutes = minutes;
+  }
 }
 
 class _PartialHealthMonitoringWearable extends _NoopWearable {

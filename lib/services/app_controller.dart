@@ -1161,6 +1161,7 @@ class AppController extends ChangeNotifier {
   String storageStatus = '正在准备数据';
   String sdkStatus = '等待连接';
   String syncStatus = '尚未同步';
+  int deviceSyncReceivedRecords = 0;
   String cloudSyncStatus = '尚未上传';
   DeviceInfo? connectedDevice;
   DeviceCapabilities? capabilities;
@@ -2851,6 +2852,7 @@ class AppController extends ChangeNotifier {
     var succeeded = false;
     deviceSyncProgress = 0;
     syncStatus = '正在读取戒指数据';
+    deviceSyncReceivedRecords = 0;
     _clearDeviceSyncError();
     notifyListeners();
     try {
@@ -2899,7 +2901,7 @@ class AppController extends ChangeNotifier {
           _deviceSyncErrorMessage = '活动数据已更新，历史记录尚未确认';
         } else if (receivedRecords.partial) {
           syncStatus = records.isEmpty ? '部分数据未同步' : '已更新 ${records.length} 条';
-          _deviceSyncErrorMessage = '部分数据未同步';
+          _deviceSyncErrorMessage = '已保留收到的记录，但戒指未返回完整同步确认，请稍后重试';
         } else {
           syncStatus = '戒指尚未确认数据读取完成';
           _deviceSyncErrorMessage = '戒指尚未确认数据读取完成，请稍后重试';
@@ -2960,7 +2962,8 @@ class AppController extends ChangeNotifier {
             return false;
           }
           syncStatus = '已更新 ${records.length} 条';
-          _deviceSyncErrorMessage = '部分数据未同步';
+          _deviceSyncErrorMessage =
+              '已更新 ${records.length} 条，戒指尚未确认完整同步；已有记录已保留';
           errorMessage = _deviceSyncErrorMessage;
           return false;
         }
@@ -3052,6 +3055,7 @@ class AppController extends ChangeNotifier {
     isDeviceSettingsWriting = false;
     isDeviceSyncing = false;
     deviceSyncProgress = 0;
+    deviceSyncReceivedRecords = 0;
     _clearDeviceSyncError();
   }
 
@@ -7094,6 +7098,15 @@ class AppController extends ChangeNotifier {
           DeviceCapabilities.fromMap(event.payload),
         );
         deviceCapabilityState = DeviceCapabilityState.ready;
+      }
+    } else if (event.type == 'syncRecords') {
+      final count = event.payload['receivedRecords'];
+      if (isDeviceSyncing &&
+          connectedDevice?.id == event.payload['deviceId'] &&
+          count is int &&
+          count >= 0) {
+        deviceSyncReceivedRecords = count;
+        syncStatus = '已接收 $count 条，正在读取戒指数据';
       }
     } else if (event.type == 'syncProgress') {
       final deviceId = '${event.payload['deviceId'] ?? ''}';

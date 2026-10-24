@@ -19,6 +19,16 @@ class RingGestureQuickStart extends StatelessWidget {
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 12),
+          const Text(
+            '兼容性提示：手势控制需要手机型号和系统支持，部分手机型号可能不支持。实际效果还取决于戒指固件及目标 App 的兼容性；模式开启不代表所有手机或 App 都能使用。',
+            key: ValueKey('gesture-phone-compatibility'),
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.5,
+              color: SaydianColors.muted,
+            ),
+          ),
+          const SizedBox(height: 12),
           LayoutBuilder(
             builder: (context, constraints) {
               final stacked =

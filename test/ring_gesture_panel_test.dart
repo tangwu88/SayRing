@@ -73,6 +73,11 @@ void main() {
 
         await pump();
         expect(find.text('三步开始'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('gesture-phone-compatibility')),
+          findsOneWidget,
+        );
+        expect(find.textContaining('部分手机型号可能不支持'), findsOneWidget);
         expect(find.byKey(const ValueKey('gesture-mode-1')), findsNothing);
         final reading = find.byKey(const ValueKey('gesture-mode-3'));
         await tester.ensureVisible(reading);

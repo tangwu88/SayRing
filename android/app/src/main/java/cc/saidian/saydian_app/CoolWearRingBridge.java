@@ -12,6 +12,7 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.content.Intent;
 import android.util.Log;
@@ -71,7 +72,6 @@ public final class CoolWearRingBridge
     // function-control callbacks. QRing R2* names remain on their own SDK.
     private static final long SCAN_MS = 8_000L;
     private static final long CONNECT_MS = 28_000L;
-    private static final long SYNC_MS = 30_000L;
     private static final long SETTINGS_MS = 5_000L;
     private static final long LEGACY_HRV_FALLBACK_MS = 8_000L;
     private static final String NOTIFICATION_PREFS = "coolwear_notification_settings";
@@ -99,6 +99,7 @@ public final class CoolWearRingBridge
     private BroadcastReceiver gestureBondReceiver;
     private Runnable connectDeadline;
     private Runnable syncDeadline;
+    private CoolWearSyncWindow syncWindow;
     private Runnable settingsDeadline;
     private Runnable hrvFallback;
     private String connectedId;
@@ -342,12 +343,9 @@ public final class CoolWearRingBridge
                     if (value != null) main.post(() -> onSportUpdate(value));
                     return false;
                 });
-        helper.getRcvDataManager().addBleDataResultListener(
-                K6_Action.RCVD.RCVD_DATA_TYPE_DEV_SYNC,
-                (K6BleDataResult<Object>) ignored -> {
-                    main.post(this::completeSync);
-                    return false;
-                });
+        // RCVD_DATA_TYPE_DEV_SYNC is the mixed *settings* envelope in this
+        // shipped SDK, not a history-transfer terminal. Never use it to report
+        // complete history or an authoritative empty sports list.
     }
 
     private boolean hasBlePermissions() {
@@ -446,19 +444,38 @@ public final class CoolWearRingBridge
                 syncedHealthRecords.put(id.toString(), record);
             }
         }
+        if (!records.isEmpty()) {
+            noteSyncPacket();
+            Map<String, Object> progress = new HashMap<>();
+            progress.put("deviceId", connectedId);
+            progress.put("receivedRecords", syncedHealthRecords.size());
+            emit("syncRecords", progress);
+        }
     }
 
     private void collectSport(List<Map<String, Object>> records) {
-        if (pendingSportSync == null || records == null) return;
+        if ((pendingSportSync == null && pendingHealthSync == null) || records == null) return;
         for (Map<String, Object> record : records) {
             Object id = record.get("id");
             if (id != null) syncedSportRecords.put(id.toString(), record);
         }
+        if (!records.isEmpty()) noteSyncPacket();
+    }
+
+    private void noteSyncPacket() {
+        if (syncWindow == null) return;
+        syncWindow.received(SystemClock.elapsedRealtime());
     }
 
     private void startSync(MethodChannel.Result result, boolean sportOnly) {
         if (!linkConnected || !deviceInfoReceived) {
             result.error("NOT_CONNECTED", "请先连接戒指", null);
+            return;
+        }
+        // Both readers receive the same SDK stream. Join an active health read
+        // rather than starting a second transfer or discarding its sports.
+        if (sportOnly && pendingHealthSync != null && pendingSportSync == null) {
+            pendingSportSync = result;
             return;
         }
         if (pendingHealthSync != null || pendingSportSync != null) {
@@ -469,46 +486,37 @@ public final class CoolWearRingBridge
         syncedSportRecords.clear();
         if (sportOnly) pendingSportSync = result;
         else pendingHealthSync = result;
-        syncDeadline = () -> failPendingSync(
-                "COOLWEAR_SYNC_TIMEOUT", "戒指未返回同步完成状态，请重试");
-        main.postDelayed(syncDeadline, SYNC_MS);
+        syncWindow = new CoolWearSyncWindow(SystemClock.elapsedRealtime());
+        syncDeadline = new Runnable() {
+            @Override public void run() {
+                if (syncDeadline != this || syncWindow == null) return;
+                long remaining = syncWindow.remaining(SystemClock.elapsedRealtime());
+                if (remaining > 0) main.postDelayed(this, remaining);
+                else failPendingSync("COOLWEAR_SYNC_TIMEOUT", "戒指未返回完整同步确认，已保留收到的记录");
+            }
+        };
+        main.postDelayed(syncDeadline, CoolWearSyncWindow.IDLE_MS);
         try {
-            helper.synDevData();
+            // Official guide sections 8/9: enable reception and request device
+            // information. synDevData() also writes time/user/notification
+            // configuration and is not a read-only history request.
+            helper.setEnableGsDataTrans(true);
+            helper.getSendDataManager().sendAsynInfo();
         } catch (RuntimeException error) {
             failPendingSync("COOLWEAR_SYNC_FAILED", "戒指数据同步启动失败，请重试");
-        }
-    }
-
-    private void completeSync() {
-        if (pendingHealthSync == null && pendingSportSync == null) return;
-        if (syncDeadline != null) main.removeCallbacks(syncDeadline);
-        syncDeadline = null;
-        MethodChannel.Result healthResult = pendingHealthSync;
-        MethodChannel.Result sportResult = pendingSportSync;
-        pendingHealthSync = null;
-        pendingSportSync = null;
-        if (healthResult != null) {
-            Log.i(TAG, "vendor history sync complete; health records="
-                    + syncedHealthRecords.size());
-            healthResult.success(new ArrayList<>(syncedHealthRecords.values()));
-        }
-        if (sportResult != null) {
-            Log.i(TAG, "vendor history sync complete; sport records="
-                    + syncedSportRecords.size());
-            sportResult.success(new ArrayList<>(syncedSportRecords.values()));
         }
     }
 
     private void failPendingSync(String code, String message) {
         if (syncDeadline != null) main.removeCallbacks(syncDeadline);
         syncDeadline = null;
+        syncWindow = null;
         MethodChannel.Result healthResult = pendingHealthSync;
         MethodChannel.Result sportResult = pendingSportSync;
         pendingHealthSync = null;
         pendingSportSync = null;
-        // When the final sync callback is absent, preserve individually
-        // validated packets for the caller, but never report the whole history
-        // as synchronized without the vendor completion event.
+        // The supplied mixed-settings packet is NOT a history terminal.
+        // Preserve validated packets, never claim complete history on silence.
         List<Map<String, Object>> partialHealth = new ArrayList<>(syncedHealthRecords.values());
         List<Map<String, Object>> partialSport = new ArrayList<>(syncedSportRecords.values());
         if ("COOLWEAR_SYNC_TIMEOUT".equals(code)) {

@@ -650,9 +650,56 @@ void main() {
 
       expect(await controller.syncDeviceData(), isFalse);
       expect(controller.syncStatus, contains('已更新 1 条'));
-      expect(controller.errorMessage, '部分数据未同步');
+      expect(controller.errorMessage, contains('尚未确认完整同步'));
       expect((await store.recent()).single.id, record.id);
       expect((await store.pending()).single.id, record.id);
+    },
+  );
+
+  test(
+    'CoolWear received-record count is scoped and never invents a percent',
+    () async {
+      const ring = DeviceInfo(id: 'coolwear:synthetic-ring', name: 'R7 Ultra');
+      final wearable = _WaitingSyncWearable(scannedDevice: ring);
+      final controller = _controller(wearable: wearable);
+      await controller.initialize();
+      addTearDown(controller.dispose);
+      final scan = controller.scanDevices();
+      await Future<void>.delayed(Duration.zero);
+      await controller.connectDevice(ring);
+      await scan;
+      final sync = controller.syncDeviceData();
+      await Future<void>.delayed(Duration.zero);
+      wearable.emitEvent(
+        WearableEvent(
+          type: 'syncRecords',
+          payload: {'deviceId': ring.id, 'receivedRecords': 12},
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.deviceSyncReceivedRecords, 12);
+      expect(controller.syncStatus, contains('已接收 12 条'));
+      expect(controller.deviceSyncProgress, 0);
+      for (final payload in [
+        {'deviceId': 'coolwear:other', 'receivedRecords': 999},
+        {'deviceId': ring.id, 'receivedRecords': -1},
+      ]) {
+        wearable.emitEvent(
+          WearableEvent(type: 'syncRecords', payload: payload),
+        );
+      }
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.deviceSyncReceivedRecords, 12);
+      wearable.reply.complete([]);
+      await sync;
+      wearable.emitEvent(
+        WearableEvent(
+          type: 'syncRecords',
+          payload: {'deviceId': ring.id, 'receivedRecords': 500},
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.deviceSyncReceivedRecords, 12);
     },
   );
 
@@ -2389,6 +2436,13 @@ class _CarePreviewFailureApi extends _QaApi {
   }) async {
     throw const ApiException('成员健康数据查询失败', statusCode: 500);
   }
+}
+
+class _WaitingSyncWearable extends _QaWearable {
+  _WaitingSyncWearable({super.scannedDevice});
+  final reply = Completer<List<HealthRecord>>();
+  @override
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) => reply.future;
 }
 
 class _QaWearable extends Fake implements WearableBridge {

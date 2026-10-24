@@ -152,7 +152,9 @@ class DevicePage extends StatelessWidget {
                             : const Icon(Icons.sync_rounded),
                         label: Text(
                           controller.isDeviceSyncing
-                              ? controller.deviceSyncProgress <= 0.1
+                              ? controller.deviceSyncReceivedRecords > 0
+                                    ? '已接收 ${controller.deviceSyncReceivedRecords} 条'
+                                    : controller.deviceSyncProgress <= 0.1
                                     ? context.l10n.readingData
                                     : '${context.l10n.syncing} ${(controller.deviceSyncProgress * 100).round()}%'
                               : controller.capabilities?.supportsHistorySync ==

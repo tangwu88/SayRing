@@ -1106,7 +1106,6 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
   }) {
     final settings = widget.controller.autoMeasureSettings;
     final enabled = settings[type] ?? false;
-    final interval = widget.controller.autoMeasureIntervals[type];
     return Column(
       children: [
         SwitchListTile(
@@ -1126,70 +1125,89 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
                   );
                 },
         ),
-        if (interval != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(72, 0, 18, 12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.controller.connectedDevice?.id.startsWith(
-                              'coolwear:',
-                            ) ==
-                            true
-                        ? '监测间隔（心率与血氧共用）'
-                        : '监测间隔',
-                    style: const TextStyle(color: SaydianColors.muted),
-                  ),
-                ),
-                if (interval.canModify)
-                  DropdownButton<int>(
-                    key: ValueKey('device-health-interval-$type'),
-                    value: interval.choices.contains(interval.minutes)
-                        ? interval.minutes
-                        : null,
-                    hint: Text(context.l10n.choose),
-                    items: [
-                      for (final minutes in interval.choices)
-                        DropdownMenuItem(
-                          value: minutes,
-                          child: Text('$minutes 分钟'),
-                        ),
-                    ],
-                    onChanged:
-                        !enabled ||
-                            widget.controller.connectedDevice == null ||
-                            widget.controller.isDeviceSettingsLoading ||
-                            widget.controller.isDeviceSettingsWriting
-                        ? null
-                        : (minutes) {
-                            if (minutes != null) {
-                              unawaited(
-                                widget.controller.setAutoMeasureInterval(
-                                  type,
-                                  minutes,
-                                ),
-                              );
-                            }
-                          },
-                  )
-                else
-                  Text(
-                    interval.minutes > 0
-                        ? '每 ${interval.minutes} 分钟（戒指固定）'
-                        : '戒指固定',
-                    style: const TextStyle(color: SaydianColors.muted),
-                  ),
-              ],
+        if (!_usesSharedMonitoringInterval ||
+            (type != 'heartRate' && type != 'bloodOxygen'))
+          _deviceAutoInterval(type),
+      ],
+    );
+  }
+
+  // The bundled CoolWear SDK exposes one physical interval for these two
+  // switches. This is a presentation grouping, not a new device capability.
+  bool get _usesSharedMonitoringInterval =>
+      widget.controller.connectedDevice?.sdkSource ==
+      WearableSdkSource.coolwear;
+
+  Widget _deviceAutoInterval(String type, {bool shared = false}) {
+    final interval = widget.controller.autoMeasureIntervals[type];
+    if (interval == null) return const SizedBox.shrink();
+    final enabled = widget.controller.autoMeasureSettings[type] == true;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(shared ? 18 : 72, 0, 18, 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '监测间隔',
+              style: const TextStyle(color: SaydianColors.muted),
             ),
           ),
-      ],
+          if (interval.canModify)
+            DropdownButton<int>(
+              key: ValueKey(
+                'device-health-interval-${shared ? 'shared' : type}',
+              ),
+              value: interval.choices.contains(interval.minutes)
+                  ? interval.minutes
+                  : null,
+              hint: Text(context.l10n.choose),
+              items: [
+                for (final minutes in interval.choices)
+                  DropdownMenuItem(value: minutes, child: Text('$minutes 分钟')),
+              ],
+              onChanged:
+                  !enabled ||
+                      widget.controller.connectedDevice == null ||
+                      widget.controller.isDeviceSettingsLoading ||
+                      widget.controller.isDeviceSettingsWriting
+                  ? null
+                  : (minutes) {
+                      if (minutes != null) {
+                        unawaited(
+                          widget.controller.setAutoMeasureInterval(
+                            type,
+                            minutes,
+                          ),
+                        );
+                      }
+                    },
+            )
+          else
+            Text(
+              interval.minutes > 0 ? '每 ${interval.minutes} 分钟（戒指固定）' : '戒指固定',
+              style: const TextStyle(color: SaydianColors.muted),
+            ),
+        ],
+      ),
     );
   }
 
   List<Widget> _healthMonitoringContent() {
     final controller = widget.controller;
     final settings = controller.autoMeasureSettings;
+    final sharedTypes = _usesSharedMonitoringInterval
+        ? ['heartRate', 'bloodOxygen']
+              .where(
+                (type) =>
+                    settings.containsKey(type) &&
+                    controller.autoMeasureIntervals.containsKey(type),
+              )
+              .toList()
+        : <String>[];
+    // Oxygen-only monitoring must remain configurable while heart rate is off.
+    final sharedType =
+        sharedTypes.where((type) => settings[type] == true).firstOrNull ??
+        sharedTypes.firstOrNull;
     const specs = <({String type, String title, IconData icon})>[
       (
         type: 'heartRate',
@@ -1292,6 +1310,28 @@ class _PermissionManagementPageState extends State<PermissionManagementPage>
         )
       else ...[
         Card(child: Column(children: tiles)),
+        if (sharedType != null) ...[
+          const SizedBox(height: 12),
+          Card(
+            key: const ValueKey('device-health-shared-interval'),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const ListTile(
+                  leading: Icon(Icons.schedule_rounded),
+                  title: Text('共同监测间隔'),
+                  subtitle: Text('心率与血氧共用此间隔，分别通过上方开关开启或关闭。'),
+                ),
+                _deviceAutoInterval(sharedType, shared: true),
+                if (!sharedTypes.any((type) => settings[type] == true))
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(18, 0, 18, 12),
+                    child: Text('请先开启心率或血氧自动检测，再设置间隔。'),
+                  ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 12),
         const Text(
           '监测频率越高，耗电越快。仅显示戒指实际支持的项目；未提供间隔的项目由固件管理，当前无法调整。',

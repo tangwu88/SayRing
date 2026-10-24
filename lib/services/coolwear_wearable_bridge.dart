@@ -19,6 +19,12 @@ class CoolWearAndroidWearableBridge extends CoolWearWearableBridge
   });
 
   @override
+  Duration _commandTimeout(String method, Duration fallback) =>
+      method == 'syncHealthData' || method == 'readSportRecords'
+      ? const Duration(seconds: 95)
+      : fallback;
+
+  @override
   Future<DeviceInfo?> lookupPreviouslyBoundDevice(
     String nativeIdentifier,
   ) async {

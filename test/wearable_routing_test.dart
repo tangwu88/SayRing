@@ -945,12 +945,20 @@ void main() {
         payload: {'deviceId': 'V-1', 'progress': 0.5},
       ),
     );
+    veepoo.emit(
+      const WearableEvent(
+        type: 'syncRecords',
+        payload: {'deviceId': 'V-1', 'receivedRecords': 12},
+      ),
+    );
     await pumpEventQueue();
 
     expect(details?.id, 'veepoo:V-1');
     expect(details?.firmwareVersion, '00.20.01');
     expect(received[0].payload['id'], 'veepoo:V-1');
     expect(received[1].payload['deviceId'], 'veepoo:V-1');
+    expect(received[2].payload['deviceId'], 'veepoo:V-1');
+    expect(received[2].payload['receivedRecords'], 12);
     await subscription.cancel();
     await bridge.dispose();
   });
