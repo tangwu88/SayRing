@@ -70,3 +70,10 @@
 - 原正式证书SHA256=81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de；android/key.properties已finally清理，未将凭据或产物放入Git。
 - 已执行adb install --no-incremental -r，等待手机安装终态；在实际版本及base.apk哈希核对前不算安装完成。先前1136的firstInstallTime为2026-10-20 10:58:24，本次不卸载、不清数据。
 - iOS原生/真机和R7 Ultra实际耗时/完整历史终态尚未验收；新增接收接口及无误终态必须在实物复测，不以主机测试掩盖此边界。未发布应用市场/在线下载版本，也未修改线上后台参数。
+
+### Git与手机安装最终回执
+
+- 功能提交88451797667e28bd89f7df90238b08fc2e1adfb1已推送origin/codex/login-camera-r7ultra-1136-20261024，ls-remote一致；未强推或将尚未实物验收的R7行为推广main。源码及实施日志显式提交，生产密钥/健康证据/构建产物均未加入。
+- 用户回复“已安装”后，adb安装会话返回Success。实际手机cn.saydian.ring为1.0.6(1137)，lastUpdateTime=2026-10-24 16:13:05；firstInstallTime仍为2026-10-20 10:58:24，无卸载/清数据。
+- 拉取该包自己的已安装base.apk至Git外私有目录，SHA256精确匹配本段041F6EA8...BCE424正式产物，排除同版本Profile/旧包。显式启动MainActivity后本应用进程存在，所查当前PID日志未见FATAL EXCEPTION/ANR；这不是长时稳定或实物SDK验收。
+- 本轮未代用户勾选年龄/协议，未注册新账号或发送真实OTP，未解绑/重置/代绑戒指；R7实际等待时间、完整历史及手势物理效果仍需在用户本人登录连接后复测。
