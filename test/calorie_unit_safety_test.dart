@@ -16,7 +16,7 @@ HealthRecord record(
   unit: unit,
   measuredAt: DateTime(2026, 10, 21, 10),
   timezone: '+08:00',
-  deviceId: 'qring:synthetic',
+  deviceId: '$vendor:synthetic',
   firmwareVersion: 'synthetic',
   quality: 'synthetic-only',
   source: MeasurementSource.wearable,
@@ -26,6 +26,60 @@ HealthRecord record(
   rawVersion: version,
 );
 void main() {
+  test('legacy and new CoolWear counts are not kcal in any trend period', () {
+    for (final unit in ['kcal', 'unknown']) {
+      for (final value in [0, 12, 98760]) {
+        final r = record(value, vendor: 'coolwear', version: 1, unit: unit);
+        final before = jsonEncode(r.toJson());
+        expect(hasUnconfirmedCalorieUnit(r), isTrue);
+        // Legacy payloads without optional app/category metadata are still v1.
+        expect(
+          hasUnconfirmedCalorieUnit(
+            r.copyWith(sourceApp: '', sourceDeviceCategory: ''),
+          ),
+          isTrue,
+        );
+        for (final period in HealthTrendPeriod.values) {
+          final data = const HealthAnalysisService().analyze(
+            metric: HealthMetric.calories,
+            records: [r],
+            previousRecords: [r],
+            period: period,
+            anchor: DateTime(2026, 10, 21),
+          );
+          expect(data.points, isEmpty);
+          expect(data.summary.average, isNull);
+          expect(data.summary.previousAverage, isNull);
+          expect(data.records, [r]);
+        }
+        expect(jsonEncode(r.toJson()), before);
+      }
+    }
+  });
+
+  test('unit safety is source and metric scoped, not a numeric threshold', () {
+    final pending = record(12, vendor: ' CoolWear ', version: 1);
+    expect(hasUnconfirmedCalorieUnit(pending), isTrue);
+    for (final metric in [HealthMetric.steps, HealthMetric.distance]) {
+      final other = HealthRecord.fromJson({
+        ...pending.toJson(),
+        'type': metric.wireName,
+      });
+      expect(hasUnconfirmedCalorieUnit(other), isFalse);
+    }
+    expect(
+      hasUnconfirmedCalorieUnit(
+        pending.copyWith(source: MeasurementSource.manual),
+      ),
+      isFalse,
+    );
+    expect(hasUnconfirmedCalorieUnit(record(98760, version: 2)), isFalse);
+    expect(
+      hasUnconfirmedCalorieUnit(record(98760, vendor: 'veepoo', version: 1)),
+      isFalse,
+    );
+  });
+
   test(
     'iOS provenance is unverified for small, zero and large counts without rewriting payloads',
     () {

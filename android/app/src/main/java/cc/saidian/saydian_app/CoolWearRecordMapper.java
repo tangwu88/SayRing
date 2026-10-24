@@ -66,8 +66,10 @@ public final class CoolWearRecordMapper {
                 addSingleValue(records, deviceId, firmwareVersion, "distance", time,
                         value.getDistance() / 1_000.0, "km");
             }
+            // K6_Sport exposes an integer count without a verified kcal scale.
+            // Preserve it for provenance; do not invent a conversion or label.
             addSingleValue(records, deviceId, firmwareVersion, "calories", time,
-                    value.getCalories(), "kcal");
+                    value.getCalories(), "unknown");
         }
         return records;
     }

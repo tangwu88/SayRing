@@ -105,6 +105,21 @@ DateTime _today() {
   return DateTime(now.year, now.month, now.day);
 }
 
+HealthRecord _coolwearCalories(String unit) => HealthRecord.fromJson({
+  ..._record(
+    'synthetic-coolwear-calories',
+    HealthMetric.calories,
+    98760,
+    _today(),
+  ).toJson(),
+  'deviceId': 'coolwear:synthetic-ui',
+  'sourceVendor': 'coolwear',
+  'sourceDeviceCategory': 'ring',
+  'sourceApp': 'say-ring',
+  'rawVersion': 1,
+  'unit': unit,
+});
+
 Future<void> _mount(
   WidgetTester tester,
   _Controller controller, {
@@ -148,6 +163,83 @@ Future<void> _mount(
 
 void main() {
   setUpAll(() => initializeDateFormatting('zh_Hans'));
+
+  for (final unit in ['kcal', 'unknown']) {
+    for (final textScale in [1.0, 2.0]) {
+      testWidgets(
+        'CoolWear $unit counts stay out of 332dp goals at $textScale scale',
+        (tester) async {
+          final store = MemoryHealthStore();
+          final controller = _Controller(store);
+          controller.connectedDevice = const DeviceInfo(
+            id: 'coolwear:synthetic-ui',
+            name: 'R7 Ultra',
+          );
+          final calories = _coolwearCalories(unit);
+          final steps =
+              _record(
+                'safe-steps',
+                HealthMetric.steps,
+                1234,
+                _today(),
+              ).copyWith(
+                deviceId: calories.deviceId,
+                sourceVendor: 'coolwear',
+                rawVersion: 1,
+              );
+          await store.upsert([steps, calories]);
+          controller.healthRecords = await store.recent();
+          await _mount(tester, controller, width: 332, textScale: textScale);
+          await tester.pumpAndSettle();
+          expect(_activityText('1234'), findsOneWidget);
+          expect(_activityText('单位待确认'), findsOneWidget);
+          expect(_activityText('98760'), findsNothing);
+          final ring = tester.widget<CircularProgressIndicator>(
+            find.byKey(const ValueKey('activity-goal-ring-2')),
+          );
+          expect(ring.value, 0);
+          expect(
+            (await store.recent())
+                .singleWhere((r) => r.metric == HealthMetric.calories)
+                .toJson(),
+            calories.toJson(),
+          );
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+
+    testWidgets(
+      'CoolWear $unit history retains raw counts without kcal charts',
+      (tester) async {
+        final store = MemoryHealthStore();
+        final controller = _Controller(store);
+        final record = _coolwearCalories(unit);
+        controller.connectedDevice = DeviceInfo(
+          id: record.deviceId,
+          name: 'R7 Ultra',
+        );
+        await store.upsert([record]);
+        await _mount(
+          tester,
+          controller,
+          page: HealthTrendPage(
+            controller: controller,
+            metric: HealthMetric.calories,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('calorie-unit-unconfirmed')),
+          findsOneWidget,
+        );
+        expect(find.textContaining('98760'), findsNothing);
+        expect(find.byType(LineChart), findsNothing);
+        expect((await store.recent()).single.toJson(), record.toJson());
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('364dp activity keeps rings left of all three live values', (
     tester,

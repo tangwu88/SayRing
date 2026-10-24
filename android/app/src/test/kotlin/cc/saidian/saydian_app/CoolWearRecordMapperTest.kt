@@ -27,6 +27,31 @@ class CoolWearRecordMapperTest {
 
         assertEquals(listOf("steps", "distance", "calories"), records.map { it["type"] })
         assertEquals(1.5, value(records, "distance"), 0.0001)
+        assertEquals(45.0, value(records, "calories"), 0.0001)
+        val calorie = records.single { it["type"] == "calories" }
+        assertEquals("unknown", calorie["unit"])
+        assertEquals("coolwear", calorie["sourceVendor"])
+        assertEquals(1, calorie["rawVersion"])
+    }
+
+    @Test
+    fun `activity calorie counts retain their raw value and stable identity`() {
+        for (raw in listOf(1, 45, 98_760)) {
+            val sample = K6_Sport().apply {
+                starTime = nowSeconds
+                calories = raw
+            }
+            val first = CoolWearRecordMapper.activityRecords("ring", "1.0", listOf(sample)).single()
+            val second = CoolWearRecordMapper.activityRecords("ring", "1.0", listOf(sample)).single()
+            val legacy = CoolWearRecordMapper.healthRecord(
+                "ring", "1.0", "calories", sample.starTime.toLong() * 1_000L,
+                linkedMapOf<String, Any>("value" to raw), "kcal", "watch_history", "device_reported",
+            )
+            assertEquals(raw.toDouble(), value(listOf(first), "calories"), 0.0001)
+            assertEquals("unknown", first["unit"])
+            assertEquals(first["id"], second["id"])
+            assertEquals(legacy["id"], first["id"])
+        }
     }
 
     @Test
