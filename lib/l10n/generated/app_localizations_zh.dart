@@ -9,6 +9,28 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get deviceSearchHelpTitle => '找不到戒指，怎么办？';
+
+  @override
+  String get deviceSearchHelpPower => '先为戒指充电唤醒，再放在手机旁重新搜索。';
+
+  @override
+  String get deviceSearchHelpAccess =>
+      '打开手机蓝牙，允许 Say Ring 使用蓝牙或附近设备权限；系统提示需要定位时，再按提示开启。';
+
+  @override
+  String get deviceSearchHelpOtherPhone =>
+      '若戒指正连接其他手机或戒指 App，请先在原手机或 App 中断开，再回来搜索。';
+
+  @override
+  String get deviceSearchHelpRebindIos =>
+      '曾绑定过？先到“设备”页尝试重新连接。仅在已解绑、需要重新添加且仍搜不到时，到“设置 → 蓝牙”，选择对应戒指并点“忽略此设备”，再回来搜索。首次添加请直接在 App 中搜索。';
+
+  @override
+  String get deviceSearchHelpRebindAndroid =>
+      '曾绑定过？先到“设备”页尝试重新连接。仅在已解绑、需要重新添加且仍搜不到时，到“设置 → 蓝牙”，选择对应戒指并点“取消配对”，再回来搜索。首次添加请直接在 App 中搜索。';
+
+  @override
   String get careMemberIdLabel => '会员 ID';
 
   @override
@@ -607,7 +629,8 @@ class AppLocalizationsZh extends AppLocalizations {
   String get activateWatch => '请为戒指充电激活，并将戒指靠近手机';
 
   @override
-  String get checkWatchConnection => '若戒指已连到本机系统蓝牙或其他手机，请先断开后重新搜索';
+  String get checkWatchConnection =>
+      '请确认戒指已唤醒、靠近手机，并允许蓝牙权限。若正连接其他手机或戒指 App，请先在那边断开，再重新搜索。';
 
   @override
   String get running => '跑步';
@@ -2044,6 +2067,28 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   AppLocalizationsZhHans() : super('zh_Hans');
 
   @override
+  String get deviceSearchHelpTitle => '找不到戒指，怎么办？';
+
+  @override
+  String get deviceSearchHelpPower => '先为戒指充电唤醒，再放在手机旁重新搜索。';
+
+  @override
+  String get deviceSearchHelpAccess =>
+      '打开手机蓝牙，允许 Say Ring 使用蓝牙或附近设备权限；系统提示需要定位时，再按提示开启。';
+
+  @override
+  String get deviceSearchHelpOtherPhone =>
+      '若戒指正连接其他手机或戒指 App，请先在原手机或 App 中断开，再回来搜索。';
+
+  @override
+  String get deviceSearchHelpRebindIos =>
+      '曾绑定过？先到“设备”页尝试重新连接。仅在已解绑、需要重新添加且仍搜不到时，到“设置 → 蓝牙”，选择对应戒指并点“忽略此设备”，再回来搜索。首次添加请直接在 App 中搜索。';
+
+  @override
+  String get deviceSearchHelpRebindAndroid =>
+      '曾绑定过？先到“设备”页尝试重新连接。仅在已解绑、需要重新添加且仍搜不到时，到“设置 → 蓝牙”，选择对应戒指并点“取消配对”，再回来搜索。首次添加请直接在 App 中搜索。';
+
+  @override
   String get careMemberIdLabel => '会员 ID';
 
   @override
@@ -2642,7 +2687,8 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get activateWatch => '请为戒指充电激活，并将戒指靠近手机';
 
   @override
-  String get checkWatchConnection => '若戒指已连到本机系统蓝牙或其他手机，请先断开后重新搜索';
+  String get checkWatchConnection =>
+      '请确认戒指已唤醒、靠近手机，并允许蓝牙权限。若正连接其他手机或戒指 App，请先在那边断开，再重新搜索。';
 
   @override
   String get running => '跑步';
@@ -4079,6 +4125,28 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   AppLocalizationsZhHant() : super('zh_Hant');
 
   @override
+  String get deviceSearchHelpTitle => '找不到戒指，怎麼辦？';
+
+  @override
+  String get deviceSearchHelpPower => '先為戒指充電喚醒，再放在手機旁重新搜尋。';
+
+  @override
+  String get deviceSearchHelpAccess =>
+      '開啟手機藍牙，允許 Say Ring 使用藍牙或附近裝置權限；系統提示需要定位時，再依提示開啟。';
+
+  @override
+  String get deviceSearchHelpOtherPhone =>
+      '若戒指正連接其他手機或戒指 App，請先在原手機或 App 中中斷連接，再回來搜尋。';
+
+  @override
+  String get deviceSearchHelpRebindIos =>
+      '曾綁定過？先到「裝置」頁嘗試重新連接。僅在已解除綁定、需要重新新增且仍找不到時，到「設定 → 藍牙」，選擇對應戒指並點「忘記此裝置」，再回來搜尋。首次新增請直接在 App 中搜尋。';
+
+  @override
+  String get deviceSearchHelpRebindAndroid =>
+      '曾綁定過？先到「裝置」頁嘗試重新連接。僅在已解除綁定、需要重新新增且仍找不到時，到「設定 → 藍牙」，選擇對應戒指並點「取消配對」，再回來搜尋。首次新增請直接在 App 中搜尋。';
+
+  @override
   String get careMemberIdLabel => '會員 ID';
 
   @override
@@ -4677,7 +4745,8 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get activateWatch => '請為戒指充電啟動，並將戒指靠近手機';
 
   @override
-  String get checkWatchConnection => '若戒指已連到本機系統藍牙或其他手機，請先中斷連線後重新搜尋';
+  String get checkWatchConnection =>
+      '請確認戒指已喚醒、靠近手機，並允許藍牙權限。若正連接其他手機或戒指 App，請先在那邊中斷連接，再重新搜尋。';
 
   @override
   String get running => '跑步';

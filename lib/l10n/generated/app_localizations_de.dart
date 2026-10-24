@@ -9,6 +9,29 @@ class AppLocalizationsDe extends AppLocalizations {
   AppLocalizationsDe([String locale = 'de']) : super(locale);
 
   @override
+  String get deviceSearchHelpTitle => 'Ring nicht gefunden?';
+
+  @override
+  String get deviceSearchHelpPower =>
+      'Laden Sie den Ring zum Aufwecken auf, legen Sie ihn neben das Smartphone und suchen Sie erneut.';
+
+  @override
+  String get deviceSearchHelpAccess =>
+      'Aktivieren Sie Bluetooth und erlauben Sie Say Ring den Zugriff auf Bluetooth oder Geräte in der Nähe. Aktivieren Sie den Standort nur, wenn das System Sie dazu auffordert.';
+
+  @override
+  String get deviceSearchHelpOtherPhone =>
+      'Ist der Ring mit einem anderen Smartphone oder einer Ring-App verbunden, trennen Sie dort zuerst die Verbindung und suchen Sie dann hier erneut.';
+
+  @override
+  String get deviceSearchHelpRebindIos =>
+      'Bereits verbunden gewesen? Versuchen Sie zuerst auf der Geräteseite, die Verbindung wiederherzustellen. Nur wenn die Bindung aufgehoben wurde, Sie den Ring erneut hinzufügen möchten und er weiterhin fehlt: Wählen Sie ihn unter Einstellungen → Bluetooth aus, tippen Sie auf Dieses Gerät ignorieren und suchen Sie hier erneut. Suchen Sie beim ersten Hinzufügen direkt in der App.';
+
+  @override
+  String get deviceSearchHelpRebindAndroid =>
+      'Bereits verbunden gewesen? Versuchen Sie zuerst auf der Geräteseite, die Verbindung wiederherzustellen. Nur wenn die Bindung aufgehoben wurde, Sie den Ring erneut hinzufügen möchten und er weiterhin fehlt: Wählen Sie ihn unter Einstellungen → Bluetooth aus, tippen Sie auf Entkoppeln und suchen Sie hier erneut. Suchen Sie beim ersten Hinzufügen direkt in der App.';
+
+  @override
   String get careMemberIdLabel => 'Mitglieds-ID';
 
   @override
@@ -690,7 +713,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get checkWatchConnection =>
-      'Ist der Ring in den Bluetooth-Einstellungen dieses oder eines anderen Telefons verbunden, trennen Sie ihn und suchen Sie erneut.';
+      'Halten Sie den Ring wach und in der Nähe und erlauben Sie den Bluetooth-Zugriff. Ist er mit einem anderen Smartphone oder einer Ring-App verbunden, trennen Sie dort die Verbindung und suchen Sie erneut.';
 
   @override
   String get running => 'Laufen';

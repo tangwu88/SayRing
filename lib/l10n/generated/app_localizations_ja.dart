@@ -9,6 +9,28 @@ class AppLocalizationsJa extends AppLocalizations {
   AppLocalizationsJa([String locale = 'ja']) : super(locale);
 
   @override
+  String get deviceSearchHelpTitle => 'リングが見つからない場合';
+
+  @override
+  String get deviceSearchHelpPower => 'リングを充電して起動し、スマートフォンの近くに置いて再検索してください。';
+
+  @override
+  String get deviceSearchHelpAccess =>
+      'Bluetoothをオンにし、Say RingにBluetoothまたは付近のデバイスへのアクセスを許可してください。位置情報はシステムに求められた場合のみ有効にしてください。';
+
+  @override
+  String get deviceSearchHelpOtherPhone =>
+      '別のスマートフォンやリング用アプリに接続中の場合は、そちらで接続を切ってから再検索してください。';
+
+  @override
+  String get deviceSearchHelpRebindIos =>
+      '以前に登録済みの場合は、まずデバイスページで再接続をお試しください。登録を解除し、追加し直す必要があり、それでも見つからない場合に限り、「設定 → Bluetooth」で該当するリングを選び、「このデバイスの登録を解除」をタップしてから再検索してください。初回はアプリ内で直接検索してください。';
+
+  @override
+  String get deviceSearchHelpRebindAndroid =>
+      '以前に登録済みの場合は、まずデバイスページで再接続をお試しください。登録を解除し、追加し直す必要があり、それでも見つからない場合に限り、「設定 → Bluetooth」で該当するリングを選び、「ペア設定を解除」をタップしてから再検索してください。初回はアプリ内で直接検索してください。';
+
+  @override
   String get careMemberIdLabel => '会員 ID';
 
   @override
@@ -633,7 +655,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get checkWatchConnection =>
-      'リングがこのスマートフォンのBluetooth設定または別の端末に接続中なら、接続を解除して再検索してください';
+      'リングを起動して近くに置き、Bluetoothへのアクセスを許可してください。別の端末やリング用アプリに接続中なら、そちらで接続を切ってから再検索してください。';
 
   @override
   String get running => 'ランニング';

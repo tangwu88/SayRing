@@ -9,6 +9,29 @@ class AppLocalizationsEs extends AppLocalizations {
   AppLocalizationsEs([String locale = 'es']) : super(locale);
 
   @override
+  String get deviceSearchHelpTitle => '¿No encuentras el anillo?';
+
+  @override
+  String get deviceSearchHelpPower =>
+      'Carga el anillo para activarlo, colócalo junto al teléfono y vuelve a buscar.';
+
+  @override
+  String get deviceSearchHelpAccess =>
+      'Activa el Bluetooth y permite que Say Ring acceda al Bluetooth o a dispositivos cercanos. Activa la ubicación solo si el sistema lo solicita.';
+
+  @override
+  String get deviceSearchHelpOtherPhone =>
+      'Si el anillo está conectado a otro teléfono o aplicación, desconéctalo allí antes de volver a buscar aquí.';
+
+  @override
+  String get deviceSearchHelpRebindIos =>
+      '¿Ya estaba vinculado? Primero intenta reconectarlo desde Dispositivos. Solo si lo has desvinculado, necesitas añadirlo otra vez y sigue sin aparecer: selecciónalo en Ajustes → Bluetooth, pulsa Omitir dispositivo y vuelve a buscar aquí. Para la primera conexión, busca directamente en la aplicación.';
+
+  @override
+  String get deviceSearchHelpRebindAndroid =>
+      '¿Ya estaba vinculado? Primero intenta reconectarlo desde Dispositivos. Solo si lo has desvinculado, necesitas añadirlo otra vez y sigue sin aparecer: selecciónalo en Ajustes → Bluetooth, pulsa Desvincular y vuelve a buscar aquí. Para la primera conexión, busca directamente en la aplicación.';
+
+  @override
   String get careMemberIdLabel => 'ID de miembro';
 
   @override
@@ -691,7 +714,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get checkWatchConnection =>
-      'Si el anillo está conectado en el Bluetooth de este teléfono o de otro, desconéctalo y vuelve a buscar';
+      'Mantén el anillo activo y cerca, y permite el acceso a Bluetooth. Si está conectado a otro teléfono o aplicación, desconéctalo allí y vuelve a buscar.';
 
   @override
   String get running => 'Correr';

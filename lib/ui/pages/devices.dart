@@ -1082,6 +1082,62 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     );
   }
 
+  Future<void> _showSearchHelp() => showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      key: const Key('device-search-help-dialog'),
+      scrollable: true,
+      title: Text(context.l10n.deviceSearchHelpTitle),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final (icon, text) in [
+            (
+              Icons.battery_charging_full_rounded,
+              context.l10n.deviceSearchHelpPower,
+            ),
+            (Icons.bluetooth_rounded, context.l10n.deviceSearchHelpAccess),
+            (
+              Icons.phonelink_erase_rounded,
+              context.l10n.deviceSearchHelpOtherPhone,
+            ),
+            (
+              Icons.link_rounded,
+              defaultTargetPlatform == TargetPlatform.iOS
+                  ? context.l10n.deviceSearchHelpRebindIos
+                  : context.l10n.deviceSearchHelpRebindAndroid,
+            ),
+          ])
+            Padding(
+              padding: const EdgeInsets.only(bottom: 18),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ExcludeSemantics(
+                    child: Icon(icon, color: SaydianColors.blue, size: 25),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      text,
+                      style: const TextStyle(fontSize: 15, height: 1.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+      actions: [
+        FilledButton(
+          key: const Key('device-search-help-close'),
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(context.l10n.confirm),
+        ),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -1323,13 +1379,24 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                       ],
                     ),
             ),
-            bottomNavigationBar: !controller.mallVisible
-                ? null
-                : SafeArea(
-                    top: false,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
-                      child: TextButton.icon(
+            bottomNavigationBar: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton.icon(
+                      key: const Key('device-search-help'),
+                      onPressed: busy ? null : _showSearchHelp,
+                      icon: const Icon(Icons.help_outline_rounded),
+                      label: Text(
+                        context.l10n.deviceSearchHelpTitle,
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    if (controller.mallVisible)
+                      TextButton.icon(
                         key: const Key('device-shop-entry'),
                         onPressed: connecting ? null : _openShop,
                         icon: const Icon(Icons.shopping_bag_outlined),
@@ -1338,8 +1405,10 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                           style: TextStyle(fontWeight: FontWeight.w800),
                         ),
                       ),
-                    ),
-                  ),
+                  ],
+                ),
+              ),
+            ),
           ),
         );
       },

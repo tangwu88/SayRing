@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -266,6 +268,85 @@ void main() {
     expect(wearable.scans, 1);
   });
 
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    for (final hasResults in [false, true]) {
+      testWidgets(
+        'search help stays usable on $platform with results=$hasResults and large text',
+        (tester) async {
+          await tester.binding.setSurfaceSize(const Size(332, 740));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
+          environment.sdk = 31;
+          final wearable = _ScanWearable(
+            results: hasResults ? [_ScanWearable.watch] : [],
+          );
+          final controller = _controller(wearable);
+          addTearDown(controller.dispose);
+          await _pumpSearch(
+            tester,
+            controller,
+            textScale: 2,
+            locale: const Locale('zh'),
+          );
+          await tester.tap(find.byKey(const Key('device-search-help')));
+          await tester.pumpAndSettle();
+          final rebind = platform == TargetPlatform.iOS ? '忽略此设备' : '取消配对';
+          final guidance = find.textContaining(rebind);
+          expect(guidance, findsOneWidget);
+          await tester.ensureVisible(guidance);
+          await tester.pumpAndSettle();
+          expect(find.textContaining('仅在已解绑'), findsOneWidget);
+          expect(find.textContaining('首次添加请直接在 App 中搜索'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+          await tester.tap(find.byKey(const Key('device-search-help-close')));
+          await tester.pumpAndSettle();
+          expect(
+            find.byKey(const Key('device-search-help-dialog')),
+            findsNothing,
+          );
+          expect(wearable.scans, 1);
+          expect(environment.appSettingsOpened, 0);
+          expect(controller.connectedDevice, isNull);
+          if (hasResults) {
+            expect(find.text(_ScanWearable.watch.name), findsOneWidget);
+          }
+          expect(tester.takeException(), isNull);
+        },
+        variant: TargetPlatformVariant.only(platform),
+      );
+    }
+  }
+
+  testWidgets(
+    'scan results can arrive while help is open without restarting search',
+    (tester) async {
+      environment.sdk = 31;
+      final pending = Completer<List<DeviceInfo>>();
+      final wearable = _ScanWearable()..pending = pending;
+      final controller = _controller(wearable);
+      addTearDown(controller.dispose);
+      await _pumpSearch(tester, controller, settle: false);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.byKey(const Key('device-search-help')));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(
+        find.byKey(const Key('device-search-help-dialog')),
+        findsOneWidget,
+      );
+      pending.complete([_ScanWearable.watch]);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('device-search-help-dialog')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('device-search-help-close')));
+      await tester.pumpAndSettle();
+      expect(find.text(_ScanWearable.watch.name), findsOneWidget);
+      expect(wearable.scans, 1);
+      expect(controller.connectedDevice, isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   for (final scale in [1.0, 1.5, 2.0]) {
     testWidgets('location recovery remains reachable at text scale $scale', (
       tester,
@@ -304,10 +385,12 @@ Future<void> _pumpSearch(
   WidgetTester tester,
   AppController controller, {
   double textScale = 1,
+  Locale locale = const Locale('en'),
+  bool settle = true,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
-      locale: const Locale('en'),
+      locale: locale,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       builder: (context, child) => MediaQuery(
@@ -319,7 +402,7 @@ Future<void> _pumpSearch(
       home: DeviceSearchPage(controller: controller),
     ),
   );
-  await tester.pumpAndSettle();
+  if (settle) await tester.pumpAndSettle();
 }
 
 Future<void> _resume(WidgetTester tester) async {
@@ -339,13 +422,14 @@ class _ScanWearable extends Fake implements WearableBridge {
 
   final List<DeviceInfo> results;
   int scans = 0;
+  Completer<List<DeviceInfo>>? pending;
   PlatformException? error;
 
   @override
   Future<List<DeviceInfo>> scanDevices() async {
     scans++;
     if (error != null) throw error!;
-    return results;
+    return pending?.future ?? results;
   }
 
   @override

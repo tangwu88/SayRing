@@ -9,6 +9,28 @@ class AppLocalizationsKo extends AppLocalizations {
   AppLocalizationsKo([String locale = 'ko']) : super(locale);
 
   @override
+  String get deviceSearchHelpTitle => '반지를 찾을 수 없나요?';
+
+  @override
+  String get deviceSearchHelpPower => '반지를 충전해 깨운 뒤 휴대전화 가까이에 놓고 다시 검색하세요.';
+
+  @override
+  String get deviceSearchHelpAccess =>
+      '블루투스를 켜고 Say Ring의 블루투스 또는 근처 기기 접근을 허용하세요. 위치는 시스템에서 요청할 때만 켜세요.';
+
+  @override
+  String get deviceSearchHelpOtherPhone =>
+      '반지가 다른 휴대전화나 반지 앱에 연결되어 있다면 해당 기기나 앱에서 연결을 끊고 여기서 다시 검색하세요.';
+
+  @override
+  String get deviceSearchHelpRebindIos =>
+      '이전에 등록한 반지라면 먼저 기기 페이지에서 다시 연결해 보세요. 등록을 해제했고 다시 추가해야 하는데도 검색되지 않을 때만 설정 → Bluetooth에서 해당 반지를 선택하고 이 기기 지우기를 누른 뒤 다시 검색하세요. 처음 연결할 때는 앱에서 바로 검색하세요.';
+
+  @override
+  String get deviceSearchHelpRebindAndroid =>
+      '이전에 등록한 반지라면 먼저 기기 페이지에서 다시 연결해 보세요. 등록을 해제했고 다시 추가해야 하는데도 검색되지 않을 때만 설정 → 블루투스에서 해당 반지를 선택하고 등록 해제를 누른 뒤 다시 검색하세요. 처음 연결할 때는 앱에서 바로 검색하세요.';
+
+  @override
   String get careMemberIdLabel => '회원 ID';
 
   @override
@@ -635,7 +657,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get checkWatchConnection =>
-      '링이 이 휴대전화의 블루투스 설정이나 다른 휴대전화에 연결되어 있으면 먼저 연결을 해제한 후 다시 검색하세요';
+      '반지를 깨워 가까이 두고 블루투스 접근을 허용하세요. 다른 휴대전화나 반지 앱에 연결되어 있다면 그곳에서 연결을 끊고 다시 검색하세요.';
 
   @override
   String get running => '달리기';

@@ -9,6 +9,29 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get deviceSearchHelpTitle => 'Can\'t find your ring?';
+
+  @override
+  String get deviceSearchHelpPower =>
+      'Charge your ring to wake it, then place it beside your phone and search again.';
+
+  @override
+  String get deviceSearchHelpAccess =>
+      'Turn on Bluetooth and allow Say Ring to access Bluetooth or nearby devices. Enable location only if the system asks for it.';
+
+  @override
+  String get deviceSearchHelpOtherPhone =>
+      'If the ring is connected to another phone or ring app, disconnect it there before searching again here.';
+
+  @override
+  String get deviceSearchHelpRebindIos =>
+      'Previously bound? Try reconnecting on the Devices page first. Only if you have unbound the ring, need to add it again and still cannot find it, select that ring in Settings → Bluetooth, tap Forget This Device, then search here again. For a first connection, search directly in the app.';
+
+  @override
+  String get deviceSearchHelpRebindAndroid =>
+      'Previously bound? Try reconnecting on the Devices page first. Only if you have unbound the ring, need to add it again and still cannot find it, select that ring in Settings → Bluetooth, tap Unpair, then search here again. For a first connection, search directly in the app.';
+
+  @override
   String get careMemberIdLabel => 'Member ID';
 
   @override
@@ -681,7 +704,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get checkWatchConnection =>
-      'If the ring is connected in this phone\'s Bluetooth settings or on another phone, disconnect it and search again';
+      'Keep the ring awake and nearby, and allow Bluetooth access. If it is connected to another phone or ring app, disconnect it there and search again.';
 
   @override
   String get running => 'Running';

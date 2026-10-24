@@ -110,6 +110,42 @@ abstract class AppLocalizations {
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
   ];
 
+  /// No description provided for @deviceSearchHelpTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Can\'t find your ring?'**
+  String get deviceSearchHelpTitle;
+
+  /// No description provided for @deviceSearchHelpPower.
+  ///
+  /// In en, this message translates to:
+  /// **'Charge your ring to wake it, then place it beside your phone and search again.'**
+  String get deviceSearchHelpPower;
+
+  /// No description provided for @deviceSearchHelpAccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Turn on Bluetooth and allow Say Ring to access Bluetooth or nearby devices. Enable location only if the system asks for it.'**
+  String get deviceSearchHelpAccess;
+
+  /// No description provided for @deviceSearchHelpOtherPhone.
+  ///
+  /// In en, this message translates to:
+  /// **'If the ring is connected to another phone or ring app, disconnect it there before searching again here.'**
+  String get deviceSearchHelpOtherPhone;
+
+  /// No description provided for @deviceSearchHelpRebindIos.
+  ///
+  /// In en, this message translates to:
+  /// **'Previously bound? Try reconnecting on the Devices page first. Only if you have unbound the ring, need to add it again and still cannot find it, select that ring in Settings → Bluetooth, tap Forget This Device, then search here again. For a first connection, search directly in the app.'**
+  String get deviceSearchHelpRebindIos;
+
+  /// No description provided for @deviceSearchHelpRebindAndroid.
+  ///
+  /// In en, this message translates to:
+  /// **'Previously bound? Try reconnecting on the Devices page first. Only if you have unbound the ring, need to add it again and still cannot find it, select that ring in Settings → Bluetooth, tap Unpair, then search here again. For a first connection, search directly in the app.'**
+  String get deviceSearchHelpRebindAndroid;
+
   /// No description provided for @careMemberIdLabel.
   ///
   /// In en, this message translates to:
@@ -1277,7 +1313,7 @@ abstract class AppLocalizations {
   /// No description provided for @checkWatchConnection.
   ///
   /// In en, this message translates to:
-  /// **'If the ring is connected in this phone\'s Bluetooth settings or on another phone, disconnect it and search again'**
+  /// **'Keep the ring awake and nearby, and allow Bluetooth access. If it is connected to another phone or ring app, disconnect it there and search again.'**
   String get checkWatchConnection;
 
   /// No description provided for @running.

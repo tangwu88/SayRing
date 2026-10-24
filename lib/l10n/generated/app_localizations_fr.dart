@@ -9,6 +9,29 @@ class AppLocalizationsFr extends AppLocalizations {
   AppLocalizationsFr([String locale = 'fr']) : super(locale);
 
   @override
+  String get deviceSearchHelpTitle => 'Bague introuvable ?';
+
+  @override
+  String get deviceSearchHelpPower =>
+      'Rechargez la bague pour la réveiller, placez-la près du téléphone et relancez la recherche.';
+
+  @override
+  String get deviceSearchHelpAccess =>
+      'Activez le Bluetooth et autorisez Say Ring à accéder au Bluetooth ou aux appareils à proximité. Activez la localisation uniquement si le système le demande.';
+
+  @override
+  String get deviceSearchHelpOtherPhone =>
+      'Si la bague est connectée à un autre téléphone ou à une autre application, déconnectez-la de cet appareil ou de cette application avant de relancer la recherche ici.';
+
+  @override
+  String get deviceSearchHelpRebindIos =>
+      'Déjà liée auparavant ? Essayez d’abord de la reconnecter depuis la page Appareils. Uniquement si le lien a été supprimé, que vous devez l’ajouter à nouveau et qu’elle reste introuvable : sélectionnez cette bague dans Réglages → Bluetooth, touchez Oublier cet appareil, puis relancez la recherche ici. Pour une première connexion, recherchez directement dans l’application.';
+
+  @override
+  String get deviceSearchHelpRebindAndroid =>
+      'Déjà liée auparavant ? Essayez d’abord de la reconnecter depuis la page Appareils. Uniquement si le lien a été supprimé, que vous devez l’ajouter à nouveau et qu’elle reste introuvable : sélectionnez cette bague dans Paramètres → Bluetooth, touchez Dissocier, puis relancez la recherche ici. Pour une première connexion, recherchez directement dans l’application.';
+
+  @override
   String get careMemberIdLabel => 'Identifiant membre';
 
   @override
@@ -696,7 +719,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get checkWatchConnection =>
-      'Si la bague est connectée au Bluetooth de ce téléphone ou d’un autre, déconnectez-la puis relancez la recherche';
+      'Gardez la bague éveillée et à proximité et autorisez l’accès au Bluetooth. Si elle est connectée à un autre téléphone ou à une autre application, déconnectez-la là-bas puis relancez la recherche.';
 
   @override
   String get running => 'Course';
