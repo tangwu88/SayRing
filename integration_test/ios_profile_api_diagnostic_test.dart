@@ -90,7 +90,7 @@ void main() {
       'errorCode': errorCode,
       'requests': client.events,
     };
-    binding.reportData = {'profileApiProbe': result};
+    binding.reportData = {...?binding.reportData, 'profileApiProbe': result};
     // Status metadata only. No OTP, sign-in, profile write or session clearing.
     // ignore: avoid_print
     print('iOS profile API probe: ${jsonEncode(result)}');
