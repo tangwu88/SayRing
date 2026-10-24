@@ -35,3 +35,13 @@ R7当前已保存目标在OS配对列表中，Profile初版安装成功保留登
 ## 后台协调
 
 服务端候选f6e2dec完整检查及推送后，用户另明确授权“现在发布后台代码”。独立干净main运行Start/Publish全部门禁通过，仅本轮12文件，提交eca857da1755d8e115cafdb90634276f5889a888，CI https://github.com/tangwu88/saydianserver/actions/runs/40062660169 正在运行，尚未视为上线。部署前public capability短信true、邮箱false、旧verificationRequired=false；新流程通过显式authFlow及公开能力协同，不提前停用旧版验证码客户端，不修改实际邮件凭证。生产回查另续记。
+
+## 最终可核对回执（2026-10-24）
+
+- App功能提交74c5ec23102257977c290617435271f8536359f2已推送codex/login-camera-r7ultra-1136-20261024，ls-remote一致；未将尚未完成R7实物验收的候选擅自推广为main基线。
+- 从该功能源码生成正式Android 1.0.6(1136)，原正式证书SHA256=81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de。APK路径E:\SayRing-market-artifacts-20261024\login-camera-recovery-1136-final2\android\SayRing-1.0.6-1136-release.apk，72,046,779字节，SHA256=F5B91308FA5245750B9859643CC62CE36A72DD31C6CFCF41FF4BCC1ABEC0649D。apksigner、zipalign -P16、正式包名/版本/JPush权限与双ARM门禁均通过；ARM64全16KB，保留已审JPush jutils单ABI及两项ARM32 4KB依赖边界。android/key.properties已由签名器finally清理。QRing构建副本30项不变，仅移除两条mapping输出规则。
+- 原生SDK嵌套DEMO/SDK Guide只读核对：手势按官方sendGestureConfig及系统createBond接入；Gensor采集是另一项命令，未猜测追加或调用removeBond。没有对真实戒指发重置、清理、解绑命令。
+- 主站CI verify和auto-deploy/deploy均success；root与/global readiness均eca857da1755d8e115cafdb90634276f5889a888。公开Say Ring能力sms=true、email=false、explicitRegistrationCodeLogin=true、verificationRequired=true；已发布后台/admin/及入口JS均200，主bundle实际包含aliyun_dm/accountName/fromAlias字段。首次只读静态验证脚本误假设懒加载IntegrationsView分包，后确认当前配置在主bundle，不是发布失败。
+- 同一Actions run的独立auto-deploy-us/deploy在SSH receiver阶段exit2，因此整个run为failure，不能写全站/整个CI成功。未重试或修改美国环境、凭据、维护状态；本轮主站实际版本和成功任务单独验收。邮箱真实投递尚未验收，没有修改/启用生产邮件配置。
+- 手机仍在锁屏及第二份Profile覆盖安装等待，已发解锁确认问题，尚未收到后续答复。当前不能声称已安装本次正式APK或R7 Ultra手势/连接稳定及照片相册实测通过；相机测试授权的一张真实照片尚未拍摄。完成手机确认后先在新Profile复测，再保留数据覆盖本段正式APK并核对安装包来源，不卸载/不清数据。
+- 本轮广泛蓝牙logcat采集已停止，只保留Git外私有证据；Windows iOS原生/真机及原生鸿蒙新登录界面仍不计完成。本次Node发现135项中127通过、8项macOS执行条件跳过；命令保留旧Windows精确skip-pattern，不将未实际运行的额外fixture算作通过。
