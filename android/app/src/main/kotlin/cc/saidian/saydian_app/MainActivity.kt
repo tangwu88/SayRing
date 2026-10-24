@@ -1914,12 +1914,24 @@ private class VeepooWearableAdapter(context: android.content.Context) {
                         values,
                     )
                         ?: error("MediaStore insert failed")
-                appContext.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
-                    ?: error("MediaStore stream failed")
-                values.clear()
-                values.put(MediaStore.Images.Media.IS_PENDING, 0)
-                appContext.contentResolver.update(uri, values, null, null)
+                try {
+                    appContext.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                        ?: error("MediaStore stream failed")
+                    values.clear()
+                    values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                    check(appContext.contentResolver.update(uri, values, null, null) == 1) {
+                        "MediaStore did not publish the captured image"
+                    }
+                } catch (error: Exception) {
+                    // Only retire the unfinished row created by THIS capture.
+                    runCatching { appContext.contentResolver.delete(uri, null, null) }
+                    throw error
+                }
             } else {
+                if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+                    throw SecurityException("Photo write permission required")
+                }
                 @Suppress("DEPRECATION")
                 val directory =
                     File(
@@ -1939,7 +1951,10 @@ private class VeepooWearableAdapter(context: android.content.Context) {
             callback.success(mapOf("saved" to true, "fileName" to safeName))
         }.onFailure { error ->
             Log.e("SaidianMain", "Gallery image save failed", error)
-            callback.error("GALLERY_IMAGE_SAVE_FAILED", "照片保存失败，请检查相册权限后重试")
+            callback.error(
+                if (error is SecurityException) "PHOTO_PERMISSION_DENIED" else "GALLERY_IMAGE_SAVE_FAILED",
+                "照片保存失败，请检查相册权限或空间后重试",
+            )
         }
     }
 

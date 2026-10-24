@@ -8,6 +8,36 @@ import 'package:saydian_app/domain/wearable_sync_result.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test(
+    'Android exact bond lookup does not imply SDK connection or capabilities',
+    () async {
+      const lookupChannel = MethodChannel('test/coolwear-bond-lookup');
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(lookupChannel, (call) async {
+            calls.add(call);
+            return {
+              'id': 'AA:BB:CC:DD:EE:01',
+              'name': 'SD-RING-R7 Ultra',
+              'model': 'R7Ultra',
+              'bonded': true,
+            };
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(lookupChannel, null),
+      );
+      final bridge = CoolWearAndroidWearableBridge(methods: lookupChannel);
+      expect(bridge, isA<WearableBoundDeviceLookupBridge>());
+      expect(bridge, isNot(isA<WearableExactTargetRecoveryBridge>()));
+      final device = await bridge.lookupPreviouslyBoundDevice(
+        'AA:BB:CC:DD:EE:01',
+      );
+      expect(device?.id, 'AA:BB:CC:DD:EE:01');
+      expect(calls.map((call) => call.method), ['lookupBondedDevice']);
+      expect(calls.single.arguments, {'id': 'AA:BB:CC:DD:EE:01'});
+    },
+  );
   const channel = MethodChannel('cc.saidian.ring/commands');
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;

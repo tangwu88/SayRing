@@ -57,10 +57,9 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
   bool get _accountSetupMode => _mode != _AuthMode.signIn;
   bool get _consentReady =>
       !_loading && (_capabilities?.consentVersion?.trim().isNotEmpty ?? false);
-  bool get _codeRequired =>
-      _mode == _AuthMode.reset ||
-      (_mode == _AuthMode.signUp &&
-          (_capabilities?.verificationRequired ?? true));
+  // Say Ring registration always verifies ownership, even against an old
+  // server advertising the temporary unverified-registration compatibility flag.
+  bool get _codeRequired => _accountSetupMode;
 
   @override
   void initState() {
@@ -172,8 +171,8 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
 
   Future<void> _sendCode() async {
     if (_busy || _remaining > 0) return;
-    if (_mode == _AuthMode.signUp && !_ageConfirmed) {
-      setState(() => _error = 'age');
+    if (_mode == _AuthMode.signUp && (!_ageConfirmed || !_accepted)) {
+      setState(() => _error = !_ageConfirmed ? 'age' : 'consent');
       return;
     }
     GlobalAccountIdentity identity;
@@ -253,15 +252,6 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
               identity.identifier,
               _password.text,
               privacyConsentGranted: _accepted,
-            )
-          : _mode == _AuthMode.signUp && !_codeRequired
-          ? await widget.controller.registerGlobalWithoutVerification(
-              identity: identity,
-              password: _password.text,
-              locale: _locale,
-              privacyConsentGranted: _accepted,
-              consentVersion: _capabilities?.consentVersion,
-              ageConfirmed: _ageConfirmed,
             )
           : await widget.controller.completeGlobalVerification(
               challenge: _challenge!,

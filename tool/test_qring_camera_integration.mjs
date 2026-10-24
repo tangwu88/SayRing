@@ -69,7 +69,10 @@ test('QRing photo sessions confirm ACKs, keep alive and fence old shutter events
   assert.match(ios, /removeObserver:self name:OdmBandTakePictureNotification/);
   const ui = read('lib/ui/prototype/device_features.dart');
   assert.match(ui, /_galleryPermissionDenied = error.code == 'PHOTO_PERMISSION_DENIED'/);
-  assert.match(ui, /key: const ValueKey\('camera-photo-settings-button'\)/);
-  assert.match(ui, /onPressed: openAppSettings/);
+  assert.match(ui, /RingCameraPanel\(/);
+  assert.match(ui, /onPhotoSettings: _galleryPermissionDenied \? openAppSettings : null/);
+  const panel = read('lib/ui/widgets/ring_camera_panel.dart');
+  assert.match(panel, /key: const ValueKey\('camera-photo-settings-button'\)/);
+  assert.match(panel, /onPressed: onPhotoSettings/);
   assert.match(ui, /_galleryPermissionDenied = false/);
 });

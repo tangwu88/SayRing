@@ -10,9 +10,10 @@ import '../services/api_client.dart';
 import '../services/app_controller.dart';
 import 'brand_assets.dart';
 import 'global_legal_page.dart';
+import 'global_auth_page.dart';
 
-/// Say Ring shares the global member account. Phone sign-in uses a one-time
-/// code. Account creation is performed by the existing verified-code endpoint.
+/// Say Ring shares the global member account. Password sign-in is the default
+/// for both channels; code sign-in and verified registration remain explicit.
 class GlobalCodeLoginPage extends StatefulWidget {
   const GlobalCodeLoginPage({super.key, required this.controller});
 
@@ -26,8 +27,8 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   final _contact = TextEditingController();
   final _code = TextEditingController();
   final _password = TextEditingController();
-  final AccountChannel _channel = AccountChannel.sms;
-  final bool _emailPasswordMode = false;
+  AccountChannel _channel = AccountChannel.sms;
+  bool _usePassword = true;
   GlobalAuthCapabilities? _capabilities;
   VerificationChallenge? _challenge;
   Timer? _timer;
@@ -94,12 +95,12 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     // Editing a contact never resets the server's resend cooldown.
   }
 
-  bool get _passwordMode =>
-      _channel == AccountChannel.email && _emailPasswordMode;
+  bool get _passwordMode => _usePassword;
 
   String _errorFrom(Object error) {
     if (error is FormatException) return error.message;
     if (error is ApiException) {
+      if (error.code == 'registration_required') return 'register';
       if (error.code == 'minimum_age_confirmation_required') return 'age';
       if (error.statusCode == 429) return 'rate';
       if (error.code == 'verification_invalid' ||
@@ -130,6 +131,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     'consent' => l.consentRequired,
     'password' => l.enterPassword,
     'login' => l.loginFailed,
+    'register' => '账号尚未注册，请先使用密码和验证码注册',
     'age' =>
       Localizations.localeOf(context).languageCode == 'zh'
           ? '请确认已满14周岁后继续'
@@ -206,7 +208,8 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
       setState(() => _error = _errorFrom(error));
       return;
     }
-    if (_capabilities?.permitsLogin(identity) != true) {
+    if (_capabilities?.permitsLogin(identity) != true ||
+        _capabilities?.explicitRegistrationCodeLogin != true) {
       setState(() => _error = 'service');
       return;
     }
@@ -249,6 +252,20 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     }
   }
 
+  Future<void> _openAccountSetup(bool reset) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => GlobalAuthPage(
+          controller: widget.controller,
+          resetPassword: reset,
+          createAccount: !reset,
+          initialChannel: _channel,
+        ),
+      ),
+    );
+    if (mounted) await _loadCapabilities();
+  }
+
   Future<void> _submit() async {
     if (_busy) return;
     GlobalAccountIdentity identity;
@@ -260,7 +277,8 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     }
     if (_passwordMode
         ? _capabilities == null
-        : _capabilities?.permitsLogin(identity) != true) {
+        : (_capabilities?.permitsLogin(identity) != true ||
+              _capabilities?.explicitRegistrationCodeLogin != true)) {
       setState(() => _error = 'service');
       return;
     }
@@ -293,7 +311,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     });
     try {
       final success = _passwordMode
-          ? await widget.controller.loginGlobalWithEmailPassword(
+          ? await widget.controller.loginGlobalWithPassword(
               identity: identity,
               password: _password.text,
               consentVersion: consentVersion,
@@ -406,33 +424,32 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                     icon: const Icon(Icons.refresh),
                     label: Text(l.retry),
                   ),
-                if (_capabilities?.wechatApp.enabled == true &&
-                    (kIsWeb ||
-                        defaultTargetPlatform != TargetPlatform.iOS)) ...[
-                  FilledButton.icon(
-                    key: const Key('global-wechat-login'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF07883E),
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size.fromHeight(48),
-                    ),
-                    onPressed: _busy ? null : _wechatLogin,
-                    icon: const Icon(Icons.wechat_rounded),
-                    label: const Text('微信授权登录'),
-                  ),
-                  const SizedBox(height: 12),
-                  const Row(
-                    children: [
-                      Expanded(child: Divider()),
-                      Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 12),
-                        child: Text('或使用手机号登录'),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final channel in [
+                      AccountChannel.sms,
+                      AccountChannel.email,
+                    ])
+                      ChoiceChip(
+                        label: Text(
+                          channel == AccountChannel.sms
+                              ? l.phoneNumber
+                              : l.email,
+                        ),
+                        selected: _channel == channel,
+                        onSelected: _busy
+                            ? null
+                            : (_) => setState(() {
+                                _channel = channel;
+                                _usePassword = true;
+                                _contact.clear();
+                                _password.clear();
+                                _resetChallenge();
+                              }),
                       ),
-                      Expanded(child: Divider()),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                ],
+                  ],
+                ),
                 TextField(
                   key: const Key('code-login-contact'),
                   controller: _contact,
@@ -461,10 +478,24 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                   ),
                   onChanged: (_) => setState(_resetChallenge),
                 ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    key: const Key('code-login-mode'),
+                    onPressed: _busy
+                        ? null
+                        : () => setState(() {
+                            _usePassword = !_usePassword;
+                            _password.clear();
+                            _resetChallenge();
+                          }),
+                    child: Text(_passwordMode ? '使用验证码登录' : '使用密码登录'),
+                  ),
+                ),
                 const SizedBox(height: 12),
                 if (_passwordMode)
                   TextField(
-                    key: const Key('email-login-password'),
+                    key: const Key('code-login-password'),
                     controller: _password,
                     enabled: !_busy,
                     obscureText: true,
@@ -568,13 +599,20 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                   onPressed: _busy ? null : _submit,
                   child: Text(_busy ? l.pleaseWait : l.signIn),
                 ),
-                const Padding(
-                  padding: EdgeInsets.only(top: 8),
-                  child: Text(
-                    '未注册的手机号验证成功后将自动创建账号',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12),
-                  ),
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      key: const Key('code-login-create'),
+                      onPressed: _busy ? null : () => _openAccountSetup(false),
+                      child: Text(l.createAccount),
+                    ),
+                    TextButton(
+                      key: const Key('code-login-recover'),
+                      onPressed: _busy ? null : () => _openAccountSetup(true),
+                      child: Text(l.forgotPassword),
+                    ),
+                  ],
                 ),
                 if (widget.controller.supportsLocalOnlyUse) ...[
                   const SizedBox(height: 12),
@@ -599,6 +637,20 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 12),
                     ),
+                  ),
+                ],
+                if (_capabilities?.wechatApp.enabled == true &&
+                    (kIsWeb ||
+                        defaultTargetPlatform != TargetPlatform.iOS)) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    key: const Key('global-wechat-login'),
+                    onPressed: _busy ? null : _wechatLogin,
+                    icon: const Icon(
+                      Icons.wechat_rounded,
+                      color: Color(0xFF07C160),
+                    ),
+                    label: const Text('微信授权登录'),
                   ),
                 ],
               ],

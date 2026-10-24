@@ -8,8 +8,28 @@ import '../domain/wearable_sync_result.dart';
 import '../domain/wellness_release_policy.dart';
 import 'wearable_bridge.dart';
 
-/// Only iOS implements continuous, account-owned native recovery. Android
-/// retains its existing scan/connection implementation and method contract.
+/// Android can recover only an exact, owner-bound target already bonded by the
+/// OS. It still uses the normal vendor handshake, never the SDK's saved target.
+class CoolWearAndroidWearableBridge extends CoolWearWearableBridge
+    implements WearableBoundDeviceLookupBridge {
+  CoolWearAndroidWearableBridge({
+    super.methods,
+    super.events,
+    super.healthReleasePolicy,
+  });
+
+  @override
+  Future<DeviceInfo?> lookupPreviouslyBoundDevice(
+    String nativeIdentifier,
+  ) async {
+    final value = await _invoke<Map<Object?, Object?>>('lookupBondedDevice', {
+      'id': nativeIdentifier,
+    });
+    return value == null || value.isEmpty ? null : DeviceInfo.fromMap(value);
+  }
+}
+
+/// Only iOS implements continuous, account-owned native recovery.
 class CoolWearIosWearableBridge extends CoolWearWearableBridge
     implements
         WearableExactTargetRecoveryBridge,

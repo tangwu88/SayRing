@@ -205,8 +205,11 @@ void main() {
 
   test('ring camera guidance uses shake control instead of a watch button', () {
     final source = readDartLibrarySource('lib/ui/prototype_pages.dart');
-
-    expect(source, contains('摇动戒指触发拍照'));
+    expect(source, contains('RingCameraPanel('));
+    final panel = File(
+      'lib/ui/widgets/ring_camera_panel.dart',
+    ).readAsStringSync();
+    expect(panel, contains('摇动戒指触发拍照'));
     expect(source, isNot(contains('按戒指拍照键')));
     expect(source, isNot(contains('戒指弹出确认')));
   });

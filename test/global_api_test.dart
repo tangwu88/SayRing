@@ -361,6 +361,7 @@ void main() {
         expect(body['consentVersion'], 'reviewed-test-v1');
         expect(body['product'], 'say-ring');
         expect(body['ageConfirmed'], isTrue);
+        expect(body['authFlow'], 'verified-password-v1');
         return http.Response(
           jsonEncode({
             'token': 'synthetic-access',
@@ -696,6 +697,33 @@ void main() {
     });
   });
   group('global auth', () {
+    test(
+      'Say Ring phone password login preserves product consent and E.164 identity',
+      () async {
+        final api = GlobalSaydianApiClient(
+          MemorySessionVault(),
+          client: MockClient((request) async {
+            expect(request.url.path, '/global/api/saydian-app/v2/auth/login');
+            expect(jsonDecode(request.body), {
+              'channel': 'sms',
+              'identifier': '+8613800138000',
+              'password': 'Synthetic123',
+              'product': 'say-ring',
+              'locale': 'zh-Hans',
+              'consentVersion': 'reviewed-ring-v1',
+              'consentAccepted': true,
+            });
+            return ok(sessionData());
+          }),
+        );
+        await api.loginWithPassword(
+          identity: GlobalAccountIdentity.phone('13800138000', country: 'CN'),
+          password: 'Synthetic123',
+          consentVersion: 'reviewed-ring-v1',
+          locale: 'zh-Hans',
+        );
+      },
+    );
     test('Say Ring email password sign-in sends product consent', () async {
       final vault = MemorySessionVault();
       final api = GlobalSaydianApiClient(
@@ -718,7 +746,7 @@ void main() {
           return ok(sessionData());
         }),
       );
-      final result = await api.loginWithEmailPassword(
+      final result = await api.loginWithPassword(
         identity: GlobalAccountIdentity.email('Review@Example.com'),
         password: 'synthetic-password',
         consentVersion: 'reviewed-ring-v1',

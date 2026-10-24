@@ -115,7 +115,17 @@ void main() {
       }
       expect(source, isNot(contains('_aboutPlainText')));
       expect(source, contains('plainTextFromHtml(raw)'));
-      expect(source, contains('camera-photo-settings-button'));
+      expect(source, contains('RingCameraPanel('));
+      expect(
+        source,
+        contains(
+          'onPhotoSettings: _galleryPermissionDenied ? openAppSettings : null',
+        ),
+      );
+      expect(
+        File('lib/ui/widgets/ring_camera_panel.dart').readAsStringSync(),
+        contains('camera-photo-settings-button'),
+      );
     },
   );
 

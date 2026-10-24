@@ -215,7 +215,7 @@ void main() {
     expect(vault.session, isNull);
     expect(tester.takeException(), isNull);
   });
-  testWidgets('temporary registration asks for no verification code', (
+  testWidgets('old temporary flag cannot bypass registration verification', (
     tester,
   ) async {
     final controller = NoCodeController();
@@ -228,8 +228,8 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('auth-toggle-mode')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('auth-code')), findsNothing);
-    expect(find.text('Send code'), findsNothing);
+    expect(find.byKey(const Key('auth-code')), findsOneWidget);
+    expect(find.text('Send code'), findsOneWidget);
 
     await tester.tap(find.text('Email').first);
     await tester.pumpAndSettle();
@@ -267,10 +267,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(controller.registeredIdentity, isNull);
-    expect(
-      find.textContaining('at least 14 years old to continue'),
-      findsOneWidget,
-    );
     await tester.ensureVisible(find.byKey(const Key('auth-minimum-age')));
     await tester.tap(find.byKey(const Key('auth-minimum-age')));
     await tester.pumpAndSettle();
@@ -278,10 +274,11 @@ void main() {
     await tester.tap(find.byKey(const Key('auth-submit')));
     await tester.pumpAndSettle();
 
-    expect(controller.registeredIdentity?.identifier, 'qa@example.com');
-    expect(controller.registeredPassword, 'Synthetic123');
-    expect(controller.registeredConsent, 'reviewed-test-v1');
-    expect(controller.registeredAge, isTrue);
+    expect(controller.registeredIdentity, isNull);
+    expect(controller.registeredPassword, isNull);
+    expect(controller.registeredConsent, isNull);
+    expect(controller.registeredAge, isNull);
+    expect(find.byKey(const Key('auth-code')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
   testWidgets('reset entry is the same international verified-contact form', (

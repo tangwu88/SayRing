@@ -16,7 +16,6 @@ class DeviceFeaturePage extends StatefulWidget {
 
 class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     with WidgetsBindingObserver {
-  static const _nativeMethods = MethodChannel('cc.saidian/wearable_methods');
   DeviceScreenSettings? _screen;
   Map<String, Object?> _featureData = const {};
   bool _finding = false;
@@ -25,6 +24,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   XFile? _lastPhoto;
   String? _cameraMessage;
   bool _takingPhoto = false;
+  bool _photoSaved = false;
   bool _cameraRemoteStarted = false;
   bool _cameraInitializing = false;
   bool _cameraSuspending = false;
@@ -128,6 +128,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       _featureReadGeneration++;
       _featureData = {};
       if (widget.feature == DeviceFeature.camera) {
+        _lastPhoto = null;
+        _photoSaved = false;
+        _galleryPermissionDenied = false;
         unawaited(_suspendCamera(message: '连接已改变，请重新打开相机'));
         return;
       }
@@ -512,34 +515,75 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         _takingPhoto) {
       return;
     }
+    final context = _currentFeatureContext;
+    bool isCurrent() => mounted && context == _currentFeatureContext;
     setState(() => _takingPhoto = true);
     try {
       final photo = await camera.takePicture();
-      final bytes = await photo.readAsBytes();
-      final fileName =
-          'saidian-camera-${DateTime.now().millisecondsSinceEpoch}.jpg';
-      await _nativeMethods.invokeMethod<Object?>('saveGalleryImage', {
-        'bytes': bytes,
-        'fileName': fileName,
-        'mimeType': 'image/jpeg',
-      });
-      if (mounted) {
+      if (!isCurrent()) return;
+      if (isCurrent()) {
         setState(() {
           _lastPhoto = photo;
+          _photoSaved = false;
+        });
+      }
+      await _savePhoto(photo);
+      if (isCurrent()) {
+        setState(() {
+          _lastPhoto = photo;
+          _photoSaved = true;
           _galleryPermissionDenied = false;
           _cameraMessage = '照片已保存到手机相册';
         });
       }
     } on CameraException catch (error) {
-      if (mounted) {
+      if (isCurrent()) {
         setState(() => _cameraMessage = '拍照失败（${error.code}），请稍后重试');
       }
     } on PlatformException catch (error) {
-      if (mounted) {
+      if (isCurrent()) {
         setState(() {
           _galleryPermissionDenied = error.code == 'PHOTO_PERMISSION_DENIED';
           _cameraMessage = error.message ?? '照片保存失败，请检查相册权限后重试';
         });
+      }
+    } catch (_) {
+      if (isCurrent()) {
+        setState(() => _cameraMessage = '照片未保存，请重试保存这张照片');
+      }
+    } finally {
+      if (mounted) setState(() => _takingPhoto = false);
+    }
+  }
+
+  Future<void> _savePhoto(XFile photo) async {
+    await const CameraPhotoSaver().save(
+      await photo.readAsBytes(),
+      'say-ring-camera-${photo.name.replaceAll(RegExp(r"[^0-9A-Za-z._-]"), "_")}.jpg',
+    );
+  }
+
+  Future<void> _retryPhotoSave() async {
+    final photo = _lastPhoto;
+    if (photo == null || _takingPhoto) return;
+    final context = _currentFeatureContext;
+    bool isCurrent() =>
+        mounted &&
+        context == _currentFeatureContext &&
+        identical(photo, _lastPhoto);
+    setState(() => _takingPhoto = true);
+    try {
+      await _savePhoto(photo);
+      if (isCurrent()) {
+        setState(() {
+          _photoSaved = true;
+          _galleryPermissionDenied = false;
+          _cameraMessage = '照片已保存到手机相册';
+        });
+      }
+    } catch (_) {
+      if (isCurrent()) {
+        setState(() => _cameraMessage = '照片仍未保存，请检查相册权限或空间后重试');
       }
     } finally {
       if (mounted) setState(() => _takingPhoto = false);
@@ -600,7 +644,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              if (widget.feature != DeviceFeature.gestureControl ||
+              if ((widget.feature != DeviceFeature.gestureControl &&
+                      widget.feature != DeviceFeature.camera) ||
                   !availability.isReady) ...[
                 _DeviceFeatureHeader(
                   feature: widget.feature,
@@ -1123,180 +1168,42 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
 
   Widget _buildCameraPanel() {
     final camera = _camera;
-    final previewHeight = math.min(
-      MediaQuery.sizeOf(context).height * .56,
-      560.0,
-    );
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          SizedBox(
-            height: previewHeight,
-            child: ColoredBox(
-              color: Colors.black,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (camera != null &&
-                      camera.value.isInitialized &&
-                      !camera.value.hasError)
-                    Center(
-                      child: AspectRatio(
-                        // Camera preview sizes are reported in the sensor's
-                        // landscape orientation. In this portrait page the
-                        // inverse ratio preserves the natural image without
-                        // stretching or cropping.
-                        aspectRatio: 1 / camera.value.aspectRatio,
-                        child: CameraPreview(camera),
-                      ),
-                    )
-                  else
-                    Center(
-                      child: _cameraMessage == null
-                          ? const CircularProgressIndicator(color: Colors.white)
-                          : const Icon(
-                              Icons.no_photography_outlined,
-                              color: Colors.white70,
-                              size: 54,
-                            ),
-                    ),
-                  Positioned(
-                    left: 16,
-                    right: 16,
-                    bottom: 16,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: .58),
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 7,
-                            ),
-                            child: Text(
-                              _cameraMessage ?? '正在打开相机',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Semantics(
-                          button: true,
-                          label: '拍照并保存到手机',
-                          child: SizedBox(
-                            width: 68,
-                            height: 68,
-                            child: FilledButton(
-                              key: const ValueKey('camera-shutter-button'),
-                              onPressed:
-                                  camera == null ||
-                                      camera.value.hasError ||
-                                      _takingPhoto
-                                  ? null
-                                  : _takePhoto,
-                              style: FilledButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: SaydianColors.brandRed,
-                                disabledBackgroundColor: Colors.white54,
-                                shape: const CircleBorder(
-                                  side: BorderSide(
-                                    color: Colors.white,
-                                    width: 4,
-                                  ),
-                                ),
-                                padding: EdgeInsets.zero,
-                              ),
-                              child: _takingPhoto
-                                  ? const SizedBox.square(
-                                      dimension: 22,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: SaydianColors.brandRed,
-                                      ),
-                                    )
-                                  : const Icon(
-                                      Icons.camera_alt_rounded,
-                                      size: 30,
-                                    ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+    final ready =
+        camera != null && camera.value.isInitialized && !camera.value.hasError;
+    return RingCameraPanel(
+      preview: ready
+          ? Center(
+              child: AspectRatio(
+                aspectRatio: 1 / camera.value.aspectRatio,
+                child: CameraPreview(camera),
               ),
+            )
+          : Center(
+              child: _cameraInitializing
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Icon(
+                      Icons.camera_alt_outlined,
+                      color: Colors.white54,
+                      size: 52,
+                    ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              children: [
-                const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.watch_rounded, color: SaydianColors.brandRed),
-                    SizedBox(width: 8),
-                    Flexible(
-                      child: Text(
-                        '可点击手机快门，也可摇动戒指触发拍照；照片会保存到手机相册。',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: SaydianColors.muted),
-                      ),
-                    ),
-                  ],
-                ),
-                if (_galleryPermissionDenied) ...[
-                  const SizedBox(height: 14),
-                  OutlinedButton.icon(
-                    key: const ValueKey('camera-photo-settings-button'),
-                    onPressed: openAppSettings,
-                    icon: const Icon(Icons.settings_outlined),
-                    label: const Text('允许保存照片'),
-                  ),
-                ],
-                if (_cameraMessage != null &&
-                    (camera == null || !_cameraRemoteStarted)) ...[
-                  const SizedBox(height: 14),
-                  OutlinedButton.icon(
-                    key: const ValueKey('camera-retry-button'),
-                    onPressed:
-                        _cameraInitializing || _cameraPermissionRequesting
-                        ? null
-                        : _retryCamera,
-                    icon: Icon(
-                      _cameraPermissionPermanentlyDenied
-                          ? Icons.settings_outlined
-                          : Icons.refresh_rounded,
-                    ),
-                    label: Text(
-                      _cameraPermissionPermanentlyDenied ? '前往系统设置' : '重新打开相机',
-                    ),
-                  ),
-                ],
-                if (_lastPhoto != null) ...[
-                  const SizedBox(height: 16),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: Image.file(
-                      File(_lastPhoto!.path),
-                      height: 120,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
+      message: _cameraMessage ?? '正在打开相机',
+      remoteReady: _cameraRemoteStarted,
+      takingPhoto: _takingPhoto,
+      saved: _photoSaved,
+      onCapture: ready && !_takingPhoto ? _takePhoto : null,
+      onRetrySave: _lastPhoto != null && !_photoSaved ? _retryPhotoSave : null,
+      onPhotoSettings: _galleryPermissionDenied ? openAppSettings : null,
+      onRetryCamera:
+          _cameraMessage != null &&
+              (!ready || !_cameraRemoteStarted) &&
+              !_cameraInitializing &&
+              !_cameraPermissionRequesting
+          ? _retryCamera
+          : null,
+      thumbnail: _lastPhoto == null
+          ? null
+          : Image.file(File(_lastPhoto!.path), fit: BoxFit.cover),
     );
   }
 

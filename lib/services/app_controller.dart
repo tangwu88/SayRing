@@ -858,7 +858,7 @@ class AppController extends ChangeNotifier {
   Future<GlobalAuthCapabilities> globalAuthCapabilities() =>
       (_api as GlobalAccountApi).getAuthCapabilities();
 
-  Future<bool> loginGlobalWithEmailPassword({
+  Future<bool> loginGlobalWithPassword({
     required GlobalAccountIdentity identity,
     required String password,
     required String consentVersion,
@@ -866,7 +866,6 @@ class AppController extends ChangeNotifier {
     required bool privacyConsentGranted,
   }) async {
     if (isBusy ||
-        identity.channel != AccountChannel.email ||
         password.isEmpty ||
         consentVersion.trim().isEmpty ||
         !privacyConsentGranted) {
@@ -876,7 +875,7 @@ class AppController extends ChangeNotifier {
       _accountTransitioning = true;
       try {
         await _drainCloudSync();
-        session = await (_api as GlobalCodeAuthApi).loginWithEmailPassword(
+        session = await (_api as GlobalCodeAuthApi).loginWithPassword(
           identity: identity,
           password: password,
           consentVersion: consentVersion,

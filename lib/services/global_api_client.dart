@@ -29,7 +29,7 @@ abstract interface class GlobalAccountApi {
 }
 
 abstract interface class GlobalCodeAuthApi {
-  Future<Session> loginWithEmailPassword({
+  Future<Session> loginWithPassword({
     required GlobalAccountIdentity identity,
     required String password,
     required String consentVersion,
@@ -1872,6 +1872,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     }
     final data = await _sharedCodeAuth(GlobalEnvironment.sharedCodeLoginPath, {
       'product': GlobalEnvironment.productId,
+      'authFlow': 'verified-password-v1',
       'ageConfirmed': ageConfirmed,
       ...identity.toJson(),
       'challengeId': challengeId,
@@ -2013,16 +2014,14 @@ class GlobalSaydianApiClient extends SaydianApiClient
   }
 
   @override
-  Future<Session> loginWithEmailPassword({
+  Future<Session> loginWithPassword({
     required GlobalAccountIdentity identity,
     required String password,
     required String consentVersion,
     required String locale,
   }) {
-    if (identity.channel != AccountChannel.email ||
-        password.isEmpty ||
-        consentVersion.trim().isEmpty) {
-      throw const ApiException('Invalid email login request');
+    if (password.isEmpty || consentVersion.trim().isEmpty) {
+      throw const ApiException('Invalid password login request');
     }
     return _globalAuthenticate('auth/login', {
       ...identity.toJson(),

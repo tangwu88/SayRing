@@ -32,7 +32,7 @@ WearableBridge createProductionWearableBridge({
                 ? CoolWearIosWearableBridge(
                     healthReleasePolicy: healthReleasePolicy,
                   )
-                : CoolWearWearableBridge())
+                : CoolWearAndroidWearableBridge())
           : null),
   qring:
       qring ??

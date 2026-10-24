@@ -62,6 +62,11 @@ import io.flutter.plugin.common.MethodChannel;
 public final class CoolWearRingBridge
         implements MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
     private static final String TAG = "CoolWearRing";
+    private static void profileTrace(String event) {
+        // Profile-only structural diagnostics; no addresses, account/health data
+        // or command payloads. Release optimization removes this branch.
+        if ("profile".equals(BuildConfig.BUILD_TYPE)) System.err.println("SayRing BLE: " + event);
+    }
     // Confirmed model families, not a substitute for vendor device-info and
     // function-control callbacks. QRing R2* names remain on their own SDK.
     private static final long SCAN_MS = 8_000L;
@@ -366,6 +371,39 @@ public final class CoolWearRingBridge
         return RingNamePolicy.luckRingModel(name);
     }
 
+    static boolean isExactBondedTarget(String requested, String actual, String name) {
+        return requested != null && requested.matches("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}")
+                && requested.equalsIgnoreCase(actual) && supportedModel(name) != null;
+    }
+
+    private void lookupBondedDevice(MethodCall call, MethodChannel.Result result) {
+        profileTrace("exact bond lookup");
+        String id = call.argument("id");
+        BluetoothManager manager = (BluetoothManager) activity.getSystemService(Context.BLUETOOTH_SERVICE);
+        if (id == null || manager == null || manager.getAdapter() == null) {
+            result.success(null);
+            return;
+        }
+        for (BluetoothDevice device : manager.getAdapter().getBondedDevices()) {
+            if (device.getBondState() != BluetoothDevice.BOND_BONDED ||
+                    !isExactBondedTarget(id, device.getAddress(), device.getName())) continue;
+            String name = device.getName().trim();
+            Map<String, Object> value = new HashMap<>();
+            value.put("id", id);
+            value.put("name", name);
+            value.put("model", supportedModel(name));
+            value.put("hardwareAddress", id);
+            value.put("bonded", true);
+            // Only the owner's requested OS-bonded target is made eligible for
+            // normal connect. No bind/reset, capability or connection is implied.
+            scanned.put(id, value);
+            profileTrace("exact OS bond validated; SDK handshake still required");
+            result.success(value);
+            return;
+        }
+        result.success(null);
+    }
+
     private void receiveScannedDevices(List<MyBleDevice> devices) {
         if (pendingScan == null || devices == null) return;
         for (MyBleDevice device : devices) {
@@ -515,6 +553,7 @@ public final class CoolWearRingBridge
     }
 
     private void onConnectionState(Integer status) {
+        profileTrace("vendor connection callback " + status);
         if (status == null) return;
         if (status == K6_Action.RCVD.BLUE_CONNECTED) {
             if (!linkConnected) connectionEpoch++;
@@ -571,6 +610,7 @@ public final class CoolWearRingBridge
     }
 
     private void onDeviceInfo(K6_DevInfoStruct info) {
+        profileTrace("vendor device-info callback");
         if (connectedId == null || info == null) return;
         firmwareVersion = info.getSoftwareVer();
         deviceInfoReceived = true;
@@ -1290,6 +1330,7 @@ public final class CoolWearRingBridge
                 result.error("OPERATION_BUSY", "请等待手势指令确认", null);
                 return;
             }
+            profileTrace("method " + call.method + "; link=" + linkConnected + "; info=" + deviceInfoReceived);
             switch (call.method) {
                 case "clearRingHistory":
                     if (clearAttemptEpoch == connectionEpoch) {
@@ -1314,6 +1355,9 @@ public final class CoolWearRingBridge
                     helper.getSendDataManager().sendClearData();
                     syncedHealthRecords.clear(); syncedSportRecords.clear();
                     result.success("requested");
+                    break;
+                case "lookupBondedDevice":
+                    lookupBondedDevice(call, result);
                     break;
                 case "scanDevices":
                     if (pendingScan != null) {
