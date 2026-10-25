@@ -59,6 +59,75 @@ Map<String, Object?> capabilities({
 };
 
 void main() {
+  for (final testCase in [
+    ('zh', 503, '操作暂时无法完成，请稍后重试'),
+    ('zh-CN', 401, '登录已失效，请重新登录后重试'),
+    ('zh-Hant', 401, '登入已失效，請重新登入後再試'),
+    ('en', 401, 'Your session has expired. Please sign in again.'),
+    ('en', 503, 'This action could not be completed. Please try again.'),
+  ]) {
+    test(
+      'safe ${testCase.$1} member error ${testCase.$2} retains owner',
+      () async {
+        final vault = MemorySessionVault()..session = session();
+        final api = GlobalSaydianApiClient(
+          vault,
+          locale: () => testCase.$1,
+          client: MockClient(
+            (request) async => http.Response(
+              jsonEncode({
+                'code': testCase.$2,
+                'message': 'PRIVATE_UPSTREAM_BODY',
+                'errorKey': 'SAFE_CODE',
+              }),
+              testCase.$2,
+              request: request,
+            ),
+          ),
+        );
+        await expectLater(
+          api.getMemberProfile(),
+          throwsA(
+            isA<ApiException>()
+                .having((e) => e.message, 'localized safe message', testCase.$3)
+                .having((e) => e.statusCode, 'status retained', testCase.$2)
+                .having((e) => e.code, 'code retained', 'SAFE_CODE'),
+          ),
+        );
+        expect(vault.session?.accountKey, session().accountKey);
+        expect(vault.session?.accessToken, session().accessToken);
+      },
+    );
+  }
+  test('rejected password is not described as an expired session', () async {
+    final api = GlobalSaydianApiClient(
+      MemorySessionVault(),
+      locale: () => 'zh',
+      client: MockClient(
+        (request) async => http.Response(
+          jsonEncode({
+            'code': 401,
+            'message': 'PRIVATE_PASSWORD_ERROR',
+            'errorKey': 'INVALID_CREDENTIALS',
+          }),
+          401,
+          request: request,
+        ),
+      ),
+    );
+    await expectLater(
+      api.login('test@example.com', 'test-password'),
+      throwsA(
+        isA<ApiException>()
+            .having((e) => e.message, 'generic safe error', '操作暂时无法完成，请稍后重试')
+            .having(
+              (e) => e.code,
+              'authentication code retained',
+              'INVALID_CREDENTIALS',
+            ),
+      ),
+    );
+  });
   test(
     'AI errors preserve only safe typed diagnostics through global decoding',
     () async {

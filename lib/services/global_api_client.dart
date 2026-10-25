@@ -865,8 +865,28 @@ class GlobalSaydianApiClient extends SaydianApiClient
           providerCode: providerCode,
         );
       }
+      final locale = _locale().toLowerCase().replaceAll('_', '-');
+      final path = response.request?.url.path;
+      // A failed password attempt is not an expired signed-in session.
+      final signInRequired =
+          error.statusCode == 401 &&
+          path != null &&
+          (!path.contains('/auth/') || path.endsWith('/auth/refresh'));
+      final chinese = locale.startsWith('zh');
+      final traditional = locale.startsWith('zh-hant') || locale == 'zh-tw';
+      final message = signInRequired
+          ? chinese
+                ? traditional
+                      ? '登入已失效，請重新登入後再試'
+                      : '登录已失效，请重新登录后重试'
+                : 'Your session has expired. Please sign in again.'
+          : chinese
+          ? traditional
+                ? '操作暫時無法完成，請稍後再試'
+                : '操作暂时无法完成，请稍后重试'
+          : 'This action could not be completed. Please try again.';
       throw ApiException(
-        'This action could not be completed. Please try again.',
+        message,
         statusCode: error.statusCode,
         code: key ?? error.code,
       );

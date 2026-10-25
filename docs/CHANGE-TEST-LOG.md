@@ -1,5 +1,7 @@
 # 修改与测试记录索引
 
+- [2026-10-25 XR修复版连接与完整巡检](SAY-RING-XR-FULL-WALKTHROUGH-20261025.md) — 私有备份、修复版原位安装、真实任一戒指连接与逐页证据；结果及未通过项分别记录。
+
 - [2026-10-25 R8 Pro改走QRing](SAY-RING-R8PRO-QRING-FIX-20261025.md) — 按最新明确纠正删除旧R8 Pro例外，Flutter/iOS/Android统一QRing，原能力及绑定保护保留；验证逐项记录。
 
 - [2026-10-24 Say Ring 1141上传审核续办](SAY-RING-1141-UPLOAD-20261024.md) — 用户获知实测失败后重新明确上传/送审；发行包及资料已核验，TestFlight Beta已提交，App Store 1.0.6(1141)已等待审核；实物未完成项保留，不推广main。
