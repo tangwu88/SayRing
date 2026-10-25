@@ -3252,6 +3252,56 @@ void main() {
     },
   );
 
+  testWidgets(
+    'Android phone call relay shows notification access rather than iPhone pairing help',
+    (tester) async {
+      final bridge = _PhoneRelayTrackingWearable();
+      final controller =
+          AppController(
+              MemorySessionVault(),
+              _NoopApi(),
+              MemoryHealthStore(),
+              bridge,
+            )
+            ..connectedDevice = const DeviceInfo(
+              id: 'coolwear:relay',
+              name: 'R7Pro',
+            )
+            ..capabilities = const DeviceCapabilities(
+              metrics: {},
+              features: {
+                DeviceFeature.callReminder,
+                DeviceFeature.notifications,
+              },
+              integratedFeatures: {
+                DeviceFeature.callReminder,
+                DeviceFeature.notifications,
+              },
+            );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DeviceFeaturePage(
+            controller: controller,
+            feature: DeviceFeature.callReminder,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('还需允许手机通知权限'), findsOneWidget);
+      expect(find.text('去设置'), findsOneWidget);
+      expect(find.textContaining('iPhone'), findsNothing);
+      expect(
+        tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+        false,
+      );
+      await tester.tap(find.byType(SwitchListTile));
+      await tester.pumpAndSettle();
+      expect(bridge.lastWrite?['incomingCall'], true);
+      expect(find.text('手机通知权限已允许'), findsNothing);
+    },
+  );
+
   for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
     testWidgets('CoolWear find controls match $platform transport', (
       tester,
@@ -5389,6 +5439,17 @@ class _ControlTrackingWearable extends _NoopWearable {
   ) async {
     lastWrite = values;
   }
+}
+
+class _PhoneRelayTrackingWearable extends _ControlTrackingWearable {
+  @override
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async =>
+      {
+        'reminderStyle': 'phoneRelay',
+        'incomingCall': lastWrite?['incomingCall'] == true,
+        'supportedKeys': ['incomingCall'],
+        'notificationAccess': false,
+      };
 }
 
 class _FirmwareDetailsWearable extends _NoopWearable

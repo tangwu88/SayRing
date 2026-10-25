@@ -29,7 +29,7 @@ class SaidianNotificationListener : NotificationListenerService() {
         val mapping = if (item.notification.category == Notification.CATEGORY_CALL) {
             NotificationCategory("incomingCall", "来电", ESocailMsg.OTHER)
         } else categoryFor(item.packageName) ?: return
-        val coolWear = CoolWearRingBridge.isConnectedHr05()
+        val coolWear = CoolWearRingBridge.isNotificationRelayReady()
         if (!coolWear && mapping.preference == "incomingCall") return
         val preferences = getSharedPreferences(
             if (coolWear) COOLWEAR_PREFS else PREFS, Context.MODE_PRIVATE)

@@ -288,4 +288,65 @@ void main() {
     );
     expect(calls, isEmpty);
   });
+
+  test(
+    'Android forwards phone call relay while other controls remain closed',
+    () async {
+      final bridge = CoolWearAndroidWearableBridge(methods: channel);
+      final settings = await bridge.readDeviceFeature(
+        DeviceFeature.callReminder,
+      );
+      expect(settings['notificationAccess'], true);
+      await bridge.writeDeviceFeature(DeviceFeature.callReminder, {
+        'incomingCall': true,
+      });
+      expect(calls.map((call) => call.arguments), [
+        {'feature': 'call_reminder'},
+        {
+          'feature': 'call_reminder',
+          'values': {'incomingCall': true},
+        },
+      ]);
+      await expectLater(
+        bridge.readDeviceFeature(DeviceFeature.alarms),
+        throwsA(isA<PlatformException>()),
+      );
+      expect(calls, hasLength(2));
+    },
+  );
+
+  test('Android cannot bypass a rejected native relay capability', () async {
+    const denied = MethodChannel('test/coolwear/relay-denied');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(denied, (_) async {
+      throw PlatformException(code: 'COOLWEAR_FEATURE_UNVERIFIED');
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(denied, null));
+    final bridge = CoolWearAndroidWearableBridge(methods: denied);
+    await expectLater(
+      bridge.readDeviceFeature(DeviceFeature.callReminder),
+      throwsA(
+        isA<PlatformException>().having(
+          (error) => error.code,
+          'code',
+          'COOLWEAR_FEATURE_UNVERIFIED',
+        ),
+      ),
+    );
+  });
+
+  test(
+    'unsupported Android warning reader reports absence without a failed command',
+    () async {
+      final bridge = CoolWearAndroidWearableBridge(methods: channel);
+      expect(await bridge.readHeartRateWarning(), isNull);
+      expect(calls, isEmpty);
+      await expectLater(
+        bridge.setHeartRateWarning(100),
+        throwsA(isA<PlatformException>()),
+      );
+      expect(calls, isEmpty);
+    },
+  );
 }

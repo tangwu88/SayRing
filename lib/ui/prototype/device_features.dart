@@ -114,7 +114,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       return;
     }
     if (state == AppLifecycleState.resumed &&
-        widget.feature == DeviceFeature.notifications &&
+        (widget.feature == DeviceFeature.notifications ||
+            widget.feature == DeviceFeature.callReminder) &&
         widget.controller.availabilityFor(widget.feature).isReady) {
       unawaited(_loadFeature());
     }
@@ -804,6 +805,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Widget _buildCallReminderPanel(bool busy) {
+    if (_featureData['reminderStyle'] == 'phoneRelay') {
+      return _buildNotificationsPanel(busy);
+    }
     if (_featureData.isEmpty) return _loadingCard(busy, '来电提醒');
     return Card(
       child: Column(

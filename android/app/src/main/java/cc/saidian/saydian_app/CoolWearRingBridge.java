@@ -195,6 +195,7 @@ public final class CoolWearRingBridge
                     if (reminder != null) main.post(() -> {
                         sittingReminder = reminder;
                         finishReminderReadIfReady();
+                        if (linkConnected && deviceInfoReceived) emit("capabilitiesUpdated", capabilities());
                     });
                     return false;
                 });
@@ -204,6 +205,7 @@ public final class CoolWearRingBridge
                     if (reminder != null) main.post(() -> {
                         drinkingReminder = reminder;
                         finishReminderReadIfReady();
+                        if (linkConnected && deviceInfoReceived) emit("capabilitiesUpdated", capabilities());
                     });
                     return false;
                 });
@@ -273,6 +275,17 @@ public final class CoolWearRingBridge
                                     connectedId, firmwareVersion, snapshot);
                             Log.i(TAG, "activity packet received; entries=" + snapshot.size()
                                     + ", valid records=" + records.size());
+                            if (records.isEmpty() && !snapshot.isEmpty()) {
+                                boolean dated = false, positive = false;
+                                for (K6_Sport item : snapshot) {
+                                    if (item == null) continue;
+                                    dated |= CoolWearRecordMapper.historyTimestamp(item.getStarTime()) > 0;
+                                    positive |= item.getWalkSteps() > 0 || item.getDistance() > 0
+                                            || item.getCalories() > 0;
+                                }
+                                profileTrace("activity rejected; validDate=" + dated
+                                        + "; positiveCounters=" + positive);
+                            }
                             collectHealth(records);
                         });
                     }
@@ -677,17 +690,28 @@ public final class CoolWearRingBridge
         return value;
     }
 
-    public static boolean isConnectedHr05() {
+    private boolean canReadReminders() {
+        return linkConnected && deviceInfoReceived
+                && (sittingReminder != null || drinkingReminder != null);
+    }
+
+    public static boolean isNotificationRelayReady() {
         CoolWearRingBridge bridge = activeBridge;
-        return bridge != null && bridge.linkConnected && bridge.deviceInfoReceived
-                && "HR05".equals(supportedModel(bridge.connectedName));
+        return bridge != null && CoolWearNotificationPolicy.canRelay(
+                supportedModel(bridge.connectedName), bridge.linkConnected,
+                bridge.deviceInfoReceived, bridge.functionControl != null,
+                bridge.sittingReminder != null || bridge.drinkingReminder != null);
     }
 
     public static void forwardNotification(String category, String title, String content) {
         CoolWearRingBridge bridge = activeBridge;
-        if (bridge == null || !isConnectedHr05()) return;
+        if (bridge == null || !isNotificationRelayReady()) return;
+        final long epoch = bridge.connectionEpoch;
+        final String target = bridge.connectedId;
         bridge.main.post(() -> {
-            if (!isConnectedHr05()) return;
+            if (activeBridge != bridge || epoch != bridge.connectionEpoch
+                    || target == null || !target.equals(bridge.connectedId)
+                    || !isNotificationRelayReady()) return;
             try {
                 if ("incomingCall".equals(category)) {
                     bridge.helper.getSendBlueData().sendIncomingCall(title, "");
@@ -717,6 +741,7 @@ public final class CoolWearRingBridge
         value.put("supportedKeys", java.util.Arrays.asList(NOTIFICATION_KEYS));
         value.put("notificationAccess", NotificationManagerCompat
                 .getEnabledListenerPackages(activity).contains(activity.getPackageName()));
+        value.put("reminderStyle", "phoneRelay");
         return value;
     }
 
@@ -958,6 +983,10 @@ public final class CoolWearRingBridge
         // response proves this transport; unknown notification flags stay off.
         if (sittingReminder != null || drinkingReminder != null) {
             features.add("health_reminders");
+        }
+        if (isNotificationRelayReady()) {
+            features.add("call_reminder");
+            features.add("notifications");
         }
         value.put("features", features);
         // Every feature reported above is backed by this bridge. Flutter keeps
@@ -1549,14 +1578,15 @@ public final class CoolWearRingBridge
                         else result.error("COOLWEAR_FEATURE_UNVERIFIED", "当前戒指不支持手势控制", null);
                         return;
                     }
-                    if (!isConnectedHr05()) {
-                        result.error("COOLWEAR_FEATURE_UNVERIFIED", "此戒指功能不受支持", null);
-                        return;
-                    }
                     String readFeature = call.argument("feature");
-                    if ("notifications".equals(readFeature)) {
-                        result.success(notificationSettings());
-                    } else if ("health_reminders".equals(readFeature)) {
+                    if (("notifications".equals(readFeature) || "call_reminder".equals(readFeature))
+                            && isNotificationRelayReady()) {
+                        Map<String, Object> settings = notificationSettings();
+                        if ("call_reminder".equals(readFeature)) {
+                            settings.put("supportedKeys", java.util.Collections.singletonList("incomingCall"));
+                        }
+                        result.success(settings);
+                    } else if ("health_reminders".equals(readFeature) && canReadReminders()) {
                         readReminders(result);
                     } else {
                         result.error("COOLWEAR_FEATURE_UNVERIFIED", "此戒指功能不受支持", null);
@@ -1567,10 +1597,6 @@ public final class CoolWearRingBridge
                         writeGesture(call.argument("values"), result);
                         return;
                     }
-                    if (!isConnectedHr05()) {
-                        result.error("COOLWEAR_FEATURE_UNVERIFIED", "此戒指功能不受支持", null);
-                        return;
-                    }
                     String writeFeature = call.argument("feature");
                     Map<String, Object> notificationValues = call.argument("values");
                     if (notificationValues == null) {
@@ -1578,16 +1604,26 @@ public final class CoolWearRingBridge
                         return;
                     }
                     if ("health_reminders".equals(writeFeature)) {
-                        writeReminder(notificationValues, result);
+                        if (canReadReminders()) writeReminder(notificationValues, result);
+                        else result.error("COOLWEAR_FEATURE_UNVERIFIED", "请先读取戒指提醒设置", null);
                         break;
                     }
-                    if (!"notifications".equals(writeFeature)) {
+                    if (!("notifications".equals(writeFeature) || "call_reminder".equals(writeFeature))
+                            || !isNotificationRelayReady()) {
                         result.error("COOLWEAR_FEATURE_UNVERIFIED", "此戒指功能不受支持", null);
                         return;
                     }
                     android.content.SharedPreferences.Editor editor = activity.getSharedPreferences(
                             NOTIFICATION_PREFS, Context.MODE_PRIVATE).edit();
                     for (String key : NOTIFICATION_KEYS) {
+                        if (notificationValues.containsKey(key)
+                                && !(notificationValues.get(key) instanceof Boolean)) {
+                            result.error("INVALID_SETTINGS", "请选择有效的提醒开关", null);
+                            return;
+                        }
+                    }
+                    for (String key : NOTIFICATION_KEYS) {
+                        if ("call_reminder".equals(writeFeature) && !"incomingCall".equals(key)) continue;
                         if (notificationValues.containsKey(key)) {
                             editor.putBoolean(key, Boolean.TRUE.equals(notificationValues.get(key)));
                         }
@@ -1603,7 +1639,7 @@ public final class CoolWearRingBridge
                     String feature = call.argument("feature");
                     Boolean actionEnabled = call.argument("enabled");
                     boolean enabled = actionEnabled == null || actionEnabled;
-                    if ("notifications".equals(feature) && isConnectedHr05()) {
+                    if ("notifications".equals(feature) && isNotificationRelayReady()) {
                         activity.startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
                     } else if ("find_watch".equals(feature)) {
                         if (enabled) helper.getSendBlueData().sendFindDevice();
