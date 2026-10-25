@@ -24,9 +24,8 @@ class WearableDeviceClassifier {
   static bool _explicitQRing(String name) =>
       name.startsWith('R1') || name.startsWith('R2') || name.contains('R7C');
 
-  static final _r8Pro = RegExp(r'R8[\s_-]*PRO(?![A-Z])');
   static bool _qringMarker(String name) =>
-      const ['R8', 'R21', 'R22'].any(name.replaceAll(_r8Pro, '').contains);
+      const ['R8', 'R21', 'R22'].any(name.contains);
 
   // The product owner confirmed these CoolWear/LuckRing model names. A name
   // only chooses a candidate transport; the native handshake still gates it.
@@ -37,7 +36,6 @@ class WearableDeviceClassifier {
     }
     if (normalized.contains('HR01')) return 'HR01';
     if (normalized.contains('HR05')) return 'HR05';
-    if (_r8Pro.hasMatch(normalized)) return 'R8Pro';
     final model = normalized.replaceAll(RegExp(r'[\s_-]+'), '');
     if (model.contains('R7ULTRA')) return 'R7Ultra';
     if (model.contains('R7PRO')) return 'R7Pro';
@@ -52,9 +50,12 @@ class WearableDeviceClassifier {
     // Explicit prefix rules override inherited substring matches (R7C/R7).
     if (_explicitQRing(normalized)) return WearableTransport.qring;
     final qring = _qringMarker(normalized);
-    final luckring =
-        _r8Pro.hasMatch(normalized) ||
-        const ['R7', 'K80', 'HR01', 'HR05'].any(normalized.contains);
+    final luckring = const [
+      'R7',
+      'K80',
+      'HR01',
+      'HR05',
+    ].any(normalized.contains);
     // User-confirmed model markers take priority over inherited SDK prefixes.
     // A conflicting name cannot select either SDK without clarification.
     if (qring && luckring) return null;

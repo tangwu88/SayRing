@@ -5,11 +5,13 @@
 int main(void) {
     @autoreleasepool {
         NSArray<NSString *> *accepted = @[
+            @"R8 pro", @"r8PRO", @"SD-RING-r8_pro-123", @"R8-Pro", @"R8_Pro", @"R8Pro-R21", @"R8Pro-R8",
             @"R8", @"R8Protein", @"R12-R8Pro", @"R7C-R8 Pro", @" device-r8-123 ", @"YC-R21-123", @"V-R22-123",
             @"Q_Ring", @"O_Ring", @"R2", @"r210", @"R22_C493_extra", @"R1", @"R3", @"SD-RING-R7C", @"YC-R7C", @"R12", @"R18", @"R20", @"R7C", @"R7C-K80", @"R99", @"R2-HR05", @"R21-K80"
         ];
         NSArray<NSString *> *rejected = @[
-            @"R8 pro", @"r8PRO", @"SD-RING-r8_pro-123", @"R8-Pro", @"R8Pro-R21", @"R8Pro-R8", @"R7", @"K80", @"HR01", @"HR05", @"SD-RING-R7Ultra",
+            @"R8 Pro-HR05", @"R8Pro-K80", @"R8Pro-R7",
+            @"R7", @"K80", @"HR01", @"HR05", @"SD-RING-R7Ultra",
             @"Q_R7", @"O_K80", @"Q_HR01",
             @"R8-R7", @"YC-R21-K80", @"Q_R22-HR05",
             @"unknown-R 8", @"Q Ring", @"Oura Ring", @""

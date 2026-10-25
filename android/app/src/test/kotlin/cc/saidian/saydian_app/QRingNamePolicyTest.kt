@@ -28,10 +28,10 @@ class QRingNamePolicyTest {
 
     @Test
     fun `confirmed QRing markers match inside names and reject LuckRing conflicts`() {
-        for (name in listOf("R8", " device-r8-123 ", "YC-R21-123", "V-R22-123", "SD-RING-R7C", "YC-R7C", "R12", "R18", "R20", " r7c ", "R7C_K80", "R2-HR05", "R21-K80", "R22-HR05", "R99", "Ring")) {
+        for (name in listOf("R8 Pro", "r8PRO", "SD-RING-r8_pro-123", "R8-Pro", "R8_Pro", "R8Pro-R21", "R8Pro-R8", "R8", " device-r8-123 ", "YC-R21-123", "V-R22-123", "SD-RING-R7C", "YC-R7C", "R12", "R18", "R20", " r7c ", "R7C_K80", "R2-HR05", "R21-K80", "R22-HR05", "R99", "Ring")) {
             assertTrue(name, QRingBridge.isQRingName(name))
         }
-        for (name in listOf("Q_R7", "O_K80", "Q_HR01", "R8-R7", "YC-R21-K80", "Q_R22-HR05")) {
+        for (name in listOf("R8 Pro-HR05", "R8Pro-K80", "R8Pro-R7", "Q_R7", "O_K80", "Q_HR01", "R8-R7", "YC-R21-K80", "Q_R22-HR05")) {
             assertFalse(name, QRingBridge.isQRingName(name))
         }
     }

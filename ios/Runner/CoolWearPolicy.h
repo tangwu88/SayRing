@@ -7,11 +7,9 @@ static inline NSString *CoolWearModel(NSString *name) {
     if (![name isKindOfClass:NSString.class]) return nil;
     NSString *value = [[name stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] uppercaseString];
     if ([value hasPrefix:@"R1"] || [value hasPrefix:@"R2"] || [value containsString:@"R7C"]) return nil;
-    NSString *other = [value stringByReplacingOccurrencesOfString:@"R8[\\s_-]*PRO(?![A-Z])" withString:@"" options:NSRegularExpressionSearch range:NSMakeRange(0, value.length)];
-    if ([other containsString:@"R8"] || [other containsString:@"R21"] || [other containsString:@"R22"]) return nil;
+    if ([value containsString:@"R8"] || [value containsString:@"R21"] || [value containsString:@"R22"]) return nil;
     if ([value containsString:@"HR01"]) return @"HR01";
     if ([value containsString:@"HR05"]) return @"HR05";
-    if (![other isEqual:value]) return @"R8Pro";
     NSString *model = [value stringByReplacingOccurrencesOfString:@"[\\s_-]+" withString:@"" options:NSRegularExpressionSearch range:NSMakeRange(0, value.length)];
     if ([model containsString:@"R7ULTRA"]) return @"R7Ultra";
     if ([model containsString:@"R7PRO"]) return @"R7Pro";

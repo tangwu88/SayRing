@@ -11,8 +11,7 @@ final class RingNamePolicy {
     }
 
     private static boolean hasQRingMarker(String name) {
-        String other = name.replaceAll("R8[\\s_-]*PRO(?![A-Z])", "");
-        return other.contains("R8") || other.contains("R21") || other.contains("R22");
+        return name.contains("R8") || name.contains("R21") || name.contains("R22");
     }
 
     private static boolean explicitQRing(String name) {
@@ -20,12 +19,8 @@ final class RingNamePolicy {
     }
 
     private static boolean hasLuckRingMarker(String name) {
-        return isR8Pro(name) || name.contains("R7") || name.contains("K80")
+        return name.contains("R7") || name.contains("K80")
                 || name.contains("HR01") || name.contains("HR05");
-    }
-
-    private static boolean isR8Pro(String name) {
-        return !name.replaceAll("R8[\\s_-]*PRO(?![A-Z])", "").equals(name);
     }
 
     static boolean isQRingName(String name) {
@@ -41,7 +36,6 @@ final class RingNamePolicy {
         if (explicitQRing(normalized) || hasQRingMarker(normalized)) return null;
         if (normalized.contains("HR01")) return "HR01";
         if (normalized.contains("HR05")) return "HR05";
-        if (isR8Pro(normalized)) return "R8Pro";
         String model = normalized.replaceAll("[\\s_-]+", "");
         if (model.contains("R7ULTRA")) return "R7Ultra";
         if (model.contains("R7PRO")) return "R7Pro";

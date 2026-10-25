@@ -80,10 +80,6 @@ void main() {
         'R7 Pro': 'R7Pro',
         'r7 ultra': 'R7Ultra',
         'Hr05': 'HR05',
-        'R8 pro': 'R8Pro',
-        'r8PRO': 'R8Pro',
-        'SD-RING-r8_pro-123': 'R8Pro',
-        'R8-Pro': 'R8Pro',
       }.entries) {
         expect(
           WearableDeviceClassifier.transportFor(entry.key),
@@ -95,14 +91,26 @@ void main() {
           entry.value,
         );
       }
-      for (final name in ['R8', 'R8Protein', 'R12-R8Pro', 'R7C-R8 Pro']) {
+      for (final name in [
+        'R8',
+        'R8 Pro',
+        'r8PRO',
+        'SD-RING-r8_pro-123',
+        'R8-Pro',
+        'R8_Pro',
+        'R8Pro-R21',
+        'R8Pro-R8',
+        'R8Protein',
+        'R12-R8Pro',
+        'R7C-R8 Pro',
+      ]) {
         expect(
           WearableDeviceClassifier.transportFor(name),
           WearableTransport.qring,
         );
         expect(WearableDeviceClassifier.coolwearModelForName(name), isNull);
       }
-      for (final name in ['R8Pro-R21', 'HR05-R8', 'R8Pro-R8']) {
+      for (final name in ['HR05-R8', 'R8 Pro-HR05', 'R8Pro-K80', 'R8Pro-R7']) {
         expect(WearableDeviceClassifier.transportFor(name), isNull);
         expect(WearableDeviceClassifier.coolwearModelForName(name), isNull);
       }
@@ -363,6 +371,7 @@ void main() {
       'prefix-r8-001': WearableTransport.qring,
       'YC-R21-002': WearableTransport.qring,
       'device-R22-003': WearableTransport.qring,
+      'SD-RING-r8_pro-123': WearableTransport.qring,
       'Q_R7-004': WearableTransport.coolwear,
       'prefix-k80-005': WearableTransport.coolwear,
       'device-HR01-006': WearableTransport.coolwear,
@@ -395,9 +404,9 @@ void main() {
     }
     expect(veepoo.connectCalls, isEmpty);
     expect(yucheng.connectCalls, isEmpty);
-    expect(qring.connectCalls, families.keys.take(3).toList());
-    expect(coolwear.connectCalls, families.keys.skip(3).toList());
-    expect(qring.measurementCalls, hasLength(3));
+    expect(qring.connectCalls, families.keys.take(4).toList());
+    expect(coolwear.connectCalls, families.keys.skip(4).toList());
+    expect(qring.measurementCalls, hasLength(4));
     expect(coolwear.measurementCalls, hasLength(4));
   });
 

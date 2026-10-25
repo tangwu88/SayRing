@@ -62,7 +62,7 @@ int main(void) {
             @"r7": @"R7", @"R7y": @"R7Y", @"r7pro_001": @"R7Pro", @"HR01-legacy": @"HR01",
             @"R7_AA:BB:CC:DD:EE:FF": @"R7"};
         for (NSString *name in @[@"R8 pro", @"r8PRO", @"SD-RING-r8_pro-123", @"R8-Pro"])
-            NSCAssert([CoolWearModel(name) isEqual:@"R8Pro"], @"vibrating model rejected");
+            NSCAssert(CoolWearModel(name) == nil, @"QRing R8 Pro entered CoolWear");
         NSCAssert([CoolWearModel(@"R7 Ultra") isEqual:@"R7Ultra"], @"spaced Ultra model lost");
         NSCAssert([CoolWearModel(@"r7 pro") isEqual:@"R7Pro"], @"spaced Pro model lost");
         for (NSString *name in @[@"R8Pro-R21", @"R8Pro-R8", @"R8Protein", @"R12-R8Pro", @"R7C-R8 Pro"])

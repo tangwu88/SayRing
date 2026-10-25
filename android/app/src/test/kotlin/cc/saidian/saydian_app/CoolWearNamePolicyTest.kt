@@ -17,8 +17,8 @@ class CoolWearNamePolicyTest {
     @Test
     fun `vibrating models preserve explicit routes and reject ambiguous names`() {
         for (name in listOf("R8 pro", "r8PRO", "SD-RING-r8_pro-123", "R8-Pro")) {
-            assertEquals(name, "R8Pro", CoolWearRingBridge.supportedModel(name))
-            assertEquals(name, false, QRingBridge.isQRingName(name))
+            assertNull(name, CoolWearRingBridge.supportedModel(name))
+            assertEquals(name, true, QRingBridge.isQRingName(name))
         }
         assertEquals("R7Ultra", CoolWearRingBridge.supportedModel("R7 Ultra"))
         assertEquals("R7Pro", CoolWearRingBridge.supportedModel("r7 pro"))

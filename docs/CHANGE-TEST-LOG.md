@@ -1,5 +1,7 @@
 # 修改与测试记录索引
 
+- [2026-10-25 R8 Pro改走QRing](SAY-RING-R8PRO-QRING-FIX-20261025.md) — 按最新明确纠正删除旧R8 Pro例外，Flutter/iOS/Android统一QRing，原能力及绑定保护保留；验证逐项记录。
+
 - [2026-10-24 Say Ring 1141上传审核续办](SAY-RING-1141-UPLOAD-20261024.md) — 用户获知实测失败后重新明确上传/送审；发行包及资料已核验，TestFlight Beta已提交，App Store 1.0.6(1141)已等待审核；实物未完成项保留，不推广main。
 
 - [2026-10-24 XR R7 Pro 1141专项验收与归档](SAY-RING-R7PRO-1141-RELEASE-20261024.md) — 原目标未完成握手，现场出现iCloud系统弹窗且用户暂不能操作；普通版已恢复，归档待验收，不上传送审。
