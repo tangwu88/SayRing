@@ -1,5 +1,7 @@
 # 修改与测试记录索引
 
+- [2026-10-25 R21断连与Android1143真机安装](SAY-RING-ANDROID-1143-XR-DISCONNECT-20261025.md) — XR应用内断连/移除本地目标通过，系统忽略待用户操作；原签名正式包、经明确许可替换旧异签包及实际启动分别验证。
+
 - [2026-10-25 XR修复版连接与完整巡检](SAY-RING-XR-FULL-WALKTHROUGH-20261025.md) — 私有备份、修复版原位安装、真实任一戒指连接与逐页证据；结果及未通过项分别记录。
 
 - [2026-10-25 R8 Pro改走QRing](SAY-RING-R8PRO-QRING-FIX-20261025.md) — 按最新明确纠正删除旧R8 Pro例外，Flutter/iOS/Android统一QRing，原能力及绑定保护保留；验证逐项记录。
