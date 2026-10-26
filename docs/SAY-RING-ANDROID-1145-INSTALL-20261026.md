@@ -32,3 +32,13 @@
 - 本轮没有新运动、实时心率、监测周期、来电或支付实测，不把安装成功当作这些功能全部正常。运动步数/热量实时取数与K6_Sport热量倍率仍待厂商证据及实物验收；首页仍保留未知单位提示，未猜算为千卡。
 - 高德地图配置仍待用户后续填写；没有启用未配置服务。支付仍由后台实际渠道状态限制，不改维护/只读状态或实际付款。
 - 只将本日志与修改索引提交到当前Say Ring开发分支；不提交APK、私有日志、证书、健康信息，不推main，不部署后台。
+
+## Mac代码同步补记（同日，独立于上述Windows构建/实物）
+
+本线程用户要求“更新”。先核对SayRing-native-mall-20261020：工作区干净，当前codex/device-search-help-1141-20261024的HEAD和远端均829f6813e7dc98a72449d4066f7b7e214d753878；fetch发现codex/login-camera-r7ultra-1136-20261024已到004cc254d747ec60f76c7e7322bd5bf2fcb8d100。阅读本记录及R7 Ultra后续记录，确认AGENTS没有差异，当前HEAD为目标提交祖先，采用git merge --ff-only同步四个已有远端提交，无覆盖、冲突或新产品代码修改。
+
+使用GitHub ref的expected_sha=829f6813e7dc98a72449d4066f7b7e214d753878、force=false，将当前开发分支快进到004cc25。再次fetch核验本地/跟踪分支0/0、工作区干净；main未改变。
+
+Mac本轮实际运行flutter analyze --no-pub：退出0、No issues found，命令耗时14.8秒；flutter test --no-pub test/r7ultra_followup_test.dart test/sport_record_route_test.dart test/global_shop_pages_test.dart --reporter expanded：20/20通过、3.7秒。git diff --check通过。原始日志保留在忽略目录build/sync-latest-1145-20261026；上述仅为本机静态/定向回归，不冒充本轮全量测试、重新构建或实物验收。
+
+只读公开Say Ring更新接口当前仍返回Android1.0.6（1144）、72063071字节、SHA256 44e88bfc1b6b32bad1e08f29efb70542c613b46ed7f47b9e522f9ad62730d8eb；iOS仍1.0.4（1130）、HarmonyOS仍1.0.5（1128）。Mac本工作区build与Downloads未找到1145正式APK；上文1145构建及Huawei JAD-AL00安装证据来自Windows，未被当作这台Mac的执行结果。本轮先完成代码同步；新的安卓下载发布或iOS/TestFlight送审目标已向用户询问，尚未更换任何公开包或送审构建。
