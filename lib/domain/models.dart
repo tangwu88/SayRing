@@ -127,6 +127,7 @@ class SportRecord {
     this.maximumHeartRate = 0,
     this.routePoints = const [],
     this.heartRateSamples = const [],
+    this.missingMetrics = const {},
   });
 
   final String id;
@@ -142,8 +143,14 @@ class SportRecord {
   final List<SportRoutePoint> routePoints;
   final List<SportHeartRateSample> heartRateSamples;
 
+  /// Missing values are omitted from storage, never serialized as measured 0.
+  final Set<String> missingMetrics;
+
   /// Average active pace. Unknown indoor distance remains unknown.
-  double? get paceSecondsPerKm => distanceKm > 0 && durationSeconds > 0
+  double? get paceSecondsPerKm =>
+      !missingMetrics.contains('distanceKm') &&
+          distanceKm > 0 &&
+          durationSeconds > 0
       ? durationSeconds / distanceKm
       : null;
 
@@ -174,6 +181,16 @@ class SportRecord {
               .map(SportHeartRateSample.fromMap)
               .toList()
         : const [],
+    missingMetrics: {
+      if (map['missingMetrics'] is List)
+        ...(map['missingMetrics'] as List).whereType<String>(),
+      if (!map.containsKey('distanceKm') && !map.containsKey('distanceMeters'))
+        'distanceKm',
+      if (!map.containsKey('calories') && !map.containsKey('caloriesCal'))
+        'calories',
+      if (!map.containsKey('steps')) 'steps',
+      if (!map.containsKey('heartRate')) 'heartRate',
+    },
   );
 
   static double _number(Object? value) =>
@@ -184,10 +201,12 @@ class SportRecord {
     'mode': mode.wireName,
     'startedAt': startedAt?.toUtc().toIso8601String(),
     'durationSeconds': durationSeconds,
-    'distanceKm': distanceKm,
-    'calories': calories,
-    'steps': steps,
-    'heartRate': heartRate,
+    if (!missingMetrics.contains('distanceKm')) 'distanceKm': distanceKm,
+    if (!missingMetrics.contains('calories')) 'calories': calories,
+    if (!missingMetrics.contains('steps')) 'steps': steps,
+    if (!missingMetrics.contains('heartRate')) 'heartRate': heartRate,
+    if (missingMetrics.isNotEmpty)
+      'missingMetrics': missingMetrics.toList()..sort(),
     'minimumHeartRate': minimumHeartRate,
     'maximumHeartRate': maximumHeartRate,
     'routePoints': routePoints.map((point) => point.toMap()).toList(),

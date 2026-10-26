@@ -625,11 +625,13 @@ class GlobalShopOrdersPage extends StatefulWidget {
   const GlobalShopOrdersPage({
     required this.controller,
     required this.openProduct,
+    this.initialFilter = 'all',
     super.key,
   });
 
   final AppController controller;
   final GlobalProductOpener openProduct;
+  final String initialFilter;
 
   @override
   State<GlobalShopOrdersPage> createState() => _GlobalShopOrdersPageState();
@@ -647,6 +649,17 @@ class _GlobalShopOrdersPageState extends State<GlobalShopOrdersPage> {
   @override
   void initState() {
     super.initState();
+    _filter =
+        const {
+          'all',
+          'payment',
+          'shipment',
+          'delivery',
+          'completed',
+          'after',
+        }.contains(widget.initialFilter)
+        ? widget.initialFilter
+        : 'all';
     unawaited(_load());
   }
 
@@ -660,6 +673,7 @@ class _GlobalShopOrdersPageState extends State<GlobalShopOrdersPage> {
       final status = switch (_filter) {
         'payment' => 'PENDING_PAYMENT',
         'delivery' => 'SHIPPED',
+        'completed' => 'COMPLETED',
         _ => null,
       };
       final group = switch (_filter) {
@@ -726,6 +740,7 @@ class _GlobalShopOrdersPageState extends State<GlobalShopOrdersPage> {
               _filterChip('payment', context.l10n.awaitingPayment),
               _filterChip('shipment', context.l10n.awaitingShipment),
               _filterChip('delivery', context.l10n.awaitingDelivery),
+              _filterChip('completed', '已完成'),
               _filterChip('after', context.l10n.afterSales),
             ],
           ),

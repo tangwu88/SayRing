@@ -3248,7 +3248,7 @@ void main() {
         isTrue,
       );
       expect(find.text('蓝牙通知未授权'), findsOneWidget);
-      expect(find.text('手机通知权限已允许'), findsNothing);
+      expect(find.text('通知使用权已允许'), findsNothing);
     },
   );
 
@@ -3288,7 +3288,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('还需允许手机通知权限'), findsOneWidget);
+      expect(find.text('还需允许通知使用权'), findsOneWidget);
+      expect(find.textContaining('这不是“允许发送通知”'), findsOneWidget);
       expect(find.text('去设置'), findsOneWidget);
       expect(find.textContaining('iPhone'), findsNothing);
       expect(
@@ -3298,7 +3299,7 @@ void main() {
       await tester.tap(find.byType(SwitchListTile));
       await tester.pumpAndSettle();
       expect(bridge.lastWrite?['incomingCall'], true);
-      expect(find.text('手机通知权限已允许'), findsNothing);
+      expect(find.text('通知使用权已允许'), findsNothing);
     },
   );
 

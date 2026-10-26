@@ -1323,8 +1323,12 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               access ? Icons.verified_user_rounded : Icons.security_rounded,
               color: access ? SaydianColors.green : SaydianColors.orange,
             ),
-            title: Text(access ? '手机通知权限已允许' : '还需允许手机通知权限'),
-            subtitle: Text(access ? '已开启的应用消息可以发送到戒指' : '允许后，戒指才能提醒手机收到的应用消息'),
+            title: Text(access ? '通知使用权已允许' : '还需允许通知使用权'),
+            subtitle: Text(
+              access
+                  ? '已开启的来电和应用消息可转发到戒指；实际振动仍需来电测试确认'
+                  : '这不是“允许发送通知”。请在系统“通知使用权/通知读取权限”中允许 Say Ring，否则开启提醒开关也无法转发来电和消息。',
+            ),
             trailing: TextButton(
               onPressed: busy
                   ? null

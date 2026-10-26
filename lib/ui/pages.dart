@@ -28,6 +28,8 @@ import 'app_theme.dart';
 import 'ai_content_gate.dart';
 import 'brand_assets.dart';
 import 'global_auth_page.dart';
+import 'global_shop_account_pages.dart';
+import 'global_shop_pages.dart';
 import 'global_code_login_page.dart';
 import 'global_legal_page.dart';
 import 'global_care_page.dart';

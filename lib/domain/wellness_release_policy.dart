@@ -130,6 +130,7 @@ class WellnessReleasePolicy {
       calories: record.calories,
       steps: record.steps,
       routePoints: record.routePoints,
+      missingMetrics: {...record.missingMetrics, 'heartRate'},
     );
   }
 

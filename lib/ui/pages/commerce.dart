@@ -338,6 +338,7 @@ class _OrdersPageState extends State<OrdersPage> {
   void initState() {
     super.initState();
     _status = widget.initialStatus;
+    if (widget.controller.isGlobalEdition) return;
     unawaited(widget.controller.loadOrders(_status == -1 ? null : _status));
   }
 
@@ -349,6 +350,27 @@ class _OrdersPageState extends State<OrdersPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.controller.isGlobalEdition) {
+      return GlobalShopOrdersPage(
+        controller: widget.controller,
+        initialFilter: switch (widget.initialStatus) {
+          0 => 'payment',
+          1 => 'shipment',
+          2 => 'delivery',
+          3 => 'completed',
+          -1 => 'after',
+          _ => 'all',
+        },
+        openProduct: (context, id) => Navigator.of(context).push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => GlobalShopProductPage(
+              controller: widget.controller,
+              productId: id,
+            ),
+          ),
+        ),
+      );
+    }
     return Scaffold(
       appBar: AppBar(title: Text(context.l10n.myOrders)),
       body: Column(

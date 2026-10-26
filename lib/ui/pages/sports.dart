@@ -705,6 +705,17 @@ class _SportSessionPageState extends State<SportSessionPage> {
                 ? watchDistanceMeters / 1000
                 : _routeDistanceKm,
             calories: (watchData['calories'] ?? 0).toDouble(),
+            missingMetrics: {
+              if (!watchData.containsKey('distanceMeters') &&
+                  _routePoints.length < 2)
+                'distanceKm',
+              if (!watchData.containsKey('calories')) 'calories',
+              if (!watchData.containsKey('steps')) 'steps',
+              if (widget.controller.isWellnessOnly ||
+                  ((watchData['heartRate'] ?? 0) <= 0 &&
+                      _heartRateSamples.isEmpty))
+                'heartRate',
+            },
             steps: (watchData['steps'] ?? 0).toInt(),
             heartRate: widget.controller.isWellnessOnly
                 ? 0
@@ -956,6 +967,7 @@ class _SportSessionPageState extends State<SportSessionPage> {
               SportRoutePreview(
                 points: _routePoints,
                 distanceKm: _routeDistanceKm,
+                controller: widget.controller,
               ),
             ],
             const SizedBox(height: 24),
@@ -1152,8 +1164,8 @@ class _SportRecordTile extends StatelessWidget {
           style: const TextStyle(fontWeight: FontWeight.w800),
         ),
         subtitle: Text(
-          '${distance.toStringAsFixed(2)} $distanceUnit · '
-          '${record.calories.toStringAsFixed(1)} 千卡 · $durationText',
+          '${record.missingMetrics.contains('distanceKm') ? '--' : distance.toStringAsFixed(2)} $distanceUnit · '
+          '${record.missingMetrics.contains('calories') ? '--' : record.calories.toStringAsFixed(1)} 千卡 · $durationText',
         ),
         trailing: Text(
           record.startedAt == null
@@ -1217,9 +1229,14 @@ class SportRecordDetailPage extends StatelessWidget {
                 const Divider(indent: 16),
                 ListTile(
                   title: Text(context.l10n.distance),
-                  trailing: Text('${distance.toStringAsFixed(2)} $unit'),
+                  trailing: Text(
+                    record.missingMetrics.contains('distanceKm')
+                        ? '未收到戒指距离或定位轨迹'
+                        : '${distance.toStringAsFixed(2)} $unit',
+                  ),
                 ),
-                if (record.calories > 0) ...[
+                if (!record.missingMetrics.contains('calories') &&
+                    record.calories > 0) ...[
                   const Divider(indent: 16),
                   ListTile(
                     title: Text(context.l10n.calories),
@@ -1305,31 +1322,72 @@ class SportRoutePreview extends StatefulWidget {
 
 class _SportRoutePreviewState extends State<SportRoutePreview> {
   Future<Uint8List?>? _map;
+  Timer? _mapRefresh;
+  String _requestedRoute = '';
+
+  String get _routeKey => widget.points.isEmpty
+      ? ''
+      : '${widget.points.length}:${widget.points.last.latitude}:${widget.points.last.longitude}';
+
+  void _loadMap() {
+    _requestedRoute = _routeKey;
+    final controller = widget.controller;
+    final points = List<SportRoutePoint>.unmodifiable(widget.points);
+    _map = controller == null
+        ? null
+        : Future<Uint8List?>.sync(() => controller.loadSportRouteMap(points));
+    // A retry can fail before the next frame attaches FutureBuilder. This
+    // handles that window without hiding the error from FutureBuilder.
+    _map?.ignore();
+  }
 
   @override
   void initState() {
     super.initState();
-    _map = widget.controller?.loadSportRouteMap(widget.points);
+    _loadMap();
   }
 
   @override
   void didUpdateWidget(covariant SportRoutePreview oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller != widget.controller ||
-        oldWidget.points != widget.points) {
-      _map = widget.controller?.loadSportRouteMap(widget.points);
+    if (oldWidget.controller != widget.controller) {
+      _mapRefresh?.cancel();
+      _mapRefresh = null;
+      _loadMap();
+    } else if (_requestedRoute != _routeKey) {
+      // Live GPS mutates the same list. Refresh at a bounded cadence instead
+      // of comparing list identity or issuing a map request every timer tick.
+      _mapRefresh ??= Timer(const Duration(seconds: 10), () {
+        _mapRefresh = null;
+        if (mounted) setState(_loadMap);
+      });
     }
   }
 
   @override
+  void dispose() {
+    _mapRefresh?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => _map == null
-      ? _content(null)
+      ? _content(null, '轨迹示意（未启用地图服务）')
       : FutureBuilder<Uint8List?>(
           future: _map,
-          builder: (context, snapshot) => _content(snapshot.data),
+          builder: (context, snapshot) => _content(
+            snapshot.data,
+            snapshot.connectionState != ConnectionState.done
+                ? '正在加载高德地图'
+                : snapshot.hasError
+                ? '地图加载失败，可重试；轨迹仍已保留'
+                : snapshot.data == null
+                ? '地图服务未就绪，请在后台启用高德地图并配置 Web 服务 Key；轨迹仍已保留'
+                : '地图来源：高德地图',
+          ),
         );
 
-  Widget _content(Uint8List? mapImage) => Card(
+  Widget _content(Uint8List? mapImage, String status) => Card(
     clipBehavior: Clip.antiAlias,
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1348,7 +1406,7 @@ class _SportRoutePreviewState extends State<SportRoutePreview> {
           padding: const EdgeInsets.all(13),
           child: Text(
             '${widget.points.length} 个定位点 · ${widget.distanceKm.toStringAsFixed(2)} 公里\n'
-            '${mapImage == null ? '轨迹示意（未加载地图底图）' : '地图来源：高德地图'}',
+            '$status',
             style: const TextStyle(
               color: SaydianColors.muted,
               fontSize: 12,
@@ -1356,6 +1414,13 @@ class _SportRoutePreviewState extends State<SportRoutePreview> {
             ),
           ),
         ),
+        if (widget.controller != null && widget.points.length >= 2)
+          TextButton.icon(
+            key: const Key('sport-route-map-retry'),
+            onPressed: () => setState(_loadMap),
+            icon: const Icon(Icons.refresh),
+            label: const Text('重新加载地图'),
+          ),
       ],
     ),
   );

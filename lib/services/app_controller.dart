@@ -7175,6 +7175,10 @@ class AppController extends ChangeNotifier {
           return;
         }
         var record = HealthRecord.fromJson(event.payload);
+        if (_firstRingBindingPending &&
+            record.origin == MeasurementOrigin.watchHistory) {
+          return;
+        }
         String nativeId(String id) => id
             .replaceFirst(RegExp(r'^(veepoo|yucheng|coolwear|qring):'), '')
             .toLowerCase();
