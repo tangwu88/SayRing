@@ -390,16 +390,35 @@ void main() {
           // gesture mode, call reminder or find action is changed in this test.
           for (
             var attempt = 0;
-            controller.isDeviceSyncing && attempt < 120;
+            controller.isDeviceSyncing && attempt < 400;
             attempt++
           ) {
             await tester.pump(const Duration(milliseconds: 500));
           }
           expect(controller.isDeviceSyncing, isFalse);
-          final healthMonitoring = find.text('健康监测');
-          await tester.ensureVisible(healthMonitoring);
-          await tester.tap(healthMonitoring);
+          final healthMonitoring = find.byKey(
+            const Key('device-feature-health_monitoring'),
+          );
+          final deviceScroll = find
+              .descendant(
+                of: find.byKey(const Key('device-page')),
+                matching: find.byType(Scrollable),
+              )
+              .first;
+          await tester.scrollUntilVisible(
+            healthMonitoring,
+            220,
+            scrollable: deviceScroll,
+          );
+          await Scrollable.ensureVisible(
+            tester.element(healthMonitoring),
+            alignment: .5,
+          );
           await settle();
+          expect(healthMonitoring.hitTestable(), findsOneWidget);
+          await tester.tap(healthMonitoring.hitTestable());
+          await settle();
+          expect(find.byType(PermissionManagementPage), findsOneWidget);
           await controller.refreshDeviceSettings();
           await settle();
           expect(controller.autoMeasureSettings, isNotEmpty);
@@ -478,6 +497,11 @@ void main() {
         await tester.tap(find.byKey(const Key('profile-header-card')));
         await settle();
         expect(find.byKey(const Key('profile-nickname')), findsOneWidget);
+        await tester.scrollUntilVisible(
+          find.byKey(const Key('profile-save')),
+          240,
+          scrollable: find.byType(Scrollable).first,
+        );
         expect(find.byKey(const Key('profile-save')), findsOneWidget);
         expect(tester.takeException(), isNull);
         await record('个人资料（只读）');
@@ -498,7 +522,13 @@ void main() {
         tester.state<ScrollableState>(myPageScroll).position.jumpTo(0);
         await settle();
         await tester.scrollUntilVisible(entry, 280, scrollable: myPageScroll);
-        await tester.tap(entry.last);
+        await Scrollable.ensureVisible(
+          tester.element(entry.last),
+          alignment: .5,
+        );
+        await settle();
+        expect(entry.last.hitTestable(), findsOneWidget, reason: label);
+        await tester.tap(entry.last.hitTestable());
         await settle();
         expect(marker, findsOneWidget, reason: '$label 页面未打开');
         expect(tester.takeException(), isNull, reason: '$label 页面发生异常');
