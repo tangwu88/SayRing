@@ -26,6 +26,13 @@
 - 正式签名包冻结在仓库外`E:\SayRing-market-artifacts-20261027\harmony-1150\delivery`：市场APP `SayRing-HarmonyOS-1.0.6-1150-release-signed.app`，9473473字节，SHA256 `7a53a06b8343cca0a12161a6d87751e957ad76b0ba50eec82f81639d80c419a6`；HAP `SayRing-HarmonyOS-1.0.6-1150-release.hap`，18765259字节，SHA256 `7e28c7f8678d708b04bc8fa3a7c7fcf2e9e5123b5ab3d72135560530b0465689`。上传完整APP，不解压重压；HAP的app_gallery签名实际侧载受系统策略限制，不能冒充调试Profile安装包。
 - Git续查：本机GCM已有tangwu88，显式HTTPS用户名及OpenSSL连接成功。已重新`fetch origin --prune`；当前开发远端仍`7e23496074da65173908960cff2ada7ffa3887e7`，本地702fea8是其直接后继，未出现需合并的远端变化。此前SSH授权失败不再阻止此HTTPS交付，不使用另一个账号，不改全局SSH/凭据。
 
+## Git交付回执
+
+- 本轮鸿蒙源码提交`e3058e7daaed04093baaa4562e92cf0d902b72f1`及前一轮安卓`702fea8`已通过显式tangwu88 HTTPS身份推送当前SayRing开发分支。推送前再次fetch、核对原远端SHA7e23496不变；推送后ls-remote完整SHA与本地HEAD相同，工作树干净。
+- 本轮不提升main：鸿蒙支付及原生戒指SDK/真机验收尚未通过，不能将阶段对齐包当成已验收的全平台功能基线。没有推到其它仓库或账号。
+- GitHub Actions按源码SHA查询超时(TaskCanceledException)，CI状态未核验；本页只记录本地实际门禁及远端源码SHA，不声称CI通过、线上后台部署、AGC接收或市场审核成功。
+- 此回执仅追加文档，不改变上述已冻结的运行源码与正式包哈希。
+
 ## 待验收
 
 - 原生鸿蒙手机页面、登录、记录和设备验收；没有原厂鸿蒙戒指SDK的能力仍不可用。
