@@ -13,6 +13,7 @@ import { util } from '@kit.ArkTS';
 import { pushErrorMessage, paymentErrorMessage } from '../model/PushPaymentContracts';
 import type { PaymentProvider, ShopOrder } from '../model/PushPaymentContracts';
 import { isPaymentTimeout } from '../model/PaymentWatchdog';
+import { RingOrderView, RingOrderItem, ringOrderMoney, ringOrderStatus, sleepCustomerMessage } from '../model/RingOrderPresentation';
 import { harmonyPush } from '../services/HarmonyPushService';
 import { CARE_ARRIVAL_REVISION, NOTIFICATION_REVISION, PENDING_NOTIFICATION_ROUTE, notificationMatchesOwner } from '../services/NotificationNavigation';
 import { careNotifications } from '../services/CareNotificationService';
@@ -287,6 +288,8 @@ struct Index {
   @State private pushBusy: boolean = false;
   @State private pushStatus: string = '尚未检查通知状态';
   @State private orders: ShopOrder[] = [];
+  @State private ringOrders: RingOrderView[] = [];
+  @State private ringOrder: RingOrderView | undefined = undefined;
   @State private orderFilter: number = 99;
   @State private orderLoading: boolean = false;
   private orderGeneration: number = 0;
@@ -1324,7 +1327,7 @@ struct Index {
     this.commerceError = ''; this.selectingCheckoutAddress = false; this.purchaseSheet = false;
     this.clearInboxState(); this.addresses = []; this.accountPageError = '';
     this.addressDraft = emptyAddressDraft();
-    ++this.orderGeneration; this.orders = []; this.orderLoading = false; this.paymentMessage = '';
+    ++this.orderGeneration; this.orders = []; this.ringOrders = []; this.ringOrder = undefined; this.orderLoading = false; this.paymentMessage = '';
     this.resetMobile = ''; this.resetChallengeId = ''; this.resetCode = ''; this.resetPassword = ''; this.resetConfirmation = '';
     this.editNickname = ''; this.editBirthday = ''; this.editHeight = ''; this.editWeight = ''; this.editAvatarUri = '';
     this.avatarPicking = false;
@@ -1746,7 +1749,7 @@ struct Index {
     try {
       const data = await vepWearable.healthRange(key, this.selectedWearableMetric, prior.start, current.end);
       if (epoch === this.trendGeneration && key === this.wearableSnapshot.deviceKey) this.trendData = data;
-    } catch (error) { if (epoch === this.trendGeneration) this.trendError = (error as Error).message; }
+    } catch (error) { if (epoch === this.trendGeneration) this.trendError = this.selectedWearableMetric === 'sleep' ? sleepCustomerMessage('error') : (error as Error).message; }
     finally { if (epoch === this.trendGeneration) this.trendLoading = false; }
   }
 
@@ -1958,16 +1961,25 @@ struct Index {
     if (filter !== undefined) this.orderFilter = filter;
     else if (this.screen !== 'shop-orders' && this.screen !== 'shop-payment') this.orderFilter = 99;
     if (this.screen !== 'shop-orders' && this.screen !== 'shop-payment') this.openInnerPage('shop-orders');
-    this.screen = 'shop-orders'; this.orderLoading = true; this.paymentMessage = ''; this.orders = [];
+    this.screen = 'shop-orders'; this.orderLoading = true; this.paymentMessage = ''; this.orders = []; this.ringOrders = []; this.ringOrder = undefined;
     const epoch = ++this.orderGeneration;
-    try { const values = await saydianApi.shopOrders(this.orderFilter); if (epoch === this.orderGeneration) this.orders = values; }
-    catch (error) { if (epoch === this.orderGeneration) this.paymentMessage = this.accountFormFailure(error as Error); }
+    try { const values = await saydianApi.ringOrders(this.orderFilter); if (epoch === this.orderGeneration) this.ringOrders = values; }
+    catch (_) { if (epoch === this.orderGeneration) this.paymentMessage = '订单暂时无法显示，请稍后刷新'; }
     finally { if (epoch === this.orderGeneration) this.orderLoading = false; }
   }
 
   private openHealthAlerts(): void {
     this.screen = 'health-alerts';
     this.refreshInbox();
+  }
+
+  private async openRingOrder(id: string): Promise<void> {
+    if (this.screen !== 'ring-order-detail') this.openInnerPage('ring-order-detail');
+    this.orderLoading = true; this.paymentMessage = ''; this.ringOrder = undefined;
+    const epoch = ++this.orderGeneration;
+    try { const value = await saydianApi.ringOrder(id); if (epoch === this.orderGeneration && this.screen === 'ring-order-detail') this.ringOrder = value; }
+    catch (_) { if (epoch === this.orderGeneration) this.paymentMessage = '订单暂时无法显示，请稍后刷新'; }
+    finally { if (epoch === this.orderGeneration) this.orderLoading = false; }
   }
 
   private async openShop(): Promise<void> {
@@ -2981,7 +2993,7 @@ struct Index {
           this.screen === 'sport-records' ? '运动与记录' : this.screen === 'ai-chat' ? 'AI 健康管家' :
             this.screen === 'device-search' ? '添加设备' :
             this.screen === 'shop-cart' ? '购物车' : this.screen === 'shop-checkout' ? '确认订单' :
-            this.screen === 'shop-order-detail' ? '订单详情' : this.screen === 'shop-express' ? '物流信息' :
+            (this.screen === 'shop-order-detail' || this.screen === 'ring-order-detail') ? '订单详情' : this.screen === 'shop-express' ? '物流信息' :
             this.screen === 'shop-after-sales' ? '售后服务' : this.screen === 'shop-refund' ? '申请售后' :
             this.screen === 'shop-home' ? 'shop' : this.screen === 'shop-product' ? '商品详情' :
               this.screen === 'shop-orders' ? '我的订单' : this.screen === 'shop-payment' ? '支付收银台' :
@@ -5642,6 +5654,61 @@ struct Index {
   }
 
   @Builder
+  RingOrdersContent() {
+    Scroll() {
+      Row({ space: 8 }) {
+        ForEach([99, 0, 1, 2, 3, -1], (filter: number) => {
+          Button(filter === 99 ? '全部' : filter === 0 ? '待付款' : filter === 1 ? '待发货' : filter === 2 ? '待收货' : filter === 3 ? '已完成' : '售后')
+            .constraintSize({ minHeight: 48 }).fontSize(14)
+            .fontColor(this.orderFilter === filter ? Color.White : INK)
+            .backgroundColor(this.orderFilter === filter ? RED : SURFACE)
+            .enabled(!this.orderLoading).onClick(() => this.openOrders(filter))
+        })
+      }
+    }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).align(Alignment.Top)
+    if (this.orderLoading) { LoadingProgress().width(40).height(40).color(RED) }
+    if (this.paymentMessage) { this.Notice({ message: this.paymentMessage }) }
+    if (!this.orderLoading && !this.paymentMessage && this.ringOrders.length === 0) {
+      this.StateCard({ title: '暂无订单', icon: $r('sys.symbol.doc') })
+    }
+    ForEach(this.ringOrders, (order: RingOrderView) => {
+      Column({ space: 10 }) {
+        Text(`订单号：${order.number}`).fontSize(14).fontColor(MUTED).width('100%')
+        Text(ringOrderStatus(order.status)).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(order.items.length > 0 ? order.items[0].title : '商城订单').fontSize(16).fontColor(INK).width('100%')
+        Text(ringOrderMoney(order)).fontSize(22).fontWeight(FontWeight.Bold).fontColor(RED).width('100%')
+        Button('订单详情').constraintSize({ minHeight: 48 }).width('100%').fontColor(RED).backgroundColor(RED_SOFT)
+          .onClick(() => this.openRingOrder(order.id))
+      }.width('100%').padding(18).backgroundColor(SURFACE).borderRadius(20)
+    }, (order: RingOrderView) => order.id)
+    Button('刷新订单').constraintSize({ minHeight: 48 }).width('100%').fontColor(RED).backgroundColor(RED_SOFT)
+      .enabled(!this.orderLoading).onClick(() => this.openOrders())
+  }
+
+  @Builder
+  RingOrderDetailContent() {
+    if (this.orderLoading) { LoadingProgress().width(40).height(40).color(RED) }
+    if (this.paymentMessage) { this.Notice({ message: this.paymentMessage }) }
+    if (this.ringOrder) {
+      Column({ space: 14 }) {
+        Text(ringOrderStatus(this.ringOrder!.status)).fontSize(24).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(`订单号：${this.ringOrder!.number}`).fontSize(14).fontColor(MUTED).width('100%').copyOption(CopyOptions.InApp)
+        ForEach(this.ringOrder!.items, (item: RingOrderItem) => {
+          Text(item.quantity > 0 ? `${item.title} × ${item.quantity}` : item.title).fontSize(16).fontColor(INK).width('100%')
+        })
+        Text(`订单金额 ${ringOrderMoney(this.ringOrder!)}`).fontSize(22).fontWeight(FontWeight.Bold).fontColor(RED).width('100%')
+        if (this.ringOrder!.paymentPending) {
+          this.Notice({ message: '鸿蒙版暂不支持在线付款，你可以在安卓版使用同一账号完成支付。' })
+        }
+        Button('刷新订单状态').constraintSize({ minHeight: 48 }).width('100%').fontColor(RED).backgroundColor(RED_SOFT)
+          .enabled(!this.orderLoading).onClick(() => this.openRingOrder(this.ringOrder!.id))
+      }.width('100%').padding(18).backgroundColor(SURFACE).borderRadius(20)
+    }
+    Button('返回订单列表').constraintSize({ minHeight: 48 }).width('100%').fontColor(RED).backgroundColor(RED_SOFT)
+      .enabled(!this.orderLoading).onClick(() => { this.back(); this.openOrders(); })
+  }
+
+  @Builder
   OrderContent() {
     Scroll() {
       Row({ space: 8 }) {
@@ -5798,7 +5865,7 @@ struct Index {
     if (this.trendLoading) { LoadingProgress().width(40).height(40).color(RED) }
     if (this.trendError) { this.Notice({ message: this.trendError, color: '#FFF0E9' }) }
     if (!this.trendLoading && !this.trendError && this.currentTrendRecords().length === 0) {
-      this.StateCard({ title: '该时间段暂无数据', icon: $r('sys.symbol.waveform') })
+      this.StateCard({ title: this.selectedWearableMetric === 'sleep' ? sleepCustomerMessage('empty') : '该时间段暂无数据', icon: $r('sys.symbol.waveform') })
     }
     if (this.currentTrendRecords().length > 0) {
       if (this.selectedWearableMetric !== 'ecg') {
@@ -5844,6 +5911,7 @@ struct Index {
           }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(18).border({ width: 1, color: LINE })
         }, (name: string) => name)
         if (this.selectedWearableMetric === 'sleep') {
+          this.Notice({ message: sleepCustomerMessage('help') })
           ForEach(this.currentTrendRecords(), (record: HealthRecord) => {
             Column({ space: 8 }) {
               Text(this.wearableRecordTime(record.timestamp)).fontSize(13).fontColor(MUTED).width('100%')
@@ -6404,7 +6472,9 @@ struct Index {
         } else if (this.screen === 'messages') {
           this.MessageContent()
         } else if (this.screen === 'shop-orders') {
-          this.OrderContent()
+          this.RingOrdersContent()
+        } else if (this.screen === 'ring-order-detail') {
+          this.RingOrderDetailContent()
         } else if (this.screen === 'shop-payment') {
           this.PaymentContent()
         } else if (this.screen.startsWith('care')) {

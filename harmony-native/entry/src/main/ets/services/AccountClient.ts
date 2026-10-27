@@ -37,6 +37,8 @@ import type { GlobalHealthReport, GlobalReportProfile, GlobalReportEligibility, 
 import type { AiDisplayAccess } from '../model/AppDisplay';
 import { parseSupportConfig } from '../model/SupportConfig';
 import type { SupportConfig } from '../model/SupportConfig';
+import { ringOrderId, ringOrderQuery, parseRingOrder, ringOrderRows } from '../model/RingOrderPresentation';
+import type { RingOrderView } from '../model/RingOrderPresentation';
 
 export interface SessionStore {
   read(): Promise<Session | undefined>;
@@ -680,6 +682,26 @@ export class AccountClient {
       }
     }
     return undefined;
+  }
+
+  async ringOrders(filter: number = 99): Promise<RingOrderView[]> {
+    const epoch = this.generation;
+    const query = ringOrderQuery(filter);
+    const capabilities = await this.transport.request(globalApiPath('/commerce/capabilities'));
+    this.assertEpoch(epoch);
+    const response = await this.authorized(globalApiPath(`/commerce/orders${query}`));
+    this.assertEpoch(epoch);
+    return ringOrderRows(response.data, capabilities.data);
+  }
+
+  async ringOrder(id: string): Promise<RingOrderView> {
+    const epoch = this.generation;
+    const safeId = ringOrderId(id);
+    const capabilities = await this.transport.request(globalApiPath('/commerce/capabilities'));
+    this.assertEpoch(epoch);
+    const response = await this.authorized(globalApiPath(`/commerce/orders/${safeId}`));
+    this.assertEpoch(epoch);
+    return parseRingOrder(response.data ?? {}, capabilities.data, safeId);
   }
 
   async shopOrders(status: number = 99): Promise<ShopOrder[]> {
