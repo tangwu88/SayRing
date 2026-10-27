@@ -1525,7 +1525,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get healthSafetyAdvice =>
-      'Rest and measure again. If you feel unwell, seek medical advice.';
+      'For chest discomfort, severe breathlessness or fainting, seek emergency help without waiting for another reading.';
 
   @override
   String get defaultUser => 'Say Ring user';
@@ -1552,7 +1552,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get healthLibrary => 'Health library';
 
   @override
-  String get healthAlerts => 'Health alerts';
+  String get healthAlerts => 'Health reminders';
 
   @override
   String get shop => 'Shop';

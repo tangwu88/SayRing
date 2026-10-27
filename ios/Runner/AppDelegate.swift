@@ -829,8 +829,119 @@ struct IOSWechatAuthState {
   }
 }
 
+// This local channel does not enable APNs/JPush, device sampling or any
+// physiological release grant. It accepts only the current owner's event IDs.
+private final class RingHealthReminderNotificationBridge {
+  static let prefix = "sayring.health."
+  private let channel: FlutterMethodChannel
+  private let defaults = UserDefaults.standard
+  private let ownerKey = "cn.saydian.ring.health-reminders.owner.v1"
+  private let openKey = "cn.saydian.ring.health-reminders.open.v1"
+  private var owner: String? { defaults.string(forKey: ownerKey) }
+
+  init(messenger: FlutterBinaryMessenger) {
+    channel = FlutterMethodChannel(name: "cn.saydian.ring/health_reminders", binaryMessenger: messenger)
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard let self else { result(nil); return }
+      let args = call.arguments as? [String: Any] ?? [:]
+      let center = UNUserNotificationCenter.current()
+      switch call.method {
+      case "setOwner":
+        let previous = self.owner
+        let raw = args["owner"] as? String
+        let next = raw?.range(of: "^[a-f0-9]{64}$", options: .regularExpression) == nil ? nil : raw
+        self.defaults.set(next, forKey: self.ownerKey)
+        if previous != next {
+          self.defaults.removeObject(forKey: self.openKey)
+          if let previous {
+            let prefix = Self.prefix + previous + "."
+            center.getPendingNotificationRequests { requests in
+              center.removePendingNotificationRequests(withIdentifiers: requests.map(\.identifier).filter { $0.hasPrefix(prefix) })
+            }
+            center.getDeliveredNotifications { notifications in
+              center.removeDeliveredNotifications(withIdentifiers: notifications.map { $0.request.identifier }.filter { $0.hasPrefix(prefix) })
+            }
+          }
+        }
+        result(nil)
+      case "permission", "requestPermission":
+        if call.method == "requestPermission" {
+          center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in
+            self.permission(result)
+          }
+        } else { self.permission(result) }
+      case "show":
+        guard let owner = args["owner"] as? String, owner == self.owner,
+              let event = args["eventId"] as? String,
+              event.range(of: "^[A-Za-z0-9-]{1,100}$", options: .regularExpression) != nil
+        else { result(false); return }
+        center.getNotificationSettings { settings in
+          DispatchQueue.main.async {
+            guard owner == self.owner,
+                  settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
+            else { result(false); return }
+            let content = UNMutableNotificationContent()
+            content.title = "健康提醒"
+            content.body = "有一条健康提醒，请打开查看测量时间与详情。"
+            content.sound = .default
+            content.userInfo = ["reminder-owner": owner, "reminder-event": event]
+            let id = Self.prefix + owner + "." + event
+            let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
+            center.add(request) { error in
+              DispatchQueue.main.async {
+                if owner != self.owner {
+                  center.removePendingNotificationRequests(withIdentifiers: [id])
+                  center.removeDeliveredNotifications(withIdentifiers: [id])
+                  result(false)
+                } else { result(error == nil) }
+              }
+            }
+          }
+        }
+      case "cancel":
+        if let owner = self.owner, let event = args["eventId"] as? String {
+          let id = Self.prefix + owner + "." + event
+          center.removePendingNotificationRequests(withIdentifiers: [id])
+          center.removeDeliveredNotifications(withIdentifiers: [id])
+        }
+        result(nil)
+      case "consumeOpen":
+        let value = self.defaults.dictionary(forKey: self.openKey)
+        self.defaults.removeObject(forKey: self.openKey)
+        result(value?["owner"] as? String == self.owner ? value : nil)
+      default: result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  private func permission(_ result: @escaping FlutterResult) {
+    UNUserNotificationCenter.current().getNotificationSettings { settings in
+      let value: String
+      switch settings.authorizationStatus {
+      case .authorized, .provisional, .ephemeral: value = "granted"
+      case .denied: value = "denied"
+      case .notDetermined: value = "notDetermined"
+      @unknown default: value = "unavailable"
+      }
+      DispatchQueue.main.async { result(value) }
+    }
+  }
+
+  func owns(_ request: UNNotificationRequest) -> Bool {
+    guard let owner, request.identifier.hasPrefix(Self.prefix + owner + ".") else { return false }
+    return request.content.userInfo["reminder-owner"] as? String == owner
+  }
+
+  func opened(_ response: UNNotificationResponse) {
+    guard owns(response.notification.request), let owner,
+          let event = response.notification.request.content.userInfo["reminder-event"] as? String else { return }
+    defaults.set(["owner": owner, "eventId": event], forKey: openKey)
+  }
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate, WXApiDelegate {
+  private var healthReminderNotifications: RingHealthReminderNotificationBridge?
   private(set) var flutterEngine: FlutterEngine?
   private let wearableStreamHandler = WearableStreamHandler()
   private var wearableAdapter: WearableAdapter?
@@ -864,7 +975,9 @@ struct IOSWechatAuthState {
     guard engine.run() else { return false }
     flutterEngine = engine
     configureFlutterEngine(engine)
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    let launched = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    UNUserNotificationCenter.current().delegate = self
+    return launched
   }
 
   override func applicationDidBecomeActive(_ application: UIApplication) {
@@ -872,11 +985,35 @@ struct IOSWechatAuthState {
     wearableAdapter?.refreshDeviceDetailsIfNeeded()
   }
 
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    if notification.request.identifier.hasPrefix(RingHealthReminderNotificationBridge.prefix) {
+      completionHandler(healthReminderNotifications?.owns(notification.request) == true ? [.banner, .sound] : [])
+    } else {
+      super.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
+    }
+  }
+
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    if response.notification.request.identifier.hasPrefix(RingHealthReminderNotificationBridge.prefix) {
+      healthReminderNotifications?.opened(response)
+      completionHandler()
+    } else {
+      super.userNotificationCenter(center, didReceive: response, withCompletionHandler: completionHandler)
+    }
+  }
+
   private func configureFlutterEngine(_ engine: FlutterEngine) {
     GeneratedPluginRegistrant.register(with: engine)
     guard let registrar = engine.registrar(forPlugin: "SaydianWearableBridge") else {
       return
     }
+    healthReminderNotifications = RingHealthReminderNotificationBridge(messenger: registrar.messenger())
 
     let methods = FlutterMethodChannel(
       name: "cc.saidian/wearable_methods",

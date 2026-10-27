@@ -1457,7 +1457,8 @@ class AppLocalizationsJa extends AppLocalizations {
   String get healthDisclaimer => '測定結果は健康管理の参考です。体調がすぐれない場合は医療専門家にご相談ください。';
 
   @override
-  String get healthSafetyAdvice => '休憩してから再測定してください。体調がすぐれない場合は医療機関にご相談ください。';
+  String get healthSafetyAdvice =>
+      '胸の不快感、強い息苦しさ、失神がある場合は、再測定を待たずに救急の助けを求めてください。';
 
   @override
   String get defaultUser => 'Say Ringユーザー';

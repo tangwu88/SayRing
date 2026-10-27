@@ -6,6 +6,7 @@ import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/l10n/global_locale_controller.dart';
 import 'package:saydian_app/services/app_controller.dart';
+import 'package:saydian_app/services/health_reminder_notifications.dart';
 import 'package:saydian_app/ui/health_reports_page.dart';
 import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
@@ -23,6 +24,23 @@ class _GlobalPageController extends Fake implements AppController {
   bool get healthAlertsAvailable => true;
   @override
   bool isMetricAvailableInRelease(HealthMetric metric) => true;
+  @override
+  bool get automaticHealthRemindersAvailable => false;
+  @override
+  bool get canSaveHealthReminder => false;
+  @override
+  List<HealthWarningAlert> get healthReminderEvents => const [];
+  @override
+  Map<HealthMetric, HealthRecord> get latestByMetric => const {};
+  @override
+  DeviceInfo? get connectedDevice => null;
+  @override
+  ReminderNotificationPermission get healthReminderNotificationPermission =>
+      ReminderNotificationPermission.unavailable;
+  @override
+  Future<void> refreshHealthReminderPermissions({bool request = false}) async {}
+  @override
+  bool canOpenHealthReminderEvent(String? id) => false;
   bool reviewed = false;
   bool mismatch = false;
   bool granted = false;
@@ -462,41 +480,24 @@ void main() {
           final labels = AppLocalizations.of(
             tester.element(find.byType(HealthWarningPage)),
           )!;
-          final pageScroll = find
-              .byWidgetPredicate(
-                (widget) =>
-                    widget is Scrollable &&
-                    widget.axisDirection == AxisDirection.down,
-              )
-              .first;
-          final heartSwitch = find.descendant(
-            of: find.byKey(const Key('warning-heart-rate-switch')),
-            matching: find.byType(Switch),
+          expect(find.text(labels.healthAlerts), findsOneWidget);
+          expect(
+            find.byKey(const Key('health-reminder-urgent-help')).hitTestable(),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const Key('warning-heart-rate-threshold')),
+            findsNothing,
           );
           await tester.scrollUntilVisible(
-            heartSwitch,
-            180,
-            scrollable: pageScroll,
+            find.byKey(const Key('health-reminder-availability')),
+            140,
+            scrollable: find.byType(Scrollable).first,
           );
-          await tester.pumpAndSettle();
-          expect(find.text(labels.heartRateAlertLabel), findsOneWidget);
-          expect(heartSwitch.hitTestable(), findsOneWidget);
-          await tester.tap(heartSwitch);
-          await tester.pumpAndSettle();
-          await tester.scrollUntilVisible(
-            find.text(labels.heartRateUpperLimit),
-            180,
-            scrollable: pageScroll,
+          expect(
+            find.byKey(const Key('health-reminder-availability')),
+            findsOneWidget,
           );
-          expect(find.text(labels.heartRateUpperLimit), findsOneWidget);
-          expect(find.text('120'), findsOneWidget);
-          await tester.scrollUntilVisible(
-            find.text(labels.seekProfessionalCare),
-            220,
-            scrollable: pageScroll,
-          );
-          expect(find.text(labels.seekProfessionalCare), findsOneWidget);
-          expect(find.text(labels.watchHealthReference), findsOneWidget);
           expect(tester.takeException(), isNull);
         },
       );

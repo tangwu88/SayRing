@@ -136,10 +136,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get noWatchShopHint => '需要其他设备？去赛电商城看看';
 
   @override
-  String get notificationInAppHint => '应用内红点和消息仍可使用，开启后可及时收到关爱邀请与健康预警。';
+  String get notificationInAppHint => '应用内红点和消息仍可使用，开启后可及时收到关爱邀请与健康提醒。';
 
   @override
-  String get healthAlertSafetyHint => '健康预警用于及时提醒，不作为医疗诊断；如有明显不适，请及时就医。';
+  String get healthAlertSafetyHint => '健康提醒用于及时提醒，不作为医疗诊断；如有明显不适，请及时就医。';
 
   @override
   String get afterSalesService => '售后服务';
@@ -307,10 +307,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get temperatureAlertHint => '超过自行设定的皮肤温度时提示，不用于判断发热';
 
   @override
-  String get saveHealthAlerts => '保存预警设置';
+  String get saveHealthAlerts => '保存提醒设置';
 
   @override
-  String get healthAlertHistory => '预警记录';
+  String get healthAlertHistory => '提醒记录';
 
   @override
   String get seekProfessionalCare => '如有明显不适，请及时咨询专业医务人员';
@@ -424,7 +424,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get autoMonitorIntervalHint => '开启后由戒指按设备设定周期自动检测';
 
   @override
-  String get watchHeartRateAlert => '戒指心率预警';
+  String get watchHeartRateAlert => '戒指心率提醒';
 
   @override
   String get sustainedLimitWatchAlert => '持续超过阈值时由戒指提醒';
@@ -445,7 +445,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get raiseWristScreenHint => '抬起手腕时自动点亮屏幕';
 
   @override
-  String get watchHighHeartRate => '心率过高预警';
+  String get watchHighHeartRate => '心率过高提醒';
 
   @override
   String get watchThresholdHint => '达到阈值后由戒指提醒';
@@ -1430,7 +1430,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get healthDisclaimer => '测量结果仅供健康管理参考，如有不适请咨询专业医务人员。';
 
   @override
-  String get healthSafetyAdvice => '请休息后复测；如有明显不适，请及时咨询医务人员。';
+  String get healthSafetyAdvice => '如有胸部不适、明显气短或晕厥，请立即寻求急救帮助，不要等待再次测量。';
 
   @override
   String get defaultUser => 'Say Ring 用户';
@@ -1457,7 +1457,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get healthLibrary => '健康百科';
 
   @override
-  String get healthAlerts => '健康预警';
+  String get healthAlerts => '健康提醒';
 
   @override
   String get shop => '赛电商城';
@@ -1617,7 +1617,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get notificationExplanation =>
-      '用于提醒新的健康预警和关爱邀请。锁屏上不会显示具体健康数值，可随时在系统设置中关闭。';
+      '用于提醒新的健康提醒和关爱邀请。锁屏上不会显示具体健康数值，可随时在系统设置中关闭。';
 
   @override
   String get notNow => '暂不开启';
@@ -1629,7 +1629,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get newCareRequest => '收到新的关爱请求';
 
   @override
-  String get dismissHealthAlert => '关闭健康预警';
+  String get dismissHealthAlert => '关闭健康提醒';
 
   @override
   String get dismissCareAlert => '关闭关爱提醒';
@@ -2194,10 +2194,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get noWatchShopHint => '需要其他设备？去赛电商城看看';
 
   @override
-  String get notificationInAppHint => '应用内红点和消息仍可使用，开启后可及时收到关爱邀请与健康预警。';
+  String get notificationInAppHint => '应用内红点和消息仍可使用，开启后可及时收到关爱邀请与健康提醒。';
 
   @override
-  String get healthAlertSafetyHint => '健康预警用于及时提醒，不作为医疗诊断；如有明显不适，请及时就医。';
+  String get healthAlertSafetyHint => '健康提醒用于及时提醒，不作为医疗诊断；如有明显不适，请及时就医。';
 
   @override
   String get afterSalesService => '售后服务';
@@ -2365,10 +2365,10 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get temperatureAlertHint => '超过自行设定的皮肤温度时提示，不用于判断发热';
 
   @override
-  String get saveHealthAlerts => '保存预警设置';
+  String get saveHealthAlerts => '保存提醒设置';
 
   @override
-  String get healthAlertHistory => '预警记录';
+  String get healthAlertHistory => '提醒记录';
 
   @override
   String get seekProfessionalCare => '如有明显不适，请及时咨询专业医务人员';
@@ -2482,7 +2482,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get autoMonitorIntervalHint => '开启后由戒指按设备设定周期自动检测';
 
   @override
-  String get watchHeartRateAlert => '戒指心率预警';
+  String get watchHeartRateAlert => '戒指心率提醒';
 
   @override
   String get sustainedLimitWatchAlert => '持续超过阈值时由戒指提醒';
@@ -2503,7 +2503,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get raiseWristScreenHint => '抬起手腕时自动点亮屏幕';
 
   @override
-  String get watchHighHeartRate => '心率过高预警';
+  String get watchHighHeartRate => '心率过高提醒';
 
   @override
   String get watchThresholdHint => '达到阈值后由戒指提醒';
@@ -3488,7 +3488,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get healthDisclaimer => '测量结果仅供健康管理参考，如有不适请咨询专业医务人员。';
 
   @override
-  String get healthSafetyAdvice => '请休息后复测；如有明显不适，请及时咨询医务人员。';
+  String get healthSafetyAdvice => '如有胸部不适、明显气短或晕厥，请立即寻求急救帮助，不要等待再次测量。';
 
   @override
   String get defaultUser => 'Say Ring 用户';
@@ -3515,7 +3515,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get healthLibrary => '健康百科';
 
   @override
-  String get healthAlerts => '健康预警';
+  String get healthAlerts => '健康提醒';
 
   @override
   String get shop => '赛电商城';
@@ -3675,7 +3675,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get notificationExplanation =>
-      '用于提醒新的健康预警和关爱邀请。锁屏上不会显示具体健康数值，可随时在系统设置中关闭。';
+      '用于提醒新的健康提醒和关爱邀请。锁屏上不会显示具体健康数值，可随时在系统设置中关闭。';
 
   @override
   String get notNow => '暂不开启';
@@ -3687,7 +3687,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get newCareRequest => '收到新的关爱请求';
 
   @override
-  String get dismissHealthAlert => '关闭健康预警';
+  String get dismissHealthAlert => '关闭健康提醒';
 
   @override
   String get dismissCareAlert => '关闭关爱提醒';
@@ -4252,10 +4252,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get noWatchShopHint => '需要其他裝置？前往賽電商城看看';
 
   @override
-  String get notificationInAppHint => 'App 內未讀標示和訊息仍可使用，開啟通知後可及時收到關愛邀請與健康預警。';
+  String get notificationInAppHint => 'App 內未讀標示和訊息仍可使用，開啟通知後可及時收到關愛邀請與健康提醒。';
 
   @override
-  String get healthAlertSafetyHint => '健康預警用於及時提醒，不作為醫療診斷；如有明顯不適，請及時就醫。';
+  String get healthAlertSafetyHint => '健康提醒用於及時提醒，不作為醫療診斷；如有明顯不適，請及時就醫。';
 
   @override
   String get afterSalesService => '售後服務';
@@ -4423,10 +4423,10 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get temperatureAlertHint => '超過自行設定的皮膚溫度時提示，不用於判斷發熱';
 
   @override
-  String get saveHealthAlerts => '儲存預警設定';
+  String get saveHealthAlerts => '儲存提醒設定';
 
   @override
-  String get healthAlertHistory => '預警記錄';
+  String get healthAlertHistory => '提醒記錄';
 
   @override
   String get seekProfessionalCare => '如有明顯不適，請及時諮詢專業醫務人員';
@@ -4540,7 +4540,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get autoMonitorIntervalHint => '開啟後由戒指依裝置設定週期自動檢測';
 
   @override
-  String get watchHeartRateAlert => '戒指心率預警';
+  String get watchHeartRateAlert => '戒指心率提醒';
 
   @override
   String get sustainedLimitWatchAlert => '持續超過閾值時由戒指提醒';
@@ -4561,7 +4561,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get raiseWristScreenHint => '抬起手腕時自動點亮螢幕';
 
   @override
-  String get watchHighHeartRate => '心率過高預警';
+  String get watchHighHeartRate => '心率過高提醒';
 
   @override
   String get watchThresholdHint => '達到閾值後由戒指提醒';
@@ -5546,7 +5546,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get healthDisclaimer => '測量結果僅供健康管理參考，如有不適請諮詢專業醫護人員。';
 
   @override
-  String get healthSafetyAdvice => '請休息後再測；如有明顯不適，請及時諮詢醫護人員。';
+  String get healthSafetyAdvice => '如有胸部不適、明顯氣短或暈厥，請立即尋求急救協助，不要等待再次測量。';
 
   @override
   String get defaultUser => 'Say Ring 使用者';
@@ -5573,7 +5573,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get healthLibrary => '健康百科';
 
   @override
-  String get healthAlerts => '健康預警';
+  String get healthAlerts => '健康提醒';
 
   @override
   String get shop => '賽電商城';
@@ -5733,7 +5733,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get notificationExplanation =>
-      '用於提醒新的健康預警和關愛邀請。鎖定畫面不顯示具體健康數值，可隨時在系統設定中關閉。';
+      '用於提醒新的健康提醒和關愛邀請。鎖定畫面不顯示具體健康數值，可隨時在系統設定中關閉。';
 
   @override
   String get notNow => '暫不開啟';
@@ -5745,7 +5745,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get newCareRequest => '收到新的關愛請求';
 
   @override
-  String get dismissHealthAlert => '關閉健康預警';
+  String get dismissHealthAlert => '關閉健康提醒';
 
   @override
   String get dismissCareAlert => '關閉關愛提醒';

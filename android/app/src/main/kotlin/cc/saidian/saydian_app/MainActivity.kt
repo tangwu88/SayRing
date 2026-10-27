@@ -226,6 +226,7 @@ internal object WearableRecordTimezone {
 }
 
 class MainActivity : FlutterActivity() {
+    private var healthReminderNotifications: HealthReminderNotifications? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var adapter: VeepooWearableAdapter
     private var coolWearBridge: CoolWearRingBridge? = null
@@ -247,6 +248,7 @@ class MainActivity : FlutterActivity() {
         // this Activity's onCreate body resumes.
         if (!::adapter.isInitialized) adapter = VeepooWearableAdapter(applicationContext)
         super.configureFlutterEngine(flutterEngine)
+        healthReminderNotifications = HealthReminderNotifications(this, flutterEngine.dartExecutor.binaryMessenger)
         coolWearBridge = CoolWearRingBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         qringBridge = QRingBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(
@@ -298,12 +300,18 @@ class MainActivity : FlutterActivity() {
         deliverPendingWechatAuthorization()
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        healthReminderNotifications?.onPermissionResult(requestCode)
         if (requestCode != BLE_PERMISSION_REQUEST) return
         val pending = pendingPermissionCall ?: return
         pendingPermissionCall = null

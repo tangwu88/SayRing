@@ -867,7 +867,7 @@ class _ProfileOverview extends StatelessWidget {
               Expanded(
                 child: _ProfileNumber(
                   value: '${profile.activeWarningCount}',
-                  label: '预警记录',
+                  label: '提醒记录',
                   warning: profile.activeWarningCount > 0,
                 ),
               ),

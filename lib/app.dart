@@ -255,7 +255,8 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
     final intent = controller.consumePendingNotificationRoute();
     if (intent == null) return;
     if (!controller.healthAlertsAvailable &&
-        intent.target == NotificationRouteTarget.healthWarningHistory) {
+        intent.target == NotificationRouteTarget.healthWarningHistory &&
+        !controller.canOpenHealthReminderEvent(intent.entityId)) {
       return;
     }
     _notificationRouteRunning = true;
@@ -272,6 +273,7 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
         ),
         NotificationRouteTarget.healthWarningHistory => HealthWarningPage(
           controller: controller,
+          targetReminderId: intent.entityId,
         ),
         NotificationRouteTarget.notificationInbox => NotificationsPage(
           controller: controller,
@@ -562,6 +564,24 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
                                         ),
                                         const SizedBox(height: 3),
                                         Text(alert.message),
+                                        if (alert.reminder != null)
+                                          TextButton(
+                                            onPressed: () {
+                                              controller
+                                                  .dismissHealthWarningAlert();
+                                              _navigatorKey.currentState?.push(
+                                                MaterialPageRoute<void>(
+                                                  builder: (_) =>
+                                                      HealthWarningPage(
+                                                        controller: controller,
+                                                        targetReminderId:
+                                                            alert.id,
+                                                      ),
+                                                ),
+                                              );
+                                            },
+                                            child: const Text('查看提醒与求助'),
+                                          ),
                                         const SizedBox(height: 3),
                                         Text(
                                           context.l10n.healthSafetyAdvice,

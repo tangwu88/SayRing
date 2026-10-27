@@ -18,6 +18,10 @@ import '../domain/health_record_validation.dart';
 import '../domain/health_record_dedup.dart';
 import '../domain/health_source_policy.dart';
 import '../domain/models.dart';
+import '../domain/health_reminder.dart';
+import '../domain/heart_rate_reminder_engine.dart';
+import 'health_reminder_notifications.dart';
+import 'health_reminder_report.dart';
 import '../domain/wellness_release_policy.dart';
 import '../domain/read_only_health_features.dart';
 import '../domain/module_visibility.dart';
@@ -46,6 +50,8 @@ import 'wechat_auth_bridge.dart';
 import 'user_message.dart';
 import 'read_only_health_service.dart';
 import 'module_visibility_service.dart';
+
+part 'app_controller_health_reminders.dart';
 
 enum PushDeviceRegistrationState {
   idle,
@@ -80,6 +86,8 @@ class AppController extends ChangeNotifier {
     StoreKitPurchaseBridge? storeKitPurchaseBridge,
     WechatAuthBridge? wechatAuthBridge,
     AppNotificationService? notificationService,
+    HealthReminderNotifications? healthReminderNotifications,
+    HeartRateReminderEngine? heartRateReminders,
     List<Duration>? pushRegistrationRetryDelays,
     this._allowAutomaticWearableRestore = true,
     this.generalAiEnabled = true,
@@ -100,6 +108,10 @@ class AppController extends ChangeNotifier {
        _wechatAuthBridge = wechatAuthBridge ?? MethodChannelWechatAuthBridge(),
        _notificationService =
            notificationService ?? const DisabledAppNotificationService(),
+       _healthReminderNotifications =
+           healthReminderNotifications ??
+           const DisabledHealthReminderNotifications(),
+       _heartRateReminders = heartRateReminders ?? HeartRateReminderEngine(),
        _pushRegistrationRetryDelays = List.unmodifiable(
          pushRegistrationRetryDelays ?? _defaultPushRegistrationRetryDelays,
        ),
@@ -153,6 +165,8 @@ class AppController extends ChangeNotifier {
       notificationService: defaultTargetPlatform == TargetPlatform.iOS
           ? const DisabledAppNotificationService()
           : JPushAppNotificationService(),
+      healthReminderNotifications:
+          const MethodChannelHealthReminderNotifications(),
       allowAutomaticWearableRestore: allowAutomaticWearableRestore,
     );
   }
@@ -1342,6 +1356,45 @@ class AppController extends ChangeNotifier {
   HealthWarningSettings healthWarningSettings = const HealthWarningSettings();
   List<HealthWarningAlert> healthWarningAlerts = const [];
   HealthWarningAlert? activeHealthWarningAlert;
+  final HeartRateReminderEngine _heartRateReminders;
+  final HealthReminderNotifications _healthReminderNotifications;
+  Future<void> _healthReminderWrites = Future.value();
+  ReminderNotificationPermission healthReminderNotificationPermission =
+      ReminderNotificationPermission.unavailable;
+  bool get canSaveHealthReminder => _canSaveHealthReminder;
+  void _notifyHealthReminderListeners() {
+    if (!_disposed) notifyListeners();
+  }
+
+  bool get automaticHealthRemindersAvailable =>
+      _automaticHealthRemindersAvailable;
+  List<HealthWarningAlert> get healthReminderEvents => _healthReminderEvents;
+  bool canOpenHealthReminderEvent(String? id) =>
+      _canOpenHealthReminderEvent(id);
+  Future<void> refreshHealthReminderPermissions({bool request = false}) =>
+      _refreshHealthReminderPermissions(request: request);
+  Future<HealthWarningAlert?> recordHealthReminderSymptoms(
+    Set<HealthReminderSymptom> symptoms,
+  ) => _recordHealthReminderSymptoms(symptoms);
+  Future<bool> updateHealthReminderAction(
+    String id, {
+    required String expectedOwner,
+    bool acknowledged = false,
+    bool dialRequested = false,
+    bool notificationRequested = false,
+  }) => _updateHealthReminderAction(
+    id,
+    expectedOwner: expectedOwner,
+    acknowledged: acknowledged,
+    dialRequested: dialRequested,
+    notificationRequested: notificationRequested,
+  );
+  String? healthReminderCsv(String id, {required String expectedOwner}) =>
+      _healthReminderCsv(id, expectedOwner: expectedOwner);
+  Future<bool> deleteHealthReminder(
+    String id, {
+    required String expectedOwner,
+  }) => _deleteHealthReminder(id, expectedOwner: expectedOwner);
   NotificationEvent? activeCareInvitationAlert;
 
   bool get isAuthenticated => session != null;
@@ -1531,6 +1584,12 @@ class AppController extends ChangeNotifier {
   int _advanceSessionGeneration(Session? value) {
     _sessionGeneration++;
     _activeHealthOwner = _healthOwnerFor(value);
+    _heartRateReminders.reset();
+    unawaited(
+      _healthReminderNotifications
+          .setOwner(value == null ? null : _activeHealthOwner)
+          .catchError((Object _) {}),
+    );
     _careInvitationRefresh = null;
     _pushRegistration = null;
     _pushRegistrationRetryTimer?.cancel();
@@ -1599,8 +1658,16 @@ class AppController extends ChangeNotifier {
       if (!_isCurrentSessionGeneration(expectedGeneration)) return false;
       final sports = await _healthStore.localSportRecords();
       if (!_isCurrentSessionGeneration(expectedGeneration)) return false;
-      healthWarningAlerts = healthAlertsAvailable ? alerts : const [];
+      healthWarningAlerts = healthAlertsAvailable
+          ? alerts
+          : alerts
+                .where(
+                  (event) =>
+                      event.reminder?.kind == HealthReminderKind.symptoms,
+                )
+                .toList();
       sportRecords = sports.map(healthReleasePolicy.projectSport).toList();
+      await _consumeHealthReminderOpen();
       return true;
     } catch (_) {
       if (_isCurrentSessionGeneration(expectedGeneration)) {
@@ -2987,9 +3054,7 @@ class AppController extends ChangeNotifier {
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
       }
-      for (final record in records) {
-        _evaluateHealthWarning(record, expectedGeneration: sessionGeneration);
-      }
+      // History imports never create current physiological notifications.
       if (_sleepReadFailedDuringSync) {
         syncStatus = '已保留读到的记录，部分睡眠数据读取失败';
         _deviceSyncErrorMessage = '部分睡眠数据读取失败，已有记录已保留，请稍后重试';
@@ -3859,7 +3924,7 @@ class AppController extends ChangeNotifier {
       notifyListeners();
       return true;
     } catch (_) {
-      errorMessage = '健康预警设置保存失败，请稍后重试';
+      errorMessage = '健康提醒设置保存失败，请稍后重试';
       notifyListeners();
       return false;
     }
@@ -3900,7 +3965,11 @@ class AppController extends ChangeNotifier {
       final remoteAlerts = results[1] as List<HealthWarningAlert>;
       final merged = <String, HealthWarningAlert>{
         for (final alert in healthWarningAlerts) alert.id: alert,
-        for (final alert in remoteAlerts) alert.id: alert,
+        for (final alert in remoteAlerts)
+          if (!healthWarningAlerts.any(
+            (local) => local.id == alert.id && local.reminder != null,
+          ))
+            alert.id: alert,
       };
       healthWarningAlerts = merged.values.toList()
         ..sort((left, right) => right.triggeredAt.compareTo(left.triggeredAt));
@@ -4499,9 +4568,9 @@ class AppController extends ChangeNotifier {
     try {
       await _wearable.setHeartRateWarning(value);
       heartRateWarning = value;
-      deviceSettingsStatus = '心率预警已写入戒指';
+      deviceSettingsStatus = '心率提醒已写入戒指';
     } on PlatformException catch (error) {
-      errorMessage = _wearableErrorMessage(error, fallback: '心率预警设置失败');
+      errorMessage = _wearableErrorMessage(error, fallback: '心率提醒设置失败');
     }
     notifyListeners();
   }
@@ -5343,6 +5412,8 @@ class AppController extends ChangeNotifier {
 
   Future<void> handleAppResumed() async {
     if (_disposed) return;
+    unawaited(refreshHealthReminderPermissions());
+    unawaited(_consumeHealthReminderOpen());
     unawaited(refreshAppDisplayConfig());
     unawaited(refreshModuleVisibility());
     _readOnlyHealthFeatureService?.setForeground(true);
@@ -5387,7 +5458,8 @@ class AppController extends ChangeNotifier {
     pendingNotificationRoute = null;
     notifyListeners();
     if (!healthAlertsAvailable &&
-        value.target == NotificationRouteTarget.healthWarningHistory) {
+        value.target == NotificationRouteTarget.healthWarningHistory &&
+        !canOpenHealthReminderEvent(value.entityId)) {
       return null;
     }
     return value;
@@ -7654,7 +7726,11 @@ class AppController extends ChangeNotifier {
     if (healthRecords.length > 200) {
       healthRecords = healthRecords.take(200).toList(growable: false);
     }
-    _evaluateHealthWarning(record, expectedGeneration: expectedGeneration);
+    _observeHealthReminder(
+      record,
+      expectedGeneration: expectedGeneration,
+      live: shouldStopMeasurement,
+    );
     if (shouldStopMeasurement &&
         deviceState == DeviceConnectionState.measuring) {
       deviceMachine.transition(DeviceConnectionState.ready);
@@ -7683,82 +7759,6 @@ class AppController extends ChangeNotifier {
       errorMessage = '测量结果已显示，但暂时无法保存到本机';
       if (_isCurrentSessionGeneration(expectedGeneration)) notifyListeners();
     }
-  }
-
-  void _evaluateHealthWarning(
-    HealthRecord record, {
-    required int expectedGeneration,
-  }) {
-    if (!healthAlertsAvailable) return;
-    if (!_isCurrentSessionGeneration(expectedGeneration)) return;
-    if (record.measuredAt.isBefore(
-      DateTime.now().toUtc().subtract(const Duration(minutes: 5)),
-    )) {
-      return;
-    }
-    if (healthWarningAlerts.any((item) => item.id == record.id)) return;
-    final settings = healthWarningSettings;
-    String? message;
-    if (record.metric == HealthMetric.heartRate && settings.heartRateEnabled) {
-      final value = record.values['value'];
-      if (value != null && value > settings.heartRateUpper) {
-        final display = value % 1 == 0
-            ? value.toInt().toString()
-            : value.toStringAsFixed(1);
-        message = '心率 $display bpm，超过设定值 ${settings.heartRateUpper} bpm';
-      }
-    } else if (record.metric == HealthMetric.bloodPressure &&
-        settings.bloodPressureEnabled) {
-      final systolic = record.values['systolic'];
-      final diastolic = record.values['diastolic'];
-      final parts = <String>[];
-      if (systolic != null && systolic > settings.systolicUpper) {
-        parts.add('收缩压 ${systolic.toStringAsFixed(0)}');
-      }
-      if (diastolic != null && diastolic > settings.diastolicUpper) {
-        parts.add('舒张压 ${diastolic.toStringAsFixed(0)}');
-      }
-      if (parts.isNotEmpty) {
-        message = '${parts.join('、')} mmHg 超过设定值';
-      }
-    } else if (record.metric == HealthMetric.bodyTemperature &&
-        settings.temperatureEnabled) {
-      final value = record.values['value'];
-      if (value != null && value > settings.temperatureUpper) {
-        message =
-            '皮肤温度 ${value.toStringAsFixed(1)}℃，超过设定值 ${settings.temperatureUpper.toStringAsFixed(1)}℃';
-      }
-    }
-    if (message == null) return;
-    final alert = HealthWarningAlert(
-      id: record.id,
-      metric: record.metric,
-      title: '${record.metric.label}健康预警',
-      message: message,
-      triggeredAt: record.measuredAt.toLocal(),
-      origin: record.origin,
-    );
-    healthWarningAlerts = [
-      alert,
-      ...healthWarningAlerts.where((item) => item.id != alert.id),
-    ];
-    unawaited(_healthStore.saveHealthWarningAlert(alert));
-    final entityId = _stableIdentifierHash(record.id);
-    unawaited(
-      _ingestNotificationPayload(
-        <String, Object?>{
-          'schema_version': NotificationEvent.schemaVersion,
-          'event_id': 'health-warning-$entityId',
-          'event_type': NotificationEventType.healthWarning.wireName,
-          'entity_id': entityId,
-          'source': NotificationEventSource.device.wireName,
-          'created_at': record.measuredAt.toUtc().toIso8601String(),
-        },
-        showLocalNotification: true,
-        expectedGeneration: expectedGeneration,
-      ),
-    );
-    activeHealthWarningAlert = alert;
   }
 
   Future<void> _refreshHealthRecordCache({

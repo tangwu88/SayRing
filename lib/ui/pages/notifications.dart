@@ -108,13 +108,13 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   'is_read': event.isRead,
                   'title': switch (event.type) {
                     NotificationEventType.careInvitation => '关爱邀请',
-                    NotificationEventType.healthWarning => '健康预警',
+                    NotificationEventType.healthWarning => '健康提醒',
                     NotificationEventType.system => '系统消息',
                   },
                   'content': switch (event.type) {
                     NotificationEventType.careInvitation =>
                       '您有新的关爱请求，请点击查看最新状态。',
-                    NotificationEventType.healthWarning => '有新的健康预警，请打开预警记录查看。',
+                    NotificationEventType.healthWarning => '有新的健康提醒，请打开提醒记录查看。',
                     NotificationEventType.system => '您有一条新消息。',
                   },
                   'created_at': DateFormat(

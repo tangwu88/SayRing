@@ -47,6 +47,10 @@ abstract interface class HealthStoreRecoveryStatus {
   bool get recoveryPending;
 }
 
+abstract interface class HealthReminderDeletionStore {
+  Future<void> deleteHealthReminder(String id);
+}
+
 /// Optional extension so legacy store adapters remain source compatible.
 /// Filtering happens before LIMIT: deferred metrics must not block newer
 /// activity records in an existing account's pending queue.
@@ -133,6 +137,7 @@ class EncryptedHealthStore
     implements
         HealthStore,
         HealthStoreRecoveryStatus,
+        HealthReminderDeletionStore,
         SleepDetailStore,
         MetricFilteredPendingHealthStore {
   EncryptedHealthStore(
@@ -973,6 +978,18 @@ class EncryptedHealthStore
   }
 
   @override
+  Future<void> deleteHealthReminder(String id) {
+    final ownerId = _ownerId;
+    return _enqueue(() async {
+      await _db.delete(
+        'health_warning_alerts',
+        where: 'owner_id = ? AND id = ?',
+        whereArgs: [ownerId, id],
+      );
+    });
+  }
+
+  @override
   Future<List<HealthWarningAlert>> healthWarningAlerts() async {
     final ownerId = _ownerId;
     final rows = await _enqueue(
@@ -1321,7 +1338,11 @@ void _validateSleepDateRange(String start, String end) {
 }
 
 class MemoryHealthStore
-    implements HealthStore, SleepDetailStore, MetricFilteredPendingHealthStore {
+    implements
+        HealthStore,
+        SleepDetailStore,
+        MetricFilteredPendingHealthStore,
+        HealthReminderDeletionStore {
   String _ownerId = 'anonymous';
   final Map<String, Map<String, HealthRecord>> _recordsByOwner = {};
   final Map<String, Set<String>> _syncedByOwner = {};
@@ -1507,6 +1528,11 @@ class MemoryHealthStore
   @override
   Future<void> saveHealthWarningAlert(HealthWarningAlert alert) async {
     _healthWarningAlerts[alert.id] = alert;
+  }
+
+  @override
+  Future<void> deleteHealthReminder(String id) async {
+    _healthWarningAlerts.remove(id);
   }
 
   @override

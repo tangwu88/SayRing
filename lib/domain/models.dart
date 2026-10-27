@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'feature_models.dart';
+import 'health_reminder.dart';
 import 'sleep_timeline.dart';
 
 enum DeviceConnectionState {
@@ -981,6 +982,7 @@ class HealthWarningAlert {
     required this.message,
     required this.triggeredAt,
     this.origin = MeasurementOrigin.unknown,
+    this.reminder,
   });
 
   final String id;
@@ -989,6 +991,18 @@ class HealthWarningAlert {
   final String message;
   final DateTime triggeredAt;
   final MeasurementOrigin origin;
+  final HealthReminderDetails? reminder;
+
+  HealthWarningAlert withReminder(HealthReminderDetails value) =>
+      HealthWarningAlert(
+        id: id,
+        metric: metric,
+        title: title,
+        message: message,
+        triggeredAt: triggeredAt,
+        origin: origin,
+        reminder: value,
+      );
 
   Map<String, Object?> toJson() => {
     'id': id,
@@ -997,6 +1011,7 @@ class HealthWarningAlert {
     'message': message,
     'triggeredAt': triggeredAt.toUtc().toIso8601String(),
     'origin': origin.wireName,
+    if (reminder != null) 'reminder': reminder!.toJson(),
   };
 
   factory HealthWarningAlert.fromJson(Map<String, Object?> json) =>
@@ -1012,6 +1027,7 @@ class HealthWarningAlert {
           json['origin'],
           source: MeasurementSource.wearable,
         ),
+        reminder: HealthReminderDetails.tryParse(json['reminder']),
       );
 }
 

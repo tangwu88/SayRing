@@ -193,12 +193,14 @@ void main() {
   });
 
   testWidgets(
-    'alert, unavailable sleep AI, calibration and content routes remain closed',
+    'urgent reminder help is available while physiological and AI routes remain closed',
     (tester) async {
       final controller = _controller();
       addTearDown(controller.dispose);
+      await _pump(tester, HealthWarningPage(controller: controller));
+      expect(find.byKey(const Key('health-reminder-center')), findsOneWidget);
+      expect(controller.automaticHealthRemindersAvailable, isFalse);
       final pages = <Widget>[
-        HealthWarningPage(controller: controller),
         SleepAiReportPage(
           controller: controller,
           record: _record(HealthMetric.sleep),
