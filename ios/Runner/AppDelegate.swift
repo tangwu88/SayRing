@@ -917,11 +917,16 @@ private final class RingHealthReminderNotificationBridge {
   private func permission(_ result: @escaping FlutterResult) {
     UNUserNotificationCenter.current().getNotificationSettings { settings in
       let value: String
-      switch settings.authorizationStatus {
-      case .authorized, .provisional, .ephemeral: value = "granted"
-      case .denied: value = "denied"
-      case .notDetermined: value = "notDetermined"
-      @unknown default: value = "unavailable"
+      let status = settings.authorizationStatus
+      if #available(iOS 14.0, *), status == .ephemeral {
+        value = "granted"
+      } else {
+        switch status {
+        case .authorized, .provisional: value = "granted"
+        case .denied: value = "denied"
+        case .notDetermined: value = "notDetermined"
+        default: value = "unavailable"
+        }
       }
       DispatchQueue.main.async { result(value) }
     }
@@ -990,7 +995,15 @@ private final class RingHealthReminderNotificationBridge {
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
     if notification.request.identifier.hasPrefix(RingHealthReminderNotificationBridge.prefix) {
-      completionHandler(healthReminderNotifications?.owns(notification.request) == true ? [.banner, .sound] : [])
+      guard healthReminderNotifications?.owns(notification.request) == true else {
+        completionHandler([])
+        return
+      }
+      if #available(iOS 14.0, *) {
+        completionHandler([.banner, .sound])
+      } else {
+        completionHandler([.alert, .sound])
+      }
     } else {
       super.userNotificationCenter(center, willPresent: notification, withCompletionHandler: completionHandler)
     }

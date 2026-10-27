@@ -46,6 +46,7 @@
 
 - [ ] 执行 `ps -axo pid,command | rg '[f]lutter run|[x]codebuild|[g]radle'`。
 - [ ] 同一仓库存在 iOS 构建时等待其完成，不并行运行另一个 `flutter build/run ios`。
+- [ ] 新iOS API按仓库默认最低系统目标验证可用性；本机用更高目标覆盖时单独标注，默认目标由支持该目标的CI验证，不提高项目下限掩盖编译问题。
 - [ ] 出现 `.pcm`、`.scan` 或 DerivedData 临时文件缺失时，先排查并发，不先改业务代码。
 - [ ] 需要清缓存时只处理已确认的项目缓存路径，优先移动为可恢复备份。
 
