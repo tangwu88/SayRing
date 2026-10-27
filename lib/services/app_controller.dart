@@ -23,6 +23,7 @@ import '../domain/read_only_health_features.dart';
 import '../domain/module_visibility.dart';
 import '../domain/sleep_timeline.dart';
 import '../domain/global_account.dart';
+import '../domain/global_commerce.dart';
 import '../domain/global_care.dart';
 import '../l10n/global_locale_controller.dart';
 import 'api_client.dart';
@@ -497,6 +498,106 @@ class AppController extends ChangeNotifier {
 
   Future<Map<String, Object?>> loadGlobalCommerceCapabilities() =>
       _globalCommerceApi.getGlobalCommerceCapabilities();
+
+  // Keep existing iOS purchase ceilings closed. Native checkout is additive
+  // for the Android storefront and never falls back to H5/domestic signing.
+  bool get canStartGlobalShopPayment =>
+      !kIsWeb &&
+      _commerceCeiling &&
+      defaultTargetPlatform == TargetPlatform.android &&
+      _api is GlobalShopPaymentApi;
+
+  bool _globalShopPaymentLaunching = false;
+
+  Future<AppPaymentResult?> startGlobalShopPayment({
+    required String orderId,
+    required AppPaymentProvider provider,
+    required String idempotencyKey,
+  }) async {
+    final owner = session;
+    final generation = _sessionGeneration;
+    bool current() =>
+        owner != null && _isCurrentAccountRequest(generation, owner);
+    void requireCurrent() {
+      if (!current()) throw const ApiException('账号已变更，请重新打开订单');
+    }
+
+    if (owner == null) throw const ApiException('请先登录后付款');
+    if (!canStartGlobalShopPayment || _globalShopPaymentLaunching) {
+      throw const ApiException('暂时无法发起支付，请稍后重试');
+    }
+    _globalShopPaymentLaunching = true;
+    try {
+      final caps = GlobalCommerceCapabilities.fromJson(
+        await loadGlobalCommerceCapabilities(),
+      );
+      requireCurrent();
+      final channel = provider == AppPaymentProvider.wechat
+          ? 'wechat_app'
+          : 'alipay_app';
+      final enabled = caps.paymentChannels.any(
+        (item) =>
+            item['channel'] == channel &&
+            item['enabled'] == true &&
+            item['environments'] is List &&
+            (item['environments'] as List).contains('android'),
+      );
+      if (caps.readOnly || !caps.checkoutEnabled || !enabled) {
+        throw const ApiException('当前支付方式暂不可用，请稍后再试');
+      }
+      final order = await loadGlobalShopOrder(orderId);
+      requireCurrent();
+      if (order['id'] != orderId ||
+          order['status'] != 'PENDING_PAYMENT' ||
+          commerceCents(order['payableCents']) == null ||
+          commerceCents(order['payableCents'])! <= 0 ||
+          order['readOnly'] == true ||
+          order['allowedActions'] is! List ||
+          !(order['allowedActions'] as List).contains('PAY')) {
+        throw const ApiException('订单状态已更新，请刷新后查看');
+      }
+      final payment = await (_api as GlobalShopPaymentApi)
+          .createGlobalShopPayment(
+            orderId: orderId,
+            channel: channel,
+            platform: 'android',
+            idempotencyKey: idempotencyKey,
+          );
+      requireCurrent();
+      if (payment['businessType'] != 'commerce_order' ||
+          payment['businessId'] != orderId ||
+          payment['channel'] != channel ||
+          payment['status'] != 'pending' ||
+          payment['currency'] != order['currency'] ||
+          commerceCents(payment['amountCents']) == null ||
+          commerceCents(payment['amountCents']) !=
+              commerceCents(order['payableCents'])) {
+        throw const ApiException('付款信息已更新，请刷新订单后重试');
+      }
+      // Only dispatch a signed invoke payload for this owner/order/amount.
+      if (provider == AppPaymentProvider.wechat) {
+        final signed = AppPaymentPayloadParser.wechat(payment['invoke']);
+        if (signed.isEmpty) throw const ApiException('暂时无法发起微信支付，请稍后重试');
+        await _paymentBridge
+            .takeWechatResult(); // Retire a previous SDK callback.
+        requireCurrent();
+        await _paymentBridge.startWechat(signed);
+        requireCurrent();
+        return null;
+      }
+      final signed = AppPaymentPayloadParser.alipay(payment['invoke']);
+      if (signed.isEmpty) throw const ApiException('暂时无法发起支付宝支付，请稍后重试');
+      final result = await _paymentBridge.startAlipay(signed);
+      requireCurrent();
+      return result; // SDK success never changes an order or grants goods.
+    } on ApiException catch (error) {
+      throw ApiException(_shopPaymentErrorMessage(error));
+    } on PlatformException {
+      throw const ApiException('支付未能打开，请确认已安装对应应用后重试');
+    } finally {
+      _globalShopPaymentLaunching = false;
+    }
+  }
 
   Future<Map<String, Object?>> loadGlobalShopCart() =>
       _globalCommerceAccountRequest((api) => api.getGlobalShopCart());

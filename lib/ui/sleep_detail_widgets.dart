@@ -32,7 +32,7 @@ String _stageLabel(SleepStage stage) => switch (stage) {
   SleepStage.light => '浅睡',
   SleepStage.deep => '深睡',
   SleepStage.rem => '快速眼动',
-  SleepStage.unknown => '未知',
+  SleepStage.unknown => '暂未分类',
   SleepStage.notWorn => '未佩戴',
 };
 
@@ -265,20 +265,20 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
               _SleepNotice(
                 message: record == null
                     ? syncUnavailable
-                          ? '本机睡眠缓存读取失败，请稍后重试'
-                          : '睡眠数据读取失败，请重新连接戒指并同步'
-                    : '睡眠缓存刷新失败，仍显示本机已保存的数据',
+                          ? '暂时无法查看睡眠记录，请稍后重试'
+                          : '睡眠记录暂时无法更新，请连接戒指后重试'
+                    : '睡眠记录暂未更新，以下为已保存的记录',
                 icon: Icons.error_outline_rounded,
               ),
             if (record == null)
               _SleepNotice(
                 message: failed
-                    ? '没有可显示的本机睡眠记录'
+                    ? '你可以稍后下拉重试，或选择其他日期查看'
                     : syncUnavailable
-                    ? '该日期暂无本机睡眠记录，当前戒指的睡眠同步暂未开放'
+                    ? '这一天暂无睡眠记录，你可以选择其他日期查看'
                     : status == 'noData'
-                    ? '戒指本次未返回该日睡眠数据'
-                    : '该日期暂无睡眠记录，佩戴戒指睡眠后请同步数据',
+                    ? '这一天暂无睡眠记录，佩戴戒指入睡后，可在次日更新查看'
+                    : '这一天暂无睡眠记录，佩戴戒指入睡后，请连接更新',
                 icon: Icons.bedtime_outlined,
               )
             else ...[
@@ -299,7 +299,7 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
                           SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              '设备估算总睡眠',
+                              '睡眠总时长',
                               style: TextStyle(
                                 color: SaydianColors.ink,
                                 fontWeight: FontWeight.w700,
@@ -328,8 +328,8 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
               else
                 _SleepNotice(
                   message: syncUnavailable
-                      ? '此记录只有睡眠汇总，无法反推具体时间段。当前戒指的睡眠同步暂未开放。'
-                      : '此记录只有睡眠汇总，无法反推具体时间段。连接戒指并同步后可补充设备仍保留的明细。',
+                      ? '已记录睡眠总时长，暂未展示分段详情'
+                      : '已记录睡眠总时长。连接戒指后下拉更新，可查看最新的睡眠详情',
                   icon: Icons.schedule_outlined,
                 ),
               const SizedBox(height: 16),
@@ -348,7 +348,7 @@ class _SleepDayDetailsState extends State<SleepDayDetails> {
               childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
               children: const [
                 Text(
-                  '总时长包含戒指返回的夜间睡眠和小睡；清醒、未知分期不计入。长时间静止或未佩戴可能被设备误判为睡眠，请结合实际作息核对下方各段记录。睡眠时长和阶段为戒指估算，仅供日常作息参考。时间明细仅保存在本机；AI 报告需另行确认上传睡眠汇总，未返回项目保持未知。',
+                  '睡眠总时长包含已记录的夜间睡眠和小睡，清醒及暂未分类的时段不计入。睡眠时长与阶段由戒指估算，长时间静止或未佩戴可能影响结果，请结合实际作息查看，仅供日常参考。建议睡眠时保持佩戴，并在起床后连接更新。时间明细仅保存在手机中；使用 AI 报告前，会另行征求你上传睡眠汇总的同意。',
                   style: TextStyle(color: SaydianColors.muted, height: 1.6),
                 ),
               ],
@@ -557,7 +557,7 @@ class _SleepSessionCard extends StatelessWidget {
                 Text('持续：${sleepMinutesLabel(_minutes(segment))}'),
                 const SizedBox(height: 12),
                 Text(
-                  isDemo ? '本机生成的示例数据，不代表真实测量。' : '时间依据设备实际返回，按记录时区显示。',
+                  isDemo ? '示例展示，并非你的睡眠记录。' : '时间按这条记录的时区显示。',
                   style: TextStyle(color: SaydianColors.muted),
                 ),
               ],
@@ -748,7 +748,7 @@ class _SleepSessionCard extends StatelessWidget {
                       Text('结束 ${_time(end)}'),
                       const SizedBox(height: 12),
                       const Text(
-                        '点击色块查看时间；空白表示该时段未返回数据。占比按有效睡眠计算，清醒、未知、未佩戴不计入。',
+                        '点击色块可查看对应时间；空白表示该时段暂无记录。占比按已记录的睡眠计算，清醒、暂未分类及未佩戴时段不计入。',
                         style: TextStyle(color: SaydianColors.muted),
                       ),
                     ],

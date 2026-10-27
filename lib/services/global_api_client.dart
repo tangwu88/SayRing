@@ -28,6 +28,16 @@ abstract interface class GlobalAccountApi {
   });
 }
 
+/// Native, server-signed commerce payments retain UUID order identifiers.
+abstract interface class GlobalShopPaymentApi {
+  Future<Map<String, Object?>> createGlobalShopPayment({
+    required String orderId,
+    required String channel,
+    required String platform,
+    required String idempotencyKey,
+  });
+}
+
 abstract interface class GlobalCodeAuthApi {
   Future<Session> loginWithPassword({
     required GlobalAccountIdentity identity,
@@ -244,6 +254,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
         SayRingReadOnlyHealthApi,
         SayRingModuleVisibilityApi,
         GlobalCommerceApi,
+        GlobalShopPaymentApi,
         CloudHealthRecordReader {
   GlobalSaydianApiClient(
     super.vault, {
@@ -1264,6 +1275,30 @@ class GlobalSaydianApiClient extends SaydianApiClient
         headers: {'Accept-Language': _locale()},
       ),
     );
+    return _data(_decode(response));
+  }
+
+  @override
+  Future<Map<String, Object?>> createGlobalShopPayment({
+    required String orderId,
+    required String channel,
+    required String platform,
+    required String idempotencyKey,
+  }) async {
+    if (!{'wechat_app', 'alipay_app'}.contains(channel) ||
+        platform != 'android' ||
+        idempotencyKey.trim().length < 8 ||
+        idempotencyKey.length > 160) {
+      throw const ApiException('请重新选择支付方式');
+    }
+    final response =
+        await _authorizedPostJson('/api/saydian-app/v2/billing/payments', {
+          'businessType': 'commerce_order',
+          'businessId': _requiredGlobalId(orderId, '请选择需要付款的订单'),
+          'channel': channel,
+          'platform': platform,
+          'idempotencyKey': idempotencyKey,
+        });
     return _data(_decode(response));
   }
 

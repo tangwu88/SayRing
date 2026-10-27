@@ -550,15 +550,15 @@ void main() {
         scale: 2,
       );
       await tester.pumpAndSettle();
-      expect(find.text('该日期暂无本机睡眠记录，当前戒指的睡眠同步暂未开放'), findsOneWidget);
+      expect(find.text('这一天暂无睡眠记录，你可以选择其他日期查看'), findsOneWidget);
       expect(find.textContaining('睡眠后请同步'), findsNothing);
       controller.stored = [_record()];
       controller.changed();
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
       expect(find.text('7小时30分'), findsWidgets);
-      await tester.scrollUntilVisible(find.textContaining('此记录只有睡眠汇总'), 250);
-      expect(find.text('此记录只有睡眠汇总，无法反推具体时间段。当前戒指的睡眠同步暂未开放。'), findsOneWidget);
+      await tester.scrollUntilVisible(find.textContaining('已记录睡眠总时长'), 250);
+      expect(find.text('已记录睡眠总时长，暂未展示分段详情'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -583,8 +583,8 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('本机睡眠缓存读取失败，请稍后重试'), findsOneWidget);
-      expect(find.text('没有可显示的本机睡眠记录'), findsOneWidget);
+      expect(find.text('暂时无法查看睡眠记录，请稍后重试'), findsOneWidget);
+      expect(find.text('你可以稍后下拉重试，或选择其他日期查看'), findsOneWidget);
       expect(find.textContaining('重新连接戒指并同步'), findsNothing);
       expect(tester.takeException(), isNull);
     },
@@ -640,9 +640,9 @@ void main() {
       await tester.scrollUntilVisible(find.text('小睡 1'), 250);
       await tester.pumpAndSettle();
       expect(find.text('小睡 1'), findsOneWidget);
-      await tester.scrollUntilVisible(find.text('未知（戒指未返回）'), 250);
+      await tester.scrollUntilVisible(find.text('暂未记录').last, 250);
       await tester.pumpAndSettle();
-      expect(find.text('未知（戒指未返回）'), findsOneWidget);
+      expect(find.text('暂未记录'), findsOneWidget);
       await tester.scrollUntilVisible(
         find.byKey(const Key('sleep-reference-details')),
         250,
@@ -655,8 +655,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('睡眠说明'));
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.textContaining('时间明细仅保存在本机'), 250);
-      expect(find.textContaining('时间明细仅保存在本机'), findsOneWidget);
+      await tester.scrollUntilVisible(find.textContaining('时间明细仅保存在手机中'), 250);
+      expect(find.textContaining('时间明细仅保存在手机中'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -735,13 +735,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('7小时30分'), findsOneWidget);
       expect(find.byKey(const Key('sleep-stage-chart')), findsNothing);
-      await tester.scrollUntilVisible(find.textContaining('此记录只有睡眠汇总'), 200);
-      expect(find.textContaining('无法反推具体时间段'), findsOneWidget);
+      await tester.scrollUntilVisible(find.textContaining('已记录睡眠总时长'), 200);
+      expect(find.textContaining('已记录睡眠总时长'), findsOneWidget);
       await tester.ensureVisible(find.byKey(const Key('sleep-previous-day')));
       await tester.tap(find.byKey(const Key('sleep-previous-day')));
       await tester.pumpAndSettle();
       expect(find.text('2026年9月30日'), findsOneWidget);
-      expect(find.text('戒指本次未返回该日睡眠数据'), findsOneWidget);
+      expect(find.text('这一天暂无睡眠记录，佩戴戒指入睡后，可在次日更新查看'), findsOneWidget);
       expect(find.text('0小时0分'), findsNothing);
       expect(tester.takeException(), isNull);
     },
@@ -755,7 +755,7 @@ void main() {
         ..sleepReadStatuses = {'2026-10-01': 'failed'};
       await _pump(tester, SleepOverviewPage(controller: controller));
       await tester.pumpAndSettle();
-      expect(find.text('睡眠缓存刷新失败，仍显示本机已保存的数据'), findsOneWidget);
+      expect(find.text('睡眠记录暂未更新，以下为已保存的记录'), findsOneWidget);
       expect(find.text('6小时50分'), findsOneWidget);
     },
   );
@@ -790,7 +790,7 @@ void main() {
       expect(find.text('0分钟'), findsNothing);
       expect(find.text('0秒'), findsNothing);
       expect(find.byKey(const Key('sleep-stage-chart')), findsOneWidget);
-      expect(find.text('未知'), findsOneWidget);
+      expect(find.text('暂未分类'), findsOneWidget);
       expect(find.text('未佩戴'), findsOneWidget);
     },
   );

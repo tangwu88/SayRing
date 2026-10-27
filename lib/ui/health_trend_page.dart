@@ -915,19 +915,13 @@ class SleepStructureCard extends StatelessWidget {
       ('总睡眠', hours('value')),
       ('深睡', hours('deepHours')),
       ('浅睡', hours('lightHours')),
-      (
-        '快速眼动',
-        values.containsKey('remHours') ? hours('remHours') : '--（戒指未返回）',
-      ),
+      ('快速眼动', values.containsKey('remHours') ? hours('remHours') : '暂未记录'),
       if (values.containsKey('awakeMinutes'))
         ('清醒时长', count('awakeMinutes', '分钟')),
       ('体动', count('movementMinutes', '分钟')),
       ('清醒次数', count('wakeCount', '次')),
       if (!wellnessOnly && controller?.isWellnessOnly != true)
-        (
-          '设备睡眠评分',
-          values.containsKey('score') ? count('score', '分') : '未知（戒指未返回）',
-        ),
+        ('设备睡眠评分', values.containsKey('score') ? count('score', '分') : '暂未记录'),
       if (!wellnessOnly &&
           controller?.isWellnessOnly != true &&
           values.containsKey('efficiency'))

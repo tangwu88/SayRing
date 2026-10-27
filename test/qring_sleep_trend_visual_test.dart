@@ -409,7 +409,7 @@ void main() {
       final disclosure = find.byKey(const Key('sleep-reference-details'));
       await tester.scrollUntilVisible(disclosure, 250, maxScrolls: 60);
       await tester.pumpAndSettle();
-      expect(find.textContaining('时间明细仅保存在本机'), findsNothing);
+      expect(find.textContaining('时间明细仅保存在手机中'), findsNothing);
       final title = find.descendant(
         of: disclosure,
         matching: find.text('睡眠说明'),
@@ -419,7 +419,7 @@ void main() {
       expect(title.hitTestable(), findsOneWidget);
       await tester.tap(title);
       await tester.pumpAndSettle();
-      expect(find.textContaining('时间明细仅保存在本机'), findsOneWidget);
+      expect(find.textContaining('时间明细仅保存在手机中'), findsOneWidget);
       await tester.scrollUntilVisible(
         find.byKey(const Key('sleep-open-trend')),
         180,

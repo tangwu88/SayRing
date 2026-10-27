@@ -10,6 +10,7 @@ import '../services/api_client.dart';
 import '../services/app_controller.dart';
 import 'global_shop_cart_pages.dart';
 import 'global_shop_widgets.dart';
+import 'global_shop_payment_page.dart';
 
 typedef GlobalProductOpener = void Function(BuildContext context, String id);
 
@@ -1391,7 +1392,24 @@ class _GlobalShopOrderDetailPageState extends State<GlobalShopOrderDetailPage> {
             ],
             const SizedBox(height: 16),
             if (_can('PAY'))
-              GlobalShopNotice(text: context.l10n.paymentUnavailable),
+              FilledButton.icon(
+                key: const Key('global-order-pay'),
+                onPressed: _busy || !widget.controller.canStartGlobalShopPayment
+                    ? null
+                    : () async {
+                        await Navigator.of(context).push<void>(
+                          MaterialPageRoute(
+                            builder: (_) => GlobalShopPaymentPage(
+                              controller: widget.controller,
+                              orderId: widget.orderId,
+                            ),
+                          ),
+                        );
+                        if (mounted) await _load();
+                      },
+                icon: const Icon(Icons.payment_outlined),
+                label: const Text('去支付'),
+              ),
             if (_can('CANCEL'))
               OutlinedButton(
                 onPressed: _busy ? null : () => _action('CANCEL'),

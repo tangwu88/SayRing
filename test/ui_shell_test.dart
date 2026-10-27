@@ -4532,7 +4532,7 @@ void main() {
     expect(find.byKey(const Key('sleep-structure-card')), findsOneWidget);
     expect(find.text('2小时0分'), findsOneWidget);
     expect(find.text('4小时30分'), findsOneWidget);
-    expect(find.text('--（戒指未返回）'), findsOneWidget);
+    expect(find.text('暂未记录'), findsNWidgets(2));
   });
 
   testWidgets('QRing sleep stages and score display only returned values', (
@@ -4591,7 +4591,7 @@ void main() {
     expect(find.text('85 分'), findsOneWidget);
     expect(find.text('睡眠效率'), findsOneWidget);
     expect(find.text('92 %'), findsOneWidget);
-    expect(find.text('--（戒指未返回）'), findsNothing);
+    expect(find.text('暂未记录'), findsNothing);
   });
 
   testWidgets('care blood composition detail uses readable Chinese fields', (

@@ -477,9 +477,21 @@ class _SleepAiReportPageState extends State<SleepAiReportPage>
     }
   }
 
-  String _errorMessage(Object error) => error is FormatException
-      ? error.message
-      : widget.controller.healthReportErrorMessage(error);
+  String _errorMessage(Object error) {
+    final message = error is FormatException
+        ? error.message
+        : widget.controller.healthReportErrorMessage(error);
+    if (message.trim().isEmpty ||
+        RegExp(
+          r'\b(null|undefined|exception|missing)\b',
+          caseSensitive: false,
+        ).hasMatch(message) ||
+        message.contains('未返回') ||
+        message.contains('数据缺失')) {
+      return '睡眠分析暂时无法生成，请更新睡眠记录后重试';
+    }
+    return message;
+  }
 
   Future<void> _withdraw() async {
     if (_working || !_current) return;
