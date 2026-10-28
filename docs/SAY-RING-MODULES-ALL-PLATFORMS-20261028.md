@@ -24,3 +24,11 @@
 - Android Debug构建223.0秒、原证书Release391.0秒通过，正式证书/包名/version1.0.7/code1154/debug关闭/生产清单/双ARM ABI及ZIP对齐门禁通过；既有两项32位SDK ELF16KB限制未改变，临时key.properties已清除。APK72063783字节，SHA256 `334eff425284df42f92445d0ab7c07d1f5ccf33c82e104f5eb2f832cb9af6267`，仓库外`E:\SayRing-market-artifacts-20261028\module-1154`。实际手机覆盖安装及线上三端复查续记。
 - Windows无Xcode，iOS没有本机签名构建；旧iOS配置协议兼容不等于完成新版本iPhone验收。原生鸿蒙手机未连接，编译/签名不是实物验收。
 - 回执和日志均在Git外`E:\SayRing-module-controls-20261028`及对应产物目录，不提交生产凭据、真实订单或健康数据。后台CI、生产三端配置与Android手机复查分别完成后记录。
+
+## 当前交付及待登录排查
+
+- 客户端源码0163ec71fc3880f384a040de8c975589ecff8f6b已推送SayRing当前开发分支；mobile-ci40627341857的quality和两个鸿蒙时区成功，iOS/Android编译在本次查询时仍进行中，未冒写全部云端终态通过。
+- Android1154实际覆盖安装返回Success，手机version1.0.7/code1154，首次安装时间仍2026-10-24 16:48:38、更新时间2026-10-28 11:34:42；拉取实际base.apk与正式包SHA256完全相同。正常启动Status ok/WARM，未卸载、清数据或解绑。
+- 后端首轮CI的HTTP旧断言已修正，最终main为a5994ee1ab60b0cc66300adb440c64b897843cae；CI40626718918的类型/测试/构建、数据库、三端真实HTTP、备份恢复、镜像全部成功，随后仍停在“Deploy through constrained SSH receiver”。12:01只读线上readiness仍为旧f338000，不能称三端配置已在线生效。
+- 已按用户此前“发起SSH、本人输入密码”授权打开新诊断窗口，使用全新`E:\SayRing-module-controls-20261028\ssh-deploy-readonly`，不重放旧会话。只排队request-001的进程/锁/容器版本/磁盘读取；当前ready.txt不存在、私有输出为空，待用户在窗口登录。没有读取/记录密码或手动修改服务器。进行中的Actions日志重定向blob暂不存在，未据此猜测具体服务器错误。
+- 暂停主动手机检查等待服务器进度时，将USB临时亮屏恢复原值。后端上线后仍须核对三端真实moduleVisibility及安卓“百科显示、商城隐藏”；当前未将旧后端缺字段导致的默认隐藏当成端到端验收。
