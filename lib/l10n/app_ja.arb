@@ -518,7 +518,7 @@
   "healthRecords": "健康記録",
   "workoutsAndRecords": "運動と記録",
   "healthDisclaimer": "測定結果は健康管理の参考です。体調がすぐれない場合は医療専門家にご相談ください。",
-  "healthSafetyAdvice": "休憩してから再測定してください。体調がすぐれない場合は医療機関にご相談ください。",
+  "healthSafetyAdvice": "胸の不快感、強い息苦しさ、失神がある場合は、再測定を待たずに救急の助けを求めてください。",
   "defaultUser": "Say Ringユーザー",
   "dailyGreeting": "今日も自分を大切に",
   "messages": "メッセージ",

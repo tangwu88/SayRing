@@ -2885,7 +2885,7 @@ abstract class AppLocalizations {
   /// No description provided for @healthSafetyAdvice.
   ///
   /// In en, this message translates to:
-  /// **'Rest and measure again. If you feel unwell, seek medical advice.'**
+  /// **'For chest discomfort, severe breathlessness or fainting, seek emergency help without waiting for another reading.'**
   String get healthSafetyAdvice;
 
   /// No description provided for @defaultUser.
@@ -2939,7 +2939,7 @@ abstract class AppLocalizations {
   /// No description provided for @healthAlerts.
   ///
   /// In en, this message translates to:
-  /// **'Health alerts'**
+  /// **'Health reminders'**
   String get healthAlerts;
 
   /// No description provided for @shop.

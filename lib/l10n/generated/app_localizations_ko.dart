@@ -1459,7 +1459,8 @@ class AppLocalizationsKo extends AppLocalizations {
   String get healthDisclaimer => '측정 결과는 건강 관리 참고용입니다. 몸이 불편하면 의료 전문가와 상담하세요.';
 
   @override
-  String get healthSafetyAdvice => '휴식 후 다시 측정하세요. 몸이 불편하면 의료진과 상담하세요.';
+  String get healthSafetyAdvice =>
+      '가슴 불편감, 심한 호흡곤란 또는 실신이 있으면 재측정을 기다리지 말고 응급 도움을 요청하세요。';
 
   @override
   String get defaultUser => 'Say Ring 사용자';

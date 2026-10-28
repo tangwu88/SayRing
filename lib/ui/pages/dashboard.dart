@@ -161,6 +161,8 @@ class DashboardPage extends StatelessWidget {
                       _SleepQuickCard(controller: controller),
                       const SizedBox(height: 12),
                     ],
+                    HealthReminderShortcut(controller: controller),
+                    const SizedBox(height: 12),
                     _FeatureEntryGrid(
                       commerceEnabled: controller.mallVisible,
                       encyclopediaEnabled: controller.healthLibraryVisible,

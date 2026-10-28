@@ -271,6 +271,7 @@ void main() {
       ),
     );
     await tester.ensureVisible(wechat);
+    await tester.pumpAndSettle();
     expect(wechat.hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

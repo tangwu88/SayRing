@@ -5,6 +5,7 @@ import '../services/camera_photo_saver.dart';
 import '../l10n/global_locale_controller.dart';
 import '../l10n/ui_labels.dart';
 import 'global_care_page.dart';
+import 'health_reminder_center.dart';
 import 'global_auth_page.dart';
 import 'global_legal_page.dart';
 import 'dart:async';

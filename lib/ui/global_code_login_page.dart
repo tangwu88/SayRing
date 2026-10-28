@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'health_reminder_center.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../domain/global_account.dart';
@@ -410,6 +411,23 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
               children: [
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    key: const Key('login-urgent-help'),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const EmergencyHelpPage(),
+                      ),
+                    ),
+                    icon: const Icon(Icons.emergency_outlined),
+                    label: Text(
+                      Localizations.localeOf(context).languageCode == 'zh'
+                          ? '急症求助'
+                          : 'Urgent help',
+                    ),
+                  ),
+                ),
                 const Center(child: SaydianBrandLockup(color: Colors.black)),
                 const SizedBox(height: 16),
                 Text(

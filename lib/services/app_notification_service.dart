@@ -377,7 +377,7 @@ final class JPushAppNotificationService implements AppNotificationService {
     createdAt: createdAt,
     eventType: 'health_warning',
     title: 'Say Ring 健康提醒',
-    content: '有新的健康预警，请打开 App 查看',
+    content: '有新的健康提醒，请打开 App 查看',
     badge: unreadCount,
   );
 

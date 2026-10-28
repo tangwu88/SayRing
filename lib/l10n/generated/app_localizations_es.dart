@@ -1540,7 +1540,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get healthSafetyAdvice =>
-      'Descansa y vuelve a medir. Si te encuentras mal, consulta a un profesional sanitario.';
+      'Si tienes molestias en el pecho, dificultad respiratoria intensa o desmayo, busca ayuda de emergencia sin esperar otra medición.';
 
   @override
   String get defaultUser => 'Usuario de Say Ring';

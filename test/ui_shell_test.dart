@@ -2401,44 +2401,37 @@ void main() {
     expect(controller.errorMessage, contains('贴合手指'));
   });
 
-  testWidgets('health warning settings persist all three alarm switches', (
-    tester,
-  ) async {
-    final vault = MemorySessionVault();
-    final controller = AppController(
-      vault,
-      _NoopApi(),
-      MemoryHealthStore(),
-      _NoopWearable(),
-    );
-    addTearDown(controller.dispose);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildSaydianTheme(),
-        home: HealthWarningPage(controller: controller),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const Key('warning-heart-rate-switch')));
-    await tester.tap(find.byKey(const Key('warning-blood-pressure-switch')));
-    await tester.tap(find.byKey(const Key('warning-temperature-switch')));
-    await tester.pump();
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('warning-save')),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('warning-save')));
-    await tester.pump();
-
-    expect(vault.healthWarningSettings.heartRateEnabled, isTrue);
-    expect(vault.healthWarningSettings.bloodPressureEnabled, isTrue);
-    expect(vault.healthWarningSettings.temperatureEnabled, isTrue);
-    expect(find.text('健康预警设置已保存'), findsOneWidget);
-  });
+  testWidgets(
+    'health reminders offer urgent help without activating legacy defaults',
+    (tester) async {
+      final vault = MemorySessionVault();
+      final controller = AppController(
+        vault,
+        _NoopApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+      );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: HealthWarningPage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('health-reminder-center')), findsOneWidget);
+      expect(
+        find.byKey(const Key('health-reminder-urgent-help')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('warning-heart-rate-switch')), findsNothing);
+      expect(controller.automaticHealthRemindersAvailable, isFalse);
+      expect(vault.healthWarningSettings.heartRateEnabled, isFalse);
+      await tester.tap(find.byKey(const Key('health-reminder-urgent-help')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('emergency-help-page')), findsOneWidget);
+    },
+  );
 
   testWidgets('device health monitoring hides unsupported model features', (
     tester,
@@ -3727,7 +3720,7 @@ void main() {
   });
 
   test(
-    'new threshold-exceeding wearable record raises a global alert',
+    'legacy threshold alone cannot activate unreviewed physiological reminders',
     () async {
       final wearable = _EventMeasurementWearable();
       final vault = MemorySessionVault()
@@ -3770,12 +3763,9 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
 
-      expect(
-        controller.activeHealthWarningAlert?.metric,
-        HealthMetric.heartRate,
-      );
-      expect(controller.activeHealthWarningAlert?.message, contains('128 bpm'));
-      expect(controller.healthWarningAlerts, hasLength(1));
+      expect(controller.activeHealthWarningAlert, isNull);
+      expect(controller.healthWarningAlerts, isEmpty);
+      expect(controller.automaticHealthRemindersAvailable, isFalse);
     },
   );
 
@@ -5051,7 +5041,7 @@ void main() {
   );
 
   test(
-    'recent watch-history threshold is saved once during device sync',
+    'repeated recent history sync never creates a current reminder',
     () async {
       final record = HealthRecord(
         id: 'watch-sync-warning-1',
@@ -5085,16 +5075,8 @@ void main() {
       await controller.syncDeviceData();
       await controller.syncDeviceData();
 
-      expect(controller.healthWarningAlerts, hasLength(1));
-      expect(controller.activeHealthWarningAlert?.id, record.id);
-      expect(
-        controller.activeHealthWarningAlert?.origin,
-        MeasurementOrigin.watchHistory,
-      );
-      expect(
-        controller.activeHealthWarningAlert?.triggeredAt.toUtc(),
-        record.measuredAt,
-      );
+      expect(controller.healthWarningAlerts, isEmpty);
+      expect(controller.activeHealthWarningAlert, isNull);
     },
   );
 }

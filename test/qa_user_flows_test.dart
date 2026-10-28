@@ -1738,6 +1738,8 @@ void main() {
 
       await tester.tap(find.text('我的'));
       await tester.pump();
+      await tester.ensureVisible(find.text('单位设置'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('单位设置'));
       await tester.pumpAndSettle();
       expect(find.text('公里'), findsOneWidget);

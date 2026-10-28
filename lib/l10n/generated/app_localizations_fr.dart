@@ -1545,7 +1545,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get healthSafetyAdvice =>
-      'Reposez-vous puis mesurez à nouveau. En cas de malaise, consultez un professionnel de santé.';
+      'En cas de gêne thoracique, d’essoufflement important ou d’évanouissement, demandez une aide médicale urgente sans attendre une nouvelle mesure.';
 
   @override
   String get defaultUser => 'Utilisateur Say Ring';

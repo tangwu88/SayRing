@@ -1541,7 +1541,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get healthSafetyAdvice =>
-      'Ruhen Sie sich aus und messen Sie erneut. Holen Sie bei Beschwerden ärztlichen Rat ein.';
+      'Bei Brustbeschwerden, starker Atemnot oder Ohnmacht sofort den Rettungsdienst rufen. Nicht auf eine weitere Messung warten.';
 
   @override
   String get defaultUser => 'Say Ring-Nutzer';
