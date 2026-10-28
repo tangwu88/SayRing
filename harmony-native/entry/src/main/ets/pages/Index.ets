@@ -3,7 +3,8 @@ import { ApiError, MemberProfile, Article, ArticleBlock, Session,
 import { saydianApi } from '../services/SaydianApi';
 import { appDisplayService } from '../services/AppDisplayService';
 import { ArticleImage } from '../components/ArticleImage';
-import { CareMember, CareInvitation, CareShareSettings, CareMetric, CareRecord, CareField, CareOption,
+import { PortalProduct, portalShareSupported } from '../model/GlobalPortal';
+import { CareMember, CareInvitation, CareIdentifier, careEntityId, CareShareSettings, CareMetric, CareRecord, CareField, CareOption,
   chinaDay, chinaDaySeconds, shiftChinaDay, careMetricLatest, careRecordText, careInvitationFallback, careInvitationNeedsConfirmation,
   careGroupOptions, toggleCareGroup } from '../model/CareContracts';
 import { common, Configuration } from '@kit.AbilityKit';
@@ -43,7 +44,7 @@ import { homeCardPreferenceStore } from '../services/HomeCardPreferenceStore';
 import { AuthChannel, GlobalAuthCapabilities, PHONE_COUNTRIES, PhoneCountry,
   emptyAuthCapabilities, globalRegistrationValidation, globalUnverifiedRegistrationValidation,
   normalizeIdentifier, validGlobalPassword } from '../model/GlobalAuth';
-import { GLOBAL_WECHAT_ENABLED, GLOBAL_PUSH_ENABLED } from '../model/GlobalConfiguration';
+import { GLOBAL_WECHAT_ENABLED, GLOBAL_PUSH_ENABLED, GLOBAL_PAYMENTS_ENABLED } from '../model/GlobalConfiguration';
 import { GlobalHealthReport, GlobalReportProfile, GlobalReportEligibility, GlobalAnalysisDocument,
   reportGenerationBlock } from '../model/GlobalHealthReports';
 import { saveReportPdf } from '../services/ReportPdfExport';
@@ -221,7 +222,9 @@ struct Index {
   @State private articleError: string = '';
   @State private articles: Article[] = [];
   @State private articleCategories: ArticleCategory[] = [];
-  @State private articleCategoryId: number = 0;
+  @State private articleCategoryId: number|string = 0;
+  @State private articlePage: number = 1;
+  @State private articleHasMore: boolean = false;
   @State private listLoading: boolean = false;
   @State private listError: string = '';
   @State private detailTitle: string = '';
@@ -341,6 +344,7 @@ struct Index {
   @State private shopLoading: boolean = false;
   @State private shopError: string = '';
   @State private selectedProduct: ShopProduct = { id: 0, name: '', picture: '', price: '0.00', stock: 0 };
+  @State private portalProductDetail: PortalProduct | undefined = undefined;
   @State private productDetail: ProductDetail | undefined = undefined;
   @State private selectedSkuIndex: number = 0;
   @State private purchaseQuantity: number = 1;
@@ -459,7 +463,7 @@ struct Index {
     this.libraryVisible = appDisplayService.modules.allows('health_library');
     if (!this.libraryVisible) { this.articles = []; this.articleCategories = []; }
     if (!this.mallVisible) {
-      this.shopHome = { bannerUrl: '', categories: [] }; this.ringOrders = []; this.ringOrder = undefined;
+      this.shopHome = { bannerUrl: '', categories: [] }; this.portalProductDetail=undefined;this.ringOrders = []; this.ringOrder = undefined;
       this.cartLines = []; this.cartSelection = []; this.purchaseSheet = false;
     }
     const closingLibrary = !this.libraryVisible && (this.screen === 'articles' || (this.screen === 'article' && !this.selectedAgreement));
@@ -675,7 +679,7 @@ struct Index {
   }
 
   private visibleCareOptions(daily: boolean): CareOption[] {
-    return ringCareOptions(daily, this.visibleWearableMetrics().map((metric: WearableMetricSpec) => metric.key));
+    return ringCareOptions(daily, this.visibleWearableMetrics().map((metric: WearableMetricSpec) => metric.key)).filter((option:CareOption)=>portalShareSupported(option.key));
   }
 
   private toggleVisibleCareGroup(daily: boolean): void {
@@ -1468,7 +1472,7 @@ struct Index {
   private async openInboxMessage(message: InboxMessage): Promise<void> {
     if (message.kind === 'care_invitation') {
       if (message.source === 'local') {
-        try { await careNotifications.markRead(-message.id); this.updateLocalInbox(); }
+        try { await careNotifications.markRead(careEntityId(message.entityId)); this.updateLocalInbox(); }
         catch { this.inboxError = '消息已读状态暂未保存，请稍后重试'; }
       } else { this.readInvitationMessage(message.id); }
       await this.openCare(); if (!this.guest) this.screen = 'care-invitations'; return;
@@ -2015,12 +2019,31 @@ struct Index {
   private async openShop(): Promise<void> {
     if (!this.mallVisible) return;
     this.screen = 'shop-home';
-    this.shopLoading = true; this.shopError = ''; this.shopHome = { bannerUrl: '', categories: [] };
+    this.shopLoading = true; this.shopError = '';this.shopKeyword='';this.commerceError=''; this.shopHome = { bannerUrl: '', categories: [] };
+    const epoch=++this.contentGeneration;
     try {
-      this.shopHome = await saydianApi.shopHome();
+      const home=await saydianApi.shopHome();
+      if(epoch!==this.contentGeneration||this.screen!=='shop-home'||!this.mallVisible)return;
+      this.shopHome = home;
       this.shopCategoryIndex = 0;
-    } catch (error) { this.shopError = (error as Error).message || '商城暂时无法加载'; }
-    finally { this.shopLoading = false; }
+    } catch (error) { if(epoch===this.contentGeneration)this.shopError = this.accountFormFailure(error as Error); }
+    finally { if(epoch===this.contentGeneration)this.shopLoading = false; }
+  }
+
+  private async selectShopCategory(index: number, more: boolean = false): Promise<void> {
+    if(!this.mallVisible||index<0||index>=this.shopHome.categories.length)return;
+    this.shopCategoryIndex=index;const current=this.shopCategory();
+    const epoch=++this.contentGeneration;this.commerceLoading=true;this.commerceError='';
+    try {
+      const next=await saydianApi.ringShopCategory(current.id,current.name,more?(current.page??0)+1:1,this.shopKeyword);
+      if(epoch!==this.contentGeneration||this.screen!=='shop-home'||!this.mallVisible)return;
+      if(more&&!next.products.length&&(next.total??0)>current.products.length)throw new ApiError('商品列表已更新，请重新加载');
+      const products=more?[...current.products,...next.products.filter((item:ShopProduct)=>!current.products.some((old:ShopProduct)=>old.id===item.id))]:next.products;
+      const categories=[...this.shopHome.categories];
+      categories[index]={id:next.id,name:next.name,page:next.page,total:next.total,products};
+      this.shopHome={bannerUrl:this.shopHome.bannerUrl,categories};
+    } catch(error){if(epoch===this.contentGeneration)this.commerceError=this.accountFormFailure(error as Error);}
+    finally{if(epoch===this.contentGeneration)this.commerceLoading=false;}
   }
 
   private shopCategory(): ShopCategory {
@@ -2033,18 +2056,19 @@ struct Index {
     if (!this.mallVisible) return;
     this.selectedProduct = product;
     if (this.screen !== 'shop-product') this.openInnerPage('shop-product');
-    this.productDetail = undefined; this.commerceError = ''; this.commerceLoading = true;
+    this.productDetail = undefined; this.portalProductDetail=undefined; this.commerceError = ''; this.commerceLoading = true;
     const epoch = ++this.contentGeneration;
     try {
-      const detail = await saydianApi.shopProductDetail(product.id);
+      const detail = await saydianApi.ringShopProduct(String(product.id));
       if (epoch !== this.contentGeneration) return;
-      this.productDetail = detail; this.selectedSkuIndex = 0; this.purchaseQuantity = detail.minBuy;
+      this.portalProductDetail = detail;
     } catch (error) { if (epoch === this.contentGeneration) this.commerceError = this.accountFormFailure(error as Error); }
     finally { if (epoch === this.contentGeneration) this.commerceLoading = false; }
   }
 
   private purchaseSku(): ShopSku | undefined { return this.productDetail?.skus[this.selectedSkuIndex]; }
   private showPurchase(toCart: boolean): void {
+    if(!GLOBAL_PAYMENTS_ENABLED){this.commerceError='购买服务暂未开放';return;}
     this.commerceError = '';
     if (!this.productDetail?.skus.length) { this.commerceError = '该商品暂无可购买规格'; return; }
     this.purchaseToCart = toCart; this.purchaseSheet = true;
@@ -2067,6 +2091,7 @@ struct Index {
     finally { this.commerceBusy = false; }
   }
   private async openCart(): Promise<void> {
+    if(!GLOBAL_PAYMENTS_ENABLED){this.showFeature('商城','购买服务暂未开放');return;}
     if (this.guest) { this.showFeature('购物车', '请先登录后查看购物车'); return; }
     if (this.screen !== 'shop-cart') this.openInnerPage('shop-cart');
     this.commerceLoading = true; this.commerceError = ''; this.cartLines = []; const epoch = ++this.contentGeneration;
@@ -2402,7 +2427,7 @@ struct Index {
 
   private pendingInvitations(): CareInvitation[] { return this.careInvitations.filter((item: CareInvitation) => item.state === 'pending'); }
   private sharingTargets(): CareInvitation[] {
-    const seen: Set<number> = new Set();
+    const seen: Set<CareIdentifier> = new Set();
     return this.careInvitations.filter((item: CareInvitation) => {
       if (item.state !== 'accepted' || seen.has(item.inviterId)) return false;
       seen.add(item.inviterId); return true;
@@ -2421,7 +2446,7 @@ struct Index {
     finally { if (epoch === this.careGeneration) this.careBusy = false; }
   }
 
-  private async respondInvitation(id: number, accepted: boolean): Promise<void> {
+  private async respondInvitation(id: CareIdentifier, accepted: boolean): Promise<void> {
     if (this.careBusy) return;
     const epoch = this.careGeneration;
     this.careBusy = true; this.careMessage = '';
@@ -2876,6 +2901,7 @@ struct Index {
     if (!this.libraryVisible) return;
     this.screen = 'articles';
     this.articles = [];
+    this.articlePage=1;this.articleHasMore=false;
     this.listError = '';
     this.listLoading = true;
     const epoch = ++this.contentGeneration;
@@ -2883,11 +2909,24 @@ struct Index {
       const categories = await saydianApi.articleCategories();
       if (epoch !== this.contentGeneration) return;
       this.articleCategories = [{ id: 0, title: '全部' }, ...categories];
+      if(!this.articleCategories.some((category:ArticleCategory)=>category.id===this.articleCategoryId))this.articleCategoryId=0;
       const items = await saydianApi.articlesByCategory(this.articleCategoryId);
-      if (epoch === this.contentGeneration) this.articles = items;
+      if (epoch === this.contentGeneration) {this.articles = items;this.articleHasMore=items.length===30;}
     } catch (error) {
       if (epoch === this.contentGeneration) this.listError = (error as Error).message;
     } finally { if (epoch === this.contentGeneration) this.listLoading = false; }
+  }
+
+  private async moreArticles(): Promise<void> {
+    if(!this.libraryVisible||this.listLoading||!this.articleHasMore)return;
+    const epoch=this.contentGeneration,page=this.articlePage+1;this.listLoading=true;this.listError='';
+    try {
+      const items=await saydianApi.articlesByCategory(this.articleCategoryId,page);
+      if(epoch!==this.contentGeneration||this.screen!=='articles'||!this.libraryVisible)return;
+      this.articles=[...this.articles,...items.filter((item:Article)=>!this.articles.some((old:Article)=>old.id===item.id))];
+      this.articlePage=page;this.articleHasMore=items.length===30;
+    }catch(error){if(epoch===this.contentGeneration)this.listError=this.accountFormFailure(error as Error);}
+    finally{if(epoch===this.contentGeneration)this.listLoading=false;}
   }
 
   private back(): void {
@@ -3044,7 +3083,7 @@ struct Index {
         }.backgroundColor(Color.Transparent).type(ButtonType.Normal).borderRadius(12).width(48).height(this.controlHeight(48))
           .enabled(!this.wearableBusy()).onClick(() => this.startWearableScan())
           .accessibilityText(this.tr('重新查找附近设备')).id('device_search_refresh')
-      } else if (this.screen === 'shop-home') {
+      } else if (this.screen === 'shop-home' && GLOBAL_PAYMENTS_ENABLED) {
         Button() { SymbolGlyph($r('sys.symbol.bag')).fontSize(24).fontColor([INK]) }
           .width(48).height(this.controlHeight(48)).backgroundColor(Color.Transparent).onClick(() => this.openCart())
           .accessibilityText(this.tr('购物车')).id('shop_cart')
@@ -4760,7 +4799,7 @@ struct Index {
       } else {
         TextInput({ text: this.shopKeyword, placeholder: this.tr('搜索商品') }).fontSize(16).height(this.controlHeight(60))
           .padding({ left: 20, right: 20 }).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
-          .maxLength(80).onChange((value: string) => this.shopKeyword = value).margin({ left: 14, right: 14, top: 8, bottom: 10 })
+          .maxLength(80).onChange((value: string) => this.shopKeyword = value).onSubmit(()=>this.selectShopCategory(this.shopCategoryIndex)).margin({ left: 14, right: 14, top: 8, bottom: 10 })
           .id('shop_search')
         if (this.shopHome.bannerUrl) {
           Image(this.shopHome.bannerUrl).height(102).width('92%').objectFit(ImageFit.Cover).borderRadius(16)
@@ -4775,13 +4814,18 @@ struct Index {
                   .textAlign(TextAlign.Center).padding({ left: 10, right: 10, top: 12, bottom: 12 })
                   .backgroundColor(this.shopCategoryIndex === index ? SURFACE : Color.Transparent)
                   .border({ width: { left: 4 }, color: this.shopCategoryIndex === index ? RED : Color.Transparent })
-                  .onClick(() => this.shopCategoryIndex = index).id(`shop_category_${index}`)
+                  .onClick(() => this.selectShopCategory(index)).id(`shop_category_${index}`)
               }, (category: ShopCategory) => category.id)
             }.width('100%')
           }.width(106).height('100%').align(Alignment.Top).scrollBar(BarState.Off).backgroundColor('#F5F2F0')
           Scroll() {
             Column({ space: 10 }) {
-              if (!this.filteredShopProducts().length) {
+              if(this.commerceLoading){LoadingProgress().width(40).height(40).color(RED)}
+              if(this.commerceError){
+                this.Notice({ message: this.commerceError })
+                Button(this.tr('重新加载')).constraintSize({minHeight:48}).onClick(()=>this.selectShopCategory(this.shopCategoryIndex)).enabled(!this.commerceLoading)
+              }
+              if (!this.commerceLoading&&!this.commerceError&&!this.filteredShopProducts().length) {
                 SymbolGlyph($r('sys.symbol.bag')).fontSize(40).fontColor([OUTLINE]).margin({ top: 90 })
                 Text(this.shopKeyword.trim() ? '未找到相关商品' : '当前分类暂无商品').fontSize(16).fontColor(INK).width('100%').textAlign(TextAlign.Center)
               }
@@ -4795,13 +4839,17 @@ struct Index {
                   }
                   Column({ space: 8 }) {
                     Text(this.tr(product.name)).fontSize(16).fontWeight(FontWeight.Bold).fontColor(INK).width('100%').maxLines(2)
-                    Text(this.tr(product.stock > 0 ? `库存 ${product.stock}` : '暂时缺货')).fontSize(13).fontColor(MUTED).width('100%')
-                    Text(this.tr(`¥${product.price}`)).fontSize(18).fontWeight(FontWeight.Bold).fontColor('#914D00').width('100%')
+                    Text(this.tr(product.stock < 0 ? '库存待确认' : product.stock > 0 ? `库存 ${product.stock}` : '暂时缺货')).fontSize(13).fontColor(MUTED).width('100%')
+                    Text(this.tr(product.price)).fontSize(18).fontWeight(FontWeight.Bold).fontColor('#914D00').width('100%')
                   }.layoutWeight(1).padding(12).alignItems(HorizontalAlign.Start)
                 }.width('100%').constraintSize({ minHeight: 104 }).backgroundColor(SURFACE).borderRadius(18)
                   .border({ width: 1, color: LINE }).clip(true).onClick(() => this.openShopProduct(product))
-                  .accessibilityText(this.tr(`${product.name}，${product.price} 元`))
+                  .accessibilityText(this.tr(`${product.name}，${product.price}`))
               }, (product: ShopProduct) => String(product.id))
+              if((this.shopCategory().total??0)>this.shopCategory().products.length){
+                Button(this.tr('查看更多商品')).constraintSize({minHeight:48}).enabled(!this.commerceLoading)
+                  .onClick(()=>this.selectShopCategory(this.shopCategoryIndex,true)).id('shop_load_more')
+              }
             }.width('100%').padding({ left: 12, right: 14, top: 4, bottom: 24 })
           }.layoutWeight(1).height('100%').align(Alignment.Top).scrollBar(BarState.Off)
         }.width('100%').layoutWeight(1).alignItems(VerticalAlign.Top)
@@ -4813,6 +4861,34 @@ struct Index {
           .enabled(!this.shopLoading).onClick(() => this.openShop())
       }.width('100%').padding(8).backgroundColor(SURFACE)
     }.width('100%').height('100%')
+  }
+
+  @Builder
+  PortalProductContent() {
+    if(this.commerceLoading){LoadingProgress().width(40).height(40).color(RED).margin({top:60})}
+    if(this.commerceError){
+      this.Notice({ message: this.commerceError })
+      Button(this.tr('重新加载')).constraintSize({minHeight:48}).onClick(()=>this.openShopProduct(this.selectedProduct)).enabled(!this.commerceLoading)
+    }
+    if(this.portalProductDetail){
+      if(this.portalProductDetail.covers.length){
+        Swiper(){ForEach(this.portalProductDetail.covers,(url:string)=>{
+          ArticleImage({source:url,description:this.portalProductDetail?.name??'商品图片'})
+        },(url:string)=>url)}.width('100%').height(300).autoPlay(false).loop(false)
+      }
+      Column({space:12}){
+        Text(this.portalProductDetail.name).fontSize(22).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        Text(this.portalProductDetail.price).fontSize(24).fontWeight(FontWeight.Bold).fontColor(RED).width('100%')
+        Text(this.tr('商品详情')).fontSize(18).fontWeight(FontWeight.Bold).fontColor(INK).width('100%')
+        if(!this.portalProductDetail.blocks.length){Text(this.tr('暂无详细介绍')).fontSize(15).fontColor(MUTED).width('100%')}
+        ForEach(this.portalProductDetail.blocks,(block:ArticleBlock)=>{
+          if(block.kind==='image'){ArticleImage({source:block.url,description:block.text})}
+          else if(block.kind==='text'){Text(block.text).fontSize(16).fontColor(INK).lineHeight(25).width('100%')}
+          else{Text(this.tr('图片暂不可用')).fontColor(MUTED)}
+        },(block:ArticleBlock)=>block.id)
+        Button(this.tr('联系客服')).width('100%').constraintSize({minHeight:48}).onClick(()=>this.openContact())
+      }.width('100%').padding(18).backgroundColor(SURFACE).borderRadius(18).border({width:1,color:LINE})
+    }
   }
 
   @Builder
@@ -6451,6 +6527,10 @@ struct Index {
       }.width('100%').constraintSize({ minHeight: 72 }).padding(16).backgroundColor(SURFACE).borderRadius(18)
         .border({ width: 1, color: LINE }).onClick(() => this.openArticle(String(item.id ?? ''), item.title || '健康百科', false))
     }, (item: Article) => String(item.id))
+    if(this.articleHasMore&&!this.listError){
+      Button(this.tr(this.listLoading?'正在加载…':'查看更多内容')).constraintSize({minHeight:48}).width('100%')
+        .enabled(!this.listLoading).onClick(()=>this.moreArticles()).id('article_load_more')
+    }
   }
 
   @Builder
@@ -6501,7 +6581,7 @@ struct Index {
         } else if (this.screen === 'shop-home') {
           this.ShopHomeContent()
         } else if (this.screen === 'shop-product') {
-          this.ShopProductContent()
+          this.PortalProductContent()
         } else if (this.screen === 'shop-cart') {
           this.CartContent()
         } else if (this.screen === 'shop-checkout') {
@@ -6579,7 +6659,7 @@ struct Index {
           }.width(48).height(this.controlHeight(48)).borderRadius(24).backgroundColor(RED)
             .enabled(!this.aiBusy && this.aiInput.trim().length > 0).onClick(() => this.sendAiChat()).id('ai_send').accessibilityText(this.tr('发送消息'))
         }.width('100%').padding(12).backgroundColor(SURFACE)
-      } else if (this.screen === 'shop-product' && this.productDetail) {
+      } else if (this.screen === 'shop-product' && this.productDetail && GLOBAL_PAYMENTS_ENABLED) {
         Row({ space: 8 }) {
           Button() { Column({ space: 2 }) {
             SymbolGlyph($r('sys.symbol.house')).fontSize(23).fontColor([INK]); Text(this.tr('首页')).fontSize(11).fontColor(INK)

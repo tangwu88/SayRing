@@ -1,9 +1,10 @@
-import type { CareInvitation } from './CareContracts';
+import { careEntityId, careNotificationNumber } from './CareContracts';
+import type { CareInvitation, CareIdentifier } from './CareContracts';
 import type { InboxMessage } from './AccountPageContracts';
 import type { HealthOwnerSession } from './HealthUpload';
 
-export interface LocalCareNotice { id: number; receivedAt: number; read: boolean; pending: boolean; }
-export interface CareNoticeState { version: number; seen: number[]; entries: LocalCareNotice[]; }
+export interface LocalCareNotice { id: CareIdentifier; receivedAt: number; read: boolean; pending: boolean; }
+export interface CareNoticeState { version: number; seen: CareIdentifier[]; entries: LocalCareNotice[]; }
 export interface CareNoticeStore {
   read(ownerId: string): Promise<CareNoticeState>;
   save(ownerId: string, state: CareNoticeState, assertCurrent: () => void): Promise<void>;
@@ -29,9 +30,9 @@ export function parseCareNoticeState(raw: string): CareNoticeState {
   if (!value || value.version !== 1 || !Array.isArray(value.seen) || !Array.isArray(value.entries)) {
     throw new Error('邀请消息暂时无法读取');
   }
-  const seen: number[] = [];
-  value.seen.forEach((id: number) => {
-    if (!Number.isSafeInteger(id) || id <= 0) throw new Error('邀请消息暂时无法读取');
+  const seen: CareIdentifier[] = [];
+  value.seen.forEach((id: CareIdentifier) => {
+    if (!careEntityId(id) || careEntityId(id) !== id) throw new Error('邀请消息暂时无法读取');
     if (!seen.includes(id)) seen.push(id);
   });
   const entries: LocalCareNotice[] = [];
@@ -47,7 +48,7 @@ export function parseCareNoticeState(raw: string): CareNoticeState {
 
 export function localCareInbox(state: CareNoticeState): InboxMessage[] {
   return state.entries.slice().reverse().map((item: LocalCareNotice): InboxMessage => ({
-    id: -item.id, entityId: String(item.id), source: 'local', kind: 'care_invitation',
+    id: typeof item.id==='number'?-item.id:-careNotificationNumber(item.id), entityId: String(item.id), source: 'local', kind: 'care_invitation',
     title: item.pending ? '新的关爱邀请' : '关爱邀请已更新',
     content: item.pending ? '点击查看邀请并选择是否接受' : '点击查看邀请的最新状态',
     createdAt: new Date(item.receivedAt + 8 * 3600000).toISOString().slice(0, 16).replace('T', ' '), read: item.read
@@ -77,7 +78,7 @@ export class ForegroundCareNotifications {
   private failures: number = 0;
   private state: CareNoticeState | undefined = undefined;
   private mutations: Promise<void> = Promise.resolve();
-  private remoteEntities: Set<number> = new Set();
+  private remoteEntities: Set<CareIdentifier> = new Set();
 
   constructor(port: CarePollPort) { this.port = port; }
 
@@ -99,15 +100,15 @@ export class ForegroundCareNotifications {
   currentInbox(): InboxMessage[] { return localCareInbox(this.state ?? emptyCareNoticeState()); }
 
   remoteArrived(entityId: string): void {
-    if (!this.session.ownerId || !/^[1-9]\d*$/.test(entityId)) return;
-    const id = Number(entityId);
-    if (!Number.isSafeInteger(id)) return;
+    if (!this.session.ownerId) return;
+    const id = careEntityId(entityId);
+    if (!id) return;
     // A remote arrival is only a refresh hint, not an invitation or its authority.
     this.remoteEntities.add(id);
     this.refresh();
   }
 
-  async markRead(entityId: number): Promise<void> {
+  async markRead(entityId: CareIdentifier): Promise<void> {
     const epoch = this.epoch;
     const operation = this.mutations.catch(() => {}).then(async () => {
       this.assertCurrent(epoch);
@@ -178,7 +179,7 @@ export class ForegroundCareNotifications {
       else if (pending.has(item.id)) item.pending = true;
     });
     const added: LocalCareNotice[] = [];
-    pending.forEach((id: number) => {
+    pending.forEach((id: CareIdentifier) => {
       if (state.seen.includes(id)) return;
       const notice: LocalCareNotice = { id: id, receivedAt: this.port.now(), read: false, pending: true };
       state.seen.push(id); state.entries.push(notice);

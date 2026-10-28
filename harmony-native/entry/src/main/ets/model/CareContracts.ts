@@ -1,10 +1,22 @@
 import { ApiError, stableIdentity } from './Contracts';
 
 // Only these normalized values reach ArkUI. Raw account rows/tokens are never retained.
-export interface CareMember { relationId: number; memberId: number; name: string; mobile: string; }
-export interface CareInvitation { id: number; inviterId: number; name: string; mobile: string; state: string; }
+export type CareIdentifier = number | string;
+export interface CareMember { relationId: CareIdentifier; memberId: CareIdentifier; name: string; mobile: string; }
+export interface CareInvitation { id: CareIdentifier; inviterId: CareIdentifier; name: string; mobile: string; state: string; }
 
-export function careInvitationFallback(inviterId: number): string { return `邀请人 #${inviterId}`; }
+export function careInvitationFallback(inviterId: CareIdentifier): string { return typeof inviterId === 'number' ? `邀请人 #${inviterId}` : '邀请人'; }
+export function careEntityId(value: Object | undefined): CareIdentifier {
+  if (typeof value === 'string' && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(value)) return value.toLowerCase();
+  return careId(value);
+}
+// OS/UI notification identifiers are local only; never use these hashes in API requests.
+export function careNotificationNumber(id: CareIdentifier): number {
+  if (typeof id === 'number') return 1000000000 + id % 1000000000;
+  let hash = 2166136261;
+  for (let index = 0; index < id.length; index++) hash = Math.imul(hash ^ id.charCodeAt(index), 16777619) >>> 0;
+  return 1000000000 + hash % 1000000000;
+}
 export function careInvitationNeedsConfirmation(invitation: CareInvitation): boolean {
   return invitation.name === careInvitationFallback(invitation.inviterId) && !invitation.mobile;
 }

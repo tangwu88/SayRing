@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { stripTypeScriptTypes } from 'node:module';
-import { careInboxUnread, mergeCareInbox } from '../entry/src/main/ets/model/ForegroundCareNotifications.ts';
+import { stripTypeScriptTypes, registerHooks } from 'node:module';
+registerHooks({resolve(specifier,context,next){return next(specifier.startsWith('.')&&context.parentURL?.endsWith('.ts')&&!/\.[a-z]+$/.test(specifier)?specifier+'.ts':specifier,context)}});
+const {careInboxUnread,mergeCareInbox}=await import('../entry/src/main/ets/model/ForegroundCareNotifications.ts');
+const {careEntityId}=await import('../entry/src/main/ets/model/CareContracts.ts');
 const source=readFileSync(new URL('../entry/src/main/ets/pages/Index.ets',import.meta.url),'utf8');
 const methods=source.slice(source.indexOf('  private async refreshInbox('),source.indexOf('  private async refreshPermissions('))+
   source.slice(source.indexOf('  private async refreshNotificationCount('),source.indexOf('  private async connectPush('));
@@ -16,8 +18,8 @@ function harness(){
     async readInboxMessage(id){reads.push(id);return{id}}};
   class ApiError extends Error {}
   const care={currentInbox:()=>local,async markRead(id){marked.push(id);local.find(item=>-item.id===id).read=true}};
-  const Page=new Function('saydianApi','careNotifications','careInboxUnread','mergeCareInbox','ApiError',
-    `return ${stripTypeScriptTypes(`class Page {${methods}}`)}`)(api,care,careInboxUnread,mergeCareInbox,ApiError);
+  const Page=new Function('saydianApi','careNotifications','careInboxUnread','mergeCareInbox','ApiError','careEntityId',
+    `return ${stripTypeScriptTypes(`class Page {${methods}}`)}`)(api,care,careInboxUnread,mergeCareInbox,ApiError,careEntityId);
   const page=new Page();Object.assign(page,{guest:false,inbox:[],inboxLoading:false,inboxError:'',serverInbox:[],serverUnread:undefined,
     inboxGeneration:0,unreadGeneration:0,notificationCount:-1,screen:'messages',async openCare(){this.screen='care'},accountFormFailure:()=>{},careFailure:()=>{}});
   return{page,inboxRequests,unreadRequests,reads,marked,switch(){generation++;page.clearInboxState()}};

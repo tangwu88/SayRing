@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ForegroundCareNotifications, emptyCareNoticeState, parseCareNoticeState, localCareInbox,
-  mergeCareInbox, careInboxUnread } from '../entry/src/main/ets/model/ForegroundCareNotifications.ts';
+import { registerHooks } from 'node:module';
+registerHooks({resolve(specifier,context,next){return next(specifier.startsWith('.')&&context.parentURL?.endsWith('.ts')&&!/\.[a-z]+$/.test(specifier)?specifier+'.ts':specifier,context)}});
+const { ForegroundCareNotifications, emptyCareNoticeState, parseCareNoticeState, localCareInbox,
+  mergeCareInbox, careInboxUnread } = await import('../entry/src/main/ets/model/ForegroundCareNotifications.ts');
 
 const turn = async () => { for (let i = 0; i < 4; i++) await new Promise(resolve => setImmediate(resolve)); };
 const invite = (id, state = 'pending') => ({ id, state, inviterId: 88, name: '测试夹具', mobile: '10000000000' });
@@ -34,6 +36,20 @@ test('login/start immediate; foreground-only 30 seconds; resume immediate and no
   h.fire();await turn();assert.equal(h.reads,2);h.controller.setForeground(false);assert.equal(h.timers.size,0);
   h.controller.refresh();await turn();assert.equal(h.reads,2);
   h.controller.setForeground(true);await turn();assert.equal(h.reads,3);assert.equal(h.timers.size,1);
+});
+
+test('global UUID notices retain the real entity across restart, read and owner changes', async () => {
+  const id='20000000-0000-4000-8000-000000000002';
+  const h=harness();h.list([invite(id)]);h.start('uuid-owner');await turn();
+  const row=h.controller.currentInbox()[0];assert.equal(row.entityId,id);assert.ok(row.id<0);
+  assert.equal(JSON.parse(h.persisted.get('uuid-owner')).seen[0],id);
+  await h.controller.markRead(id);assert.equal(h.controller.currentInbox()[0].read,true);
+  h.controller.setForeground(false);
+  const restarted=harness({persisted:h.persisted});restarted.list([invite(id)]);restarted.start('uuid-owner');await turn();
+  assert.equal(restarted.controller.currentInbox()[0].entityId,id);assert.equal(restarted.alerts.length,0);
+  restarted.controller.setSession({ownerId:'another-owner',generation:2});await turn();
+  assert.notEqual(restarted.persisted.get('another-owner'),undefined);
+  h.controller.setForeground(false);restarted.controller.setForeground(false);
 });
 
 test('failed reads back off 30/60/120/300 seconds; recover returns to 30 and stores no fake messages', async () => {

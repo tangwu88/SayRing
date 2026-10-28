@@ -4,7 +4,7 @@ import type { AddressDraft } from './AddressForm';
 export interface ShippingAddress { id: string; name: string; mobile: string; address: string; isDefault: boolean; draft: AddressDraft; }
 export interface InboxMessage { id: number; title: string; content: string; createdAt: string; read: boolean; kind: string;
   entityId?: string; source?: string; }
-export interface ArticleCategory { id: number; title: string; }
+export interface ArticleCategory { id: number | string; title: string; }
 
 export function orderStatusLabel(status: number): string {
   if (status === 0) return '待支付';
@@ -68,7 +68,7 @@ export function parseAddresses(data: Object | undefined): ShippingAddress[] {
 }
 
 export function parseArticleCategories(data: Object | undefined): ArticleCategory[] {
-  const seen: Set<number> = new Set();
+  const seen: Set<number|string> = new Set();
   return rows(data).map((raw: Object): ArticleCategory => {
     const row = object(raw); const id = Number(row['id']);
     const title = text(row['title'] ?? row['name']).slice(0, 80);

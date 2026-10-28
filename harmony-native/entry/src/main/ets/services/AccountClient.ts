@@ -13,13 +13,17 @@ import { addressBody } from '../model/AddressForm';
 import type { AddressDraft, RegionCatalog } from '../model/AddressForm';
 import { CARE_METRICS, careId, careMobileValidation, parseCareMembers, parseCareInvitations,
   parseCareSettings, careSettingsBody, chinaDaySeconds, parseCareMetric, careMetricState } from '../model/CareContracts';
-import type { CareMember, CareInvitation, CareShareSettings, CareMetric, CareMetricSpec } from '../model/CareContracts';
+import type { CareIdentifier, CareMember, CareInvitation, CareShareSettings, CareMetric, CareMetricSpec } from '../model/CareContracts';
+import { portalId, portalModulePath, portalCategories, portalArticles, portalArticle, portalRelationships,
+  portalCareMembers, portalCareInvitations, portalShareSettings, portalShareBody, PORTAL_CARE_METRICS,
+  portalCareMetric, portalCareWindow, portalShopHome, portalShopCategory, portalProduct } from '../model/GlobalPortal';
+import type { PortalRelationship, PortalProduct } from '../model/GlobalPortal';
 import { notificationUnreadCount, parseHarmonyPayment, parseShopOrder, parseShopOrders,
   paymentFields, pushRegistrationFields } from '../model/PushPaymentContracts';
 import type { HarmonyPaymentRequest, PaymentProvider, PushIdentity, ShopOrder } from '../model/PushPaymentContracts';
 import { AI_USER_MESSAGE_MAX_LENGTH, aiConciseRetryMessage, parseAiMessages, parseAiReply,
   parseShopHome } from '../model/ExperienceContracts';
-import type { AiChatMessage, ShopHome } from '../model/ExperienceContracts';
+import type { AiChatMessage, ShopHome, ShopCategory } from '../model/ExperienceContracts';
 import { parseProductDetail, parseCart, selectionFields, parseCheckout, checkoutError, commerceCents,
   parseOrderDetail, parseShipments } from '../model/CommerceContracts';
 import type { ProductDetail, ShopLine, ShopSelection, CheckoutPreview, OrderDetail, Shipment } from '../model/CommerceContracts';
@@ -64,9 +68,9 @@ export class AccountClient {
   private blockRestore: boolean = false;
   private vaultQueue: Promise<void> = Promise.resolve();
   private refreshing: Promise<Session> | undefined = undefined;
-  private careTargets: Map<number, number> = new Map();
+  private careTargets: Map<CareIdentifier, CareIdentifier> = new Map();
   private careMemberReadGeneration: number = 0;
-  private shareSnapshots: Map<number, CareShareSettings> = new Map();
+  private shareSnapshots: Map<CareIdentifier, CareShareSettings> = new Map();
   private shopWriteBusy: boolean = false;
   private reportWriteBusy: boolean = false;
   private healthSessionListener: ((session: HealthOwnerSession) => void) | undefined = undefined;
@@ -725,6 +729,11 @@ export class AccountClient {
   }
 
   async shopHome(): Promise<ShopHome> {
+    if (this.globalAuth) {
+      const values = await Promise.all([this.transport.request(portalModulePath('commerce/home')),
+        this.transport.request(portalModulePath('commerce/products','page=1&pageSize=30'))]);
+      return portalShopHome(values[0].data, values[1].data);
+    }
     const response = await this.transport.request('/api/v1/pages?code=SHOP_HOME');
     return parseShopHome(response.data);
   }
@@ -732,6 +741,20 @@ export class AccountClient {
   async shopProductDetail(id: number): Promise<ProductDetail> {
     if (!Number.isSafeInteger(id) || id <= 0) throw new ApiError('商品编号无效');
     return parseProductDetail((await this.transport.request(`/api/inv-shop/v1/product/product/view?id=${id}`)).data, id);
+  }
+
+  async ringShopCategory(id: string, name: string, page: number, keyword: string = ''): Promise<ShopCategory> {
+    if (!Number.isSafeInteger(page) || page < 1 || page > 10000) throw new ApiError('请重新选择商品分页');
+    const category = id === 'all' ? '' : `&categoryId=${portalId(id)}`;
+    const result=portalShopCategory(id, name, (await this.transport.request(portalModulePath('commerce/products',
+      `page=${page}&pageSize=30${category}${keyword.trim()?`&keyword=${encodeURIComponent(keyword.trim().slice(0,160)).replace(/\./g,'%2E')}`:''}`))).data);
+    if(result.page!==page)throw new ApiError('商品列表已更新，请刷新');
+    return result;
+  }
+
+  async ringShopProduct(id: string): Promise<PortalProduct> {
+    const safeId = portalId(id);
+    return portalProduct((await this.transport.request(portalModulePath(`commerce/products/${safeId}`))).data, safeId);
   }
 
   async shopCart(): Promise<ShopLine[]> {
@@ -885,10 +908,11 @@ export class AccountClient {
   async careMembers(): Promise<CareMember[]> {
     const epoch = this.generation;
     const readGeneration = ++this.careMemberReadGeneration;
-    const response = await this.authorized('/api/v1/member/care/my');
+    const response = await this.authorized(this.globalAuth ? globalApiPath('/care/relationships') : '/api/v1/member/care/my');
     this.assertEpoch(epoch);
     if (readGeneration !== this.careMemberReadGeneration) throw new ApiError('关爱成员已刷新，请重新查看');
-    const members = parseCareMembers(response.data, this.session?.memberId ?? '');
+    const members = this.globalAuth ? portalCareMembers(portalRelationships(response.data, this.session?.memberId ?? '', this.now())) :
+      parseCareMembers(response.data, this.session?.memberId ?? '');
     this.careTargets.clear();
     members.forEach((member: CareMember) => this.careTargets.set(member.relationId, member.memberId));
     return members;
@@ -896,13 +920,21 @@ export class AccountClient {
 
   async careInvitations(): Promise<CareInvitation[]> {
     const epoch = this.generation;
-    const response = await this.authorized('/api/v1/member/care');
+    const response = await this.authorized(this.globalAuth ? globalApiPath('/care/relationships') : '/api/v1/member/care');
     this.assertEpoch(epoch);
-    return parseCareInvitations(response.data, this.session?.memberId ?? '');
+    return this.globalAuth ? portalCareInvitations(portalRelationships(response.data, this.session?.memberId ?? '', this.now())) :
+      parseCareInvitations(response.data, this.session?.memberId ?? '');
   }
 
   async addCare(mobile: string): Promise<void> {
     const epoch = this.generation;
+    if (this.globalAuth) {
+      const number = mobile.trim().replace(/^\+86/,'');
+      if (!/^1\d{10}$/.test(number)) throw new ApiError('请填写家人的正确手机号');
+      // The server validates the target and self-invites; the profile intentionally contains only a masked phone.
+      await this.authorized(globalApiPath('/care/invitations'), JSON.stringify({ identifier: `+86${number}` }));
+      this.assertEpoch(epoch);return;
+    }
     const profile = await this.profile();
     this.assertEpoch(epoch);
     const validation = careMobileValidation(mobile, typeof profile.mobile === 'string' ? profile.mobile : '');
@@ -911,8 +943,8 @@ export class AccountClient {
     this.assertEpoch(epoch);
   }
 
-  async respondCareInvitation(id: number, accepted: boolean): Promise<void> {
-    if (!careId(id)) throw new ApiError('邀请编号无效');
+  async respondCareInvitation(id: CareIdentifier, accepted: boolean): Promise<void> {
+    if (this.globalAuth) portalId(id); else if (!careId(id)) throw new ApiError('邀请编号无效');
     const epoch = this.generation;
     // Refresh immediately before an intentional action; stale/handled invitations are not actionable.
     const latest = await this.careInvitations();
@@ -920,11 +952,28 @@ export class AccountClient {
     if (!latest.some((item: CareInvitation) => item.id === id && item.state === 'pending')) {
       throw new ApiError('该邀请已处理或撤销，请刷新列表');
     }
-    await this.authorized('/api/v1/member/care/save', JSON.stringify({ id: id, examine_status: accepted ? 1 : 2 }));
+    if (this.globalAuth) await this.authorized(globalApiPath(`/care/relationships/${portalId(id)}/respond`),JSON.stringify({accepted}));
+    else await this.authorized('/api/v1/member/care/save', JSON.stringify({ id: id, examine_status: accepted ? 1 : 2 }));
     this.assertEpoch(epoch);
   }
 
-  async careShareSettings(memberId: number): Promise<CareShareSettings> {
+  private async portalSharingRelation(memberId: CareIdentifier): Promise<PortalRelationship> {
+    const epoch=this.generation, id=portalId(memberId);
+    const response=await this.authorized(globalApiPath('/care/relationships'));
+    this.assertEpoch(epoch);
+    const matches=portalRelationships(response.data,this.session?.memberId??'',this.now())
+      .filter((relation:PortalRelationship)=>relation.incoming&&relation.inviterId===id&&relation.state==='active');
+    if(matches.length!==1)throw new ApiError('请先同意此成员的关爱邀请，再设置共享');
+    return matches[0];
+  }
+
+  async careShareSettings(memberId: CareIdentifier): Promise<CareShareSettings> {
+    if (this.globalAuth) {
+      this.shareSnapshots.delete(memberId);
+      const settings=portalShareSettings(await this.portalSharingRelation(memberId));
+      this.shareSnapshots.set(memberId,{enabled:[...settings.enabled],unknown:[...settings.unknown]});
+      return settings;
+    }
     if (!careId(memberId)) throw new ApiError('成员身份无效');
     const epoch = this.generation;
     this.shareSnapshots.delete(memberId);
@@ -940,7 +989,7 @@ export class AccountClient {
     return settings;
   }
 
-  async saveCareShareSettings(memberId: number, enabled: string[]): Promise<void> {
+  async saveCareShareSettings(memberId: CareIdentifier, enabled: string[]): Promise<void> {
     const snapshot = this.shareSnapshots.get(memberId);
     if (!snapshot) throw new ApiError('请先成功读取共享设置，再保存');
     const epoch = this.generation;
@@ -950,23 +999,36 @@ export class AccountClient {
       this.shareSnapshots.delete(memberId);
       throw new ApiError('共享设置已在其他设备更新，请重新读取后再修改');
     }
-    const body = careSettingsBody(memberId, { enabled: enabled, unknown: snapshot.unknown });
-    await this.authorized('/api/v1/member/care-setting', body);
+    if (this.globalAuth) {
+      const relation=await this.portalSharingRelation(memberId);this.assertEpoch(epoch);
+      if(JSON.stringify(portalShareSettings(relation))!==JSON.stringify(snapshot))throw new ApiError('共享设置已在其他设备更新，请重新读取后再修改');
+      await this.authorized(globalApiPath(`/care/relationships/${relation.id}/permissions`),portalShareBody(enabled,snapshot.unknown));
+    } else {
+      const body = careSettingsBody(memberId as number, { enabled: enabled, unknown: snapshot.unknown });
+      await this.authorized('/api/v1/member/care-setting', body);
+    }
     this.assertEpoch(epoch);
     this.shareSnapshots.delete(memberId);
   }
 
-  async careMetric(relationId: number, memberId: number, key: string, day: string): Promise<CareMetric> {
+  async careMetric(relationId: CareIdentifier, memberId: CareIdentifier, key: string, day: string): Promise<CareMetric> {
     const epoch = this.generation;
     if (this.careTargets.get(relationId) !== memberId) throw new ApiError('成员关系已变化，请返回列表重新读取');
-    const spec = CARE_METRICS.find((item: CareMetricSpec) => item.key === key);
+    const spec = (this.globalAuth ? PORTAL_CARE_METRICS : CARE_METRICS).find((item: CareMetricSpec) => item.key === key);
     if (!spec) throw new ApiError('不支持此健康项目');
     const query = `selectmember=${memberId}&date=${chinaDaySeconds(day)}`;
     try {
-      const response = await this.authorized(`${spec.endpoint}?${query}${spec.type ? `&type=${spec.type}` : ''}`);
+      const response = await this.authorized(this.globalAuth ? globalApiPath(`/care/relationships/${portalId(relationId)}/health?metric=${spec.type}&${portalCareWindow(day)}`) :
+        `${spec.endpoint}?${query}${spec.type ? `&type=${spec.type}` : ''}`);
       this.assertEpoch(epoch);
       // Only the selected metric endpoint is authoritative, including an empty response.
-      return parseCareMetric(spec, response.data, day);
+      if(this.globalAuth) {
+        const fresh=await this.authorized(globalApiPath('/care/relationships'));this.assertEpoch(epoch);
+        const permitted=portalRelationships(fresh.data,this.session?.memberId??'',this.now()).some((relation:PortalRelationship)=>
+          relation.id===relationId&&!relation.incoming&&relation.recipientId===memberId&&relation.state==='active'&&relation.metrics.includes(spec.type));
+        if(!permitted)return careMetricState(spec,'unauthorized','对方尚未授权此项目');
+      }
+      return this.globalAuth ? portalCareMetric(spec,response.data) : parseCareMetric(spec, response.data, day);
     } catch (error) {
       this.assertEpoch(epoch);
       if (error instanceof ApiError && error.status === 401) throw error;
@@ -976,12 +1038,13 @@ export class AccountClient {
     }
   }
 
-  async careMetrics(relationId: number, memberId: number, day: string): Promise<CareMetric[]> {
+  async careMetrics(relationId: CareIdentifier, memberId: CareIdentifier, day: string): Promise<CareMetric[]> {
     const epoch = this.generation;
     if (this.careTargets.get(relationId) !== memberId) throw new ApiError('成员关系已变化，请返回列表重新读取');
     const metrics: CareMetric[] = [];
-    for (let index = 0; index < CARE_METRICS.length; index += 3) {
-      const batch = await Promise.all(CARE_METRICS.slice(index, index + 3).map((spec: CareMetricSpec) =>
+    const specs=this.globalAuth?PORTAL_CARE_METRICS:CARE_METRICS;
+    for (let index = 0; index < specs.length; index += 3) {
+      const batch = await Promise.all(specs.slice(index, index + 3).map((spec: CareMetricSpec) =>
         this.careMetric(relationId, memberId, spec.key, day)));
       this.assertEpoch(epoch);
       metrics.push(...batch);
@@ -990,19 +1053,31 @@ export class AccountClient {
   }
 
   async articles(): Promise<Article[]> {
+    if(this.globalAuth)return this.articlesByCategory(0);
     return parseArticles((await this.transport.request('/api/rf-article/article/index')).data);
   }
 
   async articleCategories(): Promise<ArticleCategory[]> {
+    if(this.globalAuth)return portalCategories((await this.transport.request(portalModulePath('content/categories'))).data);
     return parseArticleCategories((await this.transport.request('/api/rf-article/article-cate/index?pid=3')).data);
   }
 
-  async articlesByCategory(categoryId: number): Promise<Article[]> {
-    if (!Number.isSafeInteger(categoryId) || categoryId < 0) throw new ApiError('健康分类无效');
+  async articlesByCategory(categoryId: number|string, page: number = 1): Promise<Article[]> {
+    if(this.globalAuth) {
+      if(!Number.isSafeInteger(page)||page<1||page>10000)throw new ApiError('请刷新内容列表');
+      const category=categoryId===0?'':`&categoryId=${portalId(categoryId)}`;
+      return portalArticles((await this.transport.request(portalModulePath('content/articles',`page=${page}&pageSize=30${category}`))).data);
+    }
+    if (typeof categoryId !== 'number' || !Number.isSafeInteger(categoryId) || categoryId < 0) throw new ApiError('健康分类无效');
     return parseArticles((await this.transport.request(`/api/rf-article/article/index?page=1${categoryId ? '&cate_id=' + categoryId : ''}`)).data);
   }
 
   async article(id: string, agreement: boolean): Promise<Article> {
+    if(this.globalAuth) {
+      if(agreement)throw new ApiError('请重新打开当前用户协议或隐私政策');
+      const safeId=portalId(id);
+      return portalArticle((await this.transport.request(portalModulePath(`content/articles/${safeId}`))).data,safeId);
+    }
     if (!/^\d+$/.test(id)) throw new ApiError('内容编号不正确');
     const path = agreement ? '/api/rf-article/article-single/view' : '/api/rf-article/article/view';
     return parseArticle((await this.transport.request(`${path}?id=${encodeURIComponent(id)}`)).data);

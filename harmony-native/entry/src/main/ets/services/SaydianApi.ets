@@ -2,8 +2,10 @@ import { http } from '@kit.NetworkKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { deviceInfo } from '@kit.BasicServicesKit';
-import { ApiError, Envelope, Session, FormField, UploadFile, decodeEnvelope, buildMultipart } from '../model/Contracts';
-import { AccountClient, ApiTransport } from './AccountClient';
+import { ApiError, decodeEnvelope, buildMultipart } from '../model/Contracts';
+import type { Envelope, Session, FormField, UploadFile } from '../model/Contracts';
+import { AccountClient } from './AccountClient';
+import type { ApiTransport } from './AccountClient';
 import { SessionVault } from './SessionVault';
 import { apiReadTimeout } from '../model/RequestPolicy';
 import { internationalUrl, ringRequestUrl, isRingCodePath } from '../model/GlobalConfiguration';
@@ -13,7 +15,7 @@ import { withModuleVisibility } from '../model/ModuleDisplay';
 
 interface ImageKind { mime: string; extension: string; }
 
-class NativeHttpTransport implements ApiTransport {
+export class NativeHttpTransport implements ApiTransport {
   async download(path: string, session: Session): Promise<ArrayBuffer> {
     const legacy = await import('./LegacySafeHttp');
     return legacy.safeReportPdfHttp(internationalUrl(path), { 'Accept': 'application/pdf',

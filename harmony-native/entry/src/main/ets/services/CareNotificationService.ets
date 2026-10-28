@@ -4,6 +4,8 @@ import { notificationManager } from '@kit.NotificationKit';
 import { ForegroundCareNotifications, parseCareNoticeState } from '../model/ForegroundCareNotifications';
 import type { CareNoticeState, CareNoticeStore, CarePollPort, LocalCareNotice } from '../model/ForegroundCareNotifications';
 import type { InboxMessage } from '../model/AccountPageContracts';
+import { careEntityId, careNotificationNumber } from '../model/CareContracts';
+import type { CareIdentifier } from '../model/CareContracts';
 import type { HealthOwnerSession } from '../model/HealthUpload';
 import type { NotificationPayload } from '../model/NotificationPayload';
 import { saydianApi } from './SaydianApi';
@@ -64,7 +66,7 @@ export class CareNotificationService {
         return;
       }
       this.coordinator?.remoteArrived(payload.entityId);
-      this.cancelNotice(this.session.ownerId, Number(payload.entityId));
+      this.cancelNotice(this.session.ownerId, careEntityId(payload.entityId));
     });
   }
 
@@ -92,7 +94,7 @@ export class CareNotificationService {
 
   private cancelOwnedNotices(): void {
     const ownerId = this.session.ownerId;
-    this.coordinator?.currentInbox().forEach((item: InboxMessage) => this.cancelNotice(ownerId, -item.id));
+    this.coordinator?.currentInbox().forEach((item: InboxMessage) => this.cancelNotice(ownerId, careEntityId(item.entityId)));
     this.shown.forEach((id: number, label: string) => {
       if (label.startsWith(`saydian.care.${ownerId}.`)) notificationManager.cancel(id, label).catch(() => {});
     });
@@ -106,21 +108,21 @@ export class CareNotificationService {
   refresh(): void { this.coordinator?.refresh(); }
   currentInbox(): InboxMessage[] { return this.coordinator?.currentInbox() ?? []; }
   failureMessage(): string { return this.localFailure; }
-  async markRead(entityId: number): Promise<void> {
+  async markRead(entityId: CareIdentifier): Promise<void> {
     const coordinator = this.coordinator;
     if (!coordinator) throw new Error('消息暂时无法更新');
     await coordinator.markRead(entityId);
     await this.cancelNotice(this.session.ownerId, entityId);
   }
 
-  private async cancelNotice(ownerId: string, entityId: number): Promise<void> {
-    if (!ownerId || !Number.isSafeInteger(entityId) || entityId <= 0) return;
+  private async cancelNotice(ownerId: string, entityId: CareIdentifier): Promise<void> {
+    if (!ownerId || !careEntityId(entityId)) return;
     const label = `saydian.care.${ownerId}.${entityId}`;
     try { await notificationManager.cancel(this.notificationId(entityId), label); } catch {}
     this.shown.delete(label);
   }
 
-  private notificationId(id: number): number { return 1000000000 + id % 1000000000; }
+  private notificationId(id: CareIdentifier): number { return careNotificationNumber(id); }
 
   private async publish(ownerId: string, notice: LocalCareNotice, assertCurrent: () => void): Promise<void> {
     const context = this.context;

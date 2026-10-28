@@ -16,7 +16,7 @@ export function aiConciseRetryMessage(message: string): string {
 }
 
 export interface ShopProduct {
-  id: number;
+  id: number | string;
   name: string;
   picture: string;
   price: string;
@@ -27,6 +27,8 @@ export interface ShopCategory {
   id: string;
   name: string;
   products: ShopProduct[];
+  page?: number;
+  total?: number;
 }
 
 export interface ShopHome {
@@ -111,7 +113,7 @@ export function parseShopHome(data: Object | undefined): ShopHome {
     const row = object(raw);
     const name = text(row['name'], 80) || `分类 ${categoryIndex + 1}`;
     const products: ShopProduct[] = [];
-    const seen: Set<number> = new Set();
+    const seen: Set<number|string> = new Set();
     list(row['list']).forEach((productValue: Object) => {
       const product = parseProduct(productValue);
       if (product && !seen.has(product.id)) { seen.add(product.id); products.push(product); }
