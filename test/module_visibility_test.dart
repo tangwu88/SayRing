@@ -18,12 +18,13 @@ import 'package:saydian_app/ui/shop_pages.dart';
 import 'package:saydian_app/ui/global_shop_pages.dart';
 
 Map<String, Object?> _config({
+  String platform = 'ios',
   bool library = false,
   bool mall = false,
   int validForSeconds = 300,
 }) => {
   'product': 'say-ring',
-  'platform': 'ios',
+  'platform': platform,
   'readOnlyHealth': {
     'schemaVersion': 1,
     'validForSeconds': 300,
@@ -48,11 +49,11 @@ class _ModuleApi implements SayRingModuleVisibilityApi {
 }
 
 class _Harness {
-  _Harness({bool purchaseCeiling = false}) {
+  _Harness({bool purchaseCeiling = false, this.platform = 'ios'}) {
     final vault = MemorySessionVault();
     api = GlobalSaydianApiClient(
       vault,
-      moduleVisibilityScopeIos: true,
+      moduleVisibilityPlatform: platform,
       locale: () => 'zh-Hans',
       client: MockClient(_reply),
     );
@@ -61,12 +62,13 @@ class _Harness {
       api,
       MemoryHealthStore(),
       MethodChannelWearableBridge(),
-      wellnessOnly: true,
+      wellnessOnly: platform == 'ios',
       commerceEnabled: purchaseCeiling,
       moduleVisibility: ModuleVisibilityLease(),
     );
   }
   late final GlobalSaydianApiClient api;
+  final String platform;
   late final AppController controller;
   bool library = false, mall = false;
   bool configFails = false;
@@ -82,6 +84,7 @@ class _Harness {
     if (path.endsWith('support/app-display')) {
       if (configFails) throw const FormatException('Synthetic failure');
       data = _config(
+        platform: platform,
         library: library,
         mall: mall,
         validForSeconds: validForSeconds,
@@ -155,6 +158,54 @@ class _Harness {
 }
 
 void main() {
+  for (final platform in ['ios', 'android', 'harmonyos']) {
+    test(
+      '$platform consumes only its own platform envelope and independent module flags',
+      () async {
+        final h = _Harness(
+          platform: platform,
+          purchaseCeiling: platform == 'android',
+        );
+        addTearDown(h.dispose);
+        h.library = true;
+        await h.controller.refreshModuleVisibility();
+        expect(h.controller.healthLibraryVisible, true);
+        expect(h.controller.mallVisible, false);
+        await expectLater(
+          h.controller.loadShopHome(),
+          throwsA(isA<ApiException>()),
+        );
+        expect(h.catalogCalls, 0);
+        h.mall = true;
+        await h.controller.refreshModuleVisibility();
+        await h.controller.loadShopHome();
+        expect(h.controller.mallVisible, true);
+        expect(h.controller.commerceEnabled, platform == 'android');
+        expect(
+          h.requests
+              .where((r) => r.url.path.endsWith('/home'))
+              .single
+              .url
+              .queryParameters['platform'],
+          platform,
+        );
+        h.configFails = true;
+        await h.controller.refreshModuleVisibility();
+        expect(h.controller.mallVisible, false);
+        expect(h.controller.healthLibraryVisible, false);
+        final wrongPlatform = _config(
+          platform: platform == 'ios' ? 'android' : 'ios',
+        );
+        expect(
+          () => ModuleVisibilitySnapshot.fromMap(
+            wrongPlatform,
+            expectedPlatform: platform,
+          ),
+          throwsFormatException,
+        );
+      },
+    );
+  }
   testWidgets(
     'article image enlargement closes when library access is revoked',
     (tester) async {

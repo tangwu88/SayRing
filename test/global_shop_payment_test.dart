@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/module_visibility.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/app_payment_bridge.dart';
@@ -122,7 +123,11 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   tearDown(() => debugDefaultTargetPlatformOverride = null);
 
-  AppController controller(_Api api, _Bridge bridge) {
+  AppController controller(
+    _Api api,
+    _Bridge bridge, {
+    ModuleVisibilityLease? moduleVisibility,
+  }) {
     final value = AppController(
       MemorySessionVault(),
       api,
@@ -130,9 +135,41 @@ void main() {
       _Wearable(),
       paymentBridge: bridge,
       commerceEnabled: true,
+      moduleVisibility: moduleVisibility,
     )..session = _session('owner-a');
     addTearDown(value.dispose);
     return value;
+  }
+
+  for (final phase in ['capabilities', 'order', 'intent']) {
+    for (final reopen in [false, true]) {
+      test(
+        'mall revoked during $phase rejects old SDK launch even when reopened=$reopen',
+        () async {
+          debugDefaultTargetPlatformOverride = TargetPlatform.android;
+          final lease = ModuleVisibilityLease()
+            ..replace({SayRingModule.mall}, const Duration(seconds: 300));
+          final api = _Api(), bridge = _Bridge();
+          final c = controller(api, bridge, moduleVisibility: lease);
+          api.at = (step) {
+            if (step != phase) return;
+            lease.close();
+            if (reopen) {
+              lease.replace({SayRingModule.mall}, const Duration(seconds: 300));
+            }
+          };
+          await expectLater(
+            c.startGlobalShopPayment(
+              orderId: _orderId,
+              provider: AppPaymentProvider.alipay,
+              idempotencyKey: 'synthetic-attempt',
+            ),
+            throwsA(isA<ApiException>()),
+          );
+          expect(bridge.launched, 0);
+        },
+      );
+    }
   }
 
   for (final provider in AppPaymentProvider.values) {

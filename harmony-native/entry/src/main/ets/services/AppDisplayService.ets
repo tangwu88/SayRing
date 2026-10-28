@@ -1,14 +1,15 @@
 import { common } from '@kit.AbilityKit';
-import { deviceInfo } from '@kit.BasicServicesKit';
+import { deviceInfo, systemDateTime } from '@kit.BasicServicesKit';
 import { preferences } from '@kit.ArkData';
 import { http } from '@kit.NetworkKit';
 import { ApiError, decodeEnvelope } from '../model/Contracts';
 import { AppDisplayState } from '../model/AppDisplay';
 import type { AppDisplayCache } from '../model/AppDisplay';
 import { GLOBAL_PRODUCT, globalApiPath, internationalUrl } from '../model/GlobalConfiguration';
+import { ModuleDisplayState } from '../model/ModuleDisplay';
 
 const DISPLAY_URL: string = internationalUrl(
-  globalApiPath(`/support/app-display?product=${encodeURIComponent(GLOBAL_PRODUCT)}`)
+  globalApiPath(`/support/app-display?product=${encodeURIComponent(GLOBAL_PRODUCT)}&platform=harmonyos`)
 );
 
 class DisplayCache implements AppDisplayCache {
@@ -64,6 +65,8 @@ async function readDisplay(): Promise<Object | undefined> {
 class AppDisplayService {
   private cache: DisplayCache = new DisplayCache();
   readonly state: AppDisplayState = new AppDisplayState(readDisplay, this.cache);
+  readonly modules: ModuleDisplayState = new ModuleDisplayState(readDisplay,
+    () => systemDateTime.getUptime(systemDateTime.TimeType.STARTUP, false));
   attachContext(context: common.UIAbilityContext): void { this.cache.context = context; }
   refresh(): Promise<void> { return this.state.refresh(); }
 }

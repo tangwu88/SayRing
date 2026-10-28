@@ -264,6 +264,7 @@ class GlobalSaydianApiClient extends SaydianApiClient
     this.healthReleasePolicy = const WellnessReleasePolicy(),
     this.healthReadPolicyOverride,
     this.moduleVisibilityScopeIos = false,
+    this.moduleVisibilityPlatform,
   }) : _locale = locale ?? (() => 'en'),
        super(
          baseUri: GlobalEnvironment.apiOrigin(baseUri),
@@ -275,6 +276,9 @@ class GlobalSaydianApiClient extends SaydianApiClient
 
   final String Function() _locale;
   final bool moduleVisibilityScopeIos;
+  final String? moduleVisibilityPlatform;
+  String? get _modulePlatform =>
+      moduleVisibilityPlatform ?? (moduleVisibilityScopeIos ? 'ios' : null);
   @override
   final WellnessReleasePolicy healthReleasePolicy;
   final WellnessReleasePolicy? healthReadPolicyOverride;
@@ -442,18 +446,26 @@ class GlobalSaydianApiClient extends SaydianApiClient
   }
 
   @override
-  Future<ModuleVisibilitySnapshot> getModuleVisibility() async =>
-      ModuleVisibilitySnapshot.fromMap(await _ringIosDisplay());
+  Future<ModuleVisibilitySnapshot> getModuleVisibility() async {
+    final platform = _modulePlatform ?? 'ios';
+    final data = platform == 'ios'
+        ? await _ringIosDisplay()
+        : await _globalPublic(
+            'support/app-display?product=say-ring&platform=$platform',
+          );
+    return ModuleVisibilitySnapshot.fromMap(data, expectedPlatform: platform);
+  }
 
   String _moduleReadPath(String route) {
-    if (!moduleVisibilityScopeIos) return route;
+    final platform = _modulePlatform;
+    if (platform == null) return route;
     final uri = Uri.parse(route);
     return uri
         .replace(
           queryParameters: {
             ...uri.queryParameters,
             'product': 'say-ring',
-            'platform': 'ios',
+            'platform': platform,
           },
         )
         .toString();
@@ -534,9 +546,9 @@ class GlobalSaydianApiClient extends SaydianApiClient
         _uri('/api/saydian-app/v2/content/$path', {
           'locale': _locale(),
           ...?query,
-          if (moduleVisibilityScopeIos) ...{
+          if (_modulePlatform != null) ...{
             'product': 'say-ring',
-            'platform': 'ios',
+            'platform': _modulePlatform!,
           },
         }),
         headers: {'Accept-Language': _locale()},
@@ -1313,9 +1325,9 @@ class GlobalSaydianApiClient extends SaydianApiClient
       'page': '$page',
       'pageSize': '30',
       'locale': _locale(),
-      if (moduleVisibilityScopeIos) ...{
+      if (_modulePlatform != null) ...{
         'product': 'say-ring',
-        'platform': 'ios',
+        'platform': _modulePlatform!,
       },
       if (keyword?.trim().isNotEmpty == true) 'keyword': keyword!.trim(),
       if (categoryId?.trim().isNotEmpty == true)

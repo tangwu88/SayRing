@@ -8,6 +8,8 @@ import '../services/api_client.dart';
 import '../services/app_controller.dart';
 import '../services/app_payment_bridge.dart';
 import 'global_shop_widgets.dart';
+import '../domain/module_visibility.dart';
+import 'module_content_gate.dart';
 
 class GlobalShopPaymentPage extends StatefulWidget {
   const GlobalShopPaymentPage({
@@ -220,7 +222,13 @@ class _GlobalShopPaymentPageState extends State<GlobalShopPaymentPage>
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ModuleContentGate(
+    controller: widget.controller,
+    module: SayRingModule.mall,
+    builder: _buildContent,
+  );
+
+  Widget _buildContent(BuildContext context) {
     if (_closed || _owner == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('订单付款')),

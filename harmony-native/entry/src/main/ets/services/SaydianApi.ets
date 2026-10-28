@@ -9,6 +9,7 @@ import { apiReadTimeout } from '../model/RequestPolicy';
 import { internationalUrl, ringRequestUrl, isRingCodePath } from '../model/GlobalConfiguration';
 import { currentAppLocale } from '../model/GlobalLocale';
 import { appDisplayService } from './AppDisplayService';
+import { withModuleVisibility } from '../model/ModuleDisplay';
 
 interface ImageKind { mime: string; extension: string; }
 
@@ -20,6 +21,12 @@ class NativeHttpTransport implements ApiTransport {
   }
 
   async request(path: string, fields?: FormField[], session?: Session, jsonBody?: string,
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE', readTimeoutMs?: number): Promise<Envelope> {
+    return await withModuleVisibility(path, appDisplayService.modules,
+      () => this.performRequest(path, fields, session, jsonBody, method, readTimeoutMs));
+  }
+
+  private async performRequest(path: string, fields?: FormField[], session?: Session, jsonBody?: string,
     method?: 'GET' | 'POST' | 'PUT' | 'DELETE', readTimeoutMs?: number): Promise<Envelope> {
     // Fixed HTTPS origin; credentials never reach configurable hosts or redirects.
     const url = ringRequestUrl(path);

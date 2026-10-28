@@ -45,7 +45,7 @@ class _ModuleContentGateState extends State<ModuleContentGate> {
         });
       }
       // Preserve the existing closed destination for legacy, unconfigured
-      // releases. Remote module grants only apply to the new iOS controller.
+      // releases. Updated mobile controllers use the shared module lease.
       if (!visible &&
           widget.module == SayRingModule.healthLibrary &&
           widget.controller.moduleVisibility == null) {

@@ -145,6 +145,9 @@ struct Index {
   private globalReportsGeneration: number = 0;
   @State private hideAiContent: boolean = true;
   private stopDisplayObserver: (() => void) | undefined = undefined;
+  @State private mallVisible: boolean = false;
+  @State private libraryVisible: boolean = false;
+  private stopModuleObserver: (() => void) | undefined = undefined;
   private aiChatGeneration: number = 0;
   @State private globalReportProfile: GlobalReportProfile | undefined = undefined;
   @State private globalReportEligibility: GlobalReportEligibility | undefined = undefined;
@@ -405,6 +408,8 @@ struct Index {
   aboutToAppear(): void {
     appDisplayService.attachContext(this.uiContext());
     this.stopDisplayObserver = appDisplayService.state.observe((hidden: boolean) => this.applyAiDisplay(hidden));
+    this.stopModuleObserver = appDisplayService.modules.observe(() => this.applyModuleDisplay());
+    appDisplayService.modules.setForeground(true);
     appDisplayService.refresh();
     this.refreshLayoutScale();
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
@@ -422,6 +427,7 @@ struct Index {
     this.loadAppLocale();
   }
   onPageShow(): void {
+    appDisplayService.modules.setForeground(true);
     appDisplayService.refresh();
     this.refreshLayoutScale();
     if (this.sportActive()) this.startSportClock();
@@ -431,6 +437,8 @@ struct Index {
     if (this.screen === 'sport-records') this.loadSportRecords();
   }
   aboutToDisappear(): void {
+    appDisplayService.modules.setForeground(false);
+    this.stopModuleObserver?.(); this.stopModuleObserver = undefined;
     this.stopDisplayObserver?.(); this.stopDisplayObserver = undefined;
     ++this.aiChatGeneration;
     ++this.pageGeneration; ++this.contentGeneration; ++this.careGeneration;
@@ -441,6 +449,26 @@ struct Index {
     if (this.environmentCallbackId >= 0) {
       this.uiContext().getApplicationContext().off('environment', this.environmentCallbackId).catch(() => {});
       this.environmentCallbackId = -1;
+    }
+  }
+
+  onPageHide(): void { appDisplayService.modules.setForeground(false); }
+
+  private applyModuleDisplay(): void {
+    this.mallVisible = appDisplayService.modules.allows('mall');
+    this.libraryVisible = appDisplayService.modules.allows('health_library');
+    if (!this.libraryVisible) { this.articles = []; this.articleCategories = []; }
+    if (!this.mallVisible) {
+      this.shopHome = { bannerUrl: '', categories: [] }; this.ringOrders = []; this.ringOrder = undefined;
+      this.cartLines = []; this.cartSelection = []; this.purchaseSheet = false;
+    }
+    const closingLibrary = !this.libraryVisible && (this.screen === 'articles' || (this.screen === 'article' && !this.selectedAgreement));
+    const closingMall = !this.mallVisible && (this.screen.startsWith('shop-') || this.screen === 'ring-order-detail');
+    if (closingLibrary || closingMall) {
+      ++this.contentGeneration; ++this.orderGeneration;
+      this.articles = []; this.articleContent = []; this.listLoading = false; this.articleLoading = false;
+      this.shopLoading = false; this.commerceLoading = false; this.orderLoading = false;
+      this.screen = 'home'; this.innerParents.clear();
     }
   }
 
@@ -1957,6 +1985,7 @@ struct Index {
   }
 
   private async openOrders(filter?: number): Promise<void> {
+    if (!this.mallVisible) return;
     if (this.guest) { this.showFeature('商城订单', 'signInToContinue'); return; }
     if (filter !== undefined) this.orderFilter = filter;
     else if (this.screen !== 'shop-orders' && this.screen !== 'shop-payment') this.orderFilter = 99;
@@ -1974,6 +2003,7 @@ struct Index {
   }
 
   private async openRingOrder(id: string): Promise<void> {
+    if (!this.mallVisible) return;
     if (this.screen !== 'ring-order-detail') this.openInnerPage('ring-order-detail');
     this.orderLoading = true; this.paymentMessage = ''; this.ringOrder = undefined;
     const epoch = ++this.orderGeneration;
@@ -1983,6 +2013,7 @@ struct Index {
   }
 
   private async openShop(): Promise<void> {
+    if (!this.mallVisible) return;
     this.screen = 'shop-home';
     this.shopLoading = true; this.shopError = ''; this.shopHome = { bannerUrl: '', categories: [] };
     try {
@@ -1999,6 +2030,7 @@ struct Index {
   }
 
   private async openShopProduct(product: ShopProduct): Promise<void> {
+    if (!this.mallVisible) return;
     this.selectedProduct = product;
     if (this.screen !== 'shop-product') this.openInnerPage('shop-product');
     this.productDetail = undefined; this.commerceError = ''; this.commerceLoading = true;
@@ -2819,6 +2851,7 @@ struct Index {
   }
 
   private async openArticle(id: string, title: string, agreement: boolean): Promise<void> {
+    if (!agreement && !this.libraryVisible) return;
     this.openInnerPage('article');
     this.selectedArticleId = id;
     this.selectedAgreement = agreement;
@@ -2840,6 +2873,7 @@ struct Index {
   }
 
   private async openArticles(): Promise<void> {
+    if (!this.libraryVisible) return;
     this.screen = 'articles';
     this.articles = [];
     this.listError = '';
@@ -3325,22 +3359,26 @@ struct Index {
           Column() { SymbolGlyph($r('sys.symbol.person_badge_heart')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor(RED).borderRadius(14)
           Text(this.tr('远程关爱')).fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.width('25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openCare()).id('family_care')
+        }.layoutWeight(1).padding({ top: 8, bottom: 8 }).onClick(() => this.openCare()).id('family_care')
+        if (this.libraryVisible) {
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.book')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor(RING_THEME.violet).borderRadius(14)
           Text(this.tr('健康百科')).fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.width('25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openArticles()).id('health_articles')
+        }.layoutWeight(1).padding({ top: 8, bottom: 8 }).onClick(() => this.openArticles()).id('health_articles')
+        }
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.dumbbell')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor(RING_THEME.cyan).borderRadius(14)
           Text('运动').fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.width('25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openSportRecords()).id('home_sport')
+        }.layoutWeight(1).padding({ top: 8, bottom: 8 }).onClick(() => this.openSportRecords()).id('home_sport')
+        if (this.mallVisible) {
         Column({ space: 6 }) {
           Column() { SymbolGlyph($r('sys.symbol.bag_fill')).fontSize(26).fontColor([Color.White]) }
             .width(47).height(47).justifyContent(FlexAlign.Center).backgroundColor('#727EA8').borderRadius(14)
           Text(this.tr('shop')).fontSize(13.5).fontWeight(FontWeight.Bold).fontColor(INK).textAlign(TextAlign.Center)
-        }.width('25%').padding({ top: 8, bottom: 8 }).onClick(() => this.openShop()).id('health_shop')
+        }.layoutWeight(1).padding({ top: 8, bottom: 8 }).onClick(() => this.openShop()).id('health_shop')
+        }
       }.width('100%').padding({ left: 6, right: 6, top: 10, bottom: 10 }).backgroundColor(SURFACE).borderRadius(18)
         .shadow({ radius: 9, color: CARD_SHADOW, offsetY: 3 })
 
@@ -4222,11 +4260,13 @@ struct Index {
         .accessibilityText(`${device.name}，${this.signalText(device.rssi)}`)
     }, (device: WearableDevice) => deviceRenderKey(device))
 
+    if (this.mallVisible) {
     Row({ space: 7 }) {
       SymbolGlyph($r('sys.symbol.bag')).fontSize(18).fontColor([RED])
       Text(this.tr('noWatchShopHint')).fontSize(15).fontWeight(FontWeight.Bold).fontColor(RED)
     }.width('100%').height(52).justifyContent(FlexAlign.Center).onClick(() => this.openShop())
       .id('device_search_shop').accessibilityText(this.tr('shop'))
+    }
   }
 
   @Builder
@@ -4291,6 +4331,7 @@ struct Index {
         }.width('100%')
       }
 
+      if (this.mallVisible) {
       Column({ space: 4 }) {
         Row() {
           Text(this.tr('我的订单')).fontSize(17).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
@@ -4324,6 +4365,7 @@ struct Index {
         }.width('100%')
       }.width('100%').padding({ left: 14, right: 14, top: 8, bottom: 10 }).backgroundColor(SURFACE)
         .borderRadius(20).border({ width: 1, color: LINE }).id('mine-orders-card')
+      }
 
       Column({ space: 0 }) {
         if (!this.wearableSnapshot.connected) {
@@ -6419,7 +6461,10 @@ struct Index {
         .backgroundColor(BG)
     Scroll(this.contentScroller) {
       Column({ space: 14 }) {
-        if (this.screen === 'feature') {
+        if ((!this.mallVisible && (this.screen.startsWith('shop-') || this.screen === 'ring-order-detail')) ||
+          (!this.libraryVisible && (this.screen === 'articles' || (this.screen === 'article' && !this.selectedAgreement)))) {
+          this.Notice({ message: '此功能暂未开放' })
+        } else if (this.screen === 'feature') {
           this.Notice({ message: this.detailBody })
           if (this.detailTitle === '远程关爱' && this.guest) {
             Button(this.tr('前往登录')).width('100%').constraintSize({ minHeight: 52 }).backgroundColor(RED)

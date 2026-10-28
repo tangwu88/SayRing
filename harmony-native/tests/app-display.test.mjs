@@ -6,7 +6,7 @@ import { registerHooks, stripTypeScriptTypes } from 'node:module';
 globalThis.displayNativeFixture = {};
 const stubs = {
   '@kit.AbilityKit': 'export const common={};',
-  '@kit.BasicServicesKit': 'export const deviceInfo={get sdkApiVersion(){return globalThis.displayNativeFixture.sdkApiVersion??26}};',
+  '@kit.BasicServicesKit': 'export const deviceInfo={get sdkApiVersion(){return globalThis.displayNativeFixture.sdkApiVersion??26}}; export const systemDateTime={TimeType:{STARTUP:0},getUptime(){return performance.now()}};',
   './LegacySafeHttp': `export async function legacySafeHttp(...args){const f=globalThis.displayNativeFixture;f.legacyCalls.push(args);return f.response;}`,
   '@kit.ArkData': `export const preferences={async getPreferences(context,options){const f=globalThis.displayNativeFixture;f.cacheName=options.name;return{async get(key,fallback){return f.cached??fallback},async put(key,value){f.cached=value},async flush(){f.flushes++}}}};`,
   '@kit.NetworkKit': `export const http={RequestMethod:{GET:'GET'},HttpDataType:{STRING:0},createHttp(){return{async request(url,options){const f=globalThis.displayNativeFixture;f.calls.push({url,options});return f.response},destroy(){globalThis.displayNativeFixture.destroyed++}}}};`
@@ -84,7 +84,7 @@ test('native public request uses the isolated product URL, no credentials, no re
   const f = globalThis.displayNativeFixture = { calls: [], cached: undefined, flushes: 0, destroyed: 0,
     response: { responseCode: 200, result: JSON.stringify({ code: 200, data: payload(false) }) } };
   appDisplayService.attachContext({}); await appDisplayService.refresh();
-  assert.equal(f.calls[0].url, 'https://app.saydian.cn/global/api/saydian-app/v2/support/app-display?product=say-ring');
+  assert.equal(f.calls[0].url, 'https://app.saydian.cn/global/api/saydian-app/v2/support/app-display?product=say-ring&platform=harmonyos');
   assert.deepEqual(f.calls[0].options.header, { Accept: 'application/json' });
   assert.equal(f.calls[0].options.maxRedirects, 0); assert.equal(f.calls[0].options.usingCache, false);
   assert.equal(f.cacheName, 'say_ring_global_app_display_v1'); assert.equal(f.cached, false); assert.equal(f.flushes, 1);
@@ -97,7 +97,7 @@ test('native API 17-22 uses the existing same-origin redirect-safe transport and
     response: { responseCode: 200, result: JSON.stringify({ code: 200, data: payload(true) }) } };
   await appDisplayService.refresh();
   assert.deepEqual(f.calls, []);
-  assert.deepEqual(f.legacyCalls[0], ['https://app.saydian.cn/global/api/saydian-app/v2/support/app-display?product=say-ring',
+  assert.deepEqual(f.legacyCalls[0], ['https://app.saydian.cn/global/api/saydian-app/v2/support/app-display?product=say-ring&platform=harmonyos',
     'GET', { Accept: 'application/json' }, '', 12000]);
   assert.equal(appDisplayService.state.hideAi, true); assert.equal(f.cached, true); assert.equal(f.flushes, 1);
   f.response = { responseCode: 302, result: JSON.stringify({ code: 200, data: payload(false) }) };

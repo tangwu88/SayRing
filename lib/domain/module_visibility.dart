@@ -12,10 +12,14 @@ class ModuleVisibilitySnapshot {
     required this.validity,
   });
 
-  factory ModuleVisibilitySnapshot.fromMap(Map<String, Object?> data) {
+  factory ModuleVisibilitySnapshot.fromMap(
+    Map<String, Object?> data, {
+    String expectedPlatform = 'ios',
+  }) {
     final config = data['moduleVisibility'];
     if (data['product'] != 'say-ring' ||
-        data['platform'] != 'ios' ||
+        !const {'ios', 'android', 'harmonyos'}.contains(expectedPlatform) ||
+        data['platform'] != expectedPlatform ||
         config is! Map ||
         config['schemaVersion'] != 1 ||
         config['schemaVersion'] is! int) {

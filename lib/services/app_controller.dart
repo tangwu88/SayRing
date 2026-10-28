@@ -134,6 +134,13 @@ class AppController extends ChangeNotifier {
   }) {
     final vault = SecureSessionVault.global();
     final wellnessOnly = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    final modulePlatform = kIsWeb
+        ? null
+        : defaultTargetPlatform == TargetPlatform.iOS
+        ? 'ios'
+        : defaultTargetPlatform == TargetPlatform.android
+        ? 'android'
+        : null;
     final readPolicy = WellnessReleasePolicy(
       enabled: wellnessOnly,
       readOnlyFeatures: wellnessOnly ? ReadOnlyHealthFeatures() : null,
@@ -146,13 +153,13 @@ class AppController extends ChangeNotifier {
         locale: () => GlobalLocaleController.instance.locale.toLanguageTag(),
         healthReleasePolicy: WellnessReleasePolicy(enabled: wellnessOnly),
         healthReadPolicyOverride: readPolicy,
-        moduleVisibilityScopeIos: wellnessOnly,
+        moduleVisibilityPlatform: modulePlatform,
       ),
       EncryptedHealthStore(vault, globalEdition: true),
       createProductionWearableBridge(healthReleasePolicy: readPolicy),
       wellnessOnly: wellnessOnly,
       healthReadPolicy: readPolicy,
-      moduleVisibility: wellnessOnly ? ModuleVisibilityLease() : null,
+      moduleVisibility: modulePlatform == null ? null : ModuleVisibilityLease(),
       // The iOS scope remains closed even when a remote flag or old cache is
       // enabled. Other platforms retain the main branch's existing behavior.
       generalAiEnabled:
@@ -494,7 +501,7 @@ class AppController extends ChangeNotifier {
 
   Future<T> _globalCommerceAccountRequest<T>(
     Future<T> Function(GlobalCommerceApi api) request,
-  ) async {
+  ) => _moduleRead(SayRingModule.mall, () async {
     final generation = _sessionGeneration;
     final owner = session;
     if (owner == null) {
@@ -508,7 +515,7 @@ class AppController extends ChangeNotifier {
       );
     }
     return result;
-  }
+  });
 
   Future<Map<String, Object?>> loadGlobalCommerceCapabilities() =>
       _globalCommerceApi.getGlobalCommerceCapabilities();
@@ -517,7 +524,7 @@ class AppController extends ChangeNotifier {
   // for the Android storefront and never falls back to H5/domestic signing.
   bool get canStartGlobalShopPayment =>
       !kIsWeb &&
-      _commerceCeiling &&
+      commerceEnabled &&
       defaultTargetPlatform == TargetPlatform.android &&
       _api is GlobalShopPaymentApi;
 
@@ -530,10 +537,19 @@ class AppController extends ChangeNotifier {
   }) async {
     final owner = session;
     final generation = _sessionGeneration;
+    final moduleGeneration = moduleVisibility?.generationFor(
+      SayRingModule.mall,
+    );
     bool current() =>
         owner != null && _isCurrentAccountRequest(generation, owner);
     void requireCurrent() {
       if (!current()) throw const ApiException('账号已变更，请重新打开订单');
+      if (!mallVisible ||
+          !commerceEnabled ||
+          moduleGeneration !=
+              moduleVisibility?.generationFor(SayRingModule.mall)) {
+        throw const ApiException('商城暂未开放');
+      }
     }
 
     if (owner == null) throw const ApiException('请先登录后付款');
