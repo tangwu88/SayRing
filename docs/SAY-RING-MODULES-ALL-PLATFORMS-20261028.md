@@ -38,3 +38,11 @@
 - 用户要求重新打开SSH后已使用全新诊断会话连通，密码未进入日志或聊天。实际确认自动发布等待GHCR精确digest的API镜像约35～42分钟，现有服务正常、可用空间16GB，下载暂存仍有缓慢增长；没有将此描述为数据库故障。
 - 后台同SHA原镜像已通过40632153118导出成功，备用HTTPS导入40632331371在原production锁后排队，不重构建、不改生产显示值；原发布仍在执行时不启动另一套切换，线上验收仍待完成。
 - mobile-ci40627341857已完整成功：quality、Android、iOS及鸿蒙UTC/Asia-Shanghai全部success。该结果不替代iPhone/原生鸿蒙设备验收。
+
+## 最终线上与Android手机验收
+
+- 原自动发布GHCR下载60分钟超时，HTTP备用导入和SSH分块均实测受网络速度影响；SSH更慢的尝试没有改善。仅在完整进程/暂存路径/原API revision匹配后停止暂存下载，没有终止线上服务。随后恢复HTTPS原artifact导入40634814047并最终success，离线正式发布40635080045终态success，未重新构建服务端镜像。
+- 13:25起root/global readiness均为a5994ee1ab60b0cc66300adb440c64b897843cae且ready，13:29实际API/worker/admin版本一致；公开/admin/当前JS已含三端设置标签。
+- root/global两个API别名分别对ios/android/harmonyos公开核验，均为百科true、商城false、no-store，百科categories200、商城markets404；非iOS未扩展只读健康租约。没有改生产开关、供应商凭证或原维护状态。
+- 实际Android1154正常切后台/回前台后：首页健康百科显示且可打开；我的商城/订单入口隐藏；设备页商城入口隐藏；返回健康首页仍正确。验收没有卸载/清数据/解绑/实付/新增测量，私有UI XML只存Git外；USB临时亮屏恢复原值0。
+- Android现手机已验收。iOS现有协议兼容、云端构建成功；新版iPhone和原生鸿蒙仍无实物验收，不将服务端响应当作两端硬件通过。鸿蒙旧版需升级1154，原厂SDK/支付限制仍按既有边界。
