@@ -26,3 +26,11 @@ iOS支持目标的本机验证完成：先按原1.0.7（1152）主入口参数�
 同时执行CI已有Objective-C宿主策略测试：`xcrun clang -fobjc-arc -framework Foundation test/native_coolwear_policy_test.m -o <私有输出>`编译和运行均退出0；`xcodebuild ... -configuration Debug -sdk iphoneos -destination generic/platform=iOS IPHONEOS_DEPLOYMENT_TARGET=15.0 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build-for-testing`得到`TEST BUILD SUCCEEDED`。这只表示RunnerTests编译成功，没有在手机执行XCTest，也没有新戒指/通知物理验收。
 
 本轮只提交iOS兼容修复、失败/验证记录和防复发清单。命令行HTTPS身份缺失已知，继续使用既有GitHub连接同步同一文件树，核对前置SHA和非强制更新；本机原提交保留在备份分支。仓库默认13.0目标及原云端26.5流水线保持不变，其新运行结果独立于本机15.0构建报告。
+
+## 云端复验终态
+
+代码提交`b7fb37997bda37adac99eadc7bc877bbcacc5f79`的[mobile-ci运行40604847721](https://github.com/tangwu88/SayRing/actions/runs/40604847721)现已`completed / success`，五个任务全部通过：quality、Harmony UTC、Harmony Asia/Shanghai、Android、iOS。quality包括格式、静态分析、双时区完整Flutter及发布检查；Android包含Debug/QA Release、JUnit和Release到Debug的SDK不可变缓存回归；iOS在流水线原有Xcode26.5、仓库默认13.0目标下完成Debug/Profile/QA Release、原生策略检查和RunnerTests编译。原banner可用性失败已闭环，没有提高项目最低版本或放宽门禁。
+
+以上是源码和编译验证。本次未执行手机XCTest、真实通知展示或戒指采样；用户仍暂时不能操作华为手机，最后只读核验为1.0.6（1144），1152覆盖安装继续待系统确认。两台iPhone仍unavailable。原签名Android APK及修复后的iOS Profile候选均保留，未更新公开下载或商店审核。
+
+本段是纯结果记录，运行代码与上述成功CI提交逐blob一致。仅本次文档提交使用`[skip ci]`避免重复同一代码的整套编译，方式见[GitHub官方说明](https://docs.github.com/zh/actions/how-tos/manage-workflow-runs/skip-workflow-runs)；修复代码的五项CI均已真实执行，原失败记录继续保留。
