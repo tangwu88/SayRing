@@ -29,3 +29,15 @@
 截至准备记录：公开App Store lookup确认App ID6816549943、cn.saydian.ring当前1.0.6；1174尚未归档/上传/提交。App Store Connect浏览器连接器返回工具请求失败，不能据此判断苹果会话过期，也未在失败情况下修改其他App、地区或协议。继续先完成准确可审核的发行归档，再根据实际签名和连接状态完成上传/提交，逐项保留回执。
 
 首个记录补丁因索引标题不匹配整体未应用；核实工作树未变后按实际标题重新应用，未覆盖或删减旧失败记录。
+
+## 实际1174归档与当前阻塞
+
+固定88da81409258ae1106ef31a05d10676131a52079（远端等价b9cfce5717142c7da921518487931c21433fd444，树f3d540bac35ccffdb7ff89ef8543c3479a622996）构建：Release配置25.5秒、归档51.3秒、strict/deep签名核验均exit0。712项实际生产输入指纹未变，入口lib/main.dart且无QA定义；cn.saydian.ring、1.0.7（1174）、W7SXQ4A226、application-identifier均核对正确。App.framework SHA256为45ccc6a2adf7f365046088297ae47b8f1b295a59c78d6672e891f3e907faa924。此次本机归档MinimumOSVersion=15.0；仓库默认目标未上调，不把它记为本机iOS13构建通过。
+
+归档路径build/ios-1174-release-20261030/SayRing-1.0.7-1174.xcarchive。Xcode已导入Library/Developer/Xcode/Archives/2026-10-30同名项，导入副本版本/包名及App.framework哈希逐一相同；不是此前cc.saidian.app的旧归档。当前为Apple Development签名（get-task-allow=true，描述文件包含XR及15 Pro Max），须由苹果发行流程重签，不能称为App Store分发IPA。
+
+本次仅尝试一次官方xcodebuild发行导出，0.7秒exit70，实际报No Accounts和缺iOS Distribution私钥；虽账号列表缓存含1项，命令行仍不可用，没有重建/替换证书或反复重试。系统查询明确CGSSessionScreenIsLocked=true，屏幕截图为锁屏黑画面，Xcode当前无可操作窗口；已请用户解锁Mac。未绕过锁屏，未接受新协议或改变法国/其他销售范围。App Store Connect浏览器RPC仍不可用，其工具错误不被写成账号已过期。现状为归档完成、发行导出失败、未上传/未提交/未上架。
+
+公开隐私与用户协议页HTTP200已只读核验，版本仍v3，包含旧1101及1110起只读开关适用说明；未发布新法律文本、修改同意版本或生产配置。本版手动测量/个人数值提醒必须在审核中按独立实际能力说明，不把只读开关当作新增授权。XR系统再读安装仍为普通1.0.7（1173），本轮不将1174归档冒充手机已经安装的版本。
+
+记录推送首个读取因索引全文超过工具输出上限导致JSON解析失败，发生在任何GitHub写入之前；随后以缓存原Git blob加精确文本差异恢复全内容，并验证远端树等于本地f3d540后，CAS非强推成功。git fsck --full exit0（仅可回收悬空对象，无损坏），私有容器、签名和生成包均被build忽略。后续仅补此记录，不改变1174已归档生产输入。
