@@ -385,10 +385,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       setState(() {
         _cameraRemoteStarted = started;
         _cameraMessage = started
-            ? widget.controller.connectedDevice?.sdkSource ==
-                      WearableSdkSource.qring
-                  ? '双击戒指触发拍照，或点击快门'
-                  : '摇动戴戒指的手，或点击快门'
+            ? '请按戒指支持的方式双击或晃动拍照，具体操作以戒指型号为准。'
             : widget.controller.errorMessage ?? '戒指相机遥控暂时无法开启';
       });
       if (started) {
@@ -1196,11 +1193,6 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
             ),
       message: _cameraMessage ?? '正在打开相机',
       remoteReady: _cameraRemoteStarted,
-      remoteInstruction:
-          widget.controller.connectedDevice?.sdkSource ==
-              WearableSdkSource.qring
-          ? '双击戒指触发拍照，或轻点下方快门'
-          : '摇动戒指触发拍照，或轻点下方快门',
       takingPhoto: _takingPhoto,
       saved: _photoSaved,
       onCapture: ready && !_takingPhoto ? _takePhoto : null,

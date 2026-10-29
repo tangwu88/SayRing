@@ -27,7 +27,6 @@ void main() {
                       preview: const SizedBox(),
                       message: '保存失败，请重试',
                       remoteReady: true,
-                      remoteInstruction: '双击戒指触发拍照，或轻点下方快门',
                       takingPhoto: false,
                       saved: false,
                       onCapture: () {},
@@ -47,7 +46,7 @@ void main() {
         expect(retry, 1);
         expect(tester.takeException(), isNull);
         expect(find.byKey(const Key('camera-shutter-button')), findsOneWidget);
-        expect(find.text('双击戒指触发拍照，或轻点下方快门'), findsOneWidget);
+        expect(find.text('使用戒指支持的拍照动作，或轻点下方快门'), findsOneWidget);
       },
     );
   }
