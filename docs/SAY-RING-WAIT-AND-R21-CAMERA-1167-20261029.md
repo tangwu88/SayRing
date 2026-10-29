@@ -30,3 +30,33 @@ Android以原发行证书覆盖，核对实际包与首次安装时间，不发�
 格式检查及`flutter analyze --no-pub lib test integration_test test_driver/ios_any_ring_full.dart`零问题。完整Flutter UTC/Asia-Shanghai各1569/1569通过（52.5/54.9秒）。完整Node工具141通过、0失败、1跳过（Windows ACL不适用Mac）；包含直接编译/执行生产接收计数方法，校验连接、会话准备、实际唯一记录数及重复回包不重复刷新。两时区Harmony契约各540项通过，Python发布单测通过。SDK和依赖锁未改。
 
 Android安装前已拉回本机1161实际APK并核验原证书，备份App相册7个文件；正式版内部数据库不可由ADB提取，本次只允许原签名覆盖，禁止卸载/清数据，升级后另核对首次安装时间、账号和绑定。退出旧相机页后已确认真实设备名R21_D47C，不使用其他型号结果替代。
+
+## 2026-10-30跨日构建及Android实物闭环
+
+运行源码`228ba90b50d0fffb309512d3f9e91a64763425f3`已推送开发分支，本地与远端tree精确一致。Android Debug构建通过；真实AAR原生JUnit 73 tests，0 failures/errors/skipped。Release沿用原生产配置、发行P12及密码文件（仅本机0600临时签名配置，结束已移除），74.5秒构建成功。
+
+正式产物`build/wait-r21-1167-20261029/android-formal/SayRing-1.0.7-1167-release.apk`，72,079,831字节，SHA256 `402ed3a2d44b56f28f592023a3b9096629ffb731a018aa5f79f568943e944974`。包名`cn.saydian.ring`、1.0.7/1167、非debuggable及生产Manifest/JPush、双ARM依赖检查通过，原证书SHA256 `81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de`一致。ZIP16KB与22个arm64 ELF对齐通过，不将此扩大为全部市场或既有32位SDK合规接受。
+
+对唯一已核对的华为执行`adb install -r --no-streaming <上述核验APK>`；系统风险确认页的一次远程点击未生效，未更换方式绕过。用户亲自确认“已点继续安装，安装完成”后安装返回Success。读取手机版本1167、首次安装时间与UID不变，再次拉回实际base.apk的SHA256与上述产物完全相同。普通页面仍有原登录会话、R21_D47C连接及相机就绪；未卸载、清数据或重绑。页面在人工操作期间已进入相机，旧设备tab定位找不到时守卫停止，未盲点。
+
+受控拍照前相册9个文件（升级前7个文件仍保留），用户按提示不点手机快门、操作R21，明确反馈“戒指动作已触发拍照”。随后再次拉回App相册，文件由9增至10，恰好新增1张，原9个文件及升级前7个文件哈希全部一致。自动化没有按手机快门。已返回普通设备页、R21仍已连接，未改手势持久模式或监测/提醒设置；当前应用日志未观察到FATAL EXCEPTION或本包ANR。结论仅对应本台手机/本枚R21的实测，不扩大为所有型号、所有手势或系统后台遥控。
+
+## iOS1167签名构建与等待/页面实测
+
+同源串行构建正常Debug、正常Profile及整体测试Profile，配置/签名/深度核验全部退出0。三者均为`cn.saydian.ring`/1.0.7/1167、团队`W7SXQ4A226`、描述文件包含XR；Profile具有APNs development权限。本机仅构建命令覆盖最低版本15.0，仓库默认13.0未改；默认目标兼容由同源CI分别验证，不能用本机15.0成功替代。
+
+每轮先私有备份容器，使用`tool/drive_ios_preserving_data.mjs --profile --no-pub -d <已核验XR> --driver=test_driver/ios_any_ring_full.dart --target=integration_test/ios_any_ring_full_acceptance_test.dart --use-application-binary=<本轮已验签探针>`，包装器保留keep-app-running；finally再备份、原位恢复同源普通main Profile，并`devicectl ... process launch --terminate-existing cn.saydian.ring`启动新进程。没有使用默认卸载清理。正常main安装后读取bundleVersion1167、1.0.7及精确App URL对应的运行进程，不将其他产品的Runner进程算作本App。
+
+首轮完整用例中的主要页面22项、内页11项、健康提醒4项及相机真实前后台预览通过。观察到扩展设备页测试常量未开启，故不能将37项写成44项。随后仅重编单独探针，增加`--dart-define=SAYRING_QA_EXTENDED=true`，不改普通包或权限；重新整轮执行。最终6个业务用例中5项通过，1项仍因完整历史确认失败；输出`+6 -1`另含tearDownAll，不能计作6个业务成功。
+
+最终页面/流程为健康提醒4项、主页面29项、内页11项，共44项；补齐查找、手势、来电、消息、闹钟、普通提醒及相机设置入口，保持原设置。相机真实初始预览、快速关闭/恢复、切时钟后返回均重新建立预览；未请求/保存照片。前后容器tmp/camera的5个原照片文件数量及哈希均一致；Documents中的既有QA截图由探针按原路径更新，与用户相机文件分开核对。资料加载成功、原owner保留，测试结束原目标仍连接、同步空闲。未拨号、保存虚构不适或启动无审核规则的自动心率提醒。
+
+同步等待实物截图已检查：轨道位置随时间变化，真实显示“已接收1条”，可继续浏览其他页面，无虚构百分比。首轮手动读取25.500秒、重连5.102/12.338秒；最终扩展轮25.156秒、重连5.615/13.907秒。没有证据表明实际连接或同步已加速，交付的是更明确的反馈及动画。
+
+原R7 Pro返回1条带原时间戳的活动记录，该记录在跨午夜时已属于前一日；不能写作收到今日新增活动。今日记录0、近期睡眠0，与用户近期未佩戴入睡的说明相容，但不是睡眠测量准确性或空历史确认。完整历史回执仍未收到，业务断言保持失败；无距离/热量补零、推算单位或伪造睡眠。该未闭环项与R21相机已恢复分别保留，不将main提升为全部硬件验收基线。
+
+## 云端门禁和交付范围
+
+[mobile-ci 40908826283](https://github.com/tangwu88/SayRing/actions/runs/40908826283)精确源码head为`228ba90b50d0fffb309512d3f9e91a64763425f3`，五个任务全部completed/success：quality、android、ios、Harmony UTC、Harmony Asia/Shanghai。云端Android构建/原生单测及iOS默认目标编译/RunnerTests编译通过，仍与真实硬件及执行XCTest分开，不将编译写作实物通过。
+
+最终交付为当前Android正式1167原签名覆盖、R21戒指动作拍照新增1张与原照片保留、XR普通1167 Profile恢复及本记录内分项实物结果。代码与脱敏记录提交当前SayRing开发分支；构件、设备/账号原始数据、截图、容器备份和签名材料留在Git外。本次只追加文档的收尾提交不改变上述已验证运行源码，不触发商店或下载页发布。完整历史确认和新的真实睡眠样本仍是明确待验项。
