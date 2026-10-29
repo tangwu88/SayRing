@@ -960,12 +960,29 @@ static void CoolWearOnMain(dispatch_block_t block) {
         [self.syncRecords addEntriesFromDictionary:self.historyRecords];
         self.historySnapshotDelivered = YES;
     }
+#if SAYRING_HISTORY_READ_PROBE != 3
     [CE_SensorCmd open];
+#endif
     CE_SyncTimeCmd *cmd = [[CE_SyncTimeCmd alloc] initWithAbsTime:NSDate.date.timeIntervalSince1970
         offset:[NSTimeZone.localTimeZone secondsFromGMT] format:1 mdFormat:0];
     cmd.overtime = 6; cmd.repeatSendTimes = 0;
     // The vendor pushes history automatically; this ACK is never completion.
+#if SAYRING_HISTORY_READ_PROBE == 3
+    CE_SensorCmd *sensor = [[CE_SensorCmd alloc] initWith:1];
+    CE_SyncPairOKCmd *normal = [[CE_SyncPairOKCmd alloc] initWith:0];
+    CE_SyncHybridCmd *hybrid = [[CE_SyncHybridCmd alloc] initWithItems:@[cmd, sensor, normal]];
+    hybrid.overtime = 6; hybrid.repeatSendTimes = 0; hybrid.noCallback = NO;
+    __weak typeof(self) probeSelf = self;
+    [self.product sendCmdToDevice:hybrid complete:^(NSError *error) {
+        CoolWearOnMain(^{
+            if (generation != probeSelf.connectionGeneration || sync != probeSelf.syncGeneration || !probeSelf.pendingSync || ![probeSelf isResolved]) return;
+            fprintf(stdout, "R7 HISTORY: normal-hybrid ackError=%ld\n", (long)error.code);
+            fflush(stdout);
+        });
+    }];
+#else
     [self.product sendCmdToDevice:cmd complete:^(NSError *error) {}];
+#endif
 #if SAYRING_HISTORY_READ_PROBE == 1
     for (NSNumber *type in @[@(DATA_TYPE_HISTORY_SPORT), @(DATA_TYPE_SLEEP)]) {
         CoolWearHistoryReadProbeCmd *request = [CoolWearHistoryReadProbeCmd new];
