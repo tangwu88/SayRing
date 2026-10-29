@@ -14,6 +14,18 @@ static void CoolWearOnMain(dispatch_block_t block) {
     else dispatch_async(dispatch_get_main_queue(), block);
 }
 
+#if SAYRING_HISTORY_READ_PROBE
+// Diagnostic builds only: use the SDK's public, empty REQUEST interface for
+// its two declared history data types. No raw packet, pairing or write command.
+@interface CoolWearHistoryReadProbeCmd : CE_Cmd
+@property(nonatomic) K6_DataFuncType historyType;
+@end
+@implementation CoolWearHistoryReadProbeCmd
+- (K6_DataFuncType)funcType { return self.historyType; }
+- (K6_CMD_TYPE)cmdRequestType { return K6_CMD_TYPE_REQUEST; }
+@end
+#endif
+
 // Same public CE_Cmd request interface as CE_RequestLongSitCmd and
 // CE_RequestAlarmInfoCmd. The SDK frames an empty read request; no write body
 // or undocumented opcode is constructed here.
@@ -954,6 +966,20 @@ static void CoolWearOnMain(dispatch_block_t block) {
     cmd.overtime = 6; cmd.repeatSendTimes = 0;
     // The vendor pushes history automatically; this ACK is never completion.
     [self.product sendCmdToDevice:cmd complete:^(NSError *error) {}];
+#if SAYRING_HISTORY_READ_PROBE
+    for (NSNumber *type in @[@(DATA_TYPE_HISTORY_SPORT), @(DATA_TYPE_SLEEP)]) {
+        CoolWearHistoryReadProbeCmd *request = [CoolWearHistoryReadProbeCmd new];
+        request.historyType = type.integerValue;
+        request.overtime = 4; request.repeatSendTimes = 0; request.noCallback = NO;
+        __weak typeof(self) probeSelf = self;
+        [self.product sendCmdToDevice:request complete:^(NSError *error) {
+            CoolWearOnMain(^{
+                if (generation != probeSelf.connectionGeneration || sync != probeSelf.syncGeneration || !probeSelf.pendingSync || ![probeSelf isResolved]) return;
+                NSLog(@"R7 HISTORY: read=%@ ackError=%ld", type, (long)error.code);
+            });
+        }];
+    }
+#endif
     [self publishSyncReception];
     __weak typeof(self) weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 25 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
