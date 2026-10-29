@@ -14,18 +14,6 @@ static void CoolWearOnMain(dispatch_block_t block) {
     else dispatch_async(dispatch_get_main_queue(), block);
 }
 
-#if SAYRING_HISTORY_READ_PROBE
-// Diagnostic builds only: use the SDK's public, empty REQUEST interface for
-// its two declared history data types. No raw packet, pairing or write command.
-@interface CoolWearHistoryReadProbeCmd : CE_Cmd
-@property(nonatomic) K6_DataFuncType historyType;
-@end
-@implementation CoolWearHistoryReadProbeCmd
-- (K6_DataFuncType)funcType { return self.historyType; }
-- (K6_CMD_TYPE)cmdRequestType { return K6_CMD_TYPE_REQUEST; }
-@end
-#endif
-
 // Same public CE_Cmd request interface as CE_RequestLongSitCmd and
 // CE_RequestAlarmInfoCmd. The SDK frames an empty read request; no write body
 // or undocumented opcode is constructed here.
@@ -960,55 +948,12 @@ static void CoolWearOnMain(dispatch_block_t block) {
         [self.syncRecords addEntriesFromDictionary:self.historyRecords];
         self.historySnapshotDelivered = YES;
     }
-#if SAYRING_HISTORY_READ_PROBE != 3
     [CE_SensorCmd open];
-#endif
     CE_SyncTimeCmd *cmd = [[CE_SyncTimeCmd alloc] initWithAbsTime:NSDate.date.timeIntervalSince1970
         offset:[NSTimeZone.localTimeZone secondsFromGMT] format:1 mdFormat:0];
     cmd.overtime = 6; cmd.repeatSendTimes = 0;
     // The vendor pushes history automatically; this ACK is never completion.
-#if SAYRING_HISTORY_READ_PROBE == 3
-    CE_SensorCmd *sensor = [[CE_SensorCmd alloc] initWith:1];
-    CE_SyncPairOKCmd *normal = [[CE_SyncPairOKCmd alloc] initWith:0];
-    CE_SyncHybridCmd *hybrid = [[CE_SyncHybridCmd alloc] initWithItems:@[cmd, sensor, normal]];
-    hybrid.overtime = 6; hybrid.repeatSendTimes = 0; hybrid.noCallback = NO;
-    __weak typeof(self) probeSelf = self;
-    [self.product sendCmdToDevice:hybrid complete:^(NSError *error) {
-        CoolWearOnMain(^{
-            if (generation != probeSelf.connectionGeneration || sync != probeSelf.syncGeneration || !probeSelf.pendingSync || ![probeSelf isResolved]) return;
-            fprintf(stdout, "R7 HISTORY: normal-hybrid ackError=%ld\n", (long)error.code);
-            fflush(stdout);
-        });
-    }];
-#else
     [self.product sendCmdToDevice:cmd complete:^(NSError *error) {}];
-#endif
-#if SAYRING_HISTORY_READ_PROBE == 1
-    for (NSNumber *type in @[@(DATA_TYPE_HISTORY_SPORT), @(DATA_TYPE_SLEEP)]) {
-        CoolWearHistoryReadProbeCmd *request = [CoolWearHistoryReadProbeCmd new];
-        request.historyType = type.integerValue;
-        request.overtime = 4; request.repeatSendTimes = 0; request.noCallback = NO;
-        __weak typeof(self) probeSelf = self;
-        [self.product sendCmdToDevice:request complete:^(NSError *error) {
-            CoolWearOnMain(^{
-                if (generation != probeSelf.connectionGeneration || sync != probeSelf.syncGeneration || !probeSelf.pendingSync || ![probeSelf isResolved]) return;
-                fprintf(stdout, "R7 HISTORY: request=%ld ackError=%ld\n", (long)type.integerValue, (long)error.code);
-                fflush(stdout);
-            });
-        }];
-    }
-#elif SAYRING_HISTORY_READ_PROBE == 2
-    CE_SyncPairOKCmd *normal = [[CE_SyncPairOKCmd alloc] initWith:0];
-    normal.overtime = 4; normal.repeatSendTimes = 0; normal.noCallback = NO;
-    __weak typeof(self) probeSelf = self;
-    [self.product sendCmdToDevice:normal complete:^(NSError *error) {
-        CoolWearOnMain(^{
-            if (generation != probeSelf.connectionGeneration || sync != probeSelf.syncGeneration || !probeSelf.pendingSync || ![probeSelf isResolved]) return;
-            fprintf(stdout, "R7 HISTORY: normal-pair=0 ackError=%ld\n", (long)error.code);
-            fflush(stdout);
-        });
-    }];
-#endif
     [self publishSyncReception];
     __weak typeof(self) weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 25 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
@@ -1200,14 +1145,6 @@ static void CoolWearOnMain(dispatch_block_t block) {
     NSNumber *type = CoolWearUnsigned(info[@"DataType"], 255);
     if (!type) return;
     id data = info[@"Data"];
-#if SAYRING_HISTORY_READ_PROBE
-    if (type.integerValue == DATA_TYPE_HISTORY_SPORT || type.integerValue == DATA_TYPE_SLEEP || type.integerValue == 250) {
-        fprintf(stdout, "R7 HISTORY: inbound=%ld shape=%s items=%lu\n", (long)type.integerValue,
-            [data isKindOfClass:NSArray.class] ? "array" : [data isKindOfClass:NSDictionary.class] ? "dictionary" : "other",
-            (unsigned long)([data respondsToSelector:@selector(count)] ? [data count] : 0));
-        fflush(stdout);
-    }
-#endif
     if ([@[@106, @114, @123, @126] containsObject:type]) {
         NSDictionary *snapshot = CoolWearReminderSnapshot(type.integerValue, data);
         if (snapshot) {
