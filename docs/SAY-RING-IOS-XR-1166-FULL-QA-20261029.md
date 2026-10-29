@@ -49,4 +49,18 @@ node --test tool/test_coolwear_ios_integration.mjs tool/drive_ios_preserving_dat
 
 Node保护/集成契约19/19通过；格式检查通过、分析零问题，UTC与Asia/Shanghai全量各1561/1561通过（44.8秒、49.6秒），结果由私有JSON与日志分别留证。已增加单独的XR真实相机生命周期验收用例，预览就绪后快速切换Dart生命周期，再由host短暂打开时钟并返回Say Ring，验证真实OS前后台后重新创建预览，确认未请求/保存照片。该用例仍须新1166签名Profile实际执行，不能用宿主8项代替。
 
-当前阶段：1166完整构建、XR修复后复测和精确源码CI待后续追加回执。完整历史同步仍待戒指提供完成/空数据回执及真实新睡眠样本；不提升main、不发布商店。仅将范围明确的修复、回归和记录推送开发分支。
+## 1166最终构建、实物与CI回执
+
+运行源码`334f5bf682e8c4bc56a55d8bea5acc74ecef6be6`已推送开发分支。本机串行构建1.0.7（1166）正常Debug、正常Profile及整体探针Profile，6步均退出0；配置/签名耗时分别31.2/12.8秒、25.3/26.7秒、25.7/27.4秒。普通Debug的App.framework SHA256为`08b3851ae3163d786bc1a08d7e0937537540cfacb451ccc7741c944627b69c9c`，kernel_blob SHA256为`8587622329f42fbcbbb03db3ff24af3330a93c1a7aff8c739bf18a6b53bd3ccd`；普通Profile App.framework SHA256为`524b745ec2af6a1d1340e8df2c2589bbc12f1a80f6269d48966cb808a24c8fd2`。包名/1166/团队/目标XR均核对，Profile的APNs development权限完整。
+
+1166整体复测：原R7 Pro两轮重连5.096秒、11.849秒；手动同步25.509秒，当前活动可读，完整历史确认仍失败。29个主页面、11个内页及健康提醒流程再次通过，资料接口HTTP200。相机新增用例在等待初始预览时失败，未进入快速恢复断言；原失败及截图保留。Flutter测试绑定会在用例之间清空生命周期，因此将相机改为独立用例，并在初始预览前通过真实系统切换明确建立前台状态；没有放宽产品的前台条件。
+
+相机独立Profile重新编译/验签后执行，测试1个业务用例实际通过（14秒），整个drive44.8秒；原始输出`+2`还包含tearDownAll，不能计为两个业务用例。已确认：真实初始预览、关闭尚未完成时快速resumed后新建预览、真实OS切到时钟后返回仍新建预览。生命周期实际观察到`inactive → hidden → paused → hidden → inactive → resumed`，没有请求/保存照片，App容器的5个既有照片文件数量和哈希均不变。只核验预览恢复，不扩写为戒指物理手势或相册保存通过。
+
+host在`XR CAMERA: establish-native-foreground`及`XR CAMERA: ready-for-native-background`标记后，依次执行`xcrun devicectl device process launch --device <XR> com.apple.mobiletimer --timeout 15`和`xcrun devicectl device process launch --device <XR> cn.saydian.ring --timeout 15`；未修改时钟、账号或系统设置。每轮恢复普通main时使用`--terminate-existing`只重启Say Ring，避免把测试进程或仅launch成功当作普通页面恢复。曾遇到恢复后截屏为黑屏，实际显示为开启、未要求密码；明确重启本应用后正常首页截图已确认。进程查询误用NSURL的CONTAINS筛选曾被工具拒绝，改为读取后本机筛选；未当作App崩溃。
+
+普通1166 Debug使用已验签预编译App启动，安装31.5秒，输出VM/DevTools后调试连接丢失；不将其写成稳定Debug或热重载通过。两台iPhone仍在线；当前普通main Profile经明确新进程启动、实图首页及原账号/当前活动确认可用。后续新版本调试需重新核验连接。
+
+新增源码完整格式/分析通过，双时区全量各1561/1561；最终Node工具140通过、0失败、1跳过（Windows ACL不适用于Mac）。[mobile-ci 40899781003](https://github.com/tangwu88/SayRing/actions/runs/40899781003)精确head为上述334f5bf，completed/success，quality、Android、iOS、Harmony UTC、Harmony Asia/Shanghai五项全部success。本记录后续只含相机实物测试建立真实前台的脚本修正和回执，`lib/test/android/ios/harmony-native/tool/scripts/.github/pubspec`及host driver相对334f5bf运行/单元输入均无差异；新相机探针另有本机分析、签名、源码哈希及真实执行证据。
+
+完整历史同步仍待戒指提供完成/空数据回执及真实新睡眠样本；不提升main、不发布商店。用户随后追加连接/同步等待优化及Android R21戒指手势不触发拍照，继续作为下一阶段处理，不用本轮相机预览恢复冒充R21物理拍照验收。

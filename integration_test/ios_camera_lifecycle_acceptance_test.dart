@@ -56,6 +56,25 @@ void main() {
               !app.isDeviceSyncing,
           100,
         );
+        proof['bindingLifecycleBeforeNative'] = binding.lifecycleState?.name;
+        // Widget tests reset ServicesBinding between cases while the physical
+        // app can stay foreground. Re-establish state with real OS transitions.
+        lifecycle.events.clear();
+        debugPrint('XR CAMERA: establish-native-foreground');
+        await waitFor(
+          () =>
+              lifecycle.events.contains(AppLifecycleState.resumed) &&
+              binding.lifecycleState == AppLifecycleState.resumed,
+          40,
+        );
+        proof['nativeForegroundEstablished'] = true;
+        await waitFor(
+          () =>
+              app.connectedDevice?.id == target &&
+              app.deviceCapabilityState == DeviceCapabilityState.ready &&
+              !app.isDeviceSyncing,
+          100,
+        );
         expect(app.availabilityFor(DeviceFeature.camera).isReady, isTrue);
         app.selectTab(1);
         await tester.pump(const Duration(seconds: 1));
