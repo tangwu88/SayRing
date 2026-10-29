@@ -28,6 +28,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   bool _cameraRemoteStarted = false;
   bool _cameraInitializing = false;
   bool _cameraSuspending = false;
+  bool _cameraResumeAfterSuspend = false;
   bool _cameraPermissionRequesting = false;
   bool _cameraPermissionPermanentlyDenied = false;
   bool _galleryPermissionDenied = false;
@@ -428,6 +429,8 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     if (widget.feature != DeviceFeature.camera) return;
     if (_cameraSuspending) return;
     _cameraSuspending = true;
+    _cameraResumeAfterSuspend = false;
+    final contextKey = _currentFeatureContext;
     final generation = ++_cameraGeneration;
     _cameraInitializing = false;
     final camera = _camera;
@@ -441,16 +444,32 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     if (mounted) {
       setState(() => _cameraMessage = message);
     }
-    if (shouldStopRemote) {
-      await _stopCameraRemoteIgnoringErrors();
+    var resumeAfterSuspend = false;
+    try {
+      if (shouldStopRemote) {
+        await _stopCameraRemoteIgnoringErrors();
+      }
+      await camera?.dispose();
+    } finally {
+      _cameraSuspending = false;
+      resumeAfterSuspend = _cameraResumeAfterSuspend;
+      _cameraResumeAfterSuspend = false;
     }
-    await camera?.dispose();
-    _cameraSuspending = false;
-    if (generation != _cameraGeneration) return;
+    if (!mounted || generation != _cameraGeneration) return;
+    if (resumeAfterSuspend &&
+        contextKey == _currentFeatureContext &&
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
+        widget.controller.availabilityFor(widget.feature).isReady) {
+      unawaited(_resumeCamera());
+    }
   }
 
   Future<void> _resumeCamera() async {
     if (!mounted || widget.feature != DeviceFeature.camera) return;
+    if (_cameraSuspending) {
+      _cameraResumeAfterSuspend = true;
+      return;
+    }
     _cameraShutterGate.setLifecycleState(
       AppLifecycleState.resumed,
       currentSequence: widget.controller.cameraShutterSequence,

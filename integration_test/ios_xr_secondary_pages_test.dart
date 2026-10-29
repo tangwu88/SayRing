@@ -29,6 +29,10 @@ void main() {
       addTearDown(app.dispose);
       runApp(SaydianApp(controller: app));
       await app.initialize().timeout(const Duration(seconds: 60));
+      await app.refreshReadOnlyHealthFeatures().timeout(
+        const Duration(seconds: 45),
+      );
+      await app.refreshModuleVisibility().timeout(const Duration(seconds: 45));
       final owner = app.session?.accountKey;
       final target = app.rememberedDevice?.id;
       expect(owner, isNotNull);

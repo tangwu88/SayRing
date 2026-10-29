@@ -24,6 +24,14 @@ void main() {
       addTearDown(controller.dispose);
       runApp(SaydianApp(controller: controller));
       await controller.initialize().timeout(const Duration(seconds: 60));
+      // Production intentionally loads public leases asynchronously. Await
+      // them before declaring an entry unavailable in a full page inventory.
+      await controller.refreshReadOnlyHealthFeatures().timeout(
+        const Duration(seconds: 45),
+      );
+      await controller.refreshModuleVisibility().timeout(
+        const Duration(seconds: 45),
+      );
       Future<void> settle() async {
         // Continuous BLE/progress animations need bounded frames, not global idle.
         for (var i = 0; i < 3; i++) {

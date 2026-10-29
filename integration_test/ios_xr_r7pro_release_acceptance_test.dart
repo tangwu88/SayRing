@@ -45,6 +45,14 @@ void main() {
           }
         }
 
+        Future<void> settle() async {
+          // Live Bluetooth and dashboard animations need bounded frames.
+          for (var i = 0; i < 3; i++) {
+            await Future<void>.delayed(const Duration(milliseconds: 300));
+            await tester.pump().timeout(const Duration(seconds: 15));
+          }
+        }
+
         bool ready() =>
             app.connectedDevice?.id == target.id &&
             app.deviceCapabilityState == DeviceCapabilityState.ready;
@@ -145,19 +153,19 @@ void main() {
         );
         private['sleepReadStatuses'] = app.sleepReadStatuses;
         app.selectTab(0);
-        await tester.pumpAndSettle(const Duration(seconds: 1));
+        await settle();
         expect(find.byKey(const Key('dashboard-today-health')), findsOneWidget);
         await binding.takeScreenshot('1141-r7pro-activity-private');
         final entry = find.byKey(const Key('home-sleep-overview-entry'));
         await tester.ensureVisible(entry);
         await tester.tap(entry);
-        await tester.pumpAndSettle(const Duration(seconds: 1));
+        await settle();
         expect(find.byKey(const Key('sleep-overview-page')), findsOneWidget);
         await binding.takeScreenshot('1141-r7pro-sleep-private');
         await tester.tap(find.byKey(const Key('sleep-previous-day')));
-        await tester.pumpAndSettle(const Duration(seconds: 1));
+        await settle();
         await tester.tap(find.byKey(const Key('sleep-latest-day')));
-        await tester.pumpAndSettle(const Duration(seconds: 1));
+        await settle();
         proof['sleepPageAndNavigation'] = true;
         proof['ownerUnchanged'] = app.session?.accountKey == owner;
         proof['targetUnchanged'] = app.rememberedDevice?.id == target.id;
@@ -168,6 +176,38 @@ void main() {
         expect(proof['uniqueActivityIds'], isTrue);
         expect(proof['sleepRowsMatchTarget'], isTrue);
         expect(proof['sleepSummariesMatchTimeline'], isTrue);
+        await tester.binding.handlePopRoute();
+        await settle();
+        final reconnects = <Map<String, Object?>>[];
+        proof['softwareReconnects'] = reconnects;
+        for (var round = 0; round < 2; round++) {
+          await waitFor(() => !app.isDeviceSyncing, 90);
+          expect(app.isDeviceSyncing, isFalse);
+          app.selectTab(1);
+          await settle();
+          await app.disconnectDevice().timeout(const Duration(seconds: 30));
+          expect(app.connectedDevice, isNull);
+          expect(app.rememberedDevice?.id, target.id);
+          await settle();
+          final reconnect = find.byKey(const Key('device-reconnect'));
+          await tester.ensureVisible(reconnect);
+          final reconnectClock = Stopwatch()..start();
+          await tester.tap(reconnect.hitTestable());
+          await settle();
+          await waitFor(() => ready() && !app.isDeviceReconnecting, 60);
+          reconnects.add({
+            'ready': ready(),
+            'seconds': reconnectClock.elapsedMilliseconds / 1000,
+            'ownerUnchanged': app.session?.accountKey == owner,
+            'targetUnchanged': app.rememberedDevice?.id == target.id,
+            'batteryRead': app.connectedDevice?.battery?.updatedAt != null,
+          });
+          expect(ready(), isTrue);
+          expect(app.session?.accountKey, owner);
+          expect(app.rememberedDevice?.id, target.id);
+        }
+        await waitFor(() => !app.isDeviceSyncing, 90);
+        expect(app.isDeviceSyncing, isFalse);
         expect(
           complete,
           isTrue,
