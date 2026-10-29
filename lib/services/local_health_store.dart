@@ -51,6 +51,11 @@ abstract interface class HealthReminderDeletionStore {
   Future<void> deleteHealthReminder(String id);
 }
 
+abstract interface class ReadingReminderSettingsStore {
+  Future<String?> readReadingReminderSettings();
+  Future<void> saveReadingReminderSettings(String value);
+}
+
 /// Optional extension so legacy store adapters remain source compatible.
 /// Filtering happens before LIMIT: deferred metrics must not block newer
 /// activity records in an existing account's pending queue.
@@ -138,6 +143,7 @@ class EncryptedHealthStore
         HealthStore,
         HealthStoreRecoveryStatus,
         HealthReminderDeletionStore,
+        ReadingReminderSettingsStore,
         SleepDetailStore,
         MetricFilteredPendingHealthStore {
   EncryptedHealthStore(
@@ -1168,6 +1174,33 @@ class EncryptedHealthStore
   }
 
   @override
+  Future<String?> readReadingReminderSettings() {
+    final owner = _ownerId;
+    return _enqueue(() async {
+      final rows = await _db.query(
+        'metadata',
+        columns: ['value'],
+        where: 'owner_id = ? AND key = ?',
+        whereArgs: [owner, 'personal_reading_reminders_v1'],
+        limit: 1,
+      );
+      return rows.isEmpty ? null : rows.first['value'] as String?;
+    });
+  }
+
+  @override
+  Future<void> saveReadingReminderSettings(String value) {
+    final owner = _ownerId;
+    return _enqueue(
+      () => _db.insert('metadata', {
+        'owner_id': owner,
+        'key': 'personal_reading_reminders_v1',
+        'value': value,
+      }, conflictAlgorithm: ConflictAlgorithm.replace),
+    );
+  }
+
+  @override
   Future<void> close() async {
     await _enqueue(() async {
       await _database?.close();
@@ -1342,12 +1375,23 @@ class MemoryHealthStore
         HealthStore,
         SleepDetailStore,
         MetricFilteredPendingHealthStore,
-        HealthReminderDeletionStore {
+        HealthReminderDeletionStore,
+        ReadingReminderSettingsStore {
   String _ownerId = 'anonymous';
   final Map<String, Map<String, HealthRecord>> _recordsByOwner = {};
   final Map<String, Set<String>> _syncedByOwner = {};
   final Map<String, Set<String>> _invalidByOwner = {};
   final Map<String, String> _cursorByOwner = {};
+  final Map<String, String> _readingSettingsByOwner = {};
+
+  @override
+  Future<String?> readReadingReminderSettings() async =>
+      _readingSettingsByOwner[_ownerId];
+  @override
+  Future<void> saveReadingReminderSettings(String value) async {
+    _readingSettingsByOwner[_ownerId] = value;
+  }
+
   final Map<String, Map<String, List<SleepTimeline>>> _sleepSnapshotsByOwner =
       {};
   final Map<String, Map<String, SportRecord>> _sportRecordsByOwner = {};

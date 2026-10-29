@@ -19,6 +19,7 @@ import '../domain/health_record_dedup.dart';
 import '../domain/health_source_policy.dart';
 import '../domain/models.dart';
 import '../domain/health_reminder.dart';
+import '../domain/reading_reminder.dart';
 import '../domain/heart_rate_reminder_engine.dart';
 import 'health_reminder_notifications.dart';
 import 'health_reminder_report.dart';
@@ -1375,6 +1376,14 @@ class AppController extends ChangeNotifier {
   final HeartRateReminderEngine _heartRateReminders;
   final HealthReminderNotifications _healthReminderNotifications;
   Future<void> _healthReminderWrites = Future.value();
+  ReadingReminderSettings readingReminderSettings =
+      const ReadingReminderSettings();
+  bool readingReminderSettingsSaving = false;
+  final ReadingReminderEngine _readingReminderEngine = ReadingReminderEngine();
+  Future<bool> saveReadingReminderSettings(
+    ReadingReminderSettings value, {
+    required String expectedOwner,
+  }) => _saveReadingReminderSettings(value, expectedOwner);
   ReminderNotificationPermission healthReminderNotificationPermission =
       ReminderNotificationPermission.unavailable;
   bool get canSaveHealthReminder => _canSaveHealthReminder;
@@ -1601,6 +1610,9 @@ class AppController extends ChangeNotifier {
     _sessionGeneration++;
     _activeHealthOwner = _healthOwnerFor(value);
     _heartRateReminders.reset();
+    _readingReminderEngine.reset();
+    readingReminderSettings = const ReadingReminderSettings();
+    readingReminderSettingsSaving = false;
     unawaited(
       _healthReminderNotifications
           .setOwner(value == null ? null : _activeHealthOwner)
@@ -1667,6 +1679,8 @@ class AppController extends ChangeNotifier {
     try {
       await _healthStore.switchOwner(_healthOwnerFor(value));
       if (!_isCurrentSessionGeneration(expectedGeneration)) return false;
+      await _loadReadingReminderSettings(expectedGeneration);
+      if (!_isCurrentSessionGeneration(expectedGeneration)) return false;
       if (!loadCache) return true;
       await _refreshHealthRecordCache(expectedGeneration: expectedGeneration);
       if (!_isCurrentSessionGeneration(expectedGeneration)) return false;
@@ -1679,7 +1693,8 @@ class AppController extends ChangeNotifier {
           : alerts
                 .where(
                   (event) =>
-                      event.reminder?.kind == HealthReminderKind.symptoms,
+                      event.reminder?.kind == HealthReminderKind.symptoms ||
+                      isPersonalReadingReminder(event.reminder),
                 )
                 .toList();
       sportRecords = sports.map(healthReleasePolicy.projectSport).toList();

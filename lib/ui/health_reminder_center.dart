@@ -8,11 +8,11 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../domain/health_reminder.dart';
-import '../domain/models.dart';
 import '../l10n/global_locale_controller.dart';
 import '../services/app_controller.dart';
 import '../services/health_reminder_notifications.dart';
 import 'app_theme.dart';
+import 'reading_reminder_widgets.dart';
 
 String _copy(BuildContext context, String zh, String en) =>
     Localizations.localeOf(context).languageCode == 'zh' ? zh : en;
@@ -207,50 +207,83 @@ class _SourceLink extends StatelessWidget {
 }
 
 class UrgentHelpCard extends StatelessWidget {
-  const UrgentHelpCard({super.key, this.onDiallerOpened});
+  const UrgentHelpCard({super.key, this.onDiallerOpened, this.compact = false});
   final Future<void> Function()? onDiallerOpened;
+  final bool compact;
   @override
-  Widget build(BuildContext context) => Card(
-    color: const Color(0xFFFFF1EE),
-    child: Padding(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(
-            Icons.emergency_outlined,
-            color: SaydianColors.danger,
-            size: 30,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            _copy(context, '严重不适，优先求助', 'Serious symptoms come first'),
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 12),
-          FilledButton.icon(
+  Widget build(BuildContext context) => compact
+      ? Card(
+          color: const Color(0xFFFFF1EE),
+          child: ListTile(
             key: const Key('health-reminder-urgent-help'),
-            onPressed: () => Navigator.of(context).push(
+            leading: const Icon(
+              Icons.emergency_outlined,
+              color: SaydianColors.danger,
+            ),
+            title: Text(
+              _copy(context, '急症求助', 'Urgent help'),
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: Text(
+              _copy(
+                context,
+                '严重不适时，不要等待复测。',
+                'Serious symptoms? Do not wait for another reading.',
+              ),
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) =>
                     EmergencyHelpPage(onDiallerOpened: onDiallerOpened),
               ),
             ),
-            icon: const Icon(Icons.phone_in_talk_outlined),
-            label: Text(_copy(context, '急症求助', 'Urgent help')),
           ),
-          const SizedBox(height: 8),
-          Text(
-            _copy(
-              context,
-              '胸部不适、明显气短或晕厥时，不要等待戒指复测。',
-              'For chest discomfort, severe breathlessness or fainting, do not wait for another ring reading.',
+        )
+      : Card(
+          color: const Color(0xFFFFF1EE),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.emergency_outlined,
+                  color: SaydianColors.danger,
+                  size: 30,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _copy(context, '严重不适，优先求助', 'Serious symptoms come first'),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  key: const Key('health-reminder-urgent-help'),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          EmergencyHelpPage(onDiallerOpened: onDiallerOpened),
+                    ),
+                  ),
+                  icon: const Icon(Icons.phone_in_talk_outlined),
+                  label: Text(_copy(context, '急症求助', 'Urgent help')),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _copy(
+                    context,
+                    '胸部不适、明显气短或晕厥时，不要等待戒指复测。',
+                    'For chest discomfort, severe breathlessness or fainting, do not wait for another ring reading.',
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
-    ),
-  );
+        );
 }
 
 class HealthReminderShortcut extends StatelessWidget {
@@ -333,97 +366,46 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
     final controller = widget.controller;
     final events = controller.healthReminderEvents;
     final permission = controller.healthReminderNotificationPermission;
-    final latest = controller.latestByMetric[HealthMetric.heartRate];
     return Scaffold(
       appBar: AppBar(title: Text(context.l10n.healthAlerts)),
       body: ListView(
         key: const Key('health-reminder-center'),
         padding: const EdgeInsets.all(16),
         children: [
-          const UrgentHelpCard(),
+          const UrgentHelpCard(compact: true),
           const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(
-                    Icons.monitor_heart_outlined,
-                    color: SaydianColors.techBlue,
-                    size: 32,
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    _copy(
-                      context,
-                      controller.automaticHealthRemindersAvailable
-                          ? '有效数据到达后可判断'
-                          : '自动心率提醒尚未启用',
-                      controller.automaticHealthRemindersAvailable
-                          ? 'Evaluates eligible readings when received'
-                          : 'Automatic heart-rate reminders are not active',
-                    ),
-                    key: const Key('health-reminder-availability'),
-                    style: const TextStyle(
-                      fontSize: 19,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _copy(
-                      context,
-                      '当前可使用急症求助和本机记录。没有提醒不代表没有健康风险。',
-                      'Urgent help and local records are available. No reminder does not mean there is no health risk.',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    controller.connectedDevice?.displayName ??
-                        _copy(context, '未连接戒指', 'No ring connected'),
-                  ),
-                  if (latest != null)
-                    Text(
-                      _copy(
-                        context,
-                        '最近心率记录：${_time(latest.measuredAt)}',
-                        'Latest heart-rate record: ${_time(latest.measuredAt)}',
-                      ),
-                    ),
-                  const SizedBox(height: 10),
-                  Text(
-                    _copy(
-                      context,
-                      permission == ReminderNotificationPermission.granted
-                          ? '手机通知权限已允许，实际展示仍受系统设置影响。'
-                          : '手机通知未开启或不可用，App内记录仍可查看。',
-                      permission == ReminderNotificationPermission.granted
-                          ? 'Notifications are allowed. System settings still affect presentation.'
-                          : 'Notifications are off or unavailable. In-app records remain accessible.',
-                    ),
-                  ),
-                  TextButton.icon(
-                    key: const Key('health-reminder-notification-permission'),
-                    onPressed: () async {
-                      if (permission == ReminderNotificationPermission.denied) {
-                        await openAppSettings();
-                      } else {
-                        await controller.refreshHealthReminderPermissions(
-                          request: true,
-                        );
-                      }
-                    },
-                    icon: const Icon(Icons.notifications_outlined),
-                    label: Text(
-                      _copy(context, '手机通知设置', 'Notification settings'),
-                    ),
-                  ),
-                ],
+          ReadingReminderSettingsPanel(
+            controller: controller,
+            onHelp: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const EmergencyHelpPage(),
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          TextButton.icon(
+            key: const Key('health-reminder-notification-permission'),
+            onPressed: () async {
+              if (permission == ReminderNotificationPermission.denied) {
+                await openAppSettings();
+              } else {
+                await controller.refreshHealthReminderPermissions(
+                  request: true,
+                );
+              }
+            },
+            icon: Icon(
+              permission == ReminderNotificationPermission.granted
+                  ? Icons.notifications_active_outlined
+                  : Icons.notifications_off_outlined,
+              size: 19,
+            ),
+            label: Text(
+              permission == ReminderNotificationPermission.granted
+                  ? '手机通知已允许'
+                  : '手机通知设置',
+            ),
+          ),
+          const SizedBox(height: 8),
           OutlinedButton.icon(
             key: const Key('health-reminder-record-symptoms'),
             onPressed: () => Navigator.of(context).push(
@@ -444,13 +426,7 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
           if (events.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 20),
-              child: Text(
-                _copy(
-                  context,
-                  '暂无本机记录。没有记录或提醒，不代表已经排除疾病。',
-                  'No local records yet. An empty history does not rule out illness.',
-                ),
-              ),
+              child: Text(_copy(context, '暂无提醒记录', 'No reminder records yet')),
             ),
           for (final event in events)
             Card(
@@ -459,6 +435,9 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
                 leading: Icon(
                   event.reminder!.kind == HealthReminderKind.symptoms
                       ? Icons.edit_note
+                      : event.reminder!.kind ==
+                            HealthReminderKind.lowBloodOxygen
+                      ? Icons.water_drop_outlined
                       : Icons.monitor_heart_outlined,
                   color: SaydianColors.danger,
                 ),
