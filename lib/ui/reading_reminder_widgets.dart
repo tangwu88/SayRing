@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../domain/health_reminder.dart';
+import '../domain/models.dart';
 import '../domain/reading_reminder.dart';
 import '../services/app_controller.dart';
 import '../services/wearable_bridge.dart';
@@ -533,191 +534,209 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
     final canEdit =
         controller.canSaveHealthReminder &&
         !controller.readingReminderSettingsSaving;
+    bool supports(HealthMetric metric) =>
+        controller.capabilities?.manualMetrics?.contains(metric) == true &&
+        controller.canMeasureHealthMetric(metric);
+    final heartRate = supports(HealthMetric.heartRate);
+    final oxygen = supports(HealthMetric.bloodOxygen);
+    final visibleEnabled =
+        (heartRate && (s.highEnabled || s.lowEnabled)) ||
+        (oxygen && s.oxygenEnabled);
+    final kinds = [
+      if (heartRate) ...[
+        HealthReminderKind.highHeartRate,
+        HealthReminderKind.lowHeartRate,
+      ],
+      if (oxygen) HealthReminderKind.lowBloodOxygen,
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          s.enabled
-              ? _copy(context, '新测量提醒', 'New reading reminders')
-              : _copy(context, '设置提醒范围', 'Set your limits'),
-          key: const Key('health-reminder-availability'),
-          style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 12),
-        for (final kind in [
-          HealthReminderKind.highHeartRate,
-          HealthReminderKind.lowHeartRate,
-          HealthReminderKind.lowBloodOxygen,
-        ])
-          Builder(
-            builder: (context) {
-              final oxygen = kind == HealthReminderKind.lowBloodOxygen;
-              final high = kind == HealthReminderKind.highHeartRate;
-              final value = oxygen
-                  ? s.oxygen
-                  : high
-                  ? s.high
-                  : s.low;
-              final enabled = oxygen
-                  ? s.oxygenEnabled
-                  : high
-                  ? s.highEnabled
-                  : s.lowEnabled;
-              final color = oxygen
-                  ? SaydianColors.techCyanDark
-                  : high
-                  ? SaydianColors.danger
-                  : SaydianColors.techViolet;
-              return Card(
-                margin: const EdgeInsets.only(bottom: 10),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 44,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: color.withValues(alpha: 0.09),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Icon(_icon(kind), color: color),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              _label(context, kind),
-                              style: const TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
+        if (kinds.isNotEmpty) ...[
+          Text(
+            visibleEnabled
+                ? _copy(context, '新测量提醒', 'New reading reminders')
+                : _copy(context, '设置提醒范围', 'Set your limits'),
+            key: const Key('health-reminder-availability'),
+            style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 12),
+          for (final kind in kinds)
+            Builder(
+              builder: (context) {
+                final oxygen = kind == HealthReminderKind.lowBloodOxygen;
+                final high = kind == HealthReminderKind.highHeartRate;
+                final value = oxygen
+                    ? s.oxygen
+                    : high
+                    ? s.high
+                    : s.low;
+                final enabled = oxygen
+                    ? s.oxygenEnabled
+                    : high
+                    ? s.highEnabled
+                    : s.lowEnabled;
+                final color = oxygen
+                    ? SaydianColors.techCyanDark
+                    : high
+                    ? SaydianColors.danger
+                    : SaydianColors.techViolet;
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: color.withValues(alpha: 0.09),
+                                borderRadius: BorderRadius.circular(16),
                               ),
+                              child: Icon(_icon(kind), color: color),
                             ),
-                          ),
-                          Semantics(
-                            label: _copy(
-                              context,
-                              '${_label(context, kind)}提醒',
-                              '${_label(context, kind)} reminder',
-                            ),
-                            child: Switch(
-                              key: Key(
-                                'reading-reminder-${kind.wireName}-enabled',
-                              ),
-                              value: enabled,
-                              onChanged: canEdit
-                                  ? (v) => _save(
-                                      context,
-                                      _change(kind, enabled: v),
-                                      owner,
-                                    )
-                                  : null,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      InkWell(
-                        key: Key('reading-reminder-${kind.wireName}-limit'),
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: canEdit
-                            ? () => _edit(context, kind, value, owner)
-                            : null,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Row(
-                            children: [
-                              Text(
-                                oxygen
-                                    ? '≤'
-                                    : high
-                                    ? '>'
-                                    : '<',
-                                style: TextStyle(color: color, fontSize: 22),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Wrap(
-                                  spacing: 6,
-                                  crossAxisAlignment: WrapCrossAlignment.center,
-                                  children: [
-                                    Text(
-                                      '$value',
-                                      style: TextStyle(
-                                        color: color,
-                                        fontSize: 32,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    Text(
-                                      _unit(kind),
-                                      style: const TextStyle(
-                                        color: SaydianColors.muted,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ],
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                _label(context, kind),
+                                style: const TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
-                              const Icon(
-                                Icons.tune_rounded,
-                                color: SaydianColors.outline,
-                                size: 20,
+                            ),
+                            Semantics(
+                              label: _copy(
+                                context,
+                                '${_label(context, kind)}提醒',
+                                '${_label(context, kind)} reminder',
                               ),
-                            ],
+                              child: Switch(
+                                key: Key(
+                                  'reading-reminder-${kind.wireName}-enabled',
+                                ),
+                                value: enabled,
+                                onChanged: canEdit
+                                    ? (v) => _save(
+                                        context,
+                                        _change(kind, enabled: v),
+                                        owner,
+                                      )
+                                    : null,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        InkWell(
+                          key: Key('reading-reminder-${kind.wireName}-limit'),
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: canEdit
+                              ? () => _edit(context, kind, value, owner)
+                              : null,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Row(
+                              children: [
+                                Text(
+                                  oxygen
+                                      ? '≤'
+                                      : high
+                                      ? '>'
+                                      : '<',
+                                  style: TextStyle(color: color, fontSize: 22),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Wrap(
+                                    spacing: 6,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    children: [
+                                      Text(
+                                        '$value',
+                                        style: TextStyle(
+                                          color: color,
+                                          fontSize: 32,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      Text(
+                                        _unit(kind),
+                                        style: const TextStyle(
+                                          color: SaydianColors.muted,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const Icon(
+                                  Icons.tune_rounded,
+                                  color: SaydianColors.outline,
+                                  size: 20,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
-        const SizedBox(height: 2),
-        Card(
-          child: SwitchListTile(
-            key: const Key('reading-reminder-ring-vibration'),
-            secondary: const Icon(
-              Icons.vibration_rounded,
-              color: SaydianColors.techViolet,
+                );
+              },
             ),
-            title: Text(_copy(context, '戒指振动', 'Ring vibration')),
-            value: s.ringVibrationEnabled,
-            onChanged: canEdit
-                ? (value) => _save(
-                    context,
-                    s.copyWith(ringVibrationEnabled: value),
-                    owner,
-                  )
-                : null,
+        ],
+        if (controller.healthReminderRingVibrationAvailable) ...[
+          const SizedBox(height: 2),
+          Card(
+            child: SwitchListTile(
+              key: const Key('reading-reminder-ring-vibration'),
+              secondary: const Icon(
+                Icons.vibration_rounded,
+                color: SaydianColors.techViolet,
+              ),
+              title: Text(_copy(context, '戒指振动', 'Ring vibration')),
+              value: s.ringVibrationEnabled,
+              onChanged: canEdit
+                  ? (value) => _save(
+                      context,
+                      s.copyWith(ringVibrationEnabled: value),
+                      owner,
+                    )
+                  : null,
+            ),
           ),
-        ),
-        Text(
-          _copy(
-            context,
-            '完成心率或血氧测量后提醒，不代表持续监测。',
-            'Reminds after a completed heart-rate or oxygen reading. Not continuous monitoring.',
+        ],
+        if (kinds.isNotEmpty) ...[
+          Text(
+            _copy(
+              context,
+              '完成心率或血氧测量后提醒，不代表持续监测。',
+              'Reminds after a completed heart-rate or oxygen reading. Not continuous monitoring.',
+            ),
+            style: const TextStyle(
+              color: SaydianColors.muted,
+              fontSize: 12,
+              height: 1.5,
+            ),
           ),
-          style: const TextStyle(
-            color: SaydianColors.muted,
-            fontSize: 12,
-            height: 1.5,
+          Text(
+            _copy(
+              context,
+              '戒指读数仅供参考；不适时及时求助。',
+              'Ring readings are for reference. Seek help if you feel unwell.',
+            ),
+            style: const TextStyle(
+              color: SaydianColors.muted,
+              fontSize: 12,
+              height: 1.5,
+            ),
           ),
-        ),
-        Text(
-          _copy(
-            context,
-            '戒指读数仅供参考；不适时及时求助。',
-            'Ring readings are for reference. Seek help if you feel unwell.',
-          ),
-          style: const TextStyle(
-            color: SaydianColors.muted,
-            fontSize: 12,
-            height: 1.5,
-          ),
-        ),
+        ],
         Align(
           alignment: Alignment.centerRight,
           child: TextButton.icon(
@@ -726,7 +745,9 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
                 ? null
                 : () => showReadingReminderPreview(
                     context,
-                    HealthReminderKind.highHeartRate,
+                    kinds.isEmpty
+                        ? HealthReminderKind.highHeartRate
+                        : kinds.first,
                     onHelp: onHelp,
                     vibrate:
                         controller.healthReminderRingVibrationAvailable &&
@@ -740,71 +761,84 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
             label: Text(_copy(context, '预览提醒效果', 'Preview reminder')),
           ),
         ),
-        ExpansionTile(
-          title: Text(_copy(context, '参考值说明', 'About the references')),
-          leading: const Icon(Icons.info_outline, size: 19),
-          tilePadding: EdgeInsets.zero,
-          children: [
-            Text(
-              _copy(
-                context,
-                '120/40 bpm 为可穿戴提醒的起始参考，并非正常范围或诊断线。血氧 92% 参考指夹式血氧仪居家说明，戒指异常读数请用合格指夹式血氧仪复核；严重不适立即求助。',
-                '120/40 bpm are wearable reminder starting references, not normal ranges or diagnostic cutoffs. The 92% oxygen reference comes from home finger-oximeter guidance. Confirm an unusual ring reading with a suitable finger oximeter; seek urgent help for serious symptoms.',
+        if (kinds.isNotEmpty)
+          ExpansionTile(
+            title: Text(_copy(context, '参考值说明', 'About the references')),
+            leading: const Icon(Icons.info_outline, size: 19),
+            tilePadding: EdgeInsets.zero,
+            children: [
+              Text(
+                _copy(
+                  context,
+                  [
+                    if (heartRate) '120/40 bpm 为可穿戴提醒的起始参考，并非正常范围或诊断线。',
+                    if (oxygen)
+                      '血氧 92% 参考指夹式血氧仪居家说明，戒指异常读数请用合格指夹式血氧仪复核；严重不适立即求助。',
+                  ].join('\n'),
+                  [
+                    if (heartRate)
+                      '120/40 bpm are wearable reminder starting references, not normal ranges or diagnostic cutoffs.',
+                    if (oxygen)
+                      'The 92% oxygen reference comes from home finger-oximeter guidance. Confirm an unusual ring reading with a suitable finger oximeter; seek urgent help for serious symptoms.',
+                  ].join('\n'),
+                ),
+                style: const TextStyle(
+                  color: SaydianColors.muted,
+                  fontSize: 13,
+                  height: 1.5,
+                ),
               ),
-              style: const TextStyle(
-                color: SaydianColors.muted,
-                fontSize: 13,
-                height: 1.5,
+              Text(
+                _copy(
+                  context,
+                  '未成年人、特殊健康状况或高海拔环境，请先咨询专业人员。',
+                  'For minors, specific health conditions or high altitude, seek professional advice.',
+                ),
+                style: const TextStyle(
+                  color: SaydianColors.muted,
+                  fontSize: 13,
+                  height: 1.5,
+                ),
               ),
-            ),
-            Text(
-              _copy(
-                context,
-                '未成年人、特殊健康状况或高海拔环境，请先咨询专业人员。',
-                'For minors, specific health conditions or high altitude, seek professional advice.',
+              Wrap(
+                children: [
+                  for (final source in [
+                    if (heartRate)
+                      (
+                        '心率参考',
+                        'Heart rate',
+                        'https://support.apple.com/en-us/120276',
+                      ),
+                    if (oxygen)
+                      (
+                        '血氧参考',
+                        'Oxygen',
+                        'https://medlineplus.gov/lab-tests/pulse-oximetry/',
+                      ),
+                    if (oxygen)
+                      (
+                        '测量局限',
+                        'Limitations',
+                        'https://www.fda.gov/consumers/consumer-updates/pulse-oximeter-basics',
+                      ),
+                  ])
+                    TextButton(
+                      onPressed: () async {
+                        try {
+                          await launchUrl(
+                            Uri.parse(source.$3),
+                            mode: LaunchMode.externalApplication,
+                          );
+                        } catch (_) {
+                          /* Keep local settings usable offline. */
+                        }
+                      },
+                      child: Text(_copy(context, source.$1, source.$2)),
+                    ),
+                ],
               ),
-              style: const TextStyle(
-                color: SaydianColors.muted,
-                fontSize: 13,
-                height: 1.5,
-              ),
-            ),
-            Wrap(
-              children: [
-                for (final source in const [
-                  (
-                    '心率参考',
-                    'Heart rate',
-                    'https://support.apple.com/en-us/120276',
-                  ),
-                  (
-                    '血氧参考',
-                    'Oxygen',
-                    'https://medlineplus.gov/lab-tests/pulse-oximetry/',
-                  ),
-                  (
-                    '测量局限',
-                    'Limitations',
-                    'https://www.fda.gov/consumers/consumer-updates/pulse-oximeter-basics',
-                  ),
-                ])
-                  TextButton(
-                    onPressed: () async {
-                      try {
-                        await launchUrl(
-                          Uri.parse(source.$3),
-                          mode: LaunchMode.externalApplication,
-                        );
-                      } catch (_) {
-                        /* Keep local settings usable offline. */
-                      }
-                    },
-                    child: Text(_copy(context, source.$1, source.$2)),
-                  ),
-              ],
-            ),
-          ],
-        ),
+            ],
+          ),
       ],
     );
   }

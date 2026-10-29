@@ -617,7 +617,7 @@ void main() {
     },
   );
 
-  testWidgets('sedentary setup stays disabled without a real ring connection', (
+  testWidgets('ring reminder entries are hidden without a real connection', (
     tester,
   ) async {
     final controller = _controller();
@@ -631,15 +631,114 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    final entry = find.byKey(const Key('health-reminder-sedentary'));
-    await tester.scrollUntilVisible(
-      entry,
-      220,
-      scrollable: find.byType(Scrollable).first,
+    expect(find.byKey(const Key('health-reminder-sedentary')), findsNothing);
+    expect(
+      find.byKey(const Key('health-reminder-other-ring-settings')),
+      findsNothing,
     );
-    expect(tester.widget<ListTile>(entry).onTap, isNull);
-    expect(find.text('连接戒指后设置'), findsOneWidget);
+    expect(
+      find.byKey(const Key('health-reminder-ring-settings')),
+      findsNothing,
+    );
+    expect(find.text('连接戒指后设置'), findsNothing);
+    expect(
+      find.byKey(const Key('health-reminder-urgent-help')),
+      findsOneWidget,
+    );
   });
+
+  for (final hasDrinking in [false, true]) {
+    testWidgets('hide absent and unknown ring settings; drinking=$hasDrinking', (
+      tester,
+    ) async {
+      final wearable = _FeatureWearable(
+        reminderItems: [
+          {
+            'id': 'sedentary',
+            'label': '久坐提醒',
+            'enabled': true,
+            'supported': false,
+          },
+          {'id': 'unknown', 'label': '未知提醒', 'stateKnown': false},
+          if (hasDrinking)
+            {
+              'id': 'drinking',
+              'label': '饮水提醒',
+              'enabled': false,
+              'startMinutes': 540,
+              'endMinutes': 1260,
+              'intervalMinutes': 90,
+            },
+        ],
+      );
+      final controller = AppController(
+        MemorySessionVault(),
+        _CoverageApi(),
+        MemoryHealthStore(),
+        wearable,
+      )..isBooting = false;
+      addTearDown(controller.dispose);
+      await controller.connectDevice(
+        const DeviceInfo(id: 'veepoo:WATCH:01', name: 'Test Watch'),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: HealthReminderCenterPage(controller: controller),
+        ),
+      );
+      // Read is deferred until after the first frame; unknown rows stay hidden.
+      await tester.pumpAndSettle();
+      if (hasDrinking) {
+        final other = find.byKey(
+          const Key('health-reminder-other-ring-settings'),
+        );
+        await tester.scrollUntilVisible(
+          other,
+          220,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.tap(other.hitTestable());
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('ring-reminder-item-drinking')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('ring-reminder-item-sedentary')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('ring-reminder-item-unknown')),
+          findsNothing,
+        );
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+      } else {
+        expect(
+          find.byKey(const Key('health-reminder-other-ring-settings')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('health-reminder-ring-settings')),
+          findsNothing,
+        );
+      }
+      expect(find.byKey(const Key('health-reminder-sedentary')), findsNothing);
+      expect(wearable.reminderWrites, isEmpty);
+      final reads = wearable.reminderReads;
+      controller.notifyListeners();
+      await tester.pumpAndSettle();
+      expect(
+        wearable.reminderReads,
+        reads,
+        reason: 'No automatic polling or repeated read on rebuild',
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('feature page defers device reads until after its first frame', (
     tester,
@@ -937,10 +1036,13 @@ class _FeatureWearable extends Fake implements WearableBridge {
   _FeatureWearable({
     this.healthReminderInterval = 60,
     this.includeDrinking = false,
+    this.reminderItems,
   });
 
   final int healthReminderInterval;
   final bool includeDrinking;
+  List<Map<String, Object?>>? reminderItems;
+  int reminderReads = 0;
   final reminderWrites = <Map<String, Object?>>[];
   Map<String, Object?>? _sedentary;
   final List<bool> findActionStates = [];
@@ -968,61 +1070,65 @@ class _FeatureWearable extends Fake implements WearableBridge {
   Future<List<SportRecord>> readSportRecords() async => const [];
 
   @override
-  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async =>
-      switch (feature) {
-        DeviceFeature.watchFaces => {
-          'items': [
-            {
-              'id': '/system/1',
-              'name': '系统表盘 1',
-              'type': 'system',
-              'index': 0,
-              'isCurrent': true,
-            },
-          ],
-        },
-        DeviceFeature.photoWatchFace => const {},
-        DeviceFeature.notifications => {
-          'notificationAccess': false,
-          'supportedKeys': ['wechat', 'sms'],
-          'wechat': true,
-          'sms': true,
-        },
-        DeviceFeature.alarms => {'items': <Object?>[]},
-        DeviceFeature.contacts => {'items': <Object?>[]},
-        DeviceFeature.weather => {'enabled': true, 'useCelsius': true},
-        DeviceFeature.worldClock => {'items': <Object?>[]},
-        DeviceFeature.healthReminders => {
-          'snapshotRevision': 'synthetic-reminder-revision',
-          'items': [
-            _sedentary ??
+  Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async {
+    if (feature == DeviceFeature.healthReminders) reminderReads++;
+    return switch (feature) {
+      DeviceFeature.watchFaces => {
+        'items': [
+          {
+            'id': '/system/1',
+            'name': '系统表盘 1',
+            'type': 'system',
+            'index': 0,
+            'isCurrent': true,
+          },
+        ],
+      },
+      DeviceFeature.photoWatchFace => const {},
+      DeviceFeature.notifications => {
+        'notificationAccess': false,
+        'supportedKeys': ['wechat', 'sms'],
+        'wechat': true,
+        'sms': true,
+      },
+      DeviceFeature.alarms => {'items': <Object?>[]},
+      DeviceFeature.contacts => {'items': <Object?>[]},
+      DeviceFeature.weather => {'enabled': true, 'useCelsius': true},
+      DeviceFeature.worldClock => {'items': <Object?>[]},
+      DeviceFeature.healthReminders => {
+        'snapshotRevision': 'synthetic-reminder-revision',
+        'items':
+            reminderItems ??
+            [
+              _sedentary ??
+                  {
+                    'id': 'sedentary',
+                    'label': '久坐提醒',
+                    'enabled': true,
+                    'startMinutes': 480,
+                    'endMinutes': 1320,
+                    'intervalMinutes': healthReminderInterval,
+                    'weekRepeat': 37,
+                  },
+              if (includeDrinking)
                 {
-                  'id': 'sedentary',
-                  'label': '久坐提醒',
+                  'id': 'drinking',
+                  'label': '饮水提醒',
                   'enabled': true,
-                  'startMinutes': 480,
-                  'endMinutes': 1320,
-                  'intervalMinutes': healthReminderInterval,
-                  'weekRepeat': 37,
+                  'startMinutes': 540,
+                  'endMinutes': 1260,
+                  'intervalMinutes': 90,
                 },
-            if (includeDrinking)
-              {
-                'id': 'drinking',
-                'label': '饮水提醒',
-                'enabled': true,
-                'startMinutes': 540,
-                'endMinutes': 1260,
-                'intervalMinutes': 90,
-              },
-          ],
-        },
-        DeviceFeature.healthAssessment => {
-          'items': [
-            {'id': 6, 'label': '压力评估', 'enabled': true},
-          ],
-        },
-        _ => const {},
-      };
+            ],
+      },
+      DeviceFeature.healthAssessment => {
+        'items': [
+          {'id': 6, 'label': '压力评估', 'enabled': true},
+        ],
+      },
+      _ => const {},
+    };
+  }
 
   @override
   Future<void> writeDeviceFeature(

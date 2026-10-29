@@ -8,6 +8,16 @@ enum FeatureAvailabilityStatus {
 
 enum DeviceCapabilityState { disconnected, loading, ready, unavailable }
 
+/// Only expose a setting actually returned with a known current switch state.
+/// Missing capability/settings data never creates a placeholder reminder.
+bool canDisplayRingReminder(Map<String, Object?> item) =>
+    item['id'] is String &&
+    (item['id'] as String).trim().isNotEmpty &&
+    item['enabled'] is bool &&
+    item['supported'] != false &&
+    item['available'] != false &&
+    item['stateKnown'] != false;
+
 class FeatureAvailability {
   const FeatureAvailability(this.status, {this.detail});
 

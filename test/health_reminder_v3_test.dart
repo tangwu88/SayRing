@@ -55,6 +55,10 @@ class _Wearable extends Fake implements WearableBridge {
 class _LiveWearable extends _Wearable
     implements WearableHealthReminderHapticsBridge {
   int pulses = 0;
+  Set<HealthMetric> supportedManualMetrics = {
+    HealthMetric.heartRate,
+    HealthMetric.bloodOxygen,
+  };
   @override
   Future<RingReminderHapticResult> pulseHealthReminder({
     required String expectedDeviceId,
@@ -82,14 +86,13 @@ class _LiveWearable extends _Wearable
   @override
   Future<void> stopScan() async {}
   @override
-  Future<DeviceCapabilities> getCapabilities() async =>
-      const DeviceCapabilities(
-        metrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
-        manualMetrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
-        supportsHistorySync: false,
-        features: {DeviceFeature.findWatch},
-        integratedFeatures: {DeviceFeature.findWatch},
-      );
+  Future<DeviceCapabilities> getCapabilities() async => DeviceCapabilities(
+    metrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
+    manualMetrics: supportedManualMetrics,
+    supportsHistorySync: false,
+    features: {DeviceFeature.findWatch},
+    integratedFeatures: {DeviceFeature.findWatch},
+  );
   @override
   Future<void> startMeasurement(HealthMetric metric) async {}
   @override
@@ -112,7 +115,10 @@ Future<
     MemoryHealthStore store,
   })
 >
-_readingFixture({bool notificationsAllowed = true}) async {
+_readingFixture({
+  bool notificationsAllowed = true,
+  bool highEnabled = true,
+}) async {
   const metrics = {HealthMetric.heartRate, HealthMetric.bloodOxygen};
   final ring = _LiveWearable();
   final notifications = _Notifications()..allowed = notificationsAllowed;
@@ -132,7 +138,7 @@ _readingFixture({bool notificationsAllowed = true}) async {
   await app.connectDevice(_LiveWearable.device);
   await _settleEvents();
   await app.saveReadingReminderSettings(
-    const ReadingReminderSettings(highEnabled: true),
+    ReadingReminderSettings(highEnabled: highEnabled),
     expectedOwner: app.homeHealthCardOwner,
   );
   return (app: app, ring: ring, notifications: notifications, store: store);
@@ -247,6 +253,18 @@ Future<void> _pump(WidgetTester tester, Widget widget) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('dev.fluttercommunity.plus/connectivity_status'),
+      (_) async => null,
+    );
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('dev.fluttercommunity.plus/connectivity'),
+      (_) async => ['wifi'],
+    );
+  });
 
   test(
     'in-app reminder survives denied system notifications, deduplicates and persists across restart',
@@ -336,8 +354,6 @@ void main() {
       );
       messenger.setMockMethodCallHandler(status, (_) async => null);
       messenger.setMockMethodCallHandler(connectivity, (_) async => ['wifi']);
-      addTearDown(() => messenger.setMockMethodCallHandler(status, null));
-      addTearDown(() => messenger.setMockMethodCallHandler(connectivity, null));
       final f = (await tester.runAsync(_readingFixture))!;
       addTearDown(f.app.dispose);
       addTearDown(f.ring.records.close);
@@ -397,6 +413,98 @@ void main() {
     },
   );
 
+  for (final metrics in [
+    <HealthMetric>{HealthMetric.heartRate},
+    <HealthMetric>{HealthMetric.bloodOxygen},
+    <HealthMetric>{},
+  ]) {
+    testWidgets('reminder cards follow actual manual capabilities $metrics', (
+      tester,
+    ) async {
+      final f = (await tester.runAsync(_readingFixture))!;
+      addTearDown(f.app.dispose);
+      addTearDown(f.ring.records.close);
+      final original = f.app.readingReminderSettings.copyWith(
+        high: 130,
+        oxygen: 93,
+        oxygenEnabled: true,
+      );
+      await tester.runAsync(() async {
+        await f.app.saveReadingReminderSettings(
+          original,
+          expectedOwner: f.app.homeHealthCardOwner,
+        );
+        await f.app.disconnectDevice();
+        f.ring.supportedManualMetrics = metrics;
+        await f.app.connectDevice(
+          const DeviceInfo(id: 'qring:synthetic-r21', name: 'R21'),
+        );
+        expect(f.app.connectedDevice?.name, 'R21');
+      });
+      await _pump(tester, HealthReminderCenterPage(controller: f.app));
+      for (final kind in ['high_heart_rate', 'low_heart_rate']) {
+        expect(
+          find.byKey(Key('reading-reminder-$kind-enabled')),
+          metrics.contains(HealthMetric.heartRate)
+              ? findsOneWidget
+              : findsNothing,
+        );
+      }
+      expect(
+        find.byKey(const Key('reading-reminder-low_blood_oxygen-enabled')),
+        metrics.contains(HealthMetric.bloodOxygen)
+            ? findsOneWidget
+            : findsNothing,
+      );
+      expect(
+        find.byKey(const Key('reading-reminder-ring-vibration')),
+        findsNothing,
+      );
+      expect(f.app.readingReminderSettings.toJson(), original.toJson());
+      expect(f.ring.pulses, 0);
+      expect(f.app.healthReminderEvents, isEmpty);
+      // A newly supported metric reappears with its existing preference intact.
+      await tester.runAsync(() async {
+        await f.app.disconnectDevice();
+        f.ring.supportedManualMetrics = {
+          HealthMetric.heartRate,
+          HealthMetric.bloodOxygen,
+        };
+        await f.app.connectDevice(_LiveWearable.device);
+      });
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('reading-reminder-low_blood_oxygen-enabled')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('reading-reminder-ring-vibration')),
+        findsOneWidget,
+      );
+      expect(f.app.readingReminderSettings.toJson(), original.toJson());
+      await tester.runAsync(f.app.disconnectDevice);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('reading-reminder-high_heart_rate-enabled')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('reading-reminder-low_blood_oxygen-enabled')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('reading-reminder-ring-vibration')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('health-reminder-urgent-help')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('reading-reminder-preview')), findsOneWidget);
+      expect(f.app.readingReminderSettings.toJson(), original.toJson());
+    });
+  }
+
   testWidgets(
     'app message opens its actual reminder and marks only that message read',
     (tester) async {
@@ -410,10 +518,6 @@ void main() {
       );
       messenger.setMockMethodCallHandler(connectivityEvents, (_) async => null);
       messenger.setMockMethodCallHandler(connectivity, (_) async => ['wifi']);
-      addTearDown(
-        () => messenger.setMockMethodCallHandler(connectivityEvents, null),
-      );
-      addTearDown(() => messenger.setMockMethodCallHandler(connectivity, null));
       final f = (await tester.runAsync(_readingFixture))!;
       addTearDown(f.app.dispose);
       addTearDown(f.ring.records.close);
@@ -725,8 +829,12 @@ void main() {
         addTearDown(() => tester.binding.setSurfaceSize(null));
         tester.platformDispatcher.textScaleFactorTestValue = scale;
         addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-        final controller = (await tester.runAsync(_controller))!;
+        final fixture = (await tester.runAsync(
+          () => _readingFixture(highEnabled: false),
+        ))!;
+        final controller = fixture.app;
         addTearDown(controller.dispose);
+        addTearDown(fixture.ring.records.close);
         await _pump(tester, HealthReminderCenterPage(controller: controller));
         final enabled = find.byKey(
           const Key('reading-reminder-high_heart_rate-enabled'),

@@ -331,11 +331,15 @@ class HealthReminderCenterPage extends StatefulWidget {
 }
 
 class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
+  String? _ringReadContext;
+  bool _ringReadScheduled = false;
+
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_refresh);
     unawaited(widget.controller.refreshHealthReminderPermissions());
+    _scheduleRingReminderRead();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted &&
           widget.controller.canOpenHealthReminderEvent(
@@ -347,7 +351,37 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
   }
 
   void _refresh() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    if (!widget.controller
+        .availabilityFor(DeviceFeature.healthReminders)
+        .isReady) {
+      _ringReadContext = null;
+    }
+    setState(() {});
+    _scheduleRingReminderRead();
+  }
+
+  void _scheduleRingReminderRead() {
+    if (_ringReadScheduled) return;
+    _ringReadScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ringReadScheduled = false;
+      if (!mounted) return;
+      final controller = widget.controller;
+      if (!controller.availabilityFor(DeviceFeature.healthReminders).isReady) {
+        _ringReadContext = null;
+        return;
+      }
+      final contextKey =
+          '${controller.homeHealthCardOwner}\u0000${controller.connectedDevice!.id}';
+      if (_ringReadContext == contextKey) return;
+      _ringReadContext = contextKey;
+      final cached =
+          controller.deviceFeatureData[DeviceFeature.healthReminders];
+      if (cached?['items'] is List) return;
+      // One guarded read per connection/account context; no writes or retry loop.
+      unawaited(controller.readDeviceFeature(DeviceFeature.healthReminders));
+    });
   }
 
   @override
@@ -368,9 +402,19 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
     final available =
         controller.connectedDevice != null &&
         controller.availabilityFor(DeviceFeature.healthReminders).isReady;
-    final hint = controller.connectedDevice == null
-        ? _copy(context, '连接戒指后设置', 'Connect a ring to set up')
-        : _copy(context, '当前戒指暂不可设置', 'Unavailable on this ring');
+    if (!available) return const SizedBox.shrink();
+    final raw =
+        controller.deviceFeatureData[DeviceFeature.healthReminders]?['items'];
+    final items = raw is List
+        ? raw
+              .whereType<Map>()
+              .map((item) => item.map((key, value) => MapEntry('$key', value)))
+              .where(canDisplayRingReminder)
+              .toList(growable: false)
+        : const <Map<String, Object?>>[];
+    final sedentary = items.any((item) => item['id'] == 'sedentary');
+    final other = items.any((item) => item['id'] != 'sedentary');
+    if (!sedentary && !other) return const SizedBox.shrink();
     void open(RingReminderView view) => Navigator.of(context).push(
       MaterialPageRoute<void>(
         settings: RouteSettings(name: 'health-reminder-ring-${view.name}'),
@@ -385,28 +429,23 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
       key: const Key('health-reminder-ring-settings'),
       child: Column(
         children: [
-          ListTile(
-            key: const Key('health-reminder-sedentary'),
-            enabled: available,
-            leading: const Icon(Icons.airline_seat_recline_normal_rounded),
-            title: Text(_copy(context, '久坐提醒', 'Sedentary reminder')),
-            subtitle: Text(
-              available
-                  ? _copy(context, '时段与间隔', 'Schedule and interval')
-                  : hint,
+          if (sedentary)
+            ListTile(
+              key: const Key('health-reminder-sedentary'),
+              leading: const Icon(Icons.airline_seat_recline_normal_rounded),
+              title: Text(_copy(context, '久坐提醒', 'Sedentary reminder')),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => open(RingReminderView.sedentary),
             ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: available ? () => open(RingReminderView.sedentary) : null,
-          ),
-          const Divider(height: 1, indent: 56),
-          ListTile(
-            key: const Key('health-reminder-other-ring-settings'),
-            enabled: available,
-            leading: const Icon(Icons.event_available_outlined),
-            title: Text(_copy(context, '其他日常提醒', 'Other daily reminders')),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: available ? () => open(RingReminderView.other) : null,
-          ),
+          if (sedentary && other) const Divider(height: 1, indent: 56),
+          if (other)
+            ListTile(
+              key: const Key('health-reminder-other-ring-settings'),
+              leading: const Icon(Icons.event_available_outlined),
+              title: Text(_copy(context, '其他日常提醒', 'Other daily reminders')),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => open(RingReminderView.other),
+            ),
         ],
       ),
     );

@@ -2122,6 +2122,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   Widget _buildHealthRemindersPanel(bool busy) {
     if (_featureData.isEmpty) return _loadingCard(busy, '健康提醒');
     final reminders = _items
+        .where(canDisplayRingReminder)
         .where(
           (item) => switch (widget.reminderView) {
             RingReminderView.all => true,

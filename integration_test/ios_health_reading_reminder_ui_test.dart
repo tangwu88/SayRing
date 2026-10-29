@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:saydian_app/app.dart';
 import 'package:saydian_app/domain/reading_reminder.dart';
 import 'package:saydian_app/domain/feature_models.dart';
+import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/health_reminder_center.dart';
@@ -73,13 +74,22 @@ void registerReadingReminderUiAcceptance({
         await tapVisible(find.byKey(const Key('health-reminder-entry')));
         expect(find.byType(HealthReminderCenterPage), findsOneWidget);
         await binding.takeScreenshot('xr-reading-settings-private');
-        proof['threeNumericCards'] = true;
-        for (final kind in [
-          'high_heart_rate',
-          'low_heart_rate',
-          'low_blood_oxygen',
-        ]) {
+        bool supported(HealthMetric metric) =>
+            app.capabilities?.manualMetrics?.contains(metric) == true &&
+            app.canMeasureHealthMetric(metric);
+        final visible = {
+          'high_heart_rate': supported(HealthMetric.heartRate),
+          'low_heart_rate': supported(HealthMetric.heartRate),
+          'low_blood_oxygen': supported(HealthMetric.bloodOxygen),
+        };
+        proof['visibleReadingKinds'] = visible;
+        for (final entry in visible.entries) {
+          final kind = entry.key;
           final toggle = find.byKey(Key('reading-reminder-$kind-enabled'));
+          if (!entry.value) {
+            expect(toggle, findsNothing);
+            continue;
+          }
           await tapVisible(toggle);
           final enabled = tester.widget<Switch>(toggle).value;
           expect(app.homeHealthCardOwner, owner);
@@ -87,32 +97,35 @@ void registerReadingReminderUiAcceptance({
           await tapVisible(toggle);
           expect(tester.widget<Switch>(toggle).value, !enabled);
         }
-        proof['threeSwitchesSaveAndRestore'] = true;
+        proof['numericCardsMatchCapabilities'] = true;
+        proof['visibleSwitchesSaveAndRestore'] = true;
         tester
             .state<ScrollableState>(find.byType(Scrollable).first)
             .position
             .jumpTo(0);
         await settle();
-        await tapVisible(
-          find.byKey(const Key('reading-reminder-high_heart_rate-limit')),
-        );
-        expect(
-          find.byKey(const Key('reading-limit-editor-value')),
-          findsOneWidget,
-        );
-        final before = app.readingReminderSettings.high;
-        await tester.tap(find.byTooltip(before < 200 ? '提高阈值' : '降低阈值'));
-        await settle();
-        final save = find.byKey(const Key('reading-limit-save'));
-        await tester.ensureVisible(save);
-        await settle();
-        await tester.tap(save.hitTestable());
-        await settle();
-        expect(
-          app.readingReminderSettings.high,
-          before < 200 ? before + 1 : before - 1,
-        );
-        proof['customThresholdSaved'] = true;
+        if (visible['high_heart_rate'] == true) {
+          await tapVisible(
+            find.byKey(const Key('reading-reminder-high_heart_rate-limit')),
+          );
+          expect(
+            find.byKey(const Key('reading-limit-editor-value')),
+            findsOneWidget,
+          );
+          final before = app.readingReminderSettings.high;
+          await tester.tap(find.byTooltip(before < 200 ? '提高阈值' : '降低阈值'));
+          await settle();
+          final save = find.byKey(const Key('reading-limit-save'));
+          await tester.ensureVisible(save);
+          await settle();
+          await tester.tap(save.hitTestable());
+          await settle();
+          expect(
+            app.readingReminderSettings.high,
+            before < 200 ? before + 1 : before - 1,
+          );
+          proof['customThresholdSaved'] = true;
+        }
         for (
           var i = 0;
           i < 90 &&
@@ -126,6 +139,58 @@ void registerReadingReminderUiAcceptance({
         }
         proof['ringVibrationAvailable'] =
             app.healthReminderRingVibrationAvailable;
+        final vibrationSwitch = find.byKey(
+          const Key('reading-reminder-ring-vibration'),
+        );
+        expect(
+          vibrationSwitch,
+          app.healthReminderRingVibrationAvailable
+              ? findsOneWidget
+              : findsNothing,
+        );
+        proof['vibrationSwitchMatchesCapability'] = true;
+        for (
+          var i = 0;
+          i < 70 &&
+              app.deviceFeatureBusy.contains(DeviceFeature.healthReminders);
+          i++
+        ) {
+          await Future<void>.delayed(const Duration(seconds: 1));
+          await tester.pump().timeout(const Duration(seconds: 15));
+        }
+        final raw =
+            app.deviceFeatureData[DeviceFeature.healthReminders]?['items'];
+        final rows = raw is List
+            ? raw
+                  .whereType<Map>()
+                  .map((r) => r.map((k, v) => MapEntry('$k', v)))
+                  .where(canDisplayRingReminder)
+                  .toList()
+            : const <Map<String, Object?>>[];
+        final ready = app
+            .availabilityFor(DeviceFeature.healthReminders)
+            .isReady;
+        final daily = {
+          'health-reminder-sedentary':
+              ready && rows.any((r) => r['id'] == 'sedentary'),
+          'health-reminder-other-ring-settings':
+              ready && rows.any((r) => r['id'] != 'sedentary'),
+        };
+        if (daily.values.any((value) => value)) {
+          await tester.scrollUntilVisible(
+            find.byKey(const Key('health-reminder-ring-settings')),
+            160,
+            scrollable: find.byType(Scrollable).first,
+          );
+          await settle();
+        }
+        for (final entry in daily.entries) {
+          expect(
+            find.byKey(Key(entry.key)),
+            entry.value ? findsOneWidget : findsNothing,
+          );
+        }
+        proof['dailyEntriesMatchActualSettings'] = daily;
         expect(app.connectedDevice?.id, target);
         if (requireVibration) {
           expect(app.healthReminderRingVibrationAvailable, isTrue);
