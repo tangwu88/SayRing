@@ -1,4 +1,4 @@
-# 自定义心率/血氧提醒、消息和戒指振动联动1169/1170（2026-10-30）
+# 自定义心率/血氧提醒、消息和戒指振动联动1169–1172（2026-10-30）
 
 用户追加：心率过高/过低、血氧异常均提供参考阈值和自定义，触发时全App红色与动画，提醒页减少文字、采用图形数字。本分支从已核验aac8483独立工作目录开始，保持R7历史SDK对照目录不变；两项任务最终合并验收，不互相冒用实物证据。
 
@@ -66,3 +66,19 @@ XR本轮三开关、阈值、普通/大字预览及固定关闭通过；真实�
 继续排查发现真正的前置拦截：SRActivitySleepCommandAllowed没有新增pulseHealthReminder，厂商处理前直接FEATURE_UNAVAILABLE，所以pulseDiagnostics为空，1171不能证明这次新API到达戒指。1172仅为显式合法UUID放行该独立物理动作，仍经厂商原目标/握手/型号/find能力守卫；不改变任何传感器租约、旧临床规则、通知/来电/监测设置。补实际Foundation策略测试覆盖合法/缺失/畸形/带路由前缀的目标，以及生理权限不随放行而扩大、ACK字典不被投影修改。构建源码快照增加此共用策略头文件。修复后另起明确测试，不重放上一条不明物理动作。
 
 1172定向原生策略/提醒4项通过（真实Foundation策略147条断言、Swift导入类型检查及厂商提醒合同）；git diff --check通过。Dart/lib/test/Android源码与1170相同，既有双时区1593项及Android正式构建证据限于这些相同来源；最终iOS1172重新从固定提交串行签名构建和实物核验，不复用旧原生产物。
+
+## 1172最终XR验证及交付
+
+固定源码27ab1c2b8f72a93a5e7d8a880669459e7667fb37；经GitHub逐树核验推送为959131c86a5e286a61505c8a629aeeb20eb5a325，共同树45c939dcd42a0377dd65d2548b7d5640c4501955。仓库保持Public、仅更新开发分支，main仍为0e350063；R7完整历史问题未闭环，不将这一候选提升为全部设备功能验收通过。
+
+- iOS新Debug/普通Profile/测试Profile均从固定源码串行构建、签名验证。cn.saydian.ring、1.0.7（1172）、团队W7SXQ4A226，XR包含于开发描述文件，Profile的APNs为development；源码指纹204项包含共用策略头文件。普通Profile的App.framework SHA256为5e159dd552a95b4324fdd8e3573eb1e460750cad578bd8ba543a44c0b496df8b。该本机开发包不是TestFlight或商店提交证明；本机构建用iOS15目标，仓库默认下限仍由CI独立验证。
+- XR真实测试使用tool/drive_ios_preserving_data.mjs、已验签Profile和keep-app-running。三数值开关保存/恢复、自定义阈值保存、1倍/2倍文字预览与关闭均通过；截图已视觉复核，大字可滚动且固定关闭可见。
+- 本次一次短振动返回accepted=true/acknowledged=true，来电开关前后相同，未写健康读数/提醒事件或消息。用户本次答“没留意”，因此指令回执通过、体感待复核；不能用1171的主观回答追认这次API的实物感受，也不自动连续重发。
+- 振动后静置186.294秒，状态仅ready:true，断连诊断为空；没有主动断开/重连。此窗口不能代替长时、锁屏/后台或不同固件的稳定性验收。
+- 测试总退出0；前后容器私有备份、普通Profile覆盖恢复及terminate-existing启动全部退出0。devicectl再读确认XR安装cn.saydian.ring 1.0.7（1172）。原设置、owner、目标、已有事件ID均保留，未卸载、解绑、恢复出厂或清除历史。
+- 最新Node完整命令node --test tool/*.test.mjs tool/test_*.mjs为141通过/1平台跳过；原生策略147条断言。Android JUnit XML复核为74项、0失败/错误；1170 Android Debug/原签名正式构建及双时区1593项对应完全相同的lib/test/Android源码，未把旧原生产物当作1172。git fsck --full及diff --check通过。
+- 源码959131c的CI为https://github.com/tangwu88/SayRing/actions/runs/40934114270，最后核对两组Harmony成功、quality仍运行，其依赖构建尚未结束；不得登记整体成功。较早1169源429af4f的40923731808全部5任务成功；1170源c10278e的40931449208已核对quality/双Harmony/Android成功，iOS仍运行。后续CI以实际新回执为准。
+
+全部日志、原始SDK回包、真机容器及截图留在忽略且私有的build目录，不提交账号、令牌、签名密码或健康值。最终XR证据目录为build/ios-xr-any-ring-1165-20261029/device-health-r7-stationary-1172。App消息和红色真实异常触发的逻辑证据来自宿主用例，XR只做标注预览及单独振动测试，没有向真实会员注入异常健康事件。
+
+R7 Pro完整历史仍按SAY-RING-R7PRO-HISTORY-1168-20261030.md记录：真实当前活动已入库，SDK未知250回包及未收到有效5/6历史批次尚未解决；最近未佩戴入睡不能作为“睡眠历史为空”的证明。本次连接/提醒结果不替代完整活动历史或有样本睡眠的验收。
