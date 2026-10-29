@@ -92,6 +92,14 @@ static inline BOOL SRActivitySleepFeatureAllowed(id feature) {
 }
 
 static inline BOOL SRActivitySleepCommandAllowed(NSString *method, NSDictionary *arguments) {
+    // Personal reminder haptics are an explicitly requested physical action,
+    // not a physiological measurement grant. Each vendor still checks the
+    // current exact target, resolved capabilities and supported model.
+    if ([method isEqual:@"pulseHealthReminder"]) {
+        id identifier = arguments[@"expectedDeviceId"];
+        return [identifier isKindOfClass:NSString.class] &&
+            [[NSUUID alloc] initWithUUIDString:identifier] != nil;
+    }
     if ([method isEqual:@"startMeasurement"]) return SRManualHealthMetricAllowed(arguments[@"metric"]);
     // Cleanup remains available after expiry/revocation, never a new start.
     if ([method isEqual:@"stopMeasurement"]) return [SRManualHealthCatalogue() containsObject:arguments[@"metric"] ?: NSNull.null];

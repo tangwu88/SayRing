@@ -19,6 +19,17 @@ int main(void) { @autoreleasepool {
     for (NSString *command in @[@"scanDevices", @"connect", @"disconnect", @"configureRecoveryTarget", @"prepareRememberedDevice", @"syncHealthData", @"getDeviceDetails", @"stopSport", @"saveGalleryImage", @"readAutoMeasureSettings", @"setAutoMeasureSetting", @"readAutoMeasureIntervals", @"setAutoMeasureInterval"])
         check(SRActivitySleepCommandAllowed(command, @{}));
 
+    // Exercise the real native policy that runs before the vendor handler.
+    // Allow only an explicit CoreBluetooth target; never grant sensor access.
+    check(SRActivitySleepCommandAllowed(@"pulseHealthReminder", @{@"expectedDeviceId": @"00000000-0000-4000-8000-000000000001"}));
+    check(!SRActivitySleepCommandAllowed(@"pulseHealthReminder", @{}));
+    for (id identifier in @[@"", @"synthetic-name", @"coolwear:00000000-0000-4000-8000-000000000001", @42, NSNull.null, @[]])
+        check(!SRActivitySleepCommandAllowed(@"pulseHealthReminder", @{@"expectedDeviceId": identifier}));
+    check(!SRActivitySleepMetricAllowed(@"heart_rate"));
+    check(!SRActivitySleepCommandAllowed(@"startMeasurement", @{@"metric": @"heart_rate"}));
+    NSDictionary *hapticAcknowledgement = @{@"accepted": @YES, @"acknowledged": @YES};
+    check(SRActivitySleepResult(@"pulseHealthReminder", hapticAcknowledgement) == hapticAcknowledgement);
+
     NSDictionary *caps = @{@"resolved": @YES, @"metrics": @[@"steps", @"sleep", @"hrv"], @"historyMetrics": @[@"sleep", @"blood_oxygen"], @"manualMetrics": @[@"heart_rate"], @"features": @[@"camera", @"health_monitoring"], @"integratedFeatures": @[@"health_assessment", @"find_watch"], @"sportModes": @[@"walking"]};
     NSDictionary *filtered = SRActivitySleepCapabilities(caps);
     check([filtered[@"metrics"] isEqual:@[@"steps", @"sleep"]]);
