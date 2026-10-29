@@ -160,7 +160,7 @@ test('mixed data is never converted into fake history completion', () => {
   const history = bridge.slice(bridge.indexOf('NSString *historyKey'), bridge.indexOf('if (type.integerValue == DATA_TYPE_REAL_HRV_METRICS)'));
   assert.doesNotMatch(history, /\[self finishSync\]/);
   assert.match(bridge, /25 \* NSEC_PER_SEC/);
-  assert.match(bridge, /\[weakSelf finalizeSleepHistory\];\s*\[weakSelf finishSync\]/);
+  assert.match(bridge, /\[weakSelf finalizeSleepHistory\];\s*\[weakSelf publishSyncReception\];\s*\[weakSelf finishSync\]/);
   assert.match(bridge, /type.integerValue == 6 \? @\[\] : batch.rows.allValues/);
   assert.match(bridge, /if \(!\[metric isEqual:@"sleep"\]\)/);
   const sleep = bridge.slice(bridge.indexOf('- (void)finalizeSleepHistory'), bridge.indexOf('- (void)readBattery'));

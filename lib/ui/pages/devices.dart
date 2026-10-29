@@ -115,7 +115,7 @@ class DevicePage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     SizedBox(
-                      child: FilledButton.icon(
+                      child: FilledButton(
                         key: const Key('device-sync-data'),
                         onPressed:
                             connected == null ||
@@ -142,37 +142,43 @@ class DevicePage extends StatelessWidget {
                                   SnackBar(content: Text(feedback)),
                                 );
                               },
-                        icon: controller.isDeviceSyncing
-                            ? const SizedBox.square(
-                                dimension: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.sync_rounded),
-                        label: Text(
-                          controller.isDeviceSyncing
-                              ? controller.deviceSyncReceivedRecords > 0
-                                    ? '已接收 ${controller.deviceSyncReceivedRecords} 条'
-                                    : controller.deviceSyncProgress <= 0.1
-                                    ? context.l10n.readingData
-                                    : '${context.l10n.syncing} ${(controller.deviceSyncProgress * 100).round()}%'
-                              : controller.capabilities?.supportsHistorySync ==
-                                    false
-                              ? '此戒指历史同步暂未开放'
-                              : context.l10n.syncData,
-                        ),
                         style: FilledButton.styleFrom(
                           minimumSize: const Size.fromHeight(48),
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                           disabledForegroundColor: SaydianColors.muted,
-                          disabledBackgroundColor: SaydianColors.line,
+                          disabledBackgroundColor: controller.isDeviceSyncing
+                              ? SaydianColors.techBlueSoft
+                              : SaydianColors.line,
                         ),
+                        child: controller.isDeviceSyncing
+                            ? DeviceWaitStatus(
+                                connected: connected != null,
+                                receivedRecords:
+                                    controller.deviceSyncReceivedRecords,
+                                progress: controller.deviceSyncProgress,
+                              )
+                            : Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.sync_rounded),
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      controller
+                                                  .capabilities
+                                                  ?.supportsHistorySync ==
+                                              false
+                                          ? '此戒指历史同步暂未开放'
+                                          : context.l10n.syncData,
+                                    ),
+                                  ),
+                                ],
+                              ),
                       ),
                     ),
                     const SizedBox(height: 10),
                     if (connected == null)
-                      OutlinedButton.icon(
+                      OutlinedButton(
                         key: const Key('device-reconnect'),
                         onPressed:
                             controller.isDeviceSyncing ||
@@ -183,17 +189,24 @@ class DevicePage extends StatelessWidget {
                           minimumSize: const Size.fromHeight(48),
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                         ),
-                        icon: controller.isDeviceReconnecting
-                            ? const SizedBox.square(
-                                dimension: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
+                        child:
+                            controller.isDeviceReconnecting ||
+                                controller.isWearableRecovering
+                            ? DeviceWaitStatus(
+                                connected: false,
+                                connectionMessage:
+                                    controller.isDeviceReconnecting
+                                    ? '正在重连'
+                                    : '正在寻找戒指',
                               )
-                            : const Icon(Icons.bluetooth_searching_rounded),
-                        label: Text(
-                          controller.isDeviceReconnecting ? '正在重连' : '重新连接',
-                        ),
+                            : const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.bluetooth_searching_rounded),
+                                  SizedBox(width: 8),
+                                  Text('重新连接'),
+                                ],
+                              ),
                       ),
                     const SizedBox(height: 4),
                     ExpansionTile(

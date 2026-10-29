@@ -75,6 +75,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 @property(nonatomic) BOOL currentActivitySeen;
 @property(nonatomic) BOOL freshActivityInSync;
 @property(nonatomic, copy) FlutterResult pendingSync;
+@property(nonatomic) NSUInteger lastSyncReceptionCount;
 @property(nonatomic, copy) FlutterResult pendingBattery;
 @property(nonatomic) NSUInteger syncGeneration;
 @property(nonatomic) NSUInteger batteryGeneration;
@@ -843,6 +844,16 @@ static void CoolWearOnMain(dispatch_block_t block) {
     if (result) result([self syncSnapshot]);
 }
 
+- (void)publishSyncReception {
+    if (!self.pendingSync || !self.dataDeliveryReady || ![self isResolved]) return;
+    if (self.lastSyncReceptionCount == self.syncRecords.count) return;
+    self.lastSyncReceptionCount = self.syncRecords.count;
+    [self emit:@"syncRecords" payload:@{
+        @"deviceId": [@"coolwear:" stringByAppendingString:self.target.identifier.UUIDString],
+        @"receivedRecords": @(self.syncRecords.count)
+    }];
+}
+
 - (void)finalizeSleepHistory {
     [self finalizeSleepBatch:self.syncBatches[@6] syncRecords:self.syncRecords];
 }
@@ -909,6 +920,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
     if (self.pendingReminders || self.pendingControl || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) { result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return; }
     self.pendingSync = result;
+    self.lastSyncReceptionCount = NSNotFound;
     self.freshActivityInSync = NO;
     [self.syncBatches removeAllObjects]; [self.syncRecords removeAllObjects];
     [self startHistorySync:self.connectionGeneration operation:++self.syncGeneration batteryWaits:0];
@@ -942,10 +954,12 @@ static void CoolWearOnMain(dispatch_block_t block) {
     cmd.overtime = 6; cmd.repeatSendTimes = 0;
     // The vendor pushes history automatically; this ACK is never completion.
     [self.product sendCmdToDevice:cmd complete:^(NSError *error) {}];
+    [self publishSyncReception];
     __weak typeof(self) weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 25 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        if (generation == weakSelf.connectionGeneration && sync == weakSelf.syncGeneration) {
+        if (generation == weakSelf.connectionGeneration && sync == weakSelf.syncGeneration && weakSelf.pendingSync) {
             [weakSelf finalizeSleepHistory];
+            [weakSelf publishSyncReception];
             [weakSelf finishSync];
         }
     });
@@ -1190,6 +1204,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
             if ([self isResolved] && self.dataDeliveryReady) [self emitPassiveRecord:record];
             else if (self.pendingPassiveRecords.count < 16384) self.pendingPassiveRecords[record[@"id"]] = record;
         }
+        [self publishSyncReception];
         return;
     }
     // History can be pushed while metadata is still being read. Retain only
@@ -1227,9 +1242,10 @@ static void CoolWearOnMain(dispatch_block_t block) {
         }
         if ([self isResolved]) [self emit:@"capabilitiesUpdated" payload:[self capabilities]];
         if (type.integerValue == 6) [self schedulePassiveSleepHistory];
-        // A final packet may precede earlier packets. Collect the complete
-        // bounded window before evaluating each metric; never end on type 9
-        // or the first apparently complete batch.
+        [self publishSyncReception];
+        // A final packet may precede earlier packets; a short quiet interval
+        // cannot prove an earlier batch is not still on the way. Retain the
+        // full bounded window; type 9 is never completion.
         return;
     }
     if (type.integerValue == DATA_TYPE_REAL_HRV_METRICS) {

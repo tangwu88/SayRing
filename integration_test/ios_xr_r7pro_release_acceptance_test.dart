@@ -9,6 +9,7 @@ import 'package:saydian_app/app.dart';
 import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/app_controller.dart';
+import 'package:saydian_app/ui/widgets/device_wait_status.dart';
 
 /// Actual existing owner/target only. Use the preserving Profile wrapper and
 /// restore the normal main afterward. Health payloads remain private on-device.
@@ -108,10 +109,28 @@ void main() {
         await waitFor(() => !app.isDeviceSyncing, 90);
         proof['initialSyncFinished'] = !app.isDeviceSyncing;
         expect(app.isDeviceSyncing, isFalse);
+        app.selectTab(1);
+        await settle();
         final syncClock = Stopwatch()..start();
-        final complete = await app.syncDeviceData().timeout(
+        final operation = app.syncDeviceData().timeout(
           const Duration(minutes: 2),
         );
+        await settle();
+        if (app.isDeviceSyncing) {
+          final status = find.byType(DeviceWaitStatus);
+          expect(status, findsOneWidget);
+          proof['waitingAnimationVisible'] = true;
+          proof['waitingCountMatchesController'] =
+              tester.widget<DeviceWaitStatus>(status).receivedRecords ==
+              app.deviceSyncReceivedRecords;
+          await binding.takeScreenshot('xr-sync-wait-private');
+          await Future<void>.delayed(const Duration(seconds: 3));
+          await tester.pump();
+          proof['actualReceivedCountWhileWaiting'] =
+              app.deviceSyncReceivedRecords;
+          await binding.takeScreenshot('xr-sync-reception-private');
+        }
+        final complete = await operation;
         proof['manualSyncComplete'] = complete;
         proof['manualSyncSeconds'] = syncClock.elapsedMilliseconds / 1000;
         proof['syncErrorPresent'] = app.errorMessage != null;

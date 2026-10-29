@@ -258,15 +258,27 @@ void main() {
       expect(controller.reconnects, 1);
       await tester.ensureVisible(find.byKey(const Key('device-unbind')));
       await tester.tap(find.byKey(const Key('device-unbind')));
-      await tester.pumpAndSettle();
+      // Recovery remains animated after the dialog; wait for its route
+      // transition rather than expecting all Bluetooth work to become idle.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
       expect(controller.unbinds, 0);
       await tester.tap(find.text('取消'));
-      await tester.pumpAndSettle();
+      // Recovery remains animated after the dialog; wait for its route
+      // transition rather than expecting all Bluetooth work to become idle.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
       expect(controller.unbinds, 0);
       await tester.tap(find.byKey(const Key('device-unbind')));
-      await tester.pumpAndSettle();
+      // Recovery remains animated after the dialog; wait for its route
+      // transition rather than expecting all Bluetooth work to become idle.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
       await tester.tap(find.byKey(const Key('device-confirm-unbind')));
-      await tester.pumpAndSettle();
+      // Recovery remains animated after the dialog; wait for its route
+      // transition rather than expecting all Bluetooth work to become idle.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
       expect(controller.unbinds, 1);
       expect(tester.takeException(), isNull);
     },
