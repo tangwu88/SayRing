@@ -21,9 +21,10 @@ test('iOS monitoring preserves complete firmware configuration and checks a fres
 
 test('Android monitoring uses a fresh read and short payload without fabricated alarm thresholds', () => {
   const source = read('android/app/src/main/java/cc/saidian/saydian_app/QRingBridge.java');
-  const operation = source.slice(source.indexOf('private void monitoringInterval('), source.indexOf('private void setAutoSetting('));
+  const operation = source.slice(source.indexOf('private void readMonitoringSetting('), source.indexOf('private void setAutoSetting('));
+  const setting = read('android/app/src/main/java/cc/saidian/saydian_app/QRingMonitoringSetting.java');
   assert.match(operation, /HeartRateSettingReq.getReadInstance\(\)/);
-  assert.match(operation, /HeartRateSettingReq.getWriteInstance\(requestedEnabled, requested\)/);
+  assert.match(setting, /HeartRateSettingReq.getWriteInstance\(nextEnabled, nextMinutes\)/);
   assert.match(operation, /isCurrentConnection\(generation, id\)/);
   assert.match(operation, /monitoringPoisonGeneration = generation/);
   assert.doesNotMatch(source, /getWriteInstance\(enabled, 10, 10, 40, 110\)/);

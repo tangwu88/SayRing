@@ -29,6 +29,7 @@ import com.oudmon.ble.base.communication.bigData.BloodOxygenEntity;
 import com.oudmon.ble.base.communication.bigData.bean.IntervalTemperatureEntity;
 import com.oudmon.ble.base.communication.entity.BleStepDetails;
 import com.oudmon.ble.base.communication.req.BloodOxygenSettingReq;
+import com.oudmon.ble.base.communication.req.BaseReqCmd;
 import com.oudmon.ble.base.communication.req.CameraReq;
 import com.oudmon.ble.base.communication.req.DeviceSupportReq;
 import com.oudmon.ble.base.communication.req.FindDeviceReq;
@@ -41,6 +42,7 @@ import com.oudmon.ble.base.communication.req.PhoneSportReq;
 import com.oudmon.ble.base.communication.req.PressureSettingReq;
 import com.oudmon.ble.base.communication.req.SetTimeReq;
 import com.oudmon.ble.base.communication.req.SimpleKeyReq;
+import com.oudmon.ble.base.communication.req.SugarLipidsSettingReq;
 import com.oudmon.ble.base.communication.req.TimeFormatReq;
 import com.oudmon.ble.base.communication.req.TouchControlReq;
 import com.oudmon.ble.base.communication.rsp.AppSportRsp;
@@ -57,6 +59,7 @@ import com.oudmon.ble.base.communication.rsp.PressureSettingRsp;
 import com.oudmon.ble.base.communication.rsp.ReadHeartRateRsp;
 import com.oudmon.ble.base.communication.rsp.SetTimeRsp;
 import com.oudmon.ble.base.communication.rsp.StartHeartRateRsp;
+import com.oudmon.ble.base.communication.rsp.BloodSugarLipidsSettingRsp;
 import com.oudmon.ble.base.communication.rsp.TimeFormatRsp;
 import com.oudmon.ble.base.communication.rsp.TouchControlResp;
 import com.oudmon.ble.base.communication.sport.SportPlusEntity;
@@ -113,6 +116,7 @@ public final class QRingBridge
     private DeviceSupportFunctionRsp supportFlags;
     private Map<String, Object> pendingProfile;
     private String activeMeasurement;
+    private int measurementOperation;
     private String activeSportMode;
     private Integer activeSportType;
     private boolean manualResultEmitted;
@@ -120,6 +124,7 @@ public final class QRingBridge
     private Boolean autoOxygen;
     private Boolean autoStress;
     private Boolean autoHrv;
+    private Boolean autoTemperature;
     private int connectionGeneration;
     private int monitoringPoisonGeneration = -1;
     private String batteryUpdatedAt;
@@ -186,7 +191,7 @@ public final class QRingBridge
         remoteCameraEpoch++;
         if (remoteCameraKeepAlive != null) main.removeCallbacks(remoteCameraKeepAlive);
         remoteCameraKeepAlive = null;
-        if (manager != null) manager.removeOutCameraListener();
+        if (manager != null) manager.removeNotifyListener(Constants.CMD_TAKING_PICTURE);
         if (wasActive && connectedId != null) {
             Map<String, Object> event = new HashMap<>();
             event.put("deviceId", connectedId);
@@ -255,7 +260,8 @@ public final class QRingBridge
                     }
                     if (entering && epoch == remoteCameraEpoch) {
                         remoteCameraActive = true;
-                        manager.addOutCameraListener(notification -> main.post(() -> {
+                        manager.addNotifyListener(Constants.CMD_TAKING_PICTURE,
+                                (ICommandResponse<CameraNotifyRsp>) notification -> main.post(() -> {
                             if (!remoteCameraActive || epoch != remoteCameraEpoch || !isCurrentConnection(connection, id)
                                     || notification == null || notification.getStatus() != BaseRspCmd.RESULT_OK) return;
                             if (notification.getAction() == CameraNotifyRsp.ACTION_TAKE_PHOTO) {
@@ -1168,20 +1174,32 @@ public final class QRingBridge
             return;
         }
         activeMeasurement = metric;
+        measurementOperation++;
         manualResultEmitted = false;
         Map<String, Object> progress = new HashMap<>();
         progress.put("metric", metric);
-        progress.put("progress", 5);
+        // This SDK reports results/errors, not a percentage. Use an indeterminate indicator.
+        progress.put("progress", 0);
         emit("measurementProgress", progress);
         runMeasurement(metric, false);
         result.success(null);
     }
 
+    static boolean measurementFailed(StartHeartRateRsp response) {
+        return response == null || response.getStatus() != BaseRspCmd.RESULT_OK || response.getErrCode() != 0;
+    }
+
     private void runMeasurement(String metric, boolean stop) {
+        final int operation = measurementOperation, generation = connectionGeneration;
+        final String id = connectedId;
+        final String context = recoveryContext;
         ICommandResponse<StartHeartRateRsp> callback = response -> main.post(() -> {
-            if (stop || response == null || !metric.equals(activeMeasurement)) return;
-            if (response.getStatus() != BaseRspCmd.RESULT_OK) {
-                emitMeasurementError(response.getErrCode());
+            if (stop || operation != measurementOperation || !isCurrentConnection(generation, id)
+                    || !java.util.Objects.equals(context, recoveryContext)
+                    || !metric.equals(activeMeasurement)) return;
+            // The SDK forwards not-worn/error packets with status == RESULT_OK and a nonzero errCode.
+            if (measurementFailed(response)) {
+                emitMeasurementError(response == null ? -1 : response.getErrCode());
                 return;
             }
             emitManualValue(metric, response);
@@ -1260,20 +1278,25 @@ public final class QRingBridge
                 connectedId, connectedName, firmwareVersion, metric, values, unit));
         runMeasurement(metric, true);
         activeMeasurement = null;
+        measurementOperation++;
     }
 
     private void emitMeasurementError(int errorCode) {
+        String metric = activeMeasurement;
+        activeMeasurement = null;
+        measurementOperation++;
+        if (metric != null) runMeasurement(metric, true);
         Map<String, Object> value = new HashMap<>();
         value.put("code", errorCode == 3 ? "MEASUREMENT_NOT_WORN" : "MEASUREMENT_FAILED");
         value.put("message", errorCode == 3
                 ? "未检测到正确佩戴，请调整戒指后重试" : "戒指未返回有效测量结果，请保持静止后重试");
         emit("error", value);
-        activeMeasurement = null;
     }
 
     private void stopMeasurement(String metric, MethodChannel.Result result) {
-        if (metric != null) runMeasurement(metric, true);
+        if (metric != null && metric.equals(activeMeasurement)) runMeasurement(metric, true);
         activeMeasurement = null;
+        measurementOperation++;
         manualResultEmitted = false;
         result.success(null);
     }
@@ -1554,6 +1577,7 @@ public final class QRingBridge
             result.error("NOT_CONNECTED", "请先连接戒指", null);
             return;
         }
+        autoHeart = autoOxygen = autoStress = autoHrv = autoTemperature = null;
         CommandHandle.getInstance().executeReqCmd(
                 HeartRateSettingReq.getReadInstance(),
                 (ICommandResponse<HeartRateSettingRsp>) heart -> main.post(() -> {
@@ -1593,7 +1617,7 @@ public final class QRingBridge
 
     private void readAutoHrv(MethodChannel.Result result) {
         if (!supportsMetric("hrv", false)) {
-            result.success(autoSettings());
+            readAutoTemperature(result);
             return;
         }
         CommandHandle.getInstance().executeReqCmd(
@@ -1601,6 +1625,16 @@ public final class QRingBridge
                 (ICommandResponse<HRVSettingRsp>) hrv -> main.post(() -> {
                     autoHrv = hrv != null && hrv.getStatus() == BaseRspCmd.RESULT_OK
                             ? hrv.isEnable() : null;
+                    readAutoTemperature(result);
+                }));
+    }
+
+    private void readAutoTemperature(MethodChannel.Result result) {
+        if (!supportsMetric("body_temperature", false)) { result.success(autoSettings()); return; }
+        CommandHandle.getInstance().executeReqCmd(SugarLipidsSettingReq.getReadTemperatureInstance(),
+                (ICommandResponse<BloodSugarLipidsSettingRsp>) response -> main.post(() -> {
+                    QRingMonitoringSetting setting = QRingMonitoringSetting.read("bodyTemperature", response);
+                    autoTemperature = setting == null ? null : setting.enabled;
                     result.success(autoSettings());
                 }));
     }
@@ -1611,61 +1645,112 @@ public final class QRingBridge
         if (autoOxygen != null) value.put("bloodOxygen", autoOxygen);
         if (autoStress != null) value.put("stress", autoStress);
         if (autoHrv != null) value.put("hrv", autoHrv);
+        if (autoTemperature != null) value.put("bodyTemperature", autoTemperature);
         return value;
     }
 
-    // The short SDK write changes only enable/interval, preserving alarm tips.
-    // Read firmware constraints immediately before writing; never use defaults.
+    private String monitoringMetric(String type) {
+        if (type == null) return "";
+        switch (type) {
+            case "heartRate": return "heart_rate";
+            case "bloodOxygen": return "blood_oxygen";
+            case "stress": return "stress";
+            case "bodyTemperature": return "body_temperature";
+            default: return "";
+        }
+    }
+
+    private void readMonitoringSetting(String type, java.util.function.Consumer<QRingMonitoringSetting> callback) {
+        BaseReqCmd request;
+        switch (type) {
+            case "heartRate": request = HeartRateSettingReq.getReadInstance(); break;
+            case "bloodOxygen": request = BloodOxygenSettingReq.getReadInstance(); break;
+            case "stress": request = PressureSettingReq.getReadInstance(); break;
+            case "bodyTemperature": request = SugarLipidsSettingReq.getReadTemperatureInstance(); break;
+            default: callback.accept(null); return;
+        }
+        final boolean[] delivered = {false};
+        CommandHandle.getInstance().executeReqCmd(request, (ICommandResponse<BaseRspCmd>) response -> main.post(() -> {
+            if (delivered[0]) return;
+            delivered[0] = true;
+            callback.accept(QRingMonitoringSetting.read(type, response));
+        }));
+    }
+
+    private void readMonitoringIntervals(int index, Map<String, Object> values,
+            java.util.function.BooleanSupplier current, MethodChannel.Result result) {
+        if (!current.getAsBoolean()) return;
+        String[] types = {"heartRate", "bloodOxygen", "stress", "bodyTemperature"};
+        if (index == types.length) { result.success(values); return; }
+        String type = types[index];
+        if (!supportsMetric(monitoringMetric(type), false)) {
+            readMonitoringIntervals(index + 1, values, current, result); return;
+        }
+        readMonitoringSetting(type, setting -> {
+            if (!current.getAsBoolean()) return;
+            if (setting != null && setting.hasInterval()) values.put(type, setting.intervalMap());
+            readMonitoringIntervals(index + 1, values, current, result);
+        });
+    }
+
+    // Read current constraints, preserve independent intervals on toggle, then verify the write.
     private void monitoringInterval(String type, Integer minutes, Boolean enabled, MethodChannel.Result result) {
-        if (!resolved() || (minutes != null && (!"heartRate".equals(type) || minutes < 1 || minutes > 255))) {
+        if (!resolved() || (type != null && !supportsMetric(monitoringMetric(type), false))
+                || (minutes != null && (minutes < 1 || minutes > 255))) {
             result.error("QRING_FEATURE_UNVERIFIED", "此监测间隔暂不支持", null); return;
         }
         final int generation = connectionGeneration;
         final String id = connectedId;
+        final String context = recoveryContext;
         final boolean[] done = {false};
         MethodChannel.Result once = new MethodChannel.Result() {
             public void success(Object value) { if (!done[0]) { done[0] = true; result.success(value); } }
             public void error(String code, String message, Object detail) { if (!done[0]) { done[0] = true; result.error(code, message, detail); } }
             public void notImplemented() { if (!done[0]) { done[0] = true; result.notImplemented(); } }
         };
+        java.util.function.BooleanSupplier current = () -> {
+            if (done[0]) return false;
+            if (isCurrentConnection(generation, id) && java.util.Objects.equals(context, recoveryContext)) return true;
+            once.error("QRING_SESSION_CHANGED", "戒指连接已改变，请刷新设置", null);
+            return false;
+        };
         main.postDelayed(() -> {
-            if (!done[0] && isCurrentConnection(generation, id)) monitoringPoisonGeneration = generation;
+            if (done[0]) return;
+            if (isCurrentConnection(generation, id)) monitoringPoisonGeneration = generation;
             once.error("QRING_SETTING_TIMEOUT", "监测设置未确认，请重连后刷新", null);
         }, 15000);
-        CommandHandle.getInstance().executeReqCmd(HeartRateSettingReq.getReadInstance(),
-            (ICommandResponse<HeartRateSettingRsp>) heart -> main.post(() -> {
-                if (done[0]) return;
-                if (!isCurrentConnection(generation, id)) { once.error("QRING_SESSION_CHANGED", "戒指连接已改变", null); return; }
-                if (heart == null || heart.getStatus() != BaseRspCmd.RESULT_OK
-                        || heart.getStartInterval() < 1 || heart.getStartInterval() > 255
-                        || heart.getHeartInterval() < heart.getStartInterval() || heart.getHeartInterval() > 255) {
-                    if (minutes == null && enabled == null) once.success(new HashMap<>());
-                    else once.error("UNSUPPORTED", "戒指未返回有效监测间隔", null);
-                    return;
+        if (type == null) {
+            readMonitoringIntervals(0, new HashMap<>(), current, once); return;
+        }
+        readMonitoringSetting(type, before -> {
+            if (!current.getAsBoolean()) return;
+            if (before == null) {
+                once.error("UNSUPPORTED", "暂未读取到此项监测设置，请刷新后重试", null); return;
+            }
+            final BaseReqCmd request;
+            try { request = before.write(type, minutes, enabled); }
+            catch (IllegalArgumentException error) {
+                once.error("UNSUPPORTED", "请先开启监测并选择戒指允许的间隔", null); return;
+            }
+            final boolean[] acknowledged = {false};
+            CommandHandle.getInstance().executeReqCmd(request, (ICommandResponse<BaseRspCmd>) response -> main.post(() -> {
+                if (!current.getAsBoolean() || acknowledged[0]) return;
+                acknowledged[0] = true;
+                if (response == null || response.getStatus() != BaseRspCmd.RESULT_OK) {
+                    once.error("QRING_SETTING_FAILED", "监测设置未保存，请重试", null); return;
                 }
-                if (minutes == null && enabled == null) {
-                    Map<String, Object> setting = new HashMap<>();
-                    setting.put("minutes", heart.getHeartInterval());
-                    setting.put("stepMinutes", 1);
-                    setting.put("minMinutes", heart.getStartInterval());
-                    setting.put("maxMinutes", 255);
-                    setting.put("canModify", true);
-                    Map<String, Object> value = new HashMap<>(); value.put("heartRate", setting);
-                    once.success(value); return;
-                }
-                int requested = minutes == null ? heart.getHeartInterval() : minutes;
-                if (requested < heart.getStartInterval() || (minutes != null && !heart.isEnable())) {
-                    once.error("UNSUPPORTED", "请先开启监测并选择戒指允许的间隔", null); return;
-                }
-                boolean requestedEnabled = enabled == null ? heart.isEnable() : enabled;
-                CommandHandle.getInstance().executeReqCmd(HeartRateSettingReq.getWriteInstance(requestedEnabled, requested),
-                    (ICommandResponse<HeartRateSettingRsp>) response -> main.post(() -> {
-                        if (done[0]) return;
-                        if (!isCurrentConnection(generation, id)) { once.error("QRING_SESSION_CHANGED", "戒指连接已改变", null); return; }
-                        if (response != null && response.getStatus() == BaseRspCmd.RESULT_OK) once.success(null);
-                        else once.error("QRING_SETTING_FAILED", "监测设置写入失败", null);
-                    }));
+                readMonitoringSetting(type, actual -> {
+                    if (!current.getAsBoolean()) return;
+                    boolean expectedEnabled = enabled == null ? before.enabled : enabled;
+                    int expectedMinutes = minutes == null ? before.minutes : minutes;
+                    if (actual == null || actual.enabled != expectedEnabled ||
+                            (before.hasInterval() && (!actual.hasInterval() || actual.minutes != expectedMinutes))) {
+                        once.error("QRING_SETTING_UNCONFIRMED", "监测设置尚未确认，请刷新后检查", null); return;
+                    }
+                    once.success(null);
+                });
             }));
+        });
     }
 
     private void setAutoSetting(String type, Boolean enabled, MethodChannel.Result result) {
@@ -1673,26 +1758,8 @@ public final class QRingBridge
             result.error("QRING_FEATURE_UNVERIFIED", "此自动检测项目暂不支持", null);
             return;
         }
-        if ("heartRate".equals(type) && supportsMetric("heart_rate", false)) {
+        if (!monitoringMetric(type).isEmpty() && supportsMetric(monitoringMetric(type), false)) {
             monitoringInterval(type, null, enabled, result);
-        } else if ("bloodOxygen".equals(type) && supportsMetric("blood_oxygen", false)) {
-            CommandHandle.getInstance().executeReqCmd(
-                    BloodOxygenSettingReq.getWriteInstance(enabled),
-                    (ICommandResponse<BloodOxygenSettingRsp>) response -> main.post(() -> {
-                        if (response != null && response.getStatus() == BaseRspCmd.RESULT_OK) {
-                            autoOxygen = enabled;
-                            result.success(null);
-                        } else result.error("QRING_SETTING_FAILED", "自动血氧设置失败", null);
-                    }));
-        } else if ("stress".equals(type) && supportsMetric("stress", false)) {
-            CommandHandle.getInstance().executeReqCmd(
-                    PressureSettingReq.getWriteInstance(enabled),
-                    (ICommandResponse<PressureSettingRsp>) response -> main.post(() -> {
-                        if (response != null && response.getStatus() == BaseRspCmd.RESULT_OK) {
-                            autoStress = enabled;
-                            result.success(null);
-                        } else result.error("QRING_SETTING_FAILED", "自动压力设置失败", null);
-                    }));
         } else if ("hrv".equals(type) && supportsMetric("hrv", false)) {
             CommandHandle.getInstance().executeReqCmd(
                     HrvSettingReq.getWriteInstance(enabled),

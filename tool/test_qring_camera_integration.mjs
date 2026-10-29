@@ -65,7 +65,8 @@ test('QRing photo sessions confirm ACKs, keep alive and fence old shutter events
   }
   assert.match(ios, /name:OdmBandTakePictureNotification/);
   assert.match(android, /CameraNotifyRsp.ACTION_TAKE_PHOTO/);
-  assert.match(android, /manager.removeOutCameraListener\(\)/);
+  assert.match(android, /manager.addNotifyListener\(Constants.CMD_TAKING_PICTURE/);
+  assert.match(android, /manager.removeNotifyListener\(Constants.CMD_TAKING_PICTURE\)/);
   assert.match(ios, /removeObserver:self name:OdmBandTakePictureNotification/);
   const ui = read('lib/ui/prototype/device_features.dart');
   assert.match(ui, /_galleryPermissionDenied = error.code == 'PHOTO_PERMISSION_DENIED'/);

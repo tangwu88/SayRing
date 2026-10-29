@@ -15,12 +15,14 @@ class RingCameraPanel extends StatelessWidget {
     this.onRetrySave,
     this.onPhotoSettings,
     this.thumbnail,
+    this.remoteInstruction = '摇动戒指触发拍照，或轻点下方快门',
   });
   final Widget preview;
   final String message;
   final bool remoteReady, takingPhoto, saved;
   final VoidCallback? onCapture, onRetryCamera, onRetrySave, onPhotoSettings;
   final Widget? thumbnail;
+  final String remoteInstruction;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -50,7 +52,7 @@ class RingCameraPanel extends StatelessWidget {
       ),
       const SizedBox(height: 14),
       Text(
-        remoteReady ? '摇动戒指触发拍照，或轻点下方快门' : '轻点下方快门拍照',
+        remoteReady ? remoteInstruction : '轻点下方快门拍照',
         style: const TextStyle(fontSize: 12, color: SaydianColors.muted),
       ),
       const SizedBox(height: 10),
