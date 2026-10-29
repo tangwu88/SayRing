@@ -753,6 +753,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
         result([self error:@"INVALID_SETTING" message:@"查找参数无效"]); return;
     }
     if (self.probingReminders || self.pendingReminders || self.pendingControl || self.pendingFind || self.pendingSync || self.activeMetric || self.pendingMonitoringRead || self.pendingMonitoringWrite) {
+        if ([args[@"healthPulse"] isEqual:@YES]) [self connectionNote:@"haptic_device_busy" appInitiated:NO];
         result([self error:@"DEVICE_BUSY" message:@"戒指忙，请稍后重试"]); return;
     }
     self.pendingFind = result;
@@ -1698,10 +1699,13 @@ static void CoolWearOnMain(dispatch_block_t block) {
         }
         else if ([call.method isEqualToString:@"pulseHealthReminder"]) {
             NSString *expected = [args[@"expectedDeviceId"] isKindOfClass:NSString.class] ? args[@"expectedDeviceId"] : nil;
-            NSString *model = CoolWearModel(self.target.name);
+            // Use the same verified advertisement/recovery name as the
+            // handshake and capabilities. CBPeripheral.name can be nil/stale.
+            NSString *model = CoolWearModel(self.targetName);
             if (![self isResolved] || !expected.length ||
                 ![self.target.identifier.UUIDString.lowercaseString isEqual:expected.lowercaseString] ||
                 ![@[@"R7Pro", @"R7Ultra", @"HR05"] containsObject:model ?: @""] || !self.findSupported) {
+                [self connectionNote:@"haptic_target_unavailable" appInitiated:NO];
                 result([self error:@"HAPTIC_UNAVAILABLE" message:@"此戒指暂不支持振动提醒"]); return;
             }
             [self findDevice:@{@"feature": @"find_watch", @"enabled": @YES, @"healthPulse": @YES} probe:NO result:result];

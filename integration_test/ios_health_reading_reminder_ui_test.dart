@@ -174,6 +174,9 @@ void main() {
         final pulse = await app.testHealthReminderRingVibration(
           expectedOwner: owner,
         );
+        proof['ringVibrationEnabledAtAttempt'] =
+            app.readingReminderSettings.ringVibrationEnabled;
+        proof['pulseDiagnostics'] = app.connectionDiagnostics.toList();
         proof['ringPulseAccepted'] = pulse.accepted;
         proof['ringPulseAcknowledged'] = pulse.acknowledged;
         if (callBefore?.containsKey('incomingCall') == true) {
