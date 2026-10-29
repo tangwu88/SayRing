@@ -1379,6 +1379,7 @@ class AppController extends ChangeNotifier {
   ReadingReminderSettings readingReminderSettings =
       const ReadingReminderSettings();
   bool readingReminderSettingsSaving = false;
+  int _readingReminderSettingsRevision = 0;
   final ReadingReminderEngine _readingReminderEngine = ReadingReminderEngine();
   Future<bool> saveReadingReminderSettings(
     ReadingReminderSettings value, {
@@ -1613,6 +1614,7 @@ class AppController extends ChangeNotifier {
     _readingReminderEngine.reset();
     readingReminderSettings = const ReadingReminderSettings();
     readingReminderSettingsSaving = false;
+    _readingReminderSettingsRevision++;
     unawaited(
       _healthReminderNotifications
           .setOwner(value == null ? null : _activeHealthOwner)

@@ -91,6 +91,7 @@ class _Notifications implements HealthReminderNotifications {
   String? owner;
   HealthReminderNotificationOpen? opened;
   final cancelled = <String>[];
+  final shown = <String>[];
   @override
   Future<void> setOwner(String? owner) async {
     this.owner = owner;
@@ -103,8 +104,12 @@ class _Notifications implements HealthReminderNotifications {
       ? ReminderNotificationPermission.granted
       : ReminderNotificationPermission.denied;
   @override
-  Future<bool> show({required String owner, required String eventId}) async =>
-      owner == this.owner;
+  Future<bool> show({required String owner, required String eventId}) async {
+    if (owner != this.owner) return false;
+    shown.add(eventId);
+    return true;
+  }
+
   @override
   Future<void> cancel(String eventId) async {
     cancelled.add(eventId);
@@ -115,6 +120,20 @@ class _Notifications implements HealthReminderNotifications {
     final result = opened;
     opened = null;
     return result;
+  }
+}
+
+class _DelayedAlertStore extends MemoryHealthStore {
+  final started = Completer<void>();
+  final release = Completer<void>();
+  @override
+  Future<void> saveHealthWarningAlert(HealthWarningAlert alert) async {
+    final saved = super.saveHealthWarningAlert(alert);
+    if (alert.reminder?.ruleVersion == 'personal-reading-v1') {
+      if (!started.isCompleted) started.complete();
+      await release.future;
+    }
+    await saved;
   }
 }
 
@@ -156,6 +175,95 @@ Future<void> _pump(WidgetTester tester, Widget widget) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final scenario in ['settings', 'lease', 'target']) {
+    test(
+      'slow local writes cannot present a stale reminder after $scenario changes',
+      () async {
+        final store = _DelayedAlertStore();
+        final ring = _LiveWearable();
+        final notifications = _Notifications();
+        const metrics = {HealthMetric.heartRate, HealthMetric.bloodOxygen};
+        final read = ReadOnlyHealthFeatures()
+          ..replace(metrics, const Duration(minutes: 5));
+        final manual = ManualHealthFeatures()
+          ..replace(metrics, const Duration(minutes: 5));
+        final controller = await _controller(
+          store: store,
+          wearable: ring,
+          notifications: notifications,
+          policy: WellnessReleasePolicy(
+            enabled: true,
+            readOnlyFeatures: read,
+            manualFeatures: manual,
+          ),
+        );
+        addTearDown(controller.dispose);
+        addTearDown(ring.records.close);
+        await controller.connectDevice(_LiveWearable.device);
+        await _settleEvents();
+        final owner = controller.homeHealthCardOwner;
+        const enabled = ReadingReminderSettings(highEnabled: true);
+        expect(
+          await controller.saveReadingReminderSettings(
+            enabled,
+            expectedOwner: owner,
+          ),
+          isTrue,
+        );
+        expect(
+          await controller.startMeasurement(HealthMetric.heartRate),
+          isTrue,
+        );
+        ring.records.add(
+          WearableEvent(
+            type: 'healthRecord',
+            payload: HealthRecord(
+              id: 'slow-storage',
+              metric: HealthMetric.heartRate,
+              values: const {'value': 140},
+              unit: 'bpm',
+              measuredAt: DateTime.now().toUtc(),
+              timezone: '+00:00',
+              deviceId: _LiveWearable.device.id,
+              firmwareVersion: 'test-only',
+              quality: 'device_reported',
+              source: MeasurementSource.wearable,
+              origin: MeasurementOrigin.appMeasurement,
+              rawVersion: 2,
+            ).toJson(),
+          ),
+        );
+        await store.started.future;
+        if (scenario == 'settings') {
+          // Changing off and back on must still invalidate the pending observation.
+          expect(
+            await controller.saveReadingReminderSettings(
+              const ReadingReminderSettings(),
+              expectedOwner: owner,
+            ),
+            isTrue,
+          );
+          expect(
+            await controller.saveReadingReminderSettings(
+              enabled,
+              expectedOwner: owner,
+            ),
+            isTrue,
+          );
+        } else if (scenario == 'lease') {
+          manual.replace({}, const Duration(minutes: 5));
+        } else {
+          await controller.disconnectDevice();
+        }
+        store.release.complete();
+        await _settleEvents();
+        expect(controller.activeHealthWarningAlert, isNull);
+        expect(notifications.shown, isEmpty);
+        expect(controller.healthReminderEvents.single.reminder?.reading, 140);
+      },
+    );
+  }
 
   test(
     'personal settings persist per owner and stale page cannot alter the next account',

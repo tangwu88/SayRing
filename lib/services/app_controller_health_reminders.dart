@@ -18,6 +18,7 @@ extension HealthReminderController on AppController {
     }
     if (!_isCurrentSessionGeneration(generation)) return;
     readingReminderSettings = value;
+    _readingReminderSettingsRevision++;
     _readingReminderEngine.reset();
   }
 
@@ -42,6 +43,7 @@ extension HealthReminderController on AppController {
         return false;
       }
       readingReminderSettings = value;
+      _readingReminderSettingsRevision++;
       _readingReminderEngine.reset();
       return true;
     } catch (_) {
@@ -77,6 +79,17 @@ extension HealthReminderController on AppController {
       return;
     }
     final unit = candidate.metric == HealthMetric.bloodOxygen ? '%' : 'bpm';
+    final settingsRevision = _readingReminderSettingsRevision;
+    bool canPresent() =>
+        _isCurrentSessionGeneration(generation) &&
+        canSaveHealthReminder &&
+        connectedDevice?.id == device.id &&
+        settingsRevision == _readingReminderSettingsRevision &&
+        isMetricAvailableInRelease(record.metric) &&
+        (!isWellnessOnly ||
+            healthReleasePolicy.allowsManualMeasurement(record.metric)) &&
+        DateTime.now().toUtc().difference(record.measuredAt) <=
+            const Duration(seconds: 90);
     final event = HealthWarningAlert(
       id: candidate.id,
       metric: candidate.metric,
@@ -88,8 +101,7 @@ extension HealthReminderController on AppController {
       reminder: candidate.details,
     );
     unawaited(() async {
-      if (!await _saveReminderEvent(event, generation) ||
-          !_isCurrentSessionGeneration(generation)) {
+      if (!await _saveReminderEvent(event, generation) || !canPresent()) {
         return;
       }
       activeHealthWarningAlert = event;
