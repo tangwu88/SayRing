@@ -731,7 +731,15 @@ static void CoolWearOnMain(dispatch_block_t block) {
                 return;
             }
             weakSelf.findSupported = error == nil;
+            BOOL uncertainPulseStop = weakSelf.findReminderPulse && !enabled && error != nil;
+            BOOL cancellationWaiting = weakSelf.pendingPulseCancellation != nil;
             [weakSelf finishFind:error ? [weakSelf error:@"COOLWEAR_FIND_FAILED" message:@"查找指令未确认，请重试"] : nil];
+            if (uncertainPulseStop && !cancellationWaiting) {
+                [weakSelf connectionNote:@"haptic_stop_unconfirmed" appInitiated:YES];
+                [weakSelf beginCancellation:nil];
+                [weakSelf emit:@"disconnected" payload:@{}];
+                [weakSelf scheduleRecovery];
+            }
             [weakSelf emit:@"capabilitiesUpdated" payload:[weakSelf capabilities]];
         });
     }];
