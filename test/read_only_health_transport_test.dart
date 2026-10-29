@@ -142,6 +142,47 @@ void main() {
   );
 
   test(
+    'QRing failed history keeps received activity and cannot claim completion',
+    () async {
+      const channel = MethodChannel('synthetic-qring-partial-history');
+      final record = HealthRecord(
+        id: 'synthetic-activity-before-failure',
+        metric: HealthMetric.steps,
+        values: const {'value': 12},
+        unit: '步',
+        measuredAt: DateTime.utc(2026, 10, 29),
+        timezone: '+08:00',
+        deviceId: 'qring:SYNTHETIC',
+        firmwareVersion: 'synthetic',
+        quality: 'unknown',
+        source: MeasurementSource.wearable,
+        rawVersion: 2,
+      );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            channel,
+            (call) async => {
+              'records': [record.toJson()],
+              'statuses': {'steps': 'failed', 'sleep': 'no_data'},
+            },
+          );
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+      final bridge = QRingWearableBridge(
+        methods: channel,
+        healthReleasePolicy: const WellnessReleasePolicy(enabled: false),
+      );
+      final result = await bridge.syncHealthData() as WearableSyncResult;
+      expect(result.single.id, record.id);
+      expect(result.complete, isFalse);
+      expect(result.partial, isTrue);
+      expect(result.statuses['sleep'], 'no_data');
+    },
+  );
+
+  test(
     'QRing supports strict leases and both old and per-metric sync formats',
     () async {
       const channel = MethodChannel('synthetic-read-only-qring');

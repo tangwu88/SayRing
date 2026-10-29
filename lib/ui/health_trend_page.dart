@@ -604,11 +604,20 @@ class _HealthTrendPageState extends State<HealthTrendPage> {
                               Expanded(
                                 child: OutlinedButton.icon(
                                   onPressed: _pickDate,
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 12,
+                                    ),
+                                  ),
                                   icon: const Icon(
                                     Icons.calendar_month_outlined,
                                     size: 18,
                                   ),
-                                  label: Text(rangeLabel),
+                                  label: Text(
+                                    rangeLabel,
+                                    textAlign: TextAlign.center,
+                                  ),
                                 ),
                               ),
                               IconButton(

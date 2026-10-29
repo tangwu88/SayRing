@@ -90,6 +90,7 @@ public final class QRingBridge
     private final Handler main = new Handler(Looper.getMainLooper());
     private final LinkedHashMap<String, Map<String, Object>> scanned = new LinkedHashMap<>();
     private final LinkedHashMap<String, Map<String, Object>> syncRecords = new LinkedHashMap<>();
+    private final QRingHistoryReadState historyReads = new QRingHistoryReadState();
     private EventChannel.EventSink sink;
     private BleOperateManager manager;
     private QCBluetoothCallbackCloneReceiver receiver;
@@ -1289,7 +1290,15 @@ public final class QRingBridge
         }
         pendingSync = result;
         syncRecords.clear();
-        syncDeadline = () -> failPendingSync("SYNC_TIMEOUT", "戒指数据同步超时，请重试");
+        List<String> metrics = new ArrayList<>();
+        metrics.add("steps");
+        for (String metric : new String[]{"sleep", "heart_rate", "blood_oxygen", "stress", "hrv", "body_temperature"}) {
+            if (supportsMetric(metric, false)) metrics.add(metric);
+        }
+        historyReads.begin(metrics, 7);
+        syncDeadline = () -> {
+            if (pendingSync == result) failPendingSync("SYNC_TIMEOUT", "戒指数据同步超时，请重试");
+        };
         main.postDelayed(syncDeadline, SYNC_MS);
         syncDay(0, 0);
     }
@@ -1307,9 +1316,9 @@ public final class QRingBridge
         emit("syncProgress", progress);
         switch (phase) {
             case 0:
-                manager.getStepDetail(day, callback(
-                        values -> collect(QRingRecordMapper.stepRecords(
-                                connectedId, connectedName, firmwareVersion, day, values)),
+                manager.getStepDetail(day, callback("steps",
+                        values -> QRingRecordMapper.stepRecords(
+                                connectedId, connectedName, firmwareVersion, day, values),
                         () -> syncDay(day, 1)));
                 break;
             case 1:
@@ -1317,6 +1326,7 @@ public final class QRingBridge
                 final MethodChannel.Result sleepSync = pendingSync;
                 final String sleepDeviceId = connectedId;
                 final int sleepConnectionGeneration = connectionGeneration;
+                final QRingHistoryReadState.Ticket sleepRead = historyReads.open("sleep");
                 final QRingRecordMapper.SleepRequestDay sleepRequestDay = QRingRecordMapper.sleepRequestDay(day);
                 manager.getSleep(day, new BleOperateManager.HealthDataCallback<SleepDisplay>() {
                     @Override public void onSuccess(SleepDisplay value) {
@@ -1325,6 +1335,8 @@ public final class QRingBridge
                             Map<String, Object> timeline = QRingRecordMapper.sleepTimelineForSuccessfulRead(
                                     sleepDeviceId, sleepRequestDay, value);
                             boolean complete = QRingRecordMapper.sleepTimelineIsComplete(timeline);
+                            if (!historyReads.accept(sleepRead, complete,
+                                    complete && QRingRecordMapper.sleepTimelineHasData(timeline))) return;
                             Map<String, Object> status = new HashMap<>();
                             status.put("deviceId", "qring:" + sleepDeviceId);
                             status.put("sdkDate", sleepRequestDay.sdkDate);
@@ -1342,6 +1354,7 @@ public final class QRingBridge
                     @Override public void onError(int code, String message) {
                         main.post(() -> {
                             if (pendingSync != sleepSync || !isCurrentConnection(sleepConnectionGeneration, sleepDeviceId)) return;
+                            if (!historyReads.accept(sleepRead, false, false)) return;
                             Map<String, Object> status = new HashMap<>();
                             status.put("deviceId", "qring:" + sleepDeviceId);
                             status.put("sdkDate", sleepRequestDay.sdkDate);
@@ -1354,37 +1367,37 @@ public final class QRingBridge
                 break;
             case 2:
                 if (!supportsMetric("heart_rate", false)) { syncDay(day, 3); return; }
-                manager.getHeartRate(day, callback(
-                        value -> collect(QRingRecordMapper.heartRecords(
-                                connectedId, connectedName, firmwareVersion, day, value)),
+                manager.getHeartRate(day, callback("heart_rate",
+                        value -> QRingRecordMapper.heartRecords(
+                                connectedId, connectedName, firmwareVersion, day, value),
                         () -> syncDay(day, 3)));
                 break;
             case 3:
                 if (!supportsMetric("blood_oxygen", false)) { syncDay(day, 4); return; }
-                manager.getBloodOxygen(day, callback(
-                        value -> collect(QRingRecordMapper.oxygenRecords(
-                                connectedId, connectedName, firmwareVersion, day, value)),
+                manager.getBloodOxygen(day, callback("blood_oxygen",
+                        value -> QRingRecordMapper.oxygenRecords(
+                                connectedId, connectedName, firmwareVersion, day, value),
                         () -> syncDay(day, 4)));
                 break;
             case 4:
                 if (!supportsMetric("stress", false)) { syncDay(day, 5); return; }
-                manager.getPressure(day, callback(
-                        value -> collect(QRingRecordMapper.stressRecords(
-                                connectedId, connectedName, firmwareVersion, day, value)),
+                manager.getPressure(day, callback("stress",
+                        value -> QRingRecordMapper.stressRecords(
+                                connectedId, connectedName, firmwareVersion, day, value),
                         () -> syncDay(day, 5)));
                 break;
             case 5:
                 if (!supportsMetric("hrv", false)) { syncDay(day, 6); return; }
-                manager.getHrv(day, callback(
-                        value -> collect(QRingRecordMapper.hrvRecords(
-                                connectedId, connectedName, firmwareVersion, day, value)),
+                manager.getHrv(day, callback("hrv",
+                        value -> QRingRecordMapper.hrvRecords(
+                                connectedId, connectedName, firmwareVersion, day, value),
                         () -> syncDay(day, 6)));
                 break;
             case 6:
                 if (!supportsMetric("body_temperature", false)) { syncDay(day + 1, 0); return; }
-                manager.getTemperature(day, callback(
-                        value -> collect(QRingRecordMapper.temperatureRecords(
-                                connectedId, connectedName, firmwareVersion, day, value)),
+                manager.getTemperature(day, callback("body_temperature",
+                        value -> QRingRecordMapper.temperatureRecords(
+                                connectedId, connectedName, firmwareVersion, day, value),
                         () -> syncDay(day + 1, 0)));
                 break;
             default:
@@ -1392,22 +1405,30 @@ public final class QRingBridge
         }
     }
 
-    private interface ValueConsumer<T> { void accept(T value); }
+    private interface RecordMapper<T> { List<Map<String, Object>> map(T value); }
 
     private <T> BleOperateManager.HealthDataCallback<T> callback(
-            ValueConsumer<T> consumer, Runnable next) {
+            String metric, RecordMapper<T> mapper, Runnable next) {
+        final MethodChannel.Result request = pendingSync;
+        final int requestConnection = connectionGeneration;
+        final String requestDevice = connectedId;
+        final QRingHistoryReadState.Ticket ticket = historyReads.open(metric);
         return new BleOperateManager.HealthDataCallback<T>() {
             @Override public void onSuccess(T value) {
                 main.post(() -> {
-                    if (pendingSync == null) return;
-                    consumer.accept(value);
+                    if (pendingSync != request || !isCurrentConnection(requestConnection, requestDevice)) return;
+                    // Null is not an explicit empty history response.
+                    List<Map<String, Object>> records = value == null ? null : mapper.map(value);
+                    if (!historyReads.accept(ticket, records != null, records != null && !records.isEmpty())) return;
+                    collect(records);
                     next.run();
                 });
             }
 
             @Override public void onError(int code, String message) {
                 main.post(() -> {
-                    if (pendingSync != null) next.run();
+                    if (pendingSync != request || !isCurrentConnection(requestConnection, requestDevice)) return;
+                    if (historyReads.accept(ticket, false, false)) next.run();
                 });
             }
         };
@@ -1427,7 +1448,11 @@ public final class QRingBridge
         if (pendingSync == null) return;
         MethodChannel.Result result = pendingSync;
         pendingSync = null;
-        result.success(new ArrayList<>(syncRecords.values()));
+        Map<String, Object> response = new HashMap<>();
+        response.put("records", new ArrayList<>(syncRecords.values()));
+        response.put("statuses", historyReads.statuses());
+        historyReads.cancel();
+        result.success(response);
     }
 
     private void failPendingSync(String code, String message) {
@@ -1436,6 +1461,7 @@ public final class QRingBridge
         if (pendingSync == null) return;
         MethodChannel.Result result = pendingSync;
         pendingSync = null;
+        historyReads.cancel();
         result.error(code, message, null);
     }
 
