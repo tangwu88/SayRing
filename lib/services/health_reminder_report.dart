@@ -1,4 +1,5 @@
 import '../domain/models.dart';
+import '../domain/health_reminder.dart';
 
 /// Local, user-selected export. Unknown symptom state is not 'no symptoms'.
 String buildHealthReminderCsv(HealthWarningAlert event) {
@@ -12,7 +13,14 @@ String buildHealthReminderCsv(HealthWarningAlert event) {
     ],
     ['测量时间', reminder?.measuredAt?.toUtc().toIso8601String() ?? '未记录'],
     ['来源', reminder?.deviceName ?? event.origin.label],
-    if (reminder?.reading != null) ['心率（bpm）', '${reminder!.reading}'],
+    if (reminder?.reading != null)
+      [
+        reminder!.kind == HealthReminderKind.lowBloodOxygen
+            ? '血氧（%）'
+            : '心率（bpm）',
+        '${reminder.reading}',
+      ],
+    if (reminder?.threshold != null) ['设定阈值', '${reminder!.threshold}'],
     ['说明', event.message],
     ['规则版本', reminder?.ruleVersion ?? '未提供'],
     [

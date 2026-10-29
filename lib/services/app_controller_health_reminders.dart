@@ -1,6 +1,118 @@
 part of 'app_controller.dart';
 
 extension HealthReminderController on AppController {
+  Future<void> _loadReadingReminderSettings(int generation) async {
+    var value = const ReadingReminderSettings();
+    final store = _healthStore;
+    try {
+      if (store is ReadingReminderSettingsStore) {
+        value =
+            ReadingReminderSettings.parse(
+              await (store as ReadingReminderSettingsStore)
+                  .readReadingReminderSettings(),
+            ) ??
+            value;
+      }
+    } catch (_) {
+      /* Failed configuration reads keep all reminders disabled. */
+    }
+    if (!_isCurrentSessionGeneration(generation)) return;
+    readingReminderSettings = value;
+    _readingReminderEngine.reset();
+  }
+
+  Future<bool> _saveReadingReminderSettings(
+    ReadingReminderSettings value,
+    String expectedOwner,
+  ) async {
+    if (!value.valid ||
+        expectedOwner != homeHealthCardOwner ||
+        !canSaveHealthReminder ||
+        readingReminderSettingsSaving ||
+        _healthStore is! ReadingReminderSettingsStore) {
+      return false;
+    }
+    final generation = _sessionGeneration;
+    readingReminderSettingsSaving = true;
+    _notifyHealthReminderListeners();
+    try {
+      await (_healthStore as ReadingReminderSettingsStore)
+          .saveReadingReminderSettings(jsonEncode(value.toJson()));
+      if (!_isCurrentSessionGeneration(generation) || !canSaveHealthReminder) {
+        return false;
+      }
+      readingReminderSettings = value;
+      _readingReminderEngine.reset();
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      if (_isCurrentSessionGeneration(generation)) {
+        readingReminderSettingsSaving = false;
+        _notifyHealthReminderListeners();
+      }
+    }
+  }
+
+  void _observePersonalReading(HealthRecord record, int generation, bool live) {
+    final device = connectedDevice;
+    if (device == null ||
+        !canSaveHealthReminder ||
+        !_isCurrentSessionGeneration(generation) ||
+        !isMetricAvailableInRelease(record.metric) ||
+        (isWellnessOnly &&
+            !healthReleasePolicy.allowsManualMeasurement(record.metric))) {
+      return;
+    }
+    final candidate = _readingReminderEngine.observe(
+      record: record,
+      device: device,
+      owner: _healthOwnerFor(session),
+      settings: readingReminderSettings,
+      now: DateTime.now().toUtc(),
+      live: live,
+    );
+    if (candidate == null ||
+        healthWarningAlerts.any((e) => e.id == candidate.id)) {
+      return;
+    }
+    final unit = candidate.metric == HealthMetric.bloodOxygen ? '%' : 'bpm';
+    final event = HealthWarningAlert(
+      id: candidate.id,
+      metric: candidate.metric,
+      title: candidate.details.kind.label,
+      message:
+          '本次测量 ${candidate.details.reading!.toStringAsFixed(0)} $unit 超出设定范围，请静坐并复测。',
+      triggeredAt: record.measuredAt,
+      origin: record.origin,
+      reminder: candidate.details,
+    );
+    unawaited(() async {
+      if (!await _saveReminderEvent(event, generation) ||
+          !_isCurrentSessionGeneration(generation)) {
+        return;
+      }
+      activeHealthWarningAlert = event;
+      _notifyHealthReminderListeners();
+      try {
+        final owner = _healthOwnerFor(session);
+        final requested = await _healthReminderNotifications.show(
+          owner: owner,
+          eventId: event.id,
+        );
+        if (requested && _isCurrentSessionGeneration(generation)) {
+          await updateHealthReminderAction(
+            event.id,
+            expectedOwner: owner,
+            notificationRequested: true,
+          );
+        }
+      } catch (_) {
+        /* Local alert remains usable when the system cannot notify. */
+      }
+    }());
+  }
+
   bool get _canSaveHealthReminder =>
       isAuthenticated &&
       !isPreviewMode &&
@@ -189,6 +301,7 @@ extension HealthReminderController on AppController {
     required int expectedGeneration,
     required bool live,
   }) {
+    _observePersonalReading(record, expectedGeneration, live);
     if (!_isCurrentSessionGeneration(expectedGeneration) ||
         !automaticHealthRemindersAvailable ||
         !canSaveHealthReminder) {

@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:saydian_app/domain/health_reminder.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/reading_reminder.dart';
 import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -51,6 +53,46 @@ HealthWarningAlert _event({bool legacy = false}) => HealthWarningAlert(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
+
+  test(
+    'queued numeric settings retain owner, survive restart and preserve legacy records',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'sayring-reading-settings-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final file = path.join(directory.path, 'health.db');
+      var store = _store(file);
+      addTearDown(() => store.close());
+      await store.initialize();
+      await store.switchOwner('account-a');
+      await store.saveHealthWarningAlert(_event(legacy: true));
+      const settings = ReadingReminderSettings(
+        highEnabled: true,
+        high: 135,
+        oxygen: 94,
+      );
+      final save = store.saveReadingReminderSettings(
+        jsonEncode(settings.toJson()),
+      );
+      final change = store.switchOwner('account-b');
+      await Future.wait([save, change]);
+      expect(await store.readReadingReminderSettings(), isNull);
+      await store.close();
+      store = _store(file);
+      await store.initialize();
+      await store.switchOwner('account-a');
+      final restored = ReadingReminderSettings.parse(
+        await store.readReadingReminderSettings(),
+      );
+      expect(restored?.fingerprint, settings.fingerprint);
+      expect((await store.healthWarningAlerts()).single.id, 'legacy');
+      expect(await store.pending(), isEmpty);
+      await store.switchOwner('account-b');
+      expect(await store.readReadingReminderSettings(), isNull);
+      expect(await store.healthWarningAlerts(), isEmpty);
+    },
+  );
 
   test(
     'SQL round-trip, restart and delete keep owner and legacy data intact',

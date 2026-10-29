@@ -1,6 +1,7 @@
 enum HealthReminderKind {
   highHeartRate('high_heart_rate', '心率偏高提醒'),
   lowHeartRate('low_heart_rate', '心率偏低提醒'),
+  lowBloodOxygen('low_blood_oxygen', '血氧偏低提醒'),
   symptoms('symptoms', '不适记录');
 
   const HealthReminderKind(this.wireName, this.label);
@@ -28,6 +29,7 @@ final class HealthReminderDetails {
     this.measuredAt,
     this.deviceName,
     this.reading,
+    this.threshold,
     this.sampleIds = const [],
     this.symptoms = const {},
     this.acknowledgedAt,
@@ -41,6 +43,7 @@ final class HealthReminderDetails {
   final DateTime? measuredAt;
   final String? deviceName;
   final double? reading;
+  final double? threshold;
   final List<String> sampleIds;
   final Set<HealthReminderSymptom> symptoms;
   final DateTime? acknowledgedAt;
@@ -58,6 +61,7 @@ final class HealthReminderDetails {
     measuredAt: measuredAt,
     deviceName: deviceName,
     reading: reading,
+    threshold: threshold,
     sampleIds: sampleIds,
     symptoms: symptoms,
     acknowledgedAt: acknowledgedAt ?? this.acknowledgedAt,
@@ -74,6 +78,7 @@ final class HealthReminderDetails {
     if (measuredAt != null) 'measuredAt': measuredAt!.toUtc().toIso8601String(),
     if (deviceName != null) 'deviceName': deviceName,
     if (reading != null) 'reading': reading,
+    if (threshold != null) 'threshold': threshold,
     'sampleIds': sampleIds,
     'symptoms': symptoms.map((value) => value.wireName).toList(),
     if (acknowledgedAt != null)
@@ -107,6 +112,10 @@ final class HealthReminderDetails {
           ? value['deviceName'] as String
           : null,
       reading: reading is num && reading.isFinite ? reading.toDouble() : null,
+      threshold:
+          value['threshold'] is num && (value['threshold'] as num).isFinite
+          ? (value['threshold'] as num).toDouble()
+          : null,
       sampleIds: sampleIds is List
           ? List.unmodifiable(sampleIds.whereType<String>())
           : const [],

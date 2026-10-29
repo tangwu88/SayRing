@@ -18,6 +18,9 @@ import 'ui/pages.dart';
 import 'ui/prototype_pages.dart';
 import 'ui/global_code_login_page.dart';
 import 'ui/review_demo_page.dart';
+import 'ui/health_reminder_center.dart';
+import 'ui/reading_reminder_widgets.dart';
+import 'domain/reading_reminder.dart';
 
 class DismissKeyboardOnBackgroundTap extends StatefulWidget {
   const DismissKeyboardOnBackgroundTap({required this.child, super.key});
@@ -523,10 +526,60 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
                 builder: (context, _) {
                   final alert = controller.activeHealthWarningAlert;
                   final careAlert = controller.activeCareInvitationAlert;
+                  final owner = controller.homeHealthCardOwner;
+                  void dismissReading() {
+                    if (alert == null ||
+                        controller.homeHealthCardOwner != owner ||
+                        controller.activeHealthWarningAlert?.id != alert.id) {
+                      return;
+                    }
+                    unawaited(
+                      controller.updateHealthReminderAction(
+                        alert.id,
+                        expectedOwner: owner,
+                        acknowledged: true,
+                      ),
+                    );
+                    controller.dismissHealthWarningAlert();
+                  }
+
                   return Stack(
                     children: [
                       child ?? const SizedBox.shrink(),
-                      if (alert != null)
+                      if (alert != null &&
+                          isPersonalReadingReminder(alert.reminder) &&
+                          alert.reminder?.reading != null)
+                        Positioned.fill(
+                          child: ReadingReminderAlertView(
+                            kind: alert.reminder!.kind,
+                            reading: alert.reminder!.reading!,
+                            measuredAt: alert.reminder!.measuredAt,
+                            onDismiss: dismissReading,
+                            onHelp: () {
+                              dismissReading();
+                              _navigatorKey.currentState?.push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => EmergencyHelpPage(),
+                                ),
+                              );
+                            },
+                            onDetails: () {
+                              if (controller.homeHealthCardOwner != owner) {
+                                return;
+                              }
+                              dismissReading();
+                              _navigatorKey.currentState?.push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => HealthReminderDetailPage(
+                                    controller: controller,
+                                    eventId: alert.id,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        )
+                      else if (alert != null)
                         Positioned(
                           left: 12,
                           right: 12,

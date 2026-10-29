@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/health_reminder.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/reading_reminder.dart';
+import 'package:saydian_app/domain/read_only_health_features.dart';
+import 'package:saydian_app/domain/wellness_release_policy.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
@@ -45,6 +48,45 @@ class _Wearable extends Fake implements WearableBridge {
   Stream<WearableEvent> get events => const Stream.empty();
 }
 
+class _LiveWearable extends _Wearable {
+  static const device = DeviceInfo(
+    id: 'coolwear:synthetic-ring',
+    name: 'R7 Pro',
+    firmwareVersion: 'test-only',
+  );
+  final records = StreamController<WearableEvent>.broadcast();
+  @override
+  Stream<WearableEvent> get events => records.stream;
+  @override
+  Future<void> connect(
+    String deviceId, {
+    required WearableUserProfile profile,
+  }) async {}
+  @override
+  Future<void> disconnect() async {}
+  @override
+  Future<void> stopScan() async {}
+  @override
+  Future<DeviceCapabilities> getCapabilities() async =>
+      const DeviceCapabilities(
+        metrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
+        manualMetrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
+        supportsHistorySync: false,
+      );
+  @override
+  Future<void> startMeasurement(HealthMetric metric) async {}
+  @override
+  Future<void> stopMeasurement(HealthMetric metric) async {}
+  @override
+  Future<List<SportRecord>> readSportRecords() async => const [];
+}
+
+Future<void> _settleEvents() async {
+  for (var i = 0; i < 20; i++) {
+    await Future<void>.delayed(Duration.zero);
+  }
+}
+
 class _Notifications implements HealthReminderNotifications {
   String? owner;
   HealthReminderNotificationOpen? opened;
@@ -81,6 +123,8 @@ Future<AppController> _controller({
   _Notifications? notifications,
   bool iosScope = true,
   bool signedIn = true,
+  WearableBridge? wearable,
+  WellnessReleasePolicy? policy,
 }) async {
   final vault = MemorySessionVault()..legacyHealthMigrationHandled = true;
   if (signedIn) vault.session = _session('100');
@@ -88,8 +132,9 @@ Future<AppController> _controller({
     vault,
     _Api(),
     store ?? MemoryHealthStore(),
-    _Wearable(),
+    wearable ?? _Wearable(),
     wellnessOnly: iosScope,
+    healthReadPolicy: policy,
     healthReminderNotifications: notifications,
   );
   await result.initialize();
@@ -111,6 +156,175 @@ Future<void> _pump(WidgetTester tester, Widget widget) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'personal settings persist per owner and stale page cannot alter the next account',
+    () async {
+      final controller = await _controller();
+      addTearDown(controller.dispose);
+      final owner = controller.homeHealthCardOwner;
+      const settings = ReadingReminderSettings(
+        highEnabled: true,
+        lowEnabled: true,
+        oxygenEnabled: true,
+        high: 130,
+        low: 45,
+        oxygen: 94,
+      );
+      expect(
+        await controller.saveReadingReminderSettings(
+          settings,
+          expectedOwner: owner,
+        ),
+        isTrue,
+      );
+      expect(controller.healthAlertsAvailable, isFalse);
+      expect(controller.automaticHealthRemindersAvailable, isFalse);
+      expect(await controller.login('200', 'synthetic-test-only'), isTrue);
+      expect(controller.readingReminderSettings.enabled, isFalse);
+      expect(
+        await controller.saveReadingReminderSettings(
+          settings,
+          expectedOwner: owner,
+        ),
+        isFalse,
+      );
+      expect(await controller.login('100', 'synthetic-test-only'), isTrue);
+      expect(
+        controller.readingReminderSettings.fingerprint,
+        settings.fingerprint,
+      );
+    },
+  );
+
+  test(
+    'fresh completed measurement creates personal alert; history, revocation and account changes do not',
+    () async {
+      const metrics = {HealthMetric.heartRate, HealthMetric.bloodOxygen};
+      final read = ReadOnlyHealthFeatures()
+        ..replace(metrics, const Duration(minutes: 5));
+      final manual = ManualHealthFeatures()
+        ..replace(metrics, const Duration(minutes: 5));
+      final ring = _LiveWearable();
+      final notifications = _Notifications();
+      final controller = await _controller(
+        wearable: ring,
+        notifications: notifications,
+        policy: WellnessReleasePolicy(
+          enabled: true,
+          readOnlyFeatures: read,
+          manualFeatures: manual,
+        ),
+      );
+      addTearDown(controller.dispose);
+      addTearDown(ring.records.close);
+      await controller.connectDevice(_LiveWearable.device);
+      await _settleEvents();
+      expect(controller.connectedDevice?.id, _LiveWearable.device.id);
+      expect(
+        await controller.saveReadingReminderSettings(
+          const ReadingReminderSettings(highEnabled: true, oxygenEnabled: true),
+          expectedOwner: controller.homeHealthCardOwner,
+        ),
+        isTrue,
+      );
+      void emit(
+        String id,
+        HealthMetric metric,
+        double value,
+        MeasurementOrigin origin,
+      ) {
+        ring.records.add(
+          WearableEvent(
+            type: 'healthRecord',
+            payload: HealthRecord(
+              id: id,
+              metric: metric,
+              values: {'value': value},
+              unit: metric == HealthMetric.bloodOxygen ? '%' : 'bpm',
+              measuredAt: DateTime.now().toUtc(),
+              timezone: '+00:00',
+              deviceId: _LiveWearable.device.id,
+              firmwareVersion: 'test-only',
+              quality: 'device_reported',
+              source: MeasurementSource.wearable,
+              origin: origin,
+              rawVersion: 2,
+            ).toJson(),
+          ),
+        );
+      }
+
+      emit(
+        'history',
+        HealthMetric.heartRate,
+        140,
+        MeasurementOrigin.watchHistory,
+      );
+      await _settleEvents();
+      expect(controller.activeHealthWarningAlert, isNull);
+      expect(controller.healthReminderEvents, isEmpty);
+      expect(await controller.startMeasurement(HealthMetric.heartRate), isTrue);
+      emit(
+        'completed-high',
+        HealthMetric.heartRate,
+        140,
+        MeasurementOrigin.appMeasurement,
+      );
+      await _settleEvents();
+      expect(
+        controller.activeHealthWarningAlert?.reminder?.kind,
+        HealthReminderKind.highHeartRate,
+      );
+      expect(controller.healthReminderEvents.single.reminder?.threshold, 120);
+      controller.dismissHealthWarningAlert();
+      expect(
+        await controller.startMeasurement(HealthMetric.bloodOxygen),
+        isTrue,
+      );
+      emit(
+        'completed-oxygen',
+        HealthMetric.bloodOxygen,
+        91,
+        MeasurementOrigin.appMeasurement,
+      );
+      await _settleEvents();
+      final event = controller.activeHealthWarningAlert!;
+      expect(event.metric, HealthMetric.bloodOxygen);
+      expect(event.reminder?.kind, HealthReminderKind.lowBloodOxygen);
+      final csv = controller.healthReminderCsv(
+        event.id,
+        expectedOwner: controller.homeHealthCardOwner,
+      )!;
+      expect(csv, contains('血氧（%）'));
+      expect(csv, isNot(contains('心率（bpm）')));
+      controller.dismissHealthWarningAlert();
+      manual.replace({}, const Duration(minutes: 5));
+      expect(
+        await controller.startMeasurement(HealthMetric.heartRate),
+        isFalse,
+      );
+      emit(
+        'revoked',
+        HealthMetric.heartRate,
+        140,
+        MeasurementOrigin.appMeasurement,
+      );
+      await _settleEvents();
+      expect(controller.activeHealthWarningAlert, isNull);
+      expect(controller.healthReminderEvents, hasLength(2));
+      expect(await controller.login('200', 'synthetic-test-only'), isTrue);
+      emit(
+        'old-owner-late',
+        HealthMetric.heartRate,
+        140,
+        MeasurementOrigin.appMeasurement,
+      );
+      await _settleEvents();
+      expect(controller.healthReminderEvents, isEmpty);
+      expect(controller.activeHealthWarningAlert, isNull);
+    },
+  );
 
   test('new metadata round-trips without modifying a legacy record', () {
     final legacy = HealthWarningAlert(
@@ -137,6 +351,59 @@ void main() {
     expect(restored.reminder!.reading, isNull);
     expect(restored.message, legacy.message);
   });
+
+  for (final scale in [1.0, 2.0]) {
+    testWidgets(
+      'numeric controls, custom value and preview preserve records at 332dp scale $scale',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(332, 740));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        tester.platformDispatcher.textScaleFactorTestValue = scale;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        final controller = (await tester.runAsync(_controller))!;
+        addTearDown(controller.dispose);
+        await _pump(tester, HealthReminderCenterPage(controller: controller));
+        final enabled = find.byKey(
+          const Key('reading-reminder-high_heart_rate-enabled'),
+        );
+        await tester.ensureVisible(enabled);
+        await tester.tap(enabled);
+        await tester.pumpAndSettle();
+        expect(controller.readingReminderSettings.highEnabled, isTrue);
+        final limit = find.byKey(
+          const Key('reading-reminder-high_heart_rate-limit'),
+        );
+        await tester.ensureVisible(limit);
+        await tester.tap(limit);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('提高阈值'));
+        await tester.pumpAndSettle();
+        final save = find.byKey(const Key('reading-limit-save'));
+        await tester.ensureVisible(save);
+        await tester.tap(save);
+        await tester.pumpAndSettle();
+        expect(controller.readingReminderSettings.high, 121);
+        final preview = find.byKey(const Key('reading-reminder-preview'));
+        await tester.ensureVisible(preview);
+        await tester.pumpAndSettle();
+        await tester.tap(preview);
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(
+          find.byKey(const Key('reading-reminder-preview-label')),
+          findsOneWidget,
+        );
+        expect(controller.healthReminderEvents, isEmpty);
+        expect(controller.activeHealthWarningAlert, isNull);
+        final close = find.byKey(const Key('dismiss-health-warning'));
+        await tester.ensureVisible(close);
+        await tester.tap(close);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('global-reading-reminder')), findsNothing);
+        expect(controller.healthReminderEvents, isEmpty);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   test('malformed metadata is not silently promoted into an event', () {
     expect(
