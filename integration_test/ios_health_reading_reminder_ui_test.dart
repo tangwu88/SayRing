@@ -16,7 +16,10 @@ import 'package:saydian_app/ui/health_reminder_center.dart';
 /// fabricating a health reading, event, notification or sensor command.
 void main() => registerReadingReminderUiAcceptance();
 
-void registerReadingReminderUiAcceptance({String requiredModel = ''}) {
+void registerReadingReminderUiAcceptance({
+  String requiredModel = '',
+  bool requireVibration = true,
+}) {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
   testWidgets(
@@ -114,7 +117,8 @@ void registerReadingReminderUiAcceptance({String requiredModel = ''}) {
           var i = 0;
           i < 90 &&
               (app.isDeviceSyncing ||
-                  !app.healthReminderRingVibrationAvailable);
+                  (requireVibration &&
+                      !app.healthReminderRingVibrationAvailable));
           i++
         ) {
           await Future<void>.delayed(const Duration(seconds: 1));
@@ -123,7 +127,9 @@ void registerReadingReminderUiAcceptance({String requiredModel = ''}) {
         proof['ringVibrationAvailable'] =
             app.healthReminderRingVibrationAvailable;
         expect(app.connectedDevice?.id, target);
-        expect(app.healthReminderRingVibrationAvailable, isTrue);
+        if (requireVibration) {
+          expect(app.healthReminderRingVibrationAvailable, isTrue);
+        }
         final beforePulseEvents = app.healthReminderEvents
             .map((e) => e.id)
             .toSet();
@@ -132,6 +138,8 @@ void registerReadingReminderUiAcceptance({String requiredModel = ''}) {
             .toSet();
         final vibrationBeforePreview =
             app.readingReminderSettings.ringVibrationEnabled;
+        final previewShouldVibrate =
+            vibrationBeforePreview && app.healthReminderRingVibrationAvailable;
         proof['ringVibrationEnabledAtAttempt'] = vibrationBeforePreview;
         Map<String, Object?>? callBefore;
         if (app.availabilityFor(DeviceFeature.callReminder).isReady) {
@@ -172,7 +180,7 @@ void registerReadingReminderUiAcceptance({String requiredModel = ''}) {
             findsOneWidget,
           );
           expect(app.activeHealthWarningAlert, isNull);
-          if (scale == 1 && vibrationBeforePreview) {
+          if (scale == 1 && previewShouldVibrate) {
             final status = find.byKey(
               const Key('reading-preview-vibration-status'),
             );
@@ -281,7 +289,7 @@ void registerReadingReminderUiAcceptance({String requiredModel = ''}) {
               'No intentional disconnection or reconnect in the stationary window',
         );
         debugPrint('XR HEALTH: stationary R7 connection window completed');
-        if (vibrationBeforePreview) {
+        if (previewShouldVibrate) {
           expect(pulse.accepted, isTrue);
           expect(pulse.acknowledged, isTrue);
         }
