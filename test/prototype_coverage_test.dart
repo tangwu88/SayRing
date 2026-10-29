@@ -15,6 +15,7 @@ import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/app_update_gate_scope.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
+import 'package:saydian_app/ui/health_reminder_center.dart';
 
 import 'support/dart_library_source.dart';
 
@@ -446,6 +447,200 @@ void main() {
     );
   }
 
+  testWidgets(
+    'home sedentary entry uses the existing device values and preserves other reminders',
+    (tester) async {
+      final wearable = _FeatureWearable(includeDrinking: true);
+      final controller = AppController(
+        MemorySessionVault(),
+        _CoverageApi(),
+        MemoryHealthStore(),
+        wearable,
+      )..isBooting = false;
+      addTearDown(controller.dispose);
+      await controller.connectDevice(
+        const DeviceInfo(id: 'veepoo:WATCH:01', name: 'Test Watch'),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('zh'),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: HealthReminderCenterPage(controller: controller),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final entry = find.byKey(const Key('health-reminder-sedentary'));
+      await tester.scrollUntilVisible(
+        entry,
+        220,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(entry.hitTestable());
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('ring-reminder-item-sedentary')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('ring-reminder-item-drinking')),
+        findsNothing,
+      );
+      expect(wearable.reminderWrites, isEmpty);
+      await tester.tap(find.byKey(const Key('ring-reminder-item-sedentary')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ring-reminder-interval')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('180 分钟').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ring-reminder-save')));
+      await tester.pumpAndSettle();
+      expect(wearable.reminderWrites, hasLength(1));
+      expect(wearable.reminderWrites.single, containsPair('id', 'sedentary'));
+      expect(
+        wearable.reminderWrites.single,
+        containsPair('intervalMinutes', 180),
+      );
+      expect(wearable.reminderWrites.single, containsPair('startMinutes', 480));
+      expect(wearable.reminderWrites.single, containsPair('endMinutes', 1320));
+      expect(wearable.reminderWrites.single, containsPair('weekRepeat', 37));
+      expect(
+        wearable.reminderWrites.single,
+        containsPair('snapshotRevision', 'synthetic-reminder-revision'),
+      );
+      expect(find.textContaining('每 180 分钟'), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      final other = find.byKey(
+        const Key('health-reminder-other-ring-settings'),
+      );
+      await tester.ensureVisible(other);
+      await tester.pumpAndSettle();
+      await tester.tap(other.hitTestable());
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('ring-reminder-item-sedentary')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('ring-reminder-item-drinking')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('每 90 分钟'), findsOneWidget);
+      expect(wearable.reminderWrites, hasLength(1));
+    },
+  );
+
+  testWidgets('device health reminder shortcut opens the shared home centre', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _CoverageApi(),
+      MemoryHealthStore(),
+      _FeatureWearable(),
+    )..isBooting = false;
+    addTearDown(controller.dispose);
+    await controller.connectDevice(
+      const DeviceInfo(id: 'veepoo:WATCH:01', name: 'Test Watch'),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: DevicePage(controller: controller)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final shortcut = find.byKey(const Key('device-feature-health_reminders'));
+    await tester.scrollUntilVisible(
+      shortcut,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await Scrollable.ensureVisible(tester.element(shortcut), alignment: .5);
+    await tester.pumpAndSettle();
+    await tester.tap(shortcut.hitTestable());
+    await tester.pumpAndSettle();
+    expect(find.byType(HealthReminderCenterPage), findsOneWidget);
+    expect(find.byType(DeviceFeaturePage), findsNothing);
+  });
+
+  testWidgets(
+    'sedentary editor is scrollable with large text and rejects a changed target',
+    (tester) async {
+      final wearable = _FeatureWearable(includeDrinking: true);
+      final controller = AppController(
+        MemorySessionVault(),
+        _CoverageApi(),
+        MemoryHealthStore(),
+        wearable,
+      )..isBooting = false;
+      addTearDown(controller.dispose);
+      await controller.connectDevice(
+        const DeviceInfo(id: 'veepoo:WATCH:01', name: 'Test Watch'),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: DeviceFeaturePage(
+            controller: controller,
+            feature: DeviceFeature.healthReminders,
+            reminderView: RingReminderView.sedentary,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('ring-reminder-item-sedentary')));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('ring-reminder-editor')),
+          matching: find.byType(SingleChildScrollView),
+        ),
+        findsWidgets,
+      );
+      expect(tester.takeException(), isNull);
+      controller.connectedDevice = const DeviceInfo(
+        id: 'veepoo:WATCH:02',
+        name: 'Other Watch',
+      );
+      controller.notifyListeners();
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('ring-reminder-save')));
+      await tester.pumpAndSettle();
+      expect(wearable.reminderWrites, isEmpty);
+      expect(find.text('连接已改变，请重新打开设置'), findsOneWidget);
+    },
+  );
+
+  testWidgets('sedentary setup stays disabled without a real ring connection', (
+    tester,
+  ) async {
+    final controller = _controller();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: HealthReminderCenterPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final entry = find.byKey(const Key('health-reminder-sedentary'));
+    await tester.scrollUntilVisible(
+      entry,
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(tester.widget<ListTile>(entry).onTap, isNull);
+    expect(find.text('连接戒指后设置'), findsOneWidget);
+  });
+
   testWidgets('feature page defers device reads until after its first frame', (
     tester,
   ) async {
@@ -739,9 +934,15 @@ class _CoverageWearable extends Fake implements WearableBridge {
 }
 
 class _FeatureWearable extends Fake implements WearableBridge {
-  _FeatureWearable({this.healthReminderInterval = 60});
+  _FeatureWearable({
+    this.healthReminderInterval = 60,
+    this.includeDrinking = false,
+  });
 
   final int healthReminderInterval;
+  final bool includeDrinking;
+  final reminderWrites = <Map<String, Object?>>[];
+  Map<String, Object?>? _sedentary;
   final List<bool> findActionStates = [];
 
   @override
@@ -792,15 +993,27 @@ class _FeatureWearable extends Fake implements WearableBridge {
         DeviceFeature.weather => {'enabled': true, 'useCelsius': true},
         DeviceFeature.worldClock => {'items': <Object?>[]},
         DeviceFeature.healthReminders => {
+          'snapshotRevision': 'synthetic-reminder-revision',
           'items': [
-            {
-              'id': 'sedentary',
-              'label': '久坐提醒',
-              'enabled': true,
-              'startMinutes': 480,
-              'endMinutes': 1320,
-              'intervalMinutes': healthReminderInterval,
-            },
+            _sedentary ??
+                {
+                  'id': 'sedentary',
+                  'label': '久坐提醒',
+                  'enabled': true,
+                  'startMinutes': 480,
+                  'endMinutes': 1320,
+                  'intervalMinutes': healthReminderInterval,
+                  'weekRepeat': 37,
+                },
+            if (includeDrinking)
+              {
+                'id': 'drinking',
+                'label': '饮水提醒',
+                'enabled': true,
+                'startMinutes': 540,
+                'endMinutes': 1260,
+                'intervalMinutes': 90,
+              },
           ],
         },
         DeviceFeature.healthAssessment => {
@@ -815,7 +1028,12 @@ class _FeatureWearable extends Fake implements WearableBridge {
   Future<void> writeDeviceFeature(
     DeviceFeature feature,
     Map<String, Object?> values,
-  ) async {}
+  ) async {
+    if (feature == DeviceFeature.healthReminders) {
+      reminderWrites.add(Map.of(values));
+      if (values['id'] == 'sedentary') _sedentary = Map.of(values);
+    }
+  }
 
   @override
   Future<void> triggerDeviceAction(

@@ -552,6 +552,15 @@ class DevicePage extends StatelessWidget {
   }
 
   void _openDeviceFeature(BuildContext context, DeviceFeature feature) {
+    if (feature == DeviceFeature.healthReminders) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: 'health-reminder-center'),
+          builder: (_) => HealthReminderCenterPage(controller: controller),
+        ),
+      );
+      return;
+    }
     if (feature == DeviceFeature.healthMonitoring) {
       Navigator.of(context).push(
         MaterialPageRoute<void>(

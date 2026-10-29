@@ -1,14 +1,18 @@
 part of '../prototype_pages.dart';
 
+enum RingReminderView { all, sedentary, other }
+
 class DeviceFeaturePage extends StatefulWidget {
   const DeviceFeaturePage({
     required this.controller,
     required this.feature,
+    this.reminderView = RingReminderView.all,
     super.key,
   });
 
   final AppController controller;
   final DeviceFeature feature;
+  final RingReminderView reminderView;
 
   @override
   State<DeviceFeaturePage> createState() => _DeviceFeaturePageState();
@@ -51,6 +55,20 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   late String _featureContext;
   String get _currentFeatureContext =>
       '${widget.controller.session?.accountKey}|${widget.controller.isLocalMode}|${widget.controller.connectedDevice?.id}|${widget.controller.availabilityFor(widget.feature).isReady}';
+
+  bool get _filteredRingReminders =>
+      widget.feature == DeviceFeature.healthReminders &&
+      widget.reminderView != RingReminderView.all;
+
+  String _pageTitle(BuildContext context) {
+    if (!_filteredRingReminders) {
+      return context.l10n.deviceFeatureName(widget.feature);
+    }
+    final zh = Localizations.localeOf(context).languageCode == 'zh';
+    return widget.reminderView == RingReminderView.sedentary
+        ? (zh ? '久坐提醒' : 'Sedentary reminder')
+        : (zh ? '其他日常提醒' : 'Other daily reminders');
+  }
 
   @override
   void initState() {
@@ -658,14 +676,13 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           widget.feature,
         );
         return Scaffold(
-          appBar: AppBar(
-            title: Text(context.l10n.deviceFeatureName(widget.feature)),
-          ),
+          appBar: AppBar(title: Text(_pageTitle(context))),
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
               if ((widget.feature != DeviceFeature.gestureControl &&
-                      widget.feature != DeviceFeature.camera) ||
+                      widget.feature != DeviceFeature.camera &&
+                      !_filteredRingReminders) ||
                   !availability.isReady) ...[
                 _DeviceFeatureHeader(
                   feature: widget.feature,
@@ -2104,7 +2121,15 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
 
   Widget _buildHealthRemindersPanel(bool busy) {
     if (_featureData.isEmpty) return _loadingCard(busy, '健康提醒');
-    final reminders = _items;
+    final reminders = _items
+        .where(
+          (item) => switch (widget.reminderView) {
+            RingReminderView.all => true,
+            RingReminderView.sedentary => item['id'] == 'sedentary',
+            RingReminderView.other => item['id'] != 'sedentary',
+          },
+        )
+        .toList(growable: false);
     return Card(
       child: reminders.isEmpty
           ? const Padding(
@@ -2115,6 +2140,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               children: [
                 for (var index = 0; index < reminders.length; index++) ...[
                   ListTile(
+                    key: ValueKey(
+                      'ring-reminder-item-${reminders[index]['id']}',
+                    ),
                     onTap: busy
                         ? null
                         : () => _showReminderEditor(reminders[index]),
@@ -2126,6 +2154,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                       '${reminders[index]['canEditInterval'] == false ? '' : '，每 ${(reminders[index]['intervalMinutes'] as num?)?.toInt() ?? 60} 分钟'}',
                     ),
                     trailing: Switch(
+                      key: ValueKey(
+                        'ring-reminder-toggle-${reminders[index]['id']}',
+                      ),
                       value: reminders[index]['enabled'] == true,
                       onChanged: busy
                           ? null
@@ -2143,6 +2174,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }
 
   Future<void> _showReminderEditor(Map<String, Object?> reminder) async {
+    final originalContext = _currentFeatureContext;
     var startMinutes = (reminder['startMinutes'] as num?)?.toInt() ?? 480;
     var endMinutes = (reminder['endMinutes'] as num?)?.toInt() ?? 1320;
     final reportedInterval =
@@ -2173,66 +2205,71 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          key: const Key('ring-reminder-editor'),
           title: Text('${reminder['label'] ?? '健康提醒'}'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(context.l10n.startTime),
-                trailing: Text(_minutesLabel(startMinutes)),
-                onTap: () async {
-                  final time = await showTimePicker(
-                    context: dialogContext,
-                    initialTime: TimeOfDay(
-                      hour: startMinutes ~/ 60,
-                      minute: startMinutes % 60,
-                    ),
-                  );
-                  if (time != null) {
-                    setDialogState(
-                      () => startMinutes = time.hour * 60 + time.minute,
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(context.l10n.startTime),
+                  trailing: Text(_minutesLabel(startMinutes)),
+                  onTap: () async {
+                    final time = await showTimePicker(
+                      context: dialogContext,
+                      initialTime: TimeOfDay(
+                        hour: startMinutes ~/ 60,
+                        minute: startMinutes % 60,
+                      ),
                     );
-                  }
-                },
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(context.l10n.endTime),
-                trailing: Text(_minutesLabel(endMinutes)),
-                onTap: () async {
-                  final time = await showTimePicker(
-                    context: dialogContext,
-                    initialTime: TimeOfDay(
-                      hour: endMinutes ~/ 60,
-                      minute: endMinutes % 60,
-                    ),
-                  );
-                  if (time != null) {
-                    setDialogState(
-                      () => endMinutes = time.hour * 60 + time.minute,
-                    );
-                  }
-                },
-              ),
-              if (reminder['canEditInterval'] != false)
-                DropdownButtonFormField<int>(
-                  initialValue: interval,
-                  decoration: InputDecoration(
-                    labelText: context.l10n.reminderInterval,
-                  ),
-                  items: intervalOptions
-                      .map(
-                        (minutes) => DropdownMenuItem(
-                          value: minutes,
-                          child: Text('$minutes 分钟'),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) =>
-                      setDialogState(() => interval = value ?? interval),
+                    if (time != null) {
+                      setDialogState(
+                        () => startMinutes = time.hour * 60 + time.minute,
+                      );
+                    }
+                  },
                 ),
-            ],
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(context.l10n.endTime),
+                  trailing: Text(_minutesLabel(endMinutes)),
+                  onTap: () async {
+                    final time = await showTimePicker(
+                      context: dialogContext,
+                      initialTime: TimeOfDay(
+                        hour: endMinutes ~/ 60,
+                        minute: endMinutes % 60,
+                      ),
+                    );
+                    if (time != null) {
+                      setDialogState(
+                        () => endMinutes = time.hour * 60 + time.minute,
+                      );
+                    }
+                  },
+                ),
+                if (reminder['canEditInterval'] != false)
+                  DropdownButtonFormField<int>(
+                    key: const Key('ring-reminder-interval'),
+                    isExpanded: true,
+                    initialValue: interval,
+                    decoration: InputDecoration(
+                      labelText: context.l10n.reminderInterval,
+                    ),
+                    items: intervalOptions
+                        .map(
+                          (minutes) => DropdownMenuItem(
+                            value: minutes,
+                            child: Text('$minutes 分钟'),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) =>
+                        setDialogState(() => interval = value ?? interval),
+                  ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -2240,6 +2277,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
               child: Text(context.l10n.cancel),
             ),
             FilledButton(
+              key: const Key('ring-reminder-save'),
               onPressed: () => Navigator.pop(dialogContext, <String, Object?>{
                 ...reminder,
                 'startMinutes': startMinutes,
@@ -2252,7 +2290,14 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         ),
       ),
     );
-    if (values != null) await _saveFeature(values, '健康提醒已保存');
+    if (values == null || !mounted) return;
+    if (originalContext != _currentFeatureContext) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('连接已改变，请重新打开设置')));
+      return;
+    }
+    await _saveFeature(values, '健康提醒已保存');
   }
 
   Widget _buildHealthAssessmentPanel(bool busy) {

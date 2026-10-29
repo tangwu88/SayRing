@@ -8,11 +8,13 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../domain/health_reminder.dart';
+import '../domain/feature_models.dart';
 import '../l10n/global_locale_controller.dart';
 import '../services/app_controller.dart';
 import '../services/health_reminder_notifications.dart';
 import 'app_theme.dart';
 import 'reading_reminder_widgets.dart';
+import 'prototype_pages.dart' show DeviceFeaturePage, RingReminderView;
 
 String _copy(BuildContext context, String zh, String en) =>
     Localizations.localeOf(context).languageCode == 'zh' ? zh : en;
@@ -361,6 +363,55 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
     ),
   );
 
+  Widget _ringReminderSettings() {
+    final controller = widget.controller;
+    final available =
+        controller.connectedDevice != null &&
+        controller.availabilityFor(DeviceFeature.healthReminders).isReady;
+    final hint = controller.connectedDevice == null
+        ? _copy(context, '连接戒指后设置', 'Connect a ring to set up')
+        : _copy(context, '当前戒指暂不可设置', 'Unavailable on this ring');
+    void open(RingReminderView view) => Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: RouteSettings(name: 'health-reminder-ring-${view.name}'),
+        builder: (_) => DeviceFeaturePage(
+          controller: controller,
+          feature: DeviceFeature.healthReminders,
+          reminderView: view,
+        ),
+      ),
+    );
+    return Card(
+      key: const Key('health-reminder-ring-settings'),
+      child: Column(
+        children: [
+          ListTile(
+            key: const Key('health-reminder-sedentary'),
+            enabled: available,
+            leading: const Icon(Icons.airline_seat_recline_normal_rounded),
+            title: Text(_copy(context, '久坐提醒', 'Sedentary reminder')),
+            subtitle: Text(
+              available
+                  ? _copy(context, '时段与间隔', 'Schedule and interval')
+                  : hint,
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: available ? () => open(RingReminderView.sedentary) : null,
+          ),
+          const Divider(height: 1, indent: 56),
+          ListTile(
+            key: const Key('health-reminder-other-ring-settings'),
+            enabled: available,
+            leading: const Icon(Icons.event_available_outlined),
+            title: Text(_copy(context, '其他日常提醒', 'Other daily reminders')),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: available ? () => open(RingReminderView.other) : null,
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
@@ -382,6 +433,8 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
               ),
             ),
           ),
+          const SizedBox(height: 12),
+          _ringReminderSettings(),
           TextButton.icon(
             key: const Key('health-reminder-notification-permission'),
             onPressed: () async {

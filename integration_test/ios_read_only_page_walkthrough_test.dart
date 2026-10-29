@@ -11,6 +11,7 @@ import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/ui/pages.dart';
 import 'package:saydian_app/ui/health_reports_page.dart';
+import 'package:saydian_app/ui/health_reminder_center.dart';
 import 'package:saydian_app/ui/prototype_pages.dart';
 
 void main() {
@@ -199,11 +200,26 @@ void main() {
         // This run is explicitly authorized to select another scanned ring.
         // Require an existing binding so QA cannot trigger first-member reset.
         expect(controller.rememberedDevice, isNotNull);
+        const requested = String.fromEnvironment('SAYRING_QA_RING_NAME');
+        String normalized(String value) =>
+            value.toUpperCase().replaceAll(RegExp(r'[\s_-]+'), '');
+        bool matches(DeviceInfo? device) =>
+            device != null &&
+            (requested.isEmpty ||
+                normalized(device.name).contains(normalized(requested)));
         bool ready() =>
             controller.connectedDevice != null &&
+            matches(controller.connectedDevice) &&
             controller.deviceCapabilityState == DeviceCapabilityState.ready;
         final attempts = <Map<String, Object?>>[];
-        if (!ready()) {
+        if (controller.connectedDevice != null &&
+            !matches(controller.connectedDevice)) {
+          await controller.disconnectDevice().timeout(
+            const Duration(seconds: 35),
+          );
+          expect(controller.rememberedDevice, isNotNull);
+        }
+        if (!ready() && matches(controller.rememberedDevice)) {
           try {
             await controller.reconnectDevice().timeout(
               const Duration(seconds: 35),
@@ -219,10 +235,12 @@ void main() {
           await controller.scanDevices().timeout(const Duration(seconds: 45));
           final candidates = controller.scannedDevices
               .where(
-                (d) => {
-                  WearableSdkSource.qring,
-                  WearableSdkSource.coolwear,
-                }.contains(d.sdkSource),
+                (d) =>
+                    matches(d) &&
+                    {
+                      WearableSdkSource.qring,
+                      WearableSdkSource.coolwear,
+                    }.contains(d.sdkSource),
               )
               .toList();
           proof['scanRingCount'] = candidates.length;
@@ -245,6 +263,8 @@ void main() {
         }
         proof['connectionAttempts'] = attempts;
         proof['connected'] = ready();
+        proof['requestedModelMatched'] =
+            requested.isEmpty || matches(controller.connectedDevice);
         proof['connectedSdk'] = controller.connectedDevice?.sdkSource.name;
         proof['ownerUnchanged'] =
             controller.session?.accountKey == originalOwner;
@@ -252,6 +272,13 @@ void main() {
             controller.connectedDevice?.battery?.updatedAt != null;
         await checkpoint();
         await record('真实连接检查');
+        if (requested.isNotEmpty) {
+          expect(
+            ready(),
+            isTrue,
+            reason: 'Only the explicitly requested ring may continue',
+          );
+        }
         for (var i = 0; i < 90 && controller.isDeviceSyncing; i++) {
           await settle();
         }
@@ -488,7 +515,12 @@ void main() {
           await settle();
           await tester.tap(tile.hitTestable());
           await settle();
-          expect(find.byType(DeviceFeaturePage), findsOneWidget);
+          expect(
+            feature == DeviceFeature.healthReminders
+                ? find.byType(HealthReminderCenterPage)
+                : find.byType(DeviceFeaturePage),
+            findsOneWidget,
+          );
           expect(tester.takeException(), isNull);
           await record('${feature.label}设置页（不改原设置）');
           await tester.binding.handlePopRoute();

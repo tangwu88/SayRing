@@ -9,11 +9,14 @@ import 'package:saydian_app/app.dart';
 import 'package:saydian_app/domain/reading_reminder.dart';
 import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/services/app_controller.dart';
+import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/ui/health_reminder_center.dart';
 
 /// Existing account only. Exercise configuration and labelled preview without
 /// fabricating a health reading, event, notification or sensor command.
-void main() {
+void main() => registerReadingReminderUiAcceptance();
+
+void registerReadingReminderUiAcceptance({String requiredModel = ''}) {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
   testWidgets(
@@ -53,7 +56,9 @@ void main() {
             .toUpperCase()
             .replaceAll(RegExp(r'[\s_-]+'), '');
         expect(
-          model.contains('R7PRO') || model.contains('HR05'),
+          requiredModel.isEmpty
+              ? model.contains('R7PRO') || model.contains('HR05')
+              : model.contains(requiredModel),
           isTrue,
           reason: 'Only the existing R7 Pro/HR05 target',
         );
@@ -105,7 +110,48 @@ void main() {
           before < 200 ? before + 1 : before - 1,
         );
         proof['customThresholdSaved'] = true;
+        for (
+          var i = 0;
+          i < 90 &&
+              (app.isDeviceSyncing ||
+                  !app.healthReminderRingVibrationAvailable);
+          i++
+        ) {
+          await Future<void>.delayed(const Duration(seconds: 1));
+          await tester.pump().timeout(const Duration(seconds: 15));
+        }
+        proof['ringVibrationAvailable'] =
+            app.healthReminderRingVibrationAvailable;
+        expect(app.connectedDevice?.id, target);
+        expect(app.healthReminderRingVibrationAvailable, isTrue);
+        final beforePulseEvents = app.healthReminderEvents
+            .map((e) => e.id)
+            .toSet();
+        final inboxBeforePulse = app.notificationInboxEvents
+            .map((e) => e.eventId)
+            .toSet();
+        final vibrationBeforePreview =
+            app.readingReminderSettings.ringVibrationEnabled;
+        proof['ringVibrationEnabledAtAttempt'] = vibrationBeforePreview;
+        Map<String, Object?>? callBefore;
+        if (app.availabilityFor(DeviceFeature.callReminder).isReady) {
+          callBefore = await app.readDeviceFeature(DeviceFeature.callReminder);
+        }
+        var pulse = const RingReminderHapticResult();
         for (final scale in [1.0, 2.0]) {
+          if (scale == 2) {
+            // Only the first explicit preview requests a pulse. The large-text
+            // visual check is muted even if the first action was unconfirmed.
+            expect(
+              await app.saveReadingReminderSettings(
+                app.readingReminderSettings.copyWith(
+                  ringVibrationEnabled: false,
+                ),
+                expectedOwner: owner,
+              ),
+              isTrue,
+            );
+          }
           tester.platformDispatcher.textScaleFactorTestValue = scale;
           await settle();
           tester
@@ -126,6 +172,22 @@ void main() {
             findsOneWidget,
           );
           expect(app.activeHealthWarningAlert, isNull);
+          if (scale == 1 && vibrationBeforePreview) {
+            final status = find.byKey(
+              const Key('reading-preview-vibration-status'),
+            );
+            expect(status, findsOneWidget);
+            pulse = await tester
+                .widget<FutureBuilder<RingReminderHapticResult>>(status)
+                .future!
+                .timeout(const Duration(seconds: 35));
+            proof['pulseFromPreview'] = true;
+          } else {
+            expect(
+              find.byKey(const Key('reading-preview-vibration-status')),
+              findsNothing,
+            );
+          }
           expect(
             app.healthReminderEvents.map((e) => e.id).toSet(),
             originalEvents,
@@ -147,35 +209,15 @@ void main() {
         proof['normalAndLargeTextPreviewClosed'] = true;
         tester.platformDispatcher.clearTextScaleFactorTestValue();
         await settle();
-        for (
-          var i = 0;
-          i < 90 &&
-              (app.isDeviceSyncing ||
-                  !app.healthReminderRingVibrationAvailable);
-          i++
-        ) {
-          await Future<void>.delayed(const Duration(seconds: 1));
-          await tester.pump().timeout(const Duration(seconds: 15));
-        }
-        proof['ringVibrationAvailable'] =
-            app.healthReminderRingVibrationAvailable;
-        expect(app.connectedDevice?.id, target);
-        expect(app.healthReminderRingVibrationAvailable, isTrue);
-        final beforePulseEvents = app.healthReminderEvents
-            .map((e) => e.id)
-            .toSet();
-        final inboxBeforePulse = app.notificationInboxEvents
-            .map((e) => e.eventId)
-            .toSet();
-        Map<String, Object?>? callBefore;
-        if (app.availabilityFor(DeviceFeature.callReminder).isReady) {
-          callBefore = await app.readDeviceFeature(DeviceFeature.callReminder);
-        }
-        final pulse = await app.testHealthReminderRingVibration(
-          expectedOwner: owner,
+        expect(
+          await app.saveReadingReminderSettings(
+            app.readingReminderSettings.copyWith(
+              ringVibrationEnabled: vibrationBeforePreview,
+            ),
+            expectedOwner: owner,
+          ),
+          isTrue,
         );
-        proof['ringVibrationEnabledAtAttempt'] =
-            app.readingReminderSettings.ringVibrationEnabled;
         proof['pulseDiagnostics'] = app.connectionDiagnostics.toList();
         proof['ringPulseAccepted'] = pulse.accepted;
         proof['ringPulseAcknowledged'] = pulse.acknowledged;
@@ -239,8 +281,10 @@ void main() {
               'No intentional disconnection or reconnect in the stationary window',
         );
         debugPrint('XR HEALTH: stationary R7 connection window completed');
-        expect(pulse.accepted, isTrue);
-        expect(pulse.acknowledged, isTrue);
+        if (vibrationBeforePreview) {
+          expect(pulse.accepted, isTrue);
+          expect(pulse.acknowledged, isTrue);
+        }
         proof['noFakeReadingOrEvents'] = app.healthReminderEvents
             .map((e) => e.id)
             .toSet()

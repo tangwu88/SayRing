@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../domain/health_reminder.dart';
 import '../domain/reading_reminder.dart';
 import '../services/app_controller.dart';
+import '../services/wearable_bridge.dart';
 import 'app_theme.dart';
 
 String _copy(BuildContext context, String zh, String en) =>
@@ -40,6 +41,7 @@ class ReadingReminderAlertView extends StatefulWidget {
     this.onDetails,
     this.preview = false,
     this.measuredAt,
+    this.previewVibration,
   });
   final HealthReminderKind kind;
   final double reading;
@@ -48,6 +50,7 @@ class ReadingReminderAlertView extends StatefulWidget {
   final VoidCallback? onDetails;
   final bool preview;
   final DateTime? measuredAt;
+  final Future<RingReminderHapticResult>? previewVibration;
   @override
   State<ReadingReminderAlertView> createState() =>
       _ReadingReminderAlertViewState();
@@ -122,6 +125,39 @@ class _ReadingReminderAlertViewState extends State<ReadingReminderAlertView>
                               ),
                             ),
                           ),
+                          if (widget.previewVibration != null) ...[
+                            const SizedBox(height: 8),
+                            FutureBuilder<RingReminderHapticResult>(
+                              key: const Key(
+                                'reading-preview-vibration-status',
+                              ),
+                              future: widget.previewVibration,
+                              builder: (context, snapshot) => Text(
+                                snapshot.connectionState != ConnectionState.done
+                                    ? _copy(
+                                        context,
+                                        '正在提醒戒指',
+                                        'Sending ring reminder',
+                                      )
+                                    : snapshot.data?.accepted == true
+                                    ? _copy(
+                                        context,
+                                        '请留意戒指振动',
+                                        'Check your ring for a vibration',
+                                      )
+                                    : _copy(
+                                        context,
+                                        '戒指振动未确认',
+                                        'Ring vibration not confirmed',
+                                      ),
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 20),
                         ],
                         AnimatedBuilder(
@@ -289,23 +325,33 @@ Future<void> showReadingReminderPreview(
   BuildContext context,
   HealthReminderKind kind, {
   required VoidCallback onHelp,
-}) => showGeneralDialog<void>(
-  context: context,
-  barrierDismissible: false,
-  transitionDuration: const Duration(milliseconds: 180),
-  pageBuilder: (dialog, _, _) => ReadingReminderAlertView(
-    kind: kind,
-    reading:
-        (_reference(kind) + (kind == HealthReminderKind.highHeartRate ? 5 : -1))
-            .toDouble(),
-    preview: true,
-    onDismiss: () => Navigator.of(dialog).pop(),
-    onHelp: () {
-      Navigator.of(dialog).pop();
-      onHelp();
-    },
-  ),
-);
+  Future<RingReminderHapticResult> Function()? vibrate,
+}) {
+  // Start once per explicit preview. Rebuilds and animation frames must never
+  // repeat a physical command. Native cleanup also survives closing the route.
+  final vibration = vibrate == null
+      ? null
+      : Future<RingReminderHapticResult>.sync(vibrate);
+  return showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    transitionDuration: const Duration(milliseconds: 180),
+    pageBuilder: (dialog, _, _) => ReadingReminderAlertView(
+      kind: kind,
+      reading:
+          (_reference(kind) +
+                  (kind == HealthReminderKind.highHeartRate ? 5 : -1))
+              .toDouble(),
+      preview: true,
+      previewVibration: vibration,
+      onDismiss: () => Navigator.of(dialog).pop(),
+      onHelp: () {
+        Navigator.of(dialog).pop();
+        onHelp();
+      },
+    ),
+  );
+}
 
 class ReadingReminderSettingsPanel extends StatelessWidget {
   const ReadingReminderSettingsPanel({
@@ -648,43 +694,6 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
                 : null,
           ),
         ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            key: const Key('reading-reminder-test-vibration'),
-            onPressed:
-                controller.healthReminderRingVibrationAvailable &&
-                    s.ringVibrationEnabled &&
-                    !controller.ringReminderVibrationBusy
-                ? () async {
-                    final result = await controller
-                        .testHealthReminderRingVibration(expectedOwner: owner);
-                    if (context.mounted &&
-                        owner == controller.homeHealthCardOwner) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            result.accepted
-                                ? _copy(
-                                    context,
-                                    '请留意戒指是否振动',
-                                    'Check your ring for a vibration',
-                                  )
-                                : _copy(
-                                    context,
-                                    '暂未发起，请确认戒指连接',
-                                    'Could not start. Check your ring connection',
-                                  ),
-                          ),
-                        ),
-                      );
-                    }
-                  }
-                : null,
-            icon: const Icon(Icons.vibration_rounded, size: 18),
-            label: Text(_copy(context, '测试振动', 'Test vibration')),
-          ),
-        ),
         Text(
           _copy(
             context,
@@ -713,11 +722,20 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
           alignment: Alignment.centerRight,
           child: TextButton.icon(
             key: const Key('reading-reminder-preview'),
-            onPressed: () => showReadingReminderPreview(
-              context,
-              HealthReminderKind.highHeartRate,
-              onHelp: onHelp,
-            ),
+            onPressed: controller.ringReminderVibrationBusy
+                ? null
+                : () => showReadingReminderPreview(
+                    context,
+                    HealthReminderKind.highHeartRate,
+                    onHelp: onHelp,
+                    vibrate:
+                        controller.healthReminderRingVibrationAvailable &&
+                            s.ringVibrationEnabled
+                        ? () => controller.testHealthReminderRingVibration(
+                            expectedOwner: owner,
+                          )
+                        : null,
+                  ),
             icon: const Icon(Icons.play_circle_outline, size: 18),
             label: Text(_copy(context, '预览提醒效果', 'Preview reminder')),
           ),

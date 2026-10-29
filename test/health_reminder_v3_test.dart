@@ -324,6 +324,80 @@ void main() {
   );
 
   testWidgets(
+    'preview sends one optional ring pulse without health events or messages',
+    (tester) async {
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const status = MethodChannel(
+        'dev.fluttercommunity.plus/connectivity_status',
+      );
+      const connectivity = MethodChannel(
+        'dev.fluttercommunity.plus/connectivity',
+      );
+      messenger.setMockMethodCallHandler(status, (_) async => null);
+      messenger.setMockMethodCallHandler(connectivity, (_) async => ['wifi']);
+      addTearDown(() => messenger.setMockMethodCallHandler(status, null));
+      addTearDown(() => messenger.setMockMethodCallHandler(connectivity, null));
+      final f = (await tester.runAsync(_readingFixture))!;
+      addTearDown(f.app.dispose);
+      addTearDown(f.ring.records.close);
+      await _pump(tester, HealthReminderCenterPage(controller: f.app));
+      expect(
+        find.byKey(const Key('reading-reminder-test-vibration')),
+        findsNothing,
+      );
+      final preview = find.byKey(const Key('reading-reminder-preview'));
+      await tester.scrollUntilVisible(
+        preview,
+        180,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(preview);
+      await tester.pumpAndSettle();
+      await tester.tap(preview.hitTestable());
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(f.ring.pulses, 1);
+      expect(
+        find.byKey(const Key('reading-preview-vibration-status')),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(seconds: 3));
+      f.app.notifyListeners();
+      await tester.pump();
+      expect(
+        f.ring.pulses,
+        1,
+        reason: 'Animation and controller rebuilds must not replay the pulse',
+      );
+      expect(f.app.healthReminderEvents, isEmpty);
+      expect(f.app.notificationInboxEvents, isEmpty);
+      expect(f.notifications.shown, isEmpty);
+      await tester.tap(find.byKey(const Key('reading-reminder-close')));
+      await tester.pumpAndSettle();
+      await f.app.saveReadingReminderSettings(
+        f.app.readingReminderSettings.copyWith(ringVibrationEnabled: false),
+        expectedOwner: f.app.homeHealthCardOwner,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(preview.hitTestable());
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(
+        f.ring.pulses,
+        1,
+        reason: 'Muted ring preference also applies to preview',
+      );
+      expect(find.byKey(const Key('global-reading-reminder')), findsOneWidget);
+      expect(
+        find.byKey(const Key('reading-preview-vibration-status')),
+        findsNothing,
+      );
+      expect(f.app.healthReminderEvents, isEmpty);
+      await tester.tap(find.byKey(const Key('reading-reminder-close')));
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
     'app message opens its actual reminder and marks only that message read',
     (tester) async {
       final messenger =

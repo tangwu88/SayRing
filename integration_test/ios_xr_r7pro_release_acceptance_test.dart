@@ -13,7 +13,9 @@ import 'package:saydian_app/ui/widgets/device_wait_status.dart';
 
 /// Actual existing owner/target only. Use the preserving Profile wrapper and
 /// restore the normal main afterward. Health payloads remain private on-device.
-void main() {
+void main() => registerOwnedRingReleaseAcceptance();
+
+void registerOwnedRingReleaseAcceptance({String requiredModel = ''}) {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
   testWidgets(
@@ -36,7 +38,9 @@ void main() {
           '',
         );
         expect(
-          model.contains('HR05') || model.contains('R7PRO'),
+          requiredModel.isEmpty
+              ? model.contains('HR05') || model.contains('R7PRO')
+              : model.contains(requiredModel),
           isTrue,
           reason: 'Use only the existing R7 Pro target',
         );
