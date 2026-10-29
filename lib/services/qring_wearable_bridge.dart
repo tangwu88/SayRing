@@ -21,6 +21,7 @@ class QRingWearableBridge
         WearableRememberedDeviceSelectionBridge,
         WearableReadOnlyHealthPolicyBridge,
         WearableManualHealthPolicyBridge,
+        WearableHealthReminderHapticsBridge,
         WearableExactTargetRecoveryBridge,
         WearableRingDataClearBridge {
   QRingWearableBridge({
@@ -71,6 +72,7 @@ class QRingWearableBridge
       'readAutoMeasureSettings',
       'setAutoMeasureSetting',
       'triggerDeviceAction',
+      'pulseHealthReminder',
       'clearRingHistory',
     };
     if (!serial.contains(method)) {
@@ -413,4 +415,13 @@ class QRingWearableBridge
       'enabled': enabled,
     });
   }
+
+  @override
+  Future<RingReminderHapticResult> pulseHealthReminder({
+    required String expectedDeviceId,
+  }) async => RingReminderHapticResult.fromMap(
+    await _invoke<Map<Object?, Object?>>('pulseHealthReminder', {
+      'expectedDeviceId': expectedDeviceId,
+    }),
+  );
 }

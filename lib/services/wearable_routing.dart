@@ -89,6 +89,20 @@ class WearableDeviceClassifier {
     };
   }
 
+  static bool isVibratingReminderCandidate(String name) {
+    if (_explicitQRing(name.trim().toUpperCase())) return false;
+    final transport = transportFor(name);
+    if (transport == WearableTransport.coolwear) {
+      return const {
+        'R7Pro',
+        'R7Ultra',
+        'HR05',
+      }.contains(coolwearModelForName(name));
+    }
+    return transport == WearableTransport.qring &&
+        name.toUpperCase().replaceAll(RegExp(r'[\s_-]+'), '').contains('R8PRO');
+  }
+
   static bool routesTo(String name, WearableTransport transport) =>
       transportFor(name) == transport;
 }
@@ -167,6 +181,7 @@ class RoutedWearableBridge
         WearableRememberedRecoveryEligibilityBridge,
         WearableReadOnlyHealthPolicyBridge,
         WearableManualHealthPolicyBridge,
+        WearableHealthReminderHapticsBridge,
         WearableBondedDeviceSelectionBridge {
   RoutedWearableBridge({
     WearableBridge? veepoo,
@@ -1199,6 +1214,24 @@ class RoutedWearableBridge
     DeviceFeature feature, {
     bool enabled = true,
   }) => _activeBridge.triggerDeviceAction(feature, enabled: enabled);
+
+  @override
+  Future<RingReminderHapticResult> pulseHealthReminder({
+    required String expectedDeviceId,
+  }) {
+    final source = _activeBridge;
+    if (WearableDeviceClassifier.transportForScopedId(expectedDeviceId) !=
+            _activeTransport ||
+        source is! WearableHealthReminderHapticsBridge) {
+      throw PlatformException(code: 'UNSUPPORTED', message: '此设备暂不支持振动提醒');
+    }
+    final nativeId = expectedDeviceId.substring(
+      expectedDeviceId.indexOf(':') + 1,
+    );
+    return (source as WearableHealthReminderHapticsBridge).pulseHealthReminder(
+      expectedDeviceId: nativeId,
+    );
+  }
 
   void _subscribeToSourceEvents() {
     if (_subscriptions.isNotEmpty) return;

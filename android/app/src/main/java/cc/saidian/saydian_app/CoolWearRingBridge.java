@@ -33,6 +33,7 @@ import ce.com.cenewbluesdk.entity.MyBleDevice;
 import ce.com.cenewbluesdk.entity.k6.K6_Action;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_BATTERY_INFO;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_FUNCTION_CONTROL;
+import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_FIND_PHONE_OR_DEVICE;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_DRINK_ALARM;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_GESTURE_CONFIG;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_HEART_AUTO_SWITCH;
@@ -105,6 +106,10 @@ public final class CoolWearRingBridge
     private Runnable hrvFallback;
     private String connectedId;
     private String connectedName;
+    private MethodChannel.Result pendingHealthPulse;
+    private Runnable healthPulseStop;
+    private String healthPulseTarget;
+    private long healthPulseEpoch;
     private String connectedVendorId;
     private String firmwareVersion;
     private String activeMeasurement;
@@ -568,6 +573,7 @@ public final class CoolWearRingBridge
     }
 
     private void failConnect(String code, String message) {
+        cancelHealthPulse(true);
         resetGesture(code, message);
         if (connectDeadline != null) main.removeCallbacks(connectDeadline);
         connectDeadline = null;
@@ -625,6 +631,7 @@ public final class CoolWearRingBridge
             }
             completeConnectIfReady();
         } else if (status == K6_Action.RCVD.BLUE_DISCONNECT) {
+            cancelHealthPulse(false);
             resetGesture("CONNECTION_DROPPED", "戒指连接中断");
             String retiredId = connectedId;
             cancelHrvFallback();
@@ -1469,6 +1476,7 @@ public final class CoolWearRingBridge
                     result.success(null);
                     break;
                 case "connect":
+                    cancelHealthPulse(true);
                     String id = call.argument("id");
                     if (id == null || !scanned.containsKey(id) || pendingConnect != null) {
                         result.error("UNKNOWN_SCANNED_DEVICE", "请重新扫描并选择 CoolWear 戒指", null);
@@ -1502,6 +1510,7 @@ public final class CoolWearRingBridge
                     main.postDelayed(connectDeadline, CONNECT_MS);
                     break;
                 case "disconnect":
+                    cancelHealthPulse(true);
                     resetGesture("CONNECT_CANCELLED", "连接已断开");
                     finishScan();
                     cancelHrvFallback();
@@ -1682,6 +1691,9 @@ public final class CoolWearRingBridge
                     editor.apply();
                     result.success(null);
                     break;
+                case "pulseHealthReminder":
+                    pulseHealthReminder(call.argument("expectedDeviceId"), result);
+                    break;
                 case "triggerDeviceAction":
                     if (!linkConnected || !deviceInfoReceived) {
                         result.error("NOT_CONNECTED", "请先连接戒指", null);
@@ -1802,7 +1814,55 @@ public final class CoolWearRingBridge
         hrvFallback = null;
     }
 
+    private void cancelHealthPulse(boolean stop) {
+        MethodChannel.Result pending = pendingHealthPulse;
+        pendingHealthPulse = null;
+        if (healthPulseStop != null) main.removeCallbacks(healthPulseStop);
+        healthPulseStop = null;
+        if (pending != null && stop && linkConnected && connectionEpoch == healthPulseEpoch
+                && healthPulseTarget != null && healthPulseTarget.equals(connectedId)) {
+            try { helper.getSendDataManager().sendK6_SEND_DATA_TYPE_FIND_PHONE(new K6_DATA_TYPE_FIND_PHONE_OR_DEVICE(0)); }
+            catch (RuntimeException ignored) { /* Disconnect must remain usable. */ }
+        }
+        healthPulseTarget = null;
+        if (pending != null) pending.error("HAPTIC_CANCELLED", "戒指连接已变化，提醒结果未确认", null);
+    }
+
+    private void pulseHealthReminder(String expected, MethodChannel.Result result) {
+        if (!linkConnected || !deviceInfoReceived || expected == null || connectedId == null
+                || !expected.equalsIgnoreCase(connectedId) || supportedModel(connectedName) == null
+                || !RingNamePolicy.isVibratingReminderName(connectedName)) {
+            result.error("HAPTIC_UNAVAILABLE", "此戒指暂不支持振动提醒", null); return;
+        }
+        if (pendingHealthPulse != null || pendingHealthSync != null || pendingSportSync != null || activeMeasurement != null) {
+            result.error("DEVICE_BUSY", "戒指忙，请稍后重试", null); return;
+        }
+        pendingHealthPulse = result;
+        healthPulseTarget = connectedId;
+        healthPulseEpoch = connectionEpoch;
+        try { helper.getSendDataManager().sendK6_SEND_DATA_TYPE_FIND_PHONE(new K6_DATA_TYPE_FIND_PHONE_OR_DEVICE(1)); }
+        catch (RuntimeException failure) { cancelHealthPulse(true); return; }
+        healthPulseStop = () -> {
+            if (pendingHealthPulse != result) return;
+            if (!linkConnected || connectionEpoch != healthPulseEpoch || !healthPulseTarget.equals(connectedId)) {
+                cancelHealthPulse(false); return;
+            }
+            try {
+                helper.getSendDataManager().sendK6_SEND_DATA_TYPE_FIND_PHONE(new K6_DATA_TYPE_FIND_PHONE_OR_DEVICE(0));
+                pendingHealthPulse = null; healthPulseStop = null; healthPulseTarget = null;
+                Map<String, Object> value = new HashMap<>();
+                value.put("accepted", true); value.put("acknowledged", false);
+                // These public SDK calls return void: no device ACK is claimed.
+                result.success(value);
+            } catch (RuntimeException failure) {
+                cancelHealthPulse(false);
+            }
+        };
+        main.postDelayed(healthPulseStop, 700L);
+    }
+
     public void dispose() {
+        cancelHealthPulse(true);
         resetGesture("BRIDGE_DISPOSED", "戒指连接已关闭");
         if (activeBridge == this) activeBridge = null;
         linkConnected = false;

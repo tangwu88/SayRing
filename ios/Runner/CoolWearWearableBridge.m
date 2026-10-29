@@ -99,8 +99,14 @@ static void CoolWearOnMain(dispatch_block_t block) {
 @property(nonatomic) NSUInteger findGeneration;
 @property(nonatomic) BOOL findSupported;
 @property(nonatomic) BOOL findProbing;
+@property(nonatomic) BOOL findReminderPulse;
+@property(nonatomic) BOOL findPulseStopping;
+@property(nonatomic) BOOL findPulseStartUnconfirmed;
+@property(nonatomic) UIBackgroundTaskIdentifier findPulseTask;
+@property(nonatomic, copy) FlutterResult pendingPulseCancellation;
 @property(nonatomic, copy) FlutterResult pendingControl;
 @property(nonatomic) NSUInteger controlGeneration;
+@property(nonatomic) NSUInteger controlReadPoisonGeneration;
 @property(nonatomic) BOOL cameraActive;
 @property(nonatomic, strong) NSNumber *gestureMode;
 @property(nonatomic, strong) NSNumber *callReminder;
@@ -134,6 +140,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (instancetype)initWithMessenger:(NSObject<FlutterBinaryMessenger> *)messenger {
     if (!(self = [super init])) return nil;
+    _findPulseTask = UIBackgroundTaskInvalid;
     _scanned = [NSMutableDictionary dictionary];
     _scanServices = [NSMutableDictionary dictionary];
     _observers = [NSMutableArray array];
@@ -157,6 +164,11 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (FlutterError *)error:(NSString *)code message:(NSString *)message {
     return [FlutterError errorWithCode:code message:message details:nil];
+}
+
+- (void)connectionNote:(NSString *)cause appInitiated:(BOOL)app {
+    [self emit:@"connectionDiagnostic" payload:@{@"cause": cause,
+        @"appInitiated": @(app), @"at": @(NSDate.date.timeIntervalSince1970)}];
 }
 
 - (void)emit:(NSString *)type payload:(NSDictionary *)payload {
@@ -518,7 +530,13 @@ static void CoolWearOnMain(dispatch_block_t block) {
     __weak typeof(self) weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         if (!weakSelf.pendingReminders || operation != weakSelf.remindersGeneration || connection != weakSelf.connectionGeneration) return;
+        BOOL wrote = weakSelf.remindersWrite && weakSelf.remindersPhase > 0;
+        weakSelf.remindersPoisonGeneration = connection;
+        [weakSelf connectionNote:wrote ? @"reminder_write_timeout" : @"reminder_read_timeout" appInitiated:wrote];
         [weakSelf finishReminders:[weakSelf error:@"REMINDER_TIMEOUT" message:@"设备提醒状态未确认，请重新连接"]];
+        // A missing read-only settings reply must not tear down a healthy BLE
+        // link. Keep this ambiguous settings channel closed until reconnect.
+        if (!wrote) return;
         [weakSelf beginCancellation:nil]; [weakSelf emit:@"disconnected" payload:@{}]; [weakSelf scheduleRecovery];
     });
     [self queryReminders:operation connection:connection];
@@ -619,6 +637,9 @@ static void CoolWearOnMain(dispatch_block_t block) {
     NSString *feature = [args[@"feature"] isKindOfClass:NSString.class] ? args[@"feature"] : @"";
     BOOL gesture = [feature isEqual:@"gesture_control"], photo = [feature isEqual:@"camera"], call = [feature isEqual:@"call_reminder"];
     BOOL message = [feature isEqual:@"notifications"] && (CoolWearFlag(self.flags, @"message_switch") || self.reminderSnapshots[@123]);
+    if (call && self.controlReadPoisonGeneration == self.connectionGeneration) {
+        result([self error:@"CONTROL_RECONNECT" message:@"请重新连接后读取此设置"]); return;
+    }
     if (!(gesture || photo || call || message) || (photo != action) ||
         ((gesture || photo) && !CoolWearFlag(self.flags, @"gestureSupport")) || (call && !self.callReminder)) {
         result([self error:@"COOLWEAR_FEATURE_UNVERIFIED" message:@"此设备不支持此功能"]); return;
@@ -647,7 +668,11 @@ static void CoolWearOnMain(dispatch_block_t block) {
     // One bounded operation includes a queued optional probe and fresh readback.
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 28 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         if (operation != weakSelf.controlGeneration || connection != weakSelf.connectionGeneration || !weakSelf.pendingControl) return;
+        BOOL wrote = weakSelf.controlIsWrite;
+        if (!wrote) weakSelf.controlReadPoisonGeneration = connection;
+        [weakSelf connectionNote:wrote ? @"control_write_timeout" : @"control_read_timeout" appInitiated:wrote];
         [weakSelf finishControl:[weakSelf error:@"COOLWEAR_CONTROL_TIMEOUT" message:@"设备未响应，请重试"]];
+        if (!wrote) return;
         [weakSelf beginCancellation:nil]; [weakSelf emit:@"disconnected" payload:@{}]; [weakSelf scheduleRecovery];
     });
     [self sendControl:args action:action write:write operation:operation connection:connection];
@@ -655,14 +680,30 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)finishFind:(FlutterError *)error {
     FlutterResult result = self.pendingFind;
+    FlutterResult cancellation = self.pendingPulseCancellation;
+    self.pendingPulseCancellation = nil;
+    if (cancellation && !error) error = [self error:@"CONNECT_CANCELLED" message:@"戒指提醒已取消"];
+    BOOL pulse = self.findReminderPulse;
+    if (pulse && !error && self.findPulseStartUnconfirmed) error = [self error:@"HAPTIC_UNCONFIRMED" message:@"戒指提醒未完全确认"];
     self.pendingFind = nil;
     self.findProbing = NO;
+    self.findReminderPulse = NO; self.findPulseStopping = NO;
+    self.findPulseStartUnconfirmed = NO;
+    if (self.findPulseTask != UIBackgroundTaskInvalid) {
+        [UIApplication.sharedApplication endBackgroundTask:self.findPulseTask];
+        self.findPulseTask = UIBackgroundTaskInvalid;
+    }
     self.findGeneration++;
-    if (result) result(error);
+    if (result) result(error ?: (pulse ? @{@"accepted": @YES, @"acknowledged": @YES} : nil));
+    if (cancellation) {
+        __weak typeof(self) weakSelf = self;
+        dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf beginCancellation:cancellation]; });
+    }
 }
 
 - (void)sendFind:(BOOL)enabled operation:(NSUInteger)operation connection:(NSUInteger)connection {
-    if (operation != self.findGeneration || connection != self.connectionGeneration || ![self isResolved] || !self.pendingFind) return;
+    BOOL cleanup = !enabled && self.findReminderPulse && [self matchesTarget] && self.product.status == ProductStatus_completed;
+    if (operation != self.findGeneration || connection != self.connectionGeneration || (![self isResolved] && !cleanup) || !self.pendingFind) return;
     __weak typeof(self) weakSelf = self;
     if (self.pendingBattery) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
@@ -671,12 +712,24 @@ static void CoolWearOnMain(dispatch_block_t block) {
         return;
     }
     YD_SyncFindDevCmd *command = [[YD_SyncFindDevCmd alloc] initWithOnoff:enabled ? 1 : 0];
+    if (self.findReminderPulse && !enabled) self.findPulseStopping = YES;
     command.overtime = 8;
     command.repeatSendTimes = 0; // Never repeat a physical reminder automatically.
     command.noCallback = NO; // Require the device response, not just a BLE write.
     [self.product sendCmdToDevice:command complete:^(NSError *error) {
         CoolWearAfterSDKCallback(^{
             if (operation != weakSelf.findGeneration || connection != weakSelf.connectionGeneration || !weakSelf.pendingFind) return;
+            if (weakSelf.findReminderPulse && enabled) {
+                weakSelf.findPulseStartUnconfirmed = error != nil;
+                // Keep the native operation reserved until its OFF ACK. Never
+                // depend on a Dart timer or replay the physical ON command.
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (error ? 0 : 700) * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+                    if (operation == weakSelf.findGeneration && connection == weakSelf.connectionGeneration && weakSelf.pendingFind && !weakSelf.findPulseStopping) {
+                        [weakSelf sendFind:NO operation:operation connection:connection];
+                    }
+                });
+                return;
+            }
             weakSelf.findSupported = error == nil;
             [weakSelf finishFind:error ? [weakSelf error:@"COOLWEAR_FIND_FAILED" message:@"查找指令未确认，请重试"] : nil];
             [weakSelf emit:@"capabilitiesUpdated" payload:[weakSelf capabilities]];
@@ -696,8 +749,21 @@ static void CoolWearOnMain(dispatch_block_t block) {
     }
     self.pendingFind = result;
     self.findProbing = probe;
+    self.findReminderPulse = [args[@"healthPulse"] isEqual:@YES];
     NSUInteger operation = ++self.findGeneration, connection = self.connectionGeneration;
     __weak typeof(self) weakSelf = self;
+    if (self.findReminderPulse) {
+        self.findPulseTask = [UIApplication.sharedApplication beginBackgroundTaskWithName:@"SayRingReminderPulse" expirationHandler:^{
+            if (!weakSelf) return;
+            if (operation == weakSelf.findGeneration && connection == weakSelf.connectionGeneration && weakSelf.pendingFind && !weakSelf.findPulseStopping) {
+                [weakSelf sendFind:NO operation:operation connection:connection];
+            }
+            if (weakSelf.findPulseTask != UIBackgroundTaskInvalid) {
+                [UIApplication.sharedApplication endBackgroundTask:weakSelf.findPulseTask];
+                weakSelf.findPulseTask = UIBackgroundTaskInvalid;
+            }
+        }];
+    }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 22 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         if (operation != weakSelf.findGeneration || connection != weakSelf.connectionGeneration || !weakSelf.pendingFind) return;
         BOOL probing = weakSelf.findProbing;
@@ -1094,6 +1160,9 @@ static void CoolWearOnMain(dispatch_block_t block) {
 
 - (void)receiveStatus:(ProductStatus)status {
     [self disableVendorRecovery];
+    if (self.target && (status == ProductStatus_powerOff || status == ProductStatus_disconnected)) {
+        [self connectionNote:self.cancelling ? @"sdk_disconnected_after_app_cleanup" : status == ProductStatus_powerOff ? @"bluetooth_power_off" : @"sdk_link_lost" appInitiated:self.cancelling];
+    }
     if (self.cancelling) { [self checkCancellation]; return; }
     if (!self.target) return;
     if (status == ProductStatus_powerOff || status == ProductStatus_disconnected) {
@@ -1353,6 +1422,23 @@ static void CoolWearOnMain(dispatch_block_t block) {
 }
 
 - (void)beginCancellation:(FlutterResult)result {
+    if (self.cancelling) {
+        if (result && !self.pendingDisconnect) self.pendingDisconnect = result;
+        else if (result) result([self error:@"CONNECT_BUSY" message:@"戒指正在断开，请稍候"]);
+        return;
+    }
+    if (self.findReminderPulse && self.pendingFind && [self matchesTarget] && self.product.status == ProductStatus_completed) {
+        if (self.pendingPulseCancellation) {
+            if (result) result([self error:@"CONNECT_BUSY" message:@"正在结束戒指提醒"]);
+            return;
+        }
+        // Finish OFF on the old target before clearing the SDK queue or
+        // allowing another target. The existing 22 s deadline still applies.
+        self.pendingPulseCancellation = result ?: ^(id ignored) {};
+        if (!self.findPulseStopping) [self sendFind:NO operation:self.findGeneration connection:self.connectionGeneration];
+        return;
+    }
+    [self connectionNote:@"app_cleanup" appInitiated:YES];
     FlutterResult clear = self.pendingRingClear; self.pendingRingClear = nil;
     if (clear) clear([self error:@"CONNECT_CANCELLED" message:@"连接已变化，清空结果未确认"]);
     self.probingReminders = NO; self.reminderProbeType = nil;
@@ -1602,6 +1688,16 @@ static void CoolWearOnMain(dispatch_block_t block) {
             self.dataDeliveryReady = NO;
             [self clearRingHistoryWhenIdle:self.connectionGeneration deadline:NSProcessInfo.processInfo.systemUptime + 40];
         }
+        else if ([call.method isEqualToString:@"pulseHealthReminder"]) {
+            NSString *expected = [args[@"expectedDeviceId"] isKindOfClass:NSString.class] ? args[@"expectedDeviceId"] : nil;
+            NSString *model = CoolWearModel(self.target.name);
+            if (![self isResolved] || !expected.length ||
+                ![self.target.identifier.UUIDString.lowercaseString isEqual:expected.lowercaseString] ||
+                ![@[@"R7Pro", @"R7Ultra", @"HR05"] containsObject:model ?: @""] || !self.findSupported) {
+                result([self error:@"HAPTIC_UNAVAILABLE" message:@"此戒指暂不支持振动提醒"]); return;
+            }
+            [self findDevice:@{@"feature": @"find_watch", @"enabled": @YES, @"healthPulse": @YES} probe:NO result:result];
+        }
         else if ([call.method isEqualToString:@"triggerDeviceAction"]) {
             if ([args[@"feature"] isEqual:@"camera"]) [self control:args action:YES write:YES result:result];
             else [self findDevice:args probe:NO result:result];
@@ -1646,6 +1742,7 @@ static void CoolWearOnMain(dispatch_block_t block) {
         if (self.pendingMonitoringRead) [pending addObject:self.pendingMonitoringRead];
         if (self.pendingMonitoringWrite) [pending addObject:self.pendingMonitoringWrite];
         if (self.pendingFind) [pending addObject:self.pendingFind];
+        if (self.pendingPulseCancellation) [pending addObject:self.pendingPulseCancellation];
         if (self.pendingControl) [pending addObject:self.pendingControl];
         if (self.pendingReminders) [pending addObject:self.pendingReminders];
         self.pendingScan = nil;
@@ -1657,6 +1754,12 @@ static void CoolWearOnMain(dispatch_block_t block) {
         self.pendingMonitoringRead = nil;
         self.pendingMonitoringWrite = nil;
         self.pendingFind = nil;
+        self.pendingPulseCancellation = nil;
+        self.findReminderPulse = NO; self.findPulseStopping = NO; self.findPulseStartUnconfirmed = NO;
+        if (self.findPulseTask != UIBackgroundTaskInvalid) {
+            [UIApplication.sharedApplication endBackgroundTask:self.findPulseTask];
+            self.findPulseTask = UIBackgroundTaskInvalid;
+        }
         self.pendingControl = nil;
         self.pendingReminders = nil;
         @try {

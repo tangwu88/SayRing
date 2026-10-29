@@ -5,6 +5,7 @@ import 'package:saydian_app/domain/health_reminder.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/domain/reading_reminder.dart';
 import 'package:saydian_app/ui/reading_reminder_widgets.dart';
+import 'package:saydian_app/services/wearable_routing.dart';
 
 final _now = DateTime.utc(2026, 10, 30, 1);
 const _device = DeviceInfo(
@@ -58,6 +59,34 @@ ReadingReminderCandidate? _observe(
 );
 
 void main() {
+  test(
+    'only confirmed vibration families qualify and prefix/conflict routing remains authoritative',
+    () {
+      for (final name in ['r7 pro', 'R7_Ultra', 'HR05', 'r8-pro']) {
+        expect(
+          WearableDeviceClassifier.isVibratingReminderCandidate(name),
+          isTrue,
+          reason: name,
+        );
+      }
+      for (final name in [
+        'R7',
+        'R7C',
+        'R12',
+        'R21',
+        'R8',
+        'R21_R8Pro',
+        'R7Pro_R8Pro',
+        'HR01',
+      ]) {
+        expect(
+          WearableDeviceClassifier.isVibratingReminderCandidate(name),
+          isFalse,
+          reason: name,
+        );
+      }
+    },
+  );
   test('defaults are off and corrupt persisted configuration stays off', () {
     expect(const ReadingReminderSettings().enabled, isFalse);
     expect(ReadingReminderSettings.parse('{bad'), isNull);
@@ -215,6 +244,10 @@ void main() {
         );
         expect(find.text('%'), findsOneWidget);
         expect(find.text('bpm'), findsNothing);
+        expect(
+          find.byKey(const Key('reading-reminder-close')).hitTestable(),
+          findsOneWidget,
+        );
         await tester.ensureVisible(
           find.byKey(const Key('dismiss-health-warning')),
         );

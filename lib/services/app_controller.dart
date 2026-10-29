@@ -46,6 +46,7 @@ import 'sleep_report_input.dart';
 import 'storekit_purchase_bridge.dart';
 import 'sync_service.dart';
 import 'wearable_bridge.dart';
+import 'wearable_routing.dart';
 import 'wearable_bootstrap.dart';
 import 'wechat_auth_bridge.dart';
 import 'user_message.dart';
@@ -1380,6 +1381,15 @@ class AppController extends ChangeNotifier {
       const ReadingReminderSettings();
   bool readingReminderSettingsSaving = false;
   int _readingReminderSettingsRevision = 0;
+  bool ringReminderVibrationBusy = false;
+  final List<Map<String, Object?>> _connectionDiagnostics = [];
+  List<Map<String, Object?>> get connectionDiagnostics =>
+      List.unmodifiable(_connectionDiagnostics);
+  bool get healthReminderRingVibrationAvailable =>
+      _healthReminderRingVibrationAvailable;
+  Future<RingReminderHapticResult> testHealthReminderRingVibration({
+    required String expectedOwner,
+  }) => _pulseReminderRing(expectedOwner: expectedOwner);
   final ReadingReminderEngine _readingReminderEngine = ReadingReminderEngine();
   Future<bool> saveReadingReminderSettings(
     ReadingReminderSettings value, {
@@ -1408,12 +1418,16 @@ class AppController extends ChangeNotifier {
     bool acknowledged = false,
     bool dialRequested = false,
     bool notificationRequested = false,
+    bool ringVibrationRequested = false,
+    bool ringVibrationAcknowledged = false,
   }) => _updateHealthReminderAction(
     id,
     expectedOwner: expectedOwner,
     acknowledged: acknowledged,
     dialRequested: dialRequested,
     notificationRequested: notificationRequested,
+    ringVibrationRequested: ringVibrationRequested,
+    ringVibrationAcknowledged: ringVibrationAcknowledged,
   );
   String? healthReminderCsv(String id, {required String expectedOwner}) =>
       _healthReminderCsv(id, expectedOwner: expectedOwner);
@@ -1615,6 +1629,7 @@ class AppController extends ChangeNotifier {
     readingReminderSettings = const ReadingReminderSettings();
     readingReminderSettingsSaving = false;
     _readingReminderSettingsRevision++;
+    ringReminderVibrationBusy = false;
     unawaited(
       _healthReminderNotifications
           .setOwner(value == null ? null : _activeHealthOwner)
@@ -1649,6 +1664,7 @@ class AppController extends ChangeNotifier {
   }
 
   void _clearAccountScopedMemory() {
+    _connectionDiagnostics.clear();
     healthRecords = const [];
     _sleepStatusesByDevice.clear();
     _pendingSleepWrites.clear();
@@ -5518,6 +5534,17 @@ class AppController extends ChangeNotifier {
     if (!_notificationStorageReady) return;
     final generation = _sessionGeneration;
     final inbox = _notificationInboxService;
+    final localDeviceEvent =
+        notificationInboxEvents.any(
+          (event) =>
+              event.eventId == eventId &&
+              event.source == NotificationEventSource.device,
+        ) ||
+        healthReminderEvents.any(
+          (event) =>
+              isPersonalReadingReminder(event.reminder) &&
+              healthWarningEventId(event) == eventId,
+        );
     final remoteEventId = notificationInboxEvents
         .where((event) => event.eventId == eventId)
         .map((event) => event.remoteEventId)
@@ -5526,22 +5553,24 @@ class AppController extends ChangeNotifier {
     await inbox.markRead(eventId);
     if (!_isCurrentSessionGeneration(generation)) return;
     await _refreshNotificationInboxState();
-    unawaited(
-      _markRemoteNotificationEventReadBestEffort(
-        remoteEventId ?? eventId,
-        expectedGeneration: generation,
-      ),
-    );
+    if (!localDeviceEvent) {
+      unawaited(
+        _markRemoteNotificationEventReadBestEffort(
+          remoteEventId ?? eventId,
+          expectedGeneration: generation,
+        ),
+      );
+    }
   }
 
   Future<void> markAllHealthWarningsRead() async {
-    if (!healthAlertsAvailable) return;
     if (!_notificationStorageReady) return;
     final generation = _sessionGeneration;
     final unread = notificationInboxEvents
         .where(
           (event) =>
               event.type == NotificationEventType.healthWarning &&
+              _visibleNotificationEvent(event) &&
               !event.isRead,
         )
         .toList(growable: false);
@@ -5931,6 +5960,21 @@ class AppController extends ChangeNotifier {
     await _refreshNotificationInboxState();
   }
 
+  bool _isPersonalReadingNotification(NotificationEvent event) =>
+      event.type == NotificationEventType.healthWarning &&
+      event.source == NotificationEventSource.device &&
+      healthReminderEvents.any(
+        (reading) =>
+            isPersonalReadingReminder(reading.reminder) &&
+            reading.id == event.entityId &&
+            healthWarningEventId(reading) == event.eventId,
+      );
+
+  bool _visibleNotificationEvent(NotificationEvent event) =>
+      healthAlertsAvailable ||
+      event.type != NotificationEventType.healthWarning ||
+      _isPersonalReadingNotification(event);
+
   Future<void> _refreshNotificationInboxState() async {
     final generation = _sessionGeneration;
     if (!_notificationStorageReady) {
@@ -5946,13 +5990,7 @@ class AppController extends ChangeNotifier {
         !identical(repository, _notificationInboxRepository)) {
       return;
     }
-    notificationInboxEvents = events
-        .where(
-          (event) =>
-              healthAlertsAvailable ||
-              event.type != NotificationEventType.healthWarning,
-        )
-        .toList();
+    notificationInboxEvents = events.where(_visibleNotificationEvent).toList();
     final activeCareEventId = activeCareInvitationAlert?.eventId;
     if (activeCareEventId != null &&
         !events.any(
@@ -6016,9 +6054,8 @@ class AppController extends ChangeNotifier {
     required bool showLocalNotification,
     required int expectedGeneration,
   }) async {
-    if (!healthAlertsAvailable &&
-        NotificationEvent.tryParse(payload)?.type ==
-            NotificationEventType.healthWarning) {
+    final parsed = NotificationEvent.tryParse(payload);
+    if (parsed != null && !_visibleNotificationEvent(parsed)) {
       return null;
     }
     if (!_notificationStorageReady ||
@@ -7264,7 +7301,30 @@ class AppController extends ChangeNotifier {
         !(_wearableConnectInFlight != null && event.type == 'deviceDetails')) {
       return;
     }
-    if (event.type == 'ringInitialization') {
+    if (event.type == 'connectionDiagnostic') {
+      if (_connectedDeviceSessionGeneration != _sessionGeneration ||
+          connectedDevice == null) {
+        return;
+      }
+      final cause = event.payload['cause'];
+      final at = event.payload['at'];
+      if (cause is! String ||
+          !RegExp(r'^[a-z_]{3,60}$').hasMatch(cause) ||
+          at is! num ||
+          !at.isFinite) {
+        return;
+      }
+      _connectionDiagnostics.add(
+        Map.unmodifiable({
+          'cause': cause,
+          'at': at,
+          'appInitiated': event.payload['appInitiated'] == true,
+        }),
+      );
+      if (_connectionDiagnostics.length > 32) {
+        _connectionDiagnostics.removeAt(0);
+      }
+    } else if (event.type == 'ringInitialization') {
       if (connectedDevice?.id != event.payload['deviceId'] ||
           session == null ||
           event.payload['ownerKey'] != _healthOwnerFor(session) ||

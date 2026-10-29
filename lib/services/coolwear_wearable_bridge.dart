@@ -157,6 +157,7 @@ class CoolWearWearableBridge
         WearableDeviceDetailsBridge,
         WearableSportPauseBridge,
         WearableRingDataClearBridge,
+        WearableHealthReminderHapticsBridge,
         WearableAutoMeasureIntervalBridge {
   CoolWearWearableBridge({
     MethodChannel? methods,
@@ -427,4 +428,13 @@ class CoolWearWearableBridge
     'feature': feature.wireName,
     'enabled': enabled,
   });
+
+  @override
+  Future<RingReminderHapticResult> pulseHealthReminder({
+    required String expectedDeviceId,
+  }) async => RingReminderHapticResult.fromMap(
+    await _invoke<Map<Object?, Object?>>('pulseHealthReminder', {
+      'expectedDeviceId': expectedDeviceId,
+    }, const Duration(seconds: 30)),
+  );
 }

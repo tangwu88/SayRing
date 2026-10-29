@@ -1848,6 +1848,22 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     else if ([call.method isEqualToString:@"triggerDeviceAction"] && [arguments[@"feature"] isEqualToString:@"camera"]) {
         [self remoteCameraAction:[arguments[@"enabled"] isEqual:@NO] ? 6 : 4 result:result];
     }
+    else if ([call.method isEqualToString:@"pulseHealthReminder"]) {
+        NSString *expected = [arguments[@"expectedDeviceId"] isKindOfClass:NSString.class] ? arguments[@"expectedDeviceId"] : nil;
+        NSString *model = [self.connectedName.uppercaseString stringByReplacingOccurrencesOfString:@"[\\s_-]+" withString:@"" options:NSRegularExpressionSearch range:NSMakeRange(0, self.connectedName.length)];
+        if (![self isResolved] || !expected.length || ![self.connectedID.lowercaseString isEqual:expected.lowercaseString] || ![model containsString:@"R8PRO"] || [model hasPrefix:@"R1"] || [model hasPrefix:@"R2"] || [model containsString:@"R7C"] || self.pendingSync || self.activeMetric) {
+            result([self error:@"HAPTIC_UNAVAILABLE" message:@"此戒指暂不支持振动提醒"]); return;
+        }
+        NSUInteger generation = self.connectionGeneration;
+        // This SDK exposes a single lookup event, not an ON/OFF switch.
+        // Sending a second "OFF" lookup would issue a second physical alert.
+        [QCSDKCmdCreator lookupDeviceSuccess:^{
+            if (generation != self.connectionGeneration || ![self.connectedID.lowercaseString isEqual:expected.lowercaseString]) {
+                result([self error:@"STALE_DEVICE_SESSION" message:@"戒指连接已变化"]); return;
+            }
+            result(@{@"accepted": @YES, @"acknowledged": @YES});
+        } fail:^{ result([self error:@"HAPTIC_UNCONFIRMED" message:@"戒指未确认提醒，请重试"]); }];
+    }
     else if ([call.method isEqualToString:@"triggerDeviceAction"] && [arguments[@"feature"] isEqualToString:@"find_watch"] && [self isResolved]) {
         [QCSDKCmdCreator lookupDeviceSuccess:^{ result(nil); } fail:^{ result([self error:@"QRING_ACTION_FAILED" message:@"查找戒指失败"]); }];
     } else { result(FlutterMethodNotImplemented); }

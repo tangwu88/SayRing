@@ -72,6 +72,28 @@ abstract interface class WearableReadOnlyHealthPolicyBridge {
   });
 }
 
+/// SDK acceptance/acknowledgement do not prove physical vibration.
+final class RingReminderHapticResult {
+  const RingReminderHapticResult({
+    this.accepted = false,
+    this.acknowledged = false,
+  });
+  final bool accepted;
+  final bool acknowledged;
+  factory RingReminderHapticResult.fromMap(Map<Object?, Object?>? value) =>
+      RingReminderHapticResult(
+        accepted: value?['accepted'] == true,
+        acknowledged:
+            value?['accepted'] == true && value?['acknowledged'] == true,
+      );
+}
+
+abstract interface class WearableHealthReminderHapticsBridge {
+  Future<RingReminderHapticResult> pulseHealthReminder({
+    required String expectedDeviceId,
+  });
+}
+
 /// New-binary manual scope. A read-only native ACK cannot grant these commands.
 abstract interface class WearableManualHealthPolicyBridge {
   Future<void> configureManualHealthMetrics(

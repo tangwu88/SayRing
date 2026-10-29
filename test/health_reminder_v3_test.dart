@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/health_reminder.dart';
 import 'package:saydian_app/domain/models.dart';
@@ -15,6 +16,9 @@ import 'package:saydian_app/services/health_reminder_report.dart';
 import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
+import 'package:saydian_app/domain/feature_models.dart';
+import 'package:saydian_app/services/notification_models.dart';
+import 'package:saydian_app/ui/pages/notifications.dart';
 import 'package:saydian_app/ui/app_theme.dart';
 import 'package:saydian_app/ui/health_reminder_center.dart';
 
@@ -48,7 +52,18 @@ class _Wearable extends Fake implements WearableBridge {
   Stream<WearableEvent> get events => const Stream.empty();
 }
 
-class _LiveWearable extends _Wearable {
+class _LiveWearable extends _Wearable
+    implements WearableHealthReminderHapticsBridge {
+  int pulses = 0;
+  @override
+  Future<RingReminderHapticResult> pulseHealthReminder({
+    required String expectedDeviceId,
+  }) async {
+    expect(expectedDeviceId, device.id);
+    pulses++;
+    return const RingReminderHapticResult(accepted: true, acknowledged: true);
+  }
+
   static const device = DeviceInfo(
     id: 'coolwear:synthetic-ring',
     name: 'R7 Pro',
@@ -72,6 +87,8 @@ class _LiveWearable extends _Wearable {
         metrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
         manualMetrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
         supportsHistorySync: false,
+        features: {DeviceFeature.findWatch},
+        integratedFeatures: {DeviceFeature.findWatch},
       );
   @override
   Future<void> startMeasurement(HealthMetric metric) async {}
@@ -87,7 +104,62 @@ Future<void> _settleEvents() async {
   }
 }
 
+Future<
+  ({
+    AppController app,
+    _LiveWearable ring,
+    _Notifications notifications,
+    MemoryHealthStore store,
+  })
+>
+_readingFixture({bool notificationsAllowed = true}) async {
+  const metrics = {HealthMetric.heartRate, HealthMetric.bloodOxygen};
+  final ring = _LiveWearable();
+  final notifications = _Notifications()..allowed = notificationsAllowed;
+  final store = MemoryHealthStore();
+  final app = await _controller(
+    store: store,
+    wearable: ring,
+    notifications: notifications,
+    policy: WellnessReleasePolicy(
+      enabled: true,
+      readOnlyFeatures: ReadOnlyHealthFeatures()
+        ..replace(metrics, const Duration(minutes: 5)),
+      manualFeatures: ManualHealthFeatures()
+        ..replace(metrics, const Duration(minutes: 5)),
+    ),
+  );
+  await app.connectDevice(_LiveWearable.device);
+  await _settleEvents();
+  await app.saveReadingReminderSettings(
+    const ReadingReminderSettings(highEnabled: true),
+    expectedOwner: app.homeHealthCardOwner,
+  );
+  return (app: app, ring: ring, notifications: notifications, store: store);
+}
+
+void _emitHighReading(_LiveWearable ring, String id) => ring.records.add(
+  WearableEvent(
+    type: 'healthRecord',
+    payload: HealthRecord(
+      id: id,
+      metric: HealthMetric.heartRate,
+      values: const {'value': 140},
+      unit: 'bpm',
+      measuredAt: DateTime.now().toUtc(),
+      timezone: '+00:00',
+      deviceId: _LiveWearable.device.id,
+      firmwareVersion: 'test-only',
+      quality: 'device_reported',
+      source: MeasurementSource.wearable,
+      origin: MeasurementOrigin.appMeasurement,
+      rawVersion: 2,
+    ).toJson(),
+  ),
+);
+
 class _Notifications implements HealthReminderNotifications {
+  bool allowed = true;
   String? owner;
   HealthReminderNotificationOpen? opened;
   final cancelled = <String>[];
@@ -105,7 +177,7 @@ class _Notifications implements HealthReminderNotifications {
       : ReminderNotificationPermission.denied;
   @override
   Future<bool> show({required String owner, required String eventId}) async {
-    if (owner != this.owner) return false;
+    if (owner != this.owner || !allowed) return false;
     shown.add(eventId);
     return true;
   }
@@ -175,6 +247,117 @@ Future<void> _pump(WidgetTester tester, Widget widget) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'in-app reminder survives denied system notifications, deduplicates and persists across restart',
+    () async {
+      final f = await _readingFixture(notificationsAllowed: false);
+      addTearDown(f.ring.records.close);
+      await f.app.startMeasurement(HealthMetric.heartRate);
+      _emitHighReading(f.ring, 'inbox-denied');
+      await _settleEvents();
+      expect(f.app.notificationUnreadCount, 1);
+      final inbox = f.app.notificationInboxEvents.single;
+      final event = f.app.healthReminderEvents.single;
+      expect(inbox.source, NotificationEventSource.device);
+      expect(inbox.eventId, f.app.healthWarningEventId(event));
+      expect(inbox.entityId, event.id);
+      expect(f.notifications.shown, isEmpty);
+      expect(f.ring.pulses, 1);
+      expect(event.reminder?.ringVibrationAcknowledgedAt, isNotNull);
+      _emitHighReading(f.ring, 'inbox-denied');
+      await _settleEvents();
+      expect(f.app.notificationInboxEvents, hasLength(1));
+      expect(f.ring.pulses, 1);
+      f.app.dispose();
+      final restored = await _controller(store: f.store);
+      addTearDown(restored.dispose);
+      expect(restored.notificationInboxEvents.single.eventId, inbox.eventId);
+      expect(restored.notificationUnreadCount, 1);
+      expect(await restored.login('200', 'synthetic-test-only'), isTrue);
+      expect(restored.notificationInboxEvents, isEmpty);
+      expect(restored.notificationUnreadCount, 0);
+      expect(await restored.login('100', 'synthetic-test-only'), isTrue);
+      expect(restored.notificationUnreadCount, 1);
+      await restored.markAllHealthWarningsRead();
+      expect(restored.notificationUnreadCount, 0);
+    },
+  );
+
+  test(
+    'ring vibration can be disabled independently and test pulse creates no health event',
+    () async {
+      final f = await _readingFixture();
+      addTearDown(f.app.dispose);
+      addTearDown(f.ring.records.close);
+      final owner = f.app.homeHealthCardOwner;
+      expect(
+        (await f.app.testHealthReminderRingVibration(
+          expectedOwner: 'old-owner',
+        )).accepted,
+        isFalse,
+      );
+      expect(
+        (await f.app.testHealthReminderRingVibration(
+          expectedOwner: owner,
+        )).acknowledged,
+        isTrue,
+      );
+      expect(f.app.healthReminderEvents, isEmpty);
+      expect(f.app.notificationInboxEvents, isEmpty);
+      expect(f.ring.pulses, 1);
+      await f.app.saveReadingReminderSettings(
+        f.app.readingReminderSettings.copyWith(ringVibrationEnabled: false),
+        expectedOwner: owner,
+      );
+      await f.app.startMeasurement(HealthMetric.heartRate);
+      _emitHighReading(f.ring, 'vibration-disabled');
+      await _settleEvents();
+      expect(f.ring.pulses, 1);
+      expect(f.app.notificationUnreadCount, 1);
+      expect(f.notifications.shown, hasLength(1));
+      expect(
+        f.app.healthReminderEvents.single.reminder?.ringVibrationRequestedAt,
+        isNull,
+      );
+    },
+  );
+
+  testWidgets(
+    'app message opens its actual reminder and marks only that message read',
+    (tester) async {
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const connectivityEvents = MethodChannel(
+        'dev.fluttercommunity.plus/connectivity_status',
+      );
+      const connectivity = MethodChannel(
+        'dev.fluttercommunity.plus/connectivity',
+      );
+      messenger.setMockMethodCallHandler(connectivityEvents, (_) async => null);
+      messenger.setMockMethodCallHandler(connectivity, (_) async => ['wifi']);
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(connectivityEvents, null),
+      );
+      addTearDown(() => messenger.setMockMethodCallHandler(connectivity, null));
+      final f = (await tester.runAsync(_readingFixture))!;
+      addTearDown(f.app.dispose);
+      addTearDown(f.ring.records.close);
+      await tester.runAsync(
+        () => f.app.startMeasurement(HealthMetric.heartRate),
+      );
+      _emitHighReading(f.ring, 'message-navigation');
+      await tester.runAsync(_settleEvents);
+      await _pump(tester, NotificationsPage(controller: f.app));
+      expect(f.app.notificationUnreadCount, 1);
+      await tester.tap(find.text('心率偏高提醒'));
+      await tester.runAsync(_settleEvents);
+      await tester.pumpAndSettle();
+      expect(find.byType(HealthReminderDetailPage), findsOneWidget);
+      expect(f.app.notificationUnreadCount, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   for (final scenario in ['settings', 'lease', 'target']) {
     test(
@@ -653,12 +836,14 @@ void main() {
         event.id,
       );
       await controller.handleAppResumed();
+      await _settleEvents();
       expect(controller.consumePendingNotificationRoute(), isNull);
       notifications.opened = HealthReminderNotificationOpen(
         controller.homeHealthCardOwner,
         event.id,
       );
       await controller.handleAppResumed();
+      await _settleEvents();
       expect(controller.consumePendingNotificationRoute()?.entityId, event.id);
     },
   );

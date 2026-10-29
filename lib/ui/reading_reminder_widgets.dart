@@ -84,168 +84,200 @@ class _ReadingReminderAlertViewState extends State<ReadingReminderAlertView>
         key: const Key('global-reading-reminder'),
         color: const Color(0xFF981F32),
         child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 460),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (widget.preview) ...[
-                      Chip(
-                        key: const Key('reading-reminder-preview-label'),
-                        label: Text(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 28,
+                    vertical: 20,
+                  ),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 460),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (widget.preview) ...[
+                          Container(
+                            key: const Key('reading-reminder-preview-label'),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(
+                              _copy(
+                                context,
+                                '效果预览 · 不会生成健康记录',
+                                'Preview · No health record is saved',
+                              ),
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: SaydianColors.ink,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                        ],
+                        AnimatedBuilder(
+                          animation: _pulse,
+                          builder: (_, child) => Transform.scale(
+                            scale: 1 + _pulse.value * 0.08,
+                            child: child,
+                          ),
+                          child: Container(
+                            width: 112,
+                            height: 112,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withValues(alpha: 0.12),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Icon(
+                              _icon(widget.kind),
+                              color: Colors.white,
+                              size: 54,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 28),
+                        Semantics(
+                          liveRegion: true,
+                          header: true,
+                          child: Text(
+                            _label(context, widget.kind),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        if (widget.measuredAt != null)
+                          Text(
+                            '${_copy(context, '测量于', 'Measured')} ${DateFormat('MM-dd HH:mm').format(widget.measuredAt!.toLocal())}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                            ),
+                          ),
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 8,
+                          children: [
+                            Text(
+                              widget.reading.toStringAsFixed(0),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 64,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Text(
+                              _unit(widget.kind),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 20,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
                           _copy(
                             context,
-                            '效果预览 · 不会生成健康记录',
-                            'Preview · No health record is saved',
+                            '读数超出设定范围，请静坐并复测。',
+                            'Outside your set range. Sit quietly and measure again.',
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-                    AnimatedBuilder(
-                      animation: _pulse,
-                      builder: (_, child) => Transform.scale(
-                        scale: 1 + _pulse.value * 0.08,
-                        child: child,
-                      ),
-                      child: Container(
-                        width: 112,
-                        height: 112,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white.withValues(alpha: 0.12),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.3),
-                          ),
-                        ),
-                        child: Icon(
-                          _icon(widget.kind),
-                          color: Colors.white,
-                          size: 54,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-                    Semantics(
-                      liveRegion: true,
-                      header: true,
-                      child: Text(
-                        _label(context, widget.kind),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 28,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (widget.measuredAt != null)
-                      Text(
-                        '${_copy(context, '测量于', 'Measured')} ${DateFormat('MM-dd HH:mm').format(widget.measuredAt!.toLocal())}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                        ),
-                      ),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 8,
-                      children: [
-                        Text(
-                          widget.reading.toStringAsFixed(0),
+                          textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 64,
-                            fontWeight: FontWeight.w800,
+                            fontSize: 17,
+                            height: 1.5,
                           ),
                         ),
+                        const SizedBox(height: 8),
                         Text(
-                          _unit(widget.kind),
+                          _copy(
+                            context,
+                            '胸部不适、明显气短或晕厥时，立即求助。',
+                            'Chest discomfort, severe breathlessness or fainting? Seek urgent help.',
+                          ),
+                          textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 20,
+                            fontSize: 14,
+                            height: 1.5,
                           ),
                         ),
+                        const SizedBox(height: 30),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            key: const Key('reading-reminder-urgent-help'),
+                            onPressed: widget.onHelp,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: const Color(0xFF981F32),
+                              minimumSize: const Size.fromHeight(52),
+                            ),
+                            icon: const Icon(Icons.phone_in_talk_outlined),
+                            label: Text(_copy(context, '急症求助', 'Urgent help')),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton(
+                            key: const Key('dismiss-health-warning'),
+                            onPressed: widget.onDismiss,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              side: const BorderSide(color: Colors.white),
+                              minimumSize: const Size.fromHeight(52),
+                            ),
+                            child: Text(
+                              widget.preview
+                                  ? _copy(context, '结束预览', 'Close preview')
+                                  : _copy(context, '我已知晓', 'Acknowledge'),
+                            ),
+                          ),
+                        ),
+                        if (widget.onDetails != null)
+                          TextButton(
+                            onPressed: widget.onDetails,
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white,
+                            ),
+                            child: Text(_copy(context, '查看记录', 'View record')),
+                          ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      _copy(
-                        context,
-                        '读数超出设定范围，请静坐并复测。',
-                        'Outside your set range. Sit quietly and measure again.',
-                      ),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 17,
-                        height: 1.5,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _copy(
-                        context,
-                        '胸部不适、明显气短或晕厥时，立即求助。',
-                        'Chest discomfort, severe breathlessness or fainting? Seek urgent help.',
-                      ),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        height: 1.5,
-                      ),
-                    ),
-                    const SizedBox(height: 30),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        key: const Key('reading-reminder-urgent-help'),
-                        onPressed: widget.onHelp,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: const Color(0xFF981F32),
-                          minimumSize: const Size.fromHeight(52),
-                        ),
-                        icon: const Icon(Icons.phone_in_talk_outlined),
-                        label: Text(_copy(context, '急症求助', 'Urgent help')),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton(
-                        key: const Key('dismiss-health-warning'),
-                        onPressed: widget.onDismiss,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          side: const BorderSide(color: Colors.white),
-                          minimumSize: const Size.fromHeight(52),
-                        ),
-                        child: Text(
-                          widget.preview
-                              ? _copy(context, '结束预览', 'Close preview')
-                              : _copy(context, '我已知晓', 'Acknowledge'),
-                        ),
-                      ),
-                    ),
-                    if (widget.onDetails != null)
-                      TextButton(
-                        onPressed: widget.onDetails,
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white,
-                        ),
-                        child: Text(_copy(context, '查看记录', 'View record')),
-                      ),
-                  ],
+                  ),
                 ),
               ),
-            ),
+              Positioned(
+                top: 0,
+                right: 4,
+                child: IconButton(
+                  key: const Key('reading-reminder-close'),
+                  onPressed: widget.onDismiss,
+                  tooltip: _copy(context, '关闭提醒', 'Close reminder'),
+                  color: Colors.white,
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -598,6 +630,61 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
             },
           ),
         const SizedBox(height: 2),
+        Card(
+          child: SwitchListTile(
+            key: const Key('reading-reminder-ring-vibration'),
+            secondary: const Icon(
+              Icons.vibration_rounded,
+              color: SaydianColors.techViolet,
+            ),
+            title: Text(_copy(context, '戒指振动', 'Ring vibration')),
+            value: s.ringVibrationEnabled,
+            onChanged: canEdit
+                ? (value) => _save(
+                    context,
+                    s.copyWith(ringVibrationEnabled: value),
+                    owner,
+                  )
+                : null,
+          ),
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            key: const Key('reading-reminder-test-vibration'),
+            onPressed:
+                controller.healthReminderRingVibrationAvailable &&
+                    s.ringVibrationEnabled &&
+                    !controller.ringReminderVibrationBusy
+                ? () async {
+                    final result = await controller
+                        .testHealthReminderRingVibration(expectedOwner: owner);
+                    if (context.mounted &&
+                        owner == controller.homeHealthCardOwner) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            result.accepted
+                                ? _copy(
+                                    context,
+                                    '请留意戒指是否振动',
+                                    'Check your ring for a vibration',
+                                  )
+                                : _copy(
+                                    context,
+                                    '暂未发起，请确认戒指连接',
+                                    'Could not start. Check your ring connection',
+                                  ),
+                          ),
+                        ),
+                      );
+                    }
+                  }
+                : null,
+            icon: const Icon(Icons.vibration_rounded, size: 18),
+            label: Text(_copy(context, '测试振动', 'Test vibration')),
+          ),
+        ),
         Text(
           _copy(
             context,

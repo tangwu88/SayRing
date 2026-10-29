@@ -1,6 +1,78 @@
 part of 'app_controller.dart';
 
 extension HealthReminderController on AppController {
+  bool get _healthReminderRingVibrationAvailable =>
+      canSaveHealthReminder &&
+      connectedDevice != null &&
+      WearableDeviceClassifier.isVibratingReminderCandidate(
+        connectedDevice!.name,
+      ) &&
+      _wearable is WearableHealthReminderHapticsBridge &&
+      availabilityFor(DeviceFeature.findWatch).isReady;
+
+  Future<RingReminderHapticResult> _pulseReminderRing({
+    required String expectedOwner,
+  }) async {
+    if (expectedOwner != homeHealthCardOwner ||
+        !readingReminderSettings.ringVibrationEnabled ||
+        ringReminderVibrationBusy ||
+        !healthReminderRingVibrationAvailable) {
+      return const RingReminderHapticResult();
+    }
+    final generation = _sessionGeneration;
+    final settings = _deviceSettingsGeneration;
+    final target = connectedDevice!.id;
+    bool current() =>
+        _isCurrentSessionGeneration(generation) &&
+        expectedOwner == homeHealthCardOwner &&
+        settings == _deviceSettingsGeneration &&
+        connectedDevice?.id == target;
+    ringReminderVibrationBusy = true;
+    _notifyHealthReminderListeners();
+    try {
+      final response = await (_wearable as WearableHealthReminderHapticsBridge)
+          .pulseHealthReminder(expectedDeviceId: target);
+      return current() ? response : const RingReminderHapticResult();
+    } catch (_) {
+      return const RingReminderHapticResult();
+    } finally {
+      if (_isCurrentSessionGeneration(generation)) {
+        ringReminderVibrationBusy = false;
+        _notifyHealthReminderListeners();
+      }
+    }
+  }
+
+  Future<void> _vibrateForReading(
+    HealthWarningAlert event,
+    int generation,
+    bool Function() current,
+  ) async {
+    if (!current() ||
+        !readingReminderSettings.ringVibrationEnabled ||
+        !healthReminderRingVibrationAvailable) {
+      return;
+    }
+    final owner = homeHealthCardOwner;
+    if (!await updateHealthReminderAction(
+          event.id,
+          expectedOwner: owner,
+          ringVibrationRequested: true,
+        ) ||
+        !current() ||
+        activeHealthWarningAlert?.id != event.id) {
+      return;
+    }
+    final response = await _pulseReminderRing(expectedOwner: owner);
+    if (response.acknowledged && _isCurrentSessionGeneration(generation)) {
+      await updateHealthReminderAction(
+        event.id,
+        expectedOwner: owner,
+        ringVibrationAcknowledged: true,
+      );
+    }
+  }
+
   Future<void> _loadReadingReminderSettings(int generation) async {
     var value = const ReadingReminderSettings();
     final store = _healthStore;
@@ -106,6 +178,25 @@ extension HealthReminderController on AppController {
       }
       activeHealthWarningAlert = event;
       _notifyHealthReminderListeners();
+      unawaited(_vibrateForReading(event, generation, canPresent));
+      try {
+        await _ingestNotificationPayload({
+          'schema_version': NotificationEvent.schemaVersion,
+          'event_id': healthWarningEventId(event),
+          'event_type': NotificationEventType.healthWarning.wireName,
+          'entity_id': event.id,
+          'created_at': event.triggeredAt.toUtc().toIso8601String(),
+          'source': NotificationEventSource.device.wireName,
+        }, expectedGeneration: generation);
+        if (!canPresent()) return;
+        if (activeHealthWarningAlert?.id != event.id) {
+          await markHealthWarningRead(event);
+          return;
+        }
+      } catch (_) {
+        // Keep the actual reading and foreground alert if the inbox is busy.
+      }
+      if (!canPresent() || activeHealthWarningAlert?.id != event.id) return;
       try {
         final owner = _healthOwnerFor(session);
         final requested = await _healthReminderNotifications.show(
@@ -215,6 +306,8 @@ extension HealthReminderController on AppController {
     bool acknowledged = false,
     bool dialRequested = false,
     bool notificationRequested = false,
+    bool ringVibrationRequested = false,
+    bool ringVibrationAcknowledged = false,
   }) {
     final generation = _sessionGeneration;
     final result = _healthReminderWrites.then((_) async {
@@ -238,6 +331,12 @@ extension HealthReminderController on AppController {
                 : null,
             notificationRequestedAt: notificationRequested
                 ? detail.notificationRequestedAt ?? now
+                : null,
+            ringVibrationRequestedAt: ringVibrationRequested
+                ? detail.ringVibrationRequestedAt ?? now
+                : null,
+            ringVibrationAcknowledgedAt: ringVibrationAcknowledged
+                ? detail.ringVibrationAcknowledgedAt ?? now
                 : null,
           ),
         ),
@@ -300,9 +399,14 @@ extension HealthReminderController on AppController {
         !canOpenHealthReminderEvent(opened.eventId)) {
       return;
     }
+    final reminder = healthReminderEvents.firstWhere(
+      (e) => e.id == opened.eventId,
+    );
+    await markHealthWarningRead(reminder);
+    if (!_isCurrentSessionGeneration(generation)) return;
     pendingNotificationRoute = NotificationRouteIntent(
       target: NotificationRouteTarget.healthWarningHistory,
-      eventId: 'local-${opened.eventId}',
+      eventId: healthWarningEventId(reminder),
       entityId: opened.eventId,
     );
     _notifyHealthReminderListeners();

@@ -13,6 +13,7 @@ final class ReadingReminderSettings {
     this.highEnabled = false,
     this.lowEnabled = false,
     this.oxygenEnabled = false,
+    this.ringVibrationEnabled = true,
     this.high = 120,
     this.low = 40,
     this.oxygen = 92,
@@ -21,6 +22,7 @@ final class ReadingReminderSettings {
   final bool highEnabled;
   final bool lowEnabled;
   final bool oxygenEnabled;
+  final bool ringVibrationEnabled;
   final int high;
   final int low;
   final int oxygen;
@@ -38,6 +40,7 @@ final class ReadingReminderSettings {
     bool? highEnabled,
     bool? lowEnabled,
     bool? oxygenEnabled,
+    bool? ringVibrationEnabled,
     int? high,
     int? low,
     int? oxygen,
@@ -45,6 +48,7 @@ final class ReadingReminderSettings {
     highEnabled: highEnabled ?? this.highEnabled,
     lowEnabled: lowEnabled ?? this.lowEnabled,
     oxygenEnabled: oxygenEnabled ?? this.oxygenEnabled,
+    ringVibrationEnabled: ringVibrationEnabled ?? this.ringVibrationEnabled,
     high: high ?? this.high,
     low: low ?? this.low,
     oxygen: oxygen ?? this.oxygen,
@@ -55,6 +59,7 @@ final class ReadingReminderSettings {
     'highEnabled': highEnabled,
     'lowEnabled': lowEnabled,
     'oxygenEnabled': oxygenEnabled,
+    'ringVibrationEnabled': ringVibrationEnabled,
     'high': high,
     'low': low,
     'oxygen': oxygen,
@@ -69,6 +74,8 @@ final class ReadingReminderSettings {
           raw['highEnabled'] is! bool ||
           raw['lowEnabled'] is! bool ||
           raw['oxygenEnabled'] is! bool ||
+          (raw.containsKey('ringVibrationEnabled') &&
+              raw['ringVibrationEnabled'] is! bool) ||
           raw['high'] is! int ||
           raw['low'] is! int ||
           raw['oxygen'] is! int) {
@@ -78,6 +85,7 @@ final class ReadingReminderSettings {
         highEnabled: raw['highEnabled'] as bool,
         lowEnabled: raw['lowEnabled'] as bool,
         oxygenEnabled: raw['oxygenEnabled'] as bool,
+        ringVibrationEnabled: raw['ringVibrationEnabled'] as bool? ?? true,
         high: raw['high'] as int,
         low: raw['low'] as int,
         oxygen: raw['oxygen'] as int,

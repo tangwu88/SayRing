@@ -9,6 +9,7 @@ import '../app_theme.dart';
 import '../prototype_pages.dart';
 import '../widgets/inline_notice.dart';
 import '../html_text.dart';
+import '../health_reminder_center.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({required this.controller, super.key});
@@ -27,12 +28,26 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   Future<void> _openItem(Map<String, Object?> item) async {
+    final owner = widget.controller.homeHealthCardOwner;
     final eventId = '${item['event_id'] ?? ''}'.trim();
     if (eventId.isNotEmpty) {
       await widget.controller.markNotificationEventRead(eventId);
     }
-    if (!mounted) return;
+    if (!mounted || owner != widget.controller.homeHealthCardOwner) return;
     final eventType = '${item['_eventType'] ?? ''}';
+    final reminderId = '${item['entity_id'] ?? ''}';
+    if (eventType == NotificationEventType.healthWarning.name &&
+        widget.controller.canOpenHealthReminderEvent(reminderId)) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => HealthReminderDetailPage(
+            controller: widget.controller,
+            eventId: reminderId,
+          ),
+        ),
+      );
+      return;
+    }
     if (eventType == NotificationEventType.careInvitation.name) {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -83,6 +98,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   '_localNotification': true,
                   '_eventType': NotificationEventType.healthWarning.name,
                   'event_id': eventId,
+                  'entity_id': entry.value.id,
                   'is_read': event?.isRead ?? true,
                   'title': entry.value.title,
                   'content': entry.value.message,

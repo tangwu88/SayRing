@@ -23,6 +23,10 @@ class _GlobalPageController extends Fake implements AppController {
   @override
   bool get readingReminderSettingsSaving => false;
   @override
+  bool get healthReminderRingVibrationAvailable => false;
+  @override
+  bool get ringReminderVibrationBusy => false;
+  @override
   String get homeHealthCardOwner => 'test-owner';
   @override
   bool get healthLibraryVisible => !isWellnessOnly;

@@ -35,6 +35,8 @@ final class HealthReminderDetails {
     this.acknowledgedAt,
     this.dialRequestedAt,
     this.notificationRequestedAt,
+    this.ringVibrationRequestedAt,
+    this.ringVibrationAcknowledgedAt,
   });
 
   final HealthReminderKind kind;
@@ -49,11 +51,15 @@ final class HealthReminderDetails {
   final DateTime? acknowledgedAt;
   final DateTime? dialRequestedAt;
   final DateTime? notificationRequestedAt;
+  final DateTime? ringVibrationRequestedAt;
+  final DateTime? ringVibrationAcknowledgedAt;
 
   HealthReminderDetails copyWith({
     DateTime? acknowledgedAt,
     DateTime? dialRequestedAt,
     DateTime? notificationRequestedAt,
+    DateTime? ringVibrationRequestedAt,
+    DateTime? ringVibrationAcknowledgedAt,
   }) => HealthReminderDetails(
     kind: kind,
     recordedAt: recordedAt,
@@ -68,6 +74,10 @@ final class HealthReminderDetails {
     dialRequestedAt: dialRequestedAt ?? this.dialRequestedAt,
     notificationRequestedAt:
         notificationRequestedAt ?? this.notificationRequestedAt,
+    ringVibrationRequestedAt:
+        ringVibrationRequestedAt ?? this.ringVibrationRequestedAt,
+    ringVibrationAcknowledgedAt:
+        ringVibrationAcknowledgedAt ?? this.ringVibrationAcknowledgedAt,
   );
 
   Map<String, Object?> toJson() => {
@@ -87,6 +97,14 @@ final class HealthReminderDetails {
       'dialRequestedAt': dialRequestedAt!.toUtc().toIso8601String(),
     if (notificationRequestedAt != null)
       'notificationRequestedAt': notificationRequestedAt!
+          .toUtc()
+          .toIso8601String(),
+    if (ringVibrationRequestedAt != null)
+      'ringVibrationRequestedAt': ringVibrationRequestedAt!
+          .toUtc()
+          .toIso8601String(),
+    if (ringVibrationAcknowledgedAt != null)
+      'ringVibrationAcknowledgedAt': ringVibrationAcknowledgedAt!
           .toUtc()
           .toIso8601String(),
   };
@@ -134,6 +152,12 @@ final class HealthReminderDetails {
       )?.toUtc(),
       notificationRequestedAt: DateTime.tryParse(
         '${value['notificationRequestedAt'] ?? ''}',
+      )?.toUtc(),
+      ringVibrationRequestedAt: DateTime.tryParse(
+        '${value['ringVibrationRequestedAt'] ?? ''}',
+      )?.toUtc(),
+      ringVibrationAcknowledgedAt: DateTime.tryParse(
+        '${value['ringVibrationAcknowledgedAt'] ?? ''}',
       )?.toUtc(),
     );
   }

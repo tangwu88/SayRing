@@ -44,4 +44,11 @@ final class RingNamePolicy {
         if (normalized.contains("K80")) return "K80";
         return null;
     }
+
+    static boolean isVibratingReminderName(String name) {
+        if (explicitQRing(normalize(name))) return false;
+        String model = luckRingModel(name);
+        if ("R7Pro".equals(model) || "R7Ultra".equals(model) || "HR05".equals(model)) return true;
+        return isQRingName(name) && normalize(name).replaceAll("[\\s_-]+", "").contains("R8PRO");
+    }
 }

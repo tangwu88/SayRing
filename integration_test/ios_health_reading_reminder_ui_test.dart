@@ -7,6 +7,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:saydian_app/app.dart';
 import 'package:saydian_app/domain/reading_reminder.dart';
+import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/ui/health_reminder_center.dart';
 
@@ -48,6 +49,14 @@ void main() {
         await app.initialize().timeout(const Duration(seconds: 60));
         owner = app.homeHealthCardOwner;
         target = app.rememberedDevice?.id;
+        final model = (app.rememberedDevice?.name ?? '')
+            .toUpperCase()
+            .replaceAll(RegExp(r'[\s_-]+'), '');
+        expect(
+          model.contains('R7PRO') || model.contains('HR05'),
+          isTrue,
+          reason: 'Only the existing R7 Pro/HR05 target',
+        );
         expect(app.canSaveHealthReminder, isTrue);
         originalSettings = app.readingReminderSettings;
         originalEvents = app.healthReminderEvents.map((e) => e.id).toSet();
@@ -124,8 +133,8 @@ void main() {
           await binding.takeScreenshot(
             'xr-reading-red-preview-scale-${scale.toInt()}-private',
           );
-          final close = find.byKey(const Key('dismiss-health-warning'));
-          await tester.ensureVisible(close);
+          final close = find.byKey(const Key('reading-reminder-close'));
+          expect(close.hitTestable(), findsOneWidget);
           await settle();
           await tester.tap(close.hitTestable());
           await settle();
@@ -136,6 +145,99 @@ void main() {
           expect(tester.takeException(), isNull);
         }
         proof['normalAndLargeTextPreviewClosed'] = true;
+        tester.platformDispatcher.clearTextScaleFactorTestValue();
+        await settle();
+        for (
+          var i = 0;
+          i < 90 &&
+              (app.isDeviceSyncing ||
+                  !app.healthReminderRingVibrationAvailable);
+          i++
+        ) {
+          await Future<void>.delayed(const Duration(seconds: 1));
+          await tester.pump().timeout(const Duration(seconds: 15));
+        }
+        proof['ringVibrationAvailable'] =
+            app.healthReminderRingVibrationAvailable;
+        expect(app.connectedDevice?.id, target);
+        expect(app.healthReminderRingVibrationAvailable, isTrue);
+        final beforePulseEvents = app.healthReminderEvents
+            .map((e) => e.id)
+            .toSet();
+        final inboxBeforePulse = app.notificationInboxEvents
+            .map((e) => e.eventId)
+            .toSet();
+        Map<String, Object?>? callBefore;
+        if (app.availabilityFor(DeviceFeature.callReminder).isReady) {
+          callBefore = await app.readDeviceFeature(DeviceFeature.callReminder);
+        }
+        final pulse = await app.testHealthReminderRingVibration(
+          expectedOwner: owner,
+        );
+        proof['ringPulseAccepted'] = pulse.accepted;
+        proof['ringPulseAcknowledged'] = pulse.acknowledged;
+        if (callBefore?.containsKey('incomingCall') == true) {
+          final after = await app.readDeviceFeature(DeviceFeature.callReminder);
+          proof['incomingCallSettingPreserved'] =
+              after['incomingCall'] == callBefore!['incomingCall'];
+          expect(proof['incomingCallSettingPreserved'], isTrue);
+        }
+        expect(
+          app.healthReminderEvents.map((e) => e.id).toSet(),
+          beforePulseEvents,
+        );
+        expect(
+          app.notificationInboxEvents.map((e) => e.eventId).toSet(),
+          inboxBeforePulse,
+        );
+        debugPrint(
+          'XR HEALTH: real R7 pulse accepted=${pulse.accepted} acknowledged=${pulse.acknowledged}',
+        );
+        final transitions = <String>[];
+        void observeLink() {
+          final state =
+              '${app.deviceState.name}:${app.connectedDevice?.id == target}';
+          if (transitions.isEmpty || transitions.last != state) {
+            transitions.add(state);
+          }
+        }
+
+        app.addListener(observeLink);
+        observeLink();
+        final diagnosticsBefore = app.connectionDiagnostics.length;
+        final stable = Stopwatch()..start();
+        try {
+          for (var i = 0; i < 36; i++) {
+            await Future<void>.delayed(const Duration(seconds: 5));
+            await tester.pump().timeout(const Duration(seconds: 15));
+            observeLink();
+            if (i % 3 == 0) {
+              await app.refreshConnectedDeviceDetails(quiet: true);
+            }
+            if (i % 12 == 11) {
+              debugPrint('XR HEALTH: stationary link sampling ${i + 1}/36');
+            }
+          }
+        } finally {
+          app.removeListener(observeLink);
+          proof['stationarySeconds'] = stable.elapsedMilliseconds / 1000;
+          proof['stationaryStates'] = transitions;
+          proof['connectionDiagnostics'] = app.connectionDiagnostics
+              .skip(diagnosticsBefore)
+              .toList();
+        }
+        proof['stationaryTargetStayedConnected'] = transitions.every(
+          (s) => s.endsWith(':true'),
+        );
+        expect(
+          proof['stationaryTargetStayedConnected'],
+          isTrue,
+          reason:
+              'No intentional disconnection or reconnect in the stationary window',
+        );
+        debugPrint('XR HEALTH: stationary R7 connection window completed');
+        expect(pulse.accepted, isTrue);
+        expect(pulse.acknowledged, isTrue);
         proof['noFakeReadingOrEvents'] = app.healthReminderEvents
             .map((e) => e.id)
             .toSet()
@@ -172,6 +274,6 @@ void main() {
         app.dispose();
       }
     },
-    timeout: const Timeout(Duration(minutes: 5)),
+    timeout: const Timeout(Duration(minutes: 9)),
   );
 }

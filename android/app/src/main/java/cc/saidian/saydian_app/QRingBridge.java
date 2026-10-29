@@ -2053,6 +2053,18 @@ public final class QRingBridge
                 case "setAutoMeasureSetting":
                     setAutoSetting(call.argument("type"), call.argument("enabled"), result);
                     break;
+                case "pulseHealthReminder": {
+                    String expected = call.argument("expectedDeviceId");
+                    if (!resolved() || expected == null || connectedId == null || !expected.equalsIgnoreCase(connectedId)
+                            || !RingNamePolicy.isVibratingReminderName(connectedName)) {
+                        result.error("HAPTIC_UNAVAILABLE", "此戒指暂不支持振动提醒", null); break;
+                    }
+                    CommandHandle.getInstance().executeReqCmd(new FindDeviceReq(), null);
+                    Map<String, Object> value = new HashMap<>();
+                    value.put("accepted", true); value.put("acknowledged", false);
+                    result.success(value);
+                    break;
+                }
                 case "triggerDeviceAction":
                     if ("camera".equals(call.argument("feature"))) {
                         remoteCameraCommand(Boolean.FALSE.equals(call.argument("enabled"))

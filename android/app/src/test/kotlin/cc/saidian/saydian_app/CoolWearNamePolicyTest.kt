@@ -6,6 +6,15 @@ import org.junit.Test
 
 class CoolWearNamePolicyTest {
     @Test
+    fun `health reminder pulses are restricted to confirmed vibration models`() {
+        for (name in listOf("R7 Pro", "r7_ultra", "HR05", "r8-Pro")) {
+            assertEquals(name, true, RingNamePolicy.isVibratingReminderName(name))
+        }
+        for (name in listOf("R7", "R7C", "R12", "R21", "R8", "R21_R8Pro", "R7Pro_R8Pro", "HR01")) {
+            assertEquals(name, false, RingNamePolicy.isVibratingReminderName(name))
+        }
+    }
+    @Test
     fun `bond lookup is exact and never routes another family or arbitrary identifier`() {
         val id = "AA:BB:CC:DD:EE:01"
         assertEquals(true, CoolWearRingBridge.isExactBondedTarget(id, id.lowercase(), "SD-RING-R7 Ultra"))
