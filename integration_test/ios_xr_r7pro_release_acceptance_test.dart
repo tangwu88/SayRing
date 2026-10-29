@@ -30,7 +30,8 @@ void main() {
         final target = app.rememberedDevice;
         expect(owner != null, isTrue, reason: 'Existing member required');
         expect(target != null, isTrue, reason: 'Never choose or reset a ring');
-        final model = target!.name.toUpperCase().replaceAll(
+        private['rememberedTarget'] = target!.toJson();
+        final model = target.name.toUpperCase().replaceAll(
           RegExp(r'[\s_-]'),
           '',
         );
