@@ -103,3 +103,11 @@
 为等待安装临时将USB亮屏参数stay_on_while_plugged_in从0设为2；完成后已恢复并读取确认0。私有界面树、APK及构建日志留在Git外。核验命令中曾误留一个无副作用的占位命令，PowerShell报告command not found；后续哈希、启动及设置恢复均执行，独立重读pid/版本确认通过。查找发布辅助脚本时误查不存在的tools目录，未运行任何发布脚本；本仓库文档按显式文件提交。
 
 最终再次定向fetch成功，HEAD与当前开发分支远端同为b80519b、ahead/behind均0；随后仅提交本安装回执及清单标题修正。完整33项指此次远端更新区间，不包含本机文档checkpoint及合并提交。main、后台、下载页和其他端应用发布未变更。
+
+### 用户明确要求卸载1177并安装1163（同日14:29）
+
+用户先要求安装1163，随后明确补充“直接卸载手机现在的版本安装就行”。本轮因此不沿用之前保数据覆盖授权：已告知卸载会清除本机登录、设置和缓存，实际执行`adb uninstall cn.saydian.ring`返回Success，再`adb install <1163正式APK>`返回Success。未操作戒指解绑/重置，也未调用云端删除接口；卸载后的本地数据不宣称保留。
+
+安装前独立核验原文件`E:\SayRing-market-artifacts-20261029\r22-1163-final\SayRing-1.0.7-1163-release.apk`：包名cn.saydian.ring、版本1.0.7(1163)，SHA256 `460a3d6f5a06f1253abde605a4ecf1ec2ed6fb068ed63c2513678152a082a74c`；apksigner验签通过，证书与1177原正式证书一致。首轮aapt输出管道提前Select-Object -First 1导致工具退出非零，安装尚未开始；改为完整收集badging后检查身份，再执行卸载安装，保留失败记录。
+
+安装后读取手机实际versionCode=1163、versionName=1.0.7、firstInstallTime=2026-10-30 14:29:25；拉回实际base.apk核对SHA256完全一致。am start将原MainActivity带回前台，无需重复启动；没有代选协议、登录、绑定或测量。本轮只安装已存在且已验证的旧正式包，不修改运行代码、源码版本或线上下载配置。提交前status干净、定向fetch成功，本地和远端在c7e3fb7一致；只追加此安装回执，不重跑没有变更的源码全量测试。
