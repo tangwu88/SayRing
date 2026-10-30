@@ -39,6 +39,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   String? _error;
   bool _loading = false;
   bool _busy = false;
+  bool _signedIn = false;
   bool _accepted = false;
   bool _ageConfirmed = false;
   int _generation = 0;
@@ -174,7 +175,11 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
         locale: _locale,
         ageConfirmed: true,
       );
-      if (!mounted || success) return;
+      if (!mounted) return;
+      if (success) {
+        _finishSignIn();
+        return;
+      }
       final binding = widget.controller.pendingGlobalWechatBinding;
       if (binding == null) {
         setState(() => _error = 'wechat');
@@ -269,7 +274,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   }
 
   Future<void> _submit() async {
-    if (_busy) return;
+    if (_busy || _signedIn) return;
     GlobalAccountIdentity identity;
     try {
       identity = _identity();
@@ -329,7 +334,9 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
               privacyConsentGranted: true,
               ageConfirmed: true,
             );
-      if (mounted && !success) {
+      if (success) {
+        _finishSignIn();
+      } else if (mounted) {
         setState(
           () => _error = _errorFrom(
             widget.controller.lastApiError ?? const ApiException('Unavailable'),
@@ -340,6 +347,25 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
       if (mounted) setState(() => _error = _errorFrom(error));
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _finishSignIn() {
+    if (!mounted) return;
+    _timer?.cancel();
+    _challenge = null;
+    _code.clear();
+    _password.clear();
+    setState(() => _signedIn = true);
+    final route = ModalRoute.of(context);
+    if (route == null || route.isFirst) return;
+    final navigator = Navigator.of(context);
+    if (route.isCurrent) {
+      navigator.popUntil((route) => route.isFirst);
+    } else {
+      // Keep a help screen opened during sign-in in place; only discard the
+      // completed login route beneath it.
+      navigator.removeRoute(route);
     }
   }
 
@@ -403,6 +429,23 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_signedIn) {
+      // The reactive app root replaces its login page after authentication.
+      // Until then, never expose a second submission of the consumed code.
+      return Scaffold(
+        key: const Key('global-code-login-success'),
+        body: Center(
+          child: Semantics(
+            liveRegion: true,
+            child: Text(
+              Localizations.localeOf(context).languageCode == 'zh'
+                  ? '登录成功'
+                  : 'Signed in',
+            ),
+          ),
+        ),
+      );
+    }
     return Scaffold(
       key: const Key('global-code-login-page'),
       body: SafeArea(
