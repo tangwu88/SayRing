@@ -29,3 +29,25 @@ iOS普通Debug/Profile均独立开发签名构建及deep/strict验证完成，cn
 服务端已通过期望44054d5保护正常更新main至4da49f4468167fc139b096b5bc624d3b0acd0203（与本地46c6d13树066da8d1相同），[deploy cn only]标记保持当前app.saydian.cn范围。CI40981867672正在运行，线上revision/实际验证码注册仍待回执，不能称推送即上线。
 
 用户追加明确授权：完成修复后更新赛电戒指下载引导页/down2。交付正式1176，保留iPhone已可下载入口及其他平台字段，线上文件重新下载核验后再登记发布成功；不把待审核的iOS版本标为已上架。下载后台浏览器暂返回请求失败，已请用户恢复前台/后台连接；上传和保存尚未完成。
+
+## 发布与真机续测
+
+服务端CI40981867672的verify、resolve、CN deploy全部成功，US任务按范围跳过。公开/global/health/ready返回revision=4da49f4468167fc139b096b5bc624d3b0acd0203、数据库就绪；Say Ring公开能力返回smsAutoRegistration=true，原配套say-ring-cn-2026-10-05-v3保持。此为生产部署/能力回执，尚不是实际新手机号注册成功。
+
+安卓1176私有Debug按-r覆盖，未卸载/清数据；UID10140和初次安装时间保留，启动前对比27个数据库/偏好文件均未丢失且SHA相同，实际已安装APK与验签产物匹配。Flutter附加后发现P2首页迷你趋势时间标签底部溢出0.5像素：继承字体行高与外层预留19.5像素不一致。修改仅限health_trend_page.dart的两处时间标签显式1.5行高、预留高度向上取整；原图表高度、时间/数据与记录不变。补充字体缩放1/1.3/2及较大继承行高的边界回归，后续重新构建Android正式/私有Debug和iOS两模式，不沿用该UI修复前的文件用于下载。
+
+迷你图修复后的qring_sleep_trend_visual_test定向11项通过；全量及重编排队，仍保留上一轮1606项和首次真机溢出证据，不将旧产物作为最新包。
+
+## 本轮最终构建与安装回执
+
+迷你图修复后重新format/analyze通过，UTC及Asia/Shanghai全量各1609项通过；Node141通过/1平台跳过，Harmony两个时区各540项通过，Python发行35项通过。全部Android Release/私有Debug、iOS普通Debug/Profile均从9009a7d36ade5621ac10db818f73ac7718e27155重新串行编译，签名/包名/版本校验通过；前文首轮文件仅留作历史，不再用于发布。Android原生74项来自本轮首轮、原生代码未改。
+
+**最终下载候选**：Android1.0.7（1176），72,243,971字节，SHA256 **92d4a0f19c0a5c3ee153f71500682e1c313812659ea66fb1a0c736cbd3a9fabe**，原发行签名81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de，非Debug、双ARM、22个arm64库16KB及Manifest/依赖门禁通过。位于忽略目录android-formal-v2；私有Debug不得发布。
+
+最终私有Debug159,262,926字节，SHA25604a9477cdbd71c8c40fcdae9bb27f1b1815336a425498f0a3d76bcf348585451，再次私有备份并-r覆盖，未卸载/清数据。UID10140及初次安装时间保留，29个数据库/偏好/XML文件启动前比较0丢失、0变化；拉回实际APK的SHA与新验签产物完全一致。华为安装器两级“继续安装”均使用实际可见按钮完成。首次启动辅助命令误用包名简写Activity返回Error type3，按系统resolve-activity返回的实际MainActivity启动成功；并非安装或应用启动崩溃。已重新Flutter附加，VM/页面续验另记。
+
+首轮UI读取在系统dump切换时读到非XML的64字节结果，解析失败；第二次实际XML成功，未用失败截图/空结果作通过。正常main热重载9个库成功、首页与登录状态仍可读；后续保留普通Debug调试连接。
+
+公开下载配置的本轮只读快照仍为Android标注1.0.7（1163）、iPhone1.0.4（1130）App Store链接、Harmony1.0.5（1128）。后台浏览器RPC持续“Codex app tool request failed”，open_in_codex仅返回queued，已请求用户恢复本聊天/后台前台；未上传APK、未保存设置、未改变iPhone/Harmony，不能称下载页已更新。手机号实际新OTP注册由用户在手机确认，尚无回执，不复用截图号码/验证码。服务端生产能力和事务回归已通过，不替代该实测。
+
+最终新编译私有Debug已成功附加Flutter，实际VM/DevTools位于本机新端口51097（认证路径仅留本机），进入健康首页并滚动图表区域后调试输出未新增RenderFlex异常；普通main保持运行。上述记录后的变更仅为文档，不改变已构建运行输入。

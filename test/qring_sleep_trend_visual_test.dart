@@ -273,6 +273,48 @@ void main() {
     },
   );
 
+  for (final scale in [1.0, 1.3, 2.0]) {
+    testWidgets('fitted mini chart bounds time-label leading at scale $scale', (
+      tester,
+    ) async {
+      final controller = _VisualController();
+      final now = DateTime.now();
+      final at = DateTime.utc(now.year, now.month, now.day, 2);
+      await _pump(
+        tester,
+        Scaffold(
+          body: DefaultTextStyle.merge(
+            // Android's inherited text leading can exceed the reserved line.
+            style: const TextStyle(height: 1.8),
+            child: HealthMetricMiniChart(
+              controller: controller,
+              metric: HealthMetric.heartRate,
+              color: Colors.blue,
+              fitToSamples: true,
+              height: 60,
+              records: [
+                _record(id: 'first', at: at, value: 68),
+                _record(
+                  id: 'last',
+                  at: at.add(const Duration(hours: 1)),
+                  value: 72,
+                ),
+              ],
+            ),
+          ),
+        ),
+        scale: scale,
+      );
+      final bounds = tester.getRect(find.byType(HealthMetricMiniChart));
+      expect(tester.getSize(find.byType(LineChart)).height, 60);
+      for (final key in ['health-mini-first-time', 'health-mini-last-time']) {
+        final label = tester.getRect(find.byKey(Key(key)));
+        expect(label.bottom, lessThanOrEqualTo(bounds.bottom));
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final count in [0, 1]) {
     testWidgets('fitted mini chart keeps a $count-point history uncharted', (
       tester,

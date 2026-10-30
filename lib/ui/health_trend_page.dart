@@ -108,7 +108,9 @@ class _HealthMetricMiniChartState extends State<HealthMetricMiniChart> {
       // Reserve the same chart/time-label height while loading and after data
       // arrives, so a two-column row cannot jump under a scrolling finger.
       height: fitToSamples
-          ? height + 6 + MediaQuery.textScalerOf(context).scale(13) * 1.5
+          ? height +
+                6 +
+                (MediaQuery.textScalerOf(context).scale(13) * 1.5).ceil()
           : height,
       child: FutureBuilder<List<HealthRecord>>(
         future: _samples(start, end),
@@ -241,6 +243,7 @@ class _HealthMetricMiniChartState extends State<HealthMetricMiniChart> {
                               style: const TextStyle(
                                 color: SaydianColors.muted,
                                 fontSize: 13,
+                                height: 1.5,
                               ),
                             ),
                           ),
@@ -252,6 +255,7 @@ class _HealthMetricMiniChartState extends State<HealthMetricMiniChart> {
                               style: const TextStyle(
                                 color: SaydianColors.muted,
                                 fontSize: 13,
+                                height: 1.5,
                               ),
                             ),
                           ),
