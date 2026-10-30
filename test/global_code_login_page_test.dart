@@ -21,6 +21,7 @@ class CodeLoginController extends Fake implements AppController {
   int capabilityRequests = 0;
   String? openedLegalPath;
   bool explicitCodeLoginAvailable = true;
+  bool smsAutoRegistrationAvailable = true;
 
   @override
   bool get supportsLocalOnlyUse => localOnlySupported;
@@ -61,6 +62,7 @@ class CodeLoginController extends Fake implements AppController {
       loginEmail: false,
       loginSms: true,
       explicitRegistrationCodeLogin: explicitCodeLoginAvailable,
+      smsAutoRegistration: smsAutoRegistrationAvailable,
       smsCountries: {'CN'},
       supportedLocales: ['en'],
       consentVersion: 'reviewed-test-v1',
@@ -202,6 +204,46 @@ class WechatCodeLoginController extends CodeLoginController {
 }
 
 void main() {
+  for (final available in [true, false]) {
+    testWidgets(
+      'automatic registration hint follows the published SMS capability: $available',
+      (tester) async {
+        final controller = CodeLoginController()
+          ..smsAutoRegistrationAvailable = available;
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: const Locale('zh'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: GlobalCodeLoginPage(controller: controller),
+          ),
+        );
+        await tester.pumpAndSettle();
+        const hint = Key('code-login-sms-auto-register-hint');
+        expect(find.byKey(hint), findsNothing);
+        await tester.tap(find.byKey(const Key('code-login-mode')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(hint), available ? findsOneWidget : findsNothing);
+        if (available) {
+          expect(find.text('未注册的手机号将自动注册并登录'), findsOneWidget);
+        }
+        for (final key in ['code-login-minimum-age', 'code-login-consent']) {
+          final checkbox = find.descendant(
+            of: find.byKey(Key(key)),
+            matching: find.byType(Checkbox),
+          );
+          expect(tester.widget<Checkbox>(checkbox).value, isFalse);
+        }
+        await tester.tap(find.widgetWithText(ChoiceChip, '邮箱'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('code-login-mode')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(hint), findsNothing);
+        expect(controller.requested, isNull);
+        expect(controller.signedIn, isNull);
+      },
+    );
+  }
   testWidgets(
     'old server cannot silently create passwordless users through new code login',
     (tester) async {

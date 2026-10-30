@@ -14,7 +14,8 @@ import 'global_legal_page.dart';
 import 'global_auth_page.dart';
 
 /// Say Ring shares the global member account. Password sign-in is the default
-/// for both channels; code sign-in and verified registration remain explicit.
+/// for both channels. Verified phone-code sign-in can create a new account;
+/// email registration retains the separate password-and-code flow.
 class GlobalCodeLoginPage extends StatefulWidget {
   const GlobalCodeLoginPage({super.key, required this.controller});
 
@@ -542,6 +543,22 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
                 ],
                 if (!_passwordMode && _challenge != null)
                   Text(l.verificationSentTo(_challenge!.maskedIdentifier)),
+                if (!_passwordMode &&
+                    _channel == AccountChannel.sms &&
+                    _capabilities?.explicitRegistrationCodeLogin == true &&
+                    _capabilities?.loginSms == true &&
+                    _capabilities?.smsCountries.contains('CN') == true &&
+                    _capabilities?.smsAutoRegistration == true)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      Localizations.localeOf(context).languageCode == 'zh'
+                          ? '未注册的手机号将自动注册并登录'
+                          : 'New phone numbers are registered when you sign in with a valid code.',
+                      key: const Key('code-login-sms-auto-register-hint'),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
                 Row(
                   key: const Key('code-login-consents-row'),
                   children: [

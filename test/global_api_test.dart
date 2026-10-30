@@ -565,6 +565,23 @@ void main() {
     expect(requests, 0);
   });
   group('identity', () {
+    test('SMS automatic registration requires an explicit public boolean', () {
+      for (final value in [null, false, 'true', 1, true]) {
+        final caps = GlobalAuthCapabilities.fromJson({
+          ...capabilities(),
+          'login': {
+            'sms': true,
+            'explicitRegistrationCodeLogin': true,
+            'smsAutoRegistration': value,
+          },
+        });
+        expect(caps.smsAutoRegistration, value == true);
+      }
+      expect(
+        GlobalAuthCapabilities.fromJson(capabilities()).smsAutoRegistration,
+        isFalse,
+      );
+    });
     test(
       'login capabilities are separate from registration and fail closed',
       () {
