@@ -557,6 +557,8 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
                                 .readingReminderSettings
                                 .phoneSoundEnabled,
                             reading: alert.reminder!.reading!,
+                            baselineValue: alert.reminder!.baselineValue,
+                            threshold: alert.reminder!.threshold,
                             measuredAt: alert.reminder!.measuredAt,
                             onDismiss: dismissReading,
                             onHelp: () {

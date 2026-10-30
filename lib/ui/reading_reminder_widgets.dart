@@ -17,18 +17,30 @@ import 'app_theme.dart';
 String _copy(BuildContext context, String zh, String en) =>
     Localizations.localeOf(context).languageCode == 'zh' ? zh : en;
 
-IconData _icon(HealthReminderKind kind) =>
-    kind == HealthReminderKind.lowBloodOxygen
-    ? Icons.water_drop_outlined
-    : Icons.favorite_rounded;
+IconData _icon(HealthReminderKind kind) => switch (kind) {
+  HealthReminderKind.lowBloodOxygen => Icons.water_drop_outlined,
+  HealthReminderKind.lowHrv => Icons.battery_charging_full_rounded,
+  HealthReminderKind.highSkinTemperature => Icons.thermostat_rounded,
+  _ => Icons.favorite_rounded,
+};
 String _label(BuildContext context, HealthReminderKind kind) => switch (kind) {
   HealthReminderKind.highHeartRate => _copy(context, '心率过高', 'High heart rate'),
   HealthReminderKind.lowHeartRate => _copy(context, '心率过低', 'Low heart rate'),
   HealthReminderKind.lowBloodOxygen => _copy(context, '血氧偏低', 'Low oxygen'),
+  HealthReminderKind.lowHrv => _copy(context, 'HRV 恢复提醒', 'HRV recovery'),
+  HealthReminderKind.highSkinTemperature => _copy(
+    context,
+    '皮温偏高',
+    'Higher skin temperature',
+  ),
   HealthReminderKind.symptoms => _copy(context, '健康提醒', 'Health reminder'),
 };
-String _unit(HealthReminderKind kind) =>
-    kind == HealthReminderKind.lowBloodOxygen ? '%' : 'bpm';
+String _unit(HealthReminderKind kind) => switch (kind) {
+  HealthReminderKind.lowBloodOxygen => '%',
+  HealthReminderKind.lowHrv => 'ms',
+  HealthReminderKind.highSkinTemperature => '℃',
+  _ => 'bpm',
+};
 int _reference(HealthReminderKind kind) => switch (kind) {
   HealthReminderKind.highHeartRate => 120,
   HealthReminderKind.lowHeartRate => 40,
@@ -46,6 +58,8 @@ class ReadingReminderAlertView extends StatefulWidget {
     this.onDetails,
     this.preview = false,
     this.measuredAt,
+    this.baselineValue,
+    this.threshold,
     this.previewVibration,
     this.soundEnabled = true,
     this.sound = const MethodChannelHealthReminderSound(),
@@ -57,6 +71,8 @@ class ReadingReminderAlertView extends StatefulWidget {
   final VoidCallback? onDetails;
   final bool preview;
   final DateTime? measuredAt;
+  final double? baselineValue;
+  final double? threshold;
   final Future<RingReminderHapticResult>? previewVibration;
   final bool soundEnabled;
   final HealthReminderSound sound;
@@ -339,7 +355,12 @@ class _ReadingReminderAlertViewState extends State<ReadingReminderAlertView>
                           spacing: 8,
                           children: [
                             Text(
-                              widget.reading.toStringAsFixed(0),
+                              widget.reading.toStringAsFixed(
+                                widget.kind ==
+                                        HealthReminderKind.highSkinTemperature
+                                    ? 1
+                                    : 0,
+                              ),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 64,
@@ -356,11 +377,38 @@ class _ReadingReminderAlertViewState extends State<ReadingReminderAlertView>
                           ],
                         ),
                         const SizedBox(height: 12),
+                        if (widget.baselineValue != null &&
+                            widget.threshold != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Text(
+                              '${_copy(context, widget.preview ? '预览参考' : '个人参考', widget.preview ? 'Preview reference' : 'Personal reference')} '
+                              '${widget.baselineValue!.toStringAsFixed(widget.kind == HealthReminderKind.highSkinTemperature ? 1 : 0)} ${_unit(widget.kind)}',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
                         Text(
                           _copy(
                             context,
-                            '读数超出设定范围，请静坐并复测。',
-                            'Outside your set range. Sit quietly and measure again.',
+                            switch (widget.kind) {
+                              HealthReminderKind.lowHrv =>
+                                'HRV低于个人参考范围，先休息后复测。',
+                              HealthReminderKind.highSkinTemperature =>
+                                '皮温高于个人参考范围，请在稳定环境复测。',
+                              _ => '读数超出设定范围，请静坐并复测。',
+                            },
+                            switch (widget.kind) {
+                              HealthReminderKind.lowHrv =>
+                                'Below your personal HRV range. Rest and measure again.',
+                              HealthReminderKind.highSkinTemperature =>
+                                'Above your personal skin-temperature range. Recheck in stable surroundings.',
+                              _ =>
+                                'Outside your set range. Sit quietly and measure again.',
+                            },
                           ),
                           textAlign: TextAlign.center,
                           style: const TextStyle(
@@ -373,8 +421,21 @@ class _ReadingReminderAlertViewState extends State<ReadingReminderAlertView>
                         Text(
                           _copy(
                             context,
-                            '胸部不适、明显气短或晕厥时，立即求助。',
-                            'Chest discomfort, severe breathlessness or fainting? Seek urgent help.',
+                            switch (widget.kind) {
+                              HealthReminderKind.lowHrv =>
+                                '仅供恢复与疲劳变化参考，不是疲劳度诊断。',
+                              HealthReminderKind.highSkinTemperature =>
+                                '皮温不等于核心体温，请用体温计确认体温。',
+                              _ => '胸部不适、明显气短或晕厥时，立即求助。',
+                            },
+                            switch (widget.kind) {
+                              HealthReminderKind.lowHrv =>
+                                'A recovery and fatigue reference, not a fatigue diagnosis.',
+                              HealthReminderKind.highSkinTemperature =>
+                                'Skin temperature is not core temperature. Confirm with a thermometer.',
+                              _ =>
+                                'Chest discomfort, severe breathlessness or fainting? Seek urgent help.',
+                            },
                           ),
                           textAlign: TextAlign.center,
                           style: const TextStyle(
@@ -485,6 +546,26 @@ Future<void> showReadingReminderPreview(
       ? null
       : Future<RingReminderHapticResult>.sync(vibrate);
   final owner = controller?.homeHealthCardOwner;
+  final settings = controller?.readingReminderSettings;
+  final device = controller?.connectedDevice;
+  final baseline = switch (kind) {
+    HealthReminderKind.lowHrv =>
+      settings != null && device != null && settings.hrvReadyFor(device)
+          ? settings.hrvBaselineMs!
+          : 60.0,
+    HealthReminderKind.highSkinTemperature =>
+      settings != null && device != null && settings.temperatureReadyFor(device)
+          ? settings.skinTemperatureBaseline!
+          : 34.0,
+    _ => null,
+  };
+  final threshold = switch (kind) {
+    HealthReminderKind.lowHrv =>
+      baseline! * (100 - (settings?.hrvDropPercent ?? 30)) / 100,
+    HealthReminderKind.highSkinTemperature =>
+      baseline! + (settings?.temperatureRiseC ?? 0.8),
+    _ => null,
+  };
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: false,
@@ -492,10 +573,16 @@ Future<void> showReadingReminderPreview(
     pageBuilder: (dialog, _, _) {
       Widget view() => ReadingReminderAlertView(
         kind: kind,
-        reading:
+        reading: switch (kind) {
+          HealthReminderKind.lowHrv => math.max(1.0, threshold! - 5),
+          HealthReminderKind.highSkinTemperature => threshold! + 0.2,
+          _ =>
             (_reference(kind) +
                     (kind == HealthReminderKind.highHeartRate ? 5 : -1))
                 .toDouble(),
+        },
+        baselineValue: baseline,
+        threshold: threshold,
         preview: true,
         previewVibration: vibration,
         soundEnabled: controller == null
@@ -560,6 +647,429 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
         context,
       ).showSnackBar(const SnackBar(content: Text('设置未保存，请稍后重试')));
     }
+  }
+
+  Future<void> _editPersonalReference(
+    BuildContext context,
+    HealthReminderKind kind,
+    String owner, {
+    bool enableAfterSave = false,
+  }) async {
+    final device = controller.connectedDevice;
+    if (device == null) return;
+    final hrv = kind == HealthReminderKind.lowHrv;
+    final metric = hrv ? HealthMetric.hrv : HealthMetric.bodyTemperature;
+    final referenceKey = readingReminderReferenceKey(device);
+    final old = controller.readingReminderSettings;
+    final ready = hrv
+        ? old.hrvReadyFor(device)
+        : old.temperatureReadyFor(device);
+    final baseline = hrv ? old.hrvBaselineMs : old.skinTemperatureBaseline;
+    var input = ready && baseline != null ? baseline.toString() : '';
+    var change = hrv ? old.hrvDropPercent.toDouble() : old.temperatureRiseC;
+    var saving = false;
+    String? error;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheet) => StatefulBuilder(
+        builder: (sheet, update) => SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            24,
+            24,
+            24,
+            24 + MediaQuery.viewInsetsOf(sheet).bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                _label(context, kind),
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                _copy(
+                  context,
+                  hrv
+                      ? '按同一戒指多次稳定测量设置个人参考，仅用于恢复与疲劳变化参考。'
+                      : '按同一戒指、相近环境设置个人皮温参考。皮温不等于核心体温。',
+                  hrv
+                      ? 'Use repeated stable readings from this ring as your reference. This is a recovery and fatigue reference.'
+                      : 'Use this ring in similar surroundings to set your skin-temperature reference. It is not core temperature.',
+                ),
+                style: const TextStyle(
+                  color: SaydianColors.muted,
+                  fontSize: 13,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 18),
+              TextFormField(
+                key: Key('reading-reminder-${kind.wireName}-baseline'),
+                initialValue: input,
+                onChanged: (value) => input = value,
+                enabled: !saving,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: InputDecoration(
+                  labelText: _copy(context, '个人参考值', 'Personal reference'),
+                  suffixText: _unit(kind),
+                  errorText: error,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                _copy(
+                  context,
+                  hrv
+                      ? '下降 ${change.round()}% 时提醒'
+                      : '上升 ${change.toStringAsFixed(1)}℃ 时提醒',
+                  hrv
+                      ? 'Remind after a ${change.round()}% drop'
+                      : 'Remind after a ${change.toStringAsFixed(1)}℃ rise',
+                ),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Slider(
+                key: Key('reading-reminder-${kind.wireName}-change'),
+                value: change,
+                min: hrv ? 10 : 0.3,
+                max: hrv ? 60 : 3,
+                divisions: hrv ? 10 : 27,
+                label: hrv
+                    ? '${change.round()}%'
+                    : '${change.toStringAsFixed(1)}℃',
+                onChanged: saving
+                    ? null
+                    : (value) => update(
+                        () => change = hrv
+                            ? value.roundToDouble()
+                            : double.parse(value.toStringAsFixed(1)),
+                      ),
+              ),
+              Text(
+                _copy(
+                  context,
+                  '变化幅度可自行调整，不是医学诊断界限。',
+                  'Adjust this personal comparison; it is not a medical cutoff.',
+                ),
+                style: const TextStyle(
+                  color: SaydianColors.muted,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 20),
+              FilledButton(
+                key: Key('reading-reminder-${kind.wireName}-save-reference'),
+                onPressed: saving
+                    ? null
+                    : () async {
+                        final value = double.tryParse(
+                          input.trim().replaceAll(',', '.'),
+                        );
+                        final current = controller.connectedDevice;
+                        if (value == null ||
+                            !value.isFinite ||
+                            value < (hrv ? 1 : 20) ||
+                            value > (hrv ? 300 : 40)) {
+                          update(
+                            () => error = _copy(
+                              context,
+                              hrv ? '请输入1–300 ms的个人参考值' : '请输入20–40℃的个人皮温参考值',
+                              hrv
+                                  ? 'Enter a personal reference from 1–300 ms'
+                                  : 'Enter a personal skin reference from 20–40℃',
+                            ),
+                          );
+                          return;
+                        }
+                        if (owner != controller.homeHealthCardOwner ||
+                            current == null ||
+                            readingReminderReferenceKey(current) !=
+                                referenceKey ||
+                            !controller.canMeasureHealthMetric(metric)) {
+                          update(
+                            () => error = _copy(
+                              context,
+                              '请返回后重新打开设置',
+                              'Go back and reopen these settings',
+                            ),
+                          );
+                          return;
+                        }
+                        update(() {
+                          saving = true;
+                          error = null;
+                        });
+                        final now = controller.readingReminderSettings;
+                        final settings = hrv
+                            ? now.copyWith(
+                                hrvBaselineMs: value,
+                                hrvReferenceKey: referenceKey,
+                                hrvDropPercent: change.round(),
+                                hrvEnabled:
+                                    enableAfterSave ||
+                                    (ready && now.hrvEnabled),
+                              )
+                            : now.copyWith(
+                                skinTemperatureBaseline: value,
+                                temperatureReferenceKey: referenceKey,
+                                temperatureRiseC: change,
+                                temperatureEnabled:
+                                    enableAfterSave ||
+                                    (ready && now.temperatureEnabled),
+                              );
+                        final saved = await controller
+                            .saveReadingReminderSettings(
+                              settings,
+                              expectedOwner: owner,
+                            );
+                        if (!sheet.mounted) return;
+                        if (saved) {
+                          Navigator.of(sheet).pop();
+                        } else {
+                          update(() {
+                            saving = false;
+                            error = _copy(
+                              context,
+                              '设置未保存，请稍后重试',
+                              'Could not save. Try again.',
+                            );
+                          });
+                        }
+                      },
+                child: Text(
+                  _copy(
+                    context,
+                    enableAfterSave ? '保存并开启' : '保存',
+                    enableAfterSave ? 'Save and enable' : 'Save',
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _compactReadingRow(
+    BuildContext context,
+    HealthReminderKind kind, {
+    required String value,
+    required Color color,
+    required bool enabled,
+    required bool canEdit,
+    required VoidCallback onEdit,
+    required ValueChanged<bool> onChanged,
+    String? suffix,
+    String? caption,
+    VoidCallback? onPreview,
+  }) => Padding(
+    key: Key('reading-reminder-${kind.wireName}-card'),
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 76),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.09),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(_icon(kind), color: color, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: InkWell(
+              key: Key('reading-reminder-${kind.wireName}-limit'),
+              borderRadius: BorderRadius.circular(10),
+              onTap: canEdit ? onEdit : null,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _label(context, kind),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Wrap(
+                      spacing: 5,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          value,
+                          style: TextStyle(
+                            color: color,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        if (suffix != null)
+                          Text(
+                            suffix,
+                            style: const TextStyle(
+                              color: SaydianColors.muted,
+                              fontSize: 13,
+                            ),
+                          ),
+                        if (caption == null)
+                          const Icon(
+                            Icons.tune_rounded,
+                            size: 15,
+                            color: SaydianColors.outline,
+                          ),
+                      ],
+                    ),
+                    if (caption != null)
+                      Text(
+                        caption,
+                        style: const TextStyle(
+                          color: SaydianColors.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (onPreview != null)
+            IconButton(
+              key: Key('reading-reminder-${kind.wireName}-preview'),
+              tooltip: _copy(context, '预览提醒效果', 'Preview reminder'),
+              icon: Icon(Icons.play_circle_outline, color: color, size: 22),
+              onPressed: controller.ringReminderVibrationBusy
+                  ? null
+                  : onPreview,
+            ),
+          Semantics(
+            label: _copy(
+              context,
+              '${_label(context, kind)}提醒',
+              '${_label(context, kind)} reminder',
+            ),
+            child: Switch(
+              key: Key('reading-reminder-${kind.wireName}-enabled'),
+              value: enabled,
+              onChanged: canEdit ? onChanged : null,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _standardReadingRow(
+    BuildContext context,
+    HealthReminderKind kind,
+    String owner,
+    bool canEdit,
+  ) {
+    final s = controller.readingReminderSettings;
+    final oxygen = kind == HealthReminderKind.lowBloodOxygen;
+    final high = kind == HealthReminderKind.highHeartRate;
+    final value = oxygen
+        ? s.oxygen
+        : high
+        ? s.high
+        : s.low;
+    return _compactReadingRow(
+      context,
+      kind,
+      value:
+          '${oxygen
+              ? '≤'
+              : high
+              ? '>'
+              : '<'} $value',
+      suffix: _unit(kind),
+      color: oxygen
+          ? SaydianColors.techCyanDark
+          : high
+          ? SaydianColors.danger
+          : SaydianColors.techViolet,
+      enabled: oxygen
+          ? s.oxygenEnabled
+          : high
+          ? s.highEnabled
+          : s.lowEnabled,
+      canEdit: canEdit,
+      onEdit: () => _edit(context, kind, value, owner),
+      onChanged: (value) =>
+          _save(context, _change(kind, enabled: value), owner),
+    );
+  }
+
+  Widget _personalReferenceCard(
+    BuildContext context,
+    HealthReminderKind kind,
+    String owner,
+    bool canEdit,
+  ) {
+    final s = controller.readingReminderSettings;
+    final device = controller.connectedDevice!;
+    final hrv = kind == HealthReminderKind.lowHrv;
+    final ready = hrv ? s.hrvReadyFor(device) : s.temperatureReadyFor(device);
+    return _compactReadingRow(
+      context,
+      kind,
+      value: hrv
+          ? '↓ ${s.hrvDropPercent}%'
+          : '↑ ${s.temperatureRiseC.toStringAsFixed(1)}℃',
+      caption: _copy(
+        context,
+        ready ? '相对个人参考' : '设置个人参考',
+        ready ? 'From your reference' : 'Set your reference',
+      ),
+      color: hrv ? SaydianColors.techViolet : const Color(0xFFB36835),
+      enabled: ready && (hrv ? s.hrvEnabled : s.temperatureEnabled),
+      canEdit: canEdit,
+      onEdit: () => _editPersonalReference(context, kind, owner),
+      onChanged: (value) {
+        if (value && !ready) {
+          _editPersonalReference(context, kind, owner, enableAfterSave: true);
+        } else {
+          _save(
+            context,
+            hrv
+                ? s.copyWith(hrvEnabled: value)
+                : s.copyWith(temperatureEnabled: value),
+            owner,
+          );
+        }
+      },
+      onPreview: () => showReadingReminderPreview(
+        context,
+        kind,
+        onHelp: onHelp,
+        controller: controller,
+        vibrate:
+            controller.healthReminderRingVibrationAvailable &&
+                s.ringVibrationEnabled
+            ? () => controller.testHealthReminderRingVibration(
+                expectedOwner: owner,
+              )
+            : null,
+      ),
+    );
   }
 
   Future<void> _edit(
@@ -703,218 +1213,156 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
         controller.canMeasureHealthMetric(metric);
     final heartRate = supports(HealthMetric.heartRate);
     final oxygen = supports(HealthMetric.bloodOxygen);
+    final hrv = supports(HealthMetric.hrv);
+    final temperature = supports(HealthMetric.bodyTemperature);
     final kinds = [
       if (heartRate) ...[
         HealthReminderKind.highHeartRate,
         HealthReminderKind.lowHeartRate,
       ],
       if (oxygen) HealthReminderKind.lowBloodOxygen,
+      if (hrv) HealthReminderKind.lowHrv,
+      if (temperature) HealthReminderKind.highSkinTemperature,
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (kinds.isNotEmpty) ...[
-          for (final kind in kinds)
-            Builder(
-              builder: (context) {
-                final oxygen = kind == HealthReminderKind.lowBloodOxygen;
-                final high = kind == HealthReminderKind.highHeartRate;
-                final value = oxygen
-                    ? s.oxygen
-                    : high
-                    ? s.high
-                    : s.low;
-                final enabled = oxygen
-                    ? s.oxygenEnabled
-                    : high
-                    ? s.highEnabled
-                    : s.lowEnabled;
-                final color = oxygen
-                    ? SaydianColors.techCyanDark
-                    : high
-                    ? SaydianColors.danger
-                    : SaydianColors.techViolet;
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 44,
-                              height: 44,
-                              decoration: BoxDecoration(
-                                color: color.withValues(alpha: 0.09),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Icon(_icon(kind), color: color),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                _label(context, kind),
-                                style: const TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            Semantics(
-                              label: _copy(
-                                context,
-                                '${_label(context, kind)}提醒',
-                                '${_label(context, kind)} reminder',
-                              ),
-                              child: Switch(
-                                key: Key(
-                                  'reading-reminder-${kind.wireName}-enabled',
-                                ),
-                                value: enabled,
-                                onChanged: canEdit
-                                    ? (v) => _save(
-                                        context,
-                                        _change(kind, enabled: v),
-                                        owner,
-                                      )
-                                    : null,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        InkWell(
-                          key: Key('reading-reminder-${kind.wireName}-limit'),
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: canEdit
-                              ? () => _edit(context, kind, value, owner)
-                              : null,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            child: Row(
-                              children: [
-                                Text(
-                                  oxygen
-                                      ? '≤'
-                                      : high
-                                      ? '>'
-                                      : '<',
-                                  style: TextStyle(color: color, fontSize: 22),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Wrap(
-                                    spacing: 6,
-                                    crossAxisAlignment:
-                                        WrapCrossAlignment.center,
-                                    children: [
-                                      Text(
-                                        '$value',
-                                        style: TextStyle(
-                                          color: color,
-                                          fontSize: 32,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                      Text(
-                                        _unit(kind),
-                                        style: const TextStyle(
-                                          color: SaydianColors.muted,
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const Icon(
-                                  Icons.tune_rounded,
-                                  color: SaydianColors.outline,
-                                  size: 20,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-        ],
-        if (controller.healthReminderRingVibrationAvailable) ...[
-          const SizedBox(height: 2),
-          Card(
-            child: SwitchListTile(
-              key: const Key('reading-reminder-ring-vibration'),
-              secondary: const Icon(
-                Icons.vibration_rounded,
-                color: SaydianColors.techViolet,
-              ),
-              title: Text(_copy(context, '戒指振动', 'Ring vibration')),
-              value: s.ringVibrationEnabled,
-              onChanged: canEdit
-                  ? (value) => _save(
-                      context,
-                      s.copyWith(ringVibrationEnabled: value),
-                      owner,
-                    )
-                  : null,
-            ),
-          ),
-        ],
         if (kinds.isNotEmpty)
           Card(
-            child: SwitchListTile(
-              key: const Key('reading-reminder-phone-sound'),
-              secondary: const Icon(
-                Icons.volume_up_rounded,
-                color: SaydianColors.techBlue,
-              ),
-              title: Text(_copy(context, '手机提示音', 'Phone alert sound')),
-              subtitle: Text(
-                _copy(context, '跟随手机静音和音量', 'Uses the phone’s sound settings'),
-              ),
-              value: s.phoneSoundEnabled,
-              onChanged: canEdit
-                  ? (value) => _save(
+            key: const Key('reading-reminder-measurement-group'),
+            margin: const EdgeInsets.only(bottom: 10),
+            child: Column(
+              children: [
+                for (var index = 0; index < kinds.length; index++) ...[
+                  if (index > 0)
+                    Divider(
+                      height: 1,
+                      indent: 62,
+                      endIndent: 14,
+                      color: SaydianColors.outline.withValues(alpha: 0.16),
+                    ),
+                  if (kinds[index] == HealthReminderKind.lowHrv ||
+                      kinds[index] == HealthReminderKind.highSkinTemperature)
+                    _personalReferenceCard(
                       context,
-                      s.copyWith(phoneSoundEnabled: value),
+                      kinds[index],
                       owner,
+                      canEdit,
                     )
-                  : null,
+                  else
+                    _standardReadingRow(context, kinds[index], owner, canEdit),
+                ],
+              ],
             ),
           ),
-        if (kinds.isNotEmpty) ...[
-          Text(
-            _copy(
-              context,
-              '完成心率或血氧测量后提醒，不代表持续监测。',
-              'Reminds after a completed heart-rate or oxygen reading. Not continuous monitoring.',
-            ),
-            style: const TextStyle(
-              color: SaydianColors.muted,
-              fontSize: 12,
-              height: 1.5,
+        if (kinds.isNotEmpty || controller.healthReminderRingVibrationAvailable)
+          Card(
+            margin: const EdgeInsets.only(bottom: 10),
+            child: Column(
+              children: [
+                if (kinds.isNotEmpty)
+                  SwitchListTile(
+                    key: const Key('reading-reminder-phone-sound'),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 2,
+                    ),
+                    secondary: const Icon(
+                      Icons.volume_up_rounded,
+                      color: SaydianColors.techBlue,
+                      size: 24,
+                    ),
+                    title: Text(
+                      _copy(context, '手机提示音', 'Phone alert sound'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    subtitle: Text(
+                      _copy(
+                        context,
+                        '跟随手机静音和音量',
+                        'Uses the phone’s sound settings',
+                      ),
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    value: s.phoneSoundEnabled,
+                    onChanged: canEdit
+                        ? (value) => _save(
+                            context,
+                            s.copyWith(phoneSoundEnabled: value),
+                            owner,
+                          )
+                        : null,
+                  ),
+                if (kinds.isNotEmpty &&
+                    controller.healthReminderRingVibrationAvailable)
+                  Divider(
+                    height: 1,
+                    indent: 62,
+                    endIndent: 14,
+                    color: SaydianColors.outline.withValues(alpha: 0.16),
+                  ),
+                if (controller.healthReminderRingVibrationAvailable)
+                  SwitchListTile(
+                    key: const Key('reading-reminder-ring-vibration'),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 2,
+                    ),
+                    secondary: const Icon(
+                      Icons.vibration_rounded,
+                      color: SaydianColors.techViolet,
+                      size: 24,
+                    ),
+                    title: Text(
+                      _copy(context, '戒指振动', 'Ring vibration'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    value: s.ringVibrationEnabled,
+                    onChanged: canEdit
+                        ? (value) => _save(
+                            context,
+                            s.copyWith(ringVibrationEnabled: value),
+                            owner,
+                          )
+                        : null,
+                  ),
+              ],
             ),
           ),
-          Text(
-            _copy(
-              context,
-              '戒指读数仅供参考；不适时及时求助。',
-              'Ring readings are for reference. Seek help if you feel unwell.',
-            ),
-            style: const TextStyle(
-              color: SaydianColors.muted,
-              fontSize: 12,
-              height: 1.5,
+        if (kinds.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(2, 0, 2, 10),
+            child: Text(
+              _copy(
+                context,
+                '仅对新测量提醒，不作持续监护。',
+                'New readings only; not continuous monitoring.',
+              ),
+              style: const TextStyle(
+                color: SaydianColors.muted,
+                fontSize: 12,
+                height: 1.5,
+              ),
             ),
           ),
-        ],
         Align(
-          alignment: Alignment.centerRight,
+          alignment: Alignment.center,
           child: TextButton.icon(
+            style: TextButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+              backgroundColor: SaydianColors.techCyanDark.withValues(
+                alpha: 0.07,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
             key: const Key('reading-reminder-preview'),
             onPressed: controller.ringReminderVibrationBusy
                 ? null
@@ -950,12 +1398,19 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
                     if (heartRate) '120/40 bpm 为可穿戴提醒的起始参考，并非正常范围或诊断线。',
                     if (oxygen)
                       '血氧 92% 参考指夹式血氧仪居家说明，戒指异常读数请用合格指夹式血氧仪复核；严重不适立即求助。',
+                    if (hrv) 'HRV个体和测量方式存在差异。30%为可修改的个人比较起始幅度，不用于判断疲劳程度或疾病。',
+                    if (temperature)
+                      '皮温受环境和佩戴影响。0.8℃为可修改的个人比较起始幅度，不是发热标准；请用体温计确认体温。',
                   ].join('\n'),
                   [
                     if (heartRate)
                       '120/40 bpm are wearable reminder starting references, not normal ranges or diagnostic cutoffs.',
                     if (oxygen)
                       'The 92% oxygen reference comes from home finger-oximeter guidance. Confirm an unusual ring reading with a suitable finger oximeter; seek urgent help for serious symptoms.',
+                    if (hrv)
+                      'HRV varies by person and measurement method. The adjustable 30% starting comparison does not diagnose fatigue or illness.',
+                    if (temperature)
+                      'Skin temperature varies with surroundings and fit. The adjustable 0.8℃ starting comparison is not a fever cutoff. Use a thermometer to confirm body temperature.',
                   ].join('\n'),
                 ),
                 style: const TextStyle(
@@ -996,6 +1451,18 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
                         '测量局限',
                         'Limitations',
                         'https://www.fda.gov/consumers/consumer-updates/pulse-oximeter-basics',
+                      ),
+                    if (hrv)
+                      (
+                        'HRV说明',
+                        'About HRV',
+                        'https://my.clevelandclinic.org/health/diseases/21773-heart-rate-variability-hrv',
+                      ),
+                    if (temperature)
+                      (
+                        '皮温说明',
+                        'About skin temperature',
+                        'https://support.apple.com/en-us/102674',
                       ),
                   ])
                     TextButton(

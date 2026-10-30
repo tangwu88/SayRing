@@ -83,7 +83,11 @@ class WellnessReleasePolicy {
 
   Map<String, num> projectValues(HealthMetric metric, Map<String, num> values) {
     if (!enabled) return values;
-    final keys = metric == HealthMetric.sleep ? _sleepValues : const {'value'};
+    final keys = metric == HealthMetric.sleep
+        ? _sleepValues
+        : metric == HealthMetric.bodyTemperature
+        ? const {'value', 'skinTemperature'}
+        : const {'value'};
     return Map.unmodifiable({
       for (final entry in values.entries)
         if (allowsMetric(metric) && keys.contains(entry.key))

@@ -2,6 +2,8 @@ enum HealthReminderKind {
   highHeartRate('high_heart_rate', '心率偏高提醒'),
   lowHeartRate('low_heart_rate', '心率偏低提醒'),
   lowBloodOxygen('low_blood_oxygen', '血氧偏低提醒'),
+  lowHrv('low_hrv', 'HRV恢复提醒'),
+  highSkinTemperature('high_skin_temperature', '皮温偏高提醒'),
   symptoms('symptoms', '不适记录');
 
   const HealthReminderKind(this.wireName, this.label);
@@ -30,6 +32,7 @@ final class HealthReminderDetails {
     this.deviceName,
     this.reading,
     this.threshold,
+    this.baselineValue,
     this.sampleIds = const [],
     this.symptoms = const {},
     this.acknowledgedAt,
@@ -46,6 +49,7 @@ final class HealthReminderDetails {
   final String? deviceName;
   final double? reading;
   final double? threshold;
+  final double? baselineValue;
   final List<String> sampleIds;
   final Set<HealthReminderSymptom> symptoms;
   final DateTime? acknowledgedAt;
@@ -68,6 +72,7 @@ final class HealthReminderDetails {
     deviceName: deviceName,
     reading: reading,
     threshold: threshold,
+    baselineValue: baselineValue,
     sampleIds: sampleIds,
     symptoms: symptoms,
     acknowledgedAt: acknowledgedAt ?? this.acknowledgedAt,
@@ -89,6 +94,7 @@ final class HealthReminderDetails {
     if (deviceName != null) 'deviceName': deviceName,
     if (reading != null) 'reading': reading,
     if (threshold != null) 'threshold': threshold,
+    if (baselineValue != null) 'baselineValue': baselineValue,
     'sampleIds': sampleIds,
     'symptoms': symptoms.map((value) => value.wireName).toList(),
     if (acknowledgedAt != null)
@@ -133,6 +139,11 @@ final class HealthReminderDetails {
       threshold:
           value['threshold'] is num && (value['threshold'] as num).isFinite
           ? (value['threshold'] as num).toDouble()
+          : null,
+      baselineValue:
+          value['baselineValue'] is num &&
+              (value['baselineValue'] as num).isFinite
+          ? (value['baselineValue'] as num).toDouble()
           : null,
       sampleIds: sampleIds is List
           ? List.unmodifiable(sampleIds.whereType<String>())

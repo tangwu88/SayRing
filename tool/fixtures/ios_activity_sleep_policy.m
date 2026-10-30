@@ -89,9 +89,11 @@ int main(void) { @autoreleasepool {
     check(SRActivitySleepMetricAllowed(@"sleep"));
     // The new binary must explicitly ACK the distinct manual lease. The read
     // grant above is not a server permission to start a physiological command.
-    check(SRConfigureReadOnlyHealthLease(@{@"metrics": @[@"heart_rate", @"hrv", @"blood_oxygen", @"stress"], @"validForSeconds": @60}));
+    check(SRConfigureReadOnlyHealthLease(@{@"metrics": @[@"heart_rate", @"hrv", @"blood_oxygen", @"body_temperature", @"stress"], @"validForSeconds": @60}));
     check(!SRManualHealthMetricAllowed(@"heart_rate"));
-    check(SRConfigureManualHealthLease(@{@"metrics": @[@"heart_rate", @"hrv", @"blood_oxygen"], @"validForSeconds": @60}));
+    check(!SRManualHealthMetricAllowed(@"body_temperature"));
+    check(!SRActivitySleepCommandAllowed(@"startMeasurement", @{@"metric":@"body_temperature"}));
+    check(SRConfigureManualHealthLease(@{@"metrics": @[@"heart_rate", @"hrv", @"blood_oxygen", @"body_temperature"], @"validForSeconds": @60}));
     for (NSString *metric in SRManualHealthCatalogue()) {
         check(SRManualHealthMetricAllowed(metric));
         check(SRActivitySleepCommandAllowed(@"startMeasurement", @{@"metric":metric}));
@@ -99,9 +101,14 @@ int main(void) { @autoreleasepool {
         check(SRActivitySleepEvent(@"measurementProgress", @{@"metric":metric, @"progress":@0}) != nil);
     }
     check([SRActivitySleepCapabilities(caps)[@"manualMetrics"] isEqual:@[@"heart_rate"]]);
+    NSDictionary *skinRecord = @{@"type":@"body_temperature", @"origin":@"app_measurement", @"values":@{@"value":@34.5, @"skinTemperature":@34.5, @"stress":@99}};
+    check([SRActivitySleepRecord(skinRecord)[@"values"] isEqual:@{@"value":@34.5, @"skinTemperature":@34.5}]);
     check(SRActivitySleepRecord(@{@"type":@"heart_rate", @"origin":@"app_measurement", @"values":@{@"value":@72}}) != nil);
     SRManualHealthLease()[@"deadline"] = @(NSProcessInfo.processInfo.systemUptime - 1);
     check(!SRManualHealthMetricAllowed(@"heart_rate"));
+    check(!SRManualHealthMetricAllowed(@"body_temperature"));
+    check(SRActivitySleepRecord(skinRecord) == nil);
+    check(SRActivitySleepCommandAllowed(@"stopMeasurement", @{@"metric":@"body_temperature"}));
     check(!SRActivitySleepCommandAllowed(@"startMeasurement", @{@"metric":@"heart_rate"}));
     check(SRActivitySleepCommandAllowed(@"stopMeasurement", @{@"metric":@"heart_rate"}));
     check(!SRConfigureManualHealthLease(@{@"metrics":@[@"stress"], @"validForSeconds":@60}));

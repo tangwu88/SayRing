@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../domain/health_reminder.dart';
+import '../domain/models.dart';
 import '../domain/feature_models.dart';
 import '../l10n/global_locale_controller.dart';
 import '../services/app_controller.dart';
@@ -209,9 +210,15 @@ class _SourceLink extends StatelessWidget {
 }
 
 class UrgentHelpCard extends StatelessWidget {
-  const UrgentHelpCard({super.key, this.onDiallerOpened, this.compact = false});
+  const UrgentHelpCard({
+    super.key,
+    this.onDiallerOpened,
+    this.compact = false,
+    this.terse = false,
+  });
   final Future<void> Function()? onDiallerOpened;
   final bool compact;
+  final bool terse;
   @override
   Widget build(BuildContext context) => compact
       ? Card(
@@ -226,13 +233,15 @@ class UrgentHelpCard extends StatelessWidget {
               _copy(context, '急症求助', 'Urgent help'),
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
-            subtitle: Text(
-              _copy(
-                context,
-                '严重不适时，不要等待复测。',
-                'Serious symptoms? Do not wait for another reading.',
-              ),
-            ),
+            subtitle: terse
+                ? null
+                : Text(
+                    _copy(
+                      context,
+                      '严重不适时，不要等待复测。',
+                      'Serious symptoms? Do not wait for another reading.',
+                    ),
+                  ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
@@ -462,7 +471,7 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
         key: const Key('health-reminder-center'),
         padding: const EdgeInsets.all(16),
         children: [
-          const UrgentHelpCard(compact: true),
+          const UrgentHelpCard(compact: true, terse: true),
           const SizedBox(height: 12),
           ReadingReminderSettingsPanel(
             controller: controller,
@@ -474,40 +483,69 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
           ),
           const SizedBox(height: 12),
           _ringReminderSettings(),
-          TextButton.icon(
-            key: const Key('health-reminder-notification-permission'),
-            onPressed: () async {
-              if (permission == ReminderNotificationPermission.denied) {
-                await openAppSettings();
-              } else {
-                await controller.refreshHealthReminderPermissions(
-                  request: true,
-                );
-              }
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final twoColumns =
+                  constraints.maxWidth >= 340 &&
+                  MediaQuery.textScalerOf(context).scale(14) <= 20;
+              final width = twoColumns
+                  ? (constraints.maxWidth - 10) / 2
+                  : constraints.maxWidth;
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  SizedBox(
+                    width: width,
+                    child: OutlinedButton.icon(
+                      key: const Key('health-reminder-notification-permission'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(46),
+                      ),
+                      onPressed: () async {
+                        if (permission ==
+                            ReminderNotificationPermission.denied) {
+                          await openAppSettings();
+                        } else {
+                          await controller.refreshHealthReminderPermissions(
+                            request: true,
+                          );
+                        }
+                      },
+                      icon: Icon(
+                        permission == ReminderNotificationPermission.granted
+                            ? Icons.notifications_active_outlined
+                            : Icons.notifications_off_outlined,
+                        size: 18,
+                      ),
+                      label: Text(
+                        permission == ReminderNotificationPermission.granted
+                            ? _copy(context, '通知已允许', 'Notifications on')
+                            : _copy(context, '手机通知', 'Phone notifications'),
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: OutlinedButton.icon(
+                      key: const Key('health-reminder-record-symptoms'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(46),
+                      ),
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => HealthReminderSymptomsPage(
+                            controller: controller,
+                          ),
+                        ),
+                      ),
+                      icon: const Icon(Icons.edit_note, size: 18),
+                      label: Text(_copy(context, '记录不适', 'Record symptoms')),
+                    ),
+                  ),
+                ],
+              );
             },
-            icon: Icon(
-              permission == ReminderNotificationPermission.granted
-                  ? Icons.notifications_active_outlined
-                  : Icons.notifications_off_outlined,
-              size: 19,
-            ),
-            label: Text(
-              permission == ReminderNotificationPermission.granted
-                  ? '手机通知已允许'
-                  : '手机通知设置',
-            ),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            key: const Key('health-reminder-record-symptoms'),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) =>
-                    HealthReminderSymptomsPage(controller: controller),
-              ),
-            ),
-            icon: const Icon(Icons.edit_note),
-            label: Text(_copy(context, '记录当前不适', 'Record symptoms')),
           ),
           const SizedBox(height: 20),
           Text(
@@ -524,15 +562,16 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
             Card(
               child: ListTile(
                 key: ValueKey('health-reminder-event-${event.id}'),
-                leading: Icon(
-                  event.reminder!.kind == HealthReminderKind.symptoms
-                      ? Icons.edit_note
-                      : event.reminder!.kind ==
-                            HealthReminderKind.lowBloodOxygen
-                      ? Icons.water_drop_outlined
-                      : Icons.monitor_heart_outlined,
-                  color: SaydianColors.danger,
-                ),
+                leading: Icon(switch (event.reminder!.kind) {
+                  HealthReminderKind.symptoms => Icons.edit_note,
+                  HealthReminderKind.lowBloodOxygen =>
+                    Icons.water_drop_outlined,
+                  HealthReminderKind.lowHrv =>
+                    Icons.battery_charging_full_rounded,
+                  HealthReminderKind.highSkinTemperature =>
+                    Icons.thermostat_rounded,
+                  _ => Icons.monitor_heart_outlined,
+                }, color: SaydianColors.danger),
                 title: Text(event.title),
                 subtitle: Text(
                   '${_time(event.reminder!.recordedAt)}\n${event.message}',
@@ -793,6 +832,24 @@ class _HealthReminderDetailPageState extends State<HealthReminderDetailPage> {
                             ),
                           ),
                           const SizedBox(height: 10),
+                          if (event.reminder!.baselineValue != null &&
+                              event.reminder!.reading != null) ...[
+                            Text(
+                              '${event.reminder!.reading!.toStringAsFixed(event.metric == HealthMetric.bodyTemperature ? 1 : 0)} ${event.metric.defaultUnit}',
+                              style: const TextStyle(
+                                fontSize: 30,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Text(
+                              _copy(
+                                context,
+                                '个人参考 ${event.reminder!.baselineValue!.toStringAsFixed(event.metric == HealthMetric.bodyTemperature ? 1 : 0)} ${event.metric.defaultUnit}',
+                                'Personal reference ${event.reminder!.baselineValue!.toStringAsFixed(event.metric == HealthMetric.bodyTemperature ? 1 : 0)} ${event.metric.defaultUnit}',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                          ],
                           Text(
                             event.message,
                             style: const TextStyle(fontSize: 18),
@@ -805,14 +862,6 @@ class _HealthReminderDetailPageState extends State<HealthReminderDetailPage> {
                               'Source: ${event.reminder!.deviceName ?? event.origin.label}',
                             ),
                           ),
-                          if (event.reminder!.ruleVersion != null)
-                            Text(
-                              _copy(
-                                context,
-                                '规则版本：${event.reminder!.ruleVersion}',
-                                'Rule: ${event.reminder!.ruleVersion}',
-                              ),
-                            ),
                         ],
                       ),
                     ),

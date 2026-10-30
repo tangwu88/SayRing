@@ -87,7 +87,7 @@ class _LiveWearable extends _Wearable
   Future<void> stopScan() async {}
   @override
   Future<DeviceCapabilities> getCapabilities() async => DeviceCapabilities(
-    metrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
+    metrics: supportedManualMetrics,
     manualMetrics: supportedManualMetrics,
     supportsHistorySync: false,
     features: {DeviceFeature.findWatch},
@@ -265,6 +265,95 @@ void main() {
       (_) async => ['wifi'],
     );
   });
+
+  for (final metric in [HealthMetric.hrv, HealthMetric.bodyTemperature]) {
+    test(
+      '${metric.wireName} fresh personal reference comparison delivers one message and honors revocation',
+      () async {
+        final ring = _LiveWearable()..supportedManualMetrics = {metric};
+        final read = ReadOnlyHealthFeatures()
+          ..replace({metric}, const Duration(minutes: 5));
+        final manual = ManualHealthFeatures()
+          ..replace({metric}, const Duration(minutes: 5));
+        final notifications = _Notifications();
+        final controller = await _controller(
+          wearable: ring,
+          notifications: notifications,
+          policy: WellnessReleasePolicy(
+            enabled: true,
+            readOnlyFeatures: read,
+            manualFeatures: manual,
+          ),
+        );
+        addTearDown(controller.dispose);
+        addTearDown(ring.records.close);
+        await controller.connectDevice(_LiveWearable.device);
+        await _settleEvents();
+        final key = readingReminderReferenceKey(_LiveWearable.device);
+        expect(
+          await controller.saveReadingReminderSettings(
+            ReadingReminderSettings(
+              hrvEnabled: true,
+              hrvBaselineMs: 60,
+              hrvReferenceKey: key,
+              temperatureEnabled: true,
+              skinTemperatureBaseline: 34,
+              temperatureReferenceKey: key,
+            ),
+            expectedOwner: controller.homeHealthCardOwner,
+          ),
+          isTrue,
+        );
+        void emit(String id, MeasurementOrigin origin) => ring.records.add(
+          WearableEvent(
+            type: 'healthRecord',
+            payload: HealthRecord(
+              id: id,
+              metric: metric,
+              values: metric == HealthMetric.hrv
+                  ? {'value': 30}
+                  : {'value': 35.1, 'skinTemperature': 35.1},
+              unit: metric == HealthMetric.hrv ? 'ms' : '℃',
+              measuredAt: DateTime.now().toUtc(),
+              timezone: '+00:00',
+              deviceId: _LiveWearable.device.id,
+              firmwareVersion: 'test-only',
+              quality: 'device_reported',
+              source: MeasurementSource.wearable,
+              origin: origin,
+              rawVersion: 2,
+            ).toJson(),
+          ),
+        );
+        emit('synthetic-history', MeasurementOrigin.watchHistory);
+        await _settleEvents();
+        expect(controller.healthReminderEvents, isEmpty);
+        expect(await controller.startMeasurement(metric), isTrue);
+        emit('synthetic-fresh', MeasurementOrigin.appMeasurement);
+        await _settleEvents();
+        final event = controller.healthReminderEvents.single;
+        expect(event.metric, metric);
+        expect(
+          event.reminder?.baselineValue,
+          metric == HealthMetric.hrv ? 60 : 34,
+        );
+        expect(controller.notificationUnreadCount, 1);
+        expect(controller.notificationInboxEvents, hasLength(1));
+        expect(notifications.shown, hasLength(1));
+        expect(ring.pulses, 1);
+        emit('synthetic-fresh', MeasurementOrigin.appMeasurement);
+        await _settleEvents();
+        expect(controller.healthReminderEvents, hasLength(1));
+        expect(ring.pulses, 1);
+        controller.dismissHealthWarningAlert();
+        manual.close();
+        emit('synthetic-revoked', MeasurementOrigin.appMeasurement);
+        await _settleEvents();
+        expect(controller.activeHealthWarningAlert, isNull);
+        expect(controller.healthReminderEvents, hasLength(1));
+      },
+    );
+  }
 
   test(
     'in-app reminder survives denied system notifications, deduplicates and persists across restart',

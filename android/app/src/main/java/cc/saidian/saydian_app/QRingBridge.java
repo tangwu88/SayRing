@@ -1264,6 +1264,7 @@ public final class QRingBridge
                 if (amount > 100) amount /= 100.0;
                 if (amount < 20 || amount > 45) return;
                 values.put("value", amount);
+                values.put("skinTemperature", amount);
                 unit = "℃";
                 break;
             }

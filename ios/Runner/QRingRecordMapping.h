@@ -50,7 +50,9 @@ static inline NSDictionary *QRingMeasurementValues(NSString *metric, id value) {
         @"body_temperature": @[@20, @45],
     };
     NSArray *range = limits[metric];
-    return range && QRingNumberInRange(value, [range[0] doubleValue], [range[1] doubleValue]) ? @{@"value": value} : nil;
+    if (!range || !QRingNumberInRange(value, [range[0] doubleValue], [range[1] doubleValue])) { return nil; }
+    return [metric isEqualToString:@"body_temperature"]
+        ? @{@"value": value, @"skinTemperature": value} : @{@"value": value};
 }
 
 // getSportDetailDataByDay yields per-slot amounts. The shared health contract

@@ -15,12 +15,17 @@ String buildHealthReminderCsv(HealthWarningAlert event) {
     ['来源', reminder?.deviceName ?? event.origin.label],
     if (reminder?.reading != null)
       [
-        reminder!.kind == HealthReminderKind.lowBloodOxygen
-            ? '血氧（%）'
-            : '心率（bpm）',
+        switch (reminder!.kind) {
+          HealthReminderKind.lowBloodOxygen => '血氧（%）',
+          HealthReminderKind.lowHrv => 'HRV（ms）',
+          HealthReminderKind.highSkinTemperature => '皮肤温度（℃）',
+          _ => '心率（bpm）',
+        },
         '${reminder.reading}',
       ],
     if (reminder?.threshold != null) ['设定阈值', '${reminder!.threshold}'],
+    if (reminder?.baselineValue != null)
+      ['个人参考值', '${reminder!.baselineValue}'],
     ['说明', event.message],
     ['规则版本', reminder?.ruleVersion ?? '未提供'],
     [

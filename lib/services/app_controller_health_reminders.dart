@@ -153,7 +153,7 @@ extension HealthReminderController on AppController {
         healthWarningAlerts.any((e) => e.id == candidate.id)) {
       return;
     }
-    final unit = candidate.metric == HealthMetric.bloodOxygen ? '%' : 'bpm';
+    final unit = record.unit;
     final settingsRevision = _readingReminderSettingsRevision;
     bool canPresent() =>
         _isCurrentSessionGeneration(generation) &&
@@ -169,8 +169,13 @@ extension HealthReminderController on AppController {
       id: candidate.id,
       metric: candidate.metric,
       title: candidate.details.kind.label,
-      message:
+      message: switch (candidate.details.kind) {
+        HealthReminderKind.lowHrv => '本次HRV低于个人参考范围，请休息并在相同条件下复测；仅供恢复变化参考。',
+        HealthReminderKind.highSkinTemperature =>
+          '本次皮温高于个人参考范围，请在稳定环境复测，并用体温计确认体温。',
+        _ =>
           '本次测量 ${candidate.details.reading!.toStringAsFixed(0)} $unit 超出设定范围，请静坐并复测。',
+      },
       triggeredAt: record.measuredAt,
       origin: record.origin,
       reminder: candidate.details,

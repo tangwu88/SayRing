@@ -102,6 +102,7 @@ class ManualHealthFeatures {
     HealthMetric.heartRate,
     HealthMetric.hrv,
     HealthMetric.bloodOxygen,
+    HealthMetric.bodyTemperature,
   };
 
   final ReadOnlyHealthFeatures _lease;

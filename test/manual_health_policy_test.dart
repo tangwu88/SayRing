@@ -17,10 +17,12 @@ const _three = {
 };
 
 class _Api extends Fake implements SayRingReadOnlyHealthApi {
+  _Api([this.metrics = _three]);
+  final Set<HealthMetric> metrics;
   @override
   Future<ReadOnlyHealthFeatureSnapshot> getReadOnlyHealthFeatures() async =>
-      const ReadOnlyHealthFeatureSnapshot(
-        metrics: _three,
+      ReadOnlyHealthFeatureSnapshot(
+        metrics: metrics,
         validity: Duration(minutes: 5),
       );
 }
@@ -51,6 +53,49 @@ class _Bridge
 }
 
 void main() {
+  test(
+    'skin temperature requires read and native manual ACK and closes on revocation',
+    () async {
+      final policy = WellnessReleasePolicy(
+        enabled: true,
+        readOnlyFeatures: ReadOnlyHealthFeatures(),
+        manualFeatures: ManualHealthFeatures(),
+      );
+      final bridge = _Bridge()..manualAck = Completer<void>();
+      final service = ReadOnlyHealthFeatureService(
+        policy: policy,
+        api: _Api({
+          ..._three,
+          HealthMetric.bodyTemperature,
+          HealthMetric.stress,
+        }),
+        bridge: bridge,
+      );
+      final refresh = service.refresh();
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        policy.allowsManualMeasurement(HealthMetric.bodyTemperature),
+        isFalse,
+      );
+      bridge.manualAck!.complete();
+      await refresh;
+      expect(bridge.manualCalls.single, {
+        ..._three,
+        HealthMetric.bodyTemperature,
+      });
+      expect(
+        policy.allowsManualMeasurement(HealthMetric.bodyTemperature),
+        isTrue,
+      );
+      expect(policy.allowsManualMeasurement(HealthMetric.stress), isFalse);
+      service.dispose();
+      expect(
+        policy.allowsManualMeasurement(HealthMetric.bodyTemperature),
+        isFalse,
+      );
+      await Future<void>.delayed(Duration.zero);
+    },
+  );
   testWidgets(
     'production iOS controller constructs with independent manual scope',
     (tester) async {

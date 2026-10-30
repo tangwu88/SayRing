@@ -18,7 +18,7 @@ static inline NSMutableDictionary *SRReadOnlyHealthLease(void) {
 }
 
 static inline NSArray<NSString *> *SRManualHealthCatalogue(void) {
-    return @[@"heart_rate", @"hrv", @"blood_oxygen"];
+    return @[@"heart_rate", @"hrv", @"blood_oxygen", @"body_temperature"];
 }
 
 static inline NSMutableDictionary *SRManualHealthLease(void) {
@@ -165,7 +165,7 @@ static inline NSDictionary *_Nullable SRActivitySleepRecord(id source) {
     result[@"values"] = SRActivitySleepKeepFields(values, [source[@"type"] isEqual:@"sleep"] ? @[
         @"value", @"deepHours", @"lightHours", @"remHours", @"awakeMinutes",
         @"startTime", @"endTime", @"sleepStartTime", @"sleepEndTime"
-    ] : @[@"value"]);
+    ] : [source[@"type"] isEqual:@"body_temperature"] ? @[@"value", @"skinTemperature"] : @[@"value"]);
     if ([result[@"sleepTimeline"] isKindOfClass:NSDictionary.class])
         result[@"sleepTimeline"] = SRActivitySleepTimeline(result[@"sleepTimeline"]);
     return result;
