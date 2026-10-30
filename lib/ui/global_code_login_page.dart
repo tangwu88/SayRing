@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -103,6 +104,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
   String _errorFrom(Object error) {
     if (error is FormatException) return error.message;
     if (error is ApiException) {
+      if (error.code == 'invalid_password') return 'passwordLength';
       if (error.code == 'registration_required') return 'register';
       if (error.code == 'minimum_age_confirmation_required') return 'age';
       if (error.statusCode == 429) return 'rate';
@@ -133,6 +135,7 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     'network' => l.networkUnavailable,
     'consent' => l.consentRequired,
     'password' => l.enterPassword,
+    'passwordLength' => l.passwordRequirement,
     'login' => l.loginFailed,
     'register' => '账号尚未注册，请先使用密码和验证码注册',
     'age' =>
@@ -305,6 +308,11 @@ class _GlobalCodeLoginPageState extends State<GlobalCodeLoginPage> {
     if (_passwordMode) {
       if (_password.text.isEmpty) {
         setState(() => _error = 'password');
+        return;
+      }
+      if (_password.text.length < 8 ||
+          utf8.encode(_password.text).length > 72) {
+        setState(() => _error = 'passwordLength');
         return;
       }
     } else if (_challenge == null ||

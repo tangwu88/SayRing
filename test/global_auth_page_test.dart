@@ -62,6 +62,27 @@ class NoCodeController extends Fake implements AppController {
   }
 }
 
+class PasswordAuthController extends NoCodeController {
+  String? attemptedPassword;
+
+  @override
+  ApiException? get lastApiError => const ApiException(
+    'private validation detail',
+    statusCode: 400,
+    code: 'invalid_password',
+  );
+
+  @override
+  Future<bool> login(
+    String username,
+    String password, {
+    bool privacyConsentGranted = false,
+  }) async {
+    attemptedPassword = password;
+    return false;
+  }
+}
+
 Widget host(AppController controller, {bool reset = false, double scale = 1}) =>
     MaterialApp(
       locale: const Locale('en'),
@@ -77,6 +98,51 @@ Widget host(AppController controller, {bool reset = false, double scale = 1}) =>
     );
 
 void main() {
+  for (final scenario in [
+    (name: 'short', password: '1234567', dispatch: false),
+    (name: 'long', password: 'a' * 73, dispatch: false),
+    (name: 'UTF-8 overflow', password: '测' * 25, dispatch: false),
+    (name: 'minimum server rejection', password: '12345678', dispatch: true),
+    (name: 'maximum server rejection', password: 'a' * 72, dispatch: true),
+    (
+      name: 'UTF-8 boundary server rejection',
+      password: '测' * 24,
+      dispatch: true,
+    ),
+  ]) {
+    testWidgets('alternate password form handles ${scenario.name}', (
+      tester,
+    ) async {
+      final controller = PasswordAuthController();
+      await tester.pumpWidget(host(controller));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('auth-contact')),
+        '13800138000',
+      );
+      await tester.enterText(
+        find.byKey(const Key('auth-password')),
+        scenario.password,
+      );
+      await tester.ensureVisible(find.byKey(const Key('auth-consent')));
+      await tester.tap(find.byKey(const Key('auth-consent')));
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(const Key('auth-submit')));
+      await tester.tap(find.byKey(const Key('auth-submit')));
+      await tester.pumpAndSettle();
+      final l = AppLocalizations.of(
+        tester.element(find.byType(GlobalAuthPage)),
+      )!;
+      expect(find.text(l.passwordRequirement), findsOneWidget);
+      expect(find.text(l.serviceUnavailable), findsNothing);
+      expect(
+        controller.attemptedPassword,
+        scenario.dispatch ? scenario.password : null,
+      );
+      expect(find.textContaining('private'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
   for (final networkFailure in [false, true]) {
     testWidgets(
       'capabilities distinguish service absence from network $networkFailure',

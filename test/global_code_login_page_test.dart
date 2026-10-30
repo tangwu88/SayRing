@@ -15,6 +15,7 @@ class CodeLoginController extends Fake implements AppController {
   String? passwordLoginPassword;
   bool passwordLoginConsent = false;
   bool passwordLoginResult = true;
+  ApiException? passwordLoginFailure;
   bool localOnlySupported = false;
   bool enteredLocalMode = false;
   bool capabilitiesFail = false;
@@ -30,7 +31,8 @@ class CodeLoginController extends Fake implements AppController {
   @override
   ApiException? get lastApiError => passwordLoginResult
       ? null
-      : const ApiException('Invalid credentials', statusCode: 401);
+      : passwordLoginFailure ??
+            const ApiException('Invalid credentials', statusCode: 401);
 
   @override
   Future<bool> loginGlobalWithPassword({
@@ -206,6 +208,122 @@ class WechatCodeLoginController extends CodeLoginController {
 }
 
 void main() {
+  for (final channel in ['手机号', '邮箱']) {
+    for (final scenario in [
+      (name: 'empty', password: '', error: 'empty', dispatch: false),
+      (name: 'short', password: '1234567', error: 'length', dispatch: false),
+      (name: 'long', password: 'a' * 73, error: 'length', dispatch: false),
+      (
+        name: 'UTF-8 overflow',
+        password: '测' * 25,
+        error: 'length',
+        dispatch: false,
+      ),
+      (
+        name: 'minimum',
+        password: '12345678',
+        error: 'credentials',
+        dispatch: true,
+      ),
+      (
+        name: 'maximum',
+        password: 'a' * 72,
+        error: 'credentials',
+        dispatch: true,
+      ),
+      (
+        name: 'UTF-8 boundary',
+        password: '测' * 24,
+        error: 'credentials',
+        dispatch: true,
+      ),
+      (
+        name: 'server length',
+        password: 'synthetic-password',
+        error: 'length',
+        dispatch: true,
+      ),
+      (
+        name: 'server unavailable',
+        password: 'synthetic-password',
+        error: 'service',
+        dispatch: true,
+      ),
+    ]) {
+      testWidgets(
+        '$channel password login shows actionable ${scenario.name} feedback',
+        (tester) async {
+          final controller = CodeLoginController()
+            ..passwordLoginResult = false
+            ..passwordLoginFailure = scenario.error == 'length'
+                ? const ApiException(
+                    'private validation detail',
+                    statusCode: 400,
+                    code: 'invalid_password',
+                  )
+                : scenario.error == 'service'
+                ? const ApiException('private service detail', statusCode: 503)
+                : null;
+          await tester.pumpWidget(
+            MaterialApp(
+              locale: const Locale('zh'),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: GlobalCodeLoginPage(controller: controller),
+            ),
+          );
+          await tester.pumpAndSettle();
+          if (channel == '邮箱') {
+            await tester.tap(find.widgetWithText(ChoiceChip, '邮箱'));
+            await tester.pumpAndSettle();
+          }
+          await tester.enterText(
+            find.byKey(const Key('code-login-contact')),
+            channel == '邮箱' ? 'qa@example.com' : '13800138000',
+          );
+          await tester.enterText(
+            find.byKey(const Key('code-login-password')),
+            scenario.password,
+          );
+          for (final key in ['code-login-minimum-age', 'code-login-consent']) {
+            final checkbox = find.descendant(
+              of: find.byKey(Key(key)),
+              matching: find.byType(Checkbox),
+            );
+            await tester.ensureVisible(checkbox);
+            await tester.tap(checkbox);
+            await tester.pump();
+          }
+          await tester.ensureVisible(
+            find.byKey(const Key('code-login-submit')),
+          );
+          await tester.tap(find.byKey(const Key('code-login-submit')));
+          await tester.pumpAndSettle();
+          final l = AppLocalizations.of(
+            tester.element(find.byType(GlobalCodeLoginPage)),
+          )!;
+          final expected = switch (scenario.error) {
+            'empty' => l.enterPassword,
+            'length' => l.passwordRequirement,
+            'service' => l.serviceUnavailable,
+            _ => l.loginFailed,
+          };
+          expect(find.text(expected), findsOneWidget);
+          if (scenario.error != 'service') {
+            expect(find.text(l.serviceUnavailable), findsNothing);
+          }
+          expect(
+            controller.passwordLoginPassword,
+            scenario.dispatch ? scenario.password : null,
+          );
+          expect(controller.requested, isNull);
+          expect(controller.codeLoginCalls, 0);
+          expect(find.textContaining('private'), findsNothing);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
   for (final scenario in [
     (password: false, accepted: true),
     (password: true, accepted: true),

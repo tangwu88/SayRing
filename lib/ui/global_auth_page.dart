@@ -140,6 +140,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
     'rate' => l.tooManyAttempts,
     'login' => l.loginFailed,
     'account' => l.accountAlreadyExists,
+    'passwordLength' => l.passwordRequirement,
     'age' =>
       Localizations.localeOf(context).languageCode == 'zh'
           ? '请确认已满14周岁后继续'
@@ -150,6 +151,7 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
   String _errorFrom(Object error) {
     if (error is FormatException) return error.message;
     if (error is ApiException) {
+      if (error.code == 'invalid_password') return 'passwordLength';
       if (error.code == 'minimum_age_confirmation_required') return 'age';
       if (error.statusCode == 429) return 'rate';
       if (error.code == 'verification_expired') return 'expired';
@@ -482,9 +484,8 @@ class _GlobalAuthPageState extends State<GlobalAuthPage> {
                         ),
                         validator: (value) => (value?.isEmpty ?? true)
                             ? l.enterPassword
-                            : _accountSetupMode &&
-                                  (value!.length < 8 ||
-                                      utf8.encode(value).length > 72)
+                            : (value!.length < 8 ||
+                                  utf8.encode(value).length > 72)
                             ? l.passwordRequirement
                             : null,
                       ),
