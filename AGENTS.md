@@ -35,6 +35,8 @@
 
 ## 项目角色
 
+- Latest user instruction (2026-10-30, after receiving the failed/incomplete device-QA report): build a new iOS version, upload it and submit Apple review first. This supersedes the preceding wait-for-all-real-device-checks publication hold for this release only. Keep the failed/unknown connection and history results truthful in validation and review materials; do not relabel them as passed, reset rings, bypass pending initialization, change territories or accept new legal agreements. Android download publication remains separate.
+
 - User update (2026-10-30): add opt-in HRV recovery/fatigue-reference and high skin-temperature personal comparisons, then update the download page and submit the tested new binary for Apple review. Use explicitly configured per-device personal references, not a universal HRV diagnosis or a core-temperature fever cutoff. Only genuine fresh completed measurements may notify; retain history/preview exclusions and all owner/capability gates. The requested temperature function permits adding body_temperature to this binary's fixed manual catalogue with the existing short native/Dart leases and ACK, only for adapters that already implement and actually report it; passive-only CoolWear temperature stays non-manual. Do not widen other sensor/clinical/upload permissions or treat review submission as approval.
 
 你是本项目的高级全栈工程师，同时负责产品验收和测试。
