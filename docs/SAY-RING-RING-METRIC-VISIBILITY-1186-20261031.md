@@ -21,3 +21,21 @@
 过程中远端新增5项iOS发行文档及工作约定，无运行源码变化，版本已用至1185；本轮正式包独立使用1.0.7(1186)，不会将早期1183测试目录当作发行版本。先保留本轮checkpoint再安全合并对方记录，不覆盖或强推。
 
 最终完整回归额外发现iOS活动卡正向夹具同样未提供实际设备能力，已补充明确支持steps/ecg的合成戒指，同时保留原有发布规则隐藏ecg的断言。该文件8项通过，相关四文件173项通过；最终静态零问题，Asia/Shanghai完整1675项通过（3分04秒）。先前全量失败与更正后的完整通过分别保留，未用局部用例替代全量；UTC及跨端构建由待触发的同源CI另行核验。
+
+## Git集成与正式产物
+
+本轮checkpoint3c4ea66后合并并行321296e，仅docs/CHANGE-TEST-LOG.md顶部插入冲突，保留双方全部索引；AGENTS也保留两边新增约定，无运行源码冲突。最终运行基线842dd9f0fb69f3ece6fdb730579c4d9dbe580bab，lib/android/ios/assets/pubspec/config与已测3c4ea66差异为空。已推送当前开发分支，main和后台未变更。
+
+使用既有受保护正式签名runner独立重编，Release344.2秒成功。文件`E:\SayRing-market-artifacts-20261031\ring-metrics-1186\SayRing-1.0.7-1186-release.apk`，72,601,313字节，SHA256 `e6a300e736f3764f14104276f34f43e644edb657f86a49dbb70c6f5215f4c773`。apksigner验签通过，原证书SHA256 `81f35cc98e023821425fefaa0aa8dc998283baabc161b5f9f5ec1295ee8ce5de`，包名cn.saydian.ring、1.0.7(1186)、非Debug、双ARM、生产Manifest/JPush、ZIP16KB/原生库门禁通过；保留厂商既有32位ELF限制，不扩大为所有市场已审。临时key.properties已移除。
+
+ABI依赖图复用1182报告，依赖锁/原厂SDK/Gradle未改；本轮原生应用代码也未变，云端原生测试/编译仍单列。手机继续1182，本轮用户要求重新打包，未安装、卸载、登录、测量或修改系统设置。
+
+同源CI为41090998479；查询曾一次遇到TLS EOF，未误记成测试失败，使用本机既有代理重试成功。quality及两个时区Harmony契约已成功，Android/iOS构建最终状态待续记，不能拿旧基线CI替代。
+
+## 最终验证与交付
+
+同源[mobile-ci 41090998479](https://github.com/tangwu88/SayRing/actions/runs/41090998479)最终工作流已实际completed/success，head仍842dd9f。期间jobs详情接口另一次返回Server Error，随后使用保留账号校验的同一只读工具只查询run总结果，成功取得完成状态；该次回执jobs为空仅代表省略失效的详情请求，不将空列表当成逐任务证据。先前成功的quality包含UTC/Asia/Shanghai全量及格式/分析检查，其他任务由成功工作流确认；不伪造本机iOS编译。
+
+本机额外完整Debug181.8秒成功；随后`gradlew :app:testDebugUnitTest :app:dependencies --configuration releaseRuntimeClasspath --no-daemon --max-workers=1 --offline`2分24秒BUILD SUCCESSFUL，testDebugUnitTest实际执行，最新原生/依赖报告单独保留。未将Debug包交付为正式包。最后重新核对独立正式APK哈希仍e6a300e7…，未被后续Debug构建覆盖。
+
+收尾fetch成功，本地与当前远端同为842dd9f、ahead/behind均0；此后仅提交本验证回执，正式产物/source-receipt/build-receipt及日志在Git外，未修改手机、生产配置、下载页或其他端审核。新规则需安装新1186才生效，原手机1182不冒称已包含修复。
