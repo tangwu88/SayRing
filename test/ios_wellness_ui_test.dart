@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/services/api_client.dart';
@@ -68,6 +69,15 @@ void main() {
     addTearDown(controller.dispose);
     final ecg = _record(HealthMetric.ecg);
     final steps = _record(HealthMetric.steps);
+    controller.connectedDevice = const DeviceInfo(
+      id: 'synthetic-ring',
+      name: 'Confirmed test ring',
+    );
+    controller.deviceCapabilityState = DeviceCapabilityState.ready;
+    controller.capabilities = const DeviceCapabilities(
+      metrics: {HealthMetric.ecg, HealthMetric.steps},
+      manualMetrics: {},
+    );
     controller.healthRecords = [ecg, steps];
     await _pump(tester, Scaffold(body: DashboardPage(controller: controller)));
     expect(find.byKey(const ValueKey('health-metric-steps')), findsOneWidget);

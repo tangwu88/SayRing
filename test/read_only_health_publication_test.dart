@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/domain/read_only_health_features.dart';
 import 'package:saydian_app/domain/wellness_release_policy.dart';
@@ -55,6 +56,13 @@ class _Bridge extends Fake
     implements WearableBridge, WearableReadOnlyHealthPolicyBridge {
   final grants = <Set<HealthMetric>>[];
   bool fail = false;
+  @override
+  Future<DeviceCapabilities> getCapabilities() async =>
+      const DeviceCapabilities(
+        metrics: _three,
+        manualMetrics: {},
+        supportsHistorySync: false,
+      );
   @override
   Future<void> configureReadOnlyHealthMetrics(
     Set<HealthMetric> metrics, {
@@ -262,6 +270,12 @@ void main() {
         ),
       );
       controller.healthRecords = records;
+      controller.connectedDevice = const DeviceInfo(
+        id: 'qring:SYNTHETIC',
+        name: 'R22_test',
+      );
+      controller.deviceCapabilityState = DeviceCapabilityState.ready;
+      controller.capabilities = const DeviceCapabilities(metrics: _three);
       Future<void> pumpHome() async {
         await tester.pumpWidget(
           MaterialApp(
@@ -337,6 +351,12 @@ void main() {
         ),
       );
       try {
+        controller.connectedDevice = const DeviceInfo(
+          id: 'qring:SYNTHETIC',
+          name: 'R22_test',
+        );
+        controller.deviceCapabilityState = DeviceCapabilityState.ready;
+        controller.capabilities = const DeviceCapabilities(metrics: _three);
         await controller.refreshReadOnlyHealthFeatures();
         await tester.pumpWidget(
           MaterialApp(
@@ -353,6 +373,8 @@ void main() {
           250,
           scrollable: find.byType(Scrollable).first,
         );
+        await tester.ensureVisible(card);
+        await tester.pumpAndSettle();
         await tester.tap(card);
         await tester.pumpAndSettle();
         expect(

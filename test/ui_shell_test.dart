@@ -923,6 +923,15 @@ void main() {
         _NoopWearable(),
         commerceEnabled: true,
       )..enterPreview();
+      controller.connectedDevice = const DeviceInfo(
+        id: 'fixture-ring',
+        name: 'Confirmed test ring',
+      );
+      controller.deviceCapabilityState = DeviceCapabilityState.ready;
+      controller.capabilities = const DeviceCapabilities(
+        metrics: {HealthMetric.heartRate},
+        manualMetrics: {},
+      );
       controller.healthRecords = [_historicalHeartRateRecord()];
       await tester.pumpWidget(
         MaterialApp(
@@ -1070,6 +1079,11 @@ void main() {
       await tester.pageBack();
       await tester.pumpAndSettle();
 
+      // The next assertions exercise the unbound-device page, independently
+      // of the confirmed read-only capabilities used by the home checks.
+      controller.connectedDevice = null;
+      controller.capabilities = null;
+      controller.deviceCapabilityState = DeviceCapabilityState.disconnected;
       controller.selectTab(1);
       await tester.pump();
       expect(find.widgetWithText(FilledButton, '开始查找'), findsOneWidget);
@@ -1165,6 +1179,14 @@ void main() {
       MemoryHealthStore(),
       _NoopWearable(),
     )..enterPreview();
+    controller.connectedDevice = const DeviceInfo(
+      id: 'fixture-ring',
+      name: 'Confirmed test ring',
+    );
+    controller.deviceCapabilityState = DeviceCapabilityState.ready;
+    controller.capabilities = const DeviceCapabilities(
+      metrics: {HealthMetric.heartRate},
+    );
     controller.healthRecords = [_historicalHeartRateRecord()];
     addTearDown(controller.dispose);
 
@@ -1493,6 +1515,14 @@ void main() {
     await store.upsert([record]);
     final controller =
         AppController(MemorySessionVault(), _NoopApi(), store, _NoopWearable())
+          ..connectedDevice = const DeviceInfo(
+            id: 'qring:test',
+            name: 'Confirmed test ring',
+          )
+          ..deviceCapabilityState = DeviceCapabilityState.ready
+          ..capabilities = const DeviceCapabilities(
+            metrics: {HealthMetric.sleep},
+          )
           ..healthRecords = [
             record.copyWith(values: {'value': 395}),
             record,
@@ -1601,7 +1631,7 @@ void main() {
   );
 
   testWidgets(
-    'historical metric remains visible while unsupported actions stay hidden',
+    'unsupported historical metric stays stored without advertising a ring function',
     (tester) async {
       final controller =
           AppController(
@@ -1644,10 +1674,17 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.text('血糖'), findsOneWidget);
+      expect(find.text('血糖'), findsNothing);
       expect(find.text('血糖校准'), findsNothing);
-      await tester.tap(find.text('血糖'));
-      await tester.pumpAndSettle();
+      expect(controller.healthRecords.single.metric, HealthMetric.bloodGlucose);
+      expect(
+        controller.latestByMetric.containsKey(HealthMetric.bloodGlucose),
+        isTrue,
+      );
+      expect(
+        controller.canMeasureHealthMetric(HealthMetric.bloodGlucose),
+        isFalse,
+      );
       expect(
         find.byKey(const Key('health-measure-blood_glucose')),
         findsNothing,
@@ -1667,6 +1704,14 @@ void main() {
       MemoryHealthStore(),
       _NoopWearable(),
     )..enterPreview();
+    controller.connectedDevice = const DeviceInfo(
+      id: 'fixture-ring',
+      name: 'Confirmed test ring',
+    );
+    controller.deviceCapabilityState = DeviceCapabilityState.ready;
+    controller.capabilities = const DeviceCapabilities(
+      metrics: {HealthMetric.heartRate, HealthMetric.bloodPressure},
+    );
     controller.healthRecords = [
       _historicalHeartRateRecord(),
       _historicalBloodPressureRecord(),

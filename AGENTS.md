@@ -2,6 +2,8 @@
 
 ## Say Ring boundary
 
+- User update (2026-10-30): health cards, the health catalogue and card editing must show only metrics confirmed by the current ring capabilities and the existing release/permission gates. Account history must not enable an unsupported metric. Preserve stored records, layout order and hidden preferences; do not erase history or infer capabilities from names or old records. A missing target or unresolved capability state must not display unsupported functions.
+
 - This independent repository is `tangwu88/SayRing`. On 2026-10-13 the user explicitly authorized keeping it **Public** and pushing the verified changes, superseding the earlier Private-before-push requirement. `origin` is Say Ring; `upstream` and `source-local` are read-only imports from the international App. Never push Say Ring code to the watch App or re-enable inherited release automation.
 - Before changes: inspect branch/status, fetch `origin`, fast-forward only a clean current branch, read `docs/INTERNATIONAL-HANDOFF.md` plus the latest change/test records. Preserve other colleagues' work; checkpoint before safe integration.
 - First-party network and update requests must stay under `https://app.saydian.cn/global`; update requests must identify product `say-ring`. Never fall back to domestic endpoints or accept a package for another product. Account data is shared with the international realm, while local storage, package IDs and update artifacts stay isolated.

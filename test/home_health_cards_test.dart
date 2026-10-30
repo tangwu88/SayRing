@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/home_health_cards.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/api_client.dart';
@@ -39,9 +40,150 @@ AppController _controller(MemorySessionVault vault) => AppController(
   MethodChannelWearableBridge(),
 );
 
+void _setRingMetrics(AppController controller, Set<HealthMetric> metrics) {
+  controller.connectedDevice = const DeviceInfo(
+    id: 'qring:synthetic-ring',
+    name: 'R22_test',
+  );
+  controller.deviceCapabilityState = DeviceCapabilityState.ready;
+  controller.capabilities = DeviceCapabilities(metrics: metrics);
+}
+
+HealthRecord _oldMetricRecord(HealthMetric metric) => HealthRecord(
+  id: 'old-${metric.wireName}',
+  metric: metric,
+  measuredAt: DateTime.utc(2026, 10, 8),
+  values: const {'value': 80},
+  unit: metric.defaultUnit,
+  timezone: 'UTC',
+  deviceId: 'previous-device',
+  firmwareVersion: '',
+  quality: 'valid',
+  source: MeasurementSource.wearable,
+  rawVersion: 1,
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() => initializeDateFormatting('zh_Hans'));
+
+  test(
+    'old records cannot grant unsupported ring cards or remove history',
+    () async {
+      final controller = _controller(MemorySessionVault());
+      addTearDown(controller.dispose);
+      final records = [
+        for (final metric in HomeHealthCardLayout.defaultOrder)
+          _oldMetricRecord(metric),
+      ];
+      controller.healthRecords = records;
+      _setRingMetrics(controller, {
+        HealthMetric.heartRate,
+        HealthMetric.bloodOxygen,
+      });
+      expect(controller.homeHealthCardMetrics, [
+        HealthMetric.heartRate,
+        HealthMetric.bloodOxygen,
+      ]);
+      expect(
+        controller.shouldShowHealthMetric(HealthMetric.bloodPressure),
+        isFalse,
+      );
+      expect(controller.shouldShowHealthMetric(HealthMetric.ecg), isFalse);
+      expect(
+        controller.shouldShowHealthMetric(HealthMetric.bloodGlucose),
+        isFalse,
+      );
+      expect(
+        controller.latestByMetric[HealthMetric.bloodPressure],
+        same(records.first),
+      );
+      expect(controller.healthRecords, same(records));
+      final layout = controller.homeHealthCardLayout;
+      _setRingMetrics(controller, {
+        HealthMetric.hrv,
+        HealthMetric.bodyTemperature,
+      });
+      expect(controller.homeHealthCardMetrics, [
+        HealthMetric.bodyTemperature,
+        HealthMetric.hrv,
+      ]);
+      expect(controller.homeHealthCardLayout, same(layout));
+      expect(controller.healthRecords, same(records));
+    },
+  );
+
+  test('unresolved or missing ring cannot reuse historical visibility', () {
+    final controller = _controller(MemorySessionVault());
+    addTearDown(controller.dispose);
+    controller.healthRecords = [_oldMetricRecord(HealthMetric.heartRate)];
+    _setRingMetrics(controller, {HealthMetric.heartRate});
+    for (final state in DeviceCapabilityState.values) {
+      controller.deviceCapabilityState = state;
+      expect(
+        controller.shouldShowHealthMetric(HealthMetric.heartRate),
+        state == DeviceCapabilityState.ready ||
+            state == DeviceCapabilityState.disconnected,
+        reason:
+            'Only confirmed capabilities, including the same saved disconnected ring, are usable: $state',
+      );
+    }
+    controller.deviceCapabilityState = DeviceCapabilityState.ready;
+    controller.connectedDevice = null;
+    expect(controller.homeHealthCardMetrics, isEmpty);
+    expect(controller.healthRecords, hasLength(1));
+  });
+
+  for (final page in ['home', 'catalogue', 'editor']) {
+    testWidgets(
+      '$page hides unsupported history and updates for replacement ring',
+      (tester) async {
+        final controller = _controller(MemorySessionVault());
+        addTearDown(controller.dispose);
+        controller.healthRecords = [
+          for (final metric in HomeHealthCardLayout.defaultOrder)
+            _oldMetricRecord(metric),
+        ];
+        _setRingMetrics(controller, {
+          HealthMetric.heartRate,
+          HealthMetric.bloodOxygen,
+        });
+        Future<void> showPage() async {
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: buildSaydianTheme(),
+              home: page == 'editor'
+                  ? HomeHealthCardsPage(controller: controller)
+                  : Scaffold(
+                      body: page == 'home'
+                          ? DashboardPage(controller: controller)
+                          : HealthPage(controller: controller),
+                    ),
+            ),
+          );
+          await tester.pumpAndSettle();
+        }
+
+        await showPage();
+        for (final label in ['血压', '心电', '血糖', '体成分', '血液成分']) {
+          expect(find.text(label), findsNothing);
+        }
+        expect(find.text('心率'), findsWidgets);
+        expect(
+          controller.healthRecords,
+          hasLength(HomeHealthCardLayout.defaultOrder.length),
+        );
+        _setRingMetrics(controller, {HealthMetric.hrv});
+        await showPage();
+        expect(find.text('心率'), findsNothing);
+        expect(controller.homeHealthCardMetrics, [HealthMetric.hrv]);
+        expect(
+          controller.healthRecords,
+          hasLength(HomeHealthCardLayout.defaultOrder.length),
+        );
+      },
+    );
+  }
 
   test('defaults and corrupt schema preserve existing card order', () {
     expect(HomeHealthCardLayout().visible, HomeHealthCardLayout.defaultOrder);
@@ -248,6 +390,10 @@ void main() {
       final vault = MemorySessionVault();
       final controller = _controller(vault);
       addTearDown(controller.dispose);
+      _setRingMetrics(controller, {
+        HealthMetric.heartRate,
+        HealthMetric.bloodOxygen,
+      });
       controller.healthRecords = [
         for (final metric in [HealthMetric.heartRate, HealthMetric.bloodOxygen])
           HealthRecord(
@@ -328,6 +474,7 @@ void main() {
       addTearDown(() => tester.binding.setSurfaceSize(null));
       final controller = _controller(MemorySessionVault());
       addTearDown(controller.dispose);
+      _setRingMetrics(controller, {HealthMetric.heartRate});
       controller.healthRecords = [
         HealthRecord(
           id: 'synthetic',

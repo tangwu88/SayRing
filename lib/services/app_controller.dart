@@ -1485,9 +1485,9 @@ class AppController extends ChangeNotifier {
 
   bool shouldShowHealthMetric(HealthMetric metric) =>
       isMetricAvailableInRelease(metric) &&
-      (latestByMetric.containsKey(metric) ||
-          (_hasResolvedDeviceCapabilities &&
-              capabilities?.supports(metric) == true));
+      connectedDevice != null &&
+      _hasResolvedDeviceCapabilities &&
+      capabilities?.supports(metric) == true;
 
   HomeHealthCardLayout homeHealthCardLayout = HomeHealthCardLayout();
   bool homeHealthCardsLoading = false;
