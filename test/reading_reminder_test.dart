@@ -122,6 +122,17 @@ void main() {
       if (result != null) expect(result.metric, c.$2);
     }
   });
+  test('phone sound changes keep the same reading deduplicated', () {
+    final engine = ReadingReminderEngine();
+    final first = _observe(engine, _record(130));
+    final muted = _enabled.copyWith(phoneSoundEnabled: false);
+    expect(first, isNotNull);
+    expect(_observe(engine, _record(130), settings: muted), isNull);
+    expect(
+      _observe(ReadingReminderEngine(), _record(130), settings: muted)?.id,
+      first!.id,
+    );
+  });
   test('user settings change only their enabled comparison', () {
     const custom = ReadingReminderSettings(
       highEnabled: true,

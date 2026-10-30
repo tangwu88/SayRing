@@ -551,7 +551,11 @@ class _SaydianAppState extends State<SaydianApp> with WidgetsBindingObserver {
                           alert.reminder?.reading != null)
                         Positioned.fill(
                           child: ReadingReminderAlertView(
+                            key: ValueKey('reading-alert-$owner-${alert.id}'),
                             kind: alert.reminder!.kind,
+                            soundEnabled: controller
+                                .readingReminderSettings
+                                .phoneSoundEnabled,
                             reading: alert.reminder!.reading!,
                             measuredAt: alert.reminder!.measuredAt,
                             onDismiss: dismissReading,

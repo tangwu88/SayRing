@@ -114,9 +114,12 @@ extension HealthReminderController on AppController {
       if (!_isCurrentSessionGeneration(generation) || !canSaveHealthReminder) {
         return false;
       }
+      final comparisonsChanged =
+          readingReminderSettings.comparisonFingerprint !=
+          value.comparisonFingerprint;
       readingReminderSettings = value;
       _readingReminderSettingsRevision++;
-      _readingReminderEngine.reset();
+      if (comparisonsChanged) _readingReminderEngine.reset();
       return true;
     } catch (_) {
       return false;

@@ -14,6 +14,7 @@ final class ReadingReminderSettings {
     this.lowEnabled = false,
     this.oxygenEnabled = false,
     this.ringVibrationEnabled = true,
+    this.phoneSoundEnabled = true,
     this.high = 120,
     this.low = 40,
     this.oxygen = 92,
@@ -23,6 +24,7 @@ final class ReadingReminderSettings {
   final bool lowEnabled;
   final bool oxygenEnabled;
   final bool ringVibrationEnabled;
+  final bool phoneSoundEnabled;
   final int high;
   final int low;
   final int oxygen;
@@ -41,6 +43,7 @@ final class ReadingReminderSettings {
     bool? lowEnabled,
     bool? oxygenEnabled,
     bool? ringVibrationEnabled,
+    bool? phoneSoundEnabled,
     int? high,
     int? low,
     int? oxygen,
@@ -49,6 +52,7 @@ final class ReadingReminderSettings {
     lowEnabled: lowEnabled ?? this.lowEnabled,
     oxygenEnabled: oxygenEnabled ?? this.oxygenEnabled,
     ringVibrationEnabled: ringVibrationEnabled ?? this.ringVibrationEnabled,
+    phoneSoundEnabled: phoneSoundEnabled ?? this.phoneSoundEnabled,
     high: high ?? this.high,
     low: low ?? this.low,
     oxygen: oxygen ?? this.oxygen,
@@ -60,12 +64,17 @@ final class ReadingReminderSettings {
     'lowEnabled': lowEnabled,
     'oxygenEnabled': oxygenEnabled,
     'ringVibrationEnabled': ringVibrationEnabled,
+    'phoneSoundEnabled': phoneSoundEnabled,
     'high': high,
     'low': low,
     'oxygen': oxygen,
   };
   String get fingerprint =>
       sha256.convert(utf8.encode(jsonEncode(toJson()))).toString();
+  // A delivery preference must not turn the same measurement into a new event.
+  String get comparisonFingerprint => sha256
+      .convert(utf8.encode(jsonEncode(toJson()..remove('phoneSoundEnabled'))))
+      .toString();
   static ReadingReminderSettings? parse(String? value) {
     try {
       final raw = jsonDecode(value ?? '');
@@ -76,6 +85,8 @@ final class ReadingReminderSettings {
           raw['oxygenEnabled'] is! bool ||
           (raw.containsKey('ringVibrationEnabled') &&
               raw['ringVibrationEnabled'] is! bool) ||
+          (raw.containsKey('phoneSoundEnabled') &&
+              raw['phoneSoundEnabled'] is! bool) ||
           raw['high'] is! int ||
           raw['low'] is! int ||
           raw['oxygen'] is! int) {
@@ -86,6 +97,7 @@ final class ReadingReminderSettings {
         lowEnabled: raw['lowEnabled'] as bool,
         oxygenEnabled: raw['oxygenEnabled'] as bool,
         ringVibrationEnabled: raw['ringVibrationEnabled'] as bool? ?? true,
+        phoneSoundEnabled: raw['phoneSoundEnabled'] as bool? ?? true,
         high: raw['high'] as int,
         low: raw['low'] as int,
         oxygen: raw['oxygen'] as int,
@@ -131,7 +143,7 @@ final class ReadingReminderEngine {
     required DateTime now,
     required bool live,
   }) {
-    final scope = '$owner|${device.id}|${settings.fingerprint}';
+    final scope = '$owner|${device.id}|${settings.comparisonFingerprint}';
     if (_scope != scope) {
       reset();
       _scope = scope;

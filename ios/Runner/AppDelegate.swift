@@ -1,4 +1,5 @@
 import CryptoKit
+import AVFoundation
 import Flutter
 import Photos
 import StoreKit
@@ -944,9 +945,106 @@ private final class RingHealthReminderNotificationBridge {
   }
 }
 
+private final class RingHealthReminderSoundBridge: NSObject, AVAudioPlayerDelegate {
+  private let channel: FlutterMethodChannel
+  private let assetKey: String
+  private var player: AVAudioPlayer?
+  private var token: String?
+  private var timeout: Timer?
+  private var previousCategory: AVAudioSession.Category?
+  private var previousMode: AVAudioSession.Mode?
+  private var previousOptions: AVAudioSession.CategoryOptions?
+
+  init(messenger: FlutterBinaryMessenger, assetKey: String) {
+    channel = FlutterMethodChannel(name: "cn.saydian.ring/health_reminder_sound", binaryMessenger: messenger)
+    self.assetKey = assetKey
+    super.init()
+    NotificationCenter.default.addObserver(self, selector: #selector(interrupted(_:)), name: UIApplication.willResignActiveNotification, object: nil)
+    NotificationCenter.default.addObserver(self, selector: #selector(interrupted(_:)), name: AVAudioSession.interruptionNotification, object: nil)
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard let self else { result(false); return }
+      let args = call.arguments as? [String: Any] ?? [:]
+      let request = args["token"] as? String
+      switch call.method {
+      case "play":
+        guard let request,
+              request.range(of: "^reading-[0-9-]{1,80}$", options: .regularExpression) != nil else {
+          result(false); return
+        }
+        result(self.play(request))
+      case "stop":
+        if request == self.token { self.stop() }
+        result(nil)
+      default: result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  private func play(_ request: String) -> Bool {
+    if token == request { return false }
+    stop()
+    guard UIApplication.shared.applicationState == .active,
+          let url = Bundle.main.url(forResource: assetKey, withExtension: nil) else { return false }
+    do {
+      let session = AVAudioSession.sharedInstance()
+      previousCategory = session.category
+      previousMode = session.mode
+      previousOptions = session.categoryOptions
+      // Ambient follows the Ring/Silent switch and mixes with other audio.
+      try session.setCategory(.ambient, mode: .default, options: [])
+      try session.setActive(true)
+      let current = try AVAudioPlayer(contentsOf: url)
+      current.volume = 0.85
+      current.numberOfLoops = 0
+      current.delegate = self
+      current.prepareToPlay()
+      player = current
+      token = request
+      guard current.play() else { stop(); return false }
+      timeout = Timer.scheduledTimer(withTimeInterval: 6, repeats: false) { [weak self] _ in
+        if self?.token == request { self?.stop() }
+      }
+      return true
+    } catch { stop(); return false }
+  }
+
+  @objc private func interrupted(_ notification: Notification) { stop() }
+
+  private func stop() {
+    token = nil
+    timeout?.invalidate()
+    timeout = nil
+    player?.stop()
+    player = nil
+    let session = AVAudioSession.sharedInstance()
+    if let category = previousCategory, let mode = previousMode,
+       let options = previousOptions, session.category == .ambient {
+      // Do not overwrite a category selected by another module in the meantime.
+      if category == .ambient || category == .soloAmbient {
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+      }
+      try? session.setCategory(category, mode: mode, options: options)
+    }
+    previousCategory = nil
+    previousMode = nil
+    previousOptions = nil
+  }
+
+  func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+    if player === self.player { stop() }
+  }
+
+  func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+    if player === self.player { stop() }
+  }
+
+  deinit { NotificationCenter.default.removeObserver(self); stop() }
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate, WXApiDelegate {
   private var healthReminderNotifications: RingHealthReminderNotificationBridge?
+  private var healthReminderSound: RingHealthReminderSoundBridge?
   private(set) var flutterEngine: FlutterEngine?
   private let wearableStreamHandler = WearableStreamHandler()
   private var wearableAdapter: WearableAdapter?
@@ -1027,6 +1125,10 @@ private final class RingHealthReminderNotificationBridge {
       return
     }
     healthReminderNotifications = RingHealthReminderNotificationBridge(messenger: registrar.messenger())
+    healthReminderSound = RingHealthReminderSoundBridge(
+      messenger: registrar.messenger(),
+      assetKey: registrar.lookupKey(forAsset: "assets/audio/health_reminder_alarm.wav")
+    )
 
     let methods = FlutterMethodChannel(
       name: "cc.saidian/wearable_methods",

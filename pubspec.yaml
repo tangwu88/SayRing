@@ -68,6 +68,7 @@ flutter:
     enable-swift-package-manager: false
   uses-material-design: true
   assets:
+    - assets/audio/health_reminder_alarm.wav
     - assets/china_regions.json
     - assets/branding/saidian-brand-mark.png
     - assets/branding/logo_en.jpg

@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -7,6 +10,7 @@ import '../domain/health_reminder.dart';
 import '../domain/models.dart';
 import '../domain/reading_reminder.dart';
 import '../services/app_controller.dart';
+import '../services/health_reminder_sound.dart';
 import '../services/wearable_bridge.dart';
 import 'app_theme.dart';
 
@@ -43,6 +47,8 @@ class ReadingReminderAlertView extends StatefulWidget {
     this.preview = false,
     this.measuredAt,
     this.previewVibration,
+    this.soundEnabled = true,
+    this.sound = const MethodChannelHealthReminderSound(),
   });
   final HealthReminderKind kind;
   final double reading;
@@ -52,30 +58,96 @@ class ReadingReminderAlertView extends StatefulWidget {
   final bool preview;
   final DateTime? measuredAt;
   final Future<RingReminderHapticResult>? previewVibration;
+  final bool soundEnabled;
+  final HealthReminderSound sound;
   @override
   State<ReadingReminderAlertView> createState() =>
       _ReadingReminderAlertViewState();
 }
 
 class _ReadingReminderAlertViewState extends State<ReadingReminderAlertView>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  static int _soundSequence = 0;
+  late final String _soundToken =
+      'reading-${DateTime.now().microsecondsSinceEpoch}-${++_soundSequence}';
+  bool _soundAttempted = false;
+  bool _silenced = false;
   late final _pulse = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 2400),
+    duration: const Duration(milliseconds: 1400),
   );
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  bool get _foreground =>
+      (WidgetsBinding.instance.lifecycleState == null ||
+          WidgetsBinding.instance.lifecycleState ==
+              AppLifecycleState.resumed) &&
+      TickerMode.valuesOf(context).enabled;
+
+  void _stopSound() {
+    if (_soundAttempted) unawaited(widget.sound.stop(_soundToken));
+  }
+
+  void _updateFeedback() {
+    if (!_foreground || MediaQuery.disableAnimationsOf(context)) {
+      _pulse.stop();
+      _pulse.value = 0;
+    } else if (!_pulse.isAnimating) {
+      _pulse.repeat();
+    }
+    if (!_foreground || !widget.soundEnabled) {
+      _stopSound();
+      return;
+    }
+    if (_soundAttempted || _silenced) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted ||
+          !_foreground ||
+          !widget.soundEnabled ||
+          _soundAttempted ||
+          _silenced) {
+        return;
+      }
+      _soundAttempted = true;
+      await widget.sound.play(_soundToken);
+      if (!mounted || !_foreground || !widget.soundEnabled || _silenced) {
+        unawaited(widget.sound.stop(_soundToken));
+      }
+    });
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (MediaQuery.disableAnimationsOf(context) ||
-        !TickerMode.valuesOf(context).enabled) {
-      _pulse.stop();
-    } else if (!_pulse.isAnimating) {
-      _pulse.repeat(reverse: true);
-    }
+    _updateFeedback();
+  }
+
+  @override
+  void didUpdateWidget(covariant ReadingReminderAlertView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _updateFeedback();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (mounted) _updateFeedback();
+  }
+
+  void _finish(VoidCallback action) {
+    _silenced = true;
+    _stopSound();
+    action();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _stopSound();
     _pulse.dispose();
     super.dispose();
   }
@@ -163,26 +235,80 @@ class _ReadingReminderAlertViewState extends State<ReadingReminderAlertView>
                         ],
                         AnimatedBuilder(
                           animation: _pulse,
-                          builder: (_, child) => Transform.scale(
-                            scale: 1 + _pulse.value * 0.08,
-                            child: child,
-                          ),
-                          child: Container(
-                            width: 112,
-                            height: 112,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white.withValues(alpha: 0.12),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.3),
+                          builder: (_, _) {
+                            final phase = _pulse.value;
+                            final moving = _pulse.isAnimating;
+                            final beat =
+                                1 +
+                                0.2 *
+                                    math.exp(
+                                      -math.pow((phase - .14) / .065, 2),
+                                    ) +
+                                0.12 *
+                                    math.exp(
+                                      -math.pow((phase - .34) / .065, 2),
+                                    );
+                            return SizedBox(
+                              key: const Key('reading-reminder-motion'),
+                              width: 168,
+                              height: 168,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  for (var i = 0; i < 2; i++)
+                                    if (moving)
+                                      Transform.scale(
+                                        key: ValueKey(
+                                          'reading-reminder-wave-$i',
+                                        ),
+                                        scale: 1 + ((phase + i / 2) % 1) * .6,
+                                        child: Container(
+                                          width: 104,
+                                          height: 104,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              width: 2,
+                                              color: Colors.white.withValues(
+                                                alpha:
+                                                    (1 -
+                                                        ((phase + i / 2) % 1)) *
+                                                    .4,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  Transform.scale(
+                                    key: const Key(
+                                      'reading-reminder-heartbeat',
+                                    ),
+                                    scale: moving ? beat : 1,
+                                    child: Container(
+                                      width: 104,
+                                      height: 104,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: Colors.white.withValues(
+                                          alpha: 0.12,
+                                        ),
+                                        border: Border.all(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.3,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Icon(
+                                        _icon(widget.kind),
+                                        color: Colors.white,
+                                        size: 54,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                            child: Icon(
-                              _icon(widget.kind),
-                              color: Colors.white,
-                              size: 54,
-                            ),
-                          ),
+                            );
+                          },
                         ),
                         const SizedBox(height: 28),
                         Semantics(
@@ -258,11 +384,34 @@ class _ReadingReminderAlertViewState extends State<ReadingReminderAlertView>
                           ),
                         ),
                         const SizedBox(height: 30),
+                        if (widget.soundEnabled)
+                          TextButton.icon(
+                            key: const Key('reading-reminder-silence'),
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: _silenced
+                                ? null
+                                : () {
+                                    setState(() => _silenced = true);
+                                    _stopSound();
+                                  },
+                            icon: Icon(
+                              _silenced
+                                  ? Icons.volume_off_rounded
+                                  : Icons.volume_up_rounded,
+                            ),
+                            label: Text(
+                              _silenced
+                                  ? _copy(context, '本次已静音', 'Silenced')
+                                  : _copy(context, '停止提示音', 'Silence sound'),
+                            ),
+                          ),
                         SizedBox(
                           width: double.infinity,
                           child: FilledButton.icon(
                             key: const Key('reading-reminder-urgent-help'),
-                            onPressed: widget.onHelp,
+                            onPressed: () => _finish(widget.onHelp),
                             style: FilledButton.styleFrom(
                               backgroundColor: Colors.white,
                               foregroundColor: const Color(0xFF981F32),
@@ -277,7 +426,7 @@ class _ReadingReminderAlertViewState extends State<ReadingReminderAlertView>
                           width: double.infinity,
                           child: OutlinedButton(
                             key: const Key('dismiss-health-warning'),
-                            onPressed: widget.onDismiss,
+                            onPressed: () => _finish(widget.onDismiss),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: Colors.white,
                               side: const BorderSide(color: Colors.white),
@@ -292,7 +441,7 @@ class _ReadingReminderAlertViewState extends State<ReadingReminderAlertView>
                         ),
                         if (widget.onDetails != null)
                           TextButton(
-                            onPressed: widget.onDetails,
+                            onPressed: () => _finish(widget.onDetails!),
                             style: TextButton.styleFrom(
                               foregroundColor: Colors.white,
                             ),
@@ -308,7 +457,7 @@ class _ReadingReminderAlertViewState extends State<ReadingReminderAlertView>
                 right: 4,
                 child: IconButton(
                   key: const Key('reading-reminder-close'),
-                  onPressed: widget.onDismiss,
+                  onPressed: () => _finish(widget.onDismiss),
                   tooltip: _copy(context, '关闭提醒', 'Close reminder'),
                   color: Colors.white,
                   icon: const Icon(Icons.close_rounded),
@@ -327,30 +476,45 @@ Future<void> showReadingReminderPreview(
   HealthReminderKind kind, {
   required VoidCallback onHelp,
   Future<RingReminderHapticResult> Function()? vibrate,
+  AppController? controller,
+  bool soundEnabled = true,
 }) {
   // Start once per explicit preview. Rebuilds and animation frames must never
   // repeat a physical command. Native cleanup also survives closing the route.
   final vibration = vibrate == null
       ? null
       : Future<RingReminderHapticResult>.sync(vibrate);
+  final owner = controller?.homeHealthCardOwner;
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: false,
     transitionDuration: const Duration(milliseconds: 180),
-    pageBuilder: (dialog, _, _) => ReadingReminderAlertView(
-      kind: kind,
-      reading:
-          (_reference(kind) +
-                  (kind == HealthReminderKind.highHeartRate ? 5 : -1))
-              .toDouble(),
-      preview: true,
-      previewVibration: vibration,
-      onDismiss: () => Navigator.of(dialog).pop(),
-      onHelp: () {
-        Navigator.of(dialog).pop();
-        onHelp();
-      },
-    ),
+    pageBuilder: (dialog, _, _) {
+      Widget view() => ReadingReminderAlertView(
+        kind: kind,
+        reading:
+            (_reference(kind) +
+                    (kind == HealthReminderKind.highHeartRate ? 5 : -1))
+                .toDouble(),
+        preview: true,
+        previewVibration: vibration,
+        soundEnabled: controller == null
+            ? soundEnabled
+            : controller.homeHealthCardOwner == owner &&
+                  controller.readingReminderSettings.phoneSoundEnabled,
+        onDismiss: () => Navigator.of(dialog).pop(),
+        onHelp: () {
+          Navigator.of(dialog).pop();
+          onHelp();
+        },
+      );
+      return controller == null
+          ? view()
+          : ListenableBuilder(
+              listenable: controller,
+              builder: (_, _) => view(),
+            );
+    },
   );
 }
 
@@ -539,9 +703,6 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
         controller.canMeasureHealthMetric(metric);
     final heartRate = supports(HealthMetric.heartRate);
     final oxygen = supports(HealthMetric.bloodOxygen);
-    final visibleEnabled =
-        (heartRate && (s.highEnabled || s.lowEnabled)) ||
-        (oxygen && s.oxygenEnabled);
     final kinds = [
       if (heartRate) ...[
         HealthReminderKind.highHeartRate,
@@ -553,14 +714,6 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (kinds.isNotEmpty) ...[
-          Text(
-            visibleEnabled
-                ? _copy(context, '新测量提醒', 'New reading reminders')
-                : _copy(context, '设置提醒范围', 'Set your limits'),
-            key: const Key('health-reminder-availability'),
-            style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 12),
           for (final kind in kinds)
             Builder(
               builder: (context) {
@@ -711,6 +864,28 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
             ),
           ),
         ],
+        if (kinds.isNotEmpty)
+          Card(
+            child: SwitchListTile(
+              key: const Key('reading-reminder-phone-sound'),
+              secondary: const Icon(
+                Icons.volume_up_rounded,
+                color: SaydianColors.techBlue,
+              ),
+              title: Text(_copy(context, '手机提示音', 'Phone alert sound')),
+              subtitle: Text(
+                _copy(context, '跟随手机静音和音量', 'Uses the phone’s sound settings'),
+              ),
+              value: s.phoneSoundEnabled,
+              onChanged: canEdit
+                  ? (value) => _save(
+                      context,
+                      s.copyWith(phoneSoundEnabled: value),
+                      owner,
+                    )
+                  : null,
+            ),
+          ),
         if (kinds.isNotEmpty) ...[
           Text(
             _copy(
@@ -749,6 +924,7 @@ class ReadingReminderSettingsPanel extends StatelessWidget {
                         ? HealthReminderKind.highHeartRate
                         : kinds.first,
                     onHelp: onHelp,
+                    controller: controller,
                     vibrate:
                         controller.healthReminderRingVibrationAvailable &&
                             s.ringVibrationEnabled

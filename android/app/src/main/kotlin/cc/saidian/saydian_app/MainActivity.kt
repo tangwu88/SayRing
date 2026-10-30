@@ -227,6 +227,7 @@ internal object WearableRecordTimezone {
 
 class MainActivity : FlutterActivity() {
     private var healthReminderNotifications: HealthReminderNotifications? = null
+    private var healthReminderSound: HealthReminderSound? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var adapter: VeepooWearableAdapter
     private var coolWearBridge: CoolWearRingBridge? = null
@@ -249,6 +250,8 @@ class MainActivity : FlutterActivity() {
         if (!::adapter.isInitialized) adapter = VeepooWearableAdapter(applicationContext)
         super.configureFlutterEngine(flutterEngine)
         healthReminderNotifications = HealthReminderNotifications(this, flutterEngine.dartExecutor.binaryMessenger)
+        healthReminderSound?.dispose()
+        healthReminderSound = HealthReminderSound(this, flutterEngine.dartExecutor.binaryMessenger)
         coolWearBridge = CoolWearRingBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         qringBridge = QRingBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(
@@ -297,6 +300,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
+        healthReminderSound?.onForeground(true)
         deliverPendingWechatAuthorization()
     }
 
@@ -763,7 +767,14 @@ class MainActivity : FlutterActivity() {
         completion.error(code, message, null)
     }
 
+    override fun onPause() {
+        healthReminderSound?.onForeground(false)
+        super.onPause()
+    }
+
     override fun onDestroy() {
+        healthReminderSound?.dispose()
+        healthReminderSound = null
         qringBridge?.dispose()
         qringBridge = null
         coolWearBridge?.dispose()

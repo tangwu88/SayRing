@@ -527,12 +527,12 @@ void main() {
             findsNothing,
           );
           await tester.scrollUntilVisible(
-            find.byKey(const Key('health-reminder-availability')),
+            find.byKey(const Key('reading-reminder-high_heart_rate-enabled')),
             140,
             scrollable: find.byType(Scrollable).first,
           );
           expect(
-            find.byKey(const Key('health-reminder-availability')),
+            find.byKey(const Key('reading-reminder-high_heart_rate-enabled')),
             findsOneWidget,
           );
           expect(tester.takeException(), isNull);
