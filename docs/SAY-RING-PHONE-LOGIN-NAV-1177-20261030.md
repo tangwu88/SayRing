@@ -39,3 +39,5 @@ format/analyze通过，UTC及Asia/Shanghai全量各1612项通过；Node141通过
 后台浏览器在用户确认前台后仍持续Codex app tool request failed，直接恢复原标签页也失败，open_in_codex仍queued。已请求重启当前Mac聊天客户端以恢复操作连接；不是再次索取后台密码。下载页尚未上传/保存，当前公开Android仍标注1163，iPhone/Harmony字段保留，待真实发布回执后续记。Android1177覆盖安装已先私有备份当前容器，仍在核对华为系统安装确认，不把此等待写成安装通过。
 
 Android1177原签名私有Debug也已完成-r覆盖及实际APK拉回核验；UID10140/初装时间保留，29个数据库/偏好/XML文件启动前SHA对比0丢失、0改变，实际安装APK与c0dcf783…产物相符。安装器风险页首次普通tap未切换；确认Awake、无锁屏后，使用正常指定display0的触屏点击完成两级实际“继续安装”，未绕过权限或安全设置。实际解析MainActivity启动成功，继续普通main调试；不是正式Release手机全功能验收。
+
+用户随后确认已重启客户端并打开已登录后台；旧agent与同一受支持入口重新绑定的agent均仍返回Codex app tool request failed，未读到可操作DOM。未提取浏览器凭证、绕过后台认证或写入下载配置，不继续重复要求用户登录/重启。再次匿名读取公开清单，Android仍1163、iPhone1130、Harmony1128；1177包和元数据已就绪，下一步需在后台实际上传/保存后，再匿名重新下载核验。本轮CI40989162476的quality与两个Harmony任务已成功，Android/iOS任务仍运行，不称全CI完成。此段仅更新操作记录，运行输入仍与已编译f86c3af一致。
