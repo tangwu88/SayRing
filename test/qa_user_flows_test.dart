@@ -762,10 +762,10 @@ void main() {
           expect(controller.syncStatus, '活动数据已更新，历史记录尚未确认');
           expect(controller.errorMessage, contains('历史记录尚未确认'));
         } else if (response == 'no_data') {
-          expect(controller.syncStatus, '暂无新增数据');
+          expect(controller.syncStatus, isEmpty);
           expect(controller.errorMessage, isNull);
         } else {
-          expect(controller.syncStatus, isNot('暂无新增数据'));
+          expect(controller.syncStatus, isNotEmpty);
           expect(controller.errorMessage, isNotNull);
         }
       },

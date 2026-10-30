@@ -113,7 +113,7 @@ class _UiController extends Fake implements AppController {
   DeviceCapabilities? get capabilities => deviceCapabilities;
 
   @override
-  String syncStatus = '暂无新增数据';
+  String syncStatus = '';
 
   @override
   String? errorMessage;
@@ -325,9 +325,7 @@ void main() {
     );
   });
 
-  testWidgets('an empty successful sync says up to date, not failed', (
-    tester,
-  ) async {
+  testWidgets('an empty successful sync shows no notification', (tester) async {
     final controller = _UiController();
     controller.activeRing = controller.boundRing;
     await _pump(tester, Scaffold(body: DevicePage(controller: controller)));
@@ -335,7 +333,8 @@ void main() {
     await tester.tap(find.text('同步数据'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
-    expect(find.text('已是最新，暂无新数据'), findsOneWidget);
+    expect(find.text('已是最新，暂无新数据'), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
     expect(find.textContaining('数据同步失败'), findsNothing);
   });
 

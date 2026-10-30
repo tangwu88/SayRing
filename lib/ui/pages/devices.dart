@@ -114,69 +114,67 @@ class DevicePage extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    SizedBox(
-                      child: FilledButton(
-                        key: const Key('device-sync-data'),
-                        onPressed:
-                            connected == null ||
-                                controller.isDeviceSyncing ||
-                                controller.capabilities?.supportsHistorySync ==
-                                    false
-                            ? null
-                            : () async {
-                                final succeeded = await controller
-                                    .syncDeviceData();
-                                if (!context.mounted) return;
-                                final feedback =
-                                    controller.syncStatus == '暂无新增数据'
-                                    ? context.l10n.syncUpToDate
-                                    : succeeded
-                                    ? context.l10n.syncComplete
-                                    : controller.errorMessage
-                                              ?.trim()
-                                              .isNotEmpty ==
-                                          true
-                                    ? controller.errorMessage!
-                                    : context.l10n.syncFailedTryAgain;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text(feedback)),
-                                );
-                              },
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size.fromHeight(48),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          disabledForegroundColor: SaydianColors.muted,
-                          disabledBackgroundColor: controller.isDeviceSyncing
-                              ? SaydianColors.techBlueSoft
-                              : SaydianColors.line,
-                        ),
-                        child: controller.isDeviceSyncing
-                            ? DeviceWaitStatus(
-                                connected: connected != null,
-                                receivedRecords:
-                                    controller.deviceSyncReceivedRecords,
-                                progress: controller.deviceSyncProgress,
-                              )
-                            : Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.sync_rounded),
-                                  const SizedBox(width: 8),
-                                  Flexible(
-                                    child: Text(
-                                      controller
-                                                  .capabilities
-                                                  ?.supportsHistorySync ==
-                                              false
-                                          ? '此戒指历史同步暂未开放'
-                                          : context.l10n.syncData,
+                    if (controller.capabilities?.supportsHistorySync !=
+                        false) ...[
+                      SizedBox(
+                        child: FilledButton(
+                          key: const Key('device-sync-data'),
+                          onPressed:
+                              connected == null ||
+                                  controller.isDeviceSyncing ||
+                                  controller
+                                          .capabilities
+                                          ?.supportsHistorySync ==
+                                      false
+                              ? null
+                              : () async {
+                                  final succeeded = await controller
+                                      .syncDeviceData();
+                                  if (!context.mounted ||
+                                      controller.syncStatus.isEmpty) {
+                                    return;
+                                  }
+                                  final feedback = succeeded
+                                      ? context.l10n.syncComplete
+                                      : controller.errorMessage
+                                                ?.trim()
+                                                .isNotEmpty ==
+                                            true
+                                      ? controller.errorMessage!
+                                      : context.l10n.syncFailedTryAgain;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text(feedback)),
+                                  );
+                                },
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            disabledForegroundColor: SaydianColors.muted,
+                            disabledBackgroundColor: controller.isDeviceSyncing
+                                ? SaydianColors.techBlueSoft
+                                : SaydianColors.line,
+                          ),
+                          child: controller.isDeviceSyncing
+                              ? DeviceWaitStatus(
+                                  connected: connected != null,
+                                  receivedRecords:
+                                      controller.deviceSyncReceivedRecords,
+                                  progress: controller.deviceSyncProgress,
+                                )
+                              : Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.sync_rounded),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(context.l10n.syncData),
                                     ),
-                                  ),
-                                ],
-                              ),
+                                  ],
+                                ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
+                      const SizedBox(height: 10),
+                    ],
                     if (connected == null)
                       OutlinedButton(
                         key: const Key('device-reconnect'),

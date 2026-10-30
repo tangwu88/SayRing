@@ -1441,6 +1441,8 @@ class _DeviceHero extends StatelessWidget {
                 Text(
                   device == null
                       ? '连接后同步健康数据'
+                      : controller.syncStatus.isEmpty
+                      ? device.displayModel
                       : '${device.displayModel} · ${controller.syncStatus}',
                   style: const TextStyle(
                     color: SaydianColors.muted,
