@@ -22,6 +22,7 @@ class CodeLoginController extends Fake implements AppController {
   String? openedLegalPath;
   bool explicitCodeLoginAvailable = true;
   bool smsAutoRegistrationAvailable = true;
+  int codeLoginCalls = 0;
 
   @override
   bool get supportsLocalOnlyUse => localOnlySupported;
@@ -113,6 +114,7 @@ class CodeLoginController extends Fake implements AppController {
     required bool privacyConsentGranted,
     bool ageConfirmed = false,
   }) async {
+    codeLoginCalls++;
     expect(challenge.id, 'synthetic-challenge');
     expect(code, '123456');
     expect(consentVersion, 'reviewed-test-v1');
@@ -204,6 +206,95 @@ class WechatCodeLoginController extends CodeLoginController {
 }
 
 void main() {
+  for (final scenario in [
+    (password: false, accepted: true),
+    (password: true, accepted: true),
+    (password: true, accepted: false),
+  ]) {
+    final password = scenario.password;
+    testWidgets(
+      '${scenario.accepted ? 'successful' : 'failed'} ${password ? 'password' : 'SMS'} sign-in ${scenario.accepted ? 'dismisses' : 'retains'} a pushed login page',
+      (tester) async {
+        final controller = CodeLoginController()
+          ..passwordLoginResult = scenario.accepted;
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: const Locale('zh'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: FilledButton(
+                  key: const Key('open-pushed-login'),
+                  onPressed: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          GlobalCodeLoginPage(controller: controller),
+                    ),
+                  ),
+                  child: const Text('账户首页'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.byKey(const Key('open-pushed-login')));
+        await tester.pumpAndSettle();
+        if (!password) {
+          await tester.tap(find.byKey(const Key('code-login-mode')));
+          await tester.pumpAndSettle();
+        }
+        await tester.enterText(
+          find.byKey(const Key('code-login-contact')),
+          '13800138000',
+        );
+        if (password) {
+          await tester.enterText(
+            find.byKey(const Key('code-login-password')),
+            'synthetic-password',
+          );
+        }
+        for (final key in ['code-login-minimum-age', 'code-login-consent']) {
+          final checkbox = find.descendant(
+            of: find.byKey(Key(key)),
+            matching: find.byType(Checkbox),
+          );
+          await tester.ensureVisible(checkbox);
+          await tester.pumpAndSettle();
+          await tester.tap(checkbox);
+          await tester.pumpAndSettle();
+        }
+        if (!password) {
+          final send = find.byKey(const Key('code-login-send'));
+          await tester.ensureVisible(send);
+          await tester.pumpAndSettle();
+          await tester.tap(send);
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const Key('code-login-code')),
+            '123456',
+          );
+        }
+        final submit = find.byKey(const Key('code-login-submit'));
+        await tester.ensureVisible(submit);
+        await tester.pumpAndSettle();
+        await tester.tap(submit);
+        await tester.pumpAndSettle();
+        expect(controller.codeLoginCalls, password ? 0 : 1);
+        expect(
+          find.byKey(const Key('global-code-login-page')),
+          scenario.accepted ? findsNothing : findsOneWidget,
+        );
+        if (scenario.accepted) {
+          expect(find.byKey(const Key('open-pushed-login')), findsOneWidget);
+        } else {
+          expect(find.byKey(const Key('code-login-error')), findsOneWidget);
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   for (final available in [true, false]) {
     testWidgets(
       'automatic registration hint follows the published SMS capability: $available',
@@ -643,6 +734,9 @@ void main() {
     await tester.tap(find.byKey(const Key('code-login-submit')));
     await tester.pumpAndSettle();
     expect(controller.signedIn?.identifier, '+8613800138000');
+    expect(find.byKey(const Key('global-code-login-success')), findsOneWidget);
+    expect(find.byKey(const Key('code-login-submit')), findsNothing);
+    expect(controller.codeLoginCalls, 1);
     expect(tester.takeException(), isNull);
   });
 
