@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/health_report_models.dart';
 import 'package:saydian_app/domain/global_account.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/reading_reminder.dart';
 import 'package:saydian_app/l10n/generated/app_localizations.dart';
 import 'package:saydian_app/l10n/global_locale_controller.dart';
@@ -17,6 +18,26 @@ const _categoryId = '736c4aad-0fe2-4602-98c5-9e1973fc08ec';
 const _articleId = '1b31a3cb-77ee-4cc6-ad93-0a640e496817';
 
 class _GlobalPageController extends Fake implements AppController {
+  _GlobalPageController({this.reminderMetricsAvailable = false});
+  final bool reminderMetricsAvailable;
+  @override
+  DeviceCapabilities? get capabilities => reminderMetricsAvailable
+      ? const DeviceCapabilities(
+          metrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
+          manualMetrics: {HealthMetric.heartRate, HealthMetric.bloodOxygen},
+        )
+      : null;
+  @override
+  bool canMeasureHealthMetric(HealthMetric metric) =>
+      reminderMetricsAvailable &&
+      capabilities!.supportsManualMeasurement(metric);
+  @override
+  FeatureAvailability availabilityFor(DeviceFeature feature) =>
+      FeatureAvailability(
+        connectedDevice == null
+            ? FeatureAvailabilityStatus.needsDevice
+            : FeatureAvailabilityStatus.unsupportedDevice,
+      );
   @override
   ReadingReminderSettings get readingReminderSettings =>
       const ReadingReminderSettings();
@@ -45,7 +66,9 @@ class _GlobalPageController extends Fake implements AppController {
   @override
   Map<HealthMetric, HealthRecord> get latestByMetric => const {};
   @override
-  DeviceInfo? get connectedDevice => null;
+  DeviceInfo? get connectedDevice => reminderMetricsAvailable
+      ? const DeviceInfo(id: 'synthetic:reminder-ring', name: 'Test ring')
+      : null;
   @override
   ReminderNotificationPermission get healthReminderNotificationPermission =>
       ReminderNotificationPermission.unavailable;
@@ -482,7 +505,9 @@ void main() {
         (tester) async {
           tester.platformDispatcher.textScaleFactorTestValue = scale;
           addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-          final controller = _GlobalPageController();
+          final controller = _GlobalPageController(
+            reminderMetricsAvailable: true,
+          );
           await _pump(
             tester,
             HealthWarningPage(controller: controller),
