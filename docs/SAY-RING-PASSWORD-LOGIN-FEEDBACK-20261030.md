@@ -24,3 +24,9 @@
 双时区全量测试、跨端构建、CI与Git回执完成后续记。Windows不具备本机iOS构建条件，远端相同源码CI回执与本机运行结果分别记录。构建日志放Git外E盘私有目录，不提交凭据、APK或用户数据。
 
 UTC全量`flutter test --no-pub --concurrency=1 --reporter=expanded --dart-define=SAYDIAN_API_BASE_URL=https://app.saydian.cn`1636项通过（3分20秒）；Asia/Shanghai同命令正在运行。提交前再次定向fetch成功，远端仍8683ac2、无分叉，git diff --check通过。先推送已完成本机静态/全量验证的本轮显式源码、测试与日志，以触发同源mobile-ci的Android Debug/Release、iOS Debug/Profile/Release及其他平台检查；当前不冒称跨端构建已通过，结果待真实回执续记。未在Windows伪造iOS构建，也不使用旧1177构建替代新代码。
+
+## 最终验证和Git回执
+
+Asia/Shanghai全量1636项通过（3分30秒），本机两个时区均完成。源码及回归提交50714ac5db3d68d6ccbb9191080235647c2d591e已推送既有开发分支。[mobile-ci 41018077456](https://github.com/tangwu88/SayRing/actions/runs/41018077456)实际最终completed/success：quality、两个时区Harmony contracts、android及ios五项全部通过。Android任务包括Debug/Release、原生单测和SDK不可变缓存回归；iOS任务包括无签名Debug/Profile/Release与RunnerTests编译。这里只确认CI构建，不将CI的QA签名构建当作新正式发行包或真机验收。
+
+收尾再次fetch发现同事已保留50714ac并合并两项同步提示修复/记录，当前工作区干净，安全fast-forward至b332aacc2f0676e6a792c972445cdbb0a9e60b8e；本轮四个登录源码/测试文件相对50714ac差异为空。并行任务的设备处理及发行产物属于其冻结输入，不冒称含本密码修复。实际查询合并基线[mobile-ci 41018686933](https://github.com/tangwu88/SayRing/actions/runs/41018686933)，五项也全部completed/success；合并后宿主1638项双时区结果引用同事已提交记录，不描述为本机重新执行。之后仅提交本验证回执，不修改运行代码、后台配置或手机1163。
