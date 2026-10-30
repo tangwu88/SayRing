@@ -3055,7 +3055,7 @@ class AppController extends ChangeNotifier {
     }
     if (capabilities?.supportsHistorySync == false) {
       _clearDeviceSyncError();
-      syncStatus = '设备已连接，此戒指历史同步暂未开放';
+      syncStatus = '';
       notifyListeners();
       // No SDK command, fake success, local overwrite or cloud upload.
       return false;
@@ -3123,7 +3123,7 @@ class AppController extends ChangeNotifier {
         }
         errorMessage = _deviceSyncErrorMessage;
       } else {
-        syncStatus = records.isEmpty ? '暂无新增数据' : '已同步 ${records.length} 条';
+        syncStatus = records.isEmpty ? '' : '已同步 ${records.length} 条';
         succeeded = true;
       }
     } on PlatformException catch (error) {
@@ -3190,11 +3190,8 @@ class AppController extends ChangeNotifier {
         }
       }
       if (error.code == 'HISTORY_UNVERIFIED') {
-        syncStatus = '设备已连接，此戒指历史同步暂未开放';
-        if (!initial) {
-          _deviceSyncErrorMessage = '此戒指的历史数据同步尚未完成验证';
-          errorMessage = _deviceSyncErrorMessage;
-        }
+        syncStatus = '';
+        _clearDeviceSyncError();
         return false;
       }
       if (error.code == 'COOLWEAR_SYNC_TIMEOUT') {

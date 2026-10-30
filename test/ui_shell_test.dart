@@ -223,7 +223,7 @@ void main() {
   );
 
   testWidgets(
-    'unmapped iOS history is disabled and manual measurement remains',
+    'unmapped history has no placeholder and manual measurement remains',
     (tester) async {
       tester.view.physicalSize = const Size(320, 700);
       tester.view.devicePixelRatio = 1;
@@ -259,11 +259,12 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final button = tester.widget<FilledButton>(
-        find.byKey(const Key('device-sync-data')),
+      expect(find.byKey(const Key('device-sync-data')), findsNothing);
+      expect(find.text('此戒指历史同步暂未开放'), findsNothing);
+      expect(
+        find.byKey(const Key('device-connection-details')),
+        findsOneWidget,
       );
-      expect(button.onPressed, isNull);
-      expect(find.text('此戒指历史同步暂未开放'), findsOneWidget);
       expect(
         controller.capabilities!.supportsManualMeasurement(
           HealthMetric.heartRate,
@@ -296,6 +297,32 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('empty device history finishes without a snackbar', (
+    tester,
+  ) async {
+    final controller = AppController(
+      MemorySessionVault(),
+      _NoopApi(),
+      MemoryHealthStore(),
+      _NoopWearable(),
+    )..connectedDevice = const DeviceInfo(id: 'qring:synthetic', name: 'R12');
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: Scaffold(body: DevicePage(controller: controller)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('device-sync-data')));
+    await tester.pumpAndSettle();
+    expect(controller.isDeviceSyncing, isFalse);
+    expect(controller.syncStatus, isEmpty);
+    expect(controller.errorMessage, isNull);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'device overview keeps binding diagnostics private and sync legible',

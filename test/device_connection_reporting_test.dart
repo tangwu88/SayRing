@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:saydian_app/domain/models.dart';
@@ -55,17 +56,47 @@ void main() {
       );
       expect(ring.historyReads, 0);
       expect(controller.errorMessage, isNull);
-      expect(controller.syncStatus, '设备已连接，此戒指历史同步暂未开放');
+      expect(controller.syncStatus, isEmpty);
       expect(await controller.syncDeviceData(), isFalse);
       expect(ring.historyReads, 0);
       expect(controller.isDeviceSyncing, isFalse);
       expect(controller.errorMessage, isNull);
+      expect(controller.syncStatus, isEmpty);
       expect(
         controller.capabilities?.supportsManualMeasurement(
           HealthMetric.heartRate,
         ),
         isTrue,
       );
+    },
+  );
+
+  test(
+    'native unavailable history is silent without claiming completion',
+    () async {
+      final ring = _Ring()
+        ..historyError = PlatformException(code: 'HISTORY_UNVERIFIED');
+      final controller = AppController(
+        MemorySessionVault()..privacyConsentGranted = true,
+        _Api(),
+        MemoryHealthStore(),
+        ring,
+      );
+      addTearDown(controller.dispose);
+      addTearDown(ring.source.close);
+      await controller.initialize();
+      controller.session = _owner;
+      await controller.connectDevice(_device);
+      await _settle();
+      expect(ring.historyReads, 1);
+      expect(controller.syncStatus, isEmpty);
+      expect(controller.errorMessage, isNull);
+      expect(await controller.syncDeviceData(), isFalse);
+      expect(ring.historyReads, 2);
+      expect(controller.isDeviceSyncing, isFalse);
+      expect(controller.syncStatus, isEmpty);
+      expect(controller.errorMessage, isNull);
+      expect(controller.deviceState, DeviceConnectionState.ready);
     },
   );
 
@@ -712,6 +743,7 @@ class _Ring extends Fake implements WearableBridge {
   bool failConnect = false;
   bool supportsHistorySync = true;
   int historyReads = 0;
+  PlatformException? historyError;
   Completer<DeviceCapabilities>? delayedCapabilities;
   @override
   Stream<WearableEvent> get events => source.stream;
@@ -737,6 +769,7 @@ class _Ring extends Fake implements WearableBridge {
   @override
   Future<List<HealthRecord>> syncHealthData({String? cursor}) async {
     historyReads++;
+    if (historyError != null) throw historyError!;
     return [];
   }
 

@@ -138,8 +138,8 @@ void main() {
             observations['manualSyncConfirmedComplete'] = completed;
             observations['manualSyncError'] = controller.errorMessage;
             if (!completed &&
-                (controller.syncStatus == '暂无新增数据' ||
-                    controller.errorMessage == null)) {
+                controller.syncStatus.isNotEmpty &&
+                controller.errorMessage == null) {
               issues.add('unconfirmed_sync_misrepresented_as_up_to_date');
             }
             if (controller.errorMessage?.contains('设备忙') ?? false) {

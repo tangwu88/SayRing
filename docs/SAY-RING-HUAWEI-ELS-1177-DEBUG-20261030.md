@@ -30,3 +30,13 @@ ADB在线、当前手机用户为0。`dumpsys package`表明1059旧包仅在另�
 - 启动、热重载及页面状态与戒指连接、活动/睡眠完整历史同步分项记录；不得复用此前PPA-LX3或iPhone结果替代本台实测。
 
 私有APK、设备标识、用户列表、路径和完整包管理输出保存在被Git忽略的 `build/huawei-els-debug-1177-20261030/`，未提交原始日志或签名材料。检查脚本首轮误用了本机Python不支持的hashlib.file_digest，已改为兼容的SHA256读取并成功重跑；该失败发生在只读核验阶段，没有发起安装。两份历史文档曾从上级目录读取报不存在，随后从仓库根成功读取，未依错误路径执行修改。
+
+## 用户授权后的实际完成结果
+
+用户随后明确回复“允许卸载旧版并安装1177”。再次读取确认仍是这台ELS-AN00、用户0及另一空间的1059后，仅对cn.saydian.ring执行全用户卸载，返回Success；再安装已核验的1177私有Debug到当前用户0，华为“继续安装”与安全查验正常完成，安装返回Success。没有操作其他App或云端删除。旧1059的本地数据已因获准卸载而清除，不宣称保留或恢复。
+
+从手机完整拉回159,258,830字节实际APK，SHA256与c0dcf783…候选一致；官方验签、原正式证书81f35cc9…、实际1.0.7（1177）及用户0安装状态通过，普通MainActivity启动成功。安装器过渡阶段一轮UI转储不是有效XML，已保留失败；独立安装结果和包拉回核验均成功，不用该转储作为页面通过证据。
+
+首次Flutter attach等待设备发现和VM服务，没有立即进入调试。私有备份新安装容器后，参考本机Flutter工具实际参数，以普通MainActivity冷启动并开启dart profiling、checked mode和entry-point验证，没有改系统安全设置或重装。随后完整app.debugPort/app.started/DevTools回执到达；真实VM主isolate runnable、Resume，firstFrameRasterized=true，AppLifecycleState.resumed，控制器不再booting/busy且无API/UI错误。当时用户已经在手机登录并连接戒指，代理未代填登录、勾选协议或选择新目标。
+
+VM诊断首轮将getInstances参数误写成classId，服务明确要求objectId；修正后只读核验通过。/proc进程网络读取被系统拒绝后未绕过，改用Flutter实际日志发现调试服务。后续用户追加“不可用历史同步提示不要显示”，继续按[1178静默同步记录](SAY-RING-QUIET-HISTORY-1178-20261030.md)修复并保留新形成的1177数据覆盖安装。
