@@ -40,3 +40,25 @@ App Store Connect已创建1.0.7准备提交草稿，保存功能介绍、新增�
 本地9e6a7c2与远端741fb587树完全一致（d6cac246），保留原本地历史分支后安全切到远端等价提交，没有reset/force。云端40977056866目前quality和Harmony双时区成功，Android Debug步骤失败（后续云端Release/JUnit跳过），iOS仍在运行；GitHub连接器不允许读取job logs，未推断失败根因，不能登记五项全绿。本地Android独立构建/测试及签名正式包的成功另有证据。
 
 App Store Connect现场核对174个地区供应、唯一未供应地区为法国；本轮没有更改地区、价格或协议。1174保持未送审，后续从固定1175生产源码归档并独立核验发行IPA后继续原已授权的TestFlight/苹果审核。
+
+## 1175发行签名与上传
+
+固定本地源码792ff5699802b8b720a6e91c18432f7e5643a6a3（已发布等价树9670d4ca、远端d840ec949d8e48eb7a262ecae8b3e39a4491eb1d），712个生产输入指纹，`lib/main.dart`、生产global域名、无QA defines。配置、Release archive及deep/strict验签均exit0；归档App.framework SHA256 9dba36a3187a5a4aaad87d5c26deb6623a2179936893b212de881d9316fbc95c。没有复用1174归档。
+
+Xcode Organizer在分发前再次核对cn.saydian.ring /1.0.7（1175），使用App Store Connect推荐方式和团队既有账号进行云端发行签名。真实发行IPA38,835,481字节，SHA256 47eed32b95ab2b9da61dcaef557e4741f68873961372efe6610c1b48060fa499；Apple Distribution证书、W7SXQ4A226、get-task-allow=false、APNs production、Zip完整性及prepared app deep/strict验签全部通过。IPA/容器/分发日志仅存私有忽略目录。
+
+1.0.7草稿描述879字符、新增内容201字符、审核备注3598字符均保存，备注明确1175按真实能力显隐及历史限制，原审核私有登录字段不变；自动发布仍勾选。上传终态及TestFlight/审核回执在完成后另记，不能以发行包验签代替苹果接收。
+
+云端Android失败随后通过公开job页面查明：阿里Maven镜像下载jaxb-runtime等依赖返回502，Gradle重试仍失败；原失败不抹去。本地17套JUnit共74项、0失败/0错误。新等价源码CI40978512915另行观察，不将网络故障改记为源码通过。
+
+Xcode Organizer现已显示1175 Uploaded to Apple，原生ContentDelivery日志明确`UPLOAD SUCCEEDED with no errors`；不把1174的15条符号警告挪给本次1175。本次传输完成，服务器处理及最终审核状态继续单独核对。Beta审核旧1125备注已替换为当前1175公开能力说明，介绍补上个人数值提醒和不支持项隐藏，既有审核凭据和联系字段保留。
+
+## 苹果最终回执
+
+苹果已完成1175处理，TestFlight构建ID为684d0fe6-ec7b-4595-8c4d-ef0ce7b45839。基于实际SQLCipher及Flutter中内置标准加密组件，问卷选择“与Apple操作系统加密同时使用的标准加密算法”，法国分发选否，与现场唯一法国不供应状态一致；未选择“无加密”、未改Info.plist豁免值、未新增或猜测加密批准代码。保存后1175从缺合规变为准备提交，1174仍缺合规且未提交。
+
+TestFlight测试内容453字符已保存，既有SayRing public外部群组及Say Ring真机验证内部群组添加成功，点击“提交以供审核”后页面显示“从审核中移除”和群组2；未新增独立测试员。公开Beta描述530字符、审核备注3598字符含个人数值提醒、能力显隐与R7完整历史限制。自动通知为苹果既有默认选项；本轮不把提交Beta审核当作公开测试已获批。
+
+正式1.0.7草稿明确只选择1175，保存后执行“添加以供审核”，再次核对提交清单唯一项目1.0.7（1175），再点击最终“提交以供审核”。苹果返回“已提交1个项目”，版本状态“正在等待审核”，草稿提交数0。正式审核ID f4230bff-0f29-4eb0-b32c-c091b74946db；自动发布/立即向所有用户发布选项维持已勾选，现行地区和评分保留。当前是等待苹果审核，不是已通过或已上架。正式页面与Beta截图私下保留。
+
+用户追加Android同源安装/调试已完成，实际为旧包/本地目录消失后按用户要求新安装；原数据保留未通过，当前登录页及VM/DevTools、热重载证据见[Android1175记录](SAY-RING-ANDROID-1175-DEBUG-20261030.md)。不能将其写成R12的1175连接或历史同步验收。
