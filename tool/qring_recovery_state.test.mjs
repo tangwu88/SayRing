@@ -50,7 +50,8 @@ function withFixture(run, transform = source => source, centralTransform = sourc
 }
 
 for (const scenario of ['automatic-failure', 'sdk-registration-failure', 'sdk-unbound-cache', 'sdk-cancelled-owner',
-  'explicit-failure', 'ordinary-disconnect', 'stale-callbacks', 'cancel-and-owner', 'duplicate-state']) {
+  'explicit-failure', 'ordinary-disconnect', 'stale-callbacks', 'cancel-and-owner', 'duplicate-state',
+  'unnamed-exact-recovery']) {
   test(`actual QRing recovery callbacks: ${scenario}`, {skip: process.platform !== 'darwin'}, () => {
     withFixture(executable => {
       const output = execFileSync(executable, [scenario], {encoding: 'utf8'});

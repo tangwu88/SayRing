@@ -324,6 +324,45 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         NSUInteger generation = bridge.connectionGeneration;
         bridge.central.deviceState = QCStateDisconnected;
         check(bridge.connectionGeneration == generation && immediate.count == 1, @"duplicate disconnected state must not retire or duplicate recovery");
+    } else if ([scenario isEqual:@"unnamed-exact-recovery"]) {
+        bridge.central.connectedPeripheral = nil;
+        bridge.central.deviceState = QCStateDisconnected;
+        bridge.connectedID = @"";
+        bridge.featureList = nil;
+        CBPeripheral *same = peripheral(bridge.recoveryTargetID);
+        same.name = nil;
+        same.state = CBPeripheralStateDisconnected;
+        bridge.central.centerManager.available = same;
+        [bridge startAutomaticRecovery];
+        check(bridge.central.connects == 1 && bridge.central.connectedPeripheral == same && bridge.recoveryConnecting,
+              @"an exact owner-bound UUID must recover when CoreBluetooth omits the cached name");
+        check([bridge.connectedName isEqual:bridge.recoveryTargetName],
+              @"the validated saved name must remain available for the recovered session");
+        bridge = make();
+        bridge.central.connectedPeripheral = nil;
+        bridge.central.deviceState = QCStateDisconnected;
+        bridge.connectedID = @"";
+        bridge.featureList = nil;
+        bridge.recoveryTargetName = @"other-provider";
+        CBPeripheral *unnamed = peripheral(bridge.recoveryTargetID);
+        unnamed.name = nil;
+        unnamed.state = CBPeripheralStateDisconnected;
+        bridge.central.centerManager.available = unnamed;
+        [bridge startAutomaticRecovery];
+        check(bridge.central.connects == 0,
+              @"an unverified saved name must not authorize a nameless radio");
+        bridge = make();
+        bridge.central.connectedPeripheral = nil;
+        bridge.central.deviceState = QCStateDisconnected;
+        bridge.connectedID = @"";
+        bridge.featureList = nil;
+        CBPeripheral *other = peripheral(bridge.recoveryTargetID);
+        other.name = @"other-provider";
+        other.state = CBPeripheralStateDisconnected;
+        bridge.central.centerManager.available = other;
+        [bridge startAutomaticRecovery];
+        check(bridge.central.connects == 0,
+              @"a conflicting current name must not be ignored just because the UUID was saved");
     } else if ([scenario isEqual:@"power-state-recovery"]) {
         for (NSNumber *state in @[@(CBManagerStatePoweredOff), @(CBManagerStateResetting)]) {
             for (NSNumber *pending in @[@NO, @YES]) {
