@@ -49,6 +49,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   String? _weatherMessage;
   bool _openingWatchFaceMarket = false;
   int _featureReadGeneration = 0;
+  int? _gestureStrength;
+  bool _gestureWriteUncertain = false;
+  String _gestureWriteContext = '';
   bool get _availableInRelease =>
       !widget.controller.isWellnessOnly ||
       !const {DeviceFeature.healthAssessment}.contains(widget.feature);
@@ -147,6 +150,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       _featureContext = context;
       _featureReadGeneration++;
       _featureData = {};
+      _gestureStrength = null;
       if (widget.feature == DeviceFeature.camera) {
         _lastPhoto = null;
         _photoSaved = false;
@@ -209,6 +213,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
 
   Future<void> _loadFeature() async {
     if (!_availableInRelease) return;
+    _gestureStrength = null;
     final generation = ++_featureReadGeneration;
     final context = _currentFeatureContext;
     final value = await widget.controller.readDeviceFeature(widget.feature);
@@ -301,7 +306,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   }) async {
     final contextKey = _currentFeatureContext;
     if (widget.feature == DeviceFeature.gestureControl) {
-      setState(() => _featureData = {});
+      setState(() {
+        _featureData = {};
+        _gestureWriteUncertain = true;
+        _gestureWriteContext = contextKey;
+      });
     }
     final saved = await widget.controller.writeDeviceFeature(widget.feature, {
       ...values,
@@ -309,6 +318,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         'snapshotRevision': _featureData['snapshotRevision'],
     });
     if (!mounted || contextKey != _currentFeatureContext) return false;
+    if (widget.feature == DeviceFeature.gestureControl) {
+      setState(() => _gestureWriteUncertain = !saved);
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -680,6 +692,30 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              if (widget.feature == DeviceFeature.gestureControl &&
+                  defaultTargetPlatform == TargetPlatform.android) ...[
+                OutlinedButton.icon(
+                  key: const ValueKey('gesture-bluetooth-settings'),
+                  onPressed: () async {
+                    try {
+                      await openBluetoothControlSettings();
+                    } catch (_) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('请打开手机系统设置→蓝牙，暂时断开戒指')),
+                        );
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.bluetooth_disabled_rounded),
+                  label: const Text('误触时打开蓝牙设置'),
+                ),
+                const Text(
+                  '连接中断不一定会停止手机控制。发生误触时，可先在系统蓝牙中断开戒指；无需解绑。',
+                  style: TextStyle(fontSize: 13, color: SaydianColors.muted),
+                ),
+                const SizedBox(height: 12),
+              ],
               if ((widget.feature != DeviceFeature.gestureControl &&
                       widget.feature != DeviceFeature.camera &&
                       !_filteredRingReminders) ||
@@ -774,10 +810,28 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       requiresReconnect: reconnect,
       readbackConfirmed: qring && ready,
       error: widget.controller.errorMessage,
+      uncertainControl:
+          _gestureWriteUncertain &&
+          _gestureWriteContext == _currentFeatureContext,
+      onStop: qring && defaultTargetPlatform == TargetPlatform.android
+          ? () => _saveFeature({
+              'mode': 0,
+              'stopControl': true,
+              if (_gestureStrength != null) 'strength': _gestureStrength,
+            }, '关闭指令已确认并读回')
+          : null,
+      needsStrength:
+          qring &&
+          ready &&
+          _featureData['touch'] == false &&
+          _featureData['strength'] == 0,
+      selectedStrength: _gestureStrength,
+      onStrengthChanged: (value) => setState(() => _gestureStrength = value),
       onRefresh: _loadFeature,
       onSelect: (mode) => _saveFeature({
         'mode': mode,
         if (qring) 'expectedMode': _featureData['rawMode'],
+        if (qring && _gestureStrength != null) 'strength': _gestureStrength,
       }, qring ? '手势模式已保存并读回确认' : '手势模式指令已确认'),
     );
   }

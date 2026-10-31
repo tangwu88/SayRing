@@ -27,7 +27,15 @@ class QRingCameraPolicyTest {
 
     @Test fun `malformed fields do not create usable settings`() {
         for (mode in listOf(-1, 10)) assertNull(QRingCameraPolicy.snapshot(mode, 1, false, 0))
-        for (strength in listOf(0, 11)) assertNull(QRingCameraPolicy.snapshot(5, strength, false, 0))
+        for (strength in listOf(-1, 11)) assertNull(QRingCameraPolicy.snapshot(5, strength, false, 0))
         for (duration in listOf(0, 11)) assertNull(QRingCameraPolicy.snapshot(5, 0, true, duration))
+    }
+    @Test fun `R22 unconfigured zero sensitivity is a readable real setting`() {
+        val actual = QRingCameraPolicy.snapshot(0, 0, false, 0)!!
+        assertEquals(0, actual["strength"])
+        assertEquals(0, actual["mode"])
+        assertEquals(false, actual["enabled"])
+        assertEquals(-1, QRingGesturePolicy.writeStrength(false, 0, null))
+        assertEquals(5, QRingGesturePolicy.writeStrength(false, 0, 5))
     }
 }

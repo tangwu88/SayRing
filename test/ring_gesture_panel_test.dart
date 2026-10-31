@@ -6,6 +6,93 @@ import 'package:saydian_app/ui/app_theme.dart';
 import 'package:saydian_app/ui/widgets/ring_gesture_panel.dart';
 
 void main() {
+  testWidgets(
+    'close remains reachable with unknown scenes and cannot imply confirmed disabled state',
+    (tester) async {
+      var closes = 0;
+      Future<void> pump(bool busy) => tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: RingGesturePanel(
+                availableModes: const {},
+                confirmedMode: 0,
+                ready: false,
+                busy: busy,
+                requiresReconnect: true,
+                readbackConfirmed: false,
+                uncertainControl: true,
+                onStop: () => closes++,
+                onRefresh: () {},
+                onSelect: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await pump(false);
+      await tester.pumpAndSettle();
+      expect(find.text('控制状态待确认'), findsOneWidget);
+      expect(find.textContaining('之前开启的控制可能仍在生效'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('gesture-stop-control')));
+      expect(closes, 1);
+      await pump(true);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('gesture-stop-control')));
+      expect(closes, 1);
+    },
+  );
+  testWidgets(
+    'unconfigured sensitivity requires explicit choice before any scene write',
+    (tester) async {
+      int? strength;
+      final writes = <(int, int?)>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: StatefulBuilder(
+                builder: (context, setState) => RingGesturePanel(
+                  availableModes: const {0, 1},
+                  confirmedMode: 0,
+                  ready: true,
+                  busy: false,
+                  requiresReconnect: false,
+                  readbackConfirmed: true,
+                  needsStrength: true,
+                  selectedStrength: strength,
+                  onStrengthChanged: (value) =>
+                      setState(() => strength = value),
+                  onRefresh: () {},
+                  onSelect: (mode) => writes.add((mode, strength)),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final scene = find.byKey(const ValueKey('gesture-mode-1'));
+      await tester.ensureVisible(scene);
+      await tester.tap(scene);
+      await tester.pumpAndSettle();
+      expect(writes, isEmpty);
+      expect(strength, isNull);
+      final selector = find.byKey(const ValueKey('gesture-strength'));
+      await tester.ensureVisible(selector);
+      await tester.tap(selector);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('5').last);
+      await tester.pumpAndSettle();
+      expect(strength, 5);
+      expect(writes, isEmpty);
+      await tester.ensureVisible(scene);
+      await tester.tap(scene);
+      await tester.pumpAndSettle();
+      expect(writes, [(1, 5)]);
+      expect(tester.takeException(), isNull);
+    },
+  );
   test(
     'presentation hides supplier names without altering device identity',
     () {

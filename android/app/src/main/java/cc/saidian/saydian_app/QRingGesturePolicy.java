@@ -15,6 +15,15 @@ public final class QRingGesturePolicy {
         for (int mode = 0; mode < RAW.length; mode++) if (RAW[mode] == raw) return mode;
         return -1;
     }
+    public static int writeStrength(boolean touch, int current, Object selected) {
+        if (touch) return 0;
+        if (selected != null && !(selected instanceof Integer)) return -1;
+        int value = selected == null ? current : (Integer) selected;
+        return value >= 1 && value <= 10 ? value : -1;
+    }
+    public static boolean validExpectedMode(int mode, Object expected, boolean stopping) {
+        return stopping ? mode == 0 : expected instanceof Integer && (Integer) expected >= 0 && (Integer) expected <= 9;
+    }
     public static Map<String, Object> snapshot(Map<String, Object> raw, List<Integer> modes) {
         if (raw == null) return null;
         Map<String, Object> value = new HashMap<>(raw);

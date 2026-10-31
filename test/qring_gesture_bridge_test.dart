@@ -58,6 +58,46 @@ void main() {
         );
       }
       expect(calls, hasLength(count));
+      for (final strength in [0, 11, -1, true, '5', 5.0]) {
+        await expectLater(
+          bridge.writeDeviceFeature(DeviceFeature.gestureControl, {
+            'mode': 1,
+            'expectedMode': 0,
+            'strength': strength,
+          }),
+          throwsA(isA<PlatformException>()),
+        );
+      }
+      expect(calls, hasLength(count));
+      await bridge.writeDeviceFeature(DeviceFeature.gestureControl, {
+        'mode': 1,
+        'expectedMode': 0,
+        'strength': 5,
+      });
+      expect((calls.last.arguments as Map)['values'], {
+        'mode': 1,
+        'expectedMode': 0,
+        'strength': 5,
+      });
+      await bridge.writeDeviceFeature(DeviceFeature.gestureControl, {
+        'mode': 0,
+        'stopControl': true,
+      });
+      expect((calls.last.arguments as Map)['values'], {
+        'mode': 0,
+        'stopControl': true,
+      });
+      final beforeInvalidStops = calls.length;
+      for (var mode = 1; mode <= 5; mode++) {
+        await expectLater(
+          bridge.writeDeviceFeature(DeviceFeature.gestureControl, {
+            'mode': mode,
+            'stopControl': true,
+          }),
+          throwsA(isA<PlatformException>()),
+        );
+      }
+      expect(calls.length, beforeInvalidStops);
     },
   );
 }

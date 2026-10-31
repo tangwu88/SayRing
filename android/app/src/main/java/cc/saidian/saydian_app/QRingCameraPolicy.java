@@ -16,7 +16,9 @@ public final class QRingCameraPolicy {
     public static Map<String, Object> snapshot(int mode, int strength,
                                               boolean touch, int duration) {
         // Touch responses do not contain strength; do not use a made-up value.
-        if (mode < 0 || mode > 9 || (!touch && (strength < 1 || strength > 10))
+        // Zero is a genuine unconfigured sensitivity returned by some R22 firmware.
+        // It can be displayed, but must never become an implicit write value.
+        if (mode < 0 || mode > 9 || (!touch && (strength < 0 || strength > 10))
                 || (touch && (duration < 1 || duration > 10))) return null;
         Map<String, Object> value = new HashMap<>();
         value.put("mode", mode);

@@ -16,6 +16,11 @@ class RingGesturePanel extends StatelessWidget {
     required this.onRefresh,
     required this.onSelect,
     this.error,
+    this.needsStrength = false,
+    this.selectedStrength,
+    this.onStrengthChanged,
+    this.onStop,
+    this.uncertainControl = false,
     super.key,
   });
 
@@ -25,6 +30,11 @@ class RingGesturePanel extends StatelessWidget {
   final String? error;
   final VoidCallback onRefresh;
   final ValueChanged<int> onSelect;
+  final bool needsStrength;
+  final int? selectedStrength;
+  final ValueChanged<int>? onStrengthChanged;
+  final VoidCallback? onStop;
+  final bool uncertainControl;
 
   static const modes = <(int, String, IconData, String)>[
     (0, '关闭', Icons.power_settings_new_rounded, '暂停手势控制'),
@@ -38,10 +48,33 @@ class RingGesturePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final selected = modes.where((m) => m.$1 == confirmedMode).firstOrNull;
-    final enabled = ready && !busy && !requiresReconnect;
+    final strengthReady =
+        !needsStrength ||
+        (selectedStrength != null &&
+            selectedStrength! >= 1 &&
+            selectedStrength! <= 10);
+    final enabled = ready && !busy && !requiresReconnect && strengthReady;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (onStop != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: OutlinedButton.icon(
+              key: const ValueKey('gesture-stop-control'),
+              onPressed: busy ? null : onStop,
+              icon: const Icon(Icons.stop_circle_outlined),
+              label: const Text('关闭手势控制'),
+            ),
+          ),
+        if (uncertainControl)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: Text(
+              '控制状态待确认，之前开启的控制可能仍在生效。请先关闭，或在系统蓝牙中暂时断开戒指。',
+              style: TextStyle(color: SaydianColors.danger),
+            ),
+          ),
         Container(
           key: const ValueKey('gesture-current-mode'),
           padding: const EdgeInsets.all(18),
@@ -74,7 +107,9 @@ class RingGesturePanel extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      !ready
+                      uncertainControl
+                          ? '控制状态待确认'
+                          : !ready
                           ? '等待读取'
                           : selected?.$2 ??
                                 (confirmedMode == -1 ? '其他模式' : '尚未确认'),
@@ -138,6 +173,29 @@ class RingGesturePanel extends StatelessWidget {
                       ? '正在读取手势设置'
                       : '暂未读到手势设置，请刷新重试'),
               style: const TextStyle(fontSize: 16),
+            ),
+          ),
+        if (needsStrength)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: DropdownButtonFormField<int>(
+              key: const ValueKey('gesture-strength'),
+              initialValue: selectedStrength,
+              decoration: const InputDecoration(
+                labelText: '手势力度',
+                helperText: '戒指尚未设置力度，请选择后再开启场景',
+                helperMaxLines: 2,
+              ),
+              hint: const Text('请选择1～10'),
+              items: [
+                for (var value = 1; value <= 10; value++)
+                  DropdownMenuItem(value: value, child: Text('$value')),
+              ],
+              onChanged: ready && !busy && !requiresReconnect
+                  ? (value) {
+                      if (value != null) onStrengthChanged?.call(value);
+                    }
+                  : null,
             ),
           ),
         LayoutBuilder(

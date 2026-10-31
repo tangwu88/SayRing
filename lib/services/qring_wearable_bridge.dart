@@ -382,17 +382,31 @@ class QRingWearableBridge
         feature != DeviceFeature.gestureControl) {
       return _unsupported();
     }
+    final stopping = values['stopControl'] == true;
     if (feature == DeviceFeature.gestureControl &&
         (values['mode'] is! int ||
             (values['mode'] as int) < 0 ||
             (values['mode'] as int) > 5 ||
-            values['expectedMode'] is! int ||
-            (values['expectedMode'] as int) < 0 ||
-            (values['expectedMode'] as int) > 9)) {
+            (stopping && values['mode'] != 0) ||
+            (!stopping &&
+                (values['expectedMode'] is! int ||
+                    (values['expectedMode'] as int) < 0 ||
+                    (values['expectedMode'] as int) > 9)))) {
       return Future.error(
         PlatformException(
           code: 'INVALID_GESTURE_MODE',
           message: '请刷新戒指状态后选择有效的手势模式',
+        ),
+      );
+    }
+    final strength = values['strength'];
+    if (feature == DeviceFeature.gestureControl &&
+        strength != null &&
+        (strength is! int || strength < 1 || strength > 10)) {
+      return Future.error(
+        PlatformException(
+          code: 'INVALID_GESTURE_STRENGTH',
+          message: '请选择1～10的手势力度',
         ),
       );
     }

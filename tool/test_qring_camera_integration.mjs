@@ -20,7 +20,10 @@ test('QRing native controls require real flags, serialized stages and verified r
   assert.match(ios, /cameraPoisonGeneration = connection/);
   assert.match(ios, /readback\[@"mode"\].*!= expected/);
   assert.match(android, /isCurrentConnection\(connection, id\) && resolved\(\)/);
-  assert.match(android, /cameraPoisonConnection = connection/);
+  assert.match(android, /controlChannels.block\(QRingControlChannelState.Channel.HID, connection\)/);
+  const photo = android.slice(android.indexOf('private void remoteCameraCommand('),android.indexOf('public QRingBridge('));
+  assert.match(photo,/controlChannels.blocked\(QRingControlChannelState.Channel.PHOTO_UI, connectionGeneration\)/);
+  assert.doesNotMatch(photo,/Channel.HID/);
   assert.match(android, /!response.isRead\(\)\s*\|\|/);
   assert.match(android, /response.isTouch\(\) != touch/);
   assert.match(android, /getWriteInstance\(expected, touch, strength, duration\)/);
