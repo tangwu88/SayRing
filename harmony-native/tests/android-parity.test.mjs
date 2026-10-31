@@ -12,7 +12,7 @@ const source = name => readFileSync(new URL(`../entry/src/main/ets/${name}`, imp
 const now = Date.now(), id = '10000000-0000-4000-8000-000000000032';
 const document = type => ({path:`/api/saydian-app/v2/content/legal/say_ring_${type}?version=fixture-v3&locale=zh-Hans`,version:'fixture-v3',locale:'zh-Hans'});
 const caps = () => ({realm:'global',product:'say-ring',defaultLocale:'zh-Hans',supportedLocales:['zh-Hans'],
-  login:{email:true,sms:true}, registration:{email:true,sms:true,verificationRequired:true},recovery:{email:true,sms:true},
+  login:{email:true,sms:true,explicitRegistrationCodeLogin:true,smsAutoRegistration:true}, registration:{email:true,sms:true,verificationRequired:true},recovery:{email:true,sms:true},
   smsCountries:['CN'],verification:{codeLength:6,expiresIn:300,retryAfter:60},consentVersion:'fixture-v3',
   legal:{userAgreement:document('user_agreement'),privacyPolicy:document('privacy_policy')}});
 const challenge = () => ({challengeId:'synthetic-challenge-1132',expiresIn:300,retryAfter:60,maskedIdentifier:'1********00'});
@@ -103,7 +103,9 @@ test('a late code-login reply cannot restore a session after logout',async()=>{
 test('login, card editing and sport routes expose Android-equivalent interactions without fake native controls',()=>{
   const ui=source('pages/Index.ets'), login=ui.slice(ui.indexOf('  Login() {'),ui.indexOf('  Registration() {'));
   assert.match(ui,/appLocale: string = 'zh-Hans'/);assert.match(ui,/authChannel: AuthChannel = 'sms'/);
-  assert.doesNotMatch(login,/this.LanguagePicker\(|openRegistration\(|auth_country|this.AuthMethodSelector\(\)/);
+  assert.doesNotMatch(login,/this.LanguagePicker\(|auth_country/);
+  assert.match(login,/this.AuthMethodSelector\(\)/);
+  assert.match(ui,/passwordLoginMode: boolean = true/);
   assert.match(ui,/this.pageWidth >= 332 && this.systemFontScale <= 1.2/);
   for(const id of ['login_send_code','login_code','home_edit_cards','save_home_cards','sport_more','ring_wechat_support']) assert.ok(ui.includes(id));
   assert.match(ui,/this.loginChallengeIdentity !==/);assert.match(ui,/Date.now\(\) >= this.loginChallengeExpiresAt/);

@@ -19,8 +19,13 @@ export function ringLoginIdentifier(channel: AuthChannel, value: string): string
   return `+86${phone}`;
 }
 export function ringLoginAvailable(caps: GlobalAuthCapabilities, channel: AuthChannel): boolean {
-  return caps.login?.[channel] === true && !!caps.consentVersion && !!caps.legal &&
+  return caps.login?.[channel] === true && caps.login?.explicitRegistrationCodeLogin === true && !!caps.consentVersion && !!caps.legal &&
     (channel !== 'sms' || caps.smsCountries.includes('CN'));
+}
+export function ringLoginFailure(error: Error, password: boolean): string {
+  if (['invalid_password', 'password_length'].includes(error.message)) return '密码至少8个字符；英文字母和数字最多72个，其他字符可用长度更短';
+  if (error instanceof ApiError && error.status === 401) return password ? '账号或密码不正确，请重新输入' : '验证码不正确或已失效，请重新获取';
+  return error.message || '登录未完成，请稍后重试';
 }
 export function parseRingLoginChallenge(payload: Object): VerificationChallenge {
   const value = payload as Record<string, Object>;

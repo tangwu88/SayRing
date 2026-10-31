@@ -9,6 +9,7 @@ import { vepWearable } from '../services/VepWearableService';
 import { initializeWechatAuthState, wechatAuth } from '../services/WechatAuthService';
 import { careNotifications } from '../services/CareNotificationService';
 import { appDisplayService } from '../services/AppDisplayService';
+import { personalReadingReminders } from '../services/PersonalReadingReminders';
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want): void {
@@ -59,10 +60,11 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageDestroy(): void {
+    personalReadingReminders.clear();
     careNotifications.shutdown();
     vepWearable.shutdown();
   }
 
-  onForeground(): void { careNotifications.setForeground(true); appDisplayService.refresh(); }
-  onBackground(): void { careNotifications.setForeground(false); }
+  onForeground(): void { personalReadingReminders.setForeground(true); careNotifications.setForeground(true); appDisplayService.refresh(); }
+  onBackground(): void { personalReadingReminders.setForeground(false); careNotifications.setForeground(false); }
 }

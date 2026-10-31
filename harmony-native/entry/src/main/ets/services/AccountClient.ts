@@ -206,6 +206,21 @@ export class AccountClient {
     return parseRingLoginChallenge(payload);
   }
 
+  async loginRingWithPassword(channel: AuthChannel, raw: string, password: string,
+    consentVersion: string, accepted: boolean, ageConfirmed: boolean, locale: string): Promise<Session> {
+    if (!accepted || !ageConfirmed) throw new ApiError('请阅读协议并确认已满14周岁', 422);
+    if (!validGlobalPassword(password)) throw new ApiError('password_length', 422);
+    const epoch = this.generation, identifier = ringLoginIdentifier(channel, raw);
+    const caps = await this.authCapabilities(locale); this.assertEpoch(epoch);
+    if (!caps.consentVersion || caps.consentVersion !== consentVersion || !caps.legal) {
+      throw new ApiError('登录协议已更新，请重新阅读并同意', 409);
+    }
+    return this.authenticate(globalApiPath('/auth/login'), undefined, JSON.stringify({
+      channel, identifier, password,
+      product: GLOBAL_PRODUCT, locale, consentVersion, consentAccepted: true
+    }));
+  }
+
   async loginRingWithCode(channel: AuthChannel, raw: string, challengeId: string, code: string,
     consentVersion: string, accepted: boolean, ageConfirmed: boolean, locale: string): Promise<Session> {
     const epoch = this.generation, identifier = ringLoginIdentifier(channel, raw);

@@ -41,8 +41,13 @@ import { appLocaleStore } from '../services/AppLocaleStore';
 import { RING_THEME, RING_CUSTOMER_SERVICE, ringLoginIdentifier, ringLoginAvailable, HomeCardLayout, orderedHomeCards,
   ringCareOptions, toggleRingCareGroup } from '../model/RingParity';
 import { homeCardPreferenceStore } from '../services/HomeCardPreferenceStore';
+import { ringMetricVisible, ringTodayActivity, ringActivityText, ringActivityProgress } from '../model/RingHomePresentation';
+import { ringLoginFailure } from '../model/RingParity';
+import { ReadingNotice, ReadingSettings, defaultReadingSettings } from '../model/ReadingReminders';
+import { personalReadingReminders } from '../services/PersonalReadingReminders';
+import { ReadingReminderPanel, PersonalReadingOverlay } from '../components/ReadingReminderPanel';
 import { AuthChannel, GlobalAuthCapabilities, PHONE_COUNTRIES, PhoneCountry,
-  emptyAuthCapabilities, globalRegistrationValidation, globalUnverifiedRegistrationValidation,
+  emptyAuthCapabilities, globalRegistrationValidation,
   normalizeIdentifier, validGlobalPassword } from '../model/GlobalAuth';
 import { GLOBAL_WECHAT_ENABLED, GLOBAL_PUSH_ENABLED, GLOBAL_PAYMENTS_ENABLED } from '../model/GlobalConfiguration';
 import { GlobalHealthReport, GlobalReportProfile, GlobalReportEligibility, GlobalAnalysisDocument,
@@ -122,6 +127,9 @@ struct Index {
   @State private pageWidth: number = 390;
   @State private systemFontScale: number = 1;
   @State private tab: number = 0;
+  @State private readingNotice: ReadingNotice | undefined = undefined;
+  @State private readingGoalsOnly: boolean = false;
+  @State private readingSettings: ReadingSettings = defaultReadingSettings();
   @State private account: string = '';
   @State private appLocale: string = 'zh-Hans';
   @State private authChannel: AuthChannel = 'sms';
@@ -131,7 +139,7 @@ struct Index {
   @State private loginChallengeIdentity: string = '';
   @State private loginChallengeExpiresAt: number = 0;
   @State private loginAgeConfirmed: boolean = false;
-  @State private emailPasswordMode: boolean = false;
+  @State private passwordLoginMode: boolean = true;
   @State private homeCardLayout: HomeCardLayout = { order: [], hidden: [] };
   @State private homeCardDraft: HomeCardLayout = { order: [], hidden: [] };
   @State private homeCardSaving: boolean = false;
@@ -431,6 +439,7 @@ struct Index {
     this.loadAppLocale();
   }
   onPageShow(): void {
+    personalReadingReminders.setForeground(true);
     appDisplayService.modules.setForeground(true);
     appDisplayService.refresh();
     this.refreshLayoutScale();
@@ -441,6 +450,7 @@ struct Index {
     if (this.screen === 'sport-records') this.loadSportRecords();
   }
   aboutToDisappear(): void {
+    personalReadingReminders.clear(); personalReadingReminders.listen(undefined); personalReadingReminders.listenSettings(undefined);
     appDisplayService.modules.setForeground(false);
     this.stopModuleObserver?.(); this.stopModuleObserver = undefined;
     this.stopDisplayObserver?.(); this.stopDisplayObserver = undefined;
@@ -456,7 +466,7 @@ struct Index {
     }
   }
 
-  onPageHide(): void { appDisplayService.modules.setForeground(false); }
+  onPageHide(): void { appDisplayService.modules.setForeground(false); personalReadingReminders.setForeground(false); }
 
   private applyModuleDisplay(): void {
     this.mallVisible = appDisplayService.modules.allows('mall');
@@ -885,7 +895,8 @@ struct Index {
     this.cameraCapturing = false; this.cameraLastPhotoUri = ''; this.cameraSurfaceId = '';
   }
 
-  private async openDeviceFeature(feature: WatchDeviceFeatureKey): Promise<void> {
+  private async openDeviceFeature(feature: WatchDeviceFeatureKey, dailyDirect: boolean = false): Promise<void> {
+    if (feature === 'healthReminders' && !dailyDirect) { this.openReadingSettings(); return; }
     if (!this.wearableSnapshot.connected || !watchDeviceFeatureSupported(this.wearableSnapshot.capabilities, feature)) return;
     this.clearDeviceFeature(); this.selectedDeviceFeature = feature; this.openInnerPage('device-feature');
     await this.refreshDeviceFeature();
@@ -1538,6 +1549,9 @@ struct Index {
 
   private bindWearable(): void {
     vepWearable.attachContext(this.uiContext());
+    personalReadingReminders.listen((notice: ReadingNotice | undefined) => this.readingNotice = notice);
+    personalReadingReminders.listenSettings((settings: ReadingSettings) => this.readingSettings = settings);
+    personalReadingReminders.configure(saydianApi.current()?.memberId ?? '', this.uiContext(), this.wearableSnapshot);
     const listener: WearableServiceListener = {
       onDevices: (devices: WearableDevice[]) => this.wearableDevices = devices,
       onPhase: (phase: WearableConnectionPhase, message: string) => {
@@ -1549,13 +1563,17 @@ struct Index {
           this.clearDeviceEditor(); this.clearDeviceFeature();
         }
         this.wearableSnapshot = snapshot;
+        personalReadingReminders.configure(saydianApi.current()?.memberId ?? '', this.uiContext(), snapshot);
         if (this.screen === 'wearable-metric') this.loadTrendData();
         if (snapshot.connected && this.screen === 'device-search') {
           this.screen = 'home';
           this.tab = 1;
         }
       },
-      onMeasurement: (measurement: MeasurementState) => this.wearableMeasurement = measurement,
+      onMeasurement: (measurement: MeasurementState) => {
+        this.wearableMeasurement = measurement;
+        personalReadingReminders.measurement(measurement);
+      },
       onSportSession: (session: SportSessionState) => {
         const wasActive = this.sportActive();
         this.sportSession = session;
@@ -1702,6 +1720,8 @@ struct Index {
   }
 
   private wearableMetricMeasurable(metric: WearableMetricKey): boolean {
+    if (!ringMetricVisible(this.wearableSnapshot, this.wearablePhase, metric)) return false;
+    if (metric === 'hrv') return this.wearableSnapshot.provider === 'Yuc';
     return this.measurementMetrics.some((item: WearableMetricSpec) => item.key === metric);
   }
 
@@ -1723,8 +1743,27 @@ struct Index {
 
   private visibleWearableMetrics(): WearableMetricSpec[] {
     return this.wearableMetrics.filter((metric: WearableMetricSpec) =>
-      metric.key !== 'sport' && (this.wearableSnapshot.connected ? this.wearableCapability(metric.key) :
-        this.wearableMetricRecords(metric.key).length > 0));
+      ringMetricVisible(this.wearableSnapshot, this.wearablePhase, metric.key));
+  }
+
+  private openReadingSettings(activityOnly: boolean = false): void {
+    this.readingGoalsOnly = activityOnly;
+    personalReadingReminders.configure(saydianApi.current()?.memberId ?? '', this.uiContext(), this.wearableSnapshot);
+    this.openInnerPage('reading-settings');
+  }
+
+  private async toggleReadingMeasurement(): Promise<void> {
+    if (this.wearableMeasurement.running) { personalReadingReminders.cancel(); await vepWearable.stopMeasurement(); return; }
+    personalReadingReminders.configure(saydianApi.current()?.memberId ?? '', this.uiContext(), this.wearableSnapshot);
+    const token = personalReadingReminders.begin(this.selectedWearableMetric);
+    try { personalReadingReminders.confirmStart(await vepWearable.startMeasurement(this.selectedWearableMetric), token); }
+    catch { personalReadingReminders.confirmStart(false, token); }
+  }
+
+  private activityValue(field: string): number | undefined {
+    if (!ringMetricVisible(this.wearableSnapshot, this.wearablePhase, 'activity')) return undefined;
+    const summary = ringTodayActivity(this.wearableSnapshot.records, this.wearableSnapshot.deviceKey, Date.now());
+    return field === 'steps' ? summary.steps : field === 'distance' ? summary.distance : summary.calories;
   }
 
   private metricMiniChartPoints(metric: WearableMetricKey): number[][] {
@@ -2595,6 +2634,7 @@ struct Index {
   }
 
   private acceptAuthenticatedSession(session: Session): void {
+    personalReadingReminders.clear();
     this.invalidateLoginCode();
     this.password = '';
     this.registerPassword = '';
@@ -2677,7 +2717,7 @@ struct Index {
 
   private async submitLogin(): Promise<void> {
     if (!canSubmitLogin(this.busy, this.restoring)) return;
-    const passwordMode = this.authChannel === 'email' && this.emailPasswordMode;
+    const passwordMode = this.passwordLoginMode;
     this.error = !this.accepted ? 'accept_terms' : !this.loginAgeConfirmed ? '请确认已满14周岁' :
       passwordMode && !validGlobalPassword(this.password) ? 'password_length' : '';
     try {
@@ -2692,13 +2732,14 @@ struct Index {
     this.busy = true;
     const epoch = ++this.pageGeneration;
     try {
-      const session = passwordMode ? await saydianApi.login(ringLoginIdentifier('email', this.account), this.password) :
+      const session = passwordMode ? await saydianApi.loginRingWithPassword(this.authChannel, this.account, this.password,
+        this.capabilities.consentVersion, this.accepted, this.loginAgeConfirmed, this.appLocale) :
         await saydianApi.loginRingWithCode(this.authChannel, this.account, this.loginChallengeId, this.loginCode,
           this.capabilities.consentVersion, this.accepted, this.loginAgeConfirmed, this.appLocale);
       if (epoch !== this.pageGeneration) return;
       this.acceptAuthenticatedSession(session);
     } catch (error) {
-      if (epoch === this.pageGeneration) this.error = (error as Error).message;
+      if (epoch === this.pageGeneration) this.error = ringLoginFailure(error as Error, passwordMode);
     } finally {
       if (epoch === this.pageGeneration) {
         this.busy = false;
@@ -2714,7 +2755,7 @@ struct Index {
 
   private selectLoginChannel(channel: AuthChannel): void {
     this.invalidateLoginCode(); this.authChannel = channel; this.authCountry = 'CN';
-    this.account = ''; this.password = ''; this.emailPasswordMode = false; this.error = '';
+    this.account = ''; this.password = ''; this.passwordLoginMode = true; this.error = '';
   }
 
   private async sendLoginCode(): Promise<void> {
@@ -2778,21 +2819,14 @@ struct Index {
 
   private async submitRegistration(): Promise<void> {
     if (this.busy || this.restoring) return;
-    this.registerError = this.capabilities.registration.verificationRequired ?
-      globalRegistrationValidation(this.accountIdentifier(this.registerMobile), this.authChannel, this.registerCode,
-        this.registerPassword, this.registerConfirmation, this.registerAccepted) :
-      globalUnverifiedRegistrationValidation(this.accountIdentifier(this.registerMobile), this.authChannel,
-        this.registerPassword, this.registerConfirmation, this.registerAccepted);
+    this.registerError = globalRegistrationValidation(this.accountIdentifier(this.registerMobile), this.authChannel, this.registerCode,
+      this.registerPassword, this.registerConfirmation, this.registerAccepted);
     if (this.registerError) return;
     this.busy = true;
     const epoch = ++this.pageGeneration;
     try {
-      const session = this.capabilities.registration.verificationRequired ?
-        await saydianApi.registerGlobal(this.authChannel, this.accountIdentifier(this.registerMobile), this.registerChallengeId,
+      const session = await saydianApi.registerGlobal(this.authChannel, this.accountIdentifier(this.registerMobile), this.registerChallengeId,
           this.registerCode, this.registerPassword, this.registerConfirmation, this.registerAccepted,
-          this.appLocale, this.capabilities.consentVersion, this.registerAccepted) :
-        await saydianApi.registerGlobalWithoutVerification(this.authChannel, this.accountIdentifier(this.registerMobile),
-          this.registerPassword, this.registerConfirmation, this.registerAccepted,
           this.appLocale, this.capabilities.consentVersion, this.registerAccepted);
       if (epoch !== this.pageGeneration) return;
       this.clearSmsCountdown();
@@ -2840,6 +2874,7 @@ struct Index {
   }
 
   private async signOut(): Promise<void> {
+    personalReadingReminders.clear();
     if (this.busy) return;
     this.busy = true;
     careNotifications.beginSignOut();
@@ -2991,6 +3026,7 @@ struct Index {
   }
 
   onBackPress(): boolean {
+    if (this.readingNotice) { personalReadingReminders.cancel(); return true; }
     if (this.innerParents.has(this.screen)) { this.back(); return true; }
     if (this.screen === 'register' || this.screen === 'article' || this.screen === 'feature' || this.screen === 'articles' ||
       this.screen === 'messages' || this.screen === 'health-alerts' || this.screen === 'health-all' ||
@@ -3061,7 +3097,7 @@ struct Index {
           (this.watchAlarmDraft.id < 0 ? '添加闹钟' : '编辑闹钟') : this.screen === 'profile-edit' ? '个人资料' : this.screen === 'addresses' ? '收货地址' :
         this.screen === 'address-edit' ? (this.addressDraft.id ? '编辑地址' : '新增地址') : this.screen === 'reset-password' ? '找回密码' :
         this.screen.startsWith('care') ? this.careHeading() : this.screen === 'messages' ? '消息' :
-        this.screen === 'health-alerts' ? '健康预警' : this.screen === 'health-all' ? '全部健康数据' :
+        this.screen === 'reading-settings' ? (this.readingGoalsOnly ? '活动目标' : '健康提醒') : this.screen === 'health-alerts' ? '健康预警' : this.screen === 'health-all' ? '全部健康数据' :
           this.screen === 'home-cards' ? '编辑健康卡片' : this.screen === 'sport-modes' ? '全部运动' :
           this.screen === 'sport-records' ? '运动与记录' : this.screen === 'ai-chat' ? 'AI 健康管家' :
             this.screen === 'device-search' ? '添加设备' :
@@ -3180,13 +3216,14 @@ struct Index {
     Scroll() {
       Column({ space: 14 }) {
         this.BrandLockup(Color.Black)
+        this.AuthMethodSelector()
         Text('开启你的健康生活').fontSize(16).fontColor(MUTED).margin({ bottom: 20 })
         if (this.authCapabilitiesBusy) { Text('正在读取登录配置…').fontSize(13).fontColor(MUTED) }
         else if (!this.capabilities.consentVersion) {
           Button('登录配置暂未读取，点击重试').height(this.controlHeight(48)).fontColor(RED).backgroundColor(RED_SOFT)
             .onClick(() => this.loadAuthCapabilities()).id('login_retry_config')
-        } else if (this.authChannel === 'email' && !this.emailPasswordMode && !ringLoginAvailable(this.capabilities, 'email')) {
-          Text('邮箱验证码暂未开放，可切换邮箱密码登录').fontSize(13).fontColor(MUTED)
+        } else if (!this.passwordLoginMode && !ringLoginAvailable(this.capabilities, this.authChannel)) {
+          Text('该方式的验证码暂未开放，可切换密码登录').fontSize(13).fontColor(MUTED)
         }
         Row({ space: 10 }) {
           SymbolGlyph($r('sys.symbol.phone')).fontSize(22).fontColor([MUTED]).margin({ left: 15 })
@@ -3195,7 +3232,7 @@ struct Index {
             .maxLength(128).enabled(canSubmitLogin(this.busy, this.restoring))
             .onChange((value: string) => { this.account = value; this.invalidateLoginCode(); }).id('login_account').accessibilityText(this.tr('手机号或邮箱'))
         }.width('100%').height(this.controlHeight(56)).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
-        if (this.authChannel === 'email' && this.emailPasswordMode) { Row({ space: 10 }) {
+        if (this.passwordLoginMode) { Row({ space: 10 }) {
           SymbolGlyph($r('sys.symbol.lock')).fontSize(22).fontColor([MUTED]).margin({ left: 15 })
           TextInput({ placeholder: this.tr('密码'), text: this.password }).type(InputType.Password)
             .layoutWeight(1).height(this.controlHeight(54)).fontSize(17).backgroundColor(Color.Transparent)
@@ -3214,11 +3251,9 @@ struct Index {
                 ringLoginAvailable(this.capabilities, this.authChannel)).onClick(() => this.sendLoginCode()).id('login_send_code')
           }.width('100%').padding({ left: 12, right: 4 }).backgroundColor(SURFACE).borderRadius(12).border({ width: 1, color: OUTLINE })
         }
-        if (this.authChannel === 'email') {
-          Button(this.emailPasswordMode ? '使用邮箱验证码登录' : '使用邮箱密码登录').height(this.controlHeight(48))
+        Button(this.passwordLoginMode ? '使用验证码登录' : '使用密码登录').height(this.controlHeight(48))
             .fontColor(RED).backgroundColor(Color.Transparent).enabled(!this.busy && !this.smsBusy)
-            .onClick(() => { this.emailPasswordMode = !this.emailPasswordMode; this.invalidateLoginCode(); })
-        }
+            .onClick(() => { this.passwordLoginMode = !this.passwordLoginMode; this.invalidateLoginCode(); })
         Row() {
           Blank()
           Button(this.tr('忘记密码？')).height(this.controlHeight(48)).fontSize(16).fontWeight(FontWeight.Medium).fontColor(INK)
@@ -3250,13 +3285,16 @@ struct Index {
             .enabled(!this.busy).onChange((value: boolean) => this.loginAgeConfirmed = value)
           Text('我已满14周岁').fontSize(14).fontColor(MUTED)
         }.width('100%')
-        Button(this.tr(this.busy ? '正在登录…' : '验证并登录')).width('100%').height(this.controlHeight(50)).fontSize(17)
+        Button(this.tr(this.busy ? '正在登录…' : this.passwordLoginMode ? '登录' : '验证并登录')).width('100%').height(this.controlHeight(50)).fontSize(17)
           .fontWeight(FontWeight.Bold).backgroundColor(RED).type(ButtonType.Normal).borderRadius(10)
           .enabled(!this.busy && !this.restoring)
           .onClick(() => this.submitLogin()).id('login_submit')
-        Text('手机号验证成功后自动登录，新用户将自动创建账号').fontSize(12).fontColor(MUTED).width('100%')
+        if (!this.passwordLoginMode && this.authChannel === 'sms' && this.capabilities.login?.smsAutoRegistration === true) {
+          Text('手机号验证成功后自动登录，新用户将自动创建账号').fontSize(12).fontColor(MUTED).width('100%')
+        }
+        Button('创建账号').fontColor(RED).backgroundColor(Color.Transparent).enabled(!this.busy).onClick(() => this.openInnerPage('register')).id('login_register')
         if (!GLOBAL_WECHAT_ENABLED) {
-          Text('鸿蒙微信授权暂未接通，请使用手机号或邮箱登录').fontSize(12).fontColor(MUTED).width('100%')
+          Text('可使用手机号或邮箱登录').fontSize(12).fontColor(MUTED).width('100%')
         }
         if (GLOBAL_WECHAT_ENABLED) { Row() {
           Button() {
@@ -3294,9 +3332,8 @@ struct Index {
           .border({ width: 1, color: OUTLINE }).maxLength(254).enabled(!this.busy && !this.smsBusy)
           .onChange((value: string) => { this.registerMobile = value; this.registerChallengeId = ''; this.registerCode = ''; }).id('register_mobile')
           .accessibilityText(this.tr('注册手机号'))
-        if (this.capabilities.registration.verificationRequired) {
-          Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
-          TextInput({ placeholder: this.tr('短信验证码'), text: this.registerCode }).type(InputType.Number)
+        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+          TextInput({ placeholder: this.tr('验证码'), text: this.registerCode }).type(InputType.Number)
             .width(this.singleColumn() ? '100%' : '58%').height(this.controlHeight(56)).fontSize(17).backgroundColor(SURFACE).borderRadius(12)
             .border({ width: 1, color: OUTLINE }).maxLength(6).enabled(!this.busy)
             .onChange((value: string) => this.registerCode = value).id('register_code')
@@ -3308,7 +3345,6 @@ struct Index {
             .enabled(!this.busy && !this.smsBusy && this.smsCountdown === 0 && !this.authCapabilitiesBusy && this.capabilities.registration[this.authChannel])
             .onClick(() => this.sendRegistrationCode()).id('register_send_code')
           }.width('100%')
-        }
         if (!this.authCapabilitiesBusy && !this.capabilities.registration[this.authChannel]) {
           this.Notice({ message: 'channel_unavailable', color: GOLD_SOFT })
           Button(this.tr('retry')).onClick(() => this.loadAuthCapabilities()).id('retry_auth_capabilities')
@@ -3352,6 +3388,59 @@ struct Index {
   }
 
   @Builder
+  ActivityRings() {
+    Stack({ alignContent: Alignment.Center }) {
+      Progress({ value: ringActivityProgress(this.activityValue('steps'), this.readingSettings.stepGoal), total: 100, type: ProgressType.Ring })
+        .width(145).height(145).color(RING_THEME.primary).backgroundColor('#DFE5E8').style({ strokeWidth: 9 })
+      Progress({ value: ringActivityProgress(this.activityValue('distance'), this.readingSettings.distanceGoal), total: 100, type: ProgressType.Ring })
+        .width(113).height(113).color('#26878D').backgroundColor('#E1ECEC').style({ strokeWidth: 9 })
+      Progress({ value: ringActivityProgress(this.activityValue('calories'), this.readingSettings.calorieGoal), total: 100, type: ProgressType.Ring })
+        .width(81).height(81).color('#C3823E').backgroundColor('#EEE3D9').style({ strokeWidth: 9 })
+      SymbolGlyph($r('sys.symbol.person_badge_heart')).fontSize(28).fontColor([RING_THEME.ink])
+    }.width(153).height(153)
+  }
+
+  @Builder
+  ActivityNumber(label: string, field: string, goal: string, color: string, decimals: number = 0) {
+    Column({ space: 3 }) {
+      Text(label).fontSize(13).fontColor(color)
+      Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.End }) {
+        Text(ringActivityText(this.activityValue(field), decimals)).fontSize(24).fontWeight(FontWeight.Bold).fontColor(INK)
+        Text(` /${goal}`).fontSize(12).fontColor(MUTED)
+      }.width('100%')
+    }.width('100%').alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  ActivityNumbers() {
+    Column({ space: 10 }) {
+      this.ActivityNumber('步数', 'steps', `${this.readingSettings.stepGoal}步`, RING_THEME.primary)
+      this.ActivityNumber('距离', 'distance', `${this.readingSettings.distanceGoal.toFixed(2)}公里`, '#26878D', 2)
+      this.ActivityNumber('热量', 'calories', `${this.readingSettings.calorieGoal}千卡`, '#C3823E')
+    }.width('100%').alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  TodayActivity() {
+    Column({ space: 14 }) {
+      Row() {
+        Text('今日活动').fontSize(21).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+        Button('目标').fontSize(15).fontColor(RED).backgroundColor(Color.Transparent).height(44)
+          .onClick(() => this.openReadingSettings(true)).id('home_activity_goals')
+      }.width('100%')
+      if (this.systemFontScale > 1.2) {
+        this.ActivityRings()
+        this.ActivityNumbers()
+      } else {
+        Row({ space: 14 }) {
+          this.ActivityRings()
+          Column() { this.ActivityNumbers() }.layoutWeight(1)
+        }.width('100%').alignItems(VerticalAlign.Center)
+      }
+    }.width('100%').padding(16).backgroundColor(SURFACE).borderRadius(24).border({ width: 1, color: LINE })
+  }
+
+  @Builder
   HealthHome() {
     Column({ space: 12 }) {
       Row({ space: 11 }) {
@@ -3377,6 +3466,21 @@ struct Index {
           }
         }.width(50).height(50)
       }.width('100%').alignItems(VerticalAlign.Center)
+
+      if (this.homeMetrics().some((metric: WearableMetricSpec) => metric.key === 'activity')) this.TodayActivity()
+      if (this.homeMetrics().some((metric: WearableMetricSpec) => metric.key === 'sleep')) {
+        Column({ space: 12 }) {
+          Row() {
+            Text('睡眠概览').fontSize(20).fontWeight(FontWeight.Bold).fontColor(INK).layoutWeight(1)
+            SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([MUTED])
+          }.width('100%')
+          Text(this.wearableLatest('sleep')).fontSize(19).fontWeight(FontWeight.Medium).fontColor(INK).width('100%')
+        }.width('100%').alignItems(HorizontalAlign.Start).padding(18).backgroundColor('#ECECF3').borderRadius(24)
+          .onClick(() => this.openWearableMetric('sleep')).id('home_sleep_overview')
+      }
+
+      Button('健康提醒').width('100%').height(50).fontColor(RED).backgroundColor(RED_SOFT).borderRadius(16)
+        .onClick(() => this.openReadingSettings()).id('home_reading_reminders')
 
       if (!this.hideAiContent) {
       Row() {
@@ -3446,7 +3550,7 @@ struct Index {
           .onClick(() => { if (!this.wearableSnapshot.connected) this.openDeviceSearch(); }).id('connect_watch_notice')
       } else {
         Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
-          ForEach(this.homeMetrics(), (metric: WearableMetricSpec) => {
+          ForEach(this.homeMetrics().filter((metric: WearableMetricSpec) => metric.key !== 'activity' && metric.key !== 'sleep'), (metric: WearableMetricSpec) => {
             Column({ space: 4 }) {
               Row({ space: 6 }) {
                 Column() { this.WearableMetricIcon(metric.key) }
@@ -3465,8 +3569,8 @@ struct Index {
                   .fillOpacity(0).stroke(TECH_BLUE).strokeWidth(2).width('100%').height(34)
               }
             }.width(this.pageWidth >= 332 && this.systemFontScale <= 1.2 ? '48%' : '100%')
-              .constraintSize({ minHeight: 170 }).padding({ left: 14, right: 14, top: 18, bottom: 16 })
-              .margin({ bottom: 12 }).backgroundColor(SURFACE).borderRadius(18)
+              .constraintSize({ minHeight: 210 }).padding({ left: 14, right: 14, top: 18, bottom: 16 })
+              .margin({ bottom: 12 }).backgroundColor(SURFACE).borderRadius(24)
               .shadow({ radius: 9, color: CARD_SHADOW, offsetY: 3 })
               .onClick(() => this.openWearableMetric(metric.key))
               .accessibilityText(`${metric.title}，${this.wearableLatest(metric.key)}`)
@@ -5966,7 +6070,7 @@ struct Index {
           .width('100%').constraintSize({ minHeight: 56 }).fontSize(16).fontWeight(FontWeight.Bold)
           .backgroundColor(RED).type(ButtonType.Normal).borderRadius(12)
           .enabled(!this.sportActive() && !this.wearableBusy() && (!this.wearableMeasurement.running || this.wearableMeasurement.metric === this.selectedWearableMetric))
-          .onClick(() => this.wearableMeasurement.running ? vepWearable.stopMeasurement() : vepWearable.startMeasurement(this.selectedWearableMetric))
+          .onClick(() => this.toggleReadingMeasurement())
           .id('trend_measure')
       }
       if (this.wearableMeasurement.metric === this.selectedWearableMetric && this.wearableMeasurement.status) {
@@ -6620,6 +6724,9 @@ struct Index {
           this.AddressContent()
         } else if (this.screen === 'address-edit') {
           this.AddressEditContent()
+        } else if (this.screen === 'reading-settings') {
+          ReadingReminderPanel({ owner: saydianApi.current()?.memberId ?? '', snapshot: this.wearableSnapshot, activityOnly: this.readingGoalsOnly,
+            onDailySettings: () => { this.openDeviceFeature('healthReminders', true); } })
         } else if (this.screen === 'reset-password') {
           this.PasswordResetContent()
         } else if (this.screen === 'unit-settings') {
@@ -6715,7 +6822,8 @@ struct Index {
   }
 
   build() {
-    Column() {
+    Stack({ alignContent: Alignment.TopStart }) {
+      Column() {
       if (this.screen === 'login') { this.Login() }
       else if (this.screen === 'register') { this.Registration() }
       else if (this.screen === 'home') { this.Home() }
@@ -6726,5 +6834,9 @@ struct Index {
         this.pageWidth = Number(area.width);
         this.refreshLayoutScale();
       })
+      ForEach(this.readingNotice ? [this.readingNotice] : [], (notice: ReadingNotice) => {
+        PersonalReadingOverlay({ notice: notice }).zIndex(100)
+      }, (notice: ReadingNotice) => String(notice.token))
+    }.width('100%').height('100%')
   }
 }

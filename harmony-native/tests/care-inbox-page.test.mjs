@@ -46,8 +46,8 @@ test('out-of-order unread counts do not overwrite a more recent refresh',async()
 test('production signOut pauses notifications synchronously before awaiting unregister or account cleanup',async()=>{
   const method=source.slice(source.indexOf('  private async signOut('),source.indexOf('  private showFeature('));
   const events=[], unregister=deferred();
-  const Page=new Function('saydianApi','careNotifications',`return ${stripTypeScriptTypes(`class Page {${method}}`)}`)(
-    {async logout(){events.push('account-cleared')}},{beginSignOut(){events.push('notifications-paused')}});
+  const Page=new Function('saydianApi','careNotifications','personalReadingReminders',`return ${stripTypeScriptTypes(`class Page {${method}}`)}`)(
+    {async logout(){events.push('account-cleared')}},{beginSignOut(){events.push('notifications-paused')}},{clear(){}});
   const page=new Page();Object.assign(page,{busy:false,pageGeneration:1,clearCareState(){},clearAccountForms(){},
     async releasePushBeforeLogout(){events.push('unregister-start');await unregister.promise}});
   const work=page.signOut();assert.deepEqual(events,['notifications-paused','unregister-start']);

@@ -9,7 +9,7 @@ export interface GlobalAuthCapabilities {
   recovery: { email: boolean; sms: boolean };
   verification: { codeLength: number; expiresIn: number; retryAfter: number };
   consentVersion: string;
-  login?: { email: boolean; sms: boolean };
+  login?: { email: boolean; sms: boolean; smsAutoRegistration?: boolean; explicitRegistrationCodeLogin?: boolean };
   legal?: GlobalLegalDocuments;
 }
 export interface GlobalLegalDocument { path: string; locale: string; version: string; }
@@ -66,7 +66,9 @@ export function parseAuthCapabilities(data: Object | undefined): GlobalAuthCapab
     recovery: { email: value.recovery?.email === true, sms: value.recovery?.sms === true },
     consentVersion: typeof value.consentVersion === 'string' ? value.consentVersion : '',
     legal: value.legal,
-    login: { email: value.login?.email === true, sms: value.login?.sms === true },
+    login: { email: value.login?.email === true, sms: value.login?.sms === true,
+      smsAutoRegistration: value.login?.smsAutoRegistration === true,
+      explicitRegistrationCodeLogin: value.login?.explicitRegistrationCodeLogin === true },
     smsCountries: value.smsCountries.filter(code => typeof code === 'string' && /^[A-Z]{2}$/.test(code)),
     verification: { codeLength: 6, expiresIn: positiveSeconds(value.verification.expiresIn, 300),
       retryAfter: positiveSeconds(value.verification.retryAfter, 60) } };
