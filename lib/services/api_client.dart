@@ -1920,10 +1920,18 @@ class SaydianApiClient
 
   @override
   Future<void> logout() async {
+    final expected = await _vault.readSession();
+    if (expected == null) return;
     try {
-      final response = await _authorizedPostJson(
-        '/api/v1/site/logout',
-        const {},
+      final response = await _performRequest(
+        () => _client.post(
+          _uri('/api/v1/site/logout'),
+          headers: {
+            ..._authorizationHeaders(expected),
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode(const {}),
+        ),
       );
       if (response.statusCode == 404 || response.statusCode == 405) {
         throw FeatureNotConfiguredException(
@@ -1933,15 +1941,22 @@ class SaydianApiClient
       }
       _decode(response);
     } finally {
-      await _vault.clearSession();
+      await _vault.clearSessionIfUnchanged(expected);
     }
   }
 
   @override
   Future<void> deleteAccount() async {
-    final response = await _authorizedPostJson(
-      '/api/v1/member/account/delete',
-      const {'confirm': true},
+    final expected = await _requiredSession();
+    final response = await _performRequest(
+      () => _client.post(
+        _uri('/api/v1/member/account/delete'),
+        headers: {
+          ..._authorizationHeaders(expected),
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(const {'confirm': true}),
+      ),
     );
     if (response.statusCode == 404 || response.statusCode == 405) {
       throw FeatureNotConfiguredException(
@@ -1950,7 +1965,7 @@ class SaydianApiClient
       );
     }
     _decode(response);
-    await _vault.clearSession();
+    await _vault.clearSessionIfUnchanged(expected);
   }
 
   Future<http.Response> _authorizedGet(

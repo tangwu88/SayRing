@@ -488,6 +488,25 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 
     self.bleState = bleState;
 
+    if (self.appManagedConnections && bleState != QCBluetoothStatePoweredOn) {
+        // The radio state itself retires this transport even if CoreBluetooth
+        // never delivers a separate disconnect/failure callback. Never reuse
+        // the pre-reset peripheral or its SDK registration on power return.
+        CBPeripheral *retired = self.connectedPeripheral;
+        if (retired || self.deviceState == QCStateConnecting || self.deviceState == QCStateConnected) {
+            self.operationGeneration++;
+            [self stopTimer];
+            [[QCSDKManager shareInstance] removeAllPeripheral];
+            if (retired && retired.state != CBPeripheralStateDisconnected) {
+                @try { [central cancelPeripheralConnection:retired]; }
+                @catch (NSException *exception) { NSLog(@"QRing radio-loss cancellation failed"); }
+            }
+            self.connectedPeripheral = nil;
+            self.suppressAutoReconnect = NO;
+            self.deviceState = [self isBindDevice] ? QCStateDisconnected : QCStateUnbind;
+        }
+    }
+
     if (self.delegate && [self.delegate respondsToSelector:@selector(didBluetoothState:)]) {
         [self.delegate didBluetoothState:bleState];
     }
@@ -570,7 +589,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
         [central cancelPeripheralConnection:peripheral]; return;
     }
     if (self.appManagedConnections &&
-        ![self.connectedPeripheral.identifier isEqual:peripheral.identifier]) {
+        self.connectedPeripheral != peripheral) {
         // Retain a system-restored link until its owner-scoped target is loaded.
         return;
     }
@@ -581,7 +600,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 - (void)centralManager:(CBCentralManager *)central didFailToConnectPeripheral:(CBPeripheral *)peripheral error:(NSError *)error {
     if ([self finishRestoredCancellation:peripheral]) { return; }
     if (self.appManagedConnections &&
-        (![self.connectedPeripheral.identifier isEqual:peripheral.identifier] ||
+        (self.connectedPeripheral != peripheral ||
          peripheral.state != CBPeripheralStateDisconnected)) { return; }
     NSLog(@"QRing connection failed (code %ld)", (long)error.code);
     [self notifyConnectFailed:peripheral error:error];
@@ -591,8 +610,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     if ([self finishRestoredCancellation:peripheral]) { return; }
     if (self.appManagedConnections &&
         (peripheral.state != CBPeripheralStateDisconnected ||
-         (!self.connectedPeripheral && self.deviceState == QCStateDisconnected) ||
-         (self.connectedPeripheral && ![self.connectedPeripheral.identifier isEqual:peripheral.identifier]))) { return; }
+         self.connectedPeripheral != peripheral)) { return; }
     if ([self.delegate respondsToSelector:@selector(didDisconnectTransport:error:)]) {
         [self.delegate didDisconnectTransport:peripheral error:error];
     }

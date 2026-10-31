@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 
 import 'global_storage_scope.dart';
 import 'notification_payload.dart';
+import 'safe_secure_storage.dart';
 
 abstract interface class AppNotificationService {
   bool get isConfigured;
@@ -55,7 +56,7 @@ final class JPushAppNotificationService implements AppNotificationService {
     this._permissionResolutionTimeout = const Duration(seconds: 4),
     this._permissionPollInterval = const Duration(milliseconds: 250),
   }) : _jpush = jpush ?? JPush.newJPush(),
-       _storage = storage ?? const FlutterSecureStorage(),
+       _storage = storage ?? safeSecureStorage,
        _storageNamespace = globalStorageNamespace(storageNamespace),
        _configuredAppKey = appKey ?? _appKey;
 

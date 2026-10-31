@@ -13,6 +13,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'global_environment.dart';
 import 'network_audit.dart';
+import 'safe_secure_storage.dart';
 
 part 'global_app_update_service.dart';
 
@@ -676,7 +677,7 @@ abstract interface class AppUpdateCheckStore {
 
 class SecureAppUpdateCheckStore implements AppUpdateCheckStore {
   SecureAppUpdateCheckStore({FlutterSecureStorage? storage})
-    : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? safeSecureStorage;
 
   static const _key = 'saydian.update.last-success.v1';
   static const _requiredUpdateKey = 'saydian.update.required.v1';

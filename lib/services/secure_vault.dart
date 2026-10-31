@@ -8,12 +8,14 @@ import 'package:uuid/uuid.dart';
 import '../domain/models.dart';
 import '../domain/home_health_cards.dart';
 import 'global_storage_scope.dart';
+import 'safe_secure_storage.dart';
 
 abstract interface class SessionVault {
   Future<Session?> readSession();
   Future<void> writeSession(Session session);
   Future<bool> writeSessionIfUnchanged(Session expected, Session replacement);
   Future<void> clearSession();
+  Future<bool> clearSessionIfUnchanged(Session expected);
   Future<bool> readPrivacyConsentGranted();
   Future<void> writePrivacyConsentGranted(bool granted);
   Future<HealthWarningSettings> readHealthWarningSettings();
@@ -35,7 +37,7 @@ abstract interface class SessionVault {
     Map<String, Object?> value,
   );
   Future<void> clearGlobalCommerceDraft(String owner, String key);
-  Future<String> databaseKey();
+  Future<String> databaseKey({bool existingDatabase = false});
 }
 
 abstract interface class SayRingAppDisplayVault {
@@ -52,12 +54,12 @@ class SecureSessionVault
     implements SessionVault, SayRingAppDisplayVault, HomeHealthCardsVault {
   SecureSessionVault([FlutterSecureStorage? storage])
     : storageNamespace = null,
-      _storage = storage ?? const FlutterSecureStorage();
+      _storage = storage ?? safeSecureStorage;
   SecureSessionVault.global({
     FlutterSecureStorage? storage,
     String? storageNamespace,
   }) : storageNamespace = globalStorageNamespace(storageNamespace),
-       _storage = storage ?? const FlutterSecureStorage();
+       _storage = storage ?? safeSecureStorage;
 
   final String? storageNamespace;
   String get _prefix => storageNamespace == null
@@ -172,6 +174,14 @@ class SecureSessionVault
       _withSessionLock(() => _storage.delete(key: _sessionKey));
 
   @override
+  Future<bool> clearSessionIfUnchanged(Session expected) =>
+      _withSessionLock(() async {
+        if (!_sameSession(await _readSessionDirect(), expected)) return false;
+        await _storage.delete(key: _sessionKey);
+        return true;
+      });
+
+  @override
   Future<bool> readPrivacyConsentGranted() async =>
       await _storage.read(key: _privacyConsentKey) == 'granted';
 
@@ -279,9 +289,12 @@ class SecureSessionVault
       _storage.delete(key: _globalCommerceDraftKey(owner.trim(), key.trim()));
 
   @override
-  Future<String> databaseKey() async {
+  Future<String> databaseKey({bool existingDatabase = false}) async {
     final existing = await _storage.read(key: _databaseKey);
     if (existing != null && existing.length >= 24) return existing;
+    if (existingDatabase) {
+      throw StateError('Encryption key unavailable for existing database');
+    }
     final generated = const Uuid().v4() + const Uuid().v4();
     await _storage.write(key: _databaseKey, value: generated);
     return generated;
@@ -327,7 +340,14 @@ class MemorySessionVault
   Future<void> clearSession() async => session = null;
 
   @override
-  Future<String> databaseKey() async => key;
+  Future<bool> clearSessionIfUnchanged(Session expected) async {
+    if (!_sameSession(session, expected)) return false;
+    session = null;
+    return true;
+  }
+
+  @override
+  Future<String> databaseKey({bool existingDatabase = false}) async => key;
 
   @override
   Future<Session?> readSession() async => session;

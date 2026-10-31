@@ -9,6 +9,7 @@ import '../domain/feature_models.dart';
 import '../domain/models.dart';
 import '../domain/sleep_timeline.dart';
 import 'global_storage_scope.dart';
+import 'safe_secure_storage.dart';
 import 'wearable_bridge.dart';
 
 enum WearableTransport { veepoo, yucheng, moyoung, coolwear, qring }
@@ -1472,7 +1473,7 @@ class SecureWearableTransportPreferenceStore
   final String? storageNamespace;
   String get _key =>
       'saydian.global.env.${globalStorageNamespace(storageNamespace)}.wearable.binding.v1';
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  final FlutterSecureStorage _storage = safeSecureStorage;
 
   Future<Map<String, Object?>?> _readValue() async {
     final value = await _storage.read(key: _key);

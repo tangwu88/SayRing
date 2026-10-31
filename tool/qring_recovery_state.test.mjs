@@ -28,7 +28,9 @@ function withFixture(run, transform = source => source, centralTransform = sourc
     '- (void)setDeviceState:', '- (void)registerConnectedPeripheral:',
     '- (void)notifyConnectFailed:',
     '- (void)centralManager:(CBCentralManager *)central didFailToConnectPeripheral:',
+    '- (void)centralManager:(CBCentralManager *)central didConnectPeripheral:',
     '- (void)centralManager:(CBCentralManager *)central didDisconnectPeripheral:',
+    '- (void)centralManagerDidUpdateState:',
   ].map(signature => method(central, signature)).join('\n');
   const source = read('tool/fixtures/qring_recovery_state.m')
     .replace('// ACTUAL_BRIDGE_METHODS', bridgeMethods)
@@ -48,7 +50,8 @@ function withFixture(run, transform = source => source, centralTransform = sourc
 }
 
 for (const scenario of ['automatic-failure', 'sdk-registration-failure', 'sdk-unbound-cache', 'sdk-cancelled-owner',
-  'explicit-failure', 'ordinary-disconnect', 'stale-callbacks', 'cancel-and-owner', 'duplicate-state']) {
+  'explicit-failure', 'ordinary-disconnect', 'stale-callbacks', 'cancel-and-owner', 'duplicate-state',
+  'unnamed-exact-recovery']) {
   test(`actual QRing recovery callbacks: ${scenario}`, {skip: process.platform !== 'darwin'}, () => {
     withFixture(executable => {
       const output = execFileSync(executable, [scenario], {encoding: 'utf8'});
@@ -58,10 +61,10 @@ for (const scenario of ['automatic-failure', 'sdk-registration-failure', 'sdk-un
   });
 }
 
-test('Bluetooth off/reset diagnostics preserve the exact target without reset/unbind',
+test('Bluetooth off/reset retires stale transport and recovers exact target',
   {skip: process.platform !== 'darwin'}, () => {
     withFixture(executable => {
-      const output = execFileSync(executable, ['power-state-diagnostic'], {encoding: 'utf8'});
+      const output = execFileSync(executable, ['power-state-recovery'], {encoding: 'utf8'});
       assert.match(output, /targetPreserved=YES/);
       process.stdout.write(output);
     });
