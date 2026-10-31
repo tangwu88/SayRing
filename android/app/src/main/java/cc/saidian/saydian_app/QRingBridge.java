@@ -1153,7 +1153,8 @@ public final class QRingBridge
         if (setTimeFlags.supportsTemperature() || supportFlags.supportIntervalTemperature
                 || supportFlags.supportSkinTemperature) {
             metrics.add("body_temperature");
-            if (setTimeFlags.mSupportAppMeasure) manual.add("body_temperature");
+            if (supportsManualTemperature(setTimeFlags, supportFlags))
+                manual.add("body_temperature");
         }
         if (setTimeFlags.supportsSportRecord()) {
             String[] supported = {"running", "indoor_running", "walking", "cycling",
@@ -1185,6 +1186,13 @@ public final class QRingBridge
     private boolean supportsMetric(String metric, boolean manual) {
         Object raw = capabilities().get(manual ? "manualMetrics" : "metrics");
         return raw instanceof List && ((List<?>) raw).contains(metric);
+    }
+
+    static boolean supportsManualTemperature(SetTimeRsp time, DeviceSupportFunctionRsp support) {
+        return time != null && support != null && time.mSupportAppMeasure
+                && !support.supportNoSingleTemperature
+                && (time.supportsTemperature() || support.supportIntervalTemperature
+                    || support.supportSkinTemperature);
     }
 
     private void startMeasurement(String metric, MethodChannel.Result result) {
@@ -1287,9 +1295,8 @@ public final class QRingBridge
                 break;
             }
             case "body_temperature": {
-                double amount = response.getTemperature();
-                if (amount > 100) amount /= 100.0;
-                if (amount < 20 || amount > 45) return;
+                Double amount = QRingRecordMapper.manualSkinTemperature(response.getTemperature());
+                if (amount == null) return;
                 values.put("value", amount);
                 values.put("skinTemperature", amount);
                 unit = "℃";

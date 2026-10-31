@@ -2,6 +2,8 @@ package cc.saidian.saydian_app
 
 import com.oudmon.ble.base.bean.SleepDisplay
 import com.oudmon.ble.base.communication.entity.BleStepDetails
+import com.oudmon.ble.base.communication.rsp.SetTimeRsp
+import com.oudmon.ble.base.communication.rsp.DeviceSupportFunctionRsp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -11,6 +13,34 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 class QRingRecordMapperTest {
+    @Test
+    fun `manual skin temperature respects actual sensor app-measure and no-single flags`() {
+        val time = SetTimeRsp().apply { mSupportAppMeasure = true }
+        val support = DeviceSupportFunctionRsp().apply { supportSkinTemperature = true }
+        assertEquals(true, QRingBridge.supportsManualTemperature(time, support))
+        support.supportNoSingleTemperature = true
+        assertEquals(false, QRingBridge.supportsManualTemperature(time, support))
+        assertEquals(true, support.supportSkinTemperature) // history capability remains intact
+        support.supportNoSingleTemperature = false
+        time.mSupportAppMeasure = false
+        assertEquals(false, QRingBridge.supportsManualTemperature(time, support))
+        time.mSupportAppMeasure = true
+        support.supportSkinTemperature = false
+        assertEquals(false, QRingBridge.supportsManualTemperature(time, support))
+        assertEquals(false, QRingBridge.supportsManualTemperature(null, support))
+    }
+
+    @Test
+    fun `manual temperature uses SDK tenths while rejecting absent and wrong-scale values`() {
+        assertEquals(36.5, QRingRecordMapper.manualSkinTemperature(365)!!, 0.0001)
+        assertEquals(27.9, QRingRecordMapper.manualSkinTemperature(279)!!, 0.0001)
+        assertEquals(20.0, QRingRecordMapper.manualSkinTemperature(200)!!, 0.0001)
+        assertEquals(45.0, QRingRecordMapper.manualSkinTemperature(450)!!, 0.0001)
+        listOf(0, -1, 36, 199, 451, 3650).forEach { raw ->
+            assertEquals(null, QRingRecordMapper.manualSkinTemperature(raw))
+        }
+    }
+
     @Test
     fun `seconds and milliseconds from SDK normalize to milliseconds`() {
         val fallback = 1_700_000_000_000L

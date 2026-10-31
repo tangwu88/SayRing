@@ -126,6 +126,12 @@ final class QRingRecordMapper {
                 value == null ? null : value.getArray(), 1, 100);
     }
 
+    /** 0x69 manualTemperature returns deci-Celsius; history floats are already Celsius. */
+    static Double manualSkinTemperature(int sdkDeciCelsius) {
+        double degrees = sdkDeciCelsius / 10.0;
+        return degrees >= 20.0 && degrees <= 45.0 ? degrees : null;
+    }
+
     static List<Map<String, Object>> temperatureRecords(
             String deviceId, String model, String firmware, int dayIndex,
             IntervalTemperatureEntity value) {
