@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'generated/app_localizations.dart';
+import '../services/safe_secure_storage.dart';
 
 abstract interface class GlobalLocaleStore {
   Future<String?> read();
@@ -12,7 +13,7 @@ class SecureGlobalLocaleStore implements GlobalLocaleStore {
   const SecureGlobalLocaleStore();
 
   static const key = 'sayring.global.locale.v1';
-  static const _storage = FlutterSecureStorage();
+  static const FlutterSecureStorage _storage = safeSecureStorage;
 
   @override
   Future<String?> read() => _storage.read(key: key);

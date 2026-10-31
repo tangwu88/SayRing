@@ -53,11 +53,8 @@ class GlobalAppUpdateService extends AppUpdateService {
       throw const AppUpdateException('Check your connection and try again.');
     }
     if (response.statusCode == 404) {
-      return _currentPackageInfo(
-        package,
-        platformName: platform,
-        endpointUri: _endpointUri,
-        publishedAt: DateTime.now().toUtc(),
+      throw const AppUpdateException(
+        'Updates are not available yet. Please try again later.',
       );
     }
     if (response.statusCode != 200) {

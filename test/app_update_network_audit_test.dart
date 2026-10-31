@@ -120,15 +120,10 @@ void main() {
             headers: {'x-request-id': _requestId, 'authorization': _secret},
           );
         });
-        if (status == 404) {
-          final info = await _global(client).check();
-          expect(info.hasUpdate, isFalse);
-        } else {
-          await expectLater(
-            _global(client).check(),
-            throwsA(isA<AppUpdateException>()),
-          );
-        }
+        await expectLater(
+          _global(client).check(),
+          throwsA(isA<AppUpdateException>()),
+        );
         final audit = events();
         expect(audit, hasLength(2));
         expect(audit.last['status'], status);

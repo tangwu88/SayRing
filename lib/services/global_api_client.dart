@@ -2228,31 +2228,38 @@ class GlobalSaydianApiClient extends SaydianApiClient
 
   @override
   Future<void> logout() async {
+    final expected = await _vault.readSession();
+    if (expected == null) return;
     try {
       _decode(
-        await _withAuthorizationRetry(
-          (session) => _performRequest(
-            () => _client.post(
-              _uri('/api/saydian-app/v2/auth/logout'),
-              headers: _authorizationHeaders(session),
-            ),
+        await _performRequest(
+          () => _client.post(
+            _uri('/api/saydian-app/v2/auth/logout'),
+            headers: _authorizationHeaders(expected),
           ),
         ),
       );
     } finally {
-      await _vault.clearSession();
+      await _vault.clearSessionIfUnchanged(expected);
     }
   }
 
   @override
   Future<void> deleteAccount() async {
+    final expected = await _requiredSession();
     _decode(
-      await _authorizedPostJson(
-        '/api/saydian-app/v2/auth/delete-account',
-        const {'confirm': true},
+      await _performRequest(
+        () => _client.post(
+          _uri('/api/saydian-app/v2/auth/delete-account'),
+          headers: {
+            ..._authorizationHeaders(expected),
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode(const {'confirm': true}),
+        ),
       ),
     );
-    await _vault.clearSession();
+    await _vault.clearSessionIfUnchanged(expected);
   }
 }
 

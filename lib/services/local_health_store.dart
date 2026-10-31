@@ -225,7 +225,23 @@ class EncryptedHealthStore
       recoveryPending = true;
       recoveryNotice = '此前检测到本机加密数据库无法读取；原数据库文件仍保留，恢复处理尚未完成';
     }
-    final password = await _vault.databaseKey();
+    var existingDatabase = await _fileOperations.exists(recoveryMarker);
+    for (final suffix in _databaseFileSuffixes) {
+      if (await _fileOperations.exists('$file$suffix')) {
+        existingDatabase = true;
+        break;
+      }
+    }
+    final String password;
+    try {
+      password = await _vault.databaseKey(existingDatabase: existingDatabase);
+    } catch (_) {
+      if (existingDatabase) {
+        recoveryPending = true;
+        recoveryNotice = '本机健康数据暂时无法解锁；原数据库文件保持不变，请稍后重试';
+      }
+      rethrow;
+    }
     Future<Database> open() => _databaseOpener(
       file,
       password: password,
