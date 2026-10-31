@@ -3253,12 +3253,19 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('使用说明'));
         await tester.pumpAndSettle();
-        expect(find.text('使用前'), findsOneWidget);
+        expect(find.text('操作方法'), findsOneWidget);
         expect(find.text('没有反应？'), findsOneWidget);
         expect(
           find.textContaining(
-            platform == TargetPlatform.iOS ? '戒指靠近iPhone' : '戒指靠近安卓手机',
+            platform == TargetPlatform.iOS
+                ? '在iPhone“设置 → 蓝牙”检查配对'
+                : '在安卓手机“设置 → 蓝牙”检查配对',
           ),
+          findsOneWidget,
+        );
+        expect(find.textContaining('不同型号的触控次数和动作可能不同'), findsOneWidget);
+        expect(
+          find.textContaining('打开“${DeviceFeature.camera.label}”'),
           findsOneWidget,
         );
         expect(bridge.lastWrite, isNull);

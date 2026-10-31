@@ -318,7 +318,14 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         ),
       ),
     );
-    if (reload && (saved || widget.feature == DeviceFeature.gestureControl)) {
+    final gestureFailure =
+        widget.feature == DeviceFeature.gestureControl && !saved
+        ? widget.controller.deviceFeatureData[DeviceFeature.gestureControl]
+        : null;
+    if (gestureFailure?['requiresReconnect'] == true) {
+      setState(() => _featureData = Map<String, Object?>.of(gestureFailure!));
+    } else if (reload &&
+        (saved || widget.feature == DeviceFeature.gestureControl)) {
       await _loadFeature();
     }
     return saved;
@@ -362,6 +369,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       }
     }
     _cameraInitializing = true;
+    _cameraPermissionPermanentlyDenied = false;
     final generation = ++_cameraGeneration;
     try {
       final cameras = await availableCameras();
@@ -420,9 +428,15 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     } on CameraException catch (error) {
       if (!mounted) return;
       setState(() {
-        _cameraMessage = error.code == 'CameraAccessDenied'
-            ? '允许相机权限后使用'
-            : '手机相机暂时无法使用，请稍后重试';
+        _cameraPermissionPermanentlyDenied =
+            error.code == 'CameraAccessDeniedWithoutPrompt';
+        _cameraMessage = switch (error.code) {
+          'CameraAccessDenied' => '允许相机权限后使用',
+          'CameraAccessDeniedWithoutPrompt' =>
+            '相机权限已关闭，请在系统设置中允许 Say Ring 使用相机',
+          'CameraAccessRestricted' => '相机受到系统限制，请检查屏幕使用时间或设备管理设置',
+          _ => '手机相机暂时无法使用，请稍后重试',
+        };
       });
     } catch (_) {
       if (mounted) setState(() => _cameraMessage = '手机相机暂时无法使用，请稍后重试');
@@ -773,8 +787,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       busy: busy,
       requiresReconnect: reconnect,
       readbackConfirmed: qring && ready,
-      error: widget.controller.errorMessage,
+      error:
+          _featureData['errorMessage'] as String? ??
+          widget.controller.errorMessage,
       onRefresh: _loadFeature,
+      onReconnect: widget.controller.reconnectDevice,
       onSelect: (mode) => _saveFeature({
         'mode': mode,
         if (qring) 'expectedMode': _featureData['rawMode'],
@@ -1231,6 +1248,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       remoteReady: _cameraRemoteStarted,
       takingPhoto: _takingPhoto,
       saved: _photoSaved,
+      cameraSettingsRequired: _cameraPermissionPermanentlyDenied,
       onCapture: ready && !_takingPhoto ? _takePhoto : null,
       onRetrySave: _lastPhoto != null && !_photoSaved ? _retryPhotoSave : null,
       onPhotoSettings: _galleryPermissionDenied ? openAppSettings : null,

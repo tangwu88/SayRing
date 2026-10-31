@@ -4706,6 +4706,22 @@ class AppController extends ChangeNotifier {
         error,
         fallback: '${feature.label}暂时无法读取',
       );
+      if (feature == DeviceFeature.gestureControl &&
+          connectedDevice?.sdkSource == WearableSdkSource.qring &&
+          const {
+            'QRING_CONTROL_UNCONFIRMED',
+            'QRING_CONTROL_RECONNECT',
+          }.contains(error.code)) {
+        // AppShell consumes the shared snackbar error. Keep this connection's
+        // unsafe-retry state separately, without retaining a confirmed mode.
+        final failure = <String, Object?>{
+          'requiresReconnect': true,
+          'readbackVerified': false,
+          'errorMessage': errorMessage,
+        };
+        deviceFeatureData = {...deviceFeatureData, feature: failure};
+        return failure;
+      }
       return const {};
     } catch (_) {
       if (!isCurrent()) return const {};
@@ -4787,6 +4803,21 @@ class AppController extends ChangeNotifier {
         error,
         fallback: '${feature.label}保存失败',
       );
+      if (feature == DeviceFeature.gestureControl &&
+          connectedDevice?.sdkSource == WearableSdkSource.qring &&
+          const {
+            'QRING_CONTROL_UNCONFIRMED',
+            'QRING_CONTROL_RECONNECT',
+          }.contains(error.code)) {
+        deviceFeatureData = {
+          ...deviceFeatureData,
+          feature: {
+            'requiresReconnect': true,
+            'readbackVerified': false,
+            'errorMessage': errorMessage,
+          },
+        };
+      }
       return false;
     } catch (_) {
       if (!isCurrent()) return false;

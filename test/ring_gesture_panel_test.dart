@@ -41,6 +41,7 @@ void main() {
         await tester.binding.setSurfaceSize(Size(spec.$1, 844));
         addTearDown(() => tester.binding.setSurfaceSize(null));
         final selected = <int>[];
+        var reconnects = 0;
         Future<void> pump({bool busy = false, bool reconnect = false}) async {
           await tester.pumpWidget(
             MaterialApp(
@@ -62,6 +63,7 @@ void main() {
                     requiresReconnect: reconnect,
                     readbackConfirmed: true,
                     onRefresh: () {},
+                    onReconnect: () => reconnects++,
                     onSelect: selected.add,
                   ),
                 ),
@@ -78,19 +80,33 @@ void main() {
           findsOneWidget,
         );
         expect(find.textContaining('部分手机型号可能不支持'), findsOneWidget);
+        expect(find.byKey(const ValueKey('gesture-next-step')), findsOneWidget);
+        expect(find.textContaining('打开音乐播放器，再按戒指说明操作'), findsOneWidget);
         expect(find.byKey(const ValueKey('gesture-mode-1')), findsNothing);
         final reading = find.byKey(const ValueKey('gesture-mode-3'));
         await tester.ensureVisible(reading);
         await tester.tap(reading);
         await tester.pumpAndSettle();
         expect(selected, [3]);
+        // A tap requests the guarded write, but does not claim it succeeded.
+        expect(find.textContaining('打开音乐播放器，再按戒指说明操作'), findsOneWidget);
+        expect(find.textContaining('打开支持翻页的阅读 App，再按戒指说明操作'), findsNothing);
         await pump(busy: true);
+        expect(find.byKey(const ValueKey('gesture-next-step')), findsNothing);
         await tester.ensureVisible(reading);
         await tester.tap(reading);
         expect(selected, [3]);
         await pump(reconnect: true);
+        expect(find.byKey(const ValueKey('gesture-next-step')), findsNothing);
         await tester.ensureVisible(reading);
         await tester.tap(reading);
+        expect(selected, [3]);
+        final reconnect = find.byKey(const ValueKey('gesture-refresh'));
+        await tester.ensureVisible(reconnect);
+        await tester.pumpAndSettle();
+        expect(find.text('重新连接'), findsOneWidget);
+        await tester.tap(reconnect);
+        expect(reconnects, 1);
         expect(selected, [3]);
         expect(tester.takeException(), isNull);
       },

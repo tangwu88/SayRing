@@ -26,11 +26,11 @@ void main() {
           ),
         ),
       );
-      expect(find.text('使用前'), findsNothing);
+      expect(find.text('操作方法'), findsNothing);
       await tester.tap(find.text('使用说明'));
       await tester.pumpAndSettle();
-      expect(find.text('使用前'), findsOneWidget);
       expect(find.text('操作方法'), findsOneWidget);
+      expect(find.text('没有反应？'), findsOneWidget);
       expect(
         find.textContaining('打开“${DeviceFeature.camera.label}”'),
         findsOneWidget,
