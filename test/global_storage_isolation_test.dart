@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jpush_flutter/jpush_interface.dart';
 import 'package:path/path.dart' as path;
@@ -10,6 +13,7 @@ import 'package:saydian_app/services/app_notification_service.dart';
 import 'package:saydian_app/services/global_environment.dart';
 import 'package:saydian_app/services/local_health_store.dart';
 import 'package:saydian_app/services/secure_vault.dart';
+import 'package:saydian_app/services/safe_secure_storage.dart';
 import 'package:saydian_app/services/wearable_routing.dart';
 import 'package:saydian_app/services/yucheng_wearable_bridge.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -21,6 +25,77 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+
+  test(
+    'actual Android vault read sends non-destructive storage options',
+    () async {
+      final previous = FlutterSecureStoragePlatform.instance;
+      final oldPlatform = debugDefaultTargetPlatformOverride;
+      const channel = MethodChannel(
+        'plugins.it_nomads.com/flutter_secure_storage',
+      );
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      FlutterSecureStoragePlatform.instance =
+          MethodChannelFlutterSecureStorage();
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return 'existing-test-key-that-is-long-enough';
+          });
+      addTearDown(() {
+        FlutterSecureStoragePlatform.instance = previous;
+        debugDefaultTargetPlatformOverride = oldPlatform;
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      });
+      await SecureSessionVault.global(
+        storageNamespace: _environmentA,
+      ).databaseKey(existingDatabase: true);
+      final options = Map<String, Object?>.from(
+        (calls.single.arguments as Map)['options'] as Map,
+      );
+      expect(calls.single.method, 'read');
+      expect(options['resetOnError'], 'false');
+      expect(options['migrateOnAlgorithmChange'], 'true');
+    },
+  );
+
+  test(
+    'existing encrypted database never receives a newly generated key',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'ring-key-guard-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final vault = SecureSessionVault.global(storageNamespace: _environmentA);
+      final file = File(path.join(directory.path, 'health.db'));
+      const bytes = <int>[23, 42, 9, 8];
+      await file.writeAsBytes(bytes);
+      final store = EncryptedHealthStore(
+        vault,
+        globalEdition: true,
+        storageNamespace: _environmentA,
+        databasePathProvider: () async => file.path,
+      );
+      await expectLater(store.initialize(), throwsStateError);
+      expect(store.recoveryPending, isTrue);
+      expect(await file.readAsBytes(), bytes);
+      expect(await safeSecureStorage.readAll(), isEmpty);
+    },
+  );
+
+  test('secure vault clears only the captured session', () async {
+    final vault = SecureSessionVault.global(storageNamespace: _environmentA);
+    final original = _session('original');
+    final replacement = _session('replacement');
+    await vault.writeSession(original);
+    await vault.writeSession(replacement);
+    expect(await vault.clearSessionIfUnchanged(original), isFalse);
+    expect((await vault.readSession())?.memberId, 'replacement');
+    expect(await vault.clearSessionIfUnchanged(replacement), isTrue);
+    expect(await vault.readSession(), isNull);
+  });
 
   test(
     'global production defaults share the configured environment digest',

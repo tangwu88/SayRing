@@ -291,6 +291,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 
 - (void)startAutomaticRecovery {
     if (self.recoveryTargetID.length == 0 || self.recoveryContext.length == 0 ||
+        ![self isQRingName:self.recoveryTargetName] ||
         self.central.hasPendingRestoredCancellations ||
         self.central.bleState != QCBluetoothStatePoweredOn || self.pendingConnect ||
         self.pendingDisconnect || self.cancellingConnection || self.recoveryConnecting || [self isResolved] ||
@@ -299,9 +300,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     if (!uuid) { return; }
     NSArray<CBPeripheral *> *items = [self.central.centerManager retrievePeripheralsWithIdentifiers:@[uuid]];
     for (CBPeripheral *peripheral in items) {
-        if (![peripheral.identifier isEqual:uuid] || ![self isQRingName:peripheral.name]) { continue; }
+        if (![peripheral.identifier isEqual:uuid] ||
+            (peripheral.name.length > 0 && ![self isQRingName:peripheral.name])) { continue; }
+        // An exact owner-bound UUID can outlive CoreBluetooth's cached name.
+        // The saved name was verified when this recovery context was armed.
+        NSString *resolvedName = peripheral.name.length > 0 ? peripheral.name : self.recoveryTargetName;
         self.connectedID = self.recoveryTargetID;
-        self.connectedName = peripheral.name;
+        self.connectedName = resolvedName;
         self.profile = self.recoveryProfile ?: @{};
         self.featureList = nil;
         self.connectionGeneration++;

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'global_environment.dart';
+import 'safe_secure_storage.dart';
 
 enum ArticleTextSize {
   standard(18),
@@ -19,7 +20,7 @@ abstract interface class ArticleReadingStore {
 
 class SecureArticleReadingStore implements ArticleReadingStore {
   const SecureArticleReadingStore();
-  static const _storage = FlutterSecureStorage();
+  static const FlutterSecureStorage _storage = safeSecureStorage;
   String get _key =>
       'sayring.${GlobalEnvironment.storageNamespace}.article-text-size.v1';
 

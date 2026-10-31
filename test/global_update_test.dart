@@ -137,22 +137,22 @@ void main() {
     expect(marketInfo.destinationType, AppUpdateDestinationType.androidStore);
   });
 
-  test('missing update configuration is treated as no update', () async {
-    final client = GlobalAppUpdateService(
-      client: MockClient((_) async => http.Response('', 404)),
-      targetPlatform: TargetPlatform.android,
-      packageInfoLoader: () async => PackageInfo(
-        appName: 'Say Ring',
-        packageName: 'cn.saydian.ring',
-        version: '0.1.0',
-        buildNumber: '1',
-      ),
-    );
-    final info = await client.check();
-    expect(info.hasUpdate, isFalse);
-    expect(info.latestVersion, '0.1.0');
-    expect(info.latestBuild, 1);
-  });
+  test(
+    'missing update configuration cannot claim the app is current',
+    () async {
+      final client = GlobalAppUpdateService(
+        client: MockClient((_) async => http.Response('', 404)),
+        targetPlatform: TargetPlatform.android,
+        packageInfoLoader: () async => PackageInfo(
+          appName: 'Say Ring',
+          packageName: 'cn.saydian.ring',
+          version: '0.1.0',
+          buildNumber: '1',
+        ),
+      );
+      await expectLater(client.check(), throwsA(isA<AppUpdateException>()));
+    },
+  );
   test(
     'domestic package, domain, prefix, missing hash and fake realm are rejected',
     () async {

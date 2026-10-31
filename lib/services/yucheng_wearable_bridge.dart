@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../domain/feature_models.dart';
 import '../domain/models.dart';
 import 'global_storage_scope.dart';
+import 'safe_secure_storage.dart';
 import 'wearable_bridge.dart';
 import 'wearable_routing.dart';
 import 'yucheng_payload_mapper.dart';
@@ -958,7 +959,7 @@ class SecureYuchengSavedDeviceStore implements YuchengSavedDeviceStore {
   String get _identifierKey => '$_prefix.last.identifier';
   String get _nameKey => '$_prefix.last.name';
   String get _hardwareAddressKey => '$_prefix.last.hardware_address';
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  final FlutterSecureStorage _storage = safeSecureStorage;
 
   @override
   Future<YuchengSavedDevice?> read() async {
