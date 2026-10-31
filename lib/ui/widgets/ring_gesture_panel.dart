@@ -15,6 +15,7 @@ class RingGesturePanel extends StatelessWidget {
     required this.readbackConfirmed,
     required this.onRefresh,
     required this.onSelect,
+    this.onReconnect,
     this.error,
     this.needsStrength = false,
     this.selectedStrength,
@@ -29,6 +30,7 @@ class RingGesturePanel extends StatelessWidget {
   final bool ready, busy, requiresReconnect, readbackConfirmed;
   final String? error;
   final VoidCallback onRefresh;
+  final VoidCallback? onReconnect;
   final ValueChanged<int> onSelect;
   final bool needsStrength;
   final int? selectedStrength;
@@ -38,11 +40,11 @@ class RingGesturePanel extends StatelessWidget {
 
   static const modes = <(int, String, IconData, String)>[
     (0, '关闭', Icons.power_settings_new_rounded, '暂停手势控制'),
-    (1, '短视频', Icons.play_circle_outline_rounded, '浏览喜欢的内容'),
-    (2, '音乐', Icons.headphones_rounded, '随手掌控音乐'),
-    (3, '阅读', Icons.auto_stories_outlined, '轻松翻阅内容'),
-    (4, '拍照', Icons.camera_alt_outlined, '控制支持的相机'),
-    (5, '电话', Icons.phone_in_talk_outlined, '控制支持的通话'),
+    (1, '短视频', Icons.play_circle_outline_rounded, '打开短视频 App'),
+    (2, '音乐', Icons.headphones_rounded, '打开音乐播放器'),
+    (3, '阅读', Icons.auto_stories_outlined, '打开阅读 App'),
+    (4, '拍照', Icons.camera_alt_outlined, '系统相机控制'),
+    (5, '电话', Icons.phone_in_talk_outlined, '支持的通话控制'),
   ];
 
   @override
@@ -77,69 +79,96 @@ class RingGesturePanel extends StatelessWidget {
           ),
         Container(
           key: const ValueKey('gesture-current-mode'),
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: SaydianColors.midnight,
             borderRadius: BorderRadius.circular(24),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: .10),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  selected?.$3 ?? Icons.touch_app_outlined,
-                  size: 30,
-                  color: Colors.white,
-                ),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: .10),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      selected?.$3 ?? Icons.touch_app_outlined,
+                      size: 26,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          '当前模式',
+                          style: TextStyle(
+                            color: Color(0xFFCDD9E3),
+                            fontSize: 15,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          uncertainControl
+                              ? '控制状态待确认'
+                              : requiresReconnect
+                              ? '需要重新连接'
+                              : !ready
+                              ? '等待读取'
+                              : selected?.$2 ??
+                                    (confirmedMode == -1 ? '其他模式' : '尚未确认'),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          requiresReconnect
+                              ? '请重新连接戒指'
+                              : busy
+                              ? '正在与戒指确认…'
+                              : !ready
+                              ? '读取后即可选择'
+                              : readbackConfirmed
+                              ? '已从戒指读取'
+                              : selected != null
+                              ? '本次连接指令已确认'
+                              : '选择一个使用场景',
+                          style: const TextStyle(
+                            color: Color(0xFFCDD9E3),
+                            fontSize: 15,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      '当前模式',
-                      style: TextStyle(color: Color(0xFFCDD9E3), fontSize: 15),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      uncertainControl
-                          ? '控制状态待确认'
-                          : !ready
-                          ? '等待读取'
-                          : selected?.$2 ??
-                                (confirmedMode == -1 ? '其他模式' : '尚未确认'),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 28,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      requiresReconnect
-                          ? '请重新连接戒指'
-                          : busy
-                          ? '正在与戒指确认…'
-                          : !ready
-                          ? '读取后即可选择'
-                          : readbackConfirmed
-                          ? '已从戒指读取'
-                          : selected != null
-                          ? '本次连接指令已确认'
-                          : '选择一个使用场景',
-                      style: const TextStyle(
-                        color: Color(0xFFCDD9E3),
-                        fontSize: 15,
-                      ),
-                    ),
-                  ],
+              if (enabled &&
+                  !uncertainControl &&
+                  selected != null &&
+                  selected.$1 != 0) ...[
+                const SizedBox(height: 14),
+                const Divider(color: Color(0x335F7B8E), height: 1),
+                const SizedBox(height: 12),
+                Text(
+                  RingGestureGuide.modeHint(selected.$1),
+                  key: const ValueKey('gesture-next-step'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    height: 1.4,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -156,9 +185,18 @@ class RingGesturePanel extends StatelessWidget {
             ),
             TextButton.icon(
               key: const ValueKey('gesture-refresh'),
-              onPressed: busy || requiresReconnect ? null : onRefresh,
-              icon: const Icon(Icons.refresh_rounded, size: 20),
-              label: const Text('刷新状态'),
+              onPressed: busy
+                  ? null
+                  : requiresReconnect
+                  ? onReconnect
+                  : onRefresh,
+              icon: Icon(
+                requiresReconnect
+                    ? Icons.bluetooth_connected_rounded
+                    : Icons.refresh_rounded,
+                size: 20,
+              ),
+              label: Text(requiresReconnect ? '重新连接' : '刷新状态'),
             ),
           ],
         ),
@@ -292,18 +330,6 @@ class RingGesturePanel extends StatelessWidget {
           const Padding(
             padding: EdgeInsets.only(top: 12),
             child: Text('戒指尚未上报可开启的控制模式，目前仅可关闭。'),
-          ),
-        if (ready && selected != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 16),
-            child: Text(
-              RingGestureGuide.modeHint(selected.$1),
-              style: const TextStyle(
-                fontSize: 16,
-                height: 1.5,
-                color: SaydianColors.muted,
-              ),
-            ),
           ),
         const SizedBox(height: 12),
         const RingGestureGuide(),

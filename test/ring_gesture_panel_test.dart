@@ -7,6 +7,39 @@ import 'package:saydian_app/ui/widgets/ring_gesture_panel.dart';
 
 void main() {
   testWidgets(
+    'merged guide never suggests a confirmed scene while control is uncertain',
+    (tester) async {
+      var closes = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: RingGesturePanel(
+                availableModes: const {0, 1},
+                confirmedMode: 1,
+                ready: true,
+                busy: false,
+                requiresReconnect: false,
+                readbackConfirmed: true,
+                uncertainControl: true,
+                onStop: () => closes++,
+                onRefresh: () {},
+                onSelect: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('控制状态待确认'), findsOneWidget);
+      expect(find.byKey(const ValueKey('gesture-next-step')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('gesture-stop-control')));
+      expect(closes, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'close remains reachable with unknown scenes and cannot imply confirmed disabled state',
     (tester) async {
       var closes = 0;
@@ -128,6 +161,7 @@ void main() {
         await tester.binding.setSurfaceSize(Size(spec.$1, 844));
         addTearDown(() => tester.binding.setSurfaceSize(null));
         final selected = <int>[];
+        var reconnects = 0;
         Future<void> pump({bool busy = false, bool reconnect = false}) async {
           await tester.pumpWidget(
             MaterialApp(
@@ -149,6 +183,7 @@ void main() {
                     requiresReconnect: reconnect,
                     readbackConfirmed: true,
                     onRefresh: () {},
+                    onReconnect: () => reconnects++,
                     onSelect: selected.add,
                   ),
                 ),
@@ -165,19 +200,33 @@ void main() {
           findsOneWidget,
         );
         expect(find.textContaining('部分手机型号可能不支持'), findsOneWidget);
+        expect(find.byKey(const ValueKey('gesture-next-step')), findsOneWidget);
+        expect(find.textContaining('打开音乐播放器，再按戒指说明操作'), findsOneWidget);
         expect(find.byKey(const ValueKey('gesture-mode-1')), findsNothing);
         final reading = find.byKey(const ValueKey('gesture-mode-3'));
         await tester.ensureVisible(reading);
         await tester.tap(reading);
         await tester.pumpAndSettle();
         expect(selected, [3]);
+        // A tap requests the guarded write, but does not claim it succeeded.
+        expect(find.textContaining('打开音乐播放器，再按戒指说明操作'), findsOneWidget);
+        expect(find.textContaining('打开支持翻页的阅读 App，再按戒指说明操作'), findsNothing);
         await pump(busy: true);
+        expect(find.byKey(const ValueKey('gesture-next-step')), findsNothing);
         await tester.ensureVisible(reading);
         await tester.tap(reading);
         expect(selected, [3]);
         await pump(reconnect: true);
+        expect(find.byKey(const ValueKey('gesture-next-step')), findsNothing);
         await tester.ensureVisible(reading);
         await tester.tap(reading);
+        expect(selected, [3]);
+        final reconnect = find.byKey(const ValueKey('gesture-refresh'));
+        await tester.ensureVisible(reconnect);
+        await tester.pumpAndSettle();
+        expect(find.text('重新连接'), findsOneWidget);
+        await tester.tap(reconnect);
+        expect(reconnects, 1);
         expect(selected, [3]);
         expect(tester.takeException(), isNull);
       },

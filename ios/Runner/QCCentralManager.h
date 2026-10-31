@@ -65,6 +65,9 @@ typedef NS_ENUM(NSInteger, QCBluetoothState) {
 /// CoreBluetooth is online; SDK registration and preparation start now.
 - (void)didConnectTransport:(CBPeripheral *)peripheral;
 
+/// Actual radio closure, before SDK cleanup; metadata-only diagnostics.
+- (void)didDisconnectTransport:(CBPeripheral *)peripheral error:(nullable NSError *)error;
+
 /// System Bluetooth state changed. 系统蓝牙开关状态变化
 - (void)didBluetoothState:(QCBluetoothState)state;
 

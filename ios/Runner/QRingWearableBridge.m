@@ -11,6 +11,28 @@
 
 typedef void (^QRingNext)(void);
 
+// Bounded Debug-only diagnostics; never record identity or health payloads.
+static void RingControlTrace(NSString *phase, NSDictionary *values) {
+#if DEBUG
+    NSString *path = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"RingControlTrace.jsonl"];
+    NSMutableDictionary *entry = [values mutableCopy];
+    entry[@"phase"] = phase;
+    entry[@"uptime"] = @(NSProcessInfo.processInfo.systemUptime);
+    NSData *data = [NSJSONSerialization dataWithJSONObject:entry options:0 error:nil];
+    if (!data) return;
+    if ([NSFileManager.defaultManager attributesOfItemAtPath:path error:nil].fileSize > 65536) {
+        [NSData.data writeToFile:path atomically:YES];
+    }
+    if (![NSFileManager.defaultManager fileExistsAtPath:path]) [NSFileManager.defaultManager createFileAtPath:path contents:nil attributes:@{NSFileProtectionKey:NSFileProtectionCompleteUntilFirstUserAuthentication}];
+    NSFileHandle *file = [NSFileHandle fileHandleForWritingAtPath:path];
+    @try {
+        [file seekToEndOfFile]; [file writeData:data]; [file writeData:[@"\n" dataUsingEncoding:NSUTF8StringEncoding]];
+    } @catch (__unused NSException *exception) {} @finally { [file closeFile]; }
+#else
+    (void)phase; (void)values;
+#endif
+}
+
 static void QRingOnMain(QRingNext block) {
     if (NSThread.isMainThread) { block(); }
     else { dispatch_async(dispatch_get_main_queue(), block); }
@@ -240,6 +262,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         return;
     }
     [self finishScan];
+    RingControlTrace(@"connection-requested", @{@"recovery": @NO});
     self.pendingConnect = result;
     self.recoveryRetryNotBefore = 0;
     self.featureList = nil;
@@ -283,6 +306,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         self.featureList = nil;
         self.connectionGeneration++;
         self.recoveryConnecting = YES;
+        RingControlTrace(@"connection-requested", @{@"recovery": @YES});
         [self emit:@"recoveryState" payload:@{@"status": @"waiting", @"deviceId": self.connectedID}];
         // CoreBluetooth owns one indefinite pending request until proximity.
         // Only the SDK handshake receives a deadline after the radio connects.
@@ -405,6 +429,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         return;
     }
     NSUInteger generation = ++self.connectionGeneration;
+    RingControlTrace(@"connection-sdk-registered", @{@"generation": @(generation)});
     __weak typeof(self) weakSelf = self;
     [QCSDKCmdCreator setTime:NSDate.date success:^(NSDictionary *featureList) {
       QRingOnMain(^{
@@ -414,16 +439,21 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
             [self failConnect:@"QRING_HANDSHAKE_FAILED" message:@"戒指未返回功能列表，请重试"];
             return;
         }
-        self.featureList = featureList;
+        [self resolveExtendedCapabilities:featureList.copy generation:generation attempt:0 completion:^(NSDictionary *resolvedFeatures) {
+        if (![self isCurrentConnection:generation]) { return; }
+        self.featureList = [resolvedFeatures copy];
+        RingControlTrace(@"connection-capabilities", @{@"generation": @(generation)});
         // QRing has one command channel. Finish setup/details before Flutter
         // can start history sync or a measurement on that channel.
         [self writeProfileWithCompletion:^{
           QRingOnMain(^{
             if (![weakSelf isCurrentConnection:generation]) { return; }
+            RingControlTrace(@"connection-profile-finished", @{@"generation": @(generation)});
             [weakSelf readDeviceDetailsWithCompletion:^{
                 if (![weakSelf isCurrentConnection:generation]) { return; }
                 [weakSelf probeRemoteCamera:^{
                 if (![weakSelf isCurrentConnection:generation]) { return; }
+                RingControlTrace(@"connection-ready", @{@"generation": @(generation)});
                 FlutterResult result = weakSelf.pendingConnect;
                 weakSelf.pendingConnect = nil;
                 weakSelf.connectDeadlineGeneration++;
@@ -437,6 +467,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
             }];
           });
         }];
+        }];
       });
     } failed:^{
       QRingOnMain(^{
@@ -449,6 +480,48 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         if ([weakSelf isCurrentConnection:generation] && weakSelf.pendingConnect) {
             [weakSelf failConnect:@"QRING_HANDSHAKE_TIMEOUT" message:@"戒指连接准备超时，请靠近手机后重试"];
         }
+    });
+}
+
+// setTime may succeed with only the basic time-response dictionary when its
+// internal extended-feature read fails. Missing control bits are unknown until
+// an independent extended read succeeds; never infer support from saved names.
+- (void)resolveExtendedCapabilities:(NSDictionary *)features generation:(NSUInteger)generation attempt:(NSUInteger)attempt completion:(void (^)(NSDictionary *))completion {
+    if (![self isCurrentConnection:generation]) { return; }
+    if ([features[QCBandFeatureGestureControl] isEqual:@YES] ||
+        [features[QCBandFeatureTouchControl] isEqual:@YES]) {
+        completion(features); return;
+    }
+    if (attempt >= 2) {
+        RingControlTrace(@"feature-config-unconfirmed", @{@"generation": @(generation)});
+        // Preserve confirmed basic functions and the healthy radio link.
+        // Failed reads cannot restore controls from a previous connection.
+        completion(features); return;
+    }
+    __weak typeof(self) weakSelf = self;
+    // Read-only retry, after the SDK has left its previous command callback.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (attempt == 0 ? 200 : 400) * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        if (![weakSelf isCurrentConnection:generation]) { return; }
+        RingControlTrace(@"feature-config-read", @{@"generation": @(generation), @"attempt": @(attempt + 1)});
+        __block BOOL answered = NO;
+        QRingNext retry = ^{
+            QRingOnMain(^{
+                if (answered) { return; }
+                answered = YES;
+                [weakSelf resolveExtendedCapabilities:features generation:generation attempt:attempt + 1 completion:completion];
+            });
+        };
+        [QCSDKCmdCreator getDeviceFeatureConfigSuccess:^(NSDictionary *extended) {
+          QRingOnMain(^{
+            if (answered || ![weakSelf isCurrentConnection:generation]) { return; }
+            if (![extended isKindOfClass:NSDictionary.class]) { retry(); return; }
+            answered = YES;
+            NSMutableDictionary *merged = [features mutableCopy];
+            [merged addEntriesFromDictionary:extended];
+            RingControlTrace(@"feature-config-confirmed", @{@"generation": @(generation), @"gesture": @([extended[QCBandFeatureGestureControl] isEqual:@YES]), @"touch": @([extended[QCBandFeatureTouchControl] isEqual:@YES])});
+            completion(merged.copy);
+          });
+        } fail:retry];
     });
 }
 
@@ -599,12 +672,14 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 - (void)readDeviceDetailsWithCompletion:(QRingNext)completion {
     NSUInteger generation = self.connectionGeneration;
     self.readingDetails = YES;
+    RingControlTrace(@"battery-start", @{@"generation": @(generation)});
     __block BOOL finished = NO;
     __weak typeof(self) weakSelf = self;
     QRingNext finish = ^{
         if (finished) { return; }
         finished = YES;
         if (generation == weakSelf.connectionGeneration) { weakSelf.readingDetails = NO; }
+        RingControlTrace(@"details-finished", @{@"generation": @(generation)});
         completion();
     };
     QRingNext readFirmware = ^{
@@ -614,11 +689,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         // Empty/failed reads remain retryable on the next details request.
         if (weakSelf.firmware.length > 0) { finish(); return; }
         // The bundled SDK invokes this callback as (hardware, software).
+        RingControlTrace(@"firmware-start", @{@"generation": @(generation)});
         [QCSDKCmdCreator getDeviceSoftAndHardVersionSuccess:^(__unused NSString *hardware, NSString *software) {
           QRingOnMain(^{
             if (!finished && [weakSelf isCurrentConnection:generation]) {
                 weakSelf.firmware = software ?: @"";
             }
+            RingControlTrace(@"firmware-finished", @{@"generation": @(generation)});
             finish();
           });
         } fail:^{ QRingOnMain(finish); }];
@@ -631,6 +708,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
             weakSelf.charging = @(charging);
             weakSelf.batteryUpdatedAt = NSDate.date;
         }
+        RingControlTrace(@"battery-finished", @{@"generation": @(generation)});
         readFirmware();
       });
     } failed:^{ QRingOnMain(readFirmware); }];
@@ -1395,6 +1473,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 // Photo UI ACKs verify the session protocol; HID photo flags describe a
 // different, persistent control mode and must not gate shake-to-shoot.
 - (void)probeRemoteCamera:(QRingNext)completion {
+    RingControlTrace(@"probe-start", @{@"gesture": @([self cameraFlag:QCBandFeatureGestureControl]), @"touch": @([self cameraFlag:QCBandFeatureTouchControl]), @"screenTouch": @([self cameraFlag:QCBandFeatureTouchControlOfScreenDevice]), @"generation": @(self.connectionGeneration)});
     self.remoteCameraSupported = NO;
     NSUInteger connection = self.connectionGeneration;
     NSUInteger operation = ++self.cameraOperation;
@@ -1411,11 +1490,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         if (!done && operation == weakSelf.cameraOperation) {
+            RingControlTrace(@"probe-timeout", @{@"generation": @(connection)});
             weakSelf.cameraPoisonGeneration = connection;
             finish();
         }
     });
     void (^exit)(BOOL) = ^(BOOL accepted) {
+        RingControlTrace(@"probe-enter", @{@"accepted": @(accepted), @"generation": @(connection)});
         // Always defer past the SDK's callback queue cleanup.
         dispatch_async(dispatch_get_main_queue(), ^{
             if (done || operation != weakSelf.cameraOperation || ![weakSelf isCurrentConnection:connection]) { return; }
@@ -1423,6 +1504,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
                 dispatch_async(dispatch_get_main_queue(), ^{
                     if (done || operation != weakSelf.cameraOperation || ![weakSelf isCurrentConnection:connection]) { return; }
                     weakSelf.remoteCameraSupported = accepted;
+                    RingControlTrace(@"probe-exit-confirmed", @{@"generation": @(connection)});
                     finish();
                 });
             } fail:^{ dispatch_async(dispatch_get_main_queue(), finish); }];
@@ -1565,6 +1647,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)gestureControl:(NSDictionary *)arguments write:(BOOL)write result:(FlutterResult)result {
+    RingControlTrace(@"gesture-start", @{@"write": @(write), @"generation": @(self.connectionGeneration), @"poisoned": @(self.cameraPoisonGeneration == self.connectionGeneration), @"pendingSync": @(self.pendingSync != nil), @"pendingConnect": @(self.pendingConnect != nil), @"pendingCamera": @(self.pendingCamera != nil), @"readingDetails": @(self.readingDetails)});
     if (![self supportsGesture]) {
         result([self error:@"QRING_FEATURE_UNVERIFIED" message:@"此戒指未确认支持手势控制"]); return;
     }
@@ -1624,14 +1707,19 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
             NSInteger strength = [snapshot[@"strength"] integerValue];
             NSInteger duration = [snapshot[@"duration"] integerValue];
             weakSelf.cameraPhase = 1;
+            __block NSDictionary *confirmedReadback = nil;
             readback = ^(NSInteger attempt) {
                 if (!current() || weakSelf.cameraPhase != 2) { readback = nil; return; }
                 [weakSelf readCameraTouch:touch completion:^(NSDictionary *actual, NSError *readError) {
                     if (!current() || weakSelf.cameraPhase != 2) { readback = nil; return; }
-                    BOOL matches = !readError && actual && [actual[@"mode"] integerValue] == expected &&
-                        [snapshot[@"strength"] isEqual:actual[@"strength"]] &&
-                        [snapshot[@"duration"] isEqual:actual[@"duration"]];
-                    if (matches) { readback = nil; finish(nil); return; }
+                    BOOL matches = !readError && QRingGestureReadbackMatches(snapshot, actual, expected);
+                    // The SDK's setter callback is send completion, not device
+                    // confirmation. Require two equal independent reads so a
+                    // delayed write response cannot alone confirm the setting.
+                    if (matches && [confirmedReadback isEqualToDictionary:actual]) {
+                        readback = nil; finish(nil); return;
+                    }
+                    confirmedReadback = matches ? [actual copy] : nil;
                     if (attempt >= 2) { readback = nil; fail(); return; }
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 400 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
                         if (readback) { readback(attempt + 1); }
@@ -1666,18 +1754,20 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)readCameraTouch:(BOOL)touch completion:(void (^)(NSDictionary *, NSError *))completion {
+    BOOL screenTouch = touch && [self cameraFlag:QCBandFeatureTouchControlOfScreenDevice];
     // Start the next SDK command outside its response callback stack.
     void (^finish)(QCTouchGestureControlType, NSInteger, BOOL, NSInteger, NSError *) =
     ^(QCTouchGestureControlType mode, NSInteger strength, __unused BOOL sleeping, NSInteger duration, NSError *error) {
+        RingControlTrace(@"control-snapshot", @{@"mode": @(mode), @"strength": @(strength), @"sleeping": @(sleeping), @"duration": @(duration), @"error": @(error != nil), @"errorCode": @(error.code), @"touch": @(touch), @"screenTouch": @(screenTouch), @"accepted": @(QRingCameraSnapshot(mode, strength, touch, duration, screenTouch) != nil)});
         dispatch_async(dispatch_get_main_queue(), ^{
-            completion(error ? nil : QRingCameraSnapshot(mode, strength, touch, duration), error);
+            completion(error ? nil : QRingCameraSnapshot(mode, strength, touch, duration, screenTouch), error);
         });
     };
     if (!touch) {
         [QCSDKCmdCreator getGestureControlFinshed:^(QCTouchGestureControlType mode, NSInteger strength, BOOL sleeping, NSError *error) {
             finish(mode, strength, sleeping, 0, error);
         }];
-    } else if ([self cameraFlag:QCBandFeatureTouchControlOfScreenDevice]) {
+    } else if (screenTouch) {
         [QCSDKCmdCreator getTouchControlOfScreenDevieFinshed:finish];
     } else {
         [QCSDKCmdCreator getTouchControlFinshed:finish];
@@ -1800,12 +1890,12 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         [@[@"readAutoMeasureSettings", @"setAutoMeasureSetting", @"readAutoMeasureIntervals", @"setAutoMeasureInterval"] containsObject:call.method]) {
         result([self error:@"QRING_SETTING_UNCONFIRMED" message:@"请重新连接后读取监测设置"]); return;
     }
-    NSSet *commands = [NSSet setWithArray:@[@"clearRingHistory", @"syncHealthData", @"startMeasurement", @"startSport", @"readSportRecords", @"readAutoMeasureSettings", @"setAutoMeasureSetting", @"readAutoMeasureIntervals", @"setAutoMeasureInterval", @"triggerDeviceAction", @"readDeviceFeature", @"writeDeviceFeature"]];
+    NSSet *commands = [NSSet setWithArray:@[@"clearRingHistory", @"syncHealthData", @"startMeasurement", @"startSport", @"readSportRecords", @"readAutoMeasureSettings", @"setAutoMeasureSetting", @"readAutoMeasureIntervals", @"setAutoMeasureInterval", @"triggerDeviceAction", @"readDeviceFeature", @"writeDeviceFeature", @"pulseHealthReminder"]];
     if (([self.factoryResetGeneration isEqual:@(self.connectionGeneration)] ||
          [self.factoryInitializingGeneration isEqual:@(self.connectionGeneration)]) && [commands containsObject:call.method]) {
         result([self error:@"DEVICE_BUSY" message:@"戒指正在重置，请重新连接后继续"]); return;
     }
-    if ((self.pendingCamera || self.remoteCameraActive) && [commands containsObject:call.method]) {
+    if ((self.pendingCamera || self.remoteCameraActive || self.readingDetails) && [commands containsObject:call.method]) {
         result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return;
     }
     if ([call.method isEqualToString:@"scanDevices"]) { [self startScan:result]; }
@@ -1895,6 +1985,16 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         [self resolveCapabilities]; return;
     }
     if (state == QCStateDisconnected || state == QCStateUnbind) {
+        // The central reports state before its failure callback. Preserve the
+        // failed handshake cooldown before retiring its in-flight flags; normal
+        // established-session drops still re-arm on the next main-loop turn.
+        BOOL handshakeInterrupted = (self.pendingConnect || self.recoveryConnecting) &&
+            !self.pendingDisconnect && !self.cancellingConnection;
+        if (handshakeInterrupted) {
+            self.recoveryRetryNotBefore = MAX(self.recoveryRetryNotBefore,
+                NSProcessInfo.processInfo.systemUptime + 2);
+        }
+        RingControlTrace(@"connection-disconnected", @{@"generation": @(self.connectionGeneration), @"handshakeInterrupted": @(handshakeInterrupted), @"intentional": @(self.pendingDisconnect != nil || self.cancellingConnection)});
         [self resetRemoteCamera];
         self.remoteCameraSupported = NO;
         [self finishCamera:[self error:@"QRING_DISCONNECTED" message:@"戒指已断开"]];
@@ -1927,19 +2027,39 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         self.activeSportMode = nil;
         self.activeSportType = -1;
         if (self.pendingConnect) { [self failConnect:@"QRING_DISCONNECTED" message:@"戒指连接中断，请靠近手机后重试"]; }
-        else if (retired.length) { [self emit:@"disconnected" payload:@{@"deviceId": retired}]; }
+        else {
+            if (retired.length) { [self emit:@"disconnected" payload:@{@"deviceId": retired}]; }
+            // SDK registration can fail while CoreBluetooth still owns a live
+            // radio. Retire that exact transport before the next SDK attempt.
+            CBPeripheral *failed = self.central.connectedPeripheral;
+            if (handshakeInterrupted && failed && failed.state != CBPeripheralStateDisconnected) {
+                self.cancellingConnection = YES;
+                RingControlTrace(@"recovery-cancel-failed-transport", @{@"generation": @(self.connectionGeneration), @"radioState": @(failed.state)});
+                [self.central disconnect];
+            }
+        }
         [self scheduleRecoveryAfterDisconnect];
     }
 }
 
 - (void)didConnectTransport:(CBPeripheral *)peripheral {
+    RingControlTrace(@"connection-transport", @{@"generation": @(self.connectionGeneration), @"radioState": @(peripheral.state)});
     if (self.recoveryConnecting &&
         [peripheral.identifier.UUIDString isEqualToString:self.connectedID]) {
         [self scheduleConnectDeadline];
     }
 }
 
-- (void)didFailConnected:(__unused CBPeripheral *)peripheral error:(__unused NSError *)error {
+- (void)didDisconnectTransport:(CBPeripheral *)peripheral error:(NSError *)error {
+    RingControlTrace(@"transport-disconnected", @{@"code": @(error.code),
+        @"coreBluetoothError": @([error.domain isEqualToString:CBErrorDomain]),
+        @"radioState": @(peripheral.state), @"intentional": @(self.cancellingConnection || self.pendingDisconnect != nil)});
+}
+
+- (void)didFailConnected:(CBPeripheral *)peripheral error:(NSError *)error {
+    NSString *cause = [error.domain isEqualToString:@"Connect fail"] ? @"sdk_registration" :
+        [error.domain isEqualToString:CBErrorDomain] ? @"core_bluetooth" : @"other";
+    RingControlTrace(@"connection-failed", @{@"cause": cause, @"code": @(error.code), @"radioState": @(peripheral.state)});
     if (self.pendingConnect || self.recoveryConnecting) {
         [self failConnect:@"QRING_CONNECT_FAILED" message:@"戒指连接失败，请靠近手机后重试"];
     }

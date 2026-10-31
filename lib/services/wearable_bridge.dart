@@ -310,6 +310,15 @@ abstract interface class WearableRememberedRecoveryEligibilityBridge {
   Future<bool> canAutomaticallyRecoverRememberedDevice();
 }
 
+/// User-requested recovery of an already owner-confirmed exact target.
+/// Starting native recovery is not proof of a completed vendor handshake.
+abstract interface class WearableDirectRememberedRecoveryBridge {
+  Future<({bool started, DeviceInfo? device})> restoreRememberedDeviceDirectly({
+    required String expectedDeviceId,
+    required WearableUserProfile profile,
+  });
+}
+
 /// Optional exact-target recovery, used by QRing after a successful binding.
 /// Null cancels native recovery; a target is only armed by the scoped router.
 abstract interface class WearableExactTargetRecoveryBridge {

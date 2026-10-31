@@ -16,19 +16,9 @@ class RingGestureQuickStart extends StatelessWidget {
         children: [
           const Text(
             '三步开始',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
           ),
-          const SizedBox(height: 12),
-          const Text(
-            '兼容性提示：手势控制需要手机型号和系统支持，部分手机型号可能不支持。实际效果还取决于戒指固件及目标 App 的兼容性；模式开启不代表所有手机或 App 都能使用。',
-            key: ValueKey('gesture-phone-compatibility'),
-            style: TextStyle(
-              fontSize: 14,
-              height: 1.5,
-              color: SaydianColors.muted,
-            ),
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           LayoutBuilder(
             builder: (context, constraints) {
               final stacked =
@@ -42,9 +32,9 @@ class RingGestureQuickStart extends StatelessWidget {
                 runSpacing: 10,
                 children: [
                   for (final step in const [
-                    (Icons.bluetooth_connected_rounded, '连接戒指', '确认已连接'),
-                    (Icons.touch_app_outlined, '选择场景', '等待指令确认'),
-                    (Icons.open_in_new_rounded, '打开 App', '按原厂手势操作'),
+                    (Icons.touch_app_outlined, '1 选场景', '点下方卡片'),
+                    (Icons.check_circle_outline_rounded, '2 等确认', '确认后再操作'),
+                    (Icons.open_in_new_rounded, '3 去使用', '打开对应 App'),
                   ])
                     SizedBox(
                       width: width,
@@ -54,13 +44,13 @@ class RingGestureQuickStart extends StatelessWidget {
                           Icon(
                             step.$1,
                             color: SaydianColors.techBlue,
-                            size: 25,
+                            size: 22,
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 6),
                           Text(
                             step.$2,
                             style: const TextStyle(
-                              fontSize: 17,
+                              fontSize: 15,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -80,10 +70,20 @@ class RingGestureQuickStart extends StatelessWidget {
               );
             },
           ),
+          const SizedBox(height: 12),
+          const Text(
+            '效果取决于戒指、手机和目标 App，部分手机型号可能不支持。',
+            key: ValueKey('gesture-phone-compatibility'),
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.4,
+              color: SaydianColors.muted,
+            ),
+          ),
           if (defaultTargetPlatform == TargetPlatform.android) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             const Text(
-              '首次开启时如手机弹出蓝牙配对请求，请核对戒指后确认。系统配对完成后仍需等待模式指令确认。',
+              '若弹出蓝牙配对请求，核对是当前戒指后再确认。',
               style: TextStyle(
                 fontSize: 13,
                 height: 1.4,
@@ -104,11 +104,11 @@ class RingGestureGuide extends StatelessWidget {
 
   static String modeHint(int mode) => switch (mode) {
     0 => '用完后关闭，避免误操作和额外耗电',
-    1 => '选择后打开支持的短视频 App，再操作戒指',
-    2 => '选择后进入音乐播放页，再操作戒指',
-    3 => '选择后打开阅读页；翻页取决于阅读 App 支持',
-    4 => '系统相机控制取决于固件；App 内拍照请用“${DeviceFeature.camera.label}”',
-    5 => '电话控制取决于固件和系统配对，不等于开启来电提醒',
+    1 => '打开支持的短视频 App，再按戒指说明操作',
+    2 => '打开音乐播放器，再按戒指说明操作',
+    3 => '打开支持翻页的阅读 App，再按戒指说明操作',
+    4 => '尝试控制系统相机；App 内拍照请用“${DeviceFeature.camera.label}”',
+    5 => '按戒指说明控制支持的通话，不等于开启来电提醒',
     _ => '',
   };
 
@@ -123,23 +123,19 @@ class RingGestureGuide extends StatelessWidget {
       childrenPadding: const EdgeInsets.only(bottom: 12),
       leading: const Icon(Icons.help_outline_rounded),
       title: const Text('使用说明'),
-      subtitle: const Text('操作细节与无反应排查'),
+      subtitle: const Text('手势怎么做？没有反应怎么办？'),
       expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _GuideSection('使用前', [
-          '1. 戒指靠近$phone，先确认设备页显示“已连接”。',
-          '2. 若手机弹出蓝牙配对请求，核对是这枚戒指后点“配对”。App 已连接不代表系统配对已完成。',
-          '3. 选择下方模式，等指令确认后，再打开对应 App 操作戒指。',
-        ]),
         _GuideSection('操作方法', [
-          '不同型号的触控次数和手势动作不同，请按当前戒指的原厂说明操作；不要把触控款用法套到其他型号。',
-          'App 内拍照：返回设备功能，打开“${DeviceFeature.camera.label}”，允许相机与照片保存权限，保持拍照页在前台。',
-          '用完后回到这里选择“关闭”。',
+          '按这枚戒指的说明操作。不同型号的触控次数和动作可能不同。',
+          'App 内拍照：到设备页打开“${DeviceFeature.camera.label}”，允许相机与照片保存权限，并保持拍照页在前台。',
+          '用完可选择“关闭”，减少误操作。',
         ]),
         _GuideSection('没有反应？', [
-          '先确认仍已连接、模式指令已确认，目标 App 正在前台。',
-          '在$phone“设置 → 蓝牙”检查戒指配对状态；同时断开其他手机或其他戒指 App 的连接。',
-          '仍无反应时关闭模式再重选。效果受戒指固件、手机系统和目标 App 兼容性限制，不支持所有 App。',
+          '先确认戒指仍已连接、场景已确认，目标 App 在前台。',
+          '在$phone“设置 → 蓝牙”检查配对。App 已连接不代表系统配对已完成；若弹出配对请求，请核对这枚戒指后确认。',
+          '若戒指连接了其他手机或戒指 App，先断开那边。',
+          '仍无反应时关闭模式再重选。部分手机、固件或 App 不支持手势控制。',
         ]),
       ],
     );

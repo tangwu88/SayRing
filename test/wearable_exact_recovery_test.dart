@@ -21,6 +21,7 @@ const _id = '11111111-2222-4333-8444-555555555555';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   _bindingRaceTests();
+  _directRecoveryTests();
 
   test(
     'v2 saves environment and owner and rejects a foreign environment',
@@ -262,6 +263,151 @@ void main() {
   );
 }
 
+void _directRecoveryTests() {
+  const saved = SavedWearableBinding(
+    WearableTransport.qring,
+    _id,
+    deviceName: 'R21',
+    ownerKey: 'owner-a',
+  );
+  test(
+    'manual direct recovery arms only the verified exact QRing and does not claim ready',
+    () async {
+      final store = _Store(saved);
+      final qring = _QRing();
+      final bridge = _bridge(store, qring);
+      addTearDown(bridge.dispose);
+      await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+      qring.targets.clear();
+      final result = await bridge.restoreRememberedDeviceDirectly(
+        expectedDeviceId: 'qring:$_id',
+        profile: _profile,
+      );
+      expect(result.started, isTrue);
+      expect(result.device, isNull);
+      expect(qring.targets, [_id]);
+      expect(qring.scanCount, 0);
+      expect(qring.connects, isEmpty);
+      expect(store.binding, same(saved));
+      expect(store.writeCount, 0);
+      // An app-resume restore while the native handshake is pending must reuse
+      // the already armed request, not cancel its probe with another configure.
+      expect(await bridge.restoreConnection(profile: _profile), isNull);
+      expect(qring.targets, [_id]);
+      expect(qring.scanCount, 0);
+      await bridge.disconnect();
+      expect(
+        (await bridge.restoreRememberedDeviceDirectly(
+          expectedDeviceId: 'qring:$_id',
+          profile: _profile,
+        )).started,
+        isTrue,
+      );
+      expect(qring.targets.where((target) => target == _id).length, 2);
+    },
+  );
+
+  for (final entry in <String, SavedWearableBinding?>{
+    'legacy': const SavedWearableBinding(
+      WearableTransport.qring,
+      _id,
+      deviceName: 'R21',
+    ),
+    'foreign owner': const SavedWearableBinding(
+      WearableTransport.qring,
+      _id,
+      deviceName: 'R21',
+      ownerKey: 'owner-b',
+    ),
+    'another target': const SavedWearableBinding(
+      WearableTransport.qring,
+      '22222222-2222-4333-8444-555555555555',
+      deviceName: 'R21',
+      ownerKey: 'owner-a',
+    ),
+    'other SDK': const SavedWearableBinding(
+      WearableTransport.coolwear,
+      _id,
+      deviceName: 'R7 Pro',
+      ownerKey: 'owner-a',
+    ),
+    'unaccepted name': const SavedWearableBinding(
+      WearableTransport.qring,
+      _id,
+      deviceName: 'HR05',
+      ownerKey: 'owner-a',
+    ),
+    'missing name': const SavedWearableBinding(
+      WearableTransport.qring,
+      _id,
+      ownerKey: 'owner-a',
+    ),
+    'missing binding': null,
+  }.entries) {
+    test(
+      'manual direct recovery rejects ${entry.key} without radio activity',
+      () async {
+        final store = _Store(entry.value);
+        final qring = _QRing();
+        final bridge = _bridge(store, qring);
+        addTearDown(bridge.dispose);
+        await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+        qring.targets.clear();
+        final result = await bridge.restoreRememberedDeviceDirectly(
+          expectedDeviceId: 'qring:$_id',
+          profile: _profile,
+        );
+        expect(result.started, isFalse);
+        expect(result.device, isNull);
+        expect(qring.targets, isEmpty);
+        expect(qring.scanCount, 0);
+        expect(qring.connects, isEmpty);
+        expect(store.binding, same(entry.value));
+      },
+    );
+  }
+
+  test(
+    'owner changes during direct lookup cannot arm the previous target',
+    () async {
+      final store = _Store(saved);
+      final qring = _QRing();
+      final bridge = _bridge(store, qring);
+      addTearDown(bridge.dispose);
+      await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+      qring.targets.clear();
+      store.delayedRead = Completer<SavedWearableBinding?>();
+      final starting = bridge.restoreRememberedDeviceDirectly(
+        expectedDeviceId: 'qring:$_id',
+        profile: _profile,
+      );
+      await Future<void>.delayed(Duration.zero);
+      await bridge.setRecoveryContext(ownerKey: 'owner-b', profile: _profile);
+      store.delayedRead!.complete(saved);
+      expect((await starting).started, isFalse);
+      expect(qring.targets.whereType<String>(), isEmpty);
+      expect(qring.connects, isEmpty);
+    },
+  );
+
+  test(
+    'direct recovery returns only details verified by the native connection',
+    () async {
+      final qring = _QRing()..connected = true;
+      final bridge = _bridge(_Store(saved), qring);
+      addTearDown(bridge.dispose);
+      await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+      final result = await bridge.restoreRememberedDeviceDirectly(
+        expectedDeviceId: 'qring:$_id',
+        profile: _profile,
+      );
+      expect(result.started, isTrue);
+      expect(result.device?.id, 'qring:$_id');
+      expect(qring.connects, isEmpty);
+    },
+  );
+}
+
 void _bindingRaceTests() {
   test(
     'account transition during optional details cannot persist or arm old handshake',
@@ -336,9 +482,11 @@ class _Store implements WearableBindingPreferenceStore {
   SavedWearableBinding? binding;
   final writeStarted = Completer<void>();
   Completer<void>? delayedWrite;
+  Completer<SavedWearableBinding?>? delayedRead;
   int writeCount = 0;
   @override
-  Future<SavedWearableBinding?> readBinding() async => binding;
+  Future<SavedWearableBinding?> readBinding() async =>
+      delayedRead == null ? binding : await delayedRead!.future;
   @override
   Future<void> writeBinding(SavedWearableBinding value) async {
     writeCount++;

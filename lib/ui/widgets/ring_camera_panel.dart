@@ -15,12 +15,14 @@ class RingCameraPanel extends StatelessWidget {
     this.onRetrySave,
     this.onPhotoSettings,
     this.thumbnail,
+    this.cameraSettingsRequired = false,
   });
   final Widget preview;
   final String message;
   final bool remoteReady, takingPhoto, saved;
   final VoidCallback? onCapture, onRetryCamera, onRetrySave, onPhotoSettings;
   final Widget? thumbnail;
+  final bool cameraSettingsRequired;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -166,8 +168,12 @@ class RingCameraPanel extends StatelessWidget {
         TextButton.icon(
           key: const ValueKey('camera-retry-button'),
           onPressed: onRetryCamera,
-          icon: const Icon(Icons.refresh_rounded),
-          label: const Text('重新打开相机'),
+          icon: Icon(
+            cameraSettingsRequired
+                ? Icons.settings_outlined
+                : Icons.refresh_rounded,
+          ),
+          label: Text(cameraSettingsRequired ? '前往设置开启相机' : '重新打开相机'),
         ),
     ],
   );

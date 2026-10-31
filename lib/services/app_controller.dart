@@ -3515,6 +3515,42 @@ class AppController extends ChangeNotifier {
           ? '正在确认并重新连接保存的戒指'
           : '正在重新连接，戒指靠近后会自动连接';
       notifyListeners();
+      if (previous != null &&
+          previous.sdkSource == WearableSdkSource.qring &&
+          _privacyConsentGranted &&
+          _wearableAccountRecoveryAllowed &&
+          _canRecoverRememberedDevice &&
+          bridge is WearableDirectRememberedRecoveryBridge) {
+        var started = false;
+        final restoreGeneration = _wearableRestoreGeneration;
+        final restoring = () async {
+          final result =
+              await (bridge as WearableDirectRememberedRecoveryBridge)
+                  .restoreRememberedDeviceDirectly(
+                    expectedDeviceId: previous.id,
+                    profile: WearableUserProfile.fromMember(
+                      memberProfile,
+                      targetSteps: stepGoal,
+                    ),
+                  );
+          if (!isCurrent() || restoreGeneration != _wearableRestoreGeneration) {
+            return;
+          }
+          started = result.started;
+          if (result.device != null && connectedDevice == null) {
+            await _restoreReconnectedDevice(result.device!.toJson());
+          }
+        }();
+        _wearableRestoreInFlight = restoring;
+        try {
+          await restoring;
+        } finally {
+          if (identical(_wearableRestoreInFlight, restoring)) {
+            _wearableRestoreInFlight = null;
+          }
+        }
+        if (!isCurrent() || started) return;
+      }
       if (bridge is WearableBindingManagementBridge) {
         final prepared = await (bridge as WearableBindingManagementBridge)
             .prepareRememberedDevice();
@@ -4785,6 +4821,22 @@ class AppController extends ChangeNotifier {
         error,
         fallback: '${feature.label}暂时无法读取',
       );
+      if (feature == DeviceFeature.gestureControl &&
+          connectedDevice?.sdkSource == WearableSdkSource.qring &&
+          const {
+            'QRING_CONTROL_UNCONFIRMED',
+            'QRING_CONTROL_RECONNECT',
+          }.contains(error.code)) {
+        // AppShell consumes the shared snackbar error. Keep this connection's
+        // unsafe-retry state separately, without retaining a confirmed mode.
+        final failure = <String, Object?>{
+          'requiresReconnect': true,
+          'readbackVerified': false,
+          'errorMessage': errorMessage,
+        };
+        deviceFeatureData = {...deviceFeatureData, feature: failure};
+        return failure;
+      }
       return const {};
     } catch (_) {
       if (!isCurrent()) return const {};
@@ -4866,6 +4918,21 @@ class AppController extends ChangeNotifier {
         error,
         fallback: '${feature.label}保存失败',
       );
+      if (feature == DeviceFeature.gestureControl &&
+          connectedDevice?.sdkSource == WearableSdkSource.qring &&
+          const {
+            'QRING_CONTROL_UNCONFIRMED',
+            'QRING_CONTROL_RECONNECT',
+          }.contains(error.code)) {
+        deviceFeatureData = {
+          ...deviceFeatureData,
+          feature: {
+            'requiresReconnect': true,
+            'readbackVerified': false,
+            'errorMessage': errorMessage,
+          },
+        };
+      }
       return false;
     } catch (_) {
       if (!isCurrent()) return false;

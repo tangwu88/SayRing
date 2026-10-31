@@ -5,6 +5,7 @@ import 'package:camera/camera.dart';
 // ignore: depend_on_referenced_packages
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/feature_models.dart';
 import 'package:saydian_app/domain/models.dart';
@@ -18,6 +19,7 @@ import 'package:saydian_app/ui/prototype_pages.dart';
 class _Camera extends CameraPlatform {
   int created = 0;
   int disposed = 0;
+  String? accessError;
   Completer<void>? disposeGate;
   final initialized = <int, StreamController<CameraInitializedEvent>>{};
   final errors = StreamController<CameraErrorEvent>.broadcast();
@@ -39,6 +41,7 @@ class _Camera extends CameraPlatform {
     ResolutionPreset? resolution, {
     bool enableAudio = false,
   }) async {
+    if (accessError != null) throw CameraException(accessError!, 'permission');
     final id = ++created;
     initialized[id] = StreamController<CameraInitializedEvent>.broadcast();
     return id;
@@ -99,6 +102,103 @@ class _Wearable extends Fake implements WearableBridge {
 }
 
 void main() {
+  for (final denied in [true, false]) {
+    testWidgets(
+      'iOS camera ${denied ? 'denied' : 'restricted'} recovery',
+      (tester) async {
+        final original = CameraPlatform.instance;
+        final camera = _Camera()
+          ..accessError = denied
+              ? 'CameraAccessDeniedWithoutPrompt'
+              : 'CameraAccessRestricted';
+        CameraPlatform.instance = camera;
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        var settingsOpened = 0;
+        const permissions = MethodChannel(
+          'flutter.baseflow.com/permissions/methods',
+        );
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          permissions,
+          (call) async {
+            if (call.method == 'openAppSettings') {
+              settingsOpened++;
+              return true;
+            }
+            return null;
+          },
+        );
+        final app =
+            AppController(
+                MemorySessionVault(),
+                _Api(),
+                MemoryHealthStore(),
+                _Wearable(),
+              )
+              ..connectedDevice = const DeviceInfo(
+                id: 'qring:fixture',
+                name: 'R21',
+              )
+              ..deviceCapabilityState = DeviceCapabilityState.ready
+              ..capabilities = const DeviceCapabilities(
+                metrics: {},
+                features: {DeviceFeature.camera},
+                integratedFeatures: {DeviceFeature.camera},
+              );
+        addTearDown(() async {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+          app.dispose();
+          CameraPlatform.instance = original;
+          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            permissions,
+            null,
+          );
+        });
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DeviceFeaturePage(
+              controller: app,
+              feature: DeviceFeature.camera,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(CameraPreview), findsNothing);
+        if (denied) {
+          expect(find.text('前往设置开启相机'), findsOneWidget);
+          final retry = find.byKey(const Key('camera-retry-button'));
+          await tester.ensureVisible(retry);
+          await tester.pumpAndSettle();
+          await tester.tap(retry);
+          await tester.pumpAndSettle();
+          expect(settingsOpened, 1);
+          expect(camera.created, 0);
+        } else {
+          expect(find.textContaining('相机受到系统限制'), findsOneWidget);
+          expect(find.text('前往设置开启相机'), findsNothing);
+        }
+        // Once the user has changed the OS setting, returning to the app retries
+        // the actual camera initialization instead of retaining the old error.
+        camera.accessError = null;
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+        await tester.pumpAndSettle();
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(CameraPreview), findsOneWidget);
+        expect(find.text('前往设置开启相机'), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      },
+      variant: TargetPlatformVariant({TargetPlatform.iOS}),
+    );
+  }
   for (final state in ['resumed', 'background', 'owner-lost', 'unmounted']) {
     testWidgets(
       'camera delayed disposal followed by $state',
