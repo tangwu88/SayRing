@@ -12,6 +12,7 @@ typedef NS_ENUM(NSInteger, QCState) { QCStateUnkown, QCStateUnbind, QCStateConne
 typedef NS_ENUM(NSInteger, QCBluetoothState) { QCBluetoothStateUnkown, QCBluetoothStateResetting, QCBluetoothStateUnsupported, QCBluetoothStateUnauthorized, QCBluetoothStatePoweredOff, QCBluetoothStatePoweredOn };
 typedef NS_ENUM(NSInteger, QCDeviceType) { QCDeviceTypeUnkown, QCDeviceTypeWatch, QCDeviceTypeRing };
 static NSString *const QCLastConnectedIdentifier = @"synthetic-only";
+static NSString *const CBErrorDomain = @"CBErrorDomain";
 static NSUInteger checked;
 static NSTimeInterval now;
 static NSMutableArray<QRingNext> *immediate, *deadlines;
@@ -86,6 +87,8 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 - (void)didState:(QCState)state;
 - (void)didFailConnected:(CBPeripheral *)peripheral error:(NSError *)error;
 - (void)didConnectTransport:(CBPeripheral *)peripheral;
+@optional
+- (void)didDisconnectTransport:(CBPeripheral *)peripheral error:(NSError *)error;
 @end
 @interface SyntheticCentral : NSObject
 @property(nonatomic, weak) id<SyntheticDelegate> delegate;
@@ -113,7 +116,7 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 @property(nonatomic, copy) FlutterResult pendingConnect, pendingDisconnect, pendingSync;
 @property(nonatomic) BOOL recoveryConnecting, cancellingConnection, readingDetails, remoteCameraSupported;
 @property(nonatomic) NSTimeInterval recoveryRetryNotBefore;
-@property(nonatomic) NSUInteger connectionGeneration, connectDeadlineGeneration, measurementGeneration, syncGeneration;
+@property(nonatomic) NSUInteger connectionGeneration, connectDeadlineGeneration, measurementGeneration, syncGeneration, resolutions;
 @property(nonatomic, strong) NSNumber *battery, *charging;
 @property(nonatomic, strong) NSDate *batteryUpdatedAt;
 @property(nonatomic, copy) NSString *firmware, *activeMetric, *activeSportMode;
@@ -137,7 +140,11 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 - (BOOL)isBindDevice { return self.bound; }
 - (BOOL)finishRestoredCancellation:(__unused CBPeripheral *)peripheral { return NO; }
 - (void)startToReconnect { check(NO, @"bundled SDK must not independently reconnect"); }
-- (void)disconnect { self.disconnects++; }
+- (void)disconnect {
+    self.disconnects++; self.operationGeneration++;
+    if (self.connectedPeripheral.state != CBPeripheralStateDisconnected) self.deviceState = QCStateDisconnecting;
+    else { self.connectedPeripheral = nil; self.deviceState = QCStateDisconnected; }
+}
 - (void)connect:(CBPeripheral *)peripheral timeout:(NSInteger)timeout deviceType:(QCDeviceType)type {
     check(timeout == 0 && type == QCDeviceTypeRing, @"recovery must use one indefinite ring request");
     self.connects++; self.operationGeneration++; self.connectedPeripheral = peripheral;
@@ -148,7 +155,7 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 @implementation SyntheticBridge
 - (id)error:(NSString *)code message:(NSString *)message { return @{ @"code": code, @"message": message }; }
 - (void)emit:(NSString *)type payload:(NSDictionary *)payload { [self.events addObject:@{ @"type": type, @"payload": payload }]; }
-- (void)resolveCapabilities {}
+- (void)resolveCapabilities { self.resolutions++; }
 - (void)resetRemoteCamera {}
 - (void)finishCamera:(__unused id)error {}
 - (void)didConnectTransport:(__unused CBPeripheral *)peripheral {}
@@ -208,11 +215,37 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
     if ([scenario isEqual:@"automatic-failure"]) {
         beginRecovery(bridge); nativeFailure(bridge); checkCooldown(bridge);
         check(bridge.central.disconnects == 0, @"an already failed radio must not receive another cancellation");
-    } else if ([scenario isEqual:@"sdk-registration-failure"]) {
-        beginRecovery(bridge); bridge.central.connectedPeripheral.state = CBPeripheralStateConnected;
-        [bridge.central registerConnectedPeripheral:bridge.central.connectedPeripheral];
+    } else if ([scenario isEqual:@"sdk-registration-failure"] || [scenario isEqual:@"sdk-unbound-cache"] || [scenario isEqual:@"sdk-cancelled-owner"]) {
+        BOOL nativeBound = ![scenario isEqual:@"sdk-unbound-cache"];
+        bridge.central.bound = nativeBound;
+        beginRecovery(bridge); CBPeripheral *ring = bridge.central.connectedPeripheral;
+        ring.state = CBPeripheralStateConnected;
+        [bridge.central registerConnectedPeripheral:ring];
         check(registrationResult != nil, @"SDK registration callback must be pending");
-        registrationResult(NO); checkCooldown(bridge);
+        void (^oldSDK)(BOOL) = registrationResult;
+        registrationResult(NO);
+        check(bridge.recoveryRetryNotBefore == 102, @"failed handshake must preserve the two-second cooldown before flags are cleared");
+        check(bridge.central.disconnects == 1 && bridge.cancellingConnection, @"SDK failure on a live radio must cancel that transport before retry");
+        check(bridge.central.deviceState == QCStateDisconnecting && ring.state == CBPeripheralStateConnected, @"requesting cancellation must not pretend the radio is closed");
+        now = 102; for (QRingNext block in deadlines.copy) block();
+        [bridge startAutomaticRecovery];
+        check(bridge.central.connects == 0, @"cooldown expiry must not bypass actual cancellation");
+        [deadlines removeAllObjects]; [delays removeAllObjects]; [immediate removeAllObjects];
+        BOOL revoked = [scenario isEqual:@"sdk-cancelled-owner"];
+        if (revoked) { bridge.connectionGeneration++; bridge.recoveryTargetID=@""; bridge.recoveryContext=@""; }
+        ring.state = CBPeripheralStateDisconnected;
+        [bridge.central centralManager:bridge.central.centerManager didDisconnectPeripheral:ring error:nil];
+        check(!bridge.cancellingConnection && immediate.count == 1, @"confirmed radio closure must retire cancellation and rearm recovery");
+        immediate[0]();
+        if (revoked) {
+            check(bridge.central.connects == 0 && !bridge.recoveryConnecting, @"owner revoked while cancelling must not reconnect after radio closure");
+            oldSDK(NO); check(bridge.central.connects == 0, @"old callback must not revive a revoked owner");
+        } else {
+            check(bridge.central.connects == 1 && bridge.recoveryConnecting, @"closed failed transport must retry once with a fresh session");
+            oldSDK(NO);
+            check(bridge.central.connects == 1 && bridge.recoveryConnecting, @"late old registration failure cannot cancel the new attempt");
+            check([bridge.connectedID isEqual:bridge.recoveryTargetID] && [bridge.recoveryContext isEqual:@"synthetic:owner-a"] && bridge.central.bound == nativeBound, @"SDK failure cleanup must preserve exact owner and binding");
+        }
     } else if ([scenario isEqual:@"explicit-failure"]) {
         __block NSUInteger results = 0;
         beginRecovery(bridge); bridge.recoveryConnecting = NO;
@@ -268,6 +301,17 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         check(bridge.recoveryRetryNotBefore == 0, @"intentional cancellation must not be classified as handshake failure");
         for (QRingNext block in immediate.copy) block();
         check(bridge.central.connects == 0 && bridge.central.bound, @"intentional cancellation must not reconnect or remove binding in this bridge fixture");
+    } else if ([scenario isEqual:@"duplicate-state"]) {
+        bridge.central.deviceState = QCStateConnecting;
+        bridge.central.deviceState = QCStateConnected;
+        bridge.central.deviceState = QCStateConnected;
+        check(bridge.resolutions == 1, @"same connected state must not restart SDK preparation");
+        CBPeripheral *ring = bridge.central.connectedPeripheral;
+        ring.state = CBPeripheralStateDisconnected;
+        [bridge.central centralManager:bridge.central.centerManager didDisconnectPeripheral:ring error:failure()];
+        NSUInteger generation = bridge.connectionGeneration;
+        bridge.central.deviceState = QCStateDisconnected;
+        check(bridge.connectionGeneration == generation && immediate.count == 1, @"duplicate disconnected state must not retire or duplicate recovery");
     } else if ([scenario isEqual:@"power-state-diagnostic"]) {
         for (NSNumber *state in @[@(QCBluetoothStatePoweredOff), @(QCBluetoothStateResetting)]) {
             bridge = make(); beginRecovery(bridge);

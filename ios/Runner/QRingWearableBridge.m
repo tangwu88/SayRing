@@ -2027,20 +2027,39 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         self.activeSportMode = nil;
         self.activeSportType = -1;
         if (self.pendingConnect) { [self failConnect:@"QRING_DISCONNECTED" message:@"戒指连接中断，请靠近手机后重试"]; }
-        else if (retired.length) { [self emit:@"disconnected" payload:@{@"deviceId": retired}]; }
+        else {
+            if (retired.length) { [self emit:@"disconnected" payload:@{@"deviceId": retired}]; }
+            // SDK registration can fail while CoreBluetooth still owns a live
+            // radio. Retire that exact transport before the next SDK attempt.
+            CBPeripheral *failed = self.central.connectedPeripheral;
+            if (handshakeInterrupted && failed && failed.state != CBPeripheralStateDisconnected) {
+                self.cancellingConnection = YES;
+                RingControlTrace(@"recovery-cancel-failed-transport", @{@"generation": @(self.connectionGeneration), @"radioState": @(failed.state)});
+                [self.central disconnect];
+            }
+        }
         [self scheduleRecoveryAfterDisconnect];
     }
 }
 
 - (void)didConnectTransport:(CBPeripheral *)peripheral {
-    RingControlTrace(@"connection-transport", @{@"generation": @(self.connectionGeneration)});
+    RingControlTrace(@"connection-transport", @{@"generation": @(self.connectionGeneration), @"radioState": @(peripheral.state)});
     if (self.recoveryConnecting &&
         [peripheral.identifier.UUIDString isEqualToString:self.connectedID]) {
         [self scheduleConnectDeadline];
     }
 }
 
-- (void)didFailConnected:(__unused CBPeripheral *)peripheral error:(__unused NSError *)error {
+- (void)didDisconnectTransport:(CBPeripheral *)peripheral error:(NSError *)error {
+    RingControlTrace(@"transport-disconnected", @{@"code": @(error.code),
+        @"coreBluetoothError": @([error.domain isEqualToString:CBErrorDomain]),
+        @"radioState": @(peripheral.state), @"intentional": @(self.cancellingConnection || self.pendingDisconnect != nil)});
+}
+
+- (void)didFailConnected:(CBPeripheral *)peripheral error:(NSError *)error {
+    NSString *cause = [error.domain isEqualToString:@"Connect fail"] ? @"sdk_registration" :
+        [error.domain isEqualToString:CBErrorDomain] ? @"core_bluetooth" : @"other";
+    RingControlTrace(@"connection-failed", @{@"cause": cause, @"code": @(error.code), @"radioState": @(peripheral.state)});
     if (self.pendingConnect || self.recoveryConnecting) {
         [self failConnect:@"QRING_CONNECT_FAILED" message:@"戒指连接失败，请靠近手机后重试"];
     }

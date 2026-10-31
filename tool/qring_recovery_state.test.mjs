@@ -14,11 +14,11 @@ const method = (source, signature) => {
   return source.slice(start, next < 0 ? end : Math.min(next, end < 0 ? next : end));
 };
 
-function withFixture(run, transform = source => source) {
+function withFixture(run, transform = source => source, centralTransform = source => source) {
   const bridge = transform(process.env.SAY_RING_QRING_BRIDGE_SOURCE
     ? readFileSync(process.env.SAY_RING_QRING_BRIDGE_SOURCE, 'utf8')
     : read('ios/Runner/QRingWearableBridge.m'));
-  const central = read('ios/Runner/QCCentralManager.m');
+  const central = centralTransform(read('ios/Runner/QCCentralManager.m'));
   const bridgeMethods = [
     '- (BOOL)isResolved', '- (void)startAutomaticRecovery',
     '- (void)scheduleRecoveryAfterDisconnect', '- (void)failConnect:',
@@ -47,8 +47,8 @@ function withFixture(run, transform = source => source) {
   }
 }
 
-for (const scenario of ['automatic-failure', 'sdk-registration-failure',
-  'explicit-failure', 'ordinary-disconnect', 'stale-callbacks', 'cancel-and-owner']) {
+for (const scenario of ['automatic-failure', 'sdk-registration-failure', 'sdk-unbound-cache', 'sdk-cancelled-owner',
+  'explicit-failure', 'ordinary-disconnect', 'stale-callbacks', 'cancel-and-owner', 'duplicate-state']) {
   test(`actual QRing recovery callbacks: ${scenario}`, {skip: process.platform !== 'darwin'}, () => {
     withFixture(executable => {
       const output = execFileSync(executable, [scenario], {encoding: 'utf8'});
@@ -83,3 +83,26 @@ test('removing only the handshake cooldown rejects the original callback race',
       return source.replace(block, value => value.slice(0, value.indexOf('\n        if (handshakeInterrupted)')));
     });
   });
+
+
+test('failed live transport cannot be reused before actual closure', {skip: process.platform !== 'darwin'}, () => {
+  withFixture(executable => {
+    assert.throws(() => execFileSync(executable, ['sdk-registration-failure'], {stdio: 'pipe'}),
+      error => error.status === 1 && /SDK failure on a live radio must cancel/.test(error.stderr.toString()));
+  }, source => {
+    const needle = 'if (handshakeInterrupted && failed && failed.state != CBPeripheralStateDisconnected)';
+    assert.ok(source.includes(needle));
+    return source.replace(needle, 'if (NO && handshakeInterrupted && failed && failed.state != CBPeripheralStateDisconnected)');
+  });
+});
+
+test('repeated native state must not repeat preparation or recovery', {skip: process.platform !== 'darwin'}, () => {
+  withFixture(executable => {
+    assert.throws(() => execFileSync(executable, ['duplicate-state'], {stdio: 'pipe'}),
+      error => error.status === 1 && /same connected state must not restart/.test(error.stderr.toString()));
+  }, source => source, source => {
+    const needle = '    if (_deviceState == deviceState) { return; }';
+    assert.ok(source.includes(needle));
+    return source.replace(needle, '');
+  });
+});

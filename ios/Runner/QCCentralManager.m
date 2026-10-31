@@ -109,6 +109,9 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 }
 
 - (void)setDeviceState:(QCState)deviceState {
+    // Failure cleanup may synchronously report the same state again. Forward
+    // each transition once so it cannot retire or restart an in-flight session.
+    if (_deviceState == deviceState) { return; }
     _deviceState = deviceState;
     // Forward to UI. 同步给界面
     if(self.delegate && [self.delegate respondsToSelector:@selector(didState:)]) {
@@ -590,6 +593,9 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
         (peripheral.state != CBPeripheralStateDisconnected ||
          (!self.connectedPeripheral && self.deviceState == QCStateDisconnected) ||
          (self.connectedPeripheral && ![self.connectedPeripheral.identifier isEqual:peripheral.identifier]))) { return; }
+    if ([self.delegate respondsToSelector:@selector(didDisconnectTransport:error:)]) {
+        [self.delegate didDisconnectTransport:peripheral error:error];
+    }
     NSLog(@"QRing transport disconnected (code %ld)", (long)error.code);
     [[QCSDKManager shareInstance] removeAllPeripheral];
 
