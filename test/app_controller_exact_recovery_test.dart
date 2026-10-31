@@ -14,8 +14,8 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   Future<({AppController controller, _Ring ring, MemoryHealthStore store})>
-  setup({bool consent = true, bool legacy = false}) async {
-    final ring = legacy ? _LegacyRing() : _Ring();
+  setup({bool consent = true, bool legacy = false, _Ring? providedRing}) async {
+    final ring = providedRing ?? (legacy ? _LegacyRing() : _Ring());
     final store = MemoryHealthStore();
     final controller = AppController(
       MemorySessionVault()..privacyConsentGranted = consent,
@@ -251,6 +251,70 @@ void main() {
     expect(state.ring.forgotten, isFalse);
   });
 
+  test(
+    'confirmed direct reconnect waits for real native completion without scanning',
+    () async {
+      final ring = _DirectRing();
+      final state = await setup(providedRing: ring);
+      await state.controller.connectDevice(_Ring.device);
+      ring.operations.clear();
+      await state.controller.reconnectDevice();
+      expect(ring.operations, ['disconnect', 'direct']);
+      expect(ring.expectedId, _Ring.id);
+      expect(state.controller.connectedDevice, isNull);
+      expect(state.controller.isWearableRecovering, isTrue);
+      expect(state.controller.deviceState, DeviceConnectionState.disconnected);
+      ring.source.add(
+        WearableEvent(type: 'reconnected', payload: _Ring.device.toJson()),
+      );
+      await _settle();
+      expect(state.controller.connectedDevice?.id, _Ring.id);
+      expect(state.controller.deviceState, DeviceConnectionState.ready);
+      expect(ring.forgotten, isFalse);
+    },
+  );
+
+  test(
+    'unconfirmed direct binding preserves explicit prepare and handshake',
+    () async {
+      final ring = _DirectRing()..eligible = false;
+      final state = await setup(providedRing: ring);
+      await state.controller.reconnectDevice();
+      expect(ring.operations, ['disconnect', 'prepare', 'connect']);
+      expect(ring.expectedId, isNull);
+      expect(state.controller.connectedDevice?.id, _Ring.id);
+    },
+  );
+
+  test(
+    'unsupported direct recovery falls back without pretending it connected',
+    () async {
+      final ring = _DirectRing()..directSupported = false;
+      final state = await setup(providedRing: ring);
+      await state.controller.reconnectDevice();
+      expect(ring.operations, ['disconnect', 'direct', 'prepare', 'connect']);
+      expect(state.controller.deviceState, DeviceConnectionState.ready);
+    },
+  );
+
+  test(
+    'concurrent reconnect and app restore share the in-flight direct operation',
+    () async {
+      final ring = _DirectRing()..directPending = Completer<void>();
+      final state = await setup(providedRing: ring);
+      ring.operations.clear();
+      final first = state.controller.reconnectDevice();
+      await ring.directStarted.future;
+      final second = state.controller.reconnectDevice();
+      final restoring = state.controller.restoreWearableConnection();
+      expect(state.controller.connectedDevice, isNull);
+      ring.directPending!.complete();
+      await Future.wait([first, second, restoring]);
+      expect(ring.operations, ['disconnect', 'direct']);
+      expect(state.controller.isWearableRecovering, isTrue);
+    },
+  );
+
   test('unbind clears the saved target and rejects a late reconnect', () async {
     final state = await setup();
     await state.controller.connectDevice(_Ring.device);
@@ -438,5 +502,29 @@ class _LegacyRing extends _Ring
     if (failHandshake) throw StateError('legacy handshake failed');
     await super.connect(deviceId, profile: profile);
     confirmed = true;
+  }
+}
+
+class _DirectRing extends _Ring
+    implements
+        WearableDirectRememberedRecoveryBridge,
+        WearableRememberedRecoveryEligibilityBridge {
+  bool eligible = true;
+  bool directSupported = true;
+  String? expectedId;
+  Completer<void>? directPending;
+  final directStarted = Completer<void>();
+  @override
+  Future<bool> canAutomaticallyRecoverRememberedDevice() async => eligible;
+  @override
+  Future<({bool started, DeviceInfo? device})> restoreRememberedDeviceDirectly({
+    required String expectedDeviceId,
+    required WearableUserProfile profile,
+  }) async {
+    operations.add('direct');
+    expectedId = expectedDeviceId;
+    if (!directStarted.isCompleted) directStarted.complete();
+    await directPending?.future;
+    return (started: directSupported, device: null);
   }
 }

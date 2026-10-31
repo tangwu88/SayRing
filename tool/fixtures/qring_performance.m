@@ -5,6 +5,7 @@
 // deadlines below are synthetic; this is not a CoreBluetooth/device benchmark.
 typedef void (^QRingNext)(void);
 static void QRingOnMain(QRingNext block) { block(); }
+static void RingControlTrace(__unused NSString *stage, __unused NSDictionary *metadata) {}
 static NSUInteger checked, batteryCalls, firmwareCalls;
 static void (^batterySuccess)(int, BOOL);
 static QRingNext batteryFailure, firmwareFailure;

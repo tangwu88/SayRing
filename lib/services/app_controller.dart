@@ -3436,6 +3436,42 @@ class AppController extends ChangeNotifier {
           ? '正在确认并重新连接保存的戒指'
           : '正在重新连接，戒指靠近后会自动连接';
       notifyListeners();
+      if (previous != null &&
+          previous.sdkSource == WearableSdkSource.qring &&
+          _privacyConsentGranted &&
+          _wearableAccountRecoveryAllowed &&
+          _canRecoverRememberedDevice &&
+          bridge is WearableDirectRememberedRecoveryBridge) {
+        var started = false;
+        final restoreGeneration = _wearableRestoreGeneration;
+        final restoring = () async {
+          final result =
+              await (bridge as WearableDirectRememberedRecoveryBridge)
+                  .restoreRememberedDeviceDirectly(
+                    expectedDeviceId: previous.id,
+                    profile: WearableUserProfile.fromMember(
+                      memberProfile,
+                      targetSteps: stepGoal,
+                    ),
+                  );
+          if (!isCurrent() || restoreGeneration != _wearableRestoreGeneration) {
+            return;
+          }
+          started = result.started;
+          if (result.device != null && connectedDevice == null) {
+            await _restoreReconnectedDevice(result.device!.toJson());
+          }
+        }();
+        _wearableRestoreInFlight = restoring;
+        try {
+          await restoring;
+        } finally {
+          if (identical(_wearableRestoreInFlight, restoring)) {
+            _wearableRestoreInFlight = null;
+          }
+        }
+        if (!isCurrent() || started) return;
+      }
       if (bridge is WearableBindingManagementBridge) {
         final prepared = await (bridge as WearableBindingManagementBridge)
             .prepareRememberedDevice();

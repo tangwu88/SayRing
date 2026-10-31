@@ -179,6 +179,7 @@ class RoutedWearableBridge
         WearableBindingManagementBridge,
         WearableRingDataClearBridge,
         WearableRememberedRecoveryEligibilityBridge,
+        WearableDirectRememberedRecoveryBridge,
         WearableReadOnlyHealthPolicyBridge,
         WearableManualHealthPolicyBridge,
         WearableHealthReminderHapticsBridge,
@@ -228,6 +229,8 @@ class RoutedWearableBridge
   String? _recoveryOwnerKey;
   int _recoveryContextGeneration = 0;
   final Map<WearableTransport, String> _exactRecoveryTargets = {};
+  ({String deviceId, int contextGeneration, String profile})?
+  _directRecoveryLease;
   Future<void> _bindingMutationTail = Future<void>.value();
   Future<List<DeviceInfo>>? _scanInFlight;
   int _scanGeneration = 0;
@@ -280,6 +283,7 @@ class RoutedWearableBridge
         : _recoveryContextGeneration;
     if (changesOwner) {
       ++_connectionGeneration;
+      _directRecoveryLease = null;
       _exactRecoveryTargets.clear();
       for (final source in _sources.values) {
         if (source is WearableExactTargetRecoveryBridge) {
@@ -370,6 +374,20 @@ class RoutedWearableBridge
     if (source is! WearableExactTargetRecoveryBridge ||
         !_bindingBelongsToOwner(binding) ||
         binding.deviceName == null) {
+      return;
+    }
+    final directLease = _directRecoveryLease;
+    if (directLease != null &&
+        directLease.deviceId ==
+            RoutedDevice.scopedID(
+              binding.transport,
+              binding.nativeIdentifier,
+            ) &&
+        directLease.contextGeneration == _recoveryContextGeneration &&
+        directLease.profile == jsonEncode(profile.toMap()) &&
+        _exactRecoveryTargets[binding.transport] == binding.nativeIdentifier) {
+      // A manual exact restore already armed this native owner. Re-entering
+      // foreground must not reconfigure it during the vendor handshake/probe.
       return;
     }
     final store = _preferenceStore;
@@ -633,6 +651,7 @@ class RoutedWearableBridge
       );
     }
     final isExplicitRememberedTarget = _manualRecoveryIds.contains(deviceId);
+    _directRecoveryLease = null;
     if (!isExplicitRememberedTarget &&
         !WearableDeviceClassifier.routesTo(
           device.display.name,
@@ -733,6 +752,7 @@ class RoutedWearableBridge
 
   @override
   Future<void> disconnect() async {
+    _directRecoveryLease = null;
     final disconnectGeneration = ++_connectionGeneration;
     final transport = _activeTransport;
     if (transport != null) _exactRecoveryTargets.remove(transport);
@@ -801,10 +821,33 @@ class RoutedWearableBridge
     return null;
   }
 
+  @override
+  Future<({bool started, DeviceInfo? device})> restoreRememberedDeviceDirectly({
+    required String expectedDeviceId,
+    required WearableUserProfile profile,
+  }) async {
+    final generation = ++_connectionGeneration;
+    _restoringGeneration = generation;
+    var started = false;
+    try {
+      final device = await _restoreBoundDevice(
+        profile,
+        generation,
+        directDeviceId: expectedDeviceId,
+        onExactRecoveryStarted: () => started = true,
+      );
+      return (started: started, device: device);
+    } finally {
+      if (_restoringGeneration == generation) _restoringGeneration = null;
+    }
+  }
+
   Future<DeviceInfo?> _restoreBoundDevice(
     WearableUserProfile profile,
-    int generation,
-  ) async {
+    int generation, {
+    String? directDeviceId,
+    void Function()? onExactRecoveryStarted,
+  }) async {
     final preference = _preferenceStore;
     if (preference is! WearableBindingPreferenceStore) return null;
     SavedWearableBinding? saved;
@@ -819,6 +862,16 @@ class RoutedWearableBridge
       return null;
     }
     final source = _sources[saved.transport];
+    if (directDeviceId != null &&
+        (saved.transport != WearableTransport.qring ||
+            _recoveryOwnerKey == null ||
+            saved.ownerKey != _recoveryOwnerKey ||
+            saved.deviceName == null ||
+            RoutedDevice.scopedID(saved.transport, saved.nativeIdentifier) !=
+                directDeviceId ||
+            source is! WearableExactTargetRecoveryBridge)) {
+      return null;
+    }
     if (source == null) {
       throw PlatformException(
         code: 'DEVICE_SDK_UNAVAILABLE',
@@ -838,10 +891,19 @@ class RoutedWearableBridge
       _activeConnectionGeneration = generation;
       _sourceConnectionGenerations[saved.transport] = generation;
       await _armExactRecovery(source, saved, profile);
+      onExactRecoveryStarted?.call();
       if (generation != _connectionGeneration) return null;
+      if (directDeviceId != null) {
+        _directRecoveryLease = (
+          deviceId: directDeviceId,
+          contextGeneration: _recoveryContextGeneration,
+          profile: jsonEncode(profile.toMap()),
+        );
+      }
       if (source is WearableDeviceDetailsBridge) {
         final current = await (source as WearableDeviceDetailsBridge)
             .getConnectedDeviceDetails();
+        if (generation != _connectionGeneration) return null;
         if (current?.id == saved.nativeIdentifier &&
             WearableDeviceClassifier.routesTo(current!.name, saved.transport)) {
           final routed = RoutedDevice.fromDevice(saved.transport, current);
