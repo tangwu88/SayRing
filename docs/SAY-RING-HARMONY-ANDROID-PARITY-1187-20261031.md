@@ -35,4 +35,20 @@ Harmony 的 Index、GlobalAuth/RingParity、AccountClient、EntryAbility、版�
 
 版本固定1.0.7（1187），bundle cn.saydian.ring.hm，保留原Harmony发行证书。使用受保护原证书签内层HAP，官方project pack.info/pac.json整包打包，再签完整外层APP；沿用已修复991的完整校验门禁，不能只签HAP或把ZIP改后缀当正式APP。校验需要APP、嵌入HAP、独立HAP的签名/内容、原证书、有效期、profile发布类型、bundle/version/debug及未签外层APP负向拒绝。
 
-签名后的文件名、SHA256、源提交、最终测试/编译结果和Git回执待实际完成后追加。尚未上传AGC；官方签名与最终应用市场审核是不同状态。
+签名后的文件名、SHA256、源提交、最终测试/编译结果和Git回执见下节。尚未上传AGC；官方签名与最终应用市场审核是不同状态。
+
+## 最终执行回执
+
+最终同源运行提交为 `323070a370ef06718528b05bf25e80f831ed7e31`。UTC与Asia/Shanghai各547/547通过、无跳过；最后Debug20.5秒、Release20.8秒编译成功；活动卡最终又补当前deviceKey及本地当天过滤后，已完整重跑两时区与两模式，未交付旧编译结果。源码提交及签名后再次检查Harmony运行输入没有变化，工作区干净。
+
+正式交付在 `E:\SayRing-market-artifacts-20261031\harmony-parity-1187\delivery`：
+
+- `SayRing-HarmonyOS-1.0.7-1187-release-signed.app`，9,587,351字节，SHA256 `da9fa6c23cfa0f5286e789a303f33310cfbda5dd368b7b482e7d4098782344d0`，用于AGC市场提交。
+- `SayRing-HarmonyOS-1.0.7-1187-release.hap`，19,067,214字节，SHA256 `cd1526fef3ddc8e246c40ba1d8de90a6bf9b5d7e3b9b514b62ade141c1907b17`，对应独立正式签名模块包。
+- SHA256SUMS.txt；源代码/构建回执及校验详细报告在其父目录，仅Git外保存。
+
+外层APP和内嵌HAP均由官方工具验签通过，与独立HAP字节一致；原发行叶证书SHA256 `c4f4b2af305c338728d7172b845b4455d7ce1896ea0d40a28579fc1e56c28a3c`，发布类型app_gallery、bundle/version/build/debug状态与有效期门禁通过。故意未签外层APP的负向样本被拒绝。未改证书、profile或AGC参数，不以改名/手工重压缩替代签名。
+
+Git已推送当前开发分支 `ec1cb58..323070a`；main未更新。匿名Actions查询受共享IP限额影响，随后以本机已有且经 `/user` 明确核对为 tangwu88 的Git账号只读查询，未输出凭证。取得本轮同源 [mobile-ci 41159952444](https://github.com/tangwu88/SayRing/actions/runs/41159952444)，查询时为in_progress；未将此记成跨端CI全绿或线上已部署。用户当前要求为鸿蒙正式打包，本机原生编译和签名均已验收；完整工作流结果另行核对，原生真机与缺失厂商鸿蒙SDK依旧未验收。
+
+随后再次只读取得同一run/sha的job详情：Harmony contracts（UTC）及Harmony contracts（Asia/Shanghai）均completed/success，quality仍in_progress，其后Android/iOS任务尚未完成。本轮交付不声称这些未完成任务已经通过。最后仅补交本回执，运行源码和已验签包不变。
