@@ -439,7 +439,9 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
             [self failConnect:@"QRING_HANDSHAKE_FAILED" message:@"戒指未返回功能列表，请重试"];
             return;
         }
-        self.featureList = featureList;
+        [self resolveExtendedCapabilities:featureList.copy generation:generation attempt:0 completion:^(NSDictionary *resolvedFeatures) {
+        if (![self isCurrentConnection:generation]) { return; }
+        self.featureList = [resolvedFeatures copy];
         RingControlTrace(@"connection-capabilities", @{@"generation": @(generation)});
         // QRing has one command channel. Finish setup/details before Flutter
         // can start history sync or a measurement on that channel.
@@ -465,6 +467,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
             }];
           });
         }];
+        }];
       });
     } failed:^{
       QRingOnMain(^{
@@ -477,6 +480,48 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         if ([weakSelf isCurrentConnection:generation] && weakSelf.pendingConnect) {
             [weakSelf failConnect:@"QRING_HANDSHAKE_TIMEOUT" message:@"戒指连接准备超时，请靠近手机后重试"];
         }
+    });
+}
+
+// setTime may succeed with only the basic time-response dictionary when its
+// internal extended-feature read fails. Missing control bits are unknown until
+// an independent extended read succeeds; never infer support from saved names.
+- (void)resolveExtendedCapabilities:(NSDictionary *)features generation:(NSUInteger)generation attempt:(NSUInteger)attempt completion:(void (^)(NSDictionary *))completion {
+    if (![self isCurrentConnection:generation]) { return; }
+    if ([features[QCBandFeatureGestureControl] isEqual:@YES] ||
+        [features[QCBandFeatureTouchControl] isEqual:@YES]) {
+        completion(features); return;
+    }
+    if (attempt >= 2) {
+        RingControlTrace(@"feature-config-unconfirmed", @{@"generation": @(generation)});
+        // Preserve confirmed basic functions and the healthy radio link.
+        // Failed reads cannot restore controls from a previous connection.
+        completion(features); return;
+    }
+    __weak typeof(self) weakSelf = self;
+    // Read-only retry, after the SDK has left its previous command callback.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (attempt == 0 ? 200 : 400) * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
+        if (![weakSelf isCurrentConnection:generation]) { return; }
+        RingControlTrace(@"feature-config-read", @{@"generation": @(generation), @"attempt": @(attempt + 1)});
+        __block BOOL answered = NO;
+        QRingNext retry = ^{
+            QRingOnMain(^{
+                if (answered) { return; }
+                answered = YES;
+                [weakSelf resolveExtendedCapabilities:features generation:generation attempt:attempt + 1 completion:completion];
+            });
+        };
+        [QCSDKCmdCreator getDeviceFeatureConfigSuccess:^(NSDictionary *extended) {
+          QRingOnMain(^{
+            if (answered || ![weakSelf isCurrentConnection:generation]) { return; }
+            if (![extended isKindOfClass:NSDictionary.class]) { retry(); return; }
+            answered = YES;
+            NSMutableDictionary *merged = [features mutableCopy];
+            [merged addEntriesFromDictionary:extended];
+            RingControlTrace(@"feature-config-confirmed", @{@"generation": @(generation), @"gesture": @([extended[QCBandFeatureGestureControl] isEqual:@YES]), @"touch": @([extended[QCBandFeatureTouchControl] isEqual:@YES])});
+            completion(merged.copy);
+          });
+        } fail:retry];
     });
 }
 
