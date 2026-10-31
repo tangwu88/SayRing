@@ -11,6 +11,28 @@
 
 typedef void (^QRingNext)(void);
 
+// Bounded Debug-only diagnostics; never record identity or health payloads.
+static void RingControlTrace(NSString *phase, NSDictionary *values) {
+#if DEBUG
+    NSString *path = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"RingControlTrace.jsonl"];
+    NSMutableDictionary *entry = [values mutableCopy];
+    entry[@"phase"] = phase;
+    entry[@"uptime"] = @(NSProcessInfo.processInfo.systemUptime);
+    NSData *data = [NSJSONSerialization dataWithJSONObject:entry options:0 error:nil];
+    if (!data) return;
+    if ([NSFileManager.defaultManager attributesOfItemAtPath:path error:nil].fileSize > 65536) {
+        [NSData.data writeToFile:path atomically:YES];
+    }
+    if (![NSFileManager.defaultManager fileExistsAtPath:path]) [NSFileManager.defaultManager createFileAtPath:path contents:nil attributes:@{NSFileProtectionKey:NSFileProtectionCompleteUntilFirstUserAuthentication}];
+    NSFileHandle *file = [NSFileHandle fileHandleForWritingAtPath:path];
+    @try {
+        [file seekToEndOfFile]; [file writeData:data]; [file writeData:[@"\n" dataUsingEncoding:NSUTF8StringEncoding]];
+    } @catch (__unused NSException *exception) {} @finally { [file closeFile]; }
+#else
+    (void)phase; (void)values;
+#endif
+}
+
 static void QRingOnMain(QRingNext block) {
     if (NSThread.isMainThread) { block(); }
     else { dispatch_async(dispatch_get_main_queue(), block); }
@@ -1395,6 +1417,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 // Photo UI ACKs verify the session protocol; HID photo flags describe a
 // different, persistent control mode and must not gate shake-to-shoot.
 - (void)probeRemoteCamera:(QRingNext)completion {
+    RingControlTrace(@"probe-start", @{@"gesture": @([self cameraFlag:QCBandFeatureGestureControl]), @"touch": @([self cameraFlag:QCBandFeatureTouchControl]), @"screenTouch": @([self cameraFlag:QCBandFeatureTouchControlOfScreenDevice]), @"generation": @(self.connectionGeneration)});
     self.remoteCameraSupported = NO;
     NSUInteger connection = self.connectionGeneration;
     NSUInteger operation = ++self.cameraOperation;
@@ -1411,11 +1434,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         if (!done && operation == weakSelf.cameraOperation) {
+            RingControlTrace(@"probe-timeout", @{@"generation": @(connection)});
             weakSelf.cameraPoisonGeneration = connection;
             finish();
         }
     });
     void (^exit)(BOOL) = ^(BOOL accepted) {
+        RingControlTrace(@"probe-enter", @{@"accepted": @(accepted), @"generation": @(connection)});
         // Always defer past the SDK's callback queue cleanup.
         dispatch_async(dispatch_get_main_queue(), ^{
             if (done || operation != weakSelf.cameraOperation || ![weakSelf isCurrentConnection:connection]) { return; }
@@ -1423,6 +1448,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
                 dispatch_async(dispatch_get_main_queue(), ^{
                     if (done || operation != weakSelf.cameraOperation || ![weakSelf isCurrentConnection:connection]) { return; }
                     weakSelf.remoteCameraSupported = accepted;
+                    RingControlTrace(@"probe-exit-confirmed", @{@"generation": @(connection)});
                     finish();
                 });
             } fail:^{ dispatch_async(dispatch_get_main_queue(), finish); }];
@@ -1565,6 +1591,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)gestureControl:(NSDictionary *)arguments write:(BOOL)write result:(FlutterResult)result {
+    RingControlTrace(@"gesture-start", @{@"write": @(write), @"generation": @(self.connectionGeneration), @"poisoned": @(self.cameraPoisonGeneration == self.connectionGeneration), @"pendingSync": @(self.pendingSync != nil), @"pendingConnect": @(self.pendingConnect != nil), @"pendingCamera": @(self.pendingCamera != nil), @"readingDetails": @(self.readingDetails)});
     if (![self supportsGesture]) {
         result([self error:@"QRING_FEATURE_UNVERIFIED" message:@"此戒指未确认支持手势控制"]); return;
     }
@@ -1624,14 +1651,19 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
             NSInteger strength = [snapshot[@"strength"] integerValue];
             NSInteger duration = [snapshot[@"duration"] integerValue];
             weakSelf.cameraPhase = 1;
+            __block NSDictionary *confirmedReadback = nil;
             readback = ^(NSInteger attempt) {
                 if (!current() || weakSelf.cameraPhase != 2) { readback = nil; return; }
                 [weakSelf readCameraTouch:touch completion:^(NSDictionary *actual, NSError *readError) {
                     if (!current() || weakSelf.cameraPhase != 2) { readback = nil; return; }
-                    BOOL matches = !readError && actual && [actual[@"mode"] integerValue] == expected &&
-                        [snapshot[@"strength"] isEqual:actual[@"strength"]] &&
-                        [snapshot[@"duration"] isEqual:actual[@"duration"]];
-                    if (matches) { readback = nil; finish(nil); return; }
+                    BOOL matches = !readError && QRingGestureReadbackMatches(snapshot, actual, expected);
+                    // The SDK's setter callback is send completion, not device
+                    // confirmation. Require two equal independent reads so a
+                    // delayed write response cannot alone confirm the setting.
+                    if (matches && [confirmedReadback isEqualToDictionary:actual]) {
+                        readback = nil; finish(nil); return;
+                    }
+                    confirmedReadback = matches ? [actual copy] : nil;
                     if (attempt >= 2) { readback = nil; fail(); return; }
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 400 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
                         if (readback) { readback(attempt + 1); }
@@ -1666,18 +1698,20 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)readCameraTouch:(BOOL)touch completion:(void (^)(NSDictionary *, NSError *))completion {
+    BOOL screenTouch = touch && [self cameraFlag:QCBandFeatureTouchControlOfScreenDevice];
     // Start the next SDK command outside its response callback stack.
     void (^finish)(QCTouchGestureControlType, NSInteger, BOOL, NSInteger, NSError *) =
     ^(QCTouchGestureControlType mode, NSInteger strength, __unused BOOL sleeping, NSInteger duration, NSError *error) {
+        RingControlTrace(@"control-snapshot", @{@"mode": @(mode), @"strength": @(strength), @"sleeping": @(sleeping), @"duration": @(duration), @"error": @(error != nil), @"errorCode": @(error.code), @"touch": @(touch), @"screenTouch": @(screenTouch), @"accepted": @(QRingCameraSnapshot(mode, strength, touch, duration, screenTouch) != nil)});
         dispatch_async(dispatch_get_main_queue(), ^{
-            completion(error ? nil : QRingCameraSnapshot(mode, strength, touch, duration), error);
+            completion(error ? nil : QRingCameraSnapshot(mode, strength, touch, duration, screenTouch), error);
         });
     };
     if (!touch) {
         [QCSDKCmdCreator getGestureControlFinshed:^(QCTouchGestureControlType mode, NSInteger strength, BOOL sleeping, NSError *error) {
             finish(mode, strength, sleeping, 0, error);
         }];
-    } else if ([self cameraFlag:QCBandFeatureTouchControlOfScreenDevice]) {
+    } else if (screenTouch) {
         [QCSDKCmdCreator getTouchControlOfScreenDevieFinshed:finish];
     } else {
         [QCSDKCmdCreator getTouchControlFinshed:finish];
