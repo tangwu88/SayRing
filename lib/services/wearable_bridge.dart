@@ -6,6 +6,12 @@ import '../domain/feature_models.dart';
 import '../domain/models.dart';
 import '../domain/wellness_release_policy.dart';
 
+/// Optional Android QRing optimization. Other SDKs keep their full-sync contract.
+abstract interface class WearableRecentHistoryBridge {
+  bool get supportsRecentHistorySync;
+  Future<List<HealthRecord>> syncRecentHealthData({required int days});
+}
+
 /// A second boundary before parsing native records: the legacy model parser
 /// defaults unknown metric names to steps. Never apply that fallback on iOS.
 WellnessReleasePolicy get wearableHealthReleasePolicy => WellnessReleasePolicy(

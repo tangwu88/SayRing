@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/feature_models.dart';
@@ -14,6 +15,7 @@ import 'wearable_bridge.dart';
 class QRingWearableBridge
     implements
         WearableBridge,
+        WearableRecentHistoryBridge,
         WearableDeviceDetailsBridge,
         WearableAutoMeasureIntervalBridge,
         WearableBoundDeviceLookupBridge,
@@ -256,11 +258,32 @@ class QRingWearableBridge
   }, const Duration(seconds: 5));
 
   @override
-  Future<List<HealthRecord>> syncHealthData({String? cursor}) async {
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) =>
+      _syncHistory(cursor: cursor);
+
+  @override
+  bool get supportsRecentHistorySync =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  @override
+  Future<List<HealthRecord>> syncRecentHealthData({required int days}) {
+    if (!supportsRecentHistorySync || days < 1 || days > 7) {
+      throw ArgumentError(
+        'Recent history is supported only by Android QRing, days 1..7',
+      );
+    }
+    return _syncHistory(days: days);
+  }
+
+  Future<List<HealthRecord>> _syncHistory({String? cursor, int? days}) async {
     final response =
         await _invoke<Object?>(
           'syncHealthData',
-          cursor == null ? null : {'cursor': cursor},
+          days != null
+              ? {'historyDays': days}
+              : cursor == null
+              ? null
+              : {'cursor': cursor},
           const Duration(minutes: 3),
         ) ??
         const <Object?>[];
@@ -271,11 +294,17 @@ class QRingWearableBridge
       healthReleasePolicy: policy,
     );
     if (response is Map && response['statuses'] is Map) {
-      return WearableSyncResult(records, {
-        for (final entry in (response['statuses'] as Map).entries)
-          if (policy.allowsWireMetric('${entry.key}'))
-            '${entry.key}': '${entry.value}',
-      });
+      return WearableSyncResult(
+        records,
+        {
+          for (final entry in (response['statuses'] as Map).entries)
+            if (policy.allowsWireMetric('${entry.key}'))
+              '${entry.key}': '${entry.value}',
+        },
+        historyDays: response['historyDays'] is int
+            ? response['historyDays'] as int
+            : null,
+      );
     }
     return records;
   }

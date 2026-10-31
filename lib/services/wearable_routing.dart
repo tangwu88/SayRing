@@ -170,6 +170,7 @@ class RoutedDevice {
 class RoutedWearableBridge
     implements
         WearableBridge,
+        WearableRecentHistoryBridge,
         WearableDeviceDetailsBridge,
         WearableWatchFaceProfileBridge,
         WearableNativeWatchFaceBridge,
@@ -1032,13 +1033,36 @@ class RoutedWearableBridge
       _activeBridge.getCapabilities();
 
   @override
-  Future<List<HealthRecord>> syncHealthData({String? cursor}) async {
+  Future<List<HealthRecord>> syncHealthData({String? cursor}) =>
+      _syncHistory(cursor: cursor);
+
+  @override
+  bool get supportsRecentHistorySync {
+    if (_activeTransport != WearableTransport.qring) return false;
+    final source = _activeBridge;
+    return source is WearableRecentHistoryBridge &&
+        (source as WearableRecentHistoryBridge).supportsRecentHistorySync;
+  }
+
+  @override
+  Future<List<HealthRecord>> syncRecentHealthData({required int days}) =>
+      _syncHistory(days: days);
+
+  Future<List<HealthRecord>> _syncHistory({String? cursor, int? days}) async {
     final transport = _activeTransport;
     if (transport == null) {
       throw PlatformException(code: 'NOT_CONNECTED', message: '请先连接戒指');
     }
     final generation = _connectionGeneration;
-    final records = await _activeBridge.syncHealthData(cursor: cursor);
+    final source = _activeBridge;
+    if (days != null && !supportsRecentHistorySync) {
+      throw StateError('Recent history unavailable');
+    }
+    final records = days == null
+        ? await source.syncHealthData(cursor: cursor)
+        : await (source as WearableRecentHistoryBridge).syncRecentHealthData(
+            days: days,
+          );
     _requireCurrentConnection(generation, message: '戒指连接已变化，请重新同步');
     final scoped = records
         .map((record) {
@@ -1077,7 +1101,11 @@ class RoutedWearableBridge
         })
         .toList(growable: false);
     return records is WearableSyncResult
-        ? WearableSyncResult(scoped, records.statuses)
+        ? WearableSyncResult(
+            scoped,
+            records.statuses,
+            historyDays: records.historyDays,
+          )
         : scoped;
   }
 

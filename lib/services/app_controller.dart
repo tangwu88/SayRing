@@ -1,5 +1,6 @@
 import 'dart:async';
 import '../domain/wearable_sync_result.dart';
+import '../domain/device_history_sync.dart';
 import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -3073,7 +3074,62 @@ class AppController extends ChangeNotifier {
     _clearDeviceSyncError();
     notifyListeners();
     try {
-      final receivedRecords = await _wearable.syncHealthData();
+      final windowBridge = _wearable;
+      final checkpointStore = _healthStore;
+      final canUseWindow =
+          windowBridge is WearableRecentHistoryBridge &&
+          (windowBridge as WearableRecentHistoryBridge)
+              .supportsRecentHistorySync &&
+          checkpointStore is DeviceHistorySyncStore;
+      final historyMetrics =
+          (capabilities?.historyMetrics ??
+                  capabilities?.metrics ??
+                  <HealthMetric>{})
+              .map((metric) => metric.wireName)
+              .toList()
+            ..sort();
+      final readStartedAt = DateTime.now();
+      final signature = jsonEncode([
+        readStartedAt.timeZoneOffset.inMinutes,
+        connectedDevice?.firmwareVersion,
+        historyMetrics,
+      ]);
+      DeviceHistorySyncCheckpoint? checkpoint;
+      if (canUseWindow) {
+        try {
+          checkpoint = DeviceHistorySyncCheckpoint.parse(
+            jsonDecode(
+              await (checkpointStore as DeviceHistorySyncStore)
+                      .readDeviceHistorySync(deviceId) ??
+                  'null',
+            ),
+          );
+        } catch (_) {
+          /* Corrupt/missing checkpoint must read full history. */
+        }
+        if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+          return false;
+        }
+        if (initial &&
+            checkpoint?.recentlyCompleted(DateTime.now(), signature) == true) {
+          syncStatus = '';
+          return true;
+        }
+        // Invalidate before issuing SDK reads. Process death or any partial/local
+        // persistence failure must never leave a successful-history checkpoint.
+        await (checkpointStore as DeviceHistorySyncStore)
+            .writeDeviceHistorySync(deviceId, 'null');
+        if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+          return false;
+        }
+      }
+      final recentOnly =
+          canUseWindow &&
+          checkpoint?.permitsRecent(DateTime.now(), signature) == true;
+      final receivedRecords = recentOnly
+          ? await (windowBridge as WearableRecentHistoryBridge)
+                .syncRecentHealthData(days: 2)
+          : await _wearable.syncHealthData();
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
       }
@@ -3123,7 +3179,30 @@ class AppController extends ChangeNotifier {
         }
         errorMessage = _deviceSyncErrorMessage;
       } else {
-        syncStatus = records.isEmpty ? '' : '已同步 ${records.length} 条';
+        syncStatus = records.isEmpty
+            ? ''
+            : recentOnly
+            ? '近期数据已更新'
+            : '已同步 ${records.length} 条';
+        if (canUseWindow &&
+            receivedRecords is WearableSyncResult &&
+            receivedRecords.historyDays == (recentOnly ? 2 : 7)) {
+          final now = DateTime.now();
+          await (checkpointStore as DeviceHistorySyncStore)
+              .writeDeviceHistorySync(
+                deviceId,
+                jsonEncode(
+                  DeviceHistorySyncCheckpoint(
+                    signature: signature,
+                    fullAt: recentOnly ? checkpoint!.fullAt : readStartedAt,
+                    latestAt: now,
+                  ).toJson(),
+                ),
+              );
+          if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
+            return false;
+          }
+        }
         succeeded = true;
       }
     } on PlatformException catch (error) {

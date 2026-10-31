@@ -3,6 +3,8 @@ package cc.saidian.saydian_app;
 import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothGatt;
+import android.bluetooth.BluetoothProfile;
 import android.bluetooth.BluetoothManager;
 import android.bluetooth.le.ScanResult;
 import android.content.Context;
@@ -101,6 +103,7 @@ public final class QRingBridge
     private MethodChannel.Result pendingScan;
     private MethodChannel.Result pendingConnect;
     private MethodChannel.Result pendingSync;
+    private int syncHistoryDays = 7;
     private Runnable scanDeadline;
     private long scanGeneration;
     private Runnable connectDeadline;
@@ -687,13 +690,32 @@ public final class QRingBridge
         value.put("status", "waiting");
         value.put("deviceId", connectedId);
         emit("recoveryState", value);
-        manager.connectDirectly(connectedId);
+        // The vendor reuses an existing link without emitting service-ready a
+        // second time. Reattach only the exact owner-armed, physically live GATT.
+        boolean retainedReady = hasRetainedReadyGatt(connectedId);
+        if (!retainedReady) manager.connectDirectly(connectedId);
         connectDeadline = () -> {
             if (generation == connectionGeneration) {
                 failConnect("QRING_CONNECT_TIMEOUT", "戒指暂时不在附近，靠近后会自动重连");
             }
         };
         main.postDelayed(connectDeadline, CONNECT_MS);
+        if (retainedReady) onServiceReady(); // Always repeat capabilities/time handshake.
+    }
+
+    private boolean hasRetainedReadyGatt(String exactTarget) {
+        try {
+            BleBaseControl control = BleBaseControl.getInstance();
+            BluetoothGatt gatt = control.getGatt(exactTarget);
+            BluetoothManager bluetooth = (BluetoothManager) activity.getSystemService(Context.BLUETOOTH_SERVICE);
+            return manager.isConnected() && exactTarget.equalsIgnoreCase(control.getmDeviceAddress())
+                    && !control.isConnecting() && gatt != null
+                    && gatt.getDevice() != null && exactTarget.equalsIgnoreCase(gatt.getDevice().getAddress())
+                    && bluetooth != null && bluetooth.getConnectionState(gatt.getDevice(), BluetoothProfile.GATT) == BluetoothProfile.STATE_CONNECTED
+                    && !gatt.getServices().isEmpty();
+        } catch (RuntimeException unavailable) {
+            return false;
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -1307,7 +1329,12 @@ public final class QRingBridge
         result.success(null);
     }
 
-    private void startHealthSync(MethodChannel.Result result) {
+    private void startHealthSync(MethodCall call, MethodChannel.Result result) {
+        Object requestedDays = call.argument("historyDays");
+        if (requestedDays != null && (!(requestedDays instanceof Integer)
+                || (Integer) requestedDays < 1 || (Integer) requestedDays > 7)) {
+            result.error("INVALID_HISTORY_WINDOW", "同步范围无效，请重试", null); return;
+        }
         if (factoryInitializationPending()) { result.error("INITIALIZATION_PENDING", "戒指初始化尚未确认，历史同步已暂停", null); return; }
         if (!resolved()) {
             result.error("NOT_CONNECTED", "请先连接戒指", null);
@@ -1324,7 +1351,8 @@ public final class QRingBridge
         for (String metric : new String[]{"sleep", "heart_rate", "blood_oxygen", "stress", "hrv", "body_temperature"}) {
             if (supportsMetric(metric, false)) metrics.add(metric);
         }
-        historyReads.begin(metrics, 7);
+        syncHistoryDays = requestedDays == null ? 7 : (Integer) requestedDays;
+        historyReads.begin(metrics, syncHistoryDays);
         syncDeadline = () -> {
             if (pendingSync == result) failPendingSync("SYNC_TIMEOUT", "戒指数据同步超时，请重试");
         };
@@ -1334,11 +1362,11 @@ public final class QRingBridge
 
     private void syncDay(int day, int phase) {
         if (pendingSync == null) return;
-        if (day >= 7) {
+        if (day >= syncHistoryDays) {
             completeHealthSync();
             return;
         }
-        double progressValue = Math.min(0.98, (day * 7.0 + phase) / 49.0);
+        double progressValue = Math.min(0.98, (day * 7.0 + phase) / (syncHistoryDays * 7.0));
         Map<String, Object> progress = new HashMap<>();
         progress.put("deviceId", connectedId);
         progress.put("progress", progressValue);
@@ -1480,6 +1508,7 @@ public final class QRingBridge
         Map<String, Object> response = new HashMap<>();
         response.put("records", new ArrayList<>(syncRecords.values()));
         response.put("statuses", historyReads.statuses());
+        response.put("historyDays", syncHistoryDays);
         historyReads.cancel();
         result.success(response);
     }
@@ -2069,7 +2098,7 @@ public final class QRingBridge
                         gestureControl(call, "writeDeviceFeature".equals(call.method), result);
                     else cameraControl(call, "writeDeviceFeature".equals(call.method), result);
                     break;
-                case "syncHealthData": startHealthSync(result); break;
+                case "syncHealthData": startHealthSync(call, result); break;
                 case "startMeasurement": startMeasurement(call.argument("metric"), result); break;
                 case "stopMeasurement": stopMeasurement(call.argument("metric"), result); break;
                 case "startSport": startSport(call.argument("mode"), result); break;

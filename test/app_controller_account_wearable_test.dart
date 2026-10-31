@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
+import 'package:saydian_app/domain/wearable_sync_result.dart';
 import 'package:saydian_app/services/api_client.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/local_health_store.dart';
@@ -15,8 +17,14 @@ void main() {
   Future<
     ({AppController controller, _Wearable wearable, MemoryHealthStore store})
   >
-  setup({bool rri = false}) async {
+  setup({bool rri = false, bool recentHistory = false}) async {
     final wearable = _Wearable();
+    wearable.supportsRecentHistorySync = recentHistory;
+    if (recentHistory) {
+      wearable.nextHistory = WearableSyncResult([], {
+        'steps': 'no_data',
+      }, historyDays: 7);
+    }
     if (rri) {
       wearable.capabilities = const DeviceCapabilities(
         metrics: {HealthMetric.hrv, HealthMetric.bodyTemperature},
@@ -24,7 +32,7 @@ void main() {
         supportsHistorySync: false,
       );
     }
-    final store = MemoryHealthStore();
+    final store = _HistoryStore();
     final controller = AppController(
       MemorySessionVault(),
       _Api(),
@@ -43,6 +51,100 @@ void main() {
     await _settle();
     return (controller: controller, wearable: wearable, store: store);
   }
+
+  test(
+    'confirmed durable full history enables recent refresh; failed refresh forces full retry',
+    () async {
+      final fixture = await setup(recentHistory: true);
+      final c = fixture.controller;
+      final w = fixture.wearable;
+      expect(w.syncCount, 1);
+      expect(
+        jsonDecode(
+          (await fixture.store.readDeviceHistorySync(_Wearable.watch.id))!,
+        )['version'],
+        1,
+      );
+      w.nextRecent = WearableSyncResult([], {
+        'steps': 'no_data',
+      }, historyDays: 2);
+      expect(await c.syncDeviceData(), isTrue);
+      expect(w.recentDays, [2]);
+      expect(w.syncCount, 1);
+      w.nextRecent = WearableSyncResult([], {
+        'steps': 'failed',
+      }, historyDays: 2);
+      expect(await c.syncDeviceData(), isFalse);
+      expect(
+        await fixture.store.readDeviceHistorySync(_Wearable.watch.id),
+        'null',
+      );
+      expect(await c.syncDeviceData(), isTrue);
+      expect(w.syncCount, 2);
+      expect(w.recentDays, [2, 2]);
+    },
+  );
+
+  test(
+    'interrupted refresh is invalidated before SDK call and account change rejects late checkpoint',
+    () async {
+      final fixture = await setup(recentHistory: true);
+      final pending = Completer<List<HealthRecord>>();
+      fixture.wearable.recentResult = pending.future;
+      final sync = fixture.controller.syncDeviceData();
+      await _settle();
+      expect(
+        await fixture.store.readDeviceHistorySync(_Wearable.watch.id),
+        'null',
+      );
+      expect(
+        await fixture.controller.login('owner-b', 'test-password'),
+        isTrue,
+      );
+      pending.complete(
+        WearableSyncResult([], {'steps': 'no_data'}, historyDays: 2),
+      );
+      expect(await sync, isFalse);
+      expect(
+        await fixture.store.readDeviceHistorySync(_Wearable.watch.id),
+        isNull,
+      );
+    },
+  );
+
+  test('unconfirmed legacy result cannot authorize skipping history', () async {
+    final fixture = await setup(recentHistory: true);
+    fixture.wearable.nextHistory = [];
+    await fixture.store.writeDeviceHistorySync(_Wearable.watch.id, 'null');
+    expect(await fixture.controller.syncDeviceData(), isTrue);
+    expect(
+      await fixture.store.readDeviceHistorySync(_Wearable.watch.id),
+      'null',
+    );
+    expect(await fixture.controller.syncDeviceData(), isTrue);
+    expect(fixture.wearable.syncCount, 3);
+    expect(fixture.wearable.recentDays, isEmpty);
+  });
+
+  test(
+    'local persistence failure cannot create a successful checkpoint',
+    () async {
+      final fixture = await setup(recentHistory: true);
+      final store = fixture.store as _HistoryStore;
+      store.failWrites = true;
+      fixture.wearable.nextRecent = WearableSyncResult(
+        [_record('received-not-persisted')],
+        {'steps': 'complete'},
+        historyDays: 2,
+      );
+      expect(await fixture.controller.syncDeviceData(), isFalse);
+      expect(await store.readDeviceHistorySync(_Wearable.watch.id), 'null');
+      store.failWrites = false;
+      expect(await fixture.controller.syncDeviceData(), isTrue);
+      expect(fixture.wearable.syncCount, 2);
+      expect(await store.recent(), isEmpty);
+    },
+  );
 
   test(
     'camera notifications reject a different device and disconnected owner',
@@ -302,6 +404,15 @@ void main() {
   });
 }
 
+class _HistoryStore extends MemoryHealthStore {
+  bool failWrites = false;
+  @override
+  Future<void> upsert(List<HealthRecord> records) async {
+    if (failWrites) throw StateError('test persistence failure');
+    await super.upsert(records);
+  }
+}
+
 HealthRecord _rriRecord(String id, {bool manual = false}) => HealthRecord(
   id: id,
   metric: HealthMetric.hrv,
@@ -377,7 +488,8 @@ class _Api extends Fake implements SaydianApi {
   Future<void> logout() async {}
 }
 
-class _Wearable extends Fake implements WearableBridge {
+class _Wearable extends Fake
+    implements WearableBridge, WearableRecentHistoryBridge {
   static const watch = DeviceInfo(id: 'veepoo:WATCH', name: 'W9S');
   final eventsController = StreamController<WearableEvent>.broadcast();
   final disconnectStarted = Completer<void>();
@@ -388,6 +500,17 @@ class _Wearable extends Fake implements WearableBridge {
   List<HealthRecord> nextHistory = const [];
   int connectCount = 0;
   int syncCount = 0;
+  @override
+  bool supportsRecentHistorySync = false;
+  List<HealthRecord> nextRecent = const [];
+  Future<List<HealthRecord>>? recentResult;
+  final recentDays = <int>[];
+  @override
+  Future<List<HealthRecord>> syncRecentHealthData({required int days}) async {
+    recentDays.add(days);
+    return recentResult ?? nextRecent;
+  }
+
   bool failDisconnect = false;
   DeviceCapabilities capabilities = const DeviceCapabilities(
     metrics: {HealthMetric.heartRate},

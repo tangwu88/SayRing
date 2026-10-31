@@ -4,12 +4,18 @@ import 'models.dart';
 
 /// Extends the existing list contract without discarding per-metric evidence.
 class WearableSyncResult extends ListBase<HealthRecord> {
-  WearableSyncResult(List<HealthRecord> records, Map<String, String> statuses)
-    : _records = List.of(records),
-      statuses = Map.unmodifiable(statuses);
+  WearableSyncResult(
+    List<HealthRecord> records,
+    Map<String, String> statuses, {
+    this.historyDays,
+  }) : _records = List.of(records),
+       statuses = Map.unmodifiable(statuses);
 
   final List<HealthRecord> _records;
   final Map<String, String> statuses;
+
+  /// Actual SDK day range; completeness still requires per-metric evidence.
+  final int? historyDays;
   bool get complete =>
       statuses.isNotEmpty &&
       statuses.values.every(

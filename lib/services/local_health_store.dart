@@ -47,6 +47,12 @@ abstract interface class HealthStoreRecoveryStatus {
   bool get recoveryPending;
 }
 
+/// Uses the same environment database and captured owner as the health records.
+abstract interface class DeviceHistorySyncStore {
+  Future<String?> readDeviceHistorySync(String deviceId);
+  Future<void> writeDeviceHistorySync(String deviceId, String value);
+}
+
 abstract interface class HealthReminderDeletionStore {
   Future<void> deleteHealthReminder(String id);
 }
@@ -142,6 +148,7 @@ class EncryptedHealthStore
     implements
         HealthStore,
         HealthStoreRecoveryStatus,
+        DeviceHistorySyncStore,
         HealthReminderDeletionStore,
         ReadingReminderSettingsStore,
         SleepDetailStore,
@@ -1174,6 +1181,33 @@ class EncryptedHealthStore
   }
 
   @override
+  Future<String?> readDeviceHistorySync(String deviceId) {
+    final owner = _ownerId;
+    return _enqueue(() async {
+      final rows = await _db.query(
+        'metadata',
+        columns: ['value'],
+        where: 'owner_id = ? AND key = ?',
+        whereArgs: [owner, 'device_history_v1:$deviceId'],
+        limit: 1,
+      );
+      return rows.isEmpty ? null : rows.first['value'] as String?;
+    });
+  }
+
+  @override
+  Future<void> writeDeviceHistorySync(String deviceId, String value) {
+    final owner = _ownerId;
+    return _enqueue(
+      () => _db.insert('metadata', {
+        'owner_id': owner,
+        'key': 'device_history_v1:$deviceId',
+        'value': value,
+      }, conflictAlgorithm: ConflictAlgorithm.replace),
+    );
+  }
+
+  @override
   Future<String?> readReadingReminderSettings() {
     final owner = _ownerId;
     return _enqueue(() async {
@@ -1376,7 +1410,8 @@ class MemoryHealthStore
         SleepDetailStore,
         MetricFilteredPendingHealthStore,
         HealthReminderDeletionStore,
-        ReadingReminderSettingsStore {
+        ReadingReminderSettingsStore,
+        DeviceHistorySyncStore {
   String _ownerId = 'anonymous';
   final Map<String, Map<String, HealthRecord>> _recordsByOwner = {};
   final Map<String, Set<String>> _syncedByOwner = {};
@@ -1390,6 +1425,15 @@ class MemoryHealthStore
   @override
   Future<void> saveReadingReminderSettings(String value) async {
     _readingSettingsByOwner[_ownerId] = value;
+  }
+
+  final Map<String, Map<String, String>> _historyCheckpoints = {};
+  @override
+  Future<String?> readDeviceHistorySync(String deviceId) async =>
+      _historyCheckpoints[_ownerId]?[deviceId];
+  @override
+  Future<void> writeDeviceHistorySync(String deviceId, String value) async {
+    (_historyCheckpoints[_ownerId] ??= {})[deviceId] = value;
   }
 
   final Map<String, Map<String, List<SleepTimeline>>> _sleepSnapshotsByOwner =
