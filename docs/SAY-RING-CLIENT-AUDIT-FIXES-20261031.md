@@ -23,6 +23,7 @@
 7. 本机 Xcode 27 不支持仓库默认 iOS 13 的本地编译，原参数失败；以命令行临时 `IPHONEOS_DEPLOYMENT_TARGET=15.0`、不改仓库配置分别编译 Debug 和 Profile，均 `BUILD SUCCEEDED`。两次早期尝试遇到磁盘不足，仅删除本独立工作树生成的中间构件后重跑成功。默认 iOS 13 的兼容性仍需受支持的 CI 工具链验证。
 8. 最后补充退出异常边界和安全存储比较清除测试后，双时区全量测试与静态检查重新通过；`flutter build bundle --debug --no-pub` 与 `flutter build bundle --release --no-pub` 均成功编译最终 Dart 源码。此前 Android/iOS 整包构建发生在这一处 Dart 边界调整之前；受本机磁盘空间限制，未将其记为最终源码的重新整包构建。
 9. 远端同步后再次执行当前提交的 `flutter build apk --debug --no-pub`，成功生成 Debug APK。QA Release 重跑进入 R8 压缩时耗尽本机空间，Flutter 自动重试后仍失败，已停止；不能记为最终源码 Release 验收。直接通过 Flutter 工具的 `clean` 清理本独立工作树的生成目录，磁盘可用空间恢复至约 3.2 GiB，源文件与远端分支保持一致。最终一处 iOS 迟到回调边界追加断言后，原生恢复测试 13/13 通过；iOS 整包没有在该微调后重新构建。
+10. GitHub CI 启动后本地预查 `dart format --output=none --set-exit-if-changed lib test` 发现一处测试用例换行格式不符；离线恢复依赖后仅格式化 `test/global_update_test.dart`，完整格式检查变为 289 文件、零改动。该文件 6/6 测试通过，`flutter analyze --no-pub` 零问题；格式改动没有改变业务逻辑。远端全量 CI 仍以对应提交的实际运行结果为准。
 
 ## 仍需实物验收
 
