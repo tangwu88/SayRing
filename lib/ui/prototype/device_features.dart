@@ -680,7 +680,10 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       SnackBar(
         content: Text(
           success
-              ? (source == WearableSdkSource.coolwear
+              ? ({
+                      WearableSdkSource.coolwear,
+                      WearableSdkSource.qring,
+                    }.contains(source)
                     ? (next ? '查找指令已发送' : '停止指令已发送')
                     : (isOneShot
                           ? '已发送查找指令，请留意戒指振动'
@@ -760,9 +763,10 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
                       (widget.controller.connectedDevice?.sdkSource ==
                               WearableSdkSource.coolwear &&
                           defaultTargetPlatform == TargetPlatform.iOS),
-                  commandOnly:
-                      widget.controller.connectedDevice?.sdkSource ==
-                      WearableSdkSource.coolwear,
+                  commandOnly: {
+                    WearableSdkSource.coolwear,
+                    WearableSdkSource.qring,
+                  }.contains(widget.controller.connectedDevice?.sdkSource),
                   onPressed: _toggleFind,
                 )
               else if (widget.feature == DeviceFeature.screenDisplay)

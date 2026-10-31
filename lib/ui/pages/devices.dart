@@ -412,6 +412,16 @@ class DevicePage extends StatelessWidget {
             const SizedBox(height: 12),
           ],
         ],
+        InlineNotice(
+          key: const Key('device-rebind-guidance'),
+          message: defaultTargetPlatform == TargetPlatform.iOS
+              ? context.l10n.deviceSearchHelpRebindIos
+              : context.l10n.deviceSearchHelpRebindAndroid,
+          icon: Icons.bluetooth_searching_rounded,
+          color: SaydianColors.blue,
+          compact: true,
+        ),
+        const SizedBox(height: 10),
         Card(
           child: Column(
             children: [
@@ -436,7 +446,9 @@ class DevicePage extends StatelessWidget {
                     settings: const RouteSettings(name: 'connection-help'),
                     builder: (context) => _InfoPage(
                       title: context.l10n.connectionHelp,
-                      message: context.l10n.connectionInstructions,
+                      message:
+                          '${context.l10n.connectionInstructions}\n\n'
+                          '${defaultTargetPlatform == TargetPlatform.iOS ? context.l10n.deviceSearchHelpRebindIos : context.l10n.deviceSearchHelpRebindAndroid}',
                     ),
                   ),
                 ),
