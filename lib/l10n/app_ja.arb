@@ -380,7 +380,7 @@
   "devicesFound": "デバイスが見つかりました",
   "connect": "接続",
   "searchAgain": "再検索",
-  "searchRecovery": "リングを近づけてください。R22 が検索に表示されない場合は、復元可能なリングを表示してください。",
+  "searchRecovery": "近くのリングが見つからない場合は、復元可能なリングを表示してください。",
   "findSystemPairedRings": "復元可能なリングを表示",
   "findSystemPairedRingsHint": "端末でペアリング済み、または Say Ring で接続済みの対応リングを表示します。選択後もリング SDK で再検証します。",
   "systemPairedDevice": "復元可能",

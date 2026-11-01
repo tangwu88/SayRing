@@ -12,6 +12,7 @@ class RingCameraPanel extends StatelessWidget {
     required this.saved,
     this.onCapture,
     this.onRetryCamera,
+    this.onReconnect,
     this.onRetrySave,
     this.onPhotoSettings,
     this.thumbnail,
@@ -21,6 +22,7 @@ class RingCameraPanel extends StatelessWidget {
   final String message;
   final bool remoteReady, takingPhoto, saved;
   final VoidCallback? onCapture, onRetryCamera, onRetrySave, onPhotoSettings;
+  final VoidCallback? onReconnect;
   final Widget? thumbnail;
   final bool cameraSettingsRequired;
 
@@ -164,7 +166,14 @@ class RingCameraPanel extends StatelessWidget {
           icon: const Icon(Icons.settings_outlined),
           label: const Text('允许保存照片'),
         ),
-      if (onRetryCamera != null)
+      if (onReconnect != null)
+        TextButton.icon(
+          key: const ValueKey('camera-reconnect-button'),
+          onPressed: onReconnect,
+          icon: const Icon(Icons.bluetooth_searching_rounded),
+          label: const Text('重新连接戒指'),
+        ),
+      if (onRetryCamera != null && onReconnect == null)
         TextButton.icon(
           key: const ValueKey('camera-retry-button'),
           onPressed: onRetryCamera,

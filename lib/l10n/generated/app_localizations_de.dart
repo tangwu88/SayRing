@@ -1102,7 +1102,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Ring nah halten. Wenn ein R22 nicht erscheint, wiederherstellbare Ringe anzeigen.';
+      'Ring in der Nähe, aber nicht gefunden? Wiederherstellbare Ringe anzeigen.';
 
   @override
   String get findSystemPairedRings => 'Wiederherstellbare Ringe';

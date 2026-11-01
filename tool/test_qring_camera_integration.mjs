@@ -40,7 +40,9 @@ test('QRing native controls require real flags, serialized stages and verified r
   assert.match(ios, /holdPhotoUISuccess/);
   assert.match(android, /new CameraReq/);
   assert.match(ios, /if \(\[self canOpenRemoteCamera\]\).*addObject:@"camera"/);
-  assert.match(android, /if \(remoteCameraSupported\).*features.add\("camera"\)/);
+  assert.match(android, /if \(canOpenRemoteCamera\(\)\).*features.add\("camera"\)/);
+  assert.doesNotMatch(android, /probeRemoteCamera|remoteCameraSupported/);
+  assert.match(android, /writeProfileWithCompletion\(this::finishHandshake\)/);
 });
 
 test('legacy QRing HID settings stay isolated from the Photo UI entry', () => {
@@ -59,17 +61,16 @@ test('QRing photo sessions confirm ACKs, keep alive and fence old shutter events
   const ios = read('ios/Runner/QRingWearableBridge.m');
   const android = read('android/app/src/main/java/cc/saidian/saydian_app/QRingBridge.java');
   for (const source of [ios, android]) {
-    if (source === android) assert.match(source, /probeRemoteCamera/);
     assert.match(source, /remoteCameraEpoch/);
     assert.match(source, /cameraRemoteStopped/);
     assert.match(source, /waitToStopCamera/);
-    if (source === android) assert.match(source, /remoteCameraSupported = accepted/);
     assert.match(source, /DEVICE_BUSY/);
   }
   assert.match(ios, /sdk.takePicture =/);
   assert.match(android, /CameraNotifyRsp.ACTION_TAKE_PHOTO/);
   assert.match(android, /manager.addNotifyListener\(Constants.CMD_TAKING_PICTURE/);
   assert.match(android, /manager.removeNotifyListener\(Constants.CMD_TAKING_PICTURE\)/);
+  assert.match(android, /Boolean.FALSE.equals\(call.argument\("enabled"\)\)\) stopRemoteCamera\(result\)/);
   assert.match(ios, /sdk.takePicture = nil/);
   const ui = read('lib/ui/prototype/device_features.dart');
   assert.match(ui, /_galleryPermissionDenied = error.code == 'PHOTO_PERMISSION_DENIED'/);

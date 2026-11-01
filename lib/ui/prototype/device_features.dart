@@ -1289,6 +1289,11 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
 
   Widget _buildCameraPanel() {
     final camera = _camera;
+    final reconnectContext = _currentFeatureContext;
+    final requiresReconnect =
+        widget.controller.deviceFeatureData[DeviceFeature
+            .camera]?['requiresReconnect'] ==
+        true;
     final ready =
         camera != null && camera.value.isInitialized && !camera.value.hasError;
     return RingCameraPanel(
@@ -1316,6 +1321,13 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       onCapture: ready && !_takingPhoto ? _takePhoto : null,
       onRetrySave: _lastPhoto != null && !_photoSaved ? _retryPhotoSave : null,
       onPhotoSettings: _galleryPermissionDenied ? openAppSettings : null,
+      onReconnect: requiresReconnect && !widget.controller.isDeviceReconnecting
+          ? () {
+              if (mounted && reconnectContext == _currentFeatureContext) {
+                unawaited(widget.controller.reconnectDevice());
+              }
+            }
+          : null,
       onRetryCamera:
           _cameraMessage != null &&
               (!ready || !_cameraRemoteStarted) &&

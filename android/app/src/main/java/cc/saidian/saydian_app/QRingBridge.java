@@ -151,45 +151,33 @@ public final class QRingBridge
     private void traceControl(String stage) {
         if (BuildConfig.DEBUG) Log.i("SayRingControl", stage);
     }
-    private boolean remoteCameraSupported;
     private boolean remoteCameraActive;
     private int remoteCameraEpoch;
     private Runnable remoteCameraKeepAlive;
 
-    // Photo UI (command 0x02) is separate from persistent HID photo mode 5.
-    // Probe both enter and exit ACKs before advertising this device capability.
-    private void probeRemoteCamera(Runnable completion) {
-        remoteCameraSupported = false;
+    // The vendor opens Photo UI on user entry, separately from HID photo mode 5.
+    // A failed enter/exit probe during connection must not hide the entry.
+    private boolean canOpenRemoteCamera() {
+        return resolved() && (supportFlags.supportGesture || supportFlags.supportTouch);
+    }
+
+    private void registerRemoteCameraCallbacks() {
+        final int epoch = remoteCameraEpoch;
         final int connection = connectionGeneration;
         final String id = connectedId;
-        final int operation = ++cameraOperation;
-        final boolean[] done = {false};
-        Runnable finish = () -> {
-            if (done[0] || operation != cameraOperation || !isCurrentConnection(connection, id)) return;
-            done[0] = true;
-            cameraOperation++;
-            completion.run();
-        };
-        if (supportFlags == null || (!supportFlags.supportGesture && !supportFlags.supportTouch)) {
-            finish.run(); return;
-        }
-        main.postDelayed(() -> {
-            if (!done[0] && operation == cameraOperation) {
-                controlChannels.block(QRingControlChannelState.Channel.PHOTO_UI, connection);
-                finish.run();
+        manager.addNotifyListener(Constants.CMD_TAKING_PICTURE,
+                (ICommandResponse<CameraNotifyRsp>) notification -> main.post(() -> {
+            if (!remoteCameraActive || epoch != remoteCameraEpoch || !isCurrentConnection(connection, id)
+                    || notification == null || notification.getStatus() != BaseRspCmd.RESULT_OK) return;
+            if (notification.getAction() == CameraNotifyRsp.ACTION_TAKE_PHOTO) {
+                traceControl("photo_notify_shutter");
+                Map<String, Object> event = new HashMap<>();
+                event.put("deviceId", id);
+                emit("cameraShutter", event);
+            } else if (notification.getAction() == CameraNotifyRsp.ACTION_FINISH) {
+                resetRemoteCamera();
             }
-        }, 8_000L);
-        CommandHandle.getInstance().executeReqCmd(new CameraReq(CameraReq.ACTION_INTO_CAMARA_UI),
-                (ICommandResponse<BaseRspCmd>) response -> main.post(() -> {
-                    if (done[0] || operation != cameraOperation || !isCurrentConnection(connection, id)) return;
-                    final boolean accepted = response != null && response.getStatus() == BaseRspCmd.RESULT_OK;
-                    CommandHandle.getInstance().executeReqCmd(new CameraReq(CameraReq.ACTION_FINISH),
-                            (ICommandResponse<BaseRspCmd>) exit -> main.post(() -> {
-                                if (done[0] || operation != cameraOperation || !isCurrentConnection(connection, id)) return;
-                                remoteCameraSupported = accepted && exit != null && exit.getStatus() == BaseRspCmd.RESULT_OK;
-                                finish.run();
-                            }));
-                }));
+        }));
     }
 
     private void resetRemoteCamera() {
@@ -200,6 +188,7 @@ public final class QRingBridge
         remoteCameraKeepAlive = null;
         if (manager != null) manager.removeNotifyListener(Constants.CMD_TAKING_PICTURE);
         if (wasActive && connectedId != null) {
+            traceControl("photo_remote_stopped");
             Map<String, Object> event = new HashMap<>();
             event.put("deviceId", connectedId);
             emit("cameraRemoteStopped", event);
@@ -227,8 +216,12 @@ public final class QRingBridge
             if (epoch != remoteCameraEpoch || !remoteCameraActive || !resolved()) return;
             remoteCameraCommand(CameraReq.ACTION_KEEP_SCREEN_ON, new MethodChannel.Result() {
                 public void success(Object value) { if (epoch == remoteCameraEpoch) scheduleCameraKeepAlive(epoch); }
-                public void error(String code, String message, Object details) { resetRemoteCamera(); }
-                public void notImplemented() { resetRemoteCamera(); }
+                public void error(String code, String message, Object details) {
+                    if (epoch == remoteCameraEpoch) resetRemoteCamera();
+                }
+                public void notImplemented() {
+                    if (epoch == remoteCameraEpoch) resetRemoteCamera();
+                }
             });
         };
         main.postDelayed(remoteCameraKeepAlive, 10_000L);
@@ -237,7 +230,7 @@ public final class QRingBridge
     private void remoteCameraCommand(byte action, MethodChannel.Result result) {
         final boolean entering = action == CameraReq.ACTION_INTO_CAMARA_UI;
         if (!entering && action == CameraReq.ACTION_FINISH) resetRemoteCamera();
-        if (!resolved() || (entering && !remoteCameraSupported)) {
+        if (!resolved() || (entering && !canOpenRemoteCamera())) {
             if (!entering) { result.success(null); return; }
             result.error("QRING_FEATURE_UNVERIFIED", "此戒指未确认支持相机遥控", null); return;
         }
@@ -255,32 +248,31 @@ public final class QRingBridge
         final int epoch = remoteCameraEpoch;
         main.postDelayed(() -> {
             if (!currentCamera(operation, connection, id)) return;
+            traceControl("photo_command_timeout");
             controlChannels.block(QRingControlChannelState.Channel.PHOTO_UI, connection);
             resetRemoteCamera();
             finishCamera(null, "QRING_CONTROL_UNCONFIRMED", "相机遥控未确认，请重新连接");
         }, 8_000L);
+        if (entering) registerRemoteCameraCallbacks();
+        traceControl(entering ? "photo_enter_start" : action == CameraReq.ACTION_FINISH
+                ? "photo_exit_start" : "photo_keep_alive_start");
         CommandHandle.getInstance().executeReqCmd(new CameraReq(action),
                 (ICommandResponse<BaseRspCmd>) response -> main.post(() -> {
                     if (!currentCamera(operation, connection, id)) return;
-                    if (response == null || response.getStatus() != BaseRspCmd.RESULT_OK) {
-                        resetRemoteCamera();
-                        finishCamera(null, "QRING_ACTION_FAILED", "相机遥控未开启，请重试"); return;
+                    if (entering && epoch != remoteCameraEpoch) {
+                        finishCamera(null, "QRING_CONTROL_CANCELLED", "相机遥控已取消"); return;
                     }
-                    if (entering && epoch == remoteCameraEpoch) {
+                    if (response == null || response.getStatus() != BaseRspCmd.RESULT_OK) {
+                        traceControl("photo_command_failed");
+                        resetRemoteCamera();
+                        finishCamera(null, "QRING_ACTION_FAILED", "戒指遥控未响应，可重试或使用手机快门"); return;
+                    }
+                    if (entering) {
                         remoteCameraActive = true;
-                        manager.addNotifyListener(Constants.CMD_TAKING_PICTURE,
-                                (ICommandResponse<CameraNotifyRsp>) notification -> main.post(() -> {
-                            if (!remoteCameraActive || epoch != remoteCameraEpoch || !isCurrentConnection(connection, id)
-                                    || notification == null || notification.getStatus() != BaseRspCmd.RESULT_OK) return;
-                            if (notification.getAction() == CameraNotifyRsp.ACTION_TAKE_PHOTO) {
-                                Map<String, Object> event = new HashMap<>();
-                                event.put("deviceId", id);
-                                emit("cameraShutter", event);
-                            } else if (notification.getAction() == CameraNotifyRsp.ACTION_FINISH) {
-                                resetRemoteCamera();
-                            }
-                        }));
+                        traceControl("photo_enter_confirmed");
                         scheduleCameraKeepAlive(epoch);
+                    } else if (action == CameraReq.ACTION_FINISH) {
+                        traceControl("photo_exit_confirmed");
                     }
                     finishCamera(null, null, null);
                 }));
@@ -624,7 +616,6 @@ public final class QRingBridge
 
     private void finishDisconnectedSession() {
         resetRemoteCamera();
-        remoteCameraSupported = false;
         finishCamera(null, "QRING_DISCONNECTED", "戒指已断开");
         String retired = connectedId;
         connectionGeneration++;
@@ -954,7 +945,7 @@ public final class QRingBridge
     }
 
     private void writeProfileThenFinish() {
-        writeProfileWithCompletion(() -> probeRemoteCamera(this::finishHandshake));
+        writeProfileWithCompletion(this::finishHandshake);
     }
 
     private void writeProfileWithCompletion(Runnable completion) {
@@ -1163,7 +1154,7 @@ public final class QRingBridge
             for (String sport : supported) sports.add(sport);
         }
         features.add("find_watch");
-        if (remoteCameraSupported) features.add("camera");
+        if (canOpenRemoteCamera()) features.add("camera");
         if (supportsGesture()) features.add("gesture_control");
         if (supportFlags.supportIntervalHeartRate || supportFlags.supportIntervalBloodOxygen
                 || supportFlags.supportIntervalTemperature || setTimeFlags.supportsPressure()
@@ -2137,8 +2128,8 @@ public final class QRingBridge
                 }
                 case "triggerDeviceAction":
                     if ("camera".equals(call.argument("feature"))) {
-                        remoteCameraCommand(Boolean.FALSE.equals(call.argument("enabled"))
-                                ? CameraReq.ACTION_FINISH : CameraReq.ACTION_INTO_CAMARA_UI, result);
+                        if (Boolean.FALSE.equals(call.argument("enabled"))) stopRemoteCamera(result);
+                        else remoteCameraCommand(CameraReq.ACTION_INTO_CAMARA_UI, result);
                     } else if (!resolved() || !"find_watch".equals(call.argument("feature"))) {
                         result.error("QRING_FEATURE_UNVERIFIED", "此戒指功能暂不支持", null);
                     } else {

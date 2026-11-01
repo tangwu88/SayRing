@@ -1039,7 +1039,7 @@ class AppLocalizationsKo extends AppLocalizations {
   String get searchAgain => '다시 검색';
 
   @override
-  String get searchRecovery => '링을 가까이 두세요. R22가 검색에 표시되지 않으면 복구 가능한 링을 표시하세요.';
+  String get searchRecovery => '가까이 있는 링을 찾을 수 없나요? 복구 가능한 링을 표시해 보세요.';
 
   @override
   String get findSystemPairedRings => '복구 가능한 링 표시';

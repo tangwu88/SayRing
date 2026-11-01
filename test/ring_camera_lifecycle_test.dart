@@ -90,8 +90,9 @@ class _Camera extends CameraPlatform {
 class _Api extends Fake implements SaydianApi {}
 
 class _Wearable extends Fake implements WearableBridge {
-  _Wearable({this.failStart = false});
+  _Wearable({this.failStart = false, this.failureCode = 'QRING_ACTION_FAILED'});
   final bool failStart;
+  final String failureCode;
   final calls = <bool>[];
   @override
   Future<void> triggerDeviceAction(
@@ -100,7 +101,7 @@ class _Wearable extends Fake implements WearableBridge {
   }) async {
     calls.add(enabled);
     if (enabled && failStart) {
-      throw PlatformException(code: 'QRING_ACTION_FAILED', message: '未收到回包');
+      throw PlatformException(code: failureCode, message: '未收到回包');
     }
   }
 
@@ -110,59 +111,96 @@ class _Wearable extends Fake implements WearableBridge {
 }
 
 void main() {
-  testWidgets(
-    'failed remote start still sends one scoped stop on exit',
-    (tester) async {
-      final original = CameraPlatform.instance;
-      final camera = _Camera();
-      final wearable = _Wearable(failStart: true);
-      CameraPlatform.instance = camera;
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      final app =
-          AppController(
-              MemorySessionVault(),
-              _Api(),
-              MemoryHealthStore(),
-              wearable,
-            )
-            ..connectedDevice = const DeviceInfo(
-              id: 'qring:fixture',
-              name: 'R21',
-            )
-            ..deviceCapabilityState = DeviceCapabilityState.ready
-            ..capabilities = const DeviceCapabilities(
-              metrics: {},
-              features: {DeviceFeature.camera},
-              integratedFeatures: {DeviceFeature.camera},
-            );
-      addTearDown(() async {
-        await tester.pumpWidget(const SizedBox.shrink());
-        await tester.pumpAndSettle();
-        app.dispose();
-        CameraPlatform.instance = original;
+  for (final failureCode in [
+    'QRING_ACTION_FAILED',
+    'QRING_CONTROL_UNCONFIRMED',
+  ]) {
+    testWidgets(
+      'failed remote start $failureCode offers recovery and sends one scoped stop on exit',
+      (tester) async {
+        final original = CameraPlatform.instance;
+        final camera = _Camera();
+        final wearable = _Wearable(failStart: true, failureCode: failureCode);
+        const permissions = MethodChannel(
+          'flutter.baseflow.com/permissions/methods',
+        );
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(permissions, (call) async {
+          if (call.method == 'checkPermissionStatus') return 1;
+          if (call.method == 'requestPermissions') return {1: 1};
+          throw StateError('Unexpected camera permission request');
+        });
+        addTearDown(
+          () => messenger.setMockMethodCallHandler(permissions, null),
+        );
+        CameraPlatform.instance = camera;
         tester.binding.handleAppLifecycleStateChanged(
           AppLifecycleState.resumed,
         );
-      });
-      await tester.pumpWidget(
-        MaterialApp(
-          home: DeviceFeaturePage(
-            controller: app,
-            feature: DeviceFeature.camera,
+        final app =
+            AppController(
+                MemorySessionVault(),
+                _Api(),
+                MemoryHealthStore(),
+                wearable,
+              )
+              ..connectedDevice = const DeviceInfo(
+                id: 'qring:fixture',
+                name: 'R21',
+              )
+              ..deviceCapabilityState = DeviceCapabilityState.ready
+              ..capabilities = const DeviceCapabilities(
+                metrics: {},
+                features: {DeviceFeature.camera},
+                integratedFeatures: {DeviceFeature.camera},
+              );
+        addTearDown(() async {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpAndSettle();
+          app.dispose();
+          CameraPlatform.instance = original;
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
+        });
+        await tester.pumpWidget(
+          MaterialApp(
+            home: DeviceFeaturePage(
+              controller: app,
+              feature: DeviceFeature.camera,
+            ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.byType(CameraPreview), findsOneWidget);
-      expect(wearable.calls, [true]);
-      expect(find.text('戒指遥控已就绪'), findsNothing);
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpAndSettle();
-      expect(wearable.calls, [true, false]);
-      expect(tester.takeException(), isNull);
-    },
-    variant: TargetPlatformVariant({TargetPlatform.iOS}),
-  );
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(CameraPreview), findsOneWidget);
+        expect(wearable.calls, [true]);
+        expect(find.text('戒指遥控已就绪'), findsNothing);
+        final reconnect = failureCode == 'QRING_CONTROL_UNCONFIRMED';
+        expect(
+          app.deviceFeatureData[DeviceFeature.camera]?['requiresReconnect'] ==
+              true,
+          reconnect,
+        );
+        expect(
+          find.byKey(const Key('camera-reconnect-button')),
+          reconnect ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.byKey(const Key('camera-retry-button')),
+          reconnect ? findsNothing : findsOneWidget,
+        );
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+        expect(wearable.calls, [true, false]);
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant({
+        TargetPlatform.iOS,
+        TargetPlatform.android,
+      }),
+    );
+  }
   for (final denied in [true, false]) {
     testWidgets(
       'iOS camera ${denied ? 'denied' : 'restricted'} recovery',

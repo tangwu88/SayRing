@@ -269,6 +269,61 @@ void main() {
   });
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    for (final hasCachedDevice in [false, true]) {
+      testWidgets(
+        '$platform searches remembered or system devices before scanning; cached=$hasCachedDevice',
+        (tester) async {
+          environment.sdk = 31;
+          final wearable = _CachedScanWearable(
+            cached: hasCachedDevice ? [_CachedScanWearable.ring] : [],
+          );
+          final controller = _controller(wearable);
+          addTearDown(controller.dispose);
+          await _pumpSearch(tester, controller);
+
+          expect(wearable.lookups, 1);
+          expect(wearable.scans, hasCachedDevice ? 0 : 1);
+          expect(controller.connectedDevice, isNull);
+          expect(wearable.connects, 0);
+          expect(
+            find.text(
+              hasCachedDevice
+                  ? _CachedScanWearable.ring.name
+                  : _ScanWearable.watch.name,
+            ),
+            findsOneWidget,
+          );
+          expect(tester.takeException(), isNull);
+        },
+        variant: TargetPlatformVariant.only(platform),
+      );
+    }
+
+    testWidgets(
+      '$platform failed cached connection starts a fresh scan without adopting another ring',
+      (tester) async {
+        environment.sdk = 31;
+        final wearable = _CachedScanWearable(
+          cached: [_CachedScanWearable.ring],
+        );
+        final controller = _controller(wearable);
+        addTearDown(controller.dispose);
+        await _pumpSearch(tester, controller);
+        await tester.tap(find.text(_CachedScanWearable.ring.name));
+        await tester.pumpAndSettle();
+
+        expect(wearable.connectedIds, [_CachedScanWearable.ring.id]);
+        expect(wearable.scans, 1);
+        expect(controller.connectedDevice, isNull);
+        expect(controller.scannedDevices, [_ScanWearable.watch]);
+        expect(find.text(_ScanWearable.watch.name), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(platform),
+    );
+  }
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     for (final hasResults in [false, true]) {
       testWidgets(
         'search help stays usable on $platform with results=$hasResults and large text',
@@ -434,6 +489,32 @@ class _ScanWearable extends Fake implements WearableBridge {
 
   @override
   Future<void> stopScan() async {}
+}
+
+class _CachedScanWearable extends _ScanWearable
+    implements WearableBondedDeviceSelectionBridge {
+  _CachedScanWearable({required this.cached});
+
+  static const ring = DeviceInfo(id: 'qring:CACHED', name: 'R21 Cached');
+  final List<DeviceInfo> cached;
+  int lookups = 0;
+  final connectedIds = <String>[];
+  int get connects => connectedIds.length;
+
+  @override
+  Future<List<DeviceInfo>> listBondedDevicesForSelection() async {
+    lookups++;
+    return cached;
+  }
+
+  @override
+  Future<void> connect(
+    String deviceId, {
+    required WearableUserProfile profile,
+  }) async {
+    connectedIds.add(deviceId);
+    throw PlatformException(code: 'QRING_CONNECT_TIMEOUT');
+  }
 }
 
 class _AndroidScanEnvironment {

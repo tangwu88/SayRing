@@ -1037,8 +1037,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get searchAgain => '再検索';
 
   @override
-  String get searchRecovery =>
-      'リングを近づけてください。R22 が検索に表示されない場合は、復元可能なリングを表示してください。';
+  String get searchRecovery => '近くのリングが見つからない場合は、復元可能なリングを表示してください。';
 
   @override
   String get findSystemPairedRings => '復元可能なリングを表示';

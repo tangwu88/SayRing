@@ -1012,7 +1012,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get searchAgain => '重新搜索';
 
   @override
-  String get searchRecovery => '请让戒指靠近手机；若 R22 搜索不到，请点击“显示可恢复的戒指”。';
+  String get searchRecovery => '戒指靠近仍搜不到？试试“显示可恢复的戒指”。';
 
   @override
   String get findSystemPairedRings => '显示可恢复的戒指';
@@ -3070,7 +3070,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get searchAgain => '重新搜索';
 
   @override
-  String get searchRecovery => '请让戒指靠近手机；若 R22 搜索不到，请点击“显示可恢复的戒指”。';
+  String get searchRecovery => '戒指靠近仍搜不到？试试“显示可恢复的戒指”。';
 
   @override
   String get findSystemPairedRings => '显示可恢复的戒指';
@@ -5128,7 +5128,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get searchAgain => '重新搜尋';
 
   @override
-  String get searchRecovery => '請讓戒指靠近手機；若 R22 搜尋不到，請點擊「顯示可恢復的戒指」。';
+  String get searchRecovery => '戒指靠近仍找不到？試試「顯示可恢復的戒指」。';
 
   @override
   String get findSystemPairedRings => '顯示可恢復的戒指';

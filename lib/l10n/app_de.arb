@@ -380,7 +380,7 @@
   "devicesFound": "Geräte gefunden",
   "connect": "Verbinden",
   "searchAgain": "Erneut suchen",
-  "searchRecovery": "Ring nah halten. Wenn ein R22 nicht erscheint, wiederherstellbare Ringe anzeigen.",
+  "searchRecovery": "Ring in der Nähe, aber nicht gefunden? Wiederherstellbare Ringe anzeigen.",
   "findSystemPairedRings": "Wiederherstellbare Ringe",
   "findSystemPairedRingsHint": "Zeigt unterstützte, im Telefon gekoppelte oder zuvor mit Say Ring verbundene Ringe. Die Auswahl wird erneut über das Ring-SDK geprüft.",
   "systemPairedDevice": "Wiederherstellbar",

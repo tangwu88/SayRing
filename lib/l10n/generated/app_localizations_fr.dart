@@ -1108,7 +1108,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Gardez la bague près du téléphone. Si une R22 n’apparaît pas, affichez les bagues récupérables.';
+      'La bague est proche mais introuvable ? Affichez les bagues récupérables.';
 
   @override
   String get findSystemPairedRings => 'Afficher les bagues récupérables';

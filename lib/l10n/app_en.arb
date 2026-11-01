@@ -415,7 +415,7 @@
   "devicesFound": "Devices found",
   "connect": "Connect",
   "searchAgain": "Search again",
-  "searchRecovery": "Keep the ring close. If an R22 does not appear in search, use Show recoverable rings.",
+  "searchRecovery": "Ring nearby but missing? Try Show recoverable rings.",
   "findSystemPairedRings": "Show recoverable rings",
   "findSystemPairedRingsHint": "Shows supported rings paired in phone settings or previously connected by Say Ring. Selection still requires fresh ring SDK verification.",
   "systemPairedDevice": "Recoverable",

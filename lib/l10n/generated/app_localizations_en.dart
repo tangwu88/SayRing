@@ -1092,7 +1092,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Keep the ring close. If an R22 does not appear in search, use Show recoverable rings.';
+      'Ring nearby but missing? Try Show recoverable rings.';
 
   @override
   String get findSystemPairedRings => 'Show recoverable rings';

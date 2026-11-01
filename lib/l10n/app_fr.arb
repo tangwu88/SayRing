@@ -380,7 +380,7 @@
   "devicesFound": "Appareils trouvés",
   "connect": "Connecter",
   "searchAgain": "Rechercher à nouveau",
-  "searchRecovery": "Gardez la bague près du téléphone. Si une R22 n’apparaît pas, affichez les bagues récupérables.",
+  "searchRecovery": "La bague est proche mais introuvable ? Affichez les bagues récupérables.",
   "findSystemPairedRings": "Afficher les bagues récupérables",
   "findSystemPairedRingsHint": "Affiche les bagues compatibles jumelées au téléphone ou déjà connectées par Say Ring. La sélection est revérifiée via le SDK.",
   "systemPairedDevice": "Récupérable",

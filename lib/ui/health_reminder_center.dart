@@ -504,8 +504,23 @@ class _HealthReminderCenterPageState extends State<HealthReminderCenterPage> {
                       ),
                       onPressed: () async {
                         if (permission ==
-                            ReminderNotificationPermission.denied) {
-                          await openAppSettings();
+                                ReminderNotificationPermission.denied ||
+                            permission ==
+                                ReminderNotificationPermission.granted) {
+                          final opened = await openAppSettings();
+                          if (!opened && context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  _copy(
+                                    context,
+                                    '无法打开设置，请在系统设置中管理通知',
+                                    'Open system settings to manage notifications.',
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
                         } else {
                           await controller.refreshHealthReminderPermissions(
                             request: true,

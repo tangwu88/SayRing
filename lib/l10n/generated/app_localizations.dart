@@ -2057,7 +2057,7 @@ abstract class AppLocalizations {
   /// No description provided for @searchRecovery.
   ///
   /// In en, this message translates to:
-  /// **'Keep the ring close. If an R22 does not appear in search, use Show recoverable rings.'**
+  /// **'Ring nearby but missing? Try Show recoverable rings.'**
   String get searchRecovery;
 
   /// No description provided for @findSystemPairedRings.

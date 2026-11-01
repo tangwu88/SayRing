@@ -412,16 +412,18 @@ class DevicePage extends StatelessWidget {
             const SizedBox(height: 12),
           ],
         ],
-        InlineNotice(
-          key: const Key('device-rebind-guidance'),
-          message: defaultTargetPlatform == TargetPlatform.iOS
-              ? context.l10n.deviceSearchHelpRebindIos
-              : context.l10n.deviceSearchHelpRebindAndroid,
-          icon: Icons.bluetooth_searching_rounded,
-          color: SaydianColors.blue,
-          compact: true,
-        ),
-        const SizedBox(height: 10),
+        if (connected == null) ...[
+          InlineNotice(
+            key: const Key('device-rebind-guidance'),
+            message: defaultTargetPlatform == TargetPlatform.iOS
+                ? context.l10n.deviceSearchHelpRebindIos
+                : context.l10n.deviceSearchHelpRebindAndroid,
+            icon: Icons.bluetooth_searching_rounded,
+            color: SaydianColors.blue,
+            compact: true,
+          ),
+          const SizedBox(height: 10),
+        ],
         Card(
           child: Column(
             children: [
@@ -1022,8 +1024,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
   }
 
   Future<void> _findCachedOrScan() async {
-    if (defaultTargetPlatform != TargetPlatform.iOS ||
-        !widget.controller.supportsBondedDeviceSelection) {
+    if (!widget.controller.supportsBondedDeviceSelection) {
       await _startScan();
       return;
     }
@@ -1100,7 +1101,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       return;
     }
     setState(() => _connectingDeviceId = null);
-    if (defaultTargetPlatform == TargetPlatform.iOS &&
+    if (widget.controller.supportsBondedDeviceSelection &&
         device.rssi == null &&
         widget.controller.deviceState == DeviceConnectionState.error) {
       ScaffoldMessenger.of(

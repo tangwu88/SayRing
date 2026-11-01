@@ -1103,7 +1103,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get searchRecovery =>
-      'Mantén el anillo cerca. Si un R22 no aparece, muestra los anillos recuperables.';
+      '¿El anillo está cerca pero no aparece? Prueba a mostrar los anillos recuperables.';
 
   @override
   String get findSystemPairedRings => 'Mostrar anillos recuperables';

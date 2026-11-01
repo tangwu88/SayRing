@@ -166,6 +166,7 @@ void _emitHighReading(_LiveWearable ring, String id) => ring.records.add(
 
 class _Notifications implements HealthReminderNotifications {
   bool allowed = true;
+  bool granted = false;
   String? owner;
   HealthReminderNotificationOpen? opened;
   final cancelled = <String>[];
@@ -178,9 +179,13 @@ class _Notifications implements HealthReminderNotifications {
   @override
   Future<ReminderNotificationPermission> permission({
     bool request = false,
-  }) async => request
-      ? ReminderNotificationPermission.granted
-      : ReminderNotificationPermission.denied;
+  }) async {
+    if (request) granted = true;
+    return granted
+        ? ReminderNotificationPermission.granted
+        : ReminderNotificationPermission.denied;
+  }
+
   @override
   Future<bool> show({required String owner, required String eventId}) async {
     if (owner != this.owner || !allowed) return false;
@@ -265,6 +270,44 @@ void main() {
       (_) async => ['wifi'],
     );
   });
+
+  for (final granted in [false, true]) {
+    testWidgets(
+      'known notification permission $granted opens system settings',
+      (tester) async {
+        var settingsOpened = 0;
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        const permissions = MethodChannel(
+          'flutter.baseflow.com/permissions/methods',
+        );
+        messenger.setMockMethodCallHandler(permissions, (call) async {
+          if (call.method == 'openAppSettings') {
+            settingsOpened++;
+            return true;
+          }
+          throw StateError('Unexpected permission method: ${call.method}');
+        });
+        addTearDown(
+          () => messenger.setMockMethodCallHandler(permissions, null),
+        );
+        final controller = (await tester.runAsync(
+          () => _controller(notifications: _Notifications()..granted = granted),
+        ))!;
+        addTearDown(controller.dispose);
+        await _pump(tester, HealthReminderCenterPage(controller: controller));
+        final button = find.byKey(
+          const Key('health-reminder-notification-permission'),
+        );
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        expect(settingsOpened, 1);
+        expect(controller.healthReminderEvents, isEmpty);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   for (final metric in [HealthMetric.hrv, HealthMetric.bodyTemperature]) {
     test(

@@ -4978,6 +4978,12 @@ class AppController extends ChangeNotifier {
     try {
       await _wearable.triggerDeviceAction(feature, enabled: enabled);
       if (!isCurrent()) return false;
+      if (feature == DeviceFeature.camera && enabled) {
+        deviceFeatureData = {
+          ...deviceFeatureData,
+          feature: {...?deviceFeatureData[feature], 'requiresReconnect': false},
+        };
+      }
       errorMessage = null;
       return true;
     } on PlatformException catch (error) {
@@ -4986,6 +4992,17 @@ class AppController extends ChangeNotifier {
         error,
         fallback: '${feature.label}暂时无法使用',
       );
+      if (feature == DeviceFeature.camera &&
+          connectedDevice?.sdkSource == WearableSdkSource.qring &&
+          const {
+            'QRING_CONTROL_UNCONFIRMED',
+            'QRING_CONTROL_RECONNECT',
+          }.contains(error.code)) {
+        deviceFeatureData = {
+          ...deviceFeatureData,
+          feature: {...?deviceFeatureData[feature], 'requiresReconnect': true},
+        };
+      }
       return false;
     } catch (_) {
       if (!isCurrent()) return false;
