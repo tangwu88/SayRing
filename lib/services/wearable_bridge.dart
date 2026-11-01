@@ -359,6 +359,7 @@ abstract interface class WearableRememberedDeviceSelectionBridge {
   Future<DeviceInfo?> prepareRememberedDeviceForSelection(
     String nativeIdentifier, {
     String? knownName,
+    bool cacheOnly = false,
   });
 }
 

@@ -1017,8 +1017,25 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_startScan());
+      if (mounted) unawaited(_findCachedOrScan());
     });
+  }
+
+  Future<void> _findCachedOrScan() async {
+    if (defaultTargetPlatform != TargetPlatform.iOS ||
+        !widget.controller.supportsBondedDeviceSelection) {
+      await _startScan();
+      return;
+    }
+    if (_bondedLookupInFlight || _scanInFlight) return;
+    setState(() => _bondedLookupInFlight = true);
+    try {
+      widget.controller.clearError();
+      final count = await widget.controller.listBondedDevicesForSelection();
+      if (mounted && count == 0) await _startScan();
+    } finally {
+      if (mounted) setState(() => _bondedLookupInFlight = false);
+    }
   }
 
   @override
@@ -1083,6 +1100,14 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
       return;
     }
     setState(() => _connectingDeviceId = null);
+    if (defaultTargetPlatform == TargetPlatform.iOS &&
+        device.rssi == null &&
+        widget.controller.deviceState == DeviceConnectionState.error) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('缓存连接未成功，正在重新搜索戒指')));
+      await _startScan();
+    }
   }
 
   Future<void> _findBondedDevices() async {
@@ -1384,7 +1409,7 @@ class _DeviceSearchPageState extends State<DeviceSearchPage>
                           const SizedBox(height: 8),
                           Text(
                             defaultTargetPlatform == TargetPlatform.iOS
-                                ? '只显示 Say Ring 曾成功连接的戒指；选择后重新验证，不会自动连接其他设备。'
+                                ? '可查找本账号记住或 iPhone 当前已连接的戒指；选择后仍需验证数据连接。'
                                 : context.l10n.findSystemPairedRingsHint,
                             textAlign: TextAlign.center,
                             style: const TextStyle(

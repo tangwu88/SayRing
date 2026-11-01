@@ -170,6 +170,45 @@ void main() {
   );
 
   test(
+    'previous exact target is offered manually and a failed handshake keeps the current binding',
+    () async {
+      const previousId = '22222222-3333-4444-8555-666666666666';
+      final store =
+          _Store(
+              const SavedWearableBinding(
+                WearableTransport.qring,
+                _id,
+                deviceName: 'R21',
+                ownerKey: 'owner-a',
+              ),
+            )
+            ..recent.add(
+              const SavedWearableBinding(
+                WearableTransport.qring,
+                previousId,
+                deviceName: 'SD_RING_R8',
+                ownerKey: 'owner-a',
+              ),
+            );
+      final qring = _QRing()..failConnection = true;
+      final bridge = _bridge(store, qring);
+      addTearDown(bridge.dispose);
+      await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+      final choices = await bridge.listBondedDevicesForSelection();
+      final r8 = choices.singleWhere((device) => device.name == 'SD_RING_R8');
+      expect(await bridge.canAutomaticallyRecoverRememberedDevice(), isTrue);
+      await expectLater(
+        bridge.connect(r8.id, profile: _profile),
+        throwsStateError,
+      );
+      expect(store.binding?.nativeIdentifier, _id);
+      expect(qring.connects, [previousId]);
+      await bridge.setRecoveryContext(ownerKey: 'owner-b', profile: _profile);
+      expect(await bridge.listBondedDevicesForSelection(), isEmpty);
+    },
+  );
+
+  test(
     'QRing sleep history and events scope nested identity without changing record id',
     () async {
       final store = _Store(
@@ -477,9 +516,13 @@ RoutedWearableBridge _bridge(_Store store, _QRing qring) =>
       requireOwnerScopedBinding: true,
     );
 
-class _Store implements WearableBindingPreferenceStore {
+class _Store
+    implements
+        WearableBindingPreferenceStore,
+        WearableRecentBindingPreferenceStore {
   _Store(this.binding);
   SavedWearableBinding? binding;
+  final recent = <SavedWearableBinding>[];
   final writeStarted = Completer<void>();
   Completer<void>? delayedWrite;
   Completer<SavedWearableBinding?>? delayedRead;
@@ -487,6 +530,10 @@ class _Store implements WearableBindingPreferenceStore {
   @override
   Future<SavedWearableBinding?> readBinding() async =>
       delayedRead == null ? binding : await delayedRead!.future;
+  @override
+  Future<List<SavedWearableBinding>> readRecentBindings(
+    String ownerKey,
+  ) async => recent.where((binding) => binding.ownerKey == ownerKey).toList();
   @override
   Future<void> writeBinding(SavedWearableBinding value) async {
     writeCount++;
@@ -552,6 +599,7 @@ class _QRing extends _Empty
   Future<DeviceInfo?> prepareRememberedDeviceForSelection(
     String nativeIdentifier, {
     String? knownName,
+    bool cacheOnly = false,
   }) async => DeviceInfo(id: nativeIdentifier, name: knownName!);
   @override
   Future<void> connect(

@@ -27,10 +27,19 @@ test('silent iOS cancellation requires exact operation and actual disconnected s
   }
 });
 
-test('manual QRing reconnect refreshes only the remembered UUID without deleting binding', () => {
+test('manual QRing selection offers only the exact cached UUID before scoped scan', () => {
   const bridge = read('ios/Runner/QRingWearableBridge.m');
   const prepare = bridge.split('- (void)prepareRememberedDevice:')[1].split('- (void)connect:')[0];
-  assert.match(prepare, /peripheral.state == CBPeripheralStateConnected/);
+  assert.match(prepare, /peripheral.identifier isEqual:uuid/);
+  assert.match(prepare, /peripheral.name.length > 0 && !\[self isQRingName:peripheral.name\]/);
+  assert.match(prepare, /NSString \*name = peripheral.name.length > 0 \? peripheral.name : knownName/);
+  assert.match(prepare, /if \(!\[self isQRingName:name\]\) continue/);
+  assert.match(prepare, /item.selectionName = name/);
+  assert.match(prepare, /if \(cacheOnly\) \{ result\(nil\); return; \}/);
+  assert.ok(prepare.indexOf('if (cacheOnly)') < prepare.indexOf('[self startScan:'));
+  // Preparing a disconnected cached candidate is not a successful connection
+  // and must neither connect silently nor replace the owner's saved binding.
+  assert.doesNotMatch(prepare, /\[self.central connect:|setObject:|writeBinding/);
   assert.match(prepare, /\[self startScan:/);
   assert.match(prepare, /device\[@"id"\] isEqualToString:identifier/);
   assert.match(prepare, /self.selectionTargetID = identifier/);

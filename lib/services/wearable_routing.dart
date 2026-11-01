@@ -604,6 +604,7 @@ class RoutedWearableBridge
                   .prepareRememberedDeviceForSelection(
                     saved.nativeIdentifier,
                     knownName: saved.deviceName,
+                    cacheOnly: true,
                   );
           if (remembered?.id == saved.nativeIdentifier) {
             final routed = RoutedDevice.fromDevice(
@@ -617,6 +618,57 @@ class RoutedWearableBridge
             }
           }
         }
+      }
+    }
+    final owner = _recoveryOwnerKey;
+    if (owner != null && preference is WearableRecentBindingPreferenceStore) {
+      List<SavedWearableBinding> recent;
+      try {
+        recent = await preference.readRecentBindings(owner);
+      } catch (_) {
+        recent = const [];
+      }
+      for (final saved in recent) {
+        if (_recoveryOwnerKey != owner) break;
+        if (saved.ownerKey != owner ||
+            saved.deviceName == null ||
+            !WearableDeviceClassifier.routesTo(
+              saved.deviceName!,
+              saved.transport,
+            )) {
+          continue;
+        }
+        final id = RoutedDevice.scopedID(
+          saved.transport,
+          saved.nativeIdentifier,
+        );
+        if (selectedIds.contains(id)) continue;
+        final source = _sources[saved.transport];
+        if (source is! WearableRememberedDeviceSelectionBridge) continue;
+        DeviceInfo? remembered;
+        try {
+          remembered = await (source as WearableRememberedDeviceSelectionBridge)
+              .prepareRememberedDeviceForSelection(
+                saved.nativeIdentifier,
+                knownName: saved.deviceName,
+                cacheOnly: true,
+              )
+              .timeout(const Duration(seconds: 12));
+        } catch (_) {
+          continue;
+        }
+        if (_recoveryOwnerKey != owner ||
+            remembered?.id != saved.nativeIdentifier ||
+            !WearableDeviceClassifier.routesTo(
+              remembered!.name,
+              saved.transport,
+            )) {
+          continue;
+        }
+        final routed = RoutedDevice.fromDevice(saved.transport, remembered);
+        _scanned[routed.display.id] = routed;
+        _manualRecoveryIds.add(routed.display.id);
+        if (selectedIds.add(routed.display.id)) selected.add(routed.display);
       }
     }
     return selected;
@@ -1494,8 +1546,17 @@ abstract interface class WearableBindingPreferenceStore
   Future<void> writeBinding(SavedWearableBinding binding);
 }
 
+/// Previous successful targets are offered only for explicit selection by
+/// the same owner. They never participate in automatic recovery.
+abstract interface class WearableRecentBindingPreferenceStore
+    implements WearableTransportPreferenceStore {
+  Future<List<SavedWearableBinding>> readRecentBindings(String ownerKey);
+}
+
 class SecureWearableTransportPreferenceStore
-    implements WearableBindingPreferenceStore {
+    implements
+        WearableBindingPreferenceStore,
+        WearableRecentBindingPreferenceStore {
   const SecureWearableTransportPreferenceStore({this.storageNamespace});
 
   final String? storageNamespace;
@@ -1557,19 +1618,98 @@ class SecureWearableTransportPreferenceStore
   );
 
   @override
-  Future<void> writeBinding(SavedWearableBinding binding) => _storage.write(
-    key: _key,
-    value: jsonEncode({
-      'schemaVersion': binding.ownerKey == null ? 1 : 2,
-      if (binding.ownerKey != null) ...{
-        'environment': globalStorageNamespace(storageNamespace),
-        'ownerKey': binding.ownerKey,
-      },
-      'transport': binding.transport.name,
-      'nativeIdentifier': binding.nativeIdentifier,
-      if (binding.deviceName != null) 'deviceName': binding.deviceName,
-    }),
-  );
+  Future<void> writeBinding(SavedWearableBinding binding) async {
+    final previous = await _readValue();
+    final sameOwner =
+        binding.ownerKey != null &&
+        previous?['schemaVersion'] == 2 &&
+        previous?['ownerKey'] == binding.ownerKey &&
+        previous?['environment'] == globalStorageNamespace(storageNamespace);
+    final recent = <Map<String, String>>[];
+    if (sameOwner) {
+      final entries = <Object?>[
+        previous,
+        ...?previous?['recentBindings'] is List
+            ? previous!['recentBindings'] as List
+            : null,
+      ];
+      final seen = <String>{};
+      for (final entry in entries) {
+        if (entry is! Map) continue;
+        final transport = _transport(entry['transport']);
+        final id = entry['nativeIdentifier'];
+        final name = entry['deviceName'];
+        if (transport == null ||
+            id is! String ||
+            id.isEmpty ||
+            name is! String ||
+            name.trim().isEmpty) {
+          continue;
+        }
+        if (transport == binding.transport && id == binding.nativeIdentifier) {
+          continue;
+        }
+        final key = '${transport.name}:$id';
+        if (!seen.add(key)) continue;
+        recent.add({
+          'transport': transport.name,
+          'nativeIdentifier': id,
+          'deviceName': name.trim(),
+        });
+        if (recent.length == 4) break;
+      }
+    }
+    await _storage.write(
+      key: _key,
+      value: jsonEncode({
+        'schemaVersion': binding.ownerKey == null ? 1 : 2,
+        if (binding.ownerKey != null) ...{
+          'environment': globalStorageNamespace(storageNamespace),
+          'ownerKey': binding.ownerKey,
+        },
+        'transport': binding.transport.name,
+        'nativeIdentifier': binding.nativeIdentifier,
+        if (binding.deviceName != null) 'deviceName': binding.deviceName,
+        if (recent.isNotEmpty) 'recentBindings': recent,
+      }),
+    );
+  }
+
+  @override
+  Future<List<SavedWearableBinding>> readRecentBindings(String ownerKey) async {
+    final value = await _readValue();
+    if (ownerKey.isEmpty ||
+        value?['schemaVersion'] != 2 ||
+        value?['ownerKey'] != ownerKey ||
+        value?['environment'] != globalStorageNamespace(storageNamespace)) {
+      return const [];
+    }
+    final entries = value?['recentBindings'];
+    if (entries is! List) return const [];
+    final results = <SavedWearableBinding>[];
+    for (final entry in entries.take(4)) {
+      if (entry is! Map) continue;
+      final transport = _transport(entry['transport']);
+      final id = entry['nativeIdentifier'];
+      final name = entry['deviceName'];
+      if (transport == null ||
+          id is! String ||
+          id.isEmpty ||
+          name is! String ||
+          name.trim().isEmpty) {
+        continue;
+      }
+      results.add(
+        SavedWearableBinding(
+          transport,
+          id,
+          deviceName: name.trim(),
+          ownerKey: ownerKey,
+        ),
+      );
+    }
+    return results;
+  }
 
   @override
   Future<void> clear() => _storage.delete(key: _key);
