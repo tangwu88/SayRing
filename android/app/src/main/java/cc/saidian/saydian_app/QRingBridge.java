@@ -2,6 +2,7 @@ package cc.saidian.saydian_app;
 
 import android.Manifest;
 import android.app.Activity;
+import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothProfile;
@@ -102,7 +103,8 @@ public final class QRingBridge
     private EventChannel.EventSink sink;
     private BleOperateManager manager;
     private QCBluetoothCallbackCloneReceiver receiver;
-    private BroadcastReceiver bondStateReceiver;
+    private BroadcastReceiver bluetoothStateReceiver;
+    private boolean bluetoothPowerUnavailable;
     private boolean receiverRegistered;
     private MethodChannel.Result pendingScan;
     private MethodChannel.Result pendingConnect;
@@ -318,8 +320,14 @@ public final class QRingBridge
                 activity.getApplicationContext(), receiver, BleAction.getIntentFilter(),
                 ContextCompat.RECEIVER_NOT_EXPORTED);
         receiverRegistered = true;
-        bondStateReceiver = new BroadcastReceiver() {
+        bluetoothPowerUnavailable = currentBluetoothState() == BluetoothAdapter.STATE_OFF;
+        bluetoothStateReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context context, Intent intent) {
+                if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(intent.getAction())) {
+                    final int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
+                    main.post(() -> onBluetoothState(state));
+                    return;
+                }
                 if (!BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(intent.getAction()) || !hasBlePermissions()) return;
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 if (device == null) return;
@@ -331,8 +339,38 @@ public final class QRingBridge
             }
         };
         // Bluetooth system broadcasts and private SDK broadcasts have different senders.
-        ContextCompat.registerReceiver(activity.getApplicationContext(), bondStateReceiver,
-                new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED), ContextCompat.RECEIVER_EXPORTED);
+        IntentFilter bluetoothStates = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+        bluetoothStates.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
+        ContextCompat.registerReceiver(activity.getApplicationContext(), bluetoothStateReceiver,
+                bluetoothStates, ContextCompat.RECEIVER_EXPORTED);
+    }
+
+    private void onBluetoothState(int state) {
+        final int actual = currentBluetoothState();
+        if (state == BluetoothAdapter.STATE_ON && actual == BluetoothAdapter.STATE_ON) {
+            bluetoothPowerUnavailable = false;
+            startAutomaticRecovery();
+            return;
+        }
+        if ((state != BluetoothAdapter.STATE_OFF && state != BluetoothAdapter.STATE_TURNING_OFF)
+                || (actual != BluetoothAdapter.STATE_OFF && actual != BluetoothAdapter.STATE_TURNING_OFF)) return;
+        if (bluetoothPowerUnavailable) return;
+        bluetoothPowerUnavailable = true;
+        // The OEM suppresses its app-level disconnect broadcast on adapter loss.
+        // Retire only our owned SDK session, keeping both app and OS bindings.
+        if (manager != null && connectedId != null) {
+            try {
+                BleBaseControl control = BleBaseControl.getInstance();
+                if (control != null && connectedId.equalsIgnoreCase(control.getmDeviceAddress())) manager.disconnect();
+            } catch (RuntimeException ignored) {
+                // Verified adapter OFF still invalidates the physical session.
+            }
+        }
+        if (connectedId != null || pendingConnect != null || pendingDisconnect != null
+                || recoveryConnecting || cancellingConnection) finishDisconnectedSession();
+        if (recoveryRetry != null) main.removeCallbacks(recoveryRetry);
+        recoveryRetry = null;
+        if (recoveryTargetId != null && recoveryContext != null) emitRecoveryState("bluetoothOff", recoveryTargetId);
     }
 
     private void onBondState(int generation, String id, int state, int previous) {
@@ -343,6 +381,10 @@ public final class QRingBridge
         else if (state == BluetoothDevice.BOND_BONDED) status = "connecting";
         else if (state == BluetoothDevice.BOND_NONE && previous == BluetoothDevice.BOND_BONDING) status = "pairingFailed";
         else return;
+        emitRecoveryState(status, id);
+    }
+
+    private void emitRecoveryState(String status, String id) {
         Map<String, Object> value = new HashMap<>();
         value.put("deviceId", id);
         value.put("status", status);
@@ -369,11 +411,18 @@ public final class QRingBridge
                 == PackageManager.PERMISSION_GRANTED;
     }
 
+    private int currentBluetoothState() {
+        try {
+            BluetoothManager bluetooth = (BluetoothManager) activity.getSystemService(Context.BLUETOOTH_SERVICE);
+            return bluetooth == null || bluetooth.getAdapter() == null
+                    ? BluetoothAdapter.ERROR : bluetooth.getAdapter().getState();
+        } catch (SecurityException unavailable) {
+            return BluetoothAdapter.ERROR;
+        }
+    }
+
     private boolean isBluetoothEnabled() {
-        BluetoothManager bluetooth =
-                (BluetoothManager) activity.getSystemService(Context.BLUETOOTH_SERVICE);
-        return bluetooth != null && bluetooth.getAdapter() != null
-                && bluetooth.getAdapter().isEnabled();
+        return currentBluetoothState() == BluetoothAdapter.STATE_ON;
     }
 
     static boolean isQRingName(String name) {
@@ -724,10 +773,7 @@ public final class QRingBridge
         final int generation = ++connectionGeneration;
         DeviceManager.getInstance().setDeviceAddress(connectedId);
         DeviceManager.getInstance().setDeviceName(connectedName);
-        Map<String, Object> value = new HashMap<>();
-        value.put("status", "waiting");
-        value.put("deviceId", connectedId);
-        emit("recoveryState", value);
+        emitRecoveryState("waiting", connectedId);
         // The vendor reuses an existing link without emitting service-ready a
         // second time. Reattach only the exact owner-armed, physically live GATT.
         boolean retainedReady = hasRetainedReadyGatt(connectedId);
@@ -1149,7 +1195,7 @@ public final class QRingBridge
     }
 
     private boolean resolved() {
-        return manager != null && manager.isConnected()
+        return manager != null && hasBlePermissions() && isBluetoothEnabled() && manager.isConnected()
                 && setTimeFlags != null && supportFlags != null
                 && pendingConnect == null && !recoveryConnecting && !cancellingConnection;
     }
@@ -2252,11 +2298,11 @@ public final class QRingBridge
         }
         receiverRegistered = false;
         receiver = null;
-        if (bondStateReceiver != null) {
+        if (bluetoothStateReceiver != null) {
             try {
-                activity.getApplicationContext().unregisterReceiver(bondStateReceiver);
+                activity.getApplicationContext().unregisterReceiver(bluetoothStateReceiver);
             } catch (IllegalArgumentException ignored) { }
-            bondStateReceiver = null;
+            bluetoothStateReceiver = null;
         }
         sink = null;
     }

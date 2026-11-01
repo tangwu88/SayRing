@@ -9,7 +9,7 @@ const read = path => readFileSync(new URL('../' + path, import.meta.url), 'utf8'
 
 test('Android production recovery state rejects retired targets and resets session metadata', () => {
   const source = read('android/app/src/main/java/cc/saidian/saydian_app/QRingBridge.java');
-  const methods = ['onBondState', 'resetDeviceDetails', 'deviceDetails', 'isCurrentConnection'].map(name => {
+  const methods = ['onBondState', 'emitRecoveryState', 'resetDeviceDetails', 'deviceDetails', 'isCurrentConnection'].map(name => {
     const match = new RegExp('\\n    private [^\\n]+ ' + name + '\\(').exec(source);
     assert.ok(match, name);
     const start = match.index;

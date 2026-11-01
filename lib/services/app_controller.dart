@@ -7534,6 +7534,7 @@ class AppController extends ChangeNotifier {
             ? switch (event.payload['status']) {
                 'pairing' => '请确认系统蓝牙配对',
                 'pairingFailed' => '蓝牙配对未完成，请确认系统提示',
+                'bluetoothOff' => '蓝牙已关闭，打开后自动连接',
                 'connecting' => '正在连接戒指',
                 _ => '等待戒指靠近，靠近后会自动连接',
               }
