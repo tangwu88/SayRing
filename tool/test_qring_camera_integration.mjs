@@ -39,7 +39,7 @@ test('QRing native controls require real flags, serialized stages and verified r
   assert.match(ios, /switchToPhotoUISuccess/);
   assert.match(ios, /holdPhotoUISuccess/);
   assert.match(android, /new CameraReq/);
-  assert.match(ios, /if \(self.remoteCameraSupported\).*addObject:@"camera"/);
+  assert.match(ios, /if \(\[self canOpenRemoteCamera\]\).*addObject:@"camera"/);
   assert.match(android, /if \(remoteCameraSupported\).*features.add\("camera"\)/);
 });
 
@@ -59,18 +59,18 @@ test('QRing photo sessions confirm ACKs, keep alive and fence old shutter events
   const ios = read('ios/Runner/QRingWearableBridge.m');
   const android = read('android/app/src/main/java/cc/saidian/saydian_app/QRingBridge.java');
   for (const source of [ios, android]) {
-    assert.match(source, /probeRemoteCamera/);
+    if (source === android) assert.match(source, /probeRemoteCamera/);
     assert.match(source, /remoteCameraEpoch/);
     assert.match(source, /cameraRemoteStopped/);
     assert.match(source, /waitToStopCamera/);
-    assert.match(source, /remoteCameraSupported = accepted/);
+    if (source === android) assert.match(source, /remoteCameraSupported = accepted/);
     assert.match(source, /DEVICE_BUSY/);
   }
-  assert.match(ios, /name:OdmBandTakePictureNotification/);
+  assert.match(ios, /sdk.takePicture =/);
   assert.match(android, /CameraNotifyRsp.ACTION_TAKE_PHOTO/);
   assert.match(android, /manager.addNotifyListener\(Constants.CMD_TAKING_PICTURE/);
   assert.match(android, /manager.removeNotifyListener\(Constants.CMD_TAKING_PICTURE\)/);
-  assert.match(ios, /removeObserver:self name:OdmBandTakePictureNotification/);
+  assert.match(ios, /sdk.takePicture = nil/);
   const ui = read('lib/ui/prototype/device_features.dart');
   assert.match(ui, /_galleryPermissionDenied = error.code == 'PHOTO_PERMISSION_DENIED'/);
   assert.match(ui, /RingCameraPanel\(/);

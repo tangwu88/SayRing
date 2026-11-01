@@ -94,7 +94,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 @property(nonatomic, assign) NSUInteger cameraOperation;
 @property(nonatomic, assign) NSInteger cameraPhase;
 @property(nonatomic, assign) NSUInteger cameraPoisonGeneration;
-@property(nonatomic, assign) BOOL remoteCameraSupported;
+@property(nonatomic, assign) NSUInteger remoteCameraPoisonGeneration;
 @property(nonatomic, assign) BOOL remoteCameraActive;
 @property(nonatomic, assign) NSUInteger remoteCameraEpoch;
 @property(nonatomic) NSUInteger monitoringPoisonGeneration;
@@ -478,8 +478,6 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
             RingControlTrace(@"connection-profile-finished", @{@"generation": @(generation)});
             [weakSelf readDeviceDetailsWithCompletion:^{
                 if (![weakSelf isCurrentConnection:generation]) { return; }
-                [weakSelf probeRemoteCamera:^{
-                if (![weakSelf isCurrentConnection:generation]) { return; }
                 RingControlTrace(@"connection-ready", @{@"generation": @(generation)});
                 FlutterResult result = weakSelf.pendingConnect;
                 weakSelf.pendingConnect = nil;
@@ -490,7 +488,6 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
                 [weakSelf emit:@"deviceDetails" payload:[weakSelf deviceDetails]];
                 [weakSelf emit:@"capabilitiesUpdated" payload:[weakSelf capabilities]];
                 if (recovered) { [weakSelf emit:@"reconnected" payload:[weakSelf deviceDetails]]; }
-                }];
             }];
           });
         }];
@@ -852,7 +849,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         if (appManual) { [manual addObject:@"body_temperature"]; }
     }
     [features addObject:@"health_monitoring"];
-    if (self.remoteCameraSupported) { [features addObject:@"camera"]; }
+    if ([self canOpenRemoteCamera]) { [features addObject:@"camera"]; }
     if ([self supportsGesture]) { [features addObject:@"gesture_control"]; }
     NSArray *sports = @[@"running", @"indoor_running", @"walking", @"cycling", @"indoor_cycling", @"basketball", @"football", @"badminton", @"swimming", @"jump_rope", @"yoga", @"hiking", @"mountaineering"];
     return @{
@@ -1502,58 +1499,48 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     }
 }
 
-// Photo UI ACKs verify the session protocol; HID photo flags describe a
-// different, persistent control mode and must not gate shake-to-shoot.
-- (void)probeRemoteCamera:(QRingNext)completion {
-    RingControlTrace(@"probe-start", @{@"gesture": @([self cameraFlag:QCBandFeatureGestureControl]), @"touch": @([self cameraFlag:QCBandFeatureTouchControl]), @"photoMode": @([self cameraFlag:QCBandFeatureGestureControlTakePhoto]), @"photoModePresent": @(self.featureList[QCBandFeatureGestureControlTakePhoto] != nil), @"screenTouch": @([self cameraFlag:QCBandFeatureTouchControlOfScreenDevice]), @"generation": @(self.connectionGeneration)});
-    self.remoteCameraSupported = NO;
+// The vendor demo opens Photo UI on user entry; it does not use enter/exit
+// commands during connection as a capability probe. Keep its entry available
+// for a confirmed gesture/touch device, and confirm the session separately.
+- (BOOL)canOpenRemoteCamera {
+    return [self isResolved] && [self supportsGesture];
+}
+
+- (void)registerRemoteCameraCallbacks {
+    NSUInteger epoch = self.remoteCameraEpoch;
     NSUInteger connection = self.connectionGeneration;
-    NSUInteger operation = ++self.cameraOperation;
-    __block BOOL done = NO;
     __weak typeof(self) weakSelf = self;
-    QRingNext finish = ^{
-        if (done || operation != weakSelf.cameraOperation || ![weakSelf isCurrentConnection:connection]) { return; }
-        done = YES;
-        weakSelf.cameraOperation++;
-        completion();
+    BOOL (^current)(void) = ^BOOL {
+        return epoch == weakSelf.remoteCameraEpoch && [weakSelf isCurrentConnection:connection];
     };
-    if (![self cameraFlag:QCBandFeatureGestureControl] && ![self cameraFlag:QCBandFeatureTouchControl]) {
-        finish(); return;
-    }
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        if (!done && operation == weakSelf.cameraOperation) {
-            RingControlTrace(@"probe-timeout", @{@"generation": @(connection)});
-            weakSelf.cameraPoisonGeneration = connection;
-            finish();
-        }
-    });
-    void (^exit)(BOOL) = ^(BOOL accepted) {
-        RingControlTrace(@"probe-enter", @{@"accepted": @(accepted), @"generation": @(connection)});
-        // Always defer past the SDK's callback queue cleanup.
+    QCSDKManager *sdk = QCSDKManager.shareInstance;
+    sdk.switchToPicture = ^{
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (done || operation != weakSelf.cameraOperation || ![weakSelf isCurrentConnection:connection]) { return; }
-            [QCSDKCmdCreator stopTakingPhotoSuccess:^{
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    if (done || operation != weakSelf.cameraOperation || ![weakSelf isCurrentConnection:connection]) { return; }
-                    weakSelf.remoteCameraSupported = accepted;
-                    RingControlTrace(@"probe-exit-confirmed", @{@"generation": @(connection)});
-                    finish();
-                });
-            } fail:^{
-                RingControlTrace(@"probe-exit-failed", @{@"generation": @(connection)});
-                dispatch_async(dispatch_get_main_queue(), finish);
-            }];
+            if (current()) { RingControlTrace(@"photo-notify-enter", @{}); }
         });
     };
-    [QCSDKCmdCreator switchToPhotoUISuccess:^{ exit(YES); } fail:^{ exit(NO); }];
+    sdk.takePicture = ^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!current()) { return; }
+            RingControlTrace(@"photo-notify-shutter", @{});
+            [weakSelf cameraShutter:nil];
+        });
+    };
+    sdk.stopTakePicture = ^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (current()) { [weakSelf cameraStopped:nil]; }
+        });
+    };
 }
 
 - (void)resetRemoteCamera {
     BOOL wasActive = self.remoteCameraActive;
     self.remoteCameraActive = NO;
     self.remoteCameraEpoch++;
-    [NSNotificationCenter.defaultCenter removeObserver:self name:OdmBandTakePictureNotification object:nil];
-    [NSNotificationCenter.defaultCenter removeObserver:self name:OdmBandStopTakingPictureNotification object:nil];
+    QCSDKManager *sdk = QCSDKManager.shareInstance;
+    sdk.switchToPicture = nil;
+    sdk.takePicture = nil;
+    sdk.stopTakePicture = nil;
     if (wasActive && self.connectedID.length) {
         [self emit:@"cameraRemoteStopped" payload:@{@"deviceId": self.connectedID}];
     }
@@ -1608,13 +1595,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 - (void)remoteCameraAction:(NSInteger)action result:(FlutterResult)result {
     BOOL entering = action == 4;
     if (action == 6) { [self resetRemoteCamera]; }
-    if (![self isResolved] || (entering && !self.remoteCameraSupported)) {
+    if (![self isResolved] || (entering && ![self canOpenRemoteCamera])) {
         result(entering ? [self error:@"QRING_FEATURE_UNVERIFIED" message:@"此戒指未确认支持相机遥控"] : nil); return;
     }
     if (self.pendingCamera || self.pendingSync || self.readingDetails || self.activeMetric || self.activeSportType >= 0) {
         result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return;
     }
-    if (self.cameraPoisonGeneration == self.connectionGeneration) {
+    if (self.remoteCameraPoisonGeneration == self.connectionGeneration) {
         result([self error:@"QRING_CONTROL_UNCONFIRMED" message:@"相机遥控未确认，请重新连接"]); return;
     }
     self.pendingCamera = result;
@@ -1628,10 +1615,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     QRingNext success = ^{
         dispatch_async(dispatch_get_main_queue(), ^{
             if (!current()) { return; }
-            if (entering && epoch == weakSelf.remoteCameraEpoch) {
+            if (entering && epoch != weakSelf.remoteCameraEpoch) {
+                [weakSelf finishCamera:[weakSelf error:@"QRING_CONTROL_CANCELLED" message:@"相机遥控已取消"]];
+                return;
+            }
+            if (entering) {
                 weakSelf.remoteCameraActive = YES;
-                [NSNotificationCenter.defaultCenter addObserver:weakSelf selector:@selector(cameraShutter:) name:OdmBandTakePictureNotification object:nil];
-                [NSNotificationCenter.defaultCenter addObserver:weakSelf selector:@selector(cameraStopped:) name:OdmBandStopTakingPictureNotification object:nil];
+                RingControlTrace(@"photo-enter-confirmed", @{});
                 [weakSelf scheduleCameraKeepAlive:epoch];
             }
             [weakSelf finishCamera:nil];
@@ -1640,16 +1630,19 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     QRingNext fail = ^{
         dispatch_async(dispatch_get_main_queue(), ^{
             if (!current()) { return; }
+            RingControlTrace(@"photo-command-failed", @{@"action": @(action)});
             [weakSelf resetRemoteCamera];
-            [weakSelf finishCamera:[weakSelf error:@"QRING_ACTION_FAILED" message:@"相机遥控未开启，请重试"]];
+            [weakSelf finishCamera:[weakSelf error:@"QRING_ACTION_FAILED" message:@"戒指遥控未响应，可重试或使用手机快门"]];
         });
     };
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         if (!current()) { return; }
-        weakSelf.cameraPoisonGeneration = connection;
+        weakSelf.remoteCameraPoisonGeneration = connection;
         [weakSelf resetRemoteCamera];
         [weakSelf finishCamera:[weakSelf error:@"QRING_CONTROL_UNCONFIRMED" message:@"相机遥控未确认，请重新连接"]];
     });
+    if (entering) { [self registerRemoteCameraCallbacks]; }
+    RingControlTrace(@"photo-command-start", @{@"action": @(action)});
     if (action == 4) { [QCSDKCmdCreator switchToPhotoUISuccess:success fail:fail]; }
     else if (action == 5) { [QCSDKCmdCreator holdPhotoUISuccess:success fail:fail]; }
     else { [QCSDKCmdCreator stopTakingPhotoSuccess:success fail:fail]; }
@@ -1915,7 +1908,6 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     result = ^(id value) { completion(SRActivitySleepResult(call.method, value)); };
     if ([@[@"connect", @"disconnect", @"configureRecoveryTarget"] containsObject:call.method]) {
         [self resetRemoteCamera];
-        if (![call.method isEqualToString:@"configureRecoveryTarget"]) { self.remoteCameraSupported = NO; }
         [self finishCamera:[self error:@"QRING_DISCONNECTED" message:@"戒指连接已改变"]];
     }
     if ([call.method isEqualToString:@"triggerDeviceAction"] && [arguments[@"feature"] isEqualToString:@"camera"] && [arguments[@"enabled"] isEqual:@NO]) {
@@ -2031,7 +2023,6 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         }
         RingControlTrace(@"connection-disconnected", @{@"generation": @(self.connectionGeneration), @"handshakeInterrupted": @(handshakeInterrupted), @"intentional": @(self.pendingDisconnect != nil || self.cancellingConnection)});
         [self resetRemoteCamera];
-        self.remoteCameraSupported = NO;
         [self finishCamera:[self error:@"QRING_DISCONNECTED" message:@"戒指已断开"]];
         self.connectDeadlineGeneration++;
         self.recoveryConnecting = NO;

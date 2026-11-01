@@ -90,11 +90,19 @@ class _Camera extends CameraPlatform {
 class _Api extends Fake implements SaydianApi {}
 
 class _Wearable extends Fake implements WearableBridge {
+  _Wearable({this.failStart = false});
+  final bool failStart;
+  final calls = <bool>[];
   @override
   Future<void> triggerDeviceAction(
     DeviceFeature feature, {
     bool enabled = true,
-  }) async {}
+  }) async {
+    calls.add(enabled);
+    if (enabled && failStart) {
+      throw PlatformException(code: 'QRING_ACTION_FAILED', message: '未收到回包');
+    }
+  }
 
   @override
   Future<Map<String, Object?>> readDeviceFeature(DeviceFeature feature) async =>
@@ -102,6 +110,59 @@ class _Wearable extends Fake implements WearableBridge {
 }
 
 void main() {
+  testWidgets(
+    'failed remote start still sends one scoped stop on exit',
+    (tester) async {
+      final original = CameraPlatform.instance;
+      final camera = _Camera();
+      final wearable = _Wearable(failStart: true);
+      CameraPlatform.instance = camera;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final app =
+          AppController(
+              MemorySessionVault(),
+              _Api(),
+              MemoryHealthStore(),
+              wearable,
+            )
+            ..connectedDevice = const DeviceInfo(
+              id: 'qring:fixture',
+              name: 'R21',
+            )
+            ..deviceCapabilityState = DeviceCapabilityState.ready
+            ..capabilities = const DeviceCapabilities(
+              metrics: {},
+              features: {DeviceFeature.camera},
+              integratedFeatures: {DeviceFeature.camera},
+            );
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+        app.dispose();
+        CameraPlatform.instance = original;
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DeviceFeaturePage(
+            controller: app,
+            feature: DeviceFeature.camera,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(CameraPreview), findsOneWidget);
+      expect(wearable.calls, [true]);
+      expect(find.text('戒指遥控已就绪'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      expect(wearable.calls, [true, false]);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant({TargetPlatform.iOS}),
+  );
   for (final denied in [true, false]) {
     testWidgets(
       'iOS camera ${denied ? 'denied' : 'restricted'} recovery',

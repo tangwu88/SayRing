@@ -30,6 +30,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   bool _takingPhoto = false;
   bool _photoSaved = false;
   bool _cameraRemoteStarted = false;
+  bool _cameraRemoteRequested = false;
   bool _cameraInitializing = false;
   bool _cameraSuspending = false;
   bool _cameraResumeAfterSuspend = false;
@@ -113,9 +114,10 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     _cameraShutterGate.disarm(
       currentSequence: widget.controller.cameraShutterSequence,
     );
-    if (_cameraRemoteStarted) {
+    if (_cameraRemoteRequested) {
       unawaited(_stopCameraRemoteIgnoringErrors());
     }
+    _cameraRemoteRequested = false;
     _cameraRemoteStarted = false;
     unawaited(camera?.dispose());
     super.dispose();
@@ -410,6 +412,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       _handleCameraState();
       if (controller.value.hasError) return;
       _cameraOwner = _currentFeatureContext;
+      // A missing ACK does not prove the ring stayed out of camera mode.
+      // Attempt one owner-scoped exit when this page closes or suspends.
+      _cameraRemoteRequested = true;
       final started = await widget.controller.triggerDeviceAction(
         DeviceFeature.camera,
       );
@@ -478,8 +483,9 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     final generation = ++_cameraGeneration;
     _cameraInitializing = false;
     final camera = _camera;
-    final shouldStopRemote = _cameraRemoteStarted;
+    final shouldStopRemote = _cameraRemoteRequested;
     _camera = null;
+    _cameraRemoteRequested = false;
     _cameraRemoteStarted = false;
     _cameraShutterGate.disarm(
       currentSequence: widget.controller.cameraShutterSequence,
