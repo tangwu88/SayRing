@@ -56,6 +56,7 @@ class _Bridge extends Fake
     implements WearableBridge, WearableReadOnlyHealthPolicyBridge {
   final grants = <Set<HealthMetric>>[];
   bool fail = false;
+  Completer<void>? ack;
   @override
   Future<DeviceCapabilities> getCapabilities() async =>
       const DeviceCapabilities(
@@ -70,6 +71,7 @@ class _Bridge extends Fake
   }) async {
     grants.add(metrics.toSet());
     if (fail) throw StateError('synthetic-native-rejection');
+    if (metrics.isNotEmpty) await ack?.future;
   }
 }
 
@@ -201,6 +203,23 @@ void main() {
     addTearDown(service.dispose);
     await service.refresh();
     expect(features.metrics, isEmpty);
+  });
+
+  test('expired native ACK cannot reopen a Dart health lease', () async {
+    final features = ReadOnlyHealthFeatures();
+    final bridge = _Bridge()..ack = Completer<void>();
+    final service = ReadOnlyHealthFeatureService(
+      policy: WellnessReleasePolicy(enabled: true, readOnlyFeatures: features),
+      api: _Api()..validity = const Duration(seconds: 1),
+      bridge: bridge,
+    );
+    addTearDown(service.dispose);
+    final refresh = service.refresh();
+    await Future<void>.delayed(const Duration(milliseconds: 1100));
+    bridge.ack!.complete();
+    await refresh;
+    expect(features.metrics, isEmpty);
+    expect(bridge.grants, [_three, isEmpty]);
   });
 
   test('single-flight refresh and dispose reject late configuration', () async {

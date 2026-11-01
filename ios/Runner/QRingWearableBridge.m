@@ -215,27 +215,48 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     result([self scanPayloads]);
 }
 
+- (NSArray *)systemConnectedDevicesForSelection {
+    NSMutableArray *devices = [NSMutableArray array];
+    for (CBPeripheral *peripheral in [self.central systemConnectedPeripheralsForSelection]) {
+        NSString *identifier = peripheral.identifier.UUIDString ?: @"";
+        NSString *name = peripheral.name ?: @"";
+        if (identifier.length == 0 || ![self isQRingName:name]) continue;
+        QCBlePeripheral *item = [QCBlePeripheral new];
+        item.peripheral = peripheral;
+        item.mac = @"";
+        item.isPaired = YES;
+        self.scanned[identifier] = item;
+        [devices addObject:@{@"id": identifier, @"name": name, @"model": name}];
+    }
+    return devices;
+}
+
 - (void)prepareRememberedDevice:(NSDictionary *)arguments result:(FlutterResult)result {
     // Manual selection only: exact last successful UUID from the current App
     // environment, never the demo's installation-wide saved target. UUID
     // retrieval is not an OS bond and does not authorize automatic recovery.
     NSString *identifier = [arguments[@"id"] isKindOfClass:NSString.class] ? arguments[@"id"] : nil;
+    NSString *knownName = [arguments[@"name"] isKindOfClass:NSString.class] ? arguments[@"name"] : nil;
+    BOOL cacheOnly = [arguments[@"cacheOnly"] boolValue];
     NSUUID *uuid = identifier ? [[NSUUID alloc] initWithUUIDString:identifier] : nil;
     if (!uuid || self.central.bleState != QCBluetoothStatePoweredOn) { result(nil); return; }
     NSArray<CBPeripheral *> *items = [self.central.centerManager retrievePeripheralsWithIdentifiers:@[uuid]];
     for (CBPeripheral *peripheral in items) {
-        if (![peripheral.identifier isEqual:uuid] || ![self isQRingName:peripheral.name]) { continue; }
-        // An existing OS link can handshake without advertising. Otherwise
-        // refresh the exact target's advertisement instead of reusing a stale
-        // retrieved object repeatedly. Do not adopt another ring by its name.
-        if (peripheral.state == CBPeripheralStateConnected) {
-            QCBlePeripheral *item = [QCBlePeripheral new];
-            item.peripheral = peripheral;
-            self.scanned[identifier] = item;
-            result(@{@"id": identifier, @"name": peripheral.name, @"model": peripheral.name});
-            return;
-        }
+        if (![peripheral.identifier isEqual:uuid] ||
+            (peripheral.name.length > 0 && ![self isQRingName:peripheral.name])) { continue; }
+        NSString *name = peripheral.name.length > 0 ? peripheral.name : knownName;
+        if (![self isQRingName:name]) continue;
+        // Explicit selection may try this exact cached UUID before scanning.
+        // A disconnected cache entry is only a candidate: normal SDK handshake
+        // must succeed before the owner binding can change.
+        QCBlePeripheral *item = [QCBlePeripheral new];
+        item.peripheral = peripheral;
+        item.selectionName = name;
+        self.scanned[identifier] = item;
+        result(@{@"id": identifier, @"name": name, @"model": name});
+        return;
     }
+    if (cacheOnly) { result(nil); return; }
     [self startScan:^(id values) {
         if ([values isKindOfClass:NSArray.class]) {
             for (NSDictionary *device in values) {
@@ -252,7 +273,8 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 - (void)connect:(NSDictionary *)arguments result:(FlutterResult)result {
     NSString *identifier = [arguments[@"id"] isKindOfClass:NSString.class] ? arguments[@"id"] : @"";
     QCBlePeripheral *item = self.scanned[identifier];
-    if (!item || ![self isQRingName:item.peripheral.name]) {
+    NSString *name = item.peripheral.name.length > 0 ? item.peripheral.name : item.selectionName;
+    if (!item || ![self isQRingName:name]) {
         result([self error:@"QRING_DEVICE_UNVERIFIED" message:@"请重新搜索并选择 QRing 戒指"]);
         return;
     }
@@ -273,7 +295,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     self.firmware = @"";
     self.profile = [arguments[@"profile"] isKindOfClass:NSDictionary.class] ? arguments[@"profile"] : @{};
     self.connectedID = identifier;
-    self.connectedName = item.peripheral.name ?: @"QRing";
+    self.connectedName = name;
     [self scheduleConnectDeadline];
     [self.central connect:item.peripheral timeout:12 deviceType:QCDeviceTypeRing];
 }
@@ -291,6 +313,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 
 - (void)startAutomaticRecovery {
     if (self.recoveryTargetID.length == 0 || self.recoveryContext.length == 0 ||
+        ![self isQRingName:self.recoveryTargetName] ||
         self.central.hasPendingRestoredCancellations ||
         self.central.bleState != QCBluetoothStatePoweredOn || self.pendingConnect ||
         self.pendingDisconnect || self.cancellingConnection || self.recoveryConnecting || [self isResolved] ||
@@ -299,9 +322,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     if (!uuid) { return; }
     NSArray<CBPeripheral *> *items = [self.central.centerManager retrievePeripheralsWithIdentifiers:@[uuid]];
     for (CBPeripheral *peripheral in items) {
-        if (![peripheral.identifier isEqual:uuid] || ![self isQRingName:peripheral.name]) { continue; }
+        if (![peripheral.identifier isEqual:uuid] ||
+            (peripheral.name.length > 0 && ![self isQRingName:peripheral.name])) { continue; }
+        // An exact owner-bound UUID can outlive CoreBluetooth's cached name.
+        // The saved name was verified when this recovery context was armed.
+        NSString *resolvedName = peripheral.name.length > 0 ? peripheral.name : self.recoveryTargetName;
         self.connectedID = self.recoveryTargetID;
-        self.connectedName = peripheral.name;
+        self.connectedName = resolvedName;
         self.profile = self.recoveryProfile ?: @{};
         self.featureList = nil;
         self.connectionGeneration++;
@@ -1900,7 +1927,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     }
     if ([call.method isEqualToString:@"scanDevices"]) { [self startScan:result]; }
     else if ([call.method isEqualToString:@"lookupBondedDevice"]) { result(nil); }
-    else if ([call.method isEqualToString:@"listBondedDevices"]) { result(@[]); }
+    else if ([call.method isEqualToString:@"listBondedDevices"]) { result([self systemConnectedDevicesForSelection]); }
     else if ([call.method isEqualToString:@"prepareRememberedDevice"]) { [self prepareRememberedDevice:arguments result:result]; }
     else if ([call.method isEqualToString:@"configureRecoveryTarget"]) { [self configureRecoveryTarget:arguments result:result]; }
     else if ([call.method isEqualToString:@"stopScan"]) { [self finishScan]; result(nil); }

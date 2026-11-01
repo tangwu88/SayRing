@@ -63,6 +63,7 @@ void main() {
     expect(captured?.arguments, {
       'id': 'AA:BB:CC:DD:EE:FF',
       'name': 'R22_C493',
+      'cacheOnly': false,
     });
     expect(device?.id, 'AA:BB:CC:DD:EE:FF');
   });

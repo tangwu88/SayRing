@@ -200,16 +200,48 @@ void main() {
         // This run is explicitly authorized to select another scanned ring.
         // Require an existing binding so QA cannot trigger first-member reset.
         expect(controller.rememberedDevice, isNotNull);
+        final connectionTrace = <Map<String, Object?>>[];
+        String? lastConnectionState;
+        void captureConnectionState(String stage) {
+          final state = [
+            controller.deviceState.name,
+            controller.deviceCapabilityState.name,
+            controller.connectedDevice?.sdkSource.name ?? '-',
+            controller.errorMessage ?? '-',
+          ].join('/');
+          if (state == lastConnectionState || connectionTrace.length >= 60) {
+            return;
+          }
+          lastConnectionState = state;
+          connectionTrace.add({'stage': stage, 'state': state});
+        }
+
+        controller.addListener(() => captureConnectionState('change'));
+        captureConnectionState('start');
+        proof['connectionTrace'] = connectionTrace;
         const requested = String.fromEnvironment('SAYRING_QA_RING_NAME');
+        const exactRemembered = bool.fromEnvironment(
+          'SAYRING_QA_EXACT_REMEMBERED_RING',
+        );
         String normalized(String value) =>
             value.toUpperCase().replaceAll(RegExp(r'[\s_-]+'), '');
         bool matches(DeviceInfo? device) =>
             device != null &&
             (requested.isEmpty ||
                 normalized(device.name).contains(normalized(requested)));
+        // A named model can have multiple nearby rings. For an owner-bound
+        // reconnect check, never replace the remembered exact target.
+        final rememberedAtStart = controller.rememberedDevice;
+        if (exactRemembered) {
+          expect(requested, isNotEmpty);
+          expect(matches(rememberedAtStart), isTrue);
+        }
+        bool exactMatch(DeviceInfo? device) =>
+            !exactRemembered || device?.id == rememberedAtStart?.id;
         bool ready() =>
             controller.connectedDevice != null &&
             matches(controller.connectedDevice) &&
+            exactMatch(controller.connectedDevice) &&
             controller.deviceCapabilityState == DeviceCapabilityState.ready;
         final attempts = <Map<String, Object?>>[];
         if (controller.connectedDevice != null &&
@@ -217,6 +249,7 @@ void main() {
           await controller.disconnectDevice().timeout(
             const Duration(seconds: 35),
           );
+          captureConnectionState('after-old-disconnect');
           expect(controller.rememberedDevice, isNotNull);
         }
         if (!ready() && matches(controller.rememberedDevice)) {
@@ -233,10 +266,12 @@ void main() {
         }
         if (!ready()) {
           await controller.scanDevices().timeout(const Duration(seconds: 45));
+          captureConnectionState('after-scan');
           final candidates = controller.scannedDevices
               .where(
                 (d) =>
                     matches(d) &&
+                    exactMatch(d) &&
                     {
                       WearableSdkSource.qring,
                       WearableSdkSource.coolwear,
@@ -244,19 +279,35 @@ void main() {
               )
               .toList();
           proof['scanRingCount'] = candidates.length;
-          await controller.stopDeviceScan();
+          // Selecting a new ring must not restart recovery of the old target
+          // between scanning and the explicit connection attempt.
+          await controller.stopDeviceScan(resumeRecovery: false);
+          captureConnectionState('after-stop-scan');
           for (final device in candidates.take(3)) {
             if (controller.session?.accountKey != originalOwner) break;
             try {
               await controller
                   .connectDevice(device)
                   .timeout(const Duration(seconds: 60));
+              captureConnectionState('after-connect');
               for (var i = 0; i < 15 && !ready(); i++) {
                 await settle();
               }
-              attempts.add({'sdk': device.sdkSource.name, 'ready': ready()});
+              attempts.add({
+                'sdk': device.sdkSource.name,
+                'ready': ready(),
+                'state': controller.deviceState.name,
+                'capabilityState': controller.deviceCapabilityState.name,
+                'error': controller.errorMessage,
+              });
             } catch (_) {
-              attempts.add({'sdk': device.sdkSource.name, 'ready': false});
+              attempts.add({
+                'sdk': device.sdkSource.name,
+                'ready': false,
+                'state': controller.deviceState.name,
+                'capabilityState': controller.deviceCapabilityState.name,
+                'error': controller.errorMessage,
+              });
             }
             if (ready()) break;
           }

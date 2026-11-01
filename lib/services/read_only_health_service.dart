@@ -82,15 +82,23 @@ class ReadOnlyHealthFeatureService extends ChangeNotifier {
     try {
       final snapshot = await api.getReadOnlyHealthFeatures();
       if (_disposed || generation != _generation) return;
+      // Native begins its monotonic lease before the ACK reaches Dart. Count
+      // that wait against the Dart lease so the UI cannot outlive native.
+      final nativeAckWait = Stopwatch()..start();
       await _configure(snapshot.metrics, snapshot.validity);
       if (_disposed || generation != _generation) return;
-      features.replace(snapshot.metrics, snapshot.validity);
+      final remaining = snapshot.validity - nativeAckWait.elapsed;
+      if (remaining <= Duration.zero) {
+        await _close();
+        return;
+      }
+      features.replace(snapshot.metrics, remaining);
       policy.manualFeatures?.replace(
         snapshot.metrics.intersection(ManualHealthFeatures.supportedMetrics),
-        snapshot.validity,
+        remaining,
       );
       _expiryTimer?.cancel();
-      _expiryTimer = Timer(snapshot.validity, () => unawaited(_close()));
+      _expiryTimer = Timer(remaining, () => unawaited(_close()));
     } catch (_) {
       if (!_disposed && generation == _generation) await _close();
       return;

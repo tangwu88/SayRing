@@ -10,10 +10,12 @@ typedef void (^FlutterResult)(id);
 typedef NS_ENUM(NSInteger, CBPeripheralState) { CBPeripheralStateDisconnected, CBPeripheralStateConnecting, CBPeripheralStateConnected, CBPeripheralStateDisconnecting };
 typedef NS_ENUM(NSInteger, QCState) { QCStateUnkown, QCStateUnbind, QCStateConnecting, QCStateConnected, QCStateDisconnecting, QCStateDisconnected };
 typedef NS_ENUM(NSInteger, QCBluetoothState) { QCBluetoothStateUnkown, QCBluetoothStateResetting, QCBluetoothStateUnsupported, QCBluetoothStateUnauthorized, QCBluetoothStatePoweredOff, QCBluetoothStatePoweredOn };
+typedef NS_ENUM(NSInteger, CBManagerState) { CBManagerStateUnknown, CBManagerStateResetting, CBManagerStateUnsupported, CBManagerStateUnauthorized, CBManagerStatePoweredOff, CBManagerStatePoweredOn };
 typedef NS_ENUM(NSInteger, QCDeviceType) { QCDeviceTypeUnkown, QCDeviceTypeWatch, QCDeviceTypeRing };
 static NSString *const QCLastConnectedIdentifier = @"synthetic-only";
 static NSString *const CBErrorDomain = @"CBErrorDomain";
 static NSUInteger checked;
+static NSUInteger sdkRemovalCalls;
 static NSTimeInterval now;
 static NSMutableArray<QRingNext> *immediate, *deadlines;
 static NSMutableArray<NSNumber *> *delays;
@@ -50,9 +52,16 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 @interface CBCentralManager : NSObject
 @property(nonatomic, strong) CBPeripheral *available;
 @property(nonatomic) NSUInteger retrievals;
+@property(nonatomic) CBManagerState state;
+@property(nonatomic) NSUInteger cancellations;
 - (NSArray<CBPeripheral *> *)retrievePeripheralsWithIdentifiers:(NSArray<NSUUID *> *)identifiers;
+- (void)cancelPeripheralConnection:(CBPeripheral *)peripheral;
 @end
 @implementation CBCentralManager
+- (void)cancelPeripheralConnection:(CBPeripheral *)peripheral {
+    self.cancellations++;
+    peripheral.state = CBPeripheralStateDisconnected;
+}
 - (NSArray<CBPeripheral *> *)retrievePeripheralsWithIdentifiers:(NSArray<NSUUID *> *)identifiers {
     self.retrievals++;
     check(identifiers.count == 1, @"recovery must retrieve only one exact UUID");
@@ -68,7 +77,7 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 @implementation QCSDKManager
 + (instancetype)shareInstance { return [self new]; }
 - (void)removePeripheral:(__unused CBPeripheral *)peripheral {}
-- (void)removeAllPeripheral {}
+- (void)removeAllPeripheral { sdkRemovalCalls++; }
 - (void)addPeripheral:(__unused CBPeripheral *)peripheral finished:(void (^)(BOOL))finished { registrationResult = [finished copy]; }
 @end
 @interface SyntheticDefaults : NSObject
@@ -89,6 +98,7 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 - (void)didConnectTransport:(CBPeripheral *)peripheral;
 @optional
 - (void)didDisconnectTransport:(CBPeripheral *)peripheral error:(NSError *)error;
+- (void)didBluetoothState:(QCBluetoothState)state;
 @end
 @interface SyntheticCentral : NSObject
 @property(nonatomic, weak) id<SyntheticDelegate> delegate;
@@ -107,7 +117,9 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 - (void)registerConnectedPeripheral:(CBPeripheral *)peripheral;
 - (void)notifyConnectFailed:(CBPeripheral *)peripheral error:(NSError *)error;
 - (void)centralManager:(CBCentralManager *)central didFailToConnectPeripheral:(CBPeripheral *)peripheral error:(NSError *)error;
+- (void)centralManager:(CBCentralManager *)central didConnectPeripheral:(CBPeripheral *)peripheral;
 - (void)centralManager:(CBCentralManager *)central didDisconnectPeripheral:(CBPeripheral *)peripheral error:(NSError *)error;
+- (void)centralManagerDidUpdateState:(CBCentralManager *)central;
 @end
 @interface SyntheticBridge : NSObject<SyntheticDelegate>
 @property(nonatomic, strong) SyntheticCentral *central;
@@ -170,7 +182,7 @@ static CBPeripheral *peripheral(NSString *identifier) {
     return value;
 }
 static SyntheticBridge *make(void) {
-    now = 100; registrationResult = nil;
+    now = 100; registrationResult = nil; sdkRemovalCalls = 0;
     immediate = [NSMutableArray new]; deadlines = [NSMutableArray new]; delays = [NSMutableArray new];
     SyntheticBridge *bridge = [SyntheticBridge new];
     bridge.central = [SyntheticCentral new]; bridge.central.centerManager = [CBCentralManager new];
@@ -312,19 +324,99 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         NSUInteger generation = bridge.connectionGeneration;
         bridge.central.deviceState = QCStateDisconnected;
         check(bridge.connectionGeneration == generation && immediate.count == 1, @"duplicate disconnected state must not retire or duplicate recovery");
-    } else if ([scenario isEqual:@"power-state-diagnostic"]) {
-        for (NSNumber *state in @[@(QCBluetoothStatePoweredOff), @(QCBluetoothStateResetting)]) {
-            bridge = make(); beginRecovery(bridge);
+    } else if ([scenario isEqual:@"unnamed-exact-recovery"]) {
+        bridge.central.connectedPeripheral = nil;
+        bridge.central.deviceState = QCStateDisconnected;
+        bridge.connectedID = @"";
+        bridge.featureList = nil;
+        CBPeripheral *same = peripheral(bridge.recoveryTargetID);
+        same.name = nil;
+        same.state = CBPeripheralStateDisconnected;
+        bridge.central.centerManager.available = same;
+        [bridge startAutomaticRecovery];
+        check(bridge.central.connects == 1 && bridge.central.connectedPeripheral == same && bridge.recoveryConnecting,
+              @"an exact owner-bound UUID must recover when CoreBluetooth omits the cached name");
+        check([bridge.connectedName isEqual:bridge.recoveryTargetName],
+              @"the validated saved name must remain available for the recovered session");
+        bridge = make();
+        bridge.central.connectedPeripheral = nil;
+        bridge.central.deviceState = QCStateDisconnected;
+        bridge.connectedID = @"";
+        bridge.featureList = nil;
+        bridge.recoveryTargetName = @"other-provider";
+        CBPeripheral *unnamed = peripheral(bridge.recoveryTargetID);
+        unnamed.name = nil;
+        unnamed.state = CBPeripheralStateDisconnected;
+        bridge.central.centerManager.available = unnamed;
+        [bridge startAutomaticRecovery];
+        check(bridge.central.connects == 0,
+              @"an unverified saved name must not authorize a nameless radio");
+        bridge = make();
+        bridge.central.connectedPeripheral = nil;
+        bridge.central.deviceState = QCStateDisconnected;
+        bridge.connectedID = @"";
+        bridge.featureList = nil;
+        CBPeripheral *other = peripheral(bridge.recoveryTargetID);
+        other.name = @"other-provider";
+        other.state = CBPeripheralStateDisconnected;
+        bridge.central.centerManager.available = other;
+        [bridge startAutomaticRecovery];
+        check(bridge.central.connects == 0,
+              @"a conflicting current name must not be ignored just because the UUID was saved");
+    } else if ([scenario isEqual:@"power-state-recovery"]) {
+        for (NSNumber *state in @[@(CBManagerStatePoweredOff), @(CBManagerStateResetting)]) {
+            for (NSNumber *pending in @[@NO, @YES]) {
+            bridge = make(); if (pending.boolValue) beginRecovery(bridge);
             NSString *target = bridge.recoveryTargetID, *owner = bridge.recoveryContext;
-            bridge.central.bleState = state.integerValue;
-            [bridge didBluetoothState:state.integerValue];
-            bridge.central.connectedPeripheral.state = CBPeripheralStateDisconnected;
-            bridge.central.bleState = QCBluetoothStatePoweredOn;
-            [bridge didBluetoothState:QCBluetoothStatePoweredOn];
+            CBPeripheral *retired = bridge.central.connectedPeripheral;
+            bridge.central.centerManager.state = state.integerValue;
+            [bridge.central centralManagerDidUpdateState:bridge.central.centerManager];
+            check(bridge.central.connectedPeripheral == nil && !bridge.recoveryConnecting && bridge.connectedID.length == 0,
+                  @"radio loss must retire stale transport even without disconnect callback");
+            check(bridge.central.centerManager.cancellations == 1, @"radio loss must cancel pending transport");
+            [bridge.central centralManagerDidUpdateState:bridge.central.centerManager];
+            check(bridge.central.centerManager.cancellations == 1, @"duplicate radio state must not cancel twice");
+            CBPeripheral *fresh = peripheral(target); fresh.state = CBPeripheralStateDisconnected;
+            bridge.central.centerManager.available = fresh;
+            bridge.central.centerManager.state = CBManagerStatePoweredOn;
+            [bridge.central centralManagerDidUpdateState:bridge.central.centerManager];
+            if (pending.boolValue) {
+                check(bridge.central.connects == 0 && deadlines.count == 1,
+                      @"interrupted handshake must keep its recovery cooldown");
+                now = 102; deadlines[0]();
+            }
+            check(bridge.central.connects == 1 && bridge.central.connectedPeripheral == fresh,
+                  @"power return must request one fresh exact-UUID transport");
+            NSUInteger generation = bridge.connectionGeneration;
+            retired.state = CBPeripheralStateConnected;
+            [bridge.central centralManager:bridge.central.centerManager didConnectPeripheral:retired];
+            check(bridge.central.connectedPeripheral == fresh && registrationResult == nil,
+                  @"late old connect must not register stale transport");
+            retired.state = CBPeripheralStateDisconnected;
+            [bridge.central centralManager:bridge.central.centerManager didDisconnectPeripheral:retired error:failure()];
+            check(bridge.connectionGeneration == generation && bridge.central.connects == 1,
+                  @"late old callback must not retire fresh recovery");
             check([bridge.recoveryTargetID isEqual:target] && [bridge.recoveryContext isEqual:owner] && bridge.central.bound, @"power state changes must preserve exact owner and binding");
-            check(bridge.central.disconnects == 0, @"power diagnostics must not force cancellation");
-            printf("Power state %ld without disconnect callback: attempts=%lu pending=%s targetPreserved=YES (diagnostic only)\n", (long)state.integerValue, (unsigned long)bridge.central.connects, bridge.recoveryConnecting ? "YES" : "NO");
+            printf("Power state %ld pending=%s: attempts=%lu targetPreserved=YES (synthetic callbacks)\n", (long)state.integerValue, pending.boolValue ? "YES" : "NO", (unsigned long)bridge.central.connects);
+            }
         }
+        bridge = make(); beginRecovery(bridge);
+        bridge.central.centerManager.state = CBManagerStatePoweredOff;
+        [bridge.central centralManagerDidUpdateState:bridge.central.centerManager];
+        bridge.recoveryTargetID = @""; bridge.recoveryContext = @"";
+        bridge.central.centerManager.state = CBManagerStatePoweredOn;
+        [bridge.central centralManagerDidUpdateState:bridge.central.centerManager];
+        now = 102; for (QRingNext deadline in deadlines) deadline();
+        check(bridge.central.connects == 0, @"revoked owner must never restart recovery");
+        bridge = make(); bridge.central.bound = NO;
+        CBPeripheral *orphan = bridge.central.connectedPeripheral;
+        bridge.central.centerManager.state = CBManagerStatePoweredOff;
+        [bridge.central centralManagerDidUpdateState:bridge.central.centerManager];
+        NSUInteger removals = sdkRemovalCalls;
+        orphan.state = CBPeripheralStateDisconnected;
+        [bridge.central centralManager:bridge.central.centerManager didDisconnectPeripheral:orphan error:failure()];
+        check(bridge.central.connectedPeripheral == nil && bridge.central.deviceState == QCStateUnbind &&
+              sdkRemovalCalls == removals, @"late disconnect after radio loss and unbind must not reset SDK again");
     } else { check(NO, @"unknown scenario"); }
     printf("QRing recovery %s: %lu assertions passed (synthetic callbacks, not device timing)\n", scenario.UTF8String, (unsigned long)checked);
 } return 0; }

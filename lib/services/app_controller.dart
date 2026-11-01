@@ -1224,6 +1224,7 @@ class AppController extends ChangeNotifier {
   HealthMetric? _activeMeasurementMetric;
   bool _syncing = false;
   bool _accountTransitioning = false;
+  Future<void>? _logoutPending;
   Future<void>? _activeCloudSync;
   bool _disposed = false;
   int _deviceSyncGeneration = 0;
@@ -2447,26 +2448,38 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> logout() async {
+  Future<void> logout() => _logoutPending ??= _performLogout().whenComplete(
+    () => _logoutPending = null,
+  );
+
+  Future<void> _performLogout() async {
     cancelWechatLogin(force: true);
     isBusy = true;
     _accountTransitioning = true;
     notifyListeners();
+    Session? expectedSession = session;
     try {
+      expectedSession ??= await _vault.readSession();
       await _pauseWearableForAccountTransition();
       await _drainCloudSync();
       if (session != null) {
         await _unregisterPushDevice();
         await _api.logout();
-      } else {
-        await _vault.clearSession();
+      } else if (expectedSession != null) {
+        await _vault.clearSessionIfUnchanged(expectedSession);
       }
     } on ApiException catch (error) {
       errorMessage = _apiErrorMessage(error, fallback: '退出失败，请稍后重试');
     } finally {
       try {
-        await _vault.clearSession();
-        await _vault.writePrivacyConsentGranted(false);
+        if (expectedSession == null) {
+          if (await _vault.readSession() == null) {
+            await _vault.writePrivacyConsentGranted(false);
+          }
+        } else if (await _vault.clearSessionIfUnchanged(expectedSession) ||
+            await _vault.readSession() == null) {
+          await _vault.writePrivacyConsentGranted(false);
+        }
       } catch (_) {
         // The in-memory session is still cleared immediately below.
       }

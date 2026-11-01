@@ -153,10 +153,11 @@ class QRingWearableBridge
   Future<DeviceInfo?> prepareRememberedDeviceForSelection(
     String nativeIdentifier, {
     String? knownName,
+    bool cacheOnly = false,
   }) async {
     final value = await _invoke<Map<Object?, Object?>>(
       'prepareRememberedDevice',
-      {'id': nativeIdentifier, 'name': ?knownName},
+      {'id': nativeIdentifier, 'name': ?knownName, 'cacheOnly': cacheOnly},
     );
     return value == null || value.isEmpty ? null : DeviceInfo.fromMap(value);
   }
