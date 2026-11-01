@@ -25,3 +25,7 @@
 - `dart format`、`flutter analyze --no-pub` 通过；定向 Flutter 71/71；全量 `TZ=UTC` 和 `TZ=Asia/Shanghai` 各 **1711/1711**；4 组 QRing 原生连接相关测试 **23/23**。Android Debug 与 `SAIDIAN_ALLOW_QA_RELEASE=true` 的内部 QA Release 均构建成功，未安装或发布 Android 包。
 - iOS Debug/Profile 在本机 Xcode 27.2 串行构建和签名通过；只对本次构建临时设置 `IPHONEOS_DEPLOYMENT_TARGET=15.0`，未改仓库默认最低系统。Profile 已安装 XR；Debug 只构建，没有以独立 Debug 启动代替真机连接结论。没有生成 TestFlight 分发包、上传或提交苹果审核。
 - 本次证明**已知精确 R8 缓存标识在 XR 上能够完成实际连接**，不能保证其他型号、无缓存、自然断连、锁屏/系统回收或长期稳定性。用户不在现场，无法复核 XR 系统蓝牙设备列表；旧的“近距离自然断连超过 6 分钟未恢复”仍是独立未闭环问题。首次连接新戒指仍需扫描和用户选择，不会靠型号名称猜 UUID。
+
+## Git 同步说明
+
+- 本机已做范围明确的提交，命令行 `git push origin codex/fix-client-audit-20261031` 因没有可用 GitHub 用户凭据失败，没有把它记录为已推送。改用已授权的 GitHub 连接将同一提交树写入远端，并以预期旧 SHA 更新当前分支；`git fetch` 后核对远端树与本地树完全一致，随后把本地分支快进对齐远端。未强推或修改 `main`。命令行凭据仍未恢复，后续普通 `git push` 可能仍需此路径或重新配置本机凭据。
