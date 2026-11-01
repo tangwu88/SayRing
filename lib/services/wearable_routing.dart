@@ -236,6 +236,7 @@ class RoutedWearableBridge
   Future<void> _bindingMutationTail = Future<void>.value();
   Future<List<DeviceInfo>>? _scanInFlight;
   int _scanGeneration = 0;
+  int _selectionGeneration = 0;
   bool _acceptScanEvents = false;
 
   Future<void> _serializeBindingMutation(Future<void> Function() operation) {
@@ -563,23 +564,52 @@ class RoutedWearableBridge
 
   @override
   Future<List<DeviceInfo>> listBondedDevicesForSelection() async {
-    final selected = <DeviceInfo>[];
-    final selectedIds = <String>{};
+    final generation = ++_selectionGeneration;
+    final contextGeneration = _recoveryContextGeneration;
+    final connectionGeneration = _connectionGeneration;
+    final scanGeneration = _scanGeneration;
+    final owner = _recoveryOwnerKey;
+    bool current() =>
+        generation == _selectionGeneration &&
+        contextGeneration == _recoveryContextGeneration &&
+        connectionGeneration == _connectionGeneration &&
+        scanGeneration == _scanGeneration &&
+        owner == _recoveryOwnerKey;
+    final selected = <String, RoutedDevice>{};
+    final manualIds = <String>{};
     _manualRecoveryIds.clear();
-    for (final entry in _sources.entries) {
-      final source = entry.value;
-      if (source is! WearableBondedDeviceSelectionBridge) continue;
-      final bonded = await (source as WearableBondedDeviceSelectionBridge)
-          .listBondedDevicesForSelection();
-      for (final device in bonded) {
-        if (!WearableDeviceClassifier.routesTo(device.name, entry.key)) {
-          continue;
-        }
-        final routed = RoutedDevice.fromDevice(entry.key, device);
-        _scanned[routed.display.id] = routed;
-        if (selectedIds.add(routed.display.id)) selected.add(routed.display);
+
+    Future<void> prepareCached(SavedWearableBinding saved) async {
+      final id = RoutedDevice.scopedID(saved.transport, saved.nativeIdentifier);
+      if (!current() || selected.containsKey(id)) return;
+      final source = _sources[saved.transport];
+      if (source is! WearableRememberedDeviceSelectionBridge) return;
+      DeviceInfo? remembered;
+      try {
+        remembered = await (source as WearableRememberedDeviceSelectionBridge)
+            .prepareRememberedDeviceForSelection(
+              saved.nativeIdentifier,
+              knownName: saved.deviceName,
+              cacheOnly: true,
+            )
+            .timeout(const Duration(seconds: 12));
+      } catch (_) {
+        // A missing/unavailable cache must still allow normal discovery.
+        return;
       }
+      if (!current() || remembered?.id != saved.nativeIdentifier) return;
+      // Legacy bindings remain explicit manual choices; they never arm recovery.
+      if (saved.ownerKey != null &&
+          !WearableDeviceClassifier.routesTo(
+            remembered!.name,
+            saved.transport,
+          )) {
+        return;
+      }
+      selected[id] = RoutedDevice.fromDevice(saved.transport, remembered!);
+      manualIds.add(id);
     }
+
     final preference = _preferenceStore;
     if (preference is WearableBindingPreferenceStore) {
       SavedWearableBinding? saved;
@@ -588,39 +618,15 @@ class RoutedWearableBridge
       } catch (_) {
         saved = null;
       }
+      if (!current()) return const [];
       if (saved != null &&
           (!requireOwnerScopedBinding ||
               saved.ownerKey == null ||
-              saved.ownerKey == _recoveryOwnerKey)) {
-        final source = _sources[saved.transport];
-        final savedDisplayId = RoutedDevice.scopedID(
-          saved.transport,
-          saved.nativeIdentifier,
-        );
-        if (!selectedIds.contains(savedDisplayId) &&
-            source is WearableRememberedDeviceSelectionBridge) {
-          final remembered =
-              await (source as WearableRememberedDeviceSelectionBridge)
-                  .prepareRememberedDeviceForSelection(
-                    saved.nativeIdentifier,
-                    knownName: saved.deviceName,
-                    cacheOnly: true,
-                  );
-          if (remembered?.id == saved.nativeIdentifier) {
-            final routed = RoutedDevice.fromDevice(
-              saved.transport,
-              remembered!,
-            );
-            _scanned[routed.display.id] = routed;
-            _manualRecoveryIds.add(routed.display.id);
-            if (selectedIds.add(routed.display.id)) {
-              selected.add(routed.display);
-            }
-          }
-        }
+              saved.ownerKey == owner)) {
+        await prepareCached(saved);
       }
     }
-    final owner = _recoveryOwnerKey;
+    if (!current()) return const [];
     if (owner != null && preference is WearableRecentBindingPreferenceStore) {
       List<SavedWearableBinding> recent;
       try {
@@ -628,8 +634,9 @@ class RoutedWearableBridge
       } catch (_) {
         recent = const [];
       }
+      if (!current()) return const [];
       for (final saved in recent) {
-        if (_recoveryOwnerKey != owner) break;
+        if (!current()) return const [];
         if (saved.ownerKey != owner ||
             saved.deviceName == null ||
             !WearableDeviceClassifier.routesTo(
@@ -638,44 +645,40 @@ class RoutedWearableBridge
             )) {
           continue;
         }
-        final id = RoutedDevice.scopedID(
-          saved.transport,
-          saved.nativeIdentifier,
-        );
-        if (selectedIds.contains(id)) continue;
-        final source = _sources[saved.transport];
-        if (source is! WearableRememberedDeviceSelectionBridge) continue;
-        DeviceInfo? remembered;
-        try {
-          remembered = await (source as WearableRememberedDeviceSelectionBridge)
-              .prepareRememberedDeviceForSelection(
-                saved.nativeIdentifier,
-                knownName: saved.deviceName,
-                cacheOnly: true,
-              )
-              .timeout(const Duration(seconds: 12));
-        } catch (_) {
-          continue;
-        }
-        if (_recoveryOwnerKey != owner ||
-            remembered?.id != saved.nativeIdentifier ||
-            !WearableDeviceClassifier.routesTo(
-              remembered!.name,
-              saved.transport,
-            )) {
-          continue;
-        }
-        final routed = RoutedDevice.fromDevice(saved.transport, remembered);
-        _scanned[routed.display.id] = routed;
-        _manualRecoveryIds.add(routed.display.id);
-        if (selectedIds.add(routed.display.id)) selected.add(routed.display);
+        await prepareCached(saved);
       }
     }
-    return selected;
+    if (!current()) return const [];
+
+    // Exact account cache first. Only consult OS devices on a cache miss;
+    // the search action remains available for choosing another advertised ring.
+    if (selected.isEmpty) {
+      for (final entry in _sources.entries) {
+        if (!current()) return const [];
+        final source = entry.value;
+        if (source is! WearableBondedDeviceSelectionBridge) continue;
+        final bonded = await (source as WearableBondedDeviceSelectionBridge)
+            .listBondedDevicesForSelection();
+        if (!current()) return const [];
+        for (final device in bonded) {
+          if (!WearableDeviceClassifier.routesTo(device.name, entry.key)) {
+            continue;
+          }
+          final routed = RoutedDevice.fromDevice(entry.key, device);
+          selected.putIfAbsent(routed.display.id, () => routed);
+        }
+      }
+    }
+    if (!current()) return const [];
+    // Publish atomically after all awaits, never a previous account's result.
+    _scanned.addAll(selected);
+    _manualRecoveryIds.addAll(manualIds);
+    return selected.values.map((device) => device.display).toList();
   }
 
   @override
   Future<void> stopScan() {
+    ++_selectionGeneration;
     ++_scanGeneration;
     _acceptScanEvents = false;
     _scanInFlight = null;

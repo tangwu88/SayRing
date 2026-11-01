@@ -22,6 +22,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   _bindingRaceTests();
   _directRecoveryTests();
+  _cachedSelectionTests();
 
   test(
     'v2 saves environment and owner and rejects a foreign environment',
@@ -623,5 +624,141 @@ class _QRing extends _Empty
       return delayedDetails!.future;
     }
     return connected ? const DeviceInfo(id: _id, name: 'R21') : null;
+  }
+}
+
+void _cachedSelectionTests() {
+  const binding = SavedWearableBinding(
+    WearableTransport.qring,
+    _id,
+    deviceName: 'R21',
+    ownerKey: 'owner-a',
+  );
+  const cached = DeviceInfo(id: _id, name: 'R21');
+  const other = DeviceInfo(id: 'other', name: 'R22');
+
+  test(
+    'exact cached choice avoids unrelated OS lookup and never auto-connects',
+    () async {
+      final native = _SelectionQRing()..cached = cached;
+      final store = _Store(binding);
+      final bridge = _bridge(store, native);
+      addTearDown(bridge.dispose);
+      await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+      final choices = await bridge.listBondedDevicesForSelection();
+      expect(choices.map((device) => device.id), ['qring:$_id']);
+      expect(native.calls, ['cache:$_id:true']);
+      expect(native.connects, isEmpty);
+      expect(native.scanCount, 0);
+      expect(store.writeCount, 0);
+    },
+  );
+
+  for (final fails in [false, true]) {
+    test(
+      'cache ${fails ? 'failure' : 'miss'} falls back to OS selection',
+      () async {
+        final native = _SelectionQRing()..cacheFails = fails;
+        final bridge = _bridge(_Store(binding), native);
+        addTearDown(bridge.dispose);
+        await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+        final choices = await bridge.listBondedDevicesForSelection();
+        expect(choices.map((device) => device.id), ['qring:other']);
+        expect(native.calls, ['cache:$_id:true', 'os']);
+        expect(native.connects, isEmpty);
+      },
+    );
+  }
+
+  test('late cached result cannot cross an account switch', () async {
+    final reply = Completer<DeviceInfo?>();
+    final native = _SelectionQRing()..cachedReply = reply;
+    final bridge = _bridge(_Store(binding), native);
+    addTearDown(bridge.dispose);
+    await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+    final pending = bridge.listBondedDevicesForSelection();
+    await native.cacheStarted.future;
+    await bridge.setRecoveryContext(ownerKey: 'owner-b', profile: _profile);
+    reply.complete(cached);
+    expect(await pending, isEmpty);
+    await expectLater(
+      bridge.connect('qring:$_id', profile: _profile),
+      throwsA(isA<Exception>()),
+    );
+    expect(native.connects, isEmpty);
+    expect(native.calls, ['cache:$_id:true']);
+  });
+
+  test(
+    'stopped lookup rejects cached reply and a subsequent lookup succeeds',
+    () async {
+      final reply = Completer<DeviceInfo?>();
+      final native = _SelectionQRing()..cachedReply = reply;
+      final bridge = _bridge(_Store(binding), native);
+      addTearDown(bridge.dispose);
+      await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+      final pending = bridge.listBondedDevicesForSelection();
+      await native.cacheStarted.future;
+      await bridge.stopScan();
+      reply.complete(cached);
+      expect(await pending, isEmpty);
+      native.cachedReply = null;
+      native.cached = cached;
+      expect(
+        (await bridge.listBondedDevicesForSelection()).single.id,
+        'qring:$_id',
+      );
+      expect(native.connects, isEmpty);
+    },
+  );
+
+  test('late OS candidate cannot enter the next account selection', () async {
+    final reply = Completer<List<DeviceInfo>>();
+    final native = _SelectionQRing()..osReply = reply;
+    final bridge = _bridge(_Store(null), native);
+    addTearDown(bridge.dispose);
+    await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+    final pending = bridge.listBondedDevicesForSelection();
+    await native.osStarted.future;
+    await bridge.setRecoveryContext(ownerKey: 'owner-b', profile: _profile);
+    reply.complete([other]);
+    expect(await pending, isEmpty);
+    await expectLater(
+      bridge.connect('qring:other', profile: _profile),
+      throwsA(isA<Exception>()),
+    );
+    expect(native.connects, isEmpty);
+  });
+}
+
+class _SelectionQRing extends _QRing
+    implements WearableBondedDeviceSelectionBridge {
+  final calls = <String>[];
+  final cacheStarted = Completer<void>();
+  final osStarted = Completer<void>();
+  DeviceInfo? cached;
+  bool cacheFails = false;
+  Completer<DeviceInfo?>? cachedReply;
+  Completer<List<DeviceInfo>>? osReply;
+
+  @override
+  Future<DeviceInfo?> prepareRememberedDeviceForSelection(
+    String nativeIdentifier, {
+    String? knownName,
+    bool cacheOnly = false,
+  }) async {
+    calls.add('cache:$nativeIdentifier:$cacheOnly');
+    if (!cacheStarted.isCompleted) cacheStarted.complete();
+    if (cacheFails) throw StateError('synthetic cache unavailable');
+    return cachedReply == null ? cached : await cachedReply!.future;
+  }
+
+  @override
+  Future<List<DeviceInfo>> listBondedDevicesForSelection() async {
+    calls.add('os');
+    if (!osStarted.isCompleted) osStarted.complete();
+    return osReply == null
+        ? [const DeviceInfo(id: 'other', name: 'R22')]
+        : await osReply!.future;
   }
 }
