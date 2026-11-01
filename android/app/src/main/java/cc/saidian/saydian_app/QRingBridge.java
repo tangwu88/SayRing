@@ -8,6 +8,9 @@ import android.bluetooth.BluetoothProfile;
 import android.bluetooth.BluetoothManager;
 import android.bluetooth.le.ScanResult;
 import android.content.Context;
+import android.content.BroadcastReceiver;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Handler;
@@ -99,6 +102,7 @@ public final class QRingBridge
     private EventChannel.EventSink sink;
     private BleOperateManager manager;
     private QCBluetoothCallbackCloneReceiver receiver;
+    private BroadcastReceiver bondStateReceiver;
     private boolean receiverRegistered;
     private MethodChannel.Result pendingScan;
     private MethodChannel.Result pendingConnect;
@@ -303,13 +307,55 @@ public final class QRingBridge
             }
 
             @Override public void onCharacteristicRead(String uuid, byte[] data) {
-                main.post(() -> onCharacteristic(uuid, data));
+                final int generation = connectionGeneration;
+                final String id = connectedId;
+                main.post(() -> {
+                    if (isCurrentConnection(generation, id)) onCharacteristic(uuid, data);
+                });
             }
         };
         ContextCompat.registerReceiver(
                 activity.getApplicationContext(), receiver, BleAction.getIntentFilter(),
                 ContextCompat.RECEIVER_NOT_EXPORTED);
         receiverRegistered = true;
+        bondStateReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                if (!BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(intent.getAction()) || !hasBlePermissions()) return;
+                BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                if (device == null) return;
+                final int generation = connectionGeneration;
+                final String id = device.getAddress();
+                final int state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR);
+                final int previous = intent.getIntExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, BluetoothDevice.ERROR);
+                main.post(() -> onBondState(generation, id, state, previous));
+            }
+        };
+        // Bluetooth system broadcasts and private SDK broadcasts have different senders.
+        ContextCompat.registerReceiver(activity.getApplicationContext(), bondStateReceiver,
+                new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED), ContextCompat.RECEIVER_EXPORTED);
+    }
+
+    private void onBondState(int generation, String id, int state, int previous) {
+        if (!isCurrentConnection(generation, id) || !recoveryConnecting
+                || recoveryContext == null || !id.equalsIgnoreCase(recoveryTargetId)) return;
+        String status;
+        if (state == BluetoothDevice.BOND_BONDING) status = "pairing";
+        else if (state == BluetoothDevice.BOND_BONDED) status = "connecting";
+        else if (state == BluetoothDevice.BOND_NONE && previous == BluetoothDevice.BOND_BONDING) status = "pairingFailed";
+        else return;
+        Map<String, Object> value = new HashMap<>();
+        value.put("deviceId", id);
+        value.put("status", status);
+        emit("recoveryState", value);
+    }
+
+    private void resetDeviceDetails() {
+        firmwareVersion = "";
+        hardwareVersion = "";
+        batteryPercent = null;
+        charging = null;
+        batteryUpdatedAt = null;
+        batteryQueryAt = 0L;
     }
 
     private boolean hasBlePermissions() {
@@ -583,8 +629,7 @@ public final class QRingBridge
         pendingProfile = profile == null ? new HashMap<>() : new HashMap<>(profile);
         setTimeFlags = null;
         supportFlags = null;
-        batteryPercent = null;
-        charging = null;
+        resetDeviceDetails();
         pendingConnect = result;
         connectionGeneration++;
         handshakeStarted = false;
@@ -625,6 +670,7 @@ public final class QRingBridge
         handshakeStarted = false;
         setTimeFlags = null;
         supportFlags = null;
+        resetDeviceDetails();
         activeMeasurement = null;
         activeSportMode = null;
         activeSportType = null;
@@ -672,6 +718,7 @@ public final class QRingBridge
         pendingProfile = recoveryProfile == null ? new HashMap<>() : new HashMap<>(recoveryProfile);
         setTimeFlags = null;
         supportFlags = null;
+        resetDeviceDetails();
         recoveryConnecting = true;
         handshakeStarted = false;
         final int generation = ++connectionGeneration;
@@ -685,6 +732,15 @@ public final class QRingBridge
         // second time. Reattach only the exact owner-armed, physically live GATT.
         boolean retainedReady = hasRetainedReadyGatt(connectedId);
         if (!retainedReady) manager.connectDirectly(connectedId);
+        try {
+            BluetoothManager bluetooth = (BluetoothManager) activity.getSystemService(Context.BLUETOOTH_SERVICE);
+            if (bluetooth != null && bluetooth.getAdapter() != null) {
+                onBondState(generation, connectedId,
+                        bluetooth.getAdapter().getRemoteDevice(connectedId).getBondState(), BluetoothDevice.ERROR);
+            }
+        } catch (SecurityException ignored) {
+            // An unavailable optional state read must not replace the connection result.
+        }
         connectDeadline = () -> {
             if (generation == connectionGeneration) {
                 failConnect("QRING_CONNECT_TIMEOUT", "戒指暂时不在附近，靠近后会自动重连");
@@ -2196,6 +2252,12 @@ public final class QRingBridge
         }
         receiverRegistered = false;
         receiver = null;
+        if (bondStateReceiver != null) {
+            try {
+                activity.getApplicationContext().unregisterReceiver(bondStateReceiver);
+            } catch (IllegalArgumentException ignored) { }
+            bondStateReceiver = null;
+        }
         sink = null;
     }
 }

@@ -180,6 +180,66 @@ void main() {
   });
 
   test(
+    'exact saved ring distinguishes pairing, pairing failure and radio wait',
+    () async {
+      final state = await setup();
+      for (final entry in const {
+        'pairing': '请确认系统蓝牙配对',
+        'pairingFailed': '蓝牙配对未完成，请确认系统提示',
+        'connecting': '正在连接戒指',
+        'waiting': '等待戒指靠近，靠近后会自动连接',
+      }.entries) {
+        state.ring.source.add(
+          WearableEvent(
+            type: 'recoveryState',
+            payload: {'status': entry.key, 'deviceId': _Ring.id},
+          ),
+        );
+        await _settle();
+        expect(state.controller.wearableRecoveryMessage, entry.value);
+        expect(state.controller.isWearableRecovering, isTrue);
+        expect(state.controller.connectedDevice, isNull);
+      }
+    },
+  );
+
+  test(
+    'another or missing target cannot replace the saved recovery state',
+    () async {
+      final state = await setup();
+      final message = state.controller.wearableRecoveryMessage;
+      for (final id in ['qring:other-synthetic-ring', null]) {
+        state.ring.source.add(
+          WearableEvent(
+            type: 'recoveryState',
+            payload: {'status': 'pairing', 'deviceId': id},
+          ),
+        );
+        await _settle();
+        expect(state.controller.wearableRecoveryMessage, message);
+      }
+    },
+  );
+
+  test(
+    'late pairing state cannot turn a ready ring back into recovery',
+    () async {
+      final state = await setup();
+      await state.controller.connectDevice(_Ring.device);
+      state.ring.source.add(
+        const WearableEvent(
+          type: 'recoveryState',
+          payload: {'status': 'pairing', 'deviceId': _Ring.id},
+        ),
+      );
+      await _settle();
+      expect(state.controller.deviceState, DeviceConnectionState.ready);
+      expect(state.controller.isWearableRecovering, isFalse);
+      expect(state.controller.wearableRecoveryMessage, isNull);
+    },
+  );
+
+  test(
     'legacy binding is visible but never promises or starts automatic recovery',
     () async {
       final state = await setup(legacy: true);

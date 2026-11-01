@@ -7525,10 +7525,18 @@ class AppController extends ChangeNotifier {
     } else if (event.type == 'reconnected') {
       unawaited(_restoreReconnectedDevice(event.payload));
     } else if (event.type == 'recoveryState') {
-      if (!_wearableRecoverySuspended && _canRecoverRememberedDevice) {
+      if (!_wearableRecoverySuspended &&
+          _canRecoverRememberedDevice &&
+          event.payload['deviceId'] == rememberedDevice?.id &&
+          connectedDevice == null) {
         isWearableRecovering = event.payload['status'] != 'connected';
         wearableRecoveryMessage = isWearableRecovering
-            ? '等待戒指靠近，靠近后会自动连接'
+            ? switch (event.payload['status']) {
+                'pairing' => '请确认系统蓝牙配对',
+                'pairingFailed' => '蓝牙配对未完成，请确认系统提示',
+                'connecting' => '正在连接戒指',
+                _ => '等待戒指靠近，靠近后会自动连接',
+              }
             : null;
       }
     } else if (event.type == 'capabilitiesUpdated') {
