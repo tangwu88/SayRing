@@ -13,7 +13,7 @@ test('actual reconnect handshake rereads partial SDK capabilities without invent
  try {const path=join(dir,'fixture.m'),exe=join(dir,'fixture');
  const run=source=>{writeFileSync(path,template.replace('// PRODUCTION_METHODS',source));execFileSync('xcrun',['clang','-fobjc-arc','-Wall','-Wextra','-Werror','-framework','Foundation',path,'-o',exe],{stdio:'pipe'});return spawnSync(exe,[],{encoding:'utf8'});};
  const r=run(methods);assert.equal(r.status,0,r.stderr);process.stdout.write(r.stdout);
- const regressed=methods.replace('if ([features[QCBandFeatureGestureControl] isEqual:@YES] ||','if (YES ||');
+ const regressed=methods.replace('if (photoKnown && (', 'if ((photoKnown || YES) && (');
  if(regressed!==methods){const bad=run(regressed);assert.equal(bad.status,1);assert.match(bad.stderr,/Capability fallback assertion failed/);process.stdout.write('Skipping extended read negative control rejected\n');}
  } finally {rmSync(dir,{recursive:true,force:true});}
 });

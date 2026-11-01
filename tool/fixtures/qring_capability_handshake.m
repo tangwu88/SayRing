@@ -89,6 +89,10 @@ int main(void) { @autoreleasepool {
     check(b.readyCalls==1 && b.probeCalls==1 && [b.featureList[QCBandFeatureGestureControl] isEqual:@YES] && [b.featureList[@"heart"] isEqual:@YES]);
     drain(); check(b.failedCalls==0 && b.readyCalls==1);
     b=make(); [b resolveCapabilities]; timeSuccess(@{QCBandFeatureGestureControl:@YES,QCBandFeatureGestureControlMusic:@YES});
+    check(b.readyCalls==0 && b.probeCalls==0); drain(); check(extendedReads==1);
+    extendedSuccess(@{QCBandFeatureGestureControl:@YES,QCBandFeatureGestureControlTakePhoto:@NO});
+    check(b.readyCalls==1 && b.probeCalls==1 && [b.featureList[QCBandFeatureGestureControlTakePhoto] isEqual:@NO]);
+    b=make(); [b resolveCapabilities]; timeSuccess(@{QCBandFeatureGestureControl:@YES,QCBandFeatureGestureControlTakePhoto:@NO});
     check(b.readyCalls==1 && b.probeCalls==1 && extendedReads==0); drain(); check(extendedReads==0);
     b=make(); [b resolveCapabilities]; timeSuccess(@{@"heart":@YES}); drain(); void (^oldSuccess)(NSDictionary *)=extendedSuccess; extendedFailure(); drain(); check(extendedReads==2 && b.readyCalls==0); oldSuccess(@{QCBandFeatureGestureControl:@YES}); check(b.readyCalls==0 && b.featureList==nil); extendedSuccess(@{QCBandFeatureTouchControl:@YES}); check(b.readyCalls==1 && [b.featureList[QCBandFeatureTouchControl] isEqual:@YES]); extendedSuccess(@{QCBandFeatureGestureControl:@YES}); check(b.readyCalls==1 && b.featureList[QCBandFeatureGestureControl]==nil);
     b=make(); [b resolveCapabilities]; timeSuccess(@{@"heart":@YES}); drain(); extendedSuccess(@{}); check(b.readyCalls==1 && b.featureList[QCBandFeatureGestureControl]==nil && b.featureList[QCBandFeatureTouchControl]==nil); drain(); check(extendedReads==1);

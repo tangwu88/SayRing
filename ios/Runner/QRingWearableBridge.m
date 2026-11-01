@@ -11,9 +11,12 @@
 
 typedef void (^QRingNext)(void);
 
-// Bounded Debug-only diagnostics; never record identity or health payloads.
+// Bounded local diagnostics; Profile requires an explicit launch-time opt-in.
+// Never record identity or health payloads.
 static void RingControlTrace(NSString *phase, NSDictionary *values) {
-#if DEBUG
+#if !DEBUG
+    if (![NSProcessInfo.processInfo.environment[@"SAY_RING_QA_CONTROL"] isEqualToString:@"1"]) { return; }
+#endif
     NSString *path = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"RingControlTrace.jsonl"];
     NSMutableDictionary *entry = [values mutableCopy];
     entry[@"phase"] = phase;
@@ -28,9 +31,6 @@ static void RingControlTrace(NSString *phase, NSDictionary *values) {
     @try {
         [file seekToEndOfFile]; [file writeData:data]; [file writeData:[@"\n" dataUsingEncoding:NSUTF8StringEncoding]];
     } @catch (__unused NSException *exception) {} @finally { [file closeFile]; }
-#else
-    (void)phase; (void)values;
-#endif
 }
 
 static void QRingOnMain(QRingNext block) {
@@ -515,8 +515,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 // an independent extended read succeeds; never infer support from saved names.
 - (void)resolveExtendedCapabilities:(NSDictionary *)features generation:(NSUInteger)generation attempt:(NSUInteger)attempt completion:(void (^)(NSDictionary *))completion {
     if (![self isCurrentConnection:generation]) { return; }
-    if ([features[QCBandFeatureGestureControl] isEqual:@YES] ||
-        [features[QCBandFeatureTouchControl] isEqual:@YES]) {
+    id photo = features[QCBandFeatureGestureControlTakePhoto];
+    BOOL photoKnown = [photo isKindOfClass:NSNumber.class] &&
+        ([photo isEqual:@YES] || [photo isEqual:@NO]);
+    // A parent gesture/touch flag alone is not a complete control snapshot.
+    // Read the extended configuration when its photo subfeature is missing.
+    if (photoKnown && ([features[QCBandFeatureGestureControl] isEqual:@YES] ||
+        [features[QCBandFeatureTouchControl] isEqual:@YES])) {
         completion(features); return;
     }
     if (attempt >= 2) {
@@ -1500,7 +1505,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 // Photo UI ACKs verify the session protocol; HID photo flags describe a
 // different, persistent control mode and must not gate shake-to-shoot.
 - (void)probeRemoteCamera:(QRingNext)completion {
-    RingControlTrace(@"probe-start", @{@"gesture": @([self cameraFlag:QCBandFeatureGestureControl]), @"touch": @([self cameraFlag:QCBandFeatureTouchControl]), @"screenTouch": @([self cameraFlag:QCBandFeatureTouchControlOfScreenDevice]), @"generation": @(self.connectionGeneration)});
+    RingControlTrace(@"probe-start", @{@"gesture": @([self cameraFlag:QCBandFeatureGestureControl]), @"touch": @([self cameraFlag:QCBandFeatureTouchControl]), @"photoMode": @([self cameraFlag:QCBandFeatureGestureControlTakePhoto]), @"photoModePresent": @(self.featureList[QCBandFeatureGestureControlTakePhoto] != nil), @"screenTouch": @([self cameraFlag:QCBandFeatureTouchControlOfScreenDevice]), @"generation": @(self.connectionGeneration)});
     self.remoteCameraSupported = NO;
     NSUInteger connection = self.connectionGeneration;
     NSUInteger operation = ++self.cameraOperation;
@@ -1534,7 +1539,10 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
                     RingControlTrace(@"probe-exit-confirmed", @{@"generation": @(connection)});
                     finish();
                 });
-            } fail:^{ dispatch_async(dispatch_get_main_queue(), finish); }];
+            } fail:^{
+                RingControlTrace(@"probe-exit-failed", @{@"generation": @(connection)});
+                dispatch_async(dispatch_get_main_queue(), finish);
+            }];
         });
     };
     [QCSDKCmdCreator switchToPhotoUISuccess:^{ exit(YES); } fail:^{ exit(NO); }];
