@@ -129,7 +129,7 @@ void main() {
   });
 
   test(
-    'CoolWear HRV and stress keep documented and HR01 compatibility paths',
+    'CoolWear HRV requires explicit RRI fields and legacy compatibility stays stress-only',
     () {
       final source = File(
         'android/app/src/main/java/cc/saidian/saydian_app/CoolWearRingBridge.java',
@@ -145,9 +145,32 @@ void main() {
       );
       expect(source, contains('System.currentTimeMillis()'));
       expect(source, contains('sendRriHrvCmd(state)'));
-      expect(source, contains('sendHRVSwitch(CEBC.OPENSTATUS.OPEN)'));
-      expect(source, contains('"hrv".equals(activeMeasurement)'));
-      expect(source, contains('emitMeasurement("hrv", time, hrv, "ms")'));
+      expect(source, isNot(contains('sendHRVSwitch(')));
+      expect(source, isNot(contains('hrvFallback')));
+      final hrv = source.substring(
+        source.indexOf('private void onHrvValues('),
+        source.indexOf('private void onStressValues('),
+      );
+      expect(hrv, contains('"hrv".equals(activeMeasurement)'));
+      expect(hrv, contains('value.getSdnn()'));
+      expect(hrv, contains('measured.put("sdnn", sdnn)'));
+      expect(hrv, contains('emitMeasurement("hrv", time, measured, "ms")'));
+      final legacy = source.substring(
+        source.indexOf('private void onStressCompatValues('),
+        source.indexOf('private void emitMeasurement('),
+      );
+      expect(
+        legacy,
+        contains(
+          'if (!"stress".equals(activeMeasurement) || resultEmitted || !linkConnected) return;',
+        ),
+      );
+      expect(legacy, contains('stress >= 1 && stress <= 100'));
+      expect(legacy, contains('emitMeasurement("stress", time, stress, "")'));
+      expect(legacy, isNot(contains('emitMeasurement("hrv"')));
+      expect(legacy, isNot(contains('collectHealth(')));
+      // Real production-method callback and delayed-command behavior is covered
+      // by tool/coolwear_android_hrv_protocol.test.mjs, including old-code failures.
       expect(source, contains('sendHeartAutoSwitch('));
       expect(source, contains('sendFindDevice()'));
       expect(source, contains('sendPhotoSwitch(enabled)'));

@@ -75,7 +75,6 @@ public final class CoolWearRingBridge
     private static final long SCAN_MS = 8_000L;
     private static final long CONNECT_MS = 28_000L;
     private static final long SETTINGS_MS = 5_000L;
-    private static final long LEGACY_HRV_FALLBACK_MS = 8_000L;
     private static final String NOTIFICATION_PREFS = "coolwear_notification_settings";
     private static final String[] NOTIFICATION_KEYS = {"incomingCall", "sms", "wechat",
             "qq", "whatsapp", "dingtalk", "wecom", "tiktok", "telegram", "otherApps"};
@@ -103,7 +102,6 @@ public final class CoolWearRingBridge
     private Runnable syncDeadline;
     private CoolWearSyncWindow syncWindow;
     private Runnable settingsDeadline;
-    private Runnable hrvFallback;
     private String connectedId;
     private String connectedName;
     private MethodChannel.Result pendingHealthPulse;
@@ -634,7 +632,6 @@ public final class CoolWearRingBridge
             cancelHealthPulse(false);
             resetGesture("CONNECTION_DROPPED", "戒指连接中断");
             String retiredId = connectedId;
-            cancelHrvFallback();
             linkConnected = false;
             deviceInfoReceived = false;
             functionControl = null;
@@ -1247,21 +1244,8 @@ public final class CoolWearRingBridge
     }
 
     private void onStressCompatValues(List<K6_HrvStruct> values) {
-        if ("hrv".equals(activeMeasurement) && !resultEmitted && linkConnected) {
-            Log.i(TAG, "manual HRV callback received; source=legacy_hrv, sample count="
-                    + values.size());
-            for (K6_HrvStruct value : values) {
-                if (value == null) continue;
-                int hrv = value.getHrvNums();
-                if (hrv <= 0 || hrv > 1_000) continue;
-                long time = CoolWearRecordMapper.currentTimestamp(value.getTime());
-                if (time == 0) time = System.currentTimeMillis();
-                emitMeasurement("hrv", time, hrv, "ms");
-                return;
-            }
-            Log.i(TAG, "manual HRV callback had no valid sample; source=legacy_hrv");
-            return;
-        }
+        // The SDK aliases legacy HRV and stress to DataType 45. Its one-byte
+        // hrvNums has no confirmed millisecond/SDNN meaning; never emit it as HRV.
         if (!"stress".equals(activeMeasurement) || resultEmitted || !linkConnected) return;
         Log.i(TAG, "manual stress callback received; source=real_hrv, sample count="
                 + values.size());
@@ -1291,7 +1275,6 @@ public final class CoolWearRingBridge
     private void emitMeasurement(
             String metric, long time, Map<String, Object> values, String unit) {
         if (connectedId == null || resultEmitted) return;
-        if ("hrv".equals(metric)) cancelHrvFallback();
         resultEmitted = true;
         Map<String, Object> record = CoolWearRecordMapper.healthRecord(
                 connectedId, firmwareVersion, metric, time, values, unit,
@@ -1513,7 +1496,6 @@ public final class CoolWearRingBridge
                     cancelHealthPulse(true);
                     resetGesture("CONNECT_CANCELLED", "连接已断开");
                     finishScan();
-                    cancelHrvFallback();
                     failPendingSync("CONNECT_CANCELLED", "连接已断开");
                     failPendingAutoSettings("CONNECT_CANCELLED", "连接已断开");
                     cancelReminderRead();
@@ -1736,7 +1718,6 @@ public final class CoolWearRingBridge
                 case "stopMeasurement":
                     String stopping = call.argument("metric");
                     Log.i(TAG, "manual measurement command stop: " + stopping);
-                    cancelHrvFallback();
                     activeMeasurement = null;
                     resultEmitted = false;
                     if (stopping != null) setMeasurement(stopping, false);
@@ -1788,30 +1769,12 @@ public final class CoolWearRingBridge
         } else if ("blood_oxygen".equals(metric)) {
             helper.getSendBlueData().sendBloodOxygenDetection(state);
         } else if ("hrv".equals(metric)) {
+            // Only the RRI protocol reports explicit SDNN/RMSSD/RRI fields.
+            // Do not start or stop the ambiguous legacy command shared with stress.
             helper.getSendBlueData().sendRriHrvCmd(state);
-            if (enabled) {
-                cancelHrvFallback();
-                hrvFallback = () -> {
-                    hrvFallback = null;
-                    if (!"hrv".equals(activeMeasurement) || resultEmitted || !linkConnected) return;
-                    Log.i(TAG, "manual HRV legacy compatibility command start");
-                    helper.getSendBlueData().sendHRVSwitch(CEBC.OPENSTATUS.OPEN);
-                };
-                main.postDelayed(hrvFallback, LEGACY_HRV_FALLBACK_MS);
-            } else {
-                cancelHrvFallback();
-                // HR01 firmware exists with both the documented RRI command
-                // and LuckRing's earlier real-HRV command. Close both paths.
-                helper.getSendBlueData().sendHRVSwitch(CEBC.OPENSTATUS.CLOSE);
-            }
         } else if ("stress".equals(metric)) {
             helper.getSendBlueData().sendStressSwitch(state);
         }
-    }
-
-    private void cancelHrvFallback() {
-        if (hrvFallback != null) main.removeCallbacks(hrvFallback);
-        hrvFallback = null;
     }
 
     private void cancelHealthPulse(boolean stop) {
@@ -1870,7 +1833,6 @@ public final class CoolWearRingBridge
         if (scanDeadline != null) main.removeCallbacks(scanDeadline);
         if (connectDeadline != null) main.removeCallbacks(connectDeadline);
         if (syncDeadline != null) main.removeCallbacks(syncDeadline);
-        cancelHrvFallback();
         failPendingAutoSettings("BRIDGE_DISPOSED", "戒指连接已关闭");
         cancelReminderRead();
         failPendingSync("BRIDGE_DISPOSED", "戒指连接已关闭");
