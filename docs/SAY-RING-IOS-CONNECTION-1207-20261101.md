@@ -67,3 +67,9 @@ WDA UI 测试进程多次在读取元素位置时退出，普通 Say Ring 进程
 随后尝试用 VM 调用生产候选工厂，两个 selector 均返回 ErrorRef；在候选发布和 controller.connectDevice 之前中止。没有正常 SDK 连接请求，不将该调试调用失败记作戒指握手失败或连接成功。
 
 目前已确认系统仍能取回同一 R21 缓存对象。后续应采用正常可复现的候选入口恢复握手，并将“解绑当前绑定”和“同账号最近连接候选”分开设计；解绑后仍须禁止自动重绑，只有用户明确选择且真实握手成功才保存绑定。本次尚未实施这项存储结构调整，也未证明 R21 缓存连接或自然自动重连通过。
+
+## R8 / R21 / R22 通道核对
+
+2026-11-01，用户要求确认三系列是否使用同一 QRing 通道。核对当前 Flutter WearableDeviceClassifier、createProductionWearableBridge、iOS QRingNamePolicy / AppDelegate 和 Android RingNamePolicy / MainActivity：正常 R8（含 SD_RING_R8 / R8 Pro）、R21（含 R21_C280）、R22 名称均选择 qring，通过同一 QRingWearableBridge 分发到各平台 QRing 原生桥接。R1/R2 前缀有优先规则；歧义混合厂商名称保留原拒绝边界。
+
+执行 `flutter test --no-pub test/wearable_routing_test.dart --name 'user-confirmed model markers|each confirmed model connects|vibrating models route consistently|explicit QRing prefixes' --reporter compact`，4/4 通过。这是分类与候选 SDK 分发的宿主测试，不是三种实物的新握手验收。Android 仅核对源码，没有构建或操作安卓手机。缓存 UUID/MAC、绑定及实际能力仍按每枚设备区分，不因共用通道混用目标或开放全部功能。本轮未改产品代码。
