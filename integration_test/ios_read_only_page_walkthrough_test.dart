@@ -220,15 +220,28 @@ void main() {
         captureConnectionState('start');
         proof['connectionTrace'] = connectionTrace;
         const requested = String.fromEnvironment('SAYRING_QA_RING_NAME');
+        const exactRemembered = bool.fromEnvironment(
+          'SAYRING_QA_EXACT_REMEMBERED_RING',
+        );
         String normalized(String value) =>
             value.toUpperCase().replaceAll(RegExp(r'[\s_-]+'), '');
         bool matches(DeviceInfo? device) =>
             device != null &&
             (requested.isEmpty ||
                 normalized(device.name).contains(normalized(requested)));
+        // A named model can have multiple nearby rings. For an owner-bound
+        // reconnect check, never replace the remembered exact target.
+        final rememberedAtStart = controller.rememberedDevice;
+        if (exactRemembered) {
+          expect(requested, isNotEmpty);
+          expect(matches(rememberedAtStart), isTrue);
+        }
+        bool exactMatch(DeviceInfo? device) =>
+            !exactRemembered || device?.id == rememberedAtStart?.id;
         bool ready() =>
             controller.connectedDevice != null &&
             matches(controller.connectedDevice) &&
+            exactMatch(controller.connectedDevice) &&
             controller.deviceCapabilityState == DeviceCapabilityState.ready;
         final attempts = <Map<String, Object?>>[];
         if (controller.connectedDevice != null &&
@@ -258,6 +271,7 @@ void main() {
               .where(
                 (d) =>
                     matches(d) &&
+                    exactMatch(d) &&
                     {
                       WearableSdkSource.qring,
                       WearableSdkSource.coolwear,
