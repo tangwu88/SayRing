@@ -2,6 +2,7 @@ import 'dart:async';
 import '../domain/wearable_sync_result.dart';
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
 
@@ -253,6 +254,13 @@ class RoutedWearableBridge
     var saved = false;
     await _serializeBindingMutation(() async {
       if (!isCurrent()) return;
+      if (store is WearableConditionalBindingPreferenceStore) {
+        saved = await store.writeBindingIfCurrent(
+          binding,
+          isCurrent: isCurrent,
+        );
+        return;
+      }
       final previous = await store.readBinding();
       if (!isCurrent()) return;
       await store.writeBinding(binding);
@@ -1556,44 +1564,135 @@ abstract interface class WearableRecentBindingPreferenceStore
   Future<List<SavedWearableBinding>> readRecentBindings(String ownerKey);
 }
 
+/// Compensates both binding and candidate writes if their owner changes.
+abstract interface class WearableConditionalBindingPreferenceStore
+    implements WearableBindingPreferenceStore {
+  Future<bool> writeBindingIfCurrent(
+    SavedWearableBinding binding, {
+    required bool Function() isCurrent,
+  });
+}
+
 class SecureWearableTransportPreferenceStore
     implements
-        WearableBindingPreferenceStore,
+        WearableConditionalBindingPreferenceStore,
         WearableRecentBindingPreferenceStore {
   const SecureWearableTransportPreferenceStore({this.storageNamespace});
 
   final String? storageNamespace;
-  String get _key =>
-      'saydian.global.env.${globalStorageNamespace(storageNamespace)}.wearable.binding.v1';
+  String get _environment => globalStorageNamespace(storageNamespace);
+  String get _key => 'saydian.global.env.$_environment.wearable.binding.v1';
+  String _historyKey(String owner) =>
+      'saydian.global.env.$_environment.wearable.selection-history.v1.'
+      '${sha256.convert(utf8.encode(owner))}';
   final FlutterSecureStorage _storage = safeSecureStorage;
 
-  Future<Map<String, Object?>?> _readValue() async {
-    final value = await _storage.read(key: _key);
-    if (value == null) return null;
+  Map<String, Object?>? _decode(String? raw) {
+    if (raw == null) return null;
     try {
-      final decoded = jsonDecode(value);
+      final decoded = jsonDecode(raw);
       return decoded is Map<String, Object?> ? decoded : null;
     } on FormatException {
       return null;
     }
   }
 
-  WearableTransport? _transport(Object? value) {
-    for (final transport in WearableTransport.values) {
-      if (transport.name == value) return transport;
+  bool _owned(Map<String, Object?>? value, String owner, int version) =>
+      owner.isNotEmpty &&
+      value?['schemaVersion'] == version &&
+      value?['environment'] == _environment &&
+      value?['ownerKey'] == owner;
+
+  WearableTransport? _transport(Object? value) => WearableTransport.values
+      .where((transport) => transport.name == value)
+      .firstOrNull;
+
+  SavedWearableBinding? _candidate(Object? value, String owner) {
+    if (value is! Map) return null;
+    final transport = _transport(value['transport']);
+    final id = value['nativeIdentifier'];
+    final name = value['deviceName'];
+    if (transport == null ||
+        id is! String ||
+        id.isEmpty ||
+        name is! String ||
+        !WearableDeviceClassifier.routesTo(name, transport)) {
+      return null;
     }
-    return null;
+    return SavedWearableBinding(
+      transport,
+      id,
+      deviceName: name.trim(),
+      ownerKey: owner,
+    );
   }
+
+  List<SavedWearableBinding> _history(String? raw, String owner) {
+    final value = _decode(raw);
+    if (!_owned(value, owner, 1) || value?['bindings'] is! List) {
+      return const [];
+    }
+    return (value!['bindings'] as List)
+        .map((entry) => _candidate(entry, owner))
+        .whereType<SavedWearableBinding>()
+        .toList();
+  }
+
+  List<SavedWearableBinding> _legacyHistory(
+    Map<String, Object?>? value,
+    String owner,
+  ) {
+    if (!_owned(value, owner, 2)) return const [];
+    return [
+          value,
+          ...?value?['recentBindings'] is List
+              ? value!['recentBindings'] as List
+              : null,
+        ]
+        .map((entry) => _candidate(entry, owner))
+        .whereType<SavedWearableBinding>()
+        .toList();
+  }
+
+  List<SavedWearableBinding> _unique(Iterable<SavedWearableBinding> entries) {
+    final seen = <String>{};
+    return entries
+        .where(
+          (entry) => seen.add(
+            RoutedDevice.scopedID(entry.transport, entry.nativeIdentifier),
+          ),
+        )
+        .take(4)
+        .toList();
+  }
+
+  Map<String, Object?> _entry(SavedWearableBinding binding) => {
+    'transport': binding.transport.name,
+    'nativeIdentifier': binding.nativeIdentifier,
+    if (binding.deviceName != null) 'deviceName': binding.deviceName,
+  };
+
+  Future<void> _writeHistory(
+    String owner,
+    List<SavedWearableBinding> entries,
+  ) => _storage.write(
+    key: _historyKey(owner),
+    value: jsonEncode({
+      'schemaVersion': 1,
+      'environment': _environment,
+      'ownerKey': owner,
+      'bindings': _unique(entries).map(_entry).toList(),
+    }),
+  );
 
   @override
   Future<WearableTransport?> read() async =>
-      _transport((await _readValue())?['transport']);
+      _transport(_decode(await _storage.read(key: _key))?['transport']);
 
   @override
   Future<SavedWearableBinding?> readBinding() async {
-    final value = await _readValue();
-    if (value?['schemaVersion'] == 2 &&
-        value?['environment'] != globalStorageNamespace(storageNamespace)) {
+    final value = _decode(await _storage.read(key: _key));
+    if (value?['schemaVersion'] == 2 && value?['environment'] != _environment) {
       return null;
     }
     final transport = _transport(value?['transport']);
@@ -1602,118 +1701,145 @@ class SecureWearableTransportPreferenceStore
       return null;
     }
     final rawName = value?['deviceName'];
-    final deviceName = rawName is String && rawName.trim().isNotEmpty
-        ? rawName.trim()
-        : null;
-    final owner = value?['ownerKey'];
+    final rawOwner = value?['ownerKey'];
     return SavedWearableBinding(
       transport,
       identifier,
-      deviceName: deviceName,
-      ownerKey: owner is String && owner.isNotEmpty ? owner : null,
+      deviceName: rawName is String && rawName.trim().isNotEmpty
+          ? rawName.trim()
+          : null,
+      ownerKey: rawOwner is String && rawOwner.isNotEmpty ? rawOwner : null,
     );
   }
 
   @override
-  Future<void> write(WearableTransport transport) => _storage.write(
-    key: _key,
-    value: jsonEncode({'transport': transport.name}),
-  );
+  Future<void> write(WearableTransport transport) async {
+    await clear();
+    await _storage.write(
+      key: _key,
+      value: jsonEncode({'transport': transport.name}),
+    );
+  }
 
   @override
   Future<void> writeBinding(SavedWearableBinding binding) async {
-    final previous = await _readValue();
-    final sameOwner =
-        binding.ownerKey != null &&
-        previous?['schemaVersion'] == 2 &&
-        previous?['ownerKey'] == binding.ownerKey &&
-        previous?['environment'] == globalStorageNamespace(storageNamespace);
-    final recent = <Map<String, String>>[];
-    if (sameOwner) {
-      final entries = <Object?>[
-        previous,
-        ...?previous?['recentBindings'] is List
-            ? previous!['recentBindings'] as List
-            : null,
-      ];
-      final seen = <String>{};
-      for (final entry in entries) {
-        if (entry is! Map) continue;
-        final transport = _transport(entry['transport']);
-        final id = entry['nativeIdentifier'];
-        final name = entry['deviceName'];
-        if (transport == null ||
-            id is! String ||
-            id.isEmpty ||
-            name is! String ||
-            name.trim().isEmpty) {
-          continue;
+    await writeBindingIfCurrent(binding, isCurrent: () => true);
+  }
+
+  @override
+  Future<bool> writeBindingIfCurrent(
+    SavedWearableBinding binding, {
+    required bool Function() isCurrent,
+  }) async {
+    final previousRaw = await _storage.read(key: _key);
+    final previous = _decode(previousRaw);
+    final owner = binding.ownerKey;
+    final previousOwner = previous?['ownerKey'];
+    final owners = <String>{
+      if (owner != null && owner.isNotEmpty) owner,
+      if (previousOwner is String && _owned(previous, previousOwner, 2))
+        previousOwner,
+    };
+    final snapshots = <String, String?>{};
+    for (final candidateOwner in owners) {
+      snapshots[_historyKey(candidateOwner)] = await _storage.read(
+        key: _historyKey(candidateOwner),
+      );
+    }
+    if (!isCurrent()) return false;
+    Future<void> rollback() async {
+      for (final entry in {...snapshots, _key: previousRaw}.entries) {
+        if (entry.value == null) {
+          await _storage.delete(key: entry.key);
+        } else {
+          await _storage.write(key: entry.key, value: entry.value!);
         }
-        if (transport == binding.transport && id == binding.nativeIdentifier) {
-          continue;
-        }
-        final key = '${transport.name}:$id';
-        if (!seen.add(key)) continue;
-        recent.add({
-          'transport': transport.name,
-          'nativeIdentifier': id,
-          'deviceName': name.trim(),
-        });
-        if (recent.length == 4) break;
       }
     }
-    await _storage.write(
-      key: _key,
-      value: jsonEncode({
-        'schemaVersion': binding.ownerKey == null ? 1 : 2,
-        if (binding.ownerKey != null) ...{
-          'environment': globalStorageNamespace(storageNamespace),
-          'ownerKey': binding.ownerKey,
-        },
-        'transport': binding.transport.name,
-        'nativeIdentifier': binding.nativeIdentifier,
-        if (binding.deviceName != null) 'deviceName': binding.deviceName,
-        if (recent.isNotEmpty) 'recentBindings': recent,
-      }),
-    );
+
+    try {
+      for (final candidateOwner in owners) {
+        final raw = snapshots[_historyKey(candidateOwner)];
+        if (raw != null &&
+            (!_owned(_decode(raw), candidateOwner, 1) ||
+                _decode(raw)?['bindings'] is! List)) {
+          throw StateError('Invalid retained ring history; not overwritten');
+        }
+        final entries = <SavedWearableBinding>[
+          if (candidateOwner == owner &&
+              _candidate(_entry(binding), candidateOwner) != null)
+            binding,
+          ..._legacyHistory(previous, candidateOwner),
+          ..._history(raw, candidateOwner),
+        ];
+        if (!isCurrent()) {
+          await rollback();
+          return false;
+        }
+        await _writeHistory(candidateOwner, entries);
+      }
+      if (!isCurrent()) {
+        await rollback();
+        return false;
+      }
+      await _storage.write(
+        key: _key,
+        value: jsonEncode({
+          'schemaVersion': owner == null ? 1 : 2,
+          if (owner != null) ...{
+            'environment': _environment,
+            'ownerKey': owner,
+          },
+          ..._entry(binding),
+        }),
+      );
+      if (!isCurrent()) {
+        await rollback();
+        return false;
+      }
+      return true;
+    } catch (_) {
+      await rollback();
+      rethrow;
+    }
   }
 
   @override
   Future<List<SavedWearableBinding>> readRecentBindings(String ownerKey) async {
-    final value = await _readValue();
-    if (ownerKey.isEmpty ||
-        value?['schemaVersion'] != 2 ||
-        value?['ownerKey'] != ownerKey ||
-        value?['environment'] != globalStorageNamespace(storageNamespace)) {
-      return const [];
-    }
-    final entries = value?['recentBindings'];
-    if (entries is! List) return const [];
-    final results = <SavedWearableBinding>[];
-    for (final entry in entries.take(4)) {
-      if (entry is! Map) continue;
-      final transport = _transport(entry['transport']);
-      final id = entry['nativeIdentifier'];
-      final name = entry['deviceName'];
-      if (transport == null ||
-          id is! String ||
-          id.isEmpty ||
-          name is! String ||
-          name.trim().isEmpty) {
-        continue;
-      }
-      results.add(
-        SavedWearableBinding(
-          transport,
-          id,
-          deviceName: name.trim(),
-          ownerKey: ownerKey,
-        ),
-      );
-    }
-    return results;
+    if (ownerKey.isEmpty) return const [];
+    final current = _decode(await _storage.read(key: _key));
+    final history = await _storage.read(key: _historyKey(ownerKey));
+    return _unique([
+          ..._history(history, ownerKey),
+          ..._legacyHistory(current, ownerKey),
+        ])
+        .where(
+          (entry) =>
+              !(_owned(current, ownerKey, 2) &&
+                  entry.transport == _transport(current?['transport']) &&
+                  entry.nativeIdentifier == current?['nativeIdentifier']),
+        )
+        .toList();
   }
 
   @override
-  Future<void> clear() => _storage.delete(key: _key);
+  Future<void> clear() async {
+    // Unbinding retires the automatic target, not the same-owner manual list.
+    // Migrate legacy embedded candidates before deleting the old binding key.
+    final value = _decode(await _storage.read(key: _key));
+    final owner = value?['ownerKey'];
+    if (owner is String && _owned(value, owner, 2)) {
+      final raw = await _storage.read(key: _historyKey(owner));
+      if (raw != null &&
+          (!_owned(_decode(raw), owner, 1) ||
+              _decode(raw)?['bindings'] is! List)) {
+        throw StateError('Invalid retained ring history; binding not removed');
+      }
+      await _writeHistory(owner, [
+        ..._legacyHistory(value, owner),
+        ..._history(raw, owner),
+      ]);
+    }
+    await _storage.delete(key: _key);
+  }
 }

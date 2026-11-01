@@ -73,3 +73,7 @@ WDA UI 测试进程多次在读取元素位置时退出，普通 Say Ring 进程
 2026-11-01，用户要求确认三系列是否使用同一 QRing 通道。核对当前 Flutter WearableDeviceClassifier、createProductionWearableBridge、iOS QRingNamePolicy / AppDelegate 和 Android RingNamePolicy / MainActivity：正常 R8（含 SD_RING_R8 / R8 Pro）、R21（含 R21_C280）、R22 名称均选择 qring，通过同一 QRingWearableBridge 分发到各平台 QRing 原生桥接。R1/R2 前缀有优先规则；歧义混合厂商名称保留原拒绝边界。
 
 执行 `flutter test --no-pub test/wearable_routing_test.dart --name 'user-confirmed model markers|each confirmed model connects|vibrating models route consistently|explicit QRing prefixes' --reporter compact`，4/4 通过。这是分类与候选 SDK 分发的宿主测试，不是三种实物的新握手验收。Android 仅核对源码，没有构建或操作安卓手机。缓存 UUID/MAC、绑定及实际能力仍按每枚设备区分，不因共用通道混用目标或开放全部功能。本轮未改产品代码。
+
+## 后续原生通道复核校正
+
+1209 连接专项已记录在 SAY-RING-QRING-RETAINED-HISTORY-1209-20261101.md。后续确认旧 usbmux 可在 CoreDevice 仍为有线时失效，改用当前原生隧道后连接/验收正常。本文较早“WDA 进程退出”的判断没有足够独立进程证据，应理解为当时观察到 UI 调试端口连接中断；不能将其确定为 WDA 自身崩溃，更不能当作 Say Ring 业务崩溃。原始失败日志和当时判断保留，后续采用精确 App PID / 原生安装路径及 VM 一致性核对。

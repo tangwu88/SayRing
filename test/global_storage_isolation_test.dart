@@ -434,7 +434,12 @@ void main() {
           ownerKey: 'owner-b',
         ),
       );
-      expect(await a.readRecentBindings('owner-a'), isEmpty);
+      expect(
+        (await a.readRecentBindings(
+          'owner-a',
+        )).map((entry) => entry.nativeIdentifier),
+        ['ring-r21', 'ring-r8'],
+      );
       expect(await a.readRecentBindings('owner-b'), isEmpty);
     },
   );
