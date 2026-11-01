@@ -220,15 +220,28 @@ void main() {
         captureConnectionState('start');
         proof['connectionTrace'] = connectionTrace;
         const requested = String.fromEnvironment('SAYRING_QA_RING_NAME');
+        const exactRemembered = bool.fromEnvironment(
+          'SAYRING_QA_EXACT_REMEMBERED_RING',
+        );
         String normalized(String value) =>
             value.toUpperCase().replaceAll(RegExp(r'[\s_-]+'), '');
         bool matches(DeviceInfo? device) =>
             device != null &&
             (requested.isEmpty ||
                 normalized(device.name).contains(normalized(requested)));
+        // A named model can have multiple nearby rings. For an owner-bound
+        // reconnect check, never replace the remembered exact target.
+        final rememberedAtStart = controller.rememberedDevice;
+        if (exactRemembered) {
+          expect(requested, isNotEmpty);
+          expect(matches(rememberedAtStart), isTrue);
+        }
+        bool exactMatch(DeviceInfo? device) =>
+            !exactRemembered || device?.id == rememberedAtStart?.id;
         bool ready() =>
             controller.connectedDevice != null &&
             matches(controller.connectedDevice) &&
+            exactMatch(controller.connectedDevice) &&
             controller.deviceCapabilityState == DeviceCapabilityState.ready;
         final attempts = <Map<String, Object?>>[];
         if (controller.connectedDevice != null &&
@@ -258,6 +271,7 @@ void main() {
               .where(
                 (d) =>
                     matches(d) &&
+                    exactMatch(d) &&
                     {
                       WearableSdkSource.qring,
                       WearableSdkSource.coolwear,
@@ -391,14 +405,27 @@ void main() {
         return;
       }
 
-      await open(
-        '睡眠概览',
-        find.byKey(const Key('home-sleep-overview-entry')),
-        find.byKey(const Key('sleep-overview-page')),
-      );
+      if (controller.shouldShowHealthMetric(HealthMetric.sleep)) {
+        await open(
+          '睡眠概览',
+          find.byKey(const Key('home-sleep-overview-entry')),
+          find.byKey(const Key('sleep-overview-page')),
+        );
+      } else {
+        expect(
+          find.byKey(const Key('home-sleep-overview-entry')),
+          findsNothing,
+        );
+        unavailable.add('睡眠概览（当前设备能力门禁隐藏）');
+      }
       await open('全部健康数据', find.text('全部数据'), find.text('全部健康数据'));
       await open('远程关爱', find.text('远程关爱'), find.byType(CarePage));
-      await open('健康百科', find.text('健康百科'), find.byType(ArticleCategoryPage));
+      if (controller.healthLibraryVisible) {
+        await open('健康百科', find.text('健康百科'), find.byType(ArticleCategoryPage));
+      } else {
+        expect(find.text('健康百科'), findsNothing);
+        unavailable.add('健康百科（当前公开模块开关隐藏）');
+      }
       await open(
         '运动总览',
         find.text('运动'),
