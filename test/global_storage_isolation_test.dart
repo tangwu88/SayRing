@@ -395,6 +395,51 @@ void main() {
   );
 
   test(
+    'recent ring identifiers stay in the same owner and environment',
+    () async {
+      final a = SecureWearableTransportPreferenceStore(
+        storageNamespace: _environmentA,
+      );
+      final b = SecureWearableTransportPreferenceStore(
+        storageNamespace: _environmentB,
+      );
+      await a.writeBinding(
+        const SavedWearableBinding(
+          WearableTransport.qring,
+          'ring-r8',
+          deviceName: 'SD_RING_R8',
+          ownerKey: 'owner-a',
+        ),
+      );
+      await a.writeBinding(
+        const SavedWearableBinding(
+          WearableTransport.qring,
+          'ring-r21',
+          deviceName: 'R21',
+          ownerKey: 'owner-a',
+        ),
+      );
+      expect((await a.readBinding())?.nativeIdentifier, 'ring-r21');
+      expect(
+        (await a.readRecentBindings('owner-a')).single.nativeIdentifier,
+        'ring-r8',
+      );
+      expect(await a.readRecentBindings('owner-b'), isEmpty);
+      expect(await b.readRecentBindings('owner-a'), isEmpty);
+      await a.writeBinding(
+        const SavedWearableBinding(
+          WearableTransport.qring,
+          'ring-other-owner',
+          deviceName: 'R12',
+          ownerKey: 'owner-b',
+        ),
+      );
+      expect(await a.readRecentBindings('owner-a'), isEmpty);
+      expect(await a.readRecentBindings('owner-b'), isEmpty);
+    },
+  );
+
+  test(
     'Yucheng saved target is environment scoped and never inherits old target',
     () async {
       FlutterSecureStorage.setMockInitialValues({

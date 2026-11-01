@@ -52,6 +52,7 @@ typedef NS_ENUM(NSInteger, QCBluetoothState) {
 @property (nonatomic, strong) NSDictionary<NSString *,id> *advertisementData;
 @property (nonatomic, strong) NSNumber *RSSI;
 @property (nonatomic, assign) BOOL isPaired; ///< Already connected at system level. 系统层已连接/已配对
+@property (nonatomic, copy, nullable) NSString *selectionName; ///< Name verified for this exact manual selection.
 
 @end
 
@@ -112,6 +113,10 @@ typedef NS_ENUM(NSInteger, QCBluetoothState) {
 /// 按指定超时扫描设备。
 /// @param timeout Seconds; `<= 0` falls back to 30s. 秒；`<= 0` 时回退为 30 秒
 - (void)scanWithTimeout:(NSInteger)timeout;
+
+/// System-connected BLE peripherals that may have stopped advertising. This
+/// is discovery for an explicit user choice, not proof of a ring or an OS bond.
+- (NSArray<CBPeripheral *> *)systemConnectedPeripheralsForSelection;
 
 /// Stop scanning. 停止扫描
 - (void)stopScan;

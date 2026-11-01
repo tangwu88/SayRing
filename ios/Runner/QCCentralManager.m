@@ -132,9 +132,10 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     [self.peripherals removeAllObjects];
     self.isScanning = YES;
 
-    // Include devices already connected at the system layer. 先带上系统层已连接的设备
-    NSArray <CBUUID*>*uuids = @[[CBUUID UUIDWithString:QCBANDSDKSERVERUUID1],[CBUUID UUIDWithString:QCBANDSDKSERVERUUID2]];
-    NSArray *connectedP = [self retrieveConnectPeripheral:uuids];
+    // A ring connected to iOS for media control may stop advertising its
+    // vendor service. Include live system links for explicit selection; the
+    // host still filters names and requires the normal SDK handshake.
+    NSArray *connectedP = [self systemConnectedPeripheralsForSelection];
     NSMutableArray * tempAray = [[NSMutableArray alloc] init];
     for (CBPeripheral *per in connectedP) {
         QCBlePeripheral *qcPer = [[QCBlePeripheral alloc] init];
@@ -693,6 +694,26 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     }];
 
     return [connectedPeripheral copy];
+}
+
+- (NSArray<CBPeripheral *> *)systemConnectedPeripheralsForSelection {
+    if (self.bleState != QCBluetoothStatePoweredOn) return @[];
+    NSArray<NSArray<CBUUID *> *> *serviceSets = @[
+        @[[CBUUID UUIDWithString:QCBANDSDKSERVERUUID1],
+          [CBUUID UUIDWithString:QCBANDSDKSERVERUUID2]],
+        @[[CBUUID UUIDWithString:@"1812"]], // HID / media-control connection
+        @[[CBUUID UUIDWithString:@"1800"]], // Generic Access connection
+    ];
+    NSMutableDictionary<NSString *, CBPeripheral *> *unique = [NSMutableDictionary dictionary];
+    for (NSArray<CBUUID *> *services in serviceSets) {
+        for (CBPeripheral *peripheral in [self retrieveConnectPeripheral:services]) {
+            NSString *identifier = peripheral.identifier.UUIDString;
+            if (peripheral.state == CBPeripheralStateConnected && identifier.length > 0) {
+                unique[identifier] = peripheral;
+            }
+        }
+    }
+    return unique.allValues;
 }
 
 /// Look up a peripheral by identifier UUID string. 按 identifier UUID 字符串查找外设

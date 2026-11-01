@@ -1267,6 +1267,7 @@ class _BondedQRingBridge extends _FakeWearableBridge
   Future<DeviceInfo?> prepareRememberedDeviceForSelection(
     String nativeIdentifier, {
     String? knownName,
+    bool cacheOnly = false,
   }) async {
     rememberedLookupCalls.add(nativeIdentifier);
     return remembered;
