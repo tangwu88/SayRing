@@ -1233,6 +1233,8 @@ class AppController extends ChangeNotifier {
   Future<void>? _wearableRestoreInFlight;
   Future<void>? _wearableConnectInFlight;
   bool _firstRingBindingPending = false;
+  bool _firstRingBindingDecisionPending = false;
+  bool _nativeRingInitializationPending = false;
   int? _firstRingInitializationReconnectGeneration;
   bool _firstRingInitializationReconnectScheduled = false;
   bool get isRingInitializationPending => _firstRingBindingPending;
@@ -2788,6 +2790,7 @@ class AppController extends ChangeNotifier {
             WearableSdkSource.qring,
           }.contains(device.sdkSource);
       _firstRingBindingPending = initializeFirstBinding;
+      _firstRingBindingDecisionPending = initializeFirstBinding;
       firstRingBindingStatus = null;
       _wearableRecoverySuspended = false;
       if (deviceState == DeviceConnectionState.error) {
@@ -2841,6 +2844,7 @@ class AppController extends ChangeNotifier {
           initializeFirstBinding: true,
         );
         if (!isCurrent() || connectedDevice?.id != device.id) return;
+        _firstRingBindingDecisionPending = false;
         if (shouldClear == true) {
           firstRingBindingStatus = '首次绑定，正在清空戒指历史数据';
           notifyListeners();
@@ -2876,15 +2880,18 @@ class AppController extends ChangeNotifier {
           notifyListeners();
           return;
         }
-        firstRingBindingStatus = shouldClear == false
-            ? '已有绑定记录，保留戒指数据'
-            : '首次绑定记录暂未确认，未清空戒指数据';
         if (shouldClear == null) {
+          firstRingBindingStatus = '首次绑定记录暂未确认，未清空戒指数据';
           syncStatus = '请重新连接后再同步';
           notifyListeners();
           return;
         }
-        _firstRingBindingPending = false;
+        // Lifetime binding history prevents another reset; it does not
+        // complete an earlier native initialization for this owner/target.
+        _firstRingBindingPending = _nativeRingInitializationPending;
+        if (!_nativeRingInitializationPending) {
+          firstRingBindingStatus = '已有绑定记录，保留戒指数据';
+        }
       } else {
         unawaited(_reportConnectedDevice(connectedDevice!, sessionGeneration));
       }
@@ -3355,6 +3362,8 @@ class AppController extends ChangeNotifier {
 
   void _invalidateDeviceSync() {
     _firstRingBindingPending = false;
+    _firstRingBindingDecisionPending = false;
+    _nativeRingInitializationPending = false;
     firstRingBindingStatus = null;
     _readOnlyHealthSyncQueued = false;
     _deviceSyncGeneration++;
@@ -7551,11 +7560,13 @@ class AppController extends ChangeNotifier {
       }
       final wasPending = _firstRingBindingPending;
       final complete = event.payload['status'] == 'complete';
-      _firstRingBindingPending = !complete;
+      _nativeRingInitializationPending = !complete;
+      _firstRingBindingPending =
+          _firstRingBindingDecisionPending || _nativeRingInitializationPending;
       firstRingBindingStatus = complete
-          ? '戒指已确认重置，时间、资料和步数目标已初始化'
+          ? '戒指已确认重置，基础设置已初始化'
           : '戒指重置或初始化尚未确认，历史同步已暂停';
-      if (complete && wasPending) {
+      if (complete && wasPending && !_firstRingBindingPending) {
         unawaited(_syncInitialDeviceData(connectedDevice!.id));
       } else if (!complete &&
           event.payload['requiresReconnect'] == true &&

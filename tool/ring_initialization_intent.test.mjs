@@ -7,7 +7,7 @@ import test from 'node:test';
 
 test('confirmed iOS factory reset requests a fresh connection without repeating reset', {skip:process.platform!=='darwin'}, () => {
   const source=readFileSync(new URL('../ios/Runner/QRingWearableBridge.m',import.meta.url),'utf8');
-  const receipts=source.slice(source.indexOf('- (NSString *)factoryInitializationKey:'),source.indexOf('- (void)initializeFactoryTargetWithCompletion:'))
+  const receipts=source.slice(source.indexOf('- (NSString *)factoryInitializationKey:'),source.indexOf('- (void)completeFactoryCoreInitializationForGeneration:'))
     .replaceAll('NSUserDefaults.standardUserDefaults','self.fixtureDefaults');
   const reset=source.slice(source.indexOf('- (void)resetFirstMemberRing:'),source.indexOf('- (void)writeProfileWithCompletion:'));
   const dir=mkdtempSync(join(tmpdir(),'sayring-init-reconnect-'));

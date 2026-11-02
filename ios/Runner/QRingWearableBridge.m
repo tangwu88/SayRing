@@ -100,6 +100,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 @property(nonatomic) NSUInteger monitoringPoisonGeneration;
 @property(nonatomic, strong) NSNumber *factoryResetGeneration;
 @property(nonatomic, strong) NSNumber *factoryInitializingGeneration;
+@property(nonatomic, strong) NSNumber *factoryTimeHandshakeGeneration;
 @end
 
 @implementation QRingWearableBridge
@@ -421,7 +422,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     // initialization for this already selected target; never select or reset it.
     NSDictionary *intent = [self factoryInitialization:identifier context:context];
     if ([self isResolved] && [self.connectedID.lowercaseString isEqual:identifier.lowercaseString] &&
-        intent && ![intent[@"initialized"] isEqual:@YES] &&
+        intent && ![self factoryCoreInitialized:intent] &&
         ![self.factoryResetGeneration isEqual:@(self.connectionGeneration)]) {
         if ([self.factoryInitializingGeneration isEqual:@(self.connectionGeneration)]) {
             result([self error:@"DEVICE_BUSY" message:@"戒指正在初始化，请稍候"]); return;
@@ -469,6 +470,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         [self resolveExtendedCapabilities:featureList.copy generation:generation attempt:0 completion:^(NSDictionary *resolvedFeatures) {
         if (![self isCurrentConnection:generation]) { return; }
         self.featureList = [resolvedFeatures copy];
+        self.factoryTimeHandshakeGeneration = @(generation);
         RingControlTrace(@"connection-capabilities", @{@"generation": @(generation)});
         // QRing has one command channel. Finish setup/details before Flutter
         // can start history sync or a measurement on that channel.
@@ -488,6 +490,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
                 [weakSelf emit:@"deviceDetails" payload:[weakSelf deviceDetails]];
                 [weakSelf emit:@"capabilitiesUpdated" payload:[weakSelf capabilities]];
                 if (recovered) { [weakSelf emit:@"reconnected" payload:[weakSelf deviceDetails]]; }
+                [weakSelf emitFactoryInitialization];
             }];
           });
         }];
@@ -592,7 +595,15 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 
 - (BOOL)factoryInitializationPending {
     NSDictionary *value = [self factoryInitialization:self.connectedID context:self.recoveryContext];
-    return value && (![[value objectForKey:@"acknowledged"] isEqual:@YES] || ![[value objectForKey:@"initialized"] isEqual:@YES]);
+    return value && (![value[@"acknowledged"] isEqual:@YES] || ![self factoryCoreInitialized:value]);
+}
+
+- (BOOL)factoryCoreInitialized:(NSDictionary *)value {
+    // Legacy initialized=true already confirmed the complete old sequence.
+    // Keep its meaning intact; the new version records only the required
+    // reset/time/profile boundary, independently of optional device goals.
+    return [value[@"initialized"] isEqual:@YES] ||
+        ([value[@"coreInitializationVersion"] isEqual:@1] && [value[@"coreInitialized"] isEqual:@YES]);
 }
 
 - (void)emitFactoryInitialization {
@@ -603,7 +614,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     // settings until a new handshake. Tell Flutter to retire that connection
     // once; a pending/ambiguous reset must never request another reset.
     BOOL requiresReconnect = [intent[@"acknowledged"] isEqual:@YES] &&
-        ![intent[@"initialized"] isEqual:@YES] &&
+        ![self factoryCoreInitialized:intent] &&
         [self.factoryResetGeneration isEqual:@(self.connectionGeneration)];
     [self emit:@"ringInitialization" payload:@{@"deviceId": self.connectedID,
         @"ownerKey": [self.recoveryContext componentsSeparatedByString:@":"].lastObject ?: @"",
@@ -611,41 +622,23 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         @"status": [self factoryInitializationPending] ? @"pending" : @"complete"}];
 }
 
-- (void)initializeFactoryTargetWithCompletion:(QRingNext)completion {
-    NSString *identifier = self.connectedID, *context = self.recoveryContext;
+- (void)completeFactoryCoreInitializationForGeneration:(NSUInteger)generation identifier:(NSString *)identifier context:(NSString *)context {
     NSDictionary *intent = [self factoryInitialization:identifier context:context];
-    if (!intent || [intent[@"initialized"] isEqual:@YES]) { completion(); return; }
-    NSUInteger generation = self.connectionGeneration;
-    BOOL rearming = [self.factoryInitializingGeneration isEqual:@(generation)];
-    NSInteger target = [self profileNumber:@"targetSteps" fallback:8000 minimum:1000 maximum:100000];
-    __weak typeof(self) weakSelf = self;
-    __block BOOL finished = NO;
-    QRingNext finish = ^{ if (!finished) { finished = YES; completion(); } };
-    BOOL (^current)(void) = ^BOOL { return !finished && (!rearming || [weakSelf.factoryInitializingGeneration isEqual:@(generation)]) && [weakSelf isCurrentConnection:generation] &&
-        [weakSelf.connectedID.lowercaseString isEqual:identifier.lowercaseString] && [weakSelf.recoveryContext isEqual:context]; };
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-        if (current()) finish();
-    });
-    // Preserve every other freshly read target; never guess calorie/distance
-    // units or restore a previous wearer's reminder settings after a reset.
-    [QCSDKCmdCreator getStepTargetInfoWithSuccess:^(NSInteger steps, NSInteger calories, NSInteger distance, NSInteger sport, NSInteger sleep) {
-        QRingOnMain(^{
-            if (!current()) return;
-            [QCSDKCmdCreator setStepTarget:target calorieTarget:calories distanceTarget:distance sportDurationTarget:sport sleepDurationTarget:sleep success:^{
-                QRingOnMain(^{
-                    if (!current()) return;
-                    [QCSDKCmdCreator getStepTargetInfoWithSuccess:^(NSInteger actual, NSInteger c, NSInteger d, NSInteger s, NSInteger n) {
-                        QRingOnMain(^{
-                            if (!current()) return;
-                            if (actual == target && c == calories && d == distance && s == sport && n == sleep)
-                                [weakSelf updateFactoryInitialization:identifier context:context acknowledged:NO initialized:YES];
-                            finish();
-                        });
-                    } fail:^{ QRingOnMain(^{ if (current()) finish(); }); }];
-                });
-            } fail:^{ QRingOnMain(^{ if (current()) finish(); }); }];
-        });
-    } fail:^{ QRingOnMain(^{ if (current()) finish(); }); }];
+    if (!intent || [self factoryCoreInitialized:intent] || ![intent[@"acknowledged"] isEqual:@YES] ||
+        ![self isCurrentConnection:generation] ||
+        ![self.factoryTimeHandshakeGeneration isEqual:@(generation)] || self.featureList.count == 0 ||
+        [self.factoryResetGeneration isEqual:@(generation)] ||
+        ![self.connectedID.lowercaseString isEqual:identifier.lowercaseString] ||
+        ![self.recoveryContext isEqual:context]) return;
+    // Called only after the fresh profile write succeeds. Goal commands are
+    // optional and have no declared capability in this SDK's feature list.
+    // Never make history depend on them or invent other goal values.
+    NSMutableDictionary *value = [intent mutableCopy];
+    value[@"coreInitializationVersion"] = @1;
+    value[@"coreInitialized"] = @YES;
+    value[@"targetInitializationStatus"] = @"unknown";
+    BOOL saved = [self saveFactoryInitialization:value identifier:identifier context:context];
+    RingControlTrace(@"initialization-core-finished", @{@"generation": @(generation), @"saved": @(saved)});
 }
 
 - (void)resetFirstMemberRing:(NSDictionary *)arguments result:(FlutterResult)result {
@@ -663,7 +656,9 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     }
     NSString *context = self.recoveryContext;
     NSDictionary *intent = @{@"schemaVersion": @1, @"id": identifier.lowercaseString,
-        @"context": context, @"acknowledged": @NO, @"initialized": @NO};
+        @"context": context, @"acknowledged": @NO, @"initialized": @NO,
+        @"coreInitializationVersion": @1, @"coreInitialized": @NO,
+        @"targetInitializationStatus": @"unknown"};
     if (![self saveFactoryInitialization:intent identifier:identifier context:context]) {
         result([self error:@"INITIALIZATION_STORAGE_FAILED" message:@"初始化记录未能保存，未重置戒指"]); return;
     }
@@ -689,6 +684,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     NSUInteger generation = self.connectionGeneration;
     BOOL rearming = [self.factoryInitializingGeneration isEqual:@(generation)];
     NSString *identifier = self.connectedID, *context = self.recoveryContext;
+    __block BOOL finished = NO;
+    QRingNext finish = ^{ if (!finished) { finished = YES; completion(); } };
+    BOOL (^current)(void) = ^BOOL {
+        return !finished && (!rearming || [self.factoryInitializingGeneration isEqual:@(generation)]) &&
+            [self isCurrentConnection:generation] && [self.connectedID isEqual:identifier] &&
+            (self.recoveryContext == context || [self.recoveryContext isEqual:context]);
+    };
     NSInteger gender = [self profileNumber:@"gender" fallback:1 minimum:1 maximum:2] == 2 ? 1 : 0;
     [QCSDKCmdCreator setTimeFormatTwentyfourHourFormat:YES
                                           metricSystem:YES
@@ -699,12 +701,12 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
                                                sbpBase:0 dbpBase:0 hrAlarmValue:0
                                                success:^(__unused BOOL a, __unused BOOL b, __unused NSInteger c, __unused NSInteger d, __unused NSInteger e, __unused NSInteger f, __unused NSInteger g, __unused NSInteger h, __unused NSInteger i) {
                                                    QRingOnMain(^{
-                                                       if ((!rearming || [self.factoryInitializingGeneration isEqual:@(generation)]) &&
-                                                           [self isCurrentConnection:generation] && [self.connectedID isEqual:identifier] &&
-                                                           (self.recoveryContext == context || [self.recoveryContext isEqual:context])) [self initializeFactoryTargetWithCompletion:completion];
+                                                       if (!current()) return;
+                                                       [self completeFactoryCoreInitializationForGeneration:generation identifier:identifier context:context];
+                                                       finish();
                                                    });
                                                }
-                                                  fail:completion];
+                                                  fail:^{ QRingOnMain(^{ if (current()) finish(); }); }];
 }
 
 - (void)readDeviceDetailsWithCompletion:(QRingNext)completion {
