@@ -11,6 +11,58 @@ import 'package:saydian_app/services/wearable_routing.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    test(
+      '$platform QRing uses its supported native connection details API',
+      () async {
+        debugDefaultTargetPlatformOverride = platform;
+        const commands = MethodChannel('cc.saidian.ring/qring/commands');
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        final calls = <String>[];
+        messenger.setMockMethodCallHandler(commands, (call) async {
+          calls.add(call.method);
+          if (call.method == 'scanDevices') {
+            return [
+              {'id': 'snapshot-test-ring', 'name': 'R8'},
+            ];
+          }
+          if (call.method == 'getDeviceSnapshot' ||
+              call.method == 'getDeviceDetails') {
+            return {'id': 'snapshot-test-ring', 'name': 'R8'};
+          }
+          return null;
+        });
+        addTearDown(() {
+          debugDefaultTargetPlatformOverride = null;
+          messenger.setMockMethodCallHandler(commands, null);
+        });
+        final store = _MemoryBindingStore()..binding = null;
+        final bridge =
+            createProductionWearableBridge(
+                  veepoo: _FakeBridge(const []),
+                  yucheng: _FakeBridge(const []),
+                  coolwear: _FakeBridge(const []),
+                  preferenceStore: store,
+                )
+                as RoutedWearableBridge;
+        addTearDown(bridge.dispose);
+        await bridge.setRecoveryContext(
+          ownerKey: 'snapshot-owner',
+          profile: _profile,
+        );
+        final scanned = await bridge.scanDevices();
+        await bridge.connect(scanned.single.id, profile: _profile);
+        if (platform == TargetPlatform.iOS) {
+          expect(calls, contains('getDeviceSnapshot'));
+          expect(calls, isNot(contains('getDeviceDetails')));
+        } else {
+          expect(calls, contains('getDeviceDetails'));
+          expect(calls, isNot(contains('getDeviceSnapshot')));
+        }
+      },
+    );
+  }
   test(
     'iOS excludes legacy SDKs and preserves an unsupported saved binding',
     () async {

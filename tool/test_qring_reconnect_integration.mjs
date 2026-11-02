@@ -112,7 +112,7 @@ test('iOS recovery re-arms after actual disconnect without a fixed delay or stal
   assert.match(schedule, /recoveryRetryNotBefore - NSProcessInfo.processInfo.systemUptime/);
   const failure = bridge.split('- (void)failConnect:')[1].split('- (void)startUnbind:')[0];
   assert.match(failure, /recoveryRetryNotBefore = NSProcessInfo.processInfo.systemUptime \+ 2/);
-  const recover = bridge.split('- (void)startAutomaticRecovery')[1].split('- (void)disconnectWithResult:')[0];
+  const recover = bridge.split('- (void)connectRecoveredPeripheral:')[1].split('- (void)disconnectWithResult:')[0];
   for (const guard of ['recoveryTargetID', 'recoveryContext', 'hasPendingRestoredCancellations', 'pendingDisconnect', 'cancellingConnection', 'recoveryConnecting']) {
     assert.ok(recover.includes(guard));
   }

@@ -120,6 +120,16 @@ void main() {
       });
       final bridge = QRingWearableBridge(methods: methods);
       final monitoring = bridge.readAutoMeasureSettings();
+      final monitoringExpectation = expectLater(
+        monitoring,
+        throwsA(
+          isA<PlatformException>().having(
+            (e) => e.code,
+            'code',
+            'QRING_SESSION_CHANGED',
+          ),
+        ),
+      );
       final camera = bridge.writeDeviceFeature(DeviceFeature.camera, {
         'enabled': true,
         'expectedMode': 0,
@@ -138,7 +148,7 @@ void main() {
       await bridge.disconnect();
       expect(calls, ['readAutoMeasureSettings', 'disconnect']);
       release.complete({});
-      await monitoring;
+      await monitoringExpectation;
       await expectation;
       expect(calls, ['readAutoMeasureSettings', 'disconnect']);
     },

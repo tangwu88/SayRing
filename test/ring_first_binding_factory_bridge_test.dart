@@ -74,18 +74,29 @@ void main() {
       final pendingRead = bridge.readDeviceFeature(
         DeviceFeature.gestureControl,
       );
+      final sessionChanged = throwsA(
+        isA<PlatformException>().having(
+          (error) => error.code,
+          'code',
+          'QRING_SESSION_CHANGED',
+        ),
+      );
+      final readRejected = expectLater(pendingRead, sessionChanged);
       await Future<void>.delayed(Duration.zero);
       final reset = bridge.clearRingHistory(
         deviceId: 'ring-a',
         ownerKey: 'owner-a',
         allowFactoryReset: true,
       );
-      final rejected = expectLater(reset, throwsA(isA<PlatformException>()));
+      final rejected = expectLater(reset, sessionChanged);
       await bridge.configureRecoveryTarget(nativeIdentifier: null);
+      expect(calls, ['readDeviceFeature', 'configureRecoveryTarget']);
       read.complete({});
-      await pendingRead;
+      // The old owner's late read is rejected too, rather than exposed to the
+      // current session. This does not release or replay the queued reset.
+      await readRejected;
       await rejected;
-      expect(calls, isNot(contains('clearRingHistory')));
+      expect(calls, ['readDeviceFeature', 'configureRecoveryTarget']);
     },
   );
 }

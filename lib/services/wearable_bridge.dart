@@ -115,6 +115,12 @@ abstract interface class WearableDeviceDetailsBridge {
   Future<DeviceInfo?> getConnectedDeviceDetails();
 }
 
+/// Current-session identity after a completed native handshake, without
+/// blocking on optional battery/firmware requests. Never a persisted snapshot.
+abstract interface class WearableConnectionSnapshotBridge {
+  Future<DeviceInfo?> getConnectedDeviceSnapshot();
+}
+
 /// Optional controls for watches that explicitly report sport pause support.
 ///
 /// This remains separate from [WearableBridge] so older SDK adapters and test
@@ -335,6 +341,13 @@ abstract interface class WearableExactTargetRecoveryBridge {
 /// bond before returning it; the normal vendor handshake still follows.
 abstract interface class WearableBoundDeviceLookupBridge {
   Future<DeviceInfo?> lookupPreviouslyBoundDevice(String nativeIdentifier);
+}
+
+/// Bounded discovery may finish as soon as the exact saved target appears.
+/// Only the account-scoped router supplies this identifier; discovery alone
+/// never adopts a target or replaces the normal capability handshake.
+abstract interface class WearableBoundTargetDiscoveryBridge {
+  Future<List<DeviceInfo>> scanForBoundDevice(String nativeIdentifier);
 }
 
 /// Optional, user-initiated recovery for rings that remain in the Android

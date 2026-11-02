@@ -131,7 +131,8 @@ int main(int argc, const char **argv) { @autoreleasepool {
         NSCAssert([stored[@"initialized"] isEqual:@NO] && [stored[@"targetInitializationStatus"] isEqual:@"unknown"],@"Optional targets must never be falsely marked complete");
         NSDictionary *last=h.events.lastObject;
         NSCAssert([last[@"type"] isEqual:@"ringInitialization"] && [last[@"payload"][@"status"] isEqual:@"complete"],@"Handshake publishes final initialization status");
-        NSCAssert(h.details==1,@"Duplicate profile callbacks cannot repeat handshake completion");
+        NSCAssert(h.details==0,@"Optional details must not hold core connection readiness");
+        NSCAssert([h.events filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSDictionary *event, NSDictionary *bindings) {return [event[@"type"] isEqual:@"capabilitiesUpdated"];}]].count==1,@"Duplicate profile callbacks cannot repeat handshake completion");
     }
     return 0;
 }}

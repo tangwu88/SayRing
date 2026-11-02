@@ -50,8 +50,34 @@ abstract interface class HomeHealthCardsVault {
   Future<void> writeHomeHealthCards(String owner, HomeHealthCardLayout layout);
 }
 
+/// A decision request is one-shot: the server intentionally does not replay a
+/// lost destructive authorization. Keep uncertainty across BLE/app lifetimes.
+enum RingInitializationStage {
+  decisionRequired,
+  decisionUnknown,
+  resetAttempted,
+  historyClearAcknowledged,
+}
+
+abstract interface class RingInitializationVault {
+  Future<RingInitializationStage?> readRingInitializationStage(
+    String owner,
+    String deviceId,
+  );
+  Future<void> writeRingInitializationStage(
+    String owner,
+    String deviceId,
+    RingInitializationStage stage,
+  );
+  Future<void> clearRingInitializationStage(String owner, String deviceId);
+}
+
 class SecureSessionVault
-    implements SessionVault, SayRingAppDisplayVault, HomeHealthCardsVault {
+    implements
+        SessionVault,
+        SayRingAppDisplayVault,
+        HomeHealthCardsVault,
+        RingInitializationVault {
   SecureSessionVault([FlutterSecureStorage? storage])
     : storageNamespace = null,
       _storage = storage ?? safeSecureStorage;
@@ -81,6 +107,39 @@ class SecureSessionVault
   }
 
   final FlutterSecureStorage _storage;
+
+  String _ringInitializationKey(String owner, String deviceId) =>
+      '$_prefix.say-ring.initialization.v1.'
+      '${sha256.convert(utf8.encode('$owner\u0000$deviceId'))}';
+
+  @override
+  Future<RingInitializationStage?> readRingInitializationStage(
+    String owner,
+    String deviceId,
+  ) async {
+    final raw = await _storage.read(
+      key: _ringInitializationKey(owner, deviceId),
+    );
+    if (raw == null) return null;
+    return RingInitializationStage.values.firstWhere(
+      (stage) => stage.name == raw,
+      orElse: () => throw const FormatException('Invalid ring initialization'),
+    );
+  }
+
+  @override
+  Future<void> writeRingInitializationStage(
+    String owner,
+    String deviceId,
+    RingInitializationStage stage,
+  ) => _storage.write(
+    key: _ringInitializationKey(owner, deviceId),
+    value: stage.name,
+  );
+
+  @override
+  Future<void> clearRingInitializationStage(String owner, String deviceId) =>
+      _storage.delete(key: _ringInitializationKey(owner, deviceId));
 
   String _homeHealthCardsKey(String owner) =>
       '$_prefix.say-ring.home-health-cards.v1.${sha256.convert(utf8.encode(owner))}';
@@ -302,7 +361,36 @@ class SecureSessionVault
 }
 
 class MemorySessionVault
-    implements SessionVault, SayRingAppDisplayVault, HomeHealthCardsVault {
+    implements
+        SessionVault,
+        SayRingAppDisplayVault,
+        HomeHealthCardsVault,
+        RingInitializationVault {
+  final Map<String, RingInitializationStage> ringInitializationStages = {};
+
+  @override
+  Future<RingInitializationStage?> readRingInitializationStage(
+    String owner,
+    String deviceId,
+  ) async => ringInitializationStages['$owner\u0000$deviceId'];
+
+  @override
+  Future<void> writeRingInitializationStage(
+    String owner,
+    String deviceId,
+    RingInitializationStage stage,
+  ) async {
+    ringInitializationStages['$owner\u0000$deviceId'] = stage;
+  }
+
+  @override
+  Future<void> clearRingInitializationStage(
+    String owner,
+    String deviceId,
+  ) async {
+    ringInitializationStages.remove('$owner\u0000$deviceId');
+  }
+
   final Map<String, HomeHealthCardLayout> homeHealthCards = {};
 
   @override

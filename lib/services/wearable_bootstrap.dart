@@ -39,7 +39,11 @@ WearableBridge createProductionWearableBridge({
       (!kIsWeb &&
               (defaultTargetPlatform == TargetPlatform.android ||
                   defaultTargetPlatform == TargetPlatform.iOS)
-          ? QRingWearableBridge(healthReleasePolicy: healthReleasePolicy)
+          ? (defaultTargetPlatform == TargetPlatform.iOS
+                ? QRingIosWearableBridge(
+                    healthReleasePolicy: healthReleasePolicy,
+                  )
+                : QRingWearableBridge(healthReleasePolicy: healthReleasePolicy))
           : null),
   restoreOnlyBoundDevice: true,
   requireOwnerScopedBinding: true,

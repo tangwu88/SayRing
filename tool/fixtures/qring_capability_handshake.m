@@ -49,11 +49,13 @@ static void drain(void) { while (queued.count) { QRingNext b=queued.firstObject;
 @property(nonatomic) NSUInteger connectDeadlineGeneration;
 @property(nonatomic) BOOL live;
 @property(nonatomic) BOOL recoveryConnecting;
+@property(nonatomic,strong) NSNumber *factoryTimeHandshakeGeneration;
 @property(nonatomic,copy) FlutterResult pendingConnect;
 @property(nonatomic,copy) NSDictionary *featureList;
 @property(nonatomic) NSUInteger profileCalls, detailCalls, probeCalls, readyCalls, failedCalls;
 @property(nonatomic,strong) NSMutableArray *events;
 - (void)resolveCapabilities;
+- (void)emitFactoryInitialization;
 - (BOOL)isCurrentConnection:(NSUInteger)generation;
 - (void)failConnect:(NSString *)code message:(NSString *)message;
 - (void)writeProfileWithCompletion:(QRingNext)completion;
@@ -70,7 +72,9 @@ static void drain(void) { while (queued.count) { QRingNext b=queued.firstObject;
 - (BOOL)isCurrentConnection:(NSUInteger)generation { return self.live && generation == self.connectionGeneration; }
 - (void)failConnect:(__unused NSString *)code message:(__unused NSString *)message { self.failedCalls++; }
 - (void)writeProfileWithCompletion:(QRingNext)completion { self.profileCalls++; completion(); }
-- (void)readDeviceDetailsWithCompletion:(QRingNext)completion { self.detailCalls++; completion(); }
+// An optional read intentionally never replies. It cannot hold readiness.
+- (void)readDeviceDetailsWithCompletion:(__unused QRingNext)completion { self.detailCalls++; }
+- (void)emitFactoryInitialization {}
 - (void)probeRemoteCamera:(QRingNext)completion { self.probeCalls++; completion(); }
 - (void)emit:(NSString *)event payload:(__unused NSDictionary *)payload { [self.events addObject:event]; }
 - (NSDictionary *)deviceDetails { return @{}; }
@@ -86,7 +90,7 @@ int main(void) { @autoreleasepool {
     Bridge *b=make(); [b resolveCapabilities]; timeSuccess(@{@"heart":@YES});
     check(b.readyCalls==0 && b.profileCalls==0); // partial setTime is not full capability proof
     drain(); check(extendedReads==1); extendedSuccess(@{QCBandFeatureGestureControl:@YES,QCBandFeatureGestureControlMusic:@YES,QCBandFeatureGestureControlTakePhoto:@YES});
-    check(b.readyCalls==1 && b.probeCalls==0 && [b.featureList[QCBandFeatureGestureControl] isEqual:@YES] && [b.featureList[@"heart"] isEqual:@YES]);
+    check(b.readyCalls==1 && b.probeCalls==0 && b.detailCalls==0 && [b.featureList[QCBandFeatureGestureControl] isEqual:@YES] && [b.featureList[@"heart"] isEqual:@YES]);
     drain(); check(b.failedCalls==0 && b.readyCalls==1);
     b=make(); [b resolveCapabilities]; timeSuccess(@{QCBandFeatureGestureControl:@YES,QCBandFeatureGestureControlMusic:@YES});
     check(b.readyCalls==0 && b.probeCalls==0); drain(); check(extendedReads==1);

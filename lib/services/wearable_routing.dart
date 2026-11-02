@@ -766,8 +766,11 @@ class RoutedWearableBridge
         final active = _activeBridge;
         if (active is WearableDeviceDetailsBridge) {
           try {
-            final details = await (active as WearableDeviceDetailsBridge)
-                .getConnectedDeviceDetails();
+            final details = active is WearableConnectionSnapshotBridge
+                ? await (active as WearableConnectionSnapshotBridge)
+                      .getConnectedDeviceSnapshot()
+                : await (active as WearableDeviceDetailsBridge)
+                      .getConnectedDeviceDetails();
             if (!isCurrent()) return;
             if (details != null &&
                 details.id == device.nativeIdentifier &&
@@ -966,8 +969,11 @@ class RoutedWearableBridge
         );
       }
       if (source is WearableDeviceDetailsBridge) {
-        final current = await (source as WearableDeviceDetailsBridge)
-            .getConnectedDeviceDetails();
+        final current = source is WearableConnectionSnapshotBridge
+            ? await (source as WearableConnectionSnapshotBridge)
+                  .getConnectedDeviceSnapshot()
+            : await (source as WearableDeviceDetailsBridge)
+                  .getConnectedDeviceDetails();
         if (generation != _connectionGeneration) return null;
         if (current?.id == saved.nativeIdentifier &&
             WearableDeviceClassifier.routesTo(current!.name, saved.transport)) {
@@ -982,7 +988,12 @@ class RoutedWearableBridge
     // restore a target selected in another API environment.
     final List<DeviceInfo> scanned;
     try {
-      scanned = await source.scanDevices().timeout(recoveryOperationTimeout);
+      scanned =
+          await (source is WearableBoundTargetDiscoveryBridge
+                  ? (source as WearableBoundTargetDiscoveryBridge)
+                        .scanForBoundDevice(saved.nativeIdentifier)
+                  : source.scanDevices())
+              .timeout(recoveryOperationTimeout);
     } finally {
       try {
         await source.stopScan().timeout(recoveryStopScanTimeout);

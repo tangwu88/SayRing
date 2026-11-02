@@ -13,6 +13,9 @@ test('actual reconnect handshake rereads partial SDK capabilities without invent
  try {const path=join(dir,'fixture.m'),exe=join(dir,'fixture');
  const run=source=>{writeFileSync(path,template.replace('// PRODUCTION_METHODS',source));execFileSync('xcrun',['clang','-fobjc-arc','-Wall','-Wextra','-Werror','-framework','Foundation',path,'-o',exe],{stdio:'pipe'});return spawnSync(exe,[],{encoding:'utf8'});};
  const r=run(methods);assert.equal(r.status,0,r.stderr);process.stdout.write(r.stdout);
+ const delayed=methods.replace('            RingControlTrace(@"connection-ready",', '            [weakSelf readDeviceDetailsWithCompletion:^{\n            RingControlTrace(@"connection-ready",').replace('            [weakSelf emitFactoryInitialization];','            [weakSelf emitFactoryInitialization];\n            }];');
+ assert.notEqual(delayed,methods);
+ const stalled=run(delayed);assert.equal(stalled.status,1);assert.match(stalled.stderr,/Capability fallback assertion failed/);process.stdout.write('Optional detail read blocking readiness negative control rejected\n');
  const regressed=methods.replace('if (photoKnown && (', 'if ((photoKnown || YES) && (');
  if(regressed!==methods){const bad=run(regressed);assert.equal(bad.status,1);assert.match(bad.stderr,/Capability fallback assertion failed/);process.stdout.write('Skipping extended read negative control rejected\n');}
  } finally {rmSync(dir,{recursive:true,force:true});}

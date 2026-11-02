@@ -49,6 +49,12 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 @end
 @implementation CBPeripheral
 @end
+@interface QCBlePeripheral : NSObject
+@property(nonatomic,strong) CBPeripheral *peripheral;
+@property(nonatomic,strong) NSNumber *RSSI;
+@end
+@implementation QCBlePeripheral
+@end
 @interface CBCentralManager : NSObject
 @property(nonatomic, strong) CBPeripheral *available;
 @property(nonatomic) NSUInteger retrievals;
@@ -107,7 +113,10 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 @property(nonatomic) QCState deviceState;
 @property(nonatomic) QCBluetoothState bleState;
 @property(nonatomic) BOOL appManagedConnections, suppressAutoReconnect, bound, hasPendingRestoredCancellations;
-@property(nonatomic) NSUInteger operationGeneration, connects, disconnects;
+@property(nonatomic) NSUInteger operationGeneration, connects, disconnects, scans, scanStops;
+@property(nonatomic) BOOL isScanning;
+- (void)scanWithTimeout:(NSInteger)timeout;
+- (void)stopScan;
 - (void)stopTimer;
 - (BOOL)isBindDevice;
 - (BOOL)finishRestoredCancellation:(CBPeripheral *)peripheral;
@@ -125,8 +134,11 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 @property(nonatomic, strong) SyntheticCentral *central;
 @property(nonatomic, copy) NSString *connectedID, *connectedName, *recoveryTargetID, *recoveryTargetName, *recoveryContext;
 @property(nonatomic, copy) NSDictionary *profile, *recoveryProfile, *featureList;
-@property(nonatomic, copy) FlutterResult pendingConnect, pendingDisconnect, pendingSync;
-@property(nonatomic) BOOL recoveryConnecting, cancellingConnection, readingDetails, remoteCameraSupported;
+@property(nonatomic, copy) FlutterResult pendingConnect, pendingDisconnect, pendingSync, pendingScan;
+@property(nonatomic, copy) NSString *selectionTargetID;
+@property(nonatomic,strong) NSMutableDictionary *scanned;
+@property(nonatomic) BOOL recoveryConnecting, cancellingConnection, readingDetails, remoteCameraSupported, recoveryScanning;
+@property(nonatomic) NSUInteger recoveryScanGeneration;
 @property(nonatomic) NSTimeInterval recoveryRetryNotBefore;
 @property(nonatomic) NSUInteger connectionGeneration, connectDeadlineGeneration, measurementGeneration, syncGeneration, resolutions;
 @property(nonatomic, strong) NSNumber *battery, *charging;
@@ -142,6 +154,11 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 - (BOOL)isQRingName:(NSString *)name;
 - (BOOL)isResolved;
 - (void)startAutomaticRecovery;
+- (void)connectRecoveredPeripheral:(CBPeripheral *)peripheral;
+- (void)finishScan;
+- (NSArray *)scanPayloads;
+- (void)didScanPeripherals:(NSArray<QCBlePeripheral *> *)peripherals;
+- (void)scanPeripheralFinish;
 - (void)scheduleRecoveryAfterDisconnect;
 - (void)failConnect:(NSString *)code message:(NSString *)message;
 - (void)didBluetoothState:(QCBluetoothState)state;
@@ -149,6 +166,11 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 @implementation SyntheticCentral
 @synthesize deviceState = _deviceState;
 - (void)stopTimer {}
+- (void)stopScan { self.isScanning = NO; self.scanStops++; }
+- (void)scanWithTimeout:(NSInteger)timeout {
+    check(timeout == 8, @"cache-miss scan must be bounded");
+    self.scans++; self.isScanning = YES;
+}
 - (BOOL)isBindDevice { return self.bound; }
 - (BOOL)finishRestoredCancellation:(__unused CBPeripheral *)peripheral { return NO; }
 - (void)startToReconnect { check(NO, @"bundled SDK must not independently reconnect"); }
@@ -168,6 +190,7 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 - (id)error:(NSString *)code message:(NSString *)message { return @{ @"code": code, @"message": message }; }
 - (void)emit:(NSString *)type payload:(NSDictionary *)payload { [self.events addObject:@{ @"type": type, @"payload": payload }]; }
 - (void)resolveCapabilities { self.resolutions++; }
+- (NSArray *)scanPayloads { return @[]; }
 - (void)resetRemoteCamera {}
 - (void)finishCamera:(__unused id)error {}
 - (void)didConnectTransport:(__unused CBPeripheral *)peripheral {}
@@ -195,7 +218,7 @@ static SyntheticBridge *make(void) {
     bridge.connectedName = ring.name; bridge.recoveryTargetID = ring.identifier.UUIDString;
     bridge.recoveryTargetName = ring.name; bridge.recoveryContext = @"synthetic:owner-a";
     bridge.recoveryProfile = @{}; bridge.featureList = @{ @"known": @YES };
-    bridge.events = [NSMutableArray new]; bridge.activeSportType = -1; bridge.firmware = @"fixture";
+    bridge.scanned = [NSMutableDictionary new]; bridge.events = [NSMutableArray new]; bridge.activeSportType = -1; bridge.firmware = @"fixture";
     return bridge;
 }
 static NSError *failure(void) { return [NSError errorWithDomain:@"synthetic" code:6 userInfo:nil]; }
@@ -363,6 +386,71 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         [bridge startAutomaticRecovery];
         check(bridge.central.connects == 0,
               @"a conflicting current name must not be ignored just because the UUID was saved");
+    } else if ([scenario hasPrefix:@"cache-"]) {
+        bridge.central.connectedPeripheral = nil;
+        bridge.central.deviceState = QCStateDisconnected;
+        bridge.connectedID = @""; bridge.featureList = nil;
+        [immediate removeAllObjects]; [deadlines removeAllObjects]; [delays removeAllObjects];
+        CBPeripheral *target = peripheral(bridge.recoveryTargetID);
+        target.state = CBPeripheralStateDisconnected;
+        bridge.central.centerManager.available = [scenario isEqual:@"cache-hit-pending"] ? target : nil;
+        [bridge startAutomaticRecovery];
+        if ([scenario isEqual:@"cache-hit-pending"]) {
+            check(bridge.central.connects == 1 && bridge.recoveryConnecting && !bridge.recoveryScanning,
+                  @"cached target must retain a real indefinite radio request");
+            [bridge startAutomaticRecovery];
+            now += 60; [bridge startAutomaticRecovery];
+            check(bridge.central.connects == 1 && bridge.central.scans == 0,
+                  @"valid pending proximity request must never fall back or restart");
+        } else {
+            check(bridge.central.scans == 1 && bridge.recoveryScanning && !bridge.recoveryConnecting,
+                  @"empty cache must start bounded discovery instead of a fake pending connection");
+            [bridge startAutomaticRecovery];
+            check(bridge.central.scans == 1 && bridge.central.connects == 0,
+                  @"repeated foreground callbacks cannot duplicate discovery");
+            QCBlePeripheral *other = [QCBlePeripheral new];
+            other.peripheral = peripheral(@"FFFFFFFF-BBBB-CCCC-DDDD-EEEEEEEEEEEE");
+            [bridge didScanPeripherals:@[other]];
+            check(immediate.count == 0 && bridge.central.connects == 0,
+                  @"another ring with the same verified name must never be adopted");
+            QCBlePeripheral *match = [QCBlePeripheral new]; match.peripheral = target;
+            if ([scenario isEqual:@"cache-miss-timeout"]) {
+                [bridge scanPeripheralFinish];
+                check(!bridge.recoveryScanning && delays.lastObject.doubleValue == 2 && bridge.central.connects == 0,
+                      @"empty discovery must schedule a bounded retry without pretending connected");
+                now += 1; [bridge startAutomaticRecovery];
+                check(bridge.central.scans == 1, @"cache-miss retry cooldown must be retained");
+                now += 1; deadlines.lastObject();
+                check(bridge.central.scans == 2 && bridge.recoveryScanning,
+                      @"no-cache recovery must resume discovery after its cooldown");
+            } else {
+                [bridge didScanPeripherals:@[other, match]];
+                check(immediate.count == 1 && bridge.central.connects == 0,
+                      @"synchronous scan publication must defer connection until scan setup returns");
+                if ([scenario isEqual:@"cache-miss-owner-cancel"]) {
+                    bridge.recoveryTargetID = @""; bridge.recoveryContext = @""; [bridge finishScan];
+                } else if ([scenario isEqual:@"cache-miss-target-change"]) {
+                    bridge.recoveryTargetID = other.peripheral.identifier.UUIDString;
+                    bridge.recoveryContext = @"synthetic:owner-b";
+                } else if ([scenario isEqual:@"cache-miss-power-off"]) {
+                    bridge.central.bleState = QCBluetoothStatePoweredOff;
+                    [bridge didBluetoothState:QCBluetoothStatePoweredOff];
+                }
+                immediate[0]();
+                if ([scenario isEqual:@"cache-miss-discovery"]) {
+                    check(bridge.central.connects == 1 && bridge.central.connectedPeripheral == target &&
+                          bridge.recoveryConnecting && !bridge.recoveryScanning && !bridge.central.isScanning,
+                          @"exact discovered UUID must stop scan and enter one real pending request");
+                    [bridge didScanPeripherals:@[match]];
+                    check(bridge.central.connects == 1, @"late discovery cannot repeat a connection");
+                    check([bridge.recoveryContext isEqual:@"synthetic:owner-a"] && bridge.central.bound,
+                          @"cache fallback preserves binding and exact owner");
+                } else {
+                    check(bridge.central.connects == 0,
+                          @"cancelled owner, changed target or radio loss must reject deferred discovery");
+                }
+            }
+        }
     } else if ([scenario isEqual:@"power-state-recovery"]) {
         for (NSNumber *state in @[@(CBManagerStatePoweredOff), @(CBManagerStateResetting)]) {
             for (NSNumber *pending in @[@NO, @YES]) {

@@ -927,6 +927,25 @@ class _ClearRing extends _Ring
   }
 
   @override
+  Future<DeviceCapabilities> getCapabilities() async {
+    // Production replays the durable receipt on the capability read, after
+    // AppController has accepted the new native connection session.
+    if (completeOnReconnect && connections > 1) {
+      source.add(
+        WearableEvent(
+          type: 'ringInitialization',
+          payload: {
+            'deviceId': _device.id,
+            'ownerKey': clearOwner,
+            'status': 'complete',
+          },
+        ),
+      );
+    }
+    return super.getCapabilities();
+  }
+
+  @override
   Future<RingDataClearResult> clearRingHistory({
     required String deviceId,
     required String ownerKey,

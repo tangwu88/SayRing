@@ -107,7 +107,7 @@ static inline BOOL SRActivitySleepCommandAllowed(NSString *method, NSDictionary 
            @"calibrateBloodGlucose", @"readHealthAssessment", @"writeHealthAssessment"] containsObject:method]) return NO;
     if ([@[@"readDeviceFeature", @"writeDeviceFeature", @"triggerDeviceAction"] containsObject:method])
         return SRActivitySleepFeatureAllowed(arguments[@"feature"]);
-    return [@[@"scanDevices", @"stopScan", @"connect", @"disconnect", @"getDeviceDetails",
+    return [@[@"scanDevices", @"stopScan", @"connect", @"disconnect", @"getDeviceDetails", @"getDeviceSnapshot",
         @"getCapabilities", @"syncHealthData", @"clearRingHistory", @"startSport", @"stopSport", @"readSportRecords",
         @"configureRecoveryTarget", @"prepareRememberedDevice", @"lookupBondedDevice",
         @"listBondedDevices", @"getWatchFaceProfile", @"getNativeWatchFaceCatalog",

@@ -1235,6 +1235,9 @@ class AppController extends ChangeNotifier {
   bool _firstRingBindingPending = false;
   bool _firstRingBindingDecisionPending = false;
   bool _nativeRingInitializationPending = false;
+  RingInitializationStage? _ringInitializationStage;
+  String? _ringInitializationOwner;
+  String? _ringInitializationDeviceId;
   int? _firstRingInitializationReconnectGeneration;
   bool _firstRingInitializationReconnectScheduled = false;
   bool get isRingInitializationPending => _firstRingBindingPending;
@@ -2766,9 +2769,12 @@ class AppController extends ChangeNotifier {
   Future<void> _connectDevice(DeviceInfo device) async {
     final sessionGeneration = _sessionGeneration;
     final connectionOwner = _healthOwnerFor(session);
+    int? connectionSyncGeneration;
     bool isCurrent() =>
         !_accountTransitioning &&
         _healthOwnerFor(session) == connectionOwner &&
+        (connectionSyncGeneration == null ||
+            connectionSyncGeneration == _deviceSyncGeneration) &&
         _isCurrentSessionGeneration(sessionGeneration);
     errorMessage = null;
     _invalidateDeviceSync();
@@ -2778,6 +2784,8 @@ class AppController extends ChangeNotifier {
       await _cancelPendingWearableRestore();
       if (!isCurrent()) return;
       await _updateWearableRecoveryContext(explicitConnection: true);
+      if (!isCurrent()) return;
+      connectionSyncGeneration = _deviceSyncGeneration;
       final initializeFirstBinding =
           session != null &&
           !isLocalMode &&
@@ -2789,9 +2797,11 @@ class AppController extends ChangeNotifier {
             WearableSdkSource.coolwear,
             WearableSdkSource.qring,
           }.contains(device.sdkSource);
-      _firstRingBindingPending = initializeFirstBinding;
-      _firstRingBindingDecisionPending = initializeFirstBinding;
-      firstRingBindingStatus = null;
+      await _prepareRingInitializationGuard(
+        device,
+        allowNewDecision: initializeFirstBinding,
+      );
+      if (!isCurrent()) return;
       _wearableRecoverySuspended = false;
       if (deviceState == DeviceConnectionState.error) {
         deviceMachine.transition(DeviceConnectionState.disconnected);
@@ -2830,12 +2840,21 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.authenticating);
       await refreshDeviceCapabilities(announceFailure: false);
       if (!isCurrent() || connectedDevice?.id != device.id) return;
+      await _releaseAcknowledgedHistoryClear(device);
+      if (!isCurrent() || connectedDevice?.id != device.id) return;
       deviceMachine.transition(DeviceConnectionState.syncing);
       syncStatus = '正在同步设备数据';
       deviceMachine.transition(DeviceConnectionState.ready);
       // Authentication is the connection boundary. Historical data is a
       // background follow-up and must not keep the add-device page spinning.
-      if (initializeFirstBinding) {
+      if (_ringInitializationStage ==
+          RingInitializationStage.decisionRequired) {
+        // Persist uncertainty before the request: a lost response cannot be
+        // safely retried because the server grants clearing only once.
+        await _persistRingInitializationStage(
+          RingInitializationStage.decisionUnknown,
+        );
+        if (!isCurrent() || connectedDevice?.id != device.id) return;
         firstRingBindingStatus = '正在确认首次绑定记录';
         notifyListeners();
         final shouldClear = await _reportConnectedDevice(
@@ -2844,8 +2863,15 @@ class AppController extends ChangeNotifier {
           initializeFirstBinding: true,
         );
         if (!isCurrent() || connectedDevice?.id != device.id) return;
-        _firstRingBindingDecisionPending = false;
         if (shouldClear == true) {
+          // Persist before dispatch. Even an exception can mean the physical
+          // command was sent; only its matching native receipt may release it.
+          await _persistRingInitializationStage(
+            RingInitializationStage.resetAttempted,
+          );
+          if (!isCurrent() || connectedDevice?.id != device.id) return;
+          _firstRingBindingDecisionPending = false;
+          _nativeRingInitializationPending = true;
           firstRingBindingStatus = '首次绑定，正在清空戒指历史数据';
           notifyListeners();
           try {
@@ -2863,6 +2889,13 @@ class AppController extends ChangeNotifier {
                   allowFactoryReset: true,
                 );
             if (!isCurrent() || connectedDevice?.id != device.id) return;
+            if (cleared == RingDataClearResult.acknowledged &&
+                device.sdkSource == WearableSdkSource.coolwear) {
+              await _persistRingInitializationStage(
+                RingInitializationStage.historyClearAcknowledged,
+              );
+              if (!isCurrent() || connectedDevice?.id != device.id) return;
+            }
             firstRingBindingStatus = cleared == RingDataClearResult.acknowledged
                 ? '戒指已确认清空指令，请重新连接后同步新数据'
                 : cleared == RingDataClearResult.factoryResetRequested
@@ -2886,14 +2919,23 @@ class AppController extends ChangeNotifier {
           notifyListeners();
           return;
         }
+        await _clearRingInitializationGuard();
+        if (!isCurrent() || connectedDevice?.id != device.id) return;
+        _firstRingBindingDecisionPending = false;
         // Lifetime binding history prevents another reset; it does not
         // complete an earlier native initialization for this owner/target.
         _firstRingBindingPending = _nativeRingInitializationPending;
         if (!_nativeRingInitializationPending) {
           firstRingBindingStatus = '已有绑定记录，保留戒指数据';
         }
-      } else {
+      } else if (_ringInitializationStage == null &&
+          !_firstRingBindingDecisionPending) {
         unawaited(_reportConnectedDevice(connectedDevice!, sessionGeneration));
+      }
+      if (_firstRingBindingPending) {
+        syncStatus = '设备已连接';
+        notifyListeners();
+        return;
       }
       if (device.sdkSource == WearableSdkSource.coolwear) {
         // HR01 links observed in the field can briefly reconnect before the
@@ -2973,6 +3015,158 @@ class AppController extends ChangeNotifier {
     }
     notifyListeners();
     return false;
+  }
+
+  Future<void> _prepareRingInitializationGuard(
+    DeviceInfo device, {
+    required bool allowNewDecision,
+  }) async {
+    if (session == null ||
+        isLocalMode ||
+        isPreviewMode ||
+        !const {
+          WearableSdkSource.qring,
+          WearableSdkSource.coolwear,
+        }.contains(device.sdkSource)) {
+      return;
+    }
+    final owner = _healthOwnerFor(session);
+    final generation = _sessionGeneration;
+    final syncGeneration = _deviceSyncGeneration;
+    _ringInitializationOwner = owner;
+    _ringInitializationDeviceId = device.id;
+    // Block unsolicited history while the durable owner/target guard loads.
+    _firstRingBindingPending = true;
+    _firstRingBindingDecisionPending = true;
+    bool isCurrent() =>
+        !_disposed &&
+        !_accountTransitioning &&
+        generation == _sessionGeneration &&
+        syncGeneration == _deviceSyncGeneration &&
+        owner == _healthOwnerFor(session);
+    try {
+      final vault = _vault;
+      if (vault is! RingInitializationVault) {
+        throw StateError('Ring initialization storage unavailable');
+      }
+      var stage = await (vault as RingInitializationVault)
+          .readRingInitializationStage(owner, device.id);
+      if (!isCurrent()) return;
+      if (stage == null && allowNewDecision) {
+        stage = RingInitializationStage.decisionRequired;
+        await (vault as RingInitializationVault).writeRingInitializationStage(
+          owner,
+          device.id,
+          stage,
+        );
+        if (!isCurrent()) return;
+      }
+      _ringInitializationStage = stage;
+      _firstRingBindingDecisionPending =
+          stage == RingInitializationStage.decisionRequired ||
+          stage == RingInitializationStage.decisionUnknown;
+      _nativeRingInitializationPending =
+          stage == RingInitializationStage.resetAttempted ||
+          stage == RingInitializationStage.historyClearAcknowledged;
+      _firstRingBindingPending =
+          _firstRingBindingDecisionPending || _nativeRingInitializationPending;
+    } catch (_) {
+      if (!isCurrent()) return;
+      // A failed/malformed read is not evidence that no guard exists.
+      _ringInitializationStage = RingInitializationStage.decisionUnknown;
+      firstRingBindingStatus = '设备初始化尚未确认';
+    }
+  }
+
+  Future<void> _persistRingInitializationStage(
+    RingInitializationStage stage,
+  ) async {
+    final owner = _ringInitializationOwner;
+    final deviceId = _ringInitializationDeviceId;
+    final generation = _deviceSyncGeneration;
+    final vault = _vault;
+    if (owner == null ||
+        deviceId == null ||
+        vault is! RingInitializationVault) {
+      throw StateError('Ring initialization identity unavailable');
+    }
+    await (vault as RingInitializationVault).writeRingInitializationStage(
+      owner,
+      deviceId,
+      stage,
+    );
+    if (generation == _deviceSyncGeneration &&
+        owner == _ringInitializationOwner &&
+        deviceId == _ringInitializationDeviceId) {
+      _ringInitializationStage = stage;
+    }
+  }
+
+  Future<void> _clearRingInitializationGuard() async {
+    final owner = _ringInitializationOwner;
+    final deviceId = _ringInitializationDeviceId;
+    final generation = _deviceSyncGeneration;
+    final vault = _vault;
+    if (owner == null ||
+        deviceId == null ||
+        vault is! RingInitializationVault) {
+      throw StateError('Ring initialization identity unavailable');
+    }
+    await (vault as RingInitializationVault).clearRingInitializationStage(
+      owner,
+      deviceId,
+    );
+    if (generation == _deviceSyncGeneration &&
+        owner == _ringInitializationOwner &&
+        deviceId == _ringInitializationDeviceId) {
+      _ringInitializationStage = null;
+    }
+  }
+
+  Future<void> _completePersistedRingInitialization(String deviceId) async {
+    final owner = _ringInitializationOwner;
+    final generation = _deviceSyncGeneration;
+    try {
+      await _clearRingInitializationGuard();
+      if (_disposed ||
+          _accountTransitioning ||
+          generation != _deviceSyncGeneration ||
+          owner != _healthOwnerFor(session) ||
+          connectedDevice?.id != deviceId) {
+        return;
+      }
+      _nativeRingInitializationPending = false;
+      _firstRingBindingPending = _firstRingBindingDecisionPending;
+      firstRingBindingStatus = '戒指已确认重置，基础设置已初始化';
+      if (!_firstRingBindingPending &&
+          deviceState == DeviceConnectionState.ready) {
+        unawaited(_syncInitialDeviceData(deviceId));
+      }
+      notifyListeners();
+    } catch (_) {
+      // Keep the guard until both the native result and persistence succeed.
+    }
+  }
+
+  Future<void> _releaseAcknowledgedHistoryClear(DeviceInfo device) async {
+    // CoolWear's iOS command clears only history and returns a real ACK. It
+    // has no factory initialization receipt. Require a new successful SDK
+    // handshake before importing, rather than retaining the old SDK buffers.
+    if (_ringInitializationStage !=
+            RingInitializationStage.historyClearAcknowledged ||
+        device.sdkSource != WearableSdkSource.coolwear) {
+      return;
+    }
+    final generation = _deviceSyncGeneration;
+    final owner = _healthOwnerFor(session);
+    await _clearRingInitializationGuard();
+    if (generation != _deviceSyncGeneration ||
+        owner != _healthOwnerFor(session) ||
+        connectedDevice?.id != device.id) {
+      return;
+    }
+    _nativeRingInitializationPending = false;
+    _firstRingBindingPending = _firstRingBindingDecisionPending;
   }
 
   Future<bool?> _reportConnectedDevice(
@@ -3361,9 +3555,15 @@ class AppController extends ChangeNotifier {
       connectedDevice?.id == deviceId;
 
   void _invalidateDeviceSync() {
+    // Reject events from the retiring native session during asynchronous
+    // teardown, including while the next durable guard is being loaded.
+    _connectedDeviceSessionGeneration = null;
     _firstRingBindingPending = false;
     _firstRingBindingDecisionPending = false;
     _nativeRingInitializationPending = false;
+    _ringInitializationStage = null;
+    _ringInitializationOwner = null;
+    _ringInitializationDeviceId = null;
     firstRingBindingStatus = null;
     _readOnlyHealthSyncQueued = false;
     _deviceSyncGeneration++;
@@ -7560,6 +7760,11 @@ class AppController extends ChangeNotifier {
       }
       final wasPending = _firstRingBindingPending;
       final complete = event.payload['status'] == 'complete';
+      if (complete &&
+          _ringInitializationStage == RingInitializationStage.resetAttempted) {
+        unawaited(_completePersistedRingInitialization(connectedDevice!.id));
+        return;
+      }
       _nativeRingInitializationPending = !complete;
       _firstRingBindingPending =
           _firstRingBindingDecisionPending || _nativeRingInitializationPending;
@@ -7906,6 +8111,7 @@ class AppController extends ChangeNotifier {
       return;
     }
     final sessionGeneration = _sessionGeneration;
+    final syncGeneration = _deviceSyncGeneration;
     final device = DeviceInfo.fromMap(payload);
     if (device.id.trim().isEmpty ||
         deviceState != DeviceConnectionState.disconnected) {
@@ -7915,7 +8121,11 @@ class AppController extends ChangeNotifier {
     errorMessage = null;
     try {
       deviceMachine.transition(DeviceConnectionState.connecting);
-      if (!_isCurrentSessionGeneration(sessionGeneration)) return;
+      await _prepareRingInitializationGuard(device, allowNewDecision: false);
+      if (!_isCurrentSessionGeneration(sessionGeneration) ||
+          syncGeneration != _deviceSyncGeneration) {
+        return;
+      }
       _connectedDeviceSessionGeneration = sessionGeneration;
       connectedDevice = _mergeDeviceDetails(device);
       rememberedDevice = connectedDevice;
@@ -7927,14 +8137,25 @@ class AppController extends ChangeNotifier {
       deviceMachine.transition(DeviceConnectionState.authenticating);
       await refreshDeviceCapabilities(announceFailure: false);
       if (!_isCurrentSessionGeneration(sessionGeneration) ||
+          syncGeneration != _deviceSyncGeneration ||
           _accountTransitioning ||
           !_wearableAccountRecoveryAllowed ||
+          connectedDevice?.id != device.id) {
+        return;
+      }
+      await _releaseAcknowledgedHistoryClear(device);
+      if (!_isCurrentSessionGeneration(sessionGeneration) ||
+          syncGeneration != _deviceSyncGeneration ||
           connectedDevice?.id != device.id) {
         return;
       }
       deviceMachine.transition(DeviceConnectionState.syncing);
       syncStatus = '设备已自动重连';
       deviceMachine.transition(DeviceConnectionState.ready);
+      if (_firstRingBindingPending) {
+        notifyListeners();
+        return;
+      }
       unawaited(_reportConnectedDevice(connectedDevice!, sessionGeneration));
       notifyListeners();
       if (device.sdkSource == WearableSdkSource.coolwear) {

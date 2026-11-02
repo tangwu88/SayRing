@@ -11,12 +11,25 @@ import 'wearable_bridge.dart';
 /// Android can recover only an exact, owner-bound target already bonded by the
 /// OS. It still uses the normal vendor handshake, never the SDK's saved target.
 class CoolWearAndroidWearableBridge extends CoolWearWearableBridge
-    implements WearableBoundDeviceLookupBridge {
+    implements
+        WearableBoundDeviceLookupBridge,
+        WearableBoundTargetDiscoveryBridge {
   CoolWearAndroidWearableBridge({
     super.methods,
     super.events,
     super.healthReleasePolicy,
   });
+
+  @override
+  Future<List<DeviceInfo>> scanForBoundDevice(String nativeIdentifier) async {
+    final values = await _invoke<List<Object?>>('scanDevices', {
+      'exactTargetId': nativeIdentifier,
+    }, const Duration(seconds: 15));
+    return (values ?? const <Object?>[])
+        .whereType<Map<Object?, Object?>>()
+        .map(DeviceInfo.fromMap)
+        .toList(growable: false);
+  }
 
   // This adapter has no firmware warning-threshold reader. Nullable absence
   // must not turn successful monitoring/interval reads into a partial failure.

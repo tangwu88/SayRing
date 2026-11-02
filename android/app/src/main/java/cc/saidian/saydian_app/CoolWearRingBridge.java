@@ -3,6 +3,7 @@ package cc.saidian.saydian_app;
 import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.BroadcastReceiver;
 import android.content.IntentFilter;
@@ -86,6 +87,7 @@ public final class CoolWearRingBridge
     private BluetoothHelper helper;
     private EventChannel.EventSink sink;
     private MethodChannel.Result pendingScan;
+    private String scanExactTargetId;
     private MethodChannel.Result pendingConnect;
     private MethodChannel.Result pendingHealthSync;
     private MethodChannel.Result pendingSportSync;
@@ -439,6 +441,10 @@ public final class CoolWearRingBridge
             boolean fresh = !scanned.containsKey(id);
             scanned.put(id, value);
             if (fresh) emit("scanDevice", value);
+            if (id.equalsIgnoreCase(scanExactTargetId)) {
+                finishScan();
+                return;
+            }
         }
     }
 
@@ -448,6 +454,7 @@ public final class CoolWearRingBridge
         scanDeadline = null;
         MethodChannel.Result result = pendingScan;
         pendingScan = null;
+        scanExactTargetId = null;
         if (helper != null) helper.stopScan();
         if (result != null) result.success(new ArrayList<>(scanned.values()));
     }
@@ -1446,19 +1453,28 @@ public final class CoolWearRingBridge
                         result.error("SCAN_BUSY", "戒指扫描正在进行", null);
                         return;
                     }
+                    String exactTarget = call.argument("exactTargetId");
+                    if (exactTarget != null) exactTarget = exactTarget.toUpperCase(Locale.ROOT);
+                    if (exactTarget != null && !BluetoothAdapter.checkBluetoothAddress(exactTarget)) {
+                        result.error("INVALID_DEVICE", "无效的设备标识", null);
+                        return;
+                    }
                     helper.stopScan();
                     final long scan = ++scanGeneration;
                     configureScanCallback(scan);
                     scanned.clear();
                     pendingScan = result;
+                    scanExactTargetId = exactTarget;
                     try { helper.startScan(); }
                     catch (RuntimeException error) {
                         pendingScan = null; finishScan();
                         result.error("COOLWEAR_SCAN_FAILED", "蓝牙扫描无法开始，请检查权限与蓝牙后重试", null);
                         break;
                     }
-                    scanDeadline = () -> { if (scan == scanGeneration) finishScan(); };
-                    main.postDelayed(scanDeadline, SCAN_MS);
+                    if (scan == scanGeneration && pendingScan != null) {
+                        scanDeadline = () -> { if (scan == scanGeneration) finishScan(); };
+                        main.postDelayed(scanDeadline, SCAN_MS);
+                    }
                     break;
                 case "stopScan":
                     finishScan();

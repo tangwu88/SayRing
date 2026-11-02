@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -39,23 +41,50 @@ class QRingWearableBridge
   final WellnessReleasePolicy? healthReleasePolicy;
   Future<void> _commands = Future<void>.value();
   int _commandGeneration = 0;
+  final Map<Completer<void>, int> _activeCommands = {};
+  bool _awaitingNativeRecovery = false;
 
   @override
   Stream<WearableEvent> get events => _events
       .receiveBroadcastStream()
       .where((value) => value is Map)
-      .map((value) => WearableEvent.fromMap(value as Map<Object?, Object?>));
+      .map((value) {
+        final event = WearableEvent.fromMap(value as Map<Object?, Object?>);
+        if (event.type == 'disconnected' && !_awaitingNativeRecovery) {
+          _awaitingNativeRecovery = true;
+          _commandGeneration++;
+        } else if (event.type == 'reconnected' && _awaitingNativeRecovery) {
+          // This event follows a new, real SDK handshake. A disconnect event
+          // alone is not enough: a failed SDK registration may still own its
+          // radio until native cancellation has finished.
+          _awaitingNativeRecovery = false;
+          _releaseRetiredCommands(_commandGeneration);
+        }
+        return event;
+      });
+
+  PlatformException _sessionChanged() =>
+      PlatformException(code: 'QRING_SESSION_CHANGED', message: '戒指连接已改变');
+
+  void _releaseRetiredCommands(int confirmedGeneration) {
+    for (final entry in _activeCommands.entries.toList(growable: false)) {
+      if (entry.value < confirmedGeneration && !entry.key.isCompleted) {
+        entry.key.complete();
+      }
+    }
+  }
 
   Future<T?> _invoke<T>(
     String method, [
     Map<String, Object?>? arguments,
     Duration timeout = const Duration(seconds: 30),
   ]) async {
-    if (const {
+    final changesSession = const {
       'connect',
       'disconnect',
       'configureRecoveryTarget',
-    }.contains(method)) {
+    }.contains(method);
+    if (changesSession) {
       // Teardown/owner changes preempt the queue instead of waiting for sync.
       _commandGeneration++;
     }
@@ -78,17 +107,37 @@ class QRingWearableBridge
       'clearRingHistory',
     };
     if (!serial.contains(method)) {
-      return _invokeMethod<T>(method, arguments, timeout);
+      final generation = _commandGeneration;
+      final value = await _invokeMethod<T>(method, arguments, timeout);
+      if (method == 'disconnect' || method == 'connect') {
+        // Native success means actual teardown, or a fresh completed SDK
+        // handshake. Only then may the old queue tail stop waiting for a late
+        // read/write reply. Errors/timeouts and merely arming a recovery target
+        // cannot release an ambiguous physical command.
+        _releaseRetiredCommands(generation);
+        if (method == 'connect' && generation == _commandGeneration) {
+          _awaitingNativeRecovery = false;
+        }
+      }
+      return value;
     }
     final generation = _commandGeneration;
     final operation = _commands.then((_) async {
       if (generation != _commandGeneration) {
-        throw PlatformException(
-          code: 'QRING_SESSION_CHANGED',
-          message: '戒指连接已改变',
-        );
+        throw _sessionChanged();
       }
-      return _invokeMethod<T>(method, arguments, timeout);
+      final retired = Completer<void>();
+      _activeCommands[retired] = generation;
+      try {
+        final result = await Future.any<T?>([
+          _invokeMethod<T>(method, arguments, timeout),
+          retired.future.then<T?>((_) => throw _sessionChanged()),
+        ]);
+        if (generation != _commandGeneration) throw _sessionChanged();
+        return result;
+      } finally {
+        _activeCommands.remove(retired);
+      }
     });
     _commands = operation.then<void>(
       (_) {},
@@ -468,4 +517,23 @@ class QRingWearableBridge
       'expectedDeviceId': expectedDeviceId,
     }),
   );
+}
+
+/// iOS can return its completed handshake snapshot without starting an
+/// optional battery/firmware command. Android keeps its existing details API.
+class QRingIosWearableBridge extends QRingWearableBridge
+    implements WearableConnectionSnapshotBridge {
+  QRingIosWearableBridge({
+    super.methods,
+    super.events,
+    super.healthReleasePolicy,
+  });
+
+  @override
+  Future<DeviceInfo?> getConnectedDeviceSnapshot() async {
+    final generation = _commandGeneration;
+    final value = await _invoke<Map<Object?, Object?>>('getDeviceSnapshot');
+    if (generation != _commandGeneration) throw _sessionChanged();
+    return value == null || value.isEmpty ? null : DeviceInfo.fromMap(value);
+  }
 }

@@ -20,7 +20,8 @@ function withFixture(run, transform = source => source, centralTransform = sourc
     : read('ios/Runner/QRingWearableBridge.m'));
   const central = centralTransform(read('ios/Runner/QCCentralManager.m'));
   const bridgeMethods = [
-    '- (BOOL)isResolved', '- (void)startAutomaticRecovery',
+    '- (BOOL)isResolved', '- (void)connectRecoveredPeripheral:', '- (void)startAutomaticRecovery',
+    '- (void)finishScan', '- (void)didScanPeripherals:', '- (void)scanPeripheralFinish',
     '- (void)scheduleRecoveryAfterDisconnect', '- (void)failConnect:',
     '- (void)didState:', '- (void)didFailConnected:', '- (void)didBluetoothState:',
   ].map(signature => method(bridge, signature)).join('\n');
@@ -51,7 +52,8 @@ function withFixture(run, transform = source => source, centralTransform = sourc
 
 for (const scenario of ['automatic-failure', 'sdk-registration-failure', 'sdk-unbound-cache', 'sdk-cancelled-owner',
   'explicit-failure', 'ordinary-disconnect', 'stale-callbacks', 'cancel-and-owner', 'duplicate-state',
-  'unnamed-exact-recovery']) {
+  'unnamed-exact-recovery', 'cache-miss-discovery', 'cache-miss-timeout',
+  'cache-miss-owner-cancel', 'cache-miss-target-change', 'cache-miss-power-off', 'cache-hit-pending']) {
   test(`actual QRing recovery callbacks: ${scenario}`, {skip: process.platform !== 'darwin'}, () => {
     withFixture(executable => {
       const output = execFileSync(executable, [scenario], {encoding: 'utf8'});
@@ -107,5 +109,17 @@ test('repeated native state must not repeat preparation or recovery', {skip: pro
     const needle = '    if (_deviceState == deviceState) { return; }';
     assert.ok(source.includes(needle));
     return source.replace(needle, '');
+  });
+});
+
+
+test('empty-cache discovery rejects regression back to a silent recovery stall', {skip: process.platform !== 'darwin'}, () => {
+  withFixture(executable => {
+    assert.throws(() => execFileSync(executable, ['cache-miss-discovery'], {stdio: 'pipe'}),
+      error => error.status === 1 && /empty cache must start bounded discovery/.test(error.stderr.toString()));
+  }, source => {
+    const needle = '    [self.central scanWithTimeout:8];';
+    assert.ok(source.includes(needle));
+    return source.replace(needle, '    /* negative control: no discovery */');
   });
 });

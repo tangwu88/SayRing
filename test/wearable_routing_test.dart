@@ -7,6 +7,75 @@ import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/services/wearable_routing.dart';
 
 void main() {
+  test(
+    'fresh native snapshot confirms binding without waiting for optional reads',
+    () async {
+      final native = _SnapshotBridge();
+      final preference = _MemoryBoundPreference(null);
+      final bridge = RoutedWearableBridge(
+        qring: native,
+        preferenceStore: preference,
+      );
+      addTearDown(bridge.dispose);
+      final device = (await bridge.scanDevices()).single;
+      await bridge.connect(device.id, profile: _profile);
+      expect(native.snapshotCalls, 1);
+      expect(native.optionalReads, 0);
+      expect(preference.binding?.nativeIdentifier, 'ring-id');
+      expect(preference.binding?.deviceName, 'R8');
+    },
+  );
+
+  test(
+    'bound recovery discovers only its saved target; new-device search stays full',
+    () async {
+      const target = DeviceInfo(id: 'AA:BB:CC:DD:EE:FF', name: 'R7 Pro');
+      final native = _TargetDiscoveryBridge(target);
+      final bridge = RoutedWearableBridge(
+        coolwear: native,
+        preferenceStore: _MemoryBoundPreference(
+          const SavedWearableBinding(
+            WearableTransport.coolwear,
+            'AA:BB:CC:DD:EE:FF',
+            deviceName: 'R7 Pro',
+          ),
+        ),
+        restoreOnlyBoundDevice: true,
+      );
+      addTearDown(bridge.dispose);
+      expect(
+        (await bridge.restoreConnection(profile: _profile))?.id,
+        'coolwear:AA:BB:CC:DD:EE:FF',
+      );
+      expect(native.targets, ['AA:BB:CC:DD:EE:FF']);
+      expect(native.scanCalls, 0);
+      expect(native.connectCalls, ['AA:BB:CC:DD:EE:FF']);
+      await bridge.scanDevices();
+      expect(native.scanCalls, 1);
+      expect(native.targets, hasLength(1));
+    },
+  );
+
+  test('target discovery cannot substitute a same-name ring', () async {
+    final native = _TargetDiscoveryBridge(
+      const DeviceInfo(id: '11:22:33:44:55:66', name: 'R7 Pro'),
+    );
+    final bridge = RoutedWearableBridge(
+      coolwear: native,
+      preferenceStore: _MemoryBoundPreference(
+        const SavedWearableBinding(
+          WearableTransport.coolwear,
+          'AA:BB:CC:DD:EE:FF',
+          deviceName: 'R7 Pro',
+        ),
+      ),
+      restoreOnlyBoundDevice: true,
+    );
+    addTearDown(bridge.dispose);
+    expect(await bridge.restoreConnection(profile: _profile), isNull);
+    expect(native.connectCalls, isEmpty);
+  });
+
   test('a canceled scan failure cannot stop its replacement round', () async {
     final firstReply = Completer<List<DeviceInfo>>();
     final nextReply = Completer<List<DeviceInfo>>();
@@ -1298,4 +1367,37 @@ class _NativeMarketBridge extends _FakeWearableBridge
     filePath: '/fixture.bin',
     fileLength: 32,
   );
+}
+
+class _TargetDiscoveryBridge extends _FakeWearableBridge
+    implements WearableBoundTargetDiscoveryBridge {
+  _TargetDiscoveryBridge(DeviceInfo target)
+    : super(scanned: [target], connectedDetails: target);
+  final List<String> targets = [];
+  @override
+  Future<List<DeviceInfo>> scanForBoundDevice(String nativeIdentifier) async {
+    targets.add(nativeIdentifier);
+    return scanned;
+  }
+}
+
+class _SnapshotBridge extends _FakeWearableBridge
+    implements WearableConnectionSnapshotBridge {
+  _SnapshotBridge()
+    : super(
+        scanned: const [DeviceInfo(id: 'ring-id', name: 'R8')],
+      );
+  int snapshotCalls = 0;
+  int optionalReads = 0;
+  @override
+  Future<DeviceInfo?> getConnectedDeviceSnapshot() async {
+    snapshotCalls++;
+    return const DeviceInfo(id: 'ring-id', name: 'R8');
+  }
+
+  @override
+  Future<DeviceInfo?> getConnectedDeviceDetails() async {
+    optionalReads++;
+    throw StateError('Optional battery did not reply');
+  }
 }

@@ -86,6 +86,8 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 @property(nonatomic, copy) NSString *recoveryTargetName;
 @property(nonatomic, copy) NSDictionary *recoveryProfile;
 @property(nonatomic, assign) BOOL recoveryConnecting;
+@property(nonatomic, assign) BOOL recoveryScanning;
+@property(nonatomic, assign) NSUInteger recoveryScanGeneration;
 @property(nonatomic, assign) NSTimeInterval recoveryRetryNotBefore;
 @property(nonatomic, assign) BOOL cancellingConnection;
 @property(nonatomic, copy, nullable) FlutterResult pendingDisconnect;
@@ -141,6 +143,8 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     self.connectionGeneration++;
     self.connectDeadlineGeneration++;
     self.recoveryConnecting = NO;
+    self.recoveryScanning = NO;
+    self.recoveryScanGeneration++;
     [self.central stopScan];
     if (self.pendingDisconnect) {
         FlutterResult pending = self.pendingDisconnect;
@@ -181,9 +185,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)startScan:(FlutterResult)result {
-    if (self.pendingScan) {
-        [self finishScan];
-    }
+    [self finishScan];
     self.selectionTargetID = nil;
     [self.scanned removeAllObjects];
     self.pendingScan = result;
@@ -208,6 +210,8 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)finishScan {
+    self.recoveryScanning = NO;
+    self.recoveryScanGeneration++;
     [self.central stopScan];
     self.selectionTargetID = nil;
     if (!self.pendingScan) { return; }
@@ -312,35 +316,57 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     });
 }
 
+- (void)connectRecoveredPeripheral:(CBPeripheral *)peripheral {
+    NSUUID *target = [[NSUUID alloc] initWithUUIDString:self.recoveryTargetID];
+    if (!target || ![peripheral.identifier isEqual:target] ||
+        !self.recoveryContext.length || ![self isQRingName:self.recoveryTargetName] ||
+        (peripheral.name.length && ![self isQRingName:peripheral.name]) ||
+        self.central.hasPendingRestoredCancellations ||
+        self.central.bleState != QCBluetoothStatePoweredOn || self.pendingScan ||
+        self.pendingConnect || self.pendingDisconnect || self.cancellingConnection ||
+        self.recoveryConnecting || [self isResolved]) { return; }
+    // A cached name may be absent, but the exact owner-bound identifier and
+    // previously verified name must still agree with the active recovery lease.
+    self.connectedID = self.recoveryTargetID;
+    self.connectedName = peripheral.name.length ? peripheral.name : self.recoveryTargetName;
+    self.profile = self.recoveryProfile ?: @{};
+    self.featureList = nil;
+    self.battery = nil;
+    self.charging = nil;
+    self.batteryUpdatedAt = nil;
+    self.firmware = @"";
+    self.connectionGeneration++;
+    self.recoveryConnecting = YES;
+    RingControlTrace(@"connection-requested", @{@"recovery": @YES});
+    [self emit:@"recoveryState" payload:@{@"status": @"waiting", @"deviceId": self.connectedID}];
+    // A genuine pending CoreBluetooth request remains indefinite until proximity.
+    [self.central connect:peripheral timeout:0 deviceType:QCDeviceTypeRing];
+}
+
 - (void)startAutomaticRecovery {
     if (self.recoveryTargetID.length == 0 || self.recoveryContext.length == 0 ||
         ![self isQRingName:self.recoveryTargetName] ||
         self.central.hasPendingRestoredCancellations ||
-        self.central.bleState != QCBluetoothStatePoweredOn || self.pendingConnect ||
-        self.pendingDisconnect || self.cancellingConnection || self.recoveryConnecting || [self isResolved] ||
+        self.central.bleState != QCBluetoothStatePoweredOn || self.pendingScan || self.pendingConnect ||
+        self.pendingDisconnect || self.cancellingConnection || self.recoveryConnecting || self.recoveryScanning || [self isResolved] ||
         NSProcessInfo.processInfo.systemUptime < self.recoveryRetryNotBefore) { return; }
     NSUUID *uuid = [[NSUUID alloc] initWithUUIDString:self.recoveryTargetID];
     if (!uuid) { return; }
     NSArray<CBPeripheral *> *items = [self.central.centerManager retrievePeripheralsWithIdentifiers:@[uuid]];
     for (CBPeripheral *peripheral in items) {
-        if (![peripheral.identifier isEqual:uuid] ||
-            (peripheral.name.length > 0 && ![self isQRingName:peripheral.name])) { continue; }
-        // An exact owner-bound UUID can outlive CoreBluetooth's cached name.
-        // The saved name was verified when this recovery context was armed.
-        NSString *resolvedName = peripheral.name.length > 0 ? peripheral.name : self.recoveryTargetName;
-        self.connectedID = self.recoveryTargetID;
-        self.connectedName = resolvedName;
-        self.profile = self.recoveryProfile ?: @{};
-        self.featureList = nil;
-        self.connectionGeneration++;
-        self.recoveryConnecting = YES;
-        RingControlTrace(@"connection-requested", @{@"recovery": @YES});
-        [self emit:@"recoveryState" payload:@{@"status": @"waiting", @"deviceId": self.connectedID}];
-        // CoreBluetooth owns one indefinite pending request until proximity.
-        // Only the SDK handshake receives a deadline after the radio connects.
-        [self.central connect:peripheral timeout:0 deviceType:QCDeviceTypeRing];
+        if (![peripheral.identifier isEqual:uuid]) { continue; }
+        // A conflicting fresh name is not a cache miss and must not be adopted.
+        if (peripheral.name.length && ![self isQRingName:peripheral.name]) { return; }
+        [self connectRecoveredPeripheral:peripheral];
         return;
     }
+    // There is no pending radio request when the OS cache has no object. Discover
+    // only the saved UUID; never replace a binding with a same-name candidate.
+    self.recoveryScanning = YES;
+    self.recoveryScanGeneration++;
+    RingControlTrace(@"recovery-cache-miss-search", @{});
+    [self emit:@"recoveryState" payload:@{@"status": @"waiting", @"deviceId": self.recoveryTargetID}];
+    [self.central scanWithTimeout:8];
 }
 
 - (void)scheduleRecoveryAfterDisconnect {
@@ -396,6 +422,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     if (identifier.length == 0) {
         self.recoveryTargetID = @"";
         self.recoveryContext = @"";
+        if (self.recoveryScanning) { [self finishScan]; }
         [self.central discardRestoredPeripheralsExceptIdentifier:@""];
         if (self.recoveryConnecting && ![self isResolved]) { [self disconnectWithResult:result]; }
         else { self.recoveryConnecting = NO; result(nil); }
@@ -413,6 +440,8 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         ![self.recoveryContext isEqualToString:context])) {
         result([self error:@"RECOVERY_PENDING" message:@"请先结束上一台戒指的连接"]); return;
     }
+    if (self.recoveryScanning && (![self.recoveryTargetID isEqualToString:identifier] ||
+        ![self.recoveryContext isEqualToString:context])) { [self finishScan]; }
     self.recoveryTargetID = identifier;
     self.recoveryTargetName = name;
     self.recoveryContext = context;
@@ -472,26 +501,24 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         self.featureList = [resolvedFeatures copy];
         self.factoryTimeHandshakeGeneration = @(generation);
         RingControlTrace(@"connection-capabilities", @{@"generation": @(generation)});
-        // QRing has one command channel. Finish setup/details before Flutter
-        // can start history sync or a measurement on that channel.
+        // Only required setup gates readiness. Optional battery/firmware are
+        // read by the existing serialized getDeviceDetails command afterward;
+        // do not start an untracked read alongside history or measurement.
         [self writeProfileWithCompletion:^{
           QRingOnMain(^{
             if (![weakSelf isCurrentConnection:generation]) { return; }
             RingControlTrace(@"connection-profile-finished", @{@"generation": @(generation)});
-            [weakSelf readDeviceDetailsWithCompletion:^{
-                if (![weakSelf isCurrentConnection:generation]) { return; }
-                RingControlTrace(@"connection-ready", @{@"generation": @(generation)});
-                FlutterResult result = weakSelf.pendingConnect;
-                weakSelf.pendingConnect = nil;
-                weakSelf.connectDeadlineGeneration++;
-                BOOL recovered = weakSelf.recoveryConnecting;
-                weakSelf.recoveryConnecting = NO;
-                if (result) { result(nil); }
-                [weakSelf emit:@"deviceDetails" payload:[weakSelf deviceDetails]];
-                [weakSelf emit:@"capabilitiesUpdated" payload:[weakSelf capabilities]];
-                if (recovered) { [weakSelf emit:@"reconnected" payload:[weakSelf deviceDetails]]; }
-                [weakSelf emitFactoryInitialization];
-            }];
+            RingControlTrace(@"connection-ready", @{@"generation": @(generation)});
+            FlutterResult result = weakSelf.pendingConnect;
+            weakSelf.pendingConnect = nil;
+            weakSelf.connectDeadlineGeneration++;
+            BOOL recovered = weakSelf.recoveryConnecting;
+            weakSelf.recoveryConnecting = NO;
+            if (result) { result(nil); }
+            [weakSelf emit:@"deviceDetails" payload:[weakSelf deviceDetails]];
+            [weakSelf emit:@"capabilitiesUpdated" payload:[weakSelf capabilities]];
+            if (recovered) { [weakSelf emit:@"reconnected" payload:[weakSelf deviceDetails]]; }
+            [weakSelf emitFactoryInitialization];
           });
         }];
         }];
@@ -810,6 +837,14 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     FlutterResult pending = self.pendingDisconnect;
     self.pendingDisconnect = nil;
     pending(nil);
+}
+
+- (NSDictionary *_Nullable)deviceSnapshot {
+    // Read only state confirmed in this live handshake. A snapshot never sends
+    // an SDK command, waits for optional metadata or revives an old transport.
+    if (![self isResolved] || self.central.connectedPeripheral.state != CBPeripheralStateConnected ||
+        ![self.central.connectedPeripheral.identifier.UUIDString isEqualToString:self.connectedID]) { return nil; }
+    return [self deviceDetails];
 }
 
 - (NSDictionary *)deviceDetails {
@@ -1945,6 +1980,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     else if ([call.method isEqualToString:@"connect"]) { [self connect:arguments result:result]; }
     else if ([call.method isEqualToString:@"disconnect"]) { [self disconnectWithResult:result]; }
     else if ([call.method isEqualToString:@"clearRingHistory"]) { [self resetFirstMemberRing:arguments result:result]; }
+    else if ([call.method isEqualToString:@"getDeviceSnapshot"]) { result([self deviceSnapshot]); }
     else if ([call.method isEqualToString:@"getDeviceDetails"]) {
         if (![self isResolved]) { result(nil); return; }
         BOOL fresh = self.batteryUpdatedAt && [NSDate.date timeIntervalSinceDate:self.batteryUpdatedAt] < 15;
@@ -2000,6 +2036,32 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 #pragma mark - QCCentralManagerDelegate
 
 - (void)didScanPeripherals:(NSArray<QCBlePeripheral *> *)peripheralArr {
+    if (self.recoveryScanning) {
+        NSUInteger scanGeneration = self.recoveryScanGeneration;
+        NSUInteger connectionGeneration = self.connectionGeneration;
+        NSString *target = self.recoveryTargetID, *context = self.recoveryContext;
+        NSUUID *uuid = [[NSUUID alloc] initWithUUIDString:target];
+        for (QCBlePeripheral *item in peripheralArr) {
+            CBPeripheral *peripheral = item.peripheral;
+            if (![peripheral.identifier isEqual:uuid] ||
+                (peripheral.name.length && ![self isQRingName:peripheral.name])) { continue; }
+            // scanWithTimeout can synchronously publish OS-connected devices.
+            // Defer handoff until its scan setup has returned, then recheck the
+            // exact owner, target and generation before issuing any connection.
+            __weak typeof(self) weakSelf = self;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                __strong typeof(weakSelf) self = weakSelf;
+                if (!self.recoveryScanning || self.recoveryScanGeneration != scanGeneration ||
+                    self.connectionGeneration != connectionGeneration ||
+                    ![self.recoveryTargetID isEqual:target] || ![self.recoveryContext isEqual:context]) { return; }
+                [self finishScan];
+                [self connectRecoveredPeripheral:peripheral];
+            });
+            return;
+        }
+        return;
+    }
+    if (!self.pendingScan) { return; }
     for (QCBlePeripheral *item in peripheralArr) {
         NSString *name = item.peripheral.name ?: @"";
         NSString *identifier = item.peripheral.identifier.UUIDString ?: @"";
@@ -2016,7 +2078,15 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     }
 }
 
-- (void)scanPeripheralFinish { [self finishScan]; }
+- (void)scanPeripheralFinish {
+    BOOL retry = self.recoveryScanning;
+    [self finishScan];
+    if (retry) {
+        self.recoveryRetryNotBefore = MAX(self.recoveryRetryNotBefore,
+            NSProcessInfo.processInfo.systemUptime + 2);
+        [self scheduleRecoveryAfterDisconnect];
+    }
+}
 
 - (void)didState:(QCState)state {
     if (state == QCStateConnected) {
@@ -2104,6 +2174,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 
 - (void)didBluetoothState:(QCBluetoothState)state {
     if (state == QCBluetoothStatePoweredOn) { [self startAutomaticRecovery]; }
+    else if (self.recoveryScanning) { [self finishScan]; }
 }
 
 - (FlutterError *_Nullable)onListenWithArguments:(id)arguments eventSink:(FlutterEventSink)events {
