@@ -198,8 +198,8 @@ typedef void (^QRingNext)(void);
 @property(nonatomic,strong) NSNumber *factoryResetGeneration, *factoryInitializingGeneration;
 @property(nonatomic,strong) NSUserDefaults *fixtureDefaults;
 @property(nonatomic,strong) CentralFixture *central;
-@property(nonatomic) BOOL recoveryConnecting, cancellingConnection;
-@property(nonatomic) NSUInteger connectionGeneration, profileWrites, recoveries;
+@property(nonatomic) BOOL recoveryConnecting, cancellingConnection, recoveryScanning;
+@property(nonatomic) NSUInteger connectionGeneration, profileWrites, recoveries, scansFinished;
 - (void)configureRecoveryTarget:(NSDictionary *)arguments result:(FlutterResult)result;
 @end
 @implementation ArmHarness
@@ -209,6 +209,7 @@ ${receipt}
 - (BOOL)isQRingName:(NSString *)name {return [name isEqual:@"R12"];}
 - (id)error:(NSString *)code message:(NSString *)message {return code;}
 - (void)disconnectWithResult:(FlutterResult)result {result(nil);}
+- (void)finishScan {self.recoveryScanning=NO;self.scansFinished++;}
 - (void)startAutomaticRecovery {self.recoveries++;}
 - (void)emit:(NSString *)event payload:(NSDictionary *)payload {}
 - (NSDictionary *)capabilities {return @{};}
@@ -238,10 +239,15 @@ int main() { @autoreleasepool {
  a.connectionGeneration=4;a.connectedID=@"00000000-0000-0000-0000-000000000002";
  [a configureRecoveryTarget:args result:result];
  NSCAssert(a.profileWrites==1,@"Receipt must not adopt a different connected device");
- a.connectedID=ring;
+ a.connectedID=ring;a.recoveryScanning=YES;
  [a configureRecoveryTarget:@{@"id":ring,@"name":@"R12",@"context":@"env:owner-b"} result:result];
  NSCAssert(a.profileWrites==1,@"Never initialize a different owner from a receipt");
+ NSCAssert(a.scansFinished==1 && !a.recoveryScanning,@"Owner change retires the previous recovery scan");
  NSCAssert(results==5,@"Each arming result must complete once");
+ a.recoveryScanning=YES;
+ [a configureRecoveryTarget:@{} result:result];
+ NSCAssert(a.scansFinished==2 && !a.recoveryScanning && a.recoveryTargetID.length==0,@"Disarming must stop discovery without adopting a target");
+ NSCAssert(results==6 && a.profileWrites==1,@"Disarming completes once without initialization");
  [defaults removePersistentDomainForName:suite];return 0;
 }}
 `);

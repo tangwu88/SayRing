@@ -705,6 +705,13 @@ public final class QRingBridge
             }
             return;
         }
+        if (cancellingConnection) {
+            // The SDK can publish disconnect before closing a GATT that is
+            // still settling its bond. Do not release the next session early.
+            verifyNativeCancellation(connectionGeneration, connectedId,
+                    SystemClock.elapsedRealtime() + 20_000L);
+            return;
+        }
         finishDisconnectedSession();
     }
 
@@ -839,7 +846,7 @@ public final class QRingBridge
         Map<String, Object> profile = call.argument("profile");
         recoveryProfile = profile == null ? new HashMap<>() : new HashMap<>(profile);
         int phase = factoryInitialization(id, context);
-        if (resolved() && id.equalsIgnoreCase(connectedId) && phase != 0 && (phase & 4) == 0 &&
+        if (resolved() && id.equalsIgnoreCase(connectedId) && phase == 3 &&
                 !Integer.valueOf(connectionGeneration).equals(factoryResetGeneration)) {
             if (Integer.valueOf(connectionGeneration).equals(factoryInitializingGeneration)) {
                 result.error("DEVICE_BUSY", "戒指正在初始化，请稍候", null); return;
@@ -888,7 +895,19 @@ public final class QRingBridge
         if (!nativePending) { result.success(null); return; }
         cancellingConnection = true;
         pendingDisconnect = result;
-        manager.unBindDevice();
+        // Ordinary reconnect must preserve the OS bond. unBindDevice() removes
+        // it asynchronously, racing the next handshake and forcing re-pairing.
+        // Cancel queued work before the active task so it cannot dispatch the
+        // next request. The SDK's disconnect callback clears response parsers.
+        try {
+            manager.setNeedConnect(false);
+            manager.clearPendingTasks();
+            manager.cancelCurrentTask();
+            manager.disconnect();
+        } catch (RuntimeException unavailable) {
+            // A denied/failed disconnect does not prove native teardown.
+            Log.w(TAG, "QRing disconnect pending native confirmation");
+        }
         verifyNativeCancellation(connectionGeneration, connectedId,
                 SystemClock.elapsedRealtime() + 20_000L);
         main.postDelayed(() -> {
@@ -986,7 +1005,9 @@ public final class QRingBridge
         final boolean rearming = Integer.valueOf(generation).equals(factoryInitializingGeneration);
         final String id = connectedId, context = recoveryContext;
         int phase = factoryInitialization(id, context);
-        if (phase == 0 || (phase & 4) != 0) { completion.run(); return; }
+        // Only request+reset-ACK (1|2) may initialize. Unknown legacy receipts
+        // stay pending without repeating writes or adding an eight-second wait.
+        if (phase != 3) { completion.run(); return; }
         final int target = profileInt("targetSteps", 8000, 1000, 100000);
         final boolean[] done = {false};
         Runnable finish = () -> { if (!done[0]) { done[0] = true; completion.run(); } };

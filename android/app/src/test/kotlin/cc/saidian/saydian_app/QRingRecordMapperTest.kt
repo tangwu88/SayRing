@@ -221,6 +221,26 @@ class QRingRecordMapperTest {
     }
 
     @Test
+    fun `future dated SDK sleep is rejected instead of becoming a confirmed empty replacement`() {
+        val request = QRingRecordMapper.sleepRequestDay(LocalDate.now(), ZoneId.of("America/Bogota"))
+        val future = Instant.now().epochSecond + 3600
+        val sleep = SleepDisplay().apply {
+            list = listOf(SleepDisplay.SleepDataBean(future, future + 3600, 1))
+            totalSleepDuration = 3600
+            deepSleepDuration = 3600
+        }
+        val invalid = QRingRecordMapper.sleepTimelineForSuccessfulRead("ring", request, sleep)
+        assertEquals("-05:00", invalid["timezone"])
+        assertTrue(!QRingRecordMapper.sleepTimelineIsComplete(invalid))
+        assertTrue(QRingRecordMapper.sleepTimelineHasData(invalid))
+        assertEquals(3600, (invalid["rawSummary"] as Map<*, *>)["totalSeconds"])
+        assertTrue(QRingRecordMapper.sleepRecords("ring", "R8", "1", request, sleep).isEmpty())
+        val empty = QRingRecordMapper.sleepTimelineForSuccessfulRead("ring", request, null)
+        assertTrue(QRingRecordMapper.sleepTimelineIsComplete(empty))
+        assertTrue(!QRingRecordMapper.sleepTimelineHasData(empty))
+    }
+
+    @Test
     fun `sleep callback preserves request day and timezone after midnight`() {
         val requested = QRingRecordMapper.sleepRequestDay(
             LocalDate.of(2023, 11, 14), ZoneId.of("Asia/Shanghai"),

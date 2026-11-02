@@ -27,10 +27,9 @@ void main() {
   // Native name behavior, including legacy R2 compatibility, is exercised by
   // QRingNamePolicyTest.kt and test/native/qring_name_policy_test.m.
 
-  test('QRing unbind uses vendor removal and waits for native state', () {
-    final android = File(
-      'android/app/src/main/java/cc/saidian/saydian_app/QRingBridge.java',
-    ).readAsStringSync();
+  // Android ordinary disconnect preserves the OS bond. Its production-method
+  // behavior and bundled SDK cleanup are tested by qring_android_disconnect.
+  test('iOS QRing removal waits for native state', () {
     final ios = File('ios/Runner/QRingWearableBridge.m').readAsStringSync();
     final central = File('ios/Runner/QCCentralManager.m').readAsStringSync();
     final remove = central.substring(
@@ -38,12 +37,6 @@ void main() {
       central.indexOf('- (void)disconnect'),
     );
 
-    expect(android, contains('disconnectWithResult(result);'));
-    expect(android, contains('manager.unBindDevice();'));
-    expect(
-      android,
-      contains('private MethodChannel.Result pendingDisconnect;'),
-    );
     expect(ios, contains('[self.central remove];'));
     expect(ios, contains('self.pendingDisconnect = result;'));
     expect(
