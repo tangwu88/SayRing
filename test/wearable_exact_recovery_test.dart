@@ -26,6 +26,7 @@ void main() {
   _bindingRaceTests();
   _directRecoveryTests();
   _cachedSelectionTests();
+  _ownedSystemTargetTests();
 
   test(
     'v2 saves environment and owner and rejects a foreign environment',
@@ -893,5 +894,195 @@ class _SelectionQRing extends _QRing
     return osReply == null
         ? [const DeviceInfo(id: 'other', name: 'R22')]
         : await osReply!.future;
+  }
+}
+
+class _AndroidSystemRing extends _Empty
+    implements
+        WearableOwnedSystemTargetBridge,
+        WearableBoundTargetDiscoveryBridge {
+  final actions = <String>[];
+  DeviceInfo? candidate;
+  List<DeviceInfo> advertisements = [];
+  final lookedUp = Completer<void>();
+  Completer<DeviceInfo?>? pending;
+  bool rejectFirstConnect = false;
+  Exception? lookupError;
+
+  @override
+  Future<DeviceInfo?> lookupOwnedSystemTarget(String id) async {
+    actions.add('lookup $id');
+    if (!lookedUp.isCompleted) lookedUp.complete();
+    if (lookupError != null) throw lookupError!;
+    return pending == null ? candidate : await pending!.future;
+  }
+
+  @override
+  Future<List<DeviceInfo>> scanForBoundDevice(String id) async {
+    actions.add('scan $id');
+    return advertisements;
+  }
+
+  @override
+  Future<void> connect(
+    String id, {
+    required WearableUserProfile profile,
+  }) async {
+    actions.add('connect $id');
+    if (rejectFirstConnect) {
+      rejectFirstConnect = false;
+      throw PlatformException(code: 'UNKNOWN_SCANNED_DEVICE');
+    }
+  }
+
+  @override
+  Future<void> disconnect() async {}
+}
+
+void _ownedSystemTargetTests() {
+  const mac = 'aa:bb:cc:dd:ee:ff';
+  const real = DeviceInfo(id: mac, name: 'R7 Ultra');
+  RoutedWearableBridge router(
+    _AndroidSystemRing native, {
+    String? owner = 'a',
+    String model = 'R7 Ultra',
+    Duration timeout = const Duration(seconds: 30),
+  }) => RoutedWearableBridge(
+    coolwear: native,
+    preferenceStore: _Store(
+      SavedWearableBinding(
+        WearableTransport.coolwear,
+        mac,
+        deviceName: model,
+        ownerKey: owner,
+      ),
+    ),
+    requireOwnerScopedBinding: true,
+    restoreOnlyBoundDevice: true,
+    recoveryOperationTimeout: timeout,
+  );
+
+  for (final automated in [false, true]) {
+    test(
+      'Android owned system candidate uses its usual handshake (automatic = $automated)',
+      () async {
+        final native = _AndroidSystemRing()..candidate = real;
+        final bridge = router(native);
+        addTearDown(bridge.dispose);
+        await bridge.setRecoveryContext(ownerKey: 'a', profile: _profile);
+        if (automated) {
+          expect(
+            (await bridge.restoreConnection(profile: _profile))?.id,
+            'coolwear:$mac',
+          );
+        } else {
+          final candidate = await bridge.prepareRememberedDevice();
+          expect(candidate?.id, 'coolwear:$mac');
+          expect(native.actions, ['lookup $mac']);
+          await bridge.connect(candidate!.id, profile: _profile);
+        }
+        expect(native.actions, ['lookup $mac', 'connect $mac']);
+      },
+    );
+    test(
+      'Android late system response cannot cross the account (automatic = $automated)',
+      () async {
+        final native = _AndroidSystemRing()..pending = Completer<DeviceInfo?>();
+        final bridge = router(native);
+        addTearDown(bridge.dispose);
+        await bridge.setRecoveryContext(ownerKey: 'a', profile: _profile);
+        final result = automated
+            ? bridge.restoreConnection(profile: _profile)
+            : bridge.prepareRememberedDevice();
+        await native.lookedUp.future;
+        await bridge.setRecoveryContext(ownerKey: 'b', profile: _profile);
+        native.pending!.complete(real);
+        expect(await result, isNull);
+        expect(native.actions, ['lookup $mac']);
+      },
+    );
+  }
+  for (final owner in [null, 'b']) {
+    test(
+      'Android manual system lookup rejects a saved binding owned by $owner',
+      () async {
+        final native = _AndroidSystemRing()..candidate = real;
+        final bridge = router(native, owner: owner);
+        addTearDown(bridge.dispose);
+        await bridge.setRecoveryContext(ownerKey: 'a', profile: _profile);
+        expect(await bridge.prepareRememberedDevice(), isNull);
+        expect(await bridge.restoreConnection(profile: _profile), isNull);
+        expect(native.actions, isEmpty);
+      },
+    );
+  }
+  test(
+    'Android manual system lookup rejects a mismatched device ID or model',
+    () async {
+      final native = _AndroidSystemRing();
+      final bridge = router(native);
+      addTearDown(bridge.dispose);
+      await bridge.setRecoveryContext(ownerKey: 'a', profile: _profile);
+      for (final wrong in [
+        const DeviceInfo(id: '11:22:33:44:55:66', name: 'R7 Ultra'),
+        const DeviceInfo(id: mac, name: 'R8'),
+      ]) {
+        native.candidate = wrong;
+        expect(await bridge.prepareRememberedDevice(), isNull);
+      }
+      expect(native.actions, ['lookup $mac', 'lookup $mac']);
+    },
+  );
+  for (final failure in ['enumeration failed', 'older native', 'timeout']) {
+    test(
+      'Android optional system lookup falls back to scan on $failure',
+      () async {
+        final native = _AndroidSystemRing()..advertisements = [real];
+        if (failure == 'timeout') {
+          native.pending = Completer<DeviceInfo?>();
+        } else {
+          native.lookupError = failure == 'older native'
+              ? const WearableSdkNotConfigured()
+              : PlatformException(code: 'COOLWEAR_SDK_ERROR');
+        }
+        final bridge = router(
+          native,
+          timeout: const Duration(milliseconds: 30),
+        );
+        addTearDown(bridge.dispose);
+        await bridge.setRecoveryContext(ownerKey: 'a', profile: _profile);
+        expect(
+          (await bridge.restoreConnection(profile: _profile))?.id,
+          'coolwear:$mac',
+        );
+        native.pending?.complete(real);
+        await Future<void>.delayed(Duration.zero);
+        expect(native.actions, ['lookup $mac', 'scan $mac', 'connect $mac']);
+      },
+    );
+  }
+  for (final stale in [false, true]) {
+    test(
+      'Android automatic recovery scans if the system candidate is missing or stale = $stale',
+      () async {
+        final native = _AndroidSystemRing()
+          ..candidate = stale ? real : null
+          ..advertisements = [real]
+          ..rejectFirstConnect = stale;
+        final bridge = router(native);
+        addTearDown(bridge.dispose);
+        await bridge.setRecoveryContext(ownerKey: 'a', profile: _profile);
+        expect(
+          (await bridge.restoreConnection(profile: _profile))?.id,
+          'coolwear:$mac',
+        );
+        expect(native.actions, [
+          'lookup $mac',
+          if (stale) 'connect $mac',
+          'scan $mac',
+          'connect $mac',
+        ]);
+      },
+    );
   }
 }

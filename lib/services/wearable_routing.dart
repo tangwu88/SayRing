@@ -375,6 +375,38 @@ class RoutedWearableBridge
         owner == _recoveryOwnerKey;
   }
 
+  Future<DeviceInfo?> _lookupOwnedSystemTarget(
+    WearableBridge source,
+    SavedWearableBinding saved,
+  ) async {
+    final owner = _recoveryOwnerKey;
+    if (source is! WearableOwnedSystemTargetBridge ||
+        owner == null ||
+        saved.ownerKey != owner ||
+        saved.deviceName == null ||
+        !WearableDeviceClassifier.routesTo(
+          saved.deviceName!,
+          saved.transport,
+        )) {
+      return null;
+    }
+    final DeviceInfo? device;
+    try {
+      device = await (source as WearableOwnedSystemTargetBridge)
+          .lookupOwnedSystemTarget(saved.nativeIdentifier)
+          .timeout(recoveryOperationTimeout);
+    } on Exception {
+      // 系统查询只是捷径。旧原生端、系统枚举失败或超时，都交还给原扫描和权限流程。
+      return null;
+    }
+    if (device == null ||
+        device.id != saved.nativeIdentifier ||
+        !WearableDeviceClassifier.routesTo(device.name, saved.transport)) {
+      return null;
+    }
+    return device;
+  }
+
   @override
   Future<DeviceInfo?> prepareRememberedDevice() async {
     final current = _beginManualSelection();
@@ -387,12 +419,18 @@ class RoutedWearableBridge
         message: '此版本不支持该设备，请选择兼容的智能戒指',
       );
     }
-    if (source is! WearableRememberedDeviceSelectionBridge) return null;
-    final device = await (source as WearableRememberedDeviceSelectionBridge)
-        .prepareRememberedDeviceForSelection(
-          saved.nativeIdentifier,
-          knownName: saved.deviceName,
-        );
+    final DeviceInfo? device;
+    if (source is WearableOwnedSystemTargetBridge) {
+      device = await _lookupOwnedSystemTarget(source, saved);
+    } else if (source is WearableRememberedDeviceSelectionBridge) {
+      device = await (source as WearableRememberedDeviceSelectionBridge)
+          .prepareRememberedDeviceForSelection(
+            saved.nativeIdentifier,
+            knownName: saved.deviceName,
+          );
+    } else {
+      return null;
+    }
     if (!current() || device?.id != saved.nativeIdentifier) return null;
     final routed = RoutedDevice.fromDevice(saved.transport, device!);
     _scanned[routed.display.id] = routed;
@@ -1015,6 +1053,32 @@ class RoutedWearableBridge
       }
       return null;
     }
+    if (source is WearableOwnedSystemTargetBridge) {
+      final current = await _lookupOwnedSystemTarget(source, saved);
+      if (generation != _connectionGeneration) return null;
+      if (current != null) {
+        try {
+          return await _connectBoundTarget(
+            saved.transport,
+            source,
+            current,
+            generation,
+            profile,
+          );
+        } on PlatformException catch (error) {
+          // 只在确定连接已经结束时回到正常搜索。还在处理的原生任务保留原有屏障。
+          if (generation != _connectionGeneration) return null;
+          if (!const {
+            'UNKNOWN_SCANNED_DEVICE',
+            'COOLWEAR_HANDSHAKE_TIMEOUT',
+            'COOLWEAR_HANDSHAKE_FAILED',
+            'COOLWEAR_DISCONNECTED',
+          }.contains(error.code)) {
+            rethrow;
+          }
+        }
+      }
+    }
     // Native SDKs keep installation-wide saved targets. Never ask them to
     // restore a target selected in another API environment.
     final List<DeviceInfo> scanned;
@@ -1052,15 +1116,28 @@ class RoutedWearableBridge
       if (bonded?.id == saved.nativeIdentifier) target = bonded;
     }
     if (target == null) return null;
-    final routed = RoutedDevice.fromDevice(saved.transport, target);
-    if (!WearableDeviceClassifier.routesTo(target.name, saved.transport)) {
-      return null;
-    }
-    _activeTransport = saved.transport;
+    return _connectBoundTarget(
+      saved.transport,
+      source,
+      target,
+      generation,
+      profile,
+    );
+  }
+
+  Future<DeviceInfo?> _connectBoundTarget(
+    WearableTransport transport,
+    WearableBridge source,
+    DeviceInfo target,
+    int generation,
+    WearableUserProfile profile,
+  ) async {
+    if (!WearableDeviceClassifier.routesTo(target.name, transport)) return null;
+    final routed = RoutedDevice.fromDevice(transport, target);
+    _activeTransport = transport;
     _activeConnectionGeneration = generation;
-    _sourceConnectionGenerations[saved.transport] = generation;
+    _sourceConnectionGenerations[transport] = generation;
     var timedOut = false;
-    final transport = saved.transport;
     final actualWork = () async {
       try {
         await source.connect(routed.nativeIdentifier, profile: profile);

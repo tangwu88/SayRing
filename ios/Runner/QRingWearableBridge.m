@@ -1651,11 +1651,17 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     if (![self isResolved] || (entering && ![self canOpenRemoteCamera])) {
         result(entering ? [self error:@"QRING_FEATURE_UNVERIFIED" message:@"此戒指未确认支持相机遥控"] : nil); return;
     }
-    if (self.pendingCamera || self.pendingSync || self.readingDetails || self.activeMetric || self.activeSportType >= 0) {
+    if (self.pendingCamera || (entering && self.remoteCameraActive) || self.activeMetric || self.activeSportType >= 0) {
         result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return;
     }
     if (self.remoteCameraPoisonGeneration == self.connectionGeneration) {
         result([self error:@"QRING_CONTROL_UNCONFIRMED" message:@"相机遥控未确认，请重新连接"]); return;
+    }
+    if (self.pendingSync || self.readingDetails) {
+        // 仅在读操作占用且开启指令尚未交给 SDK 时允许页面重试。
+        // 进行中的相机操作和未确认的旧指令必须走上面的保护。
+        result([FlutterError errorWithCode:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"
+                                   details:entering ? @{@"retryableCameraReadBusy": @YES} : nil]); return;
     }
     self.pendingCamera = result;
     NSUInteger operation = ++self.cameraOperation;
@@ -1975,6 +1981,10 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
          [self.factoryInitializingGeneration isEqual:@(self.connectionGeneration)]) && [commands containsObject:call.method]) {
         result([self error:@"DEVICE_BUSY" message:@"戒指正在重置，请重新连接后继续"]); return;
     }
+    // 关闭已在上面单独处理。开启在这里统一判断当前是只读占用还是不可重发的相机指令。
+    if ([call.method isEqualToString:@"triggerDeviceAction"] && [arguments[@"feature"] isEqualToString:@"camera"]) {
+        [self remoteCameraAction:4 result:result]; return;
+    }
     if ((self.pendingCamera || self.remoteCameraActive || self.readingDetails) && [commands containsObject:call.method]) {
         result([self error:@"DEVICE_BUSY" message:@"设备忙，请稍后重试"]); return;
     }
@@ -2016,9 +2026,6 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     else if ([call.method isEqualToString:@"setAutoMeasureInterval"]) { [self monitoringInterval:arguments[@"minutes"] type:arguments[@"type"] enabled:nil result:result]; }
     else if ([call.method isEqualToString:@"readAutoMeasureSettings"]) { [self readAutoSettings:result]; }
     else if ([call.method isEqualToString:@"setAutoMeasureSetting"]) { [self setAutoSetting:arguments[@"type"] enabled:[arguments[@"enabled"] boolValue] result:result]; }
-    else if ([call.method isEqualToString:@"triggerDeviceAction"] && [arguments[@"feature"] isEqualToString:@"camera"]) {
-        [self remoteCameraAction:[arguments[@"enabled"] isEqual:@NO] ? 6 : 4 result:result];
-    }
     else if ([call.method isEqualToString:@"pulseHealthReminder"]) {
         NSString *expected = [arguments[@"expectedDeviceId"] isKindOfClass:NSString.class] ? arguments[@"expectedDeviceId"] : nil;
         NSString *model = [self.connectedName.uppercaseString stringByReplacingOccurrencesOfString:@"[\\s_-]+" withString:@"" options:NSRegularExpressionSearch range:NSMakeRange(0, self.connectedName.length)];

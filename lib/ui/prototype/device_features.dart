@@ -37,6 +37,14 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   bool _cameraPermissionRequesting = false;
   bool _cameraPermissionPermanentlyDenied = false;
   bool _galleryPermissionDenied = false;
+  static const _cameraReadRetryDelays = [
+    Duration(milliseconds: 500),
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+    Duration(seconds: 4),
+  ];
+  Timer? _cameraReadRetryTimer;
   int _cameraGeneration = 0;
   late int _cameraRemoteStopSequence;
   String? _cameraOwner;
@@ -107,6 +115,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     WidgetsBinding.instance.removeObserver(this);
     widget.controller.removeListener(_handleControllerEvent);
     _findResetTimer?.cancel();
+    _cancelCameraReadRetry();
     _cameraGeneration += 1;
     final camera = _camera;
     _camera = null;
@@ -176,6 +185,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       if (_cameraRemoteStopSequence !=
           widget.controller.cameraRemoteStopSequence) {
         _cameraRemoteStopSequence = widget.controller.cameraRemoteStopSequence;
+        _cancelCameraReadRetry();
         _cameraRemoteStarted = false;
         _cameraShutterGate.disarm(
           currentSequence: widget.controller.cameraShutterSequence,
@@ -411,37 +421,14 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
       controller.addListener(_handleCameraState);
       _handleCameraState();
       if (controller.value.hasError) return;
-      _cameraOwner = _currentFeatureContext;
-      // A missing ACK does not prove the ring stayed out of camera mode.
-      // Attempt one owner-scoped exit when this page closes or suspends.
-      _cameraRemoteRequested = true;
-      final started = await widget.controller.triggerDeviceAction(
-        DeviceFeature.camera,
+      final owner = _currentFeatureContext;
+      _cameraOwner = owner;
+      await _startCameraRemote(
+        controller,
+        generation,
+        owner,
+        _cameraRemoteStopSequence,
       );
-      if (!mounted || generation != _cameraGeneration) {
-        if (started) unawaited(_stopCameraRemoteIgnoringErrors());
-        return;
-      }
-      if (controller.value.hasError) {
-        _handleCameraState();
-        return;
-      }
-      setState(() {
-        _cameraRemoteStarted = started;
-        _cameraMessage = started
-            ? '请按戒指支持的方式双击或晃动拍照，具体操作以戒指型号为准。'
-            : widget.controller.errorMessage ?? '戒指相机遥控暂时无法开启';
-      });
-      if (started) {
-        _cameraShutterGate.arm(
-          now: DateTime.now(),
-          currentSequence: widget.controller.cameraShutterSequence,
-        );
-      } else {
-        _cameraShutterGate.disarm(
-          currentSequence: widget.controller.cameraShutterSequence,
-        );
-      }
     } on CameraException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -462,6 +449,73 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
     }
   }
 
+  void _cancelCameraReadRetry() {
+    _cameraReadRetryTimer?.cancel();
+    _cameraReadRetryTimer = null;
+  }
+
+  Future<void> _startCameraRemote(
+    CameraController camera,
+    int generation,
+    String owner,
+    int stopSequence, {
+    int retry = 0,
+  }) async {
+    bool isCurrent() =>
+        mounted &&
+        generation == _cameraGeneration &&
+        identical(camera, _camera) &&
+        owner == _currentFeatureContext &&
+        stopSequence == _cameraRemoteStopSequence &&
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    if (!isCurrent() || camera.value.hasError) return;
+    // 未收到回执时，关闭页面仍要尝试退出原戒指的遥控模式。
+    _cameraRemoteRequested = true;
+    final outcome = await widget.controller.startCameraRemote();
+    if (!isCurrent()) return;
+    if (camera.value.hasError) {
+      _handleCameraState();
+      return;
+    }
+    if (outcome == DeviceActionOutcome.retryableCameraReadBusy) {
+      // 开启指令尚未发送。保留手机预览，待戒指读完后再试，无需先发退出指令。
+      _cameraRemoteRequested = false;
+      if (retry < _cameraReadRetryDelays.length) {
+        _cameraReadRetryTimer = Timer(_cameraReadRetryDelays[retry], () {
+          _cameraReadRetryTimer = null;
+          unawaited(
+            _startCameraRemote(
+              camera,
+              generation,
+              owner,
+              stopSequence,
+              retry: retry + 1,
+            ),
+          );
+        });
+        setState(() => _cameraMessage = '正在等待读取完成，可先使用手机快门');
+        return;
+      }
+    }
+    final started = outcome == DeviceActionOutcome.succeeded;
+    setState(() {
+      _cameraRemoteStarted = started;
+      _cameraMessage = started
+          ? '请按戒指支持的方式双击或晃动拍照，具体操作以戒指型号为准。'
+          : widget.controller.errorMessage ?? '戒指相机遥控暂时无法开启';
+    });
+    if (started) {
+      _cameraShutterGate.arm(
+        now: DateTime.now(),
+        currentSequence: widget.controller.cameraShutterSequence,
+      );
+    } else {
+      _cameraShutterGate.disarm(
+        currentSequence: widget.controller.cameraShutterSequence,
+      );
+    }
+  }
+
   Future<void> _retryCamera() async {
     if (_cameraPermissionPermanentlyDenied) {
       await openAppSettings();
@@ -477,6 +531,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
   Future<void> _suspendCamera({String message = '返回 App 后将重新打开相机'}) async {
     if (widget.feature != DeviceFeature.camera) return;
     if (_cameraSuspending) return;
+    _cancelCameraReadRetry();
     _cameraSuspending = true;
     _cameraResumeAfterSuspend = false;
     final contextKey = _currentFeatureContext;
@@ -559,6 +614,7 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
         ? '相机已被系统策略停用，请在系统设置中开启相机后重试'
         : '手机相机暂时无法使用，请检查相机权限或系统设置';
     if (_cameraMessage == message) return;
+    _cancelCameraReadRetry();
     final shouldStopRemote = _cameraRemoteStarted;
     setState(() {
       _cameraMessage = message;
@@ -1332,6 +1388,10 @@ class _DeviceFeaturePageState extends State<DeviceFeaturePage>
           _cameraMessage != null &&
               (!ready || !_cameraRemoteStarted) &&
               !_cameraInitializing &&
+              _cameraReadRetryTimer == null &&
+              !widget.controller.deviceFeatureBusy.contains(
+                DeviceFeature.camera,
+              ) &&
               !_cameraPermissionRequesting
           ? _retryCamera
           : null,

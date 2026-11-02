@@ -8,10 +8,10 @@ import '../domain/wearable_sync_result.dart';
 import '../domain/wellness_release_policy.dart';
 import 'wearable_bridge.dart';
 
-/// Android can recover only an exact, owner-bound target already bonded by the
-/// OS. It still uses the normal vendor handshake, never the SDK's saved target.
+/// Android 恢复只查询原绑定的系统蓝牙标识，仍须正常连接并完成厂商握手。
 class CoolWearAndroidWearableBridge extends CoolWearWearableBridge
     implements
+        WearableOwnedSystemTargetBridge,
         WearableBoundDeviceLookupBridge,
         WearableBoundTargetDiscoveryBridge {
   CoolWearAndroidWearableBridge({
@@ -65,6 +65,16 @@ class CoolWearAndroidWearableBridge extends CoolWearWearableBridge
       method == 'syncHealthData' || method == 'readSportRecords'
       ? const Duration(seconds: 95)
       : fallback;
+
+  @override
+  Future<DeviceInfo?> lookupOwnedSystemTarget(String nativeIdentifier) async {
+    final value = await _invoke<Map<Object?, Object?>>(
+      'lookupOwnedSystemTarget',
+      {'id': nativeIdentifier},
+      const Duration(seconds: 2),
+    );
+    return value == null || value.isEmpty ? null : DeviceInfo.fromMap(value);
+  }
 
   @override
   Future<DeviceInfo?> lookupPreviouslyBoundDevice(

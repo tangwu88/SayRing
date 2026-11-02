@@ -94,12 +94,14 @@ class _Wearable extends Fake implements WearableBridge {
   final bool failStart;
   final String failureCode;
   final calls = <bool>[];
+  Future<void> Function()? onStart;
   @override
   Future<void> triggerDeviceAction(
     DeviceFeature feature, {
     bool enabled = true,
   }) async {
     calls.add(enabled);
+    if (enabled) await onStart?.call();
     if (enabled && failStart) {
       throw PlatformException(code: failureCode, message: '未收到回包');
     }
@@ -110,7 +112,189 @@ class _Wearable extends Fake implements WearableBridge {
       const {};
 }
 
+Future<({_Camera camera, AppController app})> _openIosCamera(
+  WidgetTester tester,
+  _Wearable wearable,
+) async {
+  final original = CameraPlatform.instance;
+  final camera = _Camera();
+  CameraPlatform.instance = camera;
+  tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  final app =
+      AppController(MemorySessionVault(), _Api(), MemoryHealthStore(), wearable)
+        ..connectedDevice = const DeviceInfo(id: 'qring:fixture', name: 'R8')
+        ..deviceCapabilityState = DeviceCapabilityState.ready
+        ..capabilities = const DeviceCapabilities(
+          metrics: {},
+          features: {DeviceFeature.camera},
+          integratedFeatures: {DeviceFeature.camera},
+        );
+  addTearDown(() async {
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+    app.dispose();
+    CameraPlatform.instance = original;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  });
+  await tester.pumpWidget(
+    MaterialApp(
+      home: DeviceFeaturePage(controller: app, feature: DeviceFeature.camera),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return (camera: camera, app: app);
+}
+
+Future<void> _closeCamera(WidgetTester tester) async {
+  await tester.pumpWidget(const SizedBox.shrink());
+  await tester.pumpAndSettle();
+}
+
+PlatformException _busyCamera({bool marked = true}) => PlatformException(
+  code: 'DEVICE_BUSY',
+  message: 'identical message for all busy reasons',
+  details: marked ? {'retryableCameraReadBusy': true} : null,
+);
+
 void main() {
+  final ios = TargetPlatformVariant({TargetPlatform.iOS});
+  testWidgets('busy camera read recovers on the same phone preview', (
+    tester,
+  ) async {
+    final wearable = _Wearable()..onStart = () async => throw _busyCamera();
+    final fixture = await _openIosCamera(tester, wearable);
+    expect(wearable.calls, [true]);
+    expect(find.byType(CameraPreview), findsOneWidget);
+    expect(find.text('戒指遥控已就绪'), findsNothing);
+    wearable.onStart = null;
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    expect(wearable.calls, [true, true]);
+    expect(fixture.camera.created, 1);
+    expect(fixture.camera.disposed, 0);
+    expect(find.text('戒指遥控已就绪'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 20));
+    expect(wearable.calls, [true, true]);
+    await _closeCamera(tester);
+  }, variant: ios);
+
+  testWidgets('busy camera read has a limit and then allows manual retry', (
+    tester,
+  ) async {
+    final wearable = _Wearable()..onStart = () async => throw _busyCamera();
+    await _openIosCamera(tester, wearable);
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(seconds: 5));
+    }
+    final attempts = wearable.calls.length;
+    expect(attempts, inInclusiveRange(2, 6));
+    await tester.pump(const Duration(minutes: 1));
+    expect(wearable.calls.length, attempts);
+    wearable.onStart = null;
+    final retry = find.byKey(const Key('camera-retry-button'));
+    await tester.ensureVisible(retry);
+    await tester.pumpAndSettle();
+    await tester.tap(retry);
+    await tester.pumpAndSettle();
+    expect(wearable.calls, List.filled(attempts + 1, true));
+    expect(find.text('戒指遥控已就绪'), findsOneWidget);
+    await _closeCamera(tester);
+  }, variant: ios);
+
+  testWidgets(
+    'busy camera without the pre-dispatch read marker is never retried',
+    (tester) async {
+      final wearable = _Wearable()
+        ..onStart = () async => throw _busyCamera(marked: false);
+      await _openIosCamera(tester, wearable);
+      await tester.pump(const Duration(minutes: 1));
+      expect(wearable.calls, [true]);
+      expect(find.byKey(const Key('camera-retry-button')), findsOneWidget);
+      expect(find.text('戒指遥控已就绪'), findsNothing);
+      await _closeCamera(tester);
+    },
+    variant: ios,
+  );
+
+  testWidgets('a late camera acknowledgement cannot stop the newer preview', (
+    tester,
+  ) async {
+    final firstStart = Completer<void>();
+    final wearable = _Wearable()..onStart = () => firstStart.future;
+    await _openIosCamera(tester, wearable);
+    expect(wearable.calls, [true]);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pumpAndSettle();
+    wearable.onStart = null;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(wearable.calls, [true, false, true]);
+    expect(find.text('戒指遥控已就绪'), findsOneWidget);
+    firstStart.complete();
+    await tester.pumpAndSettle();
+    expect(wearable.calls, [true, false, true]);
+    expect(find.text('戒指遥控已就绪'), findsOneWidget);
+    await _closeCamera(tester);
+    expect(wearable.calls, [true, false, true, false]);
+  }, variant: ios);
+
+  testWidgets('an uncertain response ends the busy camera retry chain', (
+    tester,
+  ) async {
+    final wearable = _Wearable()..onStart = () async => throw _busyCamera();
+    await _openIosCamera(tester, wearable);
+    wearable.onStart = () async => throw PlatformException(
+      code: 'QRING_CONTROL_UNCONFIRMED',
+      message: '设备忙，请稍后重试',
+      details: {'retryableCameraReadBusy': true},
+    );
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('camera-reconnect-button')), findsOneWidget);
+    await tester.pump(const Duration(minutes: 1));
+    expect(wearable.calls, [true, true]);
+    expect(find.text('戒指遥控已就绪'), findsNothing);
+    await _closeCamera(tester);
+  }, variant: ios);
+
+  for (final state in ['closed', 'background', 'new-preview', 'other-device']) {
+    testWidgets('busy camera retry is scoped to its preview after $state', (
+      tester,
+    ) async {
+      final wearable = _Wearable()..onStart = () async => throw _busyCamera();
+      final fixture = await _openIosCamera(tester, wearable);
+      wearable.onStart = null;
+      switch (state) {
+        case 'closed':
+          await tester.pumpWidget(const SizedBox.shrink());
+        case 'background':
+        case 'new-preview':
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.inactive,
+          );
+          await tester.pumpAndSettle();
+          if (state == 'new-preview') {
+            tester.binding.handleAppLifecycleStateChanged(
+              AppLifecycleState.resumed,
+            );
+            await tester.pumpAndSettle();
+          }
+        case 'other-device':
+          fixture.app.connectedDevice = const DeviceInfo(
+            id: 'qring:other',
+            name: 'R21',
+          );
+      }
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pumpAndSettle();
+      expect(wearable.calls, state == 'new-preview' ? [true, true] : [true]);
+      expect(
+        find.text('戒指遥控已就绪'),
+        state == 'new-preview' ? findsOneWidget : findsNothing,
+      );
+      await _closeCamera(tester);
+    }, variant: ios);
+  }
   for (final failureCode in [
     'QRING_ACTION_FAILED',
     'QRING_CONTROL_UNCONFIRMED',

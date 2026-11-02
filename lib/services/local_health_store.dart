@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_sqlcipher/sqflite.dart';
+import 'package:uuid/uuid.dart';
 
 import '../domain/models.dart';
 import '../domain/sleep_timeline.dart';
@@ -31,6 +32,10 @@ abstract interface class HealthStore implements NotificationInboxStorage {
   });
   Future<List<HealthRecord>> latestForEachMetric();
   Future<void> saveSportRecord(SportRecord record);
+  Future<bool> importCoolWearAndroidSport(
+    String nativeTarget,
+    SportRecord record,
+  );
   Future<List<SportRecord>> localSportRecords();
   Future<void> saveHealthWarningAlert(HealthWarningAlert alert);
   Future<List<HealthWarningAlert>> healthWarningAlerts();
@@ -40,6 +45,66 @@ abstract interface class HealthStore implements NotificationInboxStorage {
   Future<String?> readCursor();
   Future<void> writeCursor(String cursor);
   Future<void> close();
+}
+
+// 与 Android CoolWearRecordMapper.sportRecords 的 Java nameUUIDFromBytes 一致。
+// 除了格式，还要核对本轮连接的 MAC、运动类型和开始时刻，防止旧目标回包写入当前记录。
+final _coolWearMac = RegExp(r'^(?:[0-9A-F]{2}:){5}[0-9A-F]{2}$');
+
+List<String> _coolWearWorkoutIds(String target, SportRecord record) {
+  final mac = target.toUpperCase();
+  final started = record.startedAt;
+  if (!_coolWearMac.hasMatch(mac) || started == null) return const [];
+  String idFor(String address) {
+    final key =
+        '$address|sport|${record.mode.wireName}|${started.millisecondsSinceEpoch}';
+    final bytes = md5.convert(utf8.encode(key)).bytes.toList();
+    bytes[6] = (bytes[6] & 0x0f) | 0x30;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    return 'cw-${Uuid.unparse(bytes)}';
+  }
+
+  // Java 用握手时传入的 MAC 原字节算 UUID。旧绑定可能保留了小写，系统扫描则返回大写。
+  final exact = idFor(target);
+  final canonical = target == mac ? exact : idFor(mac);
+  if (record.id != exact && record.id != canonical) return const [];
+  // 只从该目标、模式、开始时刻推导已有主键；保留既有行及其 id，避免重连后产生第二条运动。
+  return {record.id, exact, canonical, idFor(mac.toLowerCase())}.toList();
+}
+
+Map<String, Object?>? _advancedCoolWearWorkout(
+  Map<String, Object?> stored,
+  String storedId,
+  SportRecord record,
+) {
+  final start = DateTime.tryParse('${stored['startedAt']}');
+  if (stored['id'] != storedId ||
+      stored['mode'] != record.mode.wireName ||
+      start == null ||
+      !start.isAtSameMomentAs(record.startedAt!)) {
+    return null;
+  }
+  final incoming = record.toMap();
+  const counters = ['durationSeconds', 'steps', 'distanceKm', 'calories'];
+  final missing = stored['missingMetrics'];
+  bool advanced = false;
+  // 厂商没有修订序号；累计量全部明确且均未回退时，才有证据补全同一次运动。
+  for (final key in counters) {
+    final old = stored[key], next = incoming[key];
+    if ((missing is List && missing.contains(key)) ||
+        old is! num ||
+        next is! num ||
+        !old.isFinite ||
+        !next.isFinite ||
+        old < 0 ||
+        next < old) {
+      return null;
+    }
+    if (next > old) advanced = true;
+  }
+  if (!advanced) return null;
+  // 在原始存储载荷上只替换累计量，保留路线、心率采样及当前界面策略未展示的字段。
+  return {...stored, for (final key in counters) key: incoming[key]};
 }
 
 abstract interface class HealthStoreRecoveryStatus {
@@ -975,6 +1040,54 @@ class EncryptedHealthStore
   }
 
   @override
+  Future<bool> importCoolWearAndroidSport(
+    String nativeTarget,
+    SportRecord record,
+  ) {
+    final ids = _coolWearWorkoutIds(nativeTarget, record);
+    if (ids.isEmpty) {
+      return Future.value(false);
+    }
+    final ownerId = _ownerId;
+    // 读取、比较和更新在同一个事务内。并发旧读取不能覆盖较新的累计值。
+    return _enqueue(
+      () => _db.transaction((txn) async {
+        final slots = List.filled(ids.length, '?').join(',');
+        final rows = await txn.query(
+          'sport_records',
+          columns: ['id', 'payload'],
+          where: 'owner_id = ? AND id IN ($slots)',
+          whereArgs: [ownerId, ...ids],
+        );
+        if (rows.isEmpty) {
+          await txn.insert('sport_records', {
+            'owner_id': ownerId,
+            'id': record.id,
+            'started_at': record.startedAt!.toUtc().toIso8601String(),
+            'payload': jsonEncode(record.toMap()),
+          });
+        } else {
+          final byId = {for (final row in rows) row['id']: row};
+          final storedId = ids.firstWhere(byId.containsKey);
+          final stored =
+              jsonDecode(byId[storedId]!['payload'] as String)
+                  as Map<String, dynamic>;
+          final merged = _advancedCoolWearWorkout(stored, storedId, record);
+          if (merged != null) {
+            await txn.update(
+              'sport_records',
+              {'payload': jsonEncode(merged)},
+              where: 'owner_id = ? AND id = ?',
+              whereArgs: [ownerId, storedId],
+            );
+          }
+        }
+        return true;
+      }),
+    );
+  }
+
+  @override
   Future<List<SportRecord>> localSportRecords() async {
     final ownerId = _ownerId;
     final rows = await _enqueue(
@@ -1616,6 +1729,33 @@ class MemoryHealthStore
   @override
   Future<void> saveSportRecord(SportRecord record) async {
     _sportRecords[record.id] = record;
+  }
+
+  @override
+  Future<bool> importCoolWearAndroidSport(
+    String nativeTarget,
+    SportRecord record,
+  ) async {
+    final ids = _coolWearWorkoutIds(nativeTarget, record);
+    if (ids.isEmpty) return false;
+    final storedId = ids.firstWhere(
+      _sportRecords.containsKey,
+      orElse: () => record.id,
+    );
+    final previous = _sportRecords[storedId];
+    if (previous == null) {
+      _sportRecords[record.id] = record;
+    } else {
+      final merged = _advancedCoolWearWorkout(
+        previous.toMap(),
+        storedId,
+        record,
+      );
+      if (merged != null) {
+        _sportRecords[storedId] = SportRecord.fromMap(merged);
+      }
+    }
+    return true;
   }
 
   @override

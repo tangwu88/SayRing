@@ -38,6 +38,25 @@ void main() {
       expect(calls.single.arguments, {'id': 'AA:BB:CC:DD:EE:01'});
     },
   );
+  test(
+    'Android owner lookup calls only the exact system-target method',
+    () async {
+      const channel = MethodChannel('test.coolwear.owned');
+      MethodCall? seen;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        seen = call;
+        return {'id': 'aa:bb:cc:dd:ee:ff', 'name': 'R7 Ultra'};
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final bridge = CoolWearAndroidWearableBridge(methods: channel);
+      final target = await bridge.lookupOwnedSystemTarget('aa:bb:cc:dd:ee:ff');
+      expect(target?.name, 'R7 Ultra');
+      expect(seen?.method, 'lookupOwnedSystemTarget');
+      expect(seen?.arguments, {'id': 'aa:bb:cc:dd:ee:ff'});
+    },
+  );
   const channel = MethodChannel('cc.saidian.ring/commands');
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;

@@ -19,8 +19,13 @@ static void later(dispatch_time_t t, __unused dispatch_queue_t q, dispatch_block
 static void drain(void) { while (queued.count) { QRingNext block=queued.firstObject; [queued removeObjectAtIndex:0]; block(); } }
 @interface FlutterError:NSObject
 @property(nonatomic,copy) NSString *code;
+@property(nonatomic,copy) NSDictionary *details;
++ (instancetype)errorWithCode:(NSString *)code message:(NSString *)message details:(NSDictionary *)details;
 @end
 @implementation FlutterError
++ (instancetype)errorWithCode:(NSString *)code message:(__unused NSString *)message details:(NSDictionary *)details {
+    FlutterError *e=[self new]; e.code=code; e.details=details; return e;
+}
 @end
 @interface QCSDKManager:NSObject
 @property(nonatomic,copy) QRingNext switchToPicture, takePicture, stopTakePicture;
@@ -116,6 +121,14 @@ int main(void) { @autoreleasepool {
     b.connectionGeneration++;enterSuccess();oldTake();drain();check(!b.remoteCameraActive && b.results.count==0 && b.events.count==0);
     b=make();b.featureList=@{};check(![b canOpenRemoteCamera]);request(b,4);check(lastError(b,@"QRING_FEATURE_UNVERIFIED") && enterCalls==0);
     b=make();b.readingDetails=YES;request(b,4);check(lastError(b,@"DEVICE_BUSY") && enterCalls==0);
+    check([((FlutterError *)b.results.lastObject).details[@"retryableCameraReadBusy"] isEqual:@YES]);
+    b.readingDetails=NO;request(b,4);check(enterCalls==1);enterSuccess();drain();check(b.remoteCameraActive);
+    b.pendingSync=@YES;request(b,4);check(lastError(b,@"DEVICE_BUSY") && !((FlutterError *)b.results.lastObject).details && enterCalls==1);
+    b=make();b.pendingSync=@YES;request(b,4);check(lastError(b,@"DEVICE_BUSY") && enterCalls==0 && [((FlutterError *)b.results.lastObject).details[@"retryableCameraReadBusy"] isEqual:@YES]);
+    b.remoteCameraPoisonGeneration=b.connectionGeneration;request(b,4);check(lastError(b,@"QRING_CONTROL_UNCONFIRMED") && !((FlutterError *)b.results.lastObject).details && enterCalls==0);
+    b=make();request(b,4);b.readingDetails=YES;request(b,4);check(lastError(b,@"DEVICE_BUSY") && !((FlutterError *)b.results.lastObject).details && enterCalls==1);
+    b=make();b.activeMetric=@"measurement";b.readingDetails=YES;request(b,4);check(lastError(b,@"DEVICE_BUSY") && !((FlutterError *)b.results.lastObject).details && enterCalls==0);
+    b=make();b.readingDetails=YES;request(b,6);check(lastError(b,@"DEVICE_BUSY") && !((FlutterError *)b.results.lastObject).details && exitCalls==0);
     b=make();request(b,4);enterSuccess();drain();request(b,6);check(!b.remoteCameraActive && exitCalls==1);exitSuccess();drain();check(b.results.count==2);
     printf("QRing on-entry photo session: %lu assertions passed\n",(unsigned long)checks);
 } return 0; }

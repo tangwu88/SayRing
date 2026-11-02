@@ -3,6 +3,7 @@ package cc.saidian.saydian_app;
 import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.BluetoothManager;
+import android.bluetooth.BluetoothProfile;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.BroadcastReceiver;
@@ -103,6 +104,7 @@ public final class CoolWearRingBridge
     private Runnable connectDeadline;
     private Runnable syncDeadline;
     private CoolWearSyncWindow syncWindow;
+    private CoolWearSyncWindow healthProgressWindow;
     private Runnable settingsDeadline;
     private String connectedId;
     private String connectedName;
@@ -345,7 +347,7 @@ public final class CoolWearRingBridge
                 (K6BleDataResult<ArrayList<K6_Mix_sport_Struct>>) values -> {
                     if (values != null) {
                         ArrayList<K6_Mix_sport_Struct> snapshot = new ArrayList<>(values);
-                        main.post(() -> collectSport(CoolWearRecordMapper.sportRecords(
+                        postCurrentPacket(() -> collectSport(CoolWearRecordMapper.sportRecords(
                                 connectedId, snapshot)));
                     }
                     return false;
@@ -382,37 +384,57 @@ public final class CoolWearRingBridge
         return RingNamePolicy.luckRingModel(name);
     }
 
-    static boolean isExactBondedTarget(String requested, String actual, String name) {
+    static boolean isExactSystemTarget(String requested, String actual, String name) {
         return requested != null && requested.matches("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}")
                 && requested.equalsIgnoreCase(actual) && supportedModel(name) != null;
     }
 
-    private void lookupBondedDevice(MethodCall call, MethodChannel.Result result) {
-        profileTrace("exact bond lookup");
-        String id = call.argument("id");
-        BluetoothManager manager = (BluetoothManager) activity.getSystemService(Context.BLUETOOTH_SERVICE);
-        if (id == null || manager == null || manager.getAdapter() == null) {
-            result.success(null);
-            return;
-        }
-        for (BluetoothDevice device : manager.getAdapter().getBondedDevices()) {
-            if (device.getBondState() != BluetoothDevice.BOND_BONDED ||
-                    !isExactBondedTarget(id, device.getAddress(), device.getName())) continue;
-            String name = device.getName().trim();
+    private Map<String, Object> matchingSystemTarget(
+            String id, Iterable<BluetoothDevice> devices, boolean requireBond) {
+        for (BluetoothDevice device : devices) {
+            if (device == null || (requireBond && device.getBondState() != BluetoothDevice.BOND_BONDED)) continue;
+            String address = device.getAddress();
+            if (!id.equalsIgnoreCase(address)) continue;
+            String name = device.getName();
+            if (!isExactSystemTarget(id, address, name)) continue;
             Map<String, Object> value = new HashMap<>();
-            value.put("id", id);
-            value.put("name", name);
+            value.put("id", id); // 保留原账号的设备键，厂商 SDK 使用规范 MAC。
+            value.put("name", name.trim());
             value.put("model", supportedModel(name));
-            value.put("hardwareAddress", id);
-            value.put("bonded", true);
-            // Only the owner's requested OS-bonded target is made eligible for
-            // normal connect. No bind/reset, capability or connection is implied.
-            scanned.put(id, value);
-            profileTrace("exact OS bond validated; SDK handshake still required");
-            result.success(value);
-            return;
+            value.put("hardwareAddress", address.toUpperCase(Locale.ROOT));
+            if (requireBond) value.put("bonded", true);
+            return value;
         }
-        result.success(null);
+        return null;
+    }
+
+    private Map<String, Object> findExactSystemTarget(String id, boolean includeConnected) {
+        if (id == null || !id.matches("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}")) return null;
+        BluetoothManager manager = (BluetoothManager) activity.getSystemService(Context.BLUETOOTH_SERVICE);
+        if (manager == null || manager.getAdapter() == null) return null;
+        if (includeConnected) {
+            Map<String, Object> current = matchingSystemTarget(
+                    id, manager.getConnectedDevices(BluetoothProfile.GATT), false);
+            if (current != null) return current;
+        }
+        return matchingSystemTarget(id, manager.getAdapter().getBondedDevices(), true);
+    }
+
+    private void lookupSystemTarget(MethodCall call, MethodChannel.Result result, boolean includeConnected) {
+        String id = call.argument("id");
+        Map<String, Object> candidate = findExactSystemTarget(id, includeConnected);
+        if (candidate != null) {
+            if (includeConnected) candidate.put("ownedSystemTarget", true);
+            scanned.put(id, candidate);
+        }
+        result.success(candidate);
+    }
+
+    private Map<String, Object> currentConnectCandidate(String id) {
+        Map<String, Object> candidate = scanned.get(id);
+        if (candidate == null || !Boolean.TRUE.equals(candidate.get("ownedSystemTarget"))) return candidate;
+        // 查询和点击之间可能已断开或换设备，旧快照不能交给 SDK 当作当前目标。
+        return findExactSystemTarget(id, true);
     }
 
     private void receiveScannedDevices(List<MyBleDevice> devices) {
@@ -420,7 +442,9 @@ public final class CoolWearRingBridge
         for (MyBleDevice device : devices) {
             if (device == null || device.getmBluetoothDevice() == null) continue;
             String name = device.getName();
-            String id = device.getmBluetoothDevice().getAddress();
+            String address = device.getmBluetoothDevice().getAddress();
+            // 精确恢复沿用绑定键的原大小写；普通扫描继续返回系统地址。
+            String id = address != null && address.equalsIgnoreCase(scanExactTargetId) ? scanExactTargetId : address;
             String model = supportedModel(name);
             if (model == null || id == null || id.isEmpty()) continue;
             Map<String, Object> value = new HashMap<>();
@@ -468,37 +492,46 @@ public final class CoolWearRingBridge
 
     private void collectHealth(List<Map<String, Object>> records) {
         if (!linkConnected || !deviceInfoReceived || records == null) return;
+        boolean received = false, changed = false;
+        String model = supportedModel(connectedName);
         for (Map<String, Object> record : records) {
             Object id = record.get("id");
-            if (id != null) {
-                String model = supportedModel(connectedName);
-                if (model != null) record.put("sourceModel", model);
-                // Passive SDK packets are history, even when received during a
-                // manual measurement. Keep their timestamps and stable IDs.
-                record.put("rawVersion", 2);
-                if (pendingHealthSync != null) {
-                    syncedHealthRecords.put(id.toString(), record);
-                } else {
-                    emit("healthRecord", record);
-                }
+            if (id == null || id.toString().trim().isEmpty()) continue;
+            if (model != null) record.put("sourceModel", model);
+            record.put("rawVersion", 2);
+            if (healthProgressWindow == null) {
+                emit("healthRecord", record);
+                continue;
+            }
+            received = true;
+            if (!record.equals(syncedHealthRecords.put(id.toString(), record))) {
+                changed = true;
+                // 健康读取已返回时，真正晚到的健康记录仍交给现有的被动入库流程。
+                if (pendingHealthSync == null) emit("healthRecord", record);
             }
         }
-        if (pendingHealthSync != null && !records.isEmpty()) {
-            noteSyncPacket();
-            Map<String, Object> progress = new HashMap<>();
-            progress.put("deviceId", connectedId);
-            progress.put("receivedRecords", syncedHealthRecords.size());
-            emit("syncRecords", progress);
+        if (received) noteSyncPacket();
+        if (changed) {
+            healthProgressWindow.received(SystemClock.elapsedRealtime());
+            if (pendingHealthSync != null) {
+                Map<String, Object> progress = new HashMap<>();
+                progress.put("deviceId", connectedId);
+                progress.put("receivedRecords", syncedHealthRecords.size());
+                emit("syncRecords", progress);
+            }
         }
     }
 
     private void collectSport(List<Map<String, Object>> records) {
-        if ((pendingSportSync == null && pendingHealthSync == null) || records == null) return;
+        if (syncWindow == null || records == null) return;
+        boolean received = false;
         for (Map<String, Object> record : records) {
             Object id = record.get("id");
-            if (id != null) syncedSportRecords.put(id.toString(), record);
+            if (id == null || id.toString().trim().isEmpty()) continue;
+            syncedSportRecords.put(id.toString(), record);
+            received = true;
         }
-        if (!records.isEmpty()) noteSyncPacket();
+        if (received) noteSyncPacket();
     }
 
     private void noteSyncPacket() {
@@ -513,7 +546,7 @@ public final class CoolWearRingBridge
         }
         // Both readers receive the same SDK stream. Join an active health read
         // rather than starting a second transfer or discarding its sports.
-        if (sportOnly && pendingHealthSync != null && pendingSportSync == null) {
+        if (sportOnly && syncWindow != null && pendingSportSync == null) {
             pendingSportSync = result;
             return;
         }
@@ -521,17 +554,38 @@ public final class CoolWearRingBridge
             result.error("SYNC_BUSY", "戒指数据正在同步", null);
             return;
         }
+        // 新的健康请求可接替上一轮的收尾窗口；保留此前收到、尚可被运动读取者领取的记录。
+        if (syncDeadline != null) main.removeCallbacks(syncDeadline);
+        if (syncWindow == null) syncedSportRecords.clear();
         syncedHealthRecords.clear();
-        syncedSportRecords.clear();
         if (sportOnly) pendingSportSync = result;
         else pendingHealthSync = result;
-        syncWindow = new CoolWearSyncWindow(SystemClock.elapsedRealtime());
+        long started = SystemClock.elapsedRealtime();
+        syncWindow = new CoolWearSyncWindow(started);
+        healthProgressWindow = sportOnly ? null : new CoolWearSyncWindow(started);
         syncDeadline = new Runnable() {
             @Override public void run() {
                 if (syncDeadline != this || syncWindow == null) return;
-                long remaining = syncWindow.remaining(SystemClock.elapsedRealtime());
-                if (remaining > 0) main.postDelayed(this, remaining);
-                else failPendingSync("COOLWEAR_SYNC_TIMEOUT", "戒指未返回完整同步确认，已保留收到的记录");
+                long now = SystemClock.elapsedRealtime();
+                long remaining = syncWindow.remaining(now);
+                if (remaining == 0) {
+                    failPendingSync("COOLWEAR_SYNC_TIMEOUT", "戒指未返回完整同步确认，已保留收到的记录");
+                    return;
+                }
+                // 重复健康包不延长用户等待。运动没有被动入库回调，已加入的读取者或已到的
+                // 运动记录仍保留原传输时限；仅健康先返回时也继续接收，供稍后加入的运动读取领取。
+                if (pendingHealthSync != null && pendingSportSync == null && syncedSportRecords.isEmpty()) {
+                    long healthRemaining = healthProgressWindow.remaining(now);
+                    if (healthRemaining > 0) {
+                        remaining = Math.min(remaining, healthRemaining);
+                    } else {
+                        MethodChannel.Result health = pendingHealthSync;
+                        pendingHealthSync = null;
+                        health.error("COOLWEAR_SYNC_TIMEOUT", "戒指未返回完整同步确认，已保留收到的记录",
+                                new ArrayList<>(syncedHealthRecords.values()));
+                    }
+                }
+                main.postDelayed(this, remaining);
             }
         };
         main.postDelayed(syncDeadline, CoolWearSyncWindow.IDLE_MS);
@@ -550,6 +604,7 @@ public final class CoolWearRingBridge
         if (syncDeadline != null) main.removeCallbacks(syncDeadline);
         syncDeadline = null;
         syncWindow = null;
+        healthProgressWindow = null;
         MethodChannel.Result healthResult = pendingHealthSync;
         MethodChannel.Result sportResult = pendingSportSync;
         pendingHealthSync = null;
@@ -615,7 +670,7 @@ public final class CoolWearRingBridge
                 // The vendor demo persists all three scan identities after
                 // BLUE_CONNECTED. Its transport uses these for follow-up
                 // commands and direct reconnects.
-                helper.getPersistent().setBlueAddress(connectedId);
+                helper.getPersistent().setBlueAddress(connectedId.toUpperCase(Locale.ROOT));
                 helper.getPersistent().setDevName(connectedName);
                 if (connectedVendorId != null && !connectedVendorId.isEmpty()) {
                     helper.getPersistent().setDeviceId(connectedVendorId);
@@ -1105,7 +1160,7 @@ public final class CoolWearRingBridge
             finishGesture("BLUETOOTH_DISABLED", "请先开启手机蓝牙"); return true;
         }
         final BluetoothDevice device;
-        try { device = manager.getAdapter().getRemoteDevice(connectedId); }
+        try { device = manager.getAdapter().getRemoteDevice(connectedId.toUpperCase(Locale.ROOT)); }
         catch (IllegalArgumentException error) { finishGesture("INVALID_DEVICE", "设备信息无效，请重新连接"); return true; }
         if (device.getBondState() == BluetoothDevice.BOND_BONDED) return false;
         final long epoch = connectionEpoch;
@@ -1431,6 +1486,11 @@ public final class CoolWearRingBridge
                 result.error("BLUETOOTH_DISABLED", "请先开启手机蓝牙", null);
                 return;
             }
+            // 先查 Android 自己的连接/配对记录；查询不应启动厂商 SDK 的自动连接。
+            if ("lookupOwnedSystemTarget".equals(call.method) || "lookupBondedDevice".equals(call.method)) {
+                lookupSystemTarget(call, result, "lookupOwnedSystemTarget".equals(call.method));
+                return;
+            }
             ensureSdk();
             if (pendingGesture != null && !("disconnect".equals(call.method) ||
                     "getCapabilities".equals(call.method) || "getDeviceDetails".equals(call.method) ||
@@ -1462,12 +1522,10 @@ public final class CoolWearRingBridge
                     // History-only SDK operation; no factory reset or retry.
                     // This Android SDK exposes no clear-data ACK callback.
                     clearAttemptEpoch = connectionEpoch;
+                    // 清空之前退役上一轮只等待晚到运动的窗口，不向新一轮交付旧缓存。
+                    failPendingSync("CONNECT_CANCELLED", "戒指已开始初始化");
                     helper.getSendDataManager().sendClearData();
-                    syncedHealthRecords.clear(); syncedSportRecords.clear();
                     result.success("requested");
-                    break;
-                case "lookupBondedDevice":
-                    lookupBondedDevice(call, result);
                     break;
                 case "scanDevices":
                     if (pendingScan != null) {
@@ -1504,15 +1562,17 @@ public final class CoolWearRingBridge
                 case "connect":
                     cancelHealthPulse(true);
                     String id = call.argument("id");
-                    if (id == null || !scanned.containsKey(id) || pendingConnect != null) {
+                    Map<String, Object> candidate = currentConnectCandidate(id);
+                    if (id == null || candidate == null || pendingConnect != null) {
                         result.error("UNKNOWN_SCANNED_DEVICE", "请重新扫描并选择 CoolWear 戒指", null);
                         return;
                     }
                     finishScan();
                     resetGesture("CONNECT_CANCELLED", "连接目标已更换");
+                    failPendingSync("CONNECT_CANCELLED", "连接目标已更换");
                     connectedId = id;
-                    connectedName = (String) scanned.get(id).get("name");
-                    connectedVendorId = (String) scanned.get(id).get("vendorId");
+                    connectedName = (String) candidate.get("name");
+                    connectedVendorId = (String) candidate.get("vendorId");
                     linkConnected = false;
                     deviceInfoReceived = false;
                     firmwareVersion = null;
@@ -1530,7 +1590,7 @@ public final class CoolWearRingBridge
                     sportHeartStreamStarted = false;
                     recoveringConnection = false;
                     pendingConnect = result;
-                    helper.connectDev(id, "");
+                    helper.connectDev(id.toUpperCase(Locale.ROOT), "");
                     connectDeadline = () -> failConnect(
                             "COOLWEAR_HANDSHAKE_TIMEOUT", "戒指未完成设备信息握手，请重试");
                     main.postDelayed(connectDeadline, CONNECT_MS);

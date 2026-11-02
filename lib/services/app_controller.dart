@@ -56,6 +56,8 @@ import 'module_visibility_service.dart';
 
 part 'app_controller_health_reminders.dart';
 
+enum DeviceActionOutcome { succeeded, retryableCameraReadBusy, failed }
+
 enum PushDeviceRegistrationState {
   idle,
   waitingForRegistrationId,
@@ -4610,97 +4612,88 @@ class AppController extends ChangeNotifier {
 
   Future<void> refreshSportRecords({bool includeDevice = true}) async {
     final generation = _sessionGeneration;
-    final deviceId = connectedDevice?.id;
+    final device = connectedDevice;
+    final deviceId = device?.id;
+    bool stillCurrent() =>
+        _isCurrentSessionGeneration(generation) &&
+        connectedDevice?.id == deviceId;
     await Future<void>.delayed(Duration.zero);
-    if (!_isCurrentSessionGeneration(generation)) return;
+    if (!stillCurrent()) return;
     final localRecords = (await _healthStore.localSportRecords())
         .map(healthReleasePolicy.projectSport)
         .toList();
-    if (!_isCurrentSessionGeneration(generation)) return;
-    if (deviceId == null || !includeDevice || _firstRingBindingPending) {
-      sportRecords = localRecords;
+    if (!stillCurrent()) return;
+    sportRecords = localRecords;
+    if (device == null || !includeDevice || _firstRingBindingPending) {
       notifyListeners();
       return;
     }
-    sportRecords = localRecords;
     try {
-      final records = (await _wearable.readSportRecords())
-          .map(healthReleasePolicy.projectSport)
-          .toList();
-      if (!_isCurrentSessionGeneration(generation) ||
-          connectedDevice?.id != deviceId) {
-        return;
-      }
-      final localIds = localRecords.map((record) => record.id).toSet();
-      for (final record in records) {
-        if (!_isCurrentSessionGeneration(generation) ||
-            connectedDevice?.id != deviceId) {
-          return;
+      List<SportRecord> records;
+      bool partial = false;
+      try {
+        records = await _wearable.readSportRecords();
+      } on PlatformException catch (error) {
+        if (error.code != 'COOLWEAR_SYNC_TIMEOUT') rethrow;
+        partial = true;
+        records = [];
+        final values = error.details;
+        if (values is List) {
+          for (final value in values.whereType<Map>()) {
+            try {
+              final record = SportRecord.fromMap(
+                value.cast<Object?, Object?>(),
+              );
+              if (record.id.isNotEmpty && record.startedAt != null) {
+                records.add(record);
+              }
+            } catch (_) {
+              // 单条无效回包不影响同批的其他真实运动。
+            }
+          }
         }
-        if (!localIds.contains(record.id)) {
-          await _healthStore.saveSportRecord(record);
+      }
+      final coolWearAndroid =
+          !kIsWeb &&
+          defaultTargetPlatform == TargetPlatform.android &&
+          device.sdkSource == WearableSdkSource.coolwear;
+      final localIds = localRecords.map((r) => r.id).toSet();
+      bool received = false;
+      for (final value in records) {
+        if (!stillCurrent()) return;
+        final record = healthReleasePolicy.projectSport(value);
+        if (coolWearAndroid) {
+          final accepted = await _healthStore.importCoolWearAndroidSport(
+            device.nativeId,
+            record,
+          );
+          received = received || accepted;
+        } else {
+          if (!localIds.contains(record.id)) {
+            await _healthStore.saveSportRecord(record);
+          }
+          received = true;
         }
       }
-      final byId = <String, SportRecord>{
-        for (final record in records) record.id: record,
-        for (final record in localRecords) record.id: record,
-      };
-      sportRecords = byId.values.toList()
+      if (!stillCurrent()) return;
+      final stored = await _healthStore.localSportRecords();
+      if (!stillCurrent()) return;
+      sportRecords = stored.map(healthReleasePolicy.projectSport).toList()
         ..sort(
           (a, b) => (b.startedAt ?? DateTime(1970)).compareTo(
             a.startedAt ?? DateTime(1970),
           ),
         );
+      if (partial) {
+        errorMessage = received
+            ? '已保留读到的运动记录，但戒指未确认同步完成；稍后可重试'
+            : '戒指暂未返回运动记录；已有记录仍可查看，稍后可重试';
+      }
     } on PlatformException catch (error) {
-      if (!_isCurrentSessionGeneration(generation) ||
-          connectedDevice?.id != deviceId) {
-        return;
-      }
-      if (error.code == 'COOLWEAR_SYNC_TIMEOUT' && error.details is List) {
-        final partial = <SportRecord>[];
-        for (final value in error.details as List) {
-          if (value is! Map) continue;
-          try {
-            final record = SportRecord.fromMap(value.cast<Object?, Object?>());
-            if (record.id.isNotEmpty && record.startedAt != null) {
-              partial.add(healthReleasePolicy.projectSport(record));
-            }
-          } catch (_) {
-            // Ignore an invalid vendor packet, not the other valid records.
-          }
-        }
-        final localIds = localRecords.map((record) => record.id).toSet();
-        for (final record in partial) {
-          if (!_isCurrentSessionGeneration(generation) ||
-              connectedDevice?.id != deviceId) {
-            return;
-          }
-          if (!localIds.contains(record.id)) {
-            await _healthStore.saveSportRecord(record);
-          }
-        }
-        if (!_isCurrentSessionGeneration(generation) ||
-            connectedDevice?.id != deviceId) {
-          return;
-        }
-        final byId = <String, SportRecord>{
-          for (final record in partial) record.id: record,
-          for (final record in localRecords) record.id: record,
-        };
-        sportRecords = byId.values.toList()
-          ..sort(
-            (a, b) => (b.startedAt ?? DateTime(1970)).compareTo(
-              a.startedAt ?? DateTime(1970),
-            ),
-          );
-      }
-      errorMessage = error.code == 'COOLWEAR_SYNC_TIMEOUT'
-          ? sportRecords.length > localRecords.length
-                ? '已保留读到的运动记录，但戒指未确认同步完成；稍后可重试'
-                : '戒指暂未返回运动记录；已有记录仍可查看，稍后可重试'
-          : _wearableErrorMessage(error, fallback: '读取运动记录失败');
+      if (!stillCurrent()) return;
+      errorMessage = _wearableErrorMessage(error, fallback: '读取运动记录失败');
     } catch (_) {
-      if (!_isCurrentSessionGeneration(generation)) return;
+      if (!stillCurrent()) return;
       errorMessage = '运动记录读取失败，请稍后重试';
     }
     notifyListeners();
@@ -5267,12 +5260,22 @@ class AppController extends ChangeNotifier {
   Future<bool> triggerDeviceAction(
     DeviceFeature feature, {
     bool enabled = true,
+  }) async =>
+      await _triggerDeviceAction(feature, enabled: enabled) ==
+      DeviceActionOutcome.succeeded;
+
+  Future<DeviceActionOutcome> startCameraRemote() =>
+      _triggerDeviceAction(DeviceFeature.camera, enabled: true);
+
+  Future<DeviceActionOutcome> _triggerDeviceAction(
+    DeviceFeature feature, {
+    required bool enabled,
   }) async {
     final availability = availabilityFor(feature);
     if (!availability.isReady) {
       errorMessage = availability.message;
       notifyListeners();
-      return false;
+      return DeviceActionOutcome.failed;
     }
     final generation = _sessionGeneration;
     final settingsGeneration = _deviceSettingsGeneration;
@@ -5285,7 +5288,7 @@ class AppController extends ChangeNotifier {
     _setDeviceFeatureBusy(feature, true);
     try {
       await _wearable.triggerDeviceAction(feature, enabled: enabled);
-      if (!isCurrent()) return false;
+      if (!isCurrent()) return DeviceActionOutcome.failed;
       if (feature == DeviceFeature.camera && enabled) {
         deviceFeatureData = {
           ...deviceFeatureData,
@@ -5293,13 +5296,24 @@ class AppController extends ChangeNotifier {
         };
       }
       errorMessage = null;
-      return true;
+      return DeviceActionOutcome.succeeded;
     } on PlatformException catch (error) {
-      if (!isCurrent()) return false;
+      if (!isCurrent()) return DeviceActionOutcome.failed;
       errorMessage = _wearableErrorMessage(
         error,
         fallback: '${feature.label}暂时无法使用',
       );
+      // 仅 iOS 原生确认读操作占用且尚未发送开启指令时，才允许页面重试。
+      final details = error.details;
+      if (feature == DeviceFeature.camera &&
+          enabled &&
+          defaultTargetPlatform == TargetPlatform.iOS &&
+          connectedDevice?.sdkSource == WearableSdkSource.qring &&
+          error.code == 'DEVICE_BUSY' &&
+          details is Map &&
+          details['retryableCameraReadBusy'] == true) {
+        return DeviceActionOutcome.retryableCameraReadBusy;
+      }
       if (feature == DeviceFeature.camera &&
           connectedDevice?.sdkSource == WearableSdkSource.qring &&
           const {
@@ -5311,11 +5325,11 @@ class AppController extends ChangeNotifier {
           feature: {...?deviceFeatureData[feature], 'requiresReconnect': true},
         };
       }
-      return false;
+      return DeviceActionOutcome.failed;
     } catch (_) {
-      if (!isCurrent()) return false;
+      if (!isCurrent()) return DeviceActionOutcome.failed;
       errorMessage = '${feature.label}暂时无法使用，请稍后重试';
-      return false;
+      return DeviceActionOutcome.failed;
     } finally {
       if (isCurrent()) _setDeviceFeatureBusy(feature, false);
     }

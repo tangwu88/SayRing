@@ -5,6 +5,15 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
 const read=p=>readFileSync(new URL('../'+p,import.meta.url),'utf8');
+test('camera entry reaches its read-busy decision after reset protection', () => {
+  const source = read('ios/Runner/QRingWearableBridge.m');
+  const dispatch = source.slice(source.indexOf('- (void)handleCall:'));
+  const exit = dispatch.indexOf('[self stopRemoteCamera:result]');
+  const reset = dispatch.indexOf('[self.factoryResetGeneration isEqual:');
+  const enter = dispatch.indexOf('[self remoteCameraAction:4 result:result]');
+  const otherCommands = dispatch.indexOf('if ((self.pendingCamera || self.remoteCameraActive || self.readingDetails)');
+  assert.ok(exit >= 0 && exit < reset && reset < enter && enter < otherCommands);
+});
 test('native on-entry Photo UI preserves ACK, cancellation and current-session boundaries', {skip:process.platform!=='darwin'},()=>{
  const source=read('ios/Runner/QRingWearableBridge.m');
  const signatures=['- (BOOL)canOpenRemoteCamera {','- (BOOL)supportsGesture {','- (BOOL)cameraFlag:', '- (void)registerRemoteCameraCallbacks {','- (void)resetRemoteCamera {','- (void)cameraShutter:', '- (void)cameraStopped:', '- (void)scheduleCameraKeepAlive:', '- (void)remoteCameraAction:', '- (void)finishCamera:'];

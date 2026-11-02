@@ -343,6 +343,12 @@ abstract interface class WearableBoundDeviceLookupBridge {
   Future<DeviceInfo?> lookupPreviouslyBoundDevice(String nativeIdentifier);
 }
 
+/// Android 只为当前账号已握手绑定的精确 MAC 查询系统 GATT/配对证据。
+/// 返回的是待连接候选，不能代替正常的厂商连接和设备信息握手。
+abstract interface class WearableOwnedSystemTargetBridge {
+  Future<DeviceInfo?> lookupOwnedSystemTarget(String nativeIdentifier);
+}
+
 /// Bounded discovery may finish as soon as the exact saved target appears.
 /// Only the account-scoped router supplies this identifier; discovery alone
 /// never adopts a target or replaces the normal capability handshake.

@@ -17,11 +17,11 @@ class CoolWearNamePolicyTest {
     @Test
     fun `bond lookup is exact and never routes another family or arbitrary identifier`() {
         val id = "AA:BB:CC:DD:EE:01"
-        assertEquals(true, CoolWearRingBridge.isExactBondedTarget(id, id.lowercase(), "SD-RING-R7 Ultra"))
-        assertEquals(false, CoolWearRingBridge.isExactBondedTarget(id, "AA:BB:CC:DD:EE:02", "R7 Ultra"))
-        assertEquals(false, CoolWearRingBridge.isExactBondedTarget(id, id, "R22_C493"))
-        assertEquals(false, CoolWearRingBridge.isExactBondedTarget(id, id, null))
-        assertEquals(false, CoolWearRingBridge.isExactBondedTarget("arbitrary", "arbitrary", "R7 Ultra"))
+        assertEquals(true, CoolWearRingBridge.isExactSystemTarget(id, id.lowercase(), "SD-RING-R7 Ultra"))
+        assertEquals(false, CoolWearRingBridge.isExactSystemTarget(id, "AA:BB:CC:DD:EE:02", "R7 Ultra"))
+        assertEquals(false, CoolWearRingBridge.isExactSystemTarget(id, id, "R22_C493"))
+        assertEquals(false, CoolWearRingBridge.isExactSystemTarget(id, id, null))
+        assertEquals(false, CoolWearRingBridge.isExactSystemTarget("arbitrary", "arbitrary", "R7 Ultra"))
     }
     @Test
     fun `vibrating models preserve explicit routes and reject ambiguous names`() {
