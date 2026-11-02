@@ -8,6 +8,8 @@ import 'package:integration_test/integration_test.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:saydian_app/app.dart';
 import 'package:saydian_app/domain/feature_models.dart';
+import 'package:saydian_app/domain/health_record_units.dart';
+import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/services/app_controller.dart';
 import 'package:saydian_app/services/secure_vault.dart';
 import 'package:saydian_app/services/wearable_routing.dart';
@@ -22,6 +24,31 @@ void main() {
     (tester) async {
       final app = AppController.production();
       final proof = <String, Object?>{};
+      Future<void> settlePage() async {
+        for (var frame = 0; frame < 2; frame++) {
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+          await tester.pump().timeout(const Duration(seconds: 15));
+        }
+      }
+
+      Future<void> capture(String name) async {
+        // Give the selected tab/route two real frames before capturing it.
+        await settlePage();
+        await binding.takeScreenshot(name);
+      }
+
+      Future<void> tapVisible(Finder finder) async {
+        await tester.scrollUntilVisible(
+          finder,
+          180,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await Scrollable.ensureVisible(tester.element(finder), alignment: .5);
+        await settlePage();
+        await tester.tap(finder.hitTestable());
+        await settlePage();
+      }
+
       Future<void> recordBindingState(String phase) async {
         final state = <String, Object?>{
           'authenticated': app.isAuthenticated,
@@ -124,9 +151,7 @@ void main() {
           app.selectTab(1);
           try {
             await tester.pump().timeout(const Duration(seconds: 15));
-            await binding.takeScreenshot(
-              'connection-hotfix-binding-unavailable',
-            );
+            await capture('connection-hotfix-binding-unavailable');
             proof['bindingFailureScreenshotCaptured'] = true;
           } catch (_) {
             proof['bindingFailureScreenshotCaptured'] = false;
@@ -197,12 +222,118 @@ void main() {
               .onPressed,
           isNotNull,
         );
-        expect(
-          await app.syncDeviceData().timeout(const Duration(minutes: 3)),
-          true,
+        final now = DateTime.now();
+        final firstDay = DateTime(now.year, now.month, now.day - 6);
+        final lastDay = DateTime(now.year, now.month, now.day);
+        final endExclusive = DateTime(now.year, now.month, now.day + 1);
+        const metrics = [
+          HealthMetric.steps,
+          HealthMetric.distance,
+          HealthMetric.calories,
+          HealthMetric.sleep,
+        ];
+        Future<Map<HealthMetric, List<HealthRecord>>> readTargetWindow() async {
+          final result = <HealthMetric, List<HealthRecord>>{};
+          for (final metric in metrics) {
+            final records = metric == HealthMetric.sleep
+                ? await app.loadSleepDays(start: firstDay, end: lastDay)
+                : await app.loadHealthRecords(
+                    metric: metric,
+                    start: firstDay,
+                    end: endExclusive,
+                  );
+            result[metric] =
+                records.where((record) => record.deviceId == target.id).toList()
+                  ..sort((a, b) => b.measuredAt.compareTo(a.measuredAt));
+          }
+          return result;
+        }
+
+        final beforeWindow = await readTargetWindow();
+        proof['recordWindowStart'] = firstDay.toIso8601String();
+        proof['recordWindowEndExclusive'] = endExclusive.toIso8601String();
+        proof['targetStoredCountsBeforeSync'] = {
+          for (final metric in metrics)
+            metric.wireName: beforeWindow[metric]!.length,
+        };
+        final completed = await app.syncDeviceData().timeout(
+          const Duration(minutes: 3),
         );
-        proof['manualSyncCompleted'] = true;
-        proof['receivedRecords'] = app.deviceSyncReceivedRecords;
+        proof['manualSyncCompleted'] = completed;
+        proof['syncStatusAfterManual'] = app.syncStatus;
+        proof['syncIdleAfterManual'] = !app.isDeviceSyncing;
+        proof['syncErrorAbsent'] = app.errorMessage == null;
+        // UI-event counter only. iOS QRing does not emit syncRecords, so this
+        // must never be presented as the SDK's returned/new-record count.
+        proof['syncRecordsEventCount'] = app.deviceSyncReceivedRecords;
+        proof['syncRecordsEventCountIsSdkReturnCount'] = false;
+        // Capture statuses before loadSleepDays can add cached-day statuses.
+        proof['sleepDayStatusesAfterManual'] = Map.of(app.sleepReadStatuses);
+        expect(completed, true, reason: 'Require genuine complete SDK history');
+        expect(app.isDeviceSyncing, false);
+        expect(app.errorMessage, isNull);
+        expect(app.session?.accountKey, owner);
+        expect(app.connectedDevice?.id, target.id);
+        final afterWindow = await readTargetWindow();
+        proof['targetStoredCountsAfterSync'] = {
+          for (final metric in metrics)
+            metric.wireName: afterWindow[metric]!.length,
+        };
+        proof['newStoredRecordIdsByMetric'] = {
+          for (final metric in metrics)
+            metric.wireName: afterWindow[metric]!
+                .map((record) => record.id)
+                .toSet()
+                .difference(
+                  beforeWindow[metric]!.map((record) => record.id).toSet(),
+                )
+                .length,
+        };
+        proof['missingStoredRecordIdsByMetric'] = {
+          for (final metric in metrics)
+            metric.wireName: beforeWindow[metric]!
+                .map((record) => record.id)
+                .toSet()
+                .difference(
+                  afterWindow[metric]!.map((record) => record.id).toSet(),
+                )
+                .length,
+        };
+        for (final metric in metrics) {
+          final beforeIds = beforeWindow[metric]!
+              .map((record) => record.id)
+              .toSet();
+          final afterIds = afterWindow[metric]!
+              .map((record) => record.id)
+              .toSet();
+          expect(
+            afterIds.containsAll(beforeIds),
+            true,
+            reason: 'Preserve stored ${metric.wireName} records for target',
+          );
+        }
+        final latestActivity = <String, Object?>{};
+        for (final metric in metrics.where(
+          (metric) => metric != HealthMetric.sleep,
+        )) {
+          final records = afterWindow[metric]!;
+          if (records.isEmpty) {
+            latestActivity[metric.wireName] = {'present': false};
+            continue;
+          }
+          final record = records.first;
+          expect(record.values.values.every((value) => value.isFinite), true);
+          latestActivity[metric.wireName] = {
+            'present': true,
+            'values': record.values,
+            'unit': record.unit,
+            'source': record.source.name,
+            'origin': record.origin.wireName,
+            'measuredAt': record.measuredAt.toIso8601String(),
+            'calorieUnitUnconfirmed': hasUnconfirmedCalorieUnit(record),
+          };
+        }
+        proof['latestStoredActivityInWindow'] = latestActivity;
         final currentIds = app.healthRecords.map((r) => r.id).toSet();
         expect(currentIds.containsAll(originalRecordIds), true);
         proof['originalRecordCount'] = originalRecordIds.length;
@@ -214,7 +345,7 @@ void main() {
         proof['gestureOffered'] = app
             .availabilityFor(DeviceFeature.gestureControl)
             .isReady;
-        await binding.takeScreenshot('connection-hotfix-device-ready');
+        await capture('connection-hotfix-device-ready');
         // Observe genuine radio callbacks without generating writes or resets.
         for (var second = 0; second < 90; second++) {
           await Future<void>.delayed(const Duration(seconds: 1));
@@ -228,8 +359,37 @@ void main() {
         }
         proof['foregroundStableSeconds'] = 90;
         app.selectTab(0);
-        await tester.pump();
-        await binding.takeScreenshot('connection-hotfix-health');
+        await capture('connection-hotfix-health');
+        final visited = <String>[];
+        proof['activitySleepPages'] = visited;
+        final stepsLabel = find.descendant(
+          of: find.byKey(const Key('dashboard-today-health')),
+          matching: find.text(HealthMetric.steps.label),
+        );
+        await tapVisible(stepsLabel);
+        expect(find.byKey(const Key('health-trend-steps')), findsOneWidget);
+        for (final period in {'日': 'day', '周': 'week', '月': 'month'}.entries) {
+          await tapVisible(find.text(period.key));
+          expect(tester.takeException(), isNull);
+          await capture('connection-hotfix-steps-${period.value}');
+        }
+        visited.add('steps-day-week-month');
+        await tester.binding.handlePopRoute();
+        await settlePage();
+        final latestSleep = await app.loadLatestSleepDay();
+        proof['latestSleepPresent'] = latestSleep != null;
+        await tapVisible(find.byKey(const Key('home-sleep-overview-entry')));
+        expect(find.byKey(const Key('sleep-overview-page')), findsOneWidget);
+        await tapVisible(find.byKey(const Key('sleep-previous-day')));
+        await tapVisible(find.byKey(const Key('sleep-next-day')));
+        expect(tester.takeException(), isNull);
+        visited.add('sleep-overview-date-navigation');
+        await capture('connection-hotfix-sleep-overview');
+        await tester.binding.handlePopRoute();
+        await settlePage();
+        expect(app.session?.accountKey, owner);
+        expect(app.rememberedDevice?.id, target.id);
+        expect(app.connectedDevice?.id, target.id);
         expect(tester.takeException(), isNull);
         proof['acceptanceCompleted'] = true;
       } finally {
