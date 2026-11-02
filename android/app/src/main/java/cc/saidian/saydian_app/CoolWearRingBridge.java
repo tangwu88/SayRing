@@ -1208,11 +1208,16 @@ public final class CoolWearRingBridge
         for (k6_RRI_HRV_DATA value : values) {
             long time = CoolWearRecordMapper.currentTimestamp(value.getTime());
             int sdnn = value.getSdnn();
-            if (sdnn <= 0 || sdnn > 1_000) continue;
+            int quality = value.getQuality();
+            int validCount = value.getValid_count();
+            if (sdnn <= 0 || sdnn > 1_000 || quality < 1 || quality > 3
+                    || validCount < 2 || validCount > 255) continue;
             if (time == 0) time = System.currentTimeMillis();
             Map<String, Object> measured = new LinkedHashMap<>();
             measured.put("value", sdnn);
             measured.put("sdnn", sdnn);
+            measured.put("sdkQuality", quality);
+            measured.put("validCount", validCount);
             if (value.getRmssd() > 0) measured.put("rmssd", value.getRmssd());
             if (value.getRri() > 0) measured.put("rri", value.getRri());
             emitMeasurement("hrv", time, measured, "ms");
@@ -1279,6 +1284,7 @@ public final class CoolWearRingBridge
         Map<String, Object> record = CoolWearRecordMapper.healthRecord(
                 connectedId, firmwareVersion, metric, time, values, unit,
                 "app_measurement", "device_reported");
+        if ("hrv".equals(metric)) record.put("rawVersion", 2);
         String model = supportedModel(connectedName);
         if (model != null) record.put("sourceModel", model);
         emit("healthRecord", record);

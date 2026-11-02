@@ -1,10 +1,15 @@
 package cc.saidian.saydian_app;
 
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /** Runs production bridge methods against protocol-shaped synthetic samples. */
 public final class CoolWearHrvProtocolHarness {
@@ -13,6 +18,7 @@ public final class CoolWearHrvProtocolHarness {
     private boolean resultEmitted;
     private boolean linkConnected = true;
     private final String connectedId = "coolwear:test-only";
+    private final String connectedName = "HR05_TEST_ONLY";
     private final String firmwareVersion = "test-only";
     private final Helper helper = new Helper();
     private final Main main = new Main();
@@ -26,19 +32,10 @@ public final class CoolWearHrvProtocolHarness {
     // PRODUCTION_METHODS
 
     private void collectHealth(List<Map<String, Object>> values) { collected.addAll(values); }
-    private void emitMeasurement(String metric, long time, int value, String unit) {
-        Map<String, Object> values = new LinkedHashMap<>();
-        values.put("value", value);
-        emitMeasurement(metric, time, values, unit);
-    }
-    private void emitMeasurement(String metric, long time, Map<String, Object> values, String unit) {
-        Map<String, Object> event = new LinkedHashMap<>();
-        event.put("metric", metric);
-        event.put("unit", unit);
-        event.put("values", values);
-        event.put("time", time);
-        emitted.add(event);
-        resultEmitted = true;
+    private String supportedModel(String name) { return "HR05"; }
+    private void emit(String event, Map<String, Object> record) {
+        require("healthRecord".equals(event), "unexpected emitted event");
+        emitted.add(record);
     }
 
     public static void main(String[] args) {
@@ -64,18 +61,66 @@ public final class CoolWearHrvProtocolHarness {
                 break;
             case "rri-fields":
                 h.activeMeasurement = "hrv";
-                h.onHrvValues(List.of(new k6_RRI_HRV_DATA(0, 0, 0),
-                        new k6_RRI_HRV_DATA(1001, 0, 0)));
+                h.onHrvValues(List.of(new k6_RRI_HRV_DATA(0, 0, 0, 3, 80),
+                        new k6_RRI_HRV_DATA(1001, 0, 0, 3, 80)));
                 require(h.emitted.isEmpty(), "invalid SDNN was accepted");
-                h.onHrvValues(List.of(new k6_RRI_HRV_DATA(42, 51, 803)));
+                h.onHrvValues(List.of(new k6_RRI_HRV_DATA(42, 51, 803, 3, 80)));
                 require(h.emitted.size() == 1, "new-protocol HRV was not emitted once");
                 Map<String, Object> event = h.emitted.get(0);
-                require(event.get("metric").equals("hrv") && event.get("unit").equals("ms"),
+                require(event.get("type").equals("hrv") && event.get("unit").equals("ms"),
                         "new-protocol HRV metric/unit changed");
                 require(event.get("values").equals(Map.of("value", 42, "sdnn", 42,
-                        "rmssd", 51, "rri", 803)), "new-protocol fields were flattened/mislabeled");
-                h.onHrvValues(List.of(new k6_RRI_HRV_DATA(43, 52, 804)));
+                        "rmssd", 51, "rri", 803, "sdkQuality", 3, "validCount", 80)),
+                        "new-protocol fields were flattened/mislabeled");
+                h.onHrvValues(List.of(new k6_RRI_HRV_DATA(43, 52, 804, 2, 70)));
                 require(h.emitted.size() == 1, "HRV completed more than once");
+                break;
+            case "rri-quality":
+                h.activeMeasurement = "hrv";
+                for (int[] invalid : new int[][]{{-1, 80}, {0, 80}, {4, 80}, {255, 80},
+                        {2, -1}, {2, 0}, {2, 1}, {2, 256}}) {
+                    h.onHrvValues(List.of(new k6_RRI_HRV_DATA(42, 51, 803, invalid[0], invalid[1])));
+                    require(h.emitted.isEmpty() && !h.resultEmitted,
+                            "invalid quality/count prematurely completed HRV: " + Arrays.toString(invalid));
+                }
+                h.onHrvValues(List.of(new k6_RRI_HRV_DATA(42, 51, 803, 2, 60)));
+                require(h.emitted.size() == 1 && h.resultEmitted, "valid later RRI did not complete HRV");
+                break;
+            case "rri-quality-boundaries":
+                for (int quality : new int[]{1, 2, 3}) {
+                    for (int count : new int[]{2, 255}) {
+                        for (int sdnn : new int[]{1, 1000}) {
+                            CoolWearHrvProtocolHarness sample = new CoolWearHrvProtocolHarness();
+                            sample.activeMeasurement = "hrv";
+                            sample.onHrvValues(List.of(new k6_RRI_HRV_DATA(sdnn, 0, 0, quality, count)));
+                            require(sample.emitted.size() == 1, "valid RRI boundary rejected");
+                            require(sample.emitted.get(0).get("values").equals(Map.of("value", sdnn,
+                                    "sdnn", sdnn, "sdkQuality", quality, "validCount", count)),
+                                    "actual quality/count were not retained");
+                        }
+                    }
+                }
+                break;
+            case "rri-version":
+                h.activeMeasurement = "hrv";
+                h.onHrvValues(List.of(new k6_RRI_HRV_DATA(42, 51, 803, 3, 80)));
+                require(h.emitted.size() == 1, "valid RRI did not emit");
+                Map<String, Object> actual = h.emitted.get(0);
+                require(Integer.valueOf(2).equals(actual.get("rawVersion")),
+                        "real HRV emission bypasses version 2 quality validation");
+                require(actual.get("origin").equals("app_measurement")
+                        && actual.get("sourceVendor").equals("coolwear")
+                        && actual.get("sourceModel").equals("HR05")
+                        && actual.get("deviceId").equals(h.connectedId), "record provenance changed");
+                break;
+            case "other-versions":
+                for (String metric : new String[]{"heart_rate", "blood_oxygen", "stress", "body_temperature"}) {
+                    CoolWearHrvProtocolHarness sample = new CoolWearHrvProtocolHarness();
+                    sample.emitMeasurement(metric, System.currentTimeMillis(), 30, "test-only");
+                    require(sample.emitted.size() == 1
+                            && Integer.valueOf(1).equals(sample.emitted.get(0).get("rawVersion")),
+                            "non-HRV measurement version changed: " + metric);
+                }
                 break;
             case "stress-compat":
                 h.activeMeasurement = "stress";
@@ -85,7 +130,7 @@ public final class CoolWearHrvProtocolHarness {
                 require(h.emitted.isEmpty(), "stress compatibility accepted an invalid value");
                 h.onStressCompatValues(List.of(new K6_HrvStruct(30)));
                 require(h.emitted.size() == 1, "stress compatibility did not emit");
-                require(h.emitted.get(0).get("metric").equals("stress")
+                require(h.emitted.get(0).get("type").equals("stress")
                         && h.emitted.get(0).get("unit").equals("")
                         && h.emitted.get(0).get("values").equals(Map.of("value", 30)),
                         "stress compatibility semantics changed");
@@ -146,16 +191,20 @@ public final class CoolWearHrvProtocolHarness {
         long getTime() { return System.currentTimeMillis(); }
     }
     private static final class k6_RRI_HRV_DATA {
-        private final int sdnn, rmssd, rri;
-        k6_RRI_HRV_DATA(int sdnn, int rmssd, int rri) {
+        private final int sdnn, rmssd, rri, quality, validCount;
+        k6_RRI_HRV_DATA(int sdnn, int rmssd, int rri, int quality, int validCount) {
             this.sdnn = sdnn; this.rmssd = rmssd; this.rri = rri;
+            this.quality = quality; this.validCount = validCount;
         }
         int getSdnn() { return sdnn; }
         int getRmssd() { return rmssd; }
         int getRri() { return rri; }
+        int getQuality() { return quality; }
+        int getValid_count() { return validCount; }
         long getTime() { return System.currentTimeMillis(); }
     }
     private static final class CoolWearRecordMapper {
+        // PRODUCTION_RECORD_METHOD
         static long currentTimestamp(long time) { return time; }
         static List<Map<String, Object>> hrvRecords(String id, String firmware,
                 List<k6_RRI_HRV_DATA> values) { return List.of(); }
