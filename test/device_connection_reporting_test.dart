@@ -623,6 +623,80 @@ void main() {
         expect(ring.clears, 0);
       },
     );
+
+    test(
+      'reset ACK without a disconnect resumes once after connect returns',
+      () async {
+        final api = _FirstApi();
+        final ring = _ClearRing()
+          ..result = RingDataClearResult.factoryResetRequested
+          ..resetAckDuringClear = true
+          ..completeOnReconnect = true
+          ..clearResponse = Completer<RingDataClearResult>();
+        final c = await setup(api, ring);
+        final connecting = c.connectDevice(_device);
+        await _settle();
+        expect(c.isRingInitializationPending, isTrue);
+        expect(c.isRingInitializationConnecting, isTrue);
+        expect(ring.connections, 1);
+        expect(ring.historyReads, 0);
+        ring.clearResponse!.complete(RingDataClearResult.factoryResetRequested);
+        await connecting;
+        await _settle();
+        expect(ring.connections, 2);
+        expect(ring.clears, 1);
+        expect(api.firstReports, 1);
+        expect(c.connectedDevice?.id, _device.id);
+        expect(c.session?.accountKey, _owner.accountKey);
+        expect(c.isRingInitializationPending, isFalse);
+        expect(c.capabilities?.supportsHistorySync, isTrue);
+        expect(ring.historyReads, greaterThan(0));
+      },
+    );
+
+    test(
+      'unconfirmed reset keeps recovery available without automatic retry',
+      () async {
+        final api = _FirstApi();
+        final ring = _ClearRing()
+          ..result = RingDataClearResult.factoryResetRequested;
+        final c = await setup(api, ring);
+        await c.connectDevice(_device);
+        ring.source.add(
+          WearableEvent(
+            type: 'ringInitialization',
+            payload: {
+              'deviceId': _device.id,
+              'ownerKey': c.homeHealthCardOwner,
+              'status': 'pending',
+              'requiresReconnect': false,
+            },
+          ),
+        );
+        await _settle();
+        expect(c.isRingInitializationPending, isTrue);
+        expect(c.isRingInitializationConnecting, isFalse);
+        expect(ring.connections, 1);
+        expect(ring.clears, 1);
+        expect(ring.historyReads, 0);
+      },
+    );
+
+    test('queued reset recovery cannot follow a changed account', () async {
+      final ring = _ClearRing()
+        ..resetAckDuringClear = true
+        ..clearResponse = Completer<RingDataClearResult>();
+      final c = await setup(_FirstApi(), ring);
+      final connecting = c.connectDevice(_device);
+      await _settle();
+      c.session = null;
+      ring.clearResponse!.complete(RingDataClearResult.factoryResetRequested);
+      await connecting;
+      await _settle();
+      expect(ring.connections, 1);
+      expect(ring.clears, 1);
+      expect(ring.historyReads, 0);
+    });
   });
 
   group('first-binding wire decision', () {
@@ -806,6 +880,10 @@ class _ClearRing extends _Ring
   bool failClear = false;
   bool failRead = false;
   bool factoryAllowed = false;
+  int connections = 0;
+  bool resetAckDuringClear = false;
+  bool completeOnReconnect = false;
+  Completer<RingDataClearResult>? clearResponse;
   RingDataClearResult result = RingDataClearResult.acknowledged;
   @override
   Future<void> setRecoveryContext({
@@ -831,6 +909,20 @@ class _ClearRing extends _Ring
     required WearableUserProfile profile,
   }) async {
     await super.connect(deviceId, profile: profile);
+    connections++;
+    if (completeOnReconnect && connections > 1) {
+      supportsHistorySync = true;
+      source.add(
+        WearableEvent(
+          type: 'ringInitialization',
+          payload: {
+            'deviceId': deviceId,
+            'ownerKey': clearOwner,
+            'status': 'complete',
+          },
+        ),
+      );
+    }
     saved = _device;
   }
 
@@ -844,6 +936,22 @@ class _ClearRing extends _Ring
     factoryAllowed = allowFactoryReset;
     clearOwner = ownerKey;
     if (failClear) throw StateError('Test clear unconfirmed');
-    return result;
+    if (resetAckDuringClear) {
+      supportsHistorySync = false;
+      for (var i = 0; i < 2; i++) {
+        source.add(
+          WearableEvent(
+            type: 'ringInitialization',
+            payload: {
+              'deviceId': deviceId,
+              'ownerKey': ownerKey,
+              'status': 'pending',
+              'requiresReconnect': true,
+            },
+          ),
+        );
+      }
+    }
+    return clearResponse?.future ?? result;
   }
 }

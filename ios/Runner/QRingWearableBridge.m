@@ -596,9 +596,18 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (void)emitFactoryInitialization {
-    if (![self isResolved] || ![self factoryInitialization:self.connectedID context:self.recoveryContext]) return;
+    NSDictionary *intent = [self factoryInitialization:self.connectedID context:self.recoveryContext];
+    if (![self isResolved] || !intent) return;
+    // Some firmwares acknowledge factory reset without dropping their BLE
+    // link. The reset connection remains intentionally closed to history and
+    // settings until a new handshake. Tell Flutter to retire that connection
+    // once; a pending/ambiguous reset must never request another reset.
+    BOOL requiresReconnect = [intent[@"acknowledged"] isEqual:@YES] &&
+        ![intent[@"initialized"] isEqual:@YES] &&
+        [self.factoryResetGeneration isEqual:@(self.connectionGeneration)];
     [self emit:@"ringInitialization" payload:@{@"deviceId": self.connectedID,
         @"ownerKey": [self.recoveryContext componentsSeparatedByString:@":"].lastObject ?: @"",
+        @"requiresReconnect": requiresReconnect ? @YES : @NO,
         @"status": [self factoryInitializationPending] ? @"pending" : @"complete"}];
 }
 

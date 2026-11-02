@@ -114,8 +114,9 @@ class DevicePage extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (controller.capabilities?.supportsHistorySync !=
-                        false) ...[
+                    if (!controller.isRingInitializationPending &&
+                        controller.capabilities?.supportsHistorySync !=
+                            false) ...[
                       SizedBox(
                         child: FilledButton(
                           key: const Key('device-sync-data'),
@@ -175,11 +176,13 @@ class DevicePage extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                     ],
-                    if (connected == null)
+                    if (connected == null ||
+                        controller.isRingInitializationPending)
                       OutlinedButton(
                         key: const Key('device-reconnect'),
                         onPressed:
                             controller.isDeviceSyncing ||
+                                controller.isRingInitializationConnecting ||
                                 controller.isDeviceReconnecting
                             ? null
                             : controller.reconnectDevice,
@@ -189,6 +192,7 @@ class DevicePage extends StatelessWidget {
                         ),
                         child:
                             controller.isDeviceReconnecting ||
+                                controller.isRingInitializationConnecting ||
                                 controller.isWearableRecovering
                             ? DeviceWaitStatus(
                                 connected: false,

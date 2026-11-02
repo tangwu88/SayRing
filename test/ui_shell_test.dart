@@ -325,6 +325,37 @@ void main() {
   });
 
   testWidgets(
+    'pending first initialization retains a usable reconnect action',
+    (tester) async {
+      final controller = _PendingInitializationController()
+        ..connectedDevice = const DeviceInfo(id: 'qring:synthetic', name: 'R8')
+        ..capabilities = const DeviceCapabilities(
+          metrics: {},
+          supportsHistorySync: false,
+        );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: Scaffold(body: DevicePage(controller: controller)),
+        ),
+      );
+      await tester.pump();
+      expect(find.byKey(const Key('device-sync-data')), findsNothing);
+      expect(find.byKey(const Key('device-reconnect')), findsOneWidget);
+      expect(find.text('重新连接'), findsOneWidget);
+      final button = tester.widget<OutlinedButton>(
+        find.byKey(const Key('device-reconnect')),
+      );
+      expect(button.onPressed, isNotNull);
+      await tester.tap(find.byKey(const Key('device-reconnect')));
+      expect(controller.reconnects, 1);
+      expect(find.textContaining('首次绑定'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'device overview keeps binding diagnostics private and sync legible',
     (tester) async {
       tester.view.physicalSize = const Size(320, 700);
@@ -5768,6 +5799,23 @@ class _NotWornBloodPressureWearable extends _NoopWearable {
       code: 'BLOOD_PRESSURE_NOT_WORN',
       message: '未检测到有效佩戴状态，请将戒指贴合手指后重新测量血压',
     );
+  }
+}
+
+class _PendingInitializationController extends AppController {
+  _PendingInitializationController()
+    : super(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+      );
+  int reconnects = 0;
+  @override
+  bool get isRingInitializationPending => true;
+  @override
+  Future<void> reconnectDevice() async {
+    reconnects++;
   }
 }
 

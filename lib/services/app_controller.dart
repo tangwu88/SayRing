@@ -1233,6 +1233,14 @@ class AppController extends ChangeNotifier {
   Future<void>? _wearableRestoreInFlight;
   Future<void>? _wearableConnectInFlight;
   bool _firstRingBindingPending = false;
+  int? _firstRingInitializationReconnectGeneration;
+  bool _firstRingInitializationReconnectScheduled = false;
+  bool get isRingInitializationPending => _firstRingBindingPending;
+  bool get isRingInitializationConnecting =>
+      _firstRingBindingPending &&
+      (_wearableConnectInFlight != null ||
+          _firstRingInitializationReconnectScheduled ||
+          isDeviceReconnecting);
   bool _rememberedDeviceReadFailed = false;
   // Internal diagnostic only. Consumer UI uses ordinary connection/sync feedback.
   String? firstRingBindingStatus;
@@ -3502,6 +3510,43 @@ class AppController extends ChangeNotifier {
         _wearableReconnectInFlight = null;
         if (!_disposed) notifyListeners();
       }
+    }
+  }
+
+  Future<void> _resumeConfirmedRingInitialization() async {
+    final deviceId = connectedDevice?.id;
+    final owner = _healthOwnerFor(session);
+    final sessionGeneration = _sessionGeneration;
+    final syncGeneration = _deviceSyncGeneration;
+    if (deviceId == null ||
+        _firstRingInitializationReconnectScheduled ||
+        _firstRingInitializationReconnectGeneration == syncGeneration) {
+      return;
+    }
+    _firstRingInitializationReconnectGeneration = syncGeneration;
+    _firstRingInitializationReconnectScheduled = true;
+    try {
+      // The reset ACK can arrive before connectDevice has returned. Wait for
+      // that operation to release its slot; never send the reset again.
+      await Future<void>.delayed(Duration.zero);
+      await _wearableConnectInFlight;
+      if (_disposed ||
+          _accountTransitioning ||
+          !_privacyConsentGranted ||
+          !_wearableAccountRecoveryAllowed ||
+          _wearableRecoverySuspended ||
+          !_isCurrentSessionGeneration(sessionGeneration) ||
+          _healthOwnerFor(session) != owner ||
+          _deviceSyncGeneration != syncGeneration ||
+          connectedDevice?.id != deviceId ||
+          rememberedDevice?.id != deviceId ||
+          !_firstRingBindingPending) {
+        return;
+      }
+      await reconnectDevice();
+    } finally {
+      _firstRingInitializationReconnectScheduled = false;
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -7512,6 +7557,10 @@ class AppController extends ChangeNotifier {
           : '戒指重置或初始化尚未确认，历史同步已暂停';
       if (complete && wasPending) {
         unawaited(_syncInitialDeviceData(connectedDevice!.id));
+      } else if (!complete &&
+          event.payload['requiresReconnect'] == true &&
+          connectedDevice?.sdkSource == WearableSdkSource.qring) {
+        unawaited(_resumeConfirmedRingInitialization());
       }
     } else if (event.type == 'scanDevice') {
       final device = DeviceInfo.fromMap(event.payload);
