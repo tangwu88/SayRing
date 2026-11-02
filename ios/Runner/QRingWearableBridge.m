@@ -192,19 +192,22 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     [self.central scanWithTimeout:10];
 }
 
+- (NSDictionary *)scanPayloadForItem:(QCBlePeripheral *)item {
+    NSString *name = item.peripheral.name;
+    NSString *identifier = item.peripheral.identifier.UUIDString;
+    if (identifier.length == 0 || ![self isQRingName:name]) return nil;
+    NSMutableDictionary *payload = [@{@"id": identifier, @"name": name, @"model": name} mutableCopy];
+    if (item.mac.length > 0) payload[@"hardwareAddress"] = item.mac;
+    // System-connected candidates have no advertisement. 127 is CoreBluetooth's unknown RSSI.
+    if (item.RSSI && item.RSSI.integerValue != 127) payload[@"rssi"] = item.RSSI;
+    return payload;
+}
+
 - (NSArray *)scanPayloads {
     NSMutableArray *values = [NSMutableArray array];
     for (QCBlePeripheral *item in self.scanned.allValues) {
-        NSString *name = item.peripheral.name ?: @"QRing";
-        NSString *identifier = item.peripheral.identifier.UUIDString ?: @"";
-        if (identifier.length == 0 || ![self isQRingName:name]) { continue; }
-        [values addObject:@{
-            @"id": identifier,
-            @"name": name,
-            @"model": name,
-            @"hardwareAddress": item.mac ?: @"",
-            @"rssi": item.RSSI ?: @0,
-        }];
+        NSDictionary *payload = [self scanPayloadForItem:item];
+        if (payload) [values addObject:payload];
     }
     return values;
 }
@@ -2063,13 +2066,13 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     }
     if (!self.pendingScan) { return; }
     for (QCBlePeripheral *item in peripheralArr) {
-        NSString *name = item.peripheral.name ?: @"";
-        NSString *identifier = item.peripheral.identifier.UUIDString ?: @"";
-        if (![self isQRingName:name] || identifier.length == 0) { continue; }
+        NSDictionary *payload = [self scanPayloadForItem:item];
+        if (!payload) continue;
+        NSString *identifier = payload[@"id"];
         BOOL isNew = self.scanned[identifier] == nil;
         self.scanned[identifier] = item;
         if (isNew) {
-            [self emit:@"scanDevice" payload:@{@"id": identifier, @"name": name, @"model": name, @"rssi": item.RSSI ?: @0}];
+            [self emit:@"scanDevice" payload:payload];
         }
         if ([identifier isEqualToString:self.selectionTargetID]) {
             [self finishScan];

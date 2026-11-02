@@ -4,6 +4,7 @@ import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {test} from 'node:test';
+import {fileURLToPath} from 'node:url';
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const method = (source, signature) => {
@@ -20,12 +21,15 @@ function withFixture(run, transform = source => source, centralTransform = sourc
     : read('ios/Runner/QRingWearableBridge.m'));
   const central = centralTransform(read('ios/Runner/QCCentralManager.m'));
   const bridgeMethods = [
+    '- (BOOL)isQRingName:', '- (NSDictionary *)scanPayloadForItem:', '- (NSArray *)scanPayloads',
+    '- (NSArray *)systemConnectedDevicesForSelection',
     '- (BOOL)isResolved', '- (void)connectRecoveredPeripheral:', '- (void)startAutomaticRecovery',
     '- (void)finishScan', '- (void)didScanPeripherals:', '- (void)scanPeripheralFinish',
     '- (void)scheduleRecoveryAfterDisconnect', '- (void)failConnect:',
     '- (void)didState:', '- (void)didFailConnected:', '- (void)didBluetoothState:',
   ].map(signature => method(bridge, signature)).join('\n');
   const centralMethods = [
+    '- (NSArray<CBPeripheral *> *)systemConnectedPeripheralsForSelection',
     '- (void)setDeviceState:', '- (void)registerConnectedPeripheral:',
     '- (void)notifyConnectFailed:',
     '- (void)centralManager:(CBCentralManager *)central didFailToConnectPeripheral:',
@@ -42,7 +46,8 @@ function withFixture(run, transform = source => source, centralTransform = sourc
     const executable = join(temporary, 'recovery');
     writeFileSync(file, source);
     execFileSync('xcrun', ['clang', '-fobjc-arc', '-Wall', '-Wextra', '-Werror',
-      '-Wno-unused-parameter', '-framework', 'Foundation', file, '-o', executable],
+      '-Wno-unused-parameter', '-framework', 'Foundation',
+      '-I', fileURLToPath(new URL('../ios/Runner', import.meta.url)), file, '-o', executable],
     {stdio: 'pipe'});
     run(executable);
   } finally {
@@ -50,7 +55,7 @@ function withFixture(run, transform = source => source, centralTransform = sourc
   }
 }
 
-for (const scenario of ['automatic-failure', 'sdk-registration-failure', 'sdk-unbound-cache', 'sdk-cancelled-owner',
+for (const scenario of ['system-connected-selection', 'automatic-failure', 'sdk-registration-failure', 'sdk-unbound-cache', 'sdk-cancelled-owner',
   'explicit-failure', 'ordinary-disconnect', 'stale-callbacks', 'cancel-and-owner', 'duplicate-state',
   'unnamed-exact-recovery', 'cache-miss-discovery', 'cache-miss-timeout',
   'cache-miss-owner-cancel', 'cache-miss-target-change', 'cache-miss-power-off', 'cache-hit-pending']) {

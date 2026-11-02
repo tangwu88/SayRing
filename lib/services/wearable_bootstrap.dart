@@ -47,5 +47,7 @@ WearableBridge createProductionWearableBridge({
           : null),
   restoreOnlyBoundDevice: true,
   requireOwnerScopedBinding: true,
+  includeSystemConnectedCandidates:
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
   preferenceStore: preferenceStore,
 );

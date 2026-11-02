@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import <dispatch/dispatch.h>
+#import "QRingNamePolicy.h"
 
 // Only radio/SDK boundaries and the clock are synthetic. The runner injects
 // actual bridge and central methods, including their delegate callback order.
@@ -14,6 +15,8 @@ typedef NS_ENUM(NSInteger, CBManagerState) { CBManagerStateUnknown, CBManagerSta
 typedef NS_ENUM(NSInteger, QCDeviceType) { QCDeviceTypeUnkown, QCDeviceTypeWatch, QCDeviceTypeRing };
 static NSString *const QCLastConnectedIdentifier = @"synthetic-only";
 static NSString *const CBErrorDomain = @"CBErrorDomain";
+static NSString *const QCBANDSDKSERVERUUID1 = @"7905FFF0-B5CE-4E99-A40F-4B1E122D00D0";
+static NSString *const QCBANDSDKSERVERUUID2 = @"FEE7";
 static NSUInteger checked;
 static NSUInteger sdkRemovalCalls;
 static NSTimeInterval now;
@@ -49,9 +52,22 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 @end
 @implementation CBPeripheral
 @end
+@interface CBUUID : NSObject
+@property(nonatomic, copy) NSString *UUIDString;
++ (instancetype)UUIDWithString:(NSString *)string;
+@end
+@implementation CBUUID
++ (instancetype)UUIDWithString:(NSString *)string {
+    CBUUID *uuid = [CBUUID new];
+    uuid.UUIDString = string.uppercaseString;
+    return uuid;
+}
+@end
 @interface QCBlePeripheral : NSObject
 @property(nonatomic,strong) CBPeripheral *peripheral;
 @property(nonatomic,strong) NSNumber *RSSI;
+@property(nonatomic,copy) NSString *mac;
+@property(nonatomic) BOOL isPaired;
 @end
 @implementation QCBlePeripheral
 @end
@@ -107,6 +123,7 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 - (void)didBluetoothState:(QCBluetoothState)state;
 @end
 @interface SyntheticCentral : NSObject
+@property(nonatomic, copy) NSDictionary<NSString *, NSArray<CBPeripheral *> *> *systemLinksByService;
 @property(nonatomic, weak) id<SyntheticDelegate> delegate;
 @property(nonatomic, strong) CBCentralManager *centerManager;
 @property(nonatomic, strong) CBPeripheral *connectedPeripheral;
@@ -165,6 +182,13 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 @end
 @implementation SyntheticCentral
 @synthesize deviceState = _deviceState;
+- (NSArray<CBPeripheral *> *)retrieveConnectPeripheral:(NSArray<CBUUID *> *)services {
+    NSMutableOrderedSet *matches = [NSMutableOrderedSet orderedSet];
+    for (CBUUID *service in services) {
+        [matches addObjectsFromArray:self.systemLinksByService[service.UUIDString] ?: @[]];
+    }
+    return matches.array;
+}
 - (void)stopTimer {}
 - (void)stopScan { self.isScanning = NO; self.scanStops++; }
 - (void)scanWithTimeout:(NSInteger)timeout {
@@ -190,11 +214,9 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 - (id)error:(NSString *)code message:(NSString *)message { return @{ @"code": code, @"message": message }; }
 - (void)emit:(NSString *)type payload:(NSDictionary *)payload { [self.events addObject:@{ @"type": type, @"payload": payload }]; }
 - (void)resolveCapabilities { self.resolutions++; }
-- (NSArray *)scanPayloads { return @[]; }
 - (void)resetRemoteCamera {}
 - (void)finishCamera:(__unused id)error {}
 - (void)didConnectTransport:(__unused CBPeripheral *)peripheral {}
-- (BOOL)isQRingName:(NSString *)name { return [name isEqual:@"R21_fixture"]; }
 // ACTUAL_BRIDGE_METHODS
 @end
 
@@ -247,7 +269,39 @@ static void checkCooldown(SyntheticBridge *bridge) {
 int main(int argc, const char *argv[]) { @autoreleasepool {
     NSString *scenario = argc > 1 ? @(argv[1]) : @"";
     SyntheticBridge *bridge = make();
-    if ([scenario isEqual:@"automatic-failure"]) {
+    if ([scenario isEqual:@"system-connected-selection"]) {
+        CBPeripheral *ring = peripheral(NSUUID.UUID.UUIDString);
+        ring.name = @"SD_RING_R8";
+        ring.state = CBPeripheralStateDisconnected;
+        CBPeripheral *otherModel = peripheral(NSUUID.UUID.UUIDString);
+        otherModel.name = @"HR05";
+        CBPeripheral *generic = peripheral(NSUUID.UUID.UUIDString);
+        generic.state = CBPeripheralStateDisconnected;
+        for (NSString *service in @[@"DE5BF728-D711-4E47-AF26-65E3012A5DC7", @"6E40FFF0-B5A3-F393-E0A9-E50E24DCCA9E"]) {
+            bridge.central.systemLinksByService = @{service: @[ring, otherModel], @"1800": @[generic]};
+            NSArray *choices = [bridge systemConnectedDevicesForSelection];
+            check(choices.count == 1 && [choices[0][@"id"] isEqual:ring.identifier.UUIDString],
+                  @"vendor service alone must reveal the exact disconnected R8, excluding wrong-provider and generic-only candidates");
+            QCBlePeripheral *item = bridge.scanned[ring.identifier.UUIDString];
+            check(item.peripheral == ring, @"manual choice must retain the exact peripheral for a later tap");
+            [bridge.scanned removeAllObjects];
+            bridge.pendingScan = ^(__unused id result) {};
+            [bridge didScanPeripherals:@[item]];
+            check([bridge.events.lastObject[@"payload"] isEqual:choices[0]] && [[bridge scanPayloads] isEqual:choices],
+                  @"manual list, live search event and completed search must show the same device without fabricated RSSI or MAC");
+            item.RSSI = @127;
+            check([bridge scanPayloads].firstObject[@"rssi"] == nil, @"reserved RSSI must be omitted");
+            item.RSSI = @(-52);
+            check([[bridge scanPayloads].firstObject[@"rssi"] isEqual:@(-52)], @"retain real advertisement strength");
+        }
+        ring.state = CBPeripheralStateConnected;
+        bridge.central.systemLinksByService = @{QCBANDSDKSERVERUUID2: @[ring], @"1812": @[ring]};
+        check([bridge systemConnectedDevicesForSelection].count == 1, @"legacy services returning the same UUID yield one choice");
+        bridge.central.bleState = QCBluetoothStatePoweredOff;
+        check([bridge systemConnectedDevicesForSelection].count == 0, @"powered-off radio has no system candidates");
+        check(bridge.central.connects == 0 && ![bridge.recoveryTargetID isEqual:ring.identifier.UUIDString],
+              @"manual discovery must not connect or replace the current owner target");
+    } else if ([scenario isEqual:@"automatic-failure"]) {
         beginRecovery(bridge); nativeFailure(bridge); checkCooldown(bridge);
         check(bridge.central.disconnects == 0, @"an already failed radio must not receive another cancellation");
     } else if ([scenario isEqual:@"sdk-registration-failure"] || [scenario isEqual:@"sdk-unbound-cache"] || [scenario isEqual:@"sdk-cancelled-owner"]) {

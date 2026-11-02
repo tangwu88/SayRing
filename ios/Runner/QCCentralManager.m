@@ -698,20 +698,27 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 
 - (NSArray<CBPeripheral *> *)systemConnectedPeripheralsForSelection {
     if (self.bleState != QCBluetoothStatePoweredOn) return @[];
-    NSArray<NSArray<CBUUID *> *> *serviceSets = @[
-        @[[CBUUID UUIDWithString:QCBANDSDKSERVERUUID1],
-          [CBUUID UUIDWithString:QCBANDSDKSERVERUUID2]],
-        @[[CBUUID UUIDWithString:@"1812"]], // HID / media-control connection
-        @[[CBUUID UUIDWithString:@"1800"]], // Generic Access connection
+    NSArray<CBUUID *> *ringServices = @[
+        [CBUUID UUIDWithString:QCBANDSDKSERVERUUID1],
+        [CBUUID UUIDWithString:QCBANDSDKSERVERUUID2],
+        [CBUUID UUIDWithString:@"DE5BF728-D711-4E47-AF26-65E3012A5DC7"],
+        [CBUUID UUIDWithString:@"6E40FFF0-B5A3-F393-E0A9-E50E24DCCA9E"],
     ];
+    // CoreBluetooth matches any requested service across system connections.
+    // A ring using another client's link can be disconnected from this manager.
+    NSMutableArray<CBPeripheral *> *candidates = [[self retrieveConnectPeripheral:ringServices] mutableCopy];
+    NSArray<CBUUID *> *genericServices = @[
+        [CBUUID UUIDWithString:@"1812"], // HID
+        [CBUUID UUIDWithString:@"1800"], // Generic Access
+    ];
+    for (CBPeripheral *peripheral in [self retrieveConnectPeripheral:genericServices]) {
+        // A generic service alone is insufficient to offer an unrelated system link.
+        if (peripheral.state == CBPeripheralStateConnected) [candidates addObject:peripheral];
+    }
     NSMutableDictionary<NSString *, CBPeripheral *> *unique = [NSMutableDictionary dictionary];
-    for (NSArray<CBUUID *> *services in serviceSets) {
-        for (CBPeripheral *peripheral in [self retrieveConnectPeripheral:services]) {
-            NSString *identifier = peripheral.identifier.UUIDString;
-            if (peripheral.state == CBPeripheralStateConnected && identifier.length > 0) {
-                unique[identifier] = peripheral;
-            }
-        }
+    for (CBPeripheral *peripheral in candidates) {
+        NSString *identifier = peripheral.identifier.UUIDString;
+        if (identifier.length > 0) unique[identifier] = peripheral;
     }
     return unique.allValues;
 }

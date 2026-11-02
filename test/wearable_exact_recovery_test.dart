@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
 import 'package:saydian_app/domain/sleep_timeline.dart';
+import 'package:saydian_app/services/wearable_bootstrap.dart';
 import 'package:saydian_app/services/wearable_bridge.dart';
 import 'package:saydian_app/services/wearable_routing.dart';
 
@@ -653,6 +655,60 @@ void _cachedSelectionTests() {
       expect(store.writeCount, 0);
     },
   );
+
+  group('iOS manual selection with an existing account candidate', () {
+    setUp(() => debugDefaultTargetPlatformOverride = TargetPlatform.iOS);
+    tearDown(() => debugDefaultTargetPlatformOverride = null);
+    late _Store store;
+    late _SelectionQRing native;
+    late RoutedWearableBridge bridge;
+    setUp(() async {
+      store = _Store(binding);
+      native = _SelectionQRing()
+        ..cached = cached
+        ..osReply = Completer<List<DeviceInfo>>();
+      bridge =
+          createProductionWearableBridge(
+                coolwear: _Empty(),
+                qring: native,
+                preferenceStore: store,
+              )
+              as RoutedWearableBridge;
+      await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+    });
+    tearDown(() => bridge.dispose());
+
+    test('adds system-connected R8 after cached R21 without binding', () async {
+      const r8 = DeviceInfo(id: 'r8-id', name: 'SD_RING_R8');
+      final choices = bridge.listBondedDevicesForSelection();
+      await native.osStarted.future;
+      native.osReply!.complete([r8, cached, r8]);
+      expect((await choices).map((d) => d.id), ['qring:$_id', 'qring:r8-id']);
+      expect(native.calls, ['cache:$_id:true', 'os']);
+      expect(native.connects, isEmpty);
+      expect(native.scanCount, 0);
+      expect(store.writeCount, 0);
+    });
+    test('preserves cached R21 when the extra lookup fails', () async {
+      final choices = bridge.listBondedDevicesForSelection();
+      await native.osStarted.future;
+      native.osReply!.completeError(StateError('system read unavailable'));
+      expect((await choices).single.id, 'qring:$_id');
+      expect(native.connects, isEmpty);
+    });
+    test(
+      'discards both sources when the owner changes during lookup',
+      () async {
+        final choices = bridge.listBondedDevicesForSelection();
+        await native.osStarted.future;
+        await bridge.setRecoveryContext(ownerKey: 'owner-b', profile: _profile);
+        native.osReply!.complete([other]);
+        expect(await choices, isEmpty);
+        expect(native.connects, isEmpty);
+        expect(store.writeCount, 0);
+      },
+    );
+  });
 
   for (final fails in [false, true]) {
     test(

@@ -196,6 +196,7 @@ class RoutedWearableBridge
     WearableTransportPreferenceStore? preferenceStore,
     this.restoreOnlyBoundDevice = false,
     this.requireOwnerScopedBinding = false,
+    this.includeSystemConnectedCandidates = false,
     this.recoveryOperationTimeout = const Duration(seconds: 30),
     this.recoveryStopScanTimeout = const Duration(seconds: 3),
   }) : _sources = {
@@ -216,6 +217,7 @@ class RoutedWearableBridge
   final WearableTransportPreferenceStore _preferenceStore;
   final bool restoreOnlyBoundDevice;
   final bool requireOwnerScopedBinding;
+  final bool includeSystemConnectedCandidates;
   final Duration recoveryOperationTimeout;
   final Duration recoveryStopScanTimeout;
   final Map<String, RoutedDevice> _scanned = {};
@@ -658,15 +660,25 @@ class RoutedWearableBridge
     }
     if (!current()) return const [];
 
-    // Exact account cache first. Only consult OS devices on a cache miss;
-    // the search action remains available for choosing another advertised ring.
-    if (selected.isEmpty) {
+    // An iOS system connection can stop a ring advertising. Offer it after
+    // account-scoped choices, even if a different ring was remembered.
+    final hasCached = selected.isNotEmpty;
+    if (!hasCached || includeSystemConnectedCandidates) {
       for (final entry in _sources.entries) {
         if (!current()) return const [];
         final source = entry.value;
         if (source is! WearableBondedDeviceSelectionBridge) continue;
-        final bonded = await (source as WearableBondedDeviceSelectionBridge)
-            .listBondedDevicesForSelection();
+        late final List<DeviceInfo> bonded;
+        try {
+          final lookup = (source as WearableBondedDeviceSelectionBridge)
+              .listBondedDevicesForSelection();
+          bonded = hasCached
+              ? await lookup.timeout(const Duration(seconds: 2))
+              : await lookup;
+        } catch (_) {
+          if (!hasCached) rethrow;
+          continue;
+        }
         if (!current()) return const [];
         for (final device in bonded) {
           if (!WearableDeviceClassifier.routesTo(device.name, entry.key)) {
