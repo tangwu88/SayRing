@@ -1638,6 +1638,9 @@ class AppController extends ChangeNotifier {
 
   int _advanceSessionGeneration(Session? value) {
     _sessionGeneration++;
+    // 恢复列表可能含上个账号的绑定标识。切换会话就撤下旧列表，迟到的查询也不能再发布。
+    scannedDevices = const [];
+    deviceScanIssue = null;
     _activeHealthOwner = _healthOwnerFor(value);
     _heartRateReminders.reset();
     _readingReminderEngine.reset();
@@ -2596,13 +2599,19 @@ class AppController extends ChangeNotifier {
     unawaited(refreshConnectedDeviceDetails(quiet: true));
   }
 
+  bool _isCurrentDeviceSearch(int scan, int session) =>
+      !_accountTransitioning &&
+      _isCurrentSessionGeneration(session) &&
+      scan == _deviceScanGeneration;
+
   Future<void> scanDevices() async {
-    if (deviceState == DeviceConnectionState.scanning) return;
+    if (_disposed ||
+        _accountTransitioning ||
+        deviceState == DeviceConnectionState.scanning) {
+      return;
+    }
     final scan = ++_deviceScanGeneration, session = _sessionGeneration;
-    bool current() =>
-        !_disposed &&
-        scan == _deviceScanGeneration &&
-        session == _sessionGeneration;
+    bool current() => _isCurrentDeviceSearch(scan, session);
     _wearableReconnectGeneration++;
     _wearableRecoverySuspended = true;
     isWearableRecovering = false;
@@ -2610,8 +2619,9 @@ class AppController extends ChangeNotifier {
     deviceScanIssue = null;
     scannedDevices = const [];
     try {
-      if (!await _ensureBluetoothPermissions()) {
-        if (!current()) return;
+      final granted = await _ensureBluetoothPermissions();
+      if (!current()) return;
+      if (!granted) {
         deviceScanIssue = DeviceScanIssue.permissionsRequired;
         errorMessage = '允许相关权限后使用';
         notifyListeners();
@@ -2658,20 +2668,30 @@ class AppController extends ChangeNotifier {
   }
 
   Future<int> listBondedDevicesForSelection() async {
-    if (!supportsBondedDeviceSelection) return 0;
+    if (_disposed || _accountTransitioning || !supportsBondedDeviceSelection) {
+      return 0;
+    }
+    // 搜索和恢复共用轮次。权限弹窗、系统缓存或 SDK 的结果，都可能在用户离开后才回来。
+    final scan = ++_deviceScanGeneration, session = _sessionGeneration;
+    bool current() => _isCurrentDeviceSearch(scan, session);
     errorMessage = null;
     deviceScanIssue = null;
     try {
-      if (!await _ensureBluetoothPermissions()) {
+      final granted = await _ensureBluetoothPermissions();
+      if (!current()) return 0;
+      if (!granted) {
         deviceScanIssue = DeviceScanIssue.permissionsRequired;
         errorMessage = '允许相关权限后使用';
         notifyListeners();
         return 0;
       }
-      await stopDeviceScan(resumeRecovery: false);
+      await _stopActiveDeviceScan(scan, session);
+      if (!current()) return 0;
       await _cancelPendingWearableRestore();
+      if (!current()) return 0;
       final bridge = _wearable as WearableBondedDeviceSelectionBridge;
       final bonded = await bridge.listBondedDevicesForSelection();
+      if (!current()) return 0;
       for (final device in bonded) {
         _upsertScannedDevice(device);
       }
@@ -2682,9 +2702,11 @@ class AppController extends ChangeNotifier {
       notifyListeners();
       return bonded.length;
     } on WearableSdkNotConfigured catch (_) {
+      if (!current()) return 0;
       sdkStatus = '设备连接服务暂时不可用';
       errorMessage = '此手机暂不支持读取可恢复的戒指';
     } on PlatformException catch (error) {
+      if (!current()) return 0;
       deviceScanIssue = switch (error.code) {
         'BLE_PERMISSION_DENIED' ||
         'BLE_PERMISSION_REQUIRED' ||
@@ -2693,6 +2715,7 @@ class AppController extends ChangeNotifier {
       };
       errorMessage = _wearableErrorMessage(error, fallback: '暂时无法读取可恢复的戒指');
     } catch (_) {
+      if (!current()) return 0;
       errorMessage = '暂时无法读取可恢复的戒指，请稍后重试';
     }
     notifyListeners();
@@ -2700,30 +2723,25 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> stopDeviceScan({bool resumeRecovery = true}) async {
-    ++_deviceScanGeneration;
-    if (deviceState != DeviceConnectionState.scanning) {
-      if (resumeRecovery && !_accountTransitioning) {
-        _wearableRecoverySuspended = false;
-        unawaited(restoreWearableConnection());
-      }
-      return;
+    final scan = ++_deviceScanGeneration, session = _sessionGeneration;
+    await _stopActiveDeviceScan(scan, session);
+    if (resumeRecovery && _isCurrentDeviceSearch(scan, session)) {
+      _wearableRecoverySuspended = false;
+      unawaited(restoreWearableConnection());
     }
+  }
+
+  Future<void> _stopActiveDeviceScan(int scan, int session) async {
+    if (deviceState != DeviceConnectionState.scanning) return;
     try {
       await _wearable.stopScan();
     } catch (_) {
-      // Leaving the search page must remain possible even if the SDK has
-      // already stopped the scan by timeout.
-    } finally {
-      if (!_disposed) {
-        if (deviceState == DeviceConnectionState.scanning) {
-          deviceMachine.transition(DeviceConnectionState.disconnected);
-        }
-        notifyListeners();
-      }
-      if (resumeRecovery && !_accountTransitioning) {
-        _wearableRecoverySuspended = false;
-        unawaited(restoreWearableConnection());
-      }
+      // 有的 SDK 会自己结束扫描；重复停止失败不妨碍用户离开。
+    }
+    if (_isCurrentDeviceSearch(scan, session) &&
+        deviceState == DeviceConnectionState.scanning) {
+      deviceMachine.transition(DeviceConnectionState.disconnected);
+      notifyListeners();
     }
   }
 
@@ -2755,6 +2773,8 @@ class AppController extends ChangeNotifier {
         _wearableConnectInFlight != null) {
       return;
     }
+    // 用户已选中设备，不再接受添加页上一轮扫描的完成或报错。
+    ++_deviceScanGeneration;
     final connecting = _connectDevice(device);
     _wearableConnectInFlight = connecting;
     try {
@@ -2786,20 +2806,26 @@ class AppController extends ChangeNotifier {
       await _updateWearableRecoveryContext(explicitConnection: true);
       if (!isCurrent()) return;
       connectionSyncGeneration = _deviceSyncGeneration;
-      final initializeFirstBinding =
+      final checksFirstBinding =
           session != null &&
           !isLocalMode &&
           !isPreviewMode &&
-          rememberedDevice == null &&
-          !_rememberedDeviceReadFailed &&
           _api is SayRingFirstBindingApi &&
           {
             WearableSdkSource.coolwear,
             WearableSdkSource.qring,
           }.contains(device.sdkSource);
+      // 普通绑定上报也会占用终生首次资格。读取本机绑定失败时，先让用户重试，
+      // 不能先握手写入新的本地绑定、上报服务器，或把戒指里的旧记录导入当前账号。
+      if (checksFirstBinding && _rememberedDeviceReadFailed) {
+        throw PlatformException(
+          code: 'BINDING_READ_UNAVAILABLE',
+          message: '暂时无法读取已保存的戒指，请重新连接',
+        );
+      }
       await _prepareRingInitializationGuard(
         device,
-        allowNewDecision: initializeFirstBinding,
+        allowNewDecision: checksFirstBinding && rememberedDevice == null,
       );
       if (!isCurrent()) return;
       _wearableRecoverySuspended = false;
@@ -3264,6 +3290,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<bool> _syncDeviceData(String deviceId, {required bool initial}) async {
+    // 认证中的 SDK 也可能通知历史已就绪。此时启动同步会推进同一代次，
+    // 让正在等待能力回包的连接失效；连接就绪后仍按该型号原有策略同步。
+    if (deviceState == DeviceConnectionState.connecting ||
+        deviceState == DeviceConnectionState.authenticating) {
+      return false;
+    }
     if (_firstRingBindingPending) {
       syncStatus = '请重新连接后再同步';
       errorMessage = syncStatus;
@@ -3286,6 +3318,21 @@ class AppController extends ChangeNotifier {
     final sessionGeneration = _sessionGeneration;
     _connectedDeviceSessionGeneration ??= sessionGeneration;
     if (_connectedDeviceSessionGeneration != sessionGeneration) return false;
+    final targetId = deviceId.toLowerCase();
+    final transport = WearableDeviceClassifier.transportForScopedId(targetId);
+    bool matchesTarget(String reportedId) {
+      final id = reportedId.trim().toLowerCase();
+      return id.isNotEmpty &&
+          (id == targetId ||
+              (transport != null &&
+                  RoutedDevice.scopedID(transport, id) == targetId));
+    }
+
+    bool belongsToTarget(HealthRecord record) =>
+        matchesTarget(record.deviceId) &&
+        (record.sleepTimeline == null ||
+            matchesTarget(record.sleepTimeline!.deviceId));
+
     final generation = ++_deviceSyncGeneration;
     isDeviceSyncing = true;
     _sleepReadFailedDuringSync = false;
@@ -3355,7 +3402,16 @@ class AppController extends ChangeNotifier {
       if (!_isDeviceSyncCurrent(generation, deviceId, sessionGeneration)) {
         return false;
       }
+      // 同一 SDK 可服务多枚戒指。必须逐条核对目标，再写睡眠明细和会员记录；
+      // 混入其他目标时保留已核实的数据，但本次不能推进历史同步检查点。
+      final matchingRecords = <HealthRecord>[];
+      var rejectedDevice = false;
       for (final record in _releaseRecords(receivedRecords)) {
+        if (!belongsToTarget(record)) {
+          rejectedDevice = true;
+          continue;
+        }
+        matchingRecords.add(record);
         final timeline = record.sleepTimeline;
         if (timeline != null && timeline.deviceId == deviceId) {
           await _persistSleepDay(
@@ -3368,7 +3424,7 @@ class AppController extends ChangeNotifier {
         }
       }
       final records = deduplicateHealthRecords(
-        _releaseRecords(receivedRecords)
+        matchingRecords
             .map(sanitizeWearableTransportRecord)
             .where(hasSaneWearableTransportValues),
       );
@@ -3385,6 +3441,10 @@ class AppController extends ChangeNotifier {
       if (_sleepReadFailedDuringSync) {
         syncStatus = '已保留读到的记录，部分睡眠数据读取失败';
         _deviceSyncErrorMessage = '部分睡眠数据读取失败，已有记录已保留，请稍后重试';
+        errorMessage = _deviceSyncErrorMessage;
+      } else if (rejectedDevice) {
+        syncStatus = records.isEmpty ? '未能确认数据来源' : '已更新 ${records.length} 条';
+        _deviceSyncErrorMessage = '部分记录与当前戒指不匹配，请重新同步';
         errorMessage = _deviceSyncErrorMessage;
       } else if (receivedRecords is WearableSyncResult &&
           !receivedRecords.complete) {
@@ -3446,13 +3506,7 @@ class AppController extends ChangeNotifier {
             final record = HealthRecord.fromJson(
               value.map((key, item) => MapEntry('$key', item)),
             );
-            final currentId = deviceId
-                .replaceFirst('coolwear:', '')
-                .toLowerCase();
-            final recordId = record.deviceId
-                .replaceFirst('coolwear:', '')
-                .toLowerCase();
-            if (currentId == recordId) {
+            if (belongsToTarget(record)) {
               partial.add(record);
             } else {
               rejectedDevice = true;
@@ -7779,6 +7833,7 @@ class AppController extends ChangeNotifier {
         unawaited(_resumeConfirmedRingInitialization());
       }
     } else if (event.type == 'scanDevice') {
+      if (deviceState != DeviceConnectionState.scanning) return;
       final device = DeviceInfo.fromMap(event.payload);
       _upsertScannedDevice(device);
     } else if (event.type == 'deviceDetails') {

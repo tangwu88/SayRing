@@ -86,6 +86,32 @@ void main() {
   );
 
   test(
+    'mixed history batch retains only the current ring and cannot advance its checkpoint',
+    () async {
+      final fixture = await setup(recentHistory: true);
+      final c = fixture.controller;
+      final w = fixture.wearable;
+      w.nextRecent = WearableSyncResult(
+        [
+          _record('owned'),
+          _record('other-ring', deviceId: 'veepoo:OTHER'),
+          _record('other-provider', deviceId: 'qring:WATCH'),
+          _record('missing-id', deviceId: ''),
+        ],
+        {'steps': 'complete'},
+        historyDays: 2,
+      );
+      final succeeded = await c.syncDeviceData();
+      expect((await fixture.store.recent()).map((r) => r.id), ['owned']);
+      expect(succeeded, isFalse);
+      expect(
+        await fixture.store.readDeviceHistorySync(_Wearable.watch.id),
+        'null',
+      );
+    },
+  );
+
+  test(
     'interrupted refresh is invalidated before SDK call and account change rejects late checkpoint',
     () async {
       final fixture = await setup(recentHistory: true);

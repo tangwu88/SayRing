@@ -100,6 +100,41 @@ void main() {
     },
   );
 
+  test(
+    'early history notification cannot interrupt ring authentication',
+    () async {
+      final ring = _Ring()
+        ..delayedCapabilities = Completer<DeviceCapabilities>();
+      final controller = AppController(
+        MemorySessionVault()..privacyConsentGranted = true,
+        _Api(),
+        MemoryHealthStore(),
+        ring,
+      );
+      addTearDown(controller.dispose);
+      addTearDown(ring.source.close);
+      await controller.initialize();
+      controller.session = _owner;
+      final connecting = controller.connectDevice(_device);
+      await _settle();
+      expect(controller.deviceState, DeviceConnectionState.authenticating);
+      ring.source.add(
+        WearableEvent(
+          type: 'healthDataReady',
+          payload: {'deviceId': _device.id},
+        ),
+      );
+      await _settle();
+      ring.delayedCapabilities!.complete(
+        const DeviceCapabilities(metrics: {HealthMetric.steps}),
+      );
+      await connecting;
+      await _settle();
+      expect(controller.deviceState, DeviceConnectionState.ready);
+      expect(ring.historyReads, 1);
+    },
+  );
+
   test('every manual handshake and restored handshake reports once', () async {
     final api = _Api();
     final ring = _Ring();
@@ -505,14 +540,35 @@ void main() {
       expect(ring.clears, 0);
       expect(api.reports, hasLength(1));
     });
-    test('unreadable local binding cannot authorize a clear', () async {
-      final api = _FirstApi();
-      final ring = _ClearRing()..failRead = true;
-      final c = await setup(api, ring);
-      await c.connectDevice(_device);
-      expect(api.firstReports, 0);
-      expect(ring.clears, 0);
-    });
+    for (final returning in [false, true]) {
+      test(
+        'unreadable local binding leaves first-bind eligibility untouched; retry with remembered=$returning',
+        () async {
+          final api = _FirstApi();
+          final ring = _ClearRing()
+            ..failRead = true
+            ..saved = returning ? _device : null;
+          final c = await setup(api, ring);
+          await c.connectDevice(_device);
+          await _settle();
+          expect(c.connectedDevice, isNull);
+          expect(c.errorMessage, contains('重新连接'));
+          expect(ring.connections, 0);
+          expect(api.firstReports, 0);
+          expect(api.reports, isEmpty);
+          expect(ring.clears, 0);
+          expect(ring.historyReads, 0);
+          ring.failRead = false;
+          await c.connectDevice(_device);
+          await _settle();
+          expect(ring.connections, 1);
+          expect(api.firstReports, returning ? 0 : 1);
+          expect(api.reports.length, returning ? 1 : 0);
+          expect(ring.clears, returning ? 0 : 1);
+          expect(ring.historyReads, returning ? 1 : 0);
+        },
+      );
+    }
     test(
       'unknown server history preserves data and pauses automatic history',
       () async {

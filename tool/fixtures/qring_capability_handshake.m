@@ -9,6 +9,7 @@ static NSString *const QCBandFeatureGestureControlTakePhoto = @"photo";
 static NSUInteger checks, extendedReads;
 static NSMutableArray<QRingNext> *queued;
 static void (^timeSuccess)(NSDictionary *);
+static QRingNext timeFailure;
 static void (^extendedSuccess)(NSDictionary *);
 static QRingNext extendedFailure;
 static void check(BOOL ok) { checks++; if (!ok) { fprintf(stderr,"Capability fallback assertion failed at %lu\n",(unsigned long)checks); exit(1); } }
@@ -26,7 +27,7 @@ static void drain(void) { while (queued.count) { QRingNext b=queued.firstObject;
 + (void)getDeviceFeatureConfigSuccess:(void (^)(NSDictionary *))success fail:(QRingNext)fail;
 @end
 @implementation QCSDKCmdCreator
-+ (void)setTime:(__unused NSDate *)date success:(void (^)(NSDictionary *))success failed:(__unused QRingNext)fail { timeSuccess=success; }
++ (void)setTime:(__unused NSDate *)date success:(void (^)(NSDictionary *))success failed:(QRingNext)fail { timeSuccess=success; timeFailure=fail; }
 + (void)getDeviceFeatureConfigSuccess:(void (^)(NSDictionary *))success fail:(QRingNext)fail { extendedReads++; extendedSuccess=success; extendedFailure=fail; }
 @end
 @interface Peripheral:NSObject
@@ -92,6 +93,12 @@ int main(void) { @autoreleasepool {
     drain(); check(extendedReads==1); extendedSuccess(@{QCBandFeatureGestureControl:@YES,QCBandFeatureGestureControlMusic:@YES,QCBandFeatureGestureControlTakePhoto:@YES});
     check(b.readyCalls==1 && b.probeCalls==0 && b.detailCalls==0 && [b.featureList[QCBandFeatureGestureControl] isEqual:@YES] && [b.featureList[@"heart"] isEqual:@YES]);
     drain(); check(b.failedCalls==0 && b.readyCalls==1);
+    timeFailure(); timeSuccess(@{QCBandFeatureGestureControl:@YES, QCBandFeatureGestureControlTakePhoto:@NO}); drain();
+    check(b.failedCalls==0 && b.profileCalls==1 && b.readyCalls==1 && extendedReads==1);
+    b=make(); [b resolveCapabilities]; timeFailure(); timeSuccess(@{@"heart":@YES}); drain();
+    check(b.failedCalls==1 && !b.readyCalls && !b.profileCalls && !extendedReads);
+    b=make(); [b resolveCapabilities]; timeSuccess((id)@42);
+    check(b.failedCalls==1 && !b.readyCalls && !b.profileCalls);
     b=make(); [b resolveCapabilities]; timeSuccess(@{QCBandFeatureGestureControl:@YES,QCBandFeatureGestureControlMusic:@YES});
     check(b.readyCalls==0 && b.probeCalls==0); drain(); check(extendedReads==1);
     extendedSuccess(@{QCBandFeatureGestureControl:@YES,QCBandFeatureGestureControlTakePhoto:@NO});

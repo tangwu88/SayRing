@@ -52,7 +52,7 @@ typedef NS_ENUM(NSInteger, QCBluetoothState) {
 @property (nonatomic, strong) NSDictionary<NSString *,id> *advertisementData;
 @property (nonatomic, strong) NSNumber *RSSI;
 @property (nonatomic, assign) BOOL isPaired; ///< Already connected at system level. 系统层已连接/已配对
-@property (nonatomic, copy, nullable) NSString *selectionName; ///< Name verified for this exact manual selection.
+@property (nonatomic, copy, nullable) NSString *selectionName; ///< 同一 UUID 的广播名，或手动选择的精确缓存名。
 
 @end
 

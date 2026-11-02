@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:saydian_app/domain/models.dart';
@@ -574,6 +575,7 @@ class _QRing extends _Empty
   List<HealthRecord> history = const [];
   final connects = <String>[];
   int scanCount = 0;
+  Completer<void>? nextTargetConfiguration;
   bool connected = false;
   bool failConnection = false;
   Completer<DeviceInfo?>? delayedDetails;
@@ -590,6 +592,9 @@ class _QRing extends _Empty
     WearableUserProfile? profile,
   }) async {
     targets.add(nativeIdentifier);
+    final delay = nextTargetConfiguration;
+    nextTargetConfiguration = null;
+    if (delay != null) await delay.future;
   }
 
   @override
@@ -638,6 +643,46 @@ void _cachedSelectionTests() {
   );
   const cached = DeviceInfo(id: _id, name: 'R21');
   const other = DeviceInfo(id: 'other', name: 'R22');
+
+  test(
+    'returning to the original account retires a delayed owner change',
+    () async {
+      final native = _SelectionQRing()..cached = cached;
+      final bridge = _bridge(_Store(binding), native);
+      addTearDown(bridge.dispose);
+      await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+      final delay = Completer<void>();
+      native.nextTargetConfiguration = delay;
+      final abandoned = bridge.setRecoveryContext(
+        ownerKey: 'owner-b',
+        profile: _profile,
+      );
+      await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+      delay.complete();
+      await abandoned;
+      expect((await bridge.readRememberedDevice())?.id, 'qring:$_id');
+      expect(native.connects, isEmpty);
+    },
+  );
+
+  test(
+    'a stopped scan cannot clear the next list of recoverable rings',
+    () async {
+      final native = _SelectionQRing()..cached = cached;
+      final bridge = _bridge(_Store(binding), native);
+      addTearDown(bridge.dispose);
+      await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+      final slowStop = Completer<void>();
+      native.nextTargetConfiguration = slowStop;
+      final previous = bridge.scanDevices();
+      await bridge.stopScan();
+      final selected = (await bridge.listBondedDevicesForSelection()).single;
+      slowStop.complete();
+      expect(await previous, isEmpty);
+      await bridge.connect(selected.id, profile: _profile);
+      expect(native.connects, [_id]);
+    },
+  );
 
   test(
     'exact cached choice avoids unrelated OS lookup and never auto-connects',
@@ -721,6 +766,38 @@ void _cachedSelectionTests() {
         final choices = await bridge.listBondedDevicesForSelection();
         expect(choices.map((device) => device.id), ['qring:other']);
         expect(native.calls, ['cache:$_id:true', 'os']);
+        expect(native.connects, isEmpty);
+      },
+    );
+  }
+
+  for (final pending in [false, true]) {
+    test(
+      'a prepared manual target belongs to its account, pending=$pending',
+      () async {
+        final native = _SelectionQRing()..cached = cached;
+        final bridge = _bridge(_Store(binding), native);
+        addTearDown(bridge.dispose);
+        await bridge.setRecoveryContext(ownerKey: 'owner-a', profile: _profile);
+        if (pending) native.cachedReply = Completer<DeviceInfo?>();
+        final first = bridge.prepareRememberedDevice();
+        await native.cacheStarted.future;
+        if (!pending) expect((await first)?.id, 'qring:$_id');
+        await bridge.setRecoveryContext(ownerKey: 'owner-b', profile: _profile);
+        if (pending) {
+          native.cachedReply!.complete(cached);
+          expect(await first, isNull);
+        }
+        await expectLater(
+          bridge.connect('qring:$_id', profile: _profile),
+          throwsA(
+            isA<PlatformException>().having(
+              (e) => e.code,
+              'code',
+              'UNKNOWN_SCANNED_DEVICE',
+            ),
+          ),
+        );
         expect(native.connects, isEmpty);
       },
     );

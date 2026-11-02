@@ -115,6 +115,7 @@ public final class CoolWearRingBridge
     private String activeMeasurement;
     private volatile boolean linkConnected;
     private long connectionEpoch;
+    private long cameraSession;
     private long clearAttemptEpoch = -1;
     private volatile boolean deviceInfoReceived;
     private boolean recoveringConnection;
@@ -223,14 +224,6 @@ public final class CoolWearRingBridge
                         long generation = gesture.generation();
                         int mode = value.getControlType();
                         main.post(() -> onGestureMode(mode, generation));
-                    }
-                    return false;
-                });
-        helper.getRcvDataManager().addBleDataResultListener(
-                K6_Action.RCVD.RCVD_TAKE_PHOTOS,
-                (K6BleDataResult<Integer>) state -> {
-                    if (state != null && state == CEBC.OPENSTATUS.OPEN) {
-                        main.post(() -> emit("cameraShutter", new HashMap<>()));
                     }
                     return false;
                 });
@@ -1371,6 +1364,32 @@ public final class CoolWearRingBridge
         emit("sportState", event);
     }
 
+    private void setRemoteCamera(boolean enabled) {
+        final long session = ++cameraSession;
+        final long connection = connectionEpoch;
+        final String id = connectedId;
+        // 关闭或重新进入相机都换一次监听。旧手势即使排在主线程队列，也不能替新页面拍照。
+        K6BleDataResult<Integer> listener = enabled ? state -> {
+            if (state != null && state == CEBC.OPENSTATUS.OPEN) {
+                main.post(() -> {
+                    if (session != cameraSession || connection != connectionEpoch || activeBridge != this
+                            || id == null || !id.equals(connectedId) || !linkConnected || !deviceInfoReceived) return;
+                    Map<String, Object> payload = new HashMap<>();
+                    payload.put("deviceId", id);
+                    emitOnMain("cameraShutter", payload);
+                });
+            }
+            return false;
+        } : null;
+        helper.getRcvDataManager().addBleDataResultListener(K6_Action.RCVD.RCVD_TAKE_PHOTOS, listener);
+        try {
+            helper.getSendBlueData().sendPhotoSwitch(enabled);
+        } catch (RuntimeException error) {
+            cameraSession++;
+            throw error;
+        }
+    }
+
     private void emit(String type, Map<String, Object> payload) {
         final long eventEpoch = connectionEpoch;
         final String eventTarget = connectedId;
@@ -1378,14 +1397,16 @@ public final class CoolWearRingBridge
             if (("healthRecord".equals(type) || "sportData".equals(type))
                     && (eventEpoch != connectionEpoch || eventTarget == null
                         || !eventTarget.equals(connectedId) || !linkConnected)) return;
-            EventChannel.EventSink target = sink;
-            if (target != null) {
-                Map<String, Object> event = new HashMap<>();
-                event.put("type", type);
-                event.put("payload", payload);
-                target.success(event);
-            }
+            emitOnMain(type, payload);
         });
+    }
+
+    private void emitOnMain(String type, Map<String, Object> payload) {
+        if (sink == null) return;
+        Map<String, Object> event = new HashMap<>();
+        event.put("type", type);
+        event.put("payload", payload);
+        sink.success(event);
     }
 
     @Override public void onListen(Object arguments, EventChannel.EventSink events) {
@@ -1713,7 +1734,7 @@ public final class CoolWearRingBridge
                     } else if ("camera".equals(feature) &&
                             functionControl != null &&
                             functionControl.isHasGestureSupported()) {
-                        helper.getSendBlueData().sendPhotoSwitch(enabled);
+                        setRemoteCamera(enabled);
                     } else {
                         result.error("COOLWEAR_FEATURE_UNVERIFIED", "此戒指功能不受支持", null);
                         return;

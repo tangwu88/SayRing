@@ -52,6 +52,7 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 @property (nonatomic, assign) BOOL suppressAutoReconnect;
 @property (nonatomic, assign, readwrite) BOOL isScanning;
 @property (nonatomic, assign) NSUInteger operationGeneration;
+@property (nonatomic, assign) NSUInteger registrationGeneration;
 @property (nonatomic, strong) NSArray<CBPeripheral *> *restoredPeripherals;
 @property (nonatomic, strong) NSMutableSet<NSString *> *restoredCancellationIDs;
 @property (nonatomic, assign) BOOL restorationTargetDecided;
@@ -419,6 +420,12 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 /// Register the peripheral with QCSDK and persist the UUID on success. 向 QCSDK 注册外设，成功后写入本地 UUID
 - (void)registerConnectedPeripheral:(CBPeripheral *)peripheral {
     NSUInteger generation = self.operationGeneration;
+    if (self.appManagedConnections) {
+        // 已连接的缓存外设与 didConnect 可能先后到达。同一次连接只交给 SDK 一次。
+        if (self.registrationGeneration == generation || self.deviceState != QCStateConnecting ||
+            self.connectedPeripheral != peripheral || peripheral.state != CBPeripheralStateConnected) return;
+        self.registrationGeneration = generation;
+    }
     if ([self.delegate respondsToSelector:@selector(didConnectTransport:)]) {
         [self.delegate didConnectTransport:peripheral];
     }
@@ -426,6 +433,8 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     [[QCSDKManager shareInstance] addPeripheral:peripheral finished:^(BOOL success) {
         if (generation != self.operationGeneration ||
             ![self.connectedPeripheral.identifier isEqual:peripheral.identifier]) { return; }
+        if (self.appManagedConnections && (self.deviceState != QCStateConnecting ||
+            self.connectedPeripheral != peripheral || (success && peripheral.state != CBPeripheralStateConnected))) return;
         [self stopTimer];
         if (success) {
             [[NSUserDefaults standardUserDefaults] setValue:peripheral.identifier.UUIDString forKey:QCLastConnectedIdentifier];
@@ -533,12 +542,9 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 }
 
 - (void)centralManager:(CBCentralManager *)central didDiscoverPeripheral:(CBPeripheral *)peripheral advertisementData:(NSDictionary<NSString *,id> *)advertisementData RSSI:(NSNumber *)RSSI {
-
-//    if(![peripheral.name.lowercaseString hasPrefix:@"o_"]) {
-//        return;
-//    }
-    // Skip nameless ads. 忽略无名称广播
-    if(peripheral.name.length == 0) return;
+    if (!self.isScanning) return;
+    id localName = advertisementData[CBAdvertisementDataLocalNameKey];
+    NSString *advertisedName = [localName isKindOfClass:NSString.class] ? localName : nil;
     NSString *mac = [self macFromAdvertisementData:advertisementData];
 
     BOOL isExist = false;
@@ -546,28 +552,32 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
     for (QCBlePeripheral *per in self.peripherals) {
         if([per.peripheral.identifier.UUIDString isEqual:peripheral.identifier.UUIDString]) {
             BOOL macUpdated = (per.mac.length == 0 && mac.length > 0);
+            BOOL nameUpdated = advertisedName.length && ![advertisedName isEqualToString:per.selectionName];
             per.peripheral = peripheral;
             per.mac = mac.length > 0 ? mac : per.mac;
+            if (nameUpdated) per.selectionName = advertisedName;
             per.advertisementData = advertisementData;
             per.RSSI = RSSI;
             isExist = true;
-            shouldNotify = macUpdated;
+            shouldNotify = macUpdated || nameUpdated;
             break;
         }
     }
 
     if(!isExist) {
+        // 名称和地址可能分两次广播送达。只有从未见过的 UUID 才要求本次带名称。
+        if (!peripheral.name.length && !advertisedName.length) return;
         QCBlePeripheral *per = [[QCBlePeripheral alloc] init];
         per.peripheral = peripheral;
         per.mac = mac;
+        per.selectionName = advertisedName;
         per.advertisementData = advertisementData;
         per.RSSI = RSSI;
         [self.peripherals addObject:per];
         shouldNotify = YES;
     }
 
-    // Only refresh UI for a new device or when MAC first becomes available.
-    // 新设备，或原先没有 MAC、这次才解析到时，才刷新列表。
+    // 同一 UUID 只更新一行；广播补全名称或地址时再通知界面。
     if (!shouldNotify) {
         return;
     }
@@ -586,13 +596,10 @@ static NSInteger const QCBleDefaultConnectTimeout = 6;
 
 - (void)centralManager:(CBCentralManager *)central didConnectPeripheral:(CBPeripheral *)peripheral {
     NSLog(@"QRing transport connected");
+    // 其他外设的迟到回调不能取消当前连接，也不能替换已由账号确认的目标。
+    if (self.appManagedConnections && self.connectedPeripheral != peripheral) return;
     if (self.appManagedConnections && self.deviceState == QCStateDisconnecting) {
         [central cancelPeripheralConnection:peripheral]; return;
-    }
-    if (self.appManagedConnections &&
-        self.connectedPeripheral != peripheral) {
-        // Retain a system-restored link until its owner-scoped target is loaded.
-        return;
     }
     self.connectedPeripheral = peripheral;
     [self registerConnectedPeripheral:peripheral];

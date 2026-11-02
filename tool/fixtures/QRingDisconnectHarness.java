@@ -1,5 +1,6 @@
 package cc.saidian.saydian_app;
 
+import com.oudmon.ble.base.bluetooth.BleAction;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -40,6 +41,17 @@ public final class QRingDisconnectHarness {
         BluetoothDevice(String value) { address = value; }
         String getAddress() { return address; }
         String getName() { return "synthetic-ring"; }
+    }
+    static final class BluetoothGatt { static final int GATT_SUCCESS = 0; }
+    static final class Intent {
+        final String action;
+        final Map<String, Object> extras = new HashMap<>();
+        Intent(String action, String address) { this.action = action; extras.put(BleAction.EXTRA_ADDR, address); }
+        String getAction() { return action; }
+        String getStringExtra(String key) { return (String) extras.get(key); }
+        int getIntExtra(String key, int fallback) { return (Integer) extras.getOrDefault(key, fallback); }
+        BluetoothDevice getParcelableExtra(String key) { return (BluetoothDevice) extras.get(key); }
+        byte[] getByteArrayExtra(String key) { return (byte[]) extras.get(key); }
     }
     static final class DeviceManager {
         static final DeviceManager instance = new DeviceManager();
@@ -93,6 +105,9 @@ public final class QRingDisconnectHarness {
     void failPendingSync(String code, String message) { syncCancellations++; }
     void startAutomaticRecovery() { throw new AssertionError("Disconnect assertion failed: recovery was disarmed"); }
     void emit(String event, Map<String, Object> value) { events.add(event); }
+    int handshakes, reads;
+    void onServiceReady() { handshakes++; }
+    void onCharacteristic(String uuid, byte[] data) { reads++; }
 
     // PRODUCTION_METHODS
 
@@ -148,6 +163,33 @@ public final class QRingDisconnectHarness {
         check(reply.calls == 1 && b.manager.disconnects == 0 && b.manager.bonded);
         b = fresh(); reply = new Reply(); b.onConnectionState(new BluetoothDevice("synthetic-other"), false);
         check(b.connectedId != null && b.connectionGeneration == 7);
+        // The vendor clone receiver forwards BLE_NO_CALLBACK as (null, false)
+        // even though its GATT and command-independent features remain live.
+        b = fresh(); b.onConnectionState(null, false);
+        check("synthetic-current".equals(b.connectedId) && b.connectionGeneration == 7);
+        check(b.supportFlags != null && b.cameraResets == 0 && b.syncCancellations == 0);
+        b.onSdkBroadcast(new Intent(BleAction.BLE_NO_CALLBACK, null));
+        b.onSdkBroadcast(new Intent(BleAction.BLE_GATT_DISCONNECTED, null));
+        check(b.connectedId != null && b.events.isEmpty() && b.cameraResets == 0);
+        b.onSdkBroadcast(new Intent(BleAction.BLE_SERVICE_DISCOVERED, "synthetic-other"));
+        b.onSdkBroadcast(new Intent(BleAction.BLE_SERVICE_DISCOVERED, null));
+        check(b.handshakes == 0);
+        b.onSdkBroadcast(new Intent(BleAction.BLE_SERVICE_DISCOVERED, "SYNTHETIC-CURRENT"));
+        check(b.handshakes == 1);
+        Intent read = new Intent(BleAction.BLE_CHARACTERISTIC_READ, "synthetic-other");
+        read.extras.put(BleAction.EXTRA_STATUS, 0);
+        b.onSdkBroadcast(read);
+        read.extras.put(BleAction.EXTRA_ADDR, b.connectedId);
+        read.extras.put(BleAction.EXTRA_STATUS, 133);
+        b.onSdkBroadcast(read);
+        check(b.reads == 0);
+        read.extras.put(BleAction.EXTRA_STATUS, 0);
+        b.onSdkBroadcast(read);
+        check(b.reads == 1);
+        Intent disconnected = new Intent(BleAction.BLE_GATT_DISCONNECTED, b.connectedId);
+        disconnected.extras.put(BleAction.EXTRA_DEVICE, new BluetoothDevice(b.connectedId));
+        b.onSdkBroadcast(disconnected);
+        check(b.connectedId == null && b.events.equals(List.of("disconnected")) && b.cameraResets == 1);
         System.out.println("Production Android disconnect assertions: " + checks);
     }
 }

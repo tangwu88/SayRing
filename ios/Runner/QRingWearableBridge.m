@@ -193,9 +193,9 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 }
 
 - (NSDictionary *)scanPayloadForItem:(QCBlePeripheral *)item {
-    NSString *name = item.peripheral.name;
+    NSString *name = QRingSelectionName(item.peripheral.name, item.selectionName);
     NSString *identifier = item.peripheral.identifier.UUIDString;
-    if (identifier.length == 0 || ![self isQRingName:name]) return nil;
+    if (!identifier.length || !name.length) return nil;
     NSMutableDictionary *payload = [@{@"id": identifier, @"name": name, @"model": name} mutableCopy];
     if (item.mac.length > 0) payload[@"hardwareAddress"] = item.mac;
     // System-connected candidates have no advertisement. 127 is CoreBluetooth's unknown RSSI.
@@ -281,8 +281,8 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
 - (void)connect:(NSDictionary *)arguments result:(FlutterResult)result {
     NSString *identifier = [arguments[@"id"] isKindOfClass:NSString.class] ? arguments[@"id"] : @"";
     QCBlePeripheral *item = self.scanned[identifier];
-    NSString *name = item.peripheral.name.length > 0 ? item.peripheral.name : item.selectionName;
-    if (!item || ![self isQRingName:name]) {
+    NSString *name = QRingSelectionName(item.peripheral.name, item.selectionName);
+    if (!name.length) {
         result([self error:@"QRING_DEVICE_UNVERIFIED" message:@"请重新搜索并选择 QRing 戒指"]);
         return;
     }
@@ -491,11 +491,14 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
     NSUInteger generation = ++self.connectionGeneration;
     RingControlTrace(@"connection-sdk-registered", @{@"generation": @(generation)});
     __weak typeof(self) weakSelf = self;
+    // 成功和失败共用一次应答；迟到的失败不能拆掉已经就绪的连接。
+    __block BOOL timeReplyReceived = NO;
     [QCSDKCmdCreator setTime:NSDate.date success:^(NSDictionary *featureList) {
       QRingOnMain(^{
         __strong typeof(weakSelf) self = weakSelf;
-        if (![self isCurrentConnection:generation]) { return; }
-        if (featureList.count == 0) {
+        if (timeReplyReceived || ![self isCurrentConnection:generation]) { return; }
+        timeReplyReceived = YES;
+        if (![featureList isKindOfClass:NSDictionary.class] || featureList.count == 0) {
             [self failConnect:@"QRING_HANDSHAKE_FAILED" message:@"戒指未返回功能列表，请重试"];
             return;
         }
@@ -528,7 +531,8 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
       });
     } failed:^{
       QRingOnMain(^{
-        if ([weakSelf isCurrentConnection:generation]) {
+        if (!timeReplyReceived && [weakSelf isCurrentConnection:generation]) {
+            timeReplyReceived = YES;
             [weakSelf failConnect:@"QRING_HANDSHAKE_FAILED" message:@"戒指能力读取失败，请靠近手机后重试"];
         }
       });
@@ -2047,6 +2051,7 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
         for (QCBlePeripheral *item in peripheralArr) {
             CBPeripheral *peripheral = item.peripheral;
             if (![peripheral.identifier isEqual:uuid] ||
+                (item.selectionName.length && ![self isQRingName:item.selectionName]) ||
                 (peripheral.name.length && ![self isQRingName:peripheral.name])) { continue; }
             // scanWithTimeout can synchronously publish OS-connected devices.
             // Defer handoff until its scan setup has returned, then recheck the
@@ -2056,7 +2061,8 @@ static void QRingMeasurementQA(NSString *metric, NSString *phase, id value, BOOL
                 __strong typeof(weakSelf) self = weakSelf;
                 if (!self.recoveryScanning || self.recoveryScanGeneration != scanGeneration ||
                     self.connectionGeneration != connectionGeneration ||
-                    ![self.recoveryTargetID isEqual:target] || ![self.recoveryContext isEqual:context]) { return; }
+                    ![self.recoveryTargetID isEqual:target] || ![self.recoveryContext isEqual:context] ||
+                    (item.selectionName.length && ![self isQRingName:item.selectionName])) { return; }
                 [self finishScan];
                 [self connectRecoveredPeripheral:peripheral];
             });

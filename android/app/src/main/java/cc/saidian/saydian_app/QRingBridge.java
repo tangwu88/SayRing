@@ -26,7 +26,6 @@ import com.oudmon.ble.base.bluetooth.BleAction;
 import com.oudmon.ble.base.bluetooth.BleBaseControl;
 import com.oudmon.ble.base.bluetooth.BleOperateManager;
 import com.oudmon.ble.base.bluetooth.DeviceManager;
-import com.oudmon.ble.base.bluetooth.QCBluetoothCallbackCloneReceiver;
 import com.oudmon.ble.base.communication.CommandHandle;
 import com.oudmon.ble.base.communication.ICommandResponse;
 import com.oudmon.ble.base.communication.LargeDataHandler;
@@ -102,7 +101,7 @@ public final class QRingBridge
     private final QRingHistoryReadState historyReads = new QRingHistoryReadState();
     private EventChannel.EventSink sink;
     private BleOperateManager manager;
-    private QCBluetoothCallbackCloneReceiver receiver;
+    private BroadcastReceiver receiver;
     private BroadcastReceiver bluetoothStateReceiver;
     private boolean bluetoothPowerUnavailable;
     private boolean receiverRegistered;
@@ -299,21 +298,9 @@ public final class QRingBridge
         manager.setManualMeasurementDefaultValuesEnabled(false);
         // App-scoped exact bindings, never the SDK's installation-wide target.
         manager.setAutoReconnectEnabled(false);
-        receiver = new QCBluetoothCallbackCloneReceiver() {
-            @Override public void connectStatue(BluetoothDevice device, boolean connected) {
-                main.post(() -> onConnectionState(device, connected));
-            }
-
-            @Override public void onServiceDiscovered() {
-                main.post(QRingBridge.this::onServiceReady);
-            }
-
-            @Override public void onCharacteristicRead(String uuid, byte[] data) {
-                final int generation = connectionGeneration;
-                final String id = connectedId;
-                main.post(() -> {
-                    if (isCurrentConnection(generation, id)) onCharacteristic(uuid, data);
-                });
+        receiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                onSdkBroadcast(intent);
             }
         };
         ContextCompat.registerReceiver(
@@ -690,19 +677,37 @@ public final class QRingBridge
         main.postDelayed(connectDeadline, CONNECT_MS);
     }
 
+    private void onSdkBroadcast(Intent intent) {
+        String action = intent.getAction();
+        // 厂商回调把“单条指令无应答”也翻译成断连。只接受携带设备的真实 GATT 连接事件。
+        if (BleAction.BLE_GATT_CONNECTED.equals(action) || BleAction.BLE_GATT_DISCONNECTED.equals(action)) {
+            onConnectionState(intent.getParcelableExtra(BleAction.EXTRA_DEVICE),
+                    BleAction.BLE_GATT_CONNECTED.equals(action));
+            return;
+        }
+        // 原生广播保留了戒指地址；直接在接收广播的主线程核对，避免旧设备启动新设备的握手。
+        String id = intent.getStringExtra(BleAction.EXTRA_ADDR);
+        if (id == null || !id.equalsIgnoreCase(connectedId) || cancellingConnection) return;
+        if (BleAction.BLE_SERVICE_DISCOVERED.equals(action)) {
+            onServiceReady();
+        } else if (BleAction.BLE_CHARACTERISTIC_READ.equals(action) &&
+                intent.getIntExtra(BleAction.EXTRA_STATUS, -1) == BluetoothGatt.GATT_SUCCESS) {
+            onCharacteristic(intent.getStringExtra(BleAction.EXTRA_CHARACTER_UUID),
+                    intent.getByteArrayExtra(BleAction.EXTRA_VALUE));
+        }
+    }
+
     private void onConnectionState(BluetoothDevice device, boolean connected) {
-        if (device != null && (connectedId == null
-                || !connectedId.equalsIgnoreCase(device.getAddress()))) return;
+        if (device == null || connectedId == null
+                || !connectedId.equalsIgnoreCase(device.getAddress())) return;
         if (connected) {
-            if (cancellingConnection || connectedId == null) return;
-            if (device != null) {
-                connectedId = device.getAddress();
-                try {
-                    if (device.getName() != null) connectedName = device.getName();
-                } catch (SecurityException ignored) { }
-                DeviceManager.getInstance().setDeviceAddress(connectedId);
-                DeviceManager.getInstance().setDeviceName(connectedName);
-            }
+            if (cancellingConnection) return;
+            connectedId = device.getAddress();
+            try {
+                if (device.getName() != null) connectedName = device.getName();
+            } catch (SecurityException ignored) { }
+            DeviceManager.getInstance().setDeviceAddress(connectedId);
+            DeviceManager.getInstance().setDeviceName(connectedName);
             return;
         }
         if (cancellingConnection) {

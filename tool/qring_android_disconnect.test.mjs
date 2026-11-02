@@ -29,17 +29,20 @@ function productionMethods(source, names) {
 
 test('ordinary Android reconnect preserves the bond and waits for actual native closure', () => {
   const source = read('android/app/src/main/java/cc/saidian/saydian_app/QRingBridge.java');
-  const methods = productionMethods(source, ['disconnectWithResult', 'onConnectionState',
+  const methods = productionMethods(source, ['disconnectWithResult', 'onSdkBroadcast', 'onConnectionState',
     'verifyNativeCancellation', 'finishDisconnectedSession', 'resetDeviceDetails',
     'isCurrentConnection', 'scheduleRecoveryRetry']);
   const folder = mkdtempSync(join(tmpdir(), 'sayring-disconnect-'));
   try {
     const src = join(folder, 'QRingDisconnectHarness.java');
     const gate = join(folder, 'QRingCancellationGate.java');
+    const aar = fileURLToPath(new URL('../android/app/libs/qring_sdk_1.0.0.76.aar', import.meta.url));
+    execFileSync(java('jar'), ['xf', aar, 'classes.jar'], {cwd: folder});
     writeFileSync(gate, read('android/app/src/main/java/cc/saidian/saydian_app/QRingCancellationGate.java'));
     const run = body => {
       writeFileSync(src, read('tool/fixtures/QRingDisconnectHarness.java').replace('// PRODUCTION_METHODS', body));
-      execFileSync(java('javac'), ['-Xlint:all', '-Werror', '-d', folder, src, gate], {stdio: 'pipe'});
+      execFileSync(java('javac'), ['-Xlint:all', '-Werror', '-cp', join(folder, 'classes.jar'),
+        '-d', folder, src, gate], {stdio: 'pipe'});
       return spawnSync(java('java'), ['-cp', folder, 'cc.saidian.saydian_app.QRingDisconnectHarness'], {encoding: 'utf8'});
     };
     const result = run(methods);
@@ -50,6 +53,8 @@ test('ordinary Android reconnect preserves the bond and waits for actual native 
       methods.replace('if (cancellingConnection) {\n            // The SDK', 'if (false) {\n            // The SDK'),
       methods.replace('manager.clearPendingTasks();', '// mutation: retain queued requests'),
       methods.replace('manager.cancelCurrentTask();', '// mutation: retain active request'),
+      methods.replace('id == null || !id.equalsIgnoreCase(connectedId) || cancellingConnection',
+        'id == null || cancellingConnection'),
     ]) {
       assert.notEqual(mutation, methods);
       const bad = run(mutation);
@@ -71,6 +76,10 @@ test('bundled SDK disconnect keeps the bond and retires response/task state', ()
     assert.match(disconnect, /disconnectDeviceKeepBond/);
     assert.doesNotMatch(disconnect, /unBindDevice|removeBond|setMacNull/);
     const callback = manager.split('public void bleGattDisconnect(')[1].split('public void bleServiceDiscovered(')[0];
+    assert.match(callback, /String DEVICE/);
+    const noCallback = manager.split('public void bleNoCallback();')[1].split('private void mySendBroadcast(')[0];
+    assert.match(noCallback, /String com\.qc\.sdk\.ble\.BLE_NO_CALLBACK/);
+    assert.doesNotMatch(noCallback, /putExtra|bleGattDisconnect/);
     for (const cleanup of ['ConcurrentHashMap.clear', 'QCDataParser.clearAllPendingResponses',
       'LargeDataParser.reset', 'BleTaskScheduler.disconnectAll', 'disconnectDirectTasks']) {
       assert.ok(callback.includes(cleanup), 'Missing SDK disconnect cleanup: ' + cleanup);

@@ -33,6 +33,7 @@ function withFixture(run, transform = source => source, centralTransform = sourc
     '- (void)setDeviceState:', '- (void)registerConnectedPeripheral:',
     '- (void)notifyConnectFailed:',
     '- (void)centralManager:(CBCentralManager *)central didFailToConnectPeripheral:',
+    '- (void)centralManager:(CBCentralManager *)central didDiscoverPeripheral:',
     '- (void)centralManager:(CBCentralManager *)central didConnectPeripheral:',
     '- (void)centralManager:(CBCentralManager *)central didDisconnectPeripheral:',
     '- (void)centralManagerDidUpdateState:',
@@ -55,7 +56,7 @@ function withFixture(run, transform = source => source, centralTransform = sourc
   }
 }
 
-for (const scenario of ['system-connected-selection', 'automatic-failure', 'sdk-registration-failure', 'sdk-unbound-cache', 'sdk-cancelled-owner',
+for (const scenario of ['advertisement-only-name', 'registration-idempotence', 'system-connected-selection', 'automatic-failure', 'sdk-registration-failure', 'sdk-unbound-cache', 'sdk-cancelled-owner',
   'explicit-failure', 'ordinary-disconnect', 'stale-callbacks', 'cancel-and-owner', 'duplicate-state',
   'unnamed-exact-recovery', 'cache-miss-discovery', 'cache-miss-timeout',
   'cache-miss-owner-cancel', 'cache-miss-target-change', 'cache-miss-power-off', 'cache-hit-pending']) {

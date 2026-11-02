@@ -296,9 +296,20 @@ class RoutedWearableBridge
         : _recoveryContextGeneration;
     if (changesOwner) {
       ++_connectionGeneration;
+      if (_recoveryOwnerKey != null) {
+        // 上一账号已显示的候选同样要撤销，否则旧列表的点击仍能走到原生连接。
+        ++_scanGeneration;
+        _scanInFlight = null;
+        _acceptScanEvents = false;
+        _scanned.clear();
+        _manualRecoveryIds.clear();
+      }
+      // 等待原生取消期间不得继续读取上一账号的绑定；只有最新一次切换可以启用新账号。
+      _recoveryOwnerKey = null;
       _directRecoveryLease = null;
       _exactRecoveryTargets.clear();
       for (final source in _sources.values) {
+        if (contextGeneration != _recoveryContextGeneration) return;
         if (source is WearableExactTargetRecoveryBridge) {
           await (source as WearableExactTargetRecoveryBridge)
               .configureRecoveryTarget(nativeIdentifier: null);
@@ -349,10 +360,26 @@ class RoutedWearableBridge
         WearableDeviceClassifier.routesTo(saved.deviceName!, saved.transport);
   }
 
+  // 两种手动入口共用有效期。读取缓存或系统蓝牙期间，切号、换目标、重搜都可能发生。
+  bool Function() _beginManualSelection() {
+    final selection = ++_selectionGeneration;
+    final context = _recoveryContextGeneration;
+    final scan = _scanGeneration;
+    final connection = _connectionGeneration;
+    final owner = _recoveryOwnerKey;
+    return () =>
+        selection == _selectionGeneration &&
+        context == _recoveryContextGeneration &&
+        scan == _scanGeneration &&
+        connection == _connectionGeneration &&
+        owner == _recoveryOwnerKey;
+  }
+
   @override
   Future<DeviceInfo?> prepareRememberedDevice() async {
+    final current = _beginManualSelection();
     final saved = await _readVisibleBinding();
-    if (saved == null) return null;
+    if (!current() || saved == null) return null;
     final source = _sources[saved.transport];
     if (source == null) {
       throw PlatformException(
@@ -366,7 +393,7 @@ class RoutedWearableBridge
           saved.nativeIdentifier,
           knownName: saved.deviceName,
         );
-    if (device?.id != saved.nativeIdentifier) return null;
+    if (!current() || device?.id != saved.nativeIdentifier) return null;
     final routed = RoutedDevice.fromDevice(saved.transport, device!);
     _scanned[routed.display.id] = routed;
     _manualRecoveryIds.add(routed.display.id);
@@ -512,14 +539,16 @@ class RoutedWearableBridge
 
   Future<List<DeviceInfo>> _scanDevices(int generation) async {
     _exactRecoveryTargets.clear();
+    // 只在本轮开始时清理；撤销原生恢复可能很慢，等它回来再清会误删下一轮已显示的戒指。
+    _scanned.clear();
+    _manualRecoveryIds.clear();
     for (final source in _sources.values) {
+      if (generation != _scanGeneration) return const [];
       if (source is WearableExactTargetRecoveryBridge) {
         await (source as WearableExactTargetRecoveryBridge)
             .configureRecoveryTarget(nativeIdentifier: null);
       }
     }
-    _scanned.clear();
-    _manualRecoveryIds.clear();
     if (generation != _scanGeneration) return const [];
     _acceptScanEvents = true;
     final errors = <PlatformException>[];
@@ -574,17 +603,8 @@ class RoutedWearableBridge
 
   @override
   Future<List<DeviceInfo>> listBondedDevicesForSelection() async {
-    final generation = ++_selectionGeneration;
-    final contextGeneration = _recoveryContextGeneration;
-    final connectionGeneration = _connectionGeneration;
-    final scanGeneration = _scanGeneration;
+    final current = _beginManualSelection();
     final owner = _recoveryOwnerKey;
-    bool current() =>
-        generation == _selectionGeneration &&
-        contextGeneration == _recoveryContextGeneration &&
-        connectionGeneration == _connectionGeneration &&
-        scanGeneration == _scanGeneration &&
-        owner == _recoveryOwnerKey;
     final selected = <String, RoutedDevice>{};
     final manualIds = <String>{};
     _manualRecoveryIds.clear();
@@ -660,8 +680,7 @@ class RoutedWearableBridge
     }
     if (!current()) return const [];
 
-    // An iOS system connection can stop a ring advertising. Offer it after
-    // account-scoped choices, even if a different ring was remembered.
+    // iOS 已连接的戒指可能暂停广播；即使已找回另一枚缓存戒指，也要合并系统候选。
     final hasCached = selected.isNotEmpty;
     if (!hasCached || includeSystemConnectedCandidates) {
       for (final entry in _sources.entries) {

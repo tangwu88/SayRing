@@ -15,6 +15,7 @@ typedef NS_ENUM(NSInteger, CBManagerState) { CBManagerStateUnknown, CBManagerSta
 typedef NS_ENUM(NSInteger, QCDeviceType) { QCDeviceTypeUnkown, QCDeviceTypeWatch, QCDeviceTypeRing };
 static NSString *const QCLastConnectedIdentifier = @"synthetic-only";
 static NSString *const CBErrorDomain = @"CBErrorDomain";
+static NSString *const CBAdvertisementDataLocalNameKey = @"LocalName";
 static NSString *const QCBANDSDKSERVERUUID1 = @"7905FFF0-B5CE-4E99-A40F-4B1E122D00D0";
 static NSString *const QCBANDSDKSERVERUUID2 = @"FEE7";
 static NSUInteger checked;
@@ -23,6 +24,8 @@ static NSTimeInterval now;
 static NSMutableArray<QRingNext> *immediate, *deadlines;
 static NSMutableArray<NSNumber *> *delays;
 static void (^registrationResult)(BOOL);
+static NSUInteger registrationCount;
+static NSString *allowedRegistrationID;
 static void check(BOOL value, NSString *message) {
     checked++;
     if (!value) { fprintf(stderr, "Synthetic recovery assertion failed: %s\n", message.UTF8String); exit(1); }
@@ -67,6 +70,8 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 @property(nonatomic,strong) CBPeripheral *peripheral;
 @property(nonatomic,strong) NSNumber *RSSI;
 @property(nonatomic,copy) NSString *mac;
+@property(nonatomic,copy) NSString *selectionName;
+@property(nonatomic,strong) NSDictionary *advertisementData;
 @property(nonatomic) BOOL isPaired;
 @end
 @implementation QCBlePeripheral
@@ -100,7 +105,7 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 + (instancetype)shareInstance { return [self new]; }
 - (void)removePeripheral:(__unused CBPeripheral *)peripheral {}
 - (void)removeAllPeripheral { sdkRemovalCalls++; }
-- (void)addPeripheral:(__unused CBPeripheral *)peripheral finished:(void (^)(BOOL))finished { registrationResult = [finished copy]; }
+- (void)addPeripheral:(__unused CBPeripheral *)peripheral finished:(void (^)(BOOL))finished { registrationCount++; registrationResult = [finished copy]; }
 @end
 @interface SyntheticDefaults : NSObject
 + (instancetype)standardUserDefaults;
@@ -109,7 +114,7 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 @end
 @implementation SyntheticDefaults
 + (instancetype)standardUserDefaults { return [self new]; }
-- (void)setValue:(__unused id)value forKey:(__unused NSString *)key { check(NO, @"fixture must never save an SDK target"); }
+- (void)setValue:(id)value forKey:(NSString *)key { check([key isEqual:QCLastConnectedIdentifier] && [value isEqual:allowedRegistrationID], @"only an explicitly expected successful SDK registration can be saved"); }
 - (void)synchronize {}
 @end
 #define NSUserDefaults SyntheticDefaults
@@ -119,11 +124,14 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
 - (void)didFailConnected:(CBPeripheral *)peripheral error:(NSError *)error;
 - (void)didConnectTransport:(CBPeripheral *)peripheral;
 @optional
+- (void)didScanPeripherals:(NSArray<QCBlePeripheral *> *)peripherals;
 - (void)didDisconnectTransport:(CBPeripheral *)peripheral error:(NSError *)error;
 - (void)didBluetoothState:(QCBluetoothState)state;
 @end
 @interface SyntheticCentral : NSObject
 @property(nonatomic, copy) NSDictionary<NSString *, NSArray<CBPeripheral *> *> *systemLinksByService;
+@property(nonatomic,strong) NSMutableArray<QCBlePeripheral *> *peripherals;
+@property(nonatomic) NSUInteger registrationGeneration;
 @property(nonatomic, weak) id<SyntheticDelegate> delegate;
 @property(nonatomic, strong) CBCentralManager *centerManager;
 @property(nonatomic, strong) CBPeripheral *connectedPeripheral;
@@ -190,6 +198,7 @@ static void queueImmediate(__unused dispatch_queue_t queue, dispatch_block_t blo
     return matches.array;
 }
 - (void)stopTimer {}
+- (NSString *)macFromAdvertisementData:(NSDictionary *)ad { return ad[@"testMAC"]; }
 - (void)stopScan { self.isScanning = NO; self.scanStops++; }
 - (void)scanWithTimeout:(NSInteger)timeout {
     check(timeout == 8, @"cache-miss scan must be bounded");
@@ -228,6 +237,7 @@ static CBPeripheral *peripheral(NSString *identifier) {
 }
 static SyntheticBridge *make(void) {
     now = 100; registrationResult = nil; sdkRemovalCalls = 0;
+    registrationCount = 0; allowedRegistrationID = nil;
     immediate = [NSMutableArray new]; deadlines = [NSMutableArray new]; delays = [NSMutableArray new];
     SyntheticBridge *bridge = [SyntheticBridge new];
     bridge.central = [SyntheticCentral new]; bridge.central.centerManager = [CBCentralManager new];
@@ -269,7 +279,55 @@ static void checkCooldown(SyntheticBridge *bridge) {
 int main(int argc, const char *argv[]) { @autoreleasepool {
     NSString *scenario = argc > 1 ? @(argv[1]) : @"";
     SyntheticBridge *bridge = make();
-    if ([scenario isEqual:@"system-connected-selection"]) {
+    if ([scenario isEqual:@"advertisement-only-name"]) {
+        CBPeripheral *ring = peripheral(NSUUID.UUID.UUIDString);
+        ring.name = nil;
+        bridge.central.peripherals = [NSMutableArray array];
+        bridge.central.isScanning = YES;
+        bridge.pendingScan = ^(__unused id value) {};
+        void (^advertise)(id) = ^(id name) {
+            [bridge.central centralManager:bridge.central.centerManager didDiscoverPeripheral:ring
+                        advertisementData:name ? @{CBAdvertisementDataLocalNameKey:name} : @{} RSSI:@(-58)];
+        };
+        advertise(nil); advertise(@42);
+        check(bridge.scanned.count == 0, @"an empty or malformed advertisement must not authorize a new candidate");
+        advertise(@"R7Pro");
+        check(bridge.scanned.count == 0, @"another provider must not enter this channel");
+        advertise(@"SD_RING_R8"); advertise(@"SD_RING_R8");
+        NSArray *choices = [bridge scanPayloads];
+        check(choices.count == 1 && [choices[0][@"id"] isEqual:ring.identifier.UUIDString] &&
+              [choices[0][@"name"] isEqual:@"SD_RING_R8"] && [choices[0][@"rssi"] isEqual:@(-58)],
+              @"a real local name arriving later on the same UUID must reveal the advertised ring");
+        check(bridge.events.count == 1 && bridge.central.connects == 0, @"duplicate advertisements must not duplicate the row or trigger a connection");
+        [bridge.central centralManager:bridge.central.centerManager didDiscoverPeripheral:ring
+                     advertisementData:@{@"testMAC": @"AA:BB:CC:DD:EE:FF"} RSSI:@(-53)];
+        check([[[bridge scanPayloads].firstObject objectForKey:@"hardwareAddress"] isEqual:@"AA:BB:CC:DD:EE:FF"],
+              @"a later address without a name must update only the already named UUID");
+        ring.name = @"HR05";
+        check([bridge scanPayloads].count == 0, @"an incompatible system name must veto the earlier advertisement");
+        ring.name = @"SD_RING_R8"; advertise(@"HR05");
+        check([bridge scanPayloads].count == 0, @"an incompatible advertised name must veto the earlier system name");
+        bridge.central.isScanning = NO;
+        advertise(@"R8");
+        check([bridge scanPayloads].count == 0, @"a late discovery callback must not mutate the retired scan");
+    } else if ([scenario isEqual:@"registration-idempotence"]) {
+        CBPeripheral *ring = bridge.central.connectedPeripheral;
+        bridge.central.deviceState = QCStateConnecting;
+        [bridge.central registerConnectedPeripheral:ring];
+        [bridge.central centralManager:bridge.central.centerManager didConnectPeripheral:ring];
+        check(registrationCount == 1, @"overlapping cached transport and didConnect must start only one SDK registration");
+        allowedRegistrationID = ring.identifier.UUIDString;
+        registrationResult(YES); registrationResult(NO);
+        [bridge.central centralManager:bridge.central.centerManager didConnectPeripheral:ring];
+        check(registrationCount == 1 && bridge.central.deviceState == QCStateConnected &&
+              bridge.central.disconnects == 0, @"late callbacks must not restart registration or tear down the ready link");
+        bridge.central.deviceState = QCStateDisconnecting;
+        CBPeripheral *other = peripheral(NSUUID.UUID.UUIDString);
+        [bridge.central centralManager:bridge.central.centerManager didConnectPeripheral:other];
+        check(bridge.central.centerManager.cancellations == 0, @"cancelling the current target must not disconnect another peripheral");
+        [bridge.central centralManager:bridge.central.centerManager didConnectPeripheral:ring];
+        check(bridge.central.centerManager.cancellations == 1, @"a pending cancellation still cancels the exact target");
+    } else if ([scenario isEqual:@"system-connected-selection"]) {
         CBPeripheral *ring = peripheral(NSUUID.UUID.UUIDString);
         ring.name = @"SD_RING_R8";
         ring.state = CBPeripheralStateDisconnected;
@@ -351,11 +409,13 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
         check(bridge.central.disconnects == 0 && bridge.central.bound, @"ordinary drop must neither cancel again nor unbind");
     } else if ([scenario isEqual:@"stale-callbacks"]) {
         CBPeripheral *old = bridge.central.connectedPeripheral;
+        bridge.central.deviceState = QCStateConnecting;
         [bridge.central registerConnectedPeripheral:old];
         void (^oldSDK)(BOOL) = [registrationResult copy];
         CBPeripheral *new = peripheral(@"FFFFFFFF-BBBB-CCCC-DDDD-EEEEEEEEEEEE");
         bridge.central.operationGeneration++; bridge.connectionGeneration++;
         bridge.central.connectedPeripheral = new; bridge.central.centerManager.available = new;
+        bridge.central.deviceState = QCStateConnected;
         bridge.connectedID = new.identifier.UUIDString; bridge.recoveryTargetID = new.identifier.UUIDString;
         NSUInteger generation = bridge.connectionGeneration;
         old.state = CBPeripheralStateDisconnected;
@@ -468,6 +528,11 @@ int main(int argc, const char *argv[]) { @autoreleasepool {
             check(immediate.count == 0 && bridge.central.connects == 0,
                   @"another ring with the same verified name must never be adopted");
             QCBlePeripheral *match = [QCBlePeripheral new]; match.peripheral = target;
+            match.selectionName = @"HR05";
+            [bridge didScanPeripherals:@[match]];
+            check(immediate.count == 0 && bridge.central.connects == 0,
+                  @"even the saved UUID cannot adopt a conflicting advertised provider");
+            match.selectionName = nil;
             if ([scenario isEqual:@"cache-miss-timeout"]) {
                 [bridge scanPeripheralFinish];
                 check(!bridge.recoveryScanning && delays.lastObject.doubleValue == 2 && bridge.central.connects == 0,

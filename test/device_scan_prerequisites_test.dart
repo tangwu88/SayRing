@@ -143,6 +143,34 @@ void main() {
     },
   );
 
+  for (final fails in [false, true]) {
+    test(
+      'leaving device search discards a late recovery lookup, fails=$fails',
+      () async {
+        environment.sdk = 31;
+        final wearable = _CachedScanWearable(cached: [])
+          ..lookupReply = Completer<List<DeviceInfo>>();
+        final controller = _controller(wearable);
+        addTearDown(controller.dispose);
+        final pending = controller.listBondedDevicesForSelection();
+        await wearable.lookupStarted.future;
+        await controller.stopDeviceScan();
+        await controller.scanDevices();
+        if (fails) {
+          wearable.lookupReply!.completeError(
+            PlatformException(code: 'BLE_PERMISSION_DENIED'),
+          );
+        } else {
+          wearable.lookupReply!.complete([_CachedScanWearable.ring]);
+        }
+        expect(await pending, 0);
+        expect(controller.scannedDevices, [_ScanWearable.watch]);
+        expect(controller.deviceScanIssue, isNull);
+        expect(controller.errorMessage, isNull);
+      },
+    );
+  }
+
   test('denied permission stays distinct from disabled location', () async {
     environment.permissionGranted = false;
     final wearable = _ScanWearable();
@@ -498,13 +526,16 @@ class _CachedScanWearable extends _ScanWearable
   static const ring = DeviceInfo(id: 'qring:CACHED', name: 'R21 Cached');
   final List<DeviceInfo> cached;
   int lookups = 0;
+  final lookupStarted = Completer<void>();
+  Completer<List<DeviceInfo>>? lookupReply;
   final connectedIds = <String>[];
   int get connects => connectedIds.length;
 
   @override
   Future<List<DeviceInfo>> listBondedDevicesForSelection() async {
     lookups++;
-    return cached;
+    if (!lookupStarted.isCompleted) lookupStarted.complete();
+    return lookupReply?.future ?? cached;
   }
 
   @override

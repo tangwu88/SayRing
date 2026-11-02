@@ -14,3 +14,10 @@ NS_INLINE BOOL QRingIsSupportedName(NSString * _Nullable name) {
         [upper containsString:@"R22"] || [upper hasPrefix:@"Q_"] ||
         [upper hasPrefix:@"O_"] || [upper hasPrefix:@"R"];
 }
+
+// 系统名称可能晚于广播名到达。只使用同一外设的名字；任一来源指向其他通道时停止。
+NS_INLINE NSString * _Nullable QRingSelectionName(NSString * _Nullable systemName, NSString * _Nullable observedName) {
+    if ((systemName.length && !QRingIsSupportedName(systemName)) ||
+        (observedName.length && !QRingIsSupportedName(observedName))) return nil;
+    return systemName.length ? systemName : (observedName.length ? observedName : nil);
+}
