@@ -10,7 +10,7 @@
 - 已识别唯一授权USB华为JAD_AL00，原App1.0.9(1222)，firstInstallTime为2026-10-30 14:29:25。计划同签名覆盖安装，不卸载/清数据/解绑/重置戒指。初检手机锁定、Dozing、stay_on_while_plugged_in=0；尚未改变手机设置或代输密码。若安装需要系统身份确认，由用户完成。
 - 本轮不发布后台、下载站、iOS/Harmony或商店；首次绑定确实授权清理及新活动/睡眠等真实样本仍须独立验收，源回归/编译/安装不能替代完整戒指测量验证。
 
-## 验证与安装（进行中）
+## 验证与安装
 
 - `flutter pub get --offline`成功；`dart format --output=none --set-exit-if-changed lib test`295文件、0改动。运行时代码/依赖与HEAD无差异，Android原生与b0857dd无差异，git diff --check通过。
 - 六组初始化/Android协议宿主夹具使用JAVA_HOME=本机JDK17、JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8运行，避免上版记录的GBK读取UTF-8问题；17项中12通过、5依赖Mac/Objective-C跳过、0失败。保留相机/电源/HRV保护反例；不把5项跳过写成iOS编译或实际设备通过。
@@ -23,4 +23,7 @@
 - APK72,650,561字节，SHA256=5d946eb5681cda058d36cd3df3e0ac15d35f36fc18d59acf76288dc8c8a837e2。已复制至交付目录并复核哈希，SHA256清单在同目录，产物及凭据不进Git。
 - 安装前私有拉取手机原base.apk，哈希与1222交付01ece5236f5c7093363fcc50e205c03620c2f3f81f3803acdc900902a1314e0b一致，原正式证书核验通过，允许同签名覆盖。
 - `adb -s <核验目标> install -r <1225正式包>`已发起，初次回读仍为1222；手机Dozing/锁定。唤醒并按实际屏幕尺寸上滑后，系统密码界面UI树为空，无法读取；未盲输密码，已请求用户本人解锁及完成可能的华为安装身份验证。尚未收到Success前不称安装完成；安装日志私有保存。
-- 后续补记每步真实命令、结果、失败/修正及未验边界；不以旧1222的完整测试证明本版通过。
+- 用户随后回复“已安装”。原安装日志回读Performing Streamed Install/Success；核验同一USB华为JAD_AL00系统包为1.0.10(1225)、非debuggable，firstInstallTime仍为2026-10-30 14:29:25，lastUpdateTime为2026-11-02 15:34:36。覆盖安装完成，未卸载、pm clear、解绑或重置戒指。
+- 再次私有拉取已安装base.apk，SHA256与正式交付5d946eb5681cda058d36cd3df3e0ac15d35f36fc18d59acf76288dc8c8a837e2完全相同，确认原正式签名二进制已安装；证据保存在Git外installed-after-1225.apk，不上传Git。
+- `adb shell am start -W -n cn.saydian.ring/cc.saidian.saydian_app.MainActivity`返回Status:ok、COLD；系统前台为该MainActivity。仅验证常规启动，未附加调试器、实际测量、拍照或修改戒指设置；不把启动核验等同于完整健康记录/蓝牙/新账号初始化验收。
+- 本轮仅更新此安装回执；提交前fetch确认本地/远端均ae0113d，原记录和未验边界保留，无运行时代码改动，无需为文档重复整包测试。
