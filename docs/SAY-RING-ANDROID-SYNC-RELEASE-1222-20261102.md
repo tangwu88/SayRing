@@ -24,3 +24,12 @@
 - APK大小72,650,561字节，SHA256为01ece5236f5c7093363fcc50e205c03620c2f3f81f3803acdc900902a1314e0b。交付副本与SHA256清单位于Git外E:\SayRing-market-artifacts-20261102\android-release-1222；复制后核对哈希，不把二进制或签名凭据提交Git。
 - 构建后`git diff --exit-code HEAD -- lib android ios pubspec.yaml pubspec.lock`再次通过，产物确为固定b0857dd运行时代码的正常生产构建。提交前fetch成功，远端整合分支仍为b0857dd，没有新提交遗漏。
 - 本轮仅提交两份实施文档并推送当前整合分支，保留原29个提交及检查点；不推主线、不修改他人分支。差异检查通过；本轮未安装或调试手机、未发布下载或商店。真机、iOS与Harmony状态仍按上述边界，不把宿主结果扩大为通过。
+
+## 后续用户请求：安装1222正式包（2026-11-02）
+
+- 用户随后明确要求“安装到手机”。ADB仅发现一台已授权的华为JAD_AL00；原包cn.saydian.ring、1.0.8(1202)、非debuggable。只读取包与系统锁定状态，未读取账号、照片或健康库。
+- 原base.apk私有拉取并核验：正式证书SHA256与本次1222相同。手机当时亮屏且未锁定，因此执行`adb -s <已核验目标> install -r <正式1222.apk>`，系统返回Success；未卸载、pm clear、解绑/重置或改变手机设置，不需要用户身份验证。
+- 安装后系统回读1.0.9(1222)、非debuggable，firstInstallTime仍为2026-10-30 14:29:25，lastUpdateTime为2026-11-02 11:06:25。再次私有拉取已安装base.apk，其SHA256与交付包01ece5236f5c7093363fcc50e205c03620c2f3f81f3803acdc900902a1314e0b完全一致。此核验说明安装版本/二进制匹配，不代替完整数据库或戒指功能实测。
+- 使用真实Launcher组件`cn.saydian.ring/cc.saidian.saydian_app.MainActivity`启动普通正式App，未附加Flutter/VM、触发测量或相机拍摄。
+- 安装前按工作约定fetch发现新提交2d762ea（iOS首次绑定初始化及共享界面回执），干净工作树已快进到该提交；安装对象仍是用户刚要求安装的已交付1222，其运行时代码固定b0857dd，不把这条后来提交宣称已包含在APK内。未因此重编/扩大本次安装范围。
+- 安装证据、前后base.apk留在Git外E:\SayRing-android-release-1222-20261102；本轮只提交此安装记录，不提交设备完整标识、原包或数据。
