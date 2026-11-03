@@ -97,3 +97,13 @@
 | TestFlight／审核／下载发布 | 本轮未执行 |
 
 既有源码回归不重复计为本轮实物通过。远端 CI `41633947818` 此时 quality、两种时区 Harmony 已成功，Android 和 iOS 仍运行中。原始启动失败、签名、安装、备份及只读核验助手留在私有 `build/xr-1234-install-test-20261103/`；不提交容器、凭据、完整设备标识或运行日志。
+
+
+### XR 续检：已取得新进程和初始化状态（12:40 UTC 后）
+
+- 后续出现与本轮已安装路径匹配的新 Runner。两次批处理 LLDB 在异步 attach 完成前查询栈而失败，未取得有效栈；改用保持输入的有界会话后，成功取得主线程与 Flutter 线程状态，并确认 detach／quit 完成。原失败日志保留，不能用旧 PID 或不完整 attach 充当证据。
+- 新进程主线程在正常事件循环，Flutter 预热引擎线程存在；只读 UIKit 查询显示本轮 Scene 为 foreground-active、根控制器为 FlutterViewController，且有 VM 服务地址。查询期间一次等待通过中断解除，最后已确认 detach；没有保留暂停的原生调试器。
+- Flutter 自动发现未取得连接；通过当前根控制器公开 VM getter 得到地址，并仅在 localhost 转发。前两次手动转发缺少 Flutter 自带动态库路径，进程退出；补齐 Flutter 缓存内实际存在的依赖目录后成功。未修改或安装第三方依赖，未将私有 VM 地址写入 Git。
+- 通过 getVM 核对进程属于当前 XR 1234，再只读 getIsolate／getObject／getInstances：原账号摘要与此前 XR 相同，session 对应当前健康 owner，原 76 条当前账号记录已加载，isBooting=false、isBusy=false、前台状态=true。此时 connectedDevice 与 rememberedDevice 均为空，能力状态为 disconnected，尚未向戒指发起连接、测量或清空指令。
+- 因此上表“初始化尚未确认”已被本次运行状态证据更新；实际首页视觉验收仍未完成。随后的屏幕工具明确返回 Mac 已锁屏、自动解锁失败，已请用户手动解锁，未绕过锁屏继续界面操作。
+- 当前仍待：XR 显示页面、真实搜索并选择 R7 Ultra、连接／心率对照／手动 HRV／活动睡眠验收。没有把初始化成功写成 HRV 测量成功。远端 CI 此时 Android 也已成功，iOS 仍运行中。
