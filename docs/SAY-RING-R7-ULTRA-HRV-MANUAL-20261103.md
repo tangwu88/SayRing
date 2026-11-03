@@ -107,3 +107,34 @@
 - 通过 getVM 核对进程属于当前 XR 1234，再只读 getIsolate／getObject／getInstances：原账号摘要与此前 XR 相同，session 对应当前健康 owner，原 76 条当前账号记录已加载，isBooting=false、isBusy=false、前台状态=true。此时 connectedDevice 与 rememberedDevice 均为空，能力状态为 disconnected，尚未向戒指发起连接、测量或清空指令。
 - 因此上表“初始化尚未确认”已被本次运行状态证据更新；实际首页视觉验收仍未完成。随后的屏幕工具明确返回 Mac 已锁屏、自动解锁失败，已请用户手动解锁，未绕过锁屏继续界面操作。
 - 当前仍待：XR 显示页面、真实搜索并选择 R7 Ultra、连接／心率对照／手动 HRV／活动睡眠验收。没有把初始化成功写成 HRV 测量成功。远端 CI 此时 Android 也已成功，iOS 仍运行中。
+
+
+## 2026-11-03 20:53 起：XR／R7 Ultra 续测
+
+### 现场与数据保护
+
+- 用户确认 Mac 解锁、XR 保持 Say Ring 前台，暂时不能手动操作 XR。QuickTime 已实际看到普通首页，前轮启动画面阻挡未再出现。
+- 当前源代码仍为 `eef818e`，此后两项提交仅更新文档；开始前重新 fetch，工作树干净。1234 原账号及健康 owner 对应一致，当前账号 76 条记录正常加载。
+- 本轮先导出完整私有容器，并用只读 SQLCipher、仅在内存读取现有密钥建立校验摘要：两个 owner 共 123 条原记录。未保存密码、明文 payload、原始账号或完整设备标识至 Git。
+- 为取得协议分类日志，临时构建正常 `lib/main.dart` 的同版本 Debug 1234。配置生成 68.12 秒、Xcode Debug 构建 15.07 秒，严格验签、团队／包名／版本及 XR 描述文件授权通过；原生成配置按原字节恢复。构建后私有脚本仍读旧 Profile 日志名而失败，改正后仅对本轮已成功 Debug 产物复制验签，没有拿旧二进制冒充本轮构建。可选递归扩展属性清理的有界处理与前轮相同。
+- 使用 Flutter 官方 `run --debug --machine --no-pub --use-application-binary=<本轮已核验的 Debug1234>` 启动，未使用 flutter drive 或卸载。实际新安装路径、版本、进程和 VM 均匹配；新账号摘要与原账号一致。覆盖安装后 123 条原记录的 ID、payload、指标、日期及同步状态全部一致，缺失／改动为 0。
+
+### 搜索、占用与配对结果
+
+- XR 首轮实际搜索只发现 HR05、R21 和 R7y，未发现 R7 Ultra。检查另一台已连接华为的实时普通 App：它已自动连回 `SD-RING-R7 Ultra`、ready、无活跃测量，说明先前“断开”后又被自动恢复占用。
+- 按用户已授权切换同一戒指到 XR 的安排，仅调用华为现有普通 `disconnectDevice()`，没有解绑。实际断开完成；华为原账号和 remembered binding 摘要一致。再次在 XR 搜索即发现 `SD-RING-R7 Ultra`，实测 RSSI 约 -85。未改蓝牙系统设置、账号、监测或提醒配置。
+- XR 选择的是本轮厂商扫描真实返回的唯一 R7 Ultra 对象及其 coolwear 标识。连接前在当前账号对应的第一方 `/global/api/saydian-app/v2/devices/binding-history-status` 只读确认：HTTP 200、product／deviceId 匹配、priorBindingConfirmed=true。该确认是保留历史证明，不是清空授权。
+- 实际发起连接后，XR 弹出 iOS **Bluetooth Pairing Request — SD-RING-R7 Ultra**。普通控制器约 1.095 秒进入 connecting，约 11.008 秒转入 error，未完成能力握手；系统弹窗曾继续显示。随后弹窗消失，但尚无已配对及连接成功证据。
+- iPhone 镜像实际显示“无法连接 iPhone”；QuickTime 仅能看画面，不能代点 XR 系统弹窗。已请用户在 XR 点 Pair／配对；不得把弹窗消失、CoreBluetooth 外层连接或手机前台等同于 SDK ready。
+- 此时本机持久初始化状态为 decisionRequired、nativeInitializationPending=false，尚未上报首次连接成功决定，未调用戒指清空／恢复出厂。后续私有 HTTP 只读探针出现 401；该探针没有运行客户端的鉴权重试，不能据此证明 App 刷新凭证失败。没有切号或绕过鉴权。因测试要求的新鲜绑定证明未取得，后续重试在保护检查前停止，没有再次发起 SDK 连接。
+- **HRV、心率对照、活动和睡眠实物测量均未进入，本轮不能记为通过。** 先完成 XR 系统配对并取得真实握手，再继续同一枚戒指的完整 HRV 终态观察。
+
+### 工具失败与复发边界
+
+- Profile 的动态调用／表达式不可用，未因此给生产方法添加调试入口。Debug 的 HTTP evaluate 缺少表达式编译服务；早期私有连接助手把 sdkSource getter 当成存储字段、误用接口及 HTTP 参数数组编码，均在有效连接调用前失败，没有把这些错误归为 App 或固件错误。
+- 改为强类型本地 WebSocket RPC 后，普通 scan／connect 调用可执行；在私有 build 目录的隔离环境固定 websocket-client 1.8.0，未改 App 依赖或生产接口。账号／owner／目标守卫仍逐次核对，所有原失败日志保留。
+- 续测后完整备份再核对，两个 owner 的 123 条记录仍全部保留、无改动、无新增。未解绑、重置、清库或回灌旧备份。
+- 测试结束已恢复原已核验、同源正常 main 的签名 Profile1234；设备端回读包名／版本正确，启动命令成功。最后导出容器，健康数据库主文件仍与测后 123 条摘要对应文件逐字节一致。界面最后复核时 Mac 再次锁屏，因此没有最终页面截图；系统配对和有效 HRV 仍待，不因恢复安装或宿主回归标记实物通过。
+- 源码 `eef818e` 的远端 CI [41633947818](https://github.com/tangwu88/SayRing/actions/runs/41633947818) 已全部五项成功：quality、两种时区 Harmony、Android 和 iOS。它不能替代本轮未完成的 XR 配对或有效 HRV 验收。
+
+本轮完整容器、逐行哈希摘要、临时依赖、当前连接地址、屏幕观察记录及原始日志在私有 `build/xr-1234-r7u-retest-20261103/`，不得提交 Git。当前待人工项是 iOS 系统配对；本轮没有上传 TestFlight、替换审核或发布下载包。
