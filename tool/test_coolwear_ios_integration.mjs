@@ -145,7 +145,13 @@ test('connection completion requires metadata and flags from the exact real targ
 
 test('installation-wide recovery and raw health logging are not imported', () => {
   assert.doesNotMatch(bridge, /\[(?:self\.|weakSelf\.)?product (?:startAutoConnect|saveConnectedUUid|releaseBind)\]/);
-  assert.doesNotMatch(bridge, /NSLog\(|NSUserDefaults|receiveOriginalDataHandler\s*=|sendOriginalDataHandler\s*=/);
+  const diagnostic = bridge.slice(bridge.indexOf('- (void)hrvDiagnostic:'), bridge.indexOf('- (void)publishPendingHrvRecord:'));
+  // Only this DEBUG-only aggregate diagnostic is permitted. Every other raw
+  // log, installation-wide recovery and vendor raw-packet hook stays banned.
+  assert.match(diagnostic, /#if DEBUG[\s\S]*NSLog\([\s\S]*#else[\s\S]*#endif/);
+  assert.doesNotMatch(diagnostic, /sample\[|values\[|deviceInfo|target|UUID|timestamp|payload|record\[/);
+  assert.equal((diagnostic.match(/NSLog\(/g) ?? []).length, 1);
+  assert.doesNotMatch(bridge.replace(diagnostic, ''), /NSLog\(|NSUserDefaults|receiveOriginalDataHandler\s*=|sendOriginalDataHandler\s*=/);
   assert.match(bridge, /lastConnectUUId = nil/);
   assert.match(bridge, /UUIDStr = nil/);
 });

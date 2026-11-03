@@ -11,10 +11,13 @@ public final class CoolWearRecoveryTargetHarness {
     private boolean linkConnected, deviceInfoReceived, recoveringConnection;
     private Object functionControl;
     private String activeMeasurement, connectedId = "old-target", connectedName, connectedVendorId;
+    private long measurementGeneration, measurementStartedAt;
+    private boolean resultEmitted;
     private final String businessBinding = "owner-target", systemBond = "system-bond";
     private final int healthRecords = 134;
     private void cancelHealthPulse(boolean ignored) { }
     private void resetGesture(String code, String message) { }
+    private void hrvDiagnostic(String event, String reason) { }
     static final class Main { void removeCallbacks(Runnable task) { } }
     static final class Log { static void w(String tag, String message) { } }
     static final class MethodChannel {
@@ -63,6 +66,7 @@ public final class CoolWearRecoveryTargetHarness {
             assert BleFactory.getInstance().proxy.stored.isEmpty() : "result returned before cache cleanup";
         };
         bridge.failConnect("CONNECT_CANCELLED", "cancelled");
+        assert bridge.measurementGeneration == 1 && bridge.activeMeasurement == null;
         assert BleFactory.getInstance().proxy.stored.isEmpty() : "old target would be restored by vendor timer";
         assert bridge.helper.disconnects == 1;
         assert bridge.connectedId == null;

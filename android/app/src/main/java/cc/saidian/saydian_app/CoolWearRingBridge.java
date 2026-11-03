@@ -39,6 +39,7 @@ import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_FIND_PHONE_OR_DEVICE;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_DRINK_ALARM;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_GESTURE_CONFIG;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_HEART_AUTO_SWITCH;
+import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_HR_CONTROL;
 import ce.com.cenewbluesdk.entity.k6.K6_DATA_TYPE_REAL_O2;
 import ce.com.cenewbluesdk.entity.k6.K6_DevInfoStruct;
 import ce.com.cenewbluesdk.entity.k6.K6_HeartStruct;
@@ -141,6 +142,14 @@ public final class CoolWearRingBridge
     private String connectedVendorId;
     private String firmwareVersion;
     private String activeMeasurement;
+    // SDK 回调可能先入队、后在主线程执行；取消/重开测量必须撤销旧代次。
+    private volatile long measurementGeneration;
+    private long measurementStartedAt;
+    private boolean hrvRealtimeListenerReady;
+    private int hrvLivePackets;
+    private int hrvHistoryPackets;
+    private int hrvLegacyPackets;
+    private int hrvStressPackets;
     private volatile boolean linkConnected;
     private long connectionEpoch;
     private long cameraSession;
@@ -342,13 +351,24 @@ public final class CoolWearRingBridge
                     }
                     return false;
                 });
+        hrvRealtimeListenerReady = CoolWearHrvListenerRouter.install(
+                helper.getRcvDataManager(),
+                values -> { postHrvPacket(values, false); return false; },
+                values -> { postHrvPacket(values, true); return false; });
+        hrvDiagnostic("listener", hrvRealtimeListenerReady ? "split_verified" : "passive_only");
         helper.getRcvDataManager().addBleDataResultListener(
-                K6_Action.RCVD.RCVD_DATA_TYPE_RRI_HRV,
-                (K6BleDataResult<ArrayList<k6_RRI_HRV_DATA>>) values -> {
-                    if (values != null) {
-                        ArrayList<k6_RRI_HRV_DATA> snapshot = new ArrayList<>(values);
-                        postCurrentPacket(() -> onHrvValues(snapshot));
-                    }
+                K6_Action.RCVD.RCVD_DATA_TYPE_HR_CONTROL,
+                (K6BleDataResult<K6_DATA_TYPE_HR_CONTROL>) value -> {
+                    if (value == null) return false;
+                    final long generation = measurementGeneration;
+                    final int type = value.controlType;
+                    final int state = value.controlState;
+                    postCurrentPacket(() -> {
+                        if (generation != measurementGeneration || !"hrv".equals(activeMeasurement)) return;
+                        // 原厂仅定义 HR/BP/O2/ECG 控制类型，没有 HRV 完成/未佩戴契约。
+                        // 仅作无健康值的诊断，不据此伪造 HRV 完成或提前停止。
+                        hrvDiagnostic("control", "type=" + type + ",state=" + state);
+                    });
                     return false;
                 });
         // Type 45 is named both "real HRV" and "real stress" by different
@@ -359,7 +379,11 @@ public final class CoolWearRingBridge
                 (K6BleDataResult<ArrayList<K6_HrvStruct>>) values -> {
                     if (values != null) {
                         ArrayList<K6_HrvStruct> snapshot = new ArrayList<>(values);
-                        postCurrentPacket(() -> onStressCompatValues(snapshot));
+                        final long generation = measurementGeneration;
+                        postCurrentPacket(() -> {
+                            if (generation != measurementGeneration) return;
+                            onStressCompatValues(snapshot);
+                        });
                     }
                     return false;
                 });
@@ -368,7 +392,11 @@ public final class CoolWearRingBridge
                 (K6BleDataResult<ArrayList<K6_StressStruct>>) values -> {
                     if (values != null) {
                         ArrayList<K6_StressStruct> snapshot = new ArrayList<>(values);
-                        postCurrentPacket(() -> onStressValues(snapshot));
+                        final long generation = measurementGeneration;
+                        postCurrentPacket(() -> {
+                            if (generation != measurementGeneration) return;
+                            onStressValues(snapshot);
+                        });
                     }
                     return false;
                 });
@@ -675,7 +703,7 @@ public final class CoolWearRingBridge
         linkConnected = false;
         deviceInfoReceived = false;
         functionControl = null;
-        activeMeasurement = null;
+        clearMeasurementSession("connection_failed");
         recoveringConnection = false;
         connectedId = null;
         connectedName = null;
@@ -753,7 +781,7 @@ public final class CoolWearRingBridge
             cancelReminderRead();
             sittingReminder = null;
             drinkingReminder = null;
-            activeMeasurement = null;
+            clearMeasurementSession("disconnected");
             activeSportMode = null;
             activeSportType = null;
             sportHeartStreamStarted = false;
@@ -1086,7 +1114,7 @@ public final class CoolWearRingBridge
             }
             if (flags.isHasHrvSupported()) {
                 metrics.add("hrv");
-                manual.add("hrv");
+                if (hrvRealtimeListenerReady) manual.add("hrv");
                 // The vendor SDK exposes pressure as an HRV-derived algorithm
                 // and does not publish a separate pressure capability bit.
                 metrics.add("stress");
@@ -1314,17 +1342,60 @@ public final class CoolWearRingBridge
         Log.i(TAG, "manual oxygen callback had no current valid sample");
     }
 
-    private void onHrvValues(List<k6_RRI_HRV_DATA> values) {
+    private void postHrvPacket(ArrayList<k6_RRI_HRV_DATA> values, boolean realtime) {
+        final long generation = measurementGeneration;
+        final List<k6_RRI_HRV_DATA> snapshot = values == null ? null : new ArrayList<>(values);
+        postCurrentPacket(() -> onHrvValues(snapshot, realtime, generation));
+    }
+
+    private void hrvDiagnostic(String event, String reason) {
+        if (!BuildConfig.DEBUG) return;
+        // 不记录数值、时间戳、完整设备/账号标识或 SDK 原始包。
+        Log.i(TAG, "manual HRV; event=" + event + ",reason=" + reason
+                + ",generation=" + measurementGeneration + ",live=" + hrvLivePackets
+                + ",history=" + hrvHistoryPackets + ",legacy=" + hrvLegacyPackets
+                + ",stress=" + hrvStressPackets);
+    }
+
+    private void clearMeasurementSession(String reason) {
+        if ("hrv".equals(activeMeasurement)) hrvDiagnostic("stop", reason);
+        measurementGeneration++;
+        measurementStartedAt = 0;
+        activeMeasurement = null;
+        resultEmitted = false;
+    }
+
+    private void onHrvValues(List<k6_RRI_HRV_DATA> values, boolean realtime, long generation) {
+        // 被动历史和原始记录仍按原 mapper 入库；取消测量不删除戒指/手机历史。
         collectHealth(CoolWearRecordMapper.hrvRecords(connectedId, firmwareVersion, values));
         if (!"hrv".equals(activeMeasurement) || resultEmitted || !linkConnected) return;
+        if (generation != measurementGeneration) {
+            hrvDiagnostic("reject", "retired_session");
+            return;
+        }
+        if (realtime) hrvLivePackets++; else hrvHistoryPackets++;
+        hrvDiagnostic("packet", realtime ? "realtime_60" : "history_61_or_passive");
+        if (!realtime) return;
+        if (values == null || values.isEmpty()) {
+            hrvDiagnostic("reject", "empty_packet");
+            return;
+        }
         for (k6_RRI_HRV_DATA value : values) {
+            if (value == null) { hrvDiagnostic("reject", "null_sample"); continue; }
             long time = CoolWearRecordMapper.currentTimestamp(value.getTime());
             int sdnn = value.getSdnn();
             int quality = value.getQuality();
             int validCount = value.getValid_count();
-            if (sdnn <= 0 || sdnn > 1_000 || quality < 1 || quality > 3
-                    || validCount < 2 || validCount > 255) continue;
-            if (time == 0) time = System.currentTimeMillis();
+            if (sdnn <= 0 || sdnn > 1_000) { hrvDiagnostic("reject", "invalid_structure"); continue; }
+            if (quality < 1 || quality > 3) { hrvDiagnostic("reject", "quality"); continue; }
+            if (validCount < 2 || validCount > 255) { hrvDiagnostic("reject", "sample_count"); continue; }
+            // 仅本轮实时结果可成为手动测量。时间无效不能改成 now，否则旧结果
+            // 会变成“新测量”并可能触发健康提醒。2 秒仅容纳固件秒精度。
+            if (time == 0 || time < measurementStartedAt - 2_000L
+                    || time > System.currentTimeMillis() + 5_000L) {
+                hrvDiagnostic("reject", "timestamp");
+                continue;
+            }
             Map<String, Object> measured = new LinkedHashMap<>();
             measured.put("value", sdnn);
             measured.put("sdnn", sdnn);
@@ -1332,12 +1403,17 @@ public final class CoolWearRingBridge
             measured.put("validCount", validCount);
             if (value.getRmssd() > 0) measured.put("rmssd", value.getRmssd());
             if (value.getRri() > 0) measured.put("rri", value.getRri());
+            hrvDiagnostic("accepted", "realtime_valid");
             emitMeasurement("hrv", time, measured, "ms");
             return;
         }
     }
 
     private void onStressValues(List<K6_StressStruct> values) {
+        if ("hrv".equals(activeMeasurement)) {
+            hrvStressPackets++;
+            hrvDiagnostic("packet", "stress_compat_not_hrv");
+        }
         collectHealth(CoolWearRecordMapper.stressRecords(
                 connectedId, firmwareVersion, values));
         if (!"stress".equals(activeMeasurement) || resultEmitted || !linkConnected) return;
@@ -1348,8 +1424,8 @@ public final class CoolWearRingBridge
             long time = CoolWearRecordMapper.currentTimestamp(value.getTime());
             int stress = value.getStressValue();
             if (BuildConfig.DEBUG) {
-                Log.i(TAG, "manual stress sample; source=stress, value=" + stress
-                        + ", deviceTime=" + value.getTime() + ", mappedTime=" + time);
+                Log.i(TAG, "manual stress sample; source=stress,validRange="
+                        + (stress >= 1 && stress <= 100) + ",currentTime=" + (time != 0));
             }
             if (stress >= 1 && stress <= 100) {
                 if (time == 0) time = System.currentTimeMillis();
@@ -1361,6 +1437,10 @@ public final class CoolWearRingBridge
     }
 
     private void onStressCompatValues(List<K6_HrvStruct> values) {
+        if ("hrv".equals(activeMeasurement)) {
+            hrvLegacyPackets++;
+            hrvDiagnostic("packet", "legacy_45_not_hrv");
+        }
         // The SDK aliases legacy HRV and stress to DataType 45. Its one-byte
         // hrvNums has no confirmed millisecond/SDNN meaning; never emit it as HRV.
         if (!"stress".equals(activeMeasurement) || resultEmitted || !linkConnected) return;
@@ -1371,8 +1451,8 @@ public final class CoolWearRingBridge
             long time = CoolWearRecordMapper.currentTimestamp(value.getTime());
             int stress = value.getHrvNums();
             if (BuildConfig.DEBUG) {
-                Log.i(TAG, "manual stress sample; source=real_hrv, value=" + stress
-                        + ", deviceTime=" + value.getTime() + ", mappedTime=" + time);
+                Log.i(TAG, "manual stress sample; source=real_hrv,validRange="
+                        + (stress >= 1 && stress <= 100) + ",currentTime=" + (time != 0));
             }
             if (stress >= 1 && stress <= 100) {
                 if (time == 0) time = System.currentTimeMillis();
@@ -1641,7 +1721,7 @@ public final class CoolWearRingBridge
                     drinkingReminder = null;
                     batteryPercent = null;
                     charging = null;
-                    activeMeasurement = null;
+                    clearMeasurementSession("target_or_connection_changed");
                     activeSportMode = null;
                     activeSportType = null;
                     sportHeartStreamStarted = false;
@@ -1680,7 +1760,7 @@ public final class CoolWearRingBridge
                     autoMeasureIntervalMinutes = 5;
                     sittingReminder = null;
                     drinkingReminder = null;
-                    activeMeasurement = null;
+                    clearMeasurementSession("target_or_connection_changed");
                     activeSportMode = null;
                     activeSportType = null;
                     result.success(null);
@@ -1876,19 +1956,12 @@ public final class CoolWearRingBridge
                         result.error("COOLWEAR_FEATURE_UNVERIFIED", "此项手动测量未获戒指确认", null);
                         return;
                     }
-                    activeMeasurement = metric;
-                    resultEmitted = false;
-                    Log.i(TAG, "manual measurement command start: " + metric);
-                    setMeasurement(metric, true);
-                    result.success(null);
+                    startMeasurementSession(metric, result);
                     break;
                 case "stopMeasurement":
                     String stopping = call.argument("metric");
                     Log.i(TAG, "manual measurement command stop: " + stopping);
-                    activeMeasurement = null;
-                    resultEmitted = false;
-                    if (stopping != null) setMeasurement(stopping, false);
-                    result.success(null);
+                    stopMeasurementSession(stopping, result);
                     break;
                 case "startSport":
                     if (activeMeasurement != null) {
@@ -1927,6 +2000,54 @@ public final class CoolWearRingBridge
             Log.e(TAG, "vendor operation failed: " + call.method);
             result.error("COOLWEAR_SDK_ERROR", "戒指通信失败，请重试", null);
         }
+    }
+
+    private void startMeasurementSession(String metric, MethodChannel.Result result) {
+        if (activeMeasurement != null) {
+            result.error("MEASUREMENT_ACTIVE", "请先结束当前测量", null);
+            return;
+        }
+        measurementGeneration++;
+        measurementStartedAt = System.currentTimeMillis();
+        activeMeasurement = metric;
+        resultEmitted = false;
+        hrvLivePackets = hrvHistoryPackets = hrvLegacyPackets = hrvStressPackets = 0;
+        if ("hrv".equals(metric)) hrvDiagnostic("start", "command_62_requested");
+        Log.i(TAG, "manual measurement command start: " + metric);
+        try {
+            setMeasurement(metric, true);
+        } catch (RuntimeException error) {
+            Map<String, Object> details = new HashMap<>();
+            details.put("metric", metric);
+            details.put("deviceId", connectedId);
+            details.put("generation", measurementGeneration);
+            if ("hrv".equals(metric)) hrvDiagnostic("command_error", "start_failed");
+            clearMeasurementSession("start_failed");
+            result.error("MEASUREMENT_START_FAILED", "测量启动失败，请重试", details);
+            return;
+        }
+        // SDK 的发送 API 无 62 ACK；成功仅表示已提交命令，不是测量完成。
+        if ("hrv".equals(metric)) hrvDiagnostic("start", "command_62_submitted");
+        result.success(null);
+    }
+
+    private void stopMeasurementSession(String stopping, MethodChannel.Result result) {
+        // 旧页面迟到的停止请求不能撤销后来开始的另一项测量。
+        if (activeMeasurement != null && !activeMeasurement.equals(stopping)) {
+            result.error("MEASUREMENT_ACTIVE", "当前正在进行另一项测量", null);
+            return;
+        }
+        // 先撤销本轮，即使停止命令抛错，旧队列也不能完成下一轮测量。
+        clearMeasurementSession("explicit_stop");
+        if (stopping != null) {
+            try { setMeasurement(stopping, false); }
+            catch (RuntimeException error) {
+                if ("hrv".equals(stopping)) hrvDiagnostic("command_error", "stop_failed");
+                result.error("MEASUREMENT_STOP_FAILED", "停止测量未获确认", null);
+                return;
+            }
+        }
+        result.success(null);
     }
 
     private void setMeasurement(String metric, boolean enabled) {
@@ -1992,6 +2113,7 @@ public final class CoolWearRingBridge
     }
 
     public void dispose() {
+        clearMeasurementSession("disposed");
         cancelHealthPulse(true);
         resetGesture("BRIDGE_DISPOSED", "戒指连接已关闭");
         boolean ownsSdk = activeBridge == this;

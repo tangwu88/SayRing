@@ -210,18 +210,50 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
   // Completion comes from the active SDK operation, not a newer passive
   // history timestamp or an old home-cache value.
   bool _stopping = false;
+  String? _startFailure;
+  int _startRequest = 0;
+  int? _ownedOperation;
+
+  bool get _ownsMeasurement =>
+      _ownedOperation == widget.controller.measurementOperationToken;
 
   @override
   void initState() {
     super.initState();
-    unawaited(widget.controller.startMeasurement(widget.metric));
+    // 拒绝启动不是测量中；先建立对话框，再展示控制器返回的明确失败。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_stopping) unawaited(_start());
+    });
+  }
+
+  Future<void> _start() async {
+    if (!mounted || _stopping) return;
+    final request = ++_startRequest;
+    setState(() => _startFailure = null);
+    final previousOperation = widget.controller.measurementOperationToken;
+    final pending = widget.controller.startMeasurement(widget.metric);
+    final operation = widget.controller.measurementOperationToken;
+    _ownedOperation = operation != previousOperation ? operation : null;
+    final started = await pending;
+    if (!mounted || request != _startRequest) return;
+    if (!started &&
+        !(_ownsMeasurement &&
+            widget.controller.measurementResult?.metric == widget.metric)) {
+      setState(() {
+        _startFailure =
+            widget.controller.measurementErrorMessage ??
+            widget.controller.errorMessage ??
+            '本次测量未能开始，请稍后重试';
+      });
+    }
   }
 
   Future<void> _finish() async {
     if (_stopping) return;
+    _startRequest++;
     setState(() => _stopping = true);
     final record = widget.controller.measurementResult;
-    final completed = record?.metric == widget.metric;
+    final completed = _ownsMeasurement && record?.metric == widget.metric;
     if (completed) {
       if (mounted) Navigator.of(context).pop();
       return;
@@ -230,16 +262,23 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
     // Close the dialog first so the user never gets trapped on a spinner;
     // AppController still performs the bounded stop in the background.
     if (mounted) Navigator.of(context).pop();
-    await widget.controller.stopMeasurement(widget.metric);
+    if (_ownsMeasurement &&
+        widget.controller.activeMeasurementMetric == widget.metric) {
+      await widget.controller.stopMeasurement(widget.metric);
+    }
   }
 
   Future<void> _retry() async {
     if (_stopping) return;
+    _startRequest++;
     setState(() => _stopping = true);
-    await widget.controller.stopMeasurement(widget.metric);
+    if (_ownsMeasurement &&
+        widget.controller.activeMeasurementMetric == widget.metric) {
+      await widget.controller.stopMeasurement(widget.metric);
+    }
     if (!mounted) return;
     setState(() => _stopping = false);
-    await widget.controller.startMeasurement(widget.metric);
+    await _start();
   }
 
   @override
@@ -263,8 +302,12 @@ class _HealthMeasurementDialogState extends State<_HealthMeasurementDialog> {
             );
           }
           final record = widget.controller.measurementResult;
-          final isNew = record != null && record.metric == widget.metric;
-          final failure = widget.controller.measurementErrorMessage;
+          final isNew =
+              _ownsMeasurement &&
+              record != null &&
+              record.metric == widget.metric;
+          final failure =
+              _startFailure ?? widget.controller.measurementErrorMessage;
           final failed = !isNew && failure != null;
           final waitingMessage = !widget.controller.measurementWearConfirmed
               ? switch (widget.metric) {

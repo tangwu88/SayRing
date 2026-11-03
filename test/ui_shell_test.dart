@@ -2252,6 +2252,286 @@ void main() {
     },
   );
 
+  for (final rejection in ['disconnected', 'unsupported', 'release']) {
+    test(
+      'manual rejection $rejection has a terminal measurement message',
+      () async {
+        final ring = _TrackingMeasurementWearable();
+        final app = _measurementController(
+          ring,
+          wellnessOnly: rejection == 'release',
+        );
+        addTearDown(app.dispose);
+        if (rejection == 'disconnected') app.connectedDevice = null;
+        if (rejection == 'unsupported') {
+          app.capabilities = const DeviceCapabilities(metrics: {});
+        }
+        expect(await app.startMeasurement(HealthMetric.hrv), isFalse);
+        expect(app.measurementErrorMessage, isNotEmpty);
+        expect(app.activeMeasurementMetric, isNull);
+        expect(ring.starts, 0);
+      },
+    );
+  }
+
+  testWidgets('rejected HRV dialog shows failure instead of endless waiting', (
+    tester,
+  ) async {
+    final app = _RejectedMeasurementController();
+    addTearDown(app.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildSaydianTheme(),
+        home: HealthHistoryPage(controller: app, metric: HealthMetric.hrv),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('health-measure-hrv')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('请先连接戒指'), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    await tester.tap(find.text('关闭').last);
+    await tester.pumpAndSettle();
+    expect(app.stops, 0);
+  });
+
+  testWidgets('pending HRV start is bounded before native acknowledgement', (
+    tester,
+  ) async {
+    final ring = _HeldMeasurementWearable()..holdStart = true;
+    final app = _measurementController(ring);
+    addTearDown(app.dispose);
+    final start = app.startMeasurement(HealthMetric.hrv);
+    await tester.pump(const Duration(seconds: 181));
+    expect(app.activeMeasurementMetric, isNull);
+    expect(app.deviceState, DeviceConnectionState.ready);
+    expect(app.measurementErrorMessage, contains('长时间未检测到有效结果'));
+    expect(await start, isFalse);
+    expect(ring.stops, 1);
+    ring.pendingStarts.single.complete();
+    await tester.pump();
+    expect(app.activeMeasurementMetric, isNull);
+  });
+
+  testWidgets(
+    'late HRV start acknowledgement does not restart its total deadline',
+    (tester) async {
+      final ring = _HeldMeasurementWearable()..holdStart = true;
+      final app = _measurementController(ring);
+      addTearDown(app.dispose);
+      final start = app.startMeasurement(HealthMetric.hrv);
+      await tester.pump(const Duration(seconds: 100));
+      ring.pendingStarts.single.complete();
+      await tester.pump();
+      expect(await start, isTrue);
+      await tester.pump(const Duration(seconds: 81));
+      expect(app.activeMeasurementMetric, isNull);
+      expect(app.measurementErrorMessage, contains('长时间未检测到有效结果'));
+      expect(ring.stops, 1);
+    },
+  );
+
+  testWidgets(
+    'closing HRV while native start is pending cancels without a timer leak',
+    (tester) async {
+      final ring = _HeldMeasurementWearable()..holdStart = true;
+      final app = _measurementController(ring);
+      addTearDown(app.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: HealthHistoryPage(controller: app, metric: HealthMetric.hrv),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('health-measure-hrv')));
+      await tester.pump();
+      await tester.tap(find.text('结束测量'));
+      await tester.pumpAndSettle();
+      expect(app.activeMeasurementMetric, isNull);
+      expect(app.deviceState, DeviceConnectionState.ready);
+      expect(ring.stops, 1);
+      ring.pendingStarts.single.completeError(
+        StateError('synthetic cancelled start'),
+      );
+      await tester.pump();
+      expect(app.measurementErrorMessage, isNull);
+      expect(find.text('心率变异性（HRV）测量'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final fail in [false, true]) {
+    test(
+      'late native start ${fail ? 'failure' : 'success'} cannot change a newer same-metric measurement',
+      () async {
+        final ring = _HeldMeasurementWearable()..holdStart = true;
+        final app = _measurementController(ring);
+        addTearDown(app.dispose);
+        final oldStart = app.startMeasurement(HealthMetric.hrv);
+        await app.stopMeasurement(HealthMetric.hrv);
+        ring.holdStart = false;
+        expect(await app.startMeasurement(HealthMetric.hrv), isTrue);
+        if (fail) {
+          ring.pendingStarts.single.completeError(
+            PlatformException(code: 'HRV_MEASUREMENT_FAILED'),
+          );
+        } else {
+          ring.pendingStarts.single.complete();
+        }
+        expect(await oldStart, isFalse);
+        expect(app.activeMeasurementMetric, HealthMetric.hrv);
+        expect(app.deviceState, DeviceConnectionState.measuring);
+        expect(app.measurementErrorMessage, isNull);
+      },
+    );
+  }
+
+  test(
+    'pending native stop blocks a new measurement until bounded cleanup finishes',
+    () async {
+      final ring = _HeldMeasurementWearable()..holdStop = true;
+      final app = _measurementController(ring);
+      addTearDown(app.dispose);
+      expect(await app.startMeasurement(HealthMetric.hrv), isTrue);
+      final oldStop = app.stopMeasurement(HealthMetric.hrv);
+      expect(app.deviceState, DeviceConnectionState.ready);
+      ring.holdStop = false;
+      expect(await app.startMeasurement(HealthMetric.hrv), isFalse);
+      expect(app.measurementErrorMessage, contains('正在结束上一次测量'));
+      expect(ring.starts, 1);
+      ring.pendingStops.single.completeError(
+        StateError('synthetic old stop failure'),
+      );
+      await oldStop;
+      expect(await app.startMeasurement(HealthMetric.hrv), isTrue);
+      expect(app.activeMeasurementMetric, HealthMetric.hrv);
+      expect(app.deviceState, DeviceConnectionState.measuring);
+      expect(app.measurementErrorMessage, isNull);
+      expect(app.errorMessage, isNull);
+    },
+  );
+
+  testWidgets(
+    'closing a rejected same-metric dialog never stops the original measurement',
+    (tester) async {
+      final ring = _TrackingMeasurementWearable();
+      final app = _measurementController(ring);
+      addTearDown(app.dispose);
+      expect(await app.startMeasurement(HealthMetric.hrv), isTrue);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildSaydianTheme(),
+          home: HealthHistoryPage(controller: app, metric: HealthMetric.hrv),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('health-measure-hrv')));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('另一项戒指测量尚未结束，请稍后重试'), findsOneWidget);
+      await tester.tap(find.text('关闭').last);
+      await tester.pumpAndSettle();
+      expect(app.activeMeasurementMetric, HealthMetric.hrv);
+      expect(ring.stops, 0);
+      await app.stopMeasurement(HealthMetric.hrv);
+    },
+  );
+
+  testWidgets(
+    'native stop timeout releases its barrier without replaying a late stop',
+    (tester) async {
+      final ring = _HeldMeasurementWearable()..holdStop = true;
+      final app = _measurementController(ring);
+      addTearDown(app.dispose);
+      await app.startMeasurement(HealthMetric.hrv);
+      final stopping = app.stopMeasurement(HealthMetric.hrv);
+      expect(await app.startMeasurement(HealthMetric.hrv), isFalse);
+      await tester.pump(const Duration(seconds: 6));
+      await stopping;
+      ring.holdStop = false;
+      expect(await app.startMeasurement(HealthMetric.hrv), isTrue);
+      ring.pendingStops.single.completeError(StateError('synthetic late stop'));
+      await tester.pump();
+      expect(app.activeMeasurementMetric, HealthMetric.hrv);
+      expect(app.measurementErrorMessage, isNull);
+      expect(ring.stops, 1);
+      await app.stopMeasurement(HealthMetric.hrv);
+    },
+  );
+
+  test(
+    'HRV native timeout ends only the matching active measurement',
+    () async {
+      final ring = _EventMeasurementWearable();
+      final app = _measurementController(ring);
+      addTearDown(app.dispose);
+      addTearDown(ring.close);
+      await app.initialize();
+      expect(await app.startMeasurement(HealthMetric.hrv), isTrue);
+      ring.emit(
+        WearableEvent(
+          type: 'error',
+          payload: const {
+            'code': 'MEASUREMENT_TIMEOUT',
+            'metric': 'blood_oxygen',
+            'message': 'synthetic foreign metric',
+          },
+        ),
+      );
+      expect(app.activeMeasurementMetric, HealthMetric.hrv);
+      ring.emit(
+        WearableEvent(
+          type: 'error',
+          payload: const {
+            'code': 'HRV_MEASUREMENT_FAILED',
+            'deviceId': 'another-target',
+            'metric': 'hrv',
+            'message': 'synthetic foreign target',
+          },
+        ),
+      );
+      expect(app.activeMeasurementMetric, HealthMetric.hrv);
+      ring.emit(
+        WearableEvent(
+          type: 'error',
+          payload: const {
+            'code': 'HISTORY_SYNC_FAILED',
+            'message': 'synthetic unrelated history read',
+          },
+        ),
+      );
+      expect(app.activeMeasurementMetric, HealthMetric.hrv);
+      ring.emit(
+        WearableEvent(
+          type: 'error',
+          payload: const {
+            'code': 'MEASUREMENT_TIMEOUT',
+            'metric': 'hrv',
+            'message': '戒指未返回有效HRV结果',
+          },
+        ),
+      );
+      expect(app.activeMeasurementMetric, isNull);
+      expect(app.deviceState, DeviceConnectionState.ready);
+      expect(app.measurementErrorMessage, contains('未返回有效HRV'));
+      expect(app.healthRecords, isEmpty);
+      final finishedError = app.measurementErrorMessage;
+      ring.emit(
+        WearableEvent(
+          type: 'error',
+          payload: const {
+            'code': 'HRV_MEASUREMENT_FAILED',
+            'metric': 'hrv',
+            'message': 'synthetic late failure',
+          },
+        ),
+      );
+      expect(app.measurementErrorMessage, finishedError);
+    },
+  );
+
   test(
     'a second manual measurement is blocked until the first one stops',
     () async {
@@ -5764,6 +6044,81 @@ class _ReconnectedManualController extends AppController {
       }
     }
     notifyListeners();
+  }
+}
+
+AppController _measurementController(
+  _NoopWearable wearable, {
+  bool wellnessOnly = false,
+}) {
+  final app =
+      AppController(
+          MemorySessionVault(),
+          _NoopApi(),
+          MemoryHealthStore(),
+          wearable,
+          wellnessOnly: wellnessOnly,
+        )
+        ..connectedDevice = const DeviceInfo(id: 'watch-1', name: 'R7 Ultra')
+        ..capabilities = const DeviceCapabilities(metrics: {HealthMetric.hrv});
+  for (final state in const [
+    DeviceConnectionState.scanning,
+    DeviceConnectionState.connecting,
+    DeviceConnectionState.authenticating,
+    DeviceConnectionState.syncing,
+    DeviceConnectionState.ready,
+  ]) {
+    app.deviceMachine.transition(state);
+  }
+  return app;
+}
+
+class _RejectedMeasurementController extends AppController {
+  _RejectedMeasurementController()
+    : super(
+        MemorySessionVault(),
+        _NoopApi(),
+        MemoryHealthStore(),
+        _NoopWearable(),
+      ) {
+    connectedDevice = const DeviceInfo(id: 'watch-1', name: 'R7 Ultra');
+    capabilities = const DeviceCapabilities(metrics: {HealthMetric.hrv});
+    deviceCapabilityState = DeviceCapabilityState.ready;
+  }
+  int stops = 0;
+  @override
+  Future<bool> startMeasurement(HealthMetric metric) async {
+    errorMessage = '请先连接戒指';
+    return false;
+  }
+
+  @override
+  Future<void> stopMeasurement(HealthMetric metric) async {
+    stops++;
+  }
+}
+
+class _HeldMeasurementWearable extends _TrackingMeasurementWearable {
+  bool holdStart = false;
+  bool holdStop = false;
+  final pendingStarts = <Completer<void>>[];
+  final pendingStops = <Completer<void>>[];
+  @override
+  Future<void> startMeasurement(HealthMetric metric) {
+    starts++;
+    if (!holdStart) return Future.value();
+    final pending = Completer<void>();
+    pendingStarts.add(pending);
+    return pending.future;
+  }
+
+  @override
+  Future<void> stopMeasurement(HealthMetric metric) {
+    stops++;
+    if (!holdStop) return Future.value();
+    final pending = Completer<void>();
+    pendingStops.add(pending);
+    return pending.future;
   }
 }
 

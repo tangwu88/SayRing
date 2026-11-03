@@ -58,6 +58,12 @@ static void CoolWearOnMain(dispatch_block_t block) {
 @property(nonatomic) NSUInteger manualPolicyGeneration;
 @property(nonatomic, strong) NSDate *measurementStart;
 @property(nonatomic) BOOL emittedMeasurement;
+@property(nonatomic) BOOL measurementAcknowledged;
+@property(nonatomic, copy) NSDictionary *pendingHrvRecord;
+@property(nonatomic) NSUInteger hrvReceivedPackets;
+@property(nonatomic) NSUInteger hrvHistoryPackets;
+@property(nonatomic) NSUInteger hrvRejectedSamples;
+@property(nonatomic) NSUInteger hrvAcceptedSamples;
 @property(nonatomic) BOOL awaitingInfo;
 @property(nonatomic) BOOL cancelling;
 @property(nonatomic) NSUInteger cancellationChecks;
@@ -1290,6 +1296,11 @@ static void CoolWearOnMain(dispatch_block_t block) {
     // has installed the account-owned connected-device session.
     NSString *historyKey = CoolWearHistoryKey(type.integerValue);
     if (historyKey) {
+        if (type.integerValue == DATA_TYPE_HISTORY_HRV_METRICS &&
+            measurement == self.measurementGeneration && [self.activeMetric isEqual:@"hrv"]) {
+            self.hrvHistoryPackets++;
+            [self hrvDiagnostic:@"history_only" type:61 sampleCount:0 reason:@"not_manual_result"];
+        }
         // The SDK can push mixed history on connection. Do not retain or
         // publish a child packet without its current read-only feature lease.
         if (!SRActivitySleepMetricAllowed(CoolWearHistoryMetric(type.integerValue))) return;
@@ -1329,12 +1340,32 @@ static void CoolWearOnMain(dispatch_block_t block) {
     if (type.integerValue == DATA_TYPE_REAL_HRV_METRICS) {
         if (![self isResolved] || measurement != self.measurementGeneration || self.emittedMeasurement ||
             ![self.activeMetric isEqualToString:@"hrv"]) return;
-        for (NSDictionary *sample in CoolWearMetricSamples(data, @"hrvMetricsInfos")) {
+        self.hrvReceivedPackets++;
+        NSArray *samples = CoolWearMetricSamples(data, @"hrvMetricsInfos");
+        [self hrvDiagnostic:@"realtime_packet" type:60 sampleCount:samples.count
+                    reason:samples.count ? @"structure_valid" : @"empty_or_invalid_structure"];
+        for (NSDictionary *sample in samples) {
             NSDictionary *values = CoolWearRriHrvValues(sample);
             NSDate *date = CoolWearSampleDate(sample[@"time"], NSDate.date);
-            if (!values || !date || [date timeIntervalSinceDate:self.measurementStart] < -2) continue;
+            if (!values || !date || [date timeIntervalSinceDate:self.measurementStart] < -2) {
+                self.hrvRejectedSamples++;
+                BOOL fieldsComplete = YES;
+                for (NSString *key in @[@"time", @"meanRR", @"sdnn", @"rmssd", @"pnn50", @"meanHR", @"validCount", @"rejectedCount", @"quality", @"flags"])
+                    if (!CoolWearNumber(sample[key])) { fieldsComplete = NO; break; }
+                NSString *reason = !fieldsComplete ? @"fields_incomplete" :
+                    !values ? @"values_or_quality_rejected" : @"timestamp_rejected";
+                [self hrvDiagnostic:@"sample_rejected" type:60 sampleCount:1 reason:reason];
+                continue;
+            }
             self.emittedMeasurement = YES;
-            [self emit:@"healthRecord" payload:[self record:@"hrv" values:values date:date origin:@"app_measurement"]];
+            self.hrvAcceptedSamples++;
+            // 实时结果可能先于启动 ACK 到达。只留在本次测量内存中，
+            // ACK 成功后再发布，避免上层正常 stop 误入“启动未确认”取消链路。
+            self.pendingHrvRecord = [self record:@"hrv" values:values date:date origin:@"app_measurement"];
+            [self hrvDiagnostic:@"sample_valid" type:60 sampleCount:1
+                        reason:self.measurementAcknowledged ? @"ack_confirmed" : @"waiting_start_ack"];
+            if (self.measurementAcknowledged)
+                [self publishPendingHrvRecord:self.connectionGeneration measurement:measurement];
             break;
         }
         return;
@@ -1469,8 +1500,12 @@ static void CoolWearOnMain(dispatch_block_t block) {
     [self finishSync];
     FlutterResult batteryResult = self.pendingBattery; self.pendingBattery = nil;
     if (batteryResult) batteryResult(nil);
+    if ([self.activeMetric isEqual:@"hrv"] || self.pendingHrvRecord)
+        [self hrvDiagnostic:@"cancelled" type:0 sampleCount:0 reason:@"connection_cleanup"];
     self.measurementGeneration++;
     self.activeMetric = nil;
+    self.measurementAcknowledged = NO;
+    self.pendingHrvRecord = nil;
     self.dataDeliveryReady = NO;
     self.passiveSleepScheduled = NO;
     self.currentActivitySeen = NO;
@@ -1527,6 +1562,33 @@ static void CoolWearOnMain(dispatch_block_t block) {
     });
 }
 
+- (void)hrvDiagnostic:(NSString *)stage type:(NSInteger)type sampleCount:(NSUInteger)sampleCount reason:(NSString *)reason {
+#if DEBUG
+    // 只记协议类别和校验结果；禁止输出原始包、健康值、账号及完整设备标识。
+    NSLog(@"[SayRing HRV] stage=%@ type=%ld generation=%lu ack=%d packets60=%lu packets61=%lu samples=%lu accepted=%lu rejected=%lu reason=%@",
+        stage, (long)type, (unsigned long)self.measurementGeneration, self.measurementAcknowledged,
+        (unsigned long)self.hrvReceivedPackets, (unsigned long)self.hrvHistoryPackets,
+        (unsigned long)sampleCount, (unsigned long)self.hrvAcceptedSamples,
+        (unsigned long)self.hrvRejectedSamples, reason);
+#else
+    (void)stage; (void)type; (void)sampleCount; (void)reason;
+#endif
+}
+
+- (void)publishPendingHrvRecord:(NSUInteger)generation measurement:(NSUInteger)measurement {
+    __weak typeof(self) weakSelf = self;
+    // 等原厂发送回调完全退出，并再次核对连接/测量代次；不复用下一轮结果。
+    CoolWearAfterSDKCallback(^{
+        if (!weakSelf || generation != weakSelf.connectionGeneration ||
+            measurement != weakSelf.measurementGeneration || ![weakSelf isResolved] ||
+            ![weakSelf.activeMetric isEqual:@"hrv"] || !weakSelf.measurementAcknowledged ||
+            weakSelf.pendingMeasurement || !weakSelf.pendingHrvRecord) return;
+        NSDictionary *record = weakSelf.pendingHrvRecord;
+        weakSelf.pendingHrvRecord = nil;
+        [weakSelf emit:@"healthRecord" payload:record];
+    });
+}
+
 - (void)measurement:(NSString *)metric enabled:(BOOL)enabled result:(FlutterResult)result {
     if (enabled && !SRManualHealthMetricAllowed(metric)) { result([self error:@"FEATURE_UNAVAILABLE" message:@"此项测量暂未开放"]); return; }
     if (![self isResolved]) { result([self error:@"NOT_CONNECTED" message:@"请先连接戒指"]); return; }
@@ -1544,8 +1606,18 @@ static void CoolWearOnMain(dispatch_block_t block) {
     self.measurementGeneration++;
     NSUInteger measurement = self.measurementGeneration;
     NSUInteger generation = self.connectionGeneration;
+    if ([metric isEqual:@"hrv"] && !enabled)
+        [self hrvDiagnostic:@"stop_requested" type:62 sampleCount:0 reason:@"normal_stop"];
     self.activeMetric = enabled ? metric : nil;
     self.emittedMeasurement = NO;
+    self.measurementAcknowledged = NO;
+    self.pendingHrvRecord = nil;
+    if (enabled) {
+        self.hrvReceivedPackets = 0;
+        self.hrvHistoryPackets = 0;
+        self.hrvRejectedSamples = 0;
+        self.hrvAcceptedSamples = 0;
+    }
     self.measurementStart = enabled ? NSDate.date : nil;
     self.pendingMeasurement = result;
     CE_Cmd *command;
@@ -1558,6 +1630,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
     }
     command.overtime = 8;
     command.repeatSendTimes = 0;
+    if ([metric isEqual:@"hrv"] && enabled)
+        [self hrvDiagnostic:@"start_requested" type:62 sampleCount:0 reason:@"waiting_ack"];
     __weak typeof(self) weakSelf = self;
     [self.product sendCmdToDevice:command complete:^(NSError *error) {
         CoolWearOnMain(^{
@@ -1565,16 +1639,29 @@ static void CoolWearOnMain(dispatch_block_t block) {
             FlutterResult completion = weakSelf.pendingMeasurement;
             weakSelf.pendingMeasurement = nil;
             if (error) {
+                if ([metric isEqual:@"hrv"])
+                    [weakSelf hrvDiagnostic:@"ack_failed" type:62 sampleCount:0 reason:enabled ? @"start_failed" : @"stop_failed"];
                 weakSelf.activeMetric = nil;
+                weakSelf.pendingHrvRecord = nil;
+                weakSelf.measurementAcknowledged = NO;
                 weakSelf.measurementGeneration++;
                 completion([weakSelf error:@"COOLWEAR_MEASUREMENT_FAILED" message:@"戒指测量指令未完成，请重试"]);
-            } else completion(nil); // ACK is not a health reading.
+            } else {
+                weakSelf.measurementAcknowledged = enabled;
+                if ([metric isEqual:@"hrv"])
+                    [weakSelf hrvDiagnostic:@"ack_confirmed" type:62 sampleCount:0 reason:enabled ? @"start_confirmed" : @"stop_confirmed"];
+                completion(nil); // ACK is not a health reading.
+                if (enabled && [metric isEqual:@"hrv"] && weakSelf.pendingHrvRecord)
+                    [weakSelf publishPendingHrvRecord:generation measurement:measurement];
+            }
         });
     }];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         if (generation != weakSelf.connectionGeneration || measurement != weakSelf.measurementGeneration || !weakSelf.pendingMeasurement) return;
         FlutterResult completion = weakSelf.pendingMeasurement;
         weakSelf.pendingMeasurement = nil;
+        if ([metric isEqual:@"hrv"])
+            [weakSelf hrvDiagnostic:@"ack_timeout" type:62 sampleCount:0 reason:enabled ? @"start_unconfirmed" : @"stop_unconfirmed"];
         [weakSelf beginCancellation:nil]; // Drain the SDK before another attempt.
         completion([weakSelf error:@"COOLWEAR_MEASUREMENT_TIMEOUT" message:@"戒指测量指令超时，请重新连接后重试"]);
     });
@@ -1784,6 +1871,8 @@ static void CoolWearOnMain(dispatch_block_t block) {
             self.measurementGeneration++;
             self.cancelling = YES;
             self.activeMetric = nil;
+            self.measurementAcknowledged = NO;
+            self.pendingHrvRecord = nil;
             self.awaitingInfo = NO;
             self.flags = nil;
             self.deviceInfo = nil;

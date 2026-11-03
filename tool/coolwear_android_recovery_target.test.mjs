@@ -28,7 +28,8 @@ test('原生取消连接真实方法清 SDK 地址而保留业务绑定，失败
     const file = join(directory, 'CoolWearRecoveryTargetHarness.java');
     writeFileSync(file, fixture
       .replace('// PRODUCTION_ADAPTER', source.slice(start, end))
-      .replace('// PRODUCTION_METHODS', nativeMethod('failConnect') + nativeMethod('pauseSdkRecovery')));
+      .replace('// PRODUCTION_METHODS', nativeMethod('failConnect') + nativeMethod('pauseSdkRecovery')
+        + nativeMethod('clearMeasurementSession')));
     const policy = fileURLToPath(new URL('../android/app/src/main/java/cc/saidian/saydian_app/CoolWearRecoveryTarget.java', import.meta.url));
     execFileSync(java('javac'), ['-Xlint:all', '-Werror', '-d', directory, file, policy]);
     execFileSync(java('java'), ['-ea', '-cp', directory, 'cc.saidian.saydian_app.CoolWearRecoveryTargetHarness']);

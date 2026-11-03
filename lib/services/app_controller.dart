@@ -1224,6 +1224,10 @@ class AppController extends ChangeNotifier {
   bool _deviceDetailsRefreshing = false;
   bool _deviceDetailsRefreshQueued = false;
   Timer? _measurementTimeout;
+  // 同账号同指标也可能连续重测，不能仅靠 session/metric 区分迟到的启动或停止回包。
+  int _measurementOperationGeneration = 0;
+  Completer<void>? _measurementStartCancellation;
+  Future<void>? _measurementStopInFlight;
   HealthMetric? _activeMeasurementMetric;
   bool _syncing = false;
   bool _accountTransitioning = false;
@@ -1475,6 +1479,8 @@ class AppController extends ChangeNotifier {
   bool get isLocalMode => _localMode && session == null;
   DeviceConnectionState get deviceState => deviceMachine.state;
   HealthMetric? get activeMeasurementMetric => _activeMeasurementMetric;
+  // 对话框只能结束自己启动的测量；指标相同不代表操作归属相同。
+  int get measurementOperationToken => _measurementOperationGeneration;
 
   Map<HealthMetric, HealthRecord> get latestByMetric {
     final result = <HealthMetric, HealthRecord>{};
@@ -1682,7 +1688,7 @@ class AppController extends ChangeNotifier {
       pushDeviceRegistrationIssueCode = null;
     }
     _invalidateDeviceSync();
-    _measurementTimeout?.cancel();
+    _cancelMeasurementWait();
     _measurementTimeout = null;
     _activeMeasurementMetric = null;
     _activeMeasurementSessionGeneration = null;
@@ -2388,7 +2394,7 @@ class AppController extends ChangeNotifier {
     _connectedDeviceSessionGeneration = null;
     _invalidateDeviceSync();
     final metric = _activeMeasurementMetric;
-    _measurementTimeout?.cancel();
+    _cancelMeasurementWait();
     _measurementTimeout = null;
     _activeMeasurementMetric = null;
     _activeMeasurementSessionGeneration = null;
@@ -4262,27 +4268,46 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  void _cancelMeasurementWait() {
+    _measurementTimeout?.cancel();
+    _measurementTimeout = null;
+    final cancellation = _measurementStartCancellation;
+    _measurementStartCancellation = null;
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.complete();
+    }
+  }
+
   Future<bool> startMeasurement(HealthMetric metric) async {
-    if (_firstRingBindingPending) {
-      errorMessage = '请重新连接戒指后重试';
+    if (_disposed) return false;
+    bool reject(String message) {
+      errorMessage = message;
+      // 第二个入口被拒绝时，不把正在进行的另一轮测量误标为失败。
+      if (_activeMeasurementMetric == null) {
+        _measurementResult = null;
+        _measurementResultOwner = null;
+        measurementErrorMessage = message;
+      }
       notifyListeners();
       return false;
     }
-    _measurementResult = null;
-    _measurementResultOwner = null;
+
+    if (_firstRingBindingPending) {
+      return reject('请重新连接戒指后重试');
+    }
     if (!healthReleasePolicy.allowsManualMeasurement(metric)) {
-      errorMessage = '此版本暂不支持手动测量';
-      notifyListeners();
-      return false;
+      return reject('此版本暂不支持手动测量');
+    }
+    if (_measurementStopInFlight != null) {
+      return reject('正在结束上一次测量，请稍后重试');
     }
     if (_activeMeasurementMetric != null ||
         deviceState == DeviceConnectionState.measuring) {
-      measurementErrorMessage = '另一项戒指测量尚未结束，请稍后重试';
-      errorMessage = measurementErrorMessage;
-      notifyListeners();
-      return false;
+      return reject('另一项戒指测量尚未结束，请稍后重试');
     }
-    _measurementTimeout?.cancel();
+    _measurementResult = null;
+    _measurementResultOwner = null;
+    _cancelMeasurementWait();
     _activeMeasurementMetric = null;
     measurementErrorMessage = null;
     measurementProgress = 0;
@@ -4291,77 +4316,105 @@ class AppController extends ChangeNotifier {
     measurementSampleFrequency = 250;
     errorMessage = null;
     if (connectedDevice == null) {
-      errorMessage = '请先连接戒指';
-      notifyListeners();
-      return false;
+      return reject('请先连接戒指');
     }
     if (!(capabilities?.supportsManualMeasurement(metric) ?? false)) {
-      errorMessage = '当前设备不支持${metric.label}测量';
-      notifyListeners();
-      return false;
+      return reject('当前设备不支持${metric.label}测量');
     }
     if (isDeviceSyncing) {
-      measurementErrorMessage = '戒指数据正在同步，请稍后再测量';
-      errorMessage = measurementErrorMessage;
-      notifyListeners();
-      return false;
+      return reject('戒指数据正在同步，请稍后再测量');
     }
+    final sessionGeneration = _sessionGeneration;
+    final deviceId = connectedDevice!.id;
+    final operation = ++_measurementOperationGeneration;
+    bool ownsOperation() =>
+        _isCurrentSessionGeneration(sessionGeneration) &&
+        _measurementOperationGeneration == operation &&
+        connectedDevice?.id == deviceId;
+    bool isCurrent() =>
+        ownsOperation() &&
+        _activeMeasurementSessionGeneration == sessionGeneration &&
+        _activeMeasurementMetric == metric;
+    void fail(String message) {
+      _cancelMeasurementWait();
+      _measurementTimeout = null;
+      _activeMeasurementMetric = null;
+      _activeMeasurementSessionGeneration = null;
+      measurementErrorMessage = message;
+      errorMessage = message;
+      if (deviceState == DeviceConnectionState.measuring) {
+        deviceMachine.transition(DeviceConnectionState.ready);
+      }
+      notifyListeners();
+    }
+
     try {
-      final sessionGeneration = _sessionGeneration;
       _activeMeasurementMetric = metric;
       _measurementStartedAt = DateTime.now();
       _activeMeasurementSessionGeneration = sessionGeneration;
       deviceMachine.transition(DeviceConnectionState.measuring);
-      await _wearable.startMeasurement(metric);
-      if (!_isCurrentSessionGeneration(sessionGeneration) ||
-          _activeMeasurementSessionGeneration != sessionGeneration ||
-          _activeMeasurementMetric != metric ||
-          measurementErrorMessage != null) {
-        return false;
+      final cancellation = Completer<void>();
+      _measurementStartCancellation = cancellation;
+      // 从发送命令开始计时；原生未确认启动也必须有结束上限，进度不能重置总窗。
+      final timeout = _measurementTimeoutFor(metric);
+      _measurementTimeout = Timer(timeout, () {
+        if (isCurrent()) unawaited(_handleMeasurementTimeout(metric));
+      });
+      // 取消时立即释放启动等待和它的超时计时器；旧原生 Future 仍有错误处理，
+      // 但它的迟到完成不能继续进入新一轮测量。
+      await Future.any<void>([
+        _wearable.startMeasurement(metric),
+        cancellation.future,
+      ]).timeout(timeout);
+      if (identical(_measurementStartCancellation, cancellation)) {
+        _measurementStartCancellation = null;
       }
-      _measurementTimeout = Timer(
-        _measurementTimeoutFor(metric),
-        () => unawaited(_handleMeasurementTimeout(metric)),
-      );
+      if (!isCurrent()) {
+        // 极快的真实终态可能先于启动 ACK；不要把已完成结果改成启动失败。
+        return ownsOperation() && measurementResult?.metric == metric;
+      }
       notifyListeners();
       return true;
     } on WearableSdkNotConfigured catch (_) {
-      _activeMeasurementMetric = null;
-      _activeMeasurementSessionGeneration = null;
-      measurementErrorMessage = '此功能暂时无法使用，请稍后再试';
-      errorMessage = measurementErrorMessage;
-      if (deviceState == DeviceConnectionState.measuring) {
-        deviceMachine.transition(DeviceConnectionState.ready);
-      }
+      if (!isCurrent()) return false;
+      fail('此功能暂时无法使用，请稍后再试');
+    } on TimeoutException catch (_) {
+      if (!isCurrent()) return false;
+      await _handleMeasurementTimeout(metric);
     } on PlatformException catch (error) {
-      _activeMeasurementMetric = null;
-      _activeMeasurementSessionGeneration = null;
-      measurementErrorMessage = _wearableErrorMessage(
-        error,
-        fallback: '${metric.label}测量失败',
-      );
-      errorMessage = measurementErrorMessage;
-      if (deviceState == DeviceConnectionState.measuring) {
-        deviceMachine.transition(DeviceConnectionState.ready);
-      }
+      if (!isCurrent()) return false;
+      fail(_wearableErrorMessage(error, fallback: '${metric.label}测量失败'));
     } catch (_) {
-      _activeMeasurementMetric = null;
-      _activeMeasurementSessionGeneration = null;
-      measurementErrorMessage = '${metric.label}测量失败，请稍后重试';
-      errorMessage = measurementErrorMessage;
-      if (deviceState == DeviceConnectionState.measuring) {
-        deviceMachine.transition(DeviceConnectionState.ready);
-      }
+      if (!isCurrent()) return false;
+      fail('${metric.label}测量失败，请稍后重试');
     }
-    notifyListeners();
     return false;
   }
 
   Future<void> stopMeasurement(HealthMetric metric) async {
+    if (_measurementStopInFlight != null) {
+      try {
+        await _measurementStopInFlight;
+      } catch (_) {
+        // 首个停止调用负责报告错误，重复关闭只等待同一个有界清理。
+      }
+      return;
+    }
+    if (_activeMeasurementMetric != null &&
+        _activeMeasurementMetric != metric) {
+      return;
+    }
+    final sessionGeneration = _sessionGeneration;
+    final deviceId = connectedDevice?.id;
+    final operation = ++_measurementOperationGeneration;
+    bool isCurrent() =>
+        _isCurrentSessionGeneration(sessionGeneration) &&
+        _measurementOperationGeneration == operation &&
+        connectedDevice?.id == deviceId;
     final canSendStop =
         connectedDevice != null &&
         deviceState != DeviceConnectionState.disconnected;
-    _measurementTimeout?.cancel();
+    _cancelMeasurementWait();
     _measurementTimeout = null;
     _activeMeasurementMetric = null;
     _activeMeasurementSessionGeneration = null;
@@ -4369,21 +4422,40 @@ class AppController extends ChangeNotifier {
     measurementWearConfirmed = true;
     measurementSamples = const [];
     measurementSampleFrequency = 250;
-    try {
-      if (canSendStop) {
-        await _wearable
-            .stopMeasurement(metric)
-            .timeout(const Duration(seconds: 5));
-      }
-    } catch (_) {
-      errorMessage = '停止测量失败';
-    } finally {
-      if (deviceState == DeviceConnectionState.measuring) {
-        deviceMachine.transition(DeviceConnectionState.ready);
-      }
-      _flushDeviceDetailsRefresh();
+    // 本地取消立即结束等待；旧停止 ACK/失败不得再把随后新测量切回 ready。
+    if (deviceState == DeviceConnectionState.measuring) {
+      deviceMachine.transition(DeviceConnectionState.ready);
     }
+    final stopping = canSendStop ? _stopNativeMeasurement(metric) : null;
     notifyListeners();
+    try {
+      await stopping;
+    } catch (_) {
+      if (isCurrent()) errorMessage = '停止测量失败';
+    } finally {
+      if (isCurrent()) _flushDeviceDetailsRefresh();
+    }
+    if (isCurrent()) notifyListeners();
+  }
+
+  Future<void> _stopNativeMeasurement(HealthMetric metric) async {
+    final existing = _measurementStopInFlight;
+    if (existing != null) return existing;
+    // 界面取消可立即关闭，下一次测量仍须等待原生停止确认/既有五秒截止，
+    // 不能让新启动与旧停止命令交叉发送。
+    final released = Completer<void>();
+    final operation = released.future;
+    _measurementStopInFlight = operation;
+    try {
+      await _wearable
+          .stopMeasurement(metric)
+          .timeout(const Duration(seconds: 5));
+    } finally {
+      if (identical(_measurementStopInFlight, operation)) {
+        _measurementStopInFlight = null;
+      }
+      released.complete();
+    }
   }
 
   /// Reads complete SDK-date sleep history, not the home feed's 200-row cache.
@@ -4598,6 +4670,9 @@ class AppController extends ChangeNotifier {
         !_isCurrentSessionGeneration(generation)) {
       return;
     }
+    final operation = _measurementOperationGeneration;
+    final deviceId = connectedDevice?.id;
+    _cancelMeasurementWait();
     _activeMeasurementMetric = null;
     _activeMeasurementSessionGeneration = null;
     _measurementTimeout = null;
@@ -4606,14 +4681,19 @@ class AppController extends ChangeNotifier {
     if (deviceState == DeviceConnectionState.measuring) {
       deviceMachine.transition(DeviceConnectionState.ready);
     }
+    final stopping = _stopNativeMeasurement(metric);
     notifyListeners();
     try {
-      await _wearable.stopMeasurement(metric);
+      await stopping;
     } catch (_) {
       // The timeout result is already actionable; a stop acknowledgement is
       // best-effort and must not replace the wear guidance.
     }
-    _flushDeviceDetailsRefresh();
+    if (_isCurrentSessionGeneration(generation) &&
+        _measurementOperationGeneration == operation &&
+        connectedDevice?.id == deviceId) {
+      _flushDeviceDetailsRefresh();
+    }
   }
 
   Duration _measurementTimeoutFor(HealthMetric metric) => switch (metric) {
@@ -7985,8 +8065,54 @@ class AppController extends ChangeNotifier {
       'MEASUREMENT_STOP_FAILED',
       'MEASUREMENT_NOT_WORN',
       'MEASUREMENT_FAILED',
+      'MEASUREMENT_TIMEOUT',
+      'COOLWEAR_MEASUREMENT_FAILED',
+      'COOLWEAR_MEASUREMENT_TIMEOUT',
     };
     return measurementErrors.contains(code);
+  }
+
+  bool _matchesActiveMeasurementEvent(
+    Map<String, Object?> payload, {
+    String? code,
+  }) {
+    if (_activeMeasurementMetric == null ||
+        _activeMeasurementSessionGeneration != _sessionGeneration ||
+        connectedDevice == null) {
+      return false;
+    }
+    final metricName = payload['metric']?.toString();
+    if (metricName != null &&
+        HealthMetric.tryFromWire(metricName) != _activeMeasurementMetric) {
+      return false;
+    }
+    // 老 SDK 错误可能没有 metric；已知专属错误码也不能结束另一种测量。
+    if (metricName == null && code != null) {
+      const metricPrefixes = {
+        'HEART_': HealthMetric.heartRate,
+        'OXYGEN_': HealthMetric.bloodOxygen,
+        'BLOOD_PRESSURE_': HealthMetric.bloodPressure,
+        'TEMPERATURE_': HealthMetric.bodyTemperature,
+        'GLUCOSE_': HealthMetric.bloodGlucose,
+        'BODY_COMPOSITION_': HealthMetric.bodyComposition,
+        'BLOOD_COMPONENT_': HealthMetric.bloodComposition,
+        'ECG_': HealthMetric.ecg,
+        'HRV_': HealthMetric.hrv,
+      };
+      for (final entry in metricPrefixes.entries) {
+        if (code.startsWith(entry.key) &&
+            entry.value != _activeMeasurementMetric) {
+          return false;
+        }
+      }
+    }
+    final eventDeviceId = payload['deviceId']?.toString();
+    String nativeId(String value) => value
+        .replaceFirst(RegExp(r'^(veepoo|yucheng|coolwear|qring):'), '')
+        .toLowerCase();
+    return eventDeviceId == null ||
+        eventDeviceId.isEmpty ||
+        nativeId(eventDeviceId) == nativeId(connectedDevice!.id);
   }
 
   String _wearableErrorMessage(
@@ -8240,6 +8366,7 @@ class AppController extends ChangeNotifier {
         unawaited(syncDeviceData());
       }
     } else if (event.type == 'measurementProgress') {
+      if (!_matchesActiveMeasurementEvent(event.payload)) return;
       final metric = HealthMetric.tryFromWire(
         '${event.payload['metric'] ?? _activeMeasurementMetric?.wireName ?? ''}',
       );
@@ -8312,7 +8439,7 @@ class AppController extends ChangeNotifier {
         return;
       }
       if (_activeMeasurementMetric != null) {
-        _measurementTimeout?.cancel();
+        _cancelMeasurementWait();
         _measurementTimeout = null;
         _activeMeasurementMetric = null;
         _activeMeasurementSessionGeneration = null;
@@ -8347,6 +8474,11 @@ class AppController extends ChangeNotifier {
       }
     } else if (event.type == 'error') {
       final errorCode = '${event.payload['code'] ?? 'WEARABLE_ERROR'}';
+      final isMeasurementError = _isMeasurementErrorCode(errorCode);
+      if (isMeasurementError &&
+          !_matchesActiveMeasurementEvent(event.payload, code: errorCode)) {
+        return;
+      }
       final resolvedMessage = _wearableErrorMessage(
         PlatformException(
           code: errorCode,
@@ -8355,8 +8487,8 @@ class AppController extends ChangeNotifier {
         fallback: '戒指连接出现问题，请稍后重试',
       );
       errorMessage = resolvedMessage;
-      if (_isMeasurementErrorCode(errorCode) && activeSport == null) {
-        _measurementTimeout?.cancel();
+      if (isMeasurementError && activeSport == null) {
+        _cancelMeasurementWait();
         _measurementTimeout = null;
         _activeMeasurementMetric = null;
         _activeMeasurementSessionGeneration = null;
@@ -8403,7 +8535,7 @@ class AppController extends ChangeNotifier {
         record.origin != MeasurementOrigin.appMeasurement) {
       return;
     }
-    _measurementTimeout?.cancel();
+    _cancelMeasurementWait();
     _measurementTimeout = null;
     _activeMeasurementMetric = null;
     _activeMeasurementSessionGeneration = null;
@@ -8418,6 +8550,11 @@ class AppController extends ChangeNotifier {
     if (deviceState == DeviceConnectionState.measuring) {
       deviceMachine.transition(DeviceConnectionState.ready);
     }
+    unawaited(
+      _stopNativeMeasurement(record.metric).catchError((_) {
+        // 无效终态已经给出质量提示；清理失败不能把它改成新的测量结果。
+      }),
+    );
   }
 
   Future<void> _restoreReconnectedDevice(Map<String, Object?> payload) async {
@@ -8663,7 +8800,7 @@ class AppController extends ChangeNotifier {
     if (shouldStopMeasurement) {
       _measurementResult = record;
       _measurementResultOwner = (expectedGeneration, connectedDevice!.id);
-      _measurementTimeout?.cancel();
+      _cancelMeasurementWait();
       _measurementTimeout = null;
       _activeMeasurementMetric = null;
       _activeMeasurementSessionGeneration = null;
@@ -8690,16 +8827,15 @@ class AppController extends ChangeNotifier {
         deviceState == DeviceConnectionState.measuring) {
       deviceMachine.transition(DeviceConnectionState.ready);
     }
-    if (!_disposed) notifyListeners();
-
     if (shouldStopMeasurement) {
       unawaited(
-        _wearable.stopMeasurement(record.metric).catchError((_) {
+        _stopNativeMeasurement(record.metric).catchError((_) {
           // The final record is authoritative. A delayed stop acknowledgement
           // must not turn a completed measurement into a visible failure.
         }),
       );
     }
+    if (!_disposed) notifyListeners();
 
     try {
       if (!_isCurrentSessionGeneration(expectedGeneration)) return;
@@ -8773,7 +8909,7 @@ class AppController extends ChangeNotifier {
             .catchError((Object _) {}),
       );
     }
-    _measurementTimeout?.cancel();
+    _cancelMeasurementWait();
     _careInvitationPollTimer?.cancel();
     _deviceDetailsPollTimer?.cancel();
     _pushRegistrationRetryTimer?.cancel();

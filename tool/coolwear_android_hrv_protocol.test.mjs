@@ -29,7 +29,7 @@ if (!javaHome && process.platform === 'darwin') {
 const java = name => javaHome ? join(javaHome, 'bin', name) : name;
 
 before(() => {
-  const names = ['onHrvValues', 'onStressCompatValues', 'setMeasurement', 'emitMeasurement'];
+  const names = ['onHrvValues', 'hrvDiagnostic', 'clearMeasurementSession', 'startMeasurementSession', 'stopMeasurementSession', 'onStressCompatValues', 'setMeasurement', 'emitMeasurement'];
   // Include the old timer method when running this regression against an old
   // checkout, so failures prove protocol behavior instead of missing stubs.
   if (source.includes('private void cancelHrvFallback(')) names.push('cancelHrvFallback');
@@ -50,6 +50,8 @@ for (const [scenario, title] of [
   ['rri-fields', 'new RRI callback preserves explicit SDNN, RMSSD and RRI milliseconds'],
   ['rri-quality', 'invalid RRI quality or sample counts cannot complete a manual measurement'],
   ['rri-quality-boundaries', 'valid RRI quality and sample boundaries retain the actual SDK fields'],
+  ['command-failure', 'failed start/stop retires the manual session and permits a clean later start'],
+  ['rri-source-session', 'history, retired sessions and invalid timestamps cannot complete live HRV'],
   ['rri-version', 'real HRV emission uses version 2 and retains the original record provenance'],
   ['other-versions', 'real non-HRV measurement emissions preserve version 1'],
   ['stress-compat', 'legacy stress compatibility retains its existing range and commands'],

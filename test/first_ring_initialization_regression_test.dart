@@ -79,6 +79,9 @@ void main() {
       await controller.connectDevice(_device);
       await _settle();
       expect(controller.isRingInitializationPending, isTrue);
+      expect(await controller.startMeasurement(HealthMetric.hrv), isFalse);
+      expect(controller.measurementErrorMessage, contains('重新连接'));
+      expect(controller.activeMeasurementMetric, isNull);
       expect(vault.ringInitializationStages.values, [
         RingInitializationStage.decisionUnknown,
       ]);
